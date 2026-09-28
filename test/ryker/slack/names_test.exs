@@ -266,7 +266,7 @@ defmodule Ryker.Slack.NamesTest do
         }
       }
       |> InspectionRedactor.artifact()
-      |> RequestContextHTML.render()
+      |> RequestContextHTML.assembly("$.context", "context")
       |> IO.iodata_to_binary()
 
     refute html =~ "configured-private-value"
@@ -315,7 +315,9 @@ defmodule Ryker.Slack.NamesTest do
         }
       })
 
-    context = RequestContextHTML.render(artifact) |> IO.iodata_to_binary()
+    context =
+      RequestContextHTML.assembly(artifact, "$.context", "context") |> IO.iodata_to_binary()
+
     assert context =~ ~s(>@Andrew &lt;admin&gt;</a></strong>)
     assert context =~ "#test"
 

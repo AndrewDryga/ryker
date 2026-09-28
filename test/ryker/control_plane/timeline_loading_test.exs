@@ -73,24 +73,6 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     refute html =~ String.duplicate("d", 200)
   end
 
-  test "the retained request inspector collapses tool payloads until opened" do
-    work = episode_with_tool!("request-inspector", String.duplicate("e", 40_000))
-    {:ok, view} = ModelRequests.project(work.episode.key, %{"kind" => "work"})
-    [tool | _] = view.selected.tools.items
-
-    assert tool.artifact.state == :collapsed
-    assert tool.artifact.text == nil
-    assert is_binary(tool.artifact_id)
-
-    {:ok, opened} =
-      ModelRequests.project(work.episode.key, %{
-        "kind" => "work",
-        "disclosed" => [tool.artifact_id]
-      })
-
-    assert hd(opened.selected.tools.items).artifact.state == :retained
-  end
-
   test "loading earlier activity adds older events without losing the newest" do
     work = episode_with_tool!("pagination", "small")
     filler!(work, 1_020)

@@ -317,7 +317,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
         }
       }
       |> InspectionRedactor.artifact()
-      |> RequestContextHTML.render()
+      |> RequestContextHTML.assembly("$.context", "context")
       |> IO.iodata_to_binary()
       |> LazyHTML.from_fragment()
 
@@ -397,7 +397,9 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
         }
       })
 
-    document = artifact |> RequestContextHTML.render() |> IO.iodata_to_binary()
+    document =
+      artifact |> RequestContextHTML.assembly("$.context", "context") |> IO.iodata_to_binary()
+
     sender = document |> LazyHTML.from_fragment() |> LazyHTML.query(".ui-message-header strong")
     assert LazyHTML.text(sender) == "Andrew <admin>"
 
@@ -555,7 +557,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
         }
       })
 
-    html = artifact |> RequestContextHTML.render("$.work", "work") |> IO.iodata_to_binary()
+    html = artifact |> RequestContextHTML.assembly("$.work", "work") |> IO.iodata_to_binary()
 
     assert workspace_rows(html) == [
              {"emisar", "Read only · main at 92c952f7 · up to date as of 13 Sep, 09:48:09 UTC"}
@@ -603,7 +605,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
         }
       })
 
-    html = artifact |> RequestContextHTML.render("$.work", "work") |> IO.iodata_to_binary()
+    html = artifact |> RequestContextHTML.assembly("$.work", "work") |> IO.iodata_to_binary()
 
     assert workspace_rows(html) == [
              {"payments", "Can change · up to date as of 26 Sep, 09:14:05 UTC"},
@@ -628,7 +630,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       work
       |> Map.take(["repository_ref", "workspace"])
       |> InspectionRedactor.artifact()
-      |> RequestContextHTML.render("$.work", "work")
+      |> RequestContextHTML.assembly("$.work", "work")
       |> IO.iodata_to_binary()
 
     assert workspace_rows(html) == [{"No repository", "An empty working folder · read only"}]
@@ -653,7 +655,9 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
         }
       })
 
-    html = artifact |> RequestContextHTML.render() |> IO.iodata_to_binary()
+    html =
+      artifact |> RequestContextHTML.assembly("$.context", "context") |> IO.iodata_to_binary()
+
     assert html =~ "ui-message-body"
     assert html =~ "slack:user:U123"
     assert html =~ "3 earlier inputs were omitted"
@@ -680,7 +684,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     message =
       artifact
-      |> RequestContextHTML.render()
+      |> RequestContextHTML.assembly("$.context", "context")
       |> IO.iodata_to_binary()
       |> LazyHTML.from_fragment()
       |> LazyHTML.query(".ui-message")
@@ -723,31 +727,10 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
         max_bytes: 30
       )
 
-    assert RequestContextHTML.render(artifact) == []
-    assert RequestContextHTML.render(InspectionRedactor.artifact(nil, expired: true)) == []
-
-    assert RequestContextHTML.instructions(InspectionRedactor.artifact(nil, expired: true), :work) ==
-             []
-  end
-
-  test "all retained fields including empty and unfamiliar layers remain source-labelled and escaped" do
-    # New context fields previously disappeared from the readable projection.
-    artifact =
-      InspectionRedactor.artifact(%{
-        "records" => [],
-        "future.layer" => "<script>opaque</script>",
-        "operator_context" => %{"memory" => [], "continuity" => %{}}
-      })
-
-    html = artifact |> RequestContextHTML.render("$.work") |> IO.iodata_to_binary()
-    assert html =~ "data-source=\"future.layer\""
-    assert html =~ "More specific provenance was not recorded by this viewer."
-    assert html =~ "Empty in request"
-    refute html =~ "$.work.operator_context.memory"
-    assert html =~ "data-source=\"memory\""
-    assert html =~ "Conversation notes"
-    assert html =~ "&lt;script&gt;opaque&lt;/script&gt;"
-    refute html =~ "<script>"
+    assert RequestContextHTML.assembly(artifact, "$.context", "context") == []
+    expired = InspectionRedactor.artifact(nil, expired: true)
+    assert RequestContextHTML.assembly(expired, "$.context", "context") == []
+    assert RequestContextHTML.assembly_instructions(expired, "instructions") == []
   end
 
   test "a routing briefing keeps every row and says why a part was not sent" do
@@ -809,7 +792,11 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
           %{"input" => %{"actor" => %{"kind" => %{}}, "occurred_at" => %{}, "text" => "Hello"}}
         ] do
       artifact = InspectionRedactor.artifact(context)
-      assert artifact |> RequestContextHTML.render() |> IO.iodata_to_binary() |> is_binary()
+
+      assert artifact
+             |> RequestContextHTML.assembly("$.context", "context")
+             |> IO.iodata_to_binary()
+             |> is_binary()
     end
   end
 

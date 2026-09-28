@@ -73,8 +73,6 @@ defmodule Ryker.Admission.FleetSessionTest do
     assert Map.get(activity, :admission_input_id) == entry.id
     assert {:ok, request} = ModelRequests.project_input(entry.id, %{})
     assert request.episode_ref == nil
-    assert request.selected.tools.total == 1
-    assert hd(request.selected.tools.items).artifact.text =~ "Read channel history"
 
     assert {:ok, %{inserted: 0}} =
              Activity.ingest_fleet(bound.id, bound.coop_session_id, 1, [event])

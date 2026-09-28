@@ -56,7 +56,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       title: "Routing",
       status: :settled,
       timing: [],
-      coverage: "Retained",
       href: "#routing-link",
       sections: [section("context", "Context", %{"candidates" => [candidate, other]})]
     }
@@ -374,7 +373,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       target: nil,
       title: "Result",
       status: :settled,
-      coverage: "Retained",
       href: "#request-turn",
       timing: [],
       sections: [section("candidate", "Response", %{"message" => text})]
@@ -433,7 +431,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       band: :ready,
       target: "codex:gpt-5.6-luna/low@emisar",
       timing: [],
-      coverage: "Retained",
       href: "/timeline/ingress-input%3Aone",
       sections: []
     }
@@ -677,7 +674,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       source_kind: :admission,
       target: "codex:recorded",
       timing: [],
-      coverage: "Retained",
       href: "/",
       sections: [section("candidate", "Candidate", candidate)]
     }
@@ -717,7 +713,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       source_kind: :work,
       target: "codex:recorded",
       timing: [],
-      coverage: "Retained",
       href: "/",
       sections: [section("context", "Context", context)]
     }
@@ -769,7 +764,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       policy: "ryker-chat",
       fingerprint: String.duplicate("a", 64),
       timing: [],
-      coverage: "Retained",
       sections: []
     }
 
@@ -800,7 +794,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
         settings: true
       },
       timing: [],
-      coverage: "Retained",
       sections: [section("instructions", "System prompt", "Classify the message.")]
     }
 
@@ -900,7 +893,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       title: "Admission · result",
       target: "codex:gpt-5.6-sol/medium@default",
       status: :decided,
-      coverage: "Retained",
       href: "#admission-summary-1-result",
       timing: [],
       sections: [
@@ -948,7 +940,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       title: "Admission · execution 1 · result",
       target: "codex:gpt-5.6-luna/low@emisar",
       status: :decided,
-      coverage: "Retained submission only",
       href: "/timeline/ingress-input%3Arecorded",
       timing: [%{label: "Agent execution", value: "37.7 s"}],
       sections: [
@@ -1068,7 +1059,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       title: "Work request",
       target: "codex:gpt-5.6-terra/medium@emisar",
       status: :settled,
-      coverage: "Retained submission only",
       href: "/timeline/example?attempt=retained#request-retained",
       timing: [],
       sections: [
@@ -1127,7 +1117,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
             title: "Admission",
             target: "Not recorded",
             timing: [],
-            coverage: "Retained only",
             href: "/timeline/ingress-input%3Amissing",
             sections: [
               %{id: "candidate", title: "Decision", source_kind: :admission, artifact: artifact}
@@ -1232,7 +1221,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       title: "Model response",
       status: :settled,
       timing: [],
-      coverage: "Retained",
       href: "#request-linked-reply-result",
       sections: [section("candidate", "Candidate response", %{"message" => reply.text})]
     }
@@ -1778,7 +1766,6 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       phase: phase,
       target: "codex:gpt-5.6-terra/medium@emisar",
       timing: [],
-      coverage: "Retained only",
       href: "/timeline/example#recorded-request",
       sections: sections
     }

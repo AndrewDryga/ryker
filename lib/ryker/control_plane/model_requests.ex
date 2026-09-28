@@ -30,69 +30,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.Names
-  alias Ryker.Work.{ActivityEvent, ActivityRetention, CandidateResponse, Recovery, Session, Turn}
+  alias Ryker.Work.{CandidateResponse, Recovery, Session, Turn}
   alias Ryker.Work.FailureCause
 
   @page_size 20
   @timeline_max_pages 10
-  @tool_page_size 30
   @response_page_size 10
-  @tool_kinds ~w(tool.started tool.completed permission.decided activity.elided provider.backoff)
-
-  def project(ref, params) when is_binary(ref) and byte_size(ref) <= 1_024 and is_map(params) do
-    case Repo.get_by(Episode, key: ref) do
-      %Episode{} = episode ->
-        kind = if params["kind"] == "admission", do: :admission, else: :work
-
-        base =
-          if kind == :work,
-            do: from(row in Turn, where: row.episode_id == ^episode.id),
-            else: from(row in Entry, where: row.episode_id == ^episode.id)
-
-        page =
-          PagedRelation.read(
-            from(row in base, select: %{id: row.id, status: row.status, at: row.inserted_at}),
-            [desc: :inserted_at, desc: :id],
-            "page",
-            params,
-            page_size: @page_size
-          )
-
-        case selected_row(base, params["attempt"], page.items) do
-          :not_found ->
-            :not_found
-
-          selected ->
-            options =
-              [
-                secrets: Redactor.configured_secrets(),
-                episode_ref: episode.key,
-                execution_mode: episode.execution_mode,
-                tool_disclosed: disclosed(params)
-              ]
-              |> with_responses(List.wrap(selected), params)
-
-            {:ok,
-             %{
-               episode_ref: episode.key,
-               kind: kind,
-               page: page.page,
-               pages: page.pages,
-               total: page.total,
-               items: page.items,
-               selected: inspect_row(selected, params, options),
-               # The briefing names Slack people while it is drawn; see
-               # `Names.revision/0`.
-               names: Names.revision()
-             }}
-        end
-
-      _missing ->
-        :not_found
-    end
-  end
-
-  def project(_ref, _params), do: :not_found
 
   # Input identities address a specific incoming message, including messages
   # routed into an existing conversation rather than starting a new episode.
@@ -189,7 +132,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
       [
         secrets: Redactor.configured_secrets(),
         max_bytes: 2 * 1_024 * 1_024,
-        timeline: true,
         episode_ref: episode.key,
         execution_mode: episode.execution_mode,
         sessions: sessions,
@@ -204,7 +146,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       turns
       |> Enum.reject(&Recovery.retained_absent_submission?/1)
       |> Enum.flat_map(fn turn ->
-        request = inspect_row(turn, response_params(turn, params), options)
+        request = inspect_row(turn, %{}, options)
 
         selection_event(turn, request) ++
           request_events(
@@ -581,7 +523,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
       generation: Map.get(request, :generation),
       generations: Map.get(request, :generations),
       failure: failure,
-      coverage: request.coverage,
       execution_mode: Map.get(request, :execution_mode),
       source_kind: kind,
       phase: :submission,
@@ -614,9 +555,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     [start | result]
   end
-
-  defp response_params(%Turn{id: id}, %{"attempt" => id} = params), do: params
-  defp response_params(_turn, _params), do: %{}
 
   @doc """
   The page of one message that has no request of its own: what it says and
@@ -681,7 +619,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
            )
            |> with_model_choice(),
          thread: ThreadContext.around(entry, now),
-         selected: inspect_row(entry, params, options),
+         recovery: admission_recovery(entry),
          names: Names.revision()
        }}
     else
@@ -852,40 +790,18 @@ defmodule Ryker.ControlPlane.ModelRequests do
       [
         secrets: Redactor.configured_secrets(),
         max_bytes: 2 * 1_024 * 1_024,
-        timeline: true,
         episode_ref: "ingress-input:#{entry.id}",
         execution_mode: entry.execution_mode,
         admission_failures: admission_failures([entry.id], Enum.reject(attempts, &is_nil/1)),
-        disclosed: disclosed,
-        tool_disclosed: disclosed
+        disclosed: disclosed
       ]
       |> Keyword.put(:candidate_episodes, shared_options[:candidate_episodes])
 
     Enum.flat_map(attempts, &admission_events(entry, &1, options))
   end
 
-  defp selected_row(_base, nil, []), do: nil
-  defp selected_row(base, nil, [first | _]), do: selected_row(base, first.id, [])
-
-  defp selected_row(base, id, _rows) do
-    with {:ok, uuid} <- Ecto.UUID.cast(id),
-         row when not is_nil(row) <- Repo.one(from(row in base, where: row.id == ^uuid)) do
-      row
-    else
-      _missing -> :not_found
-    end
-  end
-
-  defp request_session(turn, options) do
-    if options[:sessions],
-      do: Map.fetch!(options[:sessions], turn.session_id),
-      else: Repo.get!(Session, turn.session_id)
-  end
-
-  defp inspect_row(nil, _params, _options), do: nil
-
-  defp inspect_row(%Turn{} = turn, params, options) do
-    session = request_session(turn, options)
+  defp inspect_row(%Turn{} = turn, _params, options) do
+    session = Map.fetch!(Keyword.fetch!(options, :sessions), turn.session_id)
 
     expired = not is_nil(turn.operational_pruned_at)
     options = Keyword.put(options, :expired, expired)
@@ -946,10 +862,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
           section
           |> Map.put(:source_kind, :work)
           |> Map.put_new(:artifact_id, "work-#{turn.id}-#{section.id}")
-        end),
-      coverage:
-        "This is Ryker's retained submission. The Coop wrapper, provider-owned instructions, and full provider request are not recorded here. No private reasoning is displayed.",
-      tools: tool_page(turn, params, options)
+        end)
     }
   end
 
@@ -957,15 +870,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
     expired = not is_nil(entry.operational_pruned_at)
     options = Keyword.put(options, :expired, expired)
 
-    generation =
-      if params["generation"],
-        do: min(PagedRelation.requested(params, "generation"), entry.execution_generation),
-        else: entry.execution_generation
-
-    attempt =
-      if Keyword.has_key?(options, :attempt),
-        do: options[:attempt],
-        else: Repo.get_by(Attempt, input_id: entry.id, generation: generation)
+    generation = min(PagedRelation.requested(params, "generation"), entry.execution_generation)
+    attempt = Keyword.fetch!(options, :attempt)
 
     submission = admission_submission(attempt, expired)
 
@@ -983,7 +889,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
       title: "Admission · execution #{generation}",
       generation: generation,
       generations: entry.execution_generation,
-      recovery: admission_recovery(entry),
       at: entry.inserted_at,
       status: entry.status,
       target: attempt_value(attempt, :execution_target) || "Execution target not recorded",
@@ -991,15 +896,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
       policy_digest: attempt_value(attempt, :policy_digest),
       fingerprint:
         attempt_value(attempt, :submission_fingerprint) || entry.admission_context_fingerprint,
-      coverage: admission_coverage(submission),
       sections:
         admission_sections(entry, attempt, submission, prompt, response, generation, options)
         |> Enum.map(fn section ->
           section
           |> Map.put(:source_kind, :admission)
           |> Map.put_new(:artifact_id, "admission-#{entry.id}-#{generation}-#{section.id}")
-        end),
-      tools: admission_tool_page(entry, generation, params, options)
+        end)
     }
   end
 
@@ -1097,14 +1000,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp count(label, known?), do: %{label: label, known?: known?}
 
-  defp with_responses(options, rows, params) do
-    turns = Enum.filter(rows, &match?(%Turn{}, &1))
-    windows = Map.new(turns, &{&1.id, response_window(&1, params, options[:timeline])})
+  defp with_responses(options, turns, params) do
+    windows = Map.new(turns, &{&1.id, response_window(&1, params)})
 
     predicate =
       Enum.reduce(turns, dynamic(false), fn turn, predicate ->
         attempts =
-          for %{"candidate_attempt" => attempt} <- windows[turn.id].entries,
+          for %{"candidate_attempt" => attempt} <- windows[turn.id],
               is_integer(attempt),
               do: attempt
 
@@ -1138,34 +1040,25 @@ defmodule Ryker.ControlPlane.ModelRequests do
     Keyword.merge(options,
       response_windows: windows,
       responses: Map.new(rows, &{{&1.turn_id, &1.candidate_attempt}, &1}),
-      responses_limited: options[:timeline] && length(rows) == @response_page_size
+      responses_limited: length(rows) == @response_page_size
     )
   end
 
-  defp response_window(turn, params, timeline?) do
+  # The checks whose responses a turn's card loads: the latest page of them,
+  # or the page an older response's link names.
+  defp response_window(turn, params) do
     history = if is_list(turn.validation_history), do: turn.validation_history, else: []
     total = length(history)
-    pages = max(1, ceil(total / @response_page_size))
-    selected = if timeline?, do: pages, else: 1
-
-    page =
-      if params["responses_page"],
-        do: min(PagedRelation.requested(params, "responses_page"), pages),
-        else: selected
 
     offset =
-      if timeline? && !params["responses_page"],
-        do: max(total - @response_page_size, 0),
-        else: (page - 1) * @response_page_size
+      if params["responses_page"] do
+        pages = max(1, ceil(total / @response_page_size))
+        (min(PagedRelation.requested(params, "responses_page"), pages) - 1) * @response_page_size
+      else
+        max(total - @response_page_size, 0)
+      end
 
-    %{
-      entries: Enum.slice(history, offset, @response_page_size),
-      page: page,
-      pages: pages,
-      total: total,
-      first: min(offset + 1, total),
-      last: min(offset + @response_page_size, total)
-    }
+    Enum.slice(history, offset, @response_page_size)
   end
 
   defp validation_section(turn, options) do
@@ -1173,7 +1066,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     expired = options[:expired]
 
     responses =
-      for %{"candidate_attempt" => attempt} <- window.entries,
+      for %{"candidate_attempt" => attempt} <- window,
           is_integer(attempt),
           into: %{},
           do: {attempt, response_artifact(turn, attempt, options)}
@@ -1184,7 +1077,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       unless(expired,
         do: %{
           "verdict" => turn.validation_intent,
-          "history" => window.entries,
+          "history" => window,
           "candidate_attempt" => turn.candidate_attempt,
           "accepted_at" => iso(turn.accepted_at)
         }
@@ -1193,11 +1086,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
     )
     |> Map.merge(%{
       responses: responses,
-      response_page:
-        Map.merge(Map.delete(window, :entries), %{
-          previous: response_page_link(turn, window.page - 1, window.pages, options),
-          next: response_page_link(turn, window.page + 1, window.pages, options)
-        }),
       response_links: response_links(turn, responses, options)
     })
   end
@@ -1252,14 +1140,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
              do: (options[:title_updates] || %{})[turn.id]
            ),
          href:
-           if(current?,
-             do:
-               response_request_path(turn, options, %{section: "candidate"}) <>
-                 "#turn-#{turn.id}-response-#{attempt}-body",
-             else:
-               response_page_link(turn, page, page, options) <>
-                 "#turn-#{turn.id}-response-#{attempt}-body"
-           )
+           response_request_path(
+             turn,
+             options,
+             if(current?, do: %{}, else: %{responses_page: page})
+           ) <>
+             "#turn-#{turn.id}-response-#{attempt}-body"
        }}
     end
   end
@@ -1279,12 +1165,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
        do: :crypto.hash(:sha256, body) |> Base.encode16(case: :lower) == digest
 
   defp current_response?(_turn, _attempt, _digest), do: false
-
-  defp response_page_link(_turn, page, pages, _options) when page < 1 or page > pages, do: nil
-
-  defp response_page_link(turn, page, _pages, options) do
-    response_request_path(turn, options, %{responses_page: page, section: "validation"})
-  end
 
   defp response_request_path(turn, options, params) do
     query = URI.encode_query(Map.put(params, :attempt, turn.id))
@@ -1382,84 +1262,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
   defp admission_milestones(attempt),
     do: %{"phase" => attempt.phase, "milestones" => attempt.milestones}
 
-  defp admission_coverage(%{"prompt" => _prompt}),
-    do:
-      "This is the frozen Ryker admission submission, not the Coop wrapper or complete provider request. Milestones are observed facts, not percent-complete estimates."
-
-  defp admission_coverage(_submission),
-    do:
-      "This execution has no retained submitted prompt. It may predate request capture or may not have submitted yet. Today's instructions are not substituted for missing history."
-
-  defp tool_page(%{coop_turn_id: nil}, _params, _options),
-    do: %{items: [], page: 1, pages: 1, total: 0}
-
-  defp tool_page(turn, params, options) do
-    if options[:timeline],
-      do: %{items: [], page: 1, pages: 1, total: 0},
-      else: query_tool_page(turn, params, options)
-  end
-
-  defp query_tool_page(turn, params, options) do
-    query =
-      from(event in ActivityEvent,
-        where:
-          event.episode_id == ^turn.episode_id and
-            event.session_id == ^turn.session_id and event.coop_turn_id == ^turn.coop_turn_id and
-            event.kind in @tool_kinds
-      )
-
-    activity_page(query, params, options)
-  end
-
-  defp admission_tool_page(entry, generation, params, options) do
-    if options[:timeline] || options[:expired] do
-      %{items: [], page: 1, pages: 1, total: 0}
-    else
-      query =
-        from(event in ActivityEvent,
-          join: session in Session,
-          on: session.id == event.session_id,
-          where:
-            event.admission_input_id == ^entry.id and session.generation == ^generation and
-              event.kind in @tool_kinds
-        )
-
-      activity_page(query, params, options)
-    end
-  end
-
-  defp activity_page(query, params, options) do
-    page =
-      PagedRelation.read(
-        ActivityRetention.visible(query),
-        [asc: :sequence, asc: :id],
-        "tools_page",
-        params,
-        page_size: @tool_page_size
-      )
-
-    items =
-      Enum.map(page.items, fn event ->
-        artifact_id = "tool-#{event.id}"
-
-        %{
-          id: event.id,
-          artifact_id: artifact_id,
-          kind: event.kind,
-          at: event.occurred_at,
-          artifact:
-            Redactor.artifact(
-              event.payload,
-              options
-              |> Keyword.put(:max_bytes, 16 * 1_024)
-              |> Keyword.put(:disclosed, tool_opened?(options, artifact_id))
-            )
-        }
-      end)
-
-    %{items: items, page: page.page, pages: page.pages, total: page.total}
-  end
-
   defp section("request" = id, title, value, options) do
     artifact_id = Keyword.get(options, :artifact_id)
 
@@ -1481,16 +1283,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp section(id, title, value, options),
     do: %{id: id, title: title, artifact: Redactor.artifact(value, options)}
-
-  # A retained tool payload is heavy and almost always closed, even on the page
-  # that exists to inspect one model call. The prompt on that page is what the
-  # reader navigated to; its payloads are not.
-  defp tool_opened?(options, id) do
-    case options[:tool_disclosed] do
-      %MapSet{} = disclosed -> MapSet.member?(disclosed, id)
-      _no_disclosure_tracking -> true
-    end
-  end
 
   # An artifact with no identity cannot be opened again on the next refresh, so
   # it is never collapsed: a body a reader could not restore is worse than a
