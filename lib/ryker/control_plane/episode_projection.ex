@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
     Activity,
     EpisodeTrace,
     FeedbackProjection,
+    ImprovementRequests,
     ModelRequests,
     UsageProjection
   }
@@ -191,6 +192,11 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
            related_episodes: related_episodes(episode),
            accounting: accounting,
            feedback: FeedbackProjection.for_request({:episode, episode.id}),
+           self_analysis:
+             ImprovementRequests.entries([episode_id: episode.id],
+               secrets: Ryker.InspectionRedactor.configured_secrets(),
+               disclosed: ModelRequests.disclosed(params)
+             ),
            trace: trace
          }}
     end

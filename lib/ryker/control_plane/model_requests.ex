@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     CurrentInputs,
     EpisodeTrace,
     FeedbackProjection,
+    ImprovementRequests,
     LearningRequests,
     PagedRelation,
     RoutingReason,
@@ -589,6 +590,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
            ),
          # What people said about the answer routing sent by itself.
          feedback: FeedbackProjection.for_request({:input, id}),
+         self_analysis:
+           ImprovementRequests.entries([input_id: id],
+             secrets: options[:secrets],
+             disclosed: disclosed(params)
+           ),
          input_id: id,
          # The request page's header, for a message: what it says as people
          # read it, what happened to it in the words Activity uses, and where

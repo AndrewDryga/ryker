@@ -119,7 +119,8 @@ defmodule Ryker.ControlPlane.CallRun do
   end
 
   @doc """
-  A learning attempt's run, from the attempt and the execution ledger row its
+  A background attempt's run — learning, or the self-analysis of a request a
+  person was unhappy with — from the attempt and the execution ledger row its
   worker's report was metered into. The ledger outlives retention, so a pruned
   attempt still says what it spent.
 
@@ -129,22 +130,22 @@ defmodule Ryker.ControlPlane.CallRun do
   left of that is Ryker's own share. The two clocks are never subtracted from
   each other.
   """
-  @spec from_learning(map(), map() | nil) :: t()
-  def from_learning(run, execution) do
+  @spec from_background(map(), map() | nil) :: t()
+  def from_background(run, execution) do
     execution = ledger_row(execution)
     started = run.started_at || run.inserted_at
     target = execution[:execution_target] || get_in(run.producer || %{}, ["target"])
     usage = ledger_usage(execution)
-    total = attempt_ms(started, run.applied_at || run.remote_stopped_at)
+    total = attempt_ms(started, Map.get(run, :applied_at) || run.remote_stopped_at)
     measured = worker_ms(execution)
 
     %{
       target: target,
       tokens: tokens(usage),
       cost: cost(usage, target, started),
-      checks: learning_checks(run),
+      checks: background_checks(run),
       corrections: [],
-      segments: learning_segments(execution, total, measured),
+      segments: background_segments(execution, total, measured),
       # The attempt cannot have taken less than the parts its worker measured.
       total_ms: total && max(total, measured)
     }
@@ -172,7 +173,7 @@ defmodule Ryker.ControlPlane.CallRun do
     }
   end
 
-  defp learning_segments(execution, total, measured) do
+  defp background_segments(execution, total, measured) do
     ryker = if total && measured > 0 && total > measured, do: total - measured
 
     [
@@ -297,16 +298,17 @@ defmodule Ryker.ControlPlane.CallRun do
   # A learning result is checked by Ryker, confirmed by the worker, then
   # applied. Applied is the proof it passed; a rejected or stale attempt whose
   # answer came back did not.
-  defp learning_checks(%{status: :applied, candidate_attempt: attempt}) when is_integer(attempt),
-    do: passed(attempt)
+  defp background_checks(%{status: :applied, candidate_attempt: attempt})
+       when is_integer(attempt),
+       do: passed(attempt)
 
-  defp learning_checks(%{status: :applied}), do: "Passed"
+  defp background_checks(%{status: :applied}), do: "Passed"
 
-  defp learning_checks(%{status: status, result_sha256: digest})
+  defp background_checks(%{status: status, result_sha256: digest})
        when status in [:rejected, :stale] and is_binary(digest),
        do: "Did not pass"
 
-  defp learning_checks(_run), do: nil
+  defp background_checks(_run), do: nil
 
   defp passed(1), do: "Passed first time"
 

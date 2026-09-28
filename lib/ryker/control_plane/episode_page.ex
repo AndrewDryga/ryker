@@ -45,7 +45,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
         assigns,
         :timeline_groups,
         timeline_groups(chapters) ++
-          feedback_groups(assigns.snapshot[:feedback] || []) ++
+          feedback_groups(
+            assigns.snapshot[:feedback] || [],
+            assigns.snapshot[:self_analysis] || []
+          ) ++
           review_groups(assigns.snapshot.trace.review)
       )
 
@@ -286,35 +289,44 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # Andrew, 2026-09-27: every answer records the feedback it gets. What people
   # said about this request's answers is a chapter of its own, after the
   # background chapters and before the reviews, which keep theirs: one card
-  # per signal, oldest first, each saying how they felt and why. A request
-  # nobody said anything about has no chapter.
-  defp feedback_groups([]), do: []
+  # per signal, oldest first, each saying how they felt and why. Ryker's own
+  # analysis of what went wrong follows the feedback that started it, as the
+  # model-request cards every other call has (2026-09-28). A request nobody
+  # said anything about has no chapter.
+  defp feedback_groups([], []), do: []
 
-  defp feedback_groups(feedback) do
+  defp feedback_groups(feedback, analysis) do
+    steps =
+      Enum.map(feedback, &%{id: "feedback-#{&1.id}", kind: :feedback, at: &1.at, feedback: &1}) ++
+        requests_with_links(analysis, %{})
+
     [
       %{
         anchor: "feedback",
         band: :feedback,
         conversation_turn: nil,
-        description:
-          "What people said about Ryker's answers here: reactions, asking again, changing their message, and how they felt.",
+        description: feedback_description(analysis),
         kind: :feedback,
         marker: "F",
         phases: [
           %{
             band: :feedback,
             turn: nil,
-            steps:
-              Enum.map(
-                feedback,
-                &%{id: "feedback-#{&1.id}", kind: :feedback, at: &1.at, feedback: &1}
-              )
+            steps: Enum.sort_by(steps, &(&1[:sort_at] || &1.at), DateTime)
           }
         ],
         title: "Feedback"
       }
     ]
   end
+
+  defp feedback_description([]),
+    do:
+      "What people said about Ryker's answers here: reactions, asking again, changing their message, and how they felt."
+
+  defp feedback_description(_analysis),
+    do:
+      "What people said about Ryker's answers here, and Ryker's own analysis of what went wrong. The analysis sends no reply."
 
   @doc """
   The page of a message that has no request of its own: a greeting routing
@@ -366,7 +378,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
     groups =
       [band] ++
         learning_groups(view[:learning] || []) ++
-        feedback_groups(view[:feedback] || []) ++ thread_groups(view.thread)
+        feedback_groups(view[:feedback] || [], view[:self_analysis] || []) ++
+        thread_groups(view.thread)
 
     source = view.heading.source
 
