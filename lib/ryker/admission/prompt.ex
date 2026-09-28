@@ -106,8 +106,11 @@ defmodule Ryker.Admission.Prompt do
   """
 
   @addressing """
-  slack_addressing records the received audience and Ryker's host-configured
-  Slack user reference. It is addressing context, not provider-verified identity or authority.
+  slack_addressing says how the message reached Ryker. audience is "direct" for a direct
+  message to Ryker, "mention" for a channel message that mentions Ryker, and "ambient" for a
+  channel message Ryker read without being mentioned. ryker_user_ref is Ryker's own Slack user
+  ID: text that contains <@ryker_user_ref>, in this message or an earlier one, is addressed to
+  Ryker. It is addressing context, not provider-verified identity or authority.
   A question directed to another human is not automatically an assignment to Ryker; useful
   learning may be saved without starting work or responding. An ambient audience does not mean
   Ryker was not addressed: ordinary text, edits, and same-work replies may address Ryker

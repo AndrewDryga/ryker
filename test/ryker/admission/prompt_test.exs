@@ -59,7 +59,13 @@ defmodule Ryker.Admission.PromptTest do
     assert request["context"]["slack_addressing"] == addressing
     assert request["context"]["input"]["content"]["truncated"]
     assert byte_size(Ryker.CanonicalJSON.encode!(request)) <= 65_536
-    assert request["instructions"] =~ "host-configured"
+    # Andrew, 2026-09-28: "how does a model know what audience: ambient means,
+    # and how to use ryker_user_ref?" The instructions define every audience
+    # and say what Ryker's own ID is for.
+    assert request["instructions"] =~ ~r/"ambient" for a\s+channel message Ryker read without/
+    assert request["instructions"] =~ ~r/"direct" for a direct\s+message to Ryker/
+    assert request["instructions"] =~ ~r/"mention" for a channel message that mentions Ryker/
+    assert request["instructions"] =~ ~r/ryker_user_ref is Ryker's own Slack user\s+ID/
     assert request["instructions"] =~ "another human is not automatically an assignment"
 
     assert request["instructions"] =~
