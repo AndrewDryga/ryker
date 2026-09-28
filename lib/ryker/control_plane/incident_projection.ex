@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Environments, EpisodeProjection, Search}
+  alias Ryker.ControlPlane.{Environments, EpisodeProjection, RepositoryNames, Search}
   alias Ryker.Delivery.ChatCard
   alias Ryker.{Episodes, Settings}
   alias Ryker.Episodes.Episode
@@ -88,7 +88,13 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       |> incident_status(Search.one_of(params["status"], @statuses))
       |> incident_search(Search.term(params["q"]))
 
-    Repo.all(query)
+    rooms = Repo.all(query)
+    names = if Enum.any?(rooms, & &1.repository_ref), do: RepositoryNames.all(), else: %{}
+
+    Enum.map(
+      rooms,
+      &Map.put(&1, :repository_name, RepositoryNames.name(names, &1.repository_ref))
+    )
   end
 
   def list(_params), do: list(%{})
@@ -110,20 +116,21 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
       room ->
         episode = if room.episode_id, do: Repo.get(Episode, room.episode_id)
+        names = RepositoryNames.all()
 
         {:ok,
          %{
            lifecycle: lifecycle(room),
-           publication: publication(room.episode_id),
+           publication: publication(room.episode_id, names),
            records: records(room.episode_id),
-           room: room(room, episode, settings())
+           room: room(room, episode, settings(), names)
          }}
     end
   end
 
   def fetch(_ref), do: :not_found
 
-  defp room(room, episode, settings) do
+  defp room(room, episode, settings, names) do
     %{
       channel_created_at: channel_created_at(room),
       channel_name: room.channel_name,
@@ -147,7 +154,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       record_ref:
         Repo.one(from(record in Record, where: record.id == ^room.record_id, select: record.ref)),
       ref: room.ref,
-      repository_name: repository_name(settings, room.repository_ref),
+      repository_name: RepositoryNames.name(names, room.repository_ref),
       repository_ref: room.repository_ref,
       requested_at: room.requested_at,
       source_channel_ref: room.source_channel_ref,
@@ -191,9 +198,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
     |> Enum.map(&record/1)
   end
 
-  defp publication(nil), do: nil
+  defp publication(nil, _names), do: nil
 
-  defp publication(episode_id) do
+  defp publication(episode_id, names) do
     Repo.one(
       from(publication in Publication,
         where: publication.episode_id == ^episode_id,
@@ -213,6 +220,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       )
     )
     |> sanitize_publication()
+    |> then(&(&1 && %{&1 | repository: RepositoryNames.name(names, &1.repository)}))
   end
 
   # Creating the channel is the first change of its state; every later one
@@ -254,9 +262,6 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       nil -> ref
     end
   end
-
-  defp repository_name(nil, ref), do: ref
-  defp repository_name(settings, ref), do: Environments.repository_name(settings, ref)
 
   # A record in the words its timeline card uses — "Evidence", the claim and
   # what was observed — beside its identity for support.

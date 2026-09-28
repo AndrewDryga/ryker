@@ -1,0 +1,39 @@
+defmodule Ryker.ControlPlane.RepositoryNames do
+  @moduledoc """
+  The name people know each repository by, `owner/repo` as on GitHub, keyed
+  by its ref. Pages show this name wherever a repository appears and keep the
+  ref only for links and filters.
+
+  Andrew, 2026-09-28: "repos must be named like on GH". A removed
+  repository's requests, usage and learned topics keep its ref, so the name
+  it had is kept when it is removed (`Ryker.Settings.delete_repository/3`).
+  A ref known by neither is its own name.
+  """
+
+  import Ecto.Query
+
+  alias Ryker.Repo
+  alias Ryker.Settings.Repository
+
+  @doc "Every known name, keyed by ref; a repository still added wins over one removed."
+  @spec all() :: %{String.t() => String.t()}
+  def all do
+    removed = Repo.all(from(row in "removed_repository_names", select: {row.ref, row.name}))
+
+    current =
+      Repo.all(
+        from(repository in Repository,
+          where: coalesce(repository.github_repository, repository.display_name) != "",
+          select:
+            {repository.ref, coalesce(repository.github_repository, repository.display_name)}
+        )
+      )
+
+    Map.new(removed ++ current)
+  end
+
+  @doc "The name `ref` is known by in `names`, or the ref itself; nil stays nil."
+  @spec name(%{String.t() => String.t()}, String.t() | nil) :: String.t() | nil
+  def name(_names, nil), do: nil
+  def name(names, ref), do: Map.get(names, ref, ref)
+end

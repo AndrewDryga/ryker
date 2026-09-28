@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Activity, RepositoryProjection}
+  alias Ryker.ControlPlane.{Activity, RepositoryNames}
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode
   alias Ryker.Learning.Batch, as: LearningBatch
@@ -23,7 +23,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
 
   @doc "Current worker sessions followed by recent removed history, with safe actions."
   def list(_params) do
-    names = RepositoryProjection.names()
+    names = RepositoryNames.all()
 
     # A learning session has no episode; an inner join left every learning
     # session, and any blocked cleanup of one, off both pages. Admission
@@ -73,7 +73,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
       row ->
         {:ok,
          row
-         |> workspace_item(RepositoryProjection.names())
+         |> workspace_item(RepositoryNames.all())
          |> then(&Activity.with_request_titles([&1]))
          |> hd()}
     end
@@ -92,7 +92,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   def storage do
     now = Repo.now!()
     settings = Application.get_env(:ryker, :retention, %{})
-    names = RepositoryProjection.names()
+    names = RepositoryNames.all()
 
     %{
       budget:

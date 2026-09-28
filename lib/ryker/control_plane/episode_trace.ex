@@ -14,7 +14,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.ControlPlane.{EpisodeCausality, EpisodeResponseMetrics, EvidenceLinks}
+  alias Ryker.ControlPlane.{
+    EpisodeCausality,
+    EpisodeResponseMetrics,
+    EvidenceLinks,
+    RepositoryNames
+  }
 
   alias Ryker.ControlPlane.EpisodeTrace.{
     CaseFile,
@@ -123,6 +128,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       |> Kernel.++(Outcome.schedule_steps(episode.id))
       |> Kernel.++(Maintenance.steps(sessions))
       |> chronological()
+      |> name_repositories()
 
     %{
       activity:
@@ -154,6 +160,34 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
   # The header's state says what NEXT ACTION says: work that stopped is not
   # working, whatever the episode's own state still records.
+  # Steps record a repository by its ref; each reads as owner/repo, the name
+  # people know it by, even after it was removed (Andrew, 2026-09-28).
+  defp name_repositories(steps) do
+    if Enum.any?(steps, &repository_detail?/1) do
+      names = RepositoryNames.all()
+
+      Enum.map(steps, fn
+        %{details: details} = step when is_list(details) ->
+          %{step | details: Enum.map(details, &name_repository(&1, names))}
+
+        step ->
+          step
+      end)
+    else
+      steps
+    end
+  end
+
+  defp repository_detail?(%{details: details}) when is_list(details),
+    do: Enum.any?(details, &match?(%{label: "Repository"}, &1))
+
+  defp repository_detail?(_step), do: false
+
+  defp name_repository(%{label: "Repository", value: ref} = detail, names),
+    do: %{detail | value: RepositoryNames.name(names, ref)}
+
+  defp name_repository(detail, _names), do: detail
+
   defp page_state(%Episode{state: :working}, %{}), do: "blocked"
   defp page_state(%Episode{state: state}, _stopped), do: to_string(state)
 

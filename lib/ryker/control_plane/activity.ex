@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.Activity do
     ConversationProjection,
     CurrentInputs,
     PagedRelation,
+    RepositoryNames,
     Search,
     SlackMarkdown,
     UsageProjection
@@ -130,8 +131,11 @@ defmodule Ryker.ControlPlane.Activity do
     refs = refs |> Enum.uniq() |> Enum.take(100)
     secrets = InspectionRedactor.configured_secrets()
 
-    Repo.all(from(row in subquery(rows()), where: row.kind == "episode" and row.ref in ^refs))
-    |> Map.new(fn row -> {row.ref, present(row, secrets)} end)
+    rows =
+      Repo.all(from(row in subquery(rows()), where: row.kind == "episode" and row.ref in ^refs))
+
+    names = repository_names(rows)
+    Map.new(rows, fn row -> {row.ref, row |> present(secrets) |> named(names)} end)
   end
 
   @doc """
@@ -191,9 +195,10 @@ defmodule Ryker.ControlPlane.Activity do
       )
 
     secrets = InspectionRedactor.configured_secrets()
+    names = repository_names(page.items)
 
     %{
-      items: Enum.map(page.items, &present(&1, secrets)),
+      items: Enum.map(page.items, &(&1 |> present(secrets) |> named(names))),
       total: page.total,
       page: page.page,
       pages: page.pages,
@@ -386,6 +391,12 @@ defmodule Ryker.ControlPlane.Activity do
         "/timeline/#{URI.encode_www_form(if row.kind == "episode", do: row.ref, else: "ingress-input:#{row.ref}")}"
     })
   end
+
+  # Rows carry a repository's ref; a person reads its owner/repo name.
+  defp repository_names(rows),
+    do: if(Enum.any?(rows, & &1.repository), do: RepositoryNames.all(), else: %{})
+
+  defp named(item, names), do: %{item | repository: RepositoryNames.name(names, item.repository)}
 
   defp redacted(text, secrets, max_bytes) do
     artifact = InspectionRedactor.artifact(text, secrets: secrets, max_bytes: max_bytes)

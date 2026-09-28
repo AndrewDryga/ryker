@@ -314,7 +314,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp identity(row, snapshot, :repository),
     do:
       entity_link(
-        row.repository_ref || "No repository",
+        row[:repository_name] || "No repository",
         %{repository: row.repository_ref || ""},
         snapshot
       )

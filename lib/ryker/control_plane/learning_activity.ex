@@ -12,7 +12,8 @@ defmodule Ryker.ControlPlane.LearningActivity do
     ConversationMemory,
     ConversationProjection,
     LearningRequests,
-    PagedRelation
+    PagedRelation,
+    RepositoryNames
   }
 
   alias Ryker.Episodes.Episode
@@ -160,6 +161,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
       titles: ConversationProjection.titles(direct),
       rechecked: rechecked,
       causes: stale_attempts(exhausted),
+      names: if(Enum.any?(rows, & &1.repository_ref), do: RepositoryNames.all(), else: %{}),
       now: DateTime.utc_now()
     }
   end
@@ -474,7 +476,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
       label: label(row.status),
       conversation: conversation(row, context.titles),
       conversation_path: Activity.conversation_path(row.transport, row.conversation_ref),
-      repository: row.repository_ref,
+      repository: RepositoryNames.name(context.names, row.repository_ref),
       mode: row.execution_mode,
       input_count: row.input_count,
       start_count: row.start_count,

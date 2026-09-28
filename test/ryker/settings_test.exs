@@ -2,6 +2,7 @@ defmodule Ryker.SettingsTest do
   use Ryker.DataCase, async: false
 
   import Ecto.Query
+  alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.Retention.Data, as: RetentionData
   alias Ryker.Settings
   alias Ryker.Settings.{Edit, Installation, Retention}
@@ -28,6 +29,37 @@ defmodule Ryker.SettingsTest do
     assert saved.repositories == []
     refute Map.has_key?(saved, :policy_bindings)
     assert Repo.query!("SELECT count(*) FROM policy_bindings").rows == [[1]]
+  end
+
+  test "a removed repository keeps the GitHub name its history reads, and one added again reads today's" do
+    # Andrew, 2026-09-28: "repos must be named like on GH". Removing a
+    # repository deleted its settings row, the only record of its GitHub name,
+    # while 32 learning passes, 72 usage rows and two learned topics kept its
+    # ref: every page then read "andrewdryga-andrewdryga", not
+    # "AndrewDryga/AndrewDryga".
+    {:ok, initialized} = Settings.initialize(@actor)
+
+    {:ok, added} =
+      Settings.put_repository(
+        %{ref: "acme-api", github_repository: "Acme/API"},
+        initialized.installation.revision,
+        @actor
+      )
+
+    {:ok, removed} = Settings.delete_repository("acme-api", added.installation.revision, @actor)
+    assert removed.repositories == []
+    assert RepositoryNames.all() == %{"acme-api" => "Acme/API"}
+    assert RepositoryNames.name(RepositoryNames.all(), "acme-api") == "Acme/API"
+    assert RepositoryNames.name(%{}, "never-added") == "never-added"
+
+    {:ok, _again} =
+      Settings.put_repository(
+        %{ref: "acme-api", github_repository: "Acme/api-renamed"},
+        removed.installation.revision,
+        @actor
+      )
+
+    assert RepositoryNames.all() == %{"acme-api" => "Acme/api-renamed"}
   end
 
   test "a missing installation is explicit rather than an implicit default grant" do

@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Activity, EpisodeProjection, Search}
+  alias Ryker.ControlPlane.{Activity, EpisodeProjection, RepositoryNames, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.FailureDetail
   alias Ryker.Repo
@@ -95,7 +95,9 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
       |> schedule_status(Search.one_of(params["status"], @statuses))
       |> schedule_search(Search.term(params["q"]))
 
-    Repo.all(query)
+    schedules = Repo.all(query)
+    names = if Enum.any?(schedules, & &1.repository), do: RepositoryNames.all(), else: %{}
+    Enum.map(schedules, &%{&1 | repository: RepositoryNames.name(names, &1.repository)})
   end
 
   def list(_params), do: list(%{})
@@ -142,7 +144,9 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
           next_occurrence_at: schedule.next_occurrence_at,
           recurrence: schedule.recurrence,
           ref: schedule.ref,
-          repository: schedule.repository,
+          repository:
+            schedule.repository &&
+              RepositoryNames.name(RepositoryNames.all(), schedule.repository),
           revision: schedule.revision,
           source_episode_ref: source_episode_ref,
           source_request: source_request(source_episode_ref),

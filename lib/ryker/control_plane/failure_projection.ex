@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Activity, LearningActivity, ProductReadiness}
+  alias Ryker.ControlPlane.{Activity, LearningActivity, ProductReadiness, RepositoryNames}
   alias Ryker.CoopFleet.{JobAuthority, Placement, Worker}
   alias Ryker.Credentials
   alias Ryker.Episodes.Episode
@@ -758,7 +758,27 @@ defmodule Ryker.ControlPlane.FailureProjection do
     |> attach_session_workers()
     |> attach_live_state()
     |> Activity.with_request_titles()
+    |> name_repositories()
     |> Enum.map(&failure_defaults/1)
+  end
+
+  # A stopped cleanup or learning pass names its repository by its ref; it
+  # reads as owner/repo, even after the repository was removed.
+  @repository_sources ["retention", "learning"]
+  defp name_repositories(items) do
+    if Enum.any?(items, &(Map.get(&1, :kind) in @repository_sources)) do
+      names = RepositoryNames.all()
+
+      Enum.map(items, fn
+        %{kind: kind, source: source} = item when kind in @repository_sources ->
+          %{item | source: RepositoryNames.name(names, source)}
+
+        item ->
+          item
+      end)
+    else
+      items
+    end
   end
 
   # A reply owed to an incident room Slack deleted can never be posted there,

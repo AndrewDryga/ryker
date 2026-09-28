@@ -8,7 +8,13 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   """
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Activity, LearningActivity, LearningRequests, PagedRelation}
+  alias Ryker.ControlPlane.{
+    Activity,
+    LearningActivity,
+    LearningRequests,
+    PagedRelation,
+    RepositoryNames
+  }
 
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
@@ -125,7 +131,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
     items = page.items
     ids = items |> Enum.map(& &1.source_episode_id) |> Enum.reject(&is_nil/1)
-    episodes = episode_keys(ids)
+    lookup = lookup(items, ids)
     knowledge_ids = if kind == "knowledge", do: Enum.map(items, & &1.id), else: []
 
     available_ids = if kind == "knowledge", do: available_ids(items), else: MapSet.new()
@@ -148,7 +154,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       history_pages: history.pages,
       items:
         Enum.map(items, fn row ->
-          rendered = item(row, episodes, secrets)
+          rendered = item(row, lookup, secrets)
 
           case kind do
             "knowledge" ->
@@ -187,9 +193,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   @spec present([struct()]) :: [map()]
   def present(rows) when is_list(rows) do
     ids = rows |> Enum.map(& &1.source_episode_id) |> Enum.reject(&is_nil/1)
-    episodes = episode_keys(ids)
+    lookup = lookup(rows, ids)
     secrets = InspectionRedactor.configured_secrets()
-    Enum.map(rows, &item(&1, episodes, secrets))
+    Enum.map(rows, &item(&1, lookup, secrets))
   end
 
   @doc "The human-readable heading, text and fact groups of one continuity state."
@@ -364,10 +370,17 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         where: fragment("position(lower(?) in lower(?)) > 0", ^text, summary.state)
       )
 
-  defp item(%ConversationObservation{} = note, episodes, secrets) do
+  # The requests rows came from, and the names of the repositories they used.
+  defp lookup(rows, episode_ids),
+    do: %{
+      episodes: episode_keys(episode_ids),
+      names: if(Enum.any?(rows, & &1.repository_ref), do: RepositoryNames.all(), else: %{})
+    }
+
+  defp item(%ConversationObservation{} = note, lookup, secrets) do
     state = InspectionRedactor.document(note.note, secrets)
 
-    base(note, episodes)
+    base(note, lookup)
     |> Map.merge(%{
       title: Enum.join(state["topics"] || [], " · "),
       text:
@@ -379,10 +392,10 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     })
   end
 
-  defp item(%ConversationKnowledge{} = knowledge, episodes, secrets) do
+  defp item(%ConversationKnowledge{} = knowledge, lookup, secrets) do
     state = InspectionRedactor.document(knowledge.state, secrets)
 
-    base(knowledge, episodes)
+    base(knowledge, lookup)
     |> Map.merge(%{
       title: knowledge_title(knowledge, secrets),
       text: if(knowledge.forgotten_at, do: @forgotten_text, else: knowledge_text(state)),
@@ -394,9 +407,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     })
   end
 
-  defp item(%ConversationSummary{} = summary, episodes, secrets) do
+  defp item(%ConversationSummary{} = summary, lookup, secrets) do
     warning = summary_history_warning(summary.source_dependencies)
-    view = base(summary, episodes)
+    view = base(summary, lookup)
 
     view
     |> Map.merge(continuity_state(summary.state, secrets))
@@ -586,7 +599,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp knowledge_text(%{"retention" => "pruned"}, erased_text), do: erased_text
   defp knowledge_text(state, _erased_text), do: state["summary"] || ""
 
-  defp base(item, episodes) do
+  defp base(item, lookup) do
     %{
       id: item.id,
       conversation: Names.destination(item.conversation_ref),
@@ -597,9 +610,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       source_at: nil,
       expires_at:
         item.source_dependencies |> LearningSources.oldest(item.updated_at) |> expires_at(),
-      repository: item.repository_ref,
+      repository: RepositoryNames.name(lookup.names, item.repository_ref),
       request_path:
-        case episodes[item.source_episode_id] do
+        case lookup.episodes[item.source_episode_id] do
           nil -> nil
           key -> "/timeline/" <> URI.encode(key, &URI.char_unreserved?/1)
         end

@@ -26,6 +26,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   alias Ryker.Learning.{Batch, Batches, InputMembership}
   alias Ryker.Learning.LearningRun
   alias Ryker.Operator.Action
+  alias Ryker.Settings
   alias Ryker.Work.{Custody, Turn}
 
   @settings %{
@@ -110,6 +111,32 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert html =~ "1 of 3 model starts used"
     refute html =~ "1 messages"
     refute html =~ "1 model starts"
+  end
+
+  test "learning from a removed repository still names it owner/repo, as on GitHub" do
+    # Andrew, 2026-09-28: "repos must be named like on GH". A removed
+    # repository's learning passes keep its ref, and the page printed it:
+    # "Repository andrewdryga-andrewdryga".
+    actor = "control-plane:local"
+    {:ok, settings} = Settings.initialize(actor)
+
+    {:ok, settings} =
+      Settings.put_repository(
+        %{ref: "tenant-infra", github_repository: "Tenant/infra"},
+        settings.installation.revision,
+        actor
+      )
+
+    {:ok, _} = Settings.delete_repository("tenant-infra", settings.installation.revision, actor)
+
+    inputs!()
+    assert {:ok, claim} = Batches.claim("inspection-test", @settings)
+    assert claim.batch.repository_ref == "tenant-infra"
+
+    html = render(%{"batch" => claim.batch.id})
+    assert html =~ "Tenant/infra"
+    refute html =~ "tenant-infra"
+    assert render(%{}) =~ "Tenant/infra"
   end
 
   @tag :policy_recovery_ui

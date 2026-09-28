@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   import Ryker.ControlPlane.EpisodeTrace.Step
 
   alias Ryker.Behaviors
-  alias Ryker.ControlPlane.{Activity, Environments}
+  alias Ryker.ControlPlane.{Activity, RepositoryNames}
   alias Ryker.CoopFleet.Placement
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
@@ -895,20 +895,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp linked_input?(_input), do: false
 
   defp setup_names do
+    repositories = RepositoryNames.all()
+
     case Ryker.Settings.fetch() do
       {:ok, snapshot} ->
         %{
           emisar: Map.new(snapshot.emisar_connections, &{&1.ref, &1.display_name}),
           environments: Map.new(snapshot.environments, &{&1.ref, &1.display_name}),
-          repositories:
-            Map.new(
-              snapshot.repositories,
-              &{&1.ref, Environments.repository_name(snapshot, &1.ref)}
-            )
+          repositories: repositories
         }
 
       {:error, _not_initialized} ->
-        %{emisar: %{}, environments: %{}, repositories: %{}}
+        %{emisar: %{}, environments: %{}, repositories: repositories}
     end
   end
 
