@@ -25,6 +25,7 @@ defmodule Ryker.Improvement.Analyses do
   alias Ryker.Improvement.{AnalysisRun, Candidate, Evidence, FleetSession, Prompt}
   alias Ryker.Reference
   alias Ryker.Repo
+  alias Ryker.RoutingExamples
   alias Ryker.UTCDateTime
   alias Ryker.Work.{Custody, Session}
 
@@ -320,10 +321,17 @@ defmodule Ryker.Improvement.Analyses do
   Freezes the next attempt: the evidence read now, rendered into the exact
   prompt and schema the turn will get. An attempt prepared earlier that never
   started goes stale; its prompt was never disclosed.
+
+  It is read and saved under the lock a routing example's copy holds, taken
+  before the candidate is (`Ryker.RoutingExamples.copy_lock_in_transaction/0`):
+  a person's deletion that commits meanwhile is either read here, or waits
+  and then finds the candidate by the keys saved with the prompt, and erases
+  it before it is sent.
   """
   @spec prepare(claim(), map()) :: {:ok, AnalysisRun.t()} | {:error, term()}
   def prepare(claim, settings) do
-    with_lease(claim, fn ->
+    Repo.transaction(fn ->
+      :ok = RoutingExamples.copy_lock_in_transaction()
       candidate = owned!(claim)
 
       if candidate.start_count >= candidate.start_limit,
@@ -353,19 +361,18 @@ defmodule Ryker.Improvement.Analyses do
           Enum.sort(Enum.uniq(candidate.conversation_refs ++ evidence.conversation_refs))
       )
 
-      {:ok,
-       Repo.insert!(%AnalysisRun{
-         id: Ecto.UUID.generate(),
-         candidate_id: candidate.id,
-         generation: next_generation(candidate.id),
-         status: :prepared,
-         policy: settings.policy,
-         policy_digest: settings.policy_digest,
-         prompt: prompt,
-         prompt_sha256: sha256(prompt),
-         output_schema: Prompt.output_schema(),
-         manifest: manifest(evidence, request, prompt)
-       })}
+      Repo.insert!(%AnalysisRun{
+        id: Ecto.UUID.generate(),
+        candidate_id: candidate.id,
+        generation: next_generation(candidate.id),
+        status: :prepared,
+        policy: settings.policy,
+        policy_digest: settings.policy_digest,
+        prompt: prompt,
+        prompt_sha256: sha256(prompt),
+        output_schema: Prompt.output_schema(),
+        manifest: manifest(evidence, request, prompt)
+      })
     end)
   end
 

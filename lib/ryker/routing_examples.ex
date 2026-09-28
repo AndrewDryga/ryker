@@ -658,6 +658,17 @@ defmodule Ryker.RoutingExamples do
     :ok
   end
 
+  @doc """
+  Holds, until the transaction ends, the lock a copy holds (shared, where
+  every forgetting holds it exclusively), for anything else that copies what
+  a person may forget: the evidence an analysis prompt or an accepted case
+  freezes (`Ryker.Improvement`). Take it before reading anything, and before
+  any row a forgetting writes, as forgetting takes them: a forgetting then
+  either committed before the read, or waits and finds what the copy saved.
+  """
+  @spec copy_lock_in_transaction() :: :ok
+  def copy_lock_in_transaction, do: lock(:shared)
+
   defp lock(:shared) do
     Repo.query!("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))", [@lock])
     :ok
