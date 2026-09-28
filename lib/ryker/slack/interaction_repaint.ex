@@ -173,11 +173,13 @@ defmodule Ryker.Slack.InteractionRepaint do
         :public ->
           result
 
-        # The session is in use, usually by the turn the typed answer being
-        # repainted for has just started. The worker checks again shortly;
-        # until 2026-09-27 this replaced the reply as though it were withdrawn.
-        {:error, :work_derived_context_busy} = busy ->
-          busy
+        # Ryker could not check the sources this time: the session is in use,
+        # usually by the turn the typed answer being repainted for has just
+        # started, or its sources could not be gathered. The worker checks
+        # again, then gives up and leaves the reply as it is; until
+        # 2026-09-27 this replaced the reply as though it were withdrawn.
+        {:error, _reason} = unchecked ->
+          unchecked
 
         :withdrawn ->
           {:ok,
@@ -204,7 +206,10 @@ defmodule Ryker.Slack.InteractionRepaint do
            ) do
       :public
     else
-      {:error, :work_derived_context_busy} = busy -> busy
+      # Only a source that is gone, or a receipt that is not this reply's,
+      # withdraws it; any other error is Ryker's and is checked again.
+      {:error, :work_knowledge_context_stale} -> :withdrawn
+      {:error, _reason} = unchecked -> unchecked
       _refused -> :withdrawn
     end
   end
