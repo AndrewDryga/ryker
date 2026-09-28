@@ -48,6 +48,16 @@ defmodule Ryker.Slack.MintSocketTransportTest do
       {:ok, {:upgrading, pid}, [{:error, :request_ref, :refused}]}
     end
 
+    def stream({:upgrading, pid}, :refused_with_body) do
+      {:ok, {:upgrading, pid},
+       [
+         {:status, :request_ref, 503},
+         {:headers, :request_ref, [{"content-type", "text/plain"}]},
+         {:data, :request_ref, "Service Unavailable"},
+         {:done, :request_ref}
+       ]}
+    end
+
     def stream({:upgrading, pid}, :malformed_handshake) do
       {:ok, {:upgrading, pid}, [{:done, :request_ref}]}
     end
@@ -231,6 +241,16 @@ defmodule Ryker.Slack.MintSocketTransportTest do
 
     assert MintSocketTransport.connect(fake_options()) ==
              {:error, {:slack_socket_upgrade_failed, :refused}}
+
+    assert_received :connection_closed
+
+    # Slack's refusals carry a body. The log said only
+    # {:slack_socket_upgrade_failed, :response} for them (seen live 2026-09-27
+    # 22:23 and 2026-09-28 00:31), so nobody could tell a 503 from a 408.
+    send(self(), :refused_with_body)
+
+    assert MintSocketTransport.connect(fake_options()) ==
+             {:error, {:slack_socket_upgrade_failed, {:status, 503}}}
 
     assert_received :connection_closed
 
