@@ -2,8 +2,10 @@ defmodule Ryker.Work.Executor.Remote do
   @moduledoc """
   The Coop call layer every executor step shares.
 
-  Every call renews the lease when the heartbeat is due, and every mutation
-  runs under the durable mutation fence keyed from the Work rows. Operation
+  Every call renews the lease when the heartbeat is due, a step that can
+  outlast the lease by itself runs beside renewals of its own
+  (`with_lease_heartbeat/2`), and every mutation runs under the durable
+  mutation fence keyed from the Work rows. Operation
   and resource reads prove the remote session and turn are exactly the ones
   the claim bound (identity, authority digest, state binding digest) before a
   step trusts them, and a lost response is reconciled through the operation
@@ -346,6 +348,56 @@ defmodule Ryker.Work.Executor.Remote do
 
     Process.put(settings.heartbeat_key, settings.monotonic_ms.())
     result
+  end
+
+  @doc """
+  Runs `function`, a step that can outlast the lease by itself (preparing a
+  repository's source can take minutes), while a process of its own renews
+  the lease every heartbeat interval. The renewals end with the step however
+  it ends, and a lease they could not keep is returned instead of the step's
+  result.
+  """
+  def with_lease_heartbeat(settings, function) do
+    heartbeat = Task.async(fn -> keep_lease(settings) end)
+
+    {result, renewal} =
+      try do
+        result = function.()
+        send(heartbeat.pid, :stop)
+        {result, Task.await(heartbeat, :infinity)}
+      after
+        Task.shutdown(heartbeat, :brutal_kill)
+      end
+
+    case renewal do
+      :ok -> result
+      {:error, _reason} = lost -> lost
+    end
+  end
+
+  defp keep_lease(settings) do
+    receive do
+      :stop -> :ok
+    after
+      settings.heartbeat_interval_ms ->
+        case renew_lease(settings) do
+          {:error, _reason} = lost -> lost
+          _renewed_or_unreachable -> keep_lease(settings)
+        end
+    end
+  end
+
+  # A lease has three heartbeat intervals in it, so a renewal the database
+  # could not take is tried again at the next one rather than given up.
+  defp renew_lease(settings) do
+    Custody.renew(
+      settings.claim.episode.id,
+      settings.claim.turn.turn_ref,
+      settings.claim.lease_ref,
+      settings.lease_seconds
+    )
+  rescue
+    _unreachable in [DBConnection.ConnectionError, Postgrex.Error] -> :unreachable
   end
 
   @doc false
