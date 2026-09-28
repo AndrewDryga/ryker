@@ -16,7 +16,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
   alias Ryker.Repo
-  alias Ryker.Settings
+  alias Ryker.RepositoryKnowledge
   alias Ryker.Slack.SourceRef, as: SlackSourceRef
 
   alias Ryker.Behaviors
@@ -904,34 +904,22 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp trusted_repository_from_event(_event), do: nil
 
   # Repository knowledge is copied into the frozen submission, not looked up by
-  # the model at run time. A prepared turn therefore keeps the exact accepted or
-  # proposed RYKER.md revision it was briefed with even if the knowledge lane
-  # writes a newer one meanwhile (`Ryker.RepositoryKnowledge`).
+  # the model at run time. A prepared turn therefore keeps the exact RYKER.md
+  # it was briefed with even if the knowledge lane writes a newer one
+  # meanwhile. Ryker keeps the document itself, and it is the repository's
+  # knowledge the moment it is written (`Ryker.RepositoryKnowledge`); the
+  # repository holds no copy, so no path in it is named.
   defp maybe_put_repository_knowledge(context, repository_ref) when is_binary(repository_ref) do
-    case Settings.fetch() do
-      {:ok, snapshot} ->
-        case Enum.find(snapshot.repositories, &(&1.ref == repository_ref)) do
-          %{
-            knowledge_content: content,
-            knowledge_sha256: sha256,
-            knowledge_source_commit: commit,
-            knowledge_status: status
-          }
-          when is_binary(content) and is_binary(sha256) and is_binary(commit) and
-                 status in [:accepted, :proposed] ->
-            Map.put(context, "repository_knowledge", %{
-              "content" => compact_value(content, 48 * 1_024),
-              "path" => "RYKER.md",
-              "sha256" => sha256,
-              "source_commit" => commit,
-              "status" => Atom.to_string(status)
-            })
+    case RepositoryKnowledge.entry(repository_ref) do
+      %{document: content, document_sha256: sha256, document_commit: commit}
+      when is_binary(content) ->
+        Map.put(context, "repository_knowledge", %{
+          "content" => compact_value(content, 48 * 1_024),
+          "sha256" => sha256,
+          "source_commit" => commit
+        })
 
-          _missing ->
-            context
-        end
-
-      _settings_unavailable ->
+      _none ->
         context
     end
   end
