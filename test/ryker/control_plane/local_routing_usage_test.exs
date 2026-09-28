@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
   alias Ryker.Fixtures.LocalRouting, as: Harvested
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.EntryChangeset
+  alias Ryker.Learning.Observations
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.Comparison
   alias Ryker.Settings
@@ -264,6 +265,7 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
         Map.merge(
           %{
             input_id: entry.id,
+            source_identity: Observations.source_identity(entry),
             generation: 1,
             execution_mode: :live,
             local_model: @model,

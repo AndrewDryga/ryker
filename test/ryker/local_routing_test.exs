@@ -22,6 +22,7 @@ defmodule Ryker.LocalRoutingTest do
   @moduletag isolation: "REPEATABLE READ"
 
   alias Ryker.Admission.{Attempt, Executor}
+  alias Ryker.ControlPlane.LocalRoutingUsage
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.LocalRouting, as: Harvested
   alias Ryker.Ingress.Inbox
@@ -367,7 +368,7 @@ defmodule Ryker.LocalRoutingTest do
 
       delete!("Ev-local-deleted")
 
-      assert waiting() == [other.id], "a deleted message's comparison still waits to be sent"
+      assert kept() == [other.id], "a deleted message's comparison is still kept"
       drain(endpoint)
 
       assert local_prompts() == [prompt(other)],
@@ -375,6 +376,39 @@ defmodule Ryker.LocalRoutingTest do
 
       assert [%Comparison{input_id: id, status: :compared}] = Repo.all(Comparison)
       assert id == other.id
+    end
+
+    # Once compared, a comparison keeps the local model's answer to the
+    # prompt, and the answer can repeat the message's words. Only waiting
+    # comparisons were withdrawn, so a deleted message's answer stayed until
+    # its bodies expired (found in review, 2026-09-28). Usage & cost reads the
+    # comparisons that are left.
+    test "a deleted message's compared comparison is erased, and Usage counts only what is left" do
+      endpoint =
+        local_model!([
+          {:answer, Harvested.deploy_script_reply()},
+          {:answer, Harvested.hi_again_quick_reply()}
+        ])
+
+      initialize!()
+      shadow!(endpoint)
+      route!(Harvested.hi_quick_reply(), "Ev-local-compared")
+      other = route!(Harvested.hi_quick_reply(), "Ev-local-compared-2", at: 1, channel: "C999")
+      drain(endpoint)
+
+      compared = LocalRoutingUsage.project(nil, "all")
+      assert {compared.figures.compared, length(compared.disagreements)} == {2, 1}
+
+      delete!("Ev-local-compared")
+
+      assert kept() == [other.id], "the local model's answer to a deleted message is still kept"
+
+      usage = LocalRoutingUsage.project(nil, "all")
+
+      assert Map.take(usage.figures, [:compared, :valid, :agreed, :waiting, :failed]) ==
+               %{compared: 1, valid: 1, agreed: 1, waiting: 0, failed: 0}
+
+      assert usage.disagreements == []
     end
 
     # The lane holds a comparison it took before the deletion committed, so
@@ -394,29 +428,44 @@ defmodule Ryker.LocalRoutingTest do
       assert LocalRouting.run_next(options(endpoint)) == :idle
     end
 
-    test "forgetting what was learned from a message withdraws every comparison that quoted it" do
-      endpoint = local_model!([{:answer, Harvested.hi_again_quick_reply()}])
+    test "forgetting what was learned from a message erases every comparison that quoted it" do
+      endpoint =
+        local_model!([
+          {:answer, Harvested.hi_again_quick_reply()},
+          {:answer, Harvested.hi_again_quick_reply()}
+        ])
+
       initialize!()
       shadow!(endpoint)
       first = route!(Harvested.hi_quick_reply(), "Ev-local-learned")
+      drain(endpoint)
+      [_sent_before_it_was_forgotten] = local_prompts()
       route!(Harvested.hi_quick_reply(), "Ev-local-learned-2", at: 1)
       other = route!(Harvested.hi_quick_reply(), "Ev-local-learned-3", at: 2, channel: "C999")
 
       assert {:ok, %{forgotten: [_topic]}} = Forgetting.forget_topic(topic!(first).id)
 
-      assert waiting() == [other.id], "a forgotten message's comparison still waits to be sent"
+      assert kept() == [other.id], "a comparison quoting a forgotten message is still kept"
       drain(endpoint)
 
       assert local_prompts() == [prompt(other)],
              "the local model was sent a forgotten message's prompt"
     end
 
-    test "deleting a Slack channel withdraws the comparisons from it" do
-      endpoint = local_model!([{:answer, Harvested.hi_again_quick_reply()}])
+    test "deleting a Slack channel erases the comparisons from it" do
+      endpoint =
+        local_model!([
+          {:answer, Harvested.hi_again_quick_reply()},
+          {:answer, Harvested.hi_again_quick_reply()}
+        ])
+
       initialize!()
       shadow!(endpoint)
       route!(Harvested.hi_quick_reply(), "Ev-local-channel")
-      other = route!(Harvested.hi_quick_reply(), "Ev-local-channel-2", at: 1, channel: "C999")
+      drain(endpoint)
+      [_sent_before_it_was_deleted] = local_prompts()
+      route!(Harvested.hi_quick_reply(), "Ev-local-channel-2", at: 1)
+      other = route!(Harvested.hi_quick_reply(), "Ev-local-channel-3", at: 2, channel: "C999")
 
       assert {:ok, _deleted} =
                ChannelConfigurations.observe_membership(
@@ -431,7 +480,7 @@ defmodule Ryker.LocalRoutingTest do
                  %{default_environment: nil, environments: []}
                )
 
-      assert waiting() == [other.id], "a deleted channel's comparison still waits to be sent"
+      assert kept() == [other.id], "a comparison from a deleted channel is still kept"
       drain(endpoint)
 
       assert local_prompts() == [prompt(other)],
@@ -449,12 +498,11 @@ defmodule Ryker.LocalRoutingTest do
     end)
   end
 
-  # The messages whose comparison still waits to be sent.
-  defp waiting,
+  # The messages with a comparison kept, waiting, compared or given up.
+  defp kept,
     do:
       Repo.all(
         from(comparison in Comparison,
-          where: comparison.status == :pending,
           order_by: comparison.inserted_at,
           select: comparison.input_id
         )

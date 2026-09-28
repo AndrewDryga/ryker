@@ -2,6 +2,7 @@ defmodule Ryker.LocalRouting.WorkerTest do
   use Ryker.DataCase, async: false
 
   alias Ryker.Ingress.Inbox
+  alias Ryker.Learning.Observations
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.{Comparison, Worker}
   alias Ryker.PollingWorker
@@ -78,6 +79,7 @@ defmodule Ryker.LocalRouting.WorkerTest do
 
     Repo.insert!(%Comparison{
       input_id: entry.id,
+      source_identity: Observations.source_identity(entry),
       generation: 1,
       execution_mode: :live,
       status: :pending,
