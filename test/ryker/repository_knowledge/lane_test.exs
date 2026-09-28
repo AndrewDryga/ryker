@@ -19,6 +19,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   @merged "1111111111111111111111111111111111111111"
   @pushed "2222222222222222222222222222222222222222"
   @later "3333333333333333333333333333333333333333"
+  @fourth "4444444444444444444444444444444444444444"
 
   # The fleet answers every Coop mutation with an operation still running
   # and the worker finishes it a moment later (the fake's asynchronous mode);
@@ -175,7 +176,8 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   test "the daily check rewrites only when the default branch moved and a key file changed" do
     github!()
     changed = Map.put(answer(), "purpose", answer()["purpose"] <> " It is dual-licensed.")
-    coop = coop!([answer_json(), Jason.encode!(changed), Jason.encode!(changed)])
+    later = Map.put(answer(), "purpose", answer()["purpose"] <> " It is MIT-licensed.")
+    coop = coop!([answer_json(), Jason.encode!(changed), Jason.encode!(later)])
     written!(coop)
 
     # PR 84 is merged; the merge commit changed only RYKER.md.
@@ -250,6 +252,44 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert length(FakeCoopAPI.state(coop).submissions) == 2
     assert %{number: 85} = FakeGitHubRepository.state().open
     assert RepositoryKnowledge.entry("emisar").pull_request_state == :open
+  end
+
+  # The same review: the pull request asks people to review and edit
+  # RYKER.md before merging, and the next update wrote over whatever they
+  # had changed on its branch.
+  test "a person's edits on Ryker's pull request are never written over" do
+    github!()
+    changed = Jason.encode!(Map.put(answer(), "purpose", answer()["purpose"] <> " It ships."))
+    coop = coop!([answer_json(), answer_json(), changed, changed])
+    written!(coop)
+
+    # A rewrite that says the same leaves the branch as it was, and the next
+    # one still finds Ryker's own words there and replaces them.
+    FakeGitHubRepository.push(@head, @pushed, ["README.md"])
+    due!()
+    drain(settings(coop))
+    assert FakeGitHubRepository.state().open.document =~ "Written by Ryker from `783fc48` on "
+
+    FakeGitHubRepository.push(@pushed, @later, ["AGENTS.md"])
+    due!()
+    drain(settings(coop))
+    assert FakeGitHubRepository.state().open.document =~ "It ships."
+
+    # A person edits it there: the next rewrite leaves it alone, and says so.
+    edited = FakeGitHubRepository.state().open.document <> "\nAsk #infra before a deploy.\n"
+    FakeGitHubRepository.edit_open(edited)
+    FakeGitHubRepository.push(@later, @fourth, ["README.md"])
+    due!()
+    drain(settings(coop))
+
+    assert length(FakeCoopAPI.state(coop).submissions) == 4
+    assert FakeGitHubRepository.state().open.document == edited
+    assert FakeGitHubRepository.state().pull_requests == %{84 => :open}
+
+    entry = RepositoryKnowledge.entry("emisar")
+    assert {entry.phase, entry.published_at} == {:idle, nil}
+    assert entry.error =~ "Someone edited RYKER.md on Ryker's pull request"
+    assert DateTime.diff(entry.next_check_at, Repo.now!()) in 86_000..86_400
   end
 
   test "a week after the last write, any code change is enough" do

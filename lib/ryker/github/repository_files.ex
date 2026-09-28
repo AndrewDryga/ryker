@@ -7,9 +7,10 @@ defmodule Ryker.GitHub.RepositoryFiles do
 
   RYKER.md is proposed on one stable branch, `ryker/repository-knowledge`, as a
   draft pull request Ryker never merges. While it is open Ryker updates it
-  there; once it is merged or closed the branch starts again from the
-  default branch head. An archived repository refuses every write, which is
-  checked before one is tried and read from GitHub's refusal after.
+  there, unless a person edited it there; once it is merged or closed the
+  branch starts again from the default branch head. An archived repository
+  refuses every write, which is checked before one is tried and read from
+  GitHub's refusal after.
   """
 
   @behaviour Ryker.GitHub.Onboarding
@@ -180,7 +181,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   # -- Proposing RYKER.md ----------------------------------------------------------
 
   @impl Ryker.RepositoryKnowledge.Remote
-  def publish(binding, repository, %{document: document, body: body}) do
+  def publish(binding, repository, %{document: _, body: _, proposed: _} = proposal) do
     slug = repository.github_repository
 
     with {:ok, client} <- client(binding.name),
@@ -191,8 +192,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
          {:ok, open} <- open_pull(client, slug, owner) do
       base_document = text(base)
 
-      with {:ok, outcome} <-
-             propose(open, client, repository, owner, head, base, document, body),
+      with {:ok, outcome} <- propose(open, client, repository, owner, head, base, proposal),
            do: {:ok, Map.merge(outcome, %{base_commit: head, base_document: base_document})}
     end
   end
@@ -204,19 +204,27 @@ defmodule Ryker.GitHub.RepositoryFiles do
          _owner,
          _head,
          _base,
-         document,
-         body
+         proposal
        )
        when is_binary(url) and is_integer(number) do
-    with :ok <- update_open(client, repository.github_repository, number, document, body),
+    with :ok <- update_open(client, repository.github_repository, number, proposal),
          do: {:ok, %{outcome: :updated, url: url, number: number}}
   end
 
-  defp propose(:not_found, client, repository, owner, head, base, document, body) do
+  defp propose(
+         :not_found,
+         client,
+         repository,
+         owner,
+         head,
+         base,
+         %{document: document} = proposal
+       ) do
     if Document.same?(text(base), document) do
       {:ok, %{outcome: :unchanged, url: nil, number: nil}}
     else
-      with {:ok, pull} <- open_new(client, repository, owner, head, base, document, body),
+      with {:ok, pull} <-
+             open_new(client, repository, owner, head, base, document, proposal.body),
            do: {:ok, Map.put(pull, :outcome, :opened)}
     end
   end
@@ -224,13 +232,37 @@ defmodule Ryker.GitHub.RepositoryFiles do
   # The open pull request holds Ryker's last proposal: the new one replaces
   # its file, and its description says why. A branch that already says the
   # same is left alone rather than given a commit that only moves the date.
-  defp update_open(client, slug, number, document, body) do
-    with {:ok, current} <- file(client, slug, @path, @branch) do
-      if Document.same?(text(current), document),
-        do: :ok,
-        else: replace_proposal(client, slug, number, current, document, body)
+  # The pull request asks people to review and edit it, so a branch that
+  # says anything but what Ryker last proposed (a person edited it, removed
+  # it, or made it one Ryker cannot read) is theirs, and is left alone too.
+  defp update_open(client, slug, number, %{document: document} = proposal) do
+    case file(client, slug, @path, @branch) do
+      {:ok, current} ->
+        cond do
+          Document.same?(text(current), document) ->
+            :ok
+
+          ryker_proposal?(current, proposal.proposed) ->
+            replace_proposal(client, slug, number, current, document, proposal.body)
+
+          true ->
+            {:error, :repository_knowledge_proposal_edited}
+        end
+
+      {:error, :source_unavailable} ->
+        {:error, :repository_knowledge_proposal_edited}
+
+      {:error, _reason} = error ->
+        error
     end
   end
+
+  # Compared as documents, without their provenance lines: a rewrite that
+  # said the same left the branch's older line in place.
+  defp ryker_proposal?(%{text: text}, proposed) when is_binary(proposed),
+    do: Document.same?(text, proposed)
+
+  defp ryker_proposal?(_current, _proposed), do: false
 
   defp replace_proposal(client, slug, number, current, document, body) do
     with :ok <- write_file(client, slug, current, document, "Update Ryker repository knowledge") do
