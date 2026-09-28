@@ -1193,7 +1193,61 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert_received {:memory_review, "memory-review:two", :edit,
                      %{"subject" => "primary_codebase", "value" => "ryker-elixir"}}
 
-    assert get_resp_header(accepted, "location") == ["/memory"]
+    assert get_resp_header(accepted, "location") == ["/memory#review"]
+  end
+
+  # A kind with no return path of its own fell back to /memory, the page that
+  # once listed facts, instructions and schedules together. A fact review then
+  # landed at the top of Facts, above the reviews it was taken from, and an
+  # action no page offers was refused with a way back to Facts.
+  test "an action on a fact or a fact review returns to where it was taken from" do
+    for {path, action, refusal, back} <- [
+          {"/actions/memory/memory%3Aone/forget", :forget_memory, fn _ref -> {:error, :stale} end,
+           "/memory"},
+          {"/actions/memory-review/memory-review%3Aone/keep", :resolve_memory_review,
+           fn _ref, _action, _replacement -> {:error, :stale} end, "/memory#review"},
+          {"/actions/memory-review/memory-review%3Aone/merge", :resolve_memory_review,
+           fn _ref, _action, _replacement -> {:error, :stale} end, "/memory#review"},
+          {"/actions/memory-review/memory-review%3Aone/forget", :resolve_memory_review,
+           fn _ref, _action, _replacement -> {:error, :stale} end, "/memory#review"}
+        ] do
+      confirmation = request(:get, path)
+      assert {path, links(confirmation, "section.confirm a")} == {path, [back]}
+      [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
+      form = URI.encode_query(%{"_token" => token})
+
+      accepted = request(:post, path, form)
+      assert {path, get_resp_header(accepted, "location")} == {path, [back]}
+
+      refused =
+        request_with_options(:post, path, form, put_in(options(), [:actions, action], refusal))
+
+      assert {path, refused.status} == {path, 409}
+      assert {path, links(refused, ".document-unavailable a")} == {path, [back]}
+    end
+
+    edit = "/actions/memory-review/memory-review%3Atwo/edit"
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, request(:get, edit).resp_body)
+
+    form =
+      URI.encode_query(%{"_token" => token, "subject" => "primary_codebase", "value" => "ryker"})
+
+    assert get_resp_header(request(:post, edit, form), "location") == ["/memory#review"]
+
+    refusing =
+      put_in(options(), [:actions, :resolve_memory_review], fn _ref, _action, _replacement ->
+        {:error, :stale}
+      end)
+
+    refused = request_with_options(:post, edit, form, refusing)
+    assert refused.status == 409
+    assert links(refused, ".document-unavailable a") == ["/memory#review"]
+  end
+
+  test "an action no page offers is refused with the way home" do
+    refused = request(:post, "/actions/unknown/ref/delete", URI.encode_query(%{"_token" => "x"}))
+    assert refused.status == 409
+    assert links(refused, ".document-unavailable a") == ["/"]
   end
 
   test "resuming a learning session's cleanup returns to the Learning page, where it is listed" do
@@ -2121,6 +2175,13 @@ defmodule Ryker.ControlPlane.RouterTest do
   end
 
   defp options, do: ControlPlaneOptions.options(self())
+
+  defp links(response, selector) do
+    response.resp_body
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(selector)
+    |> LazyHTML.attribute("href")
+  end
 
   defp routing_examples(export) do
     options = options()
