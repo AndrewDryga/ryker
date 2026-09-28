@@ -88,8 +88,10 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       assert LazyHTML.query(row, ".entity-name a[href='/schedules/schedule%3Aone']")
              |> LazyHTML.text() == "Morning incident summary"
 
-      # Its buttons are at the far edge, so its state sits beside its name.
-      assert LazyHTML.query(row, "h3.entity-name .state-word[data-tone=on]") |> LazyHTML.text() ==
+      # The whole row opens the schedule, and its state sits at the far edge.
+      assert LazyHTML.attribute(row, "class") |> hd() =~ "entity-row-link"
+
+      assert LazyHTML.query(row, ".entity-side .state-word[data-tone=on]") |> LazyHTML.text() ==
                "On"
 
       # The first line of the task; the rest is on the schedule's own page.
@@ -115,16 +117,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
           ] do
         row = list_row(%{@item | status: status})
 
-        # A schedule that can still change carries its buttons, and its state
-        # sits beside its name; one that cannot keeps it at the far edge.
-        state =
-          LazyHTML.query(
-            row,
-            if(status in [:active, :paused, :completed],
-              do: "h3.entity-name .state-word",
-              else: ".entity-side .state-word"
-            )
-          )
+        state = LazyHTML.query(row, ".entity-side .state-word")
 
         assert LazyHTML.text(state) == word
         assert LazyHTML.attribute(state, "data-tone") == [tone]
@@ -132,7 +125,11 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       end
     end
 
-    test "only a schedule that can still change offers actions, with Delete behind its more menu" do
+    # Andrew, 2026-09-28: "same issue on many other pages". A row opens its
+    # schedule from anywhere on the row and carries no buttons; Run now, Pause
+    # and Resume sit opposite the schedule's title, and Delete is its page's
+    # last card while the schedule can still change.
+    test "a row carries no buttons; the schedule's page offers its actions" do
       for {status, controls, deletable} <- [
             {:active, ["Run now", "Pause"], true},
             {:paused, ["Run now", "Resume"], true},
@@ -140,25 +137,26 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
             {:expired, [], false},
             {:deleted, [], false}
           ] do
-        row = list_row(%{@item | status: status})
+        schedule = %{@item | status: status}
+        row = list_row(schedule)
+        assert Enum.empty?(LazyHTML.query(row, ".entity-actions, button, details"))
 
-        assert row
-               |> LazyHTML.query(".entity-actions > form.action-control button")
-               |> Enum.map(&LazyHTML.text/1) == controls
+        header =
+          case SchedulesPage.actions(schedule) do
+            nil -> []
+            html -> html |> LazyHTML.from_fragment() |> LazyHTML.query("button")
+          end
 
-        menu = LazyHTML.query(row, ".entity-actions > details.schedule-menu")
-        assert Enum.count(menu) == if(deletable, do: 1, else: 0)
+        assert Enum.map(header, &LazyHTML.text/1) == controls
 
-        if deletable do
-          assert LazyHTML.query(menu, "summary .sr-only") |> LazyHTML.text() ==
-                   "More actions for Morning incident summary"
+        delete =
+          snapshot(%{status: status})
+          |> detail()
+          |> LazyHTML.query(
+            "#delete-schedule form[action='/actions/schedule/schedule%3Aone/deleted'] button.danger"
+          )
 
-          assert menu
-                 |> LazyHTML.query(
-                   "form[action='/actions/schedule/schedule%3Aone/deleted'] button"
-                 )
-                 |> LazyHTML.text() == "Delete"
-        end
+        assert Enum.count(delete) == if(deletable, do: 1, else: 0)
       end
     end
 
@@ -298,7 +296,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
   end
 
   describe "a schedule's page" do
-    test "facts, what it asks for, its runs and one closed Details disclosure, in that order" do
+    test "facts, what it asks for, its runs, one closed Details disclosure, then Delete, in that order" do
       document = detail(snapshot())
 
       assert LazyHTML.query(document, ".kit-status-line .state-word[data-tone=on]")
@@ -319,7 +317,8 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
 
       assert LazyHTML.query(document, ".section-head h2") |> Enum.map(&LazyHTML.text/1) == [
                "What it asks for",
-               "Runs"
+               "Runs",
+               "Delete schedule"
              ]
 
       assert LazyHTML.query(document, "p.schedule-task") |> LazyHTML.text() ==

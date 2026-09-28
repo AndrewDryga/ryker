@@ -282,7 +282,11 @@ defmodule Ryker.ControlPlane.SetupPageTest do
              "Emisar account is connected. No environment uses it yet: choose it for one on the Environments page."
   end
 
-  test "each integration says its state, what it gives Ryker and the one action that fits" do
+  # Andrew, 2026-09-28: "same issue on many other pages, we need more
+  # consistency". Each integration's row opens its page from anywhere on the
+  # row, and every step, from Connect to Repair, is on that page: the row has
+  # no button of its own.
+  test "each integration says its state and what it gives Ryker, and its row opens its page" do
     view =
       view(
         done: [:slack],
@@ -305,34 +309,33 @@ defmodule Ryker.ControlPlane.SetupPageTest do
              ["Slack", "GitHub", "Emisar", "Webhooks"]
 
     expected = [
-      {"slack", "Connected", "Manage", "/integrations/slack", "Acme · @ryker · 2 people"},
-      {"github", "Needs repair", "Repair", "/integrations/github#github-app", "no longer works"},
-      {"emisar", "Not connected", "Connect", "/integrations/emisar",
-       "cannot act on anything that is running"},
-      {"webhooks", "Not set up", "Set up", "/integrations/webhooks", nil}
+      {"slack", "Connected", "Acme · @ryker · 2 people"},
+      {"github", "Needs repair", "no longer works"},
+      {"emisar", "Not connected", "cannot act on anything that is running"},
+      {"webhooks", "Not set up", nil}
     ]
 
-    for {key, word, label, href, fact} <- expected do
+    for {key, word, fact} <- expected do
       row = LazyHTML.query(document, "#integration-#{key}")
       assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() == word, key
       assert LazyHTML.query(row, ".entity-text") |> LazyHTML.text() != "", key
+      assert LazyHTML.attribute(row, "class") |> hd() =~ "entity-row-link", key
 
-      action = LazyHTML.query(row, ".entity-actions a")
-      assert action |> LazyHTML.text() |> String.trim() |> String.starts_with?(label), key
-      assert LazyHTML.attribute(action, "href") == [href], key
+      assert LazyHTML.query(row, ".entity-name a") |> LazyHTML.attribute("href") == [
+               "/integrations/#{key}"
+             ],
+             key
+
+      assert Enum.empty?(LazyHTML.query(row, ".entity-actions, .ui-button")), key
       if fact, do: assert(LazyHTML.query(row, ".entity-meta") |> text() =~ fact, key)
     end
 
-    # Emisar is optional, so it is the one integration marked Recommended, and
-    # its Connect is the page's one primary action.
+    # Emisar is optional, so it is the one integration marked Recommended.
     assert LazyHTML.query(document, ".entity-tag") |> Enum.map(&LazyHTML.text/1) == [
              "Recommended"
            ]
 
     assert LazyHTML.query(document, "#integration-emisar .entity-tag") |> Enum.count() == 1
-
-    assert LazyHTML.query(document, ".integrations-list a.ui-button.primary")
-           |> LazyHTML.attribute("href") == ["/integrations/emisar"]
   end
 
   defp render_setup(view) do

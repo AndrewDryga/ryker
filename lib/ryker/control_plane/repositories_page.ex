@@ -1,16 +1,19 @@
 defmodule Ryker.ControlPlane.RepositoriesPage do
   @moduledoc """
-  The Repositories list: the code Ryker can read and work in, one Kit row per
-  repository. A row says whether the repository is ready, still being set up,
-  not fully added or needs a person, and what to do about it, which
-  environments it is in, and where its RYKER.md stands: when Ryker last
-  updated it, and what is under way or failed (`Ryker.RepositoryKnowledge`).
-  Access, permissions, GitHub events, RYKER.md
-  and the last code Ryker used wait in one closed Details disclosure per row.
-  A ready repository's RYKER.md can be refreshed at once, and every added
-  repository can be removed; the page asks first, over the list
-  (`refresh_question/1`, `removal/1`). An open list redraws when anything a
-  row says changes (`subscriptions/0`).
+  The Repositories list and each repository's own page: the code Ryker can
+  read and work in.
+
+  A row says whether the repository is ready, still being set up, not fully
+  added or needs a person, and what to do about it, which environments it is
+  in, and where its knowledge stands: when Ryker last updated it, and what is
+  under way or failed (`Ryker.RepositoryKnowledge`). The whole row opens the
+  repository's page (`detail_html/2`), which holds everything else in cards:
+  what needs doing and its buttons, the knowledge itself, where the
+  repository is used, GitHub's side, the last code Ryker used, and removing
+  it (Andrew, 2026-09-28: "repos missing their own page where that buttons
+  will move to"). Refreshing its knowledge and removing it ask first, over
+  the page (`refresh_question/1`, `removal/1`). An open page redraws when
+  anything it says changes (`subscriptions/0`).
   """
   use Phoenix.Component
 
@@ -99,52 +102,12 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
           id={"repository-" <> item.ref}
           icon={:repository}
           name={name(item)}
+          href={path(item.ref)}
+          link_row
           state={state(item)}
           text={problem(item) || knowledge_problem(item)}
           meta={meta(item, @now)}
-        >
-          <:actions :if={removable?(item)}>
-            <button
-              :if={refreshable?(item)}
-              type="button"
-              class="ui-button quiet"
-              phx-click="confirm-settings-action"
-              phx-value-action="refresh-knowledge"
-              phx-value-ref={item.ref}
-            >Refresh knowledge<span class="sr-only">{" of " <> name(item)}</span></button>
-            <button
-              :if={retry?(item)}
-              type="button"
-              class="ui-button secondary"
-              phx-click="retry-github-onboarding"
-              phx-value-repository={item.ref}
-              phx-disable-with="Retrying…"
-            >Retry setup</button>
-            <button
-              :if={add_again?(item)}
-              type="button"
-              class="ui-button secondary"
-              phx-click="add-repository-again"
-              phx-value-repository={item.ref}
-              phx-disable-with="Adding…"
-            >Add it again</button>
-            <button
-              type="button"
-              class="ui-button quiet"
-              phx-click="confirm-settings-action"
-              phx-value-action="remove-repository"
-              phx-value-ref={item.ref}
-            >Remove<span class="sr-only">{" " <> name(item)}</span></button>
-          </:actions>
-          <:details>
-            <details id={"repository-" <> item.ref <> "-details"} class="entity-details">
-              <summary>Details</summary>
-              <dl class="entity-facts">
-                <.facts item={item} now={@now} />
-              </dl>
-            </details>
-          </:details>
-        </Kit.entity_row>
+        />
       </Kit.entity_list>
       <Kit.empty
         :if={@items == [] and @view.q != ""}
@@ -450,87 +413,214 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     """
   end
 
+  @doc "A repository's own page."
+  @spec path(String.t()) :: String.t()
+  def path(ref), do: "/repositories/" <> URI.encode(ref, &URI.char_unreserved?/1)
+
+  @doc "A repository's page as the route hands it to the shell, under its name."
+  @spec detail_html(map(), DateTime.t()) :: iodata()
+  def detail_html(item, now \\ DateTime.utc_now()),
+    do: Safe.to_iodata(detail(%{__changed__: nil, item: item, now: now}))
+
   attr(:item, :map, required: true)
   attr(:now, :any, required: true)
 
-  # The support facts behind a row, as plain sentences: nothing here is
-  # needed to understand the row, and everything here is exact.
-  defp facts(assigns) do
-    assigns = assign(assigns, :repository, assigns.item.configured || %{})
+  # Its state first, then what needs a person and the buttons that fix it,
+  # the knowledge every task here starts from, where the repository is used,
+  # GitHub's side, the code Ryker last used, and removing it last.
+  defp detail(assigns) do
+    item = assigns.item
+
+    assigns =
+      assign(assigns,
+        repository: item.configured || %{},
+        state: state(item),
+        problem: problem(item),
+        knowledge: item[:knowledge]
+      )
 
     ~H"""
-    <.fact :if={@repository[:github_repository]} label="GitHub">
-      {@repository.github_repository} · access {access(@repository[:github_access])}
-    </.fact>
-    <.fact :if={@repository[:onboarding_state]} label="Setup">
-      {setup(@repository.onboarding_state)}
-    </.fact>
-    <.fact :if={@repository[:onboarding_state]} label="Knowledge">
-      {knowledge(@item[:knowledge])}
-      <Components.disclosure
-        :if={@item[:knowledge][:document]}
-        id={"repository-knowledge-#{@repository.ref}"}
-        label="Read it"
-        class="repository-knowledge-document"
+    <div class="repository-page">
+      <Kit.status_line id="repository-state" state={@state}>
+        <span :for={fact <- status_facts(@item, @now)}>{fact}</span>
+      </Kit.status_line>
+      <Kit.section_card :if={@problem} id="repository-attention" title="What to do" lede={@problem}>
+        <:actions :if={retry?(@item) or add_again?(@item)}>
+          <button
+            :if={retry?(@item)}
+            type="button"
+            class="ui-button primary"
+            phx-click="retry-github-onboarding"
+            phx-value-repository={@item.ref}
+            phx-disable-with="Retrying…"
+          >Retry setup</button>
+          <button
+            :if={add_again?(@item)}
+            type="button"
+            class="ui-button primary"
+            phx-click="add-repository-again"
+            phx-value-repository={@item.ref}
+            phx-disable-with="Adding…"
+          >Add it again</button>
+        </:actions>
+      </Kit.section_card>
+      <Kit.section_card
+        :if={@repository[:onboarding_state]}
+        id="repository-knowledge"
+        title="Knowledge"
+        lede="What Ryker knows about this repository, written by a model from its code. Every task here starts from it. Nothing is written to the repository."
       >
-        <pre>{@item.knowledge.document}</pre>
-      </Components.disclosure>
-    </.fact>
-    <.fact :if={@item[:knowledge][:reason]} label="Last written because">
-      {@item.knowledge.reason}
-    </.fact>
-    <.fact :if={@item[:knowledge][:next_check_at]} label="Knowledge checks">
-      <ShortTime.time
-        :if={@item.knowledge.checked_at}
-        at={@item.knowledge.checked_at}
-        now={@now}
-        prefix="Last "
-      /><span :if={@item.knowledge.checked_at}>, next </span><ShortTime.time
-        at={@item.knowledge.next_check_at}
-        now={@now}
-        prefix={if @item.knowledge.checked_at, do: nil, else: "Next "}
+        <:actions :if={refreshable?(@item)}>
+          <button
+            type="button"
+            class="ui-button secondary"
+            phx-click="confirm-settings-action"
+            phx-value-action="refresh-knowledge"
+            phx-value-ref={@item.ref}
+          >Refresh knowledge</button>
+        </:actions>
+        <dl class="kit-facts">
+          <.fact label="Written">
+            {knowledge(@knowledge)}<ShortTime.time
+              :if={@knowledge[:document_at]}
+              at={@knowledge.document_at}
+              now={@now}
+              prefix=", "
+            /><span :if={writing?(@knowledge)}> · being rewritten now</span>
+          </.fact>
+          <.fact :if={@knowledge[:reason]} label="Why">{@knowledge.reason}</.fact>
+          <.fact :if={@knowledge[:next_check_at]} label="Checks">
+            <ShortTime.time
+              :if={@knowledge.checked_at}
+              at={@knowledge.checked_at}
+              now={@now}
+              prefix="Last "
+            /><span :if={@knowledge.checked_at}>, next </span><ShortTime.time
+              at={@knowledge.next_check_at}
+              now={@now}
+              prefix={if @knowledge.checked_at, do: nil, else: "Next "}
+            />
+          </.fact>
+          <.fact :if={knowledge_problem(@item)} label="Last try">
+            <Kit.state tone={:warn} word="Failed" /> {knowledge_problem(@item)}
+          </.fact>
+        </dl>
+        <Components.copy_block :if={@knowledge[:document]} label="Copy the knowledge">
+          <pre id="repository-knowledge-document" class="repository-knowledge-document">{@knowledge.document}</pre>
+        </Components.copy_block>
+      </Kit.section_card>
+      <Kit.section_card
+        id="repository-use"
+        title="Where it is used"
+        lede="Channels choose environments, so work here comes from the channels, schedules and conversations of its environments."
+      >
+        <dl class="kit-facts">
+          <.fact label="Environments">
+            <%= if @item.in_environments == [] do %>
+              None yet, so no channel's work can use it.
+              <a href="/environments">Add it to an environment</a>
+            <% else %>
+              <%!-- Each name but the last carries its comma, so no space
+              ever comes before one. --%>
+              <%= for {environment, comma} <- with_commas(@item.in_environments) do %>
+                <a href={
+                  "/environments/" <> URI.encode(environment.ref, &URI.char_unreserved?/1) <> "/edit"
+                }>{environment.name}</a>{comma}
+              <% end %>
+            <% end %>
+          </.fact>
+          <.fact label="Channels">{count(@item.channels, "channel", "channels")}</.fact>
+          <.fact label="Schedules">{count(@item.schedules, "schedule", "schedules")}</.fact>
+          <.fact label="Tasks">
+            {count(@item.sessions, "task", "tasks")}<span> · </span><a href={
+              "/activity?" <> URI.encode_query(%{"repository" => @item.ref})
+            }>See its requests</a>
+          </.fact>
+          <.fact :if={@item.publications > 0} label="Pull requests">
+            {plural(@item.publications, "pull request", "pull requests")} opened by Ryker
+          </.fact>
+        </dl>
+      </Kit.section_card>
+      <Kit.section_card
+        :if={@repository[:github_repository] || Map.has_key?(@repository, :github_permissions)}
+        id="repository-github"
+        title="GitHub"
+        lede="What the Ryker GitHub App may do in this repository, and the events GitHub sends Ryker from it."
+      >
+        <dl class="kit-facts">
+          <.fact :if={@repository[:github_repository]} label="Repository">
+            <a
+              href={"https://github.com/" <> @repository.github_repository}
+              target="_blank"
+              rel="noopener noreferrer"
+            >{@repository.github_repository}</a>
+          </.fact>
+          <.fact label="Access">{access(@repository[:github_access])}</.fact>
+          <.fact :if={Map.has_key?(@repository, :github_permissions)} label="Permissions">
+            {permissions(@repository.github_permissions)}
+          </.fact>
+          <.fact :if={@repository[:action_grants] not in [nil, []]} label="Allowed actions">
+            {Enum.map_join(@repository.action_grants, ", ", &String.replace(&1, "_", " "))}
+          </.fact>
+          <.fact :if={is_map(@repository[:github_health])} label="Events">
+            {events(@repository.github_health)}<ShortTime.time
+              :if={@repository.github_health.last_event_at}
+              at={@repository.github_health.last_event_at}
+              now={@now}
+              prefix=", last received "
+            />
+          </.fact>
+        </dl>
+      </Kit.section_card>
+      <Kit.section_card
+        id="repository-code"
+        title="Code"
+        lede="The code Ryker's last task here worked from, as that task recorded it. It is not a live check of GitHub."
+      >
+        <dl class="kit-facts">
+          <.fact label="Last used">
+            <%= if @item.freshness do %>
+              <code>{@item.freshness.resolved_revision}</code>
+              from {@item.freshness.requested_revision}<ShortTime.time
+                :if={parse(@item.freshness.fetched_at)}
+                at={parse(@item.freshness.fetched_at)}
+                now={@now}
+                prefix=", fetched "
+              />
+            <% else %>
+              None yet. It appears after Ryker's first task in this repository.
+            <% end %>
+          </.fact>
+          <.fact :if={@item.freshness} label="Base">
+            {Words.label(@item.freshness.stale_base_status || "not recorded")}
+            <code :if={@item.freshness.workspace_base_revision}>
+              {@item.freshness.workspace_base_revision}
+            </code>
+          </.fact>
+        </dl>
+      </Kit.section_card>
+      <Kit.remove_card
+        :if={removable?(@item)}
+        id="remove-repository"
+        title="Remove repository"
+        text={removal(@item).text}
+        phx-click="confirm-settings-action"
+        phx-value-action="remove-repository"
+        phx-value-ref={@item.ref}
       />
-    </.fact>
-    <.fact :if={Map.has_key?(@repository, :github_permissions)} label="Permissions">
-      {permissions(@repository.github_permissions)}
-    </.fact>
-    <.fact :if={@repository[:action_grants] not in [nil, []]} label="Allowed GitHub actions">
-      {Enum.map_join(@repository.action_grants, ", ", &String.replace(&1, "_", " "))}
-    </.fact>
-    <.fact :if={is_map(@repository[:github_health])} label="GitHub events">
-      {events(@repository.github_health)}<ShortTime.time
-        :if={@repository.github_health.last_event_at}
-        at={@repository.github_health.last_event_at}
-        now={@now}
-        prefix=", last received "
-      />
-    </.fact>
-    <.fact label="Last code used">
-      <%= if @item.freshness do %>
-        <code>{@item.freshness.resolved_revision}</code>
-        from {@item.freshness.requested_revision}, fetched {Components.timestamp(
-          parse(@item.freshness.fetched_at)
-        )}. This is the code saved with Ryker's last task here, not a live check.
-      <% else %>
-        None yet. It appears after Ryker's first task in this repository.
-      <% end %>
-    </.fact>
-    <.fact :if={@item.freshness} label="Base">
-      {Words.label(@item.freshness.stale_base_status || "not recorded")}
-      <code :if={@item.freshness.workspace_base_revision}>
-        {@item.freshness.workspace_base_revision}
-      </code>
-    </.fact>
-    <.fact :if={@item.publications > 0} label="Pull requests">
-      {plural(@item.publications, "pull request", "pull requests")} opened by Ryker
-    </.fact>
-    <.fact label="Requests">
-      <a href={"/activity?" <> URI.encode_query(%{"repository" => @item.ref})}>
-        See requests in this repository
-      </a>
-    </.fact>
+    </div>
     """
   end
+
+  # The state's own facts: while the repository is set up, the step and since
+  # when. Everything else has its card.
+  defp status_facts(%{configured: %{github_bound: false}}, _now), do: []
+
+  defp status_facts(%{configured: %{onboarding_state: onboarding} = repository}, now)
+       when onboarding in @setting_up,
+       do: meta(%{configured: repository}, now) |> Enum.reject(&is_nil/1)
+
+  defp status_facts(_item, _now), do: []
 
   attr(:label, :string, required: true)
   slot(:inner_block, required: true)
@@ -544,24 +634,25 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     """
   end
 
-  defp access(:available), do: "available"
-  defp access(:suspended), do: "suspended"
-  defp access(:removed), do: "removed"
-  defp access(_unknown), do: "not recorded"
+  defp with_commas(items),
+    do: Enum.zip(items, List.duplicate(",", max(length(items) - 1, 0)) ++ [""])
 
-  defp setup(:pending), do: "Waiting to start"
-  defp setup(:cloning), do: "Copying the code"
-  defp setup(:ready), do: "Done"
-  defp setup(:blocked), do: "Stopped"
+  defp count(0, _one, _many), do: "None"
+  defp count(count, one, many), do: plural(count, one, many)
 
-  # Who wrote the RYKER.md Work is briefed with.
+  defp access(:available), do: "Available"
+  defp access(:suspended), do: "Suspended in GitHub"
+  defp access(:removed), do: "Removed in GitHub"
+  defp access(_unknown), do: "Not recorded"
+
+  # Who wrote the knowledge Work is briefed with, and from which commit.
   defp knowledge(%{document_by: :outline, document_commit: commit}),
-    do: "An outline from the file list at #{short(commit)}; a model could not finish reading it."
+    do: "An outline from the file list at #{short(commit)}; a model could not finish reading it"
 
   defp knowledge(%{document_by: :model, document_commit: commit}),
-    do: "Written by a model from #{short(commit)}."
+    do: "By a model from #{short(commit)}"
 
-  defp knowledge(_knowledge), do: "Not written yet."
+  defp knowledge(_knowledge), do: "Not yet"
 
   defp short(commit), do: String.slice(commit, 0, 7)
 

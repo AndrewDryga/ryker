@@ -958,37 +958,10 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
              fun
            )}
         end,
-        repositories: fn _params ->
-          [
-            %{
-              channels: 1,
-              configured: %{contributor_policy: "ryker-write"},
-              environments: ["Production"],
-              freshness: %{
-                fetched_at: "2026-08-28T11:59:00Z",
-                recorded_at: ~U[2026-08-28 12:00:00Z],
-                remote_identity: "origin",
-                requested_revision: "refs/heads/main",
-                resolved_revision: String.duplicate("a", 40),
-                stale_base_revision: nil,
-                stale_base_status: "current",
-                version: 2,
-                workspace_base_revision: String.duplicate("a", 40)
-              },
-              publications: 0,
-              ref: "ryker",
-              schedules: 1,
-              sessions: 2,
-              workers: [
-                %{
-                  last_seen_at: ~U[2026-08-28 12:00:00Z],
-                  revision: "commit:abc123",
-                  state: :eligible,
-                  worker_ref: "coop-worker-one"
-                }
-              ]
-            }
-          ]
+        repositories: fn _params -> [repository_row()] end,
+        repository: fn
+          "ryker" -> {:ok, repository_row()}
+          _other -> :error
         end,
         schedules: fn _params ->
           [
@@ -1470,5 +1443,39 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         updated_at: ~U[2026-08-28 11:55:00Z]
       }
     ]
+  end
+
+  # One repository, as the list shows it and as its own page reads it.
+  defp repository_row do
+    %{
+      channels: 1,
+      configured: %{contributor_policy: "ryker-write"},
+      environments: ["Production"],
+      in_environments: [%{ref: "production", name: "Production"}],
+      knowledge: nil,
+      freshness: %{
+        fetched_at: "2026-08-28T11:59:00Z",
+        recorded_at: ~U[2026-08-28 12:00:00Z],
+        remote_identity: "origin",
+        requested_revision: "refs/heads/main",
+        resolved_revision: String.duplicate("a", 40),
+        stale_base_revision: nil,
+        stale_base_status: "current",
+        version: 2,
+        workspace_base_revision: String.duplicate("a", 40)
+      },
+      publications: 0,
+      ref: "ryker",
+      schedules: 1,
+      sessions: 2,
+      workers: [
+        %{
+          last_seen_at: ~U[2026-08-28 12:00:00Z],
+          revision: "commit:abc123",
+          state: :eligible,
+          worker_ref: "coop-worker-one"
+        }
+      ]
+    }
   end
 end

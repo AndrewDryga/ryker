@@ -470,14 +470,17 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() == "Retry should work"
     assert LazyHTML.text(row) =~ "still holds this session"
 
-    assert LazyHTML.query(row, "form") |> LazyHTML.attribute("action") == [
-             "/actions/retention/#{encoded}/rearm"
-           ]
-
+    # The row opens the failure's page, where the retry is the primary step.
     detail = page(["failures", "retention", encoded])
     assert detail.status == 200
     assert detail.body =~ "Should work"
     refute detail.body =~ "Will fail"
+
+    assert detail.body
+           |> IO.iodata_to_binary()
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("form[action='/actions/retention/#{encoded}/rearm'] button")
+           |> LazyHTML.attribute("class") == ["ui-button primary"]
 
     # A worker removed from Ryker holds nothing Ryker can reach: the retry
     # records the session as unreachable instead of waiting on it.

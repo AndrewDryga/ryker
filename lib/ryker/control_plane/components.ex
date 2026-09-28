@@ -39,7 +39,8 @@ defmodule Ryker.ControlPlane.Components do
       "M6 3v12 M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M18 9a9 9 0 0 1-9 9",
     bolt: "M13 2 4 14h7l-1 8 9-12h-7l1-8Z",
     pen: "M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z M13.5 6.5l3 3",
-    plug: "M9 2v6 M15 2v6 M6 8h12v4a6 6 0 0 1-12 0V8Z M12 18v4"
+    plug: "M9 2v6 M15 2v6 M6 8h12v4a6 6 0 0 1-12 0V8Z M12 18v4",
+    tag: "M3 3h8l10 10-8 8L3 11V3Z M7.5 7.5h.01"
   }
 
   attr(:name, :atom, required: true)

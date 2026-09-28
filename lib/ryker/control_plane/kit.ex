@@ -22,9 +22,14 @@ defmodule Ryker.ControlPlane.Kit do
 
   Adding or editing one thing happens on a page of its own, the form in one
   `form_card/1` under a title that says what it adds or edits and the way
-  back to its list; a list never opens a form in place. Anything that
-  removes, deletes or forgets asks first in `confirm_modal/1`, over the page,
-  so the row that asked never grows or moves.
+  back to its list; a list never opens a form in place. A list of things
+  that each have a page, such as environments, channels or repositories, is
+  a way into them: the whole row opens the item (`link_row`) and carries no
+  buttons, and the item's page holds everything that can be done to it, with
+  removing it last, in `remove_card/1` (Andrew, 2026-09-28: "click on row
+  opens edit view and delete can be a button/section on edit page").
+  Anything that removes, deletes or forgets asks first in `confirm_modal/1`,
+  over the page, so nothing that asked ever grows or moves.
   """
   use Phoenix.Component
 
@@ -500,6 +505,41 @@ defmodule Ryker.ControlPlane.Kit do
         <:actions :if={@actions != []}>{render_slot(@actions)}</:actions>
       </.section_head>
       {render_slot(@inner_block)}
+    </section>
+    """
+  end
+
+  attr(:id, :string, default: nil)
+
+  attr(:title, :string,
+    required: true,
+    doc: "What it removes, as its button says: Remove account"
+  )
+
+  attr(:text, :string, required: true, doc: "What removing it changes, and what stays")
+
+  attr(:path, :string,
+    default: nil,
+    doc: "A confirmed action's address, such as a schedule's delete, instead of an event"
+  )
+
+  attr(:rest, :global, doc: "The event, and its values, the button sends to ask first")
+
+  @doc """
+  The last part of an item's own page: removing, deleting or forgetting the
+  item, in a card of its own under everything else, with one danger button
+  that only asks; the question opens in `confirm_modal/1`. Every item goes
+  the same way, from an environment to a learned topic.
+  """
+  def remove_card(assigns) do
+    ~H"""
+    <section id={@id} class="kit-card kit-remove-card" aria-label={@title}>
+      <.section_head title={@title} lede={@text}>
+        <:actions>
+          <Components.action_button :if={@path} path={@path} label={@title} tone={:danger} />
+          <button :if={!@path} type="button" class="ui-button danger" {@rest}>{@title}</button>
+        </:actions>
+      </.section_head>
     </section>
     """
   end

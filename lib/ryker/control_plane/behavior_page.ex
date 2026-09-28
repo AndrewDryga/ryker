@@ -97,16 +97,14 @@ defmodule Ryker.ControlPlane.BehaviorPage do
           <Kit.entity_row
             :for={run <- @view.runs}
             name={rule_name(@view.items, run.rule_ref)}
-            href={"#behavior-" <> run.rule_ref}
+            href={
+              if run.episode_ref,
+                do: "/timeline/" <> URI.encode_www_form(run.episode_ref),
+                else: "#behavior-" <> run.rule_ref
+            }
+            link_row
             meta={[outcome(run), when_fact(run.at, @now)]}
-          >
-            <:actions :if={run.episode_ref}>
-              <a
-                class="ui-button secondary"
-                href={"/timeline/" <> URI.encode_www_form(run.episode_ref)}
-              >Open<span class="sr-only"> what Ryker did</span></a>
-            </:actions>
-          </Kit.entity_row>
+          />
         </Kit.entity_list>
         <Kit.empty
           :if={@view.runs == []}
@@ -158,13 +156,10 @@ defmodule Ryker.ControlPlane.BehaviorPage do
             :for={row <- @channel_rows}
             id={row.id}
             name={row.name}
-            href={row.page}
+            href={row.href}
+            link_row
             text={row.quote}
-          >
-            <:actions>
-              <a class="ui-button secondary" href={row.href}>Edit<span class="sr-only"> the instructions for {row.name}</span></a>
-            </:actions>
-          </Kit.entity_row>
+          />
         </Kit.entity_list>
         <Kit.empty
           :if={@channel_rows == []}
@@ -601,7 +596,6 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       %{
         id: "channel-instructions-#{channel.workspace_ref}-#{channel.channel_ref}",
         name: name,
-        page: page,
         quote: "“" <> clamp(channel.text) <> "”",
         href: page <> "#instructions-slack:#{channel.workspace_ref}:#{channel.channel_ref}"
       }

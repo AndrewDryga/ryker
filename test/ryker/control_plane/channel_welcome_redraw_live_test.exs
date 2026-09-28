@@ -103,6 +103,13 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
             ),
           else: {:error, :slack_not_running}
       end)
+      # What the running Slack runtime does when the page removes Ryker
+      # (`Ryker.Slack.Runtime.leave_channel/2`).
+      |> Map.put(:leave_channel, fn workspace_ref, channel_ref ->
+        if Agent.get(running, & &1),
+          do: ChannelSetup.leave(workspace_ref, channel_ref, slack),
+          else: {:error, :slack_not_running}
+      end)
 
     start_supervised!(
       {Endpoint,
@@ -135,6 +142,44 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
       )
 
     %{agent: agent, running: running, slow: slow}
+  end
+
+  # Andrew, 2026-09-28: "no way to remove a channel". Leave channel is the
+  # last card on the channel's page; it asks first, Slack takes Ryker out,
+  # and the page reads Disconnected at once.
+  test "Ryker is removed from a channel on its page, after the question", %{agent: agent} do
+    {:ok, view, _html} =
+      live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
+
+    assert has_element?(view, "#leave-channel.kit-remove-card", "Leave channel")
+    view |> element("#leave-channel button", "Leave channel") |> render_click()
+    assert has_element?(view, "#confirm-leave-channel[role=alertdialog]", "Remove Ryker from")
+    assert FakeSlackAPI.state(agent).left == []
+
+    view |> element("#confirm-leave-channel button", "Leave channel") |> render_click()
+
+    assert FakeSlackAPI.state(agent).left == ["C456"]
+    assert has_element?(view, ".form-feedback-success", "Ryker left the channel.")
+    assert has_element?(view, ".channel-state", "Disconnected")
+    refute has_element?(view, "#leave-channel")
+    refute has_element?(view, "#confirm-leave-channel")
+  end
+
+  test "with Slack switched off, removing Ryker says so and changes nothing", %{
+    agent: agent,
+    running: running
+  } do
+    Agent.update(running, fn _running -> false end)
+
+    {:ok, view, _html} =
+      live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
+
+    view |> element("#leave-channel button", "Leave channel") |> render_click()
+    view |> element("#confirm-leave-channel button", "Leave channel") |> render_click()
+
+    assert has_element?(view, ".form-feedback-error", "Slack is not connected")
+    assert FakeSlackAPI.state(agent).left == []
+    assert %{status: :joined} = ChannelConfigurations.membership(@workspace, "C456")
   end
 
   test "an environment chosen on the channel's page redraws its welcome in Slack", %{agent: agent} do

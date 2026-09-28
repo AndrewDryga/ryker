@@ -1635,7 +1635,8 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 }
 
 /* Channels, repositories and working copies (2026-09-24 redesign) */
-.channels-page, .repositories-page, .working-copies-page, .channel-page { max-width:1040px; min-width:0; }
+.channels-page, .repositories-page, .repository-page, .working-copies-page, .channel-page { max-width:1040px; min-width:0; }
+.repository-knowledge-document { box-sizing:border-box; max-height:60vh; margin:0; padding:12px 48px 12px 14px; overflow:auto; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface-sunken); font:13px/20px var(--ryker-font-mono); color:var(--ryker-text); white-space:pre-wrap; overflow-wrap:anywhere; }
 /* One line naming a connection and the way to change it. */
 .connection-line { display:flex; align-items:center; gap:16px; max-width:1040px; box-sizing:border-box; margin:0 0 20px; padding:12px 16px; border:1px solid var(--ryker-stroke); border-radius:10px; }
 /* The name, the dot and word, and the facts centre on one line, and the facts
@@ -1917,8 +1918,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-group-row > .settings-field > :is(input, select) { align-self:end; }
 .entity-row:has(> .entity-body details[open]) { align-items:start; }
 .settings-section > .settings-editor { max-width:720px; margin:20px 0 0; }
-.settings-collection-bar { display:flex; align-items:center; justify-content:space-between; gap:16px; max-width:1040px; margin:8px 0 4px; }
-.settings-collection-bar p { margin:0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .settings-conflict { padding:14px 16px; border:1px solid color-mix(in srgb, var(--ryker-warning) 45%, transparent); border-radius:8px; background:color-mix(in srgb, var(--ryker-warning) 6%, transparent); }
 .settings-conflict h3 { margin:0 0 6px; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
 .settings-row-details, .settings-disclosure { max-width:720px; margin:8px 0 0; }
@@ -2011,15 +2010,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .ryker-app :is(.schedules-view, .follow-ups-view) .entity-meta a:hover { text-decoration:underline; text-underline-offset:3px; }
 .ryker-app .follow-ups-view .entity-text a { color:var(--ryker-text); text-decoration:underline; text-decoration-color:color-mix(in srgb, var(--ryker-text) 30%, transparent); text-underline-offset:3px; }
 /* The "⋯" menu: a button like its neighbours, opening a small list. */
-.schedule-menu { position:relative; }
-.ryker-app .schedule-menu > summary { list-style:none; min-width:36px; padding-left:10px; padding-right:10px; font-size:16px; line-height:1; cursor:pointer; }
-.schedule-menu > summary::-webkit-details-marker { display:none; }
-.ryker-app .schedule-menu > summary:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; }
-.schedule-menu-items { position:absolute; right:0; top:calc(100% + 4px); z-index:3; display:grid; min-width:160px; padding:6px; background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); border-radius:8px; box-shadow:0 6px 18px var(--ryker-shadow-medium); }
-.schedule-menu-items .action-control { width:100%; }
-.ryker-app .schedule-menu-items .ui-button { display:flex; justify-content:flex-start; box-sizing:border-box; width:100%; min-height:36px; padding:8px 10px; border:0; border-radius:6px; background:none; box-shadow:none; font-size:13px; line-height:18px; font-weight:500; }
-.ryker-app .schedule-menu-items .ui-button.danger { color:var(--ryker-error); }
-.ryker-app .schedule-menu-items .ui-button:hover { background:var(--ryker-hover-bg); }
 /* The base stylesheet paints every bare <header> as sticky page chrome; a Kit section head is a plain title. */
 .schedule-view .section-head { position:static; top:auto; z-index:auto; padding:0; border:0; background:none; backdrop-filter:none; }
 .ryker-app .schedule-task { max-width:720px; margin:0; font-size:14px; line-height:20px; color:var(--ryker-text); white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -2176,6 +2166,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .kit-card { box-sizing:border-box; max-width:1040px; min-width:0; margin:24px 0 0; padding:24px; border:1px solid var(--ryker-stroke); border-radius:12px; background:var(--ryker-surface-raised); }
 .ryker-app .kit-card > .section-head { margin:0 0 20px; align-items:flex-start; }
 .ryker-app .kit-card > .section-head p { font-size:14px; line-height:20px; }
+.ryker-app .kit-card > .section-head:last-child { margin-bottom:0; }
 .kit-card > :first-child { margin-top:0; }
 .kit-card > :last-child { margin-bottom:0; }
 /* A list that opens or closes a card sits on the card's padding, not on its rows' own too. */
@@ -2187,7 +2178,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
    into the content"). One card, as wide as a readable form, holds the form;
    its groups of fields are parted by hairlines and its actions sit under the
    last one. The page's title says what it adds or edits. */
-.kit-form-card { max-width:760px; }
+.kit-form-card, .kit-form-card ~ .kit-remove-card { max-width:760px; }
 .kit-form-card .settings-form, .kit-form-card .settings-editor > form { gap:24px; }
 .kit-form-card :is(.kit-form-section, .settings-group) + :is(.kit-form-section, .settings-group) { padding-top:24px; border-top:1px solid var(--ryker-stroke); }
 .kit-form-section { display:grid; gap:20px; min-width:0; }

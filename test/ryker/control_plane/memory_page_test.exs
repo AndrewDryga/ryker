@@ -392,15 +392,15 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert String.length(long) <= 281
     end
 
-    test "a topic Ryker no longer uses says why on its state, beside its name, and offers Relearn as a button" do
+    test "a topic Ryker no longer uses says why on its state, and its whole row opens the topic" do
       # Andrew, 2026-09-27: why Ryker stopped using a topic was a sentence
-      # under its row with "Relearn it" as a link in it, and its "Not used"
-      # sat against the Forget button. The reason is the state's hint now,
-      # Relearn is a button beside Forget, and the state sits by the name.
+      # under its row with "Relearn it" as a link in it. The reason is the
+      # state's hint now. Andrew, 2026-09-28: a row opens its item from
+      # anywhere on the row, and the item's page relearns or forgets it.
       document = learned(%{@learned | items: [%{@topic | available: false}]})
       row = LazyHTML.query(document, "article#topic-#{@topic_id}")
 
-      state = LazyHTML.query(row, "h3.entity-name .state-word[data-tone=warn]")
+      state = LazyHTML.query(row, ".entity-side .state-word[data-tone=warn]")
       assert LazyHTML.text(state) == "Not used"
 
       assert LazyHTML.attribute(state, "title") == [
@@ -408,21 +408,15 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
              ]
 
       assert LazyHTML.attribute(state, "tabindex") == ["0"]
-      assert Enum.empty?(LazyHTML.query(row, ".entity-side .state-word, .memory-note"))
+      assert Enum.empty?(LazyHTML.query(row, ".memory-note"))
 
-      actions = LazyHTML.query(row, ".entity-actions")
+      assert LazyHTML.attribute(row, "class") |> hd() =~ "entity-row-link"
 
-      assert LazyHTML.query(
-               actions,
-               "a.ui-button[href='/memory/learned?item=#{@topic_id}#relearn']"
-             )
-             |> LazyHTML.text() == "Relearn"
+      assert LazyHTML.query(row, ".entity-name a") |> LazyHTML.attribute("href") == [
+               "/memory/learned?item=#{@topic_id}"
+             ]
 
-      assert LazyHTML.query(
-               actions,
-               "form.action-control[action='/actions/knowledge/#{@topic_id}/forget'] button"
-             )
-             |> LazyHTML.text() == "Forget"
+      assert Enum.empty?(LazyHTML.query(row, ".entity-actions, .ui-button, form"))
     end
 
     test "a search that finds nothing is told apart from a list with nothing learned yet" do
@@ -502,12 +496,24 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       heading = LearnedPage.heading(view)
       assert heading.title == "Deploy window decision"
       assert heading.back == {"All topics", "/memory/learned"}
-
-      assert LazyHTML.from_fragment(heading.action)
-             |> LazyHTML.query("form[action='/actions/knowledge/#{@topic_id}/forget'] button")
-             |> LazyHTML.text() == "Forget"
+      assert heading.action == nil
 
       document = learned(view)
+
+      # Forgetting it is the page's last card, as removing is on every
+      # item's page; it asks first.
+      assert LazyHTML.query(
+               document,
+               "#forget-topic form[action='/actions/knowledge/#{@topic_id}/forget'] button.danger"
+             )
+             |> LazyHTML.text() == "Forget topic"
+
+      assert document
+             |> LazyHTML.query(".memory-learned > *")
+             |> Enum.to_list()
+             |> List.last()
+             |> LazyHTML.attribute("id") == ["forget-topic"]
+
       assert Enum.empty?(LazyHTML.query(document, "h1, h2.memory-record-title, .memory-back"))
 
       topic = LazyHTML.query(document, "article.memory-topic#topic-#{@topic_id}")
@@ -654,7 +660,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert Enum.empty?(LazyHTML.query(document, "details.area-settings, details.page-help"))
     end
 
-    test "batches that need a person are listed apart from recent learning, each with a way to review it" do
+    test "batches that need a person are listed apart from recent learning, each opening its review" do
       document = learning(@activity)
       attention = LazyHTML.query(document, "section#needs-attention")
       row = LazyHTML.query(attention, "article#batch-#{@batch_id}")
@@ -665,9 +671,15 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert LazyHTML.query(row, ".entity-meta") |> LazyHTML.text() =~ "3 model starts used"
       refute LazyHTML.query(row, ".entity-meta") |> LazyHTML.text() =~ "of 3"
 
-      assert LazyHTML.query(row, ".entity-actions a.ui-button") |> LazyHTML.attribute("href") == [
+      # The whole row opens the batch; a Review button beside it said the
+      # same thing twice.
+      assert LazyHTML.attribute(row, "class") |> hd() =~ "entity-row-link"
+
+      assert LazyHTML.query(row, ".entity-name a") |> LazyHTML.attribute("href") == [
                @deferred.path
              ]
+
+      assert Enum.empty?(LazyHTML.query(row, ".entity-actions, .ui-button"))
 
       recent = LazyHTML.query(document, "section#recent")
       assert Enum.empty?(LazyHTML.query(recent, "article#batch-#{@batch_id}"))

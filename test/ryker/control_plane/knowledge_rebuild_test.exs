@@ -111,13 +111,14 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
     {_entry, document} = Fixtures.learn!(destination)
     id = String.replace_prefix(document["source_ref"], "knowledge:", "")
 
-    list = learned(%{"kind" => "knowledge"})
+    # The topic's page, which its row opens, forgets it in its last card.
+    topic = learned(%{"kind" => "knowledge", "item" => id})
 
     assert LazyHTML.query(
-             list,
-             "#topic-#{id} form[action='/actions/knowledge/#{id}/forget'] button"
+             topic,
+             "#forget-topic form[action='/actions/knowledge/#{id}/forget'] button"
            )
-           |> LazyHTML.text() == "Forget"
+           |> LazyHTML.text() == "Forget topic"
 
     assert {:ok, _outcome} = Forgetting.forget_topic(id)
 
@@ -130,6 +131,7 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
     refute LazyHTML.text(row) =~ "draft-ai-suggestions"
 
     page = learned(%{"kind" => "knowledge", "item" => id})
+    assert Enum.empty?(LazyHTML.query(page, "#forget-topic"))
     refute LazyHTML.text(page) =~ "draft-ai-suggestions"
     refute LazyHTML.text(page) =~ "Relearn this topic"
     assert LazyHTML.text(page) =~ "Ryker no longer uses it and does not learn from the messages"

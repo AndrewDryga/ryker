@@ -1888,8 +1888,9 @@ defmodule Ryker.ControlPlane.RouterTest do
 
   test "a schedule's page offers run, pause or resume, and delete only while it can still change" do
     # Moving schedules to their own page must not remove the only run, pause,
-    # resume and delete controls from the console. They sit opposite the
-    # title, Delete behind the "⋯" menu; history that can no longer change
+    # resume and delete controls from the console. Run now and Pause or
+    # Resume sit opposite the title; Delete is the page's last card, as
+    # removing is on every item's page; history that can no longer change
     # offers none.
     {:ok, detail} = options().projection.schedule.("schedule:one")
 
@@ -1905,17 +1906,21 @@ defmodule Ryker.ControlPlane.RouterTest do
              |> LazyHTML.query("form[action='/actions/schedule/schedule%3Aone/run-now'] button")
              |> LazyHTML.text() == "Run now"
 
-      menu = LazyHTML.query(actions, "details.schedule-menu")
-      assert LazyHTML.query(menu, "summary .sr-only") |> LazyHTML.text() =~ "Daily health"
+      refute page.action =~ "/deleted"
 
-      assert menu
-             |> LazyHTML.query("form[action='/actions/schedule/schedule%3Aone/deleted'] button")
-             |> LazyHTML.text() == "Delete"
+      assert page.body
+             |> IO.iodata_to_binary()
+             |> LazyHTML.from_fragment()
+             |> LazyHTML.query(
+               "#delete-schedule form[action='/actions/schedule/schedule%3Aone/deleted'] button.danger"
+             )
+             |> LazyHTML.text() == "Delete schedule"
     end
 
     completed = schedule_page(detail, :completed)
     assert completed.action =~ "/actions/schedule/schedule%3Aone/run-now"
     refute completed.action =~ "/deleted"
+    refute IO.iodata_to_binary(completed.body) =~ "/deleted"
 
     for status <- [:deleted, :expired] do
       page = schedule_page(detail, status)

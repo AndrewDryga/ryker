@@ -92,14 +92,11 @@ defmodule Ryker.ControlPlane.SchedulesPage do
           icon={:clock}
           name={item.title}
           href={schedule_path(item.ref)}
+          link_row
           state={state(item.status)}
           text={first_line(item.task)}
           meta={row_facts(item)}
-        >
-          <:actions :if={item.status in [:active, :paused, :completed]}>
-            <.controls schedule={item} />
-          </:actions>
-        </Kit.entity_row>
+        />
       </Kit.entity_list>
       <p :if={@full} class="schedule-note">
         Showing the first 100 schedules. Search to narrow the list.
@@ -181,8 +178,8 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   attr(:schedule, :map, required: true)
 
-  # Run now, then Pause or Resume; Delete sits behind "⋯" because it cannot
-  # be undone. Each opens the existing confirmation page first.
+  # Run now, then Pause or Resume, opposite the schedule's title. Each asks
+  # first. Deleting it, which cannot be undone, is the page's last card.
   defp controls(assigns) do
     ~H"""
     <Components.action_button path={action_path(@schedule.ref, "run-now")} label="Run now" />
@@ -196,16 +193,6 @@ defmodule Ryker.ControlPlane.SchedulesPage do
       path={action_path(@schedule.ref, "active")}
       label="Resume"
     />
-    <details :if={@schedule.status in [:active, :paused]} class="schedule-menu">
-      <summary class="ui-button secondary" phx-no-format><span aria-hidden="true">⋯</span><span class="sr-only">More actions for {@schedule.title}</span></summary>
-      <div class="schedule-menu-items">
-        <Components.action_button
-          path={action_path(@schedule.ref, "deleted")}
-          label="Delete"
-          tone={:danger}
-        />
-      </div>
-    </details>
     """
   end
 
@@ -247,6 +234,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
             :for={run <- @runs}
             name={due(run, @schedule)}
             href={run.episode_ref && timeline_path(run.episode_ref)}
+            link_row
             state={run_state(run)}
             meta={run_facts(run, @now)}
           />
@@ -263,6 +251,13 @@ defmodule Ryker.ControlPlane.SchedulesPage do
       <Components.disclosure id="schedule-details" label="Details" class="schedule-details">
         <Components.fact_list facts={support_facts(@schedule)} />
       </Components.disclosure>
+      <Kit.remove_card
+        :if={@schedule.status in [:active, :paused]}
+        id="delete-schedule"
+        title="Delete schedule"
+        text="Ryker stops running it for good. Its past runs stay listed."
+        path={action_path(@schedule.ref, "deleted")}
+      />
     </div>
     """
   end

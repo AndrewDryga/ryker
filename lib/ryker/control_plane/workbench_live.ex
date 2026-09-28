@@ -57,7 +57,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # Who a choice made on these pages is recorded as, like every other
   # control-plane write.
   @actor_ref "control-plane:local"
-  @confirmed_settings_actions ~w(disconnect-slack disconnect-github delete-emisar delete-environment delete-webhook-credential turn-off-learning remove-repository)
+  @confirmed_settings_actions ~w(disconnect-slack disconnect-github delete-emisar delete-environment delete-webhook-credential turn-off-learning remove-repository leave-channel)
   @settings_pages %{
     ["setup"] => :setup,
     ["environments"] => :environments,
@@ -219,6 +219,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     do: notice
 
   defp carried_repository_notice(_notice, _path), do: nil
+
+  # The list and each repository's page say what their buttons did; the add
+  # page says it in its own form.
+  defp repository_page?("/repositories"), do: true
+  defp repository_page?("/repositories/new"), do: false
+  defp repository_page?("/repositories/" <> _ref), do: true
+  defp repository_page?(_path), do: false
 
   # Each visit to Add repositories lists what the GitHub App reaches afresh,
   # giving up a listing the last visit left under way.
@@ -394,17 +401,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      socket
      |> assign(settings: {:ok, view}, setup_failure: nil)
      |> return_with(list, message)}
-  end
-
-  # A row removed from a settings list: the page says so above the list.
-  def handle_info({:settings_notice, view, message}, socket) do
-    {:noreply,
-     assign(socket,
-       settings: {:ok, view},
-       settings_error: nil,
-       setup_notice: message,
-       setup_failure: nil
-     )}
   end
 
   # Anything else, such as a reply to a request this page no longer waits
@@ -803,30 +799,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("set-channel-alerts", params, socket),
     do: change_channel_setting(socket, params, "alert_policy")
 
+  # Removing Ryker from a channel asks first; its question's button leaves.
+  # The ref is the channel's "workspace/channel".
+  def handle_event("leave-channel", %{"ref" => ref}, socket) when is_binary(ref),
+    do: confirmed(socket, {"leave-channel", ref}, &leave_channel(&1, ref))
+
   def handle_event("select-channel-environment", params, socket),
     do: change_channel_setting(socket, params, "environment")
 
-  # The default moves in one save: whichever environment had it gives it up.
-  def handle_event("make-default-environment", %{"ref" => ref}, socket) when is_binary(ref) do
-    {:noreply,
-     write_environment(
-       socket,
-       ref,
-       &Settings.put_environment(%{ref: ref, is_default: true}, &1, Settings.actor()),
-       &"#{&1} is the default environment now."
-     )}
-  end
-
-  def handle_event("delete-environment", %{"ref" => ref}, socket) when is_binary(ref) do
-    confirmed(socket, {"delete-environment", ref}, fn socket ->
-      write_environment(
-        socket,
-        ref,
-        &Settings.delete_environment(ref, &1, Settings.actor()),
-        &"#{&1} was removed."
-      )
-    end)
-  end
+  def handle_event("delete-environment", %{"ref" => ref}, socket) when is_binary(ref),
+    do: confirmed(socket, {"delete-environment", ref}, &delete_environment(&1, ref))
 
   def handle_event("create-webhook-credential", %{"credential" => params}, socket) do
     case IntegrationSetup.create_webhook_credential(
@@ -1009,17 +991,23 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         %{assigns: %{settings_confirm: {"remove-repository", ref}}} = socket
       ) do
     case IntegrationSetup.remove_repository(ref) do
+      # A removed repository's page is gone, so its removal returns to the
+      # list, which says what was removed.
       {:ok, %{repository: repository}} ->
+        socket =
+          assign(socket,
+            settings_confirm: nil,
+            repository_question: nil,
+            repository_notice:
+              {:list, :success,
+               "Removed #{repository.github_repository || ref}. Its past requests stay in Activity."}
+          )
+
         {:noreply,
-         socket
-         |> assign(
-           settings_confirm: nil,
-           repository_question: nil,
-           repository_notice:
-             {:list, :success,
-              "Removed #{repository.github_repository || ref}. Its past requests stay in Activity."}
-         )
-         |> refresh(true)}
+         if(socket.assigns.path == "/repositories",
+           do: refresh(socket, true),
+           else: push_patch(socket, to: "/repositories")
+         )}
 
       {:error, reason} ->
         {:noreply,
@@ -1678,16 +1666,18 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     Integrations.emisar_connected(names)
   end
 
-  # One write to one environment at the revision the page shows. A removal the
-  # settings refuse names who still chooses the environment.
-  defp write_environment(socket, ref, write, done) do
+  # A removal at the revision the page shows. A removed environment's page is
+  # gone, so it returns to the list; one the settings refuse names who still
+  # chooses the environment.
+  defp delete_environment(socket, ref) do
     with {:ok, view} <- socket.assigns.settings,
          %{} = environment <- Environments.find(view.snapshot, ref) do
-      case write.(view.revision) do
+      case Settings.delete_environment(ref, view.revision, Settings.actor()) do
         {:ok, _snapshot} ->
           socket
           |> refresh_settings()
-          |> assign(setup_notice: done.(environment.display_name), setup_failure: nil)
+          |> assign(setup_failure: nil)
+          |> return_with("/environments", "#{environment.display_name} was removed.")
 
         {:error, reason} ->
           environment_refused(socket, environment, reason)
@@ -1750,6 +1740,40 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   defp change_channel_setting(socket, _params, _name), do: {:noreply, socket}
+
+  # Slack takes Ryker out and the page says so. What it did and learned in
+  # the channel stays.
+  defp leave_channel(socket, ref) do
+    %{actions: actions} = Endpoint.config(:control_plane)
+
+    with [workspace, channel] <- String.split(ref, "/", parts: 2),
+         {:ok, _result} <- actions.leave_channel.(workspace, channel) do
+      socket
+      |> assign(
+        setup_notice:
+          "Ryker left the channel. Invite it back with /invite in Slack whenever you need it there.",
+        setup_failure: nil
+      )
+      |> refresh(true)
+    else
+      {:error, reason} -> assign(socket, setup_notice: nil, setup_failure: leave_error(reason))
+      _malformed -> assign(socket, setup_notice: nil, setup_failure: leave_error(:malformed))
+    end
+  end
+
+  defp leave_error(:slack_not_running),
+    do:
+      "Slack is not connected, so Ryker could not leave the channel. Connect Slack, then try again."
+
+  defp leave_error({:slack_api_error, "cant_leave_general"}),
+    do: "Slack does not let anyone leave the workspace's general channel."
+
+  defp leave_error({:slack_api_error, "missing_scope"}),
+    do:
+      "The Slack app is missing the permission to leave channels. Update it from the manifest on the Slack page, then try again."
+
+  defp leave_error(_reason),
+    do: "Slack did not take Ryker out of the channel. Try again in a moment."
 
   defp save_channel_setting(workspace, channel, "environment", %{"environment" => ref})
        when is_binary(ref) do
@@ -2337,6 +2361,18 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               back={@page_back}
               navigate
             />
+            <Components.form_feedback
+              :if={@setup_failure}
+              message={@setup_failure}
+              tone={:error}
+              class="page-feedback"
+            />
+            <Components.form_feedback
+              :if={@setup_notice}
+              message={@setup_notice}
+              tone={:success}
+              class="page-feedback"
+            />
             {Phoenix.HTML.raw(@body_lead)}
             <.live_component
               module={Ryker.ControlPlane.InstructionsEditor}
@@ -2399,7 +2435,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               settings={@settings}
             />
             <Components.form_feedback
-              :if={@path == "/repositories" && match?({:list, _tone, _message}, @repository_notice)}
+              :if={repository_page?(@path) && match?({:list, _tone, _message}, @repository_notice)}
               id="repository-notice"
               class="page-feedback"
               tone={elem(@repository_notice, 1)}
@@ -2423,7 +2459,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           </div>
           <Kit.confirm_modal
             :if={
-              @path == "/repositories" and match?({"remove-repository", _ref}, @settings_confirm) and
+              repository_page?(@path) and match?({"remove-repository", _ref}, @settings_confirm) and
                 @repository_question
             }
             id="confirm-remove-repository"
@@ -2437,7 +2473,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           />
           <Kit.confirm_modal
             :if={
-              @path == "/repositories" and match?({"refresh-knowledge", _ref}, @settings_confirm) and
+              repository_page?(@path) and match?({"refresh-knowledge", _ref}, @settings_confirm) and
                 @knowledge_question
             }
             id="confirm-refresh-knowledge"
@@ -2448,6 +2484,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             cancel="cancel-settings-action"
             phx-click="refresh-knowledge"
             phx-value-repository={elem(@settings_confirm, 1)}
+          />
+          <Kit.confirm_modal
+            :if={@native == :instructions and match?({"leave-channel", _ref}, @settings_confirm)}
+            id="confirm-leave-channel"
+            title={"Remove Ryker from #{@page_title}?"}
+            text="Ryker leaves the channel in Slack and stops reading and replying there. What it did and learned here stays, and its settings come back if you invite it again."
+            label="Leave channel"
+            cancel="cancel-settings-action"
+            phx-click="leave-channel"
+            phx-value-ref={elem(@settings_confirm, 1)}
           />
           <Kit.confirm_modal
             :if={@action_question}

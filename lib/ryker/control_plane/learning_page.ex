@@ -96,6 +96,7 @@ defmodule Ryker.ControlPlane.LearningPage do
               icon={:book}
               name={batch.conversation}
               href={batch.path}
+              link_row
               text={batch.error}
               meta={[
                 batch.repository,
@@ -104,9 +105,7 @@ defmodule Ryker.ControlPlane.LearningPage do
                 MemoryFormat.time(batch.at),
                 MemoryFormat.time(batch[:next_check], "Next check ")
               ]}
-            >
-              <:actions><a class="ui-button secondary" href={batch.path}>Review</a></:actions>
-            </Kit.entity_row>
+            />
           </Kit.entity_list>
           <.pager
             page={@activity.attention.page}
@@ -130,6 +129,7 @@ defmodule Ryker.ControlPlane.LearningPage do
               icon={:book}
               name={batch.conversation}
               href={batch.path}
+              link_row
               state={state(batch.status)}
               text={batch.error}
               meta={[
@@ -362,6 +362,7 @@ defmodule Ryker.ControlPlane.LearningPage do
           id={"attempt-" <> attempt.id}
           name={"Attempt #{attempt.number}"}
           href={attempt.path}
+          link_row
           state={attempt_state(attempt)}
           text={attempt.error}
           meta={[

@@ -162,9 +162,8 @@ defmodule Ryker.ControlPlane.FailuresPage do
   attr(:e, :map, required: true)
   attr(:now, :any, required: true)
 
-  # The button is the recommended option only; an option that cannot work yet
-  # is replaced by the change it needs, so the loudest thing on a row is never
-  # a step that will fail.
+  # The row says what to do next, and the whole row opens the failure's page,
+  # where its options are buttons.
   defp row(assigns) do
     assigns = assign(assigns, :next, assigns.e.next)
 
@@ -172,6 +171,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
     <Kit.entity_row
       name={@e.title}
       href={FailureExplanation.path(@row)}
+      link_row
       icon={:incident}
       icon_tone={tile_tone(@e.state)}
       state={@e.state}
@@ -182,21 +182,6 @@ defmodule Ryker.ControlPlane.FailuresPage do
       <:details>
         <p class="failure-next"><strong>{@next.lead}</strong> {@next.text}</p>
       </:details>
-      <:actions :if={@e.button}>
-        <Components.action_button
-          :if={@e.button[:path]}
-          path={@e.button.path}
-          label={@e.button.label}
-        />
-        <a
-          :if={@e.button[:href]}
-          class="ui-button secondary"
-          href={@e.button.href}
-          {external(@e.button.href)}
-        >
-          {@e.button.label}
-        </a>
-      </:actions>
     </Kit.entity_row>
     """
   end

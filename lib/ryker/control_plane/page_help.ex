@@ -48,6 +48,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/channels", :channels},
     {"/channels/:workspace/:channel", :channel},
     {"/repositories", :repositories},
+    {"/repositories/:ref", :repositories},
     {"/working-copies", :working_copies},
     {"/rules", :rules},
     {"/schedules", :schedules},
@@ -358,11 +359,12 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"The default environment",
        [
-         "A new Chat conversation starts in the default environment, and every channel without its own choice works there. Use as default makes another environment the default."
+         "A new Chat conversation starts in the default environment, and every channel without its own choice works there. To make another one the default, open it and tick Default environment."
        ]},
       {"Add, change or remove",
        [
-         "Add an environment and Edit open its form on a page of its own: its name, description, repositories and what work may do in each, and its Emisar account. Save returns to the list. Remove asks first, and is refused while channels or webhook sources still use the environment."
+         "Open an environment from anywhere on its row to change it on a page of its own. There you set its name, description, repositories and what work may do in each, its Emisar account and whether it is the default. Add an environment opens the same form, empty. Save returns to the list.",
+         "Remove environment is the last part of an environment's page. It asks first, and is refused while channels or webhook sources still use the environment."
        ]}
     ])
   end
@@ -426,17 +428,17 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How repositories work", [
       {"What this page shows",
        [
-         "The code Ryker can read and change. Each repository is Ready, Setting up, Not fully added or Needs attention, with the environments it is in and where it was used."
+         "The code Ryker can read and change. Each repository is Ready, Setting up, Not fully added or Needs attention, with the environments it is in and where it was used. Open one from anywhere on its row to see everything about it and what you can do."
        ]},
       {"Add and remove repositories",
        [
          "Connect GitHub first. Add repositories then opens a page that lists what the Ryker GitHub App can reach, and Refresh lists it again. Each one you add joins the default environment, so work there can use it at once. You can also add new ones automatically when the App gets access to them.",
-         "Remove takes a repository out of every environment, stops its setup and deletes the copy of its code Ryker keeps. Ryker asks first. Past requests stay, and you can add it again later."
+         "Remove repository, the last part of a repository's page, takes it out of every environment, stops its setup and deletes the copy of its code Ryker keeps. Ryker asks first. Past requests stay, and you can add it again later."
        ]},
-      {"RYKER.md",
+      {"Knowledge",
        [
-         "Once a repository is set up, a model reads it and writes RYKER.md: what it is for, its parts, how to build, test and ship it, and where to look. Every later task there starts from it. Ryker keeps only the paths that exist and the commands its files show, and proposes it in a draft pull request you review.",
-         "Once a day Ryker checks again. It rewrites RYKER.md when a README, AGENTS.md, CLAUDE.md, a build file or a CI workflow changed, or a week after its last write once any code changed. An open pull request is updated, never a second one opened. Refresh knowledge rewrites it now."
+         "Once a repository is set up, a model reads it and writes what Ryker knows about it. That covers what it is for, its parts, how to build, test and ship it, and where to look. Every later task there starts from it. Ryker keeps only the paths that exist and the commands its files show. Ryker keeps it itself and writes nothing to the repository; read it on the repository's page.",
+         "Once a day Ryker checks again. It rewrites the knowledge when a README, AGENTS.md, CLAUDE.md, a build file or a CI workflow changed, or a week after its last write once any code changed. Refresh knowledge, on the repository's page, rewrites it now."
        ]},
       {"Who can ask for work",
        [
@@ -444,8 +446,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"When something looks wrong",
        [
-         "Needs attention says what stopped, such as GitHub access that was removed. Fix the cause, then press Retry setup.",
-         "Not fully added means adding it stopped before it finished. Add it again finishes it."
+         "Needs attention says what stopped, such as GitHub access that was removed. Fix the cause, then press Retry setup on the repository's page.",
+         "Not fully added means adding it stopped before it finished. Add it again, on the repository's page, finishes it."
        ]}
     ])
   end
@@ -511,7 +513,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Change a schedule",
        [
-         "Run now starts one extra run and leaves the schedule as it is. Pause stops new runs until you resume it. Delete ends it for good and keeps its past runs. Each asks you to confirm.",
+         "Open a schedule from anywhere on its row. Run now starts one extra run and leaves the schedule as it is. Pause stops new runs until you resume it. Delete schedule, at the bottom of its page, ends it for good and keeps its past runs. Each asks you to confirm.",
          "To change what it does or when, ask Ryker in the conversation where it was set up."
        ]},
       {"Current and past",
@@ -537,7 +539,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Controls",
        [
-         "Run now starts one extra run. Pause and Resume stop and restart new runs. Delete ends the schedule for good, and its runs stay listed. Each asks you to confirm first."
+         "Run now starts one extra run. Pause and Resume stop and restart new runs. Delete schedule, at the bottom of the page, ends it for good, and its runs stay listed. Each asks you to confirm first."
        ]},
       {"Runs",
        [
@@ -634,7 +636,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"When something looks wrong",
        [
          "A topic marked Not used lost a message it learned from, so Ryker stopped using it. Point at Not used to see why.",
-         "Relearn rebuilds the topic from messages you choose that still exist, with the learning settings in place now, and keeps its update history. Forget stops Ryker using it for good."
+         "Open a topic from anywhere on its row. Relearn rebuilds it from messages you choose that still exist, with the learning settings in place now, and keeps its update history. Forget topic, at the bottom of its page, stops Ryker using it for good."
        ]},
       {"Read a topic's history",
        [
@@ -823,12 +825,12 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Accounts and environments",
        [
-         "Each environment uses at most one account; choose it on the Environments page. Pause an account to stop sending it new work. Its history stays."
+         "Each environment uses at most one account; choose it on the Environments page. Open an account from anywhere on its row to pause it, which stops sending it new work. Its history stays."
        ]},
       {"What the states mean", [Integrations.meanings(:emisar)]},
       {"When something looks wrong",
        [
-         "If approval monitoring is off, tasks waiting on an approval stop and show on Failures. Turn it back on from the account's Edit page, where you can also replace a key that changed.",
+         "If approval monitoring is off, tasks waiting on an approval stop and show on Failures. Turn it back on from the account's page, where you can also replace a key that changed.",
          "An account that tasks still use cannot be removed; pause it instead."
        ]}
     ])
@@ -843,7 +845,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Set up a sender",
        [
          "First create a signing credential: senders sign each request with its secret, so Ryker knows it is theirs. Then add a webhook source, choose its credential and where its work goes.",
-         "Give the sender the source's address."
+         "Open a source from anywhere on its row to see its address and give it to the sender. Remove source is at the bottom of that page."
        ]},
       {"Check a payload",
        [
@@ -939,7 +941,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Add or remove a price",
        [
-         "Add price and a row's Edit open its form on a page of its own; Save returns to the list. Removing a price asks first: that model's cost then shows as not priced."
+         "Add price opens a form on a page of its own, and each price opens its own from anywhere on its row. Save returns to the list.",
+         "Remove price, at the bottom of a price's page, asks first: that model's cost then shows as not priced."
        ]}
     ])
   end

@@ -1,9 +1,8 @@
 defmodule Ryker.ControlPlane.SettingsRows do
   @moduledoc """
-  How one saved row of a settings collection reads in a list: a name, its
-  state, what it does and one line of facts. Identifiers a person needs only
-  for support, such as a saved identity,
-  go under a closed Details disclosure instead of the facts line.
+  How one saved row of a settings collection reads: a name, its state, what
+  it does and one line of facts in the list, and on its own page the address
+  a sender posts to, when it has one.
   """
 
   alias Ryker.ControlPlane.{Integrations, SettingsSections}
@@ -11,17 +10,18 @@ defmodule Ryker.ControlPlane.SettingsRows do
   alias Ryker.Work.ExecutionTarget
 
   @type row :: %{
+          icon: atom() | nil,
           name: String.t(),
           state: {atom(), String.t()} | nil,
           text: String.t() | nil,
           meta: [String.t() | {:strong, String.t()} | nil],
-          details: [{String.t(), String.t() | {:fingerprint, String.t()}}],
           address: String.t() | nil
         }
 
   @spec present(map(), struct(), map()) :: row()
   def present(%{key: :pricing}, rate, _view) do
     row(%{
+      icon: :tag,
       name: model_name(rate.execution_target),
       meta:
         [provider(rate.execution_target)] ++
@@ -36,6 +36,7 @@ defmodule Ryker.ControlPlane.SettingsRows do
     goes = "#{events(source.adapter_kind)} go to #{destination(source)}"
 
     row(%{
+      icon: :plug,
       name: source.name,
       state: running.state,
       text: running.reason || goes <> ".",
@@ -101,7 +102,7 @@ defmodule Ryker.ControlPlane.SettingsRows do
   end
 
   defp row(fields) do
-    Map.merge(%{state: nil, text: nil, meta: [], details: [], address: nil}, fields)
+    Map.merge(%{icon: nil, state: nil, text: nil, meta: [], address: nil}, fields)
   end
 
   defp presented(field, item) do

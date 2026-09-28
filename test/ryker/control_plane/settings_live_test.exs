@@ -529,16 +529,33 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
            )
 
     assert has_element?(view, ".entity-row .state-word[data-tone=off]", "Paused")
-    assert has_element?(view, "button[phx-click=enable-emisar]", "Resume")
     refute has_element?(view, "form[phx-submit=rename-emisar]")
 
-    view |> element("button[phx-click=enable-emisar]", "Resume") |> render_click()
-    assert [%{enabled_for_new_work: true}] = Settings.fetch!().emisar_connections
+    # Andrew, 2026-09-28: the whole row opens the account, as on Activity,
+    # and everything that changes it, pausing included, is on its page.
+    assert has_element?(view, "#emisar-account-production.entity-row-link")
+    refute has_element?(view, "#emisar-account-production button")
+    refute has_element?(view, "#emisar-account-production .entity-actions")
 
-    # Everything else about an account is changed on its own page, where its
-    # address, a support detail, is one of its facts.
-    view |> element("#emisar-account-production a", "Edit") |> render_click()
-    assert_patch(view, "/integrations/emisar/production/edit")
+    {:ok, view, _html} =
+      view
+      |> element("#emisar-account-production .entity-name a", "Production approvals")
+      |> render_click()
+      |> follow_redirect(
+        build_conn() |> Map.put(:host, "localhost"),
+        "/integrations/emisar/production/edit"
+      )
+
+    assert has_element?(view, "#emisar-new-work", "Paused, so Ryker sends it no new work.")
+
+    view
+    |> element("#emisar-new-work button[phx-click=enable-emisar]", "Resume")
+    |> render_click()
+
+    assert [%{enabled_for_new_work: true}] = Settings.fetch!().emisar_connections
+    assert has_element?(view, "#emisar-new-work button[phx-click=disable-emisar]", "Pause")
+
+    # Its address, a support detail, is one of its facts.
     assert has_element?(view, "main h1", "Edit Production approvals")
     assert has_element?(view, "nav.kit-back a[href='/integrations/emisar']", "Emisar")
     assert has_element?(view, ".kit-facts dd", "https://emisar.example/api/mcp/rpc")
@@ -1631,7 +1648,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "#settings-pricing .entity-meta a[href='https://developers.openai.com/api/docs/pricing']"
            )
 
-    view |> element("#settings-pricing a.settings-editor-add") |> render_click()
+    view |> element(".page-action a", "Add price") |> render_click()
     assert_patch(view, "/settings/prices/new")
     refute has_element?(view, "#settings-pricing-provenance[placeholder]")
 
@@ -1835,9 +1852,15 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert has_element?(view, "#settings-pricing .entity-row .entity-name", "gpt-5.6-sol")
     assert has_element?(view, "#settings-pricing .entity-meta", "per million tokens")
-    assert has_element?(view, "#settings-pricing a.settings-editor-add", "Add price")
+    # Andrew, 2026-09-28 (T11): Prices reads as every list page does, its
+    # count above the list and Add in the page's header; the list stays in
+    # the page's one card, as every settings page keeps its parts.
+    assert has_element?(view, ".page-action a[href='/settings/prices/new']", "Add price")
+    assert has_element?(view, "#settings-pricing > .kit-counts .kit-count", ~r/\d+ prices/)
+    assert has_element?(view, "#settings-pricing > .kit-card .entity-row .entity-icon")
+    refute has_element?(view, "#settings-pricing .settings-editor-add")
 
-    view |> element("#settings-pricing a.settings-editor-add") |> render_click()
+    view |> element(".page-action a", "Add price") |> render_click()
     assert_patch(view, "/settings/prices/new")
 
     view
@@ -1868,11 +1891,16 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              ~r/\$1\.25 in\s*·\s*\$0\.13 cached\s*·\s*\$10\.00 out per million tokens/
            )
 
-    view
-    |> element(~s{#settings-pricing a[href="/settings/prices/#{rate.id}/edit"]})
-    |> render_click()
+    # The whole row opens the price's own page.
+    assert has_element?(view, "#settings-pricing .entity-row-link", "test-model")
+    refute has_element?(view, "#settings-pricing .entity-row button")
 
-    assert_patch(view, "/settings/prices/#{rate.id}/edit")
+    {:ok, view, _html} =
+      view
+      |> element(~s{#settings-pricing .entity-name a[href="/settings/prices/#{rate.id}/edit"]})
+      |> render_click()
+      |> follow_redirect(conn(), "/settings/prices/#{rate.id}/edit")
+
     assert has_element?(view, "main h1", "Edit test-model")
 
     view
@@ -1887,9 +1915,15 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert corrected.id == rate.id
     assert corrected.revision == 2
 
-    # Remove asks first and says what it does; only its own button removes.
+    # Remove is the price page's last card. It asks first and says what it
+    # does; only its own button removes, and the list then says so.
+    {:ok, view, _html} = open("/settings/prices/#{rate.id}/edit")
+
     view
-    |> element(~s{button[phx-click=ask-remove][phx-value-item="#{rate.id}"]})
+    |> element(
+      ~s{#settings-pricing-remove-card button[phx-click=ask-remove][phx-value-item="#{rate.id}"]},
+      "Remove price"
+    )
     |> render_click()
 
     assert has_element?(view, "#settings-pricing-remove", "Remove test-model?")
@@ -1903,6 +1937,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     refute Enum.any?(Settings.fetch!().pricing_rates, &(&1.id == rate.id))
     assert length(Settings.fetch!().pricing_rates) == 3
     assert Settings.fetch!().installation.revision == 4
+    assert_patch(view, "/settings/prices")
     assert has_element?(view, ".form-feedback-success", "test-model was removed.")
     refute has_element?(view, "#settings-pricing-remove")
   end
@@ -1910,7 +1945,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   test "a remove that was never asked about only asks" do
     initialize!()
     [rate | _rates] = Settings.fetch!().pricing_rates
-    {:ok, view, _html} = open("/settings/prices")
+    {:ok, view, _html} = open("/settings/prices/#{rate.id}/edit")
 
     view
     |> with_target("#settings-pricing")
@@ -1931,7 +1966,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, view, _html} = open("/settings/prices")
 
     refute has_element?(view, "#settings-pricing-form")
-    view |> element("#settings-pricing a.settings-editor-add", "Add price") |> render_click()
+    view |> element(".page-action a", "Add price") |> render_click()
     assert_patch(view, "/settings/prices/new")
 
     assert has_element?(view, "main h1", "Add a price")
@@ -1944,9 +1979,11 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert_patch(view, "/settings/prices")
     refute has_element?(view, "#settings-pricing-form")
 
-    view
-    |> element(~s{#settings-pricing a[href="/settings/prices/#{rate.id}/edit"]}, "Edit")
-    |> render_click()
+    {:ok, view, _html} =
+      view
+      |> element(~s{#settings-pricing .entity-name a[href="/settings/prices/#{rate.id}/edit"]})
+      |> render_click()
+      |> follow_redirect(conn(), "/settings/prices/#{rate.id}/edit")
 
     assert has_element?(view, ".kit-form-card #settings-pricing-form input[name=item_key]")
     refute has_element?(view, ".entity-list")
@@ -2094,8 +2131,9 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert Settings.fetch!().installation.revision == 1
   end
 
-  defp open(path \\ "/setup"),
-    do: live(build_conn() |> Map.put(:host, "localhost"), path)
+  defp open(path \\ "/setup"), do: live(conn(), path)
+
+  defp conn, do: build_conn() |> Map.put(:host, "localhost")
 
   defp page_description(html) do
     html

@@ -2,13 +2,14 @@ defmodule Ryker.ControlPlane.ChannelPage do
   @moduledoc """
   One channel's page under the shared header: how Ryker takes part here, the
   channel's instructions, what applies here, what Ryker knows, schedules,
-  recent work and usage, each in its own Kit section card. The channel's
+  recent work and usage, each in its own Kit section card, then removing
+  Ryker from the channel. The channel's
   environment, the code and Emisar account its work uses, is chosen here.
 
   The live shell places the channel's instruction editor, which draws its own
-  card, between `lead/1` and `render/1`, so the page reads in that order. Lists never show raw
-  Slack ids or refs; the ones support needs sit in one closed Details
-  disclosure under "How Ryker takes part". Every list keeps its own page
+  card, between `lead/1` and `render/1`, so the page reads in that order. The
+  page never shows a raw Slack ID or ref; "Open in Slack" is the way to the
+  channel itself. Every list keeps its own page
   parameter and anchor, so paging one never resets another. An open page
   redraws when anything it shows changes (`subscriptions/2`).
   """
@@ -103,7 +104,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   attr(:view, :map, required: true)
   attr(:now, :any, default: nil)
 
-  @doc "Everything after the instructions editor."
+  @doc "Everything after the instructions editor, and removing Ryker from the channel last."
   def render(assigns) do
     assigns = defaults(assigns)
 
@@ -114,9 +115,25 @@ defmodule Ryker.ControlPlane.ChannelPage do
       <.schedules view={@view} base={@base} now={@now} />
       <.work view={@view} base={@base} now={@now} />
       <.usage view={@view} />
+      <Kit.remove_card
+        :if={leavable?(@view)}
+        id="leave-channel"
+        title="Leave channel"
+        text="Ryker leaves the channel in Slack and stops reading and replying there. What it did and learned here stays, and its settings come back if you invite it again."
+        phx-click="confirm-settings-action"
+        phx-value-action="leave-channel"
+        phx-value-ref={@view.scope.workspace_ref <> "/" <> @view.scope.channel_ref}
+      />
     </div>
     """
   end
+
+  # Andrew, 2026-09-28: "no way to remove a channel". Ryker can leave a
+  # channel it is in; a direct message has nothing to leave.
+  defp leavable?(view),
+    do:
+      match?(%{status: :joined}, view.channel.membership) and
+        view.channel.kind != :direct_message
 
   @doc "What the channel's Instructions card says under its title."
   @spec instructions_lede() :: String.t()
@@ -310,31 +327,17 @@ defmodule Ryker.ControlPlane.ChannelPage do
         <.fact :if={invited?(@configuration)} label="Invites to incident rooms">
           <.invited configuration={@configuration} workspace={@view.scope.workspace_ref} />
         </.fact>
-        <.fact label="Membership">{membership(@membership, @now)}</.fact>
+        <.fact label="In Slack">
+          {membership(@membership, @now)}<span aria-hidden="true"> · </span><a
+            href={slack_link(@view.scope)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >Open in Slack</a>
+        </.fact>
+        <.fact label="Channel settings">
+          <.saved configuration={@configuration} workspace={@view.scope.workspace_ref} />
+        </.fact>
       </dl>
-      <details id="channel-details" class="entity-details">
-        <summary>Details</summary>
-        <dl class="channel-facts">
-          <.fact label="Workspace ID">
-            <code>{@view.scope.workspace_ref}</code>
-            <code>{@view.scope.canonical_workspace_ref}</code>
-          </.fact>
-          <.fact label="Channel ID">
-            <code>{@view.scope.channel_ref}</code> <code>{@view.scope.conversation_ref}</code>
-          </.fact>
-          <.fact label="Visibility">{tri_state(@membership, :private, "Private", "Public")}</.fact>
-          <.fact label="Shared with another organization">
-            {tri_state(@membership, :external_shared, "Yes", "No")}
-          </.fact>
-          <.fact label="Channel settings">
-            <.saved configuration={@configuration} workspace={@view.scope.workspace_ref} />
-          </.fact>
-          <.fact :if={@membership} label="Membership record">
-            Generation {@membership.generation}
-          </.fact>
-          <.fact :if={@room} label="Incident room ID"><code>{@room.ref}</code></.fact>
-        </dl>
-      </details>
     </Kit.section_card>
     """
   end
@@ -497,22 +500,19 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp moment(prefix, at, now),
     do: ShortTime.time(%{__changed__: nil, at: at, now: now, prefix: prefix})
 
-  # false is a recorded value. Only a missing record or a missing field is unknown.
-  defp tri_state(nil, _field, _when_true, _when_false), do: "Not recorded"
-
-  defp tri_state(membership, field, when_true, when_false) do
-    case Map.fetch!(membership, field) do
-      true -> when_true
-      false -> when_false
-      nil -> "Not recorded"
-    end
-  end
+  # Slack's own page for the channel, in the app when it is installed. The
+  # page shows no Slack IDs (Andrew, 2026-09-28): whether a channel is private
+  # or shared is in the description under the title.
+  defp slack_link(scope),
+    do:
+      "https://slack.com/app_redirect?" <>
+        URI.encode_query(%{"team" => scope.workspace_ref, "channel" => scope.channel_ref})
 
   attr(:configuration, :map, default: nil)
   attr(:workspace, :string, required: true)
 
   defp saved(%{configuration: nil} = assigns),
-    do: ~H"Never saved; this channel follows the defaults"
+    do: ~H"Never changed; this channel follows the defaults"
 
   # Who saved it: a Slack person by name, linked to their profile, or Ryker's
   # own pages, which read "by Slack reference" until 2026-09-26.
@@ -522,7 +522,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
     assigns = assign(assigns, by: saved_by(actor, person), person: person)
 
     ~H"""
-    Revision {@configuration.revision}, saved {Components.timestamp(@configuration.saved_at)}{@by}
+    Saved {Components.timestamp(@configuration.saved_at)}{@by}
     <Kit.person :if={@person} person={@person} />
     """
   end
@@ -566,6 +566,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           id={"rule-" <> item.ref}
           name={item.title}
           href={item.library_path}
+          link_row
           state={lifecycle(item.status)}
           text={clamp(item.task)}
           meta={[
@@ -590,6 +591,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           id={"preference-" <> item.ref}
           name={Words.label(item.key || "Preference")}
           href={item.library_path}
+          link_row
           text={Words.label(item.value || "Not recorded")}
           meta={["Preference", from(item), used(item, @now), expiry(item.expires_at, @now)]}
         />
@@ -606,6 +608,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           id={"guidance-" <> item.ref}
           name={item.title}
           href={item.library_path}
+          link_row
           text={item.summary}
           meta={[
             "Guidance",
@@ -629,6 +632,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           id={"memory-" <> item.ref}
           name={item.subject}
           href={item.library_path}
+          link_row
           text={item.value || "Not recorded"}
           meta={[
             "Fact",
@@ -676,6 +680,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           id={"knowledge-" <> item.id}
           name={item.title}
           href={item.path}
+          link_row
           state={if !item.available, do: {:off, "Not in use"}}
           text={clamp(item.text)}
           meta={[
@@ -697,6 +702,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           id={"summary-" <> item.ref}
           name={item.title}
           href={item.request_path}
+          link_row
           state={if item.recall_warning, do: {:off, "Not in use"}}
           text={clamp(item.text)}
           meta={[
@@ -809,6 +815,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           id={"schedule-" <> item.ref}
           name={item.title}
           href={"/schedules/" <> encode(item.ref)}
+          link_row
           state={schedule_state(item.status)}
           meta={[
             if(item.status == :active and item.next_occurrence_at,
@@ -877,6 +884,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           id={"episode-" <> item.ref}
           name={item.title || "Untitled request"}
           href={"/timeline/" <> encode(item.ref)}
+          link_row
           state={episode_state(item.state)}
           meta={[
             if(item.thread_ref, do: "in a thread", else: "in the channel"),

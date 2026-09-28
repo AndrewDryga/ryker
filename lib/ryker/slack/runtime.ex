@@ -156,6 +156,22 @@ defmodule Ryker.Slack.Runtime do
     end
   end
 
+  @doc """
+  Takes Ryker out of a channel for the channel's page in Ryker
+  (`ChannelSetup.leave/3`). Only a running Slack runtime holds the bot's
+  token, so with Slack switched off this says so instead.
+  """
+  @spec leave_channel(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def leave_channel(workspace_ref, channel_ref) do
+    with %{} = configuration <- Application.get_env(:ryker, :slack),
+         tasks when is_pid(tasks) <- Process.whereis(@welcome_tasks) do
+      setup = options!(configuration).handler_settings.setup_options
+      ChannelSetup.leave(workspace_ref, channel_ref, setup)
+    else
+      _not_running -> {:error, :slack_not_running}
+    end
+  end
+
   @doc false
   @spec welcome_tasks() :: atom()
   def welcome_tasks, do: @welcome_tasks
