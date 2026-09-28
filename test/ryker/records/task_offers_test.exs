@@ -635,7 +635,10 @@ defmodule Ryker.Records.TaskOffersTest do
 
     assert {:ok, rendered} = Renderer.render(projection.document)
     json = Jason.encode!(rendered)
-    assert json =~ "*! Workspace setup · work never started*\\n    The worker rejected the operation"
+
+    assert json =~
+             "*! Workspace setup · work never started*\\n    The worker rejected the operation"
+
     assert json =~ "has no operator-configured remote"
     refute json =~ "work_retry_exhausted"
     refute json =~ "coop_operation_failed"
