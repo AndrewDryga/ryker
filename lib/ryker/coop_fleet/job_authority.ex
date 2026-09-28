@@ -32,7 +32,69 @@ defmodule Ryker.CoopFleet.JobAuthority do
     end
   end
 
-  def ensure_pinned(%Session{} = session, _root, _prepare), do: validate(session)
+  def ensure_pinned(%Session{} = session, root, prepare) do
+    with {:ok, session} <- validate(session),
+         do: refresh_companions(session, root, prepare)
+  end
+
+  # A session's job is pinned once, and a replacement copies its predecessor's,
+  # so each companion repository stayed at the commit its default branch had
+  # when the task began. The worker proves every source it stages against its
+  # branch as it is now and refuses one that moved (Coop's
+  # TestSourceStagingRefusesChangedOrUnprovenFrozenObjects): a task woken the
+  # next day by review feedback on its pull request failed eight times on
+  # companions that had simply advanced (2026-09-28). Companions are read-only
+  # context, so before a session is first placed each is resolved again and a
+  # changed one is pinned anew. The task's own source stays as it began.
+  defp refresh_companions(
+         %Session{worker_job_document: %{"companions" => [_ | _] = pinned} = job} = session,
+         root,
+         prepare
+       ) do
+    with :ok <- unplaced(session),
+         {:ok, snapshot} <- Settings.fetch(),
+         {:ok, current} <- companions(snapshot, Enum.map(pinned, & &1["name"]), root, prepare) do
+      if Enum.map(current, &source_commits/1) == Enum.map(pinned, &source_commits/1),
+        do: {:ok, session},
+        else: repin(session, Map.put(job, "companions", current))
+    else
+      # A placed session keeps the job the worker was already asked with.
+      {:error, :coop_worker_job_requires_new_session} -> {:ok, session}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp refresh_companions(session, _root, _prepare), do: {:ok, session}
+
+  defp source_commits(%{"source" => %{"binding" => binding}}),
+    do:
+      Map.take(
+        binding,
+        ~w(default_ref default_commit selected_ref selected_commit base_commit admitted_tree)
+      )
+
+  defp repin(original, job) do
+    with {:ok, digest} <- JobSpec.digest(job) do
+      Repo.transaction(fn ->
+        session =
+          Repo.one(
+            from(session in Session, where: session.id == ^original.id, lock: "FOR UPDATE")
+          )
+
+        cond do
+          is_nil(session) or Map.take(session, @identity) != Map.take(original, @identity) or
+              session.worker_job_digest != original.worker_job_digest ->
+            Repo.rollback(:coop_worker_job_identity_changed)
+
+          unplaced(session) != :ok ->
+            session
+
+          true ->
+            session |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update!()
+        end
+      end)
+    end
+  end
 
   def validate(%Session{worker_job_document: %{} = job, worker_job_digest: digest} = session) do
     with {:ok, ^digest} <- JobSpec.digest(job),

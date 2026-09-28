@@ -333,6 +333,114 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert JobAuthority.validate(pinned) == {:ok, pinned}
   end
 
+  # Found live 2026-09-28: review feedback on Ryker's pull request woke its
+  # task a day later, and every new session for it failed eight times with
+  # "job source identity or working tree does not match": the job kept each
+  # companion at the commit its branch had when the task began, and the worker
+  # refuses a branch that has moved since. Companions are read-only context:
+  # before a session is first placed, each is resolved again.
+  test "a session not yet placed follows its companions' branches, keeping its own source", %{
+    session: session
+  } do
+    add_repository!("library", 18)
+    snapshot = add_repository!("tools", 19)
+
+    {:ok, snapshot} =
+      Settings.put_environment(
+        %{
+          ref: "production",
+          display_name: "Production",
+          repositories: ["app", "library", "tools"]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    template =
+      Enum.find(
+        JobTemplates.from_settings(snapshot),
+        &(&1.purpose == :contributor and &1.scope_kind == :environment and
+            &1.repository_ref == "app")
+      )
+
+    session =
+      session
+      |> Ecto.Changeset.change(
+        environment_ref: "production",
+        policy: template.policy_name,
+        policy_digest: template.policy_digest,
+        authority_digest: template.authority_digest,
+        repository_context: %{
+          "context_ref" => "production",
+          "primary_repository" => "app",
+          "read_only_repositories" => ["library", "tools"],
+          "parallel_goal_limit" => 1
+        }
+      )
+      |> Repo.update!()
+
+    at = fn commit ->
+      fn _root, ref, _selector ->
+        binding =
+          source()["binding"]
+          |> Map.merge(%{
+            "default_commit" => commit,
+            "selected_commit" => commit,
+            "base_commit" => commit
+          })
+
+        {:ok,
+         %{
+           source:
+             source()
+             |> Map.merge(%{
+               "repository_ref" => ref,
+               "github_repository" => "example/" <> ref,
+               "github_repository_id" => %{"app" => 17, "library" => 18, "tools" => 19}[ref],
+               "binding" => binding
+             })
+         }}
+      end
+    end
+
+    commits = fn pinned ->
+      [
+        pinned.worker_job_document["source"]
+        | Enum.map(pinned.worker_job_document["companions"], & &1["source"])
+      ]
+      |> Enum.map(& &1["binding"]["default_commit"])
+    end
+
+    began = String.duplicate("1", 40)
+    moved = String.duplicate("2", 40)
+
+    assert {:ok, pinned} = JobAuthority.ensure_pinned(session, nil, at.(began))
+    assert commits.(pinned) == [began, began, began]
+
+    # Nothing moved: the job and its digest stay as they are.
+    assert {:ok, same} = JobAuthority.ensure_pinned(pinned, nil, at.(began))
+    assert same.worker_job_digest == pinned.worker_job_digest
+
+    # The companions' branches moved: they are pinned anew; the task's own
+    # source stays at the commit it began from.
+    assert {:ok, refreshed} = JobAuthority.ensure_pinned(pinned, nil, at.(moved))
+    assert commits.(refreshed) == [began, moved, moved]
+    assert refreshed.worker_job_digest != pinned.worker_job_digest
+    assert JobAuthority.validate(refreshed) == {:ok, refreshed}
+    assert Repo.get!(Session, session.id).worker_job_digest == refreshed.worker_job_digest
+
+    # A session already created on a worker keeps the job it was created with.
+    placed =
+      refreshed |> Ecto.Changeset.change(coop_session_id: "coop-session-placed") |> Repo.update!()
+
+    assert {:ok, kept} =
+             JobAuthority.ensure_pinned(placed, nil, fn _, _, _ ->
+               flunk("resolved the sources of a placed session")
+             end)
+
+    assert kept.worker_job_digest == refreshed.worker_job_digest
+  end
+
   # Found live 2026-09-28: two repositories were removed from Ryker while a
   # #test conversation's authority still named them as companions. A
   # replacement keeps its predecessor's authority, so every new session for
