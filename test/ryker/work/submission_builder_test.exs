@@ -1155,6 +1155,52 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert byte_size(Ryker.CanonicalJSON.encode!(context)) <= 160 * 1_024
   end
 
+  # The 2026-09-28 token and context investigation: a briefing too big for its
+  # budget dropped its oldest message and was rebuilt whole, so every rebuild
+  # ran recall again and one turn counted each fact it was given as recalled
+  # once per rebuild. What is remembered is chosen once; fitting trims messages.
+  test "fitting a long briefing counts each remembered fact it was given once" do
+    destination = %{
+      transport: "slack",
+      conversation_ref: "slack:TRECALLONCE:CFIT",
+      thread_ref: "1787832000.000100"
+    }
+
+    first =
+      claim_episode_payload!("recall-once", %{"text" => "Initial history"},
+        destination: destination
+      )
+
+    historical =
+      Enum.reduce(1..20, first, fn index, claim ->
+        next_claim!(claim, ["Consumed history #{index}: " <> String.duplicate("h", 2_000)])
+      end)
+
+    next = next_claim!(historical, [String.duplicate("A", 60_000), String.duplicate("B", 60_000)])
+
+    assert {:ok, rotated} =
+             Custody.rotate_session(
+               next.episode.id,
+               next.turn.turn_ref,
+               next.lease_ref,
+               next.session.generation
+             )
+
+    claim = %{next | session: rotated.session, turn: rotated.turn}
+    workspace = %{"description" => String.duplicate("w", 15_000)}
+    # Saved now, so only this turn's briefing can have recalled it.
+    source = Ryker.Fixtures.SavedEntities.source!("slack:TRECALLONCE:CFIT")
+
+    fact =
+      Ryker.Fixtures.SavedEntities.memory!(source, "staging-account", "Staging is acme-stg.")
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim, workspace: workspace)
+    assert submission["context"]["inputs"]["omitted_count"] > 1
+    assert [%{"memory_ref" => ref}] = submission["context"]["operator_context"]["memory"]
+    assert ref == fact.ref
+    assert Repo.get!(Ryker.Memories.MemoryEntry, fact.id).recall_count == 1
+  end
+
   test "optional learned notes leave room for the current continuation and final workspace metadata" do
     first = claim_episode!("notes-continuation-budget", "initial")
     {:ok, submission} = SubmissionBuilder.build(first)
