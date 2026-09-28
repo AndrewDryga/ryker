@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.FailureListingTest do
   use Ryker.DataCase, async: true
 
-  alias Ryker.ControlPlane.{Pages, Projection}
+  alias Ryker.ControlPlane.{FailureProjection, Pages, Projection}
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
@@ -28,7 +28,7 @@ defmodule Ryker.ControlPlane.FailureListingTest do
     assert {:ok, [first | _rest]} = DeliveryOperator.list_blocked(100)
     assert first.delivery_ref == newest
 
-    assert {:ok, page_one} = Projection.failures(%{})
+    assert {:ok, page_one} = FailureProjection.list(%{})
     assert length(page_one) == 100
     assert hd(page_one).ref == newest
     refute Enum.any?(page_one, &(&1.ref == oldest))
@@ -37,7 +37,7 @@ defmodule Ryker.ControlPlane.FailureListingTest do
     assert listed =~ ~s(href="/failures?page=2")
     assert listed =~ "Older failures"
 
-    assert {:ok, [%{ref: ^oldest}]} = Projection.failures(%{"page" => "2"})
+    assert {:ok, [%{ref: ^oldest}]} = FailureProjection.list(%{"page" => "2"})
 
     older = page(%{"page" => "2"})
     assert older =~ ~s(href="/failures")
@@ -45,14 +45,14 @@ defmodule Ryker.ControlPlane.FailureListingTest do
     refute older =~ "page=3"
 
     # A page that is not a number is the first page, not an error.
-    assert {:ok, ^page_one} = Projection.failures(%{"page" => "second"})
+    assert {:ok, ^page_one} = FailureProjection.list(%{"page" => "second"})
   end
 
   test "a page that holds every failure offers no other page" do
     turn = work_turn!()
     blocked_reply!(turn, 0, ~U[2099-01-01 00:00:00.000000Z])
 
-    assert {:ok, [_one]} = Projection.failures(%{})
+    assert {:ok, [_one]} = FailureProjection.list(%{})
     listed = page(%{})
     refute listed =~ "page=2"
     refute listed =~ "Older failures"

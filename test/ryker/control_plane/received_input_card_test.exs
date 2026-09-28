@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
@@ -111,7 +111,7 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
 
   test "kernel lifecycle cards do not repeat metadata owned by input details" do
     {_entry, episode} = admitted!(source_envelope: @envelope)
-    {:ok, detail} = Projection.episode(episode.key, %{})
+    {:ok, detail} = EpisodeProjection.fetch(episode.key, %{})
 
     input_transition =
       Enum.find(detail.trace.steps, fn step ->
@@ -238,7 +238,7 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
   end
 
   defp rendered(episode, disclosed) do
-    {:ok, detail} = Projection.episode(episode.key, %{"disclosed" => disclosed})
+    {:ok, detail} = EpisodeProjection.fetch(episode.key, %{"disclosed" => disclosed})
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
 
     render_component(&EpisodePage.render/1,

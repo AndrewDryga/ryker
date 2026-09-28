@@ -8,7 +8,7 @@ defmodule Ryker.StateTools.CallLogTest do
   import Plug.Test
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Projection, ToolCard}
+  alias Ryker.ControlPlane.{EpisodeProjection, ToolCard}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Records
@@ -47,7 +47,7 @@ defmodule Ryker.StateTools.CallLogTest do
                })
              ])
 
-    {:ok, detail} = Projection.episode(work.episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(work.episode.key)
     step = Enum.find(detail.trace.steps, &(&1[:stage] == "Tool call"))
 
     assert step.state == "failed"
@@ -64,7 +64,7 @@ defmodule Ryker.StateTools.CallLogTest do
     assert error.artifact.state == :collapsed
 
     {:ok, opened} =
-      Projection.episode(work.episode.key, %{"disclosed" => [error.artifact_id]})
+      EpisodeProjection.fetch(work.episode.key, %{"disclosed" => [error.artifact_id]})
 
     opened_step = Enum.find(opened.trace.steps, &(&1.id == step.id))
     opened_error = Enum.find(opened_step.artifacts, &(&1.label == "Error"))
@@ -206,7 +206,7 @@ defmodule Ryker.StateTools.CallLogTest do
   end
 
   defp failed_summaries(work) do
-    {:ok, detail} = Projection.episode(work.episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(work.episode.key)
 
     for step <- detail.trace.steps,
         step[:stage] == "Tool call" and step.state == "failed",

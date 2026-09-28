@@ -10,10 +10,13 @@ defmodule Ryker.ControlPlane.LiveTest do
     Actions,
     BehaviorLibrary,
     ConversationLab,
+    ConversationProjection,
+    EpisodeProjection,
     Kit,
     LabPage,
     LiveSocket,
     Projection,
+    UsageProjection,
     WorkbenchLive
   }
 
@@ -51,7 +54,7 @@ defmodule Ryker.ControlPlane.LiveTest do
         Map.merge(Projection.callbacks(), %{
           overview: fn -> %{fleet: %{required: false}} end,
           lab_index: fn ->
-            items = Projection.lab_index()
+            items = ConversationProjection.index()
             send(observer, {:lab_projected, Enum.sum(Enum.map(items, & &1.message_count))})
             items
           end,
@@ -96,7 +99,7 @@ defmodule Ryker.ControlPlane.LiveTest do
           episode: fn ref, params ->
             if Agent.get(counters, & &1[:episode_fail]),
               do: {:error, :database_unavailable},
-              else: Projection.episode(ref, params)
+              else: EpisodeProjection.fetch(ref, params)
           end,
           schedules: fn _params -> [] end,
           behaviors: fn kind, params ->
@@ -738,7 +741,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     {:ok, view, html} = live(conn, "/conversations")
     draft_id = composer_conversation(render(view))
     assert {:ok, ^draft_id} = Ecto.UUID.cast(draft_id)
-    assert Projection.lab_conversation(draft_id) == :not_found
+    assert ConversationProjection.fetch(draft_id) == :not_found
     assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
 
     # Nothing of the rejected chrome, and no replacement hero.
@@ -1358,7 +1361,7 @@ defmodule Ryker.ControlPlane.LiveTest do
       )
 
     assert {:ok, %{admission_progress: [%{phase: "Working"}]}} =
-             Projection.lab_conversation(id)
+             ConversationProjection.fetch(id)
 
     # Routing announces each phase it reaches; nothing else redraws the page.
     assert_receive {:lab_projected, 1}, 2_000
@@ -1514,8 +1517,8 @@ defmodule Ryker.ControlPlane.LiveTest do
              "form.lab-native-composer[action='/conversations/#{unsent}/messages']"
            )
 
-    assert Projection.lab_conversation(unsent) == :not_found
-    refute Enum.any?(Projection.lab_index(), &(&1.id == unsent))
+    assert ConversationProjection.fetch(unsent) == :not_found
+    refute Enum.any?(ConversationProjection.index(), &(&1.id == unsent))
 
     id = Ecto.UUID.generate()
 
@@ -1827,13 +1830,13 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     since = DateTime.add(DateTime.utc_now(), -60, :second)
     ours = ["Hi! What can I help with?", "Still checking the replicas."]
-    assert {:ok, changed} = Projection.lab_changes(id, since)
+    assert {:ok, changed} = ConversationProjection.changes(id, since)
     refute Enum.any?(changed, &(&1.text in ours))
 
     {:ok, _} = ConversationLab.react_to_message(id, quick_ref, :add, "+1")
     {:ok, _} = ConversationLab.react_to_message(id, update_ref, :add, "tada")
 
-    assert {:ok, changed} = Projection.lab_changes(id, since)
+    assert {:ok, changed} = ConversationProjection.changes(id, since)
 
     assert changed
            |> Enum.filter(&(&1.text in ours))
@@ -1977,7 +1980,7 @@ defmodule Ryker.ControlPlane.LiveTest do
       recorded_at: DateTime.utc_now()
     })
 
-    assert Projection.usage(%{}).totals.attempts == 1
+    assert UsageProjection.page(%{}).totals.attempts == 1
     {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), "/usage")
     assert String.valid?(html)
     assert {:ok, _json} = Jason.encode(html)

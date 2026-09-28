@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
 
   alias Ryker.ControlPlane.{
     EpisodePage,
+    EpisodeProjection,
     FeedbackPage,
     Kit,
     ModelRequests,
@@ -157,7 +158,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
 
   test "a request's Timeline has a Feedback chapter, and a message routing answered has its own",
        %{reply: reply, greeting: greeting} do
-    {:ok, snapshot} = Projection.episode(reply.episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(reply.episode.key)
     {:ok, timeline} = ModelRequests.timeline(reply.episode.key, %{})
 
     document =

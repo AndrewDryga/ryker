@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2, rendered_to_string: 1]
 
-  alias Ryker.ControlPlane.{EpisodePage, Projection, WorkerEvidenceCard}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, WorkerEvidenceCard}
   alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -290,7 +290,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
         placement_generation: 1
       )
 
-    {:ok, snapshot} = Projection.episode(episode_key(session))
+    {:ok, snapshot} = EpisodeProjection.fetch(episode_key(session))
 
     html =
       render_component(&EpisodePage.render/1,

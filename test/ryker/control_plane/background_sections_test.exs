@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.CoopFleet.{ControlPlane, Placement}
   alias Ryker.Episodes
   alias Ryker.FakeRetentionCoopAPI
@@ -306,12 +306,12 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
   end
 
   defp maintenance_step(episode, title) do
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     Enum.find(detail.trace.steps, &(&1.stage == "Maintenance" and &1.title == title))
   end
 
   defp timeline(episode) do
-    {:ok, snapshot} = Projection.episode(episode.key)
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
 
     render_component(&EpisodePage.render/1, snapshot: snapshot, timeline: timeline, params: %{})

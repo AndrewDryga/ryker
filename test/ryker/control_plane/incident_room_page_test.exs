@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
   import Ecto.Query
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, IncidentRoomsPage, Projection}
+  alias Ryker.ControlPlane.{Components, IncidentProjection, IncidentRoomsPage}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.{ChannelEnvironments, SavedEntities}
   alias Ryker.Records
@@ -421,7 +421,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
   end
 
   defp page(ref) do
-    assert {:ok, snapshot} = Projection.incident(ref)
+    assert {:ok, snapshot} = IncidentProjection.fetch(ref)
 
     snapshot
     |> IncidentRoomsPage.detail(@now)
@@ -430,7 +430,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
   end
 
   defp description(ref) do
-    assert {:ok, snapshot} = Projection.incident(ref)
+    assert {:ok, snapshot} = IncidentProjection.fetch(ref)
     IncidentRoomsPage.summary(snapshot.room)
   end
 

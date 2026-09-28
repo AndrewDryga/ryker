@@ -9,7 +9,7 @@ defmodule Ryker.Admission.CommitTest do
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
-  alias Ryker.ControlPlane.Projection
+  alias Ryker.ControlPlane.EpisodeProjection
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
@@ -230,7 +230,7 @@ defmodule Ryker.Admission.CommitTest do
 
       # The timeline says what ended the wait; an edit read "What Ryker was
       # waiting for arrived".
-      {:ok, %{trace: trace}} = Projection.episode(original.key)
+      {:ok, %{trace: trace}} = EpisodeProjection.fetch(original.key)
       resumed = Enum.find(trace.steps, &(&1.stage == "Wait" and &1.tone == :good))
 
       assert {resumed.title, resumed.summary} ==

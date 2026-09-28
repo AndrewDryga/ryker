@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.PublicationLabTest do
   use Ryker.DataCase, async: true
 
-  alias Ryker.ControlPlane.{Actions, Projection, Publisher}
+  alias Ryker.ControlPlane.{Actions, ConversationProjection, Publisher}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
@@ -62,7 +62,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
                receipt
              )
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
 
     assert review_message =
              Enum.find(conversation.messages, fn message ->
@@ -198,7 +198,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
       "control-plane-message:task-readiness"
     )
 
-    assert {:ok, conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
 
     task_card =
       conversation.messages
@@ -268,7 +268,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     assert authorized.approval_ref == "host:publication:draft:#{authorized.id}"
     assert authorized.approved_by_actor_ref == "control-plane:local"
 
-    assert {:ok, reviewed_conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, reviewed_conversation} = ConversationProjection.fetch(@conversation_id)
 
     reviewed_task =
       reviewed_conversation.messages
@@ -354,7 +354,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
                result_receipt
              )
 
-    assert {:ok, published_conversation} = Projection.lab_conversation(@conversation_id)
+    assert {:ok, published_conversation} = ConversationProjection.fetch(@conversation_id)
 
     published_task =
       published_conversation.messages

@@ -1,7 +1,7 @@
 defmodule Ryker.Emisar.ApprovalsTest do
   use Ryker.DataCase, async: true
 
-  alias Ryker.ControlPlane.{FailureExplanation, Pages, Projection}
+  alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, Pages, Projection}
   alias Ryker.{Credentials, IntegrationSetup}
   alias Ryker.Emisar.{Approval, ApprovalDispatcher, Approvals, Connections, RunState}
   alias Ryker.Episodes
@@ -182,9 +182,9 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert blocked.last_error =~ "forbidden"
 
     assert {:ok, %{action: :rearm, ref: "production/apr-operator", status: :blocked}} =
-             Projection.emisar("production/apr-operator")
+             FailureProjection.emisar("production/apr-operator")
 
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
 
     assert %{kind: "emisar", ref: "production/apr-operator"} =
              Enum.find(failures, &(&1.kind == "emisar"))
@@ -230,7 +230,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
     # Nothing can continue from it, so it is not offered as a failure at all.
     assert failure("production/apr-closed-task") == nil
-    assert Projection.emisar("production/apr-closed-task") == :not_found
+    assert FailureProjection.emisar("production/apr-closed-task") == :not_found
     refute failures_page() =~ "apr-closed-task"
 
     # The monitor closes it on its next idle pass, with the reason, and keeps it.
@@ -270,7 +270,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
     row = failure("production/apr-unwatched")
     assert %{kind: "emisar", stall: :monitoring_off, action: nil, status: :monitoring} = row
-    assert {:ok, %{stall: :monitoring_off}} = Projection.emisar("production/apr-unwatched")
+    assert {:ok, %{stall: :monitoring_off}} = FailureProjection.emisar("production/apr-unwatched")
 
     explanation = FailureExplanation.explain(row)
     assert explanation.outlook == :fix_first
@@ -467,7 +467,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
   end
 
   defp failure(ref) do
-    assert {:ok, failures} = Projection.failures(%{})
+    assert {:ok, failures} = FailureProjection.list(%{})
     Enum.find(failures, &(&1.kind == "emisar" and &1.ref == ref))
   end
 

@@ -4,7 +4,7 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
   import Ecto.Query
   import ExUnit.CaptureLog
 
-  alias Ryker.ControlPlane.Projection
+  alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Repo
 
   alias Ryker.Slack.{
@@ -218,7 +218,7 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
     assert blocked.lease_ref == nil
 
     assert {:ok, %{action: :rearm, ref: "interaction:retry-block", status: :blocked}} =
-             Projection.slack_interaction("interaction:retry-block")
+             FailureProjection.slack_interaction("interaction:retry-block")
   end
 
   test "a repaint the host gave up on tells the person who pressed the button" do

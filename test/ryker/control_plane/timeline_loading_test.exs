@@ -20,7 +20,7 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{EpisodePage, ModelRequests, Projection}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Work.{Activity, ActivityEvent, Custody, Submission}
@@ -90,10 +90,10 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert List.last(second.events).id == newest
     assert MapSet.subset?(ids(first.events), ids(second.events))
 
-    {:ok, page_one} = Projection.episode(work.episode.key)
+    {:ok, page_one} = EpisodeProjection.fetch(work.episode.key)
     assert page_one.trace.activity.more == 2
 
-    {:ok, page_two} = Projection.episode(work.episode.key, %{"events" => "2"})
+    {:ok, page_two} = EpisodeProjection.fetch(work.episode.key, %{"events" => "2"})
     assert page_two.trace.activity.more == nil
     assert rendered(work) =~ "Show earlier activity"
   end
@@ -143,7 +143,7 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
   defp ids(events), do: MapSet.new(events, & &1.id)
 
   defp loaded_bytes(work) do
-    {:ok, detail} = Projection.episode(work.episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(work.episode.key)
 
     detail.trace.steps
     |> Enum.flat_map(&(&1[:artifacts] || []))
@@ -152,7 +152,7 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
   end
 
   defp tool_body(work, key, disclosed \\ []) do
-    {:ok, detail} = Projection.episode(work.episode.key, %{"disclosed" => disclosed})
+    {:ok, detail} = EpisodeProjection.fetch(work.episode.key, %{"disclosed" => disclosed})
 
     detail.trace.steps
     |> Enum.flat_map(&(&1[:artifacts] || []))
@@ -164,7 +164,7 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
   defp label("content"), do: "Output and changes"
 
   defp rendered(work, disclosed \\ []) do
-    {:ok, detail} = Projection.episode(work.episode.key, %{"disclosed" => disclosed})
+    {:ok, detail} = EpisodeProjection.fetch(work.episode.key, %{"disclosed" => disclosed})
     {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
 
     render_component(&EpisodePage.render/1,

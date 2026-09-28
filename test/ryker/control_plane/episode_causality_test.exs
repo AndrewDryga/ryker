@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{EpisodeCausality, EpisodePage, ModelRequests, Projection}
+  alias Ryker.ControlPlane.{EpisodeCausality, EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
@@ -339,18 +339,18 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
   defp second_input_id(episode), do: episode |> inputs() |> Enum.at(1) |> Map.get(:id)
 
   defp index_for(episode) do
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     detail.trace.causality
   end
 
   defp chapters(episode) do
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
     EpisodePage.chapters(detail, timeline)
   end
 
   defp rendered(episode) do
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
 
     render_component(&EpisodePage.render/1,

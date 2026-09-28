@@ -8,7 +8,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
   import Plug.Test
 
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
-  alias Ryker.ControlPlane.{ConversationLab, Projection, Publisher}
+  alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, Publisher}
   alias Ryker.Delivery.Adapters
   alias Ryker.Episodes
   alias Ryker.Fixtures.Publication, as: PublicationFixture
@@ -198,7 +198,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
                worker_ref: "webhook-lab-delivery-e2e"
              )
 
-    assert {:ok, conversation} = Projection.lab_conversation(conversation_id)
+    assert {:ok, conversation} = ConversationProjection.fetch(conversation_id)
 
     assert Enum.any?(conversation.messages, fn message ->
              message.actor == :integration and
@@ -213,7 +213,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
 
     refute inspect(conversation) =~ "private-webhook-payload-marker"
 
-    assert Enum.any?(Projection.lab_index(), &(&1.id == conversation_id))
+    assert Enum.any?(ConversationProjection.index(), &(&1.id == conversation_id))
     refute_receive {:slack_posted, _, _, _, _, _}
   end
 

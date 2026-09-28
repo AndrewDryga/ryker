@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.ConversationSummary
-  alias Ryker.ControlPlane.{ConversationMemory, LearnedPage, Projection}
+  alias Ryker.ControlPlane.{ConversationMemory, LearnedPage}
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Learning.LearningSources
   alias Ryker.Repo
@@ -119,7 +119,7 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
   end
 
   defp render_summaries do
-    Projection.learned(%{"kind" => "context"})
+    ConversationMemory.project(%{"kind" => "context"})
     |> LearnedPage.html("test-secret")
     |> IO.iodata_to_binary()
   end

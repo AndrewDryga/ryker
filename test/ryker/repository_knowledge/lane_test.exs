@@ -4,7 +4,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   import Ecto.Query
 
   alias Ryker.Accounting.Execution
-  alias Ryker.ControlPlane.Projection
+  alias Ryker.ControlPlane.RepositoryProjection
   alias Ryker.GitHub.Onboarding
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.RepositoryKnowledge.{Dispatcher, Document, Entry, Prompt, Run}
@@ -828,7 +828,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     written!(coop)
 
     assert Repo.exists?(from(session in Session, where: session.execution_kind == :knowledge))
-    assert [%{ref: "emisar", sessions: 0}] = Projection.repositories(%{})
+    assert [%{ref: "emisar", sessions: 0}] = RepositoryProjection.list(%{})
   end
 
   # The worker sleeps until the next check falls due, as a UTC DateTime,

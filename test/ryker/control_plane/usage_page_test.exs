@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.UsagePageTest do
   use Ryker.DataCase, async: false
   alias Ryker.Accounting.Execution
-  alias Ryker.ControlPlane.{Activity, Assets, Projection, SettingsRows, UsagePage}
+  alias Ryker.ControlPlane.{Activity, Assets, SettingsRows, UsagePage, UsageProjection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   @actor "control-plane:local"
 
   test "usage shows live work by default without an execution ledger or generic methodology" do
-    html = Projection.usage(%{}) |> UsagePage.render() |> IO.iodata_to_binary()
+    html = UsageProjection.page(%{}) |> UsagePage.render() |> IO.iodata_to_binary()
 
     for label <- [
           "Requests",
@@ -52,7 +52,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
   test "model and effort form one readable label and average model time is explicit" do
     # Operators read 1.3m as a token count; the duration must name what it measures.
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
 
     model =
       Map.merge(snapshot.totals, %{
@@ -122,7 +122,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     )
 
     document =
-      Projection.usage(%{})
+      UsageProjection.page(%{})
       |> UsagePage.render()
       |> IO.iodata_to_binary()
       |> LazyHTML.from_document()
@@ -150,7 +150,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     execution!("work", usage_cached_input_tokens: 0, usage_output_tokens: 0)
 
     document =
-      Projection.usage(%{})
+      UsageProjection.page(%{})
       |> UsagePage.render()
       |> IO.iodata_to_binary()
       |> LazyHTML.from_document()
@@ -228,7 +228,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     )
 
     pricing =
-      Projection.usage(%{})
+      UsageProjection.page(%{})
       |> UsagePage.render()
       |> IO.iodata_to_binary()
       |> LazyHTML.from_document()
@@ -260,7 +260,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
   test "an execution without a saved model is not presented as an unknown model" do
     # Four historical failures appeared as a model row with no useful measurements.
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
     totals = %{snapshot.totals | attempts: 4}
     model = Map.merge(totals, %{model: nil, effort: nil, provider: "unrecorded"})
 
@@ -277,7 +277,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     # without a saved work type" and the caveat under Model performance were
     # noise on a page he reads for totals. Unmeasured rows still show "—" and
     # "Not measured" where they appear; the page stops narrating the gaps.
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
     totals = %{snapshot.totals | attempts: 4}
     row = Map.merge(totals, %{requests: 2})
 
@@ -312,7 +312,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
   test "profiles are flat and missing metadata is not presented as a profile or work type" do
     # Old runs created fake profiles and work types that could not explain any activity.
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
     row = Map.merge(snapshot.totals, %{attempts: 4, requests: 2})
 
     profiles = [
@@ -346,7 +346,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   end
 
   test "people focus on requests tokens and cost instead of provider internals" do
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
 
     person =
       Map.merge(snapshot.totals, %{
@@ -375,7 +375,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   test "each user says quietly where they come from" do
     # Andrew, 2026-09-19: "By person" became "By user", and a name alone did not
     # say whether it belonged to a Slack member, a GitHub account or a webhook.
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
     row = Map.merge(snapshot.totals, %{attempts: 1, requests: 1})
 
     users =
@@ -409,7 +409,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   end
 
   test "profile names are escaped and reported and estimated executions contribute one total" do
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
 
     row =
       Map.merge(snapshot.totals, %{
@@ -434,7 +434,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   end
 
   test "unmeasured groups are not presented as zero tokens and tiny timing shares remain visible" do
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
 
     row =
       Map.merge(snapshot.totals, %{attempts: 1, provider: "codex", profile: "emisar", models: []})
@@ -467,7 +467,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   end
 
   test "work types people and sub-cent costs remain useful in populated breakdowns" do
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
 
     row =
       Map.merge(snapshot.totals, %{
@@ -529,7 +529,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     # The background memory learner spends tokens on every batch it judges, and
     # an unnamed work type sent operators to an episode list that can never hold
     # a learning turn.
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
 
     row =
       Map.merge(snapshot.totals, %{
@@ -581,7 +581,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   test "self-analysis spend reads as its own work type and opens What to fix" do
     execution!("improvement", [])
 
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
     assert [%{work_kind: "self_analysis", attempts: 1}] = snapshot.kinds
 
     document = snapshot |> UsagePage.render() |> IO.iodata_to_binary() |> LazyHTML.from_document()
@@ -618,7 +618,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     execution!("admission", source_id: entry.id)
 
     document =
-      Projection.usage(%{})
+      UsageProjection.page(%{})
       |> UsagePage.render()
       |> IO.iodata_to_binary()
       |> LazyHTML.from_document()
@@ -643,7 +643,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   test "work that runs without a request says how many runs, never zero requests" do
     # QA, 2026-09-25: Learning read "0 episodes / 16 executions" and one row
     # "1 episodes". Learning spends on conversations, not on requests.
-    snapshot = Projection.usage(%{})
+    snapshot = UsageProjection.page(%{})
     row = Map.merge(snapshot.totals, %{attempts: 16, requests: 0, usage_measured: 1})
 
     kinds = [
@@ -688,7 +688,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     )
 
     document =
-      Projection.usage(%{})
+      UsageProjection.page(%{})
       |> UsagePage.render()
       |> IO.iodata_to_binary()
       |> LazyHTML.from_document()
@@ -725,10 +725,10 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   test "Usage opens on the same work as Activity" do
     # QA, 2026-09-25: Usage opened on All work and Activity on Live work, so
     # the two pages counted different things until a scope was chosen.
-    assert Projection.usage(%{}).mode == Activity.list(%{}).mode
+    assert UsageProjection.page(%{}).mode == Activity.list(%{}).mode
 
     document =
-      Projection.usage(%{})
+      UsageProjection.page(%{})
       |> UsagePage.render()
       |> IO.iodata_to_binary()
       |> LazyHTML.from_document()

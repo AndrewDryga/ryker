@@ -23,11 +23,11 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
   alias Ryker.ControlPlane.{
     ConversationMemory,
     EpisodePage,
+    EpisodeProjection,
     LearnedPage,
     LearningActivity,
     LearningPage,
     ModelRequests,
-    Projection,
     WorkbenchLive
   }
 
@@ -463,7 +463,7 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
 
   defp timeline(entry, params \\ %{}) do
     key = episode_key(entry)
-    {:ok, snapshot} = Projection.episode(key, params)
+    {:ok, snapshot} = EpisodeProjection.fetch(key, params)
     {:ok, timeline} = ModelRequests.timeline(key, params)
 
     render_component(&EpisodePage.render/1,

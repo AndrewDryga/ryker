@@ -19,7 +19,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{ConversationLab, EpisodePage, ModelRequests, Projection}
+  alias Ryker.ControlPlane.{ConversationLab, EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
@@ -424,7 +424,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
   end
 
   defp rendered(episode) do
-    {:ok, detail} = Projection.episode(episode.key)
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
 
     render_component(&EpisodePage.render/1,
