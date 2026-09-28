@@ -67,6 +67,13 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
     end)
   end
 
+  @doc "Someone closes Ryker's open pull request without merging it."
+  def close_open do
+    update(fn %{open: %{number: number}} = state ->
+      %{state | open: nil, pull_requests: Map.put(state.pull_requests, number, :closed)}
+    end)
+  end
+
   @impl Ryker.GitHub.Onboarding
   def pin(binding, repository), do: head(binding, repository)
 

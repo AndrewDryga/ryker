@@ -221,6 +221,37 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert repository().knowledge_pull_request_url =~ "/pull/85"
   end
 
+  # Review of the knowledge lane, 2026-09-28: closing Ryker's pull request
+  # is turning it down, and the setup before this lane never proposed again
+  # after one was closed unless someone asked. The lane opened a new one on
+  # the next key-file change, putting back what a person had just declined.
+  test "a pull request a person closed is not proposed again until someone asks" do
+    github!()
+    coop = coop!([answer_json(), answer_json()])
+    written!(coop)
+
+    FakeGitHubRepository.close_open()
+    FakeGitHubRepository.push(@head, @pushed, ["README.md", "runner/main.go"])
+    due!()
+    drain(settings(coop))
+
+    assert length(FakeCoopAPI.state(coop).submissions) == 1
+    assert FakeGitHubRepository.state().open == nil
+    assert FakeGitHubRepository.state().pull_requests == %{84 => :closed}
+
+    entry = RepositoryKnowledge.entry("emisar")
+    assert {entry.phase, entry.pull_request_state} == {:idle, :closed}
+    assert DateTime.diff(entry.next_check_at, Repo.now!()) in 86_000..86_400
+
+    # Refresh knowledge is someone asking: it writes and proposes again.
+    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
+    drain(settings(coop))
+
+    assert length(FakeCoopAPI.state(coop).submissions) == 2
+    assert %{number: 85} = FakeGitHubRepository.state().open
+    assert RepositoryKnowledge.entry("emisar").pull_request_state == :open
+  end
+
   test "a week after the last write, any code change is enough" do
     github!()
     coop = coop!([answer_json(), answer_json()])

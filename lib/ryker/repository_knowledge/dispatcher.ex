@@ -11,7 +11,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   repository that is added, set up and still granted is checked, written or
   proposed; one GitHub keeps archived is skipped with a sentence that says
   so, and a run already out at Coop is followed to its stop whatever became
-  of its repository.
+  of its repository. Once a person closes Ryker's pull request, the check
+  writes and proposes nothing more until someone asks.
   """
 
   alias Ryker.CoopFleet.JobTemplates
@@ -136,7 +137,9 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
            {:ok, current} <- knowledge_file(remote, binding, repository, head),
            {:ok, pull_request} <- pull_request_state(remote, binding, repository, entry),
            :ok <- follow_default_branch(repository, head, current, pull_request),
-           do: {:checked, decide(entry, head, current, binding, repository, remote), pull_request}
+           do:
+             {:checked, decide(entry, head, current, pull_request, binding, repository, remote),
+              pull_request}
 
     case result do
       {:checked, {:error, reason}, _pull_request} ->
@@ -150,12 +153,17 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     end
   end
 
-  # A document written and never proposed is proposed first; otherwise the
-  # rules decide (`Ryker.RepositoryKnowledge.Refresh`).
+  # A person closed Ryker's pull request, turning it down: nothing is
+  # written or proposed again by itself, only when someone asks for it
+  # (refresh knowledge). A document written and never proposed is proposed
+  # first; otherwise the rules decide (`Ryker.RepositoryKnowledge.Refresh`).
+  defp decide(_entry, _head, _current, :closed, _binding, _repository, _remote), do: :current
+
   defp decide(
          %{document: document, published_at: nil},
          _head,
          _current,
+         _pull_request,
          _binding,
          _repository,
          _remote
@@ -163,7 +171,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
        when is_binary(document),
        do: :publish
 
-  defp decide(entry, head, current, binding, repository, remote) do
+  defp decide(entry, head, current, _pull_request, binding, repository, remote) do
     Refresh.decide(
       written(entry),
       current,
