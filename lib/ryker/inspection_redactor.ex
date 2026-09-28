@@ -3,6 +3,7 @@ defmodule Ryker.InspectionRedactor do
   alias Ryker.CanonicalJSON
 
   @marker "[redacted]"
+  @withheld "[partial structured content withheld]"
   @secret_key ~r/(?:^|[_-])(?:authorization|cookie|password|passwd|secret|secrets|token|api[_-]?key|private[_-]?key|signing[_-]?key|userinfo|credential|credentials)(?:$|[_-])/i
   @maximum_source_bytes 2 * 1_024 * 1_024
 
@@ -49,7 +50,9 @@ defmodule Ryker.InspectionRedactor do
 
   defp disclosed_artifact(value, original, base, options) do
     secrets = Keyword.get_lazy(options, :secrets, &configured_secrets/0)
-    document = decode(value)
+    # A prompt is read in the order it was sent, so removing a secret changes
+    # only the secret. Other documents are re-encoded as maps.
+    document = if options[:preserve_format], do: decode_ordered(value), else: decode(value)
     sanitized = sanitize(document, secrets, 0)
 
     text =
@@ -124,7 +127,25 @@ defmodule Ryker.InspectionRedactor do
       value
       |> Map.delete("preview")
       |> sanitize(secrets, depth)
-      |> Map.put("preview", "[partial structured content withheld]")
+      |> Map.put("preview", @withheld)
+
+  # A prompt's object, member by member in the order it was sent, by the rules
+  # a map follows.
+  defp sanitize(%Jason.OrderedObject{values: values}, secrets, depth) do
+    withheld? = {"truncated", true} in values and List.keymember?(values, "preview", 0)
+
+    %Jason.OrderedObject{
+      values:
+        Enum.map(values, fn
+          {"preview", _preview} when withheld? ->
+            {"preview", @withheld}
+
+          {key, nested} ->
+            {scrub(key, secrets),
+             if(sensitive?(key), do: @marker, else: sanitize(nested, secrets, depth + 1))}
+        end)
+    }
+  end
 
   defp sanitize(value, secrets, depth) when is_map(value) do
     Map.new(value, fn {key, nested} ->
@@ -156,6 +177,15 @@ defmodule Ryker.InspectionRedactor do
   end
 
   defp decode(value), do: value
+
+  defp decode_ordered(value) when is_binary(value) do
+    case Jason.decode(value, objects: :ordered_objects) do
+      {:ok, parsed} when is_map(parsed) or is_list(parsed) -> parsed
+      _other -> value
+    end
+  end
+
+  defp decode_ordered(value), do: value
 
   defp unique_keys?(text) do
     case Jason.decode(text, objects: :ordered_objects) do

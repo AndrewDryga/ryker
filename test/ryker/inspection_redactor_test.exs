@@ -62,6 +62,40 @@ defmodule Ryker.InspectionRedactorTest do
     end
   end
 
+  test "a prompt read in its sent order still withholds provider-cut previews and credentials" do
+    # Prompts are now inspected member by member in the order they were sent,
+    # so that path must keep every rule the re-encoded map path keeps.
+    prompt =
+      Jason.encode!(%Jason.OrderedObject{
+        values: [
+          {"instructions", "Read the evidence."},
+          {"context",
+           %Jason.OrderedObject{
+             values: [
+               {"tool_result",
+                %{
+                  "truncated" => true,
+                  "preview" => ~s({"authorization":"Basic dXNlcjpmb3JlaWduLXNlY3JldA==")
+                }},
+               {"api_key", "foreign-value"},
+               {"note", "Bearer hidden-value"}
+             ]
+           }}
+        ]
+      })
+
+    artifact = InspectionRedactor.artifact(prompt, preserve_format: true, secrets: [])
+
+    assert artifact.redacted
+    refute artifact.text =~ "dXNlcjpmb3JlaWduLXNlY3JldA"
+    refute artifact.text =~ "foreign-value"
+    refute artifact.text =~ "hidden-value"
+    assert artifact.text =~ "[partial structured content withheld]"
+
+    assert %Jason.OrderedObject{values: [{"instructions", _}, {"context", _}]} =
+             Jason.decode!(artifact.text, objects: :ordered_objects)
+  end
+
   test "an incomplete angle link cannot expose a pipe-delimited URL credential" do
     for text <- [
           "<https://example.test/view?signature=first|opaque-unconfigured-secret",
