@@ -441,6 +441,37 @@ defmodule Ryker.Slack.RendererTest do
     refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
   end
 
+  # Found on 2026-09-28 while rendering the settings card for the design
+  # catalog: the Incident invitations fact went through String.capitalize,
+  # which lowercases everything after the first character. Every person and
+  # group the channel invites was named as <@u0bhtnfcw6s> or
+  # <!subteam^s0abc123>, and Slack ids are uppercase, so the settings card could
+  # not show whom an incident room would invite.
+  test "the settings card names each invitee by their exact Slack id" do
+    settings =
+      put_in(settings_document(), ["invitations"], %{
+        "user_group_refs" => ["S0ABC123"],
+        "user_refs" => ["U0BHTNFCW6S"]
+      })
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "channel_settings" => %{
+                 "audience" => "thread",
+                 "bot_user_ref" => "UBOT",
+                 "configuration_ref" => settings["configuration_ref"],
+                 "revision" => 3,
+                 "settings" => settings
+               }
+             })
+
+    [_heading, facts | _rest] = rendered["blocks"]
+    invitations = Enum.find(facts["fields"], &(&1["text"] =~ "*Incident invitations*"))
+
+    refute invitations["text"] =~ "<@u0bhtnfcw6s>"
+    assert invitations["text"] == "*Incident invitations*\n<@U0BHTNFCW6S> and <!subteam^S0ABC123>"
+  end
+
   # slack-presentation.md: all owned structural headings are colonless, tested as
   # one shared invariant rather than a per-card string replacement.
   test "owned structural headings never end in a colon across card families" do
