@@ -1042,11 +1042,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   # Summaries are saved documents about the conversation, not its messages.
+  # Until 2026-09-28 routing also captured a summary of the whole channel,
+  # which nothing ever saved. A record that carries that slot shows what it
+  # recorded; a newer record has no channel row at all.
   defp summary_sources({bundle, manifest, bundle_path}, routing?, prefix) do
     in_thread? = Map.has_key?(bundle, "root") or manifest["root"] not in [nil, "not_applicable"]
 
     [
-      summary_source("channel", {bundle, manifest, bundle_path}, routing?, true, prefix),
+      summary_source("channel", {bundle, manifest, bundle_path}, false, true, prefix),
       summary_source("thread", {bundle, manifest, bundle_path}, routing?, in_thread?, prefix)
     ]
     |> Enum.reject(&(&1 == []))

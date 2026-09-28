@@ -161,7 +161,8 @@ defmodule Ryker.Admission.RoutingContractTest do
 
     assert context.context_manifest["kind"] == "channel_root"
     assert context.context_manifest["included"] == 1
-    assert context.context_manifest["channel_summary"]["reason"] == "absent"
+    assert context.context_manifest["thread_summary"]["reason"] == "absent"
+    refute Map.has_key?(context.context_manifest, "channel_summary")
     assert context.routing_receipt["scope"] == "workspace_public"
     assert context.routing_receipt["lanes"]["thread"]["returned"] >= 0
 

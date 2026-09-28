@@ -1,18 +1,19 @@
 defmodule Ryker.Admission.ConversationSummaries do
   @moduledoc """
-  Selects the latest thread and parent-channel summary a captured context may show.
+  Selects the latest summary of an input's thread a captured context may show.
 
-  A summary is a bounded hint, never evidence. Selection is source-safe: a
-  summary saved after this input arrived is refused rather than shown, because
-  the work that saved it could have read later messages and would leak them
-  into an earlier decision. A withdrawn or unauthorized source makes the
-  summary unavailable rather than laundering its text. When none is available
-  the manifest says so, and the actual recent messages carry the context.
+  The summaries Ryker saves are Work handovers, one per destination thread,
+  so the input's own thread is the summary routing can be given. A summary is
+  a bounded hint, never evidence. Selection is source-safe: a summary saved
+  after this input arrived is refused rather than shown, because the work
+  that saved it could have read later messages and would leak them into an
+  earlier decision. A withdrawn or unauthorized source makes the summary
+  unavailable rather than laundering its text. When none is available the
+  manifest says so, and the actual recent messages carry the context.
   """
 
   import Ecto.Query
 
-  alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Ingress.Inbox.Entry
@@ -23,28 +24,22 @@ defmodule Ryker.Admission.ConversationSummaries do
 
   @type selection :: map()
 
-  @doc "The thread summary of this input's exact thread, or an explicit unavailability."
+  @doc "The summary of this input's exact thread, or an explicit unavailability."
   @spec thread(Entry.t(), DateTime.t()) :: selection()
   def thread(%Entry{destination_thread_ref: nil}, _now), do: unavailable("not_applicable")
 
-  def thread(%Entry{} = entry, now),
-    do: selected(entry, entry.destination_thread_ref, now)
-
-  @doc "The parent-channel summary, which is never one episode's work summary."
-  @spec channel(Entry.t(), DateTime.t()) :: selection()
-  def channel(%Entry{} = entry, now), do: selected(entry, nil, now)
-
-  defp selected(entry, thread_ref, now) do
-    case Repo.transaction(fn -> selected_locked(entry, thread_ref, now) end) do
+  def thread(%Entry{} = entry, now) do
+    case Repo.transaction(fn -> selected_locked(entry, now) end) do
       {:ok, selection} -> selection
       {:error, _reason} -> unavailable("scope_unavailable")
     end
   end
 
-  defp selected_locked(entry, thread_ref, now) do
-    with {:ok, scope} <-
-           Continuity.destination_context(destination(entry, thread_ref), entry.repository_ref),
-         %ConversationSummary{} = summary <- latest(identity_key(entry, thread_ref)) do
+  # The scope is the one the Work handover saved the summary under, so both
+  # name the thread by the same identity key.
+  defp selected_locked(entry, now) do
+    with {:ok, scope} <- Continuity.destination_context(entry, entry.repository_ref),
+         %ConversationSummary{} = summary <- latest(scope.identity_key) do
       cond do
         after_cutoff?(summary, entry) ->
           unavailable("after_cutoff")
@@ -59,22 +54,6 @@ defmodule Ryker.Admission.ConversationSummaries do
       nil -> unavailable("absent")
       {:error, _reason} -> unavailable("scope_unavailable")
     end
-  end
-
-  defp destination(entry, thread_ref) do
-    %{
-      destination_transport: entry.destination_transport,
-      destination_conversation_ref: entry.destination_conversation_ref,
-      destination_thread_ref: thread_ref
-    }
-  end
-
-  defp identity_key(entry, thread_ref) do
-    CanonicalJSON.digest(%{
-      "conversation_ref" => entry.destination_conversation_ref,
-      "thread_ref" => thread_ref,
-      "transport" => entry.destination_transport
-    })
   end
 
   defp latest(identity_key) do

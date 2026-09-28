@@ -47,30 +47,22 @@ defmodule Ryker.Admission.ConversationContext do
     {messages, read_status} = fill(retained, entry, kind, limit, reader)
     root = root_message(entry, kind, messages)
 
-    bundle =
-      %{
-        "current" => message_document(entry, :current),
-        "messages" => messages,
-        "root" => root
-      }
-      |> Map.put("thread_summary", nil)
-      |> Map.put("channel_summary", nil)
+    bundle = %{
+      "current" => message_document(entry, :current),
+      "messages" => messages,
+      "root" => root,
+      "thread_summary" => nil
+    }
 
     %{bundle: bundle, manifest: manifest(entry, kind, limit, messages, root, read_status)}
   end
 
-  @doc "Merges the selected summaries into a captured bundle and its manifest."
-  @spec with_summaries(t(), map(), map()) :: t()
-  def with_summaries(%{bundle: bundle, manifest: manifest}, thread_summary, channel_summary) do
+  @doc "Merges the selected thread summary into a captured bundle and its manifest."
+  @spec with_thread_summary(t(), map()) :: t()
+  def with_thread_summary(%{bundle: bundle, manifest: manifest}, thread_summary) do
     %{
-      bundle:
-        bundle
-        |> Map.put("thread_summary", thread_summary["document"])
-        |> Map.put("channel_summary", channel_summary["document"]),
-      manifest:
-        manifest
-        |> Map.put("thread_summary", Map.delete(thread_summary, "document"))
-        |> Map.put("channel_summary", Map.delete(channel_summary, "document"))
+      bundle: Map.put(bundle, "thread_summary", thread_summary["document"]),
+      manifest: Map.put(manifest, "thread_summary", Map.delete(thread_summary, "document"))
     }
   end
 

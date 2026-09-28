@@ -268,8 +268,8 @@ The provider receives one bounded prompt containing:
 
 - the current source, actor kind, event kind, time, and content or compact preview;
 - the frozen local backdrop: the thread root, the messages that preceded this one in that exact
-  place, and the latest eligible thread and parent-channel summaries, with a manifest saying what
-  the bundle actually contains;
+  place, and the thread's latest summary when Ryker saved one before this message arrived, with a
+  manifest saying what the bundle actually contains;
 - up to twenty opaque candidate episodes from every conversation this source may correlate with;
 - each candidate's source-backed digest, lifecycle state, match evidence and allowed relations;
 - compact chronological first/latest input previews, which supplement the digest and never replace it.

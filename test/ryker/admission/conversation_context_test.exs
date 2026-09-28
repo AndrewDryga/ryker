@@ -8,6 +8,7 @@ defmodule Ryker.Admission.ConversationContextTest do
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes
+  alias Ryker.Episodes.Scope
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
@@ -228,7 +229,6 @@ defmodule Ryker.Admission.ConversationContextTest do
 
     assert ConversationSummaries.thread(current, routed_at)["status"] == "unavailable"
     assert ConversationSummaries.thread(current, routed_at)["reason"] == "absent"
-    assert ConversationSummaries.channel(current, routed_at)["reason"] == "absent"
 
     summary!(current, "1789000650.000100", @handover_ref, saved(current, -60))
     fresh = ConversationSummaries.thread(current, routed_at)
@@ -298,24 +298,26 @@ defmodule Ryker.Admission.ConversationContextTest do
     assert is_nil(selected["document"])
   end
 
-  test "the captured bundle carries both summaries and their coverage in the manifest" do
+  # Routing also looked up a summary of the whole channel, which nothing ever
+  # saves: summaries are Work handovers kept per thread, and every Slack
+  # message has one. The slot was empty on every request since 2026-09-11 and
+  # the Timeline showed "Channel summary: None saved" on each; it is gone.
+  test "the captured bundle carries the thread summary, the one summary Ryker saves" do
     current = record!("Decide me", ts: "1789000900.000100", thread_ref: "1789000850.000100")
     summary!(current, "1789000850.000100", @handover_ref, saved(current, -60))
-    routed_at = saved(current, 1)
 
     captured =
       current
       |> ConversationContext.capture()
-      |> ConversationContext.with_summaries(
-        ConversationSummaries.thread(current, routed_at),
-        ConversationSummaries.channel(current, routed_at)
+      |> ConversationContext.with_thread_summary(
+        ConversationSummaries.thread(current, saved(current, 1))
       )
 
     assert captured.bundle["thread_summary"]["freshness"] == "current"
-    assert is_nil(captured.bundle["channel_summary"])
     assert captured.manifest["thread_summary"]["status"] == "available"
-    assert captured.manifest["channel_summary"]["reason"] == "absent"
     refute Map.has_key?(captured.manifest["thread_summary"], "document")
+    refute Map.has_key?(captured.bundle, "channel_summary")
+    refute Map.has_key?(captured.manifest, "channel_summary")
   end
 
   defmodule FakeReader do
@@ -478,7 +480,7 @@ defmodule Ryker.Admission.ConversationContextTest do
       identity_key: identity,
       transport: entry.destination_transport,
       workspace_ref:
-        Ryker.Episodes.Scope.workspace_ref(
+        Scope.workspace_ref(
           entry.destination_transport,
           entry.destination_conversation_ref
         ),
