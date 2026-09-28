@@ -220,6 +220,38 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert second_placement.worker_id == "worker-a"
   end
 
+  # A create Coop refuses for good leaves its session active and unbound, and
+  # the worker renews that placement on every poll. Counted as a create still
+  # under way, it held a slot until retention retired the session, and a few
+  # of them left a worker that reported free slots with nothing placed on it.
+  test "a create left over from long ago stops holding a worker slot" do
+    authorize_and_poll!("worker-leftover-create", capacity: capacity(1, 1))
+    leftover = place!("leftover-create")
+    next = session!("after-leftover-create")
+
+    requirements = %{
+      capability_names: ["controller-tools"],
+      repository_ref: "ryker",
+      workspace_ref: "workspace-main"
+    }
+
+    # A create under way holds the only slot the worker reported free.
+    assert ControlPlane.place_session(next.id, requirements, 60) ==
+             {:error, {:coop_worker_capacity_unavailable, next.id}}
+
+    {1, nil} =
+      Repo.update_all(from(placement in Placement, where: placement.id == ^leftover.id),
+        set: [inserted_at: DateTime.add(Repo.now!(), -301, :second)]
+      )
+
+    # The worker still renews the left-over placement and reports its slot free.
+    idle_poll!("worker-leftover-create", "renews-leftover", capacity(1, 1))
+    assert Repo.get!(Placement, leftover.id).state == :active
+
+    assert {:ok, placement} = ControlPlane.place_session(next.id, requirements, 60)
+    assert placement.worker_id == "worker-leftover-create"
+  end
+
   test "placement reservations and leases use the same database clock" do
     # Host/database clock drift made freshly reported capacity count an existing
     # placement twice, blocking the next conversation even with a free worker slot.

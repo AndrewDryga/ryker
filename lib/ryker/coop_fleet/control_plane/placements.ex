@@ -75,7 +75,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         |> Enum.any?(fn worker ->
           worker_current?(worker, prepared.workspace_ref, now) and
             worker_eligible?(worker, prepared, now) and
-            worker.capacity["state"] == "eligible" and worker_has_capacity?(worker)
+            worker.capacity["state"] == "eligible" and worker_has_capacity?(worker, now)
         end)
 
       {:error, _reason} ->
@@ -602,7 +602,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         skip(session, requirements, now, cutoff, excluded_ids, worker, storage_refusal(worker))
 
       worker_eligible?(worker, requirements, now) and
-        worker.capacity["state"] == "eligible" and worker_has_capacity?(worker) ->
+        worker.capacity["state"] == "eligible" and worker_has_capacity?(worker, now) ->
         worker
 
       true ->
@@ -671,8 +671,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     )
   end
 
-  defp worker_has_capacity?(worker) do
-    reserved_slots = reserved_placement_slots(worker.id)
+  defp worker_has_capacity?(worker, now) do
+    reserved_slots = reserved_placement_slots(worker.id, now)
 
     # A heartbeat can precede execution of an assigned create. Keep that
     # reservation until verified remote binding, not merely until the next poll.
@@ -682,24 +682,13 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     end)
   end
 
-  defp reserved_placement_slots(worker_id) do
-    closed =
-      from(command in Command,
-        where:
-          command.placement_id == parent_as(:placement).id and
-            command.kind == "close_session" and command.status == :succeeded and
-            fragment(
-              "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
-              command.result
-            ) and
-            fragment("?::jsonb #>> '{body,session,state}' = 'closed'", command.result) and
-            fragment(
-              "(?::jsonb #>> '{body,session,id}') = (?::jsonb ->> 'coop_session_id')",
-              command.result,
-              command.payload
-            ),
-        select: 1
-      )
+  # Only a create still under way reserves a slot, for as long as
+  # `session_being_created?/2` counts one. An older unbound placement is left
+  # over, most often from a create Coop refused for good: its session stays
+  # active and unbound and the worker renews the placement on every poll, so
+  # counted it would hold its slot until retention retired the session.
+  defp reserved_placement_slots(worker_id, now) do
+    since = DateTime.add(now, -@creating_seconds, :second)
 
     Repo.aggregate(
       from(placement in Placement,
@@ -710,9 +699,30 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
           placement.worker_id == ^worker_id and
             is_nil(session.coop_session_id) and
             placement.state in ^Placement.current_states() and
-            not exists(subquery(closed))
+            placement.inserted_at > ^since and
+            not exists(subquery(closed_through_placement()))
       ),
       :count
+    )
+  end
+
+  # A session the worker closed through this placement holds no slot.
+  defp closed_through_placement do
+    from(command in Command,
+      where:
+        command.placement_id == parent_as(:placement).id and
+          command.kind == "close_session" and command.status == :succeeded and
+          fragment(
+            "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
+            command.result
+          ) and
+          fragment("?::jsonb #>> '{body,session,state}' = 'closed'", command.result) and
+          fragment(
+            "(?::jsonb #>> '{body,session,id}') = (?::jsonb ->> 'coop_session_id')",
+            command.result,
+            command.payload
+          ),
+      select: 1
     )
   end
 
