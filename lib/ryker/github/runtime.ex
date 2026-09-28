@@ -1,6 +1,7 @@
 defmodule Ryker.GitHub.Runtime do
   @moduledoc """
-  Owns GitHub App installation credentials and the single App webhook listener.
+  Owns GitHub App installation credentials, the single App webhook listener
+  and the poller that fetches the deliveries GitHub could not make to it.
 
   The credential provider starts before the listener and before downstream
   delivery/publication workers can request an installation token.
@@ -8,7 +9,7 @@ defmodule Ryker.GitHub.Runtime do
 
   use Supervisor
 
-  alias Ryker.GitHub.{InstallationTokens, OnboardingWorker, Server}
+  alias Ryker.GitHub.{DeliveryPoller, InstallationTokens, OnboardingWorker, Server}
   alias Ryker.Options
 
   @spec start_link(map() | keyword()) :: Supervisor.on_start()
@@ -32,7 +33,15 @@ defmodule Ryker.GitHub.Runtime do
       [
         {InstallationTokens, options.tokens},
         {OnboardingWorker, options.onboarding},
-        {Server, options.server}
+        {Server, options.server},
+        # The listener takes what GitHub can reach it with; the poller fetches
+        # what GitHub could not deliver, such as to 127.0.0.1.
+        {DeliveryPoller,
+         %{
+           app_http: options.tokens.app_http,
+           requester: options.tokens.requester,
+           router: Server.router_options(options.server)
+         }}
       ],
       strategy: :one_for_one
     )
