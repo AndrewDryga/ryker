@@ -6,6 +6,7 @@ defmodule Ryker.Records.TaskOffersTest do
 
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.Changeset
   alias Ryker.Repo
 
@@ -863,12 +864,65 @@ defmodule Ryker.Records.TaskOffersTest do
     task = projection.document["task_card"]
     assert task["status"] == "action_required"
 
-    # A blocked publication with no recorded cause says exactly that, rather
-    # than sending the reader to a page their Slack client cannot open.
-    assert task["action_needed"] == "Draft pull-request work is blocked; no cause was recorded."
+    # The review names the cause, so the card does, rather than sending the
+    # reader to a page their Slack client cannot open or echoing the saved detail.
+    assert task["action_needed"] ==
+             "Draft pull-request work is blocked: the repository's checks failed on the committed change."
+
     refute task["action_needed"] =~ "Open the episode for details"
     refute task["action_needed"] =~ "branch protection"
     assert task["publication"]["controls"] == ["update", "discard"]
+  end
+
+  # 2026-09-28, #test: Coop's trusted review refused the committed change with
+  # `gate: "failed"` and `not_publishable_reasons: ["gate_failed"]`, and this
+  # card said "Draft pull-request work is blocked; no cause was recorded." A
+  # refusal never sets the publication's own error code, which was all the card
+  # read, so it told the person there was nothing to go on while the review on
+  # that same publication named the cause.
+  test "a blocked draft names the cause its review recorded" do
+    fixture = confirmed_card!("review-refused")
+
+    publication =
+      fixture
+      |> publication!("review-refused")
+      |> update_publication!(%{
+        review_document: PublicationFixture.harvested_refusal(),
+        review_fingerprint: digest("review:refused"),
+        review_delivery_receipt: %{"message_ref" => "refused-message"},
+        review_delivery_receipt_fingerprint: digest("refused:receipt"),
+        reviewed_at: @now,
+        status: :blocked
+      })
+
+    assert {:ok, projection} = TaskCardProjection.build(fixture.card)
+    task = projection.document["task_card"]
+
+    refute task["action_needed"] =~ "no cause was recorded"
+
+    assert task["action_needed"] ==
+             "Draft pull-request work is blocked: the repository's checks failed on the committed change."
+
+    assert task["publication"]["controls"] == ["update", "discard"]
+
+    assert {:ok, rendered} = Renderer.render(projection.document)
+    card = Jason.encode!(rendered)
+    assert card =~ "the repository's checks failed on the committed change"
+    refute card =~ "gate_failed"
+
+    # Only a refusal that names nothing at all keeps the old words.
+    update_publication!(publication, %{
+      review_document:
+        Map.merge(PublicationFixture.harvested_refusal(), %{
+          "gate" => "passed",
+          "not_publishable_reasons" => []
+        })
+    })
+
+    assert {:ok, unexplained} = TaskCardProjection.build(fixture.card)
+
+    assert unexplained.document["task_card"]["action_needed"] ==
+             "Draft pull-request work is blocked; no cause was recorded."
   end
 
   test "task cards expose event verification and stop-in-progress without losing their thread" do

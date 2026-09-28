@@ -12,6 +12,7 @@ defmodule Ryker.Slack.Renderer.Records do
   import Ryker.Slack.Renderer.Fields
 
   alias Ryker.Publication.Card, as: PublicationCard
+  alias Ryker.Publication.Review
   alias Ryker.Records.RecordPayload
   alias Ryker.Slack.Renderer.{EmisarReview, Offers, SavedEntityCard}
   alias Ryker.Slack.ReplyRecords
@@ -30,6 +31,13 @@ defmodule Ryker.Slack.Renderer.Records do
   # Every open offer renders from its prepared payload alone; the Slack post
   # offer is the exception because the host adds the landed message's URL.
   @offer_kinds ~w(task_offer publication_offer) ++ @confirmation_kinds
+  # Every publication comes from a confirmed task, whose card carries the
+  # recovery controls; a correction the reader asks for is checked again when
+  # its turn completes.
+  @refusal_next_steps "Reply in this thread to ask me to fix it, and I'll check the new change when I'm done. To check this same change again, use *Review latest state* on the task card, or *Discard candidate* to stop publishing it."
+  # A bounded page of flagged files, each path shortened on its own line.
+  @findings_shown 5
+  @maximum_finding_path 120
 
   @spec validate(term()) :: :ok | {:error, term()}
   def validate(values) when is_list(values) and length(values) <= @maximum_records do
@@ -240,45 +248,42 @@ defmodule Ryker.Slack.Renderer.Records do
 
   defp event_wait(_record, _next_check), do: {:error, {:invalid_slack_render, :record}}
 
+  # The card says whether the change is going anywhere and, when it is not, why
+  # and what the reader can do. It printed "Gate: `failed` · Rebase: `clean`",
+  # the candidate tree and "Blocked by: gate_failed" instead (#test,
+  # 2026-09-28): Coop's enums, an internal hash and a raw code.
   defp publication_blocks("publication_review", ref, payload) do
-    findings = payload["policy_findings"] ++ payload["reasons"]
-
     detail =
-      [
-        "*#{escape(payload["title"])}*",
-        "Repository: `#{escape(payload["repository"])}`",
-        "Gate: `#{escape(payload["gate"])}` · Rebase: `#{escape(payload["rebase"])}`",
-        "Candidate tree: `#{payload["candidate_tree"]}`",
-        publication_findings(findings)
-      ]
-      |> compact_lines()
-
-    blocks = [section(detail)]
+      section(
+        compact_lines([
+          "*#{escape(payload["title"])}*",
+          "Repository: `#{escape(payload["repository"])}`"
+        ])
+      )
 
     cond do
       payload["draft_authorized"] ->
-        blocks ++
-          [section("I'm opening the draft pull request for this candidate now.")]
+        [detail, section("I'm opening the draft pull request for this candidate now.")]
 
       payload["publishable"] ->
-        blocks ++
-          [
-            actions(
+        [
+          detail,
+          actions(
+            ref,
+            button(
+              "ryker_publish_draft",
+              "Publish draft PR",
               ref,
-              button(
-                "ryker_publish_draft",
-                "Publish draft PR",
-                ref,
-                "primary",
-                "Publish reviewed draft PR",
-                "Publish only this exact reviewed candidate as a draft pull request? Merge and deployment remain separate external decisions.",
-                "Publish draft"
-              )
+              "primary",
+              "Publish reviewed draft PR",
+              "Publish only this exact reviewed candidate as a draft pull request? Merge and deployment remain separate external decisions.",
+              "Publish draft"
             )
-          ]
+          )
+        ]
 
       true ->
-        blocks
+        [detail, section(refusal(payload)), section(@refusal_next_steps)]
     end
   end
 
@@ -313,10 +318,48 @@ defmodule Ryker.Slack.Renderer.Records do
     ]
   end
 
-  defp publication_findings([]), do: nil
+  defp refusal(payload) do
+    causes =
+      Review.refusal(%{
+        "gate" => payload["gate"],
+        "not_publishable_reasons" => payload["reasons"],
+        "policy_findings" => payload["policy_findings"],
+        "rebase" => payload["rebase"]
+      })
 
-  defp publication_findings(findings),
-    do: "Blocked by: " <> Enum.map_join(findings, ", ", &escape/1)
+    case causes do
+      [] ->
+        "No cause was recorded."
+
+      causes ->
+        compact_lines(
+          Enum.map(causes, &cause_sentence/1) ++ flagged_files(payload["policy_findings"])
+        )
+    end
+  end
+
+  defp cause_sentence(<<first::utf8, rest::binary>>),
+    do: String.upcase(<<first::utf8>>) <> rest <> "."
+
+  # The findings clause comes last, so the files it counts follow it.
+  defp flagged_files(findings) do
+    findings = Review.findings(findings)
+    lines = findings |> Enum.take(@findings_shown) |> Enum.map(&flagged_file/1)
+
+    if length(findings) > @findings_shown,
+      do: lines ++ ["Showing #{@findings_shown} of #{length(findings)} issues."],
+      else: lines
+  end
+
+  # A path is shown only as code. A backtick would end that span early and let
+  # the rest of a name the change chose read as Slack formatting.
+  defp flagged_file({path, problem}) do
+    if String.contains?(path, "`"),
+      do: flagged_file(:unrecognized),
+      else: "• `#{escape(truncate(path, @maximum_finding_path))}` #{escape(problem)}."
+  end
+
+  defp flagged_file(:unrecognized), do: "• An issue I can't describe."
 
   defp input_request_blocks(ref, %{"choices" => choices, "question" => question} = payload) do
     question_block = %{

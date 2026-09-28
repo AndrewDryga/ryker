@@ -8,6 +8,40 @@ defmodule Ryker.Publication.Review do
   @git_identity ~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
+  # Every code Coop refuses a candidate with (internal/sessionsvc/review.go),
+  # most actionable first, each worded to read on after "blocked: ". A gate
+  # that did not run has no code of its own; the typed field says so.
+  @refusals [
+    {"rebase_conflict", "the change conflicts with the latest base branch"},
+    {"gate_failed", "the repository's checks failed on the committed change"},
+    {"gate_startup_error", "the repository's checks couldn't start"},
+    {"gate_not_configured", "no checks are set up for the repository"},
+    {"gate_modified_candidate", "running the checks changed the committed files"},
+    {"no_changes", "the committed change has no differences from the base branch"},
+    {"parent_moved", "the base branch moved while the change was being checked"},
+    {"source_moved", "the working copy changed while it was being checked"},
+    {"fork_owner_active", "the working copy was still in use while it was being checked"},
+    {"gate_not_run", "the repository's checks didn't run"}
+  ]
+  # Findings are counted from the list they name, so their code needs no clause.
+  @refusal_codes ["policy_findings" | Enum.map(@refusals, &elem(&1, 0))]
+  @unrecognized_refusal "the review refused the change for a reason I don't recognize"
+
+  # Coop's policy scan (internal/sessionsvc/review_scan.go) words each finding
+  # as one of these sentences around the path it names. The last is a file that
+  # runs on a host, in Coop's own description of how.
+  @finding_shapes [
+    {~r/\Asecret-like file: (?<path>.+)\z/u, "looks like a file that holds secrets"},
+    {~r/\Apossible secret in (?<path>.+) — remove the credential before publication\z/u,
+     "may contain a credential"},
+    {~r/\A(?<path>.+) adds a (?<script>preinstall|install|postinstall|prepare) script — npm runs it automatically on install\z/u,
+     :install_script},
+    {~r/\A(?<path>.+) cannot be inspected for automatic install scripts\z/u,
+     "couldn't be checked for automatic install scripts"},
+    {~r/\A(?<path>.+) — (?<effect>(?:Runs|Selects|Changes|Starts|Provides|Can run|Defines) [^—]+)\.\z/u,
+     :effect}
+  ]
+
   @spec prepare(map(), map()) :: {:ok, map()} | {:error, term()}
   def prepare(document, expected) when is_map(document) and is_map(expected) do
     # Publication retains identity, not the bounded display preview or source projection.
@@ -103,6 +137,87 @@ defmodule Ryker.Publication.Review do
   end
 
   def gate_failure(_document), do: nil
+
+  @doc """
+  Why the trusted review refused a candidate, one clause per cause, each
+  reading on after "blocked: ". Empty only when the review names no cause.
+
+  Coop refuses with codes. On 2026-09-28 the review card printed "Blocked by:
+  gate_failed" and the task card, reading only the publication's own error
+  code, said no cause was recorded. A code this host does not know still says
+  the review refused the change, and never echoes the code. Policy findings
+  come last, so a list of the files they name can follow them.
+  """
+  @spec refusal(term()) :: [String.t()]
+  def refusal(document) when is_map(document) do
+    codes =
+      [gate_refusal(document["gate"]), rebase_refusal(document["rebase"])]
+      |> Enum.reject(&is_nil/1)
+      |> Kernel.++(refusal_codes(document["not_publishable_reasons"]))
+      |> Enum.uniq()
+
+    # A gate never runs on a change that no longer applies: that is the
+    # conflict, not a second cause to fix.
+    codes = if "rebase_conflict" in codes, do: codes -- ["gate_not_run"], else: codes
+    unrecognized? = Enum.any?(codes, &(&1 not in @refusal_codes))
+
+    for({code, clause} <- @refusals, code in codes, do: clause) ++
+      if(unrecognized?, do: [@unrecognized_refusal], else: []) ++
+      findings_refusal(document["policy_findings"], "policy_findings" in codes)
+  end
+
+  def refusal(_document), do: []
+
+  @doc """
+  Each policy finding as the file it names and what is wrong with it, in the
+  host's words, or `:unrecognized` for a finding worded some other way.
+
+  A finding is Coop's sentence around a path the change chose. Printing it
+  whole let that path read as part of the explanation; a shape Coop has not
+  used before is counted by the caller, never echoed.
+  """
+  @spec findings(term()) :: [{String.t(), String.t()} | :unrecognized]
+  def findings(findings) when is_list(findings), do: Enum.map(findings, &finding/1)
+  def findings(_findings), do: []
+
+  defp finding(text) when is_binary(text) do
+    Enum.find_value(@finding_shapes, :unrecognized, fn {shape, problem} ->
+      case Regex.named_captures(shape, text) do
+        %{"path" => path} = captures -> {path, finding_problem(problem, captures)}
+        nil -> nil
+      end
+    end)
+  end
+
+  defp finding(_text), do: :unrecognized
+
+  defp finding_problem(:install_script, %{"script" => script}),
+    do: "adds an npm #{script} script, which runs automatically on install"
+
+  defp finding_problem(:effect, %{"effect" => <<first::utf8, rest::binary>>}),
+    do: String.downcase(<<first::utf8>>) <> rest
+
+  defp finding_problem(problem, _captures), do: problem
+
+  defp gate_refusal("failed"), do: "gate_failed"
+  defp gate_refusal("startup_error"), do: "gate_startup_error"
+  defp gate_refusal("none"), do: "gate_not_configured"
+  defp gate_refusal("not_run"), do: "gate_not_run"
+  defp gate_refusal(_gate), do: nil
+
+  defp rebase_refusal("conflict"), do: "rebase_conflict"
+  defp rebase_refusal(_rebase), do: nil
+
+  defp refusal_codes(codes) when is_list(codes), do: Enum.filter(codes, &is_binary/1)
+  defp refusal_codes(_codes), do: []
+
+  defp findings_refusal([_finding | _rest] = findings, _named?) do
+    count = length(findings)
+    ["the safety scan flagged #{count} issue#{if count == 1, do: "", else: "s"} in the change"]
+  end
+
+  defp findings_refusal(_findings, true), do: ["the safety scan flagged the change"]
+  defp findings_refusal(_findings, false), do: []
 
   defp draft_reasons(document) do
     blocking =

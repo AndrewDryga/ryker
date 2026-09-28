@@ -142,6 +142,21 @@ defmodule Ryker.Fixtures.Publication do
     }
   end
 
+  @doc """
+  The trusted review Coop returned for #test's automatic-readiness QA task
+  (`op_465712a7…`, harvested 2026-09-10): the gate failed on a clean rebase and
+  `gate_failed` is its only reason, the same refusal the 2026-09-28 cards
+  misreported. That producer omitted an empty `policy_findings`; Coop sends one now.
+  """
+  def harvested_refusal do
+    "test/ryker/coop_fleet/fixtures/completed_review_after_timeout.json"
+    |> File.read!()
+    |> Jason.decode!()
+    |> Map.fetch!("review")
+    |> Map.delete("patch")
+    |> Map.put("policy_findings", [])
+  end
+
   def approved!(suffix, options \\ []) do
     %{claim: claim, publication: publication, repository: repository} =
       review_requested!(suffix, options)
