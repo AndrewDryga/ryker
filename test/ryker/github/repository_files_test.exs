@@ -46,6 +46,41 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
     assert RecordedGitHub.unanswered() == []
   end
 
+  # GitHub answers its primary and secondary rate limits with 403 as well as
+  # 429. Every 403 read as a missing App permission, so a busy hour ended
+  # the step for a day and told people to grant a permission the App had.
+  test "a rate limit is a wait, not a missing App permission" do
+    ref = "/repos/acme/widget/git/ref/heads/main"
+
+    RecordedGitHub.reply([
+      {:get, ref,
+       ok(403, %{"message" => "API rate limit exceeded for installation ID 41."}, [
+         {"x-ratelimit-remaining", "0"},
+         {"x-ratelimit-reset", "1790000000"}
+       ])},
+      {:get, ref,
+       ok(
+         403,
+         %{
+           "message" =>
+             "You have exceeded a secondary rate limit. Please wait a few minutes before you " <>
+               "try again."
+         },
+         [{"retry-after", "60"}]
+       )},
+      {:get, ref, ok(429, %{"message" => "Too many requests"}, [{"retry-after", "30"}])},
+      {:get, ref, ok(403, %{"message" => "Resource not accessible by integration"})}
+    ])
+
+    for _limited <- 1..3 do
+      assert RepositoryFiles.head(@binding, @repository) ==
+               {:error, {:github_onboarding, :rate_limited}}
+    end
+
+    assert RepositoryFiles.head(@binding, @repository) ==
+             {:error, {:github_onboarding, :permission}}
+  end
+
   test "a repository with no commit yet is empty, not missing" do
     RecordedGitHub.reply([
       {:get, "/repos/acme/widget/git/ref/heads/main",

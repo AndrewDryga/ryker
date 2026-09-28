@@ -26,11 +26,11 @@ defmodule Ryker.GitHub.Client.Transport do
 
   @doc "The error a reply names when it is not the success its caller expected."
   @spec error(term()) :: {:error, term()}
-  def error(%{body: body, headers: headers, status: status})
+  def error(%{body: body, headers: headers, status: status} = response)
       when status in [403, 429] and is_list(headers) do
     error = {:github_api_error, status, body}
 
-    if status == 429 or github_rate_limited?(body, headers),
+    if rate_limited?(response),
       do: {:error, {:delivery_rate_limited, rate_limit_delay(headers), error}},
       else: {:error, error}
   end
@@ -40,10 +40,19 @@ defmodule Ryker.GitHub.Client.Transport do
 
   def error(_response), do: {:error, {:github_protocol_error, :response}}
 
-  defp github_rate_limited?(body, headers) do
+  @doc """
+  Whether a reply is GitHub turning the request away for its rate limit: a
+  429, or a 403 that says so, asks for a wait, or leaves no requests.
+  """
+  @spec rate_limited?(term()) :: boolean()
+  def rate_limited?(%{status: 429}), do: true
+
+  def rate_limited?(%{body: body, headers: headers, status: 403}) when is_list(headers) do
     not is_nil(header(headers, "retry-after")) or header(headers, "x-ratelimit-remaining") == "0" or
       rate_limit_message?(body)
   end
+
+  def rate_limited?(_response), do: false
 
   defp rate_limit_message?(%{"message" => message}) when is_binary(message),
     do: message |> String.downcase() |> String.contains?("rate limit")
