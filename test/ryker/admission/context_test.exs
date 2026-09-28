@@ -620,6 +620,15 @@ defmodule Ryker.Admission.ContextTest do
     assert {:ok, [episode_id]} = Context.episode_ids(snapshot)
     assert episode_id == episode.id
 
+    # The message the candidate's preview quotes is frozen beside it, for
+    # forgetting to reach a copy of the prompt by (`Ryker.RoutingExamples`).
+    assert snapshot["candidate_messages"] == [
+             %{
+               "conversation_ref" => episode.destination_conversation_ref,
+               "message_ref" => "1787830000.000777"
+             }
+           ]
+
     assert {:ok, restored} =
              Context.restore(snapshot, context.input, context.input_entry, %{
                episode.id => episode
@@ -679,6 +688,14 @@ defmodule Ryker.Admission.ContextTest do
 
     assert {:error, {:invalid_admission_context_snapshot, :document}} =
              Context.restore(snapshot, context.input, context.input_entry, :not_an_episode_map)
+
+    assert {:error, {:invalid_admission_context_snapshot, :candidate_messages}} =
+             Context.restore(
+               Map.put(snapshot, "candidate_messages", [%{"message_ref" => 1}]),
+               context.input,
+               context.input_entry,
+               %{episode.id => episode}
+             )
   end
 
   # A route in an environment with several repositories lists them for the

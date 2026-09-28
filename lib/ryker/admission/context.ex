@@ -29,6 +29,7 @@ defmodule Ryker.Admission.Context do
                 routing_receipt: nil,
                 continuation_window: nil,
                 repository_choices: [],
+                candidate_messages: [],
                 fitted?: false
               ]
 
@@ -176,6 +177,7 @@ defmodule Ryker.Admission.Context do
     |> put_slack_addressing(context.slack_addressing)
     |> put_custom_instructions(context.custom_instructions)
     |> put_repository_choices(context.repository_choices)
+    |> put_candidate_messages(context.candidate_messages)
   end
 
   @doc false
@@ -212,7 +214,8 @@ defmodule Ryker.Admission.Context do
                    "knowledge_omissions",
                    "slack_addressing",
                    "custom_instructions",
-                   "repository_choices"
+                   "repository_choices",
+                   "candidate_messages"
                  ])
                )
              ) ==
@@ -220,6 +223,7 @@ defmodule Ryker.Admission.Context do
          {:ok, slack_addressing} <- restore_slack_addressing(snapshot, input),
          {:ok, custom_instructions} <- restore_custom_instructions(snapshot, input),
          {:ok, repository_choices} <- restore_repository_choices(snapshot),
+         {:ok, candidate_messages} <- restore_candidate_messages(snapshot),
          observations when is_list(observations) <-
            Map.get(snapshot, "conversation_observations", []),
          true <- length(observations) <= 5,
@@ -254,6 +258,7 @@ defmodule Ryker.Admission.Context do
          knowledge: knowledge,
          knowledge_omissions: omissions,
          repository_choices: repository_choices,
+         candidate_messages: candidate_messages,
          source_dependencies: snapshot["source_dependencies"]
        }}
     else
@@ -298,6 +303,38 @@ defmodule Ryker.Admission.Context do
   end
 
   defp repository_choice?(_choice), do: false
+
+  # The messages the candidates' previews quote, which forgetting reaches a
+  # copy of the prompt by (`Ryker.Admission.Candidate.previewed_messages/1`):
+  # two for each of at most twenty candidates, and none recorded when no
+  # candidate had a preview.
+  @maximum_candidate_messages 40
+  defp restore_candidate_messages(snapshot) do
+    case Map.fetch(snapshot, "candidate_messages") do
+      :error ->
+        {:ok, []}
+
+      {:ok, messages}
+      when is_list(messages) and length(messages) in 1..@maximum_candidate_messages ->
+        if Enum.all?(messages, &candidate_message?/1),
+          do: {:ok, messages},
+          else: {:error, {:invalid_admission_context_snapshot, :candidate_messages}}
+
+      {:ok, _invalid} ->
+        {:error, {:invalid_admission_context_snapshot, :candidate_messages}}
+    end
+  end
+
+  defp candidate_message?(%{"conversation_ref" => conversation, "message_ref" => message} = entry)
+       when map_size(entry) == 2,
+       do: is_binary(conversation) and is_binary(message)
+
+  defp candidate_message?(_message), do: false
+
+  defp put_candidate_messages(document, []), do: document
+
+  defp put_candidate_messages(document, messages),
+    do: Map.put(document, "candidate_messages", messages)
 
   defp put_repository_choices(document, []), do: document
 

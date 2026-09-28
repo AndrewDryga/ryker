@@ -79,13 +79,15 @@ lost the query of a link.
 **A person forgetting wins.** Forgetting a fact or a learned topic, deleting a message in Slack,
 editing its words, or deleting a Slack channel erases, in the same transaction, every copy whose
 prompt quoted that message, topic or conversation: its own message, the earlier messages of its
-thread or channel, and learned observations and topics. An edit takes back the words it replaced;
-one that leaves the text as it was, as Slack reports a link's preview arriving, takes back nothing.
-The copy keeps only its identity, so it is never copied again. A message forgotten, deleted or
-edited before its decision is copied is checked at the copy, which then records only that identity.
-Copies and forgetting share one lock, so a copy in flight cannot slip past a forgetting that is
-committing. The one quotation this cannot trace is the short preview of an earlier request offered
-as a candidate, which names no message.
+thread or channel, learned observations and topics, and the opening and latest message of each
+earlier request offered as a candidate: routing shows those as short previews and records which
+messages they are. An edit takes back the words it replaced; one that leaves the text as it was,
+as Slack reports a link's preview arriving, takes back nothing. The copy keeps only its identity,
+so it is never copied again. A message forgotten, deleted or edited before its decision is copied
+is checked at the copy, which then records only that identity. Copies and forgetting share one
+lock, so a copy in flight cannot slip past a forgetting that is committing. Decisions routed
+before 2026-09-28 recorded no messages for their previews, so forgetting cannot trace those
+previews.
 
 ## Getting the examples out
 

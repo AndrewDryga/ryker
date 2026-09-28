@@ -198,6 +198,21 @@ defmodule Ryker.Admission.Candidate do
 
   defp evidence_label(_feature, _value, _match), do: nil
 
+  @doc """
+  The messages this candidate's previews quote, each by its conversation and
+  its reference there, as forgetting names a quoted message
+  (`Ryker.RoutingExamples`). They stay host-owned: the model reads only the
+  previews' words.
+  """
+  @spec previewed_messages(t()) :: [map()]
+  def previewed_messages(%__MODULE__{source_documents: documents}) do
+    for %{"destination" => %{"conversation_ref" => conversation}} = document <- documents,
+        message <- [document["source_item_ref"] || document["native_input_id"]],
+        is_binary(conversation) and is_binary(message),
+        uniq: true,
+        do: %{"conversation_ref" => conversation, "message_ref" => message}
+  end
+
   @doc false
   def preview_limit, do: @preview_limit
 
