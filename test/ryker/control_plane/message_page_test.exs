@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
 
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{Actions, ConversationLab, Endpoint, Projection}
+  alias Ryker.ControlPlane.{Actions, Activity, ConversationLab, Endpoint, Projection}
   alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -148,7 +148,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     refute has_element?(view, "section#in-this-thread")
 
     thread =
-      Ryker.ControlPlane.Activity.conversation_path(
+      Activity.conversation_path(
         "slack",
         greeting.destination_conversation_ref,
         @root

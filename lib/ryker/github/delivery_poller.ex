@@ -74,6 +74,8 @@ defmodule Ryker.GitHub.DeliveryPoller do
     {:noreply, state}
   end
 
+  def handle_info(_unexpected, state), do: {:noreply, state}
+
   @doc """
   One look at GitHub's deliveries: each new one, oldest first, goes to the
   router. Returns the state with what it has now seen.
@@ -149,13 +151,27 @@ defmodule Ryker.GitHub.DeliveryPoller do
   defp route(state, guid, event_name, payload) do
     body = Jason.encode!(payload)
 
-    %Plug.Conn{}
-    |> RequestConn.conn(:post, "/v1/github", body)
-    |> Plug.Conn.put_req_header("content-type", "application/json")
-    |> Plug.Conn.put_req_header("x-github-event", event_name)
-    |> Plug.Conn.put_req_header("x-github-delivery", guid)
-    |> Plug.Conn.put_req_header("x-hub-signature-256", Auth.signature(state.secret, body))
-    |> Router.call(state.router)
+    conn =
+      %Plug.Conn{}
+      |> RequestConn.conn(:post, "/v1/github", body)
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+      |> Plug.Conn.put_req_header("x-github-event", event_name)
+      |> Plug.Conn.put_req_header("x-github-delivery", guid)
+      |> Plug.Conn.put_req_header("x-hub-signature-256", Auth.signature(state.secret, body))
+      |> Router.call(state.router)
+
+    # The in-process request reports its response to its caller as a message
+    # too; this process reads the status from the conn, so it drops the copy.
+    # Unread, it crashed the poller on its first delivery (2026-09-28).
+    {_adapter, %{ref: ref}} = conn.adapter
+
+    receive do
+      {^ref, {_status, _headers, _body}} -> :ok
+    after
+      0 -> :ok
+    end
+
+    conn
   end
 
   defp request(state, path) do

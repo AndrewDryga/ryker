@@ -43,6 +43,10 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
 
     state = DeliveryPoller.poll(state)
 
+    # Nothing is left in the poller's mailbox: the in-process request's copy
+    # of its response crashed the live poller on its first delivery.
+    refute_received {_ref, {_status, _headers, _body}}
+
     # Routed through the router: recorded as a GitHub delivery and admitted
     # as a request on the pull request's thread.
     assert [%Event{event_name: "issue_comment", disposition: "routed"}] = Repo.all(Event)
