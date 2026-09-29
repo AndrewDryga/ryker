@@ -145,10 +145,11 @@ defmodule Ryker.Learning.Rebuilds do
     from(o in ConversationObservation,
       join: e in Entry,
       on: e.id == o.source_input_id,
+      # The conversation's messages, whatever repository each one's work used:
+      # a topic is its conversation's (`Ryker.Knowledge`).
       where:
         o.transport == ^topic.transport and o.workspace_ref == ^topic.workspace_ref and
-          o.conversation_ref == ^topic.conversation_ref and
-          fragment("? IS NOT DISTINCT FROM ?", o.repository_ref, ^topic.repository_ref),
+          o.conversation_ref == ^topic.conversation_ref,
       where:
         e.destination_transport == o.transport and
           e.destination_conversation_ref == o.conversation_ref and
@@ -460,9 +461,7 @@ defmodule Ryker.Learning.Rebuilds do
   defp matching_batches(topic, mode) do
     query =
       from(b in Batch,
-        where:
-          b.transport == ^topic.transport and b.conversation_ref == ^topic.conversation_ref and
-            fragment("? IS NOT DISTINCT FROM ?", b.repository_ref, ^topic.repository_ref)
+        where: b.transport == ^topic.transport and b.conversation_ref == ^topic.conversation_ref
       )
 
     if mode, do: where(query, [b], b.execution_mode == ^mode), else: query
