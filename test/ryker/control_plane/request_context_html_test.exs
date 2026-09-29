@@ -884,7 +884,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
              {"Continuation candidates", "None"},
              {"Background matches", "None"},
              {"Conversation notes", "None"},
-             {"Learned topics", "None"}
+             {"Learned topics", "None matched"}
            ]
 
     # Each says why on hover, and none is a disclosure that opens onto nothing.
