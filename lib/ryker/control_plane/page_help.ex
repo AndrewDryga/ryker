@@ -956,13 +956,13 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How the weekly report works", [
       {"What it says",
        [
-         "Once a week Ryker posts how its week went in one Slack channel. It says what people asked and what became of it, how they took its answers, and what self-analysis found. It also says how often its answers needed correcting, what it learned, which failures leave someone waiting, and what its model calls cost.",
-         "Each number stands beside last week's, each part links to the page with the rest, and a part with nothing to say says None."
+         "Once a week Ryker posts a short update in one Slack channel, the way a teammate would at a standup. It says how much work it did, what it got done, what is still open and what needs someone. A last line says how people took its answers and what it learned.",
+         "Done, Still open and Stuck are always there. When one has nothing in it, it says so."
        ]},
-      {"Where the numbers come from",
+      {"Where it comes from",
        [
-         "Ryker counts them from what it has on record. No model writes the report, so it cannot say anything the records do not hold.",
-         "A report covers the seven days before it is sent. It names a request, a topic or a diagnosis only when it came from a public channel, and a fact only when the whole workspace can use it. The rest is counted and linked, not quoted."
+         "Ryker writes it from what it has on record. No model writes the report, so it cannot say anything the records do not hold.",
+         "A report covers the seven days before it is sent: every request someone asked in or Ryker answered in during those days. It names a request or a topic only when it came from a public channel; the rest are counted, not named."
        ]},
       {"When it posts",
        [
@@ -971,7 +971,8 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Preview",
        [
-         "Preview this week's report shows what a report sent now would say, from the seven days before now. Nothing is posted."
+         "Preview this week's report shows what a report sent now would say, from the seven days before now. Nothing is posted until you send it.",
+         "Send to the channel posts it there now, titled as a preview, even while the report is off. It does not count as the week's report: the report still posts at its day and time."
        ]},
       {"When something looks wrong",
        [

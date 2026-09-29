@@ -235,8 +235,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
   end
 
   # The page says what the loop did in the last seven days, in words: what
-  # was found and what people decided. The weekly report says the same for
-  # its own week, from the same read (`Ryker.Improvement.week/2`).
+  # was found and what people decided (`Ryker.Improvement.week/2`).
   test "the page says what the last seven days brought and what was decided",
        %{staging: staging, access: access} do
     old = unhappy!("COLDWEEK", 1_790_000_000, "Old question", "Old answer", diagnosis: nil)

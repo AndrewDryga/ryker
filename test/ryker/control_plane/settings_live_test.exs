@@ -230,12 +230,15 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   test "the Weekly report page previews this week's report in the page and posts nothing" do
     initialize!()
 
-    Answers.slack_message!(
-      workspace: "TPREVIEW",
-      channel: "CPREVIEW",
-      text: "Is staging healthy?",
-      ts: "1790700001.000100"
-    )
+    asked =
+      Answers.slack_message!(
+        workspace: "TPREVIEW",
+        channel: "CPREVIEW",
+        text: "Is staging healthy?",
+        ts: "1790700001.000100"
+      )
+
+    Answers.quick_reply!(asked, "Yes, it is.", "1790700001.000200", DateTime.utc_now())
 
     {:ok, view, html} = open("/settings/report")
     document = LazyHTML.from_document(html)
@@ -250,27 +253,63 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     text = view |> element("#weekly-report-text") |> render() |> LazyHTML.from_fragment()
     words = LazyHTML.text(text)
 
-    assert words =~ "Weekly report"
-    assert words =~ "How my week went, from"
-    assert words =~ "I read 1 message (last week 0): 1 is still being read."
+    assert words =~ "Weekly update"
+    assert words =~ "This week I answered 1 message on the spot."
 
-    for heading <-
-          ~w(Requests Feedback Corrections Learned Cost) ++
-            ["What to fix", "Needs a person"] do
+    for heading <- ["Done", "Still open", "Stuck"] do
       assert Enum.member?(LazyHTML.query(text, "strong") |> texts(), heading), heading
     end
 
-    assert LazyHTML.query(text, "a[href='http://127.0.0.1:4321/activity']") |> Enum.count() == 1
+    # With no channel chosen there is nowhere to send it yet.
+    refute has_element?(view, "#send-weekly-report-preview")
+    assert has_element?(view, "#weekly-report-preview", "Choose the report's channel above")
 
     # Nothing was posted, queued or recorded as sent.
     assert Repo.aggregate(Ryker.WeeklyReport.Report, :count) == 0
 
     # The preview is a link, so a reload shows it again.
     {:ok, reloaded, _html} = open("/settings/report?preview=week")
-    assert has_element?(reloaded, "#weekly-report-text", "I read 1 message")
+    assert has_element?(reloaded, "#weekly-report-text", "answered 1 message")
 
     reloaded |> element("#weekly-report-preview a", "Hide the preview") |> render_click()
     refute has_element?(reloaded, "#weekly-report-text")
+  end
+
+  # Andrew, 2026-09-28: "why not to send real report to configured channel
+  # as a preview?" Reading the words in the console is not seeing what the
+  # channel gets.
+  test "the preview can be sent to the report's channel now, marked as a preview, without turning the report on" do
+    snapshot = initialize!()
+
+    {:ok, snapshot} =
+      Settings.save_slack(
+        %{
+          enabled: true,
+          workspace_ref: "T0123456789",
+          bot_ref: "A0123456789",
+          bot_user_ref: "U0123456789",
+          operators: ["U1111111111"]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    joined!("CREPORT", nil)
+
+    {:ok, _snapshot} =
+      Settings.save_report(%{channel_ref: "CREPORT"}, snapshot.installation.revision, @actor)
+
+    {:ok, view, _html} = open("/settings/report?preview=week")
+    assert has_element?(view, "#send-weekly-report-preview", "Send to")
+
+    view |> element("#send-weekly-report-preview") |> render_click()
+    assert has_element?(view, "#weekly-report-sent", "Sent.")
+
+    assert [report] = Repo.all(Ryker.WeeklyReport.Report)
+    assert report.preview
+    assert report.conversation_ref == "slack:T0123456789:CREPORT"
+    assert report.document["message"] =~ "**Weekly update (preview)**"
+    refute Settings.fetch!().report.weekly_self_report_enabled
   end
 
   # The report asked for "the channel's ID from Slack, under its name's

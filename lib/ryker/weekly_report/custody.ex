@@ -30,17 +30,22 @@ defmodule Ryker.WeeklyReport.Custody do
   Freezes one week's report: `week` (that week's Monday), `due_at`,
   `period_start`, `timezone`, `conversation_ref` and `message`, posted to
   Slack. A week already on record keeps what it has: the call returns
-  `{:ok, :already_queued}` and writes nothing.
+  `{:ok, :already_queued}` and writes nothing. With `preview: true` it is a
+  preview a person sent, its own post every time and never the week's.
   """
   @spec enqueue(map()) :: {:ok, Report.t() | :already_queued} | {:error, term()}
   def enqueue(%{week: %Date{} = week} = attributes) do
+    id = Ecto.UUID.generate()
+    preview = Map.get(attributes, :preview, false) == true
+
     values = %{
       conversation_ref: attributes.conversation_ref,
-      delivery_ref: delivery_ref(week),
+      delivery_ref: if(preview, do: "weekly-report-preview:" <> id, else: delivery_ref(week)),
       document: %{"message" => attributes.message},
       due_at: attributes.due_at,
-      id: Ecto.UUID.generate(),
+      id: id,
       period_start: attributes.period_start,
+      preview: preview,
       timezone: attributes.timezone,
       transport: "slack",
       week: week
@@ -73,10 +78,10 @@ defmodule Ryker.WeeklyReport.Custody do
   @spec delivery_ref(Date.t()) :: String.t()
   def delivery_ref(%Date{} = week), do: "weekly-report:" <> Date.to_iso8601(week)
 
-  @doc "Whether the week that starts on `week` (a Monday) has its report on record."
+  @doc "Whether the week that starts on `week` (a Monday) has its report on record; a preview is not it."
   @spec recorded?(Date.t()) :: boolean()
   def recorded?(%Date{} = week),
-    do: Repo.exists?(from(report in Report, where: report.week == ^week))
+    do: Repo.exists?(from(report in Report, where: report.week == ^week and not report.preview))
 
   @doc """
   The earliest moment after `since` at which a pending report becomes

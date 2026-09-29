@@ -164,10 +164,19 @@ defmodule Ryker.Work.DispatcherTest do
       {:coop_error, 503, "unavailable", "try later"}
     ]
 
+    # A one-second retry let the previous reason's turn fall due again while
+    # the full gate ran slowly, and the dispatcher claimed it instead of this
+    # one (dev-check, 2026-09-29): each deferral here waits an hour.
     Enum.with_index(reasons, fn reason, index ->
       command = create_episode!("transient-class-#{index}")
 
-      assert {:ok, {:deferred, reported}} = Dispatcher.run_once(options({:error, reason}))
+      options =
+        Keyword.merge(options({:error, reason}),
+          retry_base_seconds: 3_600,
+          retry_max_seconds: 3_600
+        )
+
+      assert {:ok, {:deferred, reported}} = Dispatcher.run_once(options)
 
       expected =
         case reason do

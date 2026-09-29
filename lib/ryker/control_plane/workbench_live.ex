@@ -142,6 +142,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        slack_members: [],
        settings_form: nil,
        weekly_preview: nil,
+       weekly_sent: nil,
        carried_notice: nil,
        action_question: nil,
        overview: nil,
@@ -207,6 +208,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          ),
        setup_failure: nil,
        settings_confirm: nil,
+       weekly_sent: nil,
        action_question: nil,
        channel_notice: nil,
        welcome_pending: nil,
@@ -548,6 +550,25 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       {:error, reason} ->
         {:noreply, assign(socket, :settings_error, initialize_error(reason))}
     end
+  end
+
+  # The report as it would read now, posted to its channel as a preview; the
+  # card says what became of it.
+  def handle_event("send-weekly-report-preview", _params, socket) do
+    sent =
+      case socket.assigns.settings_commands.send_weekly_report_preview.() do
+        {:ok, _report} ->
+          {:ok,
+           "Sent. It shows in the channel in a moment; if Slack refuses it, it is on Failures."}
+
+        {:error, :no_channel} ->
+          {:error, "Choose the report's channel and connect Slack before sending a preview."}
+
+        {:error, _reason} ->
+          {:error, "Ryker could not send the preview. Nothing was posted."}
+      end
+
+    {:noreply, assign(socket, :weekly_sent, sent)}
   end
 
   def handle_event("connect-slack", %{"connection" => params}, socket) do
@@ -1550,7 +1571,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       :preview_retention,
       :preview_webhook,
       :put_settings_item,
-      :save_settings
+      :save_settings,
+      :send_weekly_report_preview
     ])
     |> Map.new(fn {key, callback} -> {command_name(key), callback} end)
   end
@@ -1561,6 +1583,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp command_name(:preview_webhook), do: :preview_webhook
   defp command_name(:put_settings_item), do: :put_item
   defp command_name(:save_settings), do: :save
+  defp command_name(:send_weekly_report_preview), do: :send_weekly_report_preview
 
   defp initialize_settings(socket) do
     socket.assigns.settings_commands.initialize.()
@@ -2360,6 +2383,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             form={@settings_form}
             params={@params}
             preview={@weekly_preview}
+            preview_sent={@weekly_sent}
           />
           <div :if={@native == :instructions} class="secondary-page instructions-page">
             <Components.page_header

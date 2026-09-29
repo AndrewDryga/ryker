@@ -2,19 +2,13 @@ defmodule Ryker.WeeklyReport do
   @moduledoc """
   The weekly report: one message a week in the Slack channel Settings ›
   Weekly report names, at the day and local time it names, saying how
-  Ryker's week went. Off until a person turns it on.
+  Ryker's week went the way a teammate says it at a standup. Off until a
+  person turns it on.
 
-  **What it says.** Requests (the messages Ryker read and what became of
-  them, and the requests it took on and where each stands), Feedback
-  (positive and negative, by kind, and the requests people were frustrated
-  with), What to fix (what self-analysis found and what people decided, and
-  the newest diagnosis Ryker was sure of), Corrections (how often routing's
-  and Work's answers needed correcting, and the correction given most
-  often), Learned (new facts and topics, and the newest), Needs a person (the
-  failures open now that leave someone without a reply, an update or a
-  result) and Cost (what the week's model calls cost). Each number stands
-  beside last week's where the two compare, each section links to the page
-  that holds the rest, and a section with nothing to say says None.
+  **What it says.** How much work Ryker did (the requests it worked on and
+  finished, the messages it answered on the spot, the draft PRs it opened),
+  what it got done, what is still open, what is stuck and needs someone, and
+  a closing line on feedback and what it learned (`Ryker.WeeklyReport.Digest`).
 
   **How it is made.** From the database alone, with no model turn
   (`Ryker.WeeklyReport.Facts`, `Ryker.WeeklyReport.Digest`), so it cannot say
@@ -24,8 +18,7 @@ defmodule Ryker.WeeklyReport do
   **Its week.** A report covers the seven days before it is sent: from the
   same day and local time a week earlier up to the send time
   (`Ryker.WeeklyReport.Schedule`), so each week's report starts where the
-  last one ended. The preview on the settings page covers the seven days
-  before now.
+  last one ended. A preview covers the seven days before now.
 
   **When it is sent.** At most once per calendar week (Monday to Sunday in
   the report's zone), and never for a send time that passed before the
@@ -36,6 +29,12 @@ defmodule Ryker.WeeklyReport do
   when the report falls due, so a restart never posts a week twice, and it is
   the post's delivery custody (`Ryker.WeeklyReport.Custody`): retries, and a
   refusal on Failures, like every other post.
+
+  **A preview.** Settings › Weekly report shows what a report sent now would
+  say (`preview/1`), and can send it to the chosen channel now
+  (`send_preview/1`), titled as a preview. A preview goes through the same
+  custody as the week's report and is not the week's report: the scheduled
+  one still posts.
   """
 
   import Ecto.Query
@@ -47,9 +46,9 @@ defmodule Ryker.WeeklyReport do
   @week_seconds 7 * 86_400
 
   @doc """
-  The report for `week` (`from`, `to`, `previous_from` and its `timezone`),
-  read at `:now`. Options: `:now`, `:base_url` for the links (the console's
-  address by default) and `:time_zone_database`.
+  The report for `week` (`from`, `to` and its `timezone`), read at `:now`.
+  Options: `:now`, `:base_url` for the links (the console's address by
+  default), `:time_zone_database` and `:preview`, which titles it as one.
   """
   @spec compose(map(), keyword()) :: Digest.t()
   def compose(week, options \\ []) do
@@ -59,7 +58,8 @@ defmodule Ryker.WeeklyReport do
     |> Facts.read(now)
     |> Digest.render(
       base_url: Keyword.get_lazy(options, :base_url, &base_url/0),
-      time_zone_database: database(options)
+      time_zone_database: database(options),
+      preview: Keyword.get(options, :preview, false)
     )
   end
 
@@ -77,16 +77,45 @@ defmodule Ryker.WeeklyReport do
         nil -> "Etc/UTC"
       end
 
-    compose(
-      %{
-        from: DateTime.add(now, -@week_seconds, :second),
-        to: now,
-        previous_from: DateTime.add(now, -2 * @week_seconds, :second),
-        timezone: zone
-      },
-      Keyword.put(options, :now, now)
-    )
+    compose(last_seven_days(now, zone), Keyword.put(options, :now, now))
   end
+
+  @doc """
+  Sends a preview to the chosen channel now: the seven days before now,
+  titled as a preview, queued for delivery like the week's report and never
+  counted as it. The report need not be on; it needs a channel and Slack
+  connected, and says `{:error, :no_channel}` otherwise.
+  """
+  @spec send_preview(keyword()) :: {:ok, map()} | {:error, term()}
+  def send_preview(options \\ []) do
+    now = Keyword.get_lazy(options, :now, &DateTime.utc_now/0)
+    database = database(options)
+
+    with {:ok, configured} <- destination(),
+         zone = configured.schedule.timezone,
+         {:ok, local} <- DateTime.shift_zone(now, zone, database) do
+      week = last_seven_days(now, zone)
+
+      digest =
+        compose(
+          week,
+          Keyword.merge(options, now: now, time_zone_database: database, preview: true)
+        )
+
+      Custody.enqueue(%{
+        conversation_ref: configured.conversation_ref,
+        due_at: now,
+        message: digest.text,
+        period_start: week.from,
+        preview: true,
+        timezone: zone,
+        week: local |> DateTime.to_date() |> Date.beginning_of_week()
+      })
+    end
+  end
+
+  defp last_seven_days(now, zone),
+    do: %{from: DateTime.add(now, -@week_seconds, :second), to: now, timezone: zone}
 
   @doc """
   One pass of the schedule at `:now`: when the latest send time has come and
@@ -114,13 +143,22 @@ defmodule Ryker.WeeklyReport do
   # The saved report, when it can be sent: on, with a channel, and Slack
   # connected to a workspace.
   defp configured do
-    with %Report{weekly_self_report_enabled: true, channel_ref: channel} = report
-         when is_binary(channel) <- Repo.one(Report),
+    case destination() do
+      {:ok, %{enabled: true} = configured} -> {:ok, configured}
+      _off -> :off
+    end
+  end
+
+  # Where the report goes, on or not: its channel, while Slack is connected
+  # to a workspace.
+  defp destination do
+    with %Report{channel_ref: channel} = report when is_binary(channel) <- Repo.one(Report),
          %{enabled: true, workspace_ref: workspace} when is_binary(workspace) <-
            Repo.one(from(slack in Slack, select: map(slack, [:enabled, :workspace_ref]))) do
       {:ok,
        %{
          conversation_ref: "slack:#{workspace}:#{channel}",
+         enabled: report.weekly_self_report_enabled,
          schedule: %{
            weekday: report.weekday,
            local_time: report.local_time,
@@ -128,7 +166,7 @@ defmodule Ryker.WeeklyReport do
          }
        }}
     else
-      _off -> :off
+      _none -> {:error, :no_channel}
     end
   end
 
@@ -144,16 +182,10 @@ defmodule Ryker.WeeklyReport do
   end
 
   defp queue(latest, configured, now, database, options, next) do
-    with {:ok, previous} <- Schedule.previous(latest, configured.schedule, database),
-         {:ok, before} <- Schedule.previous(previous, configured.schedule, database) do
+    with {:ok, previous} <- Schedule.previous(latest, configured.schedule, database) do
       digest =
         compose(
-          %{
-            from: previous.at,
-            to: latest.at,
-            previous_from: before.at,
-            timezone: configured.schedule.timezone
-          },
+          %{from: previous.at, to: latest.at, timezone: configured.schedule.timezone},
           Keyword.merge(options, now: now, time_zone_database: database)
         )
 

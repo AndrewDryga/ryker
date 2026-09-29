@@ -174,7 +174,7 @@ defmodule Ryker.Operator.Delivery do
       destination: report.conversation_ref,
       error_code: report.last_error_code,
       error_detail: report.last_error_detail,
-      kind: :weekly_report,
+      kind: if(report.preview, do: :weekly_report_preview, else: :weekly_report),
       retry_generation: report.retry_generation,
       status: report.status,
       updated_at: report.updated_at

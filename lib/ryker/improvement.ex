@@ -200,8 +200,7 @@ defmodule Ryker.Improvement do
   were `found` (created then), by what Ryker made of them (`categories`, in
   the order the page lists them, only those with any; `waiting` still to
   analyze; `not_analyzed` the rest), and how many were `accepted` or
-  `dismissed` then. What to fix says it for the last seven days, and the
-  weekly report for its week, from this one read so they cannot disagree.
+  `dismissed` then. What to fix says it for the last seven days.
   """
   @spec week(DateTime.t(), DateTime.t()) :: map()
   def week(%DateTime{} = from, %DateTime{} = to) do
@@ -270,7 +269,7 @@ defmodule Ryker.Improvement do
   What a week brought (`week/2`), in words: what was found and what Ryker
   made of it, then what people decided. A quiet week says so rather than
   leaving the line out, which would read as a good week. What to fix's Last
-  7 days line and the weekly report's What to fix read it.
+  7 days line reads it.
   """
   @spec week_words(map()) :: String.t()
   def week_words(%{found: 0, accepted: 0, dismissed: 0}),

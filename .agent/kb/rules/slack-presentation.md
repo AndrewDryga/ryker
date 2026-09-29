@@ -222,6 +222,16 @@ the work request. Preserve full original scope and source links. Distinguish the
 edited from read-only references; say what cannot be verified. Do not quietly broaden scope while
 rewriting. A readable preview is not evidence that model prompts or runtime behavior were fixed.
 
+## Weekly update
+
+The weekly report reads like a teammate at a standup (Andrew, 2026-09-28): how much work Ryker did
+in one sentence, then Done, Still open and Stuck, then one closing line on feedback and what it
+learned. It names what got done, not instrumentation: no counts of messages read, corrections or
+model cost. Done, Still open and Stuck always appear, saying Nothing when empty, because a part that
+disappears reads as a good week. Only requests from public channels are named, each linked, a
+draft PR beside its request. Settings can send the same words to the channel at once, titled as a
+preview; a preview is never the week's report.
+
 ## Preview and proof
 
 Use state buttons in the catalog, not a dropdown or one specimen per enum. Selected state controls
