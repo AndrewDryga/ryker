@@ -47,7 +47,7 @@ defmodule Ryker.StateTools.FixedTools do
   @spec known?(term()) :: boolean()
   def known?(name), do: name in @names
 
-  defdelegate citation_record?(record, turn, arguments), to: RecordWriter
+  defdelegate written_by?(record, turn, tool, arguments), to: RecordWriter
 
   @spec list(keyword() | map()) :: [map()]
   def list(options \\ %{}) do

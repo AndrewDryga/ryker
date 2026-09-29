@@ -1128,6 +1128,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
+  # A summary of several paragraphs, such as a finding and its reason, reads
+  # as several.
+  defp summary_paragraphs(%{summary: summary}) when is_binary(summary),
+    do: summary |> String.split(~r/\n\s*\n/, trim: true) |> Enum.map(&String.trim/1)
+
+  defp summary_paragraphs(_step), do: []
+
   # Stages with their own card component instead of the generic event layout.
   defp card_stage?(stage),
     do:
@@ -1644,8 +1651,12 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <span :if={@step.duration_ms}>{duration(@step.duration_ms)}</span>
         </:meta>
       </.card_heading>
-      <p :if={@step.summary && @step.summary != event_title(@step)} class="case-event-summary">
-        {@step.summary}
+      <p
+        :for={paragraph <- summary_paragraphs(@step)}
+        :if={@step.summary != event_title(@step)}
+        class="case-event-summary"
+      >
+        {paragraph}
       </p>
       <p :if={@step[:current_warning]} class="action-error">
         <strong>Current scheduling status:</strong> {@step.current_warning}

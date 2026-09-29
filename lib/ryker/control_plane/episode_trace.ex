@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     EpisodeCausality,
     EpisodeResponseMetrics,
     RepositoryNames,
-    SavedCitations
+    SavedRecords
   }
 
   alias Ryker.ControlPlane.EpisodeTrace.{
@@ -86,7 +86,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     activity =
       activity_events
       |> ToolActivity.steps(causality, disclosed)
-      |> SavedCitations.fold(activity_events, turns, records)
+      |> SavedRecords.fold(activity_events, turns, records)
 
     current_turn = List.last(turns)
     stopped = stopped(episode, current_turn)
