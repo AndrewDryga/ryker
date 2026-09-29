@@ -589,6 +589,15 @@ defmodule Ryker.Slack.CapabilityTools do
   defp error_code(:unauthorized), do: "unauthorized"
   defp error_code(:slack_action_token_not_authorized), do: "unauthorized"
   defp error_code(:slack_search_budget_exhausted), do: "search_budget_exhausted"
+
+  # Slack lets Ryker search only with the permission some of a person's own
+  # messages carry, such as one that mentions it, kept for fifteen minutes.
+  # Without it no retry can work; "temporarily_unavailable" told the model to
+  # try again, and every search from 27 to 28 Sep failed that way.
+  defp error_code(:slack_action_token_unavailable),
+    do:
+      "search_unavailable: Slack lets Ryker search only for a short time after a message that mentions it, and this turn has no such permission. Do not retry. Read the channels and threads you know with read_slack_source, or say in the answer what a search would have checked."
+
   defp error_code(:slack_source_not_found), do: "not_found"
   defp error_code(_reason), do: "temporarily_unavailable"
 
