@@ -56,11 +56,19 @@ defmodule Ryker.ControlPlane.AdmittedMessagesTest do
     assert text =~ "Add one more line please"
     refute text =~ "Message added to this request."
 
-    assert LazyHTML.query(
-             document,
-             ~s(.message-source a[href^="https://github.com/AndrewDryga/test/pull/2#"])
-           )
-           |> Enum.count() == 4
+    links =
+      LazyHTML.query(
+        document,
+        ~s(a.message-source[href^="https://github.com/AndrewDryga/test/pull/2#"])
+      )
+
+    assert Enum.count(links) == 4
+
+    # A message body keeps its line breaks (white-space: pre-wrap), so a link
+    # drawn inside it showed the template's own line breaks and underlined
+    # spaces on the live page. It is the footer's, and exactly its words.
+    assert Enum.map(links, &LazyHTML.text/1) |> Enum.uniq() == ["Open in GitHub ↗"]
+    assert Enum.empty?(LazyHTML.query(document, ".ui-message-body a.message-source"))
   end
 
   # Andrew, 2026-09-29, of this task's page: its two sessions' cleanups, at
