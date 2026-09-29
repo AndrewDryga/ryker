@@ -32,7 +32,10 @@ defmodule Ryker.CoopFleet.Protocol do
   # Kinds whose session_event may carry a payload. `network` is one sealed
   # filtered run's grouped refusals: a protocol that did not know it rejected the
   # whole poll when one arrived, so a single filtered run stopped the worker.
-  @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought permission.decided activity.elided provider.backoff provider.alive network)
+  # The kinds whose payload the worker narrates (Coop's operatorActivityEvent).
+  # Any other kind crosses without one, so a raw lifecycle payload such as an
+  # assistant message cannot ride along.
+  @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought model.progress permission.decided activity.elided provider.backoff provider.alive network)
   @reference ~r/\A[A-Za-z0-9_.:-]+\z/
   @digest ~r/\A[0-9a-f]{64}\z/
 
