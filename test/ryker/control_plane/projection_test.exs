@@ -1337,7 +1337,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert progress.operation_id in Enum.map(detail.records, & &1.summary)
     assert goal.subject_ref in Enum.map(detail.records, & &1.summary)
     assert Enum.any?(detail.trace.steps, &(&1.title == "Progress · investigating"))
-    assert Enum.any?(detail.trace.steps, &(&1.title == "Goal recorded"))
+    # A goal's card is titled by its outcome (2026-09-29).
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Goal · Verify the current runtime state"))
     assert Enum.any?(detail.trace.steps, &(&1.stage == "Evidence"))
     assert Enum.any?(detail.trace.steps, &(&1.stage == "Coverage"))
     assert Enum.any?(detail.trace.steps, &(&1.stage == "Plan" and &1.state == ""))
