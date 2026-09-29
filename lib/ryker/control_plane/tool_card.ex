@@ -200,7 +200,7 @@ defmodule Ryker.ControlPlane.ToolCard do
           <span :if={@step.duration_ms} class="action-duration">{duration(@step.duration_ms)}</span>
         </:meta>
       </Components.card_heading>
-      <pre :if={@action.kind == "command" && @action.description} class="action-command"><code>{@action.description}</code></pre>
+      <pre :if={@action.kind == "command" && @action.description} class="action-command-line"><code>{@action.description}</code></pre>
       <p
         :if={@action.kind != "command" && @action.description && @step.state != "started"}
         class="action-description"

@@ -749,7 +749,7 @@
 .action-error { color:var(--ryker-text-secondary); }
 .action-warning { color:var(--ryker-text-secondary); font-size:12px; }
 .action-path { display:block; overflow-wrap:anywhere; white-space:pre-wrap; margin:12px 0; font-size:13px; }
-.action-command { margin:8px 0 12px; padding:8px 12px; border-radius:6px; background:var(--ryker-surface); border:1px solid var(--ryker-stroke); font-size:13px; line-height:20px; white-space:pre-wrap; overflow-wrap:anywhere; max-height:240px; overflow:auto; }
+.action-command-line { margin:8px 0 12px; padding:8px 12px; border-radius:6px; background:var(--ryker-surface); border:1px solid var(--ryker-stroke); font-size:13px; line-height:20px; white-space:pre-wrap; overflow-wrap:anywhere; max-height:240px; overflow:auto; }
 .action-facts { margin:12px 0; display:grid; grid-template-columns:minmax(0,1fr); gap:8px; }
 .action-facts > div { display:grid; grid-template-columns:128px minmax(0, 1fr); gap:12px; }
 .action-facts dt { color:var(--secondary); font-size:13px; }
