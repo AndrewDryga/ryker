@@ -1,0 +1,103 @@
+{
+ "activities": [
+  {
+   "admission_input_id": null,
+   "coop_turn_id": "turn_8a0c7521e7c1976ef1d3217abbbf0090",
+   "episode_id": "0c45cf9f-287b-4923-a903-0fbf0bc87aa3",
+   "id": "cda58287-2228-4bde-b1e2-d315cc399396",
+   "inserted_at": "2026-09-28T04:52:25.293494",
+   "kind": "tool.started",
+   "occurred_at": "2026-09-28T04:52:24.460907",
+   "operational_pruned_at": null,
+   "payload": {
+    "evidence_version": 1,
+    "input": {
+     "arguments": {
+      "cause_evidence": [
+       "record:evidence:af5fbf127a4e67a5bba59b2d8ba7f96e"
+      ],
+      "reason": "infra/livebook.tf deletes the VM when livebook_running=false and retains durable data and access wiring. Therefore absent capacity cannot be classified as an outage without that setting or operator confirmation.",
+      "scope": "Emisar Livebook",
+      "status": "unexplained",
+      "what": "Livebook has no serving endpoints and its expected VM is absent; deliberate parking is plausible but deployed intent is not yet verified."
+     },
+     "server": "controller-tools",
+     "tool": "record_finding"
+    },
+    "kind": "execute",
+    "tool_call_id": "exec-c5a3e984-1e8c-4d84-984d-797e52d77c67"
+   },
+   "payload_fingerprint": "d809c8192ca9bda6117711b9cd389abd2e12347a6047bf4c9ffea39bca4c28cc",
+   "remote_event_id": "evt_cb10730d684956a4a0fe5ea76a6387b6",
+   "remote_payload_fingerprint": "19142dcd420ef0e8d0fa2f3dea9697702c56a73be9a46bf4e6f30309f4883d84",
+   "remote_session_id": "remote_dd7215a1c0a7df032dcd1db83fe70153",
+   "sequence": 295,
+   "session_id": "9b86b8e1-adca-4ed0-9948-c9c3c0e017e8",
+   "version": 1
+  },
+  {
+   "admission_input_id": null,
+   "coop_turn_id": "turn_8a0c7521e7c1976ef1d3217abbbf0090",
+   "episode_id": "0c45cf9f-287b-4923-a903-0fbf0bc87aa3",
+   "id": "14f176eb-00b6-4c5b-af3e-29b748232da7",
+   "inserted_at": "2026-09-28T04:52:25.293616",
+   "kind": "tool.completed",
+   "occurred_at": "2026-09-28T04:52:24.492661",
+   "operational_pruned_at": null,
+   "payload": {
+    "evidence_version": 1,
+    "kind": "execute",
+    "status": "completed",
+    "tool_call_id": "exec-c5a3e984-1e8c-4d84-984d-797e52d77c67"
+   },
+   "payload_fingerprint": "b1e93850bbe4a1d9c45253e4f7c697bf0e29aa815951bf7dcbc72c627e12f63a",
+   "remote_event_id": "evt_874f82696dacb53b479928001fa95dd7",
+   "remote_payload_fingerprint": "87ea6a73b6458397c5c3d9b5bce8a120261da41e54c703c02280b07305547c56",
+   "remote_session_id": "remote_dd7215a1c0a7df032dcd1db83fe70153",
+   "sequence": 296,
+   "session_id": "9b86b8e1-adca-4ed0-9948-c9c3c0e017e8",
+   "version": 1
+  }
+ ],
+ "provenance": "Harvested 2026-09-29 from the live Ryker database: request ingress-input:0c45cf9f-287b-4923-a903-0fbf0bc87aa3 (Emisar infrastructure health and resilience review, 2026-09-28), its Livebook finding. The turn, the record_finding call's two activity events with the call's recorded arguments joined into its start as the timeline joins them (ToolActivity.with_state_tool_calls), and the finding record the call saved. Its timeline showed this finding twice in a row.",
+ "record": {
+  "confirmation_ref": null,
+  "confirmed_at": null,
+  "confirmed_by_actor_ref": null,
+  "confirmed_episode_id": null,
+  "continuation": null,
+  "episode_id": "0c45cf9f-287b-4923-a903-0fbf0bc87aa3",
+  "id": "373c5e2c-2614-41f3-bb52-5e281a2970b6",
+  "inserted_at": "2026-09-28T04:52:24.47457",
+  "kind": "finding",
+  "operation_id": "host:e366e503825a305b3c8ef5a7878645cd2faf27cfde7b840a64ada75e7655256c",
+  "payload": {
+   "cause_evidence": [
+    "record:evidence:af5fbf127a4e67a5bba59b2d8ba7f96e"
+   ],
+   "reason": "infra/livebook.tf deletes the VM when livebook_running=false and retains durable data and access wiring. Therefore absent capacity cannot be classified as an outage without that setting or operator confirmation.",
+   "scope": "Emisar Livebook",
+   "status": "unexplained",
+   "what": "Livebook has no serving endpoints and its expected VM is absent; deliberate parking is plausible but deployed intent is not yet verified."
+  },
+  "payload_fingerprint": "7614283c92041d776f2df3697ead0f65601a5f252abf0330f0aecefb8ae27574",
+  "ref": "record:finding:249c7095c4b00defd845cd8e023f20fc",
+  "sequence": 101,
+  "status": "open",
+  "subject_ref": null,
+  "turn_id": "6c9fe233-2063-41ba-9cb5-a72691f228de",
+  "updated_at": "2026-09-28T04:52:24.47457",
+  "wait_error": null
+ },
+ "turn": {
+  "coop_turn_id": "turn_8a0c7521e7c1976ef1d3217abbbf0090",
+  "episode_id": "0c45cf9f-287b-4923-a903-0fbf0bc87aa3",
+  "id": "6c9fe233-2063-41ba-9cb5-a72691f228de",
+  "inserted_at": "2026-09-28T04:41:05.396804",
+  "operational_pruned_at": null,
+  "session_id": "9b86b8e1-adca-4ed0-9948-c9c3c0e017e8",
+  "status": "settled",
+  "turn_ref": "ingress-turn:0c45cf9f-287b-4923-a903-0fbf0bc87aa3",
+  "updated_at": "2026-09-28T04:54:49.659282"
+ }
+}

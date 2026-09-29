@@ -1,7 +1,7 @@
-defmodule Ryker.ControlPlane.SavedCitationsTest do
+defmodule Ryker.ControlPlane.SavedRecordsTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.ControlPlane.SavedCitations
+  alias Ryker.ControlPlane.SavedRecords
   alias Ryker.Records.Record
   alias Ryker.Work.{ActivityEvent, Turn}
 
@@ -62,8 +62,8 @@ defmodule Ryker.ControlPlane.SavedCitationsTest do
       assert fold(%{c | turn: turn}) == c.steps
     end
 
-    assert SavedCitations.fold(c.steps, c.events, [c.turn, c.turn], [c.record]) == c.steps
-    assert SavedCitations.fold(c.steps, c.events, [c.turn], [c.record, c.record]) == c.steps
+    assert SavedRecords.fold(c.steps, c.events, [c.turn, c.turn], [c.record]) == c.steps
+    assert SavedRecords.fold(c.steps, c.events, [c.turn], [c.record, c.record]) == c.steps
   end
 
   test "failed, unmatched, admission and missing calls retain their full standalone cards", c do
@@ -80,8 +80,8 @@ defmodule Ryker.ControlPlane.SavedCitationsTest do
       assert fold(%{c | events: events}) == c.steps
     end
 
-    assert SavedCitations.fold(c.steps, c.events, [c.turn], []) == c.steps
-    assert SavedCitations.fold(c.steps, c.events, [], [c.record]) == c.steps
+    assert SavedRecords.fold(c.steps, c.events, [c.turn], []) == c.steps
+    assert SavedRecords.fold(c.steps, c.events, [], [c.record]) == c.steps
   end
 
   test "idempotent calls fold into one existing citation without claiming another creation",
@@ -95,7 +95,7 @@ defmodule Ryker.ControlPlane.SavedCitationsTest do
       )
 
     steps = c.steps ++ Enum.map(repeated, &%{id: "activity-" <> &1.id, at: &1.occurred_at})
-    result = SavedCitations.fold(steps, c.events ++ repeated, [c.turn], [c.record])
+    result = SavedRecords.fold(steps, c.events ++ repeated, [c.turn], [c.record])
 
     # Both calls are told by the one evidence card; neither claims another.
     assert result == [
@@ -113,7 +113,26 @@ defmodule Ryker.ControlPlane.SavedCitationsTest do
     end
   end
 
-  defp fold(c), do: SavedCitations.fold(c.steps, c.events, [c.turn], [c.record])
+  # Andrew, 2026-09-28, of the infrastructure review's timeline: "buggy af".
+  # Every finding showed twice in a row, as "Finding · Unexplained" and again
+  # as "Finding recorded" with the same words, because the call that saved a
+  # finding kept a card of its own beside the finding's.
+  test "a saved finding is told by its finding card alone, not again by its call" do
+    fixture = File.read!("testdata/control_plane/finding-record-fold.json") |> Jason.decode!()
+    events = Enum.map(fixture["activities"], &load(ActivityEvent, &1))
+    turn = load(Turn, fixture["turn"])
+    record = load(Record, fixture["record"])
+    completed = Enum.find(events, &(&1.kind == "tool.completed"))
+    steps = [%{id: "activity-" <> completed.id, at: completed.occurred_at}]
+
+    assert SavedRecords.fold(steps, events, [turn], [record]) == []
+
+    # Another finding of the same turn leaves the call its own card.
+    other = %{record | operation_id: "host:" <> String.duplicate("0", 64)}
+    assert SavedRecords.fold(steps, events, [turn], [other]) == steps
+  end
+
+  defp fold(c), do: SavedRecords.fold(c.steps, c.events, [c.turn], [c.record])
 
   defp load(module, fields) do
     attributes =

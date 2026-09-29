@@ -13,16 +13,37 @@ defmodule Ryker.StateTools.RecordWriter do
 
   # Inspection uses the same host identity as creation, not matching prose. A
   # repeated call may refer to an existing citation; this does not name a creator.
-  @spec citation_record?(term(), map(), term()) :: boolean()
-  def citation_record?(%Record{kind: "evidence"} = record, turn, arguments)
-      when is_map(arguments) do
+  defp citation_record?(%Record{kind: "evidence"} = record, turn, arguments)
+       when is_map(arguments) do
     record.episode_id == turn.episode_id && record.turn_id == turn.id &&
       record.operation_id ==
         operation_id(%{episode: %{id: turn.episode_id}, turn: turn}, "cite_source", arguments) &&
       record.payload["claim_id"] == subject_ref("citation", arguments)
   end
 
-  def citation_record?(_record, _turn, _arguments), do: false
+  defp citation_record?(_record, _turn, _arguments), do: false
+
+  # The records a call writes whole from its own arguments, by tool: a finding,
+  # a goal, a goal's progress. A citation is matched by `citation_record?/3`.
+  @written_kinds %{
+    "record_finding" => "finding",
+    "plan_goal" => "goal",
+    "update_goal" => "goal_state"
+  }
+
+  @doc "Whether `record` is the one `tool` wrote for `arguments` in `turn`."
+  @spec written_by?(term(), map(), String.t(), term()) :: boolean()
+  def written_by?(record, turn, "cite_source", arguments),
+    do: citation_record?(record, turn, arguments)
+
+  def written_by?(%Record{kind: kind} = record, turn, tool, arguments) when is_map(arguments) do
+    Map.get(@written_kinds, tool) == kind and record.episode_id == turn.episode_id and
+      record.turn_id == turn.id and
+      record.operation_id ==
+        operation_id(%{episode: %{id: turn.episode_id}, turn: turn}, tool, arguments)
+  end
+
+  def written_by?(_record, _turn, _tool, _arguments), do: false
 
   @spec create_record(map(), String.t(), map(), String.t(), map()) ::
           {:ok, map()} | {:error, term()}

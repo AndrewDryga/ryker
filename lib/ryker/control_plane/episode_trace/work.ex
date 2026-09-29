@@ -362,7 +362,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp record_title(%Record{kind: "progress"}, %{title: title}), do: "Progress · #{title}"
   defp record_title(%Record{kind: "input_request"}, _card), do: "Question prepared"
   defp record_title(%Record{kind: "event_wait"}, _card), do: "Wait prepared"
-  defp record_title(%Record{kind: "goal"}, _card), do: "Goal recorded"
 
   defp record_title(%Record{kind: "evidence"}, %{title: title}),
     do: "Evidence recorded · #{title}"
@@ -376,6 +375,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   defp record_summary(%Record{kind: "input_request", payload: payload}, _card),
     do: payload["reason"] || "The model prepared a question for the reply."
+
+  # A finding's reason is what makes it one, so it reads on the card with its
+  # conclusion instead of folded into Details; since its call's own card went
+  # (`SavedRecords`), this card is the finding's only one.
+  defp record_summary(%Record{kind: "finding"}, %{summary: what} = card) when is_binary(what) do
+    case List.keyfind(card.details, "Why", 0) do
+      {"Why", why} when is_binary(why) and why != "" -> what <> "\n\n" <> why
+      _no_reason -> what
+    end
+  end
 
   defp record_summary(_record, %{summary: summary}) when is_binary(summary), do: summary
   defp record_summary(%Record{subject_ref: value}, _card) when is_binary(value), do: value
@@ -393,8 +402,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       {"Operation", record.operation_id, identifier: true}
     ] ++
       cited_source(record) ++
-      Map.get(card, :details, [])
+      shown_details(record, Map.get(card, :details, []))
   end
+
+  defp shown_details(%Record{kind: "finding"}, details), do: List.keydelete(details, "Why", 0)
+  defp shown_details(_record, details), do: details
 
   # A citation names its source by the reference a tool issued. The Chat card
   # leaves that out, since nobody can read or open it there; tracing it is what
