@@ -256,7 +256,7 @@ defmodule Ryker.ControlPlane.ToolCardTest do
 
     card = render_component(&ToolCard.render/1, step: Map.put(step(ran), :exit_code, 2))
     document = LazyHTML.from_fragment(card)
-    assert LazyHTML.query(document, "pre.action-command") |> LazyHTML.text() == "make check"
+    assert LazyHTML.query(document, "pre.action-command-line") |> LazyHTML.text() == "make check"
     assert LazyHTML.query(document, ".action-facts") |> LazyHTML.text() =~ "Exit code2"
 
     succeeded = render_component(&ToolCard.render/1, step: Map.put(step(ran), :exit_code, 0))

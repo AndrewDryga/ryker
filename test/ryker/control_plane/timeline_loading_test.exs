@@ -260,7 +260,7 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     document = LazyHTML.from_document(rendered(work, ["activity-#{event_id(work, 2)}-output"]))
     text = LazyHTML.text(document)
 
-    assert LazyHTML.query(document, "pre.action-command") |> LazyHTML.text() =~
+    assert LazyHTML.query(document, "pre.action-command-line") |> LazyHTML.text() =~
              "git status --short"
 
     assert text =~ "Exit code"
