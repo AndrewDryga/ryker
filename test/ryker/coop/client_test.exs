@@ -6,6 +6,10 @@ defmodule Ryker.Coop.ClientTest do
   alias Ryker.Evals.Job
   alias Ryker.Work.{Session, StateBinding, Turn}
 
+  # Coop's create has refused a job without the digest its controller computed
+  # ("job digest does not match the controller document") since the v2
+  # protocol; this client still sent none, so every eval session of the first
+  # v2 run (2026-09-29) was refused before a model was called.
   test "creates an asynchronous session through Coop's Unix socket" do
     response = %{
       "operation" => %{
@@ -18,7 +22,7 @@ defmodule Ryker.Coop.ClientTest do
 
     with_unix_server(response, fn client, request ->
       {:ok, template} = Job.new(:judge, "codex:fixture/low@eval")
-      {:ok, job, _digest} = Job.bind(template, "ryker-eval:world-judge:123:case")
+      {:ok, job, digest} = Job.bind(template, "ryker-eval:world-judge:123:case")
 
       assert {:ok, ^response} =
                Client.create_session(
@@ -36,6 +40,7 @@ defmodule Ryker.Coop.ClientTest do
       assert captured.headers["prefer"] == "respond-async"
 
       assert Jason.decode!(captured.body) == %{
+               "expected_job_digest" => digest,
                "job" => job,
                "task" => "ryker-eval:world-judge:123:case"
              }
@@ -45,7 +50,7 @@ defmodule Ryker.Coop.ClientTest do
   test "create and fence send one byte-identical job for the same session" do
     response = %{"operation" => %{"id" => "op_create", "state" => "running"}}
     {:ok, template} = Job.new(:judge, "codex:fixture/low@eval")
-    {:ok, job, _digest} = Job.bind(template, "ryker-eval:world-judge:456:case")
+    {:ok, job, digest} = Job.bind(template, "ryker-eval:world-judge:456:case")
 
     created =
       with_unix_server(response, fn client, request ->
@@ -61,6 +66,7 @@ defmodule Ryker.Coop.ClientTest do
         captured = request.()
 
         assert Jason.decode!(captured.body) == %{
+                 "expected_job_digest" => digest,
                  "job" => job,
                  "task" => "ryker-eval:world-judge:456:case"
                }
@@ -279,7 +285,7 @@ defmodule Ryker.Coop.ClientTest do
 
   test "fences the exact prepared create and submit identities without replaying them" do
     {:ok, template} = Job.new(:judge, "codex:fixture/low@eval")
-    {:ok, job, _digest} = Job.bind(template, "ryker-eval:world-judge:123:case")
+    {:ok, job, digest} = Job.bind(template, "ryker-eval:world-judge:123:case")
 
     fenced = %{
       "error_code" => "operation_fenced",
@@ -304,7 +310,11 @@ defmodule Ryker.Coop.ClientTest do
 
       assert Jason.decode!(captured.body) == %{
                "method" => "CreateRemoteSession",
-               "request" => %{"job" => job, "task" => "ryker-eval:world-judge:123:case"}
+               "request" => %{
+                 "expected_job_digest" => digest,
+                 "job" => job,
+                 "task" => "ryker-eval:world-judge:123:case"
+               }
              }
     end)
 

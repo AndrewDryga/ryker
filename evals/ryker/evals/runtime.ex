@@ -45,6 +45,16 @@ defmodule Ryker.Evals.Runtime do
            gateway:
              gateway
              |> Map.merge(Defaults.fetch!(:coop_worker_gateway))
+             # Bodies the worker transfers, as the installation keeps them; one
+             # store per shard, which is one gateway port.
+             |> Map.put(
+               :body_root,
+               Path.join([
+                 bootstrap.storage_root,
+                 "worker-bodies",
+                 Integer.to_string(gateway.port)
+               ])
+             )
              |> Map.put(:checkpoint_key, Bootstrap.checkpoint_key!())
              |> Map.put(:checkpoint_secrets, []),
            state_tools: state_tools,
