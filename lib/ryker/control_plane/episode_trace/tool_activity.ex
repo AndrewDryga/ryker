@@ -197,7 +197,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   defp fold_activity(event, {steps, open}, disclosed),
     do: {[activity_step(event, disclosed) | steps], open}
 
-  defp hidden_activity?(%ActivityEvent{kind: "model.thought"}), do: true
+  # A worker older than 2026-09-29 sent a thought's time and no words.
+  defp hidden_activity?(%ActivityEvent{kind: "model.thought", payload: payload}),
+    do: blank?(payload["text"]) and not is_map(payload["withheld"])
 
   defp hidden_activity?(%ActivityEvent{kind: "model.progress", payload: payload}) do
     case payload["text"] do
@@ -207,6 +209,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   end
 
   defp hidden_activity?(_event), do: false
+
+  defp blank?(text) when is_binary(text), do: String.trim(text) == ""
+  defp blank?(_text), do: true
 
   defp tool_started_step(event, disclosed) do
     input = event.payload["input"]
@@ -229,6 +234,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         stage: if(diagnostic?, do: "Setup diagnostic", else: "Tool call"),
         tool_kind: event.payload["kind"],
         path_context: safe_path_context(event.payload["path_context"]),
+        withheld: withheld(event.payload),
         state: "started",
         summary: activity_tool_summary(input),
         title:
@@ -261,6 +267,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         stage: if(diagnostic?, do: "Setup diagnostic", else: "Tool call"),
         tool_kind: event.payload["kind"],
         path_context: safe_path_context(event.payload["path_context"]),
+        exit_code: exit_code(event.payload),
+        withheld: withheld(event.payload),
         state: status,
         summary: activity_outcome(event.payload, status, diagnostic?),
         title:
@@ -285,6 +293,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         artifacts: merge_artifacts(step[:artifacts] || [], tool_artifacts(event, disclosed)),
         tool_kind: event.payload["kind"] || step.tool_kind,
         path_context: safe_path_context(event.payload["path_context"] || step.path_context),
+        exit_code: exit_code(event.payload),
+        withheld: merge_withheld(step[:withheld], withheld(event.payload)),
         stage: if(diagnostic?, do: "Setup diagnostic", else: "Tool call"),
         summary: activity_outcome(event.payload, status, diagnostic?),
         title: if(diagnostic?, do: setup_diagnostic_title(event.payload), else: step.title),
@@ -299,6 +309,27 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         tone: activity_status_tone(status)
     }
   end
+
+  # The exit code a command's output reports.
+  defp exit_code(%{"output" => %{"exit_code" => code}}) when is_integer(code), do: code
+  defp exit_code(_payload), do: nil
+
+  # Which narrated fields the worker withheld, and why: field names and short
+  # reasons only.
+  defp withheld(%{"withheld" => %{} = withheld}) do
+    reasons =
+      for {field, reason} <- withheld, is_binary(field) and is_binary(reason), into: %{} do
+        {field, String.slice(reason, 0, 120)}
+      end
+
+    if reasons == %{}, do: nil, else: reasons
+  end
+
+  defp withheld(_payload), do: nil
+
+  defp merge_withheld(nil, withheld), do: withheld
+  defp merge_withheld(withheld, nil), do: withheld
+  defp merge_withheld(first, second), do: Map.merge(first, second)
 
   defp safe_path_context(value) do
     with %{} = paths <- ActivityPaths.sanitize(value),
@@ -318,6 +349,25 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
       state: "",
       summary: event.payload["text"],
       title: "Progress update"
+    })
+  end
+
+  # A thought as the model summarized it: Codex writes a bold heading, then
+  # at times a paragraph under it. The heading is the card's title.
+  defp activity_step(%ActivityEvent{kind: "model.thought"} = event, _disclosed) do
+    {title, summary} =
+      case event.payload["text"] do
+        text when is_binary(text) -> thought_parts(text)
+        _withheld -> {"Thinking", withheld_thought(event.payload)}
+      end
+
+    step("activity-#{event.id}", :work, event.occurred_at, %{
+      actor: "Model",
+      details: [],
+      stage: "Thinking",
+      state: "",
+      summary: summary,
+      title: title
     })
   end
 
@@ -431,6 +481,29 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     )
   end
 
+  defp thought_parts(text) do
+    case Regex.run(~r/\A\s*\*\*([^*\n]{1,200})\*\*\s*(.*)\z/s, text) do
+      [_whole, heading, rest] -> {String.trim(heading), present(String.trim(rest))}
+      nil -> {"Thinking", text}
+    end
+  end
+
+  defp withheld_thought(payload) do
+    case withheld(payload) do
+      %{"text" => reason} -> "The worker withheld this thought: #{reason_words(reason)}."
+      _none -> nil
+    end
+  end
+
+  @doc """
+  Why the worker withheld a field, in words: "likely GitHub token" reads as
+  "it looked like it held a GitHub token".
+  """
+  @spec reason_words(String.t()) :: String.t()
+  def reason_words("likely " <> kind), do: "it looked like it held a #{kind}"
+  def reason_words("too large"), do: "it was too large to send"
+  def reason_words(reason), do: reason
+
   # Tool evidence is the heaviest thing on a long timeline: a tool-heavy run has
   # hundreds of calls, and each one sanitized and re-encoded up to 20 KiB per
   # result field on every refresh, for text that is almost always closed. The
@@ -449,8 +522,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
           {"content", "Output and changes"},
           {"locations", "Files"}
         ],
-        Map.has_key?(payload, key),
-        payload[key] != nil do
+        {label, value} = shown_artifact(payload, key, label),
+        value != nil do
       artifact_id = "activity-#{event_id}-#{key}"
       lazy? = key in @lazy_tool_fields
 
@@ -458,13 +531,32 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         label: label,
         artifact_id: if(lazy?, do: artifact_id),
         artifact:
-          InspectionRedactor.artifact(payload[key],
+          InspectionRedactor.artifact(value,
             max_bytes: 20_000,
             disclosed: not lazy? or MapSet.member?(disclosed, artifact_id)
           )
       }
     end
   end
+
+  # A command's result is what it printed; its exit code is on the card. Its
+  # content names only the terminal the worker ran it in, which says nothing.
+  defp shown_artifact(
+         %{"kind" => "execute", "output" => %{"formatted_output" => printed}},
+         "output",
+         _label
+       )
+       when is_binary(printed),
+       do: {"Output", printed}
+
+  defp shown_artifact(%{"kind" => "execute", "content" => content}, "content", label)
+       when is_list(content) do
+    if Enum.all?(content, &match?(%{"type" => "terminal"}, &1)),
+      do: {label, nil},
+      else: {label, content}
+  end
+
+  defp shown_artifact(payload, key, label), do: {label, payload[key]}
 
   defp plan_artifacts(%ActivityEvent{payload: %{"entries" => entries}, id: id}, disclosed)
        when entries not in [nil, []] do

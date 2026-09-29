@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.ToolCard do
   """
   use Phoenix.Component
   alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.Work.ActivityPaths
 
@@ -163,10 +164,11 @@ defmodule Ryker.ControlPlane.ToolCard do
     end
   end
 
-  # The one fact that tells a step from the ones around it, on one line.
+  # The one fact that tells a step from the ones around it, on one line. A
+  # command's exit code is on its card; its line names the command.
   defp line_detail(action) do
     [
-      Enum.map(action.facts, &elem(&1, 1)),
+      for({label, value} <- action.facts, label != "Exit code", do: value),
       action.paths,
       action.description_detail,
       action.text
@@ -198,15 +200,23 @@ defmodule Ryker.ControlPlane.ToolCard do
           <span :if={@step.duration_ms} class="action-duration">{duration(@step.duration_ms)}</span>
         </:meta>
       </Components.card_heading>
-      <p :if={@action.description && @step.state != "started"} class="action-description">
+      <pre :if={@action.kind == "command" && @action.description} class="action-command"><code>{@action.description}</code></pre>
+      <p
+        :if={@action.kind != "command" && @action.description && @step.state != "started"}
+        class="action-description"
+      >
         {@action.description}
       </p>
       <p
-        :if={@action.kind == "command" && is_nil(@action.description) && @step.state != "started"}
+        :if={
+          @action.kind == "command" && is_nil(@action.description) && is_nil(@action.withheld) &&
+            @step.state != "started"
+        }
         class="action-description"
       >
         The worker reported that a command ran, not which one.
       </p>
+      <p :for={note <- @action.withheld || []} class="action-warning">{note}</p>
       <p :if={@action.warning} class="action-warning">⚠ {@action.warning}</p>
       <code :for={path <- @action.paths} class="action-path">{path}</code>
       <p :if={@step.summary && @step.state in ["failed", "cancelled"]} class="action-error">
@@ -281,14 +291,46 @@ defmodule Ryker.ControlPlane.ToolCard do
       paths: paths,
       warning: warning,
       text: readable_text(tool, args),
-      facts: facts(tool, args),
+      facts: facts(tool, args) ++ exit_facts(step[:exit_code]),
+      withheld: withheld_notes(step[:withheld], kind),
       groups: groups(tool, args),
       diff: string(args["diff"] || args["patch"])
     }
   end
 
+  # A command that failed says how; one that succeeded needs no line for it.
+  defp exit_facts(code) when is_integer(code) and code != 0, do: [{"Exit code", "#{code}"}]
+  defp exit_facts(_code), do: []
+
+  # What the worker withheld from this call, and why, one sentence a field.
+  defp withheld_notes(%{} = withheld, kind) when map_size(withheld) > 0 do
+    for {field, reason} <- Enum.sort(withheld) do
+      "#{withheld_field(field, kind)} withheld: #{ToolActivity.reason_words(reason)}."
+    end
+  end
+
+  defp withheld_notes(_withheld, _kind), do: nil
+
+  defp withheld_field("input", "command"), do: "The command was"
+  defp withheld_field("input", _kind), do: "Its arguments were"
+  defp withheld_field("output", "command"), do: "What it printed was"
+  defp withheld_field("output", _kind), do: "Its result was"
+  defp withheld_field("title", _kind), do: "Its title was"
+  defp withheld_field("content", _kind), do: "Its output was"
+  defp withheld_field("locations", _kind), do: "The files it touched were"
+  defp withheld_field(field, _kind), do: "Its #{String.replace(field, "_", " ")} was"
+
   defp naming({verb, completed, description}, step, _args, _tool),
     do: {if(step.state == "completed", do: completed, else: verb), description, "ryker", "◇"}
+
+  # A shell step is a command whatever else the worker said about it: its
+  # command, or why the worker withheld it.
+  defp naming(nil, %{tool_kind: "execute"}, args, nil) do
+    case args["command"] || args["cmd"] do
+      command when is_binary(command) -> {"Run command", command, "command", ">_"}
+      _withheld_or_unreported -> {"Run command", nil, "command", ">_"}
+    end
+  end
 
   # A tool this view has no words for is named by its own name, not "Tool call".
   defp naming(nil, step, args, tool) do

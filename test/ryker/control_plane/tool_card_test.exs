@@ -240,6 +240,43 @@ defmodule Ryker.ControlPlane.ToolCardTest do
     assert ToolCard.line(step(tool)).title == "Recent runs"
   end
 
+  # Andrew, 2026-09-28: "workers must report commands, thinking and
+  # everything else". A command reads as the command, a failed one says its
+  # exit code, and a command the worker withheld says why instead of saying
+  # nothing was reported.
+  test "a narrated command shows what it ran and how it exited, and a withheld one says why" do
+    ran = %{
+      "kind" => "execute",
+      "title" => "Run make check",
+      "input" => %{"command" => "make check", "cwd" => "/workspace"}
+    }
+
+    assert ToolCard.line(Map.put(step(ran), :exit_code, 2)) |> Map.take([:title, :detail]) ==
+             %{title: "Run command", detail: "make check"}
+
+    card = render_component(&ToolCard.render/1, step: Map.put(step(ran), :exit_code, 2))
+    document = LazyHTML.from_fragment(card)
+    assert LazyHTML.query(document, "pre.action-command") |> LazyHTML.text() == "make check"
+    assert LazyHTML.query(document, ".action-facts") |> LazyHTML.text() =~ "Exit code2"
+
+    succeeded = render_component(&ToolCard.render/1, step: Map.put(step(ran), :exit_code, 0))
+    refute succeeded =~ "Exit code"
+
+    withheld =
+      %{"kind" => "execute", "title" => "Run curl"}
+      |> step()
+      |> Map.put(:withheld, %{"input" => "likely GitHub token", "output" => "too large"})
+
+    text =
+      render_component(&ToolCard.render/1, step: withheld)
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.text()
+
+    assert text =~ "The command was withheld: it looked like it held a GitHub token."
+    assert text =~ "What it printed was withheld: it was too large to send."
+    refute text =~ "The worker reported that a command ran, not which one."
+  end
+
   defp step(payload) do
     %{
       id: "recorded",

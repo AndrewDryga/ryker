@@ -569,7 +569,7 @@ defmodule Ryker.Work.Activity do
         case payload["entries"] do
           entries when is_list(entries) ->
             Enum.filter(entries, &is_map/1)
-            |> Enum.map(&Map.take(&1, ~w(content text status priority)))
+            |> Enum.map(&Map.take(&1, ~w(content text status priority withheld)))
 
           _ ->
             []
@@ -582,17 +582,21 @@ defmodule Ryker.Work.Activity do
     end
   end
 
-  defp public_payload("model.thought", _payload), do: {:ok, %{}}
+  # A worker narrates the model's thoughts and progress in words; one older
+  # than 2026-09-29 sent a thought's time only, and a field that scanned as
+  # carrying a likely secret arrives as `withheld` instead of its text.
+  defp public_payload(kind, payload) when kind in ["model.thought", "model.progress"] do
+    base = withheld(%{"evidence_version" => 1}, payload)
 
-  defp public_payload("model.progress", payload) when map_size(payload) == 0,
-    do: {:ok, %{"evidence_version" => 1}}
+    case payload["text"] do
+      nil ->
+        {:ok, base}
 
-  defp public_payload("model.progress", payload) do
-    with {:ok, text} <- public_text(payload["text"], 65_536, :text) do
-      artifact = InspectionRedactor.artifact(text, max_bytes: 16_384)
-
-      {:ok,
-       %{"text" => artifact.text, "truncated" => artifact.truncated, "evidence_version" => 1}}
+      text ->
+        with {:ok, text} <- public_text(text, 65_536, :text) do
+          artifact = InspectionRedactor.artifact(text, max_bytes: 16_384)
+          {:ok, Map.merge(base, %{"text" => artifact.text, "truncated" => artifact.truncated})}
+        end
     end
   end
 
@@ -603,6 +607,8 @@ defmodule Ryker.Work.Activity do
         %{"outcome" => outcome}
         |> optional_public_text("tool_call_id", payload["tool_call_id"], 1_024)
         |> optional_public_text("option_kind", payload["option_kind"], 32)
+        |> optional_public_text("title", payload["title"], 1_024)
+        |> withheld(payload)
 
       {:ok, result}
     end
@@ -670,12 +676,27 @@ defmodule Ryker.Work.Activity do
     evidence =
       payload
       |> Map.put("path_context", ActivityPaths.sanitize(payload["path_context"]))
-      |> Map.take(~w(title kind input output content locations error path_context))
+      |> Map.take(~w(title kind input output content locations error path_context withheld))
       |> Map.reject(fn {_key, value} -> is_nil(value) end)
       |> Map.new(fn {key, value} -> {key, sanitize_evidence(value)} end)
 
     Map.merge(base, evidence) |> Map.put("evidence_version", 1)
   end
+
+  # Which narrated fields the worker withheld and why ("likely GitHub token"):
+  # names and short reasons only.
+  defp withheld(result, %{"withheld" => %{} = withheld}) do
+    reasons =
+      for {field, reason} <- Enum.take(withheld, 16),
+          is_binary(field) and byte_size(field) <= 64,
+          is_binary(reason) and byte_size(reason) <= 256,
+          into: %{},
+          do: {field, reason}
+
+    if reasons == %{}, do: result, else: Map.put(result, "withheld", sanitize_evidence(reasons))
+  end
+
+  defp withheld(result, _payload), do: result
 
   @doc """
   One retained evidence value: redacted, and cut to a marked preview when it
