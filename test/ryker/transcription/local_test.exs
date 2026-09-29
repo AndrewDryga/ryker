@@ -3,7 +3,7 @@ defmodule Ryker.Transcription.LocalTest do
   # the real ones: every bound is checked without running a speech model.
   use ExUnit.Case, async: true
 
-  alias Ryker.Transcription.Local
+  alias Ryker.Transcription.{Local, Parts}
 
   setup do
     dir =
@@ -27,6 +27,45 @@ defmodule Ryker.Transcription.LocalTest do
 
     assert Local.transcribe("m4a bytes", options) ==
              {:ok, "Please audit the checkout service."}
+
+    assert File.ls!(work_dir(dir)) == []
+  end
+
+  # Andrew's voice message of 2026-09-28 switched from Ukrainian to English
+  # to Spanish and came back as 160 bytes of Russian: whisper hears a
+  # recording's language once, from its first seconds, and the English
+  # sentence in the middle was lost. Cut at its pauses and read part by part,
+  # the same recording gave the sentence word for word. The words below are
+  # what whisper's base model said for each part of that recording.
+  test "a message that switches language is heard part by part, each in its own language",
+       %{tmp_dir: dir} do
+    three_parts = speech(3.0) <> silence(0.6) <> speech(3.0) <> silence(0.5) <> speech(2.5)
+
+    whisper =
+      program(dir, "whisper", """
+      printf '%s\n' "$@" >> '#{Path.join(dir, "whisper-args")}'
+      for arg; do
+        case "$arg" in
+          *part-000.wav) printf '%s' ' Toman, Toman, Toman!' > "$arg.txt" ;;
+          *part-001.wav) printf '%s' ' Can you understand multiple languages in the same message?' > "$arg.txt" ;;
+          *part-002.wav) printf '%s' ' Hello, how are you?' > "$arg.txt" ;;
+        esac
+      done
+      """)
+
+    options = options(dir, ffmpeg: converter(dir, three_parts), whisper: whisper)
+
+    assert Local.transcribe("m4a bytes", options) ==
+             {:ok,
+              "Toman, Toman, Toman! Can you understand multiple languages in the same message? " <>
+                "Hello, how are you?"}
+
+    # One run over the three parts, each left to find its own language.
+    arguments = dir |> Path.join("whisper-args") |> File.read!() |> String.split("\n", trim: true)
+    assert ["-l", "auto"] in Enum.chunk_every(arguments, 2, 1)
+
+    assert arguments |> Enum.filter(&String.ends_with?(&1, ".wav")) |> Enum.map(&Path.basename/1) ==
+             ["part-000.wav", "part-001.wav", "part-002.wav"]
 
     assert File.ls!(work_dir(dir)) == []
   end
@@ -105,26 +144,43 @@ defmodule Ryker.Transcription.LocalTest do
 
   defp work_dir(dir), do: Path.join(dir, "work")
 
-  # Writes a WAV of the given size where ffmpeg's last argument says.
-  defp converter(dir, audio_bytes) do
+  # Writes a WAV where ffmpeg's last argument says: silence of the given
+  # length, or the given samples.
+  defp converter(dir, audio_bytes) when is_integer(audio_bytes),
+    do: converter(dir, :binary.copy(<<0>>, audio_bytes))
+
+  defp converter(dir, samples) when is_binary(samples) do
+    prepared = Path.join(dir, "prepared.wav")
+    File.write!(prepared, Parts.wav(samples))
+    @header = byte_size(Parts.wav(<<>>))
+
     program(dir, "ffmpeg", """
     touch '#{Path.join(dir, "ffmpeg-ran")}'
     for last; do :; done
-    head -c #{@header + audio_bytes} /dev/zero > "$last"
+    cp '#{prepared}' "$last"
     """)
   end
 
-  # Writes the given text where whisper's -of argument says.
+  # Writes the given text beside each part whisper is given.
   defp recognizer(dir, text) do
     program(dir, "whisper", """
     touch '#{Path.join(dir, "whisper-ran")}'
-    while [ $# -gt 0 ]; do
-      if [ "$1" = "-of" ]; then out="$2"; fi
-      shift
+    for arg; do
+      case "$arg" in
+        *.wav) printf '%s' '#{text}' > "$arg.txt" ;;
+      esac
     done
-    printf '%s' '#{text}' > "$out.txt"
     """)
   end
+
+  # A square wave a quarter of full scale stands for speech.
+  defp speech(seconds) do
+    for index <- 0..(round(seconds * 16_000) - 1),
+        into: <<>>,
+        do: <<if(rem(div(index, 40), 2) == 0, do: 8_000, else: -8_000)::little-signed-16>>
+  end
+
+  defp silence(seconds), do: :binary.copy(<<0, 0>>, round(seconds * 16_000))
 
   defp program(dir, name, body) do
     path = Path.join(dir, name)
