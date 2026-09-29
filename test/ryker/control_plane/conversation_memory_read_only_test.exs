@@ -136,23 +136,20 @@ defmodule Ryker.ControlPlane.ConversationMemoryReadOnlyTest do
     end)
   end
 
+  # A conversation's topics are one group whatever repository its work used
+  # (V10, 2026-09-28); another conversation's topic is another group.
   test "availability cannot label a healthy topic from another displayed group" do
     with_topics(fn fixture ->
-      {_, other_repository} = Fixtures.learn!(fixture.target, "different-repository")
-      other_id = String.replace_prefix(other_repository["source_ref"], "knowledge:", "")
-
       source =
         Repo.get_by!(ConversationKnowledge,
           conversation_ref: fixture.source.destination_conversation_ref
         )
 
-      {:ok, scope} = Continuity.destination_context(fixture.target, nil)
+      {:ok, scope} = Continuity.destination_context(fixture.target, "different-repository")
 
-      ids =
-        Repo.all(Knowledge.availability_query(scope, [fixture.local, source.id, other_id]))
+      ids = Repo.all(Knowledge.availability_query(scope, [fixture.local, source.id]))
 
       assert ids == [fixture.local]
-      assert available?(other_id)
       assert available?(source.id)
     end)
   end

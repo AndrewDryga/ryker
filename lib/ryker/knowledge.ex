@@ -28,11 +28,11 @@ defmodule Ryker.Knowledge do
     base =
       valid_query()
       |> where([item], item.id in ^ids)
+      # The conversation's topics, whatever repository each was learned with
+      # (`scope_key/1`).
       |> where(
         [item],
-        item.transport == ^scope.transport and
-          item.conversation_ref == ^scope.conversation_ref and
-          fragment("? IS NOT DISTINCT FROM ?", item.repository_ref, ^scope.repository_ref)
+        item.transport == ^scope.transport and item.conversation_ref == ^scope.conversation_ref
       )
       |> select([item], item.id)
 
@@ -605,8 +605,7 @@ defmodule Ryker.Knowledge do
 
     Repo.all(
       from(k in query,
-        where: k.topic_key in ^keys and k.conversation_ref == ^scope.conversation_ref,
-        where: fragment("? IS NOT DISTINCT FROM ?", k.repository_ref, ^scope.repository_ref),
+        where: k.topic_key in ^keys and k.scope_key == ^scope_key(scope),
         order_by: [asc: k.id],
         limit: ^limit,
         lock: "FOR SHARE"
@@ -636,8 +635,7 @@ defmodule Ryker.Knowledge do
 
     Repo.all(
       from(k in query,
-        where: k.id in ^ids and k.conversation_ref == ^scope.conversation_ref,
-        where: fragment("? IS NOT DISTINCT FROM ?", k.repository_ref, ^scope.repository_ref),
+        where: k.id in ^ids and k.scope_key == ^scope_key(scope),
         order_by: [asc: k.id],
         limit: ^limit,
         lock: "FOR SHARE"
