@@ -376,6 +376,17 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   @impl true
+  def read_review_gate_output(client, coop_session_id, review_operation_id, cursor) do
+    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+      execute_read(client, session, "get_review_gate_output", %{
+        "coop_session_id" => coop_session_id,
+        "cursor" => cursor,
+        "operation_id" => review_operation_id
+      })
+    end
+  end
+
+  @impl true
   def run_review(client, coop_session_id, key, expected_revision) do
     with {:ok, %Session{id: session_id} = session} <- session_by_coop_id(coop_session_id) do
       payload = %{"coop_session_id" => coop_session_id, "expected_revision" => expected_revision}

@@ -112,16 +112,13 @@ defmodule Ryker.Coop.API do
             ) :: {:ok, map()} | {:error, term()}
   # Optional: one page of a review gate's complete stdout and stderr, from
   # `cursor` (nil for the first page), as `%{"output" => text, "next_cursor" =>
-  # cursor | nil}`, or `%{"lost" => reason}` when Coop could not capture or keep
-  # it. `Ryker.Publication.GateOutput` reads every page and hands the whole
-  # output to the fix round.
-  #
-  # Waiting on Coop (2026-09-28): no Coop endpoint serves this read yet. Coop is
-  # designing a paged or streamed read of the review gate's output from the
-  # job's own logs, with no opt-in and explicit capture and retention failures.
-  # When it ships, implement this callback in `Ryker.CoopFleet.Client` against
-  # it; until then no output is read and a fix round tells the agent to run the
-  # gate itself.
+  # cursor | nil}` (with `"complete" => false` and Coop's `"incomplete"` reason
+  # when Coop kept only part of it), or `%{"lost" => reason}` when Coop kept
+  # nothing. Coop serves it from GET
+  # /v1/sessions/{id}/reviews/{operation}/gate-output; a worker without that
+  # endpoint answers with an error, and the output is simply left unread.
+  # `Ryker.Publication.GateOutput` reads every page and hands the whole output
+  # to the fix round.
   @callback read_review_gate_output(
               client :: term(),
               session_id :: String.t(),

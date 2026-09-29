@@ -1386,6 +1386,24 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert_receive {:fleet_command, ^session, "run_review", review, "review-key", _options}
     assert review == %{"coop_session_id" => session.coop_session_id, "expected_revision" => 7}
 
+    # A red review's gate output, one page per read, from Coop's cursor.
+    assert {:ok, _} =
+             Client.read_review_gate_output(
+               client,
+               session.coop_session_id,
+               "review-op",
+               "1048576"
+             )
+
+    assert_receive {:fleet_command, ^session, "get_review_gate_output", output, _read_key,
+                    _options}
+
+    assert output == %{
+             "coop_session_id" => session.coop_session_id,
+             "cursor" => "1048576",
+             "operation_id" => "review-op"
+           }
+
     assert {:ok, _} =
              Client.plan_discard(
                client,

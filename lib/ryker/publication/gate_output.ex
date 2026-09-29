@@ -39,10 +39,11 @@ defmodule Ryker.Publication.GateOutput do
   def capture(api, client, %Publication{} = publication, review) do
     captured =
       with true <- reader?(api),
-           {:ok, output, total} <-
+           {:ok, output, total, incomplete} <-
              read(api, client, review["session_id"], review["operation_id"], nil, "", 0, 0),
            {:ok, artifact} <- keep(publication, output) do
         %{"artifact" => descriptor(artifact), "bytes" => total, "status" => "read"}
+        |> with_incomplete(incomplete)
       else
         {:lost, reason} -> %{"reason" => reason, "status" => "lost"}
         _unread -> nil
@@ -64,10 +65,21 @@ defmodule Ryker.Publication.GateOutput do
   def prepare(nil), do: {:ok, nil}
 
   def prepare(%{"artifact" => artifact, "bytes" => total, "status" => "read"} = output)
-      when map_size(output) == 3 and is_integer(total) and total >= 0 do
-    if descriptor?(artifact),
-      do: {:ok, output},
-      else: {:error, {:invalid_publication_gate_output, :read}}
+      when is_integer(total) and total >= 0 do
+    cond do
+      Map.keys(output) -- ~w(artifact bytes incomplete status) != [] ->
+        {:error, {:invalid_publication_gate_output, :shape}}
+
+      not descriptor?(artifact) ->
+        {:error, {:invalid_publication_gate_output, :read}}
+
+      Map.has_key?(output, "incomplete") and
+          not text?(output["incomplete"], @maximum_reason_bytes) ->
+        {:error, {:invalid_publication_gate_output, :incomplete}}
+
+      true ->
+        {:ok, output}
+    end
   end
 
   def prepare(%{"reason" => reason, "status" => "lost"} = output) when map_size(output) == 2 do
@@ -97,13 +109,13 @@ defmodule Ryker.Publication.GateOutput do
 
   defp read(api, client, session, operation, cursor, kept, total, pages) do
     case api.read_review_gate_output(client, session, operation, cursor) do
-      {:ok, %{"output" => chunk, "next_cursor" => next}}
+      {:ok, %{"output" => chunk, "next_cursor" => next} = page}
       when is_binary(chunk) and (is_nil(next) or is_binary(next)) ->
         kept = raw_tail(kept <> chunk, @file_bytes)
         total = total + byte_size(chunk)
 
         if is_nil(next),
-          do: {:ok, kept, total},
+          do: {:ok, kept, total, incomplete(page)},
           else: read(api, client, session, operation, next, kept, total, pages + 1)
 
       {:ok, %{"lost" => reason}} when is_binary(reason) ->
@@ -114,6 +126,26 @@ defmodule Ryker.Publication.GateOutput do
         {:error, :gate_output_unreadable}
     end
   end
+
+  # Coop keeps the first 64 MiB of a gate that prints without end and says so
+  # on every page; its last page's word is what the fix turn hears.
+  defp incomplete(%{"complete" => false} = page) do
+    reason =
+      case page["incomplete"] do
+        reason when is_binary(reason) ->
+          reason |> readable() |> String.byte_slice(0, @maximum_reason_bytes) |> String.trim()
+
+        _missing ->
+          ""
+      end
+
+    if reason == "", do: "Coop kept only part of what the gate printed.", else: reason
+  end
+
+  defp incomplete(_page), do: nil
+
+  defp with_incomplete(output, nil), do: output
+  defp with_incomplete(output, reason), do: Map.put(output, "incomplete", reason)
 
   # One file per review generation: a retried read keeps the same file.
   defp keep(publication, output) do

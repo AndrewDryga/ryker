@@ -27,6 +27,47 @@ defmodule Ryker.Publication.ReviewTest do
              })
   end
 
+  # Coop now says of every review what its gate ran and how much of its output
+  # it kept (the output itself is read page by page). Ryker refused any field
+  # it did not know, so a worker that sent `gate_output` before Ryker knew it
+  # would have had every review refused as malformed.
+  test "a review that says what its gate ran and printed is accepted, and a malformed one is not" do
+    expected = %{revision: 7, session_id: "session-review"}
+
+    red =
+      Map.merge(review_document(), %{
+        "gate" => "failed",
+        "not_publishable_reasons" => ["gate_failed"],
+        "publishable" => false,
+        "gate_output" => %{
+          "command" => ["./run", "gate", "review"],
+          "exit_code" => 2,
+          "bytes" => 1_843_200,
+          "complete" => false,
+          "incomplete" => "The check printed more than 64 MiB; Coop kept the first 64 MiB."
+        }
+      })
+
+    assert {:ok, %{"gate_output" => %{"exit_code" => 2}}} = Review.prepare(red, expected)
+
+    lost =
+      put_in(red, ["gate_output"], %{"bytes" => 0, "complete" => false, "lost" => "disk full"})
+
+    assert {:ok, _review} = Review.prepare(lost, expected)
+
+    for output <- [
+          "printed",
+          %{"bytes" => -1, "complete" => true},
+          %{"bytes" => 1, "complete" => "yes"},
+          %{"bytes" => 1, "complete" => true, "exit_code" => "2"},
+          %{"bytes" => 1, "complete" => true, "command" => ["./run", 7]},
+          %{"bytes" => 1, "complete" => true, "stdout" => "hidden"}
+        ] do
+      assert {:error, {:invalid_publication_review, :gate_output}} =
+               Review.prepare(Map.put(red, "gate_output", output), expected)
+    end
+  end
+
   test "malformed pull request identities fail closed without raising" do
     expected = %{revision: 7, session_id: "session-review"}
 

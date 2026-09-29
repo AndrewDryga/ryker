@@ -91,6 +91,40 @@ defmodule Ryker.Publication.GateOutputTest do
     assert String.ends_with?(kept, " then end\n")
   end
 
+  # Coop keeps the first 64 MiB of a gate that prints without end, and says so
+  # on every page. That word stays with the file, so the fix turn is not told
+  # a cut log is the whole run.
+  test "Coop's word that it kept only part of the output stays with the file" do
+    cut = "The check printed more than 64 MiB; Coop kept the first 64 MiB."
+
+    pages = %{
+      nil => %{
+        "output" => "compiling\n",
+        "next_cursor" => "10",
+        "bytes" => 15,
+        "complete" => false,
+        "incomplete" => cut
+      },
+      "10" => %{
+        "output" => "FAIL\n",
+        "next_cursor" => nil,
+        "bytes" => 15,
+        "complete" => false,
+        "incomplete" => cut
+      }
+    }
+
+    assert %{"status" => "read", "bytes" => 15, "incomplete" => ^cut} =
+             output = GateOutput.capture(Pages, pages, publication(), @review)
+
+    assert {:ok, ^output} = GateOutput.prepare(output)
+    assert {:error, _reason} = GateOutput.prepare(%{output | "incomplete" => " "})
+
+    # A complete output carries no such word.
+    complete = put_in(pages, [nil, "complete"], true) |> put_in(["10", "complete"], true)
+    refute Map.has_key?(GateOutput.capture(Pages, complete, publication(), @review), "incomplete")
+  end
+
   test "Coop's word that it could not keep the output is kept, never an empty file" do
     lost = %{nil => %{"lost" => "the job's log was removed before the review read it"}}
 

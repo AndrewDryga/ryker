@@ -21,6 +21,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   @purposes ~w(
     api_request
     get_review
+    get_review_gate_output
     get_checkpoint_bundle
     ensure_workspace
     create_session
