@@ -3,7 +3,9 @@ defmodule Ryker.Records.TaskOffersTest do
   import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
+  import Phoenix.LiveViewTest, only: [render_component: 2]
 
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
@@ -679,6 +681,54 @@ defmodule Ryker.Records.TaskOffersTest do
 
     assert {:ok, generic} = Renderer.render(unreadable.document)
     refute Jason.encode!(generic) =~ "work_execution_failed"
+  end
+
+  # Andrew, 2026-09-28, of a task's page: "this is basically a task timeline?
+  # if yes then design it's header properly not like a bunch of random text
+  # that you can't digest". It read like a conversation's: "Conversation span:
+  # Not measured", "Received 0", a follow-up status and a worker checklist
+  # that said "To do" beside "Completed".
+  test "a task's page leads with where the task stands, in its Slack card's words" do
+    fixture = confirmed_card!("task-page")
+    {:ok, snapshot} = EpisodeProjection.fetch(fixture.episode.key)
+    assert %{stages: stages} = snapshot.task
+
+    document =
+      render_component(&EpisodePage.render/1,
+        snapshot: snapshot,
+        requests: nil,
+        params: %{}
+      )
+      |> LazyHTML.from_fragment()
+
+    assert document
+           |> LazyHTML.query(".episode-initial-label")
+           |> LazyHTML.text()
+           |> String.trim() ==
+             "Task"
+
+    rows = LazyHTML.query(document, ".task-progress li")
+    assert Enum.count(rows) == length(stages)
+
+    assert rows |> Enum.at(0) |> LazyHTML.text() =~ "Workspace setup"
+
+    assert LazyHTML.query(document, ".metric-group-label") |> Enum.map(&LazyHTML.text/1) == [
+             "Time",
+             "Cost"
+           ]
+
+    text = LazyHTML.text(document)
+
+    for gone <- ["Conversation span", "Received", "Follow-up status", "Worker evidence"],
+        do: refute(text =~ gone, gone)
+
+    # Where the task was asked is a link in its header, not a section.
+    assert Enum.any?(
+             LazyHTML.query(document, ".episode-location a") |> Enum.map(&LazyHTML.text/1),
+             &(&1 =~ "Asked in")
+           )
+
+    refute text =~ "Before the first message"
   end
 
   test "task-card refresh failures defer exact custody and workers reject unsafe options" do

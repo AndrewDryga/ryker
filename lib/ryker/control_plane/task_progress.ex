@@ -1,0 +1,46 @@
+defmodule Ryker.ControlPlane.TaskProgress do
+  @moduledoc """
+  Where a code task stands, for the top of its page: the stage ledger, pull
+  request and repository its Slack card shows, read through the same
+  projection (`Ryker.Slack.TaskCardProjection`), so the page and the card
+  never disagree about a task.
+
+  Andrew, 2026-09-28, of a task's page: "this is basically a task timeline?
+  if yes then design it's header properly not like a bunch of random text
+  that you can't digest". The header read like a conversation's, with
+  "Conversation span: Not measured", "Received 0", a follow-up status and a
+  worker checklist saying "To do" beside "Completed".
+  """
+
+  import Ecto.Query
+
+  alias Ryker.Episodes.Episode
+  alias Ryker.Records.Record
+  alias Ryker.Repo
+  alias Ryker.Slack.TaskCardProjection
+
+  @doc "The task a confirmed offer started as this episode, or nil for any other request."
+  @spec for_episode(Episode.t()) :: map() | nil
+  def for_episode(%Episode{id: id}) do
+    offer =
+      Repo.one(
+        from(record in Record,
+          where: record.kind == "task_offer" and record.confirmed_episode_id == ^id,
+          order_by: [desc: record.confirmed_at],
+          limit: 1
+        )
+      )
+
+    with %Record{} <- offer,
+         {:ok, %{document: %{"task_card" => task}}} <- TaskCardProjection.build(offer) do
+      %{
+        publication: task["publication"],
+        repository: task["repository"],
+        repository_url: task["repository_url"],
+        stages: task["stages"]
+      }
+    else
+      _not_a_task -> nil
+    end
+  end
+end

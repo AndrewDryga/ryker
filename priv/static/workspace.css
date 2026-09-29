@@ -818,6 +818,20 @@
   .ryker-app .filter-toolbar select { flex:1 1 calc(50% - 6px); min-width:0; }
 }
 .episode-follow-through { margin-block: 1.5rem; padding-block: 1rem; border-block: 1px solid var(--stroke); }
+/* A task's stage ledger at the top of its page, in the Slack card's words. */
+.task-progress { margin-block: 1.5rem; padding: 16px 18px; border: 1px solid var(--ryker-stroke); border-radius: 12px; }
+.task-progress h2 { margin: 0 0 10px; font-size: 15px; }
+.task-progress ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.task-progress li { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; align-items: baseline; font-size: 14px; line-height: 20px; }
+.task-progress-glyph { color: var(--ryker-text-secondary); font-family: var(--ryker-font-mono); text-align: center; }
+.task-progress li[data-state="completed"] .task-progress-glyph { color: var(--ryker-mint); }
+.task-progress li[data-state="failed"] .task-progress-glyph { color: var(--ryker-error); }
+.task-progress li[data-state="running"] .task-progress-glyph { color: var(--ryker-accent); }
+.task-progress li[data-state="waiting"] .task-progress-glyph { color: var(--ryker-warning); }
+.task-progress li[data-state="pending"] { color: var(--ryker-text-secondary); }
+.task-progress-current .task-progress-row { font-weight: 600; }
+.task-progress-turn { margin-left: 8px; color: var(--ryker-warning); font-weight: 600; }
+.task-progress-reason { grid-column: 2; margin: 2px 0 0; color: var(--ryker-text-secondary); font-size: 13px; line-height: 18px; }
 .episode-follow-through h2 { font-size: 1rem; margin: 0 0 .75rem; }
 .episode-follow-through h2 small { margin-left: .5rem; font-weight: 400; }
 .episode-follow-through ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 1rem; }

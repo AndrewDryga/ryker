@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
     FeedbackProjection,
     ImprovementRequests,
     ModelRequests,
+    TaskProgress,
     UsageProjection
   }
 
@@ -190,6 +191,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
            events: events,
            records: records,
            related_episodes: related_episodes(episode),
+           task: TaskProgress.for_episode(episode),
            accounting: accounting,
            feedback: FeedbackProjection.for_request({:episode, episode.id}),
            self_analysis:
