@@ -134,8 +134,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   # What the last seven days brought, by the database clock that stamps a
   # candidate and its decision: the candidates found, by what Ryker made of
   # them (a category, still to analyze, or not analyzed), and the ones
-  # accepted or dismissed. The weekly report says the same for its own week,
-  # from the same read (`Ryker.Improvement.week/2`).
+  # accepted or dismissed (`Ryker.Improvement.week/2`).
   defp week do
     now = Repo.now!()
     Improvement.week(DateTime.add(now, -@week_seconds, :second), DateTime.add(now, 1, :second))

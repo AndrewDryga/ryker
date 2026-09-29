@@ -241,10 +241,12 @@ model agreed on, say whether that is worth building and what it would save.
 ## Weekly report
 
 Settings › Weekly report turns on one post a week in a Slack channel, at a day, time and zone you
-choose, saying how Ryker's week went: requests, feedback, what to fix, corrections, what it learned,
-the failures that leave someone waiting, and cost. Ryker counts it from PostgreSQL with no model
-turn. Invite Ryker to the channel first. Preview this week's report on that page shows what a report
-sent now would say, and posts nothing.
+choose, saying how Ryker's week went the way a teammate would at a standup: how much work it did,
+what it got done, what is still open, what is stuck and needs someone, and a line on feedback and
+what it learned. Ryker writes it from PostgreSQL with no model turn. Invite Ryker to the channel
+first. Preview this week's report on that page shows what a report sent now would say; Send to the
+channel posts it there at once, titled as a preview, even while the report is off. A preview is its
+own row in `weekly_reports` (`preview`) and never the week's report.
 
 A report covers the seven days before its send time. Turning it on posts at the next send time,
 never at once. Each week sent is a row in `weekly_reports`, written when the report falls due, so a

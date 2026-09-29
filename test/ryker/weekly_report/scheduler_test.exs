@@ -86,8 +86,8 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     assert report.delivery_ref == "weekly-report:2026-10-05"
     assert report.status == :pending
 
-    assert report.document["message"] =~
-             "How my week went, from Mon 28 Sep 09:00 to Mon 5 Oct 09:00 TP2."
+    assert report.document["message"] =~ "**Weekly update**\nMon 28 Sep to Mon 5 Oct\n"
+    refute report.preview
 
     # A restart later that day, and later that week, finds the week sent.
     for now <- [~U[2026-10-05 07:00:31Z], ~U[2026-10-05 12:00:00Z], ~U[2026-10-09 18:00:00Z]] do
@@ -185,7 +185,7 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     assert {:ok, %{"blocks" => [%{"type" => "markdown", "text" => words}]}} =
              Renderer.render(request.document)
 
-    assert words =~ "**Weekly report**"
+    assert words =~ "**Weekly update**"
     assert String.length(words) < 12_000
 
     delivered = Repo.get!(Report, report.id)
@@ -225,6 +225,79 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
 
     assert {:ok, {:delivered, :report, "weekly-report:2026-10-12"}} = deliver(agent)
     assert List.last(Agent.get(agent, & &1.calls)).document == refused.document
+  end
+
+  # Andrew, 2026-09-28: "why not to send real report to configured channel
+  # as a preview?" The page's preview showed words in the console only; the
+  # way to know what the channel gets is to post it there. A preview is the
+  # report as it reads now, marked as a preview, posted through the same
+  # custody, and never the week's report, so the scheduled one still posts.
+  test "a preview posts the report to its channel now, marked as a preview, and the week's report still posts" do
+    settings = connect!(%{weekday: 1, local_time: ~T[09:00:00]})
+    last_saved!(~U[2026-09-01 00:00:00.000000Z])
+
+    # The report need not be on: a preview is how a person sees it first.
+    assert {:ok, _off} =
+             Settings.save_report(
+               %{weekly_self_report_enabled: false},
+               settings.installation.revision,
+               @actor
+             )
+
+    last_saved!(~U[2026-09-01 00:00:00.000000Z])
+
+    assert {:ok, preview} = send_preview(~U[2026-10-07 12:00:00Z])
+    assert preview.preview
+    assert preview.week == ~D[2026-10-05]
+    assert "weekly-report-preview:" <> _id = preview.delivery_ref
+    assert preview.conversation_ref == "slack:#{@workspace}:#{@channel}"
+
+    assert preview.document["message"] =~
+             "**Weekly update (preview)**\nWed 30 Sep to Wed 7 Oct\n"
+
+    # Each preview is its own post.
+    assert {:ok, again} = send_preview(~U[2026-10-07 12:05:00Z])
+    refute again.delivery_ref == preview.delivery_ref
+
+    agent = start_supervised!({Agent, fn -> %{calls: [], responses: []} end})
+    assert {:ok, {:delivered, :report, ref}} = deliver(agent)
+    assert ref == preview.delivery_ref
+
+    # Slack refuses the second: it waits on Failures as a preview, not as the
+    # week's report.
+    Agent.update(agent, fn state ->
+      %{state | responses: [{:error, {:slack_api_error, "not_in_channel"}}]}
+    end)
+
+    assert {:ok, {:blocked, :report, _ref, _reason}} = deliver(agent)
+    assert {:ok, failures} = FailureProjection.list(%{})
+    assert [row] = Enum.filter(failures, &(&1.ref == again.delivery_ref))
+    assert FailureExplanation.explain(row).title == "Posting a weekly report preview stopped"
+
+    # This week's report is still to be sent once the report is on.
+    %{installation: %{revision: revision}} = Settings.fetch!()
+
+    assert {:ok, _on} =
+             Settings.save_report(%{weekly_self_report_enabled: true}, revision, @actor)
+
+    last_saved!(~U[2026-09-01 00:00:00.000000Z])
+
+    assert {:ok, {:queued, %{week: ~D[2026-10-05], preview: false}, _next}} =
+             run_once(~U[2026-10-07 12:10:00Z])
+  end
+
+  test "a preview needs the report's channel and Slack connected" do
+    settings = connect!(%{weekday: 1, local_time: ~T[09:00:00]})
+
+    assert {:ok, _none} =
+             Settings.save_report(
+               %{weekly_self_report_enabled: false, channel_ref: nil},
+               settings.installation.revision,
+               @actor
+             )
+
+    assert {:error, :no_channel} = send_preview(~U[2026-10-07 12:00:00Z])
+    assert reports() == []
   end
 
   # The report is a top-level post, and the publisher looks for a copy an
@@ -293,6 +366,9 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
   # -- Helpers -------------------------------------------------------------------------
 
   defp run_once(now), do: WeeklyReport.run_once(now: now, time_zone_database: TimeZones)
+
+  defp send_preview(now),
+    do: WeeklyReport.send_preview(now: now, time_zone_database: TimeZones)
 
   defp deliver(agent) do
     {:ok, adapters} =

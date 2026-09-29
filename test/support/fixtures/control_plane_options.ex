@@ -88,6 +88,10 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {:rated_episode, ref, rating})
           {:ok, %{key: ref}}
         end,
+        send_weekly_report_preview: fn ->
+          send(parent, :sent_weekly_report_preview)
+          {:ok, %{}}
+        end,
         act_on_lab_record: fn conversation_id, record_ref, action, choice_index ->
           send(
             parent,

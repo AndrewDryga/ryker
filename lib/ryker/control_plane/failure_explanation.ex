@@ -1432,6 +1432,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp delivery_kind(%{source: "quick_reply delivery"}), do: :quick_reply
   defp delivery_kind(%{source: "platform_action delivery"}), do: :platform_action
   defp delivery_kind(%{source: "weekly_report delivery"}), do: :weekly_report
+  defp delivery_kind(%{source: "weekly_report_preview delivery"}), do: :weekly_report_preview
   defp delivery_kind(_row), do: :message
 
   defp delivery_parts(:reaction),
@@ -1496,6 +1497,22 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       question: "Post this weekly report again?",
       effect:
         "Ryker posts the same saved report to the same channel. It checks the channel first, so the report never appears twice."
+    }
+
+  defp delivery_parts(:weekly_report_preview),
+    do: %{
+      title: "Posting a weekly report preview stopped",
+      affected: "The channel has not received the preview.",
+      happened:
+        "Someone sent a preview of the weekly report from Settings and posting it stopped",
+      affects: [
+        "The channel chosen under Settings › Weekly report has not received the preview. The week's own report is not affected."
+      ],
+      left: "The preview is never posted. The week's report is written and posted as usual.",
+      label: "Post the preview again",
+      question: "Post this preview again?",
+      effect:
+        "Ryker posts the same saved preview to the same channel. It checks the channel first, so the preview never appears twice."
     }
 
   defp delivery_parts(_message),

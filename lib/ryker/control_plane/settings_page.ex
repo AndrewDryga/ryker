@@ -80,6 +80,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
     doc: "The weekly report a send now would post (`Ryker.WeeklyReport.preview/1`), when asked"
   )
 
+  attr(:preview_sent, :any,
+    default: nil,
+    doc: "What became of the preview last sent to the channel: {:ok | :error, words}"
+  )
+
   def render(%{view: {:error, :settings_not_initialized}} = assigns) do
     assigns = assign(assigns, :page, page(assigns.section))
 
@@ -234,7 +239,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <div :if={@section == :system} class="settings-running">
           {Phoenix.HTML.raw(@body)}
         </div>
-        <.weekly_preview :if={@section == :report} preview={@preview} />
+        <.weekly_preview
+          :if={@section == :report}
+          preview={@preview}
+          channel={report_channel(@view)}
+          sent={@preview_sent}
+        />
       <% end %>
     </div>
     """
@@ -243,17 +253,21 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # Weekly report preview ------------------------------------------------------
 
   attr(:preview, :any, required: true)
+  attr(:channel, :string, default: nil, doc: "The report's channel by name, when it can post")
+  attr(:sent, :any, default: nil)
 
   # What a report sent now would say, in the words the channel would get,
   # rendered as the page renders any Slack message. Asking for it posts
   # nothing and records nothing; it is a link, so it reads the same on a
-  # reload.
+  # reload. Sending it posts it to the channel now, titled as a preview
+  # (Andrew, 2026-09-28: "why not to send real report to configured channel
+  # as a preview?").
   defp weekly_preview(assigns) do
     ~H"""
     <Kit.section_card
       id="weekly-report-preview"
       title="Preview"
-      lede="What a report sent now would say, from the seven days before now. Nothing is posted."
+      lede="What a report sent now would say, from the seven days before now. Nothing is posted until you send it."
     >
       <:actions>
         <.link
@@ -264,16 +278,45 @@ defmodule Ryker.ControlPlane.SettingsPage do
         >
           Preview this week's report
         </.link>
+        <button
+          :if={@preview && @channel}
+          id="send-weekly-report-preview"
+          type="button"
+          class="ui-button secondary"
+          phx-click="send-weekly-report-preview"
+          phx-disable-with="Sending…"
+        >
+          Send to {@channel}
+        </button>
         <.link :if={@preview} patch="/settings/report" class="ui-button quiet">
           Hide the preview
         </.link>
       </:actions>
+      <Components.form_feedback
+        :if={@sent}
+        id="weekly-report-sent"
+        message={elem(@sent, 1)}
+        tone={if(elem(@sent, 0) == :ok, do: :success, else: :error)}
+      />
+      <p :if={@preview && is_nil(@channel)} class="settings-lede">
+        Choose the report's channel above to send a preview there.
+      </p>
       <div :if={@preview} id="weekly-report-text" class="markdown-preview weekly-report-preview">
         {Phoenix.HTML.raw(SlackMarkdown.preview(@preview.text))}
       </div>
     </Kit.section_card>
     """
   end
+
+  # The report's channel by name, while Slack is connected: where a preview
+  # would go.
+  defp report_channel(%{snapshot: %{report: %{channel_ref: channel}, slack: slack}})
+       when is_binary(channel) do
+    if slack.enabled and is_binary(slack.workspace_ref),
+      do: Names.destination("slack:#{slack.workspace_ref}:#{channel}")
+  end
+
+  defp report_channel(_view), do: nil
 
   # Pages of one form ------------------------------------------------------------
 
@@ -1604,8 +1647,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
     do: %{
       title: "Weekly report",
       description:
-        "Once a week Ryker can post how its week went in a Slack channel: what people asked, " <>
-          "how they took its answers, what went wrong, what it learned and what it cost."
+        "Once a week Ryker can post a short update in a Slack channel, the way a teammate " <>
+          "would at a standup: what it got done, what is still open and what needs someone."
     }
 
   defp page(:pricing),

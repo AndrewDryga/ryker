@@ -244,7 +244,7 @@ defmodule Ryker.Retention.Policy do
       table: "weekly_reports",
       class: :operational,
       why:
-        "each week's report, its channel and its post's delivery custody; one delivered or blocked leaves at the operational horizon, and never within two weeks of its send time, so no week is posted twice"
+        "each week's report and each preview sent from Settings, its channel and its post's delivery custody; one delivered or blocked leaves at the operational horizon, and never within two weeks of its send time, so no week is posted twice"
     },
     %{
       table: "local_routing_comparisons",

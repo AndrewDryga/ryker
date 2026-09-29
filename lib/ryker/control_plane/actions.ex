@@ -22,6 +22,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Repo
   alias Ryker.Slack.Runtime, as: SlackRuntime
   alias Ryker.Slack.WorkRecord
+  alias Ryker.WeeklyReport
 
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Automations
@@ -99,6 +100,7 @@ defmodule Ryker.ControlPlane.Actions do
       delete_settings_item: &SettingsCommands.delete_item/3,
       preview_retention: &SettingsCommands.preview_retention/2,
       preview_webhook: &SettingsCommands.preview_webhook/2,
+      send_weekly_report_preview: fn -> WeeklyReport.send_preview() end,
       set_schedule_status: &Schedules.set_status/2,
       view_lab_task_record: lab_task_record_view(work_view_options)
     }

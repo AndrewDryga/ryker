@@ -5,7 +5,8 @@ defmodule Ryker.WeeklyReport.Report do
   (`due_at`), the week it covers (`period_start` up to `due_at`), the frozen
   words and the channel, and its delivery custody
   (`Ryker.WeeklyReport.Custody`). A row for a week means the week is sent or
-  being sent; it is never written twice.
+  being sent; it is never written twice. A `preview` a person sent from
+  Settings is a row too, and never the week's report.
   """
 
   use Ecto.Schema
@@ -16,6 +17,7 @@ defmodule Ryker.WeeklyReport.Report do
 
   schema "weekly_reports" do
     field(:week, :date)
+    field(:preview, :boolean, default: false)
     field(:due_at, :utc_datetime_usec)
     field(:period_start, :utc_datetime_usec)
     field(:timezone, :string)

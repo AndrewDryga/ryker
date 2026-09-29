@@ -5,7 +5,7 @@ defmodule Ryker.Records.TaskOffersTest do
   import Ecto.Query
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, TaskProgress}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
@@ -735,7 +735,7 @@ defmodule Ryker.Records.TaskOffersTest do
     stage = %{"stage" => "draft_pr", "state" => "failed", "reason" => nil}
     blocked = %{"blocked_reason" => "the repository's checks failed on the committed change."}
 
-    assert Ryker.ControlPlane.TaskProgress.draft_reason(stage, blocked)["reason"] ==
+    assert TaskProgress.draft_reason(stage, blocked)["reason"] ==
              "PR creation failed: the repository's checks failed on the committed change."
   end
 
