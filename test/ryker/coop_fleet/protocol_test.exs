@@ -202,6 +202,49 @@ defmodule Ryker.CoopFleet.ProtocolTest do
              Protocol.poll(%{poll | "event_batches" => [%{batch | "events" => [raw_lifecycle]}]})
   end
 
+  # 2026-09-29: the first worker that narrated the model's progress in words
+  # had every poll refused for eleven minutes (the protocol took a progress
+  # event's payload for a raw lifecycle one), which held every Coop command
+  # behind it. Every kind the worker narrates is an activity event.
+  test "every activity event the worker narrates may carry its words" do
+    poll = @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
+    [batch] = poll["event_batches"]
+    [event | _rest] = batch["events"]
+
+    for {type, payload} <- [
+          {"model.progress", %{"text" => "Checking the deploy script."}},
+          {"model.thought", %{"text" => "**Comparing the two runners**"}},
+          {"model.plan", %{"step_count" => 1, "entries" => [%{"content" => "Read the log"}]}},
+          {"tool.completed",
+           %{
+             "tool_call_id" => "exec-1",
+             "status" => "completed",
+             "input" => %{"command" => "git status --short"},
+             "output" => %{"formatted_output" => "", "exit_code" => 0},
+             "withheld" => %{"title" => "likely GitHub token"}
+           }}
+        ] do
+      narrated = %{
+        event
+        | "kind" => "session_event",
+          "payload" => %{
+            "id" => "evt-1",
+            "occurred_at" => "2026-08-29T12:00:00Z",
+            "payload" => payload,
+            "sequence" => event["sequence"],
+            "session_id" => "coop-session-1",
+            "turn_id" => "turn-1",
+            "type" => type,
+            "version" => 1
+          }
+      }
+
+      assert {:ok, _prepared} =
+               Protocol.poll(%{poll | "event_batches" => [%{batch | "events" => [narrated]}]}),
+             type
+    end
+  end
+
   test "wire documents are bounded and result shapes cannot claim success without a resource" do
     fixture = @fixture |> File.read!() |> Jason.decode!()
     poll = fixture["poll"]
