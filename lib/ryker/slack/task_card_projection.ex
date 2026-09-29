@@ -54,6 +54,30 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   def build(_card), do: {:error, :invalid_task_card}
 
+  @doc """
+  The task as its own page in the control plane shows it: the card's document
+  with the causes the card says only where its sources may be shown, since
+  the page is the operator's.
+  """
+  @spec page(Record.t()) :: {:ok, map()} | {:error, term()}
+  def page(
+        %Record{kind: "task_offer", status: :confirmed, confirmed_episode_id: episode_id} =
+          record
+      )
+      when is_binary(episode_id) do
+    case Repo.get(Episode, episode_id) do
+      %Episode{} = episode ->
+        snapshot = snapshot(episode)
+        {:ok, projection} = project(record, episode, record.ref, snapshot)
+        {:ok, public_errors(projection, snapshot)}
+
+      nil ->
+        {:error, :task_card_source_not_found}
+    end
+  end
+
+  def page(_record), do: {:error, :invalid_task_card}
+
   defp build_public(card) do
     with %Record{} = record <- Repo.get(Record, card.record_id),
          %Episode{} = episode <- Repo.get(Episode, card.episode_id) do
