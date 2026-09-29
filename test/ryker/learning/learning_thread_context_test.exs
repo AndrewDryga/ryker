@@ -110,7 +110,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
     assert topic["source_ref"] in Enum.map(run.knowledge, & &1["source_ref"])
   end
 
-  test "thread matching cannot cross a conversation or repository or revive a withdrawn source" do
+  test "thread matching cannot cross a conversation or revive a withdrawn source" do
     # Structural boundary variants of the captured thread, not new model answers.
     {first, second, topic} = learned_thread!(false)
     selector = {:threads, [second.destination_thread_ref]}
@@ -118,7 +118,11 @@ defmodule Ryker.Learning.LearningThreadContextTest do
 
     other_channel = %{second | destination_conversation_ref: "slack:T01J1LW4DF1:C-not-the-source"}
     assert Knowledge.context(other_channel, second.repository_ref, selector, 8, "writable") == []
-    assert Knowledge.context(second, "another-repository", selector, 8, "writable") == []
+
+    # The conversation's own topic stays its own when its work moves to another
+    # repository (V10, 2026-09-28); only the repository it names differs.
+    assert [moved] = Knowledge.context(second, "another-repository", selector, 8, "writable")
+    assert moved["source_ref"] == topic["source_ref"] and moved["can_update"]
 
     assert Knowledge.context(
              second,

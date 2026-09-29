@@ -402,10 +402,11 @@ defmodule Ryker.Knowledge do
     end
   end
 
+  # A topic is its conversation's (`scope_key/1`), so its sources may come
+  # from messages whose work used different repositories.
   defp same_source_scope?(%Entry{status: :decided} = source, %Entry{} = entry) do
     source.destination_transport == entry.destination_transport and
-      source.destination_conversation_ref == entry.destination_conversation_ref and
-      source.repository_ref == entry.repository_ref
+      source.destination_conversation_ref == entry.destination_conversation_ref
   end
 
   defp same_source_scope?(_, _), do: false
@@ -542,12 +543,13 @@ defmodule Ryker.Knowledge do
     )
   end
 
+  # A source moved to another conversation no longer supports the topic. Its
+  # repository may differ: a topic is its conversation's (`scope_key/1`).
   defp changed_scope do
     dynamic(
       [_s, o],
       o.conversation_ref != parent_as(:knowledge).conversation_ref or
-        o.workspace_ref != parent_as(:knowledge).workspace_ref or
-        fragment("? IS DISTINCT FROM ?", o.repository_ref, parent_as(:knowledge).repository_ref)
+        o.workspace_ref != parent_as(:knowledge).workspace_ref
     )
   end
 
@@ -783,9 +785,16 @@ defmodule Ryker.Knowledge do
     end
   end
 
+  # A conversation's topics are the conversation's, whichever repository its
+  # work used when each was learned. With the repository in the key, #test's
+  # "Emisar MCP access" topic, learned while the channel worked on one
+  # repository, was never offered to a later pass once the channel's
+  # environment moved to another: every later pass saw no topic at all, and
+  # the topic kept saying access was unverified (2026-09-28). The repository
+  # stays on the topic as where it was last learned.
   defp scope_key(scope) do
     scope
-    |> Map.take([:transport, :workspace_ref, :conversation_ref, :repository_ref])
+    |> Map.take([:transport, :workspace_ref, :conversation_ref])
     |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
     |> CanonicalJSON.digest()
   end
@@ -1075,9 +1084,7 @@ defmodule Ryker.Knowledge do
         "source_ref" => "knowledge:#{item.id}",
         "topic_key" => item.topic_key,
         "version" => item.version,
-        "can_update" =>
-          item.conversation_ref == scope.conversation_ref and
-            item.repository_ref == scope.repository_ref,
+        "can_update" => item.scope_key == scope_key(scope),
         "conversation_ref" => item.conversation_ref,
         "repository_ref" => item.repository_ref,
         "source_count" => length(dates),

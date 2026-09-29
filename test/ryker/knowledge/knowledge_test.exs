@@ -113,6 +113,33 @@ defmodule Ryker.Knowledge.KnowledgeTest do
              []
   end
 
+  # V10, 2026-09-28: #test's "Emisar MCP access" topic was learned while the
+  # channel's work used one repository. Its environment then moved to another,
+  # and no later pass was offered the topic again: each saw no topic at all,
+  # and the topic kept saying Emisar access was unverified after Ryker had
+  # used it. A conversation's topics are the conversation's.
+  test "a conversation's topics stay its own when the repository its work uses changes" do
+    first = input!(1, @firing)
+    learn!(first, @firing)
+
+    later = input!(2, @resolved, repository: "blitz-app")
+    assert later.repository_ref == "blitz-app"
+
+    assert [%{"topic_key" => "website-haproxy-oom"} = topic] =
+             Knowledge.context(
+               later,
+               later.repository_ref,
+               {:related, @firing["summary"]},
+               8,
+               "writable"
+             )
+
+    # The later pass revises the same topic, which moves with the conversation.
+    learn!(later, @resolved, topic)
+    assert [updated] = Knowledge.context(later, later.repository_ref)
+    assert {updated["version"], updated["repository_ref"]} == {2, "blitz-app"}
+  end
+
   test "late supporting input is incorporated without moving the latest source time backward" do
     # Source event time is not ingestion time. A late message or edit can add
     # useful evidence to an already newer topic; silently returning :ok loses it.
@@ -1062,7 +1089,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
         work_profile: %{
           policy: "test-read-only",
           policy_digest: String.duplicate("a", 64),
-          repository_ref: "blitz-infra"
+          repository_ref: Keyword.get(options, :repository, "blitz-infra")
         }
       )
 
