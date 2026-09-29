@@ -30,7 +30,11 @@ defmodule Ryker.ControlPlane.ContextSearch do
       methods: methods(receipt),
       facts:
         Enum.reject(
-          [{"Result", result(receipt)}, {"Memory", memory(omitted)}],
+          [
+            {"Result", result(receipt)},
+            {"Knowledge", knowledge(snapshot)},
+            {"Memory", memory(omitted)}
+          ],
           &is_nil(elem(&1, 1))
         ),
       record:
@@ -43,6 +47,32 @@ defmodule Ryker.ControlPlane.ContextSearch do
   end
 
   def present(_snapshot), do: nil
+
+  # V9, 2026-09-28: the briefing said "Learned topics: None" and nothing about
+  # what was searched. Routing is sent up to eight learned topics that share
+  # words, links or IDs with the message, from this conversation and public
+  # channels Ryker is in, and the newest notes, this conversation's first
+  # (`Ryker.Admission.context/3`).
+  defp knowledge(snapshot) do
+    topics = length(List.wrap(snapshot["conversation_knowledge"]))
+    notes = length(List.wrap(snapshot["conversation_observations"]))
+
+    matched =
+      case topics do
+        0 -> "No learned topic shares words, links or IDs with the message"
+        1 -> "1 learned topic shares words, links or IDs with the message"
+        n -> "#{n} learned topics share words, links or IDs with the message"
+      end
+
+    recent =
+      case notes do
+        0 -> "no notes"
+        1 -> "the 1 newest note"
+        n -> "the #{n} newest notes"
+      end
+
+    "#{matched}; #{recent} came with it."
+  end
 
   defp found(0, _offered), do: "Nothing found"
   defp found(found, found) when is_integer(found), do: "#{found} found, all offered"
