@@ -17,7 +17,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   }
 
   alias Ryker.Episodes.Words
-  alias Ryker.Slack.Names
+  alias Ryker.Slack.{Names, TaskCardDetails}
 
   @conversation_bands [:ready, :routing, :work, :answer]
 
@@ -45,7 +45,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       assign(
         assigns,
         :timeline_groups,
-        timeline_groups(chapters) ++
+        timeline_groups(chapters, if(assigns.snapshot[:task], do: "The task")) ++
           feedback_groups(
             assigns.snapshot[:feedback] || [],
             assigns.snapshot[:self_analysis] || []
@@ -56,6 +56,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       assigns
       |> assign(:source_link, source_link(assigns.snapshot))
       |> assign(:thread_link, thread_link(assigns.snapshot.episode))
+      |> assign(:task, assigns.snapshot[:task])
 
     ~H"""
     <div class="episode-workbench execution-document">
@@ -63,7 +64,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <Kit.back href="/" label="Activity" navigate />
         <div class="episode-title-row">
           <div class="episode-title-copy">
-            <p class="episode-initial-label">{title_label(@snapshot.trace.case_file)}</p>
+            <p class="episode-initial-label">{page_label(@task, @snapshot.trace.case_file)}</p>
             <h1>{@snapshot.trace.case_file.title}</h1>
           </div>
           <.status :if={@startup} state="not_started" />
@@ -83,6 +84,15 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <p class="episode-location">
           <.status :if={!@startup} state={@snapshot.trace.state} />
           <time>{timestamp(@snapshot.trace.received_at)}</time>
+          <a
+            :if={@task && @task.repository_url}
+            href={@task.repository_url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >{@task.repository} →</a>
+          <a :for={item <- if(@task, do: @related.items, else: [])} href={item.href}>
+            {task_relation(item)} →
+          </a>
           <a
             :if={!@startup}
             href={outcome_anchor(@snapshot)}
@@ -126,7 +136,48 @@ defmodule Ryker.ControlPlane.EpisodePage do
           </li>
         </ol>
       </section>
-      <section :if={!@startup} class="episode-metrics" aria-label="Execution summary">
+      <section :if={!@startup && @task} class="episode-metrics" aria-label="Task summary">
+        <div class="metric-group metric-group-timing">
+          <p class="metric-group-label">Time</p>
+          <dl class="metric-group-items">
+            <div class="metric metric-wall">
+              <dt>{task_time_label(@snapshot.episode)}</dt>
+              <dd>{task_time(@snapshot.episode)}</dd>
+            </div>
+          </dl>
+        </div>
+        <div class="metric-group metric-group-cost">
+          <p class="metric-group-label">Cost</p>
+          <dl class="metric-group-items">
+            <div class="metric metric-cost">
+              <dt>Total cost</dt><dd>{cost(@snapshot[:accounting])}</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+      <section :if={!@startup && @task} class="task-progress" aria-labelledby="task-progress-heading">
+        <h2 id="task-progress-heading">Progress</h2>
+        <ol>
+          <li
+            :for={stage <- @task.stages}
+            data-state={stage["state"]}
+            class={stage["current"] && "task-progress-current"}
+          >
+            <span class="task-progress-glyph" aria-hidden="true">{TaskCardDetails.glyph(
+              stage["state"]
+            )}</span>
+            <span class="task-progress-row">
+              <a :if={stage["url"]} href={stage["url"]} target="_blank" rel="noopener noreferrer">{stage_text(
+                stage
+              )}</a>
+              <span :if={!stage["url"]}>{stage_text(stage)}</span>
+              <span :if={stage["your_turn"]} class="task-progress-turn">← your turn</span>
+            </span>
+            <p :if={stage["reason"]} class="task-progress-reason">{stage["reason"]}</p>
+          </li>
+        </ol>
+      </section>
+      <section :if={!@startup && !@task} class="episode-metrics" aria-label="Execution summary">
         <div class="metric-group metric-group-timing">
           <p class="metric-group-label">Timing</p>
           <dl class="metric-group-items">
@@ -165,7 +216,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </div>
       </section>
       <section
-        :if={!@startup && @related.items != []}
+        :if={!@startup && !@task && @related.items != []}
         class="episode-follow-through"
         aria-label="Related requests"
       >
@@ -227,7 +278,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </.disclosure>
       </section>
       <section
-        :if={(@snapshot.trace[:follow_through] || []) != []}
+        :if={!@task && (@snapshot.trace[:follow_through] || []) != []}
         class="episode-follow-through"
         aria-label="Current follow-up status"
       >
@@ -240,7 +291,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           </li>
         </ul>
       </section>
-      <Ryker.ControlPlane.WorkerEvidenceCard.render episode_id={@snapshot.episode[:id]} />
+      <Ryker.ControlPlane.WorkerEvidenceCard.render :if={!@task} episode_id={@snapshot.episode[:id]} />
       <.execution_timeline
         snapshot={@snapshot}
         timeline={@timeline}
@@ -479,8 +530,12 @@ defmodule Ryker.ControlPlane.EpisodePage do
     |> execution_phases()
   end
 
-  @doc "Groups foreground phases under the message that caused them."
-  def timeline_groups(chapters) do
+  @doc """
+  Groups foreground phases under the message that caused them. Work before any
+  message is `first` ("Before the first message"; a task's page names it "The
+  task", since a task starts from its confirmation, not a message).
+  """
+  def timeline_groups(chapters, first \\ nil) do
     {background, foreground} = Enum.split_with(chapters, &background_band?(&1.band))
 
     conversations =
@@ -497,7 +552,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           title:
             if(conversation_turn > 0,
               do: "Message #{conversation_turn}",
-              else: "Before the first message"
+              else: first || "Before the first message"
             )
         }
       end)
@@ -2005,6 +2060,35 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp message_timestamp(_at), do: "Not recorded"
   # The label says where the heading came from: Ryker's own name for the
   # request, a task's title, or the message that started it.
+  defp page_label(nil, case_file), do: title_label(case_file)
+  defp page_label(_task, _case_file), do: "Task"
+
+  # A task names the request it was asked in, the way its Slack thread does.
+  defp task_relation(%{title: title}), do: "Asked in " <> title
+
+  # How long a task took, or has been running, from its confirmation.
+  defp task_time_label(%{state: state}) when state in [:complete, :cancelled], do: "Took"
+  defp task_time_label(_episode), do: "Running for"
+
+  defp task_time(%{state: state, created_at: from, updated_at: to})
+       when state in [:complete, :cancelled],
+       do: duration_ms(max(DateTime.diff(to, from, :millisecond), 0))
+
+  defp task_time(%{created_at: from}),
+    do: duration_ms(max(DateTime.diff(DateTime.utc_now(), from, :millisecond), 0))
+
+  # A stage row in the Slack card's words: a count or #617 reads on after its
+  # name, anything else after a "·".
+  defp stage_text(%{"stage" => stage, "detail" => detail}) do
+    label = TaskCardDetails.label(stage)
+
+    cond do
+      is_nil(detail) -> label
+      String.starts_with?(detail, ["#", "←"]) -> label <> " " <> detail
+      true -> label <> " · " <> detail
+    end
+  end
+
   defp title_label(%{title_kind: :episode}), do: "Request"
   defp title_label(%{title_kind: :task}), do: "Task"
   defp title_label(_case_file), do: "Initial request"

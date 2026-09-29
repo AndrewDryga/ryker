@@ -192,24 +192,28 @@ defmodule Ryker.Slack.TaskCardDetails do
 
   defp display(text, maximum), do: text |> escape() |> truncate(maximum)
 
-  defp label("workspace_setup"), do: "Workspace setup"
-  defp label("planning"), do: "Planning"
-  defp label("implementation"), do: "Implementation"
-  defp label("self_review"), do: "Self-review and checks"
-  defp label("draft_pr"), do: "Draft PR"
-  defp label("ci"), do: "CI"
-  defp label("review_and_merge"), do: "Review and merge"
-  defp label("unassigned"), do: "Other subtasks"
+  @doc "A stage's name, the same on the Slack card and the task's page."
+  @spec label(String.t()) :: String.t()
+  def label("workspace_setup"), do: "Workspace setup"
+  def label("planning"), do: "Planning"
+  def label("implementation"), do: "Implementation"
+  def label("self_review"), do: "Self-review and checks"
+  def label("draft_pr"), do: "Draft PR"
+  def label("ci"), do: "CI"
+  def label("review_and_merge"), do: "Review and merge"
+  def label("unassigned"), do: "Other subtasks"
 
-  defp glyph("completed"), do: "✓"
-  defp glyph("running"), do: "▸"
-  defp glyph("waiting"), do: "◷"
-  defp glyph("failed"), do: "!"
-  defp glyph("stale"), do: "↻"
-  defp glyph("skipped"), do: "−"
-  defp glyph("stopped"), do: "■"
-  defp glyph("unknown"), do: "?"
-  defp glyph("pending"), do: "○"
+  @doc "A stage state's glyph, the same on the Slack card and the task's page."
+  @spec glyph(String.t()) :: String.t()
+  def glyph("completed"), do: "✓"
+  def glyph("running"), do: "▸"
+  def glyph("waiting"), do: "◷"
+  def glyph("failed"), do: "!"
+  def glyph("stale"), do: "↻"
+  def glyph("skipped"), do: "−"
+  def glyph("stopped"), do: "■"
+  def glyph("unknown"), do: "?"
+  def glyph("pending"), do: "○"
 
   @doc "The shared glyph for a goal state, on any card that shows a goal."
   @spec goal_glyph(String.t()) :: String.t()
