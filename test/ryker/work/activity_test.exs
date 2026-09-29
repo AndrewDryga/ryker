@@ -150,7 +150,7 @@ defmodule Ryker.Work.ActivityTest do
         "output" => %{"error" => "unauthorized"}
       }),
       event(session, 3, "model.progress", %{"text" => "Checking both production runners."}),
-      event(session, 4, "model.thought", %{"text" => "private reasoning"})
+      event(session, 4, "model.thought", %{"text" => "**Comparing the two runners**"})
     ]
 
     assert {:ok, %{inserted: 4}} = Activity.ingest(session.id, events)
@@ -159,7 +159,9 @@ defmodule Ryker.Work.ActivityTest do
     assert start.payload["input"]["arguments"]["token"] == "[redacted]"
     assert finish.payload["output"] == %{"error" => "unauthorized"}
     assert progress.payload["text"] == "Checking both production runners."
-    assert thought.payload == %{}
+    # A thought is kept in words since 2026-09-29 ("workers must report
+    # commands, thinking and everything else"), redacted like progress.
+    assert thought.payload["text"] == "**Comparing the two runners**"
     assert {:ok, %{inserted: 0}} = Activity.ingest(session.id, events)
 
     # Secret rotation must not change replay identity or restore an already-redacted body.
@@ -280,7 +282,13 @@ defmodule Ryker.Work.ActivityTest do
 
     assert [thought, started_tool, completed_tool] = Activity.list_for_episode(episode_id)
     assert thought.kind == "model.thought"
-    assert thought.payload == %{}
+
+    assert thought.payload == %{
+             "evidence_version" => 1,
+             "text" => "Checking the runtime state.",
+             "truncated" => false
+           }
+
     assert started_tool.kind == "tool.started"
 
     assert started_tool.payload["input"]["action_id"] == "nomad.job_status"

@@ -27,6 +27,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
       duration_ms: Map.get(attributes, :duration_ms),
       tool_kind: Map.get(attributes, :tool_kind),
       path_context: Map.get(attributes, :path_context),
+      # What a command exited with, and which narrated fields the worker
+      # withheld and why (`Ryker.ControlPlane.ToolCard`).
+      exit_code: Map.get(attributes, :exit_code),
+      withheld: Map.get(attributes, :withheld),
       href: Map.get(attributes, :href),
       id: id,
       stage: human(Map.fetch!(attributes, :stage)),

@@ -226,6 +226,82 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert Enum.any?(failed, &(LazyHTML.text(&1) =~ "failed"))
   end
 
+  # Andrew, 2026-09-28: "Run command — The worker reported that a command ran,
+  # not which one" on every shell step; "workers must report commands,
+  # thinking and everything else". The payloads below have the shape the live
+  # worker's Codex sessions record once Coop narrates them.
+  test "a narrated command shows what it ran and printed, and a thought shows what the model was thinking" do
+    work = episode_with_tool!("narrated", "small")
+
+    activity!(work, 2, "tool.completed", %{
+      "kind" => "execute",
+      "tool_call_id" => "exec-1",
+      "status" => "completed",
+      "title" => "Run git status",
+      "input" => %{"command" => "git status --short", "cwd" => "/workspace"},
+      "output" => %{"formatted_output" => " M lib/deploy.ex\n", "exit_code" => 1},
+      "content" => [%{"type" => "terminal", "terminalId" => "t-1"}]
+    })
+
+    activity!(work, 3, "tool.completed", %{
+      "kind" => "execute",
+      "tool_call_id" => "exec-2",
+      "status" => "completed",
+      "title" => "Run curl",
+      "withheld" => %{"input" => "likely GitHub token"}
+    })
+
+    activity!(work, 4, "model.thought", %{
+      "text" =>
+        "**Checking the deploy script**\n\nThe readiness probe starts before the migration.",
+      "truncated" => false
+    })
+
+    document = LazyHTML.from_document(rendered(work, ["activity-#{event_id(work, 2)}-output"]))
+    text = LazyHTML.text(document)
+
+    assert LazyHTML.query(document, "pre.action-command") |> LazyHTML.text() =~
+             "git status --short"
+
+    assert text =~ "Exit code"
+    assert text =~ "M lib/deploy.ex"
+    assert text =~ "The command was withheld: it looked like it held a GitHub token."
+    refute text =~ "The worker reported that a command ran, not which one."
+    # The terminal the worker ran it in says nothing to a reader.
+    refute text =~ "terminalId"
+
+    assert text =~ "Checking the deploy script"
+    assert text =~ "The readiness probe starts before the migration."
+    refute text =~ "**Checking"
+  end
+
+  defp activity!(work, sequence, kind, payload) do
+    payload = Map.put(payload, "evidence_version", 1)
+
+    Repo.insert!(%ActivityEvent{
+      coop_turn_id: "coop-turn-run",
+      episode_id: work.episode.id,
+      kind: kind,
+      occurred_at: DateTime.add(@now, 90 + sequence, :second),
+      payload: payload,
+      payload_fingerprint: CanonicalJSON.digest(payload),
+      remote_event_id: "narrated-event:#{sequence}",
+      remote_session_id: "remote-session:#{work.session.id}",
+      sequence: sequence,
+      session_id: work.session.id,
+      version: 1
+    })
+  end
+
+  defp event_id(work, sequence),
+    do:
+      Repo.one!(
+        from(event in ActivityEvent,
+          where: event.session_id == ^work.session.id and event.sequence == ^sequence,
+          select: event.id
+        )
+      )
+
   defp tool!(work, sequence, tool, arguments, status \\ "completed") do
     payload = %{
       "evidence_version" => 1,
