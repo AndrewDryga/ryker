@@ -4,7 +4,10 @@ defmodule Ryker.Publication.Review do
   alias Ryker.CanonicalJSON
 
   @required ~w(candidate_head candidate_retained candidate_tree creation_base gate job_digest not_publishable_reasons operation_id parent_head parent_tree patch_truncated policy_findings publishable rebase session_id session_revision source_head source_tree)
-  @optional ~w(gate_error pull_request)
+  @optional ~w(gate_error gate_output pull_request)
+  # What Coop says of the gate's output beside the review; the output itself is
+  # read page by page (`Ryker.Publication.GateOutput`).
+  @gate_output_keys ~w(bytes command complete exit_code incomplete lost)
   @git_identity ~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
@@ -74,6 +77,7 @@ defmodule Ryker.Publication.Review do
            ),
          :ok <- candidate_identity(document),
          :ok <- pull_request(document["pull_request"]),
+         :ok <- gate_output(document["gate_output"]),
          :ok <- CanonicalJSON.validate(document, max_bytes: 512 * 1_024) do
       {:ok, document}
     else
@@ -368,6 +372,25 @@ defmodule Ryker.Publication.Review do
 
   defp full_stop(text),
     do: if(String.ends_with?(text, [".", "!", "?"]), do: text, else: text <> ".")
+
+  defp gate_output(nil), do: :ok
+
+  defp gate_output(%{"bytes" => bytes, "complete" => complete} = output)
+       when is_integer(bytes) and bytes >= 0 and is_boolean(complete) do
+    if Map.keys(output) -- @gate_output_keys == [] and gate_command?(output["command"]) and
+         optional?(output["exit_code"], &is_integer/1) and
+         Enum.all?(~w(incomplete lost), &optional?(output[&1], fn text -> is_binary(text) end)),
+       do: :ok,
+       else: {:error, {:invalid_publication_review, :gate_output}}
+  end
+
+  defp gate_output(_output), do: {:error, {:invalid_publication_review, :gate_output}}
+
+  defp gate_command?(nil), do: true
+  defp gate_command?(command), do: bounded_strings(command, 64, 4_096, :gate_output) == :ok
+
+  defp optional?(nil, _valid?), do: true
+  defp optional?(value, valid?), do: valid?.(value)
 
   defp fields(document) do
     keys = Map.keys(document)

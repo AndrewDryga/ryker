@@ -64,6 +64,29 @@ defmodule Ryker.CoopFleet.RequestsTest do
     assert map_size(prepare) == 1
   end
 
+  # A red review said only "gate failed" (emisar, 2026-09-28). Andrew: "Ryker
+  # should get full access to errors, warnings and all other output to work,
+  # like any llm model would, it's a sandbox!!" Coop serves a review gate's
+  # output page by page, from the cursor the previous page returned.
+  test "a review's gate output is read page by page from the cursor Coop returned" do
+    first = %{"coop_session_id" => "session-1", "operation_id" => "review-1", "cursor" => nil}
+
+    assert {:ok, %{"method" => "GET", "path" => path} = request} =
+             Requests.encode("get_review_gate_output", first, %{generation: 2})
+
+    assert path == "/v1/sessions/session-1/reviews/review-1/gate-output"
+    refute Map.has_key?(request, "body")
+
+    assert {:ok, %{"path" => next}} =
+             Requests.encode(
+               "get_review_gate_output",
+               %{first | "cursor" => "1048576"},
+               %{generation: 2}
+             )
+
+    assert next == "/v1/sessions/session-1/reviews/review-1/gate-output?cursor=1048576"
+  end
+
   test "create requires one frozen job and does not revive local policy selection" do
     job = %{"job_ref" => "job-1"}
     digest = String.duplicate("a", 64)

@@ -268,6 +268,14 @@ defmodule Ryker.Publication.FixLoop do
     |> Enum.join(" ")
   end
 
+  defp instruction(
+         "gate_failed",
+         _review,
+         %{"status" => "read", "artifact" => file, "incomplete" => cut} = output
+       ),
+       do:
+         "The gate's output is the attached #{file["name"]}#{kept(file, output)}, and its end is in review.gate_output_end. It is not the whole run: #{cut} Fix what fails, run the repository's gate again and commit."
+
   defp instruction("gate_failed", _review, %{"status" => "read", "artifact" => file} = output),
     do:
       "The gate's complete output is the attached #{file["name"]}#{kept(file, output)}, and its end is in review.gate_output_end. Fix what fails, run the repository's gate again and commit."

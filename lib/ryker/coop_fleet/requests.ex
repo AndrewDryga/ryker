@@ -122,6 +122,19 @@ defmodule Ryker.CoopFleet.Requests do
       {:ok,
        request("GET", session_path(payload) <> "/reviews/" <> segment(payload["operation_id"]))}
 
+  defp request_for("get_review_gate_output", payload, _) do
+    query =
+      case payload["cursor"] do
+        nil -> ""
+        cursor -> "?" <> URI.encode_query(%{"cursor" => cursor})
+      end
+
+    path =
+      session_path(payload) <> "/reviews/" <> segment(payload["operation_id"]) <> "/gate-output"
+
+    {:ok, request("GET", path <> query)}
+  end
+
   defp request_for("reconcile_operation", payload, _),
     do:
       {:ok,

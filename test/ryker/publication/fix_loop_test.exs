@@ -169,6 +169,36 @@ defmodule Ryker.Publication.FixLoopTest do
     refute Map.has_key?(content["review"], "gate_output")
   end
 
+  # Coop keeps the first 64 MiB of a gate that prints without end. The agent
+  # hears the file is not the whole run, rather than reading a cut log as all
+  # the gate printed.
+  test "Coop's word that it kept only part of the gate's output reaches the fix turn" do
+    %{claim: claim} = task_episode!("gate-output-cut")
+    %{claim: work} = completed_turn!(claim, "gate-output-cut", "one")
+    publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+    cut = "The check printed more than 64 MiB; Coop kept the first 64 MiB."
+
+    pages = %{
+      nil => %{
+        "output" => "compiling\n",
+        "next_cursor" => nil,
+        "bytes" => 10,
+        "complete" => false,
+        "incomplete" => cut
+      }
+    }
+
+    review!(publication, "gate-output-cut", "one", refused(work), {PagedGate, pages})
+    deliver_review!(publication, "gate-output-cut", "one")
+
+    content = last_input_content!(claim.episode.key)
+
+    assert content["correction_request"] =~
+             "The gate's output is the attached gate-output.txt, and its end is in review.gate_output_end. It is not the whole run: #{cut} Fix what fails, run the repository's gate again and commit."
+
+    refute content["correction_request"] =~ "complete output"
+  end
+
   # Andrew's request, 2026-09-28: at most three automatic fix rounds per
   # publication. A change the agent cannot fix would otherwise spend a worker
   # turn and a trusted review on the same failure forever; after the third the
