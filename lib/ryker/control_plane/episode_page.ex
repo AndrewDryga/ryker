@@ -1509,13 +1509,17 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <span :if={@message[:status]}>{@message.status}</span>
       </:meta>
       <div>{message_text(@message)}</div>
-      <p :if={@message[:source]} class="message-source">
-        <a href={@message.source.href} target="_blank" rel="noopener noreferrer">
-          {@message.source.label} ↗
-        </a>
-      </p>
-      <:footer :if={@message[:details]}>
-        <.input_details message={@message} />
+      <:footer :if={@message[:source] || @message[:details]}>
+        <%!-- The body keeps a message's own line breaks; a link to where it was
+        written is the footer's, beside its details. --%>
+        <a
+          :if={@message[:source]}
+          class="message-source"
+          href={@message.source.href}
+          target="_blank"
+          rel="noopener noreferrer"
+        >{@message.source.label} ↗</a>
+        <.input_details :if={@message[:details]} message={@message} />
       </:footer>
     </.message_block>
     <.input_details :if={@message[:provider] && @message[:details]} message={@message} />

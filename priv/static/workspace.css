@@ -917,7 +917,7 @@
 .provider-facts dt { color:var(--ryker-text-secondary); }
 .provider-facts dd { margin:0; overflow-wrap:anywhere; user-select:all; }
 .provider-links { margin:10px 0 0; display:flex; flex-wrap:wrap; gap:14px; font-size:14px; }
-.message-source { margin:8px 0 0; font-size:14px; }
+.message-source { display:inline-block; margin:0 0 4px; font-size:14px; }
 
 /* Input queue: one sealed card per contiguous run, with retained event rows. */
 .input-queue h3 small { font-size:13px; font-weight:500; color:var(--ryker-text-secondary); }
