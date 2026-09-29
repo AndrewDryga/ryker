@@ -17,6 +17,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.{Permalink, TaskCard}
+  alias Ryker.StateTools.TaskTools
   alias Ryker.Work.{Custody, FailureCause, Recovery, Session, TaskStages, Turn}
 
   @ui_revision 6
@@ -175,15 +176,10 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp followup(%Publication{id: id}),
     do: Repo.one(from(followup in Followup, where: followup.publication_id == ^id))
 
-  # What the person asked for, as the task offer wrote it. The host appends
-  # the work's success checks, authority limits and the Slack references it
-  # came from (`Ryker.StateTools.TaskTools`), which the Work needs and a
-  # reader does not: the card showed "Sources: slack-source:v1:…" once it
-  # stopped cutting the request at 600 characters (2026-09-28).
-  defp request_text(prompt) when is_binary(prompt),
-    do: prompt |> String.split("\n\nSuccess checks: ", parts: 2) |> hd()
-
-  defp request_text(prompt), do: prompt
+  # What the person asked for, as the task offer wrote it: the card showed
+  # "Sources: slack-source:v1:…" once it stopped cutting the request at 600
+  # characters (2026-09-28).
+  defp request_text(prompt), do: TaskTools.request(prompt)
 
   # A repository by the name people know it by, owner/repo, from the
   # repository Ryker added; one no longer added keeps the name the task

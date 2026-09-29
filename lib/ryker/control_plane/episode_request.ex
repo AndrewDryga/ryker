@@ -69,9 +69,8 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       <section :if={!@result?} class="request-model-section" aria-label="Model">
         <h4>Model</h4>
         <Components.execution_target target={@request.target} />
-        <p :if={@model_reason} class="request-model-reason">
-          {@model_reason.text}
-          <.link :if={@model_reason.settings?} navigate="/settings/models">Settings</.link>
+        <p class="request-model-reason">
+          {@model_reason} <.link navigate="/settings/models">Settings</.link>
         </p>
       </section>
       <p :if={@result? && @explanation} class="request-rationale">
@@ -544,22 +543,16 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp preference_entries(_), do: []
 
-  # New jobs freeze the purpose's model targets from Ryker's settings. Older
-  # calls without a settings link still describe their recorded selection.
+  # A job freezes its model from Ryker's settings when the work starts. A call
+  # whose job is exactly one of today's settings says which; one whose job no
+  # longer matches them (they changed since, or the job was shaped for its
+  # task) says only where models are chosen, since today's settings do not
+  # describe it. Either way the card links there (Andrew, 2026-09-29, of a
+  # task's briefing with no line at all: "missing link to settings").
   defp model_reason(%{model_choice: %{settings: true} = choice}),
-    do: %{text: "#{purpose(choice) || "This call"} uses the model set for it in", settings?: true}
+    do: "#{purpose(choice) || "This call"} uses the model set for it in"
 
-  defp model_reason(%{model_choice: choice}) do
-    case purpose(choice) do
-      nil ->
-        nil
-
-      purpose ->
-        %{text: "#{purpose} was assigned this model for its job", settings?: false}
-    end
-  end
-
-  defp model_reason(_request), do: nil
+  defp model_reason(_request), do: "Chosen when this work started, from the models set in"
 
   # Ryker's wait for the worker ran out while the call kept running; it picked
   # the same call back up. Part of this call, not a separate retry.

@@ -495,20 +495,25 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   # Learning over a message with no request is read here, as a request's page
   # reads learning over its messages.
-  defp learning_groups([]), do: []
-
+  # A message's page shows each learning pass that read it as a section of its
+  # own, in the order they ran, as a request's page does.
   defp learning_groups(learning) do
-    [
+    learning
+    |> Enum.group_by(&occurrence/1)
+    |> Map.values()
+    |> Enum.sort_by(&first_step_time([%{steps: &1}]), DateTime)
+    |> Enum.with_index(1)
+    |> Enum.map(fn {steps, index} ->
       %{
         band: :learning,
         conversation_turn: nil,
         description: chapter_description(:learning),
         kind: :background,
-        marker: phase_number(:learning),
-        phases: [%{band: :learning, steps: learning, turn: nil}],
+        marker: "B#{index}",
+        phases: [%{band: :learning, steps: steps, turn: nil}],
         title: chapter_title(%{band: :learning})
       }
-    ]
+    end)
   end
 
   defp thread_link(%{transport: "slack", conversation_ref: conversation, thread_ref: thread})
@@ -558,23 +563,60 @@ defmodule Ryker.ControlPlane.EpisodePage do
         }
       end)
 
-    backgrounds =
-      background
-      |> Enum.group_by(& &1.band)
-      |> Enum.sort_by(fn {_band, owned} -> first_step_time(owned) end, DateTime)
-      |> Enum.map(fn {band, owned} ->
-        %{
-          band: band,
-          conversation_turn: nil,
-          description: chapter_description(band),
-          kind: :background,
-          marker: phase_number(band),
-          phases: [merge_phase(owned)],
-          title: chapter_title(List.first(owned))
-        }
+    interleave(conversations, background_groups(background))
+  end
+
+  # Andrew, 2026-09-29, of a task's single Cleanup section holding both its
+  # sessions' cleanups: "we should not show cleanup as one section showing all
+  # cleanups but show such section/divider in a timeline, so it doesn't show 2
+  # here but shows when they actually occured (same for learning)". Each
+  # learning pass (its attempts together) and each session's cleanup is a
+  # section of its own, numbered B1, B2… in the order they happened.
+  defp background_groups([]), do: []
+
+  defp background_groups(chapters) do
+    templates = chapters |> Enum.reverse() |> Map.new(&{&1.band, &1})
+
+    chapters
+    |> Enum.flat_map(fn chapter -> Enum.map(chapter.steps, &{chapter.band, &1}) end)
+    |> Enum.group_by(fn {band, step} -> {band, occurrence(step)} end, &elem(&1, 1))
+    |> Enum.map(fn {{band, _occurrence}, steps} -> %{templates[band] | steps: steps} end)
+    |> Enum.sort_by(&first_step_time([&1]), DateTime)
+    |> Enum.with_index(1)
+    |> Enum.map(fn {chapter, index} ->
+      %{
+        band: chapter.band,
+        conversation_turn: nil,
+        description: chapter_description(chapter.band),
+        kind: :background,
+        marker: "B#{index}",
+        phases: [merge_phase([chapter])],
+        title: chapter_title(chapter)
+      }
+    end)
+  end
+
+  # A learning pass's attempts share their batch; a learning card and its
+  # result share their id's stem; a cleanup is one session's.
+  defp occurrence(%{occurrence: key}) when not is_nil(key), do: key
+  defp occurrence(%{id: id}), do: String.replace_suffix(id, "-result", "")
+
+  # Background sections sit among the messages where they happened: after the
+  # last message section that started before them.
+  defp interleave(conversations, []), do: conversations
+
+  defp interleave(conversations, backgrounds) do
+    {placed, later} =
+      Enum.reduce(conversations, {[], backgrounds}, fn conversation, {placed, pending} ->
+        start = first_step_time(conversation.phases)
+
+        {before, rest} =
+          Enum.split_while(pending, &DateTime.before?(first_step_time(&1.phases), start))
+
+        {placed ++ before ++ [conversation], rest}
       end)
 
-    conversations ++ backgrounds
+    placed ++ later
   end
 
   defp execution_timeline(assigns) do
@@ -1467,6 +1509,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <span :if={@message[:status]}>{@message.status}</span>
       </:meta>
       <div>{message_text(@message)}</div>
+      <p :if={@message[:source]} class="message-source">
+        <a href={@message.source.href} target="_blank" rel="noopener noreferrer">
+          {@message.source.label} ↗
+        </a>
+      </p>
       <:footer :if={@message[:details]}>
         <.input_details message={@message} />
       </:footer>
@@ -1848,13 +1895,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp chapter_title(%{band: :answer}), do: "The answer"
   defp chapter_title(chapter), do: chapter.title
 
-  defp phase_number(:learning), do: "B1"
-  defp phase_number(:maintenance), do: "B2"
-  defp phase_number(:ready), do: "01"
-  defp phase_number(:routing), do: "02"
-  defp phase_number(:work), do: "03"
-  defp phase_number(:answer), do: "04"
-
   defp phase_title(:ready), do: "Intake"
   defp phase_title(:routing), do: "Routing"
   defp phase_title(:work), do: "Work"
@@ -1901,7 +1941,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
           at: message.at,
           kind: :message,
           message: message,
-          band: if(message.actor == "Ryker", do: :outcome, else: :input)
+          band: if(message.actor == "Ryker", do: :outcome, else: :input),
+          # A task's own request opens the task; it is not a new message of it.
+          boundary: Map.get(message, :boundary, true)
         }
       end)
 

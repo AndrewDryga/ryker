@@ -10,8 +10,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
   alias Ryker.Episodes.{Episode, Origins}
   alias Ryker.Episodes.Words
+  alias Ryker.GitHub.Input, as: GitHubInput
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.InspectionRedactor
   alias Ryker.Repo
+  alias Ryker.Slack.Names
+  alias Ryker.StateTools.TaskTools
 
   @doc "The episode's admitted inputs, oldest first, bounded."
   @spec rows(Ecto.UUID.t()) :: [Entry.t()]
@@ -73,9 +77,196 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
       Map.get(inputs, event.dedupe_key)
   end
 
+  @doc """
+  The inputs the kernel admitted that no inbox row holds, each as the message
+  it is, from its admitted payload: a task someone approved, a comment or a
+  review on the task's pull request, a schedule's run, a wait whose time came.
+  The timeline said only "Message added to this request." for each (Andrew,
+  2026-09-29: "maybe show those added messages? otherwise it's not clear what
+  is happening during task setup at all").
+
+  A task's own request opens the task, so it is not a new message of it
+  (`boundary: false`); every other one starts one, numbered with the inbox's
+  messages in the order they came (`id` and `dedupe_key`, which a turn's
+  selection names).
+  """
+  def admitted(events, inputs) do
+    for event <- events,
+        event.kind == :input_admitted,
+        is_nil(event_input(event, inputs)),
+        message = admitted_message(event) do
+      %{
+        id: "kernel-input:" <> event.dedupe_key,
+        dedupe_key: event.dedupe_key,
+        occurred_at: event.occurred_at,
+        boundary: message.boundary,
+        message:
+          Map.merge(message, %{
+            id: "kernel-input:" <> event.dedupe_key,
+            at: event.occurred_at,
+            owner:
+              if(message.boundary,
+                do: {:input, "kernel-input:" <> event.dedupe_key},
+                else: :episode
+              )
+          })
+      }
+    end
+  end
+
+  @doc "The admitted messages that start a message of their own, as causality counts inputs."
+  def admitted_inputs(admitted),
+    do:
+      for(
+        %{boundary: true} = input <- admitted,
+        do: Map.take(input, [:id, :dedupe_key, :occurred_at])
+      )
+
+  @doc "A turn's selection names an admitted input by the kernel's reference to it."
+  def admitted_refs(admitted),
+    do: for(%{boundary: true} = input <- admitted, into: %{}, do: {input.dedupe_key, input.id})
+
+  defp admitted_message(%{payload: %{"payload" => %{"task" => %{} = task} = payload} = envelope}) do
+    %{
+      boundary: false,
+      title: "Task approved",
+      actor: "Slack user",
+      person: slack_person(envelope, payload["confirmed_by"]),
+      text:
+        [
+          present_text(task["title"]) && "**#{task["title"]}**",
+          present_text(TaskTools.request(task["prompt"]))
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join("\n\n")
+        |> bounded_text(),
+      available: true,
+      transport: "task",
+      source: nil
+    }
+  end
+
+  defp admitted_message(%{
+         payload: %{"payload" => %{"source" => %{"kind" => "github"}} = payload}
+       }) do
+    github = get_in(payload, ["content", "payload"]) || %{}
+    number = get_in(github, ["issue", "number"]) || get_in(github, ["pull_request", "number"])
+    issue? = is_map(github["issue"]) and is_nil(get_in(github, ["issue", "pull_request"]))
+
+    pull =
+      cond do
+        not is_integer(number) -> " the pull request"
+        issue? -> " issue ##{number}"
+        true -> " PR ##{number}"
+      end
+
+    %{
+      boundary: true,
+      title: github_title(github, pull),
+      actor: get_in(github, ["sender", "login"]) || "GitHub user",
+      person: nil,
+      text: github_text(payload["content"], github),
+      available: true,
+      transport: "github",
+      source: github_source(github)
+    }
+  end
+
+  defp admitted_message(%{
+         payload: %{"payload" => %{"content" => %{"kind" => "scheduled_task"} = content}}
+       }) do
+    schedule = content["schedule"] || %{}
+
+    %{
+      boundary: true,
+      title: "Scheduled run",
+      actor: "Schedule",
+      person: nil,
+      text:
+        [
+          present_text(schedule["title"]) && "**#{schedule["title"]}**",
+          present_text(schedule["task"])
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join("\n\n")
+        |> bounded_text(),
+      available: true,
+      transport: "schedule",
+      source: nil
+    }
+  end
+
+  defp admitted_message(%{payload: %{"payload" => %{"content" => %{"kind" => "timer_due"}}}}) do
+    %{
+      boundary: true,
+      title: "Wait ended",
+      actor: "Ryker",
+      person: nil,
+      text: "The time Ryker was waiting for came, so the work continues.",
+      available: true,
+      transport: "system",
+      source: nil
+    }
+  end
+
+  defp admitted_message(_event), do: nil
+
+  # A comment on the pull request, one on a line of a file, or a review.
+  defp github_title(%{"review" => %{}}, pull), do: "Review of" <> pull
+
+  defp github_title(%{"comment" => %{"path" => path}}, pull) when is_binary(path),
+    do: "Comment on #{path} in" <> pull
+
+  defp github_title(%{"comment" => %{}}, pull), do: "Comment on" <> pull
+  defp github_title(_github, pull), do: "Update on" <> pull
+
+  # What they wrote; a review without a word says what the review was.
+  defp github_text(content, github) do
+    case present_text(GitHubInput.body(content)) do
+      nil -> review_words(get_in(github, ["review", "state"]))
+      body -> bounded_text(body)
+    end
+  end
+
+  defp review_words("approved"), do: "Approved the change."
+  defp review_words("changes_requested"), do: "Asked for changes."
+  defp review_words("commented"), do: "Left a review with comments on the change."
+  defp review_words(_state), do: "Left no words."
+
+  defp github_source(github) do
+    url =
+      get_in(github, ["comment", "html_url"]) || get_in(github, ["review", "html_url"]) ||
+        get_in(github, ["issue", "html_url"]) || get_in(github, ["pull_request", "html_url"])
+
+    if is_binary(url) and String.starts_with?(url, "https://github.com/"),
+      do: %{href: url, label: "Open in GitHub"}
+  end
+
+  defp slack_person(%{"destination" => %{"conversation_ref" => "slack:" <> rest}}, actor)
+       when is_binary(actor) do
+    case String.split(rest, ":") do
+      [workspace | _channel] -> Names.person(workspace, actor)
+      _other -> nil
+    end
+  end
+
+  defp slack_person(_payload, _actor), do: nil
+
+  defp present_text(text) when is_binary(text) do
+    if String.trim(text) == "", do: nil, else: String.trim(text)
+  end
+
+  defp present_text(_text), do: nil
+
+  defp bounded_text(text),
+    do: InspectionRedactor.artifact(text, max_bytes: 12_000).text
+
   @doc "One step per durable kernel event, owned by the input that caused it."
-  def kernel_steps(events, inputs) do
+  def kernel_steps(events, inputs, admitted \\ []) do
+    shown = MapSet.new(admitted, & &1.dedupe_key)
+
     events
+    |> Enum.reject(&(&1.kind == :input_admitted and MapSet.member?(shown, &1.dedupe_key)))
     |> Enum.with_index(1)
     |> Enum.map(fn {event, index} ->
       input = event_input(event, inputs)
@@ -155,6 +346,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
          "transfer_ref" => "transfer:resume-destination:" <> _
        }),
        do: "Ryker could reach the conversation again, so it started a new run to finish the work."
+
+  defp lifecycle_summary(:owner_transferred, %{"transfer_ref" => "transfer:resume-blocked:" <> _}),
+       do: "The run had stopped, and a retry started it again as a new run."
 
   defp lifecycle_summary(:owner_transferred, _payload),
     do: "The run that stopped was started again as a new run."

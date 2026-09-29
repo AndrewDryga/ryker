@@ -310,6 +310,8 @@ defmodule Ryker.ControlPlane.LearningRequests do
       band: :learning,
       # Learning belongs to the request as a whole, never to one message's band.
       owner: :episode,
+      # A pass's attempts share their batch: one section on the Timeline.
+      occurrence: run.batch_id || run.id,
       title: "Learning",
       target: target(run, context.executions[run.id]) || "Execution target not recorded",
       status: run.status,

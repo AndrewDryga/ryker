@@ -84,6 +84,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     }
   end
 
+  @doc """
+  The case file with the messages no inbox row holds (`Ryker.ControlPlane.EpisodeTrace.Input.admitted/2`)
+  in its conversation, where they came.
+  """
+  def with_admitted(case_file, []), do: case_file
+
+  def with_admitted(case_file, messages),
+    do: %{
+      case_file
+      | conversation: Enum.sort_by(case_file.conversation ++ messages, & &1.at, DateTime)
+    }
+
   # The updates the Work model posted while it worked, where they reached the
   # conversation: before the answer of their turn, which is accepted only once
   # every update is delivered.

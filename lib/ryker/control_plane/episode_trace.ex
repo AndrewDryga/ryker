@@ -59,6 +59,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       when is_list(events) and is_list(records) do
     input_rows = Input.rows(episode.id)
     inputs = Input.inputs_by_ref(input_rows)
+    admitted = Input.admitted(events, inputs)
+    entry_refs = Input.input_refs(events, inputs)
     sessions = sessions(episode.id)
     turns = turns(episode.id)
     disclosed = Keyword.get(options, :disclosed) || MapSet.new()
@@ -66,13 +68,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     activity_page =
       Activity.page_for_episode(episode.id, Keyword.get(options, :activity_pages, 1))
 
+    # A task's pull request feedback, a schedule's run or a wait's timer is an
+    # input no inbox row holds; it is counted among the messages all the same.
     causality =
-      EpisodeCausality.index(input_rows, turns, activity_page.events,
-        input_refs: Input.input_refs(events, inputs)
+      EpisodeCausality.index(
+        input_rows ++ Input.admitted_inputs(admitted),
+        turns,
+        activity_page.events,
+        input_refs: Map.merge(entry_refs, Input.admitted_refs(admitted))
       )
 
     response_metrics =
-      EpisodeResponseMetrics.project(episode, input_rows, turns, causality.input_by_ref,
+      EpisodeResponseMetrics.project(episode, input_rows, turns, entry_refs,
         now: Keyword.get(options, :now, DateTime.utc_now())
       )
 
@@ -106,7 +113,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
     steps =
       []
-      |> Kernel.++(Input.kernel_steps(events, inputs))
+      |> Kernel.++(Input.kernel_steps(events, inputs, admitted))
       |> Kernel.++(Input.association_steps(episode))
       |> Kernel.++(Preparation.steps(input_rows))
       |> Kernel.++(
@@ -138,7 +145,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
           next_activity_page(activity_page, Keyword.get(options, :activity_pages, 1))
         ),
       actions: operator_actions(episode, current_turn),
-      case_file: CaseFile.build(episode.id, turns, sessions, disclosed),
+      case_file:
+        episode.id
+        |> CaseFile.build(turns, sessions, disclosed)
+        |> CaseFile.with_admitted(Enum.map(admitted, & &1.message)),
       startup: startup,
       causality: causality,
       chapters: chapters(steps, received_at, causality),
@@ -529,6 +539,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     # advances from the furthest message already observed.
     {{step, part, boundary, owner}, {max(frontier, part), seen}}
   end
+
+  defp message_boundary?(%{kind: :message, band: :input, boundary: false}, _seen), do: false
 
   defp message_boundary?(%{kind: :message, band: :input, id: id}, seen),
     do: not MapSet.member?(seen, id)

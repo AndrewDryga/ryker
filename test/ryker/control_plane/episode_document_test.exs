@@ -841,6 +841,41 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute result =~ "gpt-5.6-sol"
   end
 
+  # Andrew, 2026-09-29, of PR #2's task briefing (gpt-5.6-sol, no line under
+  # it): "missing link to settings". Its job was frozen on 27 Sep, and the
+  # Default environment's template changed since, so no current template
+  # matched and the card said nothing about where the model came from.
+  test "a briefing whose job no longer matches today's settings still says where models are chosen" do
+    submission = %{
+      id: "work-model-1",
+      request_id: "model-1",
+      phase: :submission,
+      source_kind: :work,
+      target: "codex:gpt-5.6-sol/medium@default",
+      policy: "ryker-env-default-andrewdryga-test-contributor",
+      model_choice: %{purpose: nil, scope_kind: nil, scope_ref: nil, settings: false},
+      timing: [],
+      sections: [section("instructions", "System prompt", "Make the change.")]
+    }
+
+    model =
+      render_component(&EpisodeRequest.render/1, request: submission)
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".request-model-section")
+
+    assert LazyHTML.query(model, ".request-model-reason") |> LazyHTML.text() |> words() ==
+             "Chosen when this work started, from the models set in Settings"
+
+    assert Enum.count(LazyHTML.query(model, ~s(.request-model-reason a[href="/settings/models"]))) ==
+             1
+
+    # A call recorded before model choices were kept links there too.
+    older =
+      render_component(&EpisodeRequest.render/1, request: Map.delete(submission, :model_choice))
+
+    assert older =~ ~s(href="/settings/models")
+  end
+
   test "each stage label says how that stage ended" do
     # Stage labels only named the stage; a reader scanning a long timeline had to
     # open each stage's cards to learn what it produced. The label summarizes
