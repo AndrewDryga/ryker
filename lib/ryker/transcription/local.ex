@@ -3,10 +3,13 @@ defmodule Ryker.Transcription.Local do
   Transcribes a recording inside Ryker's container.
 
   ffmpeg turns any audio or video (m4a/mp4/aac, webm/ogg/opus, mp3, wav) into
-  16 kHz mono WAV, and whisper.cpp's CLI transcribes that with a multilingual
-  model in the language it hears. The image carries both (see the Dockerfile's
-  `whisper` stage); `RYKER_WHISPER_CLI` and `RYKER_WHISPER_MODEL` point
-  elsewhere, for example at a larger model mounted into the container.
+  16 kHz mono WAV, which is cut at its pauses into parts
+  (`Ryker.Transcription.Parts`), and whisper.cpp's CLI transcribes the parts
+  in one run with a multilingual model, each in the language it hears there,
+  so a message that switches language is read in each of them. The image
+  carries both (see the Dockerfile's `whisper` stage); `RYKER_WHISPER_CLI`
+  and `RYKER_WHISPER_MODEL` point elsewhere, for example at a larger model
+  mounted into the container.
 
   Each call is bounded: the bytes before anything runs, the length ffmpeg
   measures after converting at most one second past the limit, and one
@@ -17,6 +20,7 @@ defmodule Ryker.Transcription.Local do
   @behaviour Ryker.Transcription
 
   alias Ryker.Transcription
+  alias Ryker.Transcription.Parts
 
   @default_whisper "/opt/whisper/bin/whisper-cli"
   @default_model "/opt/whisper/ggml-base.bin"
@@ -45,13 +49,13 @@ defmodule Ryker.Transcription.Local do
     deadline = System.monotonic_time(:millisecond) + settings.timeout_ms
     recording = Path.join(directory, "recording")
     wav = Path.join(directory, "recording.wav")
-    transcript = Path.join(directory, "transcript")
 
     with :ok <- File.write(recording, data),
          :ok <- run(settings.ffmpeg, convert(recording, wav, settings), deadline),
          :ok <- within_length(wav, settings),
-         :ok <- run(settings.whisper, recognize(wav, transcript, settings), deadline),
-         {:ok, text} <- File.read(transcript <> ".txt") do
+         {:ok, parts} <- write_parts(wav, directory),
+         :ok <- run(settings.whisper, recognize(parts, settings), deadline),
+         {:ok, text} <- read_parts(parts) do
       case Transcription.words(text) do
         {:ok, words} -> {:ok, words}
         :error -> {:error, :no_speech}
@@ -62,15 +66,61 @@ defmodule Ryker.Transcription.Local do
     end
   end
 
+  # Each part of the recording as a WAV file of its own, in order.
+  defp write_parts(wav, directory) do
+    with {:ok, bytes} <- File.read(wav),
+         {:ok, pcm} <- samples(bytes) do
+      case Parts.split(pcm) do
+        [] -> {:error, :no_speech}
+        parts -> parts |> Enum.with_index() |> write_each(pcm, directory, [])
+      end
+    end
+  end
+
+  defp write_each([], _pcm, _directory, written), do: {:ok, Enum.reverse(written)}
+
+  defp write_each([{{offset, length}, index} | rest], pcm, directory, written) do
+    path = Path.join(directory, "part-#{String.pad_leading("#{index}", 3, "0")}.wav")
+
+    case File.write(path, Parts.wav(binary_part(pcm, offset, length))) do
+      :ok -> write_each(rest, pcm, directory, [path | written])
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp samples(bytes) do
+    case Parts.samples(bytes) do
+      {:ok, pcm} -> {:ok, pcm}
+      :error -> {:error, :unreadable_wav}
+    end
+  end
+
+  # whisper writes each part's words beside it; a part it heard nothing in
+  # may leave an empty file.
+  defp read_parts(parts) do
+    Enum.reduce_while(parts, {:ok, []}, fn part, {:ok, texts} ->
+      case File.read(part <> ".txt") do
+        {:ok, text} -> {:cont, {:ok, [text | texts]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, texts} -> {:ok, texts |> Enum.reverse() |> Enum.join("\n")}
+      {:error, _reason} = error -> error
+    end
+  end
+
   defp convert(recording, wav, settings) do
     ~w(-nostdin -hide_banner -loglevel error -i) ++
       [recording, "-t", Integer.to_string(settings.maximum_seconds + 1)] ++
       ~w(-vn -ac 1 -ar 16000 -c:a pcm_s16le -f wav -y) ++ [wav]
   end
 
-  defp recognize(wav, transcript, settings) do
-    ["-m", settings.model, "-f", wav, "-l", "auto", "-t", Integer.to_string(settings.threads)] ++
-      ~w(-nt -np -otxt -of) ++ [transcript]
+  # One run over every part: the model loads once, and each part is heard
+  # in its own language (`-l auto` decides per file).
+  defp recognize(parts, settings) do
+    ["-m", settings.model, "-l", "auto", "-t", Integer.to_string(settings.threads)] ++
+      ~w(-nt -np -otxt) ++ parts
   end
 
   # ffmpeg converted at most a second past the limit, so anything past the
