@@ -1,0 +1,197 @@
+{
+  "harvested": "Episode task-offer:record:task_offer:09ebd43abf15a07a5e1eb18173e7b408 (PR #2 of AndrewDryga/test), its input_admitted kernel events on 2026-09-27 and 2026-09-28, pruned to the fields Ryker.ControlPlane.EpisodeTrace.Input.admitted/2 reads; values verbatim.",
+  "events": [
+    {
+      "sequence": 1,
+      "occurred_at": "2026-09-27T12:45:44.789331Z",
+      "actor_ref": "slack:user:U0BHTNFCW6S",
+      "destination": {
+        "conversation_ref": "slack:T0BHXKZJVDX:C0BLU1GACKC",
+        "thread_ref": "1790512772.810889",
+        "transport": "slack"
+      },
+      "dedupe_key": null,
+      "payload": {
+        "confirmed_by": "slack:user:U0BHTNFCW6S",
+        "record_ref": "record:task_offer:09ebd43abf15a07a5e1eb18173e7b408",
+        "task": {
+          "kind": "engineering",
+          "title": "README workflow smoke test",
+          "prompt": "Add a short purpose statement for the new end-to-end workflow smoke test in AndrewDryga/test. Preserve the existing README.md content and append:\n\n## Workflow smoke test\n\nThis repository exercises Ryker and Coop.\n\nMake and commit only this README.md change in the isolated working copy. Verify the exact heading and sentence, check the diff for whitespace errors, and confirm the commit changes only README.md and leaves main unchanged. Ryker must handle branch push and draft PR through its publication flow; do not push Git or open a PR directly.\n\nSuccess checks: README.md preserves its existing content and includes the Workflow smoke test section saying This repository exercises Ryker and Coop.; The change is committed and the commit changes only README.md.; git diff --check succeeds for the change.; Main remains unchanged; no direct Git push or PR creation is performed.\n\nAuthority limits: Change only README.md in andrewdryga-test.; Commit in the isolated working copy; leave main unchanged.; Do not push Git or open a pull request directly; Ryker handles branch push and draft PR through its publication flow.\n\nInstruction: slack-source:v1:T0BHXKZJVDX:C0BLU1GACKC:message:1790512772.810889\n\nSources: slack-source:v1:T0BHXKZJVDX:C0BLU1GACKC:message:1790512772.810889"
+        }
+      }
+    },
+    {
+      "sequence": 4,
+      "occurred_at": "2026-09-28T19:51:37.000000Z",
+      "actor_ref": "github:user:github-user:1877644",
+      "destination": {
+        "conversation_ref": "slack:T0BHXKZJVDX:C0BLU1GACKC",
+        "thread_ref": "1790512772.810889",
+        "transport": "slack"
+      },
+      "dedupe_key": null,
+      "payload": {
+        "actor": {
+          "kind": "user",
+          "ref": "github-user:1877644"
+        },
+        "source": {
+          "kind": "github",
+          "ref": "andrewdryga-test"
+        },
+        "event_kind": "message",
+        "source_item_ref": null,
+        "content": {
+          "delivery_ref": "04ca0700-bb76-11f1-8cc0-b813326ed96d",
+          "event_name": "issue_comment",
+          "payload": {
+            "action": "created",
+            "sender": {
+              "login": "AndrewDryga"
+            },
+            "comment": {
+              "body": "Ryker can you bring this up to date?",
+              "html_url": "https://github.com/AndrewDryga/test/pull/2#issuecomment-5877326123"
+            },
+            "issue": {
+              "number": 2,
+              "html_url": "https://github.com/AndrewDryga/test/pull/2",
+              "pull_request": {
+                "html_url": "https://github.com/AndrewDryga/test/pull/2"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 5,
+      "occurred_at": "2026-09-28T19:52:00.000000Z",
+      "actor_ref": "github:user:github-user:1877644",
+      "destination": {
+        "conversation_ref": "slack:T0BHXKZJVDX:C0BLU1GACKC",
+        "thread_ref": "1790512772.810889",
+        "transport": "slack"
+      },
+      "dedupe_key": null,
+      "payload": {
+        "actor": {
+          "kind": "user",
+          "ref": "github-user:1877644"
+        },
+        "source": {
+          "kind": "github",
+          "ref": "andrewdryga-test"
+        },
+        "event_kind": "message",
+        "source_item_ref": null,
+        "content": {
+          "delivery_ref": "12a38f40-bb76-11f1-9415-07967e81f934",
+          "event_name": "issue_comment",
+          "payload": {
+            "action": "created",
+            "sender": {
+              "login": "AndrewDryga"
+            },
+            "comment": {
+              "body": "@ryker-bot hi",
+              "html_url": "https://github.com/AndrewDryga/test/pull/2#issuecomment-5877331728"
+            },
+            "issue": {
+              "number": 2,
+              "html_url": "https://github.com/AndrewDryga/test/pull/2",
+              "pull_request": {
+                "html_url": "https://github.com/AndrewDryga/test/pull/2"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 6,
+      "occurred_at": "2026-09-28T19:52:25.000000Z",
+      "actor_ref": "github:user:github-user:1877644",
+      "destination": {
+        "conversation_ref": "slack:T0BHXKZJVDX:C0BLU1GACKC",
+        "thread_ref": "1790512772.810889",
+        "transport": "slack"
+      },
+      "dedupe_key": null,
+      "payload": {
+        "actor": {
+          "kind": "user",
+          "ref": "github-user:1877644"
+        },
+        "source": {
+          "kind": "github",
+          "ref": "andrewdryga-test"
+        },
+        "event_kind": "message",
+        "source_item_ref": null,
+        "content": {
+          "delivery_ref": "21ab71e2-bb76-11f1-86da-e3eb85228a49",
+          "event_name": "pull_request_review",
+          "payload": {
+            "action": "submitted",
+            "sender": {
+              "login": "AndrewDryga"
+            },
+            "review": {
+              "body": null,
+              "html_url": "https://github.com/AndrewDryga/test/pull/2#pullrequestreview-5343845866",
+              "state": "commented"
+            },
+            "pull_request": {
+              "number": 2,
+              "html_url": "https://github.com/AndrewDryga/test/pull/2"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 7,
+      "occurred_at": "2026-09-28T19:52:25.000000Z",
+      "actor_ref": "github:user:github-user:1877644",
+      "destination": {
+        "conversation_ref": "slack:T0BHXKZJVDX:C0BLU1GACKC",
+        "thread_ref": "1790512772.810889",
+        "transport": "slack"
+      },
+      "dedupe_key": null,
+      "payload": {
+        "actor": {
+          "kind": "user",
+          "ref": "github-user:1877644"
+        },
+        "source": {
+          "kind": "github",
+          "ref": "andrewdryga-test"
+        },
+        "event_kind": "message",
+        "source_item_ref": null,
+        "content": {
+          "delivery_ref": "21d52d70-bb76-11f1-9513-c54c36125bb4",
+          "event_name": "pull_request_review_comment",
+          "payload": {
+            "action": "created",
+            "sender": {
+              "login": "AndrewDryga"
+            },
+            "comment": {
+              "body": "Add one more line please",
+              "html_url": "https://github.com/AndrewDryga/test/pull/2#discussion_r4126405033",
+              "path": "README.md"
+            },
+            "pull_request": {
+              "number": 2,
+              "html_url": "https://github.com/AndrewDryga/test/pull/2"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

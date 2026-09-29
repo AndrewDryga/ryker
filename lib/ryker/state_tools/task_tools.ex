@@ -122,6 +122,17 @@ defmodule Ryker.StateTools.TaskTools do
       else: {:error, :unauthorized}
   end
 
+  @doc """
+  What the person asked for in a task's prompt: `task_prompt/2` appends the
+  work's success checks, authority limits and the references it came from,
+  which the Work needs and a reader does not.
+  """
+  @spec request(String.t() | nil) :: String.t() | nil
+  def request(prompt) when is_binary(prompt),
+    do: prompt |> String.split("\n\nSuccess checks: ", parts: 2) |> hd()
+
+  def request(prompt), do: prompt
+
   defp task_prompt(arguments, instruction_ref) do
     [
       arguments["prompt"],
