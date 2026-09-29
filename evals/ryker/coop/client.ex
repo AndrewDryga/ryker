@@ -305,11 +305,13 @@ defmodule Ryker.Coop.Client do
 
   # Create and fence build the identical document, so a fence request hashes the
   # exact immutable job create would have sent.
+  # Coop refuses a create whose job does not hash to the digest the controller
+  # computed for it, so the digest travels with the job.
   defp create_session_document(client, key, selection, task, nil) do
     with :ok <- reference(key, :idempotency_key),
          :ok <- reference(task, :task),
-         {:ok, job} <- create_job(client, key, selection, task) do
-      {:ok, %{"job" => job, "task" => task}}
+         {:ok, {job, digest}} <- create_job(client, key, selection, task) do
+      {:ok, %{"expected_job_digest" => digest, "job" => job, "task" => task}}
     end
   end
 
@@ -328,8 +330,8 @@ defmodule Ryker.Coop.Client do
 
     with true <- suffix == run_ref <> ":create" and run_ref != "",
          true <- String.starts_with?(task, "ryker-eval:world-judge:#{run_ref}:"),
-         {:ok, job, _digest} <- Job.bind(template, task) do
-      {:ok, job}
+         {:ok, job, digest} <- Job.bind(template, task) do
+      {:ok, {job, digest}}
     else
       _invalid -> {:error, :invalid_model_eval_job}
     end
@@ -348,7 +350,7 @@ defmodule Ryker.Coop.Client do
       with {:ok, job, digest} <- Job.bind(template, session.external_ref),
            {:ok, pinned} <- pin_job(session, job, digest),
            {:ok, _session} <- JobAuthority.validate(pinned) do
-        pinned.worker_job_document
+        {pinned.worker_job_document, pinned.worker_job_digest}
       else
         {:error, reason} -> Repo.rollback(reason)
       end

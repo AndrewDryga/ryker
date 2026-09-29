@@ -54,6 +54,21 @@ defmodule Ryker.Evals.RuntimeTest do
     assert world.gateway.checkpoint_secrets == []
   end
 
+  # No eval had run since the v2 worker protocol, which gave the gateway a body
+  # store for transferred request and response bodies; the eval world never got
+  # one, and every observation of the first run (2026-09-29) stopped with "Coop
+  # worker gateway configuration is incomplete" before a model was called.
+  test "the evaluation gateway is one the worker gateway accepts" do
+    state = Path.join(System.tmp_dir!(), "ryker-eval-runtime-state")
+    put_variable("RYKER_STATE_DIR", state)
+    assert {:ok, world} = Runtime.world()
+
+    options =
+      Ryker.CoopFleet.Server.options!(Map.put(world.gateway, :state_tools, world.state_tools))
+
+    assert String.starts_with?(options.body_root, state)
+  end
+
   test "an evaluation without a worker gateway is named rather than half-started" do
     Enum.each(Map.keys(@files), &System.delete_env/1)
     System.delete_env("RYKER_WORKER_PUBLIC_URL")
