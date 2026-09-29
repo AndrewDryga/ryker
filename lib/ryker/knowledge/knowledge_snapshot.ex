@@ -608,7 +608,6 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       source.source_fingerprint == observation.source_fingerprint and
       observation.conversation_ref == head.conversation_ref and
       observation.workspace_ref == head.workspace_ref and
-      observation.repository_ref == head.repository_ref and
       unexpired?(source.retained_at)
   end
 

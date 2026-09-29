@@ -97,7 +97,7 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
 
     key =
       head
-      |> Map.take([:transport, :workspace_ref, :conversation_ref, :repository_ref])
+      |> Map.take([:transport, :workspace_ref, :conversation_ref])
       |> Map.put(:conversation_ref, other_conversation)
       |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
       |> CanonicalJSON.digest()
