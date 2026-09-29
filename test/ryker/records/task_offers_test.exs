@@ -729,6 +729,14 @@ defmodule Ryker.Records.TaskOffersTest do
            )
 
     refute text =~ "Before the first message"
+
+    # A pull request that could not be made says why on its own row: the page
+    # has no publication line to say it on, as the Slack card does.
+    stage = %{"stage" => "draft_pr", "state" => "failed", "reason" => nil}
+    blocked = %{"blocked_reason" => "the repository's checks failed on the committed change."}
+
+    assert Ryker.ControlPlane.TaskProgress.draft_reason(stage, blocked)["reason"] ==
+             "PR creation failed: the repository's checks failed on the committed change."
   end
 
   test "task-card refresh failures defer exact custody and workers reject unsafe options" do
