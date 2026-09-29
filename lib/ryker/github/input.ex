@@ -113,8 +113,15 @@ defmodule Ryker.GitHub.Input do
   submitted without a word.
   """
   @spec body(term()) :: String.t() | nil
-  def body(%{"payload" => %{} = payload}),
-    do: Enum.find_value(~w(comment review issue pull_request), &item_body(payload[&1]))
+  def body(%{"payload" => %{} = payload}) do
+    # The event's own item, never the one beside it: a review submitted
+    # without a word read as its pull request's description (PR #2,
+    # 2026-09-28), on the Timeline and wherever else its words were read.
+    case Enum.find(~w(comment review issue pull_request), &is_map(payload[&1])) do
+      nil -> nil
+      item -> item_body(payload[item])
+    end
+  end
 
   def body(_content), do: nil
 

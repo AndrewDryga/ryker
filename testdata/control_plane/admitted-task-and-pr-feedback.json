@@ -1,5 +1,5 @@
 {
-  "harvested": "Episode task-offer:record:task_offer:09ebd43abf15a07a5e1eb18173e7b408 (PR #2 of AndrewDryga/test), its input_admitted kernel events on 2026-09-27 and 2026-09-28, pruned to the fields Ryker.ControlPlane.EpisodeTrace.Input.admitted/2 reads; values verbatim.",
+  "harvested": "Episode task-offer:record:task_offer:09ebd43abf15a07a5e1eb18173e7b408 (PR #2 of AndrewDryga/test), its input_admitted kernel events on 2026-09-27 and 2026-09-28, pruned to the fields (and the issue and pull request descriptions beside them) Ryker.ControlPlane.EpisodeTrace.Input.admitted/2 reads; values verbatim.",
   "events": [
     {
       "sequence": 1,
@@ -59,7 +59,8 @@
               "html_url": "https://github.com/AndrewDryga/test/pull/2",
               "pull_request": {
                 "html_url": "https://github.com/AndrewDryga/test/pull/2"
-              }
+              },
+              "body": "## Ryker task\n\nCommitted the README-only change in AndrewDryga/test, preserving its existing content and adding “Workflow smoke test” with “This repository exercises Ryker and Coop.” Main remains unchanged.\n\n## Publication proof\n\n- Coop session: `remote_9538cab708992a8d3859773d8d14c2f8`\n- Reviewed parent: `419f6c4854fb1042189c6f0a162be7d4b2f97fd5`\n- Reviewed tree: `2405513921526a22b04561b4e9bdbbd28eebc44a`\n- Publication commit: `7a439e6e3e2420b05c464609b60465552c95eaf3`\n- Gate: `none`\n- Rebase: `clean`"
             }
           }
         }
@@ -103,7 +104,8 @@
               "html_url": "https://github.com/AndrewDryga/test/pull/2",
               "pull_request": {
                 "html_url": "https://github.com/AndrewDryga/test/pull/2"
-              }
+              },
+              "body": "## Ryker task\n\nCommitted the README-only change in AndrewDryga/test, preserving its existing content and adding “Workflow smoke test” with “This repository exercises Ryker and Coop.” Main remains unchanged.\n\n## Publication proof\n\n- Coop session: `remote_9538cab708992a8d3859773d8d14c2f8`\n- Reviewed parent: `419f6c4854fb1042189c6f0a162be7d4b2f97fd5`\n- Reviewed tree: `2405513921526a22b04561b4e9bdbbd28eebc44a`\n- Publication commit: `7a439e6e3e2420b05c464609b60465552c95eaf3`\n- Gate: `none`\n- Rebase: `clean`"
             }
           }
         }
@@ -145,7 +147,8 @@
             },
             "pull_request": {
               "number": 2,
-              "html_url": "https://github.com/AndrewDryga/test/pull/2"
+              "html_url": "https://github.com/AndrewDryga/test/pull/2",
+              "body": "## Ryker task\n\nCommitted the README-only change in AndrewDryga/test, preserving its existing content and adding “Workflow smoke test” with “This repository exercises Ryker and Coop.” Main remains unchanged.\n\n## Publication proof\n\n- Coop session: `remote_9538cab708992a8d3859773d8d14c2f8`\n- Reviewed parent: `419f6c4854fb1042189c6f0a162be7d4b2f97fd5`\n- Reviewed tree: `2405513921526a22b04561b4e9bdbbd28eebc44a`\n- Publication commit: `7a439e6e3e2420b05c464609b60465552c95eaf3`\n- Gate: `none`\n- Rebase: `clean`"
             }
           }
         }
@@ -187,7 +190,8 @@
             },
             "pull_request": {
               "number": 2,
-              "html_url": "https://github.com/AndrewDryga/test/pull/2"
+              "html_url": "https://github.com/AndrewDryga/test/pull/2",
+              "body": "## Ryker task\n\nCommitted the README-only change in AndrewDryga/test, preserving its existing content and adding “Workflow smoke test” with “This repository exercises Ryker and Coop.” Main remains unchanged.\n\n## Publication proof\n\n- Coop session: `remote_9538cab708992a8d3859773d8d14c2f8`\n- Reviewed parent: `419f6c4854fb1042189c6f0a162be7d4b2f97fd5`\n- Reviewed tree: `2405513921526a22b04561b4e9bdbbd28eebc44a`\n- Publication commit: `7a439e6e3e2420b05c464609b60465552c95eaf3`\n- Gate: `none`\n- Rebase: `clean`"
             }
           }
         }

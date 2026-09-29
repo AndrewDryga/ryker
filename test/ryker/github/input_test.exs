@@ -8,6 +8,26 @@ defmodule Ryker.GitHub.InputTest do
     assert Input.source_kind() == "github"
   end
 
+  # PR #2 of AndrewDryga/test, 2026-09-28: a review submitted without a word
+  # read as its pull request's description ("## Ryker task …") on the
+  # Timeline, and a wordless review on a pull request whose description named
+  # the bot would have read as a mention. Words come from the event's own item.
+  test "a review submitted without a word has no words, though its pull request has a description" do
+    [review] =
+      "testdata/control_plane/admitted-task-and-pr-feedback.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("events")
+      |> Enum.filter(&get_in(&1, ["payload", "content", "payload", "review"]))
+
+    content = get_in(review, ["payload", "content"])
+    assert get_in(content, ["payload", "pull_request", "body"]) =~ "## Ryker task"
+    assert Input.body(content) == nil
+
+    comment = %{"payload" => issue_comment_payload()}
+    assert Input.body(comment) == get_in(comment, ["payload", "comment", "body"])
+  end
+
   test "a pull request comment becomes one canonical input with a trusted repository target" do
     payload = issue_comment_payload()
     payload = put_in(payload, ["destination"], %{"conversation_ref" => "attacker"})
