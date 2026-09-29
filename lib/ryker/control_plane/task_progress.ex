@@ -32,7 +32,7 @@ defmodule Ryker.ControlPlane.TaskProgress do
       )
 
     with %Record{} <- offer,
-         {:ok, %{document: %{"task_card" => task}}} <- TaskCardProjection.build(offer) do
+         {:ok, %{document: %{"task_card" => task}}} <- TaskCardProjection.page(offer) do
       %{
         publication: task["publication"],
         repository: task["repository"],

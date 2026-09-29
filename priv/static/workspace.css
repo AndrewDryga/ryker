@@ -824,6 +824,7 @@
 .task-progress ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .task-progress li { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; align-items: baseline; font-size: 14px; line-height: 20px; }
 .task-progress-glyph { color: var(--ryker-text-secondary); text-align: center; }
+.task-progress-glyph .ui-icon { width: 14px; height: 14px; vertical-align: -2px; }
 .task-progress li[data-state="completed"] .task-progress-glyph { color: var(--ryker-mint); }
 .task-progress li[data-state="failed"] .task-progress-glyph { color: var(--ryker-error); }
 .task-progress li[data-state="running"] .task-progress-glyph { color: var(--ryker-accent); }

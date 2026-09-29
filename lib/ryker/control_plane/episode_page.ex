@@ -163,9 +163,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
             data-state={stage["state"]}
             class={stage["current"] && "task-progress-current"}
           >
-            <span class="task-progress-glyph" aria-hidden="true">{TaskCardDetails.glyph(
-              stage["state"]
-            )}</span>
+            <span class="task-progress-glyph" aria-hidden="true">
+              <.icon :if={stage["state"] == "completed"} name={:check} />
+              <span :if={stage["state"] != "completed"}>{TaskCardDetails.glyph(stage["state"])}</span>
+            </span>
             <span class="task-progress-row">
               <a :if={stage["url"]} href={stage["url"]} target="_blank" rel="noopener noreferrer">{stage_text(
                 stage
