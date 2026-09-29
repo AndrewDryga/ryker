@@ -173,6 +173,13 @@ defmodule Ryker.StateTools.ErrorCode do
   defp explanation("internal_error"),
     do: "Ryker hit an error of its own answering the call. The error is in Ryker's log."
 
+  defp explanation("search_unavailable"),
+    do:
+      "Slack lets Ryker search only for a short time after a message that mentions it, and this run had no such permission."
+
+  defp explanation("search_budget_exhausted"),
+    do: "The run had already made as many Slack searches as it may."
+
   defp explanation("temporarily_unavailable"),
     do: "Ryker could not answer the call just then. The same call may work if tried again."
 

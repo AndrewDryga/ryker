@@ -5,6 +5,7 @@ defmodule Ryker.Slack.CapabilityToolsTest do
   alias Ryker.Episodes.Episode
   alias Ryker.Slack.{CapabilityTools, ChannelConfiguration, SourceRef}
   alias Ryker.Slack.CapabilityTools.{Resources, SourceReader}
+  alias Ryker.StateTools.ErrorCode
   alias Ryker.Work.Turn
 
   defmodule FakeActionTokens do
@@ -22,6 +23,11 @@ defmodule Ryker.Slack.CapabilityToolsTest do
   defmodule UnauthorizedActionTokens do
     def checkout(_observer, _event_ref, _turn_id),
       do: {:error, :slack_action_token_not_authorized}
+  end
+
+  defmodule UnavailableActionTokens do
+    def checkout(_observer, _event_ref, _turn_id),
+      do: {:error, :slack_action_token_unavailable}
   end
 
   defmodule FakeAPI do
@@ -1500,6 +1506,26 @@ defmodule Ryker.Slack.CapabilityToolsTest do
              work_binding(),
              %{options() | api: InvalidSearchAPI}
            ) == {:error, "temporarily_unavailable"}
+  end
+
+  # Every Slack search from 27 to 28 Sep failed as "temporarily_unavailable":
+  # the turn had no search permission, which Slack gives only with some of a
+  # person's own messages and Ryker keeps for fifteen minutes. The model read
+  # the code as "try again", did, and failed again each time.
+  test "a search without Slack's permission says so instead of inviting a retry" do
+    assert {:error, "search_unavailable: " <> guidance} =
+             CapabilityTools.call(
+               "search_slack",
+               valid_arguments(),
+               work_binding(),
+               %{options() | action_tokens: {UnavailableActionTokens, self()}}
+             )
+
+    assert guidance =~ "Do not retry"
+    assert guidance =~ "read_slack_source"
+
+    assert ErrorCode.explain("search_unavailable: " <> guidance) =~
+             "Slack lets Ryker search"
   end
 
   test "set_slack_reaction freezes one exact current-message action and cannot remove others" do
