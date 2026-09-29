@@ -187,6 +187,18 @@
 .page-title-external { width:18px; height:18px; margin-left:8px; vertical-align:2px; color:var(--ryker-text-secondary); }
 .page-action { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
 .ryker-app .page-description { margin:8px 0 0; max-width:76ch; font-size:16px; line-height:1.5; color:var(--secondary); }
+/* V1, 2026-09-28: the lede sat a different distance under each title, pushed
+   down by however tall the page's action button was. On a wide screen the
+   action spans the title and lede rows, so the lede always follows the title
+   by the same 8px. Mobile keeps the stacked order below. */
+@media (min-width:601px) {
+  .ryker-app .page-header { display:grid; grid-template-columns:minmax(0, 1fr) auto; grid-template-areas:"back back" "title action" "lede action"; column-gap:24px; align-items:start; }
+  .ryker-app .page-header > .kit-back { grid-area:back; }
+  .ryker-app .page-header > .page-heading { display:contents; }
+  .ryker-app .page-header .page-title-line { grid-area:title; min-height:36px; }
+  .ryker-app .page-header .page-action { grid-area:action; justify-content:flex-end; }
+  .ryker-app .page-header > .page-description { grid-area:lede; }
+}
 .filter-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 24px; }
 .filter-toolbar .search-field { flex:1 1 260px; width:auto; max-width:420px; height:var(--ryker-control-height); }
 .ryker-app .filter-toolbar input[type=search] { width:100%; min-width:0; box-sizing:border-box; height:calc(var(--ryker-control-height) - 2px); margin:0; font:inherit; }
