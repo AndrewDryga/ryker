@@ -566,8 +566,12 @@ defmodule Ryker.Slack.GatewayTest do
     assert {:ok, [recording]} = Artifacts.fetch_many([descriptor["artifact_ref"]])
     assert recording.data == audio
 
-    # Routing waits for the words for two minutes at most.
-    assert DateTime.diff(entry.awaiting_transcript_until, entry.inserted_at, :second) == 120
+    # Routing waits for the words for three minutes at most: a message holds
+    # two recordings of a minute and a half each. When it waited two, five
+    # minutes of speech took whisper large-v3 67 s on the Mac, and a second
+    # recording like it would have reached routing as one Ryker could not
+    # transcribe.
+    assert DateTime.diff(entry.awaiting_transcript_until, entry.inserted_at, :second) == 180
   end
 
   # Slack delivers an envelope again when its acknowledgement is late. The

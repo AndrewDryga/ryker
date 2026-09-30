@@ -442,11 +442,11 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
 
     {late, _input} = pending!(text: "")
 
-    transition!(late, :transcript_timed_out, DateTime.add(late.inserted_at, 120, :second),
+    transition!(late, :transcript_timed_out, DateTime.add(late.inserted_at, 180, :second),
       detail: "a voice message Ryker could not transcribe"
     )
 
-    transition!(late, :claimed, DateTime.add(late.inserted_at, 120, :second),
+    transition!(late, :claimed, DateTime.add(late.inserted_at, 180, :second),
       attempt: 1,
       owner_ref: "routing:voice"
     )
