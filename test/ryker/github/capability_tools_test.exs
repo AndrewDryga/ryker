@@ -286,6 +286,60 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
     assert_received {:rerun_ci, "octo/example", 91, 1}
   end
 
+  # emisar#87, 2026-09-30: the model asked for 50 review comments, was refused with
+  # invalid_arguments, and asked again for 20 three seconds later; the timeline showed the refusal
+  # as a failed call. A page size grants nothing: more than one page reads one full page, with the
+  # cursor for the rest.
+  test "a page size above one page reads one full page instead of failing" do
+    options = context_options()
+    binding = slack_work_binding()
+
+    assert {:ok, %{"items" => [_item]}} =
+             CapabilityTools.call(
+               "read_github_pull_request",
+               %{
+                 "cursor" => nil,
+                 "limit" => 50,
+                 "number" => 51,
+                 "review_root_id" => nil,
+                 "section" => "subject"
+               },
+               binding,
+               options
+             )
+
+    assert_received {:read_github_context, %{limit: 20, number: 51}}
+
+    assert {:ok, _result} =
+             CapabilityTools.call(
+               "search_github",
+               %{
+                 "cursor" => nil,
+                 "kind" => "all",
+                 "limit" => 100,
+                 "query" => "retry",
+                 "state" => "all"
+               },
+               binding,
+               options
+             )
+
+    assert_received {:search_github, %{limit: 20}}
+
+    assert CapabilityTools.call(
+             "read_github_pull_request",
+             %{
+               "cursor" => nil,
+               "limit" => 0,
+               "number" => 51,
+               "review_root_id" => nil,
+               "section" => "subject"
+             },
+             binding,
+             options
+           ) == {:error, "invalid_arguments"}
+  end
+
   test "context tools reject crossed destinations cursors and unconfigured clients" do
     options = context_options()
 

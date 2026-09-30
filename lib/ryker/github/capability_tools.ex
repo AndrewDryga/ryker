@@ -24,6 +24,7 @@ defmodule Ryker.GitHub.CapabilityTools do
   @ci_fields ~w(attempt run_id)
   @review_fields ~w(body comments event head_sha number)
   @context_sections ~w(subject issue_comments reviews review_comments review_thread files)
+  @page_size 20
   # Every repository-bound tool may name another repository of the session's
   # environment to read; the session's own repository is the default.
   @repository_description "A repository of this session's environment, by its configured ref: work.repository_ref or a work.workspace.companions[].name. Companion repositories are read-only: review and CI write tools cannot target them. Omit it, or send null, for the session's own repository."
@@ -320,10 +321,15 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   defp document(_arguments), do: {:error, :invalid_arguments}
 
+  # A page size grants nothing: more than one page reads one full page, with the cursor for the
+  # rest. On emisar#87 (2026-09-30) the model asked for 50, was refused, and asked again for 20.
+  defp page_size(limit) when is_integer(limit) and limit >= 1, do: {:ok, min(limit, @page_size)}
+  defp page_size(_limit), do: {:error, :invalid_arguments}
+
   defp context_document(%{} = arguments) do
     with true <- Enum.sort(Map.keys(arguments)) == Enum.sort(@context_fields),
          {:ok, page} <- cursor(arguments["cursor"]),
-         limit when is_integer(limit) and limit in 1..20 <- arguments["limit"],
+         {:ok, limit} <- page_size(arguments["limit"]),
          section when section in @context_sections <- arguments["section"] do
       {:ok, %{limit: limit, page: page, section: section}}
     else
@@ -337,7 +343,7 @@ defmodule Ryker.GitHub.CapabilityTools do
     with true <- exact_keys?(arguments, @repository_context_fields),
          {:ok, repository} <- repository_argument(arguments["repository"]),
          {:ok, page} <- cursor(arguments["cursor"]),
-         limit when is_integer(limit) and limit in 1..20 <- arguments["limit"],
+         {:ok, limit} <- page_size(arguments["limit"]),
          number when is_integer(number) and number > 0 <- arguments["number"],
          root when is_nil(root) or (is_integer(root) and root > 0) <- arguments["review_root_id"],
          section when section in @context_sections <- arguments["section"],
@@ -487,7 +493,7 @@ defmodule Ryker.GitHub.CapabilityTools do
          {:ok, repository} <- repository_argument(arguments["repository"]),
          {:ok, page} <- cursor(arguments["cursor"]),
          kind when kind in ~w(issues pull_requests all) <- arguments["kind"],
-         limit when is_integer(limit) and limit in 1..20 <- arguments["limit"],
+         {:ok, limit} <- page_size(arguments["limit"]),
          query when is_binary(query) and byte_size(query) in 1..1_000 <- arguments["query"],
          true <- String.valid?(query) and String.trim(query) != "",
          state when state in ~w(open closed all) <- arguments["state"] do
