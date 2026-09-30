@@ -298,6 +298,26 @@ external effects. Shadow/live inputs have the same learning semantics but do not
 execution-mode boundaries. Recent raw excerpts remain available to admission/Work before
 consolidation catches up.
 
+### The thread a reply answers
+
+Since 2026-09-30 a pass also reads the earlier messages of the thread its messages reply in
+(`thread_context`): the thread's opening message and the latest replies before the first new
+message, at most six and never so many that a topic could not name them all among its sources,
+each Ryker still holds, observed and not forgotten, shortened to 800 characters. A reply that
+means something only beside what it answers ("Nothing is stuck, this is done manually") was
+deferred as impossible to place once the messages before it had taught nothing on their own, and
+what it said was lost. The run keeps which thread messages it read (`context_inputs`); they are
+checked again before its result is applied, may be named in `source_input_ids`, and are recorded
+as sources of every topic the run creates, and of an update where the topic does not already rest
+on them. Forgetting such a topic therefore forgets the thread it was learned beside, and a thread
+message forgotten or withdrawn while the model answers makes the run stale. A message outside any
+thread, and a rebuild, read no thread and are prepared as before.
+
+The same day, the instructions started to say that a person's report on the state of a service,
+release or system (that it looks stuck, down or slow) is worth keeping, attributed with its time,
+until a later message settles it: on the recorded starfall-correction case the model had skipped
+the worry as transient noise. Every recorded learning scenario passes with both changes.
+
 ### What people say about themselves
 
 Since 2026-09-30 the same pass also returns `people`: what the author of a message says about

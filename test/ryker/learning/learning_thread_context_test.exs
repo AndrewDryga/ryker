@@ -1,14 +1,17 @@
 defmodule Ryker.Learning.LearningThreadContextTest do
   use Ryker.DataCase, async: false
 
+  import Ecto.Query
+
   alias Ryker.CanonicalJSON
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge
-  alias Ryker.Knowledge.KnowledgeAnchors
+  alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeAnchors, KnowledgeSource}
   alias Ryker.Learning
-  alias Ryker.Learning.Observations
+  alias Ryker.Learning.{ConversationObservation, LearningSources, Observations}
+  alias Ryker.Memories.Forgetting
 
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
 
@@ -136,6 +139,85 @@ defmodule Ryker.Learning.LearningThreadContextTest do
     assert Knowledge.context(second, second.repository_ref, selector, 8, "writable") == []
   end
 
+  # 2026-09-30, the recorded starfall-correction case: "Nothing is stuck, this
+  # is done manually. Just woke up" replies in a thread whose release notice
+  # and "It looks like this got stuck" had taught nothing on their own.
+  # Learning saw only the reply, deferred it because it "does not identify the
+  # process", and that Starfall releases are done by hand was never kept.
+  test "a reply is read beside the thread it answers, and what is learned rests on that thread" do
+    [notice, worry, correction] = starfall_thread!()
+
+    assert {:ok, run} = Learning.prepare([correction.id], @policy)
+    prompt = Jason.decode!(run.prompt)
+
+    assert Enum.map(prompt["thread_context"], & &1["source_input_id"]) == [notice.id, worry.id]
+    assert Enum.at(prompt["thread_context"], 1)["text"] =~ "It looks like this got stuck"
+    assert prompt["instructions"] =~ "thread_context holds earlier messages of the thread"
+    assert Enum.map(prompt["inputs"], & &1["source_input_id"]) == [correction.id]
+    assert Enum.map(run.context_inputs, & &1["source_input_id"]) == [notice.id, worry.id]
+
+    # The thread can be named as a source; only the reply's own author can
+    # tell learning about themselves.
+    named = get_in(run.output_schema, ["properties", "updates", "items", "oneOf"])
+    assert Enum.all?(named, &(worry.id in &1["properties"]["source_input_ids"]["items"]["enum"]))
+    assert {:ok, ^run} = Learning.authorize(run.id)
+
+    # A host-contract projection of a recorded create, citing the reply and
+    # the worry it answers, not a new model judgment.
+    create =
+      recorded_proposal()
+      |> Map.merge(%{
+        "topic_key" => "starfall-release-process",
+        "anchors" => [],
+        "source_input_ids" => [correction.id, worry.id]
+      })
+
+    result = Jason.encode!(%{"updates" => [create], "reason" => "Keep the release process."})
+    assert {:ok, %{status: :applied}} = Fixtures.accept(run.id, result, %{})
+    assert [topic] = Knowledge.context(correction, correction.repository_ref)
+    %{id: topic_id} = Repo.get_by!(ConversationKnowledge, topic_key: "starfall-release-process")
+
+    # Every thread message read beside the reply is a source, named or not.
+    sourced =
+      from(source in KnowledgeSource, where: source.knowledge_id == ^topic_id)
+      |> Repo.all()
+      |> Enum.map(& &1.receipt["source_input_id"])
+
+    assert Enum.sort(sourced) == Enum.sort([notice.id, worry.id, correction.id])
+    assert topic["source_ref"]
+
+    # So forgetting what was learned forgets the whole thread it came from,
+    # and none of it is learned from again.
+    assert {:ok, %{forgotten: [^topic_id | _]}} = Forgetting.forget_topic(topic_id)
+
+    for entry <- [notice, worry, correction],
+        do: assert(LearningSources.for_entry(entry) == nil)
+  end
+
+  test "a run whose thread changed before its result is applied is not applied" do
+    [_notice, worry, correction] = starfall_thread!()
+    assert {:ok, run} = Learning.prepare([correction.id], @policy)
+
+    # The worry is forgotten while the model is still answering.
+    Repo.update_all(
+      from(o in ConversationObservation, where: o.source_input_id == ^worry.id),
+      set: [forgotten_at: Repo.now!()]
+    )
+
+    assert {:error, :learning_source_stale} = Learning.authorize(run.id)
+  end
+
+  test "a message outside any thread is prepared as it always was" do
+    {first, _second, _topic} = learned_thread!(true)
+    alone = clone_source!(first, nil, DateTime.add(first.occurred_at, 60))
+    assert {:ok, run} = Learning.prepare([alone.id], @policy)
+    prompt = Jason.decode!(run.prompt)
+
+    refute Map.has_key?(prompt, "thread_context")
+    refute prompt["instructions"] =~ "thread_context"
+    assert run.context_inputs == []
+  end
+
   defp learned_thread!(root_without_thread) do
     [first, second | _] =
       "testdata/learning/retained-draft-keep-thread.json"
@@ -204,6 +286,16 @@ defmodule Ryker.Learning.LearningThreadContextTest do
 
     assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(entry) end)
     entry
+  end
+
+  # The recorded starfall thread: the release notice, the worry and the
+  # correction, each observed as it was.
+  defp starfall_thread! do
+    "testdata/learning/retained-starfall-manual-correction.json"
+    |> File.read!()
+    |> Jason.decode!()
+    |> Map.fetch!("inputs")
+    |> Enum.map(&Fixtures.retained_input!(&1, @policy))
   end
 
   defp recorded_proposal do

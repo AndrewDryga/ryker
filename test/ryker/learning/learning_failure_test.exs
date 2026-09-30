@@ -442,7 +442,8 @@ defmodule Ryker.Learning.LearningFailureTest do
           :validation_receipt,
           :stop_receipt,
           :remote_stopped_at,
-          :reconcile_attempt_count
+          :reconcile_attempt_count,
+          :context_inputs
         ]
 
     attributes =
