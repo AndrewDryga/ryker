@@ -60,6 +60,7 @@ defmodule Ryker.ControlPlane.Projection do
       finding: &FindingsProjection.fetch/1,
       people: &PeopleProjection.list/0,
       person: &PeopleProjection.fetch/1,
+      person_fact: &PeopleProjection.fetch_fact/1,
       improvement: &ImprovementProjection.page/1,
       improvement_candidate: &ImprovementProjection.fetch/1,
       incident: &IncidentProjection.fetch/1,

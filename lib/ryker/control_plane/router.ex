@@ -31,6 +31,7 @@ defmodule Ryker.ControlPlane.Router do
     LabControls,
     LearningActivity,
     PathRef,
+    PeoplePage,
     RelearnPanel
   }
 
@@ -761,6 +762,20 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # One thing a person said about themselves, forgotten on its own (Andrew,
+  # 2026-09-30); the question quotes it and says what brings it back.
+  defp confirmation("person-fact", resource_ref, "forget", options) do
+    case options.projection.person_fact.(resource_ref) do
+      {:ok, fact} ->
+        {:ok, "Forget “#{fact.text}”?",
+         "Ryker stops using it and erases the words. Nothing said before brings it back; if they say it again later, it is learned again. You can't undo this.",
+         "person-fact:forget", :danger}
+
+      :error ->
+        {:error, :not_found}
+    end
+  end
+
   defp confirmation("finding", resource_ref, "mark-explained", options) do
     case options.projection.finding.(resource_ref) do
       {:ok, %{status: :open, classification: "unexplained"} = finding} ->
@@ -1018,6 +1033,9 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("person", resource_ref, "forget", actions),
     do: actions.forget_person.(resource_ref)
 
+  defp perform("person-fact", resource_ref, "forget", actions),
+    do: actions.forget_person_fact.(resource_ref)
+
   defp perform("finding", resource_ref, "mark-explained", actions),
     do: actions.mark_finding_explained.(resource_ref)
 
@@ -1127,6 +1145,17 @@ defmodule Ryker.ControlPlane.Router do
   # Only a refused action of a kind no page offers gets here; like one whose
   # reference does not decode, it leads home.
   defp action_return_path(_kind, _resource_ref), do: "/"
+
+  # Back to the person, or to everyone once nothing about them is left.
+  defp action_return_path("person-fact", resource_ref, options) do
+    case options.projection.person_fact.(resource_ref) do
+      {:ok, %{others: others, person_ref: person_ref}} when others > 0 ->
+        PeoplePage.path(person_ref)
+
+      _last_or_gone ->
+        "/memory/people"
+    end
+  end
 
   defp action_return_path("behavior", resource_ref, options) do
     case options.projection.behavior.(resource_ref) do

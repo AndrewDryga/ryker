@@ -688,7 +688,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Forgetting",
        [
          "A person can tell Ryker to forget something, and editing or deleting the message forgets what it taught. Deleting a Slack channel forgets what was said in it.",
-         "Open a person to see what Ryker knows and the message each came from. Forget this person, at the end of their page, forgets all of it: nothing they said before brings it back, and what they say later is learned again."
+         "Open a person to see what Ryker knows and where each was said. Forget, beside each one, forgets just that thing. Forget this person, at the end of their page, forgets all of it: nothing they said before brings it back, and what they say later is learned again."
        ]},
       {"How long it is kept",
        [

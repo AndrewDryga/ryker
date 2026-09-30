@@ -6,15 +6,17 @@ defmodule Ryker.ControlPlane.PeoplePage do
   and forgotten.
 
   The list is one row a person: their name, how many things Ryker knows and
-  when they last said one. Each row opens the person's own page (`?person=`)
-  with what Ryker knows, each opening the message it came from, and, last,
-  forgetting all of it. The page redraws when a learning pass finishes, as
-  that is when Ryker learns them (`subscriptions/0`).
+  when they last said one. Each row opens the person's own page (`?person=`):
+  one row for each thing Ryker knows, saying where it was said (opening that
+  message) and when, with its own Forget (Andrew, 2026-09-30: "add way to
+  forget individual facts"), and, last, forgetting all of it. The page
+  redraws when a learning pass finishes, as that is when Ryker learns them
+  (`subscriptions/0`).
   """
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Kit, MemoryFormat}
+  alias Ryker.ControlPlane.{Components, Kit, MemoryFormat, ShortTime}
   alias Ryker.Learning
 
   @path "/memory/people"
@@ -26,9 +28,21 @@ defmodule Ryker.ControlPlane.PeoplePage do
   @spec path(String.t()) :: String.t()
   def path(person_ref), do: @path <> "?" <> URI.encode_query(%{"person" => person_ref})
 
-  @doc "The heading of one person's page: their name, and the way back."
+  @doc "The heading of one person's page: their name, how much Ryker knows, and the way back."
   @spec heading(map()) :: map()
-  def heading(person), do: %{title: person.name, description: nil, back: {"All people", @path}}
+  def heading(person) do
+    said = "last said " <> ShortTime.text(person.last_said_at, DateTime.utc_now())
+
+    %{
+      title: person.name,
+      description: things(length(person.facts)) <> " · " <> said,
+      back: {"All people", @path}
+    }
+  end
+
+  @doc "Where forgetting one thing Ryker knows about someone asks first."
+  @spec forget_fact_path(String.t()) :: String.t()
+  def forget_fact_path(fact_id), do: "/actions/person-fact/#{fact_id}/forget"
 
   @doc "The People body for a `PeopleProjection.list/0` view."
   @spec html(map()) :: iodata()
@@ -69,8 +83,9 @@ defmodule Ryker.ControlPlane.PeoplePage do
     """
   end
 
-  # One person: what Ryker knows, each opening the message it came from,
-  # then forgetting all of it.
+  # One person: a row for each thing Ryker knows, in their words, where and
+  # when they said it (opening that message), and a Forget of its own; then
+  # forgetting all of it.
   defp person(assigns) do
     ~H"""
     <div class="memory-view memory-person-page">
@@ -79,18 +94,22 @@ defmodule Ryker.ControlPlane.PeoplePage do
           title="What they said about themselves"
           lede="Ryker uses these only when this person is the one asking, and never shares them with anyone else."
         />
-        <div class="entity-list" role="list" aria-label="What they said about themselves">
-          <MemoryFormat.row
+        <Kit.entity_list label="What they said about themselves">
+          <Kit.entity_row
             :for={fact <- @person.facts}
             id={"fact-" <> fact.id}
+            icon={icon(fact.kind)}
             name={fact.text}
             meta={[
-              MemoryFormat.link("Open the message", fact.message_href),
-              fact.where,
-              MemoryFormat.time(fact.said_at, "said ")
+              MemoryFormat.link(fact.where || "Open the message", fact.message_href),
+              MemoryFormat.time(fact.said_at, "")
             ]}
-          />
-        </div>
+          >
+            <:actions>
+              <Components.action_button path={forget_fact_path(fact.id)} label="Forget" />
+            </:actions>
+          </Kit.entity_row>
+        </Kit.entity_list>
       </section>
       <Kit.remove_card
         id="forget-person"
@@ -101,6 +120,21 @@ defmodule Ryker.ControlPlane.PeoplePage do
     </div>
     """
   end
+
+  # A hint of what kind of thing it is, from the kind learning named: a
+  # birthday is a reminder, a name a label, how they like to be written to a
+  # conversation. The words themselves say the rest.
+  defp icon(kind) when is_binary(kind) do
+    cond do
+      String.contains?(kind, "birthday") -> :bell
+      String.contains?(kind, "name") -> :tag
+      String.contains?(kind, ["time-zone", "timezone", "hours"]) -> :clock
+      String.contains?(kind, ["communication", "language", "writing", "reply"]) -> :chat
+      true -> :smile
+    end
+  end
+
+  defp icon(_kind), do: :smile
 
   defp things(1), do: "1 thing"
   defp things(count), do: "#{count} things"

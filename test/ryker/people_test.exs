@@ -79,6 +79,33 @@ defmodule Ryker.PeopleTest do
     assert People.about("slack:user:UDAN", public) == ["Drinks coffee now."]
   end
 
+  # Andrew, 2026-09-30, on his People page: "add way to forget individual facts".
+  test "forgetting one fact keeps the rest, and only something said later brings it back",
+       %{workspace: workspace, public: public, now: now} do
+    told =
+      said!(workspace, "CPUBLIC", "UFAY", "I love tea, birthday is 3 June", at: ago(now, 120))
+
+    learn!([told], [
+      item(told, "birthday", "Birthday is 3 June."),
+      item(told, "favourite-drink", "Loves tea.")
+    ])
+
+    [birthday] = Enum.filter(People.facts("slack:user:UFAY"), &(&1.key == "birthday"))
+    assert {:ok, 1} = People.forget_fact(birthday.id)
+    assert People.about("slack:user:UFAY", public) == ["Loves tea."]
+
+    learn!([told], [item(told, "birthday", "Birthday is 3 June.")])
+    assert People.about("slack:user:UFAY", public) == ["Loves tea."]
+
+    later = said!(workspace, "CPUBLIC", "UFAY", "it's 3 June!", at: DateTime.add(now, 60))
+    learn!([later], [item(later, "birthday", "Birthday is 3 June.")])
+
+    assert Enum.sort(People.about("slack:user:UFAY", public)) == [
+             "Birthday is 3 June.",
+             "Loves tea."
+           ]
+  end
+
   # Said in a direct message or a private channel, it stays there; said
   # where the whole workspace reads, it may be used wherever that person asks.
   test "a fact said somewhere private is used only there", %{workspace: workspace, public: public} do

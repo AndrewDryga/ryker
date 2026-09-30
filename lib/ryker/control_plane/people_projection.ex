@@ -36,16 +36,40 @@ defmodule Ryker.ControlPlane.PeopleProjection do
          %{
            person_ref: person_ref,
            name: name(person_ref, first.conversation_ref),
-           facts: Enum.map(facts, &fact/1)
+           facts: Enum.map(facts, &fact/1),
+           last_said_at: facts |> Enum.map(& &1.said_at) |> Enum.max(DateTime)
          }}
     end
   end
 
   def fetch(_person_ref), do: :error
 
+  @doc """
+  One thing Ryker knows, to forget on its own: what was said, whose it is, and
+  whether they would have anything left.
+  """
+  @spec fetch_fact(String.t()) :: {:ok, map()} | :error
+  def fetch_fact(fact_id) when is_binary(fact_id) do
+    with {:ok, id} <- Ecto.UUID.cast(fact_id),
+         %{status: :kept} = fact <- People.get_fact(id) do
+      {:ok,
+       %{
+         id: fact.id,
+         text: fact.fact,
+         person_ref: fact.person_ref,
+         others: length(People.facts(fact.person_ref)) - 1
+       }}
+    else
+      _unknown -> :error
+    end
+  end
+
+  def fetch_fact(_fact_id), do: :error
+
   defp fact(fact) do
     %{
       id: fact.id,
+      kind: fact.key,
       text: fact.fact,
       said_at: fact.said_at,
       where: where(fact.conversation_ref, fact.private),
@@ -53,25 +77,25 @@ defmodule Ryker.ControlPlane.PeopleProjection do
     }
   end
 
-  # Where it was said, and so where Ryker uses it.
-  defp where("slack:" <> _rest = conversation_ref, true) do
-    case channel(conversation_ref) do
-      "D" <> _direct -> "Said in a direct message, used only there"
-      _channel -> "Said in a private channel, used only there"
+  # Where it was said, by the channel's name, and so where Ryker uses it: the
+  # page said "Said in a channel everyone can read" under every fact.
+  defp where("slack:" <> _rest = conversation_ref, private) do
+    case String.split(conversation_ref, ":", parts: 3) do
+      ["slack", _workspace, "D" <> _direct] ->
+        "Said in a direct message, used only there"
+
+      ["slack", workspace, channel] ->
+        "Said in " <>
+          Names.name(workspace, channel) <> if(private, do: ", used only there", else: "")
+
+      _other ->
+        if private, do: "Used only where it was said"
     end
   end
 
-  defp where("slack:" <> _rest, false), do: "Said in a channel everyone can read"
   defp where("control-plane:" <> _rest, _private), do: "Said in Chat"
   defp where(_conversation_ref, true), do: "Used only where it was said"
   defp where(_conversation_ref, false), do: nil
-
-  defp channel(conversation_ref) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["slack", _workspace, channel] -> channel
-      _other -> nil
-    end
-  end
 
   # A person the way every page names them: "@Name" once Slack said it.
   defp name("slack:user:" <> _id = person_ref, conversation_ref) do
