@@ -66,6 +66,45 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
              })
   end
 
+  # Andrew, 2026-09-30, of his own page: "design this page better, and add way to forget
+  # individual facts".
+  test "each thing a person said can be forgotten on its own, asking first" do
+    person = "control_plane:user:local-operator"
+    birthday = fact!(person, "birthday", "Birthday is 12 March.", false)
+    fact!(person, "preferred-name", "Goes by Andy.", false)
+
+    assert %{status: 200, body: body} =
+             Pages.page(["memory", "people"], %{"person" => person}, %{
+               projection: Projection.callbacks()
+             })
+
+    page = LazyHTML.from_fragment(body)
+    rows = LazyHTML.query(page, ".entity-row")
+    assert Enum.count(rows) == 2
+    assert LazyHTML.text(rows) =~ "Said in Chat"
+
+    forget = "/actions/person-fact/#{birthday.id}/forget"
+
+    assert page |> LazyHTML.query("#fact-#{birthday.id} form") |> LazyHTML.attribute("action") ==
+             [forget]
+
+    question = confirmation(forget)
+    assert question.status == 200
+    assert question.resp_body =~ "Forget “Birthday is 12 March.”?"
+
+    forgotten = confirm(forget)
+    assert forgotten.status == 303
+
+    assert Plug.Conn.get_resp_header(forgotten, "location") == [PeoplePage.path(person)]
+    assert People.about(person, "control-plane:lab:#{Ecto.UUID.generate()}") == ["Goes by Andy."]
+    assert confirmation(forget).status == 404
+
+    # The last one leaves nothing to come back to on this page.
+    [name] = People.facts(person)
+    last = confirm("/actions/person-fact/#{name.id}/forget")
+    assert Plug.Conn.get_resp_header(last, "location") == ["/memory/people"]
+  end
+
   test "an empty page says what will appear there" do
     html = render_component(&PeoplePage.render/1, view: PeopleProjection.list())
     assert html =~ "Nobody yet"

@@ -343,6 +343,10 @@ defmodule Ryker.People do
     )
   end
 
+  @doc "One thing Ryker learned about someone, kept or forgotten, or nil."
+  @spec get_fact(Ecto.UUID.t()) :: PersonFact.t() | nil
+  def get_fact(id) when is_binary(id), do: Repo.get(PersonFact, id)
+
   @doc "What Ryker knows about one person, by kind."
   @spec facts(String.t()) :: [PersonFact.t()]
   def facts(person_ref) when is_binary(person_ref) do
@@ -363,6 +367,18 @@ defmodule Ryker.People do
     Repo.transaction(fn ->
       forget_where(dynamic([f], f.person_ref == ^person_ref))
     end)
+  end
+
+  @doc """
+  Forgets one thing Ryker knows about a person. As when the whole person is
+  forgotten, nothing said before brings it back; saying it again later does.
+  """
+  @spec forget_fact(Ecto.UUID.t()) :: {:ok, non_neg_integer()}
+  def forget_fact(fact_id) when is_binary(fact_id) do
+    case Ecto.UUID.cast(fact_id) do
+      {:ok, id} -> Repo.transaction(fn -> forget_where(dynamic([f], f.id == ^id)) end)
+      :error -> {:ok, 0}
+    end
   end
 
   @doc "Forgets what one message taught, when its author edits or deletes it."
