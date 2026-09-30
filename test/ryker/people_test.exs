@@ -143,6 +143,39 @@ defmodule Ryker.PeopleTest do
     assert length(People.about("slack:user:UIVY", public)) == 12
   end
 
+  # The database and the answer's JSON Schema count a fact's length in code
+  # points. Counted in letters as written, a fact of 280 letters with accents
+  # made of two code points each passed the host and failed the database,
+  # which would have failed the whole learning pass, topics and all.
+  test "a fact too long to keep is left out without failing what else the pass learned",
+       %{workspace: workspace, public: public} do
+    told = said!(workspace, "CPUBLIC", "UJOE", "My name is written with accents")
+    accented = String.duplicate("e\u0301", 200)
+    assert String.length(accented) == 200 and length(String.codepoints(accented)) == 400
+
+    learn!([told], [
+      item(told, "preferred-name", accented),
+      item(told, "time-zone", "Works on Lisbon time.")
+    ])
+
+    assert People.about("slack:user:UJOE", public) == ["Works on Lisbon time."]
+  end
+
+  # Every author's facts go into the learning prompt beside their messages,
+  # and a batch holds up to sixteen messages: all of it together stays small.
+  test "what the learning pass reads about its authors is bounded, however many there are",
+       %{workspace: workspace} do
+    authors =
+      for n <- 1..16 do
+        told = said!(workspace, "CPUBLIC", "UAUTHOR#{n}", "lots about me")
+        learn!([told], for(k <- 1..12, do: item(told, "thing-#{k}", "Thing #{k} about #{n}.")))
+        told
+      end
+
+    known = People.known_about_authors(authors)
+    assert known |> Enum.flat_map(& &1["facts"]) |> length() == 24
+  end
+
   defp learn!(entries, items) do
     assert {:ok, :ok} = Repo.transaction(fn -> People.learn_in_transaction(items, entries) end)
   end
