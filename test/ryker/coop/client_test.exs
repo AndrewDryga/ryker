@@ -47,6 +47,51 @@ defmodule Ryker.Coop.ClientTest do
     end)
   end
 
+  # The first routing replay on the eval worker (2026-09-30) answered none of
+  # its 139 examples: this client pinned standalone creates only for world
+  # judges, so every replay session was refused as an invalid job before a
+  # model was asked. The replay's own tests drive a fake Coop API and never
+  # reached this client.
+  test "a routing replay creates its standalone session with its pinned job" do
+    response = %{"operation" => %{"id" => "op_create", "state" => "running"}}
+
+    with_unix_server(response, fn client, request ->
+      {:ok, template} = Job.new(:routing, "codex:fixture/low@eval")
+      task = "ryker-eval:routing-replay:789:routing-replay:example"
+      {:ok, job, digest} = Job.bind(template, task)
+
+      assert {:ok, ^response} =
+               Client.create_session(
+                 client,
+                 "ryker:eval:routing-replay:789:create",
+                 template,
+                 task,
+                 nil
+               )
+
+      assert Jason.decode!(request.().body) == %{
+               "expected_job_digest" => digest,
+               "job" => job,
+               "task" => task
+             }
+    end)
+  end
+
+  test "a standalone create names its own run, and a judge's job never creates a replay" do
+    {:ok, judge} = Job.new(:judge, "codex:fixture/low@eval")
+    {:ok, routing} = Job.new(:routing, "codex:fixture/low@eval")
+
+    for {template, key, task} <- [
+          {routing, "ryker:eval:routing-replay:789:create",
+           "ryker-eval:routing-replay:other:routing-replay:example"},
+          {judge, "ryker:eval:routing-replay:789:create",
+           "ryker-eval:routing-replay:789:routing-replay:example"}
+        ] do
+      assert {:error, :invalid_model_eval_job} =
+               Client.create_session(unreachable_client(), key, template, task, nil)
+    end
+  end
+
   test "create and fence send one byte-identical job for the same session" do
     response = %{"operation" => %{"id" => "op_create", "state" => "running"}}
     {:ok, template} = Job.new(:judge, "codex:fixture/low@eval")
@@ -957,6 +1002,21 @@ defmodule Ryker.Coop.ClientTest do
 
       assert Jason.decode!(request.().body)["violations"] == [String.duplicate("x", 4_095)]
     end)
+  end
+
+  # A client whose socket is never dialed: what it refuses, it refuses first.
+  defp unreachable_client do
+    finch = String.to_atom("coop_finch_#{System.unique_integer([:positive])}")
+    start_supervised!({Finch, name: finch})
+
+    {:ok, client} =
+      Client.new(
+        finch: finch,
+        receive_timeout: 2_000,
+        socket: "/tmp/ryker-coop-never-dialed.sock"
+      )
+
+    client
   end
 
   defp with_unix_server(response, function), do: with_unix_server(response, 200, function)

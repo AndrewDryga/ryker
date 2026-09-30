@@ -21,6 +21,7 @@ defmodule Ryker.Evals.CoopRunner do
   @fields [
     :api,
     :client,
+    :concurrency,
     :id_generator,
     :max_polls,
     :job,
@@ -34,7 +35,16 @@ defmodule Ryker.Evals.CoopRunner do
   @spec run([eval_case()], keyword() | map()) :: {:ok, map()} | {:error, term()}
   def run(cases, options) when is_list(cases) do
     with {:ok, settings} <- settings(options) do
-      results = Enum.map(cases, &execute_case(&1, settings))
+      # Each case is its own session, so up to `concurrency` run at once, as
+      # the eval worker's capacity allows; results keep the cases' order.
+      results =
+        cases
+        |> Task.async_stream(&execute_case(&1, settings),
+          max_concurrency: settings.concurrency,
+          ordered: true,
+          timeout: :infinity
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
 
       {:ok,
        %{
@@ -640,6 +650,7 @@ defmodule Ryker.Evals.CoopRunner do
       settings = %{
         api: Map.get(options, :api, Ryker.Coop.Client),
         client: Map.get(options, :client),
+        concurrency: Map.get(options, :concurrency, 1),
         id_generator: Map.get(options, :id_generator, &Ecto.UUID.generate/0),
         max_polls: Map.get(options, :max_polls, 2_400),
         job: Map.get(options, :job),
@@ -650,6 +661,7 @@ defmodule Ryker.Evals.CoopRunner do
       with true <- is_atom(settings.api),
            true <- not is_nil(settings.client),
            true <- is_function(settings.id_generator, 0),
+           true <- is_integer(settings.concurrency) and settings.concurrency in 1..16,
            true <- is_integer(settings.max_polls) and settings.max_polls > 0,
            {:ok, _job, _digest} <- Job.bind(settings.job, "eval-validation"),
            true <- is_integer(settings.poll_interval_ms) and settings.poll_interval_ms >= 0,

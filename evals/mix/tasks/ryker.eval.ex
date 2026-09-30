@@ -9,7 +9,7 @@ defmodule Mix.Tasks.Ryker.Eval do
       mix ryker.eval world-merge --results /absolute/world-results.json \\
         /absolute/shard-1.json /absolute/shard-2.json
       mix ryker.eval routing-replay --examples /absolute/routing-examples.jsonl \\
-        --results /absolute/routing-replay.json [--limit N]
+        --results /absolute/routing-replay.json [--limit N] [--concurrency N]
 
   `world-pack` emits one JSON object per scenario, with its exact tool catalog,
   without calling a model. `world` runs the same scenarios through the
@@ -64,6 +64,10 @@ defmodule Mix.Tasks.Ryker.Eval do
 
   @shortdoc "Exports or runs the versioned model-world scenarios"
 
+  # Routing replay sessions at once, as the world shards run: one at a time,
+  # the first replay of 139 decisions (2026-09-30) would have taken 80 minutes.
+  @replay_concurrency 4
+
   @impl Mix.Task
   def run(["world-pack"]) do
     WorldCase.all()
@@ -96,7 +100,7 @@ defmodule Mix.Tasks.Ryker.Eval do
         " | world-shards --shards N" <>
         " | world-merge --results /absolute/world-results.json /absolute/shard.json..." <>
         " | routing-replay --examples /absolute/routing-examples.jsonl" <>
-        " --results /absolute/routing-replay.json [--limit N]"
+        " --results /absolute/routing-replay.json [--limit N] [--concurrency N]"
     )
   end
 
@@ -106,7 +110,8 @@ defmodule Mix.Tasks.Ryker.Eval do
          {:ok, cases, skipped} <- RoutingReplay.cases(replay.examples, replay.limit),
          {:ok, finch} <- start_finch(),
          {:ok, client} <- eval_client(finch),
-         {:ok, result} <- RoutingReplay.run(cases, client: client, job: job),
+         {:ok, result} <-
+           RoutingReplay.run(cases, client: client, concurrency: replay.concurrency, job: job),
          summary = RoutingReplay.summary(cases, result, skipped),
          :ok <- File.write(replay.results, Jason.encode!(summary, pretty: true)) do
       info(
@@ -120,13 +125,21 @@ defmodule Mix.Tasks.Ryker.Eval do
   end
 
   defp routing_replay_arguments(arguments) do
-    case parse_flags(arguments, examples: :string, results: :string, limit: :integer) do
+    case parse_flags(arguments,
+           examples: :string,
+           results: :string,
+           limit: :integer,
+           concurrency: :integer
+         ) do
       {:ok, parsed, []} ->
+        concurrency = parsed[:concurrency] || @replay_concurrency
+
         with examples when is_binary(examples) <- parsed[:examples],
              results when is_binary(results) <- parsed[:results],
              true <- Path.type(examples) == :absolute and Path.type(results) == :absolute,
-             limit when is_nil(limit) or (is_integer(limit) and limit > 0) <- parsed[:limit] do
-          {:ok, %{examples: examples, results: results, limit: limit}}
+             limit when is_nil(limit) or (is_integer(limit) and limit > 0) <- parsed[:limit],
+             true <- concurrency in 1..16 do
+          {:ok, %{examples: examples, results: results, limit: limit, concurrency: concurrency}}
         else
           _invalid -> {:error, :routing_replay_needs_absolute_examples_and_results}
         end
