@@ -663,4 +663,32 @@ defmodule Ryker.Admission.DecisionTest do
 
   defp shapes(schema, action),
     do: Enum.filter(schema["oneOf"], &(&1["properties"]["action"]["const"] == action))
+
+  # Replaying a recorded routing decision under a changed contract needs the
+  # contract its source was offered, rebuilt with today's shapes: the actions,
+  # the emoji it takes, whether a repository source may be named and which
+  # repositories a new request chooses from (`mix ryker.eval routing-replay`).
+  test "a recorded decision contract is rebuilt exactly from what it offered" do
+    for actions <- [
+          [:start_episode, :continue_episode, :reply, :quick_reply, :react, :ignore],
+          [:start_episode, :quick_reply, :ignore],
+          [:continue_episode, :reply]
+        ],
+        reactions <- [:any, nil, ["eyes", "white_check_mark"]],
+        source? <- [false, true],
+        choices <- [[], ["ryker", "coop"]] do
+      recorded = Decision.json_schema(actions, reactions, source?, choices)
+
+      assert Decision.replay_schema(recorded) == {:ok, recorded},
+             inspect({actions, reactions, source?, choices})
+    end
+
+    assert Decision.replay_schema(%{"properties" => %{}}) ==
+             {:error, {:invalid_decision, :schema}}
+
+    assert Decision.replay_schema(%{
+             "properties" => %{"action" => %{"enum" => ["launch_rockets"]}},
+             "oneOf" => []
+           }) == {:error, {:invalid_decision, :schema}}
+  end
 end

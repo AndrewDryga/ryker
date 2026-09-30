@@ -181,6 +181,56 @@ defmodule Ryker.Admission.Decision do
     }
   end
 
+  @doc """
+  Today's decision contract for a source a recorded contract was published
+  for: the actions, emoji, repository selector and repository choices it
+  offered, rebuilt with today's shapes, so a recorded routing decision can be
+  asked again under a changed contract (`mix ryker.eval routing-replay`).
+  """
+  @spec replay_schema(map()) :: {:ok, map()} | {:error, {:invalid_decision, :schema}}
+  def replay_schema(%{"properties" => properties, "oneOf" => shapes}) do
+    with %{"action" => %{"enum" => names}} when is_list(names) <- properties,
+         actions = Enum.map(names, &String.to_existing_atom/1),
+         true <- actions != [] and Enum.all?(actions, &(&1 in @actions)) do
+      {:ok,
+       json_schema(
+         actions,
+         recorded_reactions(shapes, properties),
+         properties["repository_source"] != %{"type" => "null"},
+         recorded_choices(properties["repository"])
+       )}
+    else
+      _unrecognised -> {:error, {:invalid_decision, :schema}}
+    end
+  rescue
+    ArgumentError -> {:error, {:invalid_decision, :schema}}
+  end
+
+  def replay_schema(_recorded), do: {:error, {:invalid_decision, :schema}}
+
+  # A quick reply that can carry no emoji names a source that takes none;
+  # otherwise the offered names, or any.
+  defp recorded_reactions(shapes, properties) do
+    quick_reply =
+      Enum.find(shapes, &(get_in(&1, ["properties", "action", "const"]) == "quick_reply"))
+
+    cond do
+      quick_reply && quick_reply["properties"]["reactions"] == %{"type" => "null"} ->
+        nil
+
+      match?(%{"anyOf" => [%{"items" => %{"enum" => _}} | _]}, properties["reactions"]) ->
+        get_in(properties, ["reactions", "anyOf", Access.at(0), "items", "enum"])
+
+      true ->
+        :any
+    end
+  end
+
+  defp recorded_choices(%{"anyOf" => [%{"enum" => choices} | _]}) when is_list(choices),
+    do: choices
+
+  defp recorded_choices(_repository), do: []
+
   defp decision_shapes(actions, reaction_names, repository_source?, repository_choices) do
     selectable = repository_source? and :start_episode in actions
     new_episode = %{choices: repository_choices, source: selectable}

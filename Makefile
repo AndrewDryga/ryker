@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-replay eval-trend customer-check elixir-unit elixir-test elixir-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck watchdog-check deploy-check test-db-ready dev-check check release-check clean
+.PHONY: retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-routing-replay eval-replay eval-trend customer-check elixir-unit elixir-test elixir-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck watchdog-check deploy-check test-db-ready dev-check check release-check clean
 
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
@@ -122,6 +122,14 @@ eval-world: | $(EVAL_HISTORY)
 # repository-knowledge answers, in a database of its own: `make check` runs it
 # beside the full suite, and sharing ryker_test once made four world cases
 # reject their supposedly disposable database.
+# Asks the routing decisions in a routing examples export again with today's
+# prompt and contract (docs/testing.md, Routing replay). Needs the eval worker
+# and RYKER_EVAL_ROUTING_TARGET; EXAMPLES is the export's absolute path.
+eval-routing-replay: | $(EVAL_HISTORY)
+	MIX_ENV=test scripts/elixir-mix.sh ryker.eval routing-replay \
+		--examples "$(EXAMPLES)" \
+		--results "$(EVAL_HISTORY)/routing-replay-$$(date -u +%Y%m%dT%H%M%SZ).json"
+
 eval-replay:
 	RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh \
 		test/ryker/episodes/replay_test.exs \

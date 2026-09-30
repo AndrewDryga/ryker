@@ -25,6 +25,12 @@ defmodule Ryker.Evals.WorldJudgeCase do
           schema: map()
         }
 
+  @doc "The name its sessions and operations carry (`Ryker.Evals.CoopRunner`)."
+  def namespace, do: "world-judge"
+
+  @doc "Why a judgment that ran fails: the rubric was not met."
+  def failure_reason, do: :quality_rubric_failed
+
   @spec new(WorldCase.t(), map()) :: {:ok, t()} | {:error, term()}
   def new(%WorldCase{} = scenario, %{} = report) do
     rubric = scenario.expect["quality_rubric"]

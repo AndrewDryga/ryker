@@ -602,6 +602,35 @@ defmodule Ryker.Admission.PromptTest do
     end
   end
 
+  # Routing's recorded decisions are asked again under a changed prompt
+  # (`mix ryker.eval routing-replay`); routing had no model eval before.
+  # Which paragraphs apply depends only on what the context holds, so a
+  # recorded request gets exactly the instructions routing would give it
+  # today, and its context stays as it was sent.
+  test "a recorded request is asked again with today's instructions and its own context" do
+    bare = %Context{
+      active_episode_fingerprint: Ryker.CanonicalJSON.digest([]),
+      built_at: ~U[2026-08-27 12:00:01.000000Z],
+      candidates: [],
+      conversation_episode_count: 0,
+      input: input!(),
+      input_entry: %Entry{id: Ecto.UUID.generate()}
+    }
+
+    for context <- [lean_context!(), bare] do
+      request = Prompt.build(context)
+
+      recorded =
+        request
+        |> Map.put("instructions", "Yesterday's wording.")
+        |> Prompt.render()
+        |> Jason.decode!()
+
+      assert Prompt.replay(recorded) == request
+      assert recorded |> Prompt.replay() |> Prompt.render() == Prompt.render(request)
+    end
+  end
+
   defp candidate!(actor, title) do
     opening = %{
       occurred_at: ~U[2026-08-27 10:00:00.000000Z],

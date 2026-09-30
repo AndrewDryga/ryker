@@ -216,10 +216,20 @@ defmodule Ryker.Admission.Prompt do
   # The marker is lifecycle state, not another field in the saved document.
   defp request(context) do
     document = Context.for_model(context)
-    %{"context" => document, "instructions" => instructions(context, document)}
+    %{"context" => document, "instructions" => instructions(document)}
   end
 
-  defp instructions(context, document) do
+  @doc """
+  A request routing sent before, with the instructions today's routing would
+  give its context: the words change, the context does not. Which paragraphs
+  apply depends only on what the context holds, so a recorded decision can be
+  asked again under a changed prompt (`mix ryker.eval routing-replay`).
+  """
+  @spec replay(map()) :: map()
+  def replay(%{"context" => document}) when is_map(document),
+    do: %{"context" => document, "instructions" => instructions(document)}
+
+  defp instructions(document) do
     text =
       [
         @instructions,
@@ -234,7 +244,9 @@ defmodule Ryker.Admission.Prompt do
       |> Enum.filter(&is_binary/1)
       |> Enum.join("\n")
 
-    if Context.custom_instructions?(context),
+    # The context carries the operator's instructions only when they say
+    # something (`Ryker.Admission.Context.custom_instructions?/1`).
+    if Map.has_key?(document, "custom_instructions"),
       do: Ryker.Instructions.prompt_instructions(text),
       else: text
   end
