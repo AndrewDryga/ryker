@@ -86,7 +86,9 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     assert report.delivery_ref == "weekly-report:2026-10-05"
     assert report.status == :pending
 
-    assert report.document["message"] =~ "**Weekly update**\nMon 28 Sep to Mon 5 Oct\n"
+    assert report.document["message"] =~
+             "Hey everyone 👋 Here's my weekly report for 28 Sep – 5 Oct.\n"
+
     refute report.preview
 
     # A restart later that day, and later that week, finds the week sent.
@@ -185,7 +187,7 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     assert {:ok, %{"blocks" => [%{"type" => "markdown", "text" => words}]}} =
              Renderer.render(request.document)
 
-    assert words =~ "**Weekly update**"
+    assert words =~ "Hey everyone 👋 Here's my weekly report"
     assert String.length(words) < 12_000
 
     delivered = Repo.get!(Report, report.id)
@@ -253,7 +255,7 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     assert preview.conversation_ref == "slack:#{@workspace}:#{@channel}"
 
     assert preview.document["message"] =~
-             "**Weekly update (preview)**\nWed 30 Sep to Wed 7 Oct\n"
+             "Hey everyone 👋 Here's a preview of my weekly report for 30 Sep – 7 Oct.\n"
 
     # Each preview is its own post.
     assert {:ok, again} = send_preview(~U[2026-10-07 12:05:00Z])

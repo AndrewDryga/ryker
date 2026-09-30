@@ -224,13 +224,17 @@ rewriting. A readable preview is not evidence that model prompts or runtime beha
 
 ## Weekly update
 
-The weekly report reads like a teammate at a standup (Andrew, 2026-09-28): how much work Ryker did
-in one sentence, then Done, Still open and Stuck, then one closing line on feedback and what it
-learned. It names what got done, not instrumentation: no counts of messages read, corrections or
-model cost. Done, Still open and Stuck always appear, saying Nothing when empty, because a part that
-disappears reads as a good week. Only requests from public channels are named, each linked, a
-draft PR beside its request. Settings can send the same words to the channel at once, titled as a
-preview; a preview is never the week's report.
+The weekly report reads like a teammate's weekly update in Slack (Andrew, 2026-09-30, replacing
+the 2026-09-28 Done / Still open / Stuck layout): a greeting with the dates, then plain sentences
+and short lists, no bold headings. It says how many messages Ryker handled, how long a typical reply
+took (the median, never the mean: one reply 28 hours late made the week's average half an hour), how
+many it answered on the spot, the requests it worked on and finished, what it got done with a link
+to the rest, the PRs it opened this week and how many are merged, every PR still waiting for review,
+what is still open, anything stuck, and one closing line on how people took its answers and what it
+learned. It names what got done, not instrumentation: no corrections or model cost. A part with
+nothing to say is left out; a report that could not check what is stuck says so. Only requests and
+PRs from public channels are named, each linked. Settings can send the same words to the channel at
+once, as a preview; a preview is never the week's report.
 
 ## Preview and proof
 

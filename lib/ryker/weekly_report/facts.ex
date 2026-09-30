@@ -1,9 +1,10 @@
 defmodule Ryker.WeeklyReport.Facts do
   @moduledoc """
   Everything the weekly report says, read from the database for one week
-  (`Ryker.WeeklyReport`), with no model anywhere: the work Ryker did, what
-  it finished and what is still open, what is stuck, and a line on feedback
-  and what it learned.
+  (`Ryker.WeeklyReport`), with no model anywhere: the messages Ryker handled
+  and how fast it replied, the requests it worked on, what it finished and
+  what is still open, the pull requests it opened and the ones waiting for a
+  review, what is stuck, and a line on feedback and what it learned.
 
   A week is `%{from: from, to: to}`. A request counts for the week when
   someone asked something in it or Ryker answered in it, so a request
@@ -26,13 +27,18 @@ defmodule Ryker.WeeklyReport.Facts do
   alias Ryker.InspectionRedactor
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Memories.MemoryEntry
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelMembership, Names}
 
   @negative [:frustrated, :asked_again, :edited]
+  # A message routing left alone was not handled; a reply or a reaction
+  # routing sent itself answered it on the spot.
+  @handled [:quick_reply, :react, :reply, :start_episode, :continue_episode]
+  @on_the_spot [:quick_reply, :react]
   @named_done 5
   @named_open 3
+  @named_pull_requests 5
   @named_stuck 3
 
   @type week :: %{from: DateTime.t(), to: DateTime.t()}
@@ -45,8 +51,9 @@ defmodule Ryker.WeeklyReport.Facts do
 
     %{
       week: week,
+      messages: messages(from, to),
+      reply_ms: typical_reply_ms(from, to),
       requests: %{total: length(requests), finished: length(done)},
-      replied: replied(from, to),
       pull_requests: pull_requests(from, to),
       done: named(done, @named_done),
       open: open |> Enum.reject(&(&1.standing == :stopped)) |> named(@named_open),
@@ -193,29 +200,117 @@ defmodule Ryker.WeeklyReport.Facts do
     |> Map.new()
   end
 
-  # The messages routing answered on the spot that week: a reply without a
-  # request behind it.
-  defp replied(from, to) do
-    Repo.aggregate(
+  # The messages that reached Ryker that week and got an answer, and how many
+  # of them routing answered on the spot: a reply or a reaction without a
+  # request behind it. The rest started or joined a request.
+  defp messages(from, to) do
+    counts =
       from(entry in Entry,
         where:
-          entry.execution_mode == :live and entry.decision_action == :quick_reply and
-            entry.inserted_at >= ^from and entry.inserted_at < ^to
-      ),
-      :count
-    )
+          entry.execution_mode == :live and entry.decision_action in ^@handled and
+            entry.inserted_at >= ^from and entry.inserted_at < ^to,
+        group_by: entry.decision_action,
+        select: {entry.decision_action, count()}
+      )
+      |> Repo.all()
+      |> Map.new()
+
+    %{
+      handled: counts |> Map.values() |> Enum.sum(),
+      on_the_spot: @on_the_spot |> Enum.map(&Map.get(counts, &1, 0)) |> Enum.sum()
+    }
   end
 
-  # The draft PRs Ryker opened that week.
+  # How long a typical reply took that week, in milliseconds: the middle
+  # one of each message's wait, from when it was sent to the first answer
+  # that reached its conversation, routing's own or its request's, as a
+  # request's page measures it (`Ryker.ControlPlane.EpisodeResponseMetrics`).
+  # The middle one, not the average: in the week to 30 Sep the live install's
+  # quick replies averaged half an hour because one was delivered 28 hours
+  # late, while the middle one took 15 seconds. Nil when nothing was answered.
+  defp typical_reply_ms(from, to) do
+    %{rows: [[seconds]]} =
+      Repo.query!(
+        """
+        WITH waits AS (
+          SELECT extract(epoch FROM min(response.delivered_at) - entry.occurred_at)::float8 AS seconds
+          FROM ingress_inbox_entries AS entry
+          JOIN delivery_routing_responses AS response
+            ON response.input_id = entry.id AND response.status = 'delivered'
+          WHERE entry.execution_mode = 'live' AND entry.decision_action IN ('quick_reply', 'react')
+            AND entry.inserted_at >= $1 AND entry.inserted_at < $2
+          GROUP BY entry.id, entry.occurred_at
+          UNION ALL
+          SELECT extract(epoch FROM min(turn.delivered_at) - event.occurred_at)::float8
+          FROM episode_kernel_events AS event
+          JOIN episode_kernel_episodes AS episode
+            ON episode.id = event.episode_id AND episode.execution_mode = 'live'
+          JOIN episode_work_turns AS turn
+            ON turn.episode_id = event.episode_id AND turn.delivered_at IS NOT NULL
+              AND event.dedupe_key = ANY(turn.selected_input_refs)
+          WHERE event.kind = 'input_admitted' AND event.occurred_at >= $1 AND event.occurred_at < $2
+          GROUP BY event.id, event.occurred_at
+        )
+        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY seconds) FROM waits WHERE seconds >= 0
+        """,
+        [DateTime.to_naive(from), DateTime.to_naive(to)]
+      )
+
+    seconds && round(seconds * 1000)
+  end
+
+  # The pull requests Ryker opened that week and how many of them are merged
+  # by now, and every pull request of its still open, newest first: the ones
+  # waiting for someone to review them. A pull request is opened when its
+  # publication first goes out, which is when its follow-up starts; a
+  # follow-up rearmed later keeps that time.
   defp pull_requests(from, to) do
-    Repo.aggregate(
-      from(publication in Publication,
+    opened =
+      from(followup in Followup,
         join: episode in Episode,
-        on: episode.id == publication.episode_id and episode.execution_mode == :live,
-        where: publication.published_at >= ^from and publication.published_at < ^to
-      ),
-      :count
-    )
+        on: episode.id == followup.episode_id and episode.execution_mode == :live,
+        where: followup.inserted_at >= ^from and followup.inserted_at < ^to,
+        select: followup.pr_state
+      )
+      |> Repo.all()
+
+    waiting =
+      from(followup in Followup,
+        join: publication in Publication,
+        on: publication.id == followup.publication_id,
+        join: episode in Episode,
+        on: episode.id == followup.episode_id and episode.execution_mode == :live,
+        where:
+          followup.pr_state in ["open", "stale"] and not is_nil(publication.pull_request_url) and
+            not is_nil(publication.pull_request_number),
+        order_by: [desc: followup.inserted_at, desc: followup.id],
+        select: %{
+          number: publication.pull_request_number,
+          url: publication.pull_request_url,
+          title: publication.title,
+          conversation: episode.destination_conversation_ref
+        }
+      )
+      |> Repo.all()
+
+    public = waiting |> Enum.map(& &1.conversation) |> Enum.uniq() |> Enum.filter(&public?/1)
+
+    %{
+      opened: length(opened),
+      merged: Enum.count(opened, &(&1 == "merged")),
+      waiting: %{
+        named:
+          waiting
+          |> Enum.filter(&(&1.conversation in public and is_binary(&1.title)))
+          |> Enum.take(@named_pull_requests)
+          |> Enum.map(fn pull_request ->
+            pull_request
+            |> Map.take([:number, :url, :title])
+            |> Map.put(:where, Names.destination(pull_request.conversation))
+          end),
+        total: length(waiting)
+      }
+    }
   end
 
   # -- Stuck ---------------------------------------------------------------------------

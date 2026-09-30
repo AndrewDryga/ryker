@@ -2,13 +2,15 @@ defmodule Ryker.WeeklyReport do
   @moduledoc """
   The weekly report: one message a week in the Slack channel Settings ›
   Weekly report names, at the day and local time it names, saying how
-  Ryker's week went the way a teammate says it at a standup. Off until a
-  person turns it on.
+  Ryker's week went the way a teammate writes a weekly update in Slack. Off
+  until a person turns it on.
 
-  **What it says.** How much work Ryker did (the requests it worked on and
-  finished, the messages it answered on the spot, the draft PRs it opened),
-  what it got done, what is still open, what is stuck and needs someone, and
-  a closing line on feedback and what it learned (`Ryker.WeeklyReport.Digest`).
+  **What it says.** How many messages Ryker handled, how long a typical
+  reply took and how many it answered on the spot, the requests it worked on
+  and finished, what it got done, the PRs it opened and merged and the ones
+  still waiting for review, what is still open, anything stuck, and a closing
+  line on how people took its answers and what it learned
+  (`Ryker.WeeklyReport.Digest`).
 
   **How it is made.** From the database alone, with no model turn
   (`Ryker.WeeklyReport.Facts`, `Ryker.WeeklyReport.Digest`), so it cannot say

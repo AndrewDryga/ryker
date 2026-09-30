@@ -253,12 +253,9 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     text = view |> element("#weekly-report-text") |> render() |> LazyHTML.from_fragment()
     words = LazyHTML.text(text)
 
-    assert words =~ "Weekly update"
-    assert words =~ "This week I answered 1 message on the spot."
-
-    for heading <- ["Done", "Still open", "Stuck"] do
-      assert Enum.member?(LazyHTML.query(text, "strong") |> texts(), heading), heading
-    end
+    assert words =~ "Hey everyone 👋 Here's my weekly report for"
+    assert words =~ "This past week I handled 1 message"
+    assert words =~ "I answered it on the spot."
 
     # With no channel chosen there is nowhere to send it yet.
     refute has_element?(view, "#send-weekly-report-preview")
@@ -269,7 +266,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     # The preview is a link, so a reload shows it again.
     {:ok, reloaded, _html} = open("/settings/report?preview=week")
-    assert has_element?(reloaded, "#weekly-report-text", "answered 1 message")
+    assert has_element?(reloaded, "#weekly-report-text", "handled 1 message")
 
     reloaded |> element("#weekly-report-preview a", "Hide the preview") |> render_click()
     refute has_element?(reloaded, "#weekly-report-text")
@@ -308,7 +305,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert [report] = Repo.all(Ryker.WeeklyReport.Report)
     assert report.preview
     assert report.conversation_ref == "slack:T0123456789:CREPORT"
-    assert report.document["message"] =~ "**Weekly update (preview)**"
+    assert report.document["message"] =~ "Here's a preview of my weekly report"
     refute Settings.fetch!().report.weekly_self_report_enabled
   end
 
