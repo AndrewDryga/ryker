@@ -27,6 +27,10 @@ defmodule Ryker.WeeklyReportTest do
 
   @actor "control-plane:local"
   @base "http://ryker.test"
+  # A work request in these tests records its model call without usage, as
+  # a call does until its turn reports it, so no cost can be worked out for
+  # its week; the closing line ends by saying so.
+  @no_cost "I couldn't work out what this week's work cost."
 
   setup do
     {:ok, _settings} = Settings.initialize(@actor)
@@ -114,14 +118,12 @@ defmodule Ryker.WeeklyReportTest do
     report = compose(now)
     where = Names.destination(public)
 
-    # The fixtures' model calls recorded no usage, so the cost says it could
-    # not be worked out.
     assert Enum.map(report.parts, & &1.key) == [
              :greeting,
              :pull_requests,
              :work,
-             :cost,
-             :questions
+             :questions,
+             :closing
            ]
 
     assert part(report, :pull_requests) == [
@@ -214,11 +216,12 @@ defmodule Ryker.WeeklyReportTest do
                "It was a quick answer."
            ]
 
-    assert part(report, :cost) == [
+    # At the end of the closing line, not a paragraph of its own.
+    assert part(report, :closing) == [
              "In total, this week's work cost about $0.96 at API prices."
            ]
 
-    assert Enum.map(report.parts, & &1.key) == [:greeting, :work, :cost]
+    assert Enum.map(report.parts, & &1.key) == [:greeting, :work, :closing]
   end
 
   test "a cost the provider reported is stated as it is, and work nobody could price says so",
@@ -231,13 +234,13 @@ defmodule Ryker.WeeklyReportTest do
 
     # Nobody asked anything, and yet something ran: a schedule or learning.
     assert part(compose(now), :work) == ["It was a quiet week: nobody asked me for anything."]
-    assert part(compose(now), :cost) == ["In total, this week's work cost $1,234.50."]
+    assert part(compose(now), :closing) == ["In total, this week's work cost $1,234.50."]
 
     Repo.update_all(from(e in Execution, where: e.id == ^reported.id),
       set: [usage_cost_recorded: false, usage_cost_usd: nil, usage_recorded: false]
     )
 
-    assert part(compose(now), :cost) == ["I couldn't work out what this week's work cost."]
+    assert part(compose(now), :closing) == [@no_cost]
   end
 
   # Andrew asked for how long a reply took "on average". In the week to 30
@@ -365,7 +368,7 @@ defmodule Ryker.WeeklyReportTest do
 
     assert part(compose(now), :closing) == [
              "Feedback I have received was mostly positive: 2 positive and 1 negative. " <>
-               "I also learned 3 new things, most recently about “Release process”."
+               "I also learned 3 new things, most recently about “Release process”. " <> @no_cost
            ]
   end
 
@@ -375,18 +378,18 @@ defmodule Ryker.WeeklyReportTest do
     request = work_request!(workspace, public, "1790210001.000100", "Is the cache warm?")
 
     signal!(request, :reaction_added, "+1", "first", DateTime.add(now, -600))
-    assert part(compose(now), :closing) == ["Feedback I have received was positive."]
+    assert part(compose(now), :closing) == ["Feedback I have received was positive. " <> @no_cost]
 
     signal!(request, :reaction_added, "tada", "second", DateTime.add(now, -500))
 
     assert part(compose(now), :closing) == [
-             "Both pieces of feedback I have received were positive."
+             "Both pieces of feedback I have received were positive. " <> @no_cost
            ]
 
     signal!(request, :reaction_added, "rocket", "third", DateTime.add(now, -450))
 
     assert part(compose(now), :closing) == [
-             "All 3 pieces of feedback I have received were positive."
+             "All 3 pieces of feedback I have received were positive. " <> @no_cost
            ]
 
     for event <- ~w(fourth fifth sixth) do
@@ -394,7 +397,7 @@ defmodule Ryker.WeeklyReportTest do
     end
 
     assert part(compose(now), :closing) == [
-             "Feedback I have received was mixed: 3 positive and 3 negative."
+             "Feedback I have received was mixed: 3 positive and 3 negative. " <> @no_cost
            ]
   end
 
