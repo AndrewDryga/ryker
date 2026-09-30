@@ -2043,6 +2043,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     _error in [DBConnection.ConnectionError, DBConnection.OwnershipError, Postgrex.Error] -> %{}
   end
 
+  # Routing only ever chooses among repositories work may change, so each reads
+  # as read and write; the choice decides which one is the working copy.
   defp repository_choices(items) do
     names =
       for item <- items,
@@ -2050,7 +2052,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           name = present(item["description"]) || present(item["ref"]),
           do: name
 
-    ["<ul class=\"context-list\">", Enum.map(names, &["<li>", escape(&1), "</li>"]), "</ul>"]
+    [
+      "<dl class=\"context-rows\">",
+      Enum.map(names, &context_row(&1, "Read and write")),
+      "</dl><p>The one routing chooses can be changed; the others are mounted read only beside it.</p>"
+    ]
   end
 
   # The request a self-analysis looked at, in words.
@@ -2622,27 +2628,30 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
               "</time>"
             ]
         end,
-      footer:
+      # Where it came from and who sent it are in the card's header; a raw
+      # sender ID told a person nothing (Andrew, 2026-09-28). The files it
+      # carried show without a click and the raw event is the one fold: a
+      # "Details" fold holding only another fold was a click for nothing
+      # (Andrew, 2026-09-30).
+      footer: [
+        "<div class=\"context-message-details\">",
+        message_attachments(attachments(input)),
         Components.disclosure_html(
-          "Details",
-          [
-            # Where it came from and who sent it are in the card's header;
-            # a raw sender ID told a person nothing (Andrew, 2026-09-28).
-            "<dl class=\"context-rows\">",
-            message_detail("Attachments", attachments(input)),
-            "</dl>",
-            Components.disclosure_html(
-              "Raw event (JSON)",
-              ["<pre>", escape(raw), "</pre>"],
-              class: "context-message-raw"
-            )
-          ],
-          class: "context-message-details"
-        )
+          "Raw event (JSON)",
+          ["<pre>", escape(raw), "</pre>"],
+          class: "context-message-raw"
+        ),
+        "</div>"
+      ]
     )
   end
 
   defp message(_input, _total, _kind), do: []
+
+  defp message_attachments(nil), do: []
+
+  defp message_attachments(files),
+    do: ["<dl class=\"context-rows\">", message_detail("Attachments", files), "</dl>"]
 
   # Routing reads each message as actor, at and text; Work keeps the full
   # document with its provenance. Both render as the same message.

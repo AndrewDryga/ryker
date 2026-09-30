@@ -119,6 +119,39 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     refute routing =~ "andrewdryga-test"
   end
 
+  # Andrew, 2026-09-30, of the four names under "Repositories to choose from": "this could show
+  # which read/write modes available for each". Routing may only choose a repository work can
+  # change, and the one it chooses is the working copy while the rest are mounted read only.
+  test "each repository routing could choose says whether work may change it" do
+    routing =
+      %{
+        "repository_choices" => [
+          %{"description" => "AndrewDryga/emisar", "ref" => "andrewdryga-emisar"},
+          %{"ref" => "andrewdryga-test"}
+        ]
+      }
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.context", "choices")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    rows =
+      routing
+      |> LazyHTML.query(".context-rows > div")
+      |> Enum.map(fn row ->
+        {row |> LazyHTML.query("dt") |> LazyHTML.text(),
+         row |> LazyHTML.query("dd") |> LazyHTML.text()}
+      end)
+
+    assert rows == [
+             {"AndrewDryga/emisar", "Read and write"},
+             {"andrewdryga-test", "Read and write"}
+           ]
+
+    assert LazyHTML.text(routing) =~
+             "The one routing chooses can be changed; the others are mounted read only beside it."
+  end
+
   test "retained Work history exposes its messages, limits and summary availability" do
     # The live Work card hid all eleven retained messages and both summaries
     # because their bundle/manifest envelope differs from routing's flat shape.
@@ -1273,8 +1306,19 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert text =~ "Current message"
     assert text =~ "You"
     assert text =~ "21 Sep, 05:48:52 UTC"
-    assert text =~ "Details"
-    assert text =~ "Raw event (JSON)"
+
+    # Andrew, 2026-09-30, of a "Details" fold that held only "Raw event (JSON)": "can there be
+    # any details other than JSON? If not then why have one collapsible item within other one?"
+    # The raw event is each message's one fold.
+    footers = LazyHTML.query(document, ".ui-message-footer")
+
+    assert footers
+           |> LazyHTML.query("details > summary")
+           |> Enum.map(&String.trim(LazyHTML.text(&1))) == [
+             "Raw event (JSON)",
+             "Raw event (JSON)"
+           ]
+
     refute text =~ "Copy raw event"
     refute text =~ "Sender ID"
 

@@ -461,7 +461,7 @@ defmodule Ryker.ControlPlane.LabPage do
         data-phase={row.phase}
         role="status"
       >
-        <span class="lab-progress-bar" aria-hidden="true"><i></i></span><span class="lab-progress-status">{live_phase(
+        <span class="lab-progress-dot" aria-hidden="true"></span><span class="lab-progress-status">{live_phase(
           row.phase
         )}</span><span
           id={"lab-progress-elapsed-#{row.id}"}
@@ -475,7 +475,7 @@ defmodule Ryker.ControlPlane.LabPage do
         >Inspect this revision</.link>
       </p>
       <div :if={@typing} class="lab-typing-indicator" role="status" aria-label="Ryker is working">
-        <span class="lab-progress-bar" aria-hidden="true"><i></i></span>
+        <span class="lab-progress-dot" aria-hidden="true"></span>
         <span>Ryker is working on a reply</span>
       </div>
     </article>
