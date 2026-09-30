@@ -425,6 +425,70 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
            ]
   end
 
+  # Andrew, 2026-09-30, of PR #2's card in AndrewDryga/test: "why do I even need to click to
+  # review latest state?" A repository with no checks gives the same answer to every review, and
+  # a newer finished run is reviewed without a click, so the button could only repeat the check.
+  test "a change with no checks to run is offered as a draft without a re-check" do
+    %{claim: work, publication: blocked} =
+      PublicationFixture.reviewed!("no-checks-card", gate: "none")
+
+    assert blocked.status == :blocked
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: work.episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:no-checks-card",
+      payload: %{
+        "title" => "Implement no-checks-card",
+        "repository" => "ryker",
+        "prompt" => "Implement the change."
+      }
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+    assert projection.document["task_card"]["publication"]["controls"] == ["publish", "discard"]
+
+    assert {:ok, rendered} = Renderer.render(projection.document)
+    json = Jason.encode!(rendered)
+
+    assert json =~
+             "I saved the change exactly as it is. I can open it as a draft PR marked unverified."
+
+    refute json =~ "Review latest state"
+    refute json =~ "review the latest state"
+  end
+
+  # A check that could not start may start next time, so that one keeps its re-check.
+  test "a change whose checks could not start can still be checked again" do
+    %{claim: work} =
+      PublicationFixture.reviewed!("unstarted-checks-card",
+        gate: "startup_error",
+        gate_error: "docker: command not found"
+      )
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: work.episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:unstarted-checks-card",
+      payload: %{
+        "title" => "Implement unstarted-checks-card",
+        "repository" => "ryker",
+        "prompt" => "Implement the change."
+      }
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+
+    assert projection.document["task_card"]["publication"]["controls"] ==
+             ["publish", "update", "discard"]
+  end
+
   # Andrew, 2026-09-30, after Review latest state: "Action needed: Draft pull-request work needs
   # operator attention: coop_worker_command_timeout. again!!" The review was running; Ryker's own
   # wait for it had ended, as it does for any review longer than the wait. Nothing needed a person.

@@ -37,6 +37,7 @@ defmodule Ryker.Publication.Changeset do
     :published_at,
     :published_delivery_receipt,
     :published_delivery_receipt_fingerprint,
+    :publish_round,
     :recheck_rounds,
     :record_id,
     :recovery_generation,
@@ -108,6 +109,8 @@ defmodule Ryker.Publication.Changeset do
     |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
     |> validate_number(:fix_rounds, greater_than_or_equal_to: 0)
     |> validate_number(:recheck_rounds, greater_than_or_equal_to: 0)
+    |> validate_number(:publish_round, greater_than_or_equal_to: 0)
+    |> check_constraint(:publish_round, name: :episode_publication_publish_round_valid)
     |> check_constraint(:fix_rounds, name: :episode_publication_fix_loop_valid)
     |> check_constraint(:status, name: :episode_publication_identity_valid)
     |> check_constraint(:status, name: :episode_publication_review_valid)

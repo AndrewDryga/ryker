@@ -157,7 +157,11 @@ defmodule Ryker.Fixtures.Publication do
     |> Map.put("policy_findings", [])
   end
 
-  def approved!(suffix, options \\ []) do
+  @doc """
+  A publication whose review is stored and delivered, and nothing further: `reviewed` for a
+  passing gate, `blocked` for one that did not run.
+  """
+  def reviewed!(suffix, options \\ []) do
     %{claim: claim, publication: publication, repository: repository} =
       review_requested!(suffix, options)
 
@@ -199,12 +203,19 @@ defmodule Ryker.Fixtures.Publication do
         review_receipt
       )
 
+    %{claim: claim, publication: reviewed, repository: repository, review: review}
+  end
+
+  def approved!(suffix, options \\ []) do
+    %{claim: claim, publication: reviewed, repository: repository, review: review} =
+      reviewed!(suffix, options)
+
     {:ok, %{publication: approved}} =
       PublicationCustody.approve(%{
         actor_ref: "slack:user:U-operator",
         approval_ref: "interaction:publish:#{suffix}",
         occurred_at: DateTime.add(@now, 2, :second),
-        publication_ref: publication.ref,
+        publication_ref: reviewed.ref,
         target: %{
           conversation_ref: claim.episode.destination_conversation_ref,
           message_ref: reviewed.review_delivery_receipt["message_ref"],
@@ -334,13 +345,22 @@ defmodule Ryker.Fixtures.Publication do
     gate_error = Keyword.get(options, :gate_error)
 
     incomplete =
-      if gate == "passed",
-        do: %{},
-        else: %{
-          "gate_error" => gate_error,
-          "not_publishable_reasons" => ["The trusted gate could not start."],
-          "publishable" => false
-        }
+      case gate do
+        "passed" ->
+          %{}
+
+        # AndrewDryga/test's review for PR #2 (op_2e42e57d…, 2026-09-30): a repository with no
+        # checks has no gate error and one reason.
+        "none" ->
+          %{"not_publishable_reasons" => ["gate_not_configured"], "publishable" => false}
+
+        _unrun ->
+          %{
+            "gate_error" => gate_error,
+            "not_publishable_reasons" => ["The trusted gate could not start."],
+            "publishable" => false
+          }
+      end
 
     Map.merge(
       %{
