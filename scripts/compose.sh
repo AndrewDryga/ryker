@@ -215,10 +215,10 @@ case "$command" in
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-restore.XXXXXX")
     trap 'rm -rf -- "$scratch"' EXIT HUP INT TERM
     tar -xzf "$backup" -C "$scratch"
-    [ -r "$scratch/database.dump" ] && [ -r "$scratch/compose.env" ] || {
+    if [ ! -r "$scratch/database.dump" ] || [ ! -r "$scratch/compose.env" ]; then
       echo "The backup does not contain Ryker database and key custody." >&2
       exit 1
-    }
+    fi
 
     if [ -r "$env_file" ]; then
       for root in RYKER_CHECKPOINT_KEY RYKER_CREDENTIAL_KEY RYKER_STATE_TOOLS_TOKEN; do
