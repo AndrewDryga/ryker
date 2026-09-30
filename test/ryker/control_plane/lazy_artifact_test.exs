@@ -17,10 +17,11 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Endpoint, EpisodePage, EpisodeProjection, ModelRequests, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Work.{Custody, Submission, Turn}
+  alias Ryker.Work.{ActivityEvent, Custody, Session, Submission, Turn}
 
   @endpoint Endpoint
 
@@ -135,6 +136,35 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
     assert render(view) =~ String.duplicate("a", 200)
   end
 
+  # Andrew, 2026-09-30, of a failed pull request read on emisar#87's timeline: its Response and
+  # Error sat on "Loading…". Opening one projected the whole page again, 1.4 MB and 3.4 seconds
+  # there, before the body appeared. A tool's body is one row, read and sent back on its own.
+  test "a tool call's response opens at once, from its own row" do
+    work = work_with_prompt!("tool-response", "short")
+    response = %{"error" => "invalid_arguments", "limit" => 50}
+    event = tool_call!(work.episode, "call-response", response)
+    id = "activity-#{event.id}-output"
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _html} = live(conn, "/timeline/" <> URI.encode_www_form(work.episode.key))
+    assert render(view) =~ ~s(data-artifact="#{id}")
+
+    render_hook(view, "disclose", %{"artifact" => id})
+    assert_reply(view, %{"html" => html})
+    assert html =~ "invalid_arguments"
+    assert html =~ "copy-block"
+
+    # The page keeps it open through its next refresh, as for every opened body.
+    render_hook(view, "refresh", %{})
+    assert render(view) =~ "invalid_arguments"
+
+    # Only the page's own episode is read this way.
+    elsewhere = work_with_prompt!("tool-elsewhere", "short")
+    secret = tool_call!(elsewhere.episode, "call-elsewhere", %{"only" => "elsewhere-body"})
+    render_hook(view, "disclose", %{"artifact" => "activity-#{secret.id}-output"})
+    refute render(view) =~ "elsewhere-body"
+  end
+
   test "an unknown or oversized artifact reference discloses nothing" do
     work = work_with_prompt!("guarded", String.duplicate("a", 30_000))
     conn = build_conn() |> Map.put(:host, "localhost")
@@ -176,6 +206,35 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
       requests: nil,
       params: %{}
     )
+  end
+
+  defp tool_call!(episode, call_id, output) do
+    session = Repo.get_by!(Session, episode_id: episode.id)
+
+    payload = %{
+      "input" => %{
+        "arguments" => %{"number" => 87},
+        "server" => "controller-tools",
+        "tool" => "read_github_pull_request"
+      },
+      "output" => output,
+      "status" => "failed",
+      "title" => "mcp.controller-tools.read_github_pull_request",
+      "tool_call_id" => call_id
+    }
+
+    Repo.insert!(%ActivityEvent{
+      episode_id: episode.id,
+      kind: "tool.completed",
+      occurred_at: DateTime.utc_now(),
+      payload: payload,
+      payload_fingerprint: CanonicalJSON.digest(payload),
+      remote_event_id: "lazy-event:#{call_id}",
+      remote_session_id: "remote-session:#{session.id}",
+      sequence: 1,
+      session_id: session.id,
+      version: 1
+    })
   end
 
   defp work_with_prompt!(suffix, prompt) do

@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.EpisodeCausality
-  alias Ryker.InspectionRedactor
+  alias Ryker.{InspectionRedactor, Repo}
   alias Ryker.StateTools.{CallRecord, ErrorCode}
   alias Ryker.Work.{ActivityEvent, ActivityPaths}
 
@@ -513,6 +513,29 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   # command it ran, the file it read, the observation it recorded -- so making
   # them lazy would empty the row a reader scans instead of the body they open.
   @lazy_tool_fields ~w(output error content locations)
+
+  @doc """
+  The text behind one opened tool fold, read from its own row: what `steps/3` shows for it once
+  disclosed. `:error` for anything that is not a tool body of `episode_id`, which the page then
+  answers by projecting itself again, as for every other body.
+  """
+  @spec disclosed_body(String.t(), Ecto.UUID.t()) :: {:ok, String.t()} | :error
+  def disclosed_body("activity-" <> rest, episode_id) when is_binary(episode_id) do
+    with <<event_id::binary-size(36), "-", key::binary>> <- rest,
+         true <- key in @lazy_tool_fields,
+         {:ok, event_id} <- Ecto.UUID.cast(event_id),
+         %ActivityEvent{episode_id: ^episode_id, kind: kind, payload: %{} = payload}
+         when kind in ["tool.started", "tool.completed"] <- Repo.get(ActivityEvent, event_id),
+         {_label, value} when not is_nil(value) <- shown_artifact(payload, key, key),
+         %{state: :retained, text: text} when is_binary(text) <-
+           InspectionRedactor.artifact(value, max_bytes: 20_000, disclosed: true) do
+      {:ok, text}
+    else
+      _not_a_tool_body -> :error
+    end
+  end
+
+  def disclosed_body(_artifact_id, _episode_id), do: :error
 
   defp tool_artifacts(%ActivityEvent{payload: payload, id: event_id}, disclosed) do
     for {key, label} <- [

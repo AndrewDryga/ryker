@@ -53,7 +53,7 @@ function fixture(hash = "") {
       // No transcript on this page: the conversation anchor declines ownership.
       captureReadingAnchor: () => null, restoreReadingAnchor: () => false})
   const pushed = []
-  const mounted = Object.assign({el: root, pushEvent: (name, params) => pushed.push([name, params])}, hook)
+  const mounted = Object.assign({el: root, pushEvent: (name, params, reply) => pushed.push([name, params, reply])}, hook)
   return {hook: mounted, document, window, location, root, outer, response, nodes, listeners, scrolled,
     pushed, rootListeners,
     get body() { return body }, replaceFocusedBody() {
@@ -80,6 +80,29 @@ test("opening a lazily loaded body asks the server for exactly that artifact", (
   f.response.open = false
   f.rootListeners.get("toggle")({target: f.response})
   assert.equal(f.pushed.length, 1)
+})
+
+test("a body the server sends back with its reply replaces the loading line at once", () => {
+  // Andrew, 2026-09-30: a tool call's Response sat on "Loading…" while the whole timeline was
+  // projected again, 3.4 seconds on emisar#87's. The server now answers with that one body.
+  const f = fixture()
+  f.hook.mounted()
+  const loading = {outerHTML: '<p class="artifact-loading" role="status">Loading…</p>'}
+  f.response.querySelector = selector => selector === ".artifact-loading" ? loading : null
+  f.response.dataset.artifact = "activity-1-output"
+  f.response.open = true
+  f.rootListeners.get("toggle")({target: f.response})
+
+  const [, params, reply] = f.pushed[0]
+  assert.equal(params.artifact, "activity-1-output")
+  reply({html: '<div class="copy-block"><pre>{"error":"invalid_arguments"}</pre></div>'})
+  assert.equal(loading.outerHTML, '<div class="copy-block"><pre>{"error":"invalid_arguments"}</pre></div>')
+
+  // A body the server renders with the page instead leaves the placeholder for that render.
+  const other = {outerHTML: '<p class="artifact-loading" role="status">Loading…</p>'}
+  f.response.querySelector = selector => selector === ".artifact-loading" ? other : null
+  reply(undefined)
+  assert.equal(other.outerHTML, '<p class="artifact-loading" role="status">Loading…</p>')
 })
 
 test("a revoked body is closed and never reopened by the reader's earlier state", () => {

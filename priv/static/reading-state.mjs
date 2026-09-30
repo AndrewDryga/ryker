@@ -4,6 +4,14 @@ import {createConversationControls} from "./conversation.mjs"
 import {createComposer} from "./composer.mjs"
 import {captureReadingAnchor, restoreReadingAnchor} from "./history.mjs"
 
+// A tool call's body comes back with the reply to its disclosure, rather than
+// with the whole page projected again (3.4 s on a long timeline, 2026-09-30).
+// Any other body arrives with the page's next render.
+function fillDisclosed(node, reply) {
+  const loading = node.querySelector(".artifact-loading")
+  if (loading && typeof reply?.html === "string") loading.outerHTML = reply.html
+}
+
 // The shell hook: what a reader had open, typed, focused and scrolled to
 // survives every LiveView patch, and a fragment in the URL is revealed once.
 // The environment is the page's globals unless a test supplies its own.
@@ -58,7 +66,7 @@ export function createReadingStateHook(environment = {}) {
         const node = event.target
         if (node?.tagName !== "DETAILS" || !node.open) return
         const artifact = node.dataset?.artifact
-        if (artifact && !node.dataset.revoked) this.pushEvent("disclose", {artifact})
+        if (artifact && !node.dataset.revoked) this.pushEvent("disclose", {artifact}, reply => fillDisclosed(node, reply))
       }
       this.el.addEventListener("toggle", this.onToggle, true)
       this.onHashChange = () => {
