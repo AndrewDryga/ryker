@@ -1,7 +1,7 @@
 defmodule Ryker.WeeklyReportTest do
   @moduledoc """
-  The weekly report says how Ryker's week went, the way a teammate says it
-  at a standup, from the database alone. Every number and name in it comes
+  The weekly report says how Ryker's week went, the way a teammate writes a
+  weekly update in Slack, from the database alone. Every number and name in it comes
   from rows, so each test seeds known rows for this week and the weeks
   before, and holds the report to the exact words it must say. The model
   never writes a word of it.
@@ -21,6 +21,7 @@ defmodule Ryker.WeeklyReportTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Memories.MemoryEntry
+  alias Ryker.Publication.Followup
   alias Ryker.Settings
   alias Ryker.Slack.{ChannelMembership, Names}
   alias Ryker.WeeklyReport
@@ -35,10 +36,11 @@ defmodule Ryker.WeeklyReportTest do
     %{now: now, workspace: workspace}
   end
 
-  # "Empty parts say nothing rather than vanishing": a part that is left out
-  # reads as a good week, and a quiet week is exactly when a missing
-  # instrument goes unnoticed.
-  test "a quiet week says so, and Done, Still open and Stuck say Nothing rather than disappear" do
+  # A part with nothing to say is left out, so a quiet week is two lines.
+  # Saying "Nothing." under three headings read like a form, not a person
+  # (Andrew, 2026-09-30: "how a real human would send something like this
+  # to Slack?").
+  test "a quiet week says so in one line after the greeting" do
     week = %{
       from: ~U[2026-09-14 09:00:00.000000Z],
       to: ~U[2026-09-21 09:00:00.000000Z],
@@ -48,36 +50,27 @@ defmodule Ryker.WeeklyReportTest do
     report = WeeklyReport.compose(week, now: week.to, base_url: @base)
 
     assert report.text == """
-           **Weekly update**
-           Mon 14 Sep to Mon 21 Sep
+           Hey everyone 👋 Here's my weekly report for 14–21 Sep.
 
-           It was a quiet week: nobody asked me for anything.
-
-           **Done**
-           Nothing.
-
-           **Still open**
-           Nothing.
-
-           **Stuck**
-           Nothing is stuck.\
+           It was a quiet week: nobody asked me for anything.\
            """
 
-    assert Enum.map(report.sections, & &1.title) == ["Done", "Still open", "Stuck"]
-    assert report.closing == nil
+    across = %{week | from: ~U[2026-09-28 09:00:00.000000Z], to: ~U[2026-10-05 09:00:00.000000Z]}
+
+    assert WeeklyReport.compose(across, now: across.to, base_url: @base, preview: true).text =~
+             "Hey everyone 👋 Here's a preview of my weekly report for 28 Sep – 5 Oct.\n\n"
   end
 
-  # Andrew, 2026-09-28, of the report this replaced: "make it more like a
-  # human would say on weekly standup, what work it did, how much work
-  # handled, not going too deep into metrics that are not about value
-  # delivered". It counted messages read, routing corrections and model
-  # cost, and never said what Ryker got done.
-  test "the report says how much work Ryker did and what it got done, naming only requests from a public channel",
+  # Andrew, 2026-09-30, sketching the report he would write: "during last
+  # week I've handled X messages (on average reply took X, Y/X were answered
+  # on the spot while other needed a deeper work)". The report before said
+  # how many requests but never how many messages or how fast.
+  test "the report says how many messages Ryker handled and how fast, what it got done and what is still open, naming only requests from a public channel",
        %{now: now, workspace: workspace} do
     public = public_channel!(workspace, "CWORKPUBLIC")
     private = private_channel!(workspace, "CWORKPRIVATE")
 
-    # Finished this week, the one with a draft PR first.
+    # Finished this week, the one with a PR first.
     checkout =
       PublicationFixture.published!("weekly-#{workspace}",
         conversation_ref: public,
@@ -87,20 +80,31 @@ defmodule Ryker.WeeklyReportTest do
 
     title!(checkout.episode.id, "Fix the checkout alert")
 
-    staging = work_request!(workspace, public, "1790100001.000100", "Is staging healthy?")
+    # Each asked five minutes ago and answered now.
+    asked = DateTime.add(now, -300)
+
+    staging = work_request!(workspace, public, "1790100001.000100", "Is staging healthy?", asked)
     title!(staging.id, "Check staging health")
 
     # The same title twice in one channel is one line; the other is one more.
-    again = work_request!(workspace, public, "1790100002.000100", "Is staging healthy now?")
+    again =
+      work_request!(workspace, public, "1790100002.000100", "Is staging healthy now?", asked)
+
     title!(again.id, "Check staging health")
 
     payroll =
-      work_request!(workspace, private, "1790100003.000100", "What are the payroll totals?")
+      work_request!(
+        workspace,
+        private,
+        "1790100003.000100",
+        "What are the payroll totals?",
+        asked
+      )
 
     title!(payroll.id, "Payroll totals")
 
     # Asked two weeks ago and answered again this week: this week's work.
-    older = work_request!(workspace, public, "1790100004.000100", "Rotate the API key")
+    older = work_request!(workspace, public, "1790100004.000100", "Rotate the API key", asked)
     title!(older.id, "Rotate the API key")
     backdate!(Episode, older.id, DateTime.add(now, -14, :day))
 
@@ -117,33 +121,122 @@ defmodule Ryker.WeeklyReportTest do
     shadow = request!(public, :complete, "Replayed", now)
     Repo.update_all(from(e in Episode, where: e.id == ^shadow.id), set: [execution_mode: :shadow])
 
-    # Answered on the spot: a reply without a request behind it.
-    quick = message!(workspace, "CWORKPUBLIC", "1790100009.000100", "What time is it?")
-    Answers.quick_reply!(quick, "It is noon.", "1790100009.000200", now)
+    # Answered on the spot in half a minute: a reply without a request behind it.
+    quick =
+      message!(workspace, "CWORKPUBLIC", "1790100009.000100", "What time is it?",
+        at: DateTime.add(now, -45)
+      )
+
+    Answers.quick_reply!(quick, "It is noon.", "1790100009.000200", DateTime.add(now, -15))
 
     report = compose(now)
 
-    assert report.summary ==
-             "This week I worked on 8 requests and finished 5 of them. " <>
-               "I also answered 1 message on the spot and opened 1 draft PR."
+    # Five messages, four of them answered five minutes after they were
+    # asked: the typical reply is the middle one.
+    assert part(report, :work) == [
+             "This past week I handled 5 messages, and a typical reply took about 5 minutes. " <>
+               "I answered 1 of them on the spot; the rest needed deeper work. " <>
+               "I worked on 8 requests and finished 5 of them."
+           ]
 
     where = Names.destination(public)
 
-    # The one with a draft PR first, then the newest; the second "Check
-    # staging health" and the private request are the two more.
-    assert lines(report, :done) == [
+    # The one with a PR first, then the newest; the second "Check staging
+    # health" and the private request are the other two.
+    assert part(report, :done) == [
+             "Here's what I got done:",
              "- [Fix the checkout alert](#{@base}#{timeline(checkout.episode.key)}) in #{where} · " <>
-               "[draft PR #4](https://github.com/acme/checkout/pull/4)",
+               "[PR #4](https://github.com/acme/checkout/pull/4)",
              "- [Rotate the API key](#{@base}#{timeline(older.key)}) in #{where}",
              "- [Check staging health](#{@base}#{timeline(again.key)}) in #{where}",
-             "- and 2 more"
+             "",
+             "You can see the other 2 [here](#{@base}/activity?filter=done)."
            ]
 
-    assert lines(report, :open) == [
+    assert part(report, :pull_requests) == [
+             "I also opened 1 PR; it isn't merged yet. Still waiting for review:",
+             "- [#4 Implement weekly-#{workspace}](https://github.com/acme/checkout/pull/4) in #{where}"
+           ]
+
+    assert part(report, :open) == [
+             "2 requests are still open:",
              "- [Add a smoke test](#{@base}#{timeline(waiting.key)}) in #{where}, waiting for an answer",
              "- [Track Terraform run 42](#{@base}#{timeline(watching.key)}) in #{where}, " <>
                "watching for an update"
            ]
+
+    # Nothing is stuck and nobody said anything about the answers.
+    assert Enum.map(report.parts, & &1.key) == [:greeting, :work, :done, :pull_requests, :open]
+  end
+
+  # Andrew asked for how long a reply took "on average". In the week to 30
+  # Sep the live install's quick replies averaged half an hour, because one
+  # was delivered 28 hours after it was asked, while the middle one took 15
+  # seconds: an average would have told the channel Ryker was slow.
+  test "a typical reply is the middle one, so one late answer does not make the week look slow",
+       %{now: now, workspace: workspace} do
+    public = public_channel!(workspace, "CREPLYTIME")
+
+    for {seconds, index} <- Enum.with_index([10, 20, 30, 28 * 3_600], 1) do
+      asked =
+        message!(workspace, "CREPLYTIME", "179030000#{index}.000100", "Question #{index}",
+          at: DateTime.add(now, -seconds - 5)
+        )
+
+      Answers.quick_reply!(
+        asked,
+        "Answer #{index}.",
+        "179030000#{index}.000200",
+        DateTime.add(now, -5)
+      )
+    end
+
+    # A request answered two minutes after it was asked.
+    work_request!(
+      workspace,
+      public,
+      "1790300009.000100",
+      "Is the queue draining?",
+      DateTime.add(now, -120)
+    )
+
+    assert part(compose(now), :work) == [
+             "This past week I handled 5 messages, and a typical reply took about 30 seconds. " <>
+               "I answered 4 of them on the spot; the rest needed deeper work. " <>
+               "I worked on 1 request and finished it."
+           ]
+  end
+
+  # Andrew, 2026-09-30: "I also created X PRs (X already merged) ... Some PRs
+  # are still open and waiting for the review". The report counted the week's
+  # draft PRs and said nothing of merges or of the reviews people owed.
+  test "the report counts the PRs opened this week and merged since, and lists every PR still waiting for review",
+       %{now: now, workspace: workspace} do
+    public = public_channel!(workspace, "CPULLS")
+    private = private_channel!(workspace, "CPULLSPRIVATE")
+
+    merged = pull_request!(workspace, "merged", public, 11)
+    set_pull_request!(merged, pr_state: "merged", merged_at: now)
+    closed = pull_request!(workspace, "closed", public, 12)
+    set_pull_request!(closed, pr_state: "closed")
+    fresh = pull_request!(workspace, "fresh", public, 13)
+    secret = pull_request!(workspace, "secret", private, 14)
+    # Opened two weeks ago and still open: not this week's, still owed a review.
+    stale = pull_request!(workspace, "stale", public, 15)
+    set_pull_request!(stale, inserted_at: DateTime.add(now, -14, :day))
+
+    report = compose(now)
+    where = Names.destination(public)
+
+    assert part(report, :pull_requests) == [
+             "I also opened 4 PRs, and 1 is already merged. Still waiting for review:",
+             "- [#13 Implement weekly-#{workspace}-fresh](#{pr_url(fresh)}) in #{where}",
+             "- [#15 Implement weekly-#{workspace}-stale](#{pr_url(stale)}) in #{where}",
+             "- and 1 more"
+           ]
+
+    refute report.text =~ "weekly-#{workspace}-secret"
+    assert secret.publication.pull_request_number == 14
   end
 
   test "a week whose every request is private says how many, and names none",
@@ -155,9 +248,11 @@ defmodule Ryker.WeeklyReportTest do
 
     report = compose(now)
 
-    assert report.summary == "This week I worked on 2 requests and finished 1 of them."
-    assert lines(report, :done) == ["1 request in private conversations."]
-    assert lines(report, :open) == ["1 request in private conversations."]
+    assert part(report, :done) == [
+             "The request I finished was in a private conversation, so I'm not naming it here."
+           ]
+
+    assert part(report, :open) == ["1 request is still open, in a private conversation."]
   end
 
   test "stuck lists the failures open now that leave someone waiting, newest first",
@@ -172,7 +267,7 @@ defmodule Ryker.WeeklyReportTest do
 
     newest = entries |> Enum.reverse() |> Enum.take(3)
 
-    assert lines(compose(now), :stuck) ==
+    assert part(compose(now), :stuck) ==
              [
                "4 things need someone to look at them:"
                | Enum.map(newest, fn entry ->
@@ -182,9 +277,9 @@ defmodule Ryker.WeeklyReportTest do
              ] ++ ["- and 1 more on [Failures](#{@base}/failures)"]
   end
 
-  # How the work landed and what Ryker learned close the report in one line,
-  # and only when there is something to say. A topic is named only from a
-  # public channel.
+  # How people took the answers, in a word a person would use for it, and
+  # what Ryker learned close the report, and only when there is something to
+  # say. A topic is named only from a public channel.
   test "feedback and what Ryker learned close the report, naming a topic only from a public channel",
        %{now: now, workspace: workspace} do
     public = public_channel!(workspace, "CLEARNED")
@@ -201,9 +296,26 @@ defmodule Ryker.WeeklyReportTest do
     topic!(workspace, public, "Release process", DateTime.add(now, -1_800))
     topic!(workspace, "slack:#{workspace}:DPRIVATE", "Salary bands", DateTime.add(now, -600))
 
-    assert compose(now).closing ==
-             "Feedback this week: 2 positive and 1 negative. " <>
-               "I learned 3 new things, most recently about “Release process”."
+    assert part(compose(now), :closing) == [
+             "Overall, feedback was mostly positive: 2 positive and 1 negative. " <>
+               "I also learned 3 new things, most recently about “Release process”."
+           ]
+  end
+
+  test "feedback all one way, or evenly split, says so plainly",
+       %{now: now, workspace: workspace} do
+    public = public_channel!(workspace, "CMOOD")
+    request = work_request!(workspace, public, "1790210001.000100", "Is the cache warm?")
+
+    signal!(request, :reaction_added, "+1", "first", DateTime.add(now, -600))
+    assert part(compose(now), :closing) == ["The one piece of feedback I got was positive."]
+
+    signal!(request, :reaction_added, "tada", "second", DateTime.add(now, -500))
+    assert part(compose(now), :closing) == ["All 2 pieces of feedback I got were positive."]
+
+    signal!(request, :asked_again, nil, "third", DateTime.add(now, -400))
+    signal!(request, :asked_again, nil, "fourth", DateTime.add(now, -300))
+    assert part(compose(now), :closing) == ["Feedback was mixed: 2 positive and 2 negative."]
   end
 
   # -- The week ------------------------------------------------------------------------
@@ -218,8 +330,12 @@ defmodule Ryker.WeeklyReportTest do
     )
   end
 
-  defp lines(report, key),
-    do: report.sections |> Enum.find(&(&1.key == key)) |> Map.fetch!(:lines)
+  defp part(report, key) do
+    case Enum.find(report.parts, &(&1.key == key)) do
+      nil -> nil
+      part -> part.lines
+    end
+  end
 
   defp backdate!(schema, id, field \\ :inserted_at, at) do
     {1, _} = Repo.update_all(from(row in schema, where: row.id == ^id), set: [{field, at}])
@@ -245,10 +361,10 @@ defmodule Ryker.WeeklyReportTest do
     )
   end
 
-  # A request Ryker answered this week.
-  defp work_request!(workspace, "slack:" <> _ = conversation, ts, question) do
+  # A request Ryker answered now, asked at `at` when given.
+  defp work_request!(workspace, "slack:" <> _ = conversation, ts, question, at \\ nil) do
     channel = conversation |> String.split(":") |> List.last()
-    asked = message!(workspace, channel, ts, question)
+    asked = message!(workspace, channel, ts, question, if(at, do: [at: at], else: []))
 
     reply =
       Answers.work_reply!(
@@ -333,6 +449,26 @@ defmodule Ryker.WeeklyReportTest do
 
     "slack:#{workspace}:#{channel}"
   end
+
+  # -- Pull requests -------------------------------------------------------------------
+
+  # A PR Ryker opened now for a request in `conversation`.
+  defp pull_request!(workspace, name, conversation, number) do
+    PublicationFixture.published!("weekly-#{workspace}-#{name}",
+      conversation_ref: conversation,
+      github_repository: "acme/#{name}",
+      pull_request_number: number
+    )
+  end
+
+  defp set_pull_request!(%{publication: publication}, changes) do
+    {1, _} =
+      Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
+        set: changes
+      )
+  end
+
+  defp pr_url(%{publication: publication}), do: publication.pull_request_url
 
   # -- Feedback and what Ryker learned -------------------------------------------------
 
