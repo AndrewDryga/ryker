@@ -238,6 +238,42 @@ back to the provider model when the local answer is invalid or unsure, or for wo
 larger model. The agreement phase 1 measures, and what the provider spent on the messages the local
 model agreed on, say whether that is worth building and what it would save.
 
+## Voice messages
+
+Ryker reads Slack voice messages, and audio or video sent to Chat, as the words spoken in them.
+Out of the box it transcribes inside its container with whisper's small base model, which is
+quick and good with English, and weak with other languages: it wrote a message that went from
+Ukrainian to English to Spanish as Russian and Portuguese.
+
+On a Mac, run whisper's large-v3 on the GPU instead:
+
+```bash
+scripts/voice-service.sh install    # whisper.cpp from Homebrew, the 3.1 GB model, two launchd services
+```
+
+Then set these in `.ryker/compose.env` and run `scripts/compose.sh start`, which recreates the
+Ryker container with them:
+
+```bash
+RYKER_WHISPER_URL=http://host.docker.internal:8178
+RYKER_WHISPER_DETECT_URL=http://host.docker.internal:8179
+RYKER_VOICE_LANGUAGES=uk,en,es   # the languages people speak here, as two-letter codes
+```
+
+Ryker cuts a recording at its pauses and reads each part in its own language, chosen among the
+languages people speak here, preferring the language of the whole recording: whisper is sure of
+a whole recording and unsure of a few seconds of it, and read short Ukrainian parts as
+Portuguese, Croatian or Russian until the choice was narrowed. Both servers listen only on
+127.0.0.1; `scripts/voice-service.sh status` says whether they answer, and `uninstall` stops
+them.
+
+On an M3 Pro a 33-second message takes 24 seconds and a five-minute one 67, after Slack has been
+answered. A recording gets 90 seconds whichever model reads it, and routing waits three minutes
+for a message's words, two recordings' worth. When whisper cannot be reached, fails, answers
+something Ryker cannot read, or stops answering, Ryker's own model reads the recording in the time
+left, so no voice message is lost to a stopped or upgraded service; the log says
+`whisper service ...` with the reason.
+
 ## Weekly report
 
 Settings › Weekly report turns on one post a week in a Slack channel, at a day, time and zone you

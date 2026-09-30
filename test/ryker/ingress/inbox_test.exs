@@ -638,17 +638,17 @@ defmodule Ryker.Ingress.InboxTest do
   end
 
   # A voice message is recorded before its words are known. Words that never
-  # come must not hold its conversation for good: two minutes after it was
+  # come must not hold its conversation for good: three minutes after it was
   # recorded routing takes it and reads that Ryker could not transcribe it,
   # and words that turn up afterwards change nothing routing read.
-  test "a voice message whose transcript never comes is routed after two minutes saying so" do
+  test "a voice message whose transcript never comes is routed after three minutes saying so" do
     assert {:ok, %{entry: voice}} = Inbox.record(voice_input!("Ev-voice-deadline"))
 
     # A later message in its conversation keeps its place behind it.
     assert {:ok, %{entry: _later}} =
              Inbox.record(input!(event_ref: "Ev-after-voice", message_ref: "1787832001.000100"))
 
-    deadline = DateTime.add(voice.inserted_at, 120, :second)
+    deadline = DateTime.add(voice.inserted_at, 180, :second)
     assert {:ok, nil} = Inbox.claim_next("routing:test", DateTime.add(deadline, -1, :second), 60)
 
     # Routing sleeps until then. The due time is a database aggregate, which

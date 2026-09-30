@@ -73,6 +73,11 @@ services:
       RYKER_BUNDLED_COOP_WORKSPACE: ryker-compose
       RYKER_BUNDLED_COOP_SHARED: /var/lib/ryker-coop
       LOG_LEVEL: ${RYKER_LOG_LEVEL:-info}
+      # Voice messages on whisper servers outside the container, such as the
+      # Mac's GPU (scripts/voice-service.sh); empty uses Ryker's own model.
+      RYKER_WHISPER_URL: ${RYKER_WHISPER_URL:-}
+      RYKER_WHISPER_DETECT_URL: ${RYKER_WHISPER_DETECT_URL:-}
+      RYKER_VOICE_LANGUAGES: ${RYKER_VOICE_LANGUAGES:-}
     volumes:
       - ryker-state:/var/lib/ryker
       - ryker-coop-config:/var/lib/ryker-coop

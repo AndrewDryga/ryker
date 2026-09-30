@@ -5,9 +5,13 @@ defmodule Ryker.Transcription do
 
   A transcriber takes a recording's bytes and returns its words. Every
   recording is bounded the same way wherever it came from: at most
-  `maximum_bytes/0` and `maximum_seconds/0` long, and a transcriber gives up
-  after its own time limit. `Ryker.Transcription.Local` runs inside Ryker's
-  container; tests use a stand-in that runs no model.
+  `maximum_bytes/0` and `maximum_seconds/0` long, read in
+  `recording_seconds/0` whichever model reads it. `Ryker.Transcription.Service`
+  sends it to whisper servers outside the container when they are configured
+  (large-v3 on the Mac's GPU, `scripts/voice-service.sh`), and
+  `Ryker.Transcription.Local` runs Ryker's own small model inside the
+  container otherwise, or in the time left when those servers fail. Tests use
+  a stand-in that runs no model.
 
   A recording's file descriptor carries the outcome beside the stored file:
   `"transcript"` with the words, or `"transcript_unavailable"` saying plainly
@@ -24,9 +28,12 @@ defmodule Ryker.Transcription do
   @maximum_seconds 300
   # Five minutes of fast speech is about 5 KB of text.
   @maximum_transcript_bytes 8_192
-  # A transcription gives up after a minute, and a message holds at most two
-  # recordings; a transcript not ready in two minutes is not coming.
-  @wait_seconds 120
+  # A recording gets a minute and a half whichever model reads it: whisper
+  # large-v3 on an M3 Pro read five minutes of speech in 67 s, past the
+  # minute this once was. A Slack message holds at most two recordings, so a
+  # transcript not ready in three minutes is not coming.
+  @recording_seconds 90
+  @wait_seconds 2 * @recording_seconds
   @outcome_fields ~w(transcript transcript_pending transcript_unavailable)
 
   @type failure :: :too_large | :too_long | :no_speech | :timeout | :unavailable | :failed
@@ -35,17 +42,22 @@ defmodule Ryker.Transcription do
   @callback transcribe(data :: binary(), options :: keyword()) :: result()
 
   @doc """
-  The transcriber Slack and Chat use: the local one, or the stand-in the test
-  configuration names, so no test runs a model.
+  The transcriber Slack and Chat use: whisper servers when they are
+  configured, else Ryker's own model, or the stand-in the test configuration
+  names, so no test runs a model.
   """
   @spec transcriber() :: module()
-  def transcriber, do: Application.get_env(:ryker, :transcriber, Ryker.Transcription.Local)
+  def transcriber, do: Application.get_env(:ryker, :transcriber, Ryker.Transcription.Service)
 
   @spec maximum_bytes() :: pos_integer()
   def maximum_bytes, do: @maximum_bytes
 
   @spec maximum_seconds() :: pos_integer()
   def maximum_seconds, do: @maximum_seconds
+
+  @doc "How long one recording may take to read, whichever model reads it."
+  @spec recording_seconds() :: pos_integer()
+  def recording_seconds, do: @recording_seconds
 
   @doc "How long routing waits for a recording's transcript before it reads that there is none."
   @spec wait_seconds() :: pos_integer()

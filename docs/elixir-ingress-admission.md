@@ -234,7 +234,7 @@ LOCKED`; an opaque expiring lease fences the eventual decision and retry update.
 
 A voice message is recorded before its words are known, so Slack's acknowledgement never waits for
 a transcription. It is not eligible until the transcription worker fills in its transcript, or until
-two minutes after it arrived, when the claim that takes it records that Ryker could not transcribe
+three minutes after it arrived, when the claim that takes it records that Ryker could not transcribe
 it. Later messages in its conversation keep their place behind it. The event fingerprint leaves out
 what Ryker derives from a recording (its transcript, why it has none, or that it is still to come),
 so a redelivery before or after the words, and the decision's commit, all read the same event.

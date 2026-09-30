@@ -45,15 +45,47 @@ defmodule Ryker.Transcription.Local do
 
   def transcribe(_data, _options), do: {:error, :failed}
 
+  @doc """
+  The recording as 16 kHz mono WAV, cut at its pauses, handed to `function` as
+  the whole file's path and its parts' paths, in a working directory removed
+  afterwards. `Ryker.Transcription.Service` prepares recordings this way for
+  whisper servers outside the container. What `function` returns is returned;
+  a recording that cannot be prepared returns why.
+  """
+  @spec with_parts(binary(), keyword(), (String.t(), [String.t()] -> result)) ::
+          result | {:error, Transcription.failure()}
+        when result: term()
+  def with_parts(data, options, function)
+      when is_binary(data) and data != "" and is_list(options) and is_function(function, 2) do
+    settings = settings(options)
+
+    cond do
+      byte_size(data) > settings.maximum_bytes ->
+        {:error, :too_large}
+
+      not ffmpeg?(settings) ->
+        {:error, :unavailable}
+
+      true ->
+        in_directory(settings.tmp_dir, &prepared(data, &1, settings, function))
+    end
+  end
+
+  def with_parts(_data, _options, _function), do: {:error, :failed}
+
+  defp prepared(data, directory, settings, function) do
+    deadline = System.monotonic_time(:millisecond) + settings.timeout_ms
+
+    case prepare(data, directory, settings, deadline) do
+      {:ok, wav, parts} -> function.(wav, parts)
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
   defp transcribe_in(data, directory, settings) do
     deadline = System.monotonic_time(:millisecond) + settings.timeout_ms
-    recording = Path.join(directory, "recording")
-    wav = Path.join(directory, "recording.wav")
 
-    with :ok <- File.write(recording, data),
-         :ok <- run(settings.ffmpeg, convert(recording, wav, settings), deadline),
-         :ok <- within_length(wav, settings),
-         {:ok, parts} <- write_parts(wav, directory),
+    with {:ok, _wav, parts} <- prepare(data, directory, settings, deadline),
          :ok <- run(settings.whisper, recognize(parts, settings), deadline),
          {:ok, text} <- read_parts(parts) do
       case Transcription.words(text) do
@@ -61,10 +93,24 @@ defmodule Ryker.Transcription.Local do
         :error -> {:error, :no_speech}
       end
     else
-      {:error, reason} when reason in [:timeout, :too_long, :no_speech] -> {:error, reason}
-      {:error, _reason} -> {:error, :failed}
+      {:error, reason} -> {:error, failure(reason)}
     end
   end
+
+  defp prepare(data, directory, settings, deadline) do
+    recording = Path.join(directory, "recording")
+    wav = Path.join(directory, "recording.wav")
+
+    with :ok <- File.write(recording, data),
+         :ok <- run(settings.ffmpeg, convert(recording, wav, settings), deadline),
+         :ok <- within_length(wav, settings),
+         {:ok, parts} <- write_parts(wav, directory) do
+      {:ok, wav, parts}
+    end
+  end
+
+  defp failure(reason) when reason in [:timeout, :too_long, :no_speech], do: reason
+  defp failure(_reason), do: :failed
 
   # Each part of the recording as a WAV file of its own, in order.
   defp write_parts(wav, directory) do
@@ -231,9 +277,10 @@ defmodule Ryker.Transcription.Local do
   end
 
   defp executables?(settings) do
-    is_binary(settings.ffmpeg) and File.regular?(settings.ffmpeg) and
-      File.regular?(settings.whisper) and File.regular?(settings.model)
+    ffmpeg?(settings) and File.regular?(settings.whisper) and File.regular?(settings.model)
   end
+
+  defp ffmpeg?(settings), do: is_binary(settings.ffmpeg) and File.regular?(settings.ffmpeg)
 
   defp settings(options) do
     %{
