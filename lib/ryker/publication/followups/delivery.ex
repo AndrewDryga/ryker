@@ -113,18 +113,19 @@ defmodule Ryker.Publication.Followups.Delivery do
     updated_event
   end
 
-  defp wakeup_input(_publication, episode, %LifecycleEvent{kind: "review_feedback"} = event) do
+  defp wakeup_input(_publication, _episode, %LifecycleEvent{kind: "review_feedback"} = event) do
     observation = event.observation
 
     {:ok, input} =
       Input.new(%{
         actor: feedback_actor(observation),
         content: Map.fetch!(observation, "content"),
-        destination: %{
-          conversation_ref: episode.destination_conversation_ref,
-          thread_ref: episode.destination_thread_ref,
-          transport: episode.destination_transport
-        },
+        # Answered where it was written. Andrew, 2026-09-28: GitHub feedback
+        # was answered in the task's Slack thread, not on the pull request
+        # where it was asked. A turn's answer goes to the destination of the
+        # input it answers (`Ryker.Work.Custody.Delivery.answer_target/2`):
+        # the comment's pull request, or its own review thread.
+        destination: feedback_destination(observation),
         event_kind: feedback_event_kind(observation),
         event_ref: event.ref,
         native_input_id: Map.fetch!(observation, "native_input_id"),
@@ -199,10 +200,16 @@ defmodule Ryker.Publication.Followups.Delivery do
         "Verify the deployed change against current authoritative evidence and report the result in the source task thread."
     }
 
+  # The episode keeps its home destination; the input keeps its own, which is
+  # where its answer goes (its origin, `Ryker.Episodes.Origins`).
   defp admit_command(episode, input, event) do
     %Command.AdmitInput{
       actor_ref: Input.actor_ref(input),
-      destination: input.destination,
+      destination: %{
+        conversation_ref: episode.destination_conversation_ref,
+        thread_ref: episode.destination_thread_ref,
+        transport: episode.destination_transport
+      },
       episode_id: episode.id,
       episode_key: episode.key,
       linked_episode_id: episode.linked_episode_id,
@@ -219,6 +226,15 @@ defmodule Ryker.Publication.Followups.Delivery do
 
   defp publication_turn_ref(%LifecycleEvent{id: id}),
     do: "turn:publication-verification:#{id}"
+
+  defp feedback_destination(%{
+         "destination" => %{
+           "conversation_ref" => conversation_ref,
+           "thread_ref" => thread_ref,
+           "transport" => transport
+         }
+       }),
+       do: %{conversation_ref: conversation_ref, thread_ref: thread_ref, transport: transport}
 
   defp feedback_actor(%{"actor" => %{"kind" => kind, "ref" => ref}}),
     do: %{kind: feedback_actor_kind(kind), ref: ref}

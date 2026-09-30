@@ -13,7 +13,6 @@ defmodule Ryker.Work.Executor.Validation do
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.{PlatformActionCustody, Presentation}
   alias Ryker.Records
-  alias Ryker.Slack.Mentions
   alias Ryker.Work.{Custody, FinalPreflight, StateBinding, Validator}
   alias Ryker.Work.Executor.{Remote, Turns}
 
@@ -56,7 +55,7 @@ defmodule Ryker.Work.Executor.Validation do
   end
 
   defp prepare_accepted_validation(claim, message, sha256, attempt, artifacts, final, result) do
-    case Presentation.validate(claim.episode, claim.turn.id, final) do
+    case Presentation.validate(claim.episode, claim.turn, final) do
       :ok ->
         ensure_final_preflight(claim, message, sha256, attempt, artifacts, result)
 
@@ -354,7 +353,7 @@ defmodule Ryker.Work.Executor.Validation do
          Outputs.delivery_supported?(claim.episode)
        )
        |> Map.put_new("open_required_goals", Records.open_required_goals(claim.episode.id))
-       |> Map.put("slack_mentions", Mentions.authority(claim.episode))
+       |> Map.put("slack_mentions", Custody.Delivery.answer_mentions(claim.episode, claim.turn))
        |> Map.put("workspace", workspace)}
     end
   end
@@ -370,7 +369,7 @@ defmodule Ryker.Work.Executor.Validation do
       "execution_mode" => Atom.to_string(claim.episode.execution_mode),
       "open_required_goals" => Records.open_required_goals(claim.episode.id),
       "records" => validation_records(claim.episode.id, claim.turn.id),
-      "slack_mentions" => Mentions.authority(claim.episode),
+      "slack_mentions" => Custody.Delivery.answer_mentions(claim.episode, claim.turn),
       "visible_reply_required" =>
         claim.episode.execution_mode == :live and visible_reply_required?(context),
       "workspace" => nil

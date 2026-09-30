@@ -16,6 +16,7 @@ defmodule Ryker.Work.Custody.Delivery do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Origin}
   alias Ryker.Repo
+  alias Ryker.Slack.Mentions
   alias Ryker.Waits.EventSubscriptions
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.Custody
@@ -636,6 +637,18 @@ defmodule Ryker.Work.Custody.Delivery do
   @spec answer_target(Episode.t(), Turn.t()) :: map()
   def answer_target(%Episode{} = episode, %Turn{} = turn),
     do: Map.merge(home_target(episode), reply_target(episode, turn) || %{})
+
+  @doc """
+  Whom this turn's answer may name in Slack: the thread's authority when the
+  answer goes to Slack, none when it goes elsewhere, such as a comment on a
+  Slack task's pull request answered on GitHub, where a Slack mention names
+  nobody.
+  """
+  @spec answer_mentions(Episode.t(), Turn.t()) :: map() | nil
+  def answer_mentions(%Episode{} = episode, %Turn{} = turn) do
+    if answer_target(episode, turn)["transport"] == "slack",
+      do: Mentions.authority(episode)
+  end
 
   @doc false
   @spec reply_target(Episode.t(), Turn.t()) :: map() | nil

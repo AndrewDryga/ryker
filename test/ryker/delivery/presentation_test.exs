@@ -12,34 +12,34 @@ defmodule Ryker.Delivery.PresentationTest do
   alias Ryker.Repo
   alias Ryker.Slack.ReplyRecords
   alias Ryker.Work.Custody
-  alias Ryker.Work.Final
+  alias Ryker.Work.{Final, Turn}
 
   @policy_digest String.duplicate("a", 64)
 
   test "a visible result is renderable only at its exact supported destination" do
     final = final!(:reply)
 
-    assert :ok = Presentation.validate(episode("slack"), Ecto.UUID.generate(), final)
-    assert :ok = Presentation.validate(episode("github"), Ecto.UUID.generate(), final)
-    assert :ok = Presentation.validate(episode("control_plane"), Ecto.UUID.generate(), final)
-    assert :ok = Presentation.validate(episode("eval"), Ecto.UUID.generate(), final)
+    assert :ok = Presentation.validate(episode("slack"), turn(), final)
+    assert :ok = Presentation.validate(episode("github"), turn(), final)
+    assert :ok = Presentation.validate(episode("control_plane"), turn(), final)
+    assert :ok = Presentation.validate(episode("eval"), turn(), final)
 
-    assert Presentation.validate(episode("webhook"), Ecto.UUID.generate(), final) ==
+    assert Presentation.validate(episode("webhook"), turn(), final) ==
              {:error, {:invalid_delivery_presentation, {:unsupported_transport, "webhook"}}}
   end
 
   test "a silent result has no platform presentation to validate" do
     assert :ok =
-             Presentation.validate(episode("webhook"), Ecto.UUID.generate(), final!(:none))
+             Presentation.validate(episode("webhook"), turn(), final!(:none))
   end
 
   test "presentation refuses missing durable records and malformed calls" do
     final = final!(:reply, ["record:missing"])
 
-    assert Presentation.validate(episode("slack"), Ecto.UUID.generate(), final) ==
+    assert Presentation.validate(episode("slack"), turn(), final) ==
              {:error, :state_record_not_found}
 
-    assert Presentation.validate(%{}, Ecto.UUID.generate(), final) ==
+    assert Presentation.validate(%{}, turn(), final) ==
              {:error, {:invalid_delivery_presentation, :document}}
   end
 
@@ -62,7 +62,7 @@ defmodule Ryker.Delivery.PresentationTest do
              })
 
     final = final!(:reply, [action.action_ref])
-    assert :ok = Presentation.validate(claim.episode, claim.turn.id, final)
+    assert :ok = Presentation.validate(claim.episode, claim.turn, final)
     assert {:ok, []} = ReplyRecords.fetch(claim.episode.id, [action.action_ref])
   end
 
@@ -86,7 +86,7 @@ defmodule Ryker.Delivery.PresentationTest do
         record.ref
       end)
 
-    assert :ok = Presentation.validate(claim.episode, claim.turn.id, final!(:reply, refs))
+    assert :ok = Presentation.validate(claim.episode, claim.turn, final!(:reply, refs))
     assert length(Records.retained_records(claim.episode.id)) == 51
   end
 
@@ -111,7 +111,7 @@ defmodule Ryker.Delivery.PresentationTest do
 
     assert Presentation.validate(
              claim.episode,
-             claim.turn.id,
+             claim.turn,
              final!(:reply, [record.ref])
            ) ==
              {:error, {:invalid_delivery_presentation, {:invalid_control_plane_card, record.ref}}}
@@ -149,6 +149,9 @@ defmodule Ryker.Delivery.PresentationTest do
       id: Ecto.UUID.generate()
     }
   end
+
+  # A turn with no input of its own answers at the episode's home.
+  defp turn, do: %Turn{id: Ecto.UUID.generate(), selected_input_refs: []}
 
   defp final!(:reply) do
     final!(:reply, [])
