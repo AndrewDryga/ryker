@@ -172,6 +172,29 @@ compares with what routing decided, not with a right answer: it shows what a pro
 and whether each move is better is for a person to read on the request's page. The export holds
 what people said: keep it outside the repository; the report holds only identities and decisions.
 
+### Self-analysis replay
+
+A change to the self-analysis instructions or contract (`Ryker.Improvement.Prompt`) needs a
+self-analysis replay. It asks each recorded analysis again, the same evidence under today's
+instructions and contract, on the eval worker. The runs are exported from the database, one
+`{"run_id", "prompt", "result"}` object per line:
+
+```bash
+docker exec ryker-database-1 psql -XAt -U ryker -d ryker -c \
+  "select json_build_object('run_id', id, 'prompt', prompt, 'result', result)::text
+   from improvement_analysis_runs where result is not null order by inserted_at" \
+  > /absolute/analysis-runs.jsonl
+export RYKER_EVAL_IMPROVEMENT_TARGET='<provider:model/effort@account>'
+make eval-improvement-replay RUNS=/absolute/analysis-runs.jsonl
+```
+
+Use the model live analysis runs on (the learning policy's). An answer the host could not keep is
+sent back for repair. The report counts the diagnoses that put the fault in the same place (the
+same category and step; the words and confidence are reported, not compared) and lists each that
+moved. The first recorded run, the task behind PR #2 on 2026-09-30, stayed the same on
+`codex:gpt-5.6-luna/high`. The prompts hold what people said: keep the export outside the
+repository.
+
 ### Eval cases from feedback
 
 Feedback › What to fix lists the requests people were unhappy with, each with Ryker's own

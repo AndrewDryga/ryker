@@ -1,0 +1,7 @@
+{
+  "category": "unclear",
+  "confidence": "low",
+  "expected": "Adds the requested section in an isolated working copy, commits only README.md, runs appropriate checks and reports their results, and leaves main unchanged. Uses Ryker’s publication flow without pushing Git from the model runtime, and accurately reports whether the branch and draft PR are published or still pending. Additional edits correspond to an explicit follow-up request.",
+  "step": "work",
+  "what_went_wrong": "The person requested a README-only commit, appropriate checks, and publication through Ryker’s flow while leaving main unchanged. Routing correctly selected that work. The first answer reported the commit but gave no check results or publication status; later answers said PR #2 needed no update, then reported an additional committed line awaiting publication. These replies leave completion unclear, but do not establish the underlying fault. Work prompts, tool arguments and results, and the triggers for the later turns are unavailable, and the operator’s needs_work rating has no explanation. Failed tool calls alone do not establish a host bug."
+}
