@@ -5,6 +5,7 @@ defmodule Ryker.Evals.RuntimeTest do
   # installation's repositories, destinations or reviewed grants.
   use ExUnit.Case, async: false
 
+  alias Ryker.CoopFleet.Server, as: FleetServer
   alias Ryker.Defaults
   alias Ryker.Evals.Runtime
 
@@ -64,7 +65,7 @@ defmodule Ryker.Evals.RuntimeTest do
     assert {:ok, world} = Runtime.world()
 
     options =
-      Ryker.CoopFleet.Server.options!(Map.put(world.gateway, :state_tools, world.state_tools))
+      FleetServer.options!(Map.put(world.gateway, :state_tools, world.state_tools))
 
     assert String.starts_with?(options.body_root, state)
   end

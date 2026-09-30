@@ -7,7 +7,6 @@ defmodule Ryker.StateTools.WorkStateTools do
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
   alias Ryker.Records.DerivedContext
-  alias Ryker.Slack.Mentions
   alias Ryker.Work.{Custody, Final, FinalPreflight, Validator}
 
   @spec get_work_state(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -61,7 +60,7 @@ defmodule Ryker.StateTools.WorkStateTools do
     # creating delivery custody.
     with {:accept, %{final: final}} <-
            Validator.validate(candidate_json, validation_context, DateTime.utc_now()),
-         :ok <- Presentation.validate(binding.episode, binding.turn.id, final),
+         :ok <- Presentation.validate(binding.episode, binding.turn, final),
          {:ok, _turn} <-
            Custody.record_final_preflight(
              binding.episode.id,
@@ -106,7 +105,7 @@ defmodule Ryker.StateTools.WorkStateTools do
       "execution_mode" => Atom.to_string(binding.episode.execution_mode),
       "open_required_goals" => Records.open_required_goals(binding.episode.id),
       "records" => validation_records(binding.episode.id, binding.turn.id),
-      "slack_mentions" => Mentions.authority(binding.episode),
+      "slack_mentions" => Custody.Delivery.answer_mentions(binding.episode, binding.turn),
       "visible_reply_required" => true,
       "workspace" => nil
     }

@@ -16,25 +16,11 @@ defmodule Ryker.GitHub.EndToEndTest do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.Publisher, as: SlackPublisher
-  alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
+  alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI, GitHubRequester}
   alias Ryker.Work.{Custody, Dispatcher, Executor, Final, Session, SubmissionBuilder, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @secret String.duplicate("s", 32)
-
-  defmodule GitHubRequester do
-    def start(responses), do: Agent.start_link(fn -> %{requests: [], responses: responses} end)
-
-    def request(agent, method, path, document, headers) do
-      Agent.get_and_update(agent, fn state ->
-        [response | remaining] = state.responses
-        request = {method, path, document, headers}
-        {response, %{state | requests: state.requests ++ [request], responses: remaining}}
-      end)
-    end
-
-    def requests(agent), do: Agent.get(agent, & &1.requests)
-  end
 
   defmodule FollowupStatusAPI do
     def get_publication_status(_client, _repository, _number), do: {:error, :not_used}
@@ -144,7 +130,13 @@ defmodule Ryker.GitHub.EndToEndTest do
            ] = GitHubRequester.requests(requester)
   end
 
-  test "a signed inline review continues the Slack engineering task in its original Work session" do
+  # Andrew, 2026-09-28, of three comments and a review on AndrewDryga/test#2:
+  # "gh integration doesn't work?" Once GitHub's events reached Ryker, the
+  # task answered them in its Slack thread, where nobody on the pull request
+  # would see it; he asked for the answer on GitHub, where it was asked. An
+  # inline comment is answered in its own review thread, in the task's
+  # original Work session, and Slack gets nothing.
+  test "an inline review on a Slack task's pull request is answered in its review thread" do
     %{episode: episode, publication: publication} =
       PublicationFixture.published!("github-review-e2e",
         conversation_ref: "slack:TB14ADAF3E1AF:C456",
@@ -283,31 +275,46 @@ defmodule Ryker.GitHub.EndToEndTest do
     assert current["content"]["content"]["event_name"] == "pull_request_review_comment"
     assert current["content"]["content"]["payload"] == payload
 
+    assert Custody.Delivery.answer_target(work_claim.episode, execution.turn) == %{
+             "conversation_ref" => "github:github-main:repository:99",
+             "thread_ref" => "github:github-main:pull:42:review-thread:9000",
+             "transport" => "github"
+           }
+
+    # A Slack mention names nobody on GitHub, so the answer may make none.
+    assert Custody.Delivery.answer_mentions(work_claim.episode, execution.turn) == nil
+
+    {:ok, requester} =
+      GitHubRequester.start([
+        github_response(200, []),
+        github_response(201, %{"id" => 9_200})
+      ])
+
     assert {:ok, {:delivered, :message, final_delivery_ref}} =
              Ryker.Delivery.Dispatcher.run_once(
-               adapters: adapters,
+               adapters: slack_and_github_adapters(slack, requester),
                kind: :message,
                lease_seconds: 60,
                retry_base_seconds: 1,
                retry_max_seconds: 60,
-               worker_ref: "github-review-slack-result-e2e"
+               worker_ref: "github-review-github-result-e2e"
              )
 
-    assert_receive {
-      :slack_posted,
-      "C456",
-      "1787832001.000200",
-      %{"message" => "Handled the nil case, added coverage, and updated the review branch."},
-      ^final_delivery_ref,
-      _final_message_ref
-    }
+    assert [
+             {:get, "/repos/octo/example/pulls/42/comments?per_page=100&page=1", nil, _},
+             {:post, "/repos/octo/example/pulls/42/comments/9000/replies", %{"body" => body}, _}
+           ] = GitHubRequester.requests(requester)
+
+    assert body =~ "Handled the nil case, added coverage, and updated the review branch."
+    assert body =~ Publisher.marker(final_delivery_ref)
+    refute_receive {:slack_posted, _channel, _thread, _document, ^final_delivery_ref, _ref}
 
     assert %Turn{status: :settled, external_receipt: receipt} =
              Repo.get!(Turn, execution.turn.id)
 
-    assert receipt["transport"] == "slack"
-    assert receipt["conversation_ref"] == "slack:TB14ADAF3E1AF:C456"
-    assert receipt["thread_ref"] == "1787832001.000200"
+    assert receipt["transport"] == "github"
+    assert receipt["thread_ref"] == "github:github-main:pull:42:review-thread:9000"
+    assert receipt["message_ref"] == "github:pull_request_review_comment:9200"
   end
 
   defp post(payload, delivery_ref, event_name \\ "issue_comment") do
@@ -411,6 +418,35 @@ defmodule Ryker.GitHub.EndToEndTest do
   defp slack_adapters(slack) do
     assert {:ok, adapters} =
              Adapters.new(%{
+               "slack" => %{
+                 binding: %{workspaces: %{"TB14ADAF3E1AF" => %{api: FakeSlackAPI, client: slack}}},
+                 message_publisher: SlackPublisher,
+                 reaction_publisher: SlackPublisher
+               }
+             })
+
+    adapters
+  end
+
+  defp slack_and_github_adapters(slack, requester) do
+    assert {:ok, client} = Client.new(http: requester, requester: GitHubRequester)
+
+    assert {:ok, adapters} =
+             Adapters.new(%{
+               "github" => %{
+                 binding: %{
+                   bindings: %{
+                     "github-main" => %{
+                       api: Client,
+                       client: client,
+                       repository_full_name: "octo/example",
+                       repository_id: 99
+                     }
+                   }
+                 },
+                 message_publisher: Publisher,
+                 reaction_publisher: Publisher
+               },
                "slack" => %{
                  binding: %{workspaces: %{"TB14ADAF3E1AF" => %{api: FakeSlackAPI, client: slack}}},
                  message_publisher: SlackPublisher,

@@ -10,6 +10,8 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.GitHub.{Auth, Binding, Router}
+  alias Ryker.GitHub.Client, as: GitHubClient
+  alias Ryker.GitHub.Publisher, as: GitHubPublisher
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.{Dispatcher, FollowupDispatcher, LifecycleEvent, Publication}
   alias Ryker.Repo
@@ -30,7 +32,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Records.TaskOffers
-  alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI}
+  alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI, GitHubRequester}
   alias Ryker.Work.{Custody, Executor, Session, SubmissionBuilder, Turn}
 
   @now ~U[2026-08-31 13:00:00.000000Z]
@@ -534,26 +536,33 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert current_review["content"]["content"]["payload"]["comment"]["body"] ==
              "Please cover the nil retry state before merge."
 
-    assert {:ok, {:delivered, :message, final_delivery_ref}} = deliver_once(adapters)
+    # The correction is answered where the review asked for it, in the review
+    # comment's own thread on GitHub, not in the task's Slack thread (Andrew,
+    # 2026-09-28).
+    {:ok, github} =
+      GitHubRequester.start([
+        {:ok, %{body: [], headers: [], status: 200}},
+        {:ok, %{body: %{"id" => 9_300}, headers: [], status: 201}}
+      ])
 
-    assert {
-             :slack_posted,
-             "C456",
-             "1788268000.000100",
-             _final_document,
-             ^final_delivery_ref,
-             _final_message_ref
-           } =
-             receive_post_containing!(
-               "Covered the nil retry state and updated the published review branch."
-             )
+    assert {:ok, {:delivered, :message, final_delivery_ref}} =
+             deliver_once(adapters_with_github!(slack_api, github))
+
+    assert [
+             {:get, "/repos/acme/ryker/pulls/91/comments?per_page=100&page=1", nil, _},
+             {:post, "/repos/acme/ryker/pulls/91/comments/9000/replies", %{"body" => reply_body},
+              _}
+           ] = GitHubRequester.requests(github)
+
+    assert reply_body =~ "Covered the nil retry state and updated the published review branch."
+    refute_post_containing("Covered the nil retry state")
 
     assert %Turn{status: :settled, external_receipt: final_receipt} =
              Repo.get!(Turn, correction_execution.turn.id)
 
-    assert final_receipt["transport"] == "slack"
-    assert final_receipt["conversation_ref"] == "slack:T123:C456"
-    assert final_receipt["thread_ref"] == "1788268000.000100"
+    assert final_receipt["transport"] == "github"
+    assert final_receipt["thread_ref"] == "github:task-e2e:pull:91:review-thread:9000"
+    assert final_receipt["delivery_ref"] == final_delivery_ref
 
     # A completed correction must not mint another Publication and replace the
     # existing PR link with a fresh Create draft PR control. It re-arms the
@@ -704,6 +713,35 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   defp adapters!(slack_api) do
     assert {:ok, adapters} =
              Adapters.new(%{
+               "slack" => %{
+                 binding: %{workspaces: %{"T123" => %{api: FakeSlackAPI, client: slack_api}}},
+                 message_publisher: Publisher,
+                 reaction_publisher: Publisher
+               }
+             })
+
+    adapters
+  end
+
+  defp adapters_with_github!(slack_api, github) do
+    assert {:ok, client} = GitHubClient.new(http: github, requester: GitHubRequester)
+
+    assert {:ok, adapters} =
+             Adapters.new(%{
+               "github" => %{
+                 binding: %{
+                   bindings: %{
+                     "task-e2e" => %{
+                       api: GitHubClient,
+                       client: client,
+                       repository_full_name: "acme/ryker",
+                       repository_id: 99
+                     }
+                   }
+                 },
+                 message_publisher: GitHubPublisher,
+                 reaction_publisher: GitHubPublisher
+               },
                "slack" => %{
                  binding: %{workspaces: %{"T123" => %{api: FakeSlackAPI, client: slack_api}}},
                  message_publisher: Publisher,
