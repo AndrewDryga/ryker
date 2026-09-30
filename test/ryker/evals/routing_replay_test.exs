@@ -62,6 +62,56 @@ defmodule Ryker.Evals.RoutingReplayTest do
            }
   end
 
+  # SE1a (2026-09-27): routing is asked how the sender feels about Ryker's
+  # previous answer when a person's message follows one. No recorded context
+  # holds previous_answer, so without reading it from the recorded
+  # conversation a replay could never try the sentiment wording or contract.
+  test "a person's message after one of Ryker's answers is asked about sentiment, and the report counts what was read",
+       %{context: context, request: request, candidate: candidate, example: plain} do
+    answered =
+      put_in(request, ["context", "conversation_context"], %{
+        "messages" => [
+          %{
+            "actor" => "UALICE",
+            "at" => "2026-08-27T11:58:00Z",
+            "text" => "Checkout returns 502"
+          },
+          %{"actor" => "ryker", "at" => "2026-08-27T11:59:30Z", "text" => "It is back now."}
+        ]
+      })
+
+    {:ok, replay} = RoutingReplayCase.new(line(answered, context, continued(candidate)))
+    assert replay.sentiment_offered
+    assert replay.prompt =~ "previous_answer is when Ryker last answered here"
+    assert replay.prompt =~ ~s("previous_answer":{"at":"2026-08-27T11:59:30Z"})
+    assert Map.has_key?(replay.schema["properties"], "sentiment")
+
+    felt =
+      continued(candidate)
+      |> Map.put("sentiment", %{
+        "feeling" => "frustrated",
+        "reason" => "They say it is still down."
+      })
+
+    assert {:accept, %{passed: true, document: %{"sentiment" => "frustrated"} = document}} =
+             RoutingReplayCase.validate(replay, Jason.encode!(felt))
+
+    # Without an answer before the message, nothing is asked about sentiment.
+    {:ok, unanswered} = RoutingReplayCase.new(plain)
+    refute unanswered.sentiment_offered
+    refute Map.has_key?(unanswered.schema["properties"], "sentiment")
+    refute unanswered.prompt =~ "previous_answer"
+
+    results = [
+      %{eval_id: replay.eval_id, status: :passed, decision: document},
+      %{eval_id: unanswered.eval_id, status: :passed, decision: Map.delete(document, "sentiment")}
+    ]
+
+    summary = RoutingReplay.summary([replay, unanswered], %{results: results}, [])
+    assert summary.sentiment == %{offered: 1, read: %{"frustrated" => 1}}
+    assert summary.same == 2
+  end
+
   test "an answer routing could not act on goes back for repair", %{example: line} do
     {:ok, replay} = RoutingReplayCase.new(line)
 

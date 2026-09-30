@@ -84,8 +84,20 @@ defmodule Ryker.Evals.RoutingReplay do
         Map.new(~w(action episode_ref relation), fn field ->
           {field, Enum.count(answered, &(&1.recorded[field] == &1.replayed[field]))}
         end),
+      sentiment: sentiment(cases, rows),
       examples: Enum.reject(rows, &(&1.status == :same))
     }
+  end
+
+  # Where routing was asked how the sender feels, how many answers said, and
+  # each feeling they read.
+  defp sentiment(cases, rows) do
+    read =
+      for {%{sentiment_offered: true}, %{replayed: %{"sentiment" => feeling}}} <-
+            Enum.zip(cases, rows),
+          do: feeling
+
+    %{offered: Enum.count(cases, & &1.sentiment_offered), read: Enum.frequencies(read)}
   end
 
   defp row(replay, %{status: :passed, decision: replayed}),
