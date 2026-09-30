@@ -143,7 +143,9 @@ defmodule Ryker.StateTools.EmisarToolsTest do
     options = bound_options(claim)
 
     answer = call(options, "run_action", run_arguments())
-    assert answer["isError"] == false
+    # Failed twice under the full suite's load on 2026-09-30 and never alone;
+    # the answer says why the next time.
+    assert answer["isError"] == false, "run_action answered #{inspect(answer)}"
     assert %{"runs" => [%{"status" => "pending_approval"} = run]} = answer["structuredContent"]
 
     receipt =
