@@ -18,8 +18,6 @@ defmodule Ryker.WeeklyReport.Digest do
       I also handled 214 messages, and a typical reply took about 40 seconds.
       150 were quick answers; the other 64 needed deeper work.
 
-      In total, this week's work cost about $41.20 at API prices.
-
       I'm waiting for an answer to 1 question:
       - Verify README smoke test change in #test
 
@@ -27,6 +25,7 @@ defmodule Ryker.WeeklyReport.Digest do
 
       Feedback I have received was mostly positive: 9 positive and 1 negative.
       I also learned 6 new things, most recently about “VictoriaLogs retention”.
+      In total, this week's work cost about $41.20 at API prices.
 
   A part with nothing to say is left out, except that a report that could
   not check what is stuck says so: nothing stuck is a good week, not knowing
@@ -65,7 +64,6 @@ defmodule Ryker.WeeklyReport.Digest do
         greeting: [greeting(facts.week, database, Keyword.get(options, :preview, false))],
         pull_requests: pull_requests,
         work: work(facts, pull_requests != []),
-        cost: List.wrap(cost(facts.cost)),
         questions: questions(facts.questions, base),
         stuck: stuck(facts.stuck, base),
         closing: closing(facts)
@@ -320,10 +318,15 @@ defmodule Ryker.WeeklyReport.Digest do
 
   # -- Feedback and what Ryker learned -------------------------------------------------
 
+  # How people took the answers, what Ryker learned and what the week's work
+  # cost, in one closing line (Andrew, 2026-09-30, of the cost on a line of
+  # its own: "add it to end not as a separare pragraph").
   defp closing(facts) do
     feedback = feedback(facts.feedback)
 
-    case Enum.reject([feedback, learned(facts.learned, feedback != nil)], &is_nil/1) do
+    [feedback, learned(facts.learned, feedback != nil), cost(facts.cost)]
+    |> Enum.reject(&is_nil/1)
+    |> case do
       [] -> []
       sentences -> [Enum.join(sentences, " ")]
     end

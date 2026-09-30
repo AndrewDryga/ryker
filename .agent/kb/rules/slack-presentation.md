@@ -231,17 +231,17 @@ requests Ryker answered "are irrelevant compared to value that PRs deliver"): ho
 that week and how many are merged, the merged ones linked, then every PR still waiting for review
 with how long it has waited. One sentence says how many messages it handled, how long a typical
 reply took (the median, never the mean: one reply 28 hours late made the week's average half an
-hour) and how many were quick answers. Then what the week's work cost, in one line (Andrew,
-2026-09-30: "can we add total cost of work for the week too?"), said as an estimate at API prices
-when the provider reported no price, as a ChatGPT sign-in never does, and "I couldn't work out what
-this week's work cost" when calls ran but none could be priced. Then only what needs people: the
-questions it is waiting on and anything stuck, then one closing line: "Feedback I have received was
-..." and what it learned. It names no Slack request it merely answered and gives no completion rate
-("worked on 45 requests and finished 35" read as ten failures when six were closed by a person as no
-longer needed and four were waiting; Andrew: "it should not fail at all"). A part with nothing to
-say is left out; a report that could not check what is stuck says so. Only requests and PRs from
-public channels are named. Settings can send the same words to the channel at once, as a preview; a
-preview is never the week's report.
+hour) and how many were quick answers. Then only what needs people: the questions it is waiting on
+and anything stuck, then one closing line: "Feedback I have received was ...", what it learned, and
+last what the week's work cost (Andrew, 2026-09-30: "can we add total cost of work for the week
+too?", then "add it to end not as a separare pragraph"), said as an estimate at API prices when the
+provider reported no price, as a ChatGPT sign-in never does, and "I couldn't work out what this
+week's work cost" when calls ran but none could be priced. It names no Slack request it merely
+answered and gives no completion rate ("worked on 45 requests and finished 35" read as ten failures
+when six were closed by a person as no longer needed and four were waiting; Andrew: "it should not
+fail at all"). A part with nothing to say is left out; a report that could not check what is stuck
+says so. Only requests and PRs from public channels are named. Settings can send the same words to
+the channel at once, as a preview; a preview is never the week's report.
 
 ## Preview and proof
 
