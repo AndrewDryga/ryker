@@ -9,7 +9,12 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
   # what routing is offered, and how much unrelated work a new request drags
   # in. The floors below are what the search reaches; a change that lowers
   # one fails here. RYKER_SEARCH_BENCHMARK=1 prints the table.
-  use Ryker.DataCase, async: true
+  # Apart from the async suite and with minutes to run: it builds 170 pieces
+  # of work and asks 68 questions, and on a small CI runner sharing the
+  # database with every async test it once took more than the default minute.
+  use Ryker.DataCase, async: false
+
+  @moduletag timeout: 300_000
 
   import Ecto.Query
 
