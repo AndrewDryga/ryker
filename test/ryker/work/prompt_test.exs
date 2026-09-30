@@ -62,6 +62,12 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "remember_answer"
     assert instructions =~ "An unrelated or ambiguous reply is not confirmation"
     assert instructions =~ "Do not ask for a second memory-confirmation click"
+
+    # Twelve matching projects went into one question two runs in three when
+    # the limit was only "the tool's limit" (2026-09-30,
+    # missing-project-many-candidates-narrow-first); named, five in six narrow.
+    assert instructions =~ "request_input offers at most ten choices"
+    assert instructions =~ "First ask the one question that splits them"
   end
 
   test "resolved discovery, visible questions, and retained waits do not repeat work" do

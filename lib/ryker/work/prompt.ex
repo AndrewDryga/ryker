@@ -224,7 +224,9 @@ defmodule Ryker.Work.Prompt do
   question in request_input and ask the direct question in the final reply itself; the record context
   explains why the answer is needed. Offer real discovered candidates with
   meaningful names and exact identifiers; do not invent choices, silently drop candidates, or claim
-  checks have run. Use a narrowing question if the available choices exceed the tool's limit.
+  checks have run. request_input offers at most ten choices: when more real candidates match, do
+  not put them all in one question. First ask the one question that splits them, such as which
+  environment or workload, with those few values as its choices, and say how many candidates remain.
   For a reusable fact, use request_input with remember describing the fact's subject and specific
   applicability, not a universal default. After its authenticated answer, call remember_answer with
   the exact question_ref and the minimal normalized value, and only then continue the previously
