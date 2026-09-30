@@ -2459,7 +2459,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       "Ryker could not authorize this publication.",
       "Ryker could not verify permission for this exact reviewed change, so it refused a new publication grant.",
       :fix_first,
-      "Automatic retries have stopped. Open the task to inspect its current state and available recovery actions, or discard the change."
+      "Automatic retries have stopped. Review latest state on the task checks the change again before a new draft, or discard it."
     )
   end
 

@@ -210,6 +210,40 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     assert {:error, :publication_grant_denied} = authority(context)
   end
 
+  # A review waits for a person; its placement's lease does not. Once a publish could follow the
+  # session to a newer placement on the worker holding it (2026-09-30), the grant still demanded
+  # the review's own placement, so both waiting publications came back as
+  # publication_authorization_revoked.
+  test "a review from an earlier placement on the same worker grants the publish that follows it",
+       context do
+    context.placement
+    |> change(state: :replaced, lease_expires_at: DateTime.add(Repo.now!(), -60))
+    |> Repo.update!()
+
+    {:ok, replaced} =
+      ControlPlane.place_session(
+        context.session.id,
+        %{capability_names: [], repository_ref: "ryker", workspace_ref: "workspace-main"},
+        60
+      )
+
+    assert replaced.worker_id == context.placement.worker_id
+    assert replaced.generation > context.placement.generation
+    Repo.delete!(context.command)
+
+    {:ok, command} =
+      ControlPlane.enqueue_command(
+        replaced.id,
+        "api_request",
+        context.command.payload,
+        context.command.idempotency_key
+      )
+
+    command |> change(status: :delivered) |> Repo.update!()
+    assert {:ok, %{placement: {id, _generation}}} = authority(context)
+    assert id == replaced.id
+  end
+
   test "lease expiry is temporary but a retired placement is a terminal denial", context do
     context.publication
     |> change(lease_expires_at: DateTime.add(Repo.now!(), -1))

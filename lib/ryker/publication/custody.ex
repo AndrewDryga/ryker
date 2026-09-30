@@ -572,6 +572,30 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
+  # A refused grant ends that publish attempt: the worker finished it as refused, so a retry only
+  # replays the refusal. A first draft has no remote head to reconcile, and Discard was the only way
+  # out of a change a person had approved (2026-09-30). Update asks again from a fresh review under
+  # new keys; the draft then needs its confirmation again unless the task's grant covers it.
+  defp recovery_attributes(
+         %Publication{
+           status: :publish_pending,
+           last_error_code: "publication_authorization_revoked",
+           recovery_generation: generation
+         } = publication,
+         :update,
+         now
+       ) do
+    {:ok,
+     publication
+     |> fresh_review_attributes(now)
+     |> Map.merge(%{
+       approval_ref: nil,
+       approved_at: nil,
+       approved_by_actor_ref: nil,
+       recovery_generation: generation + 1
+     })}
+  end
+
   # A review phase can fail in a way no retry can clear: the operation it is reconciling belongs to
   # a placement that has been replaced, and reconciliation never re-places that lookup. Retry only
   # rearms the same doomed call, and before this clause nothing else applied to review_pending — so
