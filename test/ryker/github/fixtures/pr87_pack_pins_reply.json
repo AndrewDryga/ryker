@@ -1,0 +1,41 @@
+{
+  "message": "For the commented line in [#87](https://github.com/AndrewDryga/emisar/pull/87#discussion_r4144747495), **elixir-beam `0.1.11 → 0.1.12` has no runtime change**. The published diff only bumps the version and adds comments explaining the existing process-limits read and its timeout/output limits.\n\nThe other pack differences are:\n\n- **debugging:** declares `slabtop` as a prerequisite; adds comments.\n- **Docker:** removes `include_exec` and exec events that could expose passwords; retires older versions.\n- **GCP monitoring:** adds permitted-view targeting, exact message filtering, pagination and job/error fields.\n- **HCP Terraform:** adds a bounded, read-only plan-log excerpt and clearer guidance when structured plan access fails.\n- **linux-core:** declares five additional binary prerequisites; edits descriptions. Execution code is unchanged.\n\nThese updates still leave the previously identified debugging/Docker/HCP compatibility issue unresolved.",
+  "records": [
+    {
+      "kind": "evidence",
+      "payload": {
+        "claim": "PR #87 pack version comparison",
+        "claim_id": "citation:47ef9303cff0713efeb96e39213d6f4d",
+        "confidence": null,
+        "dimensions": {},
+        "freshness": null,
+        "health_effect": null,
+        "observation": "Read PR #87 files at head 06fbab9cdeb9f19b607a014997fbeece251436fc. Six changed pins: debugging 0.3.1→0.3.3, docker 0.2.29→0.2.30, elixir-beam 0.1.11→0.1.12, gcp-monitoring 0.3.9→0.3.10, hcp-terraform 0.8.9→0.8.10, linux-core 0.5.0→0.5.2. Downloaded both exact content-addressed registry tarballs for all six pairs and compared all regular file contents. Monitoring adds view_id, json_message, page_cursor and job/error/cursor output. Docker removes include_exec and exec events and raises retired_below to 0.2.30. Terraform adds bounded plan_log and plan_summary failure guidance. Debugging adds slabtop prerequisite and comments; BEAM changes comments only; linux-core adds findmnt/lvs/mdadm/pvs/vgs prerequisites and edits descriptions. No new mutation action in these diffs. PR documentation retains unresolved debugging/Docker/HCP full-manifest admission incompatibility.",
+        "observed_at": null,
+        "relation": "supports",
+        "scope_note": null,
+        "source_id": "https://github.com/AndrewDryga/emisar/pull/87",
+        "source_name": "https://github.com/AndrewDryga/emisar/pull/87",
+        "source_type": "other",
+        "supersedes": [],
+        "target": "PR #87 pack version comparison"
+      },
+      "ref": "record:evidence:debe4ad90ce19afafe7ecb0d889f8c89",
+      "status": "open"
+    },
+    {
+      "kind": "finding",
+      "payload": {
+        "cause_evidence": [
+          "record:evidence:debe4ad90ce19afafe7ecb0d889f8c89"
+        ],
+        "reason": "Compared every regular file in both published content-addressed artifacts for each of the six changed pins. No runtime change in elixir-beam 0.1.11→0.1.12. Docker removes include_exec, an argument compatibility change. Monitoring adds narrow-view log reads, exact message filtering and pagination; HCP adds bounded plan log reads. Debugging and linux-core declare additional binaries already used by their actions. These artifact changes do not resolve the separately documented three-pack admission mismatch.",
+        "scope": "PR #87 published pack contents, old pins versus new pins",
+        "status": "explained",
+        "what": "The commented elixir-beam update changes comments and version metadata only; the other five updates include diagnostic features, Docker secret-exposure hardening and prerequisite declarations."
+      },
+      "ref": "record:finding:225e8d15cdbf5d86574c08a937a88cdc",
+      "status": "open"
+    }
+  ]
+}

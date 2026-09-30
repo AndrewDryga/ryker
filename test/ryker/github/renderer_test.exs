@@ -176,7 +176,22 @@ defmodule Ryker.GitHub.RendererTest do
            }) == {:error, {:invalid_github_render, :emisar_approval_status}}
   end
 
-  test "projects every durable investigation and offer with bounded textual controls" do
+  # Andrew, 2026-09-30, of Ryker's reply on emisar#87 (this document, harvested): "this is too
+  # much text, we need it to be shorter, use simple english and not leak internal mechanics (like
+  # Evidence, citation ids, Findings, etc) and just act like human would instead". Slack never
+  # showed these records under an answer; GitHub printed each one after it.
+  test "a pull request reply is the answer alone, without the evidence and findings behind it" do
+    document =
+      "test/ryker/github/fixtures/pr87_pack_pins_reply.json" |> File.read!() |> Jason.decode!()
+
+    assert {:ok, rendered} = Renderer.render(document)
+    assert rendered == document["message"]
+    refute rendered =~ "citation:"
+    refute rendered =~ "Evidence"
+    refute rendered =~ "Finding"
+  end
+
+  test "offers and waits carry their textual controls, and what an answer rests on stays out" do
     records = [
       record("event_wait", %{
         "deadline_at" => "2099-08-29T12:00:00.000000Z",
@@ -314,12 +329,12 @@ defmodule Ryker.GitHub.RendererTest do
 
     assert {:ok, rendered} = Renderer.render(%{"message" => "Current work", "records" => records})
     assert rendered =~ "Waiting for an external event"
-    assert rendered =~ "Evidence — claim-health"
-    assert rendered =~ "Coverage — workload / healthy"
-    assert rendered =~ "Finding — unexplained"
-    assert rendered =~ "Progress — verification"
-    assert rendered =~ "Goal — goal-health (required)"
-    assert rendered =~ "Alert assessment — not_issue"
+    refute rendered =~ "claim-health"
+    refute rendered =~ "Coverage"
+    refute rendered =~ "unexplained"
+    refute rendered =~ "Progress"
+    refute rendered =~ "goal-health"
+    refute rendered =~ "not_issue"
     assert rendered =~ "Proposed engineering task"
     assert rendered =~ "Proposed incident task"
     assert rendered =~ "explicit operator confirmation in a supported Ryker control surface"

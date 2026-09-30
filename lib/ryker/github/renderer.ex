@@ -2,8 +2,8 @@ defmodule Ryker.GitHub.Renderer do
   @moduledoc """
   Host-owned Markdown projection for typed records delivered to GitHub.
 
-  The projection preserves each durable question, wait, evidence, or offer in
-  readable Markdown. Confirmable inert offers carry a host-owned textual
+  The projection preserves each durable question, wait, or offer in readable
+  Markdown; the evidence and findings an answer rests on stay in Ryker. Confirmable inert offers carry a host-owned textual
   command; governed Emisar and publication approvals stay on their existing
   authoritative surfaces.
   """
@@ -145,41 +145,11 @@ defmodule Ryker.GitHub.Renderer do
      |> String.trim()}
   end
 
-  defp record_markdown("evidence", payload, _ref, _status) do
-    source = "#{payload["source_type"]}: #{payload["source_name"]}"
-
-    {:ok,
-     "**Evidence — #{escape(payload["claim_id"])}:** #{escape(payload["observation"])}\n\nSource: #{escape(source)}"}
-  end
-
-  defp record_markdown("coverage", payload, _ref, _status) do
-    {:ok,
-     "**Coverage — #{escape(payload["layer"])} / #{escape(payload["status"])}:** #{escape(payload["detail"])}"}
-  end
-
-  defp record_markdown("finding", payload, _ref, _status) do
-    {:ok, "**Finding — #{escape(payload["status"])}:** #{escape(payload["what"])}"}
-  end
-
-  defp record_markdown("progress", payload, _ref, _status) do
-    {:ok, "**Progress — #{escape(payload["phase"])}:** #{escape(payload["summary"])}"}
-  end
-
-  defp record_markdown("goal", payload, _ref, _status) do
-    marker = if payload["required"], do: "required", else: "optional"
-
-    {:ok,
-     "**Goal — #{escape(payload["id"])} (#{marker}):** #{escape(payload["requested_outcome"])}"}
-  end
-
-  defp record_markdown("goal_state", payload, _ref, _status) do
-    detail = if payload["detail"], do: " — #{escape(payload["detail"])}", else: ""
-    {:ok, "**Goal #{escape(payload["goal_id"])}:** `#{escape(payload["state"])}`#{detail}"}
-  end
-
-  defp record_markdown("alert_assessment", payload, _ref, _status) do
-    {:ok, "**Alert assessment — #{escape(payload["verdict"])}:** #{escape(payload["impact"])}"}
-  end
+  # What an answer rests on stays in Ryker, as it always has on Slack. Printed under a pull
+  # request reply, "Evidence — citation:47ef…" and "Finding — explained" read as machinery, not a
+  # teammate (Andrew, 2026-09-30, on emisar#87). They are still validated above.
+  defp record_markdown(kind, _payload, _ref, _status) when kind in @investigation_kinds,
+    do: {:ok, ""}
 
   defp record_markdown("task_offer", %{"kind" => "engineering"} = payload, ref, "open") do
     repository = if payload["repository"], do: " in `#{escape(payload["repository"])}`", else: ""
@@ -217,9 +187,6 @@ defmodule Ryker.GitHub.Renderer do
   end
 
   defp record_markdown(kind, _payload, _ref, "open") when kind in @offer_kinds,
-    do: {:error, {:invalid_github_render, :record}}
-
-  defp record_markdown(kind, _payload, _ref, _status) when kind in @investigation_kinds,
     do: {:error, {:invalid_github_render, :record}}
 
   defp record_markdown(_kind, _payload, _ref, _status),
