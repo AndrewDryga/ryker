@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Followups, Publication}
+  alias Ryker.Publication.{Followups, Publication, Review}
   alias Ryker.Repo
   alias Ryker.Slack.Runtime, as: SlackRuntime
   alias Ryker.Slack.WorkRecord
@@ -752,7 +752,7 @@ defmodule Ryker.ControlPlane.Actions do
        ) do
     with {:ok, episode} <- task_episode(record, target),
          {:ok, publication, review_target} <-
-           lab_task_publication(episode.id, publication_ref, target, :reviewed, :review) do
+           approvable_lab_task_publication(episode.id, publication_ref, target) do
       PublicationCustody.approve(%{
         actor_ref: @actor_ref,
         approval_ref: action_ref,
@@ -922,6 +922,21 @@ defmodule Ryker.ControlPlane.Actions do
 
       nil ->
         {:error, :conversation_lab_publication_not_found}
+    end
+  end
+
+  # The drafts Slack's Create draft PR accepts (`Ryker.Slack.WorkControls`): a reviewed change,
+  # or one whose checks could not run, offered as an unverified draft. Chat accepted only the
+  # first while its card offered both (30 Sep: "Couldn't create the draft pull request").
+  defp approvable_lab_task_publication(episode_id, publication_ref, target) do
+    case task_publication(episode_id, publication_ref) do
+      %Publication{status: :blocked} = publication ->
+        if Review.draft_shareable?(publication.review_document),
+          do: lab_publication_target(publication, target, :review),
+          else: {:error, :conversation_lab_publication_not_ready}
+
+      _reviewed_or_not ->
+        lab_task_publication(episode_id, publication_ref, target, :reviewed, :review)
     end
   end
 

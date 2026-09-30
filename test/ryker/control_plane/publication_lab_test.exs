@@ -128,6 +128,105 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     refute Repo.get_by(Publication, episode_id: confirmation.episode.id)
   end
 
+  # My own end-to-end run on 30 Sep, in Chat against AndrewDryga/test: the repository has no
+  # checks, so the change was offered as an unverified draft, and "Create draft PR" answered
+  # "Couldn't create the draft pull request. Nothing changed." Slack's button accepts that draft;
+  # Chat's accepted only a reviewed one.
+  test "a Chat task's unverified draft opens when a person asks for it" do
+    task_offer = delivered_task_offer!()
+
+    actions =
+      Actions.callbacks(%{environments: %{}, fallback_work_profile: profile()}, %{
+        "production" => %{
+          "ryker" => %{
+            name: "ryker-contributor",
+            digest: @digest,
+            environment_ref: "production",
+            repository_ref: "ryker"
+          }
+        }
+      })
+
+    assert {:ok, confirmation} =
+             actions.act_on_lab_record.(@conversation_id, task_offer.ref, :confirm_task, nil)
+
+    assert {:ok, child_claim} = Custody.claim_next("lab-task-unverified", 60, :work)
+    child_claim = bind_claim!(child_claim, "task-unverified")
+
+    assert {:ok, _offer} =
+             Records.create(
+               Records.token(child_claim.turn),
+               "host:publication:ready",
+               "publication_offer",
+               %{"body" => "The one README line.", "title" => "Add the end-to-end line"}
+             )
+
+    settle_claim!(
+      child_claim,
+      %{
+        "message" => "The README line is committed.",
+        "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+      },
+      "control-plane-message:task-unverified"
+    )
+
+    publication = Repo.get_by!(Publication, episode_id: confirmation.episode.id)
+    assert {:ok, review_claim} = PublicationCustody.claim_next("lab-task-unverified-review", 60)
+
+    assert {:ok, frozen} =
+             PublicationCustody.freeze_review_revision(publication.ref, review_claim.lease_ref, 7)
+
+    session = Repo.get_by!(Ryker.Work.Session, coop_session_id: "coop-session:task-unverified")
+
+    unverified = %{
+      review_document(session, confirmation.episode.id)
+      | "gate" => "none",
+        "not_publishable_reasons" => ["gate_not_configured"],
+        "publishable" => false
+    }
+
+    assert {:ok, _reviewed} =
+             PublicationCustody.store_review(
+               publication.ref,
+               review_claim.lease_ref,
+               frozen.review_generation,
+               unverified,
+               nil
+             )
+
+    assert {:ok, delivery_claim} =
+             PublicationCustody.claim_next("lab-task-unverified-delivery", 60)
+
+    assert {:ok, request} = PublicationCustody.delivery_request(delivery_claim.publication)
+    assert {:ok, receipt} = Publisher.publish_message(request, nil)
+
+    assert {:ok, %Publication{status: :blocked}} =
+             PublicationCustody.confirm_delivery(
+               publication.ref,
+               delivery_claim.lease_ref,
+               receipt
+             )
+
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
+
+    card =
+      conversation.messages
+      |> Enum.flat_map(& &1.cards)
+      |> Enum.find(&(&1.ref == task_offer.ref))
+
+    assert :approve_task_publication in card.actions
+
+    assert {:ok, _approved} =
+             actions.act_on_lab_record.(
+               @conversation_id,
+               task_offer.ref,
+               :approve_task_publication,
+               %{publication_ref: card.publication_ref}
+             )
+
+    assert Repo.get!(Publication, publication.id).status == :publish_pending
+  end
+
   test "a confirmed Lab task starts its checks without another readiness control" do
     task_offer = delivered_task_offer!()
 
