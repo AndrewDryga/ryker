@@ -8,6 +8,8 @@ defmodule Mix.Tasks.Ryker.Eval do
       mix ryker.eval world-shards --shards 4
       mix ryker.eval world-merge --results /absolute/world-results.json \\
         /absolute/shard-1.json /absolute/shard-2.json
+      mix ryker.eval routing-replay --examples /absolute/routing-examples.jsonl \\
+        --results /absolute/routing-replay.json [--limit N]
 
   `world-pack` emits one JSON object per scenario, with its exact tool catalog,
   without calling a model. `world` runs the same scenarios through the
@@ -24,6 +26,12 @@ defmodule Mix.Tasks.Ryker.Eval do
   writing results without a verdict. `world-shards` previews which shards a
   plan fills so no empty VM is started, and `world-merge` joins the partial
   results into the one report the thresholds and the trend tooling read.
+
+  `routing-replay` asks the routing decisions in a routing examples export
+  again, each with today's instructions and contract, on the model
+  `RYKER_EVAL_ROUTING_TARGET` names, and reports how many stay the same and
+  which change (`Ryker.Evals.RoutingReplay`). The export holds what people
+  said; keep it and the report outside the repository.
   """
 
   use Mix.Task
@@ -37,6 +45,7 @@ defmodule Mix.Tasks.Ryker.Eval do
   alias Ryker.Evals.{
     CoopRunner,
     Job,
+    RoutingReplay,
     WorldCase,
     WorldCassette,
     WorldCoverage,
@@ -76,13 +85,55 @@ defmodule Mix.Tasks.Ryker.Eval do
     run_world_merge(arguments)
   end
 
+  def run(["routing-replay" | arguments]) do
+    run_routing_replay(arguments)
+  end
+
   def run(_arguments) do
     Mix.raise(
       "usage: mix ryker.eval world-pack" <>
         " | world --results /absolute/world-results.json [--shard I/N]" <>
         " | world-shards --shards N" <>
-        " | world-merge --results /absolute/world-results.json /absolute/shard.json..."
+        " | world-merge --results /absolute/world-results.json /absolute/shard.json..." <>
+        " | routing-replay --examples /absolute/routing-examples.jsonl" <>
+        " --results /absolute/routing-replay.json [--limit N]"
     )
+  end
+
+  defp run_routing_replay(arguments) do
+    with {:ok, replay} <- routing_replay_arguments(arguments),
+         {:ok, job} <- Job.routing(),
+         {:ok, cases, skipped} <- RoutingReplay.cases(replay.examples, replay.limit),
+         {:ok, finch} <- start_finch(),
+         {:ok, client} <- eval_client(finch),
+         {:ok, result} <- RoutingReplay.run(cases, client: client, job: job),
+         summary = RoutingReplay.summary(cases, result, skipped),
+         :ok <- File.write(replay.results, Jason.encode!(summary, pretty: true)) do
+      info(
+        "routing replay: #{summary.same} of #{summary.total} decisions stayed the same, " <>
+          "#{summary.changed} changed, #{summary.not_answered} not answered, " <>
+          "#{length(skipped)} examples skipped; report at #{replay.results}"
+      )
+    else
+      {:error, reason} -> Mix.raise("routing replay failed: #{inspect(reason)}")
+    end
+  end
+
+  defp routing_replay_arguments(arguments) do
+    case parse_flags(arguments, examples: :string, results: :string, limit: :integer) do
+      {:ok, parsed, []} ->
+        with examples when is_binary(examples) <- parsed[:examples],
+             results when is_binary(results) <- parsed[:results],
+             true <- Path.type(examples) == :absolute and Path.type(results) == :absolute,
+             limit when is_nil(limit) or (is_integer(limit) and limit > 0) <- parsed[:limit] do
+          {:ok, %{examples: examples, results: results, limit: limit}}
+        else
+          _invalid -> {:error, :routing_replay_needs_absolute_examples_and_results}
+        end
+
+      _invalid ->
+        {:error, :invalid_arguments}
+    end
   end
 
   defp run_world(arguments) do

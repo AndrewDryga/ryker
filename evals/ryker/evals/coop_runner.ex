@@ -1,16 +1,17 @@
 defmodule Ryker.Evals.CoopRunner do
   @moduledoc """
-  Executes an isolated model-world quality judgment against a real Coop job.
+  Executes isolated one-turn eval cases against a real Coop job: a model-world
+  quality judgment (`Ryker.Evals.WorldJudgeCase`) or a recorded routing
+  decision asked again (`Ryker.Evals.RoutingReplayCase`).
 
-  A judge case carries the sanitized evidence of one completed model-world run
-  and no controller or project tools. Each case gets a fresh empty-workspace
-  session, exact output schema, and unique
-  operation identity. A judgment the host cannot read is rejected for repair in
-  the same turn, and the accepted judgment is scored on its bounded rubric
-  verdict, never on explanatory prose.
+  A case carries its prompt and exact output schema and no controller or
+  project tools. Each case gets a fresh empty-workspace session and unique
+  operation identity, named by its kind. An answer the case cannot read is
+  rejected for repair in the same turn, and the accepted answer is scored by
+  the case, never on explanatory prose.
   """
 
-  alias Ryker.Evals.{Job, WorldJudgeCase}
+  alias Ryker.Evals.{Job, RoutingReplayCase, WorldJudgeCase}
   alias Ryker.Reference
   alias Ryker.Retention.Plan
 
@@ -27,7 +28,8 @@ defmodule Ryker.Evals.CoopRunner do
     :sleep
   ]
 
-  @type eval_case :: WorldJudgeCase.t()
+  @type eval_case :: WorldJudgeCase.t() | RoutingReplayCase.t()
+  @cases [WorldJudgeCase, RoutingReplayCase]
 
   @spec run([eval_case()], keyword() | map()) :: {:ok, map()} | {:error, term()}
   def run(cases, options) when is_list(cases) do
@@ -47,26 +49,28 @@ defmodule Ryker.Evals.CoopRunner do
   def run(_cases, _options), do: {:error, {:invalid_eval_runner, :cases}}
 
   @spec run_case(eval_case(), keyword() | map()) :: map()
-  def run_case(%WorldJudgeCase{} = eval, options) when is_list(options) or is_map(options) do
+  def run_case(%module{} = eval, options)
+      when module in @cases and (is_list(options) or is_map(options)) do
     case settings(options) do
       {:ok, settings} -> execute_case(eval, settings)
       {:error, reason} -> failed(eval, reason)
     end
   end
 
-  defp execute_case(%WorldJudgeCase{} = eval, settings) do
+  defp execute_case(%module{} = eval, settings) do
+    namespace = module.namespace()
     run_ref = settings.id_generator.()
-    external_ref = "ryker-eval:world-judge:#{run_ref}:#{eval.eval_id}"
-    create_key = "ryker:eval:world-judge:#{run_ref}:create"
+    external_ref = "ryker-eval:#{namespace}:#{run_ref}:#{eval.eval_id}"
+    create_key = "ryker:eval:#{namespace}:#{run_ref}:create"
 
     with :ok <- reference(run_ref, :run_ref),
          :ok <- reference(external_ref, :external_ref),
          {:ok, session} <- create_session(create_key, external_ref, settings),
-         {:ok, turn} <- submit_turn("world-judge", run_ref, session, eval, settings),
+         {:ok, turn} <- submit_turn(namespace, run_ref, session, eval, settings),
          {:ok, turn, candidate} <- await_candidate(session, turn, settings),
          {:ok, result} <- judge_candidate(eval, run_ref, session, turn, candidate, settings),
-         :ok <- close_session("world-judge", run_ref, session, settings),
-         :ok <- discard_clean_session("world-judge", run_ref, session, settings) do
+         :ok <- close_session(namespace, run_ref, session, settings),
+         :ok <- discard_clean_session(namespace, run_ref, session, settings) do
       Map.merge(result, %{
         eval_id: eval.eval_id,
         session_id: session["id"],
@@ -274,15 +278,17 @@ defmodule Ryker.Evals.CoopRunner do
 
   defp validate_candidate(_candidate), do: {:error, {:coop_protocol_error, :candidate}}
 
-  defp judge_candidate(eval, run_ref, session, turn, candidate, settings) do
-    case WorldJudgeCase.validate(eval, candidate["message"]) do
+  defp judge_candidate(%module{} = eval, run_ref, session, turn, candidate, settings) do
+    namespace = module.namespace()
+
+    case module.validate(eval, candidate["message"]) do
       {:accept, judgment} ->
         with {:ok, _completed} <-
-               accept_candidate("world-judge", run_ref, session, turn, candidate, settings) do
+               accept_candidate(namespace, run_ref, session, turn, candidate, settings) do
           {:ok,
            %{
              decision: judgment.document,
-             reason: if(judgment.passed, do: nil, else: :quality_rubric_failed),
+             reason: if(judgment.passed, do: nil, else: module.failure_reason()),
              status: if(judgment.passed, do: :passed, else: :failed)
            }}
         end
@@ -291,7 +297,7 @@ defmodule Ryker.Evals.CoopRunner do
         with :ok <- candidate_attempt_available(candidate),
              {:ok, next_turn} <-
                reject_candidate(
-                 "world-judge",
+                 namespace,
                  run_ref,
                  session,
                  turn,

@@ -147,6 +147,27 @@ make eval-trend
 
 Passing deterministic and model gates does not deploy the runtime.
 
+### Routing replay
+
+The world evaluation routes with a deterministic stand-in, so a change to routing's instructions
+or answer contract needs a routing replay. It asks the routing decisions Ryker kept for training
+again, each with the instructions today's routing gives its recorded context and under the
+contract its source was offered, rebuilt with today's shapes, on the eval worker:
+
+```bash
+MIX_ENV=prod mix ryker.routing_examples --output /absolute/routing-examples.jsonl
+export RYKER_EVAL_ROUTING_TARGET='<provider:model/effort@account>'
+make eval-routing-replay EXAMPLES=/absolute/routing-examples.jsonl
+```
+
+The export is also on the Data retention page. An answer routing could not act on is sent back
+for repair, as routing's own is. The report under `$(EVAL_HISTORY)` counts the decisions that stay
+the same (the same action, earlier work and relation to it; the words of a quick reply and the
+reason are not compared) and lists each that changed or was not answered, by its example. It
+compares with what routing decided, not with a right answer: it shows what a prompt change moves,
+and whether each move is better is for a person to read on the request's page. The export holds
+what people said: keep it outside the repository; the report holds only identities and decisions.
+
 ### Eval cases from feedback
 
 Feedback › What to fix lists the requests people were unhappy with, each with Ryker's own

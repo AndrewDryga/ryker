@@ -12,7 +12,8 @@ defmodule Ryker.Evals.Job do
   @variables %{
     judge: "RYKER_EVAL_JUDGE_TARGET",
     world: "RYKER_EVAL_WORLD_TARGET",
-    baseline: "RYKER_EVAL_BASELINE_TARGET"
+    baseline: "RYKER_EVAL_BASELINE_TARGET",
+    routing: "RYKER_EVAL_ROUTING_TARGET"
   }
 
   def socket do
@@ -35,7 +36,10 @@ defmodule Ryker.Evals.Job do
     end
   end
 
-  def new(kind, target) when kind in [:judge, :world, :baseline, :learning] do
+  @doc "The model routing replays ask (`Ryker.Evals.RoutingReplay`), named explicitly."
+  def routing, do: required(:routing)
+
+  def new(kind, target) when kind in [:judge, :world, :baseline, :learning, :routing] do
     if is_binary(target) and String.valid?(target) and byte_size(target) in 1..256 and
          not Regex.match?(~r/\s|\x00/u, target) do
       name = "ryker-eval-#{kind}"
@@ -57,7 +61,10 @@ defmodule Ryker.Evals.Job do
   def bind(%{name: name, digest: digest, document: document}, reference) when is_map(document) do
     with [target] <- document["targets"],
          kind when not is_nil(kind) <-
-           Enum.find([:judge, :world, :baseline, :learning], &(name == "ryker-eval-#{&1}")),
+           Enum.find(
+             [:judge, :world, :baseline, :learning, :routing],
+             &(name == "ryker-eval-#{&1}")
+           ),
          {:ok, %{document: ^document, digest: ^digest}} <- new(kind, target),
          {:ok, job, digest} <- JobSpec.rebind(document, digest, reference) do
       {:ok, job, digest}
