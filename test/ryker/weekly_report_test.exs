@@ -10,6 +10,7 @@ defmodule Ryker.WeeklyReportTest do
 
   import Ecto.Query
 
+  alias Ryker.Accounting.Execution
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, RoutingDigest}
   alias Ryker.Feedback
@@ -113,7 +114,15 @@ defmodule Ryker.WeeklyReportTest do
     report = compose(now)
     where = Names.destination(public)
 
-    assert Enum.map(report.parts, & &1.key) == [:greeting, :pull_requests, :work, :questions]
+    # The fixtures' model calls recorded no usage, so the cost says it could
+    # not be worked out.
+    assert Enum.map(report.parts, & &1.key) == [
+             :greeting,
+             :pull_requests,
+             :work,
+             :cost,
+             :questions
+           ]
 
     assert part(report, :pull_requests) == [
              "I opened 1 PR this week, and it's waiting for review:",
@@ -177,6 +186,58 @@ defmodule Ryker.WeeklyReportTest do
 
     refute report.text =~ "worked on"
     refute report.text =~ "finished"
+  end
+
+  # Andrew, 2026-09-30: "can we add total cost of work for the week too?"
+  # Every call that week ran on a ChatGPT sign-in, which reports no price, so
+  # the only cost Ryker has is its estimate at API prices (Usage showed
+  # $6.52); the report says so rather than passing it off as a bill.
+  test "the report says what the week's work cost, as an estimate at API prices when the provider reported none",
+       %{now: now, workspace: workspace} do
+    public_channel!(workspace, "CCOST")
+
+    quick =
+      message!(workspace, "CCOST", "1790600001.000100", "Is it up?", at: DateTime.add(now, -45))
+
+    Answers.quick_reply!(quick, "Yes.", "1790600001.000200", DateTime.add(now, -15))
+
+    # 100,000 fresh × $4 + 900,000 cached × $0.40 + 10,000 out × $20 a million.
+    execution!("live", DateTime.add(now, -3_600))
+    # Last week's and a shadow replay's are not this week's work.
+    execution!("live", DateTime.add(now, -8, :day))
+    execution!("shadow", DateTime.add(now, -600))
+
+    report = compose(now)
+
+    assert part(report, :work) == [
+             "This past week I handled 1 message, and my reply took about 30 seconds. " <>
+               "It was a quick answer."
+           ]
+
+    assert part(report, :cost) == [
+             "In total, this week's work cost about $0.96 at API prices."
+           ]
+
+    assert Enum.map(report.parts, & &1.key) == [:greeting, :work, :cost]
+  end
+
+  test "a cost the provider reported is stated as it is, and work nobody could price says so",
+       %{now: now} do
+    reported = execution!("live", DateTime.add(now, -3_600))
+
+    Repo.update_all(from(e in Execution, where: e.id == ^reported.id),
+      set: [usage_cost_recorded: true, usage_cost_usd: Decimal.new("1234.5")]
+    )
+
+    # Nobody asked anything, and yet something ran: a schedule or learning.
+    assert part(compose(now), :work) == ["It was a quiet week: nobody asked me for anything."]
+    assert part(compose(now), :cost) == ["In total, this week's work cost $1,234.50."]
+
+    Repo.update_all(from(e in Execution, where: e.id == ^reported.id),
+      set: [usage_cost_recorded: false, usage_cost_usd: nil, usage_recorded: false]
+    )
+
+    assert part(compose(now), :cost) == ["I couldn't work out what this week's work cost."]
   end
 
   # Andrew asked for how long a reply took "on average". In the week to 30
@@ -488,6 +549,29 @@ defmodule Ryker.WeeklyReportTest do
   end
 
   defp pr_url(%{publication: publication}), do: publication.pull_request_url
+
+  # -- Cost ----------------------------------------------------------------------------
+
+  # One model call at `at`: 100,000 fresh input, 900,000 cached input and
+  # 10,000 output tokens on the default Sol price, with no provider cost.
+  defp execution!(mode, at) do
+    Repo.insert!(%Execution{
+      kind: "work",
+      source_id: Ecto.UUID.generate(),
+      generation: "1",
+      transport: "slack",
+      conversation_ref: "slack:TCOST:CCOST",
+      status: "succeeded",
+      execution_mode: mode,
+      recorded_at: at,
+      execution_target: "codex:gpt-5.6-sol/medium@default",
+      usage_recorded: true,
+      usage_input_tokens: 100_000,
+      usage_cached_input_tokens: 900_000,
+      usage_output_tokens: 10_000,
+      usage_reasoning_tokens: 0
+    })
+  end
 
   # -- Feedback and what Ryker learned -------------------------------------------------
 

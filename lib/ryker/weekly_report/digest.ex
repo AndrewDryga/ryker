@@ -18,6 +18,8 @@ defmodule Ryker.WeeklyReport.Digest do
       I also handled 214 messages, and a typical reply took about 40 seconds.
       150 were quick answers; the other 64 needed deeper work.
 
+      In total, this week's work cost about $41.20 at API prices.
+
       I'm waiting for an answer to 1 question:
       - Verify README smoke test change in #test
 
@@ -63,6 +65,7 @@ defmodule Ryker.WeeklyReport.Digest do
         greeting: [greeting(facts.week, database, Keyword.get(options, :preview, false))],
         pull_requests: pull_requests,
         work: work(facts, pull_requests != []),
+        cost: List.wrap(cost(facts.cost)),
         questions: questions(facts.questions, base),
         stuck: stuck(facts.stuck, base),
         closing: closing(facts)
@@ -167,16 +170,23 @@ defmodule Ryker.WeeklyReport.Digest do
 
   # -- How much work -------------------------------------------------------------------
 
-  defp work(
+  defp work(facts, also) do
+    case messages(facts, also) do
+      nil -> []
+      sentence -> [sentence]
+    end
+  end
+
+  defp messages(
          %{messages: %{handled: 0}, requests: %{total: 0}, pull_requests: %{opened: 0}},
          _also
        ),
-       do: ["It was a quiet week: nobody asked me for anything."]
+       do: "It was a quiet week: nobody asked me for anything."
 
-  defp work(%{messages: %{handled: 0}}, _also), do: []
+  defp messages(%{messages: %{handled: 0}}, _also), do: nil
 
-  defp work(facts, also),
-    do: [handled(facts.messages, facts.reply_ms, also) <> " " <> answered(facts.messages)]
+  defp messages(facts, also),
+    do: handled(facts.messages, facts.reply_ms, also) <> " " <> answered(facts.messages)
 
   defp handled(%{handled: handled}, reply_ms, also) do
     opening = if also, do: "I also handled", else: "This past week I handled"
@@ -205,6 +215,38 @@ defmodule Ryker.WeeklyReport.Digest do
     quick = if spot == 1, do: "1 was a quick answer", else: "#{spot} were quick answers"
     rest = if handled - spot == 1, do: "the other one", else: "the other #{handled - spot}"
     "#{quick}; #{rest} needed deeper work."
+  end
+
+  # Andrew, 2026-09-30: "can we add total cost of work for the week too?" An
+  # estimate says it is one: a ChatGPT sign-in reports no price, so Ryker's
+  # figure is what the calls would cost at API prices, not a bill.
+  defp cost(%{calls: 0}), do: nil
+  defp cost(%{usd: nil}), do: "I couldn't work out what this week's work cost."
+
+  defp cost(%{usd: usd, estimated: true}),
+    do: "In total, this week's work cost about #{money(usd)} at API prices."
+
+  defp cost(%{usd: usd}), do: "In total, this week's work cost #{money(usd)}."
+
+  # Dollars to the cent, with thousands grouped: "$1,234.50".
+  defp money(usd) do
+    cents = usd |> Decimal.mult(100) |> Decimal.round(0) |> Decimal.to_integer()
+
+    if cents == 0 and Decimal.gt?(usd, 0) do
+      "less than a cent"
+    else
+      dollars =
+        cents
+        |> div(100)
+        |> Integer.to_string()
+        |> String.reverse()
+        |> String.graphemes()
+        |> Enum.chunk_every(3)
+        |> Enum.map_join(",", &Enum.join/1)
+        |> String.reverse()
+
+      "$#{dollars}.#{cents |> rem(100) |> Integer.to_string() |> String.pad_leading(2, "0")}"
+    end
   end
 
   # How long, rounded the way a person says it.

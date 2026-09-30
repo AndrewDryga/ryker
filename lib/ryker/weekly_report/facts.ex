@@ -3,8 +3,9 @@ defmodule Ryker.WeeklyReport.Facts do
   Everything the weekly report says, read from the database for one week
   (`Ryker.WeeklyReport`), with no model anywhere: the pull requests Ryker
   opened, the ones merged and the ones waiting for a review, the messages it
-  handled and how fast it replied, the questions it is waiting on people to
-  answer, what is stuck, and a line on feedback and what it learned. It
+  handled and how fast it replied, what the week's work cost, the questions
+  it is waiting on people to answer, what is stuck, and a line on feedback
+  and what it learned. It
   counts the week's requests only to tell a quiet week, and names none it
   merely answered: the report states no completion rate and lists no Slack
   requests.
@@ -23,6 +24,7 @@ defmodule Ryker.WeeklyReport.Facts do
 
   import Ecto.Query
 
+  alias Ryker.Accounting.Query, as: Ledger
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
   alias Ryker.Episodes.{Episode, Event, RoutingDigests}
   alias Ryker.Feedback.Signal
@@ -53,6 +55,7 @@ defmodule Ryker.WeeklyReport.Facts do
       week: week,
       messages: messages(from, to),
       reply_ms: typical_reply_ms(from, to),
+      cost: cost(from, to),
       requests: %{total: length(requests)},
       pull_requests: pull_requests(from, to),
       questions: requests |> Enum.filter(&(&1.standing == :waiting)) |> named(@named_questions),
@@ -233,6 +236,32 @@ defmodule Ryker.WeeklyReport.Facts do
       )
 
     seconds && round(seconds * 1000)
+  end
+
+  # What the week's model calls cost, as the Usage page adds it up
+  # (`Ryker.Accounting.Query`): what the provider reported, plus Ryker's
+  # estimate at the saved API prices for calls it reported no price for, as
+  # a ChatGPT sign-in never does. Nil when calls ran but none could be
+  # priced; `estimated` when any of it is an estimate.
+  defp cost(from, to) do
+    row =
+      from(execution in Ledger.executions(from, "live"),
+        where: execution.recorded_at < ^to,
+        select: %{
+          calls: count(execution.id),
+          reported: fragment("COALESCE(SUM(?), 0)", execution.usage_cost_usd),
+          estimated: fragment("COALESCE(SUM(?), 0)", execution.estimated_cost_usd),
+          priced: fragment("COUNT(*) FILTER (WHERE ?)", execution.usage_cost_recorded),
+          estimates: count(execution.estimated_cost_usd)
+        }
+      )
+      |> Repo.one!()
+
+    %{
+      calls: row.calls,
+      usd: if(row.priced + row.estimates > 0, do: Decimal.add(row.reported, row.estimated)),
+      estimated: row.estimates > 0
+    }
   end
 
   # The pull requests Ryker opened that week and the ones among them merged

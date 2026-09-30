@@ -7,11 +7,12 @@ defmodule Ryker.WeeklyReport do
 
   **What it says.** The PRs Ryker opened that week and the ones already
   merged, every PR still waiting for review, how many messages it handled,
-  how long a typical reply took and how many were quick answers, the
-  questions it is waiting on people to answer, anything stuck, and a closing
-  line on how people took its answers and what it learned
-  (`Ryker.WeeklyReport.Digest`). It names no Slack request it merely answered
-  and gives no completion rate.
+  how long a typical reply took and how many were quick answers, what the
+  week's work cost (an estimate at API prices when the provider reported no
+  price), the questions it is waiting on people to answer, anything stuck,
+  and a closing line on how people took its answers and what it learned
+  (`Ryker.WeeklyReport.Digest`). It names no Slack request it merely
+  answered and gives no completion rate.
 
   **How it is made.** From the database alone, with no model turn
   (`Ryker.WeeklyReport.Facts`, `Ryker.WeeklyReport.Digest`), so it cannot say
