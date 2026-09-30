@@ -44,11 +44,14 @@ defmodule Ryker.GitHub.ClientTest do
     assert {"x-github-api-version", "2022-11-28"} in first_headers
   end
 
+  # GitHub answers a new pull request review with 200, not the 201 of a new comment. On
+  # 2026-09-30 Ryker's reply to a comment on AndrewDryga/test#3 was posted and then recorded as
+  # failed, {:github_api_error, 200, review}, because this double had answered 201.
   test "creates issue comments, native pull reviews, and inline replies at exact targets" do
     {:ok, requester} =
       FakeRequester.start([
         response(201, %{"id" => 9_001}),
-        response(201, %{"body" => "Review summary", "id" => 9_100}),
+        response(200, %{"body" => "Review summary", "id" => 9_100, "state" => "COMMENTED"}),
         response(201, %{"id" => 9_002})
       ])
 

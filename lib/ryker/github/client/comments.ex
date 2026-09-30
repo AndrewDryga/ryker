@@ -220,11 +220,15 @@ defmodule Ryker.GitHub.Client.Comments do
   defp created_comment(%{status: 201}), do: {:error, {:github_protocol_error, :comment}}
   defp created_comment(response), do: Transport.error(response)
 
-  defp created_review(%{body: %{"body" => body, "id" => id}, status: 201})
-       when is_binary(body),
+  # GitHub answers a new pull request review with 200, unlike a new comment's 201; treating it
+  # as an error recorded a posted reply as failed (AndrewDryga/test#3, 2026-09-30).
+  defp created_review(%{body: %{"body" => body, "id" => id}, status: status})
+       when status in [200, 201] and is_binary(body),
        do: valid_comment_id(id)
 
-  defp created_review(%{status: 201}), do: {:error, {:github_protocol_error, :pull_review}}
+  defp created_review(%{status: status}) when status in [200, 201],
+    do: {:error, {:github_protocol_error, :pull_review}}
+
   defp created_review(response), do: Transport.error(response)
 
   defp update_comment(client, repository, comment_id, body, path) do
