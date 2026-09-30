@@ -22,6 +22,9 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   @ui_revision 6
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
+  # Why a refused grant stopped the draft, in words: the card said "needs operator attention:
+  # `publication_authorization_revoked`" (2026-09-30). The recovery is on the card itself.
+  @refused_grant "Ryker couldn't get permission to publish this reviewed change."
 
   @spec build(TaskCard.t()) ::
           {:ok, %{document: map(), fingerprint: String.t(), ui_revision: pos_integer()}}
@@ -341,6 +344,13 @@ defmodule Ryker.Slack.TaskCardProjection do
   # episode for details" is what hid the runner's actual question for two days.
   defp public_error(_publication, _turn, hold) when is_map(hold), do: nil
 
+  defp public_error(
+         %Publication{last_error_code: "publication_authorization_revoked"},
+         _turn,
+         _hold
+       ),
+       do: @refused_grant
+
   defp public_error(%Publication{last_error_code: code}, _turn, _hold) when is_binary(code),
     do: attention("Draft pull-request work needs operator attention", code)
 
@@ -572,6 +582,14 @@ defmodule Ryker.Slack.TaskCardProjection do
        when is_binary(head_sha),
        do:
          "The draft pull-request head changed outside this reviewed publication. Review the latest state or discard publication custody."
+
+  defp action_needed(
+         _episode,
+         _turn,
+         _records,
+         %Publication{last_error_code: "publication_authorization_revoked"}
+       ),
+       do: @refused_grant
 
   defp action_needed(
          _episode,
