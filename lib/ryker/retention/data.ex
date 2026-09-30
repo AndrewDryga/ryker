@@ -464,6 +464,7 @@ defmodule Ryker.Retention.Data do
   UPDATE admission_attempts attempt
   SET submission = CASE WHEN submission IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
       response = CASE WHEN response IS NULL THEN NULL ELSE '{"retention":"pruned"}' END,
+      rejections = NULL,
       operational_pruned_at = clock_timestamp()
   FROM candidates WHERE attempt.id = candidates.id
   """

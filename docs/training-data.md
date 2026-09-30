@@ -36,7 +36,7 @@ The table names what the Elixir release keeps. The Go release's `context_manifes
 | Outcome of work | `episode_kernel_episodes.state`, `episode_work_turns.status` | History 30 days after the request finished ("Request history"), the rows at the audit limit |
 | Outcome of a quick reply or reaction | `delivery_routing_responses.status` | 30 days after it was delivered |
 | Tokens and cost | `admission_attempts.measurements`, `execution_usage` (kind `admission`) | `execution_usage` is kept; the attempt's copy goes with the prompt |
-| Feedback | Being built on `feature/feedback`, one table keyed by request | Its own rule |
+| Feedback | `answer_feedback`, keyed by request or by the message routing answered | 30 days after it was recorded ("Prompts, replies and tool activity"), or with its request |
 
 So after 30 days the prompt and the answer are gone. The decision's label and the usage row remain,
 but with nothing left to train on.
@@ -61,6 +61,11 @@ operational limit when the setting is turned on are copied too.
 
 - `prompt`, `output_schema`: the exact prompt and schema routing sent.
 - `answer`: the model's exact answer. `execution_target` is the model, `policy` the routing policy.
+- `rejected_answers`: each answer routing refused before that one, oldest first, with the code of
+  why (`rejected:unknown_candidate` for earlier work that was never offered, `decision:<field>` for
+  a field that breaks the contract, `not_json`) and the correction the model was sent. The attempt
+  keeps them from the moment routing refuses one (`admission_attempts.rejections`), because each turn
+  observed after it replaces the attempt's response; retention clears them with the prompt.
 - `decision`: action, work class, relation, repository, reaction names, number of messages.
 - `outcome`: `request` (the request's state, or null when routing answered by itself), `turn` (its
   last work turn's status) and `sent` (routing's own replies and reactions by status).
@@ -68,6 +73,13 @@ operational limit when the setting is turned on are copied too.
   otherwise an estimate at the saved model price, and timings.
 - `episode_id` and `episode_ref`: the request, the key feedback is kept under. `input_id`, the
   conversation, thread, repository, live or shadow, and `decided_at`.
+- Feedback, beside it (`routing_example_feedback`): every signal about its request, or about routing's
+  own answer when routing answered by itself, copied as it arrives, before or after the example: a
+  reaction, a person editing or deleting their message after the answer, asking again, how routing
+  read their next message (satisfied, neutral, frustrated or angry), a rating. Each copy holds the
+  kind, value (the emoji, feeling or rating), category and time, and never who gave it or a note's
+  words. Feedback itself is kept for 30 days and an example for a year, so the copy is what keeps
+  an old example's feedback.
 
 **Redaction.** The prompt and the answer pass through the redaction inspection uses
 (`Ryker.InspectionRedactor`), with every stored integration credential among the values it
@@ -84,8 +96,9 @@ earlier request offered as a candidate: routing shows those as short previews an
 messages they are. A person's edit takes back the words it replaced; one that leaves the text as it
 was, as Slack reports a link's preview arriving, takes back nothing, and so does an app updating its
 own message, as an alert does when it resolves. The copy keeps only its identity, so it is never
-copied again. A message forgotten, deleted or edited before its decision is copied is checked at the
-copy, which then records only that identity. Copies and forgetting share one lock, so a copy in
+copied again, and its refused answers and feedback go with its bodies. A message forgotten, deleted
+or edited before its decision is copied is checked at the copy, which then records only that
+identity. Copies and forgetting share one lock, so a copy in
 flight cannot slip past a forgetting that is committing. Decisions routed before 2026-09-28
 recorded no messages for their previews, so forgetting cannot trace those previews.
 
@@ -98,16 +111,19 @@ checkout:
 MIX_ENV=prod mix ryker.routing_examples --output routing-examples.jsonl
 ```
 
-Each line is one chat fine-tuning example, oldest decision first, forgotten ones left out:
+Each line is one chat fine-tuning example, oldest decision first, forgotten ones left out. The
+refused answers beside `messages` pair with the accepted one for preference training:
 
 ```json
 {"messages":[{"role":"user","content":"<exact prompt>"},{"role":"assistant","content":"<exact answer>"}],
+ "rejected_answers":[{"answer":"<refused answer>","reason":"rejected:unknown_candidate","correction":"..."}],
  "output_schema":{...},
  "labels":{"example_id":"...","request_id":"...","request_ref":"...","input_id":"...",
            "decided_at":"...","settled_at":"...","transport":"slack","conversation_ref":"...",
            "thread_ref":"...","repository_ref":null,"execution_mode":"live",
            "model":"codex:gpt-5.6-luna/low@default","policy":"ryker-admission",
-           "decision":{...},"outcome":{...},"usage":{...}}}
+           "decision":{...},"outcome":{...},"usage":{...},
+           "feedback":[{"kind":"reaction_added","value":"+1","category":"satisfied","occurred_at":"..."}]}}
 ```
 
 The download reads the rows in batches and sends each line as it goes, so a large set never sits
@@ -115,8 +131,6 @@ in memory.
 
 ## What an example still lacks
 
-- **Feedback.** `labels.request_id` is the request id the feedback table is keyed by, so a training
-  set can join it once that table lands. Routing's own quick replies and reactions start no
-  request, so their `request_id` is null.
-- **Rejected answers.** When host validation sends an answer back, only the accepted one is kept.
 - **Work's own model calls.** Only routing decisions are copied.
+- **Refused answers from before 2026-09-30.** Routing kept none until then, so older examples have
+  an empty list.

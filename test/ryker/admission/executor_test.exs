@@ -983,6 +983,16 @@ defmodule Ryker.Admission.ExecutorTest do
     assert violation =~ "stays with that work"
     assert violation =~ owner_ref
     refute violation =~ "admission_rejected"
+
+    # The refused answer is kept for training, with why and what was said back.
+    assert [
+             %{
+               "attempt" => 1,
+               "reason" => "rejected:source_item_owner",
+               "correction" => ^violation
+             }
+           ] =
+             Repo.get_by!(Ryker.Admission.Attempt, input_id: edit.id).rejections
   end
 
   test "a crossed Coop turn cannot decide another admission session" do

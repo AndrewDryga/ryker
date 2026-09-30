@@ -18,6 +18,10 @@ defmodule Ryker.Admission.Attempt do
     field(:milestones, Ryker.CanonicalJSON.Type, default: %{})
     field(:measurements, Ryker.CanonicalJSON.Type, default: %{})
     field(:response, Ryker.CanonicalJSON.Type)
+    # Each answer host validation sent back before the accepted one, with why
+    # (`Ryker.Admission.Attempts.reject/4`); the turns observed after it replace
+    # `response`, so this is the only place it is kept.
+    field(:rejections, Ryker.CanonicalJSON.Type)
     field(:operational_pruned_at, :utc_datetime_usec)
     timestamps(type: :utc_datetime_usec)
   end

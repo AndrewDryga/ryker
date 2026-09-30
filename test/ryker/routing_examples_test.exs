@@ -26,7 +26,10 @@ defmodule Ryker.RoutingExamplesTest do
 
   alias Ryker.Admission.{Attempt, Executor}
   alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
+  alias Ryker.Feedback
+  alias Ryker.Feedback.Signal
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
+  alias Ryker.Fixtures.LocalRouting, as: HarvestedLocal
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.ConversationKnowledge
@@ -34,6 +37,7 @@ defmodule Ryker.RoutingExamplesTest do
   alias Ryker.Retention.Data
   alias Ryker.RoutingExamples
   alias Ryker.RoutingExamples.Example
+  alias Ryker.RoutingExamples.Feedback, as: KeptFeedback
   alias Ryker.Settings
   alias Ryker.Slack.ChannelConfigurations
   alias Ryker.Slack.Input, as: SlackInput
@@ -237,6 +241,129 @@ defmodule Ryker.RoutingExamplesTest do
 
       assert line =~
                ~r/\[error\] routing example copy failed input=#{broken.id} category=Ecto.ConstraintError$/
+    end
+  end
+
+  describe "refused answers" do
+    # 2026-09-30: the first answer the local routing model gave on the live
+    # install started work on earlier work it made up ("same_work"), and
+    # routing refused it. A provider's answer refused the same way was lost
+    # for training: each turn Ryker observed replaced the attempt's response,
+    # so only the answer routing finally accepted was ever copied.
+    test "an answer routing refused is kept with its example, with why" do
+      keep_examples!()
+      refused = HarvestedLocal.made_up_earlier_work()
+
+      entry =
+        route!(
+          "Ev-examples-refused",
+          "Which repositories can you read in this environment?",
+          [refused, @quick_reply]
+        )
+
+      deliver_routing_responses!()
+      assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
+      example = Repo.get_by!(Example, input_id: entry.id)
+
+      assert example.answer == @quick_reply
+
+      assert [
+               %{
+                 "answer" => ^refused,
+                 "reason" => "rejected:unknown_candidate",
+                 "correction" => correction
+               }
+             ] = example.rejected_answers
+
+      assert correction =~ "episode_ref is not one of the opaque candidate references"
+
+      assert [line] = lines()
+      document = Jason.decode!(line)
+      assert document["rejected_answers"] == example.rejected_answers
+      assert List.last(document["messages"])["content"] == @quick_reply
+
+      # A person deleting the message takes the refused answer back too.
+      delete_message!("Ev-examples-refused-delete", 1)
+      assert_erased(entry)
+    end
+
+    test "an example routing accepted at once has no refused answers" do
+      keep_examples!()
+      entry = route!("Ev-examples-first-try", "hello there", @ignore)
+      assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
+      assert Repo.get_by!(Example, input_id: entry.id).rejected_answers == []
+      assert Jason.decode!(hd(lines()))["rejected_answers"] == []
+    end
+  end
+
+  describe "feedback" do
+    # Feedback is kept for the operational horizon (30 days by default) and a
+    # routing example for its own window (a year by default). An export that
+    # joined the feedback table would have labelled every example older than
+    # a month as having none, the ones people reacted to among them.
+    test "feedback given before and after the copy stays with the example after the feedback itself expires" do
+      keep_examples!()
+      entry = route!("Ev-examples-feedback", "hi, reply with one word", @quick_reply)
+      deliver_routing_responses!()
+
+      feedback!(entry, :reaction_added, "+1", "reaction:Ev-feedback-1",
+        at: DateTime.add(@now, 30, :second)
+      )
+
+      assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
+
+      # The next day the person's next message reads frustrated.
+      feedback!(entry, :sentiment, "frustrated", "sentiment:Ev-feedback-2",
+        note: "They said the one word was the wrong word.",
+        at: DateTime.add(@now, @day, :second)
+      )
+
+      assert {:ok, 1} = RoutingExamples.copy_feedback()
+      # Copied once, however often a pass runs.
+      assert {:ok, 0} = RoutingExamples.copy_feedback()
+
+      # The feedback table's own window passes.
+      Repo.delete_all(Signal)
+
+      assert [line] = lines()
+      feedback = Jason.decode!(line)["labels"]["feedback"]
+
+      assert [
+               %{"kind" => "reaction_added", "value" => "+1", "category" => "satisfied"},
+               %{"kind" => "sentiment", "value" => "frustrated", "category" => "frustrated"}
+             ] = Enum.map(feedback, &Map.delete(&1, "occurred_at"))
+
+      assert Enum.map(feedback, & &1["occurred_at"]) == [
+               DateTime.to_iso8601(DateTime.add(@now, 30, :second)),
+               DateTime.to_iso8601(DateTime.add(@now, @day, :second))
+             ]
+
+      # Neither who gave it nor a note's words travel with it.
+      refute inspect(feedback) =~ "U0FEEDBACK1"
+      refute line =~ "the wrong word"
+    end
+
+    test "a forgotten example keeps no feedback, and none is copied to it later" do
+      keep_examples!()
+      entry = route!("Ev-examples-feedback-forgotten", "hi, reply with one word", @quick_reply)
+      deliver_routing_responses!()
+      feedback!(entry, :reaction_added, "+1", "reaction:Ev-feedback-forgotten")
+      assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
+      assert Repo.aggregate(KeptFeedback, :count) == 1
+
+      delete_message!("Ev-examples-feedback-forgotten-delete", 1)
+      assert_erased(entry)
+
+      feedback!(entry, :reaction_added, "tada", "reaction:Ev-feedback-forgotten-2")
+      assert {:ok, 0} = RoutingExamples.copy_feedback()
+      assert Repo.aggregate(KeptFeedback, :count) == 0
+    end
+
+    test "nothing is copied while keeping routing examples is off" do
+      entry = route!("Ev-examples-feedback-off", "hi, reply with one word", @quick_reply)
+      deliver_routing_responses!()
+      feedback!(entry, :reaction_added, "+1", "reaction:Ev-feedback-off")
+      assert {:ok, 0} = RoutingExamples.copy_feedback()
     end
   end
 
@@ -647,6 +774,24 @@ defmodule Ryker.RoutingExamplesTest do
 
       assert eventually(fn -> Repo.get_by(Example, input_id: entry.id) end)
     end
+
+    test "feedback given while the worker is idle is copied at once" do
+      keep_examples!()
+      entry = route!("Ev-examples-feedback-woken", "hi, reply with one word", @quick_reply)
+      deliver_routing_responses!()
+      assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
+
+      worker =
+        start_supervised!(
+          {RoutingExamples.Worker,
+           batch_size: 25, poll_interval_ms: 10_000, redaction_secrets: [], window_seconds: 60}
+        )
+
+      _state = :sys.get_state(worker)
+      feedback!(entry, :reaction_added, "+1", "reaction:Ev-feedback-woken")
+
+      assert eventually(fn -> Repo.aggregate(KeptFeedback, :count) == 1 end)
+    end
   end
 
   # -- Helpers -------------------------------------------------------------------
@@ -683,8 +828,9 @@ defmodule Ryker.RoutingExamplesTest do
   end
 
   # One Slack message in the channel, routed by the real executor to the
-  # harvested answer. `message` numbers messages in time order; `thread` is
-  # the thread it replies in, and `actor` who sent it.
+  # harvested answer, or to each of several answers in turn when routing
+  # refuses the ones before the last. `message` numbers messages in time
+  # order; `thread` is the thread it replies in, and `actor` who sent it.
   defp route!(event_ref, text, answer, options \\ []) do
     number = Keyword.get(options, :message, 1)
 
@@ -710,7 +856,7 @@ defmodule Ryker.RoutingExamplesTest do
     assert claimed.id == entry.id
     # Each message is its own routing turn, as it is on Coop.
     {:ok, fake} =
-      FakeAPI.start_link([answer],
+      FakeAPI.start_link(List.wrap(answer),
         turn_report: @turn_report,
         turn_id_override: "turn_#{event_ref}"
       )
@@ -802,8 +948,27 @@ defmodule Ryker.RoutingExamplesTest do
     example = Repo.get_by!(Example, input_id: entry.id)
     assert example.forgotten_at
 
-    assert {example.prompt, example.answer, example.output_schema, example.decision,
-            example.outcome, example.usage} == {nil, nil, nil, nil, nil, nil}
+    assert {example.prompt, example.answer, example.rejected_answers, example.output_schema,
+            example.decision, example.outcome, example.usage} ==
+             {nil, nil, nil, nil, nil, nil, nil}
+
+    refute Repo.exists?(from(f in KeptFeedback, where: f.example_id == ^example.id))
+  end
+
+  # A signal about routing's own answer to `entry`, as a Slack reaction or
+  # routing's read of the person's next message records it.
+  defp feedback!(entry, kind, value, source_ref, options \\ []) do
+    assert {:ok, %{status: :recorded}} =
+             Feedback.record(%{
+               kind: kind,
+               value: value,
+               note: Keyword.get(options, :note),
+               actor_ref: "U0FEEDBACK1",
+               source: "slack",
+               source_ref: source_ref,
+               occurred_at: Keyword.get(options, :at, DateTime.add(@now, 120, :second)),
+               request: {:input, entry.id}
+             })
   end
 
   defp kept(entry) do

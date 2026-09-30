@@ -10,6 +10,10 @@ defmodule Ryker.Admission.Attempts do
   alias Ryker.Work.Measurement
 
   @phases ~w(context_prepared execution_requested request_frozen provider_queued provider_running response_received host_validation committed)
+  # The most refused answers one attempt keeps, the latest: Coop gives a
+  # routing turn a handful of candidates, so this bound never decides what is
+  # kept in practice.
+  @kept_rejections 10
   @observations [:session_ref, :turn_ref, :execution_target, :measurements, :response]
 
   def prepare(entry, settings), do: locked(entry, settings, & &1)
@@ -42,6 +46,32 @@ defmodule Ryker.Admission.Attempts do
   def observe(entry, phase, attributes, settings) when phase in @phases and is_map(attributes) do
     locked(entry, settings, fn attempt ->
       persist(attempt, Map.take(attributes, @observations), phase, settings.now.())
+    end)
+    |> case do
+      {:ok, _attempt} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  Keeps an answer host validation is about to send back, and why, on the
+  attempt (`rejections`): each turn observed after it replaces `response`,
+  so this is the only place the refused answer stays. `rejection` names the
+  candidate's `attempt` and `sha256`, its `answer`, the `reason` code
+  (`Ryker.Admission.refusal/1`) and the `correction` sent back. The same
+  candidate again, as a retried validation sends it, is kept once.
+  """
+  @spec reject(Entry.t(), map(), map()) :: :ok | {:error, term()}
+  def reject(entry, %{"attempt" => number, "sha256" => sha256} = rejection, settings) do
+    locked(entry, settings, fn attempt ->
+      kept = List.wrap(attempt.rejections)
+
+      if Enum.any?(kept, &(&1["attempt"] == number and &1["sha256"] == sha256)),
+        do: attempt,
+        else:
+          attempt
+          |> Changeset.change(rejections: Enum.take(kept ++ [rejection], -@kept_rejections))
+          |> Repo.update!()
     end)
     |> case do
       {:ok, _attempt} -> :ok
