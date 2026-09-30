@@ -10,6 +10,8 @@ defmodule Mix.Tasks.Ryker.Eval do
         /absolute/shard-1.json /absolute/shard-2.json
       mix ryker.eval routing-replay --examples /absolute/routing-examples.jsonl \\
         --results /absolute/routing-replay.json [--limit N] [--concurrency N]
+      mix ryker.eval improvement-replay --runs /absolute/analysis-runs.jsonl \\
+        --results /absolute/improvement-replay.json [--concurrency N]
 
   `world-pack` emits one JSON object per scenario, with its exact tool catalog,
   without calling a model. `world` runs the same scenarios through the
@@ -32,6 +34,11 @@ defmodule Mix.Tasks.Ryker.Eval do
   `RYKER_EVAL_ROUTING_TARGET` names, and reports how many stay the same and
   which change (`Ryker.Evals.RoutingReplay`). The export holds what people
   said; keep it and the report outside the repository.
+
+  `improvement-replay` asks recorded self-analyses again, each with today's
+  instructions and contract, on the model `RYKER_EVAL_IMPROVEMENT_TARGET` names,
+  and reports how many put the fault in the same place
+  (`Ryker.Evals.ImprovementReplay`). Its runs hold what people said too.
   """
 
   use Mix.Task
@@ -44,6 +51,7 @@ defmodule Mix.Tasks.Ryker.Eval do
 
   alias Ryker.Evals.{
     CoopRunner,
+    ImprovementReplay,
     Job,
     RoutingReplay,
     WorldCase,
@@ -94,6 +102,10 @@ defmodule Mix.Tasks.Ryker.Eval do
     run_routing_replay(arguments)
   end
 
+  def run(["improvement-replay" | arguments]) do
+    run_improvement_replay(arguments)
+  end
+
   def run(_arguments) do
     Mix.raise(
       "usage: mix ryker.eval world-pack" <>
@@ -101,7 +113,9 @@ defmodule Mix.Tasks.Ryker.Eval do
         " | world-shards --shards N" <>
         " | world-merge --results /absolute/world-results.json /absolute/shard.json..." <>
         " | routing-replay --examples /absolute/routing-examples.jsonl" <>
-        " --results /absolute/routing-replay.json [--limit N] [--concurrency N]"
+        " --results /absolute/routing-replay.json [--limit N] [--concurrency N]" <>
+        " | improvement-replay --runs /absolute/analysis-runs.jsonl" <>
+        " --results /absolute/improvement-replay.json [--concurrency N]"
     )
   end
 
@@ -122,6 +136,45 @@ defmodule Mix.Tasks.Ryker.Eval do
       )
     else
       {:error, reason} -> Mix.raise("routing replay failed: #{inspect(reason)}")
+    end
+  end
+
+  defp run_improvement_replay(arguments) do
+    with {:ok, replay} <- improvement_replay_arguments(arguments),
+         {:ok, job} <- Job.improvement(),
+         {:ok, cases, skipped} <- ImprovementReplay.cases(replay.runs),
+         {:ok, finch} <- start_finch(),
+         {:ok, client} <- eval_client(finch),
+         {:ok, result} <-
+           ImprovementReplay.run(cases, client: client, concurrency: replay.concurrency, job: job),
+         summary = ImprovementReplay.summary(cases, result, skipped),
+         :ok <- File.write(replay.results, Jason.encode!(summary, pretty: true)) do
+      info(
+        "improvement replay: #{summary.same} of #{summary.total} diagnoses stayed the same, " <>
+          "#{summary.changed} changed, #{summary.not_answered} not answered, " <>
+          "#{length(skipped)} runs skipped; report at #{replay.results}"
+      )
+    else
+      {:error, reason} -> Mix.raise("improvement replay failed: #{inspect(reason)}")
+    end
+  end
+
+  defp improvement_replay_arguments(arguments) do
+    case parse_flags(arguments, runs: :string, results: :string, concurrency: :integer) do
+      {:ok, parsed, []} ->
+        concurrency = parsed[:concurrency] || @replay_concurrency
+
+        with runs when is_binary(runs) <- parsed[:runs],
+             results when is_binary(results) <- parsed[:results],
+             true <- Path.type(runs) == :absolute and Path.type(results) == :absolute,
+             true <- concurrency in 1..16 do
+          {:ok, %{runs: runs, results: results, concurrency: concurrency}}
+        else
+          _invalid -> {:error, :improvement_replay_needs_absolute_runs_and_results}
+        end
+
+      _invalid ->
+        {:error, :invalid_arguments}
     end
   end
 

@@ -17,7 +17,8 @@ defmodule Ryker.Evals.Job do
     judge: "RYKER_EVAL_JUDGE_TARGET",
     world: "RYKER_EVAL_WORLD_TARGET",
     baseline: "RYKER_EVAL_BASELINE_TARGET",
-    routing: "RYKER_EVAL_ROUTING_TARGET"
+    routing: "RYKER_EVAL_ROUTING_TARGET",
+    improvement: "RYKER_EVAL_IMPROVEMENT_TARGET"
   }
 
   def socket do
@@ -43,7 +44,11 @@ defmodule Ryker.Evals.Job do
   @doc "The model routing replays ask (`Ryker.Evals.RoutingReplay`), named explicitly."
   def routing, do: required(:routing)
 
-  def new(kind, target) when kind in [:judge, :world, :baseline, :learning, :routing] do
+  @doc "The model self-analysis replays ask (`Ryker.Evals.ImprovementReplay`), named explicitly."
+  def improvement, do: required(:improvement)
+
+  def new(kind, target)
+      when kind in [:judge, :world, :baseline, :learning, :routing, :improvement] do
     if is_binary(target) and String.valid?(target) and byte_size(target) in 1..256 and
          not Regex.match?(~r/\s|\x00/u, target) do
       name = "ryker-eval-#{kind}"
@@ -87,7 +92,7 @@ defmodule Ryker.Evals.Job do
     with [target] <- document["targets"],
          kind when not is_nil(kind) <-
            Enum.find(
-             [:judge, :world, :baseline, :learning, :routing],
+             [:judge, :world, :baseline, :learning, :routing, :improvement],
              &(name == "ryker-eval-#{&1}")
            ),
          {:ok, template} <- new(kind, target),
