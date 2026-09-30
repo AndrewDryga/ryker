@@ -1512,14 +1512,12 @@
 .lab-chat-message .chat-message-text { margin-top:4px; }
 .ryker-app .lab-example:hover { background:var(--ryker-surface); }
 
-/* The live line while Ryker routes or works: a thin bar and one plain sentence. */
-.lab-message-progress, .lab-typing-indicator { display:flex; align-items:center; gap:10px; margin:10px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.lab-progress-bar { position:relative; flex:none; width:120px; height:2px; border-radius:2px; overflow:hidden; background:var(--ryker-stroke); }
-.lab-progress-bar i { position:absolute; inset:0 60% 0 0; border-radius:2px; background:var(--ryker-accent); }
-.lab-message-progress[data-phase="Needs attention"] .lab-progress-bar i { right:0; background:var(--ryker-warning); }
+/* The live line while Ryker routes or works: a small breathing dot and one plain sentence
+   (Andrew, 2026-09-30: the 120px bar was "too big, need something more subtle"). */
+.lab-message-progress, .lab-typing-indicator { display:flex; align-items:center; gap:8px; margin:10px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.lab-progress-dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--ryker-accent); }
 .lab-message-progress .lab-progress-status { color:var(--ryker-text); }
-@media (prefers-reduced-motion:no-preference) { .lab-progress-bar i { animation:lab-progress 1.4s ease-in-out infinite; } .lab-message-progress[data-phase="Needs attention"] .lab-progress-bar i { animation:none; } }
-@media (prefers-reduced-motion:no-preference) { @keyframes lab-progress { 0% { transform:translateX(-100%); } 100% { transform:translateX(250%); } } }
+@media (prefers-reduced-motion:no-preference) { .lab-progress-dot { animation:lab-progress-breathe 1.6s ease-in-out infinite; } @keyframes lab-progress-breathe { 0%, 100% { opacity:.3; } 50% { opacity:1; } } }
 
 .lab-composer-dock { background:var(--ryker-surface-sunken); padding-bottom:16px; }
 .ryker-app .lab-native-composer { border:1px solid var(--ryker-stroke-strong); border-radius:14px; background:var(--ryker-surface); box-shadow:none; overflow:hidden; }

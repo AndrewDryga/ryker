@@ -624,7 +624,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert Enum.count(
              LazyHTML.query(
                document,
-               ".context-message-details > .ui-disclosure-body > .context-message-raw"
+               ".context-message-details > .context-message-raw"
              )
            ) == 1
 
