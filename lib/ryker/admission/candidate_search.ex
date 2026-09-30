@@ -2,12 +2,15 @@ defmodule Ryker.Admission.CandidateSearch do
   @moduledoc """
   Bounded, indexed, explainable retrieval of episodes one input may belong to.
 
-  Four indexed lanes fill a pool of at most 200 eligible episodes, each lane
-  returning its own best 50 by relevance rather than the newest rows overall.
-  The exact source item's existing owner is resolved separately so no lane cap
-  can hide it. Ranking then chooses at most twenty options, reserving places
-  for the strongest matches outside the incoming thread, and records why the
-  cutoff fell where it did.
+  Five indexed lanes fill a pool of at most 200 eligible episodes, each lane
+  returning its own best 50 by relevance rather than the newest rows overall:
+  shared links and identifiers, this thread, wording weighted by how rare each
+  word is, meaning (`Ryker.Embeddings`, when a server is set up), and running
+  work. The exact source item's existing owner is resolved separately so no
+  lane cap can hide it. Ranking then chooses at most twenty options, reserving
+  places for the strongest matches outside the incoming thread, and records
+  why the cutoff fell where it did. The routing search benchmark
+  (test/ryker/admission/search_benchmark_test.exs) measures all of it.
   """
 
   import Ecto.Query
