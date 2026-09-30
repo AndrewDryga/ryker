@@ -356,6 +356,21 @@ defmodule Ryker.Work.PromptTest do
     refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?|emoji|reactions?)\b/i
   end
 
+  # Andrew, 2026-09-30, of Ryker's reply to his question on one line of emisar#87 ("Can you show
+  # me the diff between old and new version? what will change inside?"): "this is too much text,
+  # we need it to be shorter, use simple english ... and just act like human would instead". The
+  # reply answered the line, then listed five other packs and a compatibility note nobody asked
+  # about, and never showed the diff he asked to see.
+  test "a reply answers what was asked, shows what was asked to be seen, and stops" do
+    instructions = normalized_instructions()
+
+    assert instructions =~ "Answer what the person asked, about the thing they asked about"
+    assert instructions =~ "leave out what the question did not ask"
+    assert instructions =~ "When they ask to see something, such as a diff"
+    assert instructions =~ "On a pull request, reply the way a reviewer answers in that thread"
+    refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?)\b/i
+  end
+
   test "universal instructions explain the typed Slack entity boundary" do
     instructions = Prompt.build(%{}) |> Jason.decode!() |> Map.fetch!("instructions")
 
