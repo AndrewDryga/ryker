@@ -277,7 +277,7 @@ defmodule Ryker.Evals.WorldInputs do
         "host_received_at" => DateTime.to_iso8601(received_at),
         "mode" => "simulated",
         "note" =>
-          "Only receipt timing is rebased to exercise live host waits. Use the original source time for event chronology. Original source content and tool observations retain their historical dates; this replay supplies no present-day health proof.",
+          "Only receipt timing is rebased to exercise live host waits. Use the original source time for event chronology. Original source content and tool observations retain their historical dates: judge how fresh an observation is against the original source time of the request it answers, not against the receipt time. The replay proves nothing about health after that time.",
         "scenario_occurred_at" => event["occurred_at"],
         "scenario_occurred_at_source" => Atom.to_string(occurred_at_source),
         "source_occurred_at" => if(occurred_at_source == :source, do: event["occurred_at"])

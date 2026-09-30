@@ -651,6 +651,10 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert clock["source_occurred_at"] == source_at
     assert clock["host_received_at"] == initial.input_clock.applied_occurred_at
     assert clock["scenario_occurred_at_source"] == "source"
+    # A reading three seconds after a request is current for it, whatever the
+    # receipt time says: told only that readings are historical, the model
+    # asked for a fresh uptime reading in two runs of three (2026-09-30).
+    assert clock["note"] =~ "judge how fresh an observation is against the original source time"
     assert Map.delete(envelope["content"], "world_replay_clock") == hd(scenario.events)["payload"]
 
     assert {:ok, judge} = WorldJudgeCase.new(scenario, report)
