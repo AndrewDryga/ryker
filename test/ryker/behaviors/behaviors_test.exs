@@ -864,24 +864,31 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              {:error, :behavior_offer_stale}
   end
 
-  test "an operator preference can only be confirmed by the operator who requested it" do
+  # Andrew, 2026-09-30: a person can keep "explicit rules for a person it
+  # can add for himself". Such a rule belongs to whoever confirms it, and a
+  # rule offered to one person was confirmable by anyone in the channel,
+  # becoming the confirmer's.
+  test "a preference or rule someone keeps for themselves is confirmed only by them" do
     fixture = delivered_offers!("operator-preference-requester")
 
-    crossed =
-      fixture
-      |> confirmation(fixture.operator_preference, "other-operator")
-      |> Map.put(:actor_ref, "slack:user:U999")
+    for offer <- [fixture.operator_preference, fixture.operator_guidance] do
+      crossed =
+        fixture
+        |> confirmation(offer, "other-operator:#{offer.ref}")
+        |> Map.put(:actor_ref, "slack:user:U999")
 
-    assert Behaviors.confirm(crossed) == {:error, :behavior_offer_actor_mismatch}
+      assert Behaviors.confirm(crossed) == {:error, :behavior_offer_actor_mismatch}
+    end
+
     assert Repo.aggregate(Behavior, :count, :id) == 0
 
-    assert {:ok, confirmed} =
-             Behaviors.confirm(
-               confirmation(fixture, fixture.operator_preference, "requesting-operator")
-             )
+    for offer <- [fixture.operator_preference, fixture.operator_guidance] do
+      assert {:ok, confirmed} =
+               Behaviors.confirm(confirmation(fixture, offer, "requesting:#{offer.ref}"))
 
-    assert confirmed.behavior.scope_kind == :operator
-    assert confirmed.behavior.scope_ref == "slack:user:U123"
+      assert confirmed.behavior.scope_kind == :operator
+      assert confirmed.behavior.scope_ref == "slack:user:U123"
+    end
   end
 
   test "a standing assignment match is recorded once and finalized with admission" do
@@ -1242,6 +1249,18 @@ defmodule Ryker.Behaviors.BehaviorsTest do
                "visibility" => "conversation"
              })
 
+    assert {:ok, operator_guidance} =
+             Records.create(Records.token(claim.turn), "operator-guidance", "guidance_offer", %{
+               "expires_in" => "90d",
+               "repository" => nil,
+               "scope" => "operator",
+               "subject" => "plan_first",
+               "summary" => "Show me the Terraform plan first.",
+               "text" =>
+                 "When I ask about an infrastructure change, show me its Terraform plan first.",
+               "visibility" => "private"
+             })
+
     assert {:ok, assignment} =
              Records.create(
                Records.token(claim.turn),
@@ -1287,6 +1306,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
           workspace_preference,
           operator_preference,
           guidance,
+          operator_guidance,
           assignment,
           source_event_assignment
         ],
@@ -1298,6 +1318,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     Map.merge(delivery, %{
       assignment: assignment,
       guidance: guidance,
+      operator_guidance: operator_guidance,
       operator_preference: operator_preference,
       source_event_assignment: source_event_assignment,
       workspace_preference: workspace_preference
