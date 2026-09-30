@@ -9,7 +9,14 @@ defmodule Ryker.Evals.RoutingReplayCase do
   made on and what it decided (`Ryker.RoutingExamples.Export`). A replay case
   is one of them: the same context with the instructions today's routing gives
   it (`Ryker.Admission.Prompt.replay/1`), under the contract its source was
-  offered, rebuilt with today's shapes (`Ryker.Admission.Decision.replay_schema/1`).
+  offered, rebuilt with today's shapes (`Ryker.Admission.Decision.replay_schema/2`).
+
+  Today routing is also asked how the sender feels about Ryker's previous
+  answer when a person's message follows one there. A recorded context from
+  before that holds no `previous_answer`, so the case reads it from the
+  recorded conversation the same way: a person's message from Slack or Chat,
+  and the latest of Ryker's messages before it. The sentiment an answer gives
+  is reported beside its decision and never compared.
 
   An answer routing could not act on goes back for repair, as routing's own
   does. One it can act on passes when it makes Ryker do the same next as the
@@ -22,7 +29,7 @@ defmodule Ryker.Evals.RoutingReplayCase do
   @compared ~w(action episode_ref relation)
 
   @enforce_keys [:eval_id, :prompt, :schema, :recorded, :candidates, :labels]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [sentiment_offered: false]
 
   @type t :: %__MODULE__{
           eval_id: String.t(),
@@ -30,7 +37,8 @@ defmodule Ryker.Evals.RoutingReplayCase do
           schema: map(),
           recorded: map(),
           candidates: %{String.t() => [String.t()]},
-          labels: map()
+          labels: map(),
+          sentiment_offered: boolean()
         }
 
   @doc "The name its sessions and operations carry (`Ryker.Evals.CoopRunner`)."
@@ -51,17 +59,20 @@ defmodule Ryker.Evals.RoutingReplayCase do
       })
       when is_binary(prompt) and is_binary(answer) and is_binary(id) do
     with {:ok, %{"context" => context} = request} when is_map(context) <- Jason.decode(prompt),
-         {:ok, schema} <- Decision.replay_schema(schema),
+         context = with_previous_answer(context),
+         offered? = Map.has_key?(context, "previous_answer"),
+         {:ok, schema} <- Decision.replay_schema(schema, offered?),
          {:ok, %{} = decision} <- Jason.decode(answer),
          {:ok, recorded} <- compared(decision) do
       {:ok,
        %__MODULE__{
          eval_id: "routing-replay:#{id}",
-         prompt: request |> Prompt.replay() |> Prompt.render(),
+         prompt: %{request | "context" => context} |> Prompt.replay() |> Prompt.render(),
          schema: schema,
          recorded: recorded,
          candidates: candidates(context),
-         labels: Map.take(labels, ~w(example_id request_ref decided_at model))
+         labels: Map.take(labels, ~w(example_id request_ref decided_at model)),
+         sentiment_offered: offered?
        }}
     else
       _invalid -> {:error, {:invalid_routing_example, id}}
@@ -80,7 +91,11 @@ defmodule Ryker.Evals.RoutingReplayCase do
          {:ok, decision} <- Decision.parse(document),
          {:ok, replayed} <- compared(Decision.document(decision)),
          :ok <- offered(replayed, replay.candidates) do
-      {:accept, %{document: replayed, passed: replayed == replay.recorded}}
+      {:accept,
+       %{
+         document: with_sentiment(replayed, decision.sentiment),
+         passed: replayed == replay.recorded
+       }}
     else
       {:error, {:invalid_decision, field}} ->
         {:reject, ["Return a decision the response format allows; #{field} is not valid."]}
@@ -107,6 +122,37 @@ defmodule Ryker.Evals.RoutingReplayCase do
        do: {:ok, Map.new(@compared, &{&1, Map.get(decision, &1)})}
 
   defp compared(_decision), do: {:error, :decision}
+
+  defp with_sentiment(replayed, %{feeling: feeling}),
+    do: Map.put(replayed, "sentiment", Atom.to_string(feeling))
+
+  defp with_sentiment(replayed, _none), do: replayed
+
+  # A person's message from Slack or Chat that follows one of Ryker's messages
+  # in the recorded conversation, as routing reads it today
+  # (`Ryker.Admission`): the latest of Ryker's messages is the previous answer.
+  defp with_previous_answer(
+         %{
+           "input" => %{
+             "actor" => %{"kind" => "user"},
+             "event_kind" => "message",
+             "source" => %{"kind" => kind}
+           }
+         } = context
+       )
+       when kind in ["slack", "control_plane"] do
+    answered =
+      for %{"actor" => "ryker", "at" => at} when is_binary(at) <-
+            get_in(context, ["conversation_context", "messages"]) || [],
+          do: at
+
+    case {Map.has_key?(context, "previous_answer"), List.last(answered)} do
+      {false, at} when is_binary(at) -> Map.put(context, "previous_answer", %{"at" => at})
+      _recorded_or_none -> context
+    end
+  end
+
+  defp with_previous_answer(context), do: context
 
   # Each earlier work offered, with the relations routing may give it.
   defp candidates(context) do

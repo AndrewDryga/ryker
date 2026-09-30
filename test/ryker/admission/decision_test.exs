@@ -729,16 +729,24 @@ defmodule Ryker.Admission.DecisionTest do
         choices <- [[], ["ryker", "coop"]] do
       recorded = Decision.json_schema(actions, reactions, source?, choices)
 
-      assert Decision.replay_schema(recorded) == {:ok, recorded},
+      assert Decision.replay_schema(recorded, false) == {:ok, recorded},
              inspect({actions, reactions, source?, choices})
+
+      # A recorded contract from before sentiment gains it where routing
+      # offers it today.
+      assert Decision.replay_schema(recorded, true) ==
+               {:ok, Decision.json_schema(actions, reactions, source?, choices, true)}
     end
 
-    assert Decision.replay_schema(%{"properties" => %{}}) ==
+    assert Decision.replay_schema(%{"properties" => %{}}, false) ==
              {:error, {:invalid_decision, :schema}}
 
-    assert Decision.replay_schema(%{
-             "properties" => %{"action" => %{"enum" => ["launch_rockets"]}},
-             "oneOf" => []
-           }) == {:error, {:invalid_decision, :schema}}
+    assert Decision.replay_schema(
+             %{
+               "properties" => %{"action" => %{"enum" => ["launch_rockets"]}},
+               "oneOf" => []
+             },
+             false
+           ) == {:error, {:invalid_decision, :schema}}
   end
 end

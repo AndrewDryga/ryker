@@ -226,9 +226,12 @@ defmodule Ryker.Admission.Decision do
   for: the actions, emoji, repository selector and repository choices it
   offered, rebuilt with today's shapes, so a recorded routing decision can be
   asked again under a changed contract (`mix ryker.eval routing-replay`).
+  `sentiment?` offers the sentiment as routing does today, when a person's
+  message follows one of Ryker's answers.
   """
-  @spec replay_schema(map()) :: {:ok, map()} | {:error, {:invalid_decision, :schema}}
-  def replay_schema(%{"properties" => properties, "oneOf" => shapes}) do
+  @spec replay_schema(map(), boolean()) :: {:ok, map()} | {:error, {:invalid_decision, :schema}}
+  def replay_schema(%{"properties" => properties, "oneOf" => shapes}, sentiment?)
+      when is_boolean(sentiment?) do
     with %{"action" => %{"enum" => names}} when is_list(names) <- properties,
          actions = Enum.map(names, &String.to_existing_atom/1),
          true <- actions != [] and Enum.all?(actions, &(&1 in @actions)) do
@@ -237,7 +240,8 @@ defmodule Ryker.Admission.Decision do
          actions,
          recorded_reactions(shapes, properties),
          properties["repository_source"] != %{"type" => "null"},
-         recorded_choices(properties["repository"])
+         recorded_choices(properties["repository"]),
+         sentiment?
        )}
     else
       _unrecognised -> {:error, {:invalid_decision, :schema}}
@@ -246,7 +250,7 @@ defmodule Ryker.Admission.Decision do
     ArgumentError -> {:error, {:invalid_decision, :schema}}
   end
 
-  def replay_schema(_recorded), do: {:error, {:invalid_decision, :schema}}
+  def replay_schema(_recorded, _sentiment?), do: {:error, {:invalid_decision, :schema}}
 
   # A quick reply that can carry no emoji names a source that takes none;
   # otherwise the offered names, or any.
