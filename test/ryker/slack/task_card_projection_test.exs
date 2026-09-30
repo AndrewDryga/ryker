@@ -367,6 +367,48 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
              "the worker session holding these changes closed before they could be checked"
   end
 
+  # 2026-09-30: after a refused publication grant the card offered "Retry publication", which
+  # custody refuses for that code because the worker finished the publish as refused. The card
+  # offers the recovery that works, and says the draft was not made.
+  test "a refused publication grant offers a fresh review, never a retry that cannot work" do
+    %{claim: work, publication: approved} = PublicationFixture.approved!("refused-grant-card")
+    assert {:ok, claim} = PublicationCustody.claim_next("publication:refused-grant-card", 60)
+    assert claim.publication.id == approved.id
+
+    assert {:ok, _refused} =
+             PublicationCustody.defer(
+               approved.ref,
+               claim.lease_ref,
+               60,
+               "publication_authorization_revoked",
+               "The worker refused publication."
+             )
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: work.episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:refused-grant-card",
+      payload: %{
+        "title" => "Implement refused-grant-card",
+        "repository" => "ryker",
+        "prompt" => "Implement the change."
+      }
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+    card = projection.document["task_card"]["publication"]
+    assert card["controls"] == ["update", "discard"]
+
+    assert {:ok, rendered} = Renderer.render(projection.document)
+    json = Jason.encode!(rendered)
+    assert json =~ "The draft PR wasn't created."
+    refute json =~ "Retry"
+    refute json =~ "Waiting for GitHub"
+  end
+
   # Andrew, 2026-09-28: "I clicked review latest state and now all actions are
   # gone and I can't do anything with the task?" For the minutes Coop checked
   # the change, the card offered no publication control at all.

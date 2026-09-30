@@ -73,15 +73,14 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
         do: " · #{link(url, "Open draft PR ##{number}")}",
         else: ""
 
-    # The host's own line for a fix round Ryker is running on the refusal
-    # (`Ryker.Publication.FixLoop`) says what the blocked status would not.
     message =
-      cond do
-        is_binary(automatic_fix) -> escape(automatic_fix)
-        status == "discarded" -> discarded_message(discarded_reason)
-        status == "blocked" -> blocked_message(controls, unverified, blocked_reason, number)
-        true -> publication_status_message(status, controls, unverified)
-      end
+      publication_message(status, controls, %{
+        automatic_fix: automatic_fix,
+        blocked_reason: blocked_reason,
+        discarded_reason: discarded_reason,
+        number: number,
+        unverified: unverified
+      })
 
     summary = section("#{message}#{detail}#{publication_branch_line(status, branch)}")
 
@@ -146,6 +145,35 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
       do: [summary],
       else: [summary, actions("#{task_ref}:publication", buttons)]
   end
+
+  # The host's own line for a fix round Ryker is running on the refusal
+  # (`Ryker.Publication.FixLoop`) says what the blocked status would not.
+  defp publication_message(_status, _controls, %{automatic_fix: fix}) when is_binary(fix),
+    do: escape(fix)
+
+  defp publication_message("discarded", _controls, facts),
+    do: discarded_message(facts.discarded_reason)
+
+  defp publication_message("blocked", controls, facts),
+    do: blocked_message(controls, facts.unverified, facts.blocked_reason, facts.number)
+
+  defp publication_message("publish_pending", controls, facts) do
+    if "update" in controls,
+      do: stopped_publish_message(facts.number),
+      else: publication_status_message("publish_pending", controls, facts.unverified)
+  end
+
+  defp publication_message(status, controls, facts),
+    do: publication_status_message(status, controls, facts.unverified)
+
+  # A publish that stopped for good, such as a refused grant or a branch that moved, is never
+  # "waiting for GitHub": it needs the changes checked again before a draft can follow. Why it
+  # stopped is the card's Action needed line.
+  defp stopped_publish_message(number) when is_integer(number),
+    do: "The draft PR wasn't updated. Review latest state checks the changes again first."
+
+  defp stopped_publish_message(_number),
+    do: "The draft PR wasn't created. Review latest state checks the changes again first."
 
   # A draft-authorized task never rests in "reviewed": its checks passing is
   # enough for the draft the confirming person already granted. What is left

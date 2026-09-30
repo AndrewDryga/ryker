@@ -710,6 +710,19 @@ defmodule Ryker.Slack.TaskCardProjection do
        when code in @publication_conflicts,
        do: ["discard"]
 
+  # A refused grant cannot be retried, since the worker finished that publish as refused; a fresh
+  # review can (`Ryker.Publication.Custody`). The card offered Retry here until 2026-09-30.
+  defp publication_controls(%Publication{
+         status: :publish_pending,
+         last_error_code: "publication_authorization_revoked",
+         pull_request_number: number,
+         pull_request_url: url
+       }) do
+    if is_integer(number) and is_binary(url),
+      do: ["open", "update", "discard"],
+      else: ["update", "discard"]
+  end
+
   # A check takes minutes, and the card offered nothing while it ran (Andrew,
   # 2026-09-28): a person can always drop a change that is being checked.
   defp publication_controls(%Publication{status: :review_pending, last_error_code: code}),

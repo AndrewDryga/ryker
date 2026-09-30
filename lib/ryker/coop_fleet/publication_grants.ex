@@ -159,11 +159,16 @@ defmodule Ryker.CoopFleet.PublicationGrants do
       exact_review_command?(publication, session, placement)
   end
 
+  # The review lives in the worker's session, not in the placement that ran it: a person may
+  # approve the draft after that placement lapsed, and the publish then runs on a newer placement
+  # of the same session on the same worker (`Ryker.CoopFleet.Client.publish_review/6`). A review
+  # from another worker, or from a placement newer than the publish, grants nothing.
   defp exact_review_command?(publication, session, placement) do
     review = Repo.get_by(Command, idempotency_key: Executor.review_key(publication))
 
     match?(%Command{kind: "run_review"}, review) and review.session_id == session.id and
-      review.placement_id == placement.id and review.placement_generation == placement.generation and
+      review.worker_id == placement.worker_id and
+      review.placement_generation <= placement.generation and
       review.status in [:succeeded, :uncertain] and
       review.payload == %{
         "coop_session_id" => session.coop_session_id,
