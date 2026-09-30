@@ -407,6 +407,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     assert json =~ "The draft PR wasn't created."
     refute json =~ "Retry"
     refute json =~ "Waiting for GitHub"
+
+    # The live card said "needs operator attention: `publication_authorization_revoked`".
+    assert projection.document["task_card"]["action_needed"] ==
+             "Ryker couldn't get permission to publish this reviewed change."
+
+    refute json =~ "publication_authorization_revoked"
   end
 
   # Andrew, 2026-09-28: "I clicked review latest state and now all actions are
