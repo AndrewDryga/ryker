@@ -7,12 +7,14 @@ defmodule Ryker.RoutingExamples.Worker do
   A decision settles when a message is routed, when the Work it started comes
   to rest, or when a quick reply or reaction it chose is delivered; each is
   announced, a delivery as its message changing, and wakes the worker at once.
+  Feedback about a request wakes it too, to copy the new signal beside the
+  request's examples (`Ryker.RoutingExamples.copy_feedback/0`).
   Nothing settles by the clock alone, so with nothing to copy it sleeps for
   its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :routing_examples, interval: :poll_interval_ms
 
-  alias Ryker.{Episodes, Options, PollingWorker, RoutingExamples}
+  alias Ryker.{Episodes, Feedback, Options, PollingWorker, RoutingExamples}
   alias Ryker.Ingress.Inbox
 
   @fields [:batch_size, :poll_interval_ms, :redaction_secrets, :window_seconds]
@@ -30,7 +32,12 @@ defmodule Ryker.RoutingExamples.Worker do
   def setup(configuration), do: {:ok, options!(configuration)}
 
   @impl PollingWorker
-  def wake_on(_options), do: [&Inbox.subscribe_inputs/0, &Episodes.subscribe_episodes/0]
+  def wake_on(_options),
+    do: [
+      &Inbox.subscribe_inputs/0,
+      &Episodes.subscribe_episodes/0,
+      &Feedback.subscribe_feedback/0
+    ]
 
   @impl PollingWorker
   def poll(options) do

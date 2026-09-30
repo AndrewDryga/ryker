@@ -321,7 +321,16 @@ defmodule Ryker.Retention.DataTest do
         policy: "retention-test",
         policy_digest: String.duplicate("a", 64),
         submission: admission_artifact,
-        submission_fingerprint: CanonicalJSON.digest(admission_artifact)
+        submission_fingerprint: CanonicalJSON.digest(admission_artifact),
+        rejections: [
+          %{
+            "attempt" => 1,
+            "sha256" => String.duplicate("e", 64),
+            "answer" => ~s({"action":"reply","reason":"retained admission source"}),
+            "reason" => "rejected:unknown_candidate",
+            "correction" => "episode_ref is not one of the opaque candidate references"
+          }
+        ]
       })
 
     assert Repo.query!(
@@ -358,6 +367,8 @@ defmodule Ryker.Retention.DataTest do
     assert %DateTime{} = pruned_attempt.operational_pruned_at
     assert pruned_attempt.submission == %{"retention" => "pruned"}
     assert pruned_attempt.submission_fingerprint == attempt.submission_fingerprint
+    # An answer routing refused quotes what the prompt did, so it goes too.
+    assert pruned_attempt.rejections == nil
   end
 
   test "settled admission fleet identity retires without a fabricated episode" do

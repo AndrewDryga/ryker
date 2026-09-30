@@ -637,17 +637,35 @@ defmodule Ryker.Admission.Executor do
           )
 
         {:error, reason} ->
-          reject_candidate(
-            turn,
-            candidate_sha256,
-            candidate_attempt,
-            reason,
-            context,
-            entry,
-            settings,
-            left
-          )
+          refuse_candidate(turn, candidate, message, reason, context, entry, settings, left)
       end
+    end
+  end
+
+  # The refused answer is kept for training before it is sent back: every
+  # turn observed after it replaces the attempt's response.
+  defp refuse_candidate(turn, candidate, message, reason, context, entry, settings, left) do
+    correction = violation(reason)
+
+    refused = %{
+      "attempt" => candidate["attempt"],
+      "sha256" => candidate["sha256"],
+      "answer" => message,
+      "reason" => Admission.refusal(reason),
+      "correction" => correction
+    }
+
+    with :ok <- Attempts.reject(entry, refused, settings) do
+      reject_candidate(
+        turn,
+        candidate["sha256"],
+        candidate["attempt"],
+        correction,
+        context,
+        entry,
+        settings,
+        left
+      )
     end
   end
 
@@ -702,14 +720,14 @@ defmodule Ryker.Admission.Executor do
          turn,
          candidate_sha256,
          candidate_attempt,
-         reason,
+         correction,
          context,
          entry,
          settings,
          left
        ) do
     key = validation_key(entry, candidate_attempt, candidate_sha256, "reject")
-    violations = [violation(reason)]
+    violations = [correction]
 
     with :ok <- renew_lease(settings) do
       settings.api.validate_candidate(

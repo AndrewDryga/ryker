@@ -5,21 +5,29 @@ defmodule Ryker.RoutingExamples.Export do
 
   Each object is a chat fine-tuning example. `messages` holds the exact
   prompt routing sent as the user turn and the model's answer as the
-  assistant turn; `output_schema` is the JSON Schema the answer had to
-  follow; `labels` says which request it was, where, which model answered,
-  what it decided, what happened next and what it cost:
+  assistant turn; `rejected_answers` the answers routing refused before that
+  one, oldest first, each with the code of why and the correction the model
+  was sent, for preference training; `output_schema` is the JSON Schema the
+  answer had to follow; `labels` says which request it was, where, which
+  model answered, what it decided, what happened next, what it cost, and the
+  feedback people gave on the request:
 
       {"messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}],
+       "rejected_answers":[{"answer":"...","reason":"rejected:unknown_candidate","correction":"..."}],
        "output_schema":{...},
        "labels":{"example_id":"...","request_id":"...","request_ref":"...","input_id":"...",
                  "decided_at":"...","settled_at":"...","transport":"slack",
                  "conversation_ref":"...","thread_ref":"...","repository_ref":null,
                  "execution_mode":"live","model":"codex:gpt-5.6-luna/low@default",
-                 "policy":"ryker-admission","decision":{...},"outcome":{...},"usage":{...}}}
+                 "policy":"ryker-admission","decision":{...},"outcome":{...},"usage":{...},
+                 "feedback":[{"kind":"reaction_added","value":"+1","category":"satisfied",
+                              "occurred_at":"..."}]}}
 
-  `request_id` is the request (episode) the decision started or joined, the
-  key feedback about a request is kept under, so a training set can join it;
-  it is null when routing answered by itself.
+  `request_id` is the request (episode) the decision started or joined; it
+  is null when routing answered by itself. `feedback` is every signal about
+  that request, or about routing's own answer, oldest first, copied beside
+  the example as it arrived, so it outlives the feedback table's shorter
+  window (`Ryker.RoutingExamples.copy_feedback/0`).
 
   The rows are read in batches inside one transaction and each line is handed
   on as it is encoded, so an export never holds the whole set in memory.
@@ -28,7 +36,7 @@ defmodule Ryker.RoutingExamples.Export do
   import Ecto.Query
 
   alias Ryker.Repo
-  alias Ryker.RoutingExamples.Example
+  alias Ryker.RoutingExamples.{Example, Feedback}
 
   @batch 100
 
@@ -47,6 +55,8 @@ defmodule Ryker.RoutingExamples.Export do
           order_by: [asc: example.decided_at, asc: example.id]
         )
         |> Repo.stream(max_rows: @batch)
+        |> Stream.chunk_every(@batch)
+        |> Stream.flat_map(&Repo.preload(&1, feedback: feedback_order()))
         |> Stream.map(&line/1)
         |> Enum.reduce_while(acc, fun)
       end,
@@ -56,8 +66,12 @@ defmodule Ryker.RoutingExamples.Export do
 
   @doc "One example as one line of JSON, newline included."
   @spec line(Example.t()) :: iodata()
-  def line(%Example{forgotten_at: nil} = example),
-    do: [Jason.encode_to_iodata!(document(example)), ?\n]
+  def line(%Example{forgotten_at: nil} = example) do
+    example = Repo.preload(example, feedback: feedback_order())
+    [Jason.encode_to_iodata!(document(example)), ?\n]
+  end
+
+  defp feedback_order, do: from(feedback in Feedback, order_by: [asc: :occurred_at, asc: :id])
 
   defp document(example) do
     Jason.OrderedObject.new([
@@ -66,6 +80,7 @@ defmodule Ryker.RoutingExamples.Export do
          Jason.OrderedObject.new([{"role", "user"}, {"content", example.prompt}]),
          Jason.OrderedObject.new([{"role", "assistant"}, {"content", example.answer}])
        ]},
+      {"rejected_answers", example.rejected_answers},
       {"output_schema", example.output_schema},
       {"labels",
        Jason.OrderedObject.new([
@@ -84,8 +99,18 @@ defmodule Ryker.RoutingExamples.Export do
          {"policy", example.policy},
          {"decision", example.decision},
          {"outcome", example.outcome},
-         {"usage", example.usage}
+         {"usage", example.usage},
+         {"feedback", Enum.map(example.feedback, &signal/1)}
        ])}
+    ])
+  end
+
+  defp signal(%Feedback{} = feedback) do
+    Jason.OrderedObject.new([
+      {"kind", feedback.kind},
+      {"value", feedback.value},
+      {"category", feedback.category},
+      {"occurred_at", DateTime.to_iso8601(feedback.occurred_at)}
     ])
   end
 end

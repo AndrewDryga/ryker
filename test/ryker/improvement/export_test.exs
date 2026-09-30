@@ -511,6 +511,7 @@ defmodule Ryker.Improvement.ExportTest do
       prompt: routing["prompt"],
       output_schema: %{"type" => "object"},
       answer: routing["answer"],
+      rejected_answers: [],
       decision: %{"action" => "start_episode"},
       outcome: %{"request" => "complete"},
       usage: %{},

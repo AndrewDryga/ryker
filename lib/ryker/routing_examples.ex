@@ -12,10 +12,13 @@ defmodule Ryker.RoutingExamples do
 
   The copy holds the exact prompt routing sent and the model's answer, both
   redacted (`Ryker.InspectionRedactor.redact/2`, with every stored credential
-  among the values it removes), the decision and what happened next as
-  labels, and the tokens and cost. It names the message and the request it
-  came from without a foreign key, so the operational, history and audit
-  horizons never reach it; only its own window does (`Ryker.Retention.Data`).
+  among the values it removes), the answers routing refused before that one
+  with why, the decision and what happened next as labels, and the tokens and
+  cost. It names the message and the request it came from without a foreign
+  key, so the operational, history and audit horizons never reach it; only
+  its own window does (`Ryker.Retention.Data`). The feedback people give on
+  its request is copied beside it as it arrives (`copy_feedback/0`), since
+  feedback itself expires at the operational horizon.
 
   A person forgetting wins. Forgetting a fact or a learned topic, deleting a
   message in Slack, editing its words, or deleting a Slack channel erases
@@ -48,6 +51,7 @@ defmodule Ryker.RoutingExamples do
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes.Episode
+  alias Ryker.Feedback.Signal
   alias Ryker.Improvement
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
@@ -55,7 +59,7 @@ defmodule Ryker.RoutingExamples do
   alias Ryker.Learning.{ConversationObservation, Observations}
   alias Ryker.LocalRouting
   alias Ryker.Repo
-  alias Ryker.RoutingExamples.Example
+  alias Ryker.RoutingExamples.{Example, Feedback}
   alias Ryker.Settings.Retention
   alias Ryker.Slack.ChannelMembership
   alias Ryker.Work.{Custody, Turn}
@@ -86,11 +90,62 @@ defmodule Ryker.RoutingExamples do
       |> settled_inputs(window_seconds)
       |> Enum.map(&copy(&1, secrets))
 
+    {:ok, _copied} = copy_feedback()
+
     {:ok,
      %{
        copied: Enum.count(results, &(&1 == {:ok, :copied})),
        forgotten: Enum.count(results, &(&1 == {:ok, :forgotten}))
      }}
+  end
+
+  @doc """
+  Copies each feedback signal about a kept example's request, or about the
+  message routing answered by itself, beside the example once
+  (`Ryker.RoutingExamples.Feedback`), and returns how many it copied.
+
+  Feedback arrives before and after an example is copied (a reaction the
+  next day, a rating when the request ends), and expires at the operational
+  horizon while the example stays for its own window, so every pass copies
+  what is new. Only the kind, value, category and time are copied; never who
+  gave it or a note's words. It holds the lock a copy holds, so a forgetting
+  either committed first, and the example it emptied is skipped, or waits and
+  removes what this copied.
+  """
+  @spec copy_feedback() :: {:ok, non_neg_integer()}
+  def copy_feedback do
+    Repo.transaction(fn ->
+      if enabled?() do
+        :ok = lock(:shared)
+
+        {count, _rows} =
+          Repo.insert_all(
+            Feedback,
+            from(signal in Signal,
+              join: example in Example,
+              on:
+                is_nil(example.forgotten_at) and
+                  ((not is_nil(signal.episode_id) and signal.episode_id == example.episode_id) or
+                     (not is_nil(signal.input_id) and signal.input_id == example.input_id)),
+              select: %{
+                id: fragment("gen_random_uuid()"),
+                example_id: example.id,
+                signal_id: signal.id,
+                kind: type(signal.kind, :string),
+                value: fragment("NULLIF(left(?, 256), '')", signal.value),
+                category: type(signal.category, :string),
+                occurred_at: signal.occurred_at
+              }
+            ),
+            on_conflict: :nothing,
+            conflict_target: [:example_id, :signal_id]
+          )
+
+        count
+      else
+        0
+      end
+    end)
   end
 
   # A decided message whose routing turn completed and was committed, whose
@@ -243,6 +298,7 @@ defmodule Ryker.RoutingExamples do
         | prompt: redacted_text(prompt, document, secrets),
           output_schema: attempt.submission["output_schema"],
           answer: redacted_answer(attempt.response["assistant_message"], secrets),
+          rejected_answers: rejected_answers(attempt, secrets),
           decision: decision(entry),
           outcome: outcome(entry, episode),
           usage: usage(attempt, identity.decided_at)
@@ -576,6 +632,23 @@ defmodule Ryker.RoutingExamples do
 
   defp redacted_answer(answer, secrets), do: redacted_text(answer, decoded(answer), secrets)
 
+  # The answers routing refused before the one it accepted, oldest first,
+  # redacted as that one is, each with the code of why and the correction the
+  # model was sent (`Ryker.Admission.Attempts.reject/3`).
+  defp rejected_answers(%Attempt{rejections: rejections}, secrets) when is_list(rejections) do
+    for %{"answer" => answer, "reason" => reason} = rejection <- rejections,
+        is_binary(answer) and is_binary(reason) do
+      %{
+        "answer" => redacted_answer(answer, secrets),
+        "reason" => reason,
+        "correction" =>
+          rejection["correction"] && InspectionRedactor.redact(rejection["correction"], secrets)
+      }
+    end
+  end
+
+  defp rejected_answers(_attempt, _secrets), do: []
+
   defp encoder(text, %{"instructions" => instructions, "context" => context} = document)
        when is_binary(instructions) and is_map(context) do
     if Prompt.render(document) == text, do: &Prompt.render/1, else: &CanonicalJSON.encode!/1
@@ -772,12 +845,19 @@ defmodule Ryker.RoutingExamples do
   defp erase(query) do
     now = Repo.now!()
 
+    Repo.delete_all(
+      from(feedback in Feedback,
+        where: feedback.example_id in subquery(from(example in query, select: example.id))
+      )
+    )
+
     Repo.update_all(
       from(example in query, where: is_nil(example.forgotten_at)),
       set: [
         prompt: nil,
         output_schema: nil,
         answer: nil,
+        rejected_answers: nil,
         decision: nil,
         outcome: nil,
         usage: nil,

@@ -12,9 +12,11 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
   # Apart from the async suite and with minutes to run: it builds 170 pieces
   # of work and asks 68 questions, and on a small CI runner sharing the
   # database with every async test it once took more than the default minute.
+  # Its connection is held as long: on 2026-09-30 the sandbox's default two
+  # minutes ran out first on CI and cancelled a search mid-query.
   use Ryker.DataCase, async: false
 
-  @moduletag timeout: 300_000
+  @moduletag timeout: 300_000, ownership_timeout: 300_000
 
   import Ecto.Query
 

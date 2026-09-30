@@ -514,6 +514,12 @@ defmodule Ryker.Retention.Policy do
         "redacted copies of routing decisions kept for training, only while a person keeps them on, for their own window counted from the decision; a forgotten one keeps only its identity until then"
     },
     %{
+      table: "routing_example_feedback",
+      class: :cascade,
+      why:
+        "copies of the feedback about a routing example's request (its kind, value, category and time; never who gave it or a note's words) leave with their example, and at once when a person's forgetting empties it"
+    },
+    %{
       table: "schema_migrations",
       class: :kept,
       why: "Ecto migration ledger required to open and upgrade the database"

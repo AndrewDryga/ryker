@@ -272,6 +272,22 @@ defmodule Ryker.Admission do
 
   def validate(_context, _decision), do: {:error, {:admission_rejected, :context}}
 
+  @doc """
+  A short code for why routing's checks refused an answer, kept with each
+  refused answer (`Ryker.Admission.Attempts.reject/3`) and with the local
+  routing model's (`Ryker.LocalRouting.Verdict`): `not_json` for text that is
+  not one JSON object, `decision:<field>` for a field that breaks the
+  decision contract, and `rejected:<why>` for a decision the frozen context
+  does not allow, such as `rejected:unknown_candidate` for earlier work that
+  was not offered.
+  """
+  @spec refusal(term()) :: String.t()
+  def refusal({:invalid_candidate, :json_object}), do: "not_json"
+  def refusal({:invalid_decision, field}) when is_atom(field), do: "decision:#{field}"
+  def refusal({:admission_rejected, why}) when is_atom(why), do: "rejected:#{why}"
+  def refusal({:admission_rejected, why, _details}) when is_atom(why), do: "rejected:#{why}"
+  def refusal(_other), do: "rejected"
+
   # The repositories offered are route authority: a new episode on a route
   # with several names one of them, and no other route may name any. The
   # parser already keeps every other action from naming one.

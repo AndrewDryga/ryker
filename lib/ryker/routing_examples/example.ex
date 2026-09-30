@@ -5,8 +5,10 @@ defmodule Ryker.RoutingExamples.Example do
   next and what it cost (`Ryker.RoutingExamples`).
 
   It names the message (`input_id`) and the request (`episode_id`) it was
-  copied from without a foreign key, because the copy outlives both. A
-  forgotten example keeps only its identity and scope, and no bodies.
+  copied from without a foreign key, because the copy outlives both, and
+  keeps a copy of the feedback people gave on that request
+  (`Ryker.RoutingExamples.Feedback`). A forgotten example keeps only its
+  identity and scope: no bodies and no feedback.
   """
   use Ecto.Schema
 
@@ -34,11 +36,15 @@ defmodule Ryker.RoutingExamples.Example do
     field(:prompt, :string)
     field(:output_schema, Ryker.CanonicalJSON.Type)
     field(:answer, :string)
+    # The answers routing refused before `answer`, oldest first, each with
+    # why: `[%{"answer" => ..., "reason" => ..., "correction" => ...}]`.
+    field(:rejected_answers, Ryker.CanonicalJSON.Type)
     field(:decision, Ryker.CanonicalJSON.Type)
     field(:outcome, Ryker.CanonicalJSON.Type)
     field(:usage, Ryker.CanonicalJSON.Type)
     field(:decided_at, :utc_datetime_usec)
     field(:forgotten_at, :utc_datetime_usec)
+    has_many(:feedback, Ryker.RoutingExamples.Feedback, foreign_key: :example_id)
     timestamps(type: :utc_datetime_usec)
   end
 

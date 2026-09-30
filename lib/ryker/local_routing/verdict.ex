@@ -78,8 +78,5 @@ defmodule Ryker.LocalRouting.Verdict do
   defp decode(_content, _finish_reason), do: {:error, :not_json}
 
   defp reason(reason) when reason in [:empty, :cut_off, :not_json], do: Atom.to_string(reason)
-  defp reason({:invalid_decision, field}) when is_atom(field), do: "decision:#{field}"
-  defp reason({:admission_rejected, why}) when is_atom(why), do: "rejected:#{why}"
-  defp reason({:admission_rejected, why, _details}) when is_atom(why), do: "rejected:#{why}"
-  defp reason(_other), do: "rejected"
+  defp reason(reason), do: Admission.refusal(reason)
 end

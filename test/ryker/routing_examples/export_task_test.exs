@@ -72,10 +72,10 @@ defmodule Ryker.RoutingExamples.ExportTaskTest do
       """
       INSERT INTO routing_examples
         (id, input_id, source_identity, transport, conversation_ref, execution_mode, policy,
-         policy_digest, prompt, output_schema, answer, decision, outcome, usage, decided_at,
-         inserted_at, updated_at)
+         policy_digest, prompt, output_schema, answer, rejected_answers, decision, outcome, usage,
+         decided_at, inserted_at, updated_at)
       VALUES ($1, $1, repeat('a', 64), 'slack', 'slack:T1:C1', 'live', 'ryker-admission',
-              repeat('b', 64), $2, '{}', $3, '{"action":"ignore"}', '{}', '{}', $4, $4, $4)
+              repeat('b', 64), $2, '{}', $3, '[]', '{"action":"ignore"}', '{}', '{}', $4, $4, $4)
       """,
       [Ecto.UUID.dump!(id), ~s({"instructions":"Decide."}), ~s({"action":"ignore"}), @at]
     )
