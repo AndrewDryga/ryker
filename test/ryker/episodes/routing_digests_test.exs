@@ -140,6 +140,59 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
         do: refute(word in identifiers, word)
   end
 
+  # The replay over the Blitz alert history (2026-09-30): a UUID counted three times, its first
+  # and last blocks also read as commit hashes (69 messages, ID2), and an uppercase hex ID never
+  # matched at all ("!tft_update 37357FE72DED74EE prod", 56 messages, ID3).
+  test "a UUID is one identifier, and an uppercase hex ID is one too" do
+    uuid = "550e8400-e29b-41d4-a716-446655440000"
+    assert RoutingDigests.identifiers(["Retrying job #{uuid} now"]) == [uuid]
+
+    assert RoutingDigests.identifiers(["!tft_update 37357FE72DED74EE prod"]) ==
+             ["37357fe72ded74ee"]
+  end
+
+  # The replay over the Blitz alert history (2026-09-30, ID5): one thing linked two ways did
+  # not match, as #482 and its pull request link, its files tab and the pull request itself, or
+  # one dashboard opened over two time ranges.
+  test "one thing linked two ways is one identifier" do
+    files =
+      RoutingDigests.identifiers(["Review https://github.com/Acme/API/pull/482/files please"])
+
+    assert "https://github.com/acme/api/pull/482" in files
+    assert "#482" in files
+    refute Enum.any?(files, &String.ends_with?(&1, "/files"))
+
+    last_hour =
+      "https://grafana.example.com/d/abc123/checkout?orgId=1&var-host=web-1&from=now-1h&to=now"
+
+    last_day =
+      "https://grafana.example.com/d/abc123/checkout?orgId=1&var-host=web-1&from=1790733600000&to=1790820000000&refresh=30s"
+
+    assert RoutingDigests.identifiers([last_hour]) == RoutingDigests.identifiers([last_day])
+
+    assert RoutingDigests.identifiers([last_hour]) == [
+             "https://grafana.example.com/d/abc123/checkout?orgId=1&var-host=web-1"
+           ]
+  end
+
+  # The replay over the Blitz alert history (2026-09-30, ID8): the names people and alerts give
+  # things were missed when they had no "v", fewer than three parts or no digit, as incident
+  # 1010598742, version 2.14.0, TargetDown, HighCPU or checkout-api. Shared ones now count by how
+  # rare they are (ID1), so they can be read without every ordinary word becoming one.
+  test "long numbers, bare versions, short alert names and service names are identifiers too" do
+    text =
+      "BetterStack incident 1010598742: TargetDown and HighCPU on checkout-api after 2.14.0, " <>
+        "a follow-up for the on-call, read-only in GitHub and PostgreSQL since 2026, 3.5 hours, 100000 rows."
+
+    identifiers = RoutingDigests.identifiers([text])
+
+    for name <- ~w(1010598742 targetdown highcpu checkout-api 2.14.0),
+        do: assert(name in identifiers, name)
+
+    for word <- ~w(follow-up on-call read-only github postgresql 2026 3.5 100000 betterstack),
+        do: refute(word in identifiers, word)
+  end
+
   test "rebuilding every digest gives existing work the identifiers its messages named" do
     episode = admit!("digest:rebuild", "pgsql-prod-01 is unreachable after run-7f2a1c")
 

@@ -5,8 +5,8 @@ defmodule Ryker.Admission.CandidateSearchTest do
 
   alias Ryker.Admission.{CandidateSearch, CorrelationScope, Ranking}
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, CorrelationClaims, Episode}
-  alias Ryker.Ingress.Input
+  alias Ryker.Episodes.{Command, CorrelationClaims, Episode, RoutingDigests}
+  alias Ryker.Ingress.{Input, RecallText}
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
   alias Ryker.Slack.Input, as: SlackInput
@@ -95,6 +95,34 @@ defmodule Ryker.Admission.CandidateSearchTest do
     rare = episode!("routing:rare", channel_ref: "CDEVOPS", text: "Deploy run run-7f2a1c failed")
     result = search!(channel_ref: "CDEVOPS", text: "Why did run-7f2a1c fail on nomad-hvn02?")
     assert hd(result.selected).episode.id == rare.id
+  end
+
+  # The replay over the Blitz alert history (2026-09-30, ID7): an alert's Grafana rule page sat
+  # only on its attachment title, never searched, so a repeat of one rule's alert found its
+  # earlier work by words alone, tied with every alert worded like it.
+  test "an alert finds the work for its rule by the rule page it links to" do
+    reload =
+      "https://grafana.example.net/alerting/grafana/va1-traefik-reload-frequency/view?orgId=1"
+
+    other =
+      "https://grafana.example.net/alerting/grafana/va2-traefik-reload-frequency/view?orgId=1"
+
+    same_rule =
+      episode!("routing:rule-page",
+        channel_ref: "CALERTS",
+        content: grafana_alert(reload),
+        updated_at: DateTime.add(@now, -7200, :second)
+      )
+
+    episode!("routing:other-rule-page",
+      channel_ref: "CALERTS",
+      content: grafana_alert(other),
+      updated_at: DateTime.add(@now, -60, :second)
+    )
+
+    result = search!(channel_ref: "CALERTS", content: grafana_alert(reload))
+    assert hd(result.selected).episode.id == same_rule.id
+    assert reload in result.receipt["identifiers"]
   end
 
   test "the search record keeps the words, links and places it searched with" do
@@ -402,11 +430,14 @@ defmodule Ryker.Admission.CandidateSearchTest do
 
     scope = CorrelationScope.for_destination(destination)
 
+    content = Keyword.get_lazy(options, :content, fn -> %{"text" => options[:text]} end)
+
     CandidateSearch.search(%{
       scope: scope,
       transport: "slack",
       thread_ref: destination.thread_ref,
-      text: Keyword.fetch!(options, :text),
+      text: RecallText.from(content),
+      identifiers: RoutingDigests.input_identifiers(content),
       native_input_id: Keyword.get(options, :native_input_id, "slack-message:absent"),
       execution_mode: :live,
       repository_ref: Keyword.get(options, :repository_ref),
@@ -430,7 +461,7 @@ defmodule Ryker.Admission.CandidateSearchTest do
       SlackInput.new(%{
         actor: %{kind: :app, ref: "A123"},
         channel_ref: channel_ref,
-        content: %{"text" => Keyword.fetch!(options, :text)},
+        content: Keyword.get_lazy(options, :content, fn -> %{"text" => options[:text]} end),
         event_kind: :message,
         event_ref: "Ev-#{key}-#{System.unique_integer([:positive])}",
         message_ref: message_ref,
@@ -463,6 +494,23 @@ defmodule Ryker.Admission.CandidateSearchTest do
     end
 
     Repo.get!(Episode, id)
+  end
+
+  # A Grafana alert as Slack delivers it, from the Blitz history with its host renamed.
+  defp grafana_alert(rule) do
+    %{
+      "text" => "",
+      "attachments" => [
+        %{
+          "color" => "daa038",
+          "fallback" => "[VA1 FIRING:1] WARNING | Traefik config reload frequency high",
+          "text" =>
+            "*FIRING - 1 alert*\n\n*Traefik completed more than 10 configuration reloads in 10 minutes*",
+          "title" => "[VA1 FIRING:1] WARNING | Traefik config reload frequency high",
+          "title_link" => rule
+        }
+      ]
+    }
   end
 
   defp owner_native_input_id(episode) do

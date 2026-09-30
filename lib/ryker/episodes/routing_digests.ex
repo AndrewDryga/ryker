@@ -302,10 +302,27 @@ defmodule Ryker.Episodes.RoutingDigests do
 
   defp anchor_keys_for(events) do
     events
-    |> Enum.map(&input_text/1)
-    |> identifiers()
+    |> Enum.flat_map(&(&1 |> input_content() |> input_identifiers()))
+    |> Enum.uniq()
     |> anchor_keys()
     |> Enum.take(@maximum_anchors)
+  end
+
+  @doc """
+  What one input names, as routing searches with it and remembers it: the identifiers in its
+  words, and the links and alert labels it carries outside them (`RecallText.references/1`).
+  """
+  @spec input_identifiers(term()) :: [String.t()]
+  def input_identifiers(nil), do: []
+
+  def input_identifiers(content) do
+    %{links: links, labels: labels} = RecallText.references(content)
+
+    [RecallText.from(content), Enum.join(links, " ")]
+    |> identifiers()
+    |> Kernel.++(labels)
+    |> Enum.uniq()
+    |> Enum.take(64)
   end
 
   @doc """
@@ -326,9 +343,48 @@ defmodule Ryker.Episodes.RoutingDigests do
   def identifiers(texts) do
     texts = texts |> Enum.filter(&is_binary/1) |> Enum.take(16)
 
-    (KnowledgeAnchors.discover(texts) ++ Enum.flat_map(texts, &names/1))
+    (Enum.flat_map(KnowledgeAnchors.discover(texts), &link_forms/1) ++
+       Enum.flat_map(texts, &names/1))
     |> Enum.uniq()
     |> Enum.take(64)
+  end
+
+  # Query parameters that only say when or how often a page was looked at.
+  @viewing_parameters ~w(from to time refresh _g)
+
+  # One thing is one identifier however it was linked (ID5, 2026-09-30): a pull request's files
+  # or commits tab is the pull request, whose link also names it as #482, and a dashboard opened
+  # over another time range is the same dashboard.
+  defp link_forms("https://github.com/" <> _rest = link) do
+    case Regex.run(
+           ~r{\Ahttps://github\.com/([^/?#]+/[^/?#]+)/(pull|issues)/(\d+)(?=[/?#]|\z)},
+           link
+         ) do
+      [_, repository, kind, number] ->
+        ["https://github.com/#{String.downcase(repository)}/#{kind}/#{number}", "##{number}"]
+
+      nil ->
+        [link]
+    end
+  end
+
+  defp link_forms(link) do
+    uri = URI.parse(link)
+
+    with query when is_binary(query) <- uri.query,
+         {:ok, parameters} <- decoded(query) do
+      kept = Enum.reject(parameters, fn {name, _value} -> name in @viewing_parameters end)
+      query = if kept == [], do: nil, else: URI.encode_query(kept)
+      [URI.to_string(%{uri | query: query})]
+    else
+      _plain -> [link]
+    end
+  end
+
+  defp decoded(query) do
+    {:ok, URI.query_decoder(query) |> Enum.to_list()}
+  rescue
+    ArgumentError -> :error
   end
 
   # Words so common in operations text that they name nothing on their own.
@@ -342,10 +398,13 @@ defmodule Ryker.Episodes.RoutingDigests do
   @names_characters 8_192
 
   defp names(text) do
+    # Links and UUIDs are found whole above; read again here, a UUID's first block was also a
+    # commit hash, so one UUID counted twice or three times (ID2, 2026-09-30).
     text =
       text
       |> String.slice(0, @names_characters)
       |> String.replace(~r{https?://\S+}u, " ")
+      |> String.replace(~r/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/iu, " ")
 
     numbered =
       ~r/(?<![\p{L}\p{N}_.\/#-])[a-z][a-z0-9]*(?:[-_.][a-z0-9]+)+(?![\p{L}\p{N}_\/-])/iu
@@ -363,21 +422,35 @@ defmodule Ryker.Episodes.RoutingDigests do
       |> Regex.scan(text)
       |> List.flatten()
 
+    # In either case: "!tft_update 37357FE72DED74EE prod" never matched (ID3, 2026-09-30).
     hashes =
-      ~r/(?<![\p{L}\p{N}])[0-9a-f]{7,40}(?![\p{L}\p{N}])/u
+      ~r/(?<![\p{L}\p{N}])[0-9a-f]{7,40}(?![\p{L}\p{N}])/iu
       |> Regex.scan(text)
       |> List.flatten()
-      |> Enum.filter(&(Regex.match?(~r/\d/, &1) and Regex.match?(~r/[a-f]/, &1)))
+      |> Enum.filter(&(Regex.match?(~r/\d/, &1) and Regex.match?(~r/[a-f]/i, &1)))
 
     domains =
       ~r/(?<![\p{L}\p{N}@.-])(?:[a-z0-9-]+\.)+(?:com|net|org|io|dev|app|co|cloud|ai|ua|es|de|uk|eu)(?![\p{L}\p{N}-])/iu
       |> Regex.scan(text)
       |> List.flatten()
 
-    (numbered ++ rules ++ references ++ hashes ++ domains)
+    (numbered ++ rules ++ references ++ hashes ++ domains ++ unnumbered(text))
     |> Enum.map(&String.downcase/1)
     |> Enum.reject(&(&1 in @generic_names))
   end
+
+  # Names read once shared identifiers count by how rare they are (ID1), so they no longer need a
+  # digit, a "v" or three parts (ID8, 2026-09-30): an incident or ticket number, a bare version,
+  # an alert named for what went wrong, a service named for what it is.
+  @unnumbered [
+    ~r/(?<![\p{L}\p{N}._\/#-])[1-9]\d{6,18}(?![\p{L}\p{N}._\/-])/u,
+    ~r/(?<![\p{L}\p{N}.])\d+\.\d+\.\d+(?:-[0-9a-z]+(?:\.[0-9a-z]+)*)?(?![\p{L}\p{N}.])/iu,
+    ~r/(?<![\p{L}\p{N}])(?:(?:High|Low)[A-Z][A-Za-z0-9]*|[A-Z][a-z]+(?:Down|Up|Full|Errors?|Failed|Failing|Missing|Latency|Stuck|Unavailable|Unreachable))(?![\p{L}\p{N}])/u,
+    ~r/(?<![\p{L}\p{N}_.\/#-])[a-z][a-z0-9]*(?:-[a-z0-9]+)*-(?:api|service|svc|worker|web|db|proxy|gateway|server|app|job|cron|queue|cache|edge|frontend|backend|prod|production|staging|dev)(?![\p{L}\p{N}_\/-])/iu
+  ]
+
+  defp unnumbered(text),
+    do: Enum.flat_map(@unnumbered, &(&1 |> Regex.scan(text) |> List.flatten()))
 
   defp conversation_refs(events) do
     events
@@ -395,13 +468,18 @@ defmodule Ryker.Episodes.RoutingDigests do
     |> Enum.max()
   end
 
-  defp input_text(%Event{payload: %{"payload" => payload}}) when is_map(payload),
-    do: payload |> Map.get("content", payload) |> RecallText.from()
+  defp input_text(event) do
+    case input_content(event) do
+      nil -> ""
+      content -> RecallText.from(content)
+    end
+  end
 
-  defp input_text(%Event{payload: payload}) when is_map(payload),
-    do: RecallText.from(payload)
+  defp input_content(%Event{payload: %{"payload" => payload}}) when is_map(payload),
+    do: Map.get(payload, "content", payload)
 
-  defp input_text(_event), do: ""
+  defp input_content(%Event{payload: payload}) when is_map(payload), do: payload
+  defp input_content(_event), do: nil
 
   defp bounded(nil, _limit), do: nil
 

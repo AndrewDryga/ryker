@@ -1190,6 +1190,7 @@ defmodule Ryker.Admission do
         transport: input.destination.transport,
         thread_ref: input.destination.thread_ref,
         text: RecallText.from(input.content),
+        identifiers: RoutingDigests.input_identifiers(input.content),
         native_input_id: input.native_input_id,
         execution_mode: entry.execution_mode,
         repository_ref: entry.repository_ref,
