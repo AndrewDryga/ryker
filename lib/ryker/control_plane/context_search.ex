@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.ContextSearch do
     {"thread", "Same thread"},
     {"identity", "Same links or IDs"},
     {"text", "Similar wording"},
+    {"meaning", "Similar meaning"},
     {"recent_active", "Work still in progress"}
   ]
 
@@ -129,7 +130,8 @@ defmodule Ryker.ControlPlane.ContextSearch do
   defp window(_since), do: nil
 
   defp methods(%{"lanes" => %{} = lanes} = receipt) do
-    for {lane, name} <- @lanes do
+    # Search by meaning is listed where it was set up, running or not.
+    for {lane, name} <- @lanes, lane != "meaning" or is_map(receipt["meaning"]) do
       facts = lanes[lane] || %{}
 
       %{
@@ -151,10 +153,27 @@ defmodule Ryker.ControlPlane.ContextSearch do
 
   defp used(_lane, _receipt), do: []
 
-  # Why a search had nothing to look with, when that is recorded.
+  # Why a search had nothing to look with, or what it left out, when that is
+  # recorded. Words in more than a quarter of the searchable work say little
+  # about which one a message is about, and are left out
+  # (`Ryker.Admission.CandidateSearch`).
   defp note("thread", %{"in_thread" => false}), do: "the message was not in a thread"
   defp note("identity", %{"identifiers" => []}), do: "no links or IDs in the message"
+
+  defp note("text", %{"words" => [], "common_words" => [_ | _] = common}),
+    do: "only words too common to tell work apart: " <> Enum.join(common, ", ")
+
   defp note("text", %{"words" => []}), do: "no words in it say what it is about"
+
+  defp note("text", %{"common_words" => [_ | _] = common}),
+    do: "left out as too common: " <> Enum.join(common, ", ")
+
+  defp note("meaning", %{"meaning" => %{"unavailable" => reason}}),
+    do: reason <> ", so this search did not run"
+
+  defp note("meaning", %{"meaning" => %{"model" => model}}),
+    do: "compared by #{model} in any language"
+
   defp note(_lane, _receipt), do: nil
 
   defp shorten(identifier) when byte_size(identifier) > 60,

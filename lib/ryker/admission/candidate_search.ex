@@ -23,21 +23,31 @@ defmodule Ryker.Admission.CandidateSearch do
     RoutingDigests
   }
 
-  alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Repo
   alias Ryker.Work.Session
 
   @lane_limit 50
   @pool_limit 200
+  # A word in more than a quarter of the searchable work (and in more than
+  # three pieces of it) says little about which one a message is about.
+  @common_share 0.25
+  @common_floor 3
+  # How much a word counts where it appears: in Ryker's title for the work,
+  # in its opening or latest message, or elsewhere in its messages.
+  @field_weight %{"A" => 1.0, "B" => 0.7, "C" => 0.5, "D" => 0.3}
   @thread_origin_limit 200
   @active_states [:working, :waiting_for_input, :waiting_for_event]
-  @lanes [:identity, :thread, :text, :recent_active]
+  @lanes [:identity, :thread, :text, :meaning, :recent_active]
+  # Below this, bge-m3 finds unrelated text about as similar (the routing
+  # search benchmark: unrelated pairs 0.3-0.45, related 0.55-0.8).
+  @meaning_floor 0.4
 
   @type pooled :: %{
           episode: Episode.t(),
           digest: RoutingDigest.t() | nil,
           lanes: [atom()],
           text_rank: float(),
+          meaning: float(),
           anchor_overlap: non_neg_integer(),
           origin_in_thread: boolean(),
           source_owner: boolean(),
@@ -48,40 +58,53 @@ defmodule Ryker.Admission.CandidateSearch do
   @doc """
   Returns the ranked shortlist plus the receipt describing how it was found.
   """
-  @spec search(map()) :: %{selected: [pooled()], receipt: map()}
+  @spec search(map()) :: %{selected: [pooled()], pool: [pooled()], receipt: map()}
   def search(request) do
     scope = request.scope
-    identifiers = KnowledgeAnchors.discover([request.text])
+    identifiers = RoutingDigests.identifiers([request.text])
     anchors = RoutingDigests.anchor_keys(identifiers)
     words = RoutingDigests.search_words(request.text)
-    terms = Enum.map_join(words, " | ", &"'#{&1}'")
+    weights = word_weights(request, scope, words)
 
-    ranked_text = text_lane(request, scope, terms)
+    ranked_text = text_lane(request, scope, weights)
+    ranked_meaning = meaning_lane(request, scope)
 
     lanes =
       %{
         identity: identity_lane(request, scope, anchors),
         thread: thread_lane(request, scope),
         text: Enum.map(ranked_text, &elem(&1, 0)),
+        meaning: Enum.map(ranked_meaning, &elem(&1, 0)),
         recent_active: recent_active_lane(request, scope)
       }
 
     owner = source_owner(request)
-    ranks = Map.new(ranked_text, fn {episode, rank} -> {episode.id, rank} end)
+
+    ranks = %{
+      text: Map.new(ranked_text, fn {episode, rank} -> {episode.id, rank} end),
+      meaning: Map.new(ranked_meaning, fn {episode, similarity} -> {episode.id, similarity} end)
+    }
+
     pool = pool(lanes, owner, request, anchors, ranks)
 
     %{selected: selected, cutoff: cutoff} = Ranking.select(pool, request)
 
     %{
       selected: selected,
+      # Everything examined, for tuning ranking on the benchmark.
+      pool: pool,
       receipt:
         receipt(lanes, pool, selected, scope, cutoff, anchors)
         |> Map.merge(%{
           # What each lane searched with, so the search can be read back as
           # the words, links and places it used, not only as counts.
-          "words" => words,
+          "words" =>
+            for({word, lexemes} <- weights.words, informative?(lexemes, weights), do: word),
+          "common_words" =>
+            for({word, lexemes} <- weights.words, not informative?(lexemes, weights), do: word),
           "identifiers" => Enum.take(identifiers, 16),
           "in_thread" => not is_nil(request.thread_ref),
+          "meaning" => meaning_receipt(request),
           "history_since" => DateTime.to_iso8601(request.history_cutoff),
           "conversation_refs" => Enum.take(scope.conversation_refs, 32)
         })
@@ -183,42 +206,196 @@ defmodule Ryker.Admission.CandidateSearch do
     )
   end
 
-  defp text_lane(_request, _scope, ""), do: []
+  # How much each word of the message says, by how rare it is in the work
+  # that could be offered: the BM25 inverse document frequency of its
+  # English stem ("failing" and "failed" are one). Postgres ranks matches by
+  # where words appear, never by how rare they are, so "change" or "week"
+  # counted as much as "haproxy", and a new request dragged in unrelated
+  # work that shared one ordinary word (the routing search benchmark).
+  defp word_weights(_request, _scope, []), do: %{words: [], idf: %{}, informative: []}
 
-  # English stems, so "failing" finds "fail" and "probes" finds "probe", over
-  # a vector that weighs the work's title above its objective and latest
-  # development, and those above its messages (D, C, B, A weights below).
-  # Normalisation 32 keeps the rank between 0 and 1 whatever the length.
-  # Weights are {D, C, B, A}: messages are C, the opening and latest messages
-  # B, the title A. They are small so that one shared word scores about what
-  # it did before stemming (ranking's topic fit is this rank, normalized to
-  # rank / (rank + 1)), and "similar wording" still takes several.
-  defp text_lane(request, scope, terms) do
-    from(episode in eligible(request, scope),
-      join: digest in RoutingDigest,
-      on: digest.episode_id == episode.id,
-      where: fragment("? @@ to_tsquery('english', ?)", digest.search_vector, ^terms),
-      order_by: [
-        desc:
-          fragment(
-            "ts_rank_cd('{0.05, 0.1, 0.2, 0.4}', ?, to_tsquery('english', ?), 32)",
-            digest.search_vector,
-            ^terms
-          ),
-        desc: episode.updated_at,
-        asc: episode.id
-      ],
-      limit: @lane_limit,
-      select:
-        {episode,
-         fragment(
-           "ts_rank_cd('{0.05, 0.1, 0.2, 0.4}', ?, to_tsquery('english', ?), 32)",
-           digest.search_vector,
-           ^terms
+  defp word_weights(request, scope, words) do
+    stems = stems(words)
+    lexemes = stems |> Enum.flat_map(&elem(&1, 1)) |> Enum.uniq()
+    total = Repo.aggregate(searchable(request, scope), :count)
+
+    counts =
+      Map.new(lexemes, fn lexeme ->
+        {lexeme,
+         Repo.aggregate(
+           from(digest in searchable(request, scope),
+             where:
+               fragment(
+                 "? @@ to_tsquery('simple', quote_literal(?))",
+                 digest.search_vector,
+                 ^lexeme
+               )
+           ),
+           :count
          )}
-    )
-    |> Repo.all()
+      end)
+
+    idf = Map.new(counts, fn {lexeme, count} -> {lexeme, idf(total, count)} end)
+    common = max(@common_floor, total * @common_share)
+
+    %{
+      words: stems,
+      idf: idf,
+      informative: for({lexeme, count} <- counts, count <= common, do: lexeme)
+    }
   end
+
+  defp stems(words) do
+    Repo.query!(
+      "SELECT word, tsvector_to_array(to_tsvector('english', word)) FROM unnest($1::text[]) AS word",
+      [words]
+    ).rows
+    |> Enum.map(fn [word, lexemes] -> {word, lexemes} end)
+  end
+
+  defp idf(total, count), do: :math.log(1 + (total - count + 0.5) / (count + 0.5))
+
+  defp informative?(lexemes, weights), do: Enum.any?(lexemes, &(&1 in weights.informative))
+
+  defp searchable(request, scope) do
+    from(digest in RoutingDigest,
+      join: episode in subquery(eligible(request, scope)),
+      on: episode.id == digest.episode_id
+    )
+  end
+
+  defp text_lane(_request, _scope, %{informative: []}), do: []
+
+  # Work that shares a telling word with the message, ranked by how much of
+  # what the message says it covers: each shared word counts its rarity, more
+  # in the work's title than in its opening or latest message, and more there
+  # than elsewhere in its messages. The share of the message's rarity covered
+  # is the work's topic fit, between 0 and 1.
+  defp text_lane(request, scope, weights) do
+    {lexemes, idfs} = weights.idf |> Enum.sort() |> Enum.unzip()
+    total = Enum.sum(idfs)
+    terms = Enum.map_join(weights.informative, " | ", &quote_lexeme/1)
+    %{"A" => a, "B" => b, "C" => c, "D" => d} = @field_weight
+
+    scored =
+      from(episode in eligible(request, scope),
+        join: digest in RoutingDigest,
+        on: digest.episode_id == episode.id,
+        where: fragment("? @@ to_tsquery('simple', ?)", digest.search_vector, ^terms),
+        select: %{
+          id: episode.id,
+          updated_at: episode.updated_at,
+          matched:
+            fragment(
+              """
+              (SELECT coalesce(sum(q.idf * CASE
+                  WHEN 'A' = ANY(u.weights) THEN ?::float8
+                  WHEN 'B' = ANY(u.weights) THEN ?::float8
+                  WHEN 'C' = ANY(u.weights) THEN ?::float8
+                  ELSE ?::float8 END), 0)
+               FROM unnest(?) AS u
+               JOIN unnest(?::text[], ?::float8[]) AS q(lexeme, idf) ON q.lexeme = u.lexeme)
+              """,
+              ^a,
+              ^b,
+              ^c,
+              ^d,
+              digest.search_vector,
+              ^lexemes,
+              ^idfs
+            )
+        }
+      )
+
+    top =
+      Repo.all(
+        from(row in subquery(scored),
+          order_by: [desc: row.matched, desc: row.updated_at, asc: row.id],
+          limit: @lane_limit,
+          select: {row.id, row.matched}
+        )
+      )
+
+    ids = Enum.map(top, &elem(&1, 0))
+
+    episodes =
+      Map.new(Repo.all(from(episode in Episode, where: episode.id in ^ids)), &{&1.id, &1})
+
+    Enum.map(top, fn {id, matched} -> {Map.fetch!(episodes, id), min(matched / total, 1.0)} end)
+  end
+
+  defp quote_lexeme(lexeme), do: "'" <> String.replace(lexeme, "'", "''") <> "'"
+
+  # Work whose vector is near the message's (`Ryker.Embeddings`): the same
+  # thing said in other words or another language. The dot product of two
+  # normalized vectors is their cosine; only vectors from the same model are
+  # compared.
+  defp meaning_lane(%{meaning: %{vector: vector, model: model}} = request, scope)
+       when is_list(vector) and is_binary(model) do
+    scored =
+      from(episode in eligible(request, scope),
+        join: digest in RoutingDigest,
+        on: digest.episode_id == episode.id,
+        where: digest.embedding_model == ^model,
+        select: %{
+          id: episode.id,
+          updated_at: episode.updated_at,
+          similarity:
+            fragment(
+              "(SELECT sum(a * b)::float8 FROM unnest(?, ?::real[]) AS t(a, b))",
+              digest.embedding,
+              ^vector
+            )
+        }
+      )
+
+    top =
+      Repo.all(
+        from(row in subquery(scored),
+          where: row.similarity >= ^@meaning_floor,
+          order_by: [desc: row.similarity, desc: row.updated_at, asc: row.id],
+          limit: @lane_limit,
+          select: {row.id, row.similarity}
+        )
+      )
+
+    ids = Enum.map(top, &elem(&1, 0))
+
+    episodes =
+      Map.new(Repo.all(from(episode in Episode, where: episode.id in ^ids)), &{&1.id, &1})
+
+    Enum.map(top, fn {id, similarity} -> {Map.fetch!(episodes, id), similarity} end)
+  end
+
+  defp meaning_lane(_request, _scope), do: []
+
+  # The cosine of every candidate with a vector, not only the ones the
+  # meaning lane returned: a meaning far from the message tells ranking that
+  # a shared word is a coincidence (`Ryker.Admission.Ranking`).
+  defp similarities(%{meaning: %{vector: vector, model: model}}, ids)
+       when is_list(vector) and ids != [] do
+    Repo.all(
+      from(digest in RoutingDigest,
+        where: digest.episode_id in ^ids and digest.embedding_model == ^model,
+        select:
+          {digest.episode_id,
+           fragment(
+             "(SELECT sum(a * b)::float8 FROM unnest(?, ?::real[]) AS t(a, b))",
+             digest.embedding,
+             ^vector
+           )}
+      )
+    )
+    |> Map.new()
+  end
+
+  defp similarities(_request, _ids), do: %{}
+
+  defp meaning_receipt(%{meaning: %{model: model, vector: vector}}) when is_list(vector),
+    do: %{"model" => model}
+
+  defp meaning_receipt(%{meaning: %{unavailable: reason}}), do: %{"unavailable" => reason}
+  defp meaning_receipt(_request), do: nil
 
   defp recent_active_lane(request, scope) do
     from(episode in eligible(request, scope),
@@ -266,6 +443,7 @@ defmodule Ryker.Admission.CandidateSearch do
     claims = CorrelationClaims.active_by_episode(Enum.map(episodes, & &1.id))
     repositories = pinned_repositories(Enum.map(episodes, & &1.id))
     thread_origins = MapSet.new(thread_origin_ids(request, request.scope))
+    similarities = similarities(request, Enum.map(episodes, & &1.id))
 
     grouped
     |> Enum.map(fn {id, {episode, found}} ->
@@ -275,7 +453,8 @@ defmodule Ryker.Admission.CandidateSearch do
         episode: episode,
         digest: digest,
         lanes: Enum.uniq(found),
-        text_rank: Map.get(ranks, id, 0.0),
+        text_rank: Map.get(ranks.text, id, 0.0),
+        meaning: Map.get(similarities, id),
         anchor_overlap: anchor_overlap(digest, anchors),
         origin_in_thread: MapSet.member?(thread_origins, id),
         source_owner: owner != nil and owner.id == id,

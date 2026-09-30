@@ -76,6 +76,7 @@ defmodule Ryker.Episodes.RoutingDigests do
     |> Regex.scan(text)
     |> List.flatten()
     |> Enum.map(&String.downcase/1)
+    |> Enum.map(&String.trim_trailing(&1, "."))
     |> Enum.map(&String.trim(&1, ":"))
     |> Enum.map(&String.replace(&1, ~r/['\\]/, ""))
     |> Enum.reject(&(String.length(&1) < 3))
@@ -105,10 +106,12 @@ defmodule Ryker.Episodes.RoutingDigests do
     now = DateTime.utc_now()
     row = attributes |> Map.put(:inserted_at, now) |> Map.put(:updated_at, now)
 
+    # New text makes the request's vector stale; the embeddings worker
+    # computes it again (`Ryker.Embeddings.Worker`).
     updates =
       attributes
       |> Map.drop([:episode_id])
-      |> Map.put(:updated_at, now)
+      |> Map.merge(%{updated_at: now, embedding: nil, embedding_model: nil, embedded_at: nil})
       |> Map.to_list()
 
     case Repo.insert_all(RoutingDigest, [row],
@@ -121,6 +124,38 @@ defmodule Ryker.Episodes.RoutingDigests do
   end
 
   def refresh_in_transaction(_episode, _event), do: :ok
+
+  @doc """
+  Rebuilds every digest from its retained inputs, one transaction each, and
+  returns how many it rebuilt. A digest is otherwise rebuilt only when a new
+  message arrives, so a new kind of identifier (2026-09-30: hosts, runs,
+  versions, alert rules) reaches existing work only after this runs once.
+  Titles stay; vectors are cleared for the embeddings worker to compute again.
+  """
+  @spec refresh_all() :: non_neg_integer()
+  def refresh_all do
+    Repo.all(from(digest in RoutingDigest, select: digest.episode_id))
+    |> Enum.count(fn episode_id ->
+      match?({:ok, :ok}, Repo.transaction(fn -> refresh(episode_id) end))
+    end)
+  end
+
+  defp refresh(episode_id) do
+    with %Episode{} = episode <- Repo.get(Episode, episode_id),
+         %Event{} = latest <-
+           Repo.one(
+             from(event in Event,
+               where: event.episode_id == ^episode_id and event.kind == :input_admitted,
+               order_by: [desc: event.sequence],
+               limit: 1
+             )
+           ),
+         :ok <- refresh_in_transaction(episode, latest) do
+      :ok
+    else
+      _nothing -> Repo.rollback(:not_refreshed)
+    end
+  end
 
   @spec fetch(Ecto.UUID.t()) :: RoutingDigest.t() | nil
   def fetch(episode_id), do: Repo.get_by(RoutingDigest, episode_id: episode_id)
@@ -169,7 +204,15 @@ defmodule Ryker.Episodes.RoutingDigests do
             where: digest.episode_id == ^episode_id,
             where: is_nil(digest.title) or digest.title != ^title
           ),
-          set: [title: title, title_turn_id: turn.id, title_updated_at: now, updated_at: now]
+          set: [
+            title: title,
+            title_turn_id: turn.id,
+            title_updated_at: now,
+            updated_at: now,
+            embedding: nil,
+            embedding_model: nil,
+            embedded_at: nil
+          ]
         )
 
         :ok
@@ -188,6 +231,21 @@ defmodule Ryker.Episodes.RoutingDigests do
   end
 
   defp accepted_title(_turn), do: nil
+
+  @embedding_characters 2_000
+
+  @doc """
+  What a request's vector is computed from: Ryker's title for it, its opening
+  and latest messages, then the rest of its messages, as far as they fit.
+  """
+  @spec embedding_text(RoutingDigest.t()) :: String.t()
+  def embedding_text(%RoutingDigest{} = digest) do
+    [digest.title, digest.objective, digest.latest_development, digest.search_text]
+    |> Enum.reject(&(is_nil(&1) or &1 == ""))
+    |> Enum.uniq()
+    |> Enum.join("\n")
+    |> String.slice(0, @embedding_characters)
+  end
 
   @doc "Indexed keys for source-backed identity clues; never an authority or uniqueness claim."
   @spec anchor_keys([String.t()]) :: [String.t()]
@@ -245,9 +303,75 @@ defmodule Ryker.Episodes.RoutingDigests do
   defp anchor_keys_for(events) do
     events
     |> Enum.map(&input_text/1)
-    |> KnowledgeAnchors.discover()
+    |> identifiers()
     |> anchor_keys()
     |> Enum.take(@maximum_anchors)
+  end
+
+  @doc """
+  The links and identifiers in `texts` that each name one thing: URLs and
+  UUIDs (`Ryker.Knowledge.KnowledgeAnchors.discover/1`), and the names
+  operations gives things. Hosts and services numbered like pgsql-prod-01
+  or ci-runner-3, run IDs like run-7f2a1c, versions like v2.14.0, alert
+  rules like CheckoutLatencyHigh, pull requests and issues like #482,
+  commit hashes, and domains like api.example.com.
+
+  Andrew, 2026-09-30: routing's search is "rudimentary and won't actually
+  work in real life". It matched only URLs and UUIDs as identifiers, so a
+  message naming the failing host or run found its work by wording alone,
+  behind unrelated work that happened to be running (the routing search
+  benchmark ranked a shared run ID fifth).
+  """
+  @spec identifiers([String.t()]) :: [String.t()]
+  def identifiers(texts) do
+    texts = texts |> Enum.filter(&is_binary/1) |> Enum.take(16)
+
+    (KnowledgeAnchors.discover(texts) ++ Enum.flat_map(texts, &names/1))
+    |> Enum.uniq()
+    |> Enum.take(64)
+  end
+
+  # Words so common in operations text that they name nothing on their own.
+  @generic_names ~w(utf-8 utf-16 x86_64 x86-64 ipv4 ipv6 base64 sha256 sha-256 http/1.1 http/2
+    tls1.2 tls1.3 github.com gitlab.com google.com slack.com grafana.com amazonaws.com
+    cloudflare.com localhost.localdomain)
+
+  defp names(text) do
+    text =
+      text
+      |> String.slice(0, 65_536)
+      |> String.replace(~r{https?://\S+}u, " ")
+
+    numbered =
+      ~r/(?<![\p{L}\p{N}_.\/#-])[a-z][a-z0-9]*(?:[-_.][a-z0-9]+)+(?![\p{L}\p{N}_\/-])/iu
+      |> Regex.scan(text)
+      |> List.flatten()
+      |> Enum.filter(&(String.length(&1) >= 5 and Regex.match?(~r/\d/, &1)))
+
+    rules =
+      ~r/(?<![\p{L}\p{N}])[A-Z][a-z]+(?:[A-Z][a-z0-9]+){2,}(?![\p{L}\p{N}])/u
+      |> Regex.scan(text)
+      |> List.flatten()
+
+    references =
+      ~r/(?<![\p{L}\p{N}&#])#\d{2,7}(?!\d)/u
+      |> Regex.scan(text)
+      |> List.flatten()
+
+    hashes =
+      ~r/(?<![\p{L}\p{N}])[0-9a-f]{7,40}(?![\p{L}\p{N}])/u
+      |> Regex.scan(text)
+      |> List.flatten()
+      |> Enum.filter(&(Regex.match?(~r/\d/, &1) and Regex.match?(~r/[a-f]/, &1)))
+
+    domains =
+      ~r/(?<![\p{L}\p{N}@.-])(?:[a-z0-9-]+\.)+(?:com|net|org|io|dev|app|co|cloud|ai|ua|es|de|uk|eu)(?![\p{L}\p{N}-])/iu
+      |> Regex.scan(text)
+      |> List.flatten()
+
+    (numbered ++ rules ++ references ++ hashes ++ domains)
+    |> Enum.map(&String.downcase/1)
+    |> Enum.reject(&(&1 in @generic_names))
   end
 
   defp conversation_refs(events) do

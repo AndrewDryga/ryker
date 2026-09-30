@@ -10,27 +10,57 @@ defmodule Ryker.Admission.Ranking do
 
   @reserved_non_local 4
 
-  @occurrence_identity 1_000
-  @direct_reference 400
-  @same_thread 300
-  @topic_fit 200
-  @same_conversation 60
-  @active 40
-  @recency 20
-  @recency_window 30 * 24 * 60 * 60
+  # Tuned on the routing search benchmark
+  # (test/ryker/admission/search_benchmark_test.exs, RYKER_SEARCH_TUNE=1):
+  # exact evidence first, a shared identifier worth more than any wording can
+  # be, then how much of what the message says the work covers, in words or
+  # in meaning, with where the work lives, whether it runs and how recent it
+  # is only as tie-breakers. Before, running in the same channel was worth
+  # 120 points with no match at all and outranked the work a message was
+  # about.
+  @weights %{
+    occurrence_identity: 1_000,
+    direct_reference: 350,
+    more_references: 100,
+    same_thread: 300,
+    relevance: 200,
+    same_conversation: 30,
+    active: 30,
+    recency: 30,
+    # Recency halves every this many seconds: a message without a subject
+    # ("any update on this?") belongs to the work that moved last, and a day
+    # tells work of this morning from last week's.
+    recency_half_life: 24 * 60 * 60,
+    # bge-m3 cosines: unrelated text sits near 0.4-0.5, the same subject from 0.55.
+    meaning_unrelated: 0.5,
+    meaning_related: 0.75,
+    # How much of a wording match stands when the meaning says the two are
+    # unrelated: "this week" in a weather question is not the on-call rota.
+    disagreement: 0.5,
+    # Work found only by wording or meaning is offered from this relevance up.
+    offer_relevance: 0.3
+  }
 
   @type scored :: map()
 
+  @doc "The weights ranking uses unless a request names others."
+  @spec weights() :: map()
+  def weights, do: @weights
+
   @spec select([map()], map()) :: %{selected: [scored()], cutoff: String.t()}
   def select(pool, request) do
-    scored = Enum.map(pool, &score(&1, request))
+    weights = Map.merge(@weights, Map.get(request, :weights, %{}))
+
+    scored =
+      pool |> Enum.map(&score(&1, request, weights)) |> Enum.filter(&offerable?(&1, weights))
+
     limit = request.candidate_limit
 
     {owners, rest} = Enum.split_with(scored, & &1.source_owner)
     owners = Enum.sort_by(owners, &ordering/1)
     remaining = max(limit - length(owners), 0)
 
-    {reserved, common} = reserve_non_local(rest, remaining)
+    {reserved, common} = reserve_non_local(rest, remaining, weights)
 
     ranked =
       (reserved ++ Enum.take(common, max(remaining - length(reserved), 0)))
@@ -48,14 +78,14 @@ defmodule Ryker.Admission.Ranking do
   # one matching episode in another thread or channel. They are given only to
   # candidates with real supporting evidence, never to arbitrary noise, and
   # unused places return to the common pool.
-  defp reserve_non_local(candidates, 0), do: {[], candidates}
+  defp reserve_non_local(candidates, 0, _weights), do: {[], candidates}
 
-  defp reserve_non_local(candidates, remaining) do
+  defp reserve_non_local(candidates, remaining, weights) do
     {non_local, local} = Enum.split_with(candidates, &(not &1.features.same_thread))
 
     supported =
       non_local
-      |> Enum.filter(&supported_non_local?/1)
+      |> Enum.filter(&supported_non_local?(&1, weights))
       |> Enum.sort_by(&ordering/1)
       |> Enum.take(min(@reserved_non_local, remaining))
 
@@ -69,9 +99,18 @@ defmodule Ryker.Admission.Ranking do
     {supported, common}
   end
 
-  defp supported_non_local?(candidate) do
+  defp supported_non_local?(candidate, weights) do
     candidate.features.occurrence_identity or candidate.features.direct_reference > 0 or
-      candidate.features.topic_fit > 0.0
+      candidate.features.relevance >= weights.offer_relevance
+  end
+
+  # Work that only shares a word or two, or is only vaguely alike, is not
+  # offered: it cost routing tokens and a chance to join the wrong work.
+  defp offerable?(%{source_owner: true}, _weights), do: true
+
+  defp offerable?(%{features: features}, weights) do
+    features.occurrence_identity or features.direct_reference > 0 or features.same_thread or
+      features.active or features.relevance >= weights.offer_relevance
   end
 
   defp cutoff(examined, offered, limit, reserved) do
@@ -90,25 +129,25 @@ defmodule Ryker.Admission.Ranking do
   defp ordering(candidate), do: {-candidate.score, candidate.episode.id}
 
   @doc false
-  @spec score(map(), map()) :: scored()
-  def score(entry, request) do
-    features = features(entry, request)
+  @spec score(map(), map(), map()) :: scored()
+  def score(entry, request, weights \\ @weights) do
+    features = features(entry, request, weights)
 
     score =
-      value(features.occurrence_identity, @occurrence_identity) +
-        min(features.direct_reference, 4) * div(@direct_reference, 4) +
-        value(features.same_thread, @same_thread) +
-        round(min(features.topic_fit, 1.0) * @topic_fit) +
-        value(features.same_conversation, @same_conversation) +
-        value(features.active, @active) +
-        recency_points(features.age_seconds)
+      value(features.occurrence_identity, weights.occurrence_identity) +
+        references_points(features.direct_reference, weights) +
+        value(features.same_thread, weights.same_thread) +
+        round(features.relevance * weights.relevance) +
+        value(features.same_conversation, weights.same_conversation) +
+        value(features.active, weights.active) +
+        recency_points(features.age_seconds, weights)
 
     entry
     |> Map.put(:features, features)
     |> Map.put(:score, score)
   end
 
-  defp features(entry, request) do
+  defp features(entry, request, weights) do
     episode = entry.episode
 
     same_thread =
@@ -118,11 +157,16 @@ defmodule Ryker.Admission.Ranking do
               episode.destination_conversation_ref == request.scope.conversation_ref and
               episode.destination_thread_ref == request.thread_ref))
 
+    topic_fit = min(entry.text_rank, 1.0)
+    similarity = Map.get(entry, :meaning)
+
     %{
       occurrence_identity: occurrence_identity?(entry, request),
       direct_reference: entry.anchor_overlap,
       same_thread: same_thread,
-      topic_fit: entry.text_rank,
+      topic_fit: topic_fit,
+      meaning: similarity,
+      relevance: relevance(topic_fit, similarity, weights),
       same_conversation:
         episode.destination_conversation_ref == request.scope.conversation_ref and
           episode.destination_transport == request.transport,
@@ -140,12 +184,33 @@ defmodule Ryker.Admission.Ranking do
 
   defp occurrence_identity?(_entry, _request), do: false
 
-  defp recency_points(age_seconds) when age_seconds <= 0, do: @recency
+  defp references_points(0, _weights), do: 0
 
-  defp recency_points(age_seconds) do
-    remaining = @recency_window - min(age_seconds, @recency_window)
-    round(@recency * remaining / @recency_window)
+  defp references_points(count, weights),
+    do: weights.direct_reference + (min(count, 4) - 1) * weights.more_references
+
+  # How much of what the message says the work covers. Wording and meaning
+  # each count, and both together count more; wording the meaning calls
+  # unrelated counts for less. Work whose vector is not computed yet, or a
+  # search without one, is judged by wording alone.
+  defp relevance(topic_fit, nil, _weights), do: topic_fit
+
+  defp relevance(topic_fit, similarity, weights) do
+    fit =
+      ((similarity - weights.meaning_unrelated) /
+         (weights.meaning_related - weights.meaning_unrelated))
+      |> max(0.0)
+      |> min(1.0)
+
+    if fit > 0,
+      do: 1 - (1 - topic_fit) * (1 - fit),
+      else: topic_fit * weights.disagreement
   end
+
+  defp recency_points(age_seconds, weights) when age_seconds <= 0, do: weights.recency
+
+  defp recency_points(age_seconds, weights),
+    do: round(weights.recency * :math.pow(0.5, age_seconds / weights.recency_half_life))
 
   defp value(true, points), do: points
   defp value(false, _points), do: 0
@@ -163,6 +228,8 @@ defmodule Ryker.Admission.Ranking do
       "same_thread" => features.same_thread,
       "same_conversation" => features.same_conversation,
       "topic_fit" => Float.round(features.topic_fit * 1.0, 4),
+      "meaning" => features.meaning && Float.round(features.meaning * 1.0, 4),
+      "relevance" => Float.round(features.relevance * 1.0, 4),
       "active" => features.active,
       "source_owner" => candidate.source_owner
     }

@@ -257,9 +257,20 @@ printf 'RYKER_WHISPER_DETECT_URL=http://host.docker.internal:%s\n' "$((port + 1)
 WATCHDOG_ENV_FILE="$install/compose.env.voice" run >/dev/null
 silent=$(WATCHDOG_ENV_FILE="$install/compose.env.voice" run)
 check "a whisper server that stopped answering alarms, as worse rather than stopped" \
-  "ALERT Ryker reads voice messages with its small model — whisper at http://127.0.0.1:$((port + 1)) is not answering" \
+  "ALERT Ryker is working with less: a server on this Mac stopped — whisper at http://127.0.0.1:$((port + 1)) is not answering" \
   "$silent"
 refute "the whisper server that answers is not named" "127.0.0.1:$port is not answering" "$silent"
+
+# 2026-09-30: routing searches earlier work by meaning on an embedding server
+# on this Mac, and by words alone when it stops.
+reset; ready
+cp "$install/compose.env" "$install/compose.env.embeddings"
+printf 'RYKER_EMBEDDINGS_URL=http://host.docker.internal:%s\n' "$((port + 1))" >>"$install/compose.env.embeddings"
+WATCHDOG_ENV_FILE="$install/compose.env.embeddings" run >/dev/null
+words=$(WATCHDOG_ENV_FILE="$install/compose.env.embeddings" run)
+check "an embedding server that stopped answering alarms" \
+  "the embedding server at http://127.0.0.1:$((port + 1)) is not answering, so routing finds earlier work by words alone" \
+  "$words"
 
 # ---------------------------------------------------------------------------
 # Work whose retries are spent waits for a person on the Failures page. That

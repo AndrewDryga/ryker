@@ -120,6 +120,65 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
     assert digest.title_turn_id == turn_id
   end
 
+  # Andrew, 2026-09-30: routing's search is "rudimentary and won't actually
+  # work in real life". Only URLs and UUIDs counted as identifiers, so a
+  # message naming the failing host or run found its work by wording alone,
+  # behind unrelated running work (the routing search benchmark ranked a
+  # shared run ID fifth).
+  test "the names operations gives things are identifiers, ordinary words and generic names are not" do
+    text =
+      "[FIRING:1] CheckoutLatencyHigh on pgsql-prod-01 (run-7f2a1c, v2.14.0) after PR #482, " <>
+        "commit 3f9a2b1c, api.example.com at 10:00 with p99 over 2s; utf-8 logs on github.com."
+
+    identifiers = RoutingDigests.identifiers([text])
+
+    for name <-
+          ~w(checkoutlatencyhigh pgsql-prod-01 run-7f2a1c v2.14.0 #482 3f9a2b1c api.example.com),
+        do: assert(name in identifiers, name)
+
+    for word <- ~w(p99 utf-8 github.com 10:00 firing checkout),
+        do: refute(word in identifiers, word)
+  end
+
+  test "rebuilding every digest gives existing work the identifiers its messages named" do
+    episode = admit!("digest:rebuild", "pgsql-prod-01 is unreachable after run-7f2a1c")
+
+    Repo.update_all(
+      from(digest in Ryker.Episodes.RoutingDigest, where: digest.episode_id == ^episode.id),
+      set: [
+        anchor_keys: [],
+        title: "Postgres primary unreachable",
+        title_turn_id: Ecto.UUID.generate(),
+        title_updated_at: @now
+      ]
+    )
+
+    assert RoutingDigests.refresh_all() >= 1
+    digest = RoutingDigests.fetch(episode.id)
+
+    assert RoutingDigests.anchor_keys(["pgsql-prod-01"]) -- digest.anchor_keys == []
+    assert RoutingDigests.anchor_keys(["run-7f2a1c"]) -- digest.anchor_keys == []
+    assert digest.title == "Postgres primary unreachable"
+  end
+
+  # A request's vector says what its text said (`Ryker.Embeddings`): new text
+  # clears it, and the embeddings worker computes it again.
+  test "a request's vector is cleared when its text changes" do
+    episode = admit!("digest:embedding", "Checkout returns 502 on the cart page")
+
+    Repo.update_all(
+      from(digest in Ryker.Episodes.RoutingDigest, where: digest.episode_id == ^episode.id),
+      set: [embedding: [0.6, 0.8], embedding_model: "bge-m3", embedded_at: @now]
+    )
+
+    admit_more!(episode, "Now it returns 504 instead")
+
+    assert %{embedding_model: nil, embedded_at: nil} = RoutingDigests.fetch(episode.id)
+
+    assert RoutingDigests.embedding_text(RoutingDigests.fetch(episode.id)) =~
+             "Checkout returns 502 on the cart page"
+  end
+
   defp admit!(key, text, options \\ []) do
     input = slack_input!(text, options)
 

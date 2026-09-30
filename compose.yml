@@ -78,6 +78,11 @@ services:
       RYKER_WHISPER_URL: ${RYKER_WHISPER_URL:-}
       RYKER_WHISPER_DETECT_URL: ${RYKER_WHISPER_DETECT_URL:-}
       RYKER_VOICE_LANGUAGES: ${RYKER_VOICE_LANGUAGES:-}
+      # Routing's search for earlier work by meaning, on an embedding server
+      # outside the container (scripts/embedding-service.sh); empty searches
+      # by words and identifiers alone.
+      RYKER_EMBEDDINGS_URL: ${RYKER_EMBEDDINGS_URL:-}
+      RYKER_EMBEDDINGS_MODEL: ${RYKER_EMBEDDINGS_MODEL:-}
     volumes:
       - ryker-state:/var/lib/ryker
       - ryker-coop-config:/var/lib/ryker-coop

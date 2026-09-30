@@ -97,6 +97,39 @@ defmodule Ryker.Admission.ContextTest do
     refute Map.has_key?(Context.snapshot(bob_context), "person_asking")
   end
 
+  # Andrew, 2026-09-30: routing's search "won't actually work in real
+  # life". It now also searches by meaning: the message's vector is asked for
+  # before the snapshot opens, and a server that fails costs the search only
+  # that lane, which the receipt says.
+  test "routing searches by the message's meaning, and says why when it could not" do
+    entry =
+      record_input!(
+        actor: %{kind: :user, ref: "UALICE"},
+        content: %{"text" => "is the database back?"}
+      )
+
+    test = self()
+
+    embedder = fn [text], options ->
+      send(test, {:asked, text, options[:timeout_ms]})
+      {:ok, [[1.0, 0.0]]}
+    end
+
+    assert {:ok, context} = build_context(entry, embedder: embedder)
+    assert_received {:asked, "is the database back?", 3_000}
+    assert context.routing_receipt["meaning"] == %{"model" => Ryker.Embeddings.model()}
+
+    stopped = fn _texts, _options -> {:error, :unreachable} end
+    assert {:ok, context} = build_context(entry, embedder: stopped)
+
+    assert context.routing_receipt["meaning"] == %{
+             "unavailable" => "the embedding server could not be reached"
+           }
+
+    assert {:ok, context} = build_context(entry, embedder: nil)
+    assert context.routing_receipt["meaning"] == nil
+  end
+
   test "addressing is frozen from the receipt and restored independently of current entry metadata" do
     assert {:ok, %{entry: entry}} =
              Inbox.record(input!([]), slack_audience: :ambient, slack_bot_user_ref: "UBOT")
@@ -856,12 +889,15 @@ defmodule Ryker.Admission.ContextTest do
     }
   end
 
-  defp build_context(entry) do
-    Admission.context(Inbox.ref(entry),
-      now: @now,
-      continuation_window: 30 * 60,
-      history_window: 30 * 24 * 60 * 60,
-      candidate_limit: 8
+  defp build_context(entry, options \\ []) do
+    Admission.context(
+      Inbox.ref(entry),
+      [
+        now: @now,
+        continuation_window: 30 * 60,
+        history_window: 30 * 24 * 60 * 60,
+        candidate_limit: 8
+      ] ++ options
     )
   end
 

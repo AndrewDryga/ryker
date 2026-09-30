@@ -20,6 +20,11 @@ defmodule Ryker.Episodes.RoutingDigest do
     field(:title, :string)
     field(:title_turn_id, :binary_id)
     field(:title_updated_at, :utc_datetime_usec)
+    # What the request is about as a vector (`Ryker.Embeddings`), cleared
+    # whenever its text changes. Read only by the search that compares it.
+    field(:embedding, {:array, :float}, load_in_query: false)
+    field(:embedding_model, :string)
+    field(:embedded_at, :utc_datetime_usec)
     # Stemmed and weighted by the database from the title, objective, latest
     # development and messages; never loaded or written by the host.
     field(:search_vector, :string, load_in_query: false)

@@ -274,6 +274,30 @@ something Ryker cannot read, or stops answering, Ryker's own model reads the rec
 left, so no voice message is lost to a stopped or upgraded service; the log says
 `whisper service ...` with the reason.
 
+## Search by meaning
+
+When a message arrives, routing looks for the earlier work it may belong to. By words and
+identifiers alone it misses a message that says the same thing in other words, or in Ukrainian or
+Spanish about work discussed in English. On a Mac, run a multilingual embedding model (bge-m3) on
+the GPU and routing also searches by meaning:
+
+```bash
+scripts/embedding-service.sh install    # llama.cpp from Homebrew, the 635 MB model, a launchd service
+```
+
+Then set in `.ryker/compose.env` and run `scripts/compose.sh start`:
+
+```bash
+RYKER_EMBEDDINGS_URL=http://host.docker.internal:8180
+```
+
+Ryker computes a vector for each request as its text changes, in the background, and one for each
+message as it arrives, in about 30 ms. The server listens only on 127.0.0.1; `status` says whether
+it answers and `uninstall` stops it. While it is down, routing searches by words and identifiers,
+each request's "How" card says why the search by meaning did not run, and the watchdog alerts. Any
+server that answers the OpenAI embeddings API works; `RYKER_EMBEDDINGS_MODEL` names its model when
+it is not bge-m3.
+
 ## Weekly report
 
 Settings › Weekly report turns on one post a week in a Slack channel, at a day, time and zone you

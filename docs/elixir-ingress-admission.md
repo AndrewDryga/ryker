@@ -287,16 +287,35 @@ repository access or action authority.
 
 ### Bounded retrieval and the best twenty
 
-Four indexed lanes fill a pool of at most 200 eligible episodes, each returning its own best 50:
-source-backed identity matches, this exact thread, resource and objective text matches, and recent
-active work as a fallback for weakly worded input. The exact source item's existing owner is
-resolved separately, so no lane cap can hide the episode that owns a revision.
+Five indexed lanes fill a pool of at most 200 eligible episodes, each returning its own best 50:
+source-backed identity matches, this exact thread, wording, meaning, and recent active work as a
+fallback for input without a subject. The exact source item's existing owner is resolved
+separately, so no lane cap can hide the episode that owns a revision.
 
-Ranking then chooses at most twenty options from explicit, tested features: a proven occurrence
-identity first, then direct source references, then thread gravity, then resource and objective fit,
-then channel proximity, active state and — only as a tie-breaker — recency. Up to four places are
-reserved for supported matches outside the incoming thread, so more than twenty nearby options
-cannot bury the one matching episode in another channel; unused reserved places return to the common
+- **Identity** matches the links and identifiers the message names: URLs and UUIDs, and the names
+  operations gives things, such as hosts and services numbered like pgsql-prod-01, run IDs,
+  versions, alert rules like CheckoutLatencyHigh, pull requests like #482, commit hashes and
+  domains.
+- **Wording** weighs each word by how rare it is in the work that could be offered (BM25's inverse
+  document frequency over English stems), leaves out words in more than a quarter of it, and
+  scores work by the share of what the message says that its title (most), opening or latest
+  message, or other messages also say. Postgres ranks matches by where words appear, not by how
+  rare they are, so "change" or "week" used to count as much as "haproxy".
+- **Meaning** compares the message's vector with each request's, from a multilingual embedding
+  model beside Ryker (`RYKER_EMBEDDINGS_URL`, bge-m3; see [operations](operations.md#search-by-meaning)),
+  so the same thing said in other words or in Ukrainian or Spanish about work discussed in English
+  is found. It runs only while the server answers; the search goes on by words meanwhile.
+
+Ranking then chooses at most twenty options: a proven occurrence identity first, then a shared
+identifier (worth more than any wording), then thread gravity, then relevance (wording and meaning
+together; wording the meaning calls unrelated counts for less), then channel proximity, active
+state and recency, which halves every day. Work found only by wording or meaning is offered from a
+relevance of 0.3. The weights are tuned on the routing search benchmark
+(`test/ryker/admission/search_benchmark_test.exs`), which scores where the right work lands for
+shared identifiers, wording, paraphrases, other languages, look-alikes, follow-ups without a
+subject and new requests, by words and meaning and by words alone. Up to four places are reserved
+for supported matches outside the incoming thread, so more than twenty nearby options cannot bury
+the one matching episode in another channel; unused reserved places return to the common
 pool. The frozen context records every lane's result, what was examined and offered, the feature
 values behind each option, and why the cutoff fell where it did. The control plane shows that
 receipt beside the frozen context as "Routing evidence", so an operator can tell a bounded search
