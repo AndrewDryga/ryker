@@ -39,6 +39,7 @@ defmodule Ryker.Evals.WorldRunner do
     :judge,
     :policy,
     :policy_digest,
+    :repository_ref,
     :source_and_action_tools,
     :state_tools_endpoint,
     :state_tools_secret,
@@ -147,6 +148,7 @@ defmodule Ryker.Evals.WorldRunner do
       judge: Map.get(options, :judge),
       policy: Map.get(options, :policy),
       policy_digest: Map.get(options, :policy_digest),
+      repository_ref: Map.get(options, :repository_ref),
       source_and_action_tools: Map.get(options, :source_and_action_tools),
       state_tools_endpoint: Map.get(options, :state_tools_endpoint),
       state_tools_secret: Map.get(options, :state_tools_secret),
@@ -169,6 +171,8 @@ defmodule Ryker.Evals.WorldRunner do
       is_nil(settings.judge) or is_function(settings.judge, 2),
       reference(settings.policy, :policy) == :ok,
       digest?(settings.policy_digest),
+      is_nil(settings.repository_ref) or
+        reference(settings.repository_ref, :repository_ref) == :ok,
       is_nil(settings.source_and_action_tools) or
         valid_source_and_action_tools?(settings.source_and_action_tools),
       reference(settings.state_tools_endpoint, :state_tools_endpoint) == :ok,

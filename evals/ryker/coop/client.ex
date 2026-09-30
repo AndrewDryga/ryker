@@ -8,7 +8,8 @@ defmodule Ryker.Coop.Client do
 
   It never opens a TCP connection and never accepts repository, model, or tool
   authority from an incoming event. Eval jobs have fixed empty-workspace
-  authority and an explicitly selected model target.
+  authority and an explicitly selected model target; a world scenario's job may
+  also read its own staged checkout (`Ryker.Evals.WorldSource`), read-only.
   """
 
   @behaviour Ryker.Coop.API
@@ -20,7 +21,7 @@ defmodule Ryker.Coop.Client do
   alias Ryker.Evals.Job
   alias Ryker.Repo
   alias Ryker.Work.Custody.Sessions
-  alias Ryker.Work.{Session, SessionChangeset, ValidationIntent}
+  alias Ryker.Work.{RepositorySource, Session, SessionChangeset, ValidationIntent}
 
   @fields [:finch, :receive_timeout, :socket]
   @max_output_artifact_bytes 8 * 1_024 * 1_024
@@ -307,16 +308,25 @@ defmodule Ryker.Coop.Client do
   # exact immutable job create would have sent.
   # Coop refuses a create whose job does not hash to the digest the controller
   # computed for it, so the digest travels with the job.
-  defp create_session_document(client, key, selection, task, nil) do
-    with :ok <- reference(key, :idempotency_key),
+  defp create_session_document(client, key, selection, task, source) do
+    with :ok <- staged_source(client, source),
+         :ok <- reference(key, :idempotency_key),
          :ok <- reference(task, :task),
          {:ok, {job, digest}} <- create_job(client, key, selection, task) do
       {:ok, %{"expected_job_digest" => digest, "job" => job, "task" => task}}
     end
   end
 
-  defp create_session_document(_client, _key, _selection, _task, _source),
-    do: {:error, {:invalid_coop_request, :repository_source}}
+  # A staged scenario checkout is read on its default branch; no eval create selects a source.
+  defp staged_source(_client, nil), do: :ok
+
+  defp staged_source(%{job: %{document: %{"source" => %{}}}}, source) do
+    if source == RepositorySource.default(),
+      do: :ok,
+      else: {:error, {:invalid_coop_request, :repository_source}}
+  end
+
+  defp staged_source(_client, _source), do: {:error, {:invalid_coop_request, :repository_source}}
 
   # The standalone jobs, by the runner namespace their creates use.
   @standalone_jobs %{
@@ -347,8 +357,7 @@ defmodule Ryker.Coop.Client do
 
       unless not is_nil(session) and exact_create_key?(session, key) and
                Session.coop_task_ref(session) == task and session.policy == name and
-               session.policy_digest == template.digest and is_nil(session.repository_ref) and
-               is_nil(session.repository_source),
+               session.policy_digest == template.digest and staged_repository?(session, template),
              do: Repo.rollback(:model_eval_session_authority_mismatch)
 
       with {:ok, job, digest} <- Job.bind(template, session.external_ref),
@@ -363,6 +372,15 @@ defmodule Ryker.Coop.Client do
 
   defp create_job(_client, _key, _selection, _task),
     do: {:error, :invalid_model_eval_job}
+
+  # The only repository an eval session may name is the staged scenario checkout its job
+  # reads (`Ryker.Evals.WorldSource`), on its default branch; every other one names none.
+  defp staged_repository?(session, template) do
+    staged = get_in(template.document, ["source", "repository_ref"])
+
+    session.repository_ref == staged and
+      session.repository_source == if(staged, do: RepositorySource.default())
+  end
 
   defp eval_session(key) do
     query = from(session in Session, lock: "FOR UPDATE")

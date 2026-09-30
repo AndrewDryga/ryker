@@ -128,10 +128,14 @@ on top of whatever else is connected to it.
 
 The evaluation environment must name `RYKER_EVAL_SOCKET`, `RYKER_EVAL_JUDGE_TARGET` and
 `RYKER_EVAL_WORLD_TARGET`; the paired gate also requires `RYKER_EVAL_BASELINE_TARGET`.
-Every job has an empty read-only repository, no companions and no project environment or MCP.
-Only subject turns receive the scenario controller tools; judges receive none. This does not
-disable provider-native tools or internet access. Captured source excerpts are checked immutable
-input artifacts, labelled with their provenance, not live repository checkouts.
+Every job has an empty read-only repository, no companions and no project environment or MCP,
+except that a scenario which captured a repository reads it as its read-only checkout: the harness
+commits the captured files once, with a fixed identity and date, into the eval Coop's own
+`job-sources/` beside `RYKER_EVAL_SOCKET` (`Ryker.Evals.WorldSource`), and Work sees that
+repository as configured. Nothing is fetched and no GitHub credential exists; a job may name only
+a staged `ryker-eval/` source. Only subject turns receive the scenario controller tools; judges
+receive none. This does not disable provider-native tools or internet access. The captured files
+also reach the model as checked immutable input artifacts, labelled with their provenance.
 No production settings are inherited. The evaluation database must be empty. Each observation runs
 against its own database, copied from the migrated campaign database its shard creates and always
 drops, so no observation sees another's custody and a failed one never stops the rest of the plan.

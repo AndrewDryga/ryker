@@ -2,7 +2,7 @@ defmodule Ryker.Evals.JobTest do
   use ExUnit.Case, async: false
 
   alias Ryker.CoopFleet.JobSpec
-  alias Ryker.Evals.Job
+  alias Ryker.Evals.{Job, WorldSource}
 
   setup do
     for {name, value} <- %{
@@ -66,6 +66,32 @@ defmodule Ryker.Evals.JobTest do
     end
 
     assert Job.bind(%{template | digest: String.duplicate("a", 64)}, "eval:ref") ==
+             {:error, :invalid_model_eval_job}
+  end
+
+  # rivals-engineering-task-offer could never pass while eval Work had no repository: Work
+  # rightly asked for one instead of offering the task. A world job may now read the scenario's
+  # own staged checkout, and nothing else.
+  test "a world job reads only a staged scenario checkout, and read-only" do
+    {:ok, world} = Job.new(:world, "codex:fixture/high@eval")
+    {:ok, learning} = Job.new(:learning, "codex:fixture/high@eval")
+
+    source =
+      WorldSource.source(
+        "tenant-rivals-scraper",
+        String.duplicate("1", 40),
+        String.duplicate("2", 40),
+        ~U[2026-08-21 02:21:46Z]
+      )
+
+    assert {:ok, sourced} = Job.with_source(world, source)
+    assert {:ok, job, _digest} = Job.bind(sourced, "eval:rivals")
+    assert job["source"] == source
+    assert job["repository_read_only"]
+
+    assert Job.with_source(learning, source) == {:error, :invalid_model_eval_job}
+
+    assert Job.with_source(world, %{source | "github_repository" => "AndrewDryga/ryker"}) ==
              {:error, :invalid_model_eval_job}
   end
 

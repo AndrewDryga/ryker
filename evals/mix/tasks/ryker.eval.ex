@@ -53,6 +53,7 @@ defmodule Mix.Tasks.Ryker.Eval do
     WorldJudgeCase,
     WorldReport,
     WorldRunner,
+    WorldSource,
     WorldSuite,
     WorldTools
   }
@@ -399,7 +400,8 @@ defmodule Mix.Tasks.Ryker.Eval do
   end
 
   defp run_world_case(scenario, runtime, policy, judge_policy, eval_client, observation) do
-    with {:ok, cassette} <- WorldCassette.start_link(scenario),
+    with {:ok, policy, repository_ref} <- world_source(scenario, policy, eval_client),
+         {:ok, cassette} <- WorldCassette.start_link(scenario),
          {:ok, gateway} <- start_world_gateway(runtime, scenario, cassette) do
       try do
         eval_work = %{api: Client, client: %{eval_client | job: policy}}
@@ -414,6 +416,7 @@ defmodule Mix.Tasks.Ryker.Eval do
           judge: world_judge(eval_client, judge_policy),
           policy: policy.name,
           policy_digest: policy.digest,
+          repository_ref: repository_ref,
           source_and_action_tools: gateway.source_and_action_tools,
           state_tools_endpoint: runtime.state_tools_endpoint,
           state_tools_secret: runtime.state_tools_secret,
@@ -425,6 +428,31 @@ defmodule Mix.Tasks.Ryker.Eval do
         Supervisor.stop(gateway.supervisor)
         GenServer.stop(cassette)
       end
+    end
+  end
+
+  # A scenario's captured repository is its Work session's read-only checkout, staged in the
+  # eval Coop's own state beside its socket (`Ryker.Evals.WorldSource`). Without it Work has no
+  # configured repository, and a scenario about an engineering task can only be asked to connect
+  # one (rivals-engineering-task-offer, 2026-09-30).
+  defp world_source(scenario, policy, eval_client) do
+    case WorldCase.fixture_context(scenario) do
+      {:ok, []} ->
+        {:ok, policy, nil}
+
+      {:ok, [capture]} ->
+        {:ok, at, 0} = DateTime.from_iso8601(scenario.clock["start"])
+
+        with {:ok, source} <-
+               WorldSource.stage(capture, Path.dirname(eval_client.socket), at),
+             {:ok, sourced} <- Job.with_source(policy, source),
+             do: {:ok, sourced, capture["repository"]}
+
+      {:ok, _several} ->
+        {:error, :world_scenario_has_several_repositories}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

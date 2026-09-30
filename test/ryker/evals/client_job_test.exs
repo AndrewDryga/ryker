@@ -3,11 +3,11 @@ defmodule Ryker.Evals.ClientJobTest do
 
   alias Ryker.Coop.Client
   alias Ryker.CoopFleet.JobAuthority
-  alias Ryker.Evals.Job
+  alias Ryker.Evals.{Job, WorldSource}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Learning.FleetSession
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.{Custody, RepositorySource, Session}
 
   setup do
     {:ok, job} = Job.new(:world, "codex:fixture/high@eval")
@@ -78,6 +78,62 @@ defmodule Ryker.Evals.ClientJobTest do
     assert Repo.get!(Session, session.id).worker_job_document == nil
   end
 
+  test "a world session may name only the repository its job's staged checkout holds", %{
+    client: client,
+    job: job
+  } do
+    source =
+      WorldSource.source(
+        "tenant-rivals-scraper",
+        String.duplicate("1", 40),
+        String.duplicate("2", 40),
+        ~U[2026-08-21 02:21:46Z]
+      )
+
+    {:ok, sourced} = Job.with_source(job, source)
+    client = %{client | job: sourced}
+
+    session = work_session(sourced, "tenant-rivals-scraper")
+    key = Custody.Sessions.create_operation_key(session)
+    ref = Session.coop_task_ref(session)
+    default = RepositorySource.default()
+    assert :ok = Client.prepare_create_session(client, key, sourced.name, ref, default)
+    pinned = Repo.get!(Session, session.id)
+    assert pinned.worker_job_document["source"] == source
+    assert {:ok, ^pinned} = JobAuthority.validate(pinned)
+
+    other = work_session(sourced, "another-repository")
+
+    assert {:error, :model_eval_session_authority_mismatch} =
+             Client.prepare_create_session(
+               client,
+               Custody.Sessions.create_operation_key(other),
+               sourced.name,
+               Session.coop_task_ref(other),
+               default
+             )
+
+    unsourced = work_session(job, "tenant-rivals-scraper")
+
+    assert {:error, :model_eval_session_authority_mismatch} =
+             Client.prepare_create_session(
+               %{client | job: job},
+               Custody.Sessions.create_operation_key(unsourced),
+               job.name,
+               Session.coop_task_ref(unsourced),
+               nil
+             )
+
+    assert {:error, {:invalid_coop_request, :repository_source}} =
+             Client.prepare_create_session(
+               client,
+               key,
+               sourced.name,
+               ref,
+               %{"kind" => "branch", "name" => "feature"}
+             )
+  end
+
   test "learning uses the real preparation callback with no scratch checkout", %{client: client} do
     {:ok, job} = Job.new(:learning, "codex:fixture/high@eval")
     inputs = LearningFixtures.inputs!()
@@ -106,7 +162,7 @@ defmodule Ryker.Evals.ClientJobTest do
     assert {:ok, ^pinned} = JobAuthority.validate(pinned)
   end
 
-  defp work_session(job) do
+  defp work_session(job, repository_ref \\ nil) do
     id = Ecto.UUID.generate()
 
     {:ok, _} =
@@ -120,7 +176,7 @@ defmodule Ryker.Evals.ClientJobTest do
         })
       )
 
-    {:ok, session} = Custody.pin_episode(id, job.name, job.digest, nil, nil)
+    {:ok, session} = Custody.pin_episode(id, job.name, job.digest, nil, repository_ref)
     session
   end
 end

@@ -1431,6 +1431,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                id_generator: fn -> "world-task-feedback-replaces" end,
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
+               repository_ref: "tenant-rivals-scraper",
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
                state_tools_secret: "world-eval-state-tools-secret",
                worker_ref: "world-eval-worker:task-feedback"
@@ -1458,10 +1459,13 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
     expected = Map.new(capture["files"], &{Path.basename(&1["path"]), {&1["data"], &1["sha256"]}})
 
+    # The scenario's repository is Work's configured repository, as the model-world harness
+    # stages it (`Ryker.Evals.WorldSource`): without it Work could only ask to connect one.
     for submission <- state.submissions do
       assert Map.new(submission.artifacts, &{&1["name"], {&1["data"], &1["sha256"]}}) == expected
       assert submission.prompt =~ "captured_source_excerpts"
       assert submission.prompt =~ "captured_revision"
+      assert Jason.decode!(submission.prompt)["work"]["repository_ref"] == "tenant-rivals-scraper"
     end
   end
 

@@ -195,7 +195,11 @@ defmodule Ryker.Evals.WorldDriver do
              decision,
              "world-admission:#{scenario.id}:#{index}",
              lease_ref: lease_ref,
-             work_policy: %{digest: settings.policy_digest, name: settings.policy}
+             work_policy: %{
+               digest: settings.policy_digest,
+               name: settings.policy,
+               repository_ref: settings.repository_ref
+             }
            ),
          :ok <- ensure_world_wait_resumed(waiting_event, result.episode, input) do
       {:ok, %{episode: result.episode, routing: routing_evidence(decision)}}
