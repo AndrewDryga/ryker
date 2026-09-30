@@ -90,6 +90,29 @@ defmodule Ryker.GitHub.InputTest do
     refute :react in IngressInput.allowed_actions(third)
   end
 
+  # Andrew, 2026-09-30, of emisar#87's timeline, where his one line comment arrived as two
+  # messages, "Review of PR #87: Left a review with comments on the change." and the comment:
+  # "why this is needed? if we process the comment itself anyways". GitHub submits a review
+  # around every line comment; one without words (PR #2's, harvested: body null, state
+  # commented) says nothing its comments do not. An approval or a request for changes says
+  # something by its state, words or not.
+  test "a review without words around its line comments is not a message of its own" do
+    wordless = put_in(review_payload(), ["review", "body"], nil)
+
+    assert {:error, {:github_input_ignored, :wordless_review}} =
+             normalize("pull_request_review", wordless)
+
+    assert {:error, {:github_input_ignored, :wordless_review}} =
+             normalize("pull_request_review", put_in(wordless, ["review", "body"], " \n"))
+
+    for state <- ~w(approved changes_requested) do
+      assert {:ok, _input} =
+               normalize("pull_request_review", put_in(wordless, ["review", "state"], state))
+    end
+
+    assert {:ok, _input} = normalize("pull_request_review", review_payload())
+  end
+
   test "review bodies and inline review threads preserve their distinct GitHub identities" do
     assert {:ok, review} = normalize("pull_request_review", review_payload())
 
