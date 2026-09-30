@@ -1,0 +1,149 @@
+{
+  "source": "Exact retained Slack messages Andrew wrote on 2026-09-30 as a People learning test case, read-only harvest from the live install, with the live learning answer to all three (recorded_result) for the offline harness test. The evaluation never replays that answer to a model.",
+  "database": "ryker",
+  "snapshot_at": "2026-09-30 12:40:00 UTC",
+  "inputs": [
+    {
+      "id": "8394d117-c752-406c-8ffc-35d4cd668876",
+      "content": {
+        "attachments": [],
+        "blocks": [
+          {
+            "block_id": "raYxB",
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "text": "I have a birthday on may the forth be with you ",
+                    "type": "text"
+                  },
+                  {
+                    "name": "smile",
+                    "type": "emoji",
+                    "unicode": "1f604"
+                  }
+                ],
+                "type": "rich_text_section"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": null,
+        "text": "I have a birthday on may the forth be with you :smile:"
+      },
+      "revision": 7163052020987836,
+      "actor_ref": "U0BHTNFCW6S",
+      "event_ref": "Ev0C6F8BR7JL",
+      "actor_kind": "user",
+      "dedupe_key": "ingress-event:0e2fe0b6d759c95ee2832ebe140cb42c359376e23f9e54afe8bb39239601f68b",
+      "event_kind": "message",
+      "source_ref": "T0BHXKZJVDX",
+      "occurred_at": "2026-09-30T10:10:05.246959",
+      "source_kind": "slack",
+      "execution_mode": "live",
+      "repository_ref": "andrewdryga-emisar",
+      "native_input_id": "slack-message:f0227dfa668c4f1c2fde151e2659e38640e84fb47b2738be37bafb15f10b57b4",
+      "source_item_ref": "1790763005.246959",
+      "event_fingerprint": "fe93ae7501d3f2f279e943871bb80428ffc88ec9358929bafd27384f15d8f410",
+      "destination_transport": "slack",
+      "destination_thread_ref": "1790763005.246959",
+      "destination_conversation_ref": "slack:T0BHXKZJVDX:C0BLU1GACKC"
+    },
+    {
+      "id": "0d557181-5ee9-4d74-a027-c524cc607c0f",
+      "content": {
+        "attachments": [],
+        "blocks": [
+          {
+            "block_id": "a8tVZ",
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "text": "I really love TV shows, watched 100s of them favorite is altered carbon",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_section"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": null,
+        "text": "I really love TV shows, watched 100s of them favorite is altered carbon"
+      },
+      "revision": 7163052287987316,
+      "actor_ref": "U0BHTNFCW6S",
+      "event_ref": "Ev0C5LNXAHLJ",
+      "actor_kind": "user",
+      "dedupe_key": "ingress-event:61ba75792a17d71f8c846aedde0506f359470e09c9332af786b2a5ff132609e8",
+      "event_kind": "message",
+      "source_ref": "T0BHXKZJVDX",
+      "occurred_at": "2026-09-30T10:11:11.996829",
+      "source_kind": "slack",
+      "execution_mode": "live",
+      "repository_ref": "andrewdryga-emisar",
+      "native_input_id": "slack-message:659d4daa64f5d44566845de5c397b66d7516ed2436e7bbbff9bb886473022bcc",
+      "source_item_ref": "1790763071.996829",
+      "event_fingerprint": "677ff890d0c2a74b0309edc5a6499b591006b9a2d71f45f5042076850d6bf86f",
+      "destination_transport": "slack",
+      "destination_thread_ref": "1790763071.996829",
+      "destination_conversation_ref": "slack:T0BHXKZJVDX:C0BLU1GACKC"
+    },
+    {
+      "id": "03a877cb-01ca-4d40-8f09-9370095047da",
+      "content": {
+        "attachments": [],
+        "blocks": [
+          {
+            "block_id": "Ghh4X",
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "text": "I hate reading very long text so prefer more short texts in simple english, that are easy to understand and give enough details to be build understanding without having to read an essay",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_section"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": null,
+        "text": "I hate reading very long text so prefer more short texts in simple english, that are easy to understand and give enough details to be build understanding without having to read an essay"
+      },
+      "revision": 7163052473795876,
+      "actor_ref": "U0BHTNFCW6S",
+      "event_ref": "Ev0C5QJ24SUU",
+      "actor_kind": "user",
+      "dedupe_key": "ingress-event:9dcfeaec4be2840978bd1bbe3d2fcea40deef702aaf4f9ce8801d138eda9b03e",
+      "event_kind": "message",
+      "source_ref": "T0BHXKZJVDX",
+      "occurred_at": "2026-09-30T10:11:58.448969",
+      "source_kind": "slack",
+      "execution_mode": "live",
+      "repository_ref": "andrewdryga-emisar",
+      "native_input_id": "slack-message:5db762c429532c415c6feaf02de46449ad38f5c2484599ca5cf6067b5189e353",
+      "source_item_ref": "1790763118.448969",
+      "event_fingerprint": "11b458abf20e24549ff40af71b0fb1642b0de3929c0256dc19a3d8807fcea6b1",
+      "destination_transport": "slack",
+      "destination_thread_ref": "1790763118.448969",
+      "destination_conversation_ref": "slack:T0BHXKZJVDX:C0BLU1GACKC"
+    }
+  ],
+  "recorded_result": {
+    "run_id": "f9dc9d90-c808-4397-a8e7-755409f718b5",
+    "result": "{\"updates\":[],\"reason\":\"The messages establish personal facts and communication preferences, with no separate subject updates needed.\",\"people\":[{\"source_input_id\":\"8394d117-c752-406c-8ffc-35d4cd668876\",\"key\":\"birthday\",\"fact\":\"Birthday is 4 May.\"},{\"source_input_id\":\"0d557181-5ee9-4d74-a027-c524cc607c0f\",\"key\":\"favourite-tv-show\",\"fact\":\"Favourite TV show is Altered Carbon.\"},{\"source_input_id\":\"0d557181-5ee9-4d74-a027-c524cc607c0f\",\"key\":\"tv-shows\",\"fact\":\"Loves TV shows and has watched hundreds of them.\"},{\"source_input_id\":\"03a877cb-01ca-4d40-8f09-9370095047da\",\"key\":\"communication-preference\",\"fact\":\"Prefers short texts in simple English with enough detail to understand, without long essays.\"}]}",
+    "result_sha256": "f89c3c0bd046574366a74be60442a07080400284dbee77ee652d0443bdfa904f"
+  }
+}

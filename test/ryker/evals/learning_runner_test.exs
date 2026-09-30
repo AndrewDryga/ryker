@@ -125,7 +125,9 @@ defmodule Ryker.Evals.LearningRunnerTest do
              (state[:eval_no_change_when_offered] && old != nil),
            do:
              Jason.encode!(%{"updates" => [], "reason" => "Constructed host no-change output."}),
-           else: state[:eval_body] || body
+           else:
+             get_in(state, [:eval_bodies, input["source_input_id"]]) || state[:eval_body] ||
+               body
 
       Agent.update(client, &%{&1 | candidates: [body], turn: nil})
 
@@ -726,6 +728,50 @@ defmodule Ryker.Evals.LearningRunnerTest do
     assert observed.batch["status"] == "applied"
     assert length(report.topics) == 1
     assert hd(report.runs)["result"] == failure["result"]
+  end
+
+  # Andrew's People test case, 2026-09-30: a birthday, a favourite show and how he likes to be
+  # written to. Live learning kept a fact per message and made no topic. Each step here gets that
+  # answer's share for its own message, which proves the harness reads what People kept.
+  test "what an author says about themselves is kept step by step, and no topic is made", %{
+    options: options
+  } do
+    sequence = LearningRunner.recorded_sequence("people")
+
+    recorded =
+      hd(sequence).fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("recorded_result")
+
+    assert Ryker.CanonicalJSON.digest(recorded["result"]) == recorded["result_sha256"]
+    live = Jason.decode!(recorded["result"])
+
+    bodies =
+      Map.new(sequence, fn step ->
+        id = step.input["id"]
+
+        {id,
+         Jason.encode!(%{
+           live
+           | "people" => Enum.filter(live["people"], &(&1["source_input_id"] == id))
+         })}
+      end)
+
+    Agent.update(options.client, &Map.put(&1, :eval_bodies, bodies))
+    assert {:ok, report} = LearningRunner.run(sequence, options)
+
+    assert report.passed
+    assert report.topics == []
+    assert Enum.map(report.steps, & &1.people.missing) == [[], [], []]
+    assert length(List.last(report.steps).people.facts) == 4
+  end
+
+  test "a step whose author's fact was not kept fails and names the fact", %{options: options} do
+    [birthday | _] = LearningRunner.recorded_sequence("people")
+    nothing = %{"updates" => [], "reason" => "Constructed host output.", "people" => []}
+    Agent.update(options.client, &Map.put(&1, :eval_body, Jason.encode!(nothing)))
+
+    assert {:ok, report} = LearningRunner.run([birthday], options)
+    refute report.passed
+    assert [%{check: true, people: %{facts: [], missing: ["birthday on 4 May"]}}] = report.steps
   end
 
   test "the command rejects a one-off request recall probe before any start" do

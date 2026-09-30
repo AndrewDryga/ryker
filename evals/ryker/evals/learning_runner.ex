@@ -21,6 +21,8 @@ defmodule Ryker.Evals.LearningRunner do
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.People
+  alias Ryker.People.PersonFact
 
   alias Ryker.Work.Session
 
@@ -70,6 +72,23 @@ defmodule Ryker.Evals.LearningRunner do
 
   def recorded_sequence("one-off-request"),
     do: sequence("retained-one-off-acceptance-request.json", [:no_change])
+
+  # Andrew wrote these in #test on 2026-09-30 as a People test case: his birthday, his favourite
+  # show and how he likes to be written to. Each is about its author, so each is a fact about him
+  # and no team topic, and a later step keeps what an earlier one learned.
+  def recorded_sequence("people") do
+    birthday = {"birthday on 4 May", ~r/\b(4(th)?\s+May|May\s+(the\s+)?(4(th)?|fourth))\b/i}
+    show = {"favourite show Altered Carbon", ~r/Altered Carbon/i}
+
+    texts =
+      {"short texts in simple English",
+       ~r/(?=.*\b(short|brief|concise)\b)(?=.*\b(simple|plain)\b)/is}
+
+    "retained-people-about-themselves.json"
+    |> sequence([:no_change, :no_change, :no_change])
+    |> Enum.zip([[birthday], [birthday, show], [birthday, show, texts]])
+    |> Enum.map(fn {step, people} -> Map.put(step, :people, people) end)
+  end
 
   defp sequence(file, expectations) do
     path = Path.join("testdata/learning", file)
@@ -140,7 +159,8 @@ defmodule Ryker.Evals.LearningRunner do
       sessions: documents(Session),
       work_turns: documents(Ryker.Work.Turn),
       topics: documents(ConversationKnowledge),
-      revisions: documents(KnowledgeRevision)
+      revisions: documents(KnowledgeRevision),
+      people: documents(PersonFact)
     }
 
   def preflight(options) do
@@ -219,11 +239,18 @@ defmodule Ryker.Evals.LearningRunner do
              :matched_topic
            ] and
            is_binary(step[:fixture]) and is_binary(step[:fixture_sha256]) and harvested?(step) and
-           concurrent_fixture_valid?(step)
+           concurrent_fixture_valid?(step) and valid_people?(step[:people])
        end), do: :ok, else: {:error, :learning_eval_invalid_sequence}
   end
 
   defp valid_sequence(_), do: {:error, :learning_eval_invalid_sequence}
+
+  defp valid_people?(nil), do: true
+
+  defp valid_people?(expected) when is_list(expected),
+    do: Enum.all?(expected, &match?({label, %Regex{}} when is_binary(label), &1))
+
+  defp valid_people?(_expected), do: false
 
   defp harvested?(step) do
     with {:ok, bytes} <- File.read(step.fixture),
@@ -261,6 +288,7 @@ defmodule Ryker.Evals.LearningRunner do
     cleanup = cleanup(settings, 20)
     check = check(step.expectation, before, after_heads)
     matching_check = matching_check(controlled_race, result)
+    people = people_check(step, entry)
 
     report = %{
       input_id: entry.id,
@@ -278,6 +306,7 @@ defmodule Ryker.Evals.LearningRunner do
       check: check,
       controlled_race: controlled_race,
       matching_check: matching_check,
+      people: people,
       semantic_review: semantic_review(step.expectation),
       elapsed_ms: System.monotonic_time(:millisecond) - started,
       provider_receipts: provider_receipts,
@@ -285,7 +314,7 @@ defmodule Ryker.Evals.LearningRunner do
       cleanup: cleanup,
       passed:
         result["status"] in ["applied", "no_change"] and check and matching_check and
-          cleanup == :discarded
+          (is_nil(people) or people.missing == []) and cleanup == :discarded
     }
 
     if report.passed,
@@ -335,6 +364,25 @@ defmodule Ryker.Evals.LearningRunner do
   end
 
   defp prepare_concurrent_topic(_step, _entry, _settings), do: nil
+
+  # What Ryker keeps about the step's author by now (`Ryker.People`), and which of the facts the
+  # step expects none of them states.
+  defp people_check(%{people: expected}, entry) do
+    facts =
+      entry
+      |> People.person_ref()
+      |> People.facts()
+      |> Enum.map(&%{key: &1.key, fact: &1.fact})
+
+    missing =
+      for {label, pattern} <- expected,
+          not Enum.any?(facts, &Regex.match?(pattern, &1.fact)),
+          do: label
+
+    %{facts: facts, missing: missing}
+  end
+
+  defp people_check(_step, _entry), do: nil
 
   defp matching_check(nil, _batch), do: true
 

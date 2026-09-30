@@ -8,7 +8,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
         --results /absolute/new-report.json --scenario haproxy
 
   Scenarios: haproxy (default), auth-memory-recurrence, draft-keep, unoffered-draft-match,
-  starfall-correction, chatter, one-off-request.
+  starfall-correction, chatter, one-off-request, people.
   Each needs its own empty database.
 
   Create and migrate the explicitly disposable database first. This task starts
@@ -59,7 +59,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
              keys -- supplied == [] and length(Enum.uniq(supplied)) == length(supplied),
            do:
              Mix.raise(
-               "provide each required flag once: --database --socket --target --results; optional --scenario haproxy|auth-memory-recurrence|draft-keep|unoffered-draft-match|starfall-correction|chatter|one-off-request --probe"
+               "provide each required flag once: --database --socket --target --results; optional --scenario haproxy|auth-memory-recurrence|draft-keep|unoffered-draft-match|starfall-correction|chatter|one-off-request|people --probe"
              )
 
     options
@@ -73,11 +73,12 @@ defmodule Mix.Tasks.Ryker.LearningEval do
              "unoffered-draft-match",
              "starfall-correction",
              "chatter",
-             "one-off-request"
+             "one-off-request",
+             "people"
            ],
            do: Mix.raise("unknown learning scenario")
 
-    if scenario in ["chatter", "one-off-request"] and options[:probe],
+    if scenario in ["chatter", "one-off-request", "people"] and options[:probe],
       do: Mix.raise("#{scenario} has no learned topic to probe")
 
     if scenario == "unoffered-draft-match" and options[:probe],
