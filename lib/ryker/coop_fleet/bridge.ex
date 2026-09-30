@@ -106,6 +106,21 @@ defmodule Ryker.CoopFleet.Bridge do
     end
   end
 
+  @doc """
+  Places `session` as `execute/5` would, without enqueuing anything. A session bound to a
+  worker session goes back to the worker holding it or nowhere.
+  """
+  @spec place(Session.t(), keyword()) :: {:ok, Placement.t()} | {:error, term()}
+  def place(%Session{} = session, options) do
+    with {:ok, settings} <- settings(options) do
+      ControlPlane.place_session(
+        session.id,
+        requirements(session, settings),
+        settings.lease_seconds
+      )
+    end
+  end
+
   defp requirements(session, settings),
     do: %{
       capability_names: settings.capability_names,
