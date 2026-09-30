@@ -30,6 +30,7 @@ defmodule Ryker.Improvement.Evidence do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.RoutingExamples.Example
@@ -169,11 +170,17 @@ defmodule Ryker.Improvement.Evidence do
 
   # The person's messages of the request, every revision, oldest first: an
   # episode's are those routing joined to it; a message routing answered by
-  # itself is its own.
+  # itself is its own. A confirmed task runs in an episode of its own, whose
+  # inputs are the go-ahead and what GitHub sent: the person asked for it in
+  # the conversation that offered it, so that conversation's messages are the
+  # request's too. Without them a task's rating was refused as automated (the
+  # PR #2 task, 2026-09-29), and no task could become a case.
   defp entries({:episode, id}) do
+    episode_ids = [id | offering_episodes(id)]
+
     Repo.all(
       from(entry in Entry,
-        where: entry.episode_id == ^id,
+        where: entry.episode_id in ^episode_ids,
         order_by: [asc: entry.occurred_at, asc: entry.revision, asc: entry.inserted_at],
         limit: @message_limit
       )
@@ -182,6 +189,15 @@ defmodule Ryker.Improvement.Evidence do
 
   defp entries({:input, id}) do
     Repo.all(from(entry in Entry, where: entry.id == ^id))
+  end
+
+  defp offering_episodes(task_episode_id) do
+    Repo.all(
+      from(record in Record,
+        where: record.kind == "task_offer" and record.confirmed_episode_id == ^task_episode_id,
+        select: record.episode_id
+      )
+    )
   end
 
   defp request_document(candidate, episode, entries) do

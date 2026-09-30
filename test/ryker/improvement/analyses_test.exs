@@ -10,9 +10,16 @@ defmodule Ryker.Improvement.AnalysesTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Improvement
   alias Ryker.Improvement.{Analyses, AnalysisRun, Candidate, Dispatcher, Prompt}
+  alias Ryker.Records.Record
+  alias Ryker.Repo.Migrations.AnalyzeTasksFromTheirConversation, as: RequeueMigration
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.TestSupport.FakeCoopAPI
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.{Custody, Session, Turn}
+
+  # The migration that asks refused tasks again is tested by the statement it runs.
+  Code.require_file(
+    "priv/repo/migrations/20260930110000_analyze_tasks_from_their_conversation.exs"
+  )
 
   @workspace "TIMPROVEANALYSES"
   @now ~U[2026-09-27 12:00:00.000000Z]
@@ -433,6 +440,82 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert FakeCoopAPI.state(coop).create_keys == []
   end
 
+  # Live, 2026-09-29: Andrew rated the task behind PR #2, and it was never analyzed:
+  # "improvement_evidence_automated". A confirmed task runs in an episode of its own, whose
+  # inputs are the host's go-ahead and what GitHub sent; the person asked for it in the
+  # conversation that offered it. No rating of any task could ever become a case.
+  test "a task is analyzed from the conversation where the person asked for it" do
+    asked =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: "CTASKS",
+        actor: "UBOB",
+        text: "Add a workflow smoke test section to the README, please.",
+        ts: "1790101500.000100"
+      )
+
+    conversation =
+      Answers.work_reply!(
+        asked,
+        "I can do that as a task in AndrewDryga/test.",
+        "1790101500.000200",
+        DateTime.add(@now, 60, :second)
+      )
+
+    task = automated_request!("1790101600.000100")
+    {:episode, task_episode_id} = task
+    offered!(conversation.episode.id, task_episode_id)
+    coop = coop!([Jason.encode!(@diagnosis)])
+
+    drain(settings(coop))
+
+    candidate = Improvement.for_request(task)
+    assert {candidate.analysis, candidate.error_code} == {:done, nil}
+    assert [submission] = FakeCoopAPI.state(coop).submissions
+    assert submission["prompt"] =~ "Add a workflow smoke test section to the README"
+  end
+
+  # The PR #2 task's rating was refused this way before the fix, and a refused analysis never
+  # starts again by itself: the migration asks such tasks again, and only them.
+  test "a task refused before its conversation was read is asked again, an alert is not" do
+    asked =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: "CTASKS",
+        actor: "UBOB",
+        text: "Add a workflow smoke test section to the README, please.",
+        ts: "1790101700.000100"
+      )
+
+    conversation =
+      Answers.work_reply!(
+        asked,
+        "I can do that.",
+        "1790101700.000200",
+        DateTime.add(@now, 60, :second)
+      )
+
+    task = automated_request!("1790101800.000100")
+    {:episode, task_episode_id} = task
+    offered!(conversation.episode.id, task_episode_id)
+    alert = automated_request!("1790101900.000100")
+
+    Repo.update_all(from(candidate in Candidate),
+      set: [analysis: :failed, error_code: "improvement_evidence_automated"]
+    )
+
+    Repo.query!(RequeueMigration.requeued_tasks_sql())
+    coop = coop!([Jason.encode!(@diagnosis)])
+
+    drain(settings(coop))
+
+    assert {Improvement.for_request(task).analysis, Improvement.for_request(task).error_code} ==
+             {:done, nil}
+
+    assert {Improvement.for_request(alert).analysis, Improvement.for_request(alert).error_code} ==
+             {:failed, "improvement_evidence_automated"}
+  end
+
   # "A person forgetting wins": a message deleted while its analysis is out
   # at Coop erases the prompt, and the run stops without ever sending it.
   test "an analysis whose prompt a person forgot while it was out stops without sending it" do
@@ -570,6 +653,28 @@ defmodule Ryker.Improvement.AnalysesTest do
         result -> {:cont, results ++ [result]}
       end
     end)
+  end
+
+  # A task offered in `conversation_id`'s reply and confirmed into `task_episode_id`.
+  defp offered!(conversation_id, task_episode_id) do
+    turn = Repo.one!(from(turn in Turn, where: turn.episode_id == ^conversation_id))
+    payload = %{"kind" => "engineering", "title" => "Workflow smoke test", "repository" => "test"}
+
+    Repo.insert!(%Record{
+      id: Ecto.UUID.generate(),
+      episode_id: conversation_id,
+      turn_id: turn.id,
+      ref: "record:task_offer:#{Ecto.UUID.generate()}",
+      operation_id: "offer-task",
+      kind: "task_offer",
+      status: :confirmed,
+      payload: payload,
+      payload_fingerprint: String.duplicate("a", 64),
+      confirmed_episode_id: task_episode_id,
+      confirmation_ref: "interaction:confirm-task",
+      confirmed_by_actor_ref: "slack:user:UBOB",
+      confirmed_at: @now
+    })
   end
 
   defp unhappy_request!(ts) do
