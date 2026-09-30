@@ -32,6 +32,9 @@
 #             are spent is blocked and waits on the Failures page; a crash-
 #             looping turn ends there too, which is what readiness alone would
 #             miss between its retries.
+#   voice     Do the whisper servers compose.env names answer? When they stop,
+#             Ryker reads voice messages with its own small model, which wrote
+#             Andrew's Ukrainian as Russian (2026-09-28); nothing else says so.
 #
 # It does not read the database or integration credentials: an unreachable
 # control plane is itself the alarm. It speaks through a macOS notification
@@ -134,6 +137,20 @@ containers() {
   done
 }
 
+# voice prints what is wrong with the whisper servers compose.env names, one
+# reason per line, or nothing. Ryker's container reaches them through
+# host.docker.internal, which is this host.
+voice() {
+  local name url
+  for name in RYKER_WHISPER_URL RYKER_WHISPER_DETECT_URL; do
+    url=$(env_value "$name")
+    [[ -z $url ]] && continue
+    url=${url/host.docker.internal/127.0.0.1}
+    /usr/bin/curl -s -o /dev/null --max-time 5 "$url/" 2>/dev/null ||
+      echo "whisper at $url is not answering, so voice messages are read by Ryker's own small model (scripts/voice-service.sh status)"
+  done
+}
+
 # blocked_count BASE prints how many requests wait for an operator — every
 # `ryker_*_total{status="blocked"}` gauge summed — or nothing when /metrics
 # cannot be read. Retention's own blocked gauge is left out on purpose: a
@@ -180,6 +197,17 @@ if [[ -n $problems ]]; then
     state="$state; $problems"
   fi
 fi
+# Voice read by the small model is worse, not stopped, and says so.
+title="Ryker is not working"
+voice_problems=$(voice | paste -sd ';' - | sed 's/;/; /g')
+if [[ -n $voice_problems ]]; then
+  if [[ $state == "ready" ]]; then
+    state=$voice_problems
+    title="Ryker reads voice messages with its small model"
+  else
+    state="$state; $voice_problems"
+  fi
+fi
 
 strikes=$(cat "$strike_file" 2>/dev/null || echo 0)
 if [[ $state == "ready" ]]; then
@@ -197,7 +225,7 @@ else
     last=$(cat "$alerted_file" 2>/dev/null || echo 0)
     if [[ $((now - last)) -ge $((renotify_minutes * 60)) ]]; then
       echo "$now" >"$alerted_file"
-      alarm "Ryker is not working" "$state"
+      alarm "$title" "$state"
     fi
   fi
 fi
