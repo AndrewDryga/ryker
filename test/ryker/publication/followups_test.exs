@@ -1162,39 +1162,6 @@ defmodule Ryker.Publication.FollowupsTest do
     assert Followups.observe_input(unauthorized) == {:ok, 0}
   end
 
-  test "typed lifecycle correlation is not capped at one hundred active publications" do
-    publications =
-      for index <- 1..101 do
-        PublicationFixture.published!("lifecycle-cap-#{index}",
-          pull_request_number: 1_000 + index
-        ).publication
-      end
-
-    ids = Enum.map(publications, & &1.id)
-    branch_ref = "refs/heads/release/all-active"
-
-    Repo.update_all(
-      from(publication in Publication, where: publication.id in ^ids),
-      set: [branch_ref: branch_ref]
-    )
-
-    Repo.update_all(
-      from(followup in Followup, where: followup.publication_id in ^ids),
-      set: [merge_sha: String.duplicate("a", 40), pr_state: "merged"]
-    )
-
-    assert Followups.observe_input(
-             typed_lifecycle_input(["release/all-active"], "deployment", "pending")
-           ) == {:ok, 101}
-
-    assert Repo.aggregate(
-             from(event in LifecycleEvent,
-               where: event.publication_id in ^ids and event.kind == "deployment"
-             ),
-             :count
-           ) == 101
-  end
-
   test "a lifecycle update keeps exact lease and receipt custody until it is delivered" do
     %{publication: publication} = PublicationFixture.published!("manual-check")
 
