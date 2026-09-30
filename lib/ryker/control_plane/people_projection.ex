@@ -62,7 +62,7 @@ defmodule Ryker.ControlPlane.PeopleProjection do
   end
 
   defp where("slack:" <> _rest, false), do: "Said in a channel everyone can read"
-  defp where("control_plane:" <> _rest, _private), do: "Said in Chat"
+  defp where("control-plane:" <> _rest, _private), do: "Said in Chat"
   defp where(_conversation_ref, true), do: "Used only where it was said"
   defp where(_conversation_ref, false), do: nil
 

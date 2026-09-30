@@ -752,7 +752,7 @@ defmodule Ryker.ControlPlane.Router do
   defp confirmation("person", resource_ref, "forget", options) do
     case options.projection.person.(resource_ref) do
       {:ok, person} ->
-        {:ok, "Forget what Ryker learned about #{person.name}?",
+        {:ok, "Forget what Ryker learned about #{object(person.name)}?",
          "Ryker stops using all of it and erases the words. Nothing they said before brings it back; what they say about themselves later is learned again. You can't undo this.",
          "person:forget", :danger}
 
@@ -1510,6 +1510,10 @@ defmodule Ryker.ControlPlane.Router do
       |> halt()
     end
   end
+
+  # The person using this console is "You" on every page, and "you" mid-sentence.
+  defp object("You"), do: "you"
+  defp object(name), do: name
 
   defp action_path(kind, resource_ref, action),
     do: "/actions/#{kind}/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}/#{action}"
