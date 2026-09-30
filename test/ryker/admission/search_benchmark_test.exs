@@ -23,7 +23,7 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
   alias Ryker.Admission.{CandidateSearch, CorrelationScope, Ranking}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, RoutingDigest, RoutingDigests}
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress.{Input, RecallText}
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
   alias Ryker.Slack.Input, as: SlackInput
@@ -70,6 +70,9 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
     assert summary["wording"].hit1 == 1.0
     assert summary["paraphrase"].hit1 == 1.0
     assert summary["language"].hit1 == 1.0
+    # A repeat alert finds the work for its rule on its host, even among rules worded alike:
+    # the rule page its title links to tells them apart (ID7, 2026-09-30).
+    assert summary["alert"].hit1 == 1.0
     assert summary["all"].hit8 >= 0.96
     assert summary["all"].mrr >= 0.95
     assert summary["new"].noise <= 0.5
@@ -77,6 +80,7 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
     assert words["identity"].hit1 == 1.0
     assert words["wording"].hit1 == 1.0
     assert words["lookalike"].hit3 == 1.0
+    assert words["alert"].hit1 == 1.0
     assert words["all"].mrr >= 0.68
     assert words["new"].noise <= 0.5
   end
@@ -88,7 +92,7 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
 
       %{
         kind: message["kind"],
-        text: message["text"],
+        text: message_text(message),
         expect: message["expect"],
         rank: rank(offered, message["expect"]),
         top: result.selected |> Enum.take(3) |> Enum.map(&{ids[&1.episode.id], &1.score}),
@@ -206,7 +210,7 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
   defp report(title, results, summary) do
     IO.puts("\nrouting search benchmark, #{title}")
 
-    for kind <- ~w(identity wording paraphrase language lookalike followup all new),
+    for kind <- ~w(identity wording paraphrase language lookalike followup alert all new),
         %{} = s <- [summary[kind]] do
       IO.puts(
         String.pad_trailing(kind, 11) <>
@@ -231,7 +235,7 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
   # RYKER_EMBEDDINGS_URL names the server; otherwise the benchmark says so.
   defp vectors!(episodes, messages) do
     texts =
-      Enum.map(episodes, &embedding_text/1) ++ Enum.map(messages, & &1["text"])
+      Enum.map(episodes, &embedding_text/1) ++ Enum.map(messages, &message_text/1)
 
     stored =
       case File.read(@vectors) do
@@ -276,6 +280,13 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
 
   defp key(text), do: Base.encode16(:crypto.hash(:sha256, text), case: :lower)
 
+  # A message is its words, or the Slack message an alert arrived as, read as admission reads
+  # it: its search text and everything it names outside it (`RoutingDigests.input_identifiers/1`).
+  defp content(%{"content" => content}), do: content
+  defp content(%{"text" => text}), do: %{"text" => text}
+
+  defp message_text(message), do: message |> content() |> RecallText.from()
+
   defp encode(vector) do
     scale = vector |> Enum.map(&abs/1) |> Enum.max() |> max(1.0e-9)
     bytes = for value <- vector, into: <<>>, do: <<round(value / scale * 127)::signed-8>>
@@ -310,17 +321,19 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
       transport: "slack"
     }
 
+    text = message_text(message)
+
     request = %{
       scope: CorrelationScope.for_destination(destination),
       transport: "slack",
       thread_ref: destination.thread_ref,
-      text: message["text"],
+      text: text,
+      identifiers: RoutingDigests.input_identifiers(content(message)),
       native_input_id: "slack-message:benchmark:#{System.unique_integer([:positive])}",
       execution_mode: :live,
       repository_ref: nil,
       occurrences: [],
-      meaning:
-        vectors && %{vector: Map.fetch!(vectors, key(message["text"])), model: vectors.model},
+      meaning: vectors && %{vector: Map.fetch!(vectors, key(text)), model: vectors.model},
       candidate_limit: @offered,
       history_cutoff: DateTime.add(@now, -30 * 24 * 60 * 60, :second),
       now: @now
@@ -402,7 +415,7 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
       SlackInput.new(%{
         actor: %{kind: :user, ref: "UBENCH#{index}"},
         channel_ref: channel,
-        content: %{"text" => text},
+        content: if(is_map(text), do: text, else: %{"text" => text}),
         event_kind: :message,
         event_ref: "Ev-benchmark-#{System.unique_integer([:positive])}",
         message_ref: if(index == 0, do: thread, else: "#{thread}#{index}"),
