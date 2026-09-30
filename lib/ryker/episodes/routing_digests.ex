@@ -336,10 +336,15 @@ defmodule Ryker.Episodes.RoutingDigests do
     tls1.2 tls1.3 github.com gitlab.com google.com slack.com grafana.com amazonaws.com
     cloudflare.com localhost.localdomain)
 
+  # Names sit near the top of what people and alerts write; scanning a pasted
+  # log's full 64 KB for them cost seven times what links and UUIDs cost, on
+  # every message a request receives.
+  @names_characters 8_192
+
   defp names(text) do
     text =
       text
-      |> String.slice(0, 65_536)
+      |> String.slice(0, @names_characters)
       |> String.replace(~r{https?://\S+}u, " ")
 
     numbered =
