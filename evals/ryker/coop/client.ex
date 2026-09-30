@@ -318,18 +318,22 @@ defmodule Ryker.Coop.Client do
   defp create_session_document(_client, _key, _selection, _task, _source),
     do: {:error, {:invalid_coop_request, :repository_source}}
 
-  # Standalone judges have no Work row. All Work/learning creates must first
-  # pin the job on their exact durable execution identity, even through Unix.
-  defp create_job(
-         _client,
-         "ryker:eval:world-judge:" <> suffix,
-         %{name: "ryker-eval-judge"} = template,
-         task
-       ) do
-    run_ref = String.replace_suffix(suffix, ":create", "")
+  # The standalone jobs, by the runner namespace their creates use.
+  @standalone_jobs %{
+    "ryker-eval-judge" => "world-judge",
+    "ryker-eval-routing" => "routing-replay"
+  }
 
-    with true <- suffix == run_ref <> ":create" and run_ref != "",
-         true <- String.starts_with?(task, "ryker-eval:world-judge:#{run_ref}:"),
+  # Standalone evaluations have no Work row: a world judge, and a routing
+  # replay (`Ryker.Evals.CoopRunner`). Each create pins its own kind's job on
+  # the task of the run its key names. All Work/learning creates must first
+  # pin the job on their exact durable execution identity, even through Unix.
+  defp create_job(_client, "ryker:eval:" <> key, %{name: name} = template, task)
+       when is_map_key(@standalone_jobs, name) do
+    namespace = Map.fetch!(@standalone_jobs, name)
+
+    with [^namespace, run_ref, "create"] when run_ref != "" <- String.split(key, ":"),
+         true <- String.starts_with?(task, "ryker-eval:#{namespace}:#{run_ref}:"),
          {:ok, job, digest} <- Job.bind(template, task) do
       {:ok, {job, digest}}
     else

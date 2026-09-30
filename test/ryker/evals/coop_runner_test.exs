@@ -401,6 +401,17 @@ defmodule Ryker.Evals.CoopRunnerTest do
 
     assert CoopRunner.run(:invalid, %{}) ==
              {:error, {:invalid_eval_runner, :cases}}
+
+    # Cases run at once only within the eval worker's reach.
+    {:ok, fake} = FakeCoopAPI.start_link([judgment(eval, true)])
+
+    for concurrency <- [0, 17, 1.5] do
+      assert CoopRunner.run([eval], Keyword.put(options(fake), :concurrency, concurrency)) ==
+               {:error, {:invalid_eval_runner, :options}}
+    end
+
+    assert {:ok, %{passed: 1}} =
+             CoopRunner.run([eval], Keyword.put(options(fake), :concurrency, 4))
   end
 
   test "a live eval refuses a repository-writable Coop policy before submitting a turn" do
