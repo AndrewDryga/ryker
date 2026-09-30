@@ -54,8 +54,12 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
 
   @workers ~w(worker-a worker-b)
 
-  @tag timeout: 900_000
-  @tag ownership_timeout: 900_000
+  # The bound catches a simulation that hangs, not one that is slow: a green
+  # run on a GitHub runner took 717 s of the fifteen minutes this had, and a
+  # slower runner on 2026-09-30 timed out on day 28 of 30 with every other
+  # suite of that run 40 to 80% slower too.
+  @tag timeout: 1_500_000
+  @tag ownership_timeout: 1_500_000
   test "thirty days of sustained use plateau under the disposable bound without losing work" do
     {:ok, api} =
       FakeAPI.start_link(
