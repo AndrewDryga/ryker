@@ -363,10 +363,14 @@ defmodule Ryker.GitHub.Input do
 
   defp actor(_event_name, _payload, _binding), do: {:error, {:invalid_github_input, :actor}}
 
+  # The first of these an item carries dates it. A check run has no updated_at or created_at,
+  # and its completed_at stays null until it finishes: one that has just started is dated by its
+  # start. Until 2026-09-30 every `check_run created` delivery was refused as invalid (141 since
+  # the 28th).
+  @occurred_at_fields ~w(updated_at submitted_at completed_at published_at created_at timestamp started_at)
+
   defp occurred_at(item) do
-    value =
-      item["updated_at"] || item["submitted_at"] || item["completed_at"] ||
-        item["published_at"] || item["created_at"] || item["timestamp"]
+    value = Enum.find_value(@occurred_at_fields, &item[&1])
 
     case DateTime.from_iso8601(value || "") do
       {:ok, datetime, 0} -> {:ok, datetime}
