@@ -24,6 +24,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Learning.LearningSources
   alias Ryker.Memories
   alias Ryker.Memories.Cases
+  alias Ryker.People
   alias Ryker.Records
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.Outcomes
@@ -865,6 +866,16 @@ defmodule Ryker.Work.SubmissionBuilder do
     |> Behaviors.model_context(operator_ref, repository)
     |> Map.put("memory", Memories.model_context(episode, repository))
     |> Map.put("continuity", Continuity.model_context(episode, repository, input_texts))
+    |> put_person_asking(operator_ref, episode.destination_conversation_ref)
+  end
+
+  # What the person asking said about themselves (`Ryker.People`), with how to
+  # use it; left out when nothing is known.
+  defp put_person_asking(context, operator_ref, conversation_ref) do
+    case People.model_context(People.about(operator_ref, conversation_ref)) do
+      nil -> context
+      person -> Map.put(context, "person_asking", person)
+    end
   end
 
   defp trusted_repository(events) do

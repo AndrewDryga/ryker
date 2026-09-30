@@ -7,6 +7,7 @@ defmodule Ryker.Admission.Context do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
+  alias Ryker.People
 
   @enforce_keys [
     :active_episode_fingerprint,
@@ -24,6 +25,7 @@ defmodule Ryker.Admission.Context do
                 source_dependencies: nil,
                 slack_addressing: nil,
                 custom_instructions: nil,
+                person_asking: nil,
                 conversation_context: nil,
                 context_manifest: nil,
                 routing_receipt: nil,
@@ -58,6 +60,7 @@ defmodule Ryker.Admission.Context do
     |> put_knowledge(context.knowledge)
     |> put_slack_addressing(context.slack_addressing)
     |> put_model_custom_instructions(context.custom_instructions)
+    |> put_model_person_asking(context.person_asking)
     |> put_repository_choices(context.repository_choices)
     |> put_repository_source_kinds(context.input_entry.repository_ref)
   end
@@ -82,6 +85,13 @@ defmodule Ryker.Admission.Context do
       do: Map.put(document, "custom_instructions", snapshot),
       else: document
   end
+
+  # What the sender said about themselves (`Ryker.People`), with how to use
+  # it; left out when nothing is known, so most prompts are as they were.
+  defp put_model_person_asking(document, nil), do: document
+
+  defp put_model_person_asking(document, facts),
+    do: Map.put(document, "person_asking", People.model_context(facts))
 
   defp put_model_conversation(document, nil, _manifest), do: document
 
@@ -176,6 +186,7 @@ defmodule Ryker.Admission.Context do
     |> put_knowledge(context.knowledge)
     |> put_slack_addressing(context.slack_addressing)
     |> put_custom_instructions(context.custom_instructions)
+    |> put_person_asking(context.person_asking)
     |> put_repository_choices(context.repository_choices)
     |> put_candidate_messages(context.candidate_messages)
   end
@@ -214,6 +225,7 @@ defmodule Ryker.Admission.Context do
                    "knowledge_omissions",
                    "slack_addressing",
                    "custom_instructions",
+                   "person_asking",
                    "repository_choices",
                    "candidate_messages"
                  ])
@@ -222,6 +234,7 @@ defmodule Ryker.Admission.Context do
                Enum.sort(fields),
          {:ok, slack_addressing} <- restore_slack_addressing(snapshot, input),
          {:ok, custom_instructions} <- restore_custom_instructions(snapshot, input),
+         {:ok, person_asking} <- restore_person_asking(snapshot),
          {:ok, repository_choices} <- restore_repository_choices(snapshot),
          {:ok, candidate_messages} <- restore_candidate_messages(snapshot),
          observations when is_list(observations) <-
@@ -251,6 +264,7 @@ defmodule Ryker.Admission.Context do
          fitted?: true,
          slack_addressing: slack_addressing,
          custom_instructions: custom_instructions,
+         person_asking: person_asking,
          conversation_context: conversation_context,
          context_manifest: context_manifest,
          routing_receipt: routing_receipt,
@@ -374,6 +388,21 @@ defmodule Ryker.Admission.Context do
 
   defp put_custom_instructions(document, snapshot),
     do: Map.put(document, "custom_instructions", snapshot)
+
+  defp put_person_asking(document, nil), do: document
+  defp put_person_asking(document, facts), do: Map.put(document, "person_asking", facts)
+
+  defp restore_person_asking(snapshot) do
+    case Map.fetch(snapshot, "person_asking") do
+      :error ->
+        {:ok, nil}
+
+      {:ok, facts} ->
+        if People.valid_facts?(facts),
+          do: {:ok, facts},
+          else: {:error, {:invalid_admission_context_snapshot, :person_asking}}
+    end
+  end
 
   defp restore_custom_instructions(snapshot, input) do
     case Map.fetch(snapshot, "custom_instructions") do

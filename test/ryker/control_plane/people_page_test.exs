@@ -1,0 +1,115 @@
+defmodule Ryker.ControlPlane.PeoplePageTest do
+  # Andrew, 2026-09-30: Ryker learns about people "without approvals". What it
+  # learned has to be seen and forgotten somewhere: Memory › People lists
+  # everyone, each person's page what Ryker knows and where they said it, and
+  # forgetting them asks first and takes effect at once.
+  use Ryker.DataCase, async: false
+  import Phoenix.LiveViewTest
+
+  alias Ryker.ControlPlane.{Actions, Pages, PeoplePage, PeopleProjection, Projection, Router}
+  alias Ryker.People
+  alias Ryker.People.PersonFact
+  alias Ryker.Repo
+
+  test "people are listed with what Ryker knows, each opening their page, and nothing else" do
+    fact!("control_plane:user:local-operator", "birthday", "Birthday is 12 March.", false)
+    fact!("control_plane:user:local-operator", "preferred-name", "Goes by Andy.", false)
+
+    document =
+      render_component(&PeoplePage.render/1, view: PeopleProjection.list())
+      |> LazyHTML.from_fragment()
+
+    assert document |> LazyHTML.query(".entity-row") |> LazyHTML.text() =~ "You"
+    assert document |> LazyHTML.query(".entity-row") |> LazyHTML.text() =~ "2 things"
+
+    assert document
+           |> LazyHTML.query(".entity-row a")
+           |> LazyHTML.attribute("href")
+           |> Enum.uniq() ==
+             ["/memory/people?person=control_plane%3Auser%3Alocal-operator"]
+
+    # No kind names or references: what a person reads is what was said.
+    refute LazyHTML.text(document) =~ "birthday"
+    refute LazyHTML.text(document) =~ "local-operator"
+  end
+
+  test "a person's page shows what they said and where, and forgetting them asks first" do
+    person = "control_plane:user:local-operator"
+    fact!(person, "birthday", "Birthday is 12 March.", false)
+
+    assert %{status: 200, title: "You", body: body} =
+             Pages.page(["memory", "people"], %{"person" => person}, %{
+               projection: Projection.callbacks()
+             })
+
+    page = LazyHTML.from_fragment(body)
+    assert LazyHTML.text(page) =~ "Birthday is 12 March."
+    assert LazyHTML.text(page) =~ "Said in Chat"
+    assert page |> LazyHTML.query("form[method=get] button") |> LazyHTML.text() =~ "Forget"
+
+    path = "/actions/person/#{URI.encode(person, &URI.char_unreserved?/1)}/forget"
+    question = confirmation(path)
+    assert question.status == 200
+    assert question.resp_body =~ "Forget what Ryker learned about You?"
+
+    forgotten = confirm(path)
+    assert forgotten.status == 303
+    assert Plug.Conn.get_resp_header(forgotten, "location") == ["/memory/people"]
+
+    assert People.about(person, "control_plane:conversation:any") == []
+    assert PeopleProjection.list() == %{people: []}
+    assert confirmation(path).status == 404
+
+    assert %{status: 404} =
+             Pages.page(["memory", "people"], %{"person" => person}, %{
+               projection: Projection.callbacks()
+             })
+  end
+
+  test "an empty page says what will appear there" do
+    html = render_component(&PeoplePage.render/1, view: PeopleProjection.list())
+    assert html =~ "Nobody yet"
+    assert html =~ "their birthday or the name they go by"
+  end
+
+  defp fact!(person_ref, key, fact, private) do
+    Repo.insert!(%PersonFact{
+      id: Ecto.UUID.generate(),
+      person_ref: person_ref,
+      key: key,
+      fact: fact,
+      status: :kept,
+      source_input_id: Ecto.UUID.generate(),
+      source_message_ref: "control-plane-message:#{System.unique_integer([:positive])}",
+      conversation_ref: "control_plane:conversation:#{Ecto.UUID.generate()}",
+      private: private,
+      said_at: DateTime.utc_now()
+    })
+  end
+
+  defp confirmation(path) do
+    Plug.Test.conn(:get, path)
+    |> Map.put(:host, "localhost")
+    |> Router.call(router())
+  end
+
+  defp confirm(path) do
+    page = confirmation(path)
+    assert page.status == 200, page.resp_body
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, page.resp_body)
+
+    Plug.Test.conn(:post, path, URI.encode_query(%{"_token" => token}))
+    |> Map.put(:host, "localhost")
+    |> Plug.Conn.put_req_header("content-type", "application/x-www-form-urlencoded")
+    |> Router.call(router())
+  end
+
+  defp router do
+    Router.init(%{
+      csrf_secret: String.duplicate("s", 32),
+      actions: Actions.callbacks(),
+      observability: %{},
+      projection: Projection.callbacks()
+    })
+  end
+end

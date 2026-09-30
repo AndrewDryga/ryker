@@ -16,6 +16,7 @@ defmodule Ryker.Learning.LearningTest do
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.People
 
   alias Ryker.Work.Turn
 
@@ -170,6 +171,56 @@ defmodule Ryker.Learning.LearningTest do
     assert {:ok, %{status: :applied}} = Fixtures.accept(run.id, candidate, %{})
     assert Repo.aggregate(KnowledgeRevision, :count) == 0
     assert protected_rows() == before
+  end
+
+  # Andrew, 2026-09-30: Ryker learns what people say about themselves without
+  # asking them (`Ryker.People`). The pass that learns topics names those too;
+  # only a person's own message may teach one, whatever the answer says, and
+  # the next pass reads what is known so it can keep a kind or take it back.
+  # The answer is constructed host-contract output over harvested messages.
+  test "a learning pass keeps what an author said about themselves, and the next pass reads it" do
+    [release, stuck, woke] =
+      "testdata/learning/retained-fortnite-manual-correction.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("inputs")
+      |> Enum.map(&Fixtures.retained_input!(&1, @policy))
+
+    assert {:ok, run} = Learning.prepare(Enum.map([release, stuck, woke], & &1.id), @policy)
+
+    assert get_in(run.output_schema, ~w(properties people items properties source_input_id enum)) ==
+             [stuck.id, woke.id]
+
+    candidate =
+      Jason.encode!(%{
+        "reason" => "Nothing durable about the release itself.",
+        "updates" => [],
+        "people" => [
+          %{"source_input_id" => woke.id, "key" => "working-hours", "fact" => "Starts late."},
+          %{"source_input_id" => release.id, "key" => "working-hours", "fact" => "Never sleeps."}
+        ]
+      })
+
+    document = Jason.decode!(candidate)
+    schema = JSV.build!(run.output_schema)
+    assert {:error, _app_message} = JSV.validate(document, schema, cast: false)
+    people_only = Map.update!(document, "people", &Enum.take(&1, 1))
+    assert {:ok, ^people_only} = JSV.validate(people_only, schema, cast: false)
+
+    assert {:ok, %{status: :applied}} = Fixtures.accept(run.id, candidate, %{})
+
+    here = woke.destination_conversation_ref
+    assert People.about("slack:user:#{woke.actor_ref}", here) == ["Starts late."]
+    assert Enum.map(People.people(), & &1.person_ref) == ["slack:user:#{woke.actor_ref}"]
+
+    assert {:ok, next} = Learning.prepare([woke.id], @policy)
+
+    assert Jason.decode!(next.prompt)["known_about_authors"] == [
+             %{
+               "actor" => %{"kind" => "user", "ref" => woke.actor_ref},
+               "facts" => [%{"fact" => "Starts late.", "key" => "working-hours"}]
+             }
+           ]
   end
 
   test "the batch identity includes the actual prompt contract not a fixed version label" do

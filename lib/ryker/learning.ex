@@ -19,6 +19,7 @@ defmodule Ryker.Learning do
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.People
 
   alias Ryker.Work.Session
 
@@ -88,6 +89,17 @@ defmodule Ryker.Learning do
   establish nothing useful about a subject, return no update for it. Attribute decisions to people
   by the name or role the messages give; when they give none, state the decision itself instead of
   calling anyone "the user" or "the operator".
+
+  people holds what the author of a message says about themselves that would help Ryker be
+  considerate to them later: a birthday, the name they like to be called, their time zone or
+  working hours, favourite things, family or pets they mention. Give that message's
+  source_input_id; Ryker attributes the fact to its author. Only what the author states about
+  themselves: never about someone else, never guessed, and nothing sensitive (health, beliefs,
+  politics, sexuality, money) or said in confidence. key names the kind of fact in lowercase
+  hyphenated words (birthday, preferred-name, favourite-tv-show); reuse the key
+  known_about_authors already has for that kind. fact is one short sentence, such as "Birthday is
+  12 March." When an author corrects one or takes it back ("forget my birthday"), return its key
+  with the new fact, or null to forget it. Most messages say nothing of the kind; then return [].
   """
 
   @rebuild_instructions """
@@ -136,7 +148,7 @@ defmodule Ryker.Learning do
             "contract" =>
               CanonicalJSON.digest(%{
                 "instructions" => instructions(settings.rebuild),
-                "schema" => request_schema(Enum.map(entries, & &1.id), settings.rebuild)
+                "schema" => request_schema(entries, settings.rebuild)
               })
           }
           |> request_identity(settings.rebuild)
@@ -737,6 +749,8 @@ defmodule Ryker.Learning do
         conversation_ref: entry.destination_conversation_ref
       })
 
+    known = if settings.rebuild, do: [], else: People.known_about_authors(entries)
+
     {prompt, knowledge, omissions, dependencies} =
       fit_prompt!(
         inputs,
@@ -744,7 +758,7 @@ defmodule Ryker.Learning do
         raw,
         settings.retry_feedback,
         settings.rebuild,
-        custom_instructions
+        {custom_instructions, known}
       )
 
     # A create-check correction is useful only if the next judgment actually
@@ -770,7 +784,7 @@ defmodule Ryker.Learning do
       policy_digest: settings.policy_digest,
       prompt: prompt,
       prompt_sha256: CanonicalJSON.digest(prompt),
-      output_schema: request_schema(Enum.map(entries, & &1.id), settings.rebuild)
+      output_schema: request_schema(entries, settings.rebuild)
     })
     |> tap(&broadcast_learning_updated(&1.id))
   end
@@ -836,8 +850,8 @@ defmodule Ryker.Learning do
     end
   end
 
-  defp fit_prompt!(inputs, knowledge, raw, feedback, rebuild, custom_instructions) do
-    prompt = learning_prompt(inputs, [], feedback, rebuild, custom_instructions)
+  defp fit_prompt!(inputs, knowledge, raw, feedback, rebuild, context) do
+    prompt = learning_prompt(inputs, [], feedback, rebuild, context)
     if byte_size(prompt) > @max_prompt, do: Repo.rollback(:learning_capacity_exceeded)
 
     # A saturated first topic must not hide affordable subjects after it.
@@ -846,8 +860,7 @@ defmodule Ryker.Learning do
                                                      {prompt, selected, omissions, sources} ->
       dependencies = LearningSources.merge([sources, LearningSources.document_sources(item)])
 
-      candidate =
-        learning_prompt(inputs, selected ++ [item], feedback, rebuild, custom_instructions)
+      candidate = learning_prompt(inputs, selected ++ [item], feedback, rebuild, context)
 
       if is_list(dependencies) and byte_size(candidate) <= @max_prompt do
         {candidate, selected ++ [item], omissions, dependencies}
@@ -863,7 +876,7 @@ defmodule Ryker.Learning do
     |> Map.put("reason", if(is_nil(dependencies), do: "source_capacity", else: "prompt_capacity"))
   end
 
-  defp learning_prompt(inputs, knowledge, feedback, rebuild, custom_instructions) do
+  defp learning_prompt(inputs, knowledge, feedback, rebuild, {custom_instructions, known}) do
     document = %{
       "instructions" => instructions(rebuild),
       "custom_instructions" => custom_instructions,
@@ -871,6 +884,10 @@ defmodule Ryker.Learning do
       "knowledge" => knowledge,
       "previous_attempt_error" => feedback
     }
+
+    # Left out when nothing is known, so most prompts are as they were.
+    document =
+      if known == [], do: document, else: Map.put(document, "known_about_authors", known)
 
     document =
       if rebuild,
@@ -1022,7 +1039,8 @@ defmodule Ryker.Learning do
       run
     else
       with {:ok, entries, updates} <- checked_updates(run),
-           :ok <- apply_updates(updates, entries, run, :record_sources_in_transaction) do
+           :ok <- apply_updates(updates, entries, run, :record_sources_in_transaction),
+           :ok <- learn_people(run, entries) do
         Repo.update!(
           Ecto.Changeset.change(run,
             status: :applied,
@@ -1058,8 +1076,9 @@ defmodule Ryker.Learning do
   end
 
   defp parse_updates(result, entries) do
-    with {:ok, %{"updates" => updates, "reason" => reason} = document}
-         when map_size(document) == 2 <- Jason.decode(result),
+    with {:ok, %{"updates" => updates, "reason" => reason} = document} <- Jason.decode(result),
+         true <- Map.keys(document) -- ~w(updates reason people) == [],
+         true <- people?(Map.get(document, "people", [])),
          true <- is_list(updates) and length(updates) <= @max_inputs,
          true <- is_binary(reason) and String.length(reason) in 1..1200,
          true <- Enum.all?(updates, &valid_update?(&1, entries)),
@@ -1070,6 +1089,9 @@ defmodule Ryker.Learning do
       _ -> {:error, :invalid_learning_result}
     end
   end
+
+  defp people?(people),
+    do: is_list(people) and length(people) <= @max_inputs and Enum.all?(people, &is_map/1)
 
   defp valid_update?(%{"source_input_ids" => ids} = update, entries)
        when is_list(ids) and length(ids) in 1..@max_inputs do
@@ -1093,6 +1115,20 @@ defmodule Ryker.Learning do
   end
 
   defp valid_action?(_), do: false
+
+  # What authors said about themselves is kept beside the topics
+  # (`Ryker.People`); a result from before people were read has none.
+  defp learn_people(%{rebuild: nil, result: result}, entries) do
+    case Jason.decode(result) do
+      {:ok, %{"people" => people}} when is_list(people) ->
+        People.learn_in_transaction(people, entries)
+
+      _none ->
+        :ok
+    end
+  end
+
+  defp learn_people(_run, _entries), do: :ok
 
   defp apply_updates(updates, entries, run, operation) do
     context = %{
@@ -1263,10 +1299,11 @@ defmodule Ryker.Learning do
     ).num_rows
   end
 
-  defp request_schema(ids, nil), do: schema(ids)
+  defp request_schema(entries, nil), do: schema(entries)
 
-  defp request_schema(ids, _rebuild) do
-    schema = schema(ids)
+  # A rebuild relearns one topic; it reads nobody's facts and keeps none.
+  defp request_schema(entries, _rebuild) do
+    schema = entries |> schema() |> without_people()
     [item, defer] = schema["properties"]["updates"]["items"]["oneOf"]
 
     item =
@@ -1279,7 +1316,9 @@ defmodule Ryker.Learning do
     |> put_in(["properties", "updates", "items", "oneOf"], [item, defer])
   end
 
-  defp schema(ids) do
+  defp schema(entries) do
+    ids = Enum.map(entries, & &1.id)
+
     item =
       KnowledgeUpdate.json_schema()["anyOf"]
       |> Enum.find(&(&1["type"] == "object"))
@@ -1323,16 +1362,50 @@ defmodule Ryker.Learning do
     %{
       "type" => "object",
       "additionalProperties" => false,
-      "required" => ["updates", "reason"],
+      "required" => ["updates", "reason", "people"],
       "properties" => %{
         "updates" => %{
           "type" => "array",
           "maxItems" => @max_inputs,
           "items" => %{"oneOf" => [item, deferred]}
         },
-        "reason" => %{"type" => "string", "minLength" => 1, "maxLength" => 1200}
+        "reason" => %{"type" => "string", "minLength" => 1, "maxLength" => 1200},
+        "people" => people_schema(entries)
       }
     }
+    |> then(&if(people_ids(entries) == [], do: without_people(&1), else: &1))
+  end
+
+  # What an author said about themselves (`Ryker.People`): only a person's
+  # own message can be named, so apps, bots and alerts teach nothing.
+  defp people_schema(entries) do
+    %{
+      "type" => "array",
+      "maxItems" => @max_inputs,
+      "items" => %{
+        "type" => "object",
+        "additionalProperties" => false,
+        "required" => ~w(source_input_id key fact),
+        "properties" => %{
+          "source_input_id" => %{"type" => "string", "enum" => people_ids(entries)},
+          "key" => %{"type" => "string", "pattern" => "^[a-z][a-z0-9-]{0,47}$"},
+          "fact" => %{
+            "type" => ["string", "null"],
+            "minLength" => 1,
+            "maxLength" => People.maximum_fact()
+          }
+        }
+      }
+    }
+  end
+
+  defp people_ids(entries),
+    do: for(entry <- entries, People.person_ref(entry), do: entry.id)
+
+  defp without_people(schema) do
+    schema
+    |> Map.update!("properties", &Map.delete(&1, "people"))
+    |> Map.update!("required", &List.delete(&1, "people"))
   end
 
   # JSON Schema alternatives are unordered. Learning action semantics must not

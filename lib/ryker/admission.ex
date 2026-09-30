@@ -49,6 +49,7 @@ defmodule Ryker.Admission do
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.LocalRouting
+  alias Ryker.People
   alias Ryker.Records
   alias Ryker.Records.InputRequests
 
@@ -127,6 +128,14 @@ defmodule Ryker.Admission do
         else: reraise(error, __STACKTRACE__)
   end
 
+  # What the sender said about themselves, where it may be used, or nil.
+  defp person_asking(input, entry) do
+    case People.about(Input.actor_ref(input), entry.destination_conversation_ref) do
+      [] -> nil
+      facts -> facts
+    end
+  end
+
   defp ensure_snapshot_isolation(false) do
     case Repo.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ") do
       {:ok, _result} -> :ok
@@ -162,6 +171,7 @@ defmodule Ryker.Admission do
         input: input,
         input_entry: entry,
         custom_instructions: Ryker.Instructions.snapshot(input.destination),
+        person_asking: person_asking(input, entry),
         repository_choices: repository_choices(entry),
         routing_receipt: routing_receipt,
         slack_addressing: slack_addressing(entry),

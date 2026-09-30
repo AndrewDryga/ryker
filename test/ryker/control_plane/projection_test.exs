@@ -1616,7 +1616,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              pages: 1
            }
 
-    assert map_size(Projection.callbacks()) == 45
+    assert map_size(Projection.callbacks()) == 47
+    # Everyone Ryker learned something about, and one of them, for Memory ›
+    # People and the question its Forget this person asks.
+    assert is_function(Projection.callbacks().people, 0)
+    assert is_function(Projection.callbacks().person, 1)
     # One repository's row, for the questions its Remove and Refresh knowledge ask.
     assert is_function(Projection.callbacks().repository, 1)
     # The requests to improve and the eval cases accepted from them, for

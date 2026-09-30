@@ -747,6 +747,20 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # Forgetting a person forgets everything Ryker learned from what they said
+  # about themselves; the question says what comes back and what does not.
+  defp confirmation("person", resource_ref, "forget", options) do
+    case options.projection.person.(resource_ref) do
+      {:ok, person} ->
+        {:ok, "Forget what Ryker learned about #{person.name}?",
+         "Ryker stops using all of it and erases the words. Nothing they said before brings it back; what they say about themselves later is learned again. You can't undo this.",
+         "person:forget", :danger}
+
+      :error ->
+        {:error, :not_found}
+    end
+  end
+
   defp confirmation("finding", resource_ref, "mark-explained", options) do
     case options.projection.finding.(resource_ref) do
       {:ok, %{status: :open, classification: "unexplained"} = finding} ->
@@ -1001,6 +1015,9 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("finding", resource_ref, "forget", actions),
     do: actions.forget_finding.(resource_ref)
 
+  defp perform("person", resource_ref, "forget", actions),
+    do: actions.forget_person.(resource_ref)
+
   defp perform("finding", resource_ref, "mark-explained", actions),
     do: actions.mark_finding_explained.(resource_ref)
 
@@ -1100,6 +1117,7 @@ defmodule Ryker.ControlPlane.Router do
   # Facts list their reviews below them, so a review returns to the reviews,
   # where the next one waits, rather than to the top of the facts.
   defp action_return_path("memory", _resource_ref), do: "/memory"
+  defp action_return_path("person", _resource_ref), do: "/memory/people"
   defp action_return_path("memory-review", _resource_ref), do: "/memory#review"
   defp action_return_path("knowledge", _resource_ref), do: "/memory/learned"
   defp action_return_path("finding", resource_ref), do: FindingsPage.path(resource_ref)

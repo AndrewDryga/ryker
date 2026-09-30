@@ -21,6 +21,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   alias Ryker.Continuity
   alias Ryker.Memories
   alias Ryker.Memories.Cases
+  alias Ryker.People
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.Settings.Environment
@@ -953,6 +954,11 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     :ok =
       RoutingExamples.forget_conversation_in_transaction(
+        "slack:#{membership.workspace_ref}:#{membership.channel_ref}"
+      )
+
+    :ok =
+      People.forget_conversation_in_transaction(
         "slack:#{membership.workspace_ref}:#{membership.channel_ref}"
       )
 
