@@ -52,6 +52,7 @@ defmodule Ryker.Admission.CandidateSearch do
           text_rank: float(),
           meaning: float(),
           anchor_overlap: non_neg_integer(),
+          reference_weights: [float()],
           origin_in_thread: boolean(),
           source_owner: boolean(),
           claims: [map()],
@@ -88,7 +89,7 @@ defmodule Ryker.Admission.CandidateSearch do
       meaning: Map.new(ranked_meaning, fn {episode, similarity} -> {episode.id, similarity} end)
     }
 
-    pool = pool(lanes, owner, request, anchors, ranks)
+    pool = pool(lanes, owner, request, anchor_weights(request, scope, anchors), ranks)
 
     %{selected: selected, cutoff: cutoff} = Ranking.select(pool, request)
 
@@ -421,7 +422,9 @@ defmodule Ryker.Admission.CandidateSearch do
     )
   end
 
-  defp pool(lanes, owner, request, anchors, ranks) do
+  defp pool(lanes, owner, request, anchor_weights, ranks) do
+    anchors = Map.keys(anchor_weights)
+
     lane_entries =
       @lanes
       |> Enum.flat_map(fn lane ->
@@ -459,6 +462,7 @@ defmodule Ryker.Admission.CandidateSearch do
         text_rank: Map.get(ranks.text, id, 0.0),
         meaning: Map.get(similarities, id),
         anchor_overlap: anchor_overlap(digest, anchors),
+        reference_weights: reference_weights(digest, anchor_weights),
         origin_in_thread: MapSet.member?(thread_origins, id),
         source_owner: owner != nil and owner.id == id,
         claims: Map.get(claims, id, []),
@@ -496,6 +500,49 @@ defmodule Ryker.Admission.CandidateSearch do
       )
     )
     |> Map.new()
+  end
+
+  # How rare each of the message's links and identifiers is where it could belong, weighed as
+  # words are: 1 for one only a single request names, falling as more do, and 0 once more than a
+  # quarter of them do. Every shared identifier used to count alike, so nomad-hst02, which 54
+  # requests in the Tenant history name, outranked a perfect match in words (ID1, 2026-09-30).
+  defp anchor_weights(_request, _scope, []), do: %{}
+
+  defp anchor_weights(request, scope, anchors) do
+    total = Repo.aggregate(searchable(request, scope), :count)
+    common = max(@common_floor, total * @common_share)
+
+    counts =
+      from(digest in searchable(request, scope),
+        where: fragment("? && ?::text[]", digest.anchor_keys, ^anchors),
+        select: digest.anchor_keys
+      )
+      |> Repo.all()
+      |> Enum.flat_map(&Enum.uniq/1)
+      |> Enum.frequencies()
+
+    Map.new(anchors, fn anchor ->
+      count = Map.get(counts, anchor, 0)
+
+      weight =
+        if count > common, do: 0.0, else: idf(total, max(count, 1)) / idf(total, 1)
+
+      {anchor, weight}
+    end)
+  end
+
+  defp reference_weights(nil, _anchor_weights), do: []
+
+  defp reference_weights(%RoutingDigest{anchor_keys: keys}, anchor_weights) do
+    keys
+    |> Enum.uniq()
+    |> Enum.flat_map(fn key ->
+      case Map.fetch(anchor_weights, key) do
+        {:ok, weight} -> [weight]
+        :error -> []
+      end
+    end)
+    |> Enum.sort(:desc)
   end
 
   defp anchor_overlap(nil, _anchors), do: 0

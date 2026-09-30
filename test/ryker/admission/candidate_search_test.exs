@@ -59,6 +59,44 @@ defmodule Ryker.Admission.CandidateSearchTest do
     assert result.receipt["cutoff_reason"] =~ "non-local"
   end
 
+  # The "Same links or IDs" replay over the Tenant alert history (2026-09-30, ID1): every shared
+  # identifier scored 350 points, more than a perfect match in words and meaning, even
+  # nomad-hst02, which 54 requests named. A host most requests name says little about which
+  # request a message is about; a run ID only one request has says it is that one.
+  test "an identifier most requests share does not outrank the request the message is about" do
+    about =
+      episode!("routing:about",
+        channel_ref: "CDEVOPS",
+        text: "Checkout payment webhook keeps timing out"
+      )
+
+    for index <- 1..6 do
+      episode!("routing:host-#{index}",
+        channel_ref: "CDEVOPS",
+        text: "Disk usage alert #{index} on nomad-hst02",
+        updated_at: DateTime.add(@now, -index, :second)
+      )
+
+      episode!("routing:elsewhere-#{index}",
+        channel_ref: "CENGINEERING",
+        text: "Marketing site deploy #{index} finished",
+        updated_at: DateTime.add(@now, -index, :second)
+      )
+    end
+
+    result =
+      search!(
+        channel_ref: "CDEVOPS",
+        text: "The checkout payment webhook keeps timing out on nomad-hst02"
+      )
+
+    assert hd(result.selected).episode.id == about.id
+
+    rare = episode!("routing:rare", channel_ref: "CDEVOPS", text: "Deploy run run-7f2a1c failed")
+    result = search!(channel_ref: "CDEVOPS", text: "Why did run-7f2a1c fail on nomad-hst02?")
+    assert hd(result.selected).episode.id == rare.id
+  end
+
   test "the search record keeps the words, links and places it searched with" do
     # The receipt kept only counts, so the timeline could say "Nothing found"
     # but never what was looked for or where.
