@@ -23,6 +23,7 @@ log_dir=$HOME/.local/state/ryker/embeddings
 agents=$HOME/Library/LaunchAgents
 label=ai.emisar.ryker.embeddings
 port=${RYKER_EMBEDDINGS_PORT:-8180}
+here=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
   echo "usage: scripts/embedding-service.sh install|status|uninstall" >&2
@@ -88,8 +89,7 @@ install() {
   fi
 
   write_plist
-  launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
-  launchctl bootstrap "gui/$(id -u)" "$agents/$label.plist"
+  "$here/launch-agent.sh" load "$label" "$agents/$label.plist"
 
   # Loading the model takes a few seconds on first start.
   for _ in $(seq 1 60); do
@@ -103,7 +103,7 @@ install() {
 }
 
 uninstall() {
-  launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+  "$here/launch-agent.sh" unload "$label"
   rm -f "$agents/$label.plist"
   echo "Stopped. The model stays in $model_dir; delete it to free 635 MB."
 }

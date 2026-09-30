@@ -11,8 +11,9 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
   (agreed), the median time the local model took beside the provider's, and
   what the provider spent on those messages, which is what a cascade would
   save on each message the local model gets right. A second card lists the
-  latest answers that would have made Ryker do something else, each opening
-  its request's timeline at the routing call.
+  latest valid answers that would have made Ryker do something else, and a
+  third the latest answers routing's checks refused, each saying why in
+  plain words; every row opens its request's timeline at the routing call.
 
   While the mode is off and nothing was compared in the period, the section
   is its title and one line saying so, with the way to the setting.
@@ -35,6 +36,26 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
   @listed 10
   @preview_characters 120
 
+  # Why routing's checks refused an answer (`Ryker.LocalRouting.Verdict`),
+  # as the rest of a sentence that starts "The local model".
+  @refusals %{
+    "empty" => "gave no answer",
+    "cut_off" => "stopped before its answer was complete",
+    "not_json" => "did not answer in routing's format",
+    "rejected:unknown_candidate" => "named earlier work that was not offered",
+    "rejected:action_not_allowed" => "chose something Ryker may not do with this message",
+    "rejected:relation_not_allowed" =>
+      "tied the message to earlier work in a way that is not allowed",
+    "rejected:reaction_not_allowed" => "chose an emoji that is not allowed here",
+    "rejected:reactions_not_available" => "chose an emoji where none may be added",
+    "rejected:repository_not_allowed" => "chose a repository it may not use here",
+    "rejected:repository_not_available" => "chose a repository where none may be used",
+    "rejected:repository_required" => "started work without choosing a repository",
+    "rejected:repository_source_not_available" => "chose a branch or commit that was not offered",
+    "rejected:source_item_owner" => "took the message from the work it already belongs to",
+    "rejected:occurrence_claimed" => "took the message from the work it already belongs to"
+  }
+
   # What each compared field means for what Ryker does next.
   @field_words %{
     "action" => "what to do",
@@ -47,8 +68,9 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
   }
 
   @doc """
-  The figures and latest disagreements since `since` (nil for all time) in
-  one execution scope (`live`, `shadow` or `all`), for the model saved now.
+  The figures, latest disagreements and latest refused answers since
+  `since` (nil for all time) in one execution scope (`live`, `shadow` or
+  `all`), for the model saved now.
   """
   @spec project(DateTime.t() | nil, String.t()) :: map()
   def project(since, scope) do
@@ -59,7 +81,8 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
       setting: setting,
       figures: figures(comparisons),
       last_settled: last_settled(comparisons),
-      disagreements: disagreements(comparisons)
+      disagreements: disagreements(comparisons),
+      refusals: refusals(comparisons)
     }
   end
 
@@ -83,36 +106,48 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
   defp of_model(query, model), do: where(query, [c], c.local_model == ^model)
 
   defp figures(comparisons) do
-    Repo.one(
-      from(c in comparisons,
-        select: %{
-          compared: filter(count(c.id), c.status == :compared),
-          valid: filter(count(c.id), c.status == :compared and c.valid),
-          agreed: filter(count(c.id), c.status == :compared and c.agrees),
-          waiting: filter(count(c.id), c.status == :pending),
-          failed: filter(count(c.id), c.status == :failed),
-          local_ms:
-            fragment(
-              "percentile_cont(0.5) WITHIN GROUP (ORDER BY ?) FILTER (WHERE ? = 'compared')",
-              c.local_ms,
-              c.status
-            ),
-          provider_ms:
-            fragment(
-              "percentile_cont(0.5) WITHIN GROUP (ORDER BY ?) FILTER (WHERE ? = 'compared')",
-              c.provider_ms,
-              c.status
-            ),
-          provider_cost: filter(sum(c.provider_cost_usd), c.status == :compared),
-          agreed_cost: filter(sum(c.provider_cost_usd), c.status == :compared and c.agrees),
-          estimated:
-            fragment(
-              "COALESCE(bool_or(?) FILTER (WHERE ? = 'compared'), false)",
-              c.provider_cost_estimated,
-              c.status
-            )
-        }
-      )
+    comparisons
+    |> figures_query()
+    |> Repo.one()
+    |> nothing_agreed()
+  end
+
+  # With no answer agreeing, the provider spent nothing on agreed messages;
+  # the sum over no rows would read as not measured.
+  defp nothing_agreed(%{agreed: 0, provider_cost: %Decimal{}} = figures),
+    do: %{figures | agreed_cost: Decimal.new(0)}
+
+  defp nothing_agreed(figures), do: figures
+
+  defp figures_query(comparisons) do
+    from(c in comparisons,
+      select: %{
+        compared: filter(count(c.id), c.status == :compared),
+        valid: filter(count(c.id), c.status == :compared and c.valid),
+        agreed: filter(count(c.id), c.status == :compared and c.agrees),
+        waiting: filter(count(c.id), c.status == :pending),
+        failed: filter(count(c.id), c.status == :failed),
+        local_ms:
+          fragment(
+            "percentile_cont(0.5) WITHIN GROUP (ORDER BY ?) FILTER (WHERE ? = 'compared')",
+            c.local_ms,
+            c.status
+          ),
+        provider_ms:
+          fragment(
+            "percentile_cont(0.5) WITHIN GROUP (ORDER BY ?) FILTER (WHERE ? = 'compared')",
+            c.provider_ms,
+            c.status
+          ),
+        provider_cost: filter(sum(c.provider_cost_usd), c.status == :compared),
+        agreed_cost: filter(sum(c.provider_cost_usd), c.status == :compared and c.agrees),
+        estimated:
+          fragment(
+            "COALESCE(bool_or(?) FILTER (WHERE ? = 'compared'), false)",
+            c.provider_cost_estimated,
+            c.status
+          )
+      }
     )
   end
 
@@ -130,12 +165,46 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
   end
 
   defp disagreements(comparisons) do
+    comparisons
+    |> where([c], c.status == :compared and c.valid and not c.agrees)
+    |> latest()
+    |> Enum.map(fn row ->
+      local =
+        case Jason.decode(row.local_answer || "") do
+          {:ok, %{} = decision} -> decision
+          _unreadable -> %{}
+        end
+
+      listed(row, "local-routing",
+        text:
+          "The provider chose #{decision(row.provider)}. The local model chose #{decision(local)}.",
+        meta: ["Differs in " <> Environments.sentence(Enum.map(row.differing, &field_words/1))]
+      )
+    end)
+  end
+
+  defp refusals(comparisons) do
+    comparisons
+    |> where([c], c.status == :compared and not c.valid)
+    |> latest()
+    |> Enum.map(
+      &listed(&1, "local-routing-refused",
+        text:
+          "The local model #{refusal(&1.invalid_reason)}. " <>
+            "The provider chose #{decision(&1.provider)}.",
+        meta: []
+      )
+    )
+  end
+
+  # The latest settled comparisons of one kind, with the message each
+  # answered.
+  defp latest(comparisons) do
     secrets = InspectionRedactor.configured_secrets()
 
     from(c in comparisons,
       join: entry in Entry,
       on: entry.id == c.input_id,
-      where: c.status == :compared and c.valid and not c.agrees,
       order_by: [desc: c.compared_at, desc: c.id],
       limit: @listed,
       select: %{
@@ -144,33 +213,30 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
         differing: c.differing_fields,
         generation: c.generation,
         input_id: c.input_id,
+        invalid_reason: c.invalid_reason,
         local_answer: c.local_answer,
         provider: entry.decision_document,
         text: visible_preview(entry.operational_pruned_at, entry.event_kind, entry.content)
       }
     )
     |> Repo.all()
-    |> Enum.map(&disagreement(&1, secrets))
+    |> Enum.map(&Map.put(&1, :name, preview(&1.text, &1.conversation, secrets)))
   end
 
-  defp disagreement(row, secrets) do
-    local =
-      case Jason.decode(row.local_answer || "") do
-        {:ok, %{} = decision} -> decision
-        _unreadable -> %{}
-      end
-
+  defp listed(row, prefix, words) do
     %{
       at: row.at,
       href:
         "/timeline/ingress-input%3A#{row.input_id}#admission-#{row.input_id}-#{row.generation}",
-      id: "local-routing-#{row.input_id}-#{row.generation}",
-      name: preview(row.text, row.conversation, secrets),
-      text:
-        "The provider chose #{decision(row.provider)}. The local model chose #{decision(local)}.",
-      differs: "Differs in " <> Environments.sentence(Enum.map(row.differing, &field_words/1))
+      id: "#{prefix}-#{row.input_id}-#{row.generation}",
+      name: row.name,
+      text: Keyword.fetch!(words, :text),
+      meta: Keyword.fetch!(words, :meta)
     }
   end
+
+  defp refusal("decision:" <> _field), do: "gave a decision routing could not read"
+  defp refusal(reason), do: Map.get(@refusals, reason, "gave an answer routing's checks refused")
 
   defp preview(nil, _conversation, _secrets), do: "Message text no longer available"
 
@@ -238,6 +304,8 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
       assign(assigns,
         disagreements: assigns.summary.disagreements,
         groups: Kit.day_groups(assigns.summary.disagreements, & &1.at, DateTime.utc_now()),
+        refusals: assigns.summary.refusals,
+        refusal_groups: Kit.day_groups(assigns.summary.refusals, & &1.at, DateTime.utc_now()),
         lede:
           if(setting.mode == :shadow or measured?,
             do:
@@ -247,7 +315,7 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
         link:
           if(setting.mode == :shadow, do: "Change it", else: "Turn it on") <>
             " in Settings › Models",
-        measured?: measured?,
+        compared_valid?: figures.valid > 0,
         model: setting.mode == :shadow && setting.model,
         primary: primary(figures),
         secondary: secondary(figures),
@@ -270,7 +338,8 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
         />
       </Kit.section_card>
       <Kit.section_card
-        :if={@measured?}
+        :if={@compared_valid?}
+        id="local-routing-differences"
         title="Where it decided differently"
         lede="The latest valid answers that would have made Ryker do something else. Each opens its request."
       >
@@ -282,7 +351,7 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
             href={row.href}
             link_row
             text={row.text}
-            meta={[row.differs]}
+            meta={row.meta}
             at={Kit.clock(row.at)}
             at_time={row.at}
             group={group}
@@ -295,6 +364,26 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
           title="No disagreements in this period"
           text="Every valid answer decided what the provider decided."
         />
+      </Kit.section_card>
+      <Kit.section_card
+        :if={@refusals != []}
+        id="local-routing-refused"
+        title="Answers routing refused"
+        lede="The latest answers that failed the checks every provider answer goes through. Each opens its request."
+      >
+        <Kit.entity_list label="Answers routing refused">
+          <Kit.entity_row
+            :for={{row, group} <- Enum.zip(@refusals, @refusal_groups)}
+            id={row.id}
+            name={row.name}
+            href={row.href}
+            link_row
+            text={row.text}
+            at={Kit.clock(row.at)}
+            at_time={row.at}
+            group={group}
+          />
+        </Kit.entity_list>
       </Kit.section_card>
     </div>
     """
@@ -357,6 +446,7 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
   defp duration(ms), do: decimal(ms / 1_000) <> "s"
 
   defp money(nil, _estimated), do: "Not measured"
+  defp money(%Decimal{coef: 0}, _estimated), do: "$0"
 
   defp money(%Decimal{} = cost, estimated) do
     precision =

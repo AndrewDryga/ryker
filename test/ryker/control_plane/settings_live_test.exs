@@ -1128,8 +1128,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   end
 
   # Andrew, 2026-09-27: a small self-hosted routing model, tried in shadow
-  # first. The card says in plain words what it does and how to run one with
-  # Ollama on the Mac that runs Ryker, and turning it on without somewhere to
+  # first. The card says in plain words what it does and how to run one on
+  # the Mac that runs Ryker, and turning it on without somewhere to
   # send the prompt, or across the internet in plain http, is refused in
   # words that say what to type.
   test "the local routing model is set on the Models page in plain words and off until it has somewhere to ask" do
@@ -1138,14 +1138,25 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     card = "#settings-local_routing"
     assert has_element?(view, "#{card} header#local-routing h2", "Local routing model")
-    assert has_element?(view, "#{card} .settings-form-help", "ollama serve")
-    assert has_element?(view, "#{card} .settings-form-help", "ollama pull")
+
+    assert has_element?(
+             view,
+             "#{card} .settings-form-help",
+             "scripts/routing-model-service.sh install"
+           )
+
+    assert has_element?(
+             view,
+             "#{card} .settings-form-help",
+             "http://host.docker.internal:8181/v1"
+           )
+
     assert has_element?(view, "#{card} input[name=local_routing_mode][value=off][checked]")
     assert has_element?(view, "#{card} .settings-option", "Compare in the background")
 
     assert has_element?(
              view,
-             "#{card} input[name=local_routing_endpoint][placeholder='http://host.docker.internal:11434/v1']"
+             "#{card} input[name=local_routing_endpoint][placeholder='http://host.docker.internal:8181/v1']"
            )
 
     assert has_element?(view, "#{card} input[name=local_routing_model][placeholder='qwen2.5:3b']")
@@ -1157,7 +1168,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(
              view,
              "#{card} .settings-error",
-             "Enter the local model's endpoint, such as http://host.docker.internal:11434/v1."
+             "Enter the local model's endpoint, such as http://host.docker.internal:8181/v1."
            )
 
     assert has_element?(
@@ -1185,14 +1196,14 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     view
     |> form("#settings-local_routing-form", %{
       "local_routing_mode" => "shadow",
-      "local_routing_endpoint" => "http://host.docker.internal:11434/v1",
+      "local_routing_endpoint" => "http://host.docker.internal:8181/v1",
       "local_routing_model" => "qwen2.5:3b"
     })
     |> render_submit()
 
     work = Settings.fetch!().work
     assert work.local_routing_mode == :shadow
-    assert work.local_routing_endpoint == "http://host.docker.internal:11434/v1"
+    assert work.local_routing_endpoint == "http://host.docker.internal:8181/v1"
     assert work.local_routing_model == "qwen2.5:3b"
     refute has_element?(view, "#{card} .settings-error")
   end

@@ -115,8 +115,11 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
            ]
 
     # Only the answer that would have made Ryker do something else is a
-    # disagreement; the refused one counts against valid instead.
-    assert [row] = LazyHTML.query(section, ".entity-row") |> Enum.to_list()
+    # disagreement; the refused one counts against valid and is listed
+    # apart, with why.
+    assert [row] =
+             LazyHTML.query(section, "#local-routing-differences .entity-row") |> Enum.to_list()
+
     assert text(row, ".entity-name") == Harvested.hi_text()
 
     assert LazyHTML.attribute(LazyHTML.query(row, ".entity-name a"), "href") == [
@@ -127,6 +130,13 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
              "The provider chose a quick reply. The local model chose to reply."
 
     assert text(row, ".entity-meta") =~ "Differs in what to do and kind of work"
+
+    assert [refused_row] =
+             LazyHTML.query(section, "#local-routing-refused .entity-row") |> Enum.to_list()
+
+    assert text(refused_row, ".entity-text") ==
+             "The local model gave a decision routing could not read. " <>
+               "The provider chose a quick reply."
   end
 
   # The Mac running Ollama went to sleep: comparisons stop coming back, and
@@ -165,8 +175,66 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
            ]
   end
 
+  # 2026-09-30, the first comparison on the live install: qwen2.5:3b answered
+  # "Which repositories can you read in this environment?" by starting work
+  # on earlier work it made up, and routing's checks refused it. Usage then
+  # said "Every valid answer decided what the provider decided" when there
+  # was no valid answer at all, called the provider's spend on agreed
+  # messages "Not measured" when it was nothing, and said nowhere why the
+  # answer was refused, so 0% valid read as a broken setup rather than a
+  # model that makes things up.
+  test "a refused answer says why in plain words, and no valid answer claims no agreement" do
+    shadow!()
+    refused = decided!("Ev-usage-made-up-work", Harvested.hi_quick_reply())
+
+    compared!(refused, Harvested.made_up_earlier_work(),
+      valid: false,
+      invalid_reason: "rejected:unknown_candidate",
+      local_ms: 6_044,
+      cost: "0.0017",
+      provider_ms: 7_400
+    )
+
+    section = section!()
+
+    refute LazyHTML.text(section) =~ "Every valid answer decided what the provider decided"
+    assert Enum.empty?(LazyHTML.query(section, "#local-routing-differences"))
+
+    assert {"$0", "of it on messages the local model agreed on"} in counts(
+             section,
+             ".kit-counts-secondary"
+           )
+
+    assert text(section, "#local-routing-refused h2") == "Answers routing refused"
+    assert [row] = LazyHTML.query(section, "#local-routing-refused .entity-row") |> Enum.to_list()
+    assert text(row, ".entity-name") == Harvested.hi_text()
+
+    assert LazyHTML.attribute(LazyHTML.query(row, ".entity-name a"), "href") == [
+             "/timeline/ingress-input%3A#{refused.id}#admission-#{refused.id}-1"
+           ]
+
+    assert text(row, ".entity-text") ==
+             "The local model named earlier work that was not offered. " <>
+               "The provider chose a quick reply."
+  end
+
   test "an open Usage page redraws when a comparison is queued or settles" do
     assert {LocalRouting, :subscribe_comparisons, []} in UsagePage.subscriptions()
+  end
+
+  defp shadow! do
+    {:ok, snapshot} = Settings.initialize(@actor)
+
+    {:ok, _saved} =
+      Settings.save_work(
+        %{
+          local_routing_mode: :shadow,
+          local_routing_endpoint: "http://host.docker.internal:8181/v1",
+          local_routing_model: @model
+        },
+        snapshot.installation.revision,
+        @actor
+      )
   end
 
   defp section! do
@@ -232,7 +300,8 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
       attempt_count: 1,
       valid: valid,
       agrees: agrees,
-      invalid_reason: if(valid, do: nil, else: "decision:fields"),
+      invalid_reason:
+        if(valid, do: nil, else: Keyword.get(options, :invalid_reason, "decision:fields")),
       differing_fields: Keyword.get(options, :differing, []),
       local_answer: answer,
       local_ms: Keyword.fetch!(options, :local_ms),
