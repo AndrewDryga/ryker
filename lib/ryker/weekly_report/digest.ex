@@ -9,7 +9,7 @@ defmodule Ryker.WeeklyReport.Digest do
 
       This past week I handled 121 messages, and a typical reply took about
       30 seconds. I answered 69 of them on the spot; the rest needed deeper
-      work. I worked on 45 requests and finished 35 of them.
+      work.
 
       Here's what I got done:
       - Fix the checkout alert in #ops · PR #4
@@ -29,7 +29,11 @@ defmodule Ryker.WeeklyReport.Digest do
 
   A part with nothing to say is left out, except that a report that could
   not check what is stuck says so: nothing stuck is a good week, not knowing
-  is not.
+  is not. It states no completion rate: "I worked on 45 requests and
+  finished 35 of them" read as ten failures (Andrew, 2026-09-30: "why we need
+  this? it should not fail at all") when six had been closed by a person as
+  no longer needed and four were waiting. What got done, what is still open
+  and what is stuck say it without one.
 
   The text is the Markdown Slack's `markdown` block reads, and the control
   plane's preview renders the same text (`Ryker.ControlPlane.SlackMarkdown`),
@@ -98,11 +102,7 @@ defmodule Ryker.WeeklyReport.Digest do
     do: ["It was a quiet week: nobody asked me for anything."]
 
   defp work(facts) do
-    [
-      handled(facts.messages, facts.reply_ms),
-      on_the_spot(facts.messages),
-      worked(facts.messages, facts.requests)
-    ]
+    [handled(facts.messages, facts.reply_ms), on_the_spot(facts.messages)]
     |> Enum.reject(&is_nil/1)
     |> case do
       [] -> []
@@ -131,22 +131,6 @@ defmodule Ryker.WeeklyReport.Digest do
 
   defp on_the_spot(%{on_the_spot: spot}),
     do: "I answered #{spot} of them on the spot; the rest needed deeper work."
-
-  defp worked(_messages, %{total: 0}), do: nil
-  defp worked(%{handled: 0}, requests), do: "This past week I " <> requests_worked(requests)
-  defp worked(_messages, requests), do: "I " <> requests_worked(requests)
-
-  defp requests_worked(%{total: 1, finished: 1}), do: "worked on 1 request and finished it."
-  defp requests_worked(%{total: 1}), do: "worked on 1 request; it isn't finished yet."
-
-  defp requests_worked(%{total: total, finished: total}),
-    do: "worked on #{total} requests and finished all of them."
-
-  defp requests_worked(%{total: total, finished: 0}),
-    do: "worked on #{total} requests; none is finished yet."
-
-  defp requests_worked(%{total: total, finished: finished}),
-    do: "worked on #{total} requests and finished #{finished} of them."
 
   # How long, rounded the way a person says it.
   defp duration(milliseconds) do

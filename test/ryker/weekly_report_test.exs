@@ -135,8 +135,7 @@ defmodule Ryker.WeeklyReportTest do
     # asked: the typical reply is the middle one.
     assert part(report, :work) == [
              "This past week I handled 5 messages, and a typical reply took about 5 minutes. " <>
-               "I answered 1 of them on the spot; the rest needed deeper work. " <>
-               "I worked on 8 requests and finished 5 of them."
+               "I answered 1 of them on the spot; the rest needed deeper work."
            ]
 
     where = Names.destination(public)
@@ -167,6 +166,40 @@ defmodule Ryker.WeeklyReportTest do
 
     # Nothing is stuck and nobody said anything about the answers.
     assert Enum.map(report.parts, & &1.key) == [:greeting, :work, :done, :pull_requests, :open]
+  end
+
+  # Andrew, 2026-09-30, of "I worked on 45 requests and finished 35 of
+  # them.": "why we need this? it should not fail at all". Nothing had
+  # failed: six were closed by a person as no longer needed, five of them
+  # after Ryker had answered, and four were waiting for an answer or an
+  # update. A completion rate read as ten failures; what got done, what is
+  # still open and what is stuck say it without one.
+  test "the report states no completion rate, so work closed as no longer needed or still open does not read as failed",
+       %{now: now, workspace: workspace} do
+    public = public_channel!(workspace, "CNORATE")
+
+    answered =
+      work_request!(
+        workspace,
+        public,
+        "1790400001.000100",
+        "Is the API up?",
+        DateTime.add(now, -60)
+      )
+
+    title!(answered.id, "Check the API")
+    request!(public, :cancelled, "Deploy on Friday", now)
+    request!(public, :waiting_for_input, "Add a smoke test", now)
+
+    report = compose(now)
+
+    assert part(report, :work) == [
+             "This past week I handled 1 message, and my reply took about a minute. " <>
+               "It needed deeper work."
+           ]
+
+    refute report.text =~ "worked on"
+    refute report.text =~ "finished"
   end
 
   # Andrew asked for how long a reply took "on average". In the week to 30
@@ -202,8 +235,7 @@ defmodule Ryker.WeeklyReportTest do
 
     assert part(compose(now), :work) == [
              "This past week I handled 5 messages, and a typical reply took about 30 seconds. " <>
-               "I answered 4 of them on the spot; the rest needed deeper work. " <>
-               "I worked on 1 request and finished it."
+               "I answered 4 of them on the spot; the rest needed deeper work."
            ]
   end
 
@@ -229,7 +261,7 @@ defmodule Ryker.WeeklyReportTest do
     where = Names.destination(public)
 
     assert part(report, :pull_requests) == [
-             "I also opened 4 PRs, and 1 is already merged. Still waiting for review:",
+             "I opened 4 PRs, and 1 is already merged. Still waiting for review:",
              "- [#13 Implement weekly-#{workspace}-fresh](#{pr_url(fresh)}) in #{where}",
              "- [#15 Implement weekly-#{workspace}-stale](#{pr_url(stale)}) in #{where}",
              "- and 1 more"

@@ -6,8 +6,8 @@ defmodule Ryker.WeeklyReport do
   until a person turns it on.
 
   **What it says.** How many messages Ryker handled, how long a typical
-  reply took and how many it answered on the spot, the requests it worked on
-  and finished, what it got done, the PRs it opened and merged and the ones
+  reply took and how many it answered on the spot, what it got done, the PRs
+  it opened and merged and the ones
   still waiting for review, what is still open, anything stuck, and a closing
   line on how people took its answers and what it learned
   (`Ryker.WeeklyReport.Digest`).
