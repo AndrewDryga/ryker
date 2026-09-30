@@ -100,7 +100,7 @@ defmodule Ryker.Admission.Ranking do
   end
 
   defp supported_non_local?(candidate, weights) do
-    candidate.features.occurrence_identity or candidate.features.direct_reference > 0 or
+    candidate.features.occurrence_identity or candidate.features.reference_strength > 0 or
       candidate.features.relevance >= weights.offer_relevance
   end
 
@@ -109,7 +109,7 @@ defmodule Ryker.Admission.Ranking do
   defp offerable?(%{source_owner: true}, _weights), do: true
 
   defp offerable?(%{features: features}, weights) do
-    features.occurrence_identity or features.direct_reference > 0 or features.same_thread or
+    features.occurrence_identity or features.reference_strength > 0 or features.same_thread or
       features.active or features.relevance >= weights.offer_relevance
   end
 
@@ -135,7 +135,7 @@ defmodule Ryker.Admission.Ranking do
 
     score =
       value(features.occurrence_identity, weights.occurrence_identity) +
-        references_points(features.direct_reference, weights) +
+        references_points(features.reference_weights, weights) +
         value(features.same_thread, weights.same_thread) +
         round(features.relevance * weights.relevance) +
         value(features.same_conversation, weights.same_conversation) +
@@ -163,6 +163,9 @@ defmodule Ryker.Admission.Ranking do
     %{
       occurrence_identity: occurrence_identity?(entry, request),
       direct_reference: entry.anchor_overlap,
+      # How rare the shared identifiers are where the message could belong, rarest first.
+      reference_weights: Map.get(entry, :reference_weights, []),
+      reference_strength: Enum.sum(Map.get(entry, :reference_weights, [])),
       same_thread: same_thread,
       topic_fit: topic_fit,
       meaning: similarity,
@@ -184,10 +187,16 @@ defmodule Ryker.Admission.Ranking do
 
   defp occurrence_identity?(_entry, _request), do: false
 
-  defp references_points(0, _weights), do: 0
+  # The rarest shared identifier counts in full where only this request names it; the next
+  # three add less. One most requests name adds nothing (`CandidateSearch`, ID1).
+  defp references_points([], _weights), do: 0
 
-  defp references_points(count, weights),
-    do: weights.direct_reference + (min(count, 4) - 1) * weights.more_references
+  defp references_points([rarest | rest], weights) do
+    round(
+      rarest * weights.direct_reference +
+        (rest |> Enum.take(3) |> Enum.sum()) * weights.more_references
+    )
+  end
 
   # How much of what the message says the work covers. Wording and meaning
   # each count, and both together count more; wording the meaning calls
