@@ -2,9 +2,10 @@ defmodule Ryker.WeeklyReport.Facts do
   @moduledoc """
   Everything the weekly report says, read from the database for one week
   (`Ryker.WeeklyReport`), with no model anywhere: the messages Ryker handled
-  and how fast it replied, the requests it worked on, what it finished and
-  what is still open, the pull requests it opened and the ones waiting for a
-  review, what is stuck, and a line on feedback and what it learned.
+  and how fast it replied, what it finished and what is still open, the pull
+  requests it opened and the ones waiting for a review, what is stuck, and a
+  line on feedback and what it learned. It counts the week's requests only to
+  tell a quiet week; the report states no completion rate.
 
   A week is `%{from: from, to: to}`. A request counts for the week when
   someone asked something in it or Ryker answered in it, so a request
