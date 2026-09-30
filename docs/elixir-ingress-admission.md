@@ -306,7 +306,11 @@ separately, so no lane cap can hide the episode that owns a revision.
 - **Meaning** compares the message's vector with each request's, from a multilingual embedding
   model beside Ryker (`RYKER_EMBEDDINGS_URL`, bge-m3; see [operations](operations.md#search-by-meaning)),
   so the same thing said in other words or in Ukrainian or Spanish about work discussed in English
-  is found. It runs only while the server answers; the search goes on by words meanwhile.
+  is found. It runs only while the server answers; the search goes on by words meanwhile. Each
+  search compares the message with every eligible request's vector in SQL, which is instant for
+  the tens of requests a scope holds today and fine into the low thousands. Past about 5,000 in one
+  correlation scope it needs an index instead (pgvector's HNSW), and the Postgres image would have
+  to carry that extension.
 
 Ranking then chooses at most twenty options: a proven occurrence identity first, then a shared
 identifier (worth more than any wording), then thread gravity, then relevance (wording and meaning
