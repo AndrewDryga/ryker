@@ -65,7 +65,7 @@ defmodule Ryker.Admission.CandidateSearch do
   @spec search(map()) :: %{selected: [pooled()], pool: [pooled()], receipt: map()}
   def search(request) do
     scope = request.scope
-    identifiers = RoutingDigests.identifiers([request.text])
+    identifiers = request[:identifiers] || RoutingDigests.identifiers([request.text])
     anchors = RoutingDigests.anchor_keys(identifiers)
     words = RoutingDigests.search_words(request.text)
     weights = word_weights(request, scope, words)
