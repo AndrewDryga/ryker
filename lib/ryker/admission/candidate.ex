@@ -166,11 +166,14 @@ defmodule Ryker.Admission.Candidate do
   # Why the host offered this candidate, as labels a reader can use. The raw
   # rank features stay in the snapshot: their points and lanes are retrieval
   # internals with no scale the model could act on.
-  @evidence ~w(source_owner occurrence_identity direct_references same_thread same_conversation topic_fit)
-  # The text rank is rank / (rank + 1) over weighted words: 0.1 for each
-  # shared word in the messages, 0.2 more in the opening or latest message,
-  # 0.4 in the title. A few shared words reach this; one or two do not.
+  @evidence ~w(source_owner occurrence_identity direct_references same_thread same_conversation topic_fit meaning)
+  # Topic fit is the share of what the message says, weighted by how rare
+  # each word is, that the work's title and messages also say
+  # (`Ryker.Admission.CandidateSearch`): half of it is similar wording.
   @similar_wording 0.5
+  # bge-m3 cosine from which two texts are about the same thing; unrelated
+  # text sits near 0.4 to 0.5 (the routing search benchmark).
+  @similar_meaning 0.6
 
   defp evidence(match) when is_map(match) do
     @evidence
@@ -195,6 +198,10 @@ defmodule Ryker.Admission.Candidate do
 
   defp evidence_label("topic_fit", fit, _match) when is_number(fit) and fit >= @similar_wording,
     do: "similar wording"
+
+  defp evidence_label("meaning", similarity, _match)
+       when is_number(similarity) and similarity >= @similar_meaning,
+       do: "similar meaning"
 
   defp evidence_label(_feature, _value, _match), do: nil
 

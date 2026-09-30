@@ -280,6 +280,65 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     assert LazyHTML.text(document) =~ "Nothing found, so routing had no earlier work to consider."
   end
 
+  # Andrew, 2026-09-30, of a card whose wording chips read "run git log
+  # oneline repository three latest commit subjects. read change nothing.":
+  # "I think the way we search is rudimentary". The card now shows only the
+  # words that tell work apart, says which were too common, and shows the
+  # search by meaning, or why it did not run.
+  test "a search shows the telling words, the common ones it left out, and its search by meaning" do
+    lanes = %{
+      "identity" => %{"returned" => 0, "saturated" => false},
+      "meaning" => %{"returned" => 2, "saturated" => false},
+      "recent_active" => %{"returned" => 0, "saturated" => false},
+      "text" => %{"returned" => 1, "saturated" => false},
+      "thread" => %{"returned" => 0, "saturated" => false}
+    }
+
+    receipt = %{
+      "cutoff_reason" => "every eligible candidate was offered",
+      "eligible_conversations" => 1,
+      "examined" => 2,
+      "lanes" => lanes,
+      "offered" => 2,
+      "omitted" => 0,
+      "scope" => "conversation",
+      "words" => ["oneline", "commit"],
+      "common_words" => ["run", "change"],
+      "identifiers" => [],
+      "in_thread" => false,
+      "meaning" => %{"model" => "bge-m3"},
+      "history_since" => "2026-09-16T20:01:29Z",
+      "conversation_refs" => ["control-plane:lab:one"]
+    }
+
+    {entry, episode} = admitted!(%{"routing_receipt" => receipt})
+    search = "event-search-#{entry.id}-1"
+    document = episode |> rendered() |> LazyHTML.from_document() |> LazyHTML.query("##{search}")
+
+    methods =
+      document
+      |> LazyHTML.query(".search-methods li")
+      |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
+
+    assert Enum.any?(methods, &String.starts_with?(&1, "Similar meaning"))
+
+    assert document |> LazyHTML.query(".search-method-used code") |> Enum.map(&LazyHTML.text/1) ==
+             ["oneline", "commit"]
+
+    notes = document |> LazyHTML.query(".search-method-note") |> Enum.map(&LazyHTML.text/1)
+    assert "left out as too common: run, change" in notes
+    assert "compared by bge-m3 in any language" in notes
+
+    stopped =
+      put_in(receipt, ["meaning"], %{"unavailable" => "the embedding server could not be reached"})
+
+    {entry, episode} = admitted!(%{"routing_receipt" => stopped})
+    search = "event-search-#{entry.id}-1"
+    document = episode |> rendered() |> LazyHTML.from_document() |> LazyHTML.query("##{search}")
+    notes = document |> LazyHTML.query(".search-method-note") |> Enum.map(&LazyHTML.text/1)
+    assert "the embedding server could not be reached, so this search did not run" in notes
+  end
+
   test "an attempt without its own search record has no search card" do
     {entry, _episode} = admitted!(nil)
     {:ok, view} = ModelRequests.project_input(entry.id, %{})

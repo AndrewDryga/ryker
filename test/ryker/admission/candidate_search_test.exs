@@ -152,7 +152,18 @@ defmodule Ryker.Admission.CandidateSearchTest do
         text: "Terraform run run-TT4LiosRo6Eh8Rnq needs confirmation for blitz-infra"
       )
 
-    for index <- 1..60 do
+    # Enough other work that "terraform" still tells work apart (a word in
+    # more than a quarter of it would not), and more Terraform work than the
+    # wording lane returns.
+    for index <- 1..160 do
+      episode!("routing:lane-other-#{index}",
+        channel_ref: "CDEVOPS",
+        text: "Deploy #{index} of the marketing website finished",
+        updated_at: DateTime.add(@now, -1_000 - index, :second)
+      )
+    end
+
+    for index <- 1..50 do
       episode!("routing:lane-filler-#{index}",
         channel_ref: "CDEVOPS",
         text: "Terraform plan summary #{index}",

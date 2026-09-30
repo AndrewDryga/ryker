@@ -1,0 +1,1921 @@
+{
+  "provenance": "Routing search benchmark, 2026-09-30. Andrew asked whether routing's search for earlier work would hold up in real life. Work W01 and W05 open with alerts harvested from live (testdata/learning/retained-haproxy-lifecycle.json and retained-auth-memory-recurrence.json), W06 with the harvested Slack thread in retained-draft-keep-thread.json, W02-W04 follow the world scenarios one-outage-two-channels-joins-one-episode and similar-alert-different-environment-stays-separate, W20 is the request in Andrew's screenshot; the rest are written the way the team talks. Titles are the one line Work writes when it names a request. Each message names the work it belongs to, or null for a new request. Add every real miss here. Distractors (D001-D150) are routine work a busy team has in a month, generated from templates over twenty services and six hosts so that the search has to rank, not just return everything. Follow-ups without a subject (\"any update on this?\") belong to the most recent running work in their channel: nothing but where and when ties them to it.",
+  "channels": [
+    "CALERTS",
+    "CDEVOPS",
+    "CENGINEERING",
+    "CGENERAL"
+  ],
+  "work": [
+    {
+      "id": "W01",
+      "channel": "CALERTS",
+      "hours_ago": 48,
+      "state": "complete",
+      "title": "Website haproxy-edge OOM-killed on nomad-hvn01",
+      "messages": [
+        "[VA1 FIRING:1] WARNING | Host OOM kills. Kernel OOM-killed website/haproxy-edge (haproxy) on nomad-hvn01. OOM constraint CONSTRAINT_MEMCG. CONSTRAINT_MEMCG means the workload cgroup reached its limit; it does not by itself mean the host ran out of RAM. Nomad job: website. Allocation: 311e38f3-a17c-7d1b-1235-05c256ba3c39. Task: haproxy-edge. Process: haproxy. Instance: nomad-hvn01"
+      ]
+    },
+    {
+      "id": "W02",
+      "channel": "CDEVOPS",
+      "hours_ago": 0.3,
+      "state": "working",
+      "title": "Postgres primary pgsql-prod-01 unreachable, replication stalled",
+      "messages": [
+        "[FIRING:1] PostgresPrimaryUnreachable production. host: pgsql-prod-01. Replication from pgsql-prod-01 has been stalled for 6 minutes and reads are failing over to the replica."
+      ]
+    },
+    {
+      "id": "W03",
+      "channel": "CALERTS",
+      "hours_ago": 0.5,
+      "state": "working",
+      "title": "Checkout p99 latency high in production",
+      "messages": [
+        "[FIRING:1] CheckoutLatencyHigh production. service: checkout. environment: production. run: run-7f2a1c. Checkout p99 latency is above 2s for 10 minutes."
+      ]
+    },
+    {
+      "id": "W04",
+      "channel": "CALERTS",
+      "hours_ago": 72,
+      "state": "complete",
+      "title": "Checkout p99 latency high in staging",
+      "messages": [
+        "[FIRING:1] CheckoutLatencyHigh staging. service: checkout. environment: staging. run: run-9b83de. Checkout p99 latency is above 2s for 10 minutes."
+      ]
+    },
+    {
+      "id": "W05",
+      "channel": "CALERTS",
+      "hours_ago": 120,
+      "state": "complete",
+      "title": "auth resident memory near its limit on nomad-hvn02",
+      "messages": [
+        "[VA1 FIRING:1] WARNING | Alloc resident memory near limit. auth/auth resident memory and swap exceed 95% of its limit. OOM-kill risk after excluding reclaimable file cache; raise the limit or fix the leak. Service: cluster. Component: nomad-agent. Nomad job: auth. Namespace: blitz-apps-backend. Task: auth. Instance: nomad-hvn02"
+      ]
+    },
+    {
+      "id": "W06",
+      "channel": "CENGINEERING",
+      "hours_ago": 30,
+      "state": "complete",
+      "title": "Keep the draft-ai-suggestions cloud function",
+      "messages": [
+        "do we need this cloud function or I can delete it? https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports",
+        "draft-ai-suggestions, planning to look into it at some point, let's keep it"
+      ]
+    },
+    {
+      "id": "W07",
+      "channel": "CDEVOPS",
+      "hours_ago": 5,
+      "state": "waiting_for_input",
+      "title": "Review the Terraform plan for the network stack",
+      "messages": [
+        "Terraform plan for network: 3 to add, 1 to change, 0 to destroy (run run-4411). Please review before apply."
+      ]
+    },
+    {
+      "id": "W08",
+      "channel": "CENGINEERING",
+      "hours_ago": 26,
+      "state": "complete",
+      "title": "Review PR #482: rate limiter for webhook ingress",
+      "messages": [
+        "Please review https://github.com/AndrewDryga/ryker/pull/482 - adds a rate limiter to webhook ingress"
+      ]
+    },
+    {
+      "id": "W09",
+      "channel": "CDEVOPS",
+      "hours_ago": 6,
+      "state": "complete",
+      "title": "payments-api v2.14.0 production deploy",
+      "messages": [
+        "Deploy of payments-api v2.14.0 to production started",
+        "error rate went up after the payments-api deploy, should we roll back?"
+      ]
+    },
+    {
+      "id": "W10",
+      "channel": "CDEVOPS",
+      "hours_ago": 50,
+      "state": "complete",
+      "title": "CI runner ci-runner-3 out of disk",
+      "messages": [
+        "ci-runner-3 disk is 97% full and builds are failing with ENOSPC"
+      ]
+    },
+    {
+      "id": "W11",
+      "channel": "CALERTS",
+      "hours_ago": 20,
+      "state": "waiting_for_event",
+      "title": "TLS certificate for api.example.com expires soon",
+      "messages": [
+        "[FIRING:1] CertificateExpiringSoon. The TLS certificate for api.example.com expires in 7 days."
+      ]
+    },
+    {
+      "id": "W12",
+      "channel": "CGENERAL",
+      "hours_ago": 30,
+      "state": "complete",
+      "title": "On-call cover next week",
+      "messages": [
+        "who is on call next week while Olena is on vacation?"
+      ]
+    },
+    {
+      "id": "W13",
+      "channel": "CALERTS",
+      "hours_ago": 1,
+      "state": "working",
+      "title": "orders-consumer Kafka consumer lag",
+      "messages": [
+        "[FIRING:1] KafkaConsumerLagHigh. consumer group orders-consumer lag is 120k messages on topic orders."
+      ]
+    },
+    {
+      "id": "W14",
+      "channel": "CDEVOPS",
+      "hours_ago": 240,
+      "state": "complete",
+      "title": "DNS SERVFAIL for example.com",
+      "messages": [
+        "customers report the site does not load; DNS for example.com returns SERVFAIL"
+      ]
+    },
+    {
+      "id": "W15",
+      "channel": "CDEVOPS",
+      "hours_ago": 96,
+      "state": "complete",
+      "title": "jobs-worker memory leak after deploy",
+      "messages": [
+        "jobs-worker memory keeps growing after yesterday's deploy until the container restarts"
+      ]
+    },
+    {
+      "id": "W16",
+      "channel": "CENGINEERING",
+      "hours_ago": 60,
+      "state": "complete",
+      "title": "Grafana panel for checkout error rate",
+      "messages": [
+        "can you add a Grafana panel for the checkout error rate?"
+      ]
+    },
+    {
+      "id": "W17",
+      "channel": "CDEVOPS",
+      "hours_ago": 168,
+      "state": "complete",
+      "title": "Slow orders queries on pgsql-prod-02",
+      "messages": [
+        "slow queries on pgsql-prod-02: the orders table is doing a sequential scan on every lookup"
+      ]
+    },
+    {
+      "id": "W18",
+      "channel": "CGENERAL",
+      "hours_ago": 8,
+      "state": "complete",
+      "title": "Card payments failing for customers in Mexico",
+      "messages": [
+        "El pago con tarjeta falla para los clientes en México, el checkout devuelve error 502"
+      ]
+    },
+    {
+      "id": "W19",
+      "channel": "CDEVOPS",
+      "hours_ago": 20,
+      "state": "complete",
+      "title": "Nightly database backups failed",
+      "messages": [
+        "Перевір, будь ласка, чому нічні бекапи бази даних не пройшли"
+      ]
+    },
+    {
+      "id": "W20",
+      "channel": "CGENERAL",
+      "hours_ago": 3,
+      "state": "complete",
+      "title": "Latest three commit subjects",
+      "messages": [
+        "Please run git log --oneline -3 in the repository and tell me the latest three commit subjects"
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "kind": "identity",
+      "channel": "CENGINEERING",
+      "text": "Is pgsql-prod-01 still unreachable? Reads are timing out for us.",
+      "expect": "W02"
+    },
+    {
+      "kind": "identity",
+      "channel": "CGENERAL",
+      "text": "run-7f2a1c is still red, any news?",
+      "expect": "W03"
+    },
+    {
+      "kind": "identity",
+      "channel": "CGENERAL",
+      "text": "https://github.com/AndrewDryga/ryker/pull/482 got new commits, can you look again?",
+      "expect": "W08"
+    },
+    {
+      "kind": "wording",
+      "channel": "CGENERAL",
+      "text": "haproxy got OOM killed on the website again?",
+      "expect": "W01"
+    },
+    {
+      "kind": "wording",
+      "channel": "CGENERAL",
+      "text": "Is the orders consumer lag going down?",
+      "expect": "W13"
+    },
+    {
+      "kind": "wording",
+      "channel": "CGENERAL",
+      "text": "did anyone approve the terraform network plan?",
+      "expect": "W07"
+    },
+    {
+      "kind": "wording",
+      "channel": "CGENERAL",
+      "text": "run git log --oneline in the repository and tell me the latest three commit subjects. read only, change nothing.",
+      "expect": "W20"
+    },
+    {
+      "kind": "paraphrase",
+      "channel": "CGENERAL",
+      "text": "The load balancer in front of the website keeps getting killed for using too much RAM",
+      "expect": "W01"
+    },
+    {
+      "kind": "paraphrase",
+      "channel": "CGENERAL",
+      "text": "Paying takes forever for customers right now",
+      "expect": "W03"
+    },
+    {
+      "kind": "paraphrase",
+      "channel": "CGENERAL",
+      "text": "Builds keep failing because the build machine has no space left",
+      "expect": "W10"
+    },
+    {
+      "kind": "paraphrase",
+      "channel": "CGENERAL",
+      "text": "Our HTTPS cert for the API is about to run out, did someone renew it?",
+      "expect": "W11"
+    },
+    {
+      "kind": "paraphrase",
+      "channel": "CGENERAL",
+      "text": "Is the main database back? The replica stopped copying data.",
+      "expect": "W02"
+    },
+    {
+      "kind": "language",
+      "channel": "CGENERAL",
+      "text": "База даних у продакшені досі недоступна?",
+      "expect": "W02"
+    },
+    {
+      "kind": "language",
+      "channel": "CGENERAL",
+      "text": "Чекаут знову гальмує, що там із затримкою?",
+      "expect": "W03"
+    },
+    {
+      "kind": "language",
+      "channel": "CGENERAL",
+      "text": "¿Ya se arregló el problema de memoria de HAProxy en la web?",
+      "expect": "W01"
+    },
+    {
+      "kind": "language",
+      "channel": "CGENERAL",
+      "text": "¿El disco del runner de CI sigue lleno?",
+      "expect": "W10"
+    },
+    {
+      "kind": "language",
+      "channel": "CGENERAL",
+      "text": "Хто чергує наступного тижня, поки Олена у відпустці?",
+      "expect": "W12"
+    },
+    {
+      "kind": "language",
+      "channel": "CGENERAL",
+      "text": "Are card payments in Mexico working again?",
+      "expect": "W18"
+    },
+    {
+      "kind": "language",
+      "channel": "CGENERAL",
+      "text": "Did the nightly database backups pass this time?",
+      "expect": "W19"
+    },
+    {
+      "kind": "lookalike",
+      "channel": "CGENERAL",
+      "text": "Checkout p99 latency is high in staging again",
+      "expect": "W04"
+    },
+    {
+      "kind": "lookalike",
+      "channel": "CGENERAL",
+      "text": "auth memory is near its limit again",
+      "expect": "W05"
+    },
+    {
+      "kind": "lookalike",
+      "channel": "CGENERAL",
+      "text": "slow queries on pgsql-prod-02 are back",
+      "expect": "W17"
+    },
+    {
+      "kind": "new",
+      "channel": "CGENERAL",
+      "text": "What's the weather like in Lisbon this week?",
+      "expect": null
+    },
+    {
+      "kind": "new",
+      "channel": "CGENERAL",
+      "text": "Please write a haiku about Kubernetes",
+      "expect": null
+    },
+    {
+      "kind": "new",
+      "channel": "CGENERAL",
+      "text": "Can you explain how our retention settings work?",
+      "expect": null
+    },
+    {
+      "kind": "new",
+      "channel": "CGENERAL",
+      "text": "Add a README section about installing Ryker",
+      "expect": null
+    },
+    {
+      "kind": "new",
+      "channel": "CGENERAL",
+      "text": "hi",
+      "expect": null
+    },
+    {
+      "kind": "new",
+      "channel": "CGENERAL",
+      "text": "thanks, that's all for today",
+      "expect": null
+    },
+    {
+      "kind": "followup",
+      "channel": "CDEVOPS",
+      "text": "any update on this?",
+      "expect": "W02"
+    },
+    {
+      "kind": "followup",
+      "channel": "CDEVOPS",
+      "text": "how is it going?",
+      "expect": "W02"
+    },
+    {
+      "kind": "followup",
+      "channel": "CALERTS",
+      "text": "is it fixed yet?",
+      "expect": "W03"
+    },
+    {
+      "kind": "followup",
+      "channel": "CALERTS",
+      "text": "any news on the database?",
+      "expect": "W02"
+    },
+    {
+      "kind": "followup",
+      "channel": "CENGINEERING",
+      "text": "any update?",
+      "expect": "D035"
+    },
+    {
+      "kind": "followup",
+      "channel": "CGENERAL",
+      "text": "is there any progress on this?",
+      "expect": "D055"
+    }
+  ],
+  "distractors": [
+    {
+      "id": "D001",
+      "channel": "CALERTS",
+      "hours_ago": 396.8,
+      "state": "complete",
+      "title": "Feature flag for shipping emails",
+      "messages": [
+        "add a feature flag to turn off shipping emails for inactive users"
+      ]
+    },
+    {
+      "id": "D002",
+      "channel": "CENGINEERING",
+      "hours_ago": 54.1,
+      "state": "complete",
+      "title": "es-node-05 memory usage high",
+      "messages": [
+        "[FIRING:1] HostMemoryHigh. es-node-05 memory usage above 85% for 15 minutes"
+      ]
+    },
+    {
+      "id": "D003",
+      "channel": "CENGINEERING",
+      "hours_ago": 311.6,
+      "state": "complete",
+      "title": "feature-flags Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for feature-flags is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D004",
+      "channel": "CENGINEERING",
+      "hours_ago": 102.7,
+      "state": "complete",
+      "title": "audit-log latency spike after cache flush",
+      "messages": [
+        "audit-log p95 latency went up to 900ms after the cache flush, now back to normal"
+      ]
+    },
+    {
+      "id": "D005",
+      "channel": "CALERTS",
+      "hours_ago": 370.9,
+      "state": "complete",
+      "title": "billing v4.21.9 production deploy",
+      "messages": [
+        "Deploy of billing v4.21.9 to production finished"
+      ]
+    },
+    {
+      "id": "D006",
+      "channel": "CENGINEERING",
+      "hours_ago": 305.3,
+      "state": "complete",
+      "title": "Rotate the feature-flags API key",
+      "messages": [
+        "can someone rotate the feature-flags API key before Friday?"
+      ]
+    },
+    {
+      "id": "D007",
+      "channel": "CALERTS",
+      "hours_ago": 201.6,
+      "state": "complete",
+      "title": "pgsql-analytics-01 disk space low",
+      "messages": [
+        "[FIRING:1] DiskSpaceLow. pgsql-analytics-01 root volume at 88%"
+      ]
+    },
+    {
+      "id": "D008",
+      "channel": "CALERTS",
+      "hours_ago": 658.1,
+      "state": "complete",
+      "title": "recommendations migration finished",
+      "messages": [
+        "recommendations database migration 2026061_add_index finished in 4 minutes"
+      ]
+    },
+    {
+      "id": "D009",
+      "channel": "CENGINEERING",
+      "hours_ago": 234.8,
+      "state": "working",
+      "title": "Feature flag for session-store emails",
+      "messages": [
+        "add a feature flag to turn off session-store emails for inactive users"
+      ]
+    },
+    {
+      "id": "D010",
+      "channel": "CENGINEERING",
+      "hours_ago": 45.2,
+      "state": "complete",
+      "title": "Feature flag for billing emails",
+      "messages": [
+        "add a feature flag to turn off billing emails for inactive users"
+      ]
+    },
+    {
+      "id": "D011",
+      "channel": "CALERTS",
+      "hours_ago": 672.4,
+      "state": "complete",
+      "title": "Review PR #839: pricing fix flaky integration test",
+      "messages": [
+        "Please review PR #839: pricing fix flaky integration test"
+      ]
+    },
+    {
+      "id": "D012",
+      "channel": "CGENERAL",
+      "hours_ago": 576.8,
+      "state": "complete",
+      "title": "admin-panel Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for admin-panel is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D013",
+      "channel": "CDEVOPS",
+      "hours_ago": 11.1,
+      "state": "complete",
+      "title": "Review PR #658: user-profile remove the deprecated v1 endpoint",
+      "messages": [
+        "Please review PR #658: user-profile remove the deprecated v1 endpoint"
+      ]
+    },
+    {
+      "id": "D014",
+      "channel": "CGENERAL",
+      "hours_ago": 568.5,
+      "state": "working",
+      "title": "audit-log log retention in Loki",
+      "messages": [
+        "what's the retention period for audit-log logs in Loki?"
+      ]
+    },
+    {
+      "id": "D015",
+      "channel": "CGENERAL",
+      "hours_ago": 373.5,
+      "state": "working",
+      "title": "media-cdn health check flapping on k8s-worker-7",
+      "messages": [
+        "media-cdn health check is flapping on k8s-worker-7"
+      ]
+    },
+    {
+      "id": "D016",
+      "channel": "CDEVOPS",
+      "hours_ago": 277.9,
+      "state": "complete",
+      "title": "analytics error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] AnalyticsHighErrorRate production. service: analytics. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D017",
+      "channel": "CENGINEERING",
+      "hours_ago": 477.5,
+      "state": "complete",
+      "title": "image-resizer error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] ImageResizerHighErrorRate production. service: image-resizer. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D018",
+      "channel": "CGENERAL",
+      "hours_ago": 402.8,
+      "state": "complete",
+      "title": "mobile-backend health check flapping on nomad-hvn04",
+      "messages": [
+        "mobile-backend health check is flapping on nomad-hvn04"
+      ]
+    },
+    {
+      "id": "D019",
+      "channel": "CENGINEERING",
+      "hours_ago": 353.3,
+      "state": "working",
+      "title": "geo-service migration finished",
+      "messages": [
+        "geo-service database migration 2026091_add_index finished in 4 minutes"
+      ]
+    },
+    {
+      "id": "D020",
+      "channel": "CENGINEERING",
+      "hours_ago": 170.2,
+      "state": "complete",
+      "title": "admin-panel latency spike after cache flush",
+      "messages": [
+        "admin-panel p95 latency went up to 900ms after the cache flush, now back to normal"
+      ]
+    },
+    {
+      "id": "D021",
+      "channel": "CGENERAL",
+      "hours_ago": 558.1,
+      "state": "complete",
+      "title": "recommendations error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] RecommendationsHighErrorRate production. service: recommendations. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D022",
+      "channel": "CGENERAL",
+      "hours_ago": 14.9,
+      "state": "complete",
+      "title": "image-resizer health check flapping on es-node-05",
+      "messages": [
+        "image-resizer health check is flapping on es-node-05"
+      ]
+    },
+    {
+      "id": "D023",
+      "channel": "CDEVOPS",
+      "hours_ago": 666.4,
+      "state": "complete",
+      "title": "Feature flag for feature-flags emails",
+      "messages": [
+        "add a feature flag to turn off feature-flags emails for inactive users"
+      ]
+    },
+    {
+      "id": "D024",
+      "channel": "CGENERAL",
+      "hours_ago": 134.2,
+      "state": "complete",
+      "title": "analytics error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] AnalyticsHighErrorRate production. service: analytics. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D025",
+      "channel": "CDEVOPS",
+      "hours_ago": 571.7,
+      "state": "complete",
+      "title": "mobile-backend error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] MobileBackendHighErrorRate production. service: mobile-backend. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D026",
+      "channel": "CDEVOPS",
+      "hours_ago": 348.7,
+      "state": "complete",
+      "title": "session-store log retention in Loki",
+      "messages": [
+        "what's the retention period for session-store logs in Loki?"
+      ]
+    },
+    {
+      "id": "D027",
+      "channel": "CDEVOPS",
+      "hours_ago": 184.7,
+      "state": "complete",
+      "title": "Owner of geo-service",
+      "messages": [
+        "who owns the geo-service service now that Taras moved teams?"
+      ]
+    },
+    {
+      "id": "D028",
+      "channel": "CALERTS",
+      "hours_ago": 137.4,
+      "state": "complete",
+      "title": "Feature flag for media-cdn emails",
+      "messages": [
+        "add a feature flag to turn off media-cdn emails for inactive users"
+      ]
+    },
+    {
+      "id": "D029",
+      "channel": "CENGINEERING",
+      "hours_ago": 393.4,
+      "state": "complete",
+      "title": "Review PR #474: session-store cache the token lookups",
+      "messages": [
+        "Please review PR #474: session-store cache the token lookups"
+      ]
+    },
+    {
+      "id": "D030",
+      "channel": "CALERTS",
+      "hours_ago": 619.3,
+      "state": "complete",
+      "title": "k8s-worker-7 disk space low",
+      "messages": [
+        "[FIRING:1] DiskSpaceLow. k8s-worker-7 root volume at 88%"
+      ]
+    },
+    {
+      "id": "D031",
+      "channel": "CALERTS",
+      "hours_ago": 411.7,
+      "state": "complete",
+      "title": "Rotate the notifications API key",
+      "messages": [
+        "can someone rotate the notifications API key before Friday?"
+      ]
+    },
+    {
+      "id": "D032",
+      "channel": "CDEVOPS",
+      "hours_ago": 427.9,
+      "state": "complete",
+      "title": "Review PR #351: shipping remove the deprecated v1 endpoint",
+      "messages": [
+        "Please review PR #351: shipping remove the deprecated v1 endpoint"
+      ]
+    },
+    {
+      "id": "D033",
+      "channel": "CDEVOPS",
+      "hours_ago": 358.4,
+      "state": "complete",
+      "title": "Feature flag for feature-flags emails",
+      "messages": [
+        "add a feature flag to turn off feature-flags emails for inactive users"
+      ]
+    },
+    {
+      "id": "D034",
+      "channel": "CENGINEERING",
+      "hours_ago": 510.4,
+      "state": "complete",
+      "title": "Feature flag for session-store emails",
+      "messages": [
+        "add a feature flag to turn off session-store emails for inactive users"
+      ]
+    },
+    {
+      "id": "D035",
+      "channel": "CENGINEERING",
+      "hours_ago": 70.9,
+      "state": "working",
+      "title": "admin-panel queue depth growing",
+      "messages": [
+        "admin-panel queue depth is growing, workers look stuck"
+      ]
+    },
+    {
+      "id": "D036",
+      "channel": "CGENERAL",
+      "hours_ago": 406.9,
+      "state": "complete",
+      "title": "mobile-backend log retention in Loki",
+      "messages": [
+        "what's the retention period for mobile-backend logs in Loki?"
+      ]
+    },
+    {
+      "id": "D037",
+      "channel": "CDEVOPS",
+      "hours_ago": 398.4,
+      "state": "complete",
+      "title": "analytics latency spike after cache flush",
+      "messages": [
+        "analytics p95 latency went up to 900ms after the cache flush, now back to normal"
+      ]
+    },
+    {
+      "id": "D038",
+      "channel": "CENGINEERING",
+      "hours_ago": 478.7,
+      "state": "working",
+      "title": "inventory error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] InventoryHighErrorRate production. service: inventory. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D039",
+      "channel": "CDEVOPS",
+      "hours_ago": 305.4,
+      "state": "complete",
+      "title": "admin-panel Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for admin-panel is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D040",
+      "channel": "CGENERAL",
+      "hours_ago": 532.1,
+      "state": "complete",
+      "title": "media-cdn Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for media-cdn is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D041",
+      "channel": "CGENERAL",
+      "hours_ago": 422.0,
+      "state": "complete",
+      "title": "es-node-05 disk space low",
+      "messages": [
+        "[FIRING:1] DiskSpaceLow. es-node-05 root volume at 88%"
+      ]
+    },
+    {
+      "id": "D042",
+      "channel": "CGENERAL",
+      "hours_ago": 436.1,
+      "state": "complete",
+      "title": "notifications nightly job slow",
+      "messages": [
+        "the notifications nightly job took 2 hours instead of 20 minutes last night"
+      ]
+    },
+    {
+      "id": "D043",
+      "channel": "CDEVOPS",
+      "hours_ago": 436.1,
+      "state": "complete",
+      "title": "mobile-backend Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for mobile-backend is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D044",
+      "channel": "CALERTS",
+      "hours_ago": 247.8,
+      "state": "working",
+      "title": "k8s-worker-7 memory usage high",
+      "messages": [
+        "[FIRING:1] HostMemoryHigh. k8s-worker-7 memory usage above 85% for 15 minutes"
+      ]
+    },
+    {
+      "id": "D045",
+      "channel": "CGENERAL",
+      "hours_ago": 140.3,
+      "state": "complete",
+      "title": "Rotate the admin-panel API key",
+      "messages": [
+        "can someone rotate the admin-panel API key before Friday?"
+      ]
+    },
+    {
+      "id": "D046",
+      "channel": "CGENERAL",
+      "hours_ago": 150.6,
+      "state": "complete",
+      "title": "image-resizer latency spike after cache flush",
+      "messages": [
+        "image-resizer p95 latency went up to 900ms after the cache flush, now back to normal"
+      ]
+    },
+    {
+      "id": "D047",
+      "channel": "CDEVOPS",
+      "hours_ago": 350.9,
+      "state": "complete",
+      "title": "Owner of billing",
+      "messages": [
+        "who owns the billing service now that Taras moved teams?"
+      ]
+    },
+    {
+      "id": "D048",
+      "channel": "CGENERAL",
+      "hours_ago": 81.3,
+      "state": "complete",
+      "title": "Rotate the mailer API key",
+      "messages": [
+        "can someone rotate the mailer API key before Friday?"
+      ]
+    },
+    {
+      "id": "D049",
+      "channel": "CALERTS",
+      "hours_ago": 270.2,
+      "state": "complete",
+      "title": "pgsql-analytics-01 memory usage high",
+      "messages": [
+        "[FIRING:1] HostMemoryHigh. pgsql-analytics-01 memory usage above 85% for 15 minutes"
+      ]
+    },
+    {
+      "id": "D050",
+      "channel": "CGENERAL",
+      "hours_ago": 137.1,
+      "state": "complete",
+      "title": "billing Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for billing is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D051",
+      "channel": "CDEVOPS",
+      "hours_ago": 640.2,
+      "state": "complete",
+      "title": "reporting latency spike after cache flush",
+      "messages": [
+        "reporting p95 latency went up to 900ms after the cache flush, now back to normal"
+      ]
+    },
+    {
+      "id": "D052",
+      "channel": "CALERTS",
+      "hours_ago": 395.0,
+      "state": "working",
+      "title": "Rotate the mailer API key",
+      "messages": [
+        "can someone rotate the mailer API key before Friday?"
+      ]
+    },
+    {
+      "id": "D053",
+      "channel": "CENGINEERING",
+      "hours_ago": 556.8,
+      "state": "complete",
+      "title": "notifications log retention in Loki",
+      "messages": [
+        "what's the retention period for notifications logs in Loki?"
+      ]
+    },
+    {
+      "id": "D054",
+      "channel": "CGENERAL",
+      "hours_ago": 627.9,
+      "state": "complete",
+      "title": "billing latency spike after cache flush",
+      "messages": [
+        "billing p95 latency went up to 900ms after the cache flush, now back to normal"
+      ]
+    },
+    {
+      "id": "D055",
+      "channel": "CGENERAL",
+      "hours_ago": 32.6,
+      "state": "working",
+      "title": "Feature flag for analytics emails",
+      "messages": [
+        "add a feature flag to turn off analytics emails for inactive users"
+      ]
+    },
+    {
+      "id": "D056",
+      "channel": "CGENERAL",
+      "hours_ago": 463.6,
+      "state": "complete",
+      "title": "Owner of cms",
+      "messages": [
+        "who owns the cms service now that Taras moved teams?"
+      ]
+    },
+    {
+      "id": "D057",
+      "channel": "CGENERAL",
+      "hours_ago": 67.1,
+      "state": "complete",
+      "title": "redis-cache-02 disk space low",
+      "messages": [
+        "[FIRING:1] DiskSpaceLow. redis-cache-02 root volume at 88%"
+      ]
+    },
+    {
+      "id": "D058",
+      "channel": "CALERTS",
+      "hours_ago": 298.7,
+      "state": "complete",
+      "title": "admin-panel Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for admin-panel is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D059",
+      "channel": "CDEVOPS",
+      "hours_ago": 36.9,
+      "state": "complete",
+      "title": "pricing nightly job slow",
+      "messages": [
+        "the pricing nightly job took 2 hours instead of 20 minutes last night"
+      ]
+    },
+    {
+      "id": "D060",
+      "channel": "CDEVOPS",
+      "hours_ago": 480.5,
+      "state": "complete",
+      "title": "admin-panel queue depth growing",
+      "messages": [
+        "admin-panel queue depth is growing, workers look stuck"
+      ]
+    },
+    {
+      "id": "D061",
+      "channel": "CENGINEERING",
+      "hours_ago": 455.7,
+      "state": "complete",
+      "title": "es-node-05 disk space low",
+      "messages": [
+        "[FIRING:1] DiskSpaceLow. es-node-05 root volume at 88%"
+      ]
+    },
+    {
+      "id": "D062",
+      "channel": "CALERTS",
+      "hours_ago": 55.3,
+      "state": "complete",
+      "title": "geo-service migration finished",
+      "messages": [
+        "geo-service database migration 2026081_add_index finished in 4 minutes"
+      ]
+    },
+    {
+      "id": "D063",
+      "channel": "CALERTS",
+      "hours_ago": 8.1,
+      "state": "complete",
+      "title": "Review PR #329: inventory paginate the export endpoint",
+      "messages": [
+        "Please review PR #329: inventory paginate the export endpoint"
+      ]
+    },
+    {
+      "id": "D064",
+      "channel": "CGENERAL",
+      "hours_ago": 649.2,
+      "state": "complete",
+      "title": "session-store health check flapping on es-node-05",
+      "messages": [
+        "session-store health check is flapping on es-node-05"
+      ]
+    },
+    {
+      "id": "D065",
+      "channel": "CDEVOPS",
+      "hours_ago": 582.4,
+      "state": "working",
+      "title": "Feature flag for image-resizer emails",
+      "messages": [
+        "add a feature flag to turn off image-resizer emails for inactive users"
+      ]
+    },
+    {
+      "id": "D066",
+      "channel": "CGENERAL",
+      "hours_ago": 346.7,
+      "state": "complete",
+      "title": "audit-log v2.12.4 production deploy",
+      "messages": [
+        "Deploy of audit-log v2.12.4 to production finished"
+      ]
+    },
+    {
+      "id": "D067",
+      "channel": "CALERTS",
+      "hours_ago": 125.9,
+      "state": "complete",
+      "title": "admin-panel error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] AdminPanelHighErrorRate production. service: admin-panel. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D068",
+      "channel": "CGENERAL",
+      "hours_ago": 385.4,
+      "state": "complete",
+      "title": "user-profile nightly job slow",
+      "messages": [
+        "the user-profile nightly job took 2 hours instead of 20 minutes last night"
+      ]
+    },
+    {
+      "id": "D069",
+      "channel": "CGENERAL",
+      "hours_ago": 417.5,
+      "state": "complete",
+      "title": "Feature flag for session-store emails",
+      "messages": [
+        "add a feature flag to turn off session-store emails for inactive users"
+      ]
+    },
+    {
+      "id": "D070",
+      "channel": "CENGINEERING",
+      "hours_ago": 349.9,
+      "state": "complete",
+      "title": "Feature flag for user-profile emails",
+      "messages": [
+        "add a feature flag to turn off user-profile emails for inactive users"
+      ]
+    },
+    {
+      "id": "D071",
+      "channel": "CENGINEERING",
+      "hours_ago": 203.1,
+      "state": "complete",
+      "title": "feature-flags queue depth growing",
+      "messages": [
+        "feature-flags queue depth is growing, workers look stuck"
+      ]
+    },
+    {
+      "id": "D072",
+      "channel": "CALERTS",
+      "hours_ago": 624.9,
+      "state": "complete",
+      "title": "reporting nightly job slow",
+      "messages": [
+        "the reporting nightly job took 2 hours instead of 20 minutes last night"
+      ]
+    },
+    {
+      "id": "D073",
+      "channel": "CENGINEERING",
+      "hours_ago": 635.6,
+      "state": "complete",
+      "title": "user-profile v1.28.9 production deploy",
+      "messages": [
+        "Deploy of user-profile v1.28.9 to production finished"
+      ]
+    },
+    {
+      "id": "D074",
+      "channel": "CENGINEERING",
+      "hours_ago": 560.0,
+      "state": "complete",
+      "title": "Review PR #667: user-profile remove the deprecated v1 endpoint",
+      "messages": [
+        "Please review PR #667: user-profile remove the deprecated v1 endpoint"
+      ]
+    },
+    {
+      "id": "D075",
+      "channel": "CENGINEERING",
+      "hours_ago": 539.0,
+      "state": "complete",
+      "title": "recommendations log retention in Loki",
+      "messages": [
+        "what's the retention period for recommendations logs in Loki?"
+      ]
+    },
+    {
+      "id": "D076",
+      "channel": "CALERTS",
+      "hours_ago": 582.6,
+      "state": "complete",
+      "title": "geo-service v4.3.4 production deploy",
+      "messages": [
+        "Deploy of geo-service v4.3.4 to production finished"
+      ]
+    },
+    {
+      "id": "D077",
+      "channel": "CENGINEERING",
+      "hours_ago": 518.0,
+      "state": "working",
+      "title": "Review PR #433: inventory fix flaky integration test",
+      "messages": [
+        "Please review PR #433: inventory fix flaky integration test"
+      ]
+    },
+    {
+      "id": "D078",
+      "channel": "CDEVOPS",
+      "hours_ago": 215.2,
+      "state": "complete",
+      "title": "audit-log Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for audit-log is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D079",
+      "channel": "CENGINEERING",
+      "hours_ago": 36.2,
+      "state": "complete",
+      "title": "k8s-worker-7 memory usage high",
+      "messages": [
+        "[FIRING:1] HostMemoryHigh. k8s-worker-7 memory usage above 85% for 15 minutes"
+      ]
+    },
+    {
+      "id": "D080",
+      "channel": "CDEVOPS",
+      "hours_ago": 393.0,
+      "state": "working",
+      "title": "Owner of mailer",
+      "messages": [
+        "who owns the mailer service now that Taras moved teams?"
+      ]
+    },
+    {
+      "id": "D081",
+      "channel": "CGENERAL",
+      "hours_ago": 317.7,
+      "state": "working",
+      "title": "mobile-backend latency spike after cache flush",
+      "messages": [
+        "mobile-backend p95 latency went up to 900ms after the cache flush, now back to normal"
+      ]
+    },
+    {
+      "id": "D082",
+      "channel": "CGENERAL",
+      "hours_ago": 449.0,
+      "state": "complete",
+      "title": "pgsql-analytics-01 disk space low",
+      "messages": [
+        "[FIRING:1] DiskSpaceLow. pgsql-analytics-01 root volume at 88%"
+      ]
+    },
+    {
+      "id": "D083",
+      "channel": "CALERTS",
+      "hours_ago": 514.0,
+      "state": "complete",
+      "title": "nomad-hvn03 disk space low",
+      "messages": [
+        "[FIRING:1] DiskSpaceLow. nomad-hvn03 root volume at 88%"
+      ]
+    },
+    {
+      "id": "D084",
+      "channel": "CDEVOPS",
+      "hours_ago": 142.9,
+      "state": "complete",
+      "title": "Owner of audit-log",
+      "messages": [
+        "who owns the audit-log service now that Taras moved teams?"
+      ]
+    },
+    {
+      "id": "D085",
+      "channel": "CDEVOPS",
+      "hours_ago": 538.8,
+      "state": "complete",
+      "title": "notifications nightly job slow",
+      "messages": [
+        "the notifications nightly job took 2 hours instead of 20 minutes last night"
+      ]
+    },
+    {
+      "id": "D086",
+      "channel": "CGENERAL",
+      "hours_ago": 77.1,
+      "state": "complete",
+      "title": "search-api v4.15.0 production deploy",
+      "messages": [
+        "Deploy of search-api v4.15.0 to production finished"
+      ]
+    },
+    {
+      "id": "D087",
+      "channel": "CDEVOPS",
+      "hours_ago": 158.8,
+      "state": "complete",
+      "title": "Rotate the media-cdn API key",
+      "messages": [
+        "can someone rotate the media-cdn API key before Friday?"
+      ]
+    },
+    {
+      "id": "D088",
+      "channel": "CGENERAL",
+      "hours_ago": 464.3,
+      "state": "complete",
+      "title": "notifications queue depth growing",
+      "messages": [
+        "notifications queue depth is growing, workers look stuck"
+      ]
+    },
+    {
+      "id": "D089",
+      "channel": "CDEVOPS",
+      "hours_ago": 377.1,
+      "state": "complete",
+      "title": "notifications nightly job slow",
+      "messages": [
+        "the notifications nightly job took 2 hours instead of 20 minutes last night"
+      ]
+    },
+    {
+      "id": "D090",
+      "channel": "CGENERAL",
+      "hours_ago": 540.5,
+      "state": "complete",
+      "title": "notifications nightly job slow",
+      "messages": [
+        "the notifications nightly job took 2 hours instead of 20 minutes last night"
+      ]
+    },
+    {
+      "id": "D091",
+      "channel": "CALERTS",
+      "hours_ago": 295.2,
+      "state": "complete",
+      "title": "Feature flag for pricing emails",
+      "messages": [
+        "add a feature flag to turn off pricing emails for inactive users"
+      ]
+    },
+    {
+      "id": "D092",
+      "channel": "CENGINEERING",
+      "hours_ago": 481.9,
+      "state": "complete",
+      "title": "Owner of notifications",
+      "messages": [
+        "who owns the notifications service now that Taras moved teams?"
+      ]
+    },
+    {
+      "id": "D093",
+      "channel": "CALERTS",
+      "hours_ago": 520.7,
+      "state": "complete",
+      "title": "media-cdn migration finished",
+      "messages": [
+        "media-cdn database migration 2026091_add_index finished in 4 minutes"
+      ]
+    },
+    {
+      "id": "D094",
+      "channel": "CGENERAL",
+      "hours_ago": 153.6,
+      "state": "working",
+      "title": "Review PR #672: feature-flags add retries to the HTTP client",
+      "messages": [
+        "Please review PR #672: feature-flags add retries to the HTTP client"
+      ]
+    },
+    {
+      "id": "D095",
+      "channel": "CGENERAL",
+      "hours_ago": 41.1,
+      "state": "complete",
+      "title": "pgsql-analytics-01 memory usage high",
+      "messages": [
+        "[FIRING:1] HostMemoryHigh. pgsql-analytics-01 memory usage above 85% for 15 minutes"
+      ]
+    },
+    {
+      "id": "D096",
+      "channel": "CGENERAL",
+      "hours_ago": 586.1,
+      "state": "complete",
+      "title": "shipping error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] ShippingHighErrorRate production. service: shipping. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D097",
+      "channel": "CENGINEERING",
+      "hours_ago": 600.8,
+      "state": "complete",
+      "title": "k8s-worker-7 memory usage high",
+      "messages": [
+        "[FIRING:1] HostMemoryHigh. k8s-worker-7 memory usage above 85% for 15 minutes"
+      ]
+    },
+    {
+      "id": "D098",
+      "channel": "CGENERAL",
+      "hours_ago": 190.6,
+      "state": "complete",
+      "title": "Owner of notifications",
+      "messages": [
+        "who owns the notifications service now that Taras moved teams?"
+      ]
+    },
+    {
+      "id": "D099",
+      "channel": "CENGINEERING",
+      "hours_ago": 441.3,
+      "state": "working",
+      "title": "recommendations Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for recommendations is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D100",
+      "channel": "CDEVOPS",
+      "hours_ago": 406.4,
+      "state": "complete",
+      "title": "inventory migration finished",
+      "messages": [
+        "inventory database migration 2026041_add_index finished in 4 minutes"
+      ]
+    },
+    {
+      "id": "D101",
+      "channel": "CDEVOPS",
+      "hours_ago": 53.1,
+      "state": "complete",
+      "title": "cms queue depth growing",
+      "messages": [
+        "cms queue depth is growing, workers look stuck"
+      ]
+    },
+    {
+      "id": "D102",
+      "channel": "CGENERAL",
+      "hours_ago": 538.7,
+      "state": "complete",
+      "title": "notifications Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for notifications is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D103",
+      "channel": "CGENERAL",
+      "hours_ago": 611.2,
+      "state": "complete",
+      "title": "image-resizer v4.21.8 production deploy",
+      "messages": [
+        "Deploy of image-resizer v4.21.8 to production finished"
+      ]
+    },
+    {
+      "id": "D104",
+      "channel": "CENGINEERING",
+      "hours_ago": 656.7,
+      "state": "working",
+      "title": "reporting latency spike after cache flush",
+      "messages": [
+        "reporting p95 latency went up to 900ms after the cache flush, now back to normal"
+      ]
+    },
+    {
+      "id": "D105",
+      "channel": "CENGINEERING",
+      "hours_ago": 599.2,
+      "state": "complete",
+      "title": "Feature flag for audit-log emails",
+      "messages": [
+        "add a feature flag to turn off audit-log emails for inactive users"
+      ]
+    },
+    {
+      "id": "D106",
+      "channel": "CENGINEERING",
+      "hours_ago": 142.6,
+      "state": "complete",
+      "title": "redis-cache-02 memory usage high",
+      "messages": [
+        "[FIRING:1] HostMemoryHigh. redis-cache-02 memory usage above 85% for 15 minutes"
+      ]
+    },
+    {
+      "id": "D107",
+      "channel": "CGENERAL",
+      "hours_ago": 344.6,
+      "state": "complete",
+      "title": "mailer log retention in Loki",
+      "messages": [
+        "what's the retention period for mailer logs in Loki?"
+      ]
+    },
+    {
+      "id": "D108",
+      "channel": "CALERTS",
+      "hours_ago": 468.5,
+      "state": "working",
+      "title": "Rotate the user-profile API key",
+      "messages": [
+        "can someone rotate the user-profile API key before Friday?"
+      ]
+    },
+    {
+      "id": "D109",
+      "channel": "CGENERAL",
+      "hours_ago": 529.7,
+      "state": "complete",
+      "title": "reporting error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] ReportingHighErrorRate production. service: reporting. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D110",
+      "channel": "CGENERAL",
+      "hours_ago": 543.2,
+      "state": "complete",
+      "title": "media-cdn Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for media-cdn is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D111",
+      "channel": "CALERTS",
+      "hours_ago": 626.3,
+      "state": "complete",
+      "title": "notifications latency spike after cache flush",
+      "messages": [
+        "notifications p95 latency went up to 900ms after the cache flush, now back to normal"
+      ]
+    },
+    {
+      "id": "D112",
+      "channel": "CENGINEERING",
+      "hours_ago": 311.8,
+      "state": "complete",
+      "title": "recommendations queue depth growing",
+      "messages": [
+        "recommendations queue depth is growing, workers look stuck"
+      ]
+    },
+    {
+      "id": "D113",
+      "channel": "CALERTS",
+      "hours_ago": 383.3,
+      "state": "complete",
+      "title": "Owner of admin-panel",
+      "messages": [
+        "who owns the admin-panel service now that Taras moved teams?"
+      ]
+    },
+    {
+      "id": "D114",
+      "channel": "CDEVOPS",
+      "hours_ago": 388.4,
+      "state": "complete",
+      "title": "mailer migration finished",
+      "messages": [
+        "mailer database migration 2026031_add_index finished in 4 minutes"
+      ]
+    },
+    {
+      "id": "D115",
+      "channel": "CDEVOPS",
+      "hours_ago": 658.2,
+      "state": "complete",
+      "title": "Feature flag for user-profile emails",
+      "messages": [
+        "add a feature flag to turn off user-profile emails for inactive users"
+      ]
+    },
+    {
+      "id": "D116",
+      "channel": "CDEVOPS",
+      "hours_ago": 547.4,
+      "state": "complete",
+      "title": "cms health check flapping on nomad-hvn03",
+      "messages": [
+        "cms health check is flapping on nomad-hvn03"
+      ]
+    },
+    {
+      "id": "D117",
+      "channel": "CALERTS",
+      "hours_ago": 145.3,
+      "state": "complete",
+      "title": "redis-cache-02 memory usage high",
+      "messages": [
+        "[FIRING:1] HostMemoryHigh. redis-cache-02 memory usage above 85% for 15 minutes"
+      ]
+    },
+    {
+      "id": "D118",
+      "channel": "CDEVOPS",
+      "hours_ago": 520.0,
+      "state": "complete",
+      "title": "reporting nightly job slow",
+      "messages": [
+        "the reporting nightly job took 2 hours instead of 20 minutes last night"
+      ]
+    },
+    {
+      "id": "D119",
+      "channel": "CENGINEERING",
+      "hours_ago": 388.7,
+      "state": "complete",
+      "title": "pricing log retention in Loki",
+      "messages": [
+        "what's the retention period for pricing logs in Loki?"
+      ]
+    },
+    {
+      "id": "D120",
+      "channel": "CENGINEERING",
+      "hours_ago": 306.5,
+      "state": "complete",
+      "title": "notifications error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] NotificationsHighErrorRate production. service: notifications. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D121",
+      "channel": "CALERTS",
+      "hours_ago": 512.4,
+      "state": "complete",
+      "title": "mailer error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] MailerHighErrorRate production. service: mailer. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D122",
+      "channel": "CALERTS",
+      "hours_ago": 457.9,
+      "state": "complete",
+      "title": "cms Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for cms is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D123",
+      "channel": "CALERTS",
+      "hours_ago": 216.2,
+      "state": "complete",
+      "title": "mailer latency spike after cache flush",
+      "messages": [
+        "mailer p95 latency went up to 900ms after the cache flush, now back to normal"
+      ]
+    },
+    {
+      "id": "D124",
+      "channel": "CENGINEERING",
+      "hours_ago": 544.1,
+      "state": "complete",
+      "title": "session-store error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] SessionStoreHighErrorRate production. service: session-store. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D125",
+      "channel": "CDEVOPS",
+      "hours_ago": 104.9,
+      "state": "complete",
+      "title": "admin-panel nightly job slow",
+      "messages": [
+        "the admin-panel nightly job took 2 hours instead of 20 minutes last night"
+      ]
+    },
+    {
+      "id": "D126",
+      "channel": "CDEVOPS",
+      "hours_ago": 495.3,
+      "state": "complete",
+      "title": "geo-service health check flapping on redis-cache-02",
+      "messages": [
+        "geo-service health check is flapping on redis-cache-02"
+      ]
+    },
+    {
+      "id": "D127",
+      "channel": "CALERTS",
+      "hours_ago": 109.9,
+      "state": "complete",
+      "title": "mailer Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for mailer is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D128",
+      "channel": "CENGINEERING",
+      "hours_ago": 231.6,
+      "state": "complete",
+      "title": "feature-flags log retention in Loki",
+      "messages": [
+        "what's the retention period for feature-flags logs in Loki?"
+      ]
+    },
+    {
+      "id": "D129",
+      "channel": "CALERTS",
+      "hours_ago": 682.9,
+      "state": "complete",
+      "title": "mailer error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] MailerHighErrorRate production. service: mailer. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D130",
+      "channel": "CGENERAL",
+      "hours_ago": 506.5,
+      "state": "complete",
+      "title": "geo-service log retention in Loki",
+      "messages": [
+        "what's the retention period for geo-service logs in Loki?"
+      ]
+    },
+    {
+      "id": "D131",
+      "channel": "CGENERAL",
+      "hours_ago": 135.3,
+      "state": "complete",
+      "title": "image-resizer Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for image-resizer is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D132",
+      "channel": "CGENERAL",
+      "hours_ago": 438.4,
+      "state": "complete",
+      "title": "session-store health check flapping on redis-cache-02",
+      "messages": [
+        "session-store health check is flapping on redis-cache-02"
+      ]
+    },
+    {
+      "id": "D133",
+      "channel": "CENGINEERING",
+      "hours_ago": 221.4,
+      "state": "working",
+      "title": "shipping migration finished",
+      "messages": [
+        "shipping database migration 2026021_add_index finished in 4 minutes"
+      ]
+    },
+    {
+      "id": "D134",
+      "channel": "CDEVOPS",
+      "hours_ago": 160.9,
+      "state": "complete",
+      "title": "billing Grafana dashboard p99 panel",
+      "messages": [
+        "Grafana dashboard for billing is missing the p99 panel"
+      ]
+    },
+    {
+      "id": "D135",
+      "channel": "CALERTS",
+      "hours_ago": 154.8,
+      "state": "working",
+      "title": "pgsql-analytics-01 disk space low",
+      "messages": [
+        "[FIRING:1] DiskSpaceLow. pgsql-analytics-01 root volume at 88%"
+      ]
+    },
+    {
+      "id": "D136",
+      "channel": "CDEVOPS",
+      "hours_ago": 491.4,
+      "state": "complete",
+      "title": "notifications latency spike after cache flush",
+      "messages": [
+        "notifications p95 latency went up to 900ms after the cache flush, now back to normal"
+      ]
+    },
+    {
+      "id": "D137",
+      "channel": "CALERTS",
+      "hours_ago": 423.6,
+      "state": "complete",
+      "title": "mailer error rate alert resolved",
+      "messages": [
+        "[RESOLVED:1] MailerHighErrorRate production. service: mailer. Error rate back under 1%."
+      ]
+    },
+    {
+      "id": "D138",
+      "channel": "CENGINEERING",
+      "hours_ago": 126.3,
+      "state": "complete",
+      "title": "feature-flags log retention in Loki",
+      "messages": [
+        "what's the retention period for feature-flags logs in Loki?"
+      ]
+    },
+    {
+      "id": "D139",
+      "channel": "CALERTS",
+      "hours_ago": 666.5,
+      "state": "complete",
+      "title": "Feature flag for reporting emails",
+      "messages": [
+        "add a feature flag to turn off reporting emails for inactive users"
+      ]
+    },
+    {
+      "id": "D140",
+      "channel": "CDEVOPS",
+      "hours_ago": 501.8,
+      "state": "complete",
+      "title": "admin-panel health check flapping on k8s-worker-7",
+      "messages": [
+        "admin-panel health check is flapping on k8s-worker-7"
+      ]
+    },
+    {
+      "id": "D141",
+      "channel": "CENGINEERING",
+      "hours_ago": 566.4,
+      "state": "complete",
+      "title": "image-resizer queue depth growing",
+      "messages": [
+        "image-resizer queue depth is growing, workers look stuck"
+      ]
+    },
+    {
+      "id": "D142",
+      "channel": "CDEVOPS",
+      "hours_ago": 669.4,
+      "state": "complete",
+      "title": "Review PR #649: pricing fix flaky integration test",
+      "messages": [
+        "Please review PR #649: pricing fix flaky integration test"
+      ]
+    },
+    {
+      "id": "D143",
+      "channel": "CDEVOPS",
+      "hours_ago": 368.1,
+      "state": "complete",
+      "title": "redis-cache-02 disk space low",
+      "messages": [
+        "[FIRING:1] DiskSpaceLow. redis-cache-02 root volume at 88%"
+      ]
+    },
+    {
+      "id": "D144",
+      "channel": "CENGINEERING",
+      "hours_ago": 5.6,
+      "state": "complete",
+      "title": "Owner of analytics",
+      "messages": [
+        "who owns the analytics service now that Taras moved teams?"
+      ]
+    },
+    {
+      "id": "D145",
+      "channel": "CDEVOPS",
+      "hours_ago": 257.3,
+      "state": "complete",
+      "title": "redis-cache-02 disk space low",
+      "messages": [
+        "[FIRING:1] DiskSpaceLow. redis-cache-02 root volume at 88%"
+      ]
+    },
+    {
+      "id": "D146",
+      "channel": "CGENERAL",
+      "hours_ago": 345.3,
+      "state": "complete",
+      "title": "Owner of media-cdn",
+      "messages": [
+        "who owns the media-cdn service now that Taras moved teams?"
+      ]
+    },
+    {
+      "id": "D147",
+      "channel": "CDEVOPS",
+      "hours_ago": 631.8,
+      "state": "complete",
+      "title": "Feature flag for mobile-backend emails",
+      "messages": [
+        "add a feature flag to turn off mobile-backend emails for inactive users"
+      ]
+    },
+    {
+      "id": "D148",
+      "channel": "CALERTS",
+      "hours_ago": 516.5,
+      "state": "complete",
+      "title": "nomad-hvn04 memory usage high",
+      "messages": [
+        "[FIRING:1] HostMemoryHigh. nomad-hvn04 memory usage above 85% for 15 minutes"
+      ]
+    },
+    {
+      "id": "D149",
+      "channel": "CALERTS",
+      "hours_ago": 43.8,
+      "state": "complete",
+      "title": "Rotate the analytics API key",
+      "messages": [
+        "can someone rotate the analytics API key before Friday?"
+      ]
+    },
+    {
+      "id": "D150",
+      "channel": "CENGINEERING",
+      "hours_ago": 412.0,
+      "state": "complete",
+      "title": "media-cdn migration finished",
+      "messages": [
+        "media-cdn database migration 2026031_add_index finished in 4 minutes"
+      ]
+    }
+  ]
+}

@@ -396,9 +396,23 @@ defmodule Ryker.Admission.CommitTest do
              Admission.commit(context, decision, "decision-after-block", lease_ref: lease_ref)
   end
 
+  # Finished work is offered only when it is about what the message is about
+  # (`Ryker.Admission.Ranking`), so the old work and the message share their
+  # subject here.
   test "starts a new episode with old work as history without borrowing its thread" do
-    old = create_episode!(thread_ref: "1787830000.000001", complete: true)
-    entry = record_input!(message_ref: "1787832000.000100")
+    old =
+      create_episode!(
+        thread_ref: "1787830000.000001",
+        complete: true,
+        content: %{"text" => "Checkout returns 502 on the cart page"}
+      )
+
+    entry =
+      record_input!(
+        message_ref: "1787832000.000100",
+        content: %{"text" => "Checkout returns 502 on the cart page again"}
+      )
+
     context = context!(entry)
     candidate = candidate!(context, old.id)
     decision = decision!(:start_episode, candidate.ref, :history_only)
@@ -958,14 +972,24 @@ defmodule Ryker.Admission.CommitTest do
   end
 
   test "new work is reconsidered when completed history becomes active during classification" do
-    old = create_episode!(thread_ref: "1787830000.000099", complete: true)
+    old =
+      create_episode!(
+        thread_ref: "1787830000.000099",
+        complete: true,
+        content: %{"text" => "Checkout returns 502 on the cart page"}
+      )
 
     Repo.update_all(
       from(episode in Ryker.Episodes.Episode, where: episode.id == ^old.id),
       set: [updated_at: DateTime.add(@now, -2 * 60 * 60)]
     )
 
-    entry = record_input!(event_ref: "Ev-frozen-before-history-reopens")
+    entry =
+      record_input!(
+        event_ref: "Ev-frozen-before-history-reopens",
+        content: %{"text" => "Checkout returns 502 on the cart page again"}
+      )
+
     context = context!(entry)
     candidate = candidate!(context, old.id)
     assert candidate.allowed_relations == [:history_only]

@@ -113,6 +113,9 @@ defmodule Ryker.Admission do
     # can enter it, and a bounded authorized provider read never runs while a
     # database snapshot and its connection are held open.
     captured = capture_conversation_context(entry, settings)
+    # The message's meaning is asked for here too, from the embedding server,
+    # never while the snapshot holds its connection.
+    settings = Map.put(settings, :meaning, meaning(input, settings))
 
     Repo.transaction(fn ->
       case ensure_snapshot_isolation(nested?) do
@@ -405,6 +408,7 @@ defmodule Ryker.Admission do
     lease_ref = Keyword.get(options, :lease_ref)
     local_history_limit = Keyword.get(options, :local_history_limit, 20)
     source_reader = Keyword.get(options, :source_reader)
+    embedder = Keyword.get_lazy(options, :embedder, &default_embedder/0)
 
     with :ok <- context_option_keys(options),
          :ok <- context_value(utc_datetime?(now), :now),
@@ -413,6 +417,7 @@ defmodule Ryker.Admission do
          :ok <- valid_candidate_limit(candidate_limit),
          :ok <- valid_local_history_limit(local_history_limit),
          :ok <- context_value(valid_source_reader?(source_reader), :source_reader),
+         :ok <- context_value(is_nil(embedder) or is_function(embedder, 2), :embedder),
          :ok <- context_value(valid_optional_reference?(lease_ref), :lease_ref) do
       {:ok,
        %{
@@ -422,12 +427,42 @@ defmodule Ryker.Admission do
          lease_ref: lease_ref,
          local_history_limit: local_history_limit,
          now: now,
-         source_reader: source_reader
+         source_reader: source_reader,
+         embedder: embedder
        }}
     end
   end
 
   defp validate_options(_options), do: {:error, {:invalid_admission_context, :options}}
+
+  # Search by meaning runs while RYKER_EMBEDDINGS_URL names a server
+  # (`Ryker.Embeddings`); tests pass their own embedder or none.
+  defp default_embedder do
+    if Ryker.Embeddings.url(), do: &Ryker.Embeddings.embed/2
+  end
+
+  # The message's vector for the search by meaning, or why there is none. A
+  # slow or stopped server costs routing at most three seconds, and the
+  # search goes on by words and identifiers.
+  defp meaning(_input, %{embedder: nil}), do: nil
+
+  defp meaning(input, %{embedder: embed}) do
+    case RecallText.from(input.content) do
+      "" ->
+        nil
+
+      text ->
+        case embed.([text], timeout_ms: 3_000) do
+          {:ok, [vector]} -> %{vector: vector, model: Ryker.Embeddings.model()}
+          {:error, reason} -> %{unavailable: unavailable(reason)}
+        end
+    end
+  end
+
+  defp unavailable(:timeout), do: "the embedding server did not answer in time"
+  defp unavailable(:unreachable), do: "the embedding server could not be reached"
+  defp unavailable({:status, status}), do: "the embedding server answered #{status}"
+  defp unavailable(_reason), do: "the embedding server's answer could not be read"
 
   defp valid_local_history_limit(value) do
     context_value(is_integer(value) and value >= 10 and value <= 20, :local_history_limit)
@@ -441,6 +476,7 @@ defmodule Ryker.Admission do
     allowed = [
       :candidate_limit,
       :continuation_window,
+      :embedder,
       :history_window,
       :lease_ref,
       :local_history_limit,
@@ -1092,6 +1128,7 @@ defmodule Ryker.Admission do
         execution_mode: entry.execution_mode,
         repository_ref: entry.repository_ref,
         occurrences: Occurrences.for_input(input),
+        meaning: settings[:meaning],
         candidate_limit: settings.candidate_limit,
         history_cutoff: DateTime.add(settings.now, -settings.history_window, :second),
         now: settings.now

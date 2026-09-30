@@ -59,6 +59,9 @@ defmodule Ryker.Runtime.Assembly do
     # Its own key too: the local routing model's comparisons never touch the
     # routing slots, and turning them on or off restarts only their lane.
     {:local_routing, Ryker.LocalRouting.Worker},
+    # Vectors of what each request is about, for routing's search by meaning;
+    # only while RYKER_EMBEDDINGS_URL names a server and routing runs.
+    {:embeddings, Ryker.Embeddings.Worker},
     {:work, Ryker.Work.Runtime},
     {:learning, Ryker.Learning.Runtime},
     # Self-analysis runs on learning's policy and models, only where learning
@@ -136,6 +139,7 @@ defmodule Ryker.Runtime.Assembly do
     admission = admission(settings, policies, work)
     admission_ready = admission_ready(settings, admission)
     local_routing = local_routing(settings)
+    embeddings = embeddings(admission)
     learning = learning(settings, policies, work)
     improvement = improvement(settings, policies, work)
     schedules = schedules(settings, repositories, policies)
@@ -189,6 +193,7 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:improvement, improvement)
     |> put_optional(:learning, learning)
     |> put_optional(:local_routing, local_routing)
+    |> put_optional(:embeddings, embeddings)
     |> put_optional(:publication, publication)
     |> put_optional(:repository_knowledge, repository_knowledge)
     |> put_optional(:retention, retention)
@@ -585,6 +590,17 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp local_routing(_settings), do: nil
+
+  # A host setting, like the whisper servers: where the embedding server runs
+  # is the machine's, not the installation's saved settings.
+  defp embeddings(nil), do: nil
+
+  defp embeddings(_admission) do
+    case Ryker.Embeddings.url() do
+      nil -> nil
+      url -> %{url: url, model: Ryker.Embeddings.model(), poll_interval_ms: 60_000}
+    end
+  end
 
   defp learning(settings, policies, work) do
     with true <- settings.learning.enabled,
