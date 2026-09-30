@@ -400,20 +400,6 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert approval.target.message_ref == publish.message_ref
   end
 
-  test "an authorized member can refresh exact publication delivery without mutation authority" do
-    check = %{
-      interaction("ryker_start_engineering_task", "engineering")
-      | action_id: "ryker_check_publication",
-        action_value: "publication:1",
-        event_ref: "interaction:check-publication"
-    }
-
-    assert InteractionHandler.handle(check, options(["U123"])) ==
-             {:ok, %{publication_ref: "publication:1", outcome: :requested}}
-
-    assert_receive {:publication_checked, "publication:1", "interaction:check-publication"}
-  end
-
   test "only a configured operator can confirm the exact delivered schedule" do
     schedule = %{
       interaction("ryker_start_engineering_task", "engineering")
@@ -695,15 +681,6 @@ defmodule Ryker.Slack.InteractionHandlerTest do
                       work_ref: "task-card:abc123"
                     }}
 
-    check = %{
-      publish
-      | action_id: "ryker_task_check",
-        event_ref: "interaction:task-check"
-    }
-
-    assert InteractionHandler.handle(check, member_options) ==
-             {:ok, %{outcome: :requested, publication_ref: "publication:def456"}}
-
     recovery = %{
       publish
       | action_id: "ryker_task_update_publication",
@@ -781,10 +758,6 @@ defmodule Ryker.Slack.InteractionHandlerTest do
         send(observer, {:input_answered, attributes})
         {:ok, %{input_ref: "ingress-input:choice", status: :recorded}}
       end,
-      check_publication: fn publication_ref, request_ref ->
-        send(observer, {:publication_checked, publication_ref, request_ref})
-        {:ok, %{status: :requested}}
-      end,
       client: %{allowed: %{observer: self(), users: MapSet.new(allowed_users)}},
       confirm_automation: fn attributes ->
         send(observer, {:automation_confirmed, attributes})
@@ -848,10 +821,6 @@ defmodule Ryker.Slack.InteractionHandlerTest do
       approve_task_publication: fn attributes ->
         send(observer, {:task_publication_approved, attributes})
         {:ok, %{outcome: :approved, publication_ref: attributes.publication_ref}}
-      end,
-      check_task_publication: fn attributes ->
-        send(observer, {:task_publication_checked, attributes})
-        {:ok, %{outcome: :requested, publication_ref: attributes.publication_ref}}
       end,
       recover_task_publication: fn attributes, action ->
         send(observer, {:task_publication_recovered, attributes, action})

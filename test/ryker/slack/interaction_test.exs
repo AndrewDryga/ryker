@@ -161,6 +161,7 @@ defmodule Ryker.Slack.InteractionTest do
     assert {:ok, interaction} = Interaction.from_socket(publish, "T123", @now)
     assert interaction.action_value == "publication:abc123"
 
+    # Check delivery is gone (2026-09-30): Ryker looks at an open pull request by itself.
     check =
       put_in(
         publish,
@@ -168,8 +169,7 @@ defmodule Ryker.Slack.InteractionTest do
         "ryker_check_publication"
       )
 
-    assert {:ok, interaction} = Interaction.from_socket(check, "T123", @now)
-    assert interaction.action_value == "publication:abc123"
+    assert Interaction.from_socket(check, "T123", @now) == :ignore
   end
 
   test "normalizes only host-owned work buttons and record overflow selections" do

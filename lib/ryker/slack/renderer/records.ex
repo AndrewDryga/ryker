@@ -304,15 +304,6 @@ defmodule Ryker.Slack.Renderer.Records do
           "Open PR",
           ref,
           payload["pull_request_url"]
-        ),
-        button(
-          "ryker_check_publication",
-          "Check delivery",
-          ref,
-          nil,
-          "Check publication delivery",
-          "Refresh this exact pull request, checks, merge, and correlated delivery state?",
-          "Check now"
         )
       ])
     ]

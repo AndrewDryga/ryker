@@ -41,9 +41,6 @@ defmodule Ryker.Publication.Followups do
   @doc false
   defdelegate rearm_conflict_in_transaction(publication, now), to: Start
 
-  @doc "Makes the next poll of a publication due now, once per check request."
-  defdelegate request_check(publication_ref, request_ref), to: Start
-
   @doc """
   Makes an open publication's next poll due now when a GitHub event names its
   pull request, unless the event names a different head.

@@ -19,7 +19,7 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Options
-  alias Ryker.Publication.{Custody, Followups}
+  alias Ryker.Publication.Custody
   alias Ryker.Settings.Environment
 
   alias Ryker.Slack.{
@@ -398,8 +398,6 @@ defmodule Ryker.Slack.Runtime do
         answer_input_request: &InputRequests.answer/1,
         approve_publication: &Custody.approve/1,
         approve_task_publication: &WorkControls.approve_publication/1,
-        check_publication: &Followups.request_check/2,
-        check_task_publication: &WorkControls.check_publication/1,
         recover_task_publication: &WorkControls.recover_publication/2,
         client: bot_client,
         close_work: &WorkControls.close/1,

@@ -17,7 +17,6 @@ defmodule Ryker.Publication.FollowupChangeset do
     :id,
     :last_error,
     :last_event_key,
-    :manual_check_ref,
     :lease_expires_at,
     :lease_owner,
     :lease_ref,
@@ -63,7 +62,6 @@ defmodule Ryker.Publication.FollowupChangeset do
     |> validate_length(:checks_url, max: 2_048, count: :bytes)
     |> validate_length(:last_error, max: 4_096, count: :bytes)
     |> validate_length(:last_event_key, max: 128)
-    |> validate_length(:manual_check_ref, max: 1_024)
     |> check_constraint(:pr_state, name: :episode_publication_followup_state_valid)
     |> check_constraint(:lease_ref, name: :episode_publication_followup_lease_valid)
   end

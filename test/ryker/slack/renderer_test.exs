@@ -1008,7 +1008,7 @@ defmodule Ryker.Slack.RendererTest do
         "automatic_fix" => nil,
         "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
-        "controls" => ["open", "check"],
+        "controls" => ["open"],
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
@@ -1035,21 +1035,18 @@ defmodule Ryker.Slack.RendererTest do
       rendered["blocks"]
       |> Enum.filter(&(&1["type"] == "actions"))
       |> Enum.find(fn block ->
-        Enum.any?(block["elements"], &(&1["action_id"] == "ryker_task_check"))
+        Enum.any?(block["elements"], &(&1["action_id"] == "ryker_open_publication"))
       end)
 
-    # The task's "…" menu follows the publication's buttons on the same row.
+    # The task's "…" menu follows the publication's buttons on the same row. Ryker looks at the
+    # pull request by itself, so a published one has nothing else to press (2026-09-30).
     assert Enum.map(publication_controls["elements"], & &1["action_id"]) == [
              "ryker_open_publication",
-             "ryker_task_check",
              "ryker_work_record"
            ]
 
     assert hd(publication_controls["elements"])["url"] ==
              "https://github.com/acme/ryker/pull/91"
-
-    assert Enum.at(publication_controls["elements"], 1)["value"] ==
-             "task-card:abc123|publication:def456"
 
     reviewed =
       put_in(task, ["publication"], %{
@@ -1106,7 +1103,7 @@ defmodule Ryker.Slack.RendererTest do
         "automatic_fix" => nil,
         "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
-        "controls" => ["open", "check", "update", "discard"],
+        "controls" => ["open", "update", "discard"],
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
@@ -1124,7 +1121,6 @@ defmodule Ryker.Slack.RendererTest do
       |> Enum.filter(&String.starts_with?(&1["action_id"] || "", "ryker_task_"))
 
     assert Enum.map(stale_buttons, & &1["action_id"]) == [
-             "ryker_task_check",
              "ryker_task_update_publication",
              "ryker_task_discard_publication"
            ]
@@ -1144,7 +1140,7 @@ defmodule Ryker.Slack.RendererTest do
         "automatic_fix" => nil,
         "blocked_reason" => nil,
         "branch" => "refs/heads/ryker/card",
-        "controls" => ["open", "check"],
+        "controls" => ["open"],
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
@@ -2768,12 +2764,10 @@ defmodule Ryker.Slack.RendererTest do
     [_, summary, actions] = rendered["blocks"]
     assert summary["text"]["text"] =~ "Draft pull request published"
 
-    assert [open, check] = actions["elements"]
+    assert [open] = actions["elements"]
     assert open["action_id"] == "ryker_open_publication"
     assert open["url"] == url
     assert open["value"] == "publication:published42"
-    assert check["action_id"] == "ryker_check_publication"
-    assert check["value"] == "publication:published42"
   end
 
   # The host knows whether remember_answer succeeded; the model was writing
@@ -3475,6 +3469,50 @@ defmodule Ryker.Slack.RendererTest do
              Renderer.render(%{"incident_room" => incident_document("investigating")})
 
     refute inspect(empty) =~ "What this investigation is establishing"
+  end
+
+  # Andrew, 2026-09-30, of a task card showing Discard candidate, Stop current run and Close task,
+  # all red: "not too many red buttons in the same state?" Stopping a run and closing a task keep
+  # the task, its notes and its working copy; only Discard throws work away.
+  test "a card's one red button is the one that throws work away" do
+    card = %{
+      task_document("working")
+      | "controls" => ["stop", "close", "timeline"],
+        "publication" => %{
+          "automatic_fix" => nil,
+          "blocked_reason" => nil,
+          "branch" => nil,
+          "controls" => ["discard"],
+          "discarded_reason" => nil,
+          "publication_ref" => "publication:def456",
+          "pull_request_number" => nil,
+          "pull_request_url" => nil,
+          "recovery_generation" => 1,
+          "status" => "review_pending",
+          "unverified" => nil
+        }
+    }
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => card})
+
+    buttons =
+      rendered["blocks"]
+      |> Enum.flat_map(&Map.get(&1, "elements", []))
+      |> Enum.filter(&(&1["type"] == "button"))
+
+    assert Enum.map(buttons, &{&1["text"]["text"], &1["style"]}) |> Enum.filter(&elem(&1, 1)) ==
+             [{"Discard candidate", "danger"}]
+
+    labels = Enum.map(buttons, & &1["text"]["text"])
+    assert "Stop current run" in labels
+    assert "Close task" in labels
+
+    room = %{incident_document("investigating") | "controls" => ["stop", "close"]}
+    assert {:ok, incident} = Renderer.render(%{"incident_room" => room})
+
+    refute incident["blocks"]
+           |> Enum.flat_map(&Map.get(&1, "elements", []))
+           |> Enum.any?(&(&1["style"] == "danger"))
   end
 
   test "an incident room opens its evidence without a menu" do

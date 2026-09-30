@@ -781,9 +781,12 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp publication_controls(%Publication{status: :published, expected_remote_head_sha: head_sha})
        when is_binary(head_sha),
-       do: ["open", "check", "update", "discard"]
+       do: ["open", "update", "discard"]
 
-  defp publication_controls(%Publication{status: :published}), do: ["open", "check"]
+  # Ryker looks at an open pull request every ten minutes and at once on each check, workflow or
+  # pull request event, so the card has nothing to offer for refreshing it (Andrew, 2026-09-30, of
+  # "Check delivery": "not clear wtf this button does?").
+  defp publication_controls(%Publication{status: :published}), do: ["open"]
   defp publication_controls(%Publication{status: :published_ready}), do: ["open"]
   defp publication_controls(_publication), do: []
 

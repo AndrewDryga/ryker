@@ -336,17 +336,6 @@ defmodule Ryker.Slack.InteractionHandler do
   end
 
   defp dispatch_action(
-         %Interaction{action_id: "ryker_task_check"} = interaction,
-         work_ref,
-         %{publication_item_ref: "publication:" <> _rest = publication_ref},
-         options
-       ) do
-    attributes = task_publication_attributes(interaction, work_ref, publication_ref)
-
-    options.check_task_publication.(attributes)
-  end
-
-  defp dispatch_action(
          %Interaction{action_id: action_id} = interaction,
          work_ref,
          %{
@@ -389,17 +378,6 @@ defmodule Ryker.Slack.InteractionHandler do
              target: target(interaction)
            }) do
       {:ok, %{publication_ref: approval.publication.ref, outcome: approval.status}}
-    end
-  end
-
-  defp dispatch_action(
-         %Interaction{action_id: "ryker_check_publication"} = interaction,
-         publication_ref,
-         nil,
-         options
-       ) do
-    with {:ok, check} <- options.check_publication.(publication_ref, interaction.event_ref) do
-      {:ok, %{publication_ref: publication_ref, outcome: check.status}}
     end
   end
 
@@ -748,7 +726,7 @@ defmodule Ryker.Slack.InteractionHandler do
   end
 
   defp selection(%Interaction{action_id: action_id, action_value: action_value})
-       when action_id in ~w(ryker_task_check ryker_task_publish) do
+       when action_id == "ryker_task_publish" do
     case String.split(action_value, "|", parts: 2) do
       ["task-card:" <> _rest = work_ref, publication_item_ref] ->
         {:ok, work_ref, %{publication_item_ref: publication_item_ref}}

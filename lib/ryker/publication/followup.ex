@@ -28,7 +28,6 @@ defmodule Ryker.Publication.Followup do
     field(:failure_count, :integer, default: 0)
     field(:last_error, :string)
     field(:last_event_key, :string)
-    field(:manual_check_ref, :string)
 
     field(:lease_ref, :string)
     field(:lease_owner, :string)

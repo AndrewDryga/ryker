@@ -920,7 +920,6 @@ defmodule Ryker.ControlPlane.RouterTest do
       {"record:slack_post_offer:lab", "confirm-post", :confirm_post},
       {"record:publication_offer:lab", "review-publication", :review_publication},
       {"record:publication_review:lab", "publish-draft", :approve_publication},
-      {"record:publication_result:lab", "check-publication", :check_publication},
       {"record:task_offer:confirmed", "close-task", :close_task}
     ]
 
@@ -941,8 +940,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     for {action_name, action, field, value} <- [
           {"task-publish", :approve_task_publication, "publication_ref",
-           "publication:confirmed-task"},
-          {"task-check", :check_task_publication, "publication_ref", "publication:confirmed-task"}
+           "publication:confirmed-task"}
         ] do
       record_ref = "record:task_offer:confirmed"
       encoded_ref = URI.encode(record_ref, &URI.char_unreserved?/1)

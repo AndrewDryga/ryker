@@ -224,26 +224,6 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert Repo.get!(Publication, fixture.publication.id).status == :publish_pending
   end
 
-  test "a task card refreshes only its own published GitHub lifecycle" do
-    fixture =
-      PublicationFixture.published!("task-card-check", conversation_ref: "slack:T123:C456")
-
-    card = publication_task_card!(fixture.publication, "check")
-
-    attributes =
-      card
-      |> publication_attributes()
-      |> Map.put(:publication_ref, fixture.publication.ref)
-
-    assert {:ok, result} = WorkControls.check_publication(attributes)
-    assert result.outcome == :requested
-    assert result.publication_ref == fixture.publication.ref
-
-    other = PublicationFixture.published!("task-card-other", conversation_ref: "slack:T123:C456")
-    crossed = %{attributes | publication_ref: other.publication.ref}
-    assert WorkControls.check_publication(crossed) == {:error, :task_publication_mismatch}
-  end
-
   test "a task card recovers only its exact publication generation" do
     fixture =
       PublicationFixture.published!("task-card-recovery", conversation_ref: "slack:T123:C456")
@@ -424,7 +404,6 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert WorkControls.stop(%{}) == {:error, :invalid_work_control}
     assert WorkControls.close(:invalid) == {:error, :invalid_work_control}
     assert WorkControls.approve_publication(%{}) == {:error, :invalid_work_control}
-    assert WorkControls.check_publication(%{}) == {:error, :invalid_work_control}
     assert WorkControls.recover_publication(%{}, :retry) == {:error, :invalid_work_control}
   end
 

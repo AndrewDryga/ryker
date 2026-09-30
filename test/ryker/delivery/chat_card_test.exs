@@ -508,7 +508,8 @@ defmodule Ryker.Delivery.ChatCardTest do
 
     assert {:ok, result} = ChatCard.project_publication(published, "record:publication_offer:one")
     assert result.kind == "publication_result"
-    assert result.action == :check_publication
+    # Ryker looks at an open pull request by itself; the card only links it (2026-09-30).
+    assert result.action == nil
     assert result.status == :published
     assert result.url == "https://github.com/example/ryker/pull/42"
     assert {"Pull request", "#42"} in result.details

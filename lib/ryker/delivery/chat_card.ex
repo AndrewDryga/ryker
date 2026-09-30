@@ -103,7 +103,7 @@ defmodule Ryker.Delivery.ChatCard do
       {:ok, payload} ->
         {:ok,
          %{
-           action: :check_publication,
+           action: nil,
            choices: [],
            details: [
              {"Repository", payload["repository"]},
@@ -561,7 +561,6 @@ defmodule Ryker.Delivery.ChatCard do
   defp task_publication_actions(%{"controls" => controls}) when is_list(controls) do
     Enum.flat_map(controls, fn
       "publish" -> [:approve_task_publication]
-      "check" -> [:check_task_publication]
       "retry" -> [:retry_task_publication]
       "update" -> [:update_task_publication]
       "discard" -> [:discard_task_publication]

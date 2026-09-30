@@ -7,7 +7,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
 
-  @publication_controls ~w(publish open check retry update discard)
+  @publication_controls ~w(publish open retry update discard)
   # Why Ryker ended a publication itself; a person's discard has none.
   @discarded_reasons [nil, "review_session_closed"]
 
@@ -99,13 +99,6 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
         "open" ->
           url_button("ryker_open_publication", "Open PR", publication_ref, url)
-
-        "check" ->
-          plain_button(
-            "ryker_task_check",
-            "Check delivery",
-            "#{task_ref}|#{publication_ref}"
-          )
 
         "retry" ->
           button(
@@ -302,9 +295,6 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
           is_binary(publication_ref)
 
         "open" ->
-          is_binary(publication_ref) and is_integer(number) and is_binary(url)
-
-        "check" ->
           is_binary(publication_ref) and is_integer(number) and is_binary(url)
 
         action when action in ~w(retry update discard) ->

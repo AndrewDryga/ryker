@@ -267,9 +267,7 @@ defmodule Ryker.ControlPlane.LabControls do
   def record_action("stop-task"), do: {:ok, :stop_task}
   def record_action("close-task"), do: {:ok, :close_task}
   def record_action("publish-draft"), do: {:ok, :approve_publication}
-  def record_action("check-publication"), do: {:ok, :check_publication}
   def record_action("task-publish"), do: {:ok, :approve_task_publication}
-  def record_action("task-check"), do: {:ok, :check_task_publication}
   def record_action("task-retry"), do: {:ok, :retry_task_publication}
   def record_action("task-update"), do: {:ok, :update_task_publication}
   def record_action("task-discard"), do: {:ok, :discard_task_publication}
@@ -287,9 +285,7 @@ defmodule Ryker.ControlPlane.LabControls do
   defp record_action_name(:stop_task), do: "stop-task"
   defp record_action_name(:close_task), do: "close-task"
   defp record_action_name(:approve_publication), do: "publish-draft"
-  defp record_action_name(:check_publication), do: "check-publication"
   defp record_action_name(:approve_task_publication), do: "task-publish"
-  defp record_action_name(:check_task_publication), do: "task-check"
   defp record_action_name(:retry_task_publication), do: "task-retry"
   defp record_action_name(:update_task_publication), do: "task-update"
   defp record_action_name(:discard_task_publication), do: "task-discard"
@@ -322,9 +318,6 @@ defmodule Ryker.ControlPlane.LabControls do
 
   defp failure_title(action) when action in [:approve_publication, :approve_task_publication],
     do: "Couldn't create the draft pull request"
-
-  defp failure_title(action) when action in [:check_publication, :check_task_publication],
-    do: "Couldn't check the pull request"
 
   defp failure_title(:retry_task_publication), do: "Couldn't retry"
   defp failure_title(:update_task_publication), do: "Couldn't review the latest state"
@@ -378,9 +371,7 @@ defmodule Ryker.ControlPlane.LabControls do
   defp record_label(:stop_task), do: "Stop"
   defp record_label(:close_task), do: "Close"
   defp record_label(:approve_publication), do: "Publish draft"
-  defp record_label(:check_publication), do: "Check pull request"
   defp record_label(:approve_task_publication), do: "Create draft PR"
-  defp record_label(:check_task_publication), do: "Check delivery"
   defp record_label(:retry_task_publication), do: "Retry publication"
   defp record_label(:update_task_publication), do: "Review latest state"
   defp record_label(:discard_task_publication), do: "Discard candidate"
@@ -431,9 +422,8 @@ defmodule Ryker.ControlPlane.LabControls do
          publication_ref: Map.get(card, :publication_ref)
        }
 
-  defp action_context(card, action)
-       when action in [:approve_task_publication, :check_task_publication],
-       do: %{publication_ref: Map.get(card, :publication_ref)}
+  defp action_context(card, :approve_task_publication),
+    do: %{publication_ref: Map.get(card, :publication_ref)}
 
   defp action_context(_card, _action), do: nil
 

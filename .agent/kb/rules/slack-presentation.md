@@ -143,6 +143,12 @@ the publication line directly above its buttons: "⚠️ PR creation failed: <ca
 words>." with Review latest state and Discard candidate, never again as a separate Action needed.
 While a check runs the card always offers Discard candidate, since a check takes minutes. Every
 confirmation dialog says what happens in plain words, with no generation, candidate or evidence jargon.
+Only a control that throws work away is red (Discard candidate, Delete, Forget): Stop current run
+and Close task or incident keep the task, its notes and its working copy, so they are plain and
+still confirm first (Andrew, 2026-09-30: "not too many red buttons in the same state?"). A card
+never offers a control for what Ryker does by itself: refreshing a pull request's state was
+"Check delivery" until 2026-09-30 ("not clear wtf this button does?"), and a re-check of a change
+in a repository with no checks can only repeat its answer.
 A repository is named as owner/repo, never by its ref.
 
 ## Governed review

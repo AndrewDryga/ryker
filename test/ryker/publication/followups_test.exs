@@ -461,28 +461,6 @@ defmodule Ryker.Publication.FollowupsTest do
     assert next_check!(publication) == :checked_github
   end
 
-  # A deployment wakes the task to verify a merged pull request. A person who
-  # asks for a check during that wait is owed an answer, but the wait's end
-  # parked the merged pull request for good and the answer never came.
-  test "a check request made while Ryker waits for the woken turn is still answered" do
-    %{episode: episode, publication: publication} = PublicationFixture.published!("woken-check")
-    woken = wake_on_deployment!(publication)
-    merged = merged_status(publication)
-
-    assert {:ok, %{status: :requested}} = Followups.request_check(publication.ref, "check:1")
-    assert next_check!(publication, merged) == :checked_task
-
-    insert_result_event!(episode.id, woken.verification_sequence + 1, woken.verification_turn_ref)
-    a_minute_later!(publication)
-    assert next_check!(publication, merged) == :checked_task
-    assert next_check!(publication, merged) == :checked_github
-
-    assert %LifecycleEvent{summary: summary} =
-             Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "status")
-
-    assert summary =~ "is merged"
-  end
-
   test "review feedback fails closed when two publications claim one pull request" do
     PublicationFixture.published!("ambiguous-review-one",
       github_repository: "octo/ambiguous",
@@ -1217,25 +1195,18 @@ defmodule Ryker.Publication.FollowupsTest do
            ) == 101
   end
 
-  test "manual status checks and lifecycle delivery retain exact lease and receipt custody" do
+  test "a lifecycle update keeps exact lease and receipt custody until it is delivered" do
     %{publication: publication} = PublicationFixture.published!("manual-check")
-
-    assert {:ok, %{status: :requested}} =
-             Followups.request_check(publication.ref, "manual-check:1")
-
-    assert {:ok, %{status: :duplicate}} =
-             Followups.request_check(publication.ref, "manual-check:1")
 
     assert {:ok, claim} = Followups.claim_poll("publication-followup:manual", 60)
     assert {:ok, renewed} = Followups.renew_poll(publication.ref, claim.lease_ref, 120)
     assert renewed.lease_ref == claim.lease_ref
 
-    pending = lifecycle_status(publication, "pending", false)
-    assert {:ok, stored} = Followups.store_poll(publication.ref, claim.lease_ref, pending)
-    assert stored.manual_check_ref == nil
+    passing = lifecycle_status(publication, "passing", false)
+    assert {:ok, _stored} = Followups.store_poll(publication.ref, claim.lease_ref, passing)
 
-    event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "status")
-    assert event.state == "pending"
+    event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "checks")
+    assert event.state == "succeeded"
 
     assert {:ok, delivery_claim} =
              Followups.claim_delivery("publication-followup:manual-delivery", 60)
@@ -1247,7 +1218,7 @@ defmodule Ryker.Publication.FollowupsTest do
 
     assert renewed_event.lease_ref == delivery_claim.lease_ref
     assert {:ok, request} = Followups.delivery_request(renewed_event)
-    assert request.document["message"] =~ "GitHub checks are pending"
+    assert request.document["message"] =~ "GitHub checks passed"
 
     assert {:ok, deferred} =
              Followups.defer_delivery(event.ref, delivery_claim.lease_ref, 1, :slack_unavailable)
@@ -1503,7 +1474,6 @@ defmodule Ryker.Publication.FollowupsTest do
   test "follow-up public boundaries fail closed without queue mutation" do
     assert {:error, _reason} = Followups.claim_poll("", 0)
     assert {:error, _reason} = Followups.claim_delivery("", 0)
-    assert {:error, _reason} = Followups.request_check("", "")
     assert Followups.nudge_github_event(nil, nil, nil, nil) == {:ok, :ignored}
 
     assert Followups.nudge_github_event("acme/ryker", "unknown", "delivery", %{}) ==
@@ -1550,9 +1520,6 @@ defmodule Ryker.Publication.FollowupsTest do
 
     assert Followups.delivery_request(%{}) ==
              {:error, :publication_lifecycle_delivery_not_pending}
-
-    assert Followups.request_check("publication:missing", "request:1") ==
-             {:error, :publication_followup_not_found}
 
     assert Followups.renew_delivery("event:missing", "lease:1", 60) ==
              {:error, :publication_lifecycle_event_not_found}

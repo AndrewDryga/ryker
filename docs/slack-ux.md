@@ -650,15 +650,15 @@ host rejects them for nonoperators before any repository or session mutation:
   App-owned PR and observed head, the card preserves **Open PR** and offers **Review latest state**
   plus **Discard candidate**. Without that remote identity, only the local **Discard candidate**
   action is available;
-- stale draft PR: **Review latest state**, **Open PR**, **Check delivery**, and
+- stale draft PR: **Review latest state**, **Open PR** and
   **Discard candidate** render from durable publication state without waiting for a fresh Coop
   inspection. Review latest state invalidates the prior approval and review, records the exact
   observed GitHub head, reruns Coop review, and can update the same PR only with a
   `--force-with-lease` compare-and-swap against that observed head. A head that moved outside the
   publication is the one case an in-scope correction cannot re-arm on its own, so this control
   stays the operator's explicit decision to review against that head;
-- published draft PR: **Open PR** and **Check delivery** remain available independently of a
-  transient Coop inspection failure;
+- published draft PR: **Open PR** remains available independently of a transient Coop inspection
+  failure;
 - workspace not recoverable yet: the worker finished, but the host could not save its working copy
   or could not release its reply. The card says so in plain language, says what to keep and whether
   the worker session is closed, and attributes the retained answer as the worker's own report
@@ -701,20 +701,21 @@ host rejects them for nonoperators before any repository or session mutation:
   On a blocked candidate whose checks could not finish, the same control
   offers an explicitly unverified draft: its confirmation names the repository and the check that
   never ran, and says that a draft waives nothing and neither merges nor deploys.
-  After publication the task shows **Open PR** and **Check delivery**, and a draft opened that way
+  After publication the task shows **Open PR**, and a draft opened that way
   keeps saying which check never finished instead of reading as an ordinary reviewed pull request.
   Ryker reuses and updates that same authorized publication; an uncertain create reconciles
   against the App-owned pull request it already published rather than issuing another blind create.
   Ryker checks the pull request when it is published, then every 10 minutes while it is open, so it
   keeps tracking it when GitHub webhooks cannot reach Ryker. A check run, check suite, workflow run
-  or pull-request event for that head, or **Check delivery**, makes the next check happen at once.
+  or pull-request event for that head makes the next check happen at once, so the card offers no
+  control for refreshing it.
   Waiting occupies no model turn.
   Checks that turn to failing on that exact head return the task to in-scope correction, once per
   failing head, without a click and without widening the task; a
   hard deadline, a head that moved outside the publication, a close and a merge stay history for a
   person. While the woken turn works, Ryker waits instead of checking GitHub. When that turn
   finishes, is taken over, cancelled or blocked, or after an hour at most, it checks at once, so an
-  event or **Check delivery** from the wait is not lost. A correction that completes in scope re-arms the task's own publication for a fresh
+  event from the wait is not lost. A correction that completes in scope re-arms the task's own publication for a fresh
   review and updates that same pull request: one task keeps one publication and one draft PR, the
   card returns to the reviewing stage with its **Open draft PR** link intact, and each review
   generation posts its own card rather than overwriting the superseded one. The prior generation's
@@ -728,7 +729,7 @@ host rejects them for nonoperators before any repository or session mutation:
   and timing matches are rejected. An exact reference activates this
   correlation path even when ordinary proactive participation is off in the source channel; other
   app messages retain the channel's configured behavior. The 30-day window is fixed (it restarts
-  when the pull request is reviewed again); **Check delivery** refreshes GitHub state immediately.
+  when the pull request is reviewed again).
   These controls cannot merge or deploy.
 - **Stop current run** cancels only the active agent turn. The session, queue, and fork remain.
 - **Close incident**/**Close task** closes the Coop session. Clean zero-change or durably published

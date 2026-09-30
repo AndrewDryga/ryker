@@ -11,7 +11,7 @@ defmodule Ryker.Slack.WorkControls do
   alias Ryker.Episodes.Command
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Followups, Publication, Review}
+  alias Ryker.Publication.{Publication, Review}
   alias Ryker.Repo
   alias Ryker.Slack.{WorkRecord, WorkTarget}
   alias Ryker.Work.{Custody, Turn}
@@ -119,26 +119,6 @@ defmodule Ryker.Slack.WorkControls do
        %{
          outcome: approval.status,
          publication_ref: approval.publication.ref,
-         work_ref: resolved.work_ref
-       }}
-    else
-      {:ok, _non_task} -> {:error, :task_publication_mismatch}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  @spec check_publication(map()) :: {:ok, map()} | {:error, term()}
-  def check_publication(attributes) do
-    with {:ok, attributes} <- attributes(attributes, @publication_fields),
-         {:ok, %{kind: :task} = resolved} <-
-           WorkTarget.resolve(attributes.work_ref, attributes.target),
-         {:ok, publication} <-
-           publication(resolved.episode.id, attributes.publication_ref, :published),
-         {:ok, check} <- Followups.request_check(publication.ref, attributes.request_ref) do
-      {:ok,
-       %{
-         outcome: check.status,
-         publication_ref: publication.ref,
          work_ref: resolved.work_ref
        }}
     else
@@ -257,14 +237,6 @@ defmodule Ryker.Slack.WorkControls do
 
       nil ->
         {:error, :task_publication_mismatch}
-    end
-  end
-
-  defp publication(episode_id, publication_ref, expected_status) do
-    case Repo.get_by(Publication, episode_id: episode_id, ref: publication_ref) do
-      %Publication{status: ^expected_status} = publication -> {:ok, publication}
-      %Publication{} -> {:error, :task_publication_not_ready}
-      nil -> {:error, :task_publication_mismatch}
     end
   end
 
