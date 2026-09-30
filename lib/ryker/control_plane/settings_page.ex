@@ -1648,8 +1648,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
       title: "Weekly report",
       description:
         "Once a week Ryker can post a short update in a Slack channel, written the way a " <>
-          "teammate would: how much it handled and how fast, what it got done, its PRs and " <>
-          "what is still open."
+          "teammate would: the PRs it opened and merged, the ones waiting for review, how " <>
+          "much it handled and how fast, and what it is waiting on people for."
     }
 
   defp page(:pricing),

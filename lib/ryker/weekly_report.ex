@@ -5,12 +5,13 @@ defmodule Ryker.WeeklyReport do
   Ryker's week went the way a teammate writes a weekly update in Slack. Off
   until a person turns it on.
 
-  **What it says.** How many messages Ryker handled, how long a typical
-  reply took and how many it answered on the spot, what it got done, the PRs
-  it opened and merged and the ones
-  still waiting for review, what is still open, anything stuck, and a closing
+  **What it says.** The PRs Ryker opened that week and the ones already
+  merged, every PR still waiting for review, how many messages it handled,
+  how long a typical reply took and how many were quick answers, the
+  questions it is waiting on people to answer, anything stuck, and a closing
   line on how people took its answers and what it learned
-  (`Ryker.WeeklyReport.Digest`).
+  (`Ryker.WeeklyReport.Digest`). It names no Slack request it merely answered
+  and gives no completion rate.
 
   **How it is made.** From the database alone, with no model turn
   (`Ryker.WeeklyReport.Facts`, `Ryker.WeeklyReport.Digest`), so it cannot say

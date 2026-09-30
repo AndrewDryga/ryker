@@ -981,8 +981,8 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How the weekly report works", [
       {"What it says",
        [
-         "Once a week Ryker posts a short update in one Slack channel, written the way a teammate would. It says how many messages it handled, how long a typical reply took and how many it answered on the spot, what it got done, the PRs it opened and merged and the ones still waiting for review, and what is still open. A last line says how people took its answers and what it learned.",
-         "A typical reply is the middle one, so one late answer does not make a week look slow. A part with nothing to say is left out, except that a report that could not check what is stuck says so."
+         "Once a week Ryker posts a short update in one Slack channel, written the way a teammate would. It starts with the PRs it opened that week and the ones already merged, then every PR still waiting for review and how long it has waited. One sentence says how many messages it handled, how long a typical reply took and how many were quick answers. Then only what needs people: the questions it is waiting on and anything stuck. A last line says how people took its answers and what it learned.",
+         "It names no Slack request it merely answered and gives no completion rate. A typical reply is the middle one, so one late answer does not make a week look slow. A part with nothing to say is left out, except that a report that could not check what is stuck says so."
        ]},
       {"Where it comes from",
        [

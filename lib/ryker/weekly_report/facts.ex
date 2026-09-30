@@ -1,11 +1,13 @@
 defmodule Ryker.WeeklyReport.Facts do
   @moduledoc """
   Everything the weekly report says, read from the database for one week
-  (`Ryker.WeeklyReport`), with no model anywhere: the messages Ryker handled
-  and how fast it replied, what it finished and what is still open, the pull
-  requests it opened and the ones waiting for a review, what is stuck, and a
-  line on feedback and what it learned. It counts the week's requests only to
-  tell a quiet week; the report states no completion rate.
+  (`Ryker.WeeklyReport`), with no model anywhere: the pull requests Ryker
+  opened, the ones merged and the ones waiting for a review, the messages it
+  handled and how fast it replied, the questions it is waiting on people to
+  answer, what is stuck, and a line on feedback and what it learned. It
+  counts the week's requests only to tell a quiet week, and names none it
+  merely answered: the report states no completion rate and lists no Slack
+  requests.
 
   A week is `%{from: from, to: to}`. A request counts for the week when
   someone asked something in it or Ryker answered in it, so a request
@@ -37,10 +39,8 @@ defmodule Ryker.WeeklyReport.Facts do
   # routing sent itself answered it on the spot.
   @handled [:quick_reply, :react, :reply, :start_episode, :continue_episode]
   @on_the_spot [:quick_reply, :react]
-  @named_done 5
-  @named_open 3
   @named_pull_requests 5
-  @named_stuck 3
+  @named_questions 5
 
   @type week :: %{from: DateTime.t(), to: DateTime.t()}
 
@@ -48,16 +48,14 @@ defmodule Ryker.WeeklyReport.Facts do
   @spec read(week(), DateTime.t()) :: map()
   def read(%{from: from, to: to} = week, %DateTime{} = now) do
     requests = requests(from, to)
-    {done, open} = Enum.split_with(requests, &(&1.standing == :finished))
 
     %{
       week: week,
       messages: messages(from, to),
       reply_ms: typical_reply_ms(from, to),
-      requests: %{total: length(requests), finished: length(done)},
+      requests: %{total: length(requests)},
       pull_requests: pull_requests(from, to),
-      done: named(done, @named_done),
-      open: open |> Enum.reject(&(&1.standing == :stopped)) |> named(@named_open),
+      questions: requests |> Enum.filter(&(&1.standing == :waiting)) |> named(@named_questions),
       stuck: stuck(now),
       feedback: feedback(from, to),
       learned: learned(from, to)
@@ -144,12 +142,10 @@ defmodule Ryker.WeeklyReport.Facts do
   defp standing(%{state: :waiting_for_event}), do: :watching
   defp standing(%{state: :working}), do: :going
 
-  # The requests the report may name, the ones with a draft PR first, then
-  # the ones Ryker answered most in, then the newest, one line per title in a
+  # The requests the report may name, newest first, one line per title in a
   # channel; how many there are, and how many are in private conversations.
   defp named(requests, limit) do
     titles = requests |> Enum.map(& &1.id) |> RoutingDigests.titles()
-    pull_requests = requests |> Enum.map(& &1.id) |> newest_pull_requests()
     public = requests |> Enum.map(& &1.conversation) |> Enum.uniq() |> Enum.filter(&public?/1)
 
     shown =
@@ -160,11 +156,7 @@ defmodule Ryker.WeeklyReport.Facts do
           title: titles[request.id],
           where: Names.destination(request.conversation),
           href: "/timeline/" <> URI.encode_www_form(request.key),
-          standing: request.standing,
-          pull_request: pull_requests[request.id],
-          rank:
-            {if(pull_requests[request.id], do: 1, else: 0), request.answers,
-             unix(request.last_at), request.key}
+          rank: {unix(request.last_at), request.key}
         }
       end)
       |> Enum.sort_by(& &1.rank, :desc)
@@ -183,23 +175,6 @@ defmodule Ryker.WeeklyReport.Facts do
 
   defp unix(%NaiveDateTime{} = at),
     do: NaiveDateTime.diff(at, ~N[1970-01-01 00:00:00], :microsecond)
-
-  # Each request's newest pull request, as its task card links it.
-  defp newest_pull_requests([]), do: %{}
-
-  defp newest_pull_requests(episode_ids) do
-    from(publication in Publication,
-      where:
-        publication.episode_id in ^episode_ids and not is_nil(publication.pull_request_url) and
-          not is_nil(publication.pull_request_number),
-      order_by: [asc: publication.inserted_at, asc: publication.id],
-      select:
-        {publication.episode_id,
-         %{number: publication.pull_request_number, url: publication.pull_request_url}}
-    )
-    |> Repo.all()
-    |> Map.new()
-  end
 
   # The messages that reached Ryker that week and got an answer, and how many
   # of them routing answered on the spot: a reply or a reaction without a
@@ -260,58 +235,78 @@ defmodule Ryker.WeeklyReport.Facts do
     seconds && round(seconds * 1000)
   end
 
-  # The pull requests Ryker opened that week and how many of them are merged
-  # by now, and every pull request of its still open, newest first: the ones
-  # waiting for someone to review them. A pull request is opened when its
-  # publication first goes out, which is when its follow-up starts; a
-  # follow-up rearmed later keeps that time.
+  # The pull requests Ryker opened that week and the ones among them merged
+  # by now, newest merge first, and every pull request of its still open,
+  # newest first: the ones waiting for someone to review them, whenever they
+  # were opened. A pull request is opened when its publication first goes
+  # out, which is when its follow-up starts; a follow-up rearmed later keeps
+  # that time.
   defp pull_requests(from, to) do
-    opened =
-      from(followup in Followup,
-        join: episode in Episode,
-        on: episode.id == followup.episode_id and episode.execution_mode == :live,
-        where: followup.inserted_at >= ^from and followup.inserted_at < ^to,
-        select: followup.pr_state
-      )
-      |> Repo.all()
-
-    waiting =
+    rows =
       from(followup in Followup,
         join: publication in Publication,
         on: publication.id == followup.publication_id,
         join: episode in Episode,
         on: episode.id == followup.episode_id and episode.execution_mode == :live,
         where:
-          followup.pr_state in ["open", "stale"] and not is_nil(publication.pull_request_url) and
-            not is_nil(publication.pull_request_number),
+          (followup.inserted_at >= ^from and followup.inserted_at < ^to) or
+            followup.pr_state in ["open", "stale"],
         order_by: [desc: followup.inserted_at, desc: followup.id],
         select: %{
+          state: followup.pr_state,
+          opened_at: followup.inserted_at,
+          merged_at: followup.merged_at,
           number: publication.pull_request_number,
           url: publication.pull_request_url,
           title: publication.title,
+          repository: publication.github_repository,
           conversation: episode.destination_conversation_ref
         }
       )
       |> Repo.all()
 
-    public = waiting |> Enum.map(& &1.conversation) |> Enum.uniq() |> Enum.filter(&public?/1)
+    this_week = Enum.filter(rows, &within?(&1.opened_at, from, to))
+
+    merged =
+      this_week
+      |> Enum.filter(&(&1.state == "merged"))
+      |> Enum.sort_by(&(&1.merged_at || &1.opened_at), {:desc, DateTime})
+
+    waiting = Enum.filter(rows, &(&1.state in ["open", "stale"]))
+    public = rows |> Enum.map(& &1.conversation) |> Enum.uniq() |> Enum.filter(&public?/1)
 
     %{
-      opened: length(opened),
-      merged: Enum.count(opened, &(&1 == "merged")),
+      opened: length(this_week),
+      merged: %{named: pull_request_names(merged, public), total: length(merged)},
       waiting: %{
-        named:
-          waiting
-          |> Enum.filter(&(&1.conversation in public and is_binary(&1.title)))
-          |> Enum.take(@named_pull_requests)
-          |> Enum.map(fn pull_request ->
-            pull_request
-            |> Map.take([:number, :url, :title])
-            |> Map.put(:where, Names.destination(pull_request.conversation))
-          end),
-        total: length(waiting)
+        named: pull_request_names(waiting, public),
+        total: length(waiting),
+        this_week: Enum.count(waiting, &within?(&1.opened_at, from, to))
       }
     }
+  end
+
+  defp within?(at, from, to),
+    do: DateTime.compare(at, from) != :lt and DateTime.compare(at, to) == :lt
+
+  # The pull requests the report may name: from a public channel, with a
+  # title and a link, and the repository by its own name.
+  defp pull_request_names(rows, public) do
+    rows
+    |> Enum.filter(
+      &(&1.conversation in public and is_binary(&1.title) and is_binary(&1.url) and
+          is_integer(&1.number))
+    )
+    |> Enum.take(@named_pull_requests)
+    |> Enum.map(fn row ->
+      %{
+        number: row.number,
+        url: row.url,
+        title: row.title,
+        repository: row.repository && row.repository |> String.split("/") |> List.last(),
+        opened_at: row.opened_at
+      }
+    end)
   end
 
   # -- Stuck ---------------------------------------------------------------------------
@@ -327,16 +322,7 @@ defmodule Ryker.WeeklyReport.Facts do
           |> Enum.map(&{&1, FailureExplanation.explain(&1, now)})
           |> Enum.filter(fn {_row, explanation} -> explanation.impact == :people end)
 
-        %{
-          total: length(people),
-          partial: length(rows) == FailureProjection.page_size(),
-          named:
-            people
-            |> Enum.take(@named_stuck)
-            |> Enum.map(fn {row, explanation} ->
-              %{title: explanation.title, href: FailureExplanation.path(row)}
-            end)
-        }
+        %{total: length(people), partial: length(rows) == FailureProjection.page_size()}
 
       {:error, :unavailable} ->
         :unavailable

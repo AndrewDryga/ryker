@@ -1,39 +1,38 @@
 defmodule Ryker.WeeklyReport.Digest do
   @moduledoc """
   The weekly report's words, from its facts (`Ryker.WeeklyReport.Facts`) and
-  nothing else, written the way a teammate posts a weekly update in Slack
-  (Andrew, 2026-09-30, of the Done / Still open / Stuck report this
-  replaced: "how a real human would send something like this to Slack?"):
+  nothing else, written the way a teammate posts a weekly update in Slack,
+  with the pull requests first (Andrew, 2026-09-30, of a report that listed
+  the Slack requests Ryker finished: "those are random tasks in slack, they
+  are irrelevant compared to value that PRs deliver"):
 
       Hey everyone 👋 Here's my weekly report for 23–30 Sep.
 
-      This past week I handled 121 messages, and a typical reply took about
-      30 seconds. I answered 69 of them on the spot; the rest needed deeper
-      work.
+      I opened 3 PRs this week, and 2 are already merged:
+      - VA1: prevent VictoriaLogs cgroup OOM recurrence · tenant-infra#555
+      - Add website worker OOM diagnostics and containment · tenant-app-svelte#617
 
-      Here's what I got done:
-      - Fix the checkout alert in #ops · PR #4
-      - Check Emisar infrastructure health in #test
+      Still waiting for review:
+      - Overlay: stop stranding the Flutter render-method query · tenant-overlay#51, open for 2 days
 
-      You can see the other 33 here.
+      I also handled 214 messages, and a typical reply took about 40 seconds.
+      150 were quick answers; the other 64 needed deeper work.
 
-      I also opened 2 PRs, and 1 is already merged. Still waiting for review:
-      - #2 README workflow smoke test in #test
+      I'm waiting for an answer to 1 question:
+      - Verify README smoke test change in #test
 
-      2 requests are still open:
-      - Add a smoke test in #test, waiting for an answer
-      - Track Terraform run 42 in #infra, watching for an update
+      1 thing is stuck and needs someone to look at it: Failures
 
-      Overall, feedback was mostly positive: 2 positive and 1 negative. I also
-      learned 10 new things, most recently about “Livebook is parked”.
+      Feedback I have received was mostly positive: 9 positive and 1 negative.
+      I also learned 6 new things, most recently about “VictoriaLogs retention”.
 
   A part with nothing to say is left out, except that a report that could
   not check what is stuck says so: nothing stuck is a good week, not knowing
-  is not. It states no completion rate: "I worked on 45 requests and
-  finished 35 of them" read as ten failures (Andrew, 2026-09-30: "why we need
-  this? it should not fail at all") when six had been closed by a person as
-  no longer needed and four were waiting. What got done, what is still open
-  and what is stuck say it without one.
+  is not. It lists no request Ryker merely answered and states no completion
+  rate: "I worked on 45 requests and finished 35 of them" read as ten
+  failures (Andrew, 2026-09-30: "why we need this? it should not fail at
+  all") when six had been closed by a person as no longer needed and four
+  were waiting.
 
   The text is the Markdown Slack's `markdown` block reads, and the control
   plane's preview renders the same text (`Ryker.ControlPlane.SlackMarkdown`),
@@ -43,6 +42,7 @@ defmodule Ryker.WeeklyReport.Digest do
   """
 
   @title_characters 160
+  @day_seconds 86_400
 
   @type part :: %{key: atom(), lines: [String.t()]}
   @type t :: %{parts: [part()], text: String.t()}
@@ -56,15 +56,14 @@ defmodule Ryker.WeeklyReport.Digest do
   def render(facts, options) do
     base = options |> Keyword.fetch!(:base_url) |> String.trim_trailing("/")
     database = Keyword.get(options, :time_zone_database, Calendar.get_time_zone_database())
-    work = work(facts)
+    pull_requests = pull_requests(facts.pull_requests, facts.week.to)
 
     parts =
       [
         greeting: [greeting(facts.week, database, Keyword.get(options, :preview, false))],
-        work: work,
-        done: done(facts.done, base),
-        pull_requests: pull_requests(facts.pull_requests, work != []),
-        open: open(facts.open, base),
+        pull_requests: pull_requests,
+        work: work(facts, pull_requests != []),
+        questions: questions(facts.questions, base),
         stuck: stuck(facts.stuck, base),
         closing: closing(facts)
       ]
@@ -96,41 +95,117 @@ defmodule Ryker.WeeklyReport.Digest do
     end
   end
 
-  # -- How much work -------------------------------------------------------------------
+  # -- Pull requests -------------------------------------------------------------------
 
-  defp work(%{messages: %{handled: 0}, requests: %{total: 0}, pull_requests: %{opened: 0}}),
-    do: ["It was a quiet week: nobody asked me for anything."]
+  # The week's pull requests and the merged ones among them, then every pull
+  # request still waiting for review. When the week's are exactly the ones
+  # waiting, one sentence says both.
+  defp pull_requests(%{opened: 0, waiting: %{total: 0}}, _now), do: []
 
-  defp work(facts) do
-    [handled(facts.messages, facts.reply_ms), on_the_spot(facts.messages)]
-    |> Enum.reject(&is_nil/1)
-    |> case do
-      [] -> []
-      sentences -> [Enum.join(sentences, " ")]
+  defp pull_requests(%{opened: 0, waiting: waiting}, now) do
+    header =
+      if waiting.total == 1,
+        do: "This PR is still waiting for review:",
+        else: "These PRs are still waiting for review:"
+
+    [header | waiting_lines(waiting, now)]
+  end
+
+  defp pull_requests(
+         %{opened: opened, merged: %{total: 0}, waiting: %{total: opened, this_week: opened}} =
+           pull_requests,
+         now
+       ) do
+    they = if opened == 1, do: "it's", else: "they're"
+
+    ["I opened #{count(opened, "PR")} this week, and #{they} waiting for review:"] ++
+      waiting_lines(pull_requests.waiting, now)
+  end
+
+  defp pull_requests(%{opened: opened, merged: merged, waiting: waiting}, now) do
+    opened_lines =
+      case merged.total do
+        0 -> ["I opened #{count(opened, "PR")} this week."]
+        _merged -> [merged_sentence(opened, merged.total) | merged_lines(merged)]
+      end
+
+    case waiting.total do
+      0 -> opened_lines
+      _waiting -> opened_lines ++ ["", "Still waiting for review:" | waiting_lines(waiting, now)]
     end
   end
 
-  defp handled(%{handled: 0}, _reply_ms), do: nil
-  defp handled(%{handled: 1}, nil), do: "This past week I handled 1 message."
+  defp merged_sentence(1, 1), do: "I opened 1 PR this week, and it's already merged:"
+  defp merged_sentence(2, 2), do: "I opened 2 PRs this week, and both are already merged:"
+  defp merged_sentence(all, all), do: "I opened #{all} PRs this week, and all are already merged:"
 
-  defp handled(%{handled: 1}, reply_ms),
-    do: "This past week I handled 1 message, and my reply took #{duration(reply_ms)}."
+  defp merged_sentence(opened, 1),
+    do: "I opened #{opened} PRs this week, and 1 is already merged:"
 
-  defp handled(%{handled: handled}, nil), do: "This past week I handled #{handled} messages."
+  defp merged_sentence(opened, merged),
+    do: "I opened #{opened} PRs this week, and #{merged} are already merged:"
 
-  defp handled(%{handled: handled}, reply_ms),
-    do:
-      "This past week I handled #{handled} messages, and a typical reply took " <>
-        "#{duration(reply_ms)}."
+  defp merged_lines(merged),
+    do: Enum.map(merged.named, &pull_request_line/1) ++ more(merged.total - length(merged.named))
 
-  defp on_the_spot(%{handled: 0}), do: nil
-  defp on_the_spot(%{handled: 1, on_the_spot: 1}), do: "I answered it on the spot."
-  defp on_the_spot(%{handled: 1}), do: "It needed deeper work."
-  defp on_the_spot(%{handled: all, on_the_spot: all}), do: "I answered all of them on the spot."
-  defp on_the_spot(%{on_the_spot: 0}), do: "All of them needed deeper work."
+  defp waiting_lines(waiting, now) do
+    Enum.map(waiting.named, &(pull_request_line(&1) <> ", open for #{age(&1.opened_at, now)}")) ++
+      more(waiting.total - length(waiting.named))
+  end
 
-  defp on_the_spot(%{on_the_spot: spot}),
-    do: "I answered #{spot} of them on the spot; the rest needed deeper work."
+  defp pull_request_line(pull_request) do
+    where = if pull_request.repository, do: plain(pull_request.repository), else: ""
+    "- [#{plain(pull_request.title)}](#{pull_request.url}) · #{where}##{pull_request.number}"
+  end
+
+  defp age(opened_at, now) do
+    case div(max(DateTime.diff(now, opened_at, :second), 0), @day_seconds) do
+      0 -> "less than a day"
+      days -> count(days, "day")
+    end
+  end
+
+  # -- How much work -------------------------------------------------------------------
+
+  defp work(
+         %{messages: %{handled: 0}, requests: %{total: 0}, pull_requests: %{opened: 0}},
+         _also
+       ),
+       do: ["It was a quiet week: nobody asked me for anything."]
+
+  defp work(%{messages: %{handled: 0}}, _also), do: []
+
+  defp work(facts, also),
+    do: [handled(facts.messages, facts.reply_ms, also) <> " " <> answered(facts.messages)]
+
+  defp handled(%{handled: handled}, reply_ms, also) do
+    opening = if also, do: "I also handled", else: "This past week I handled"
+
+    case {handled, reply_ms} do
+      {1, nil} ->
+        "#{opening} 1 message."
+
+      {1, reply_ms} ->
+        "#{opening} 1 message, and my reply took #{duration(reply_ms)}."
+
+      {handled, nil} ->
+        "#{opening} #{handled} messages."
+
+      {handled, reply_ms} ->
+        "#{opening} #{handled} messages, and a typical reply took #{duration(reply_ms)}."
+    end
+  end
+
+  defp answered(%{handled: 1, on_the_spot: 1}), do: "It was a quick answer."
+  defp answered(%{handled: 1}), do: "It needed deeper work."
+  defp answered(%{handled: all, on_the_spot: all}), do: "All of them were quick answers."
+  defp answered(%{on_the_spot: 0}), do: "All of them needed deeper work."
+
+  defp answered(%{handled: handled, on_the_spot: spot}) do
+    quick = if spot == 1, do: "1 was a quick answer", else: "#{spot} were quick answers"
+    rest = if handled - spot == 1, do: "the other one", else: "the other #{handled - spot}"
+    "#{quick}; #{rest} needed deeper work."
+  end
 
   # How long, rounded the way a person says it.
   defp duration(milliseconds) do
@@ -150,143 +225,55 @@ defmodule Ryker.WeeklyReport.Digest do
   defp hours(1), do: "about an hour"
   defp hours(hours), do: "about #{hours} hours"
 
-  # -- What got done -------------------------------------------------------------------
+  # -- What needs people ---------------------------------------------------------------
 
-  defp done(%{total: 0}, _base), do: []
+  defp questions(%{total: 0}, _base), do: []
 
-  defp done(%{named: [], total: 1, private: 1}, _base),
-    do: ["The request I finished was in a private conversation, so I'm not naming it here."]
+  defp questions(%{named: [], total: 1, private: 1}, _base),
+    do: ["I'm waiting for an answer to 1 question, in a private conversation."]
 
-  defp done(%{named: [], total: total, private: total}, _base),
-    do: [
-      "The #{total} requests I finished were all in private conversations, " <>
-        "so I'm not naming them here."
-    ]
+  defp questions(%{named: [], total: total, private: total}, _base),
+    do: ["I'm waiting for answers to #{total} questions, all in private conversations."]
 
-  defp done(%{named: []}, base), do: ["You can see what I finished [here](#{finished(base)})."]
+  defp questions(%{named: [], total: 1}, _base), do: ["I'm waiting for an answer to 1 question."]
 
-  # The rest are a sentence of their own after a blank line, so Slack does
-  # not read it as more of the last item.
-  defp done(%{named: named, total: total}, base) do
-    ["Here's what I got done:"] ++
-      Enum.map(named, fn request -> request_line(request, base, &pull_request/1) end) ++
-      case total - length(named) do
-        0 -> []
-        1 -> ["", "You can see the other one [here](#{finished(base)})."]
-        more -> ["", "You can see the other #{more} [here](#{finished(base)})."]
-      end
-  end
+  defp questions(%{named: [], total: total}, _base),
+    do: ["I'm waiting for answers to #{total} questions."]
 
-  defp finished(base), do: base <> "/activity?filter=done"
-
-  defp pull_request(%{pull_request: %{number: number, url: url}}),
-    do: " · [PR ##{number}](#{url})"
-
-  defp pull_request(_request), do: ""
-
-  # -- Pull requests -------------------------------------------------------------------
-
-  defp pull_requests(%{opened: 0, waiting: %{total: 0}}, _also), do: []
-
-  defp pull_requests(%{opened: 0, waiting: waiting}, _also), do: waiting(waiting, true)
-
-  defp pull_requests(%{opened: opened, merged: merged, waiting: waiting}, also) do
-    sentence = if(also, do: "I also opened ", else: "I opened ") <> merged(opened, merged)
-
-    case waiting(waiting, false) do
-      [] -> [sentence]
-      [first | rest] -> [sentence <> " " <> first | rest]
-    end
-  end
-
-  defp merged(1, 1), do: "1 PR, and it's already merged."
-  defp merged(1, 0), do: "1 PR; it isn't merged yet."
-  defp merged(all, all), do: "#{all} PRs, and all of them are already merged."
-  defp merged(opened, 0), do: "#{opened} PRs; none is merged yet."
-  defp merged(opened, 1), do: "#{opened} PRs, and 1 is already merged."
-  defp merged(opened, merged), do: "#{opened} PRs, and #{merged} are already merged."
-
-  # The pull requests still open, whenever they were opened: after the
-  # week's own, "Still waiting for review", and on their own, which ones.
-  defp waiting(%{total: 0}, _alone), do: []
-
-  defp waiting(%{named: [], total: 1}, _alone),
-    do: ["1 PR is still waiting for review, from a private conversation."]
-
-  defp waiting(%{named: [], total: total}, _alone),
-    do: ["#{total} PRs are still waiting for review, all from private conversations."]
-
-  defp waiting(%{named: named, total: total}, alone) do
-    header =
-      cond do
-        not alone -> "Still waiting for review:"
-        total == 1 -> "This PR is still waiting for review:"
-        true -> "These PRs are still waiting for review:"
-      end
-
-    [header] ++
-      Enum.map(named, &"- [##{&1.number} #{plain(&1.title)}](#{&1.url}) in #{plain(&1.where)}") ++
-      more(total - length(named))
-  end
-
-  # -- Still open ----------------------------------------------------------------------
-
-  defp open(%{total: 0}, _base), do: []
-
-  defp open(%{named: [], total: 1, private: 1}, _base),
-    do: ["1 request is still open, in a private conversation."]
-
-  defp open(%{named: [], total: total, private: total}, _base),
-    do: ["#{total} requests are still open, all in private conversations."]
-
-  defp open(%{named: [], total: 1}, _base), do: ["1 request is still open."]
-  defp open(%{named: [], total: total}, _base), do: ["#{total} requests are still open."]
-
-  defp open(%{named: named, total: total}, base) do
+  defp questions(%{named: named, total: total, private: private}, base) do
     header =
       if total == 1,
-        do: "1 request is still open:",
-        else: "#{total} requests are still open:"
+        do: "I'm waiting for an answer to 1 question:",
+        else: "I'm waiting for answers to #{total} questions:"
+
+    rest =
+      case {total - length(named), private} do
+        {0, _private} -> []
+        {1, 1} -> ["- and 1 more in a private conversation"]
+        {more, more} -> ["- and #{more} more in private conversations"]
+        {more, _private} -> more(more)
+      end
 
     [header] ++
-      Enum.map(named, fn request -> request_line(request, base, &standing/1) end) ++
-      more(total - length(named))
+      Enum.map(named, &"- [#{plain(&1.title)}](#{base}#{&1.href}) in #{plain(&1.where)}") ++
+      rest
   end
-
-  defp standing(%{standing: :waiting}), do: ", waiting for an answer"
-  defp standing(%{standing: :watching}), do: ", watching for an update"
-  defp standing(%{standing: :stuck}), do: ", stuck"
-  defp standing(%{standing: :going}), do: ", in progress"
-
-  defp request_line(request, base, detail),
-    do:
-      "- [#{plain(request.title)}](#{base}#{request.href}) in #{plain(request.where)}" <>
-        detail.(request)
-
-  defp more(0), do: []
-  defp more(count), do: ["- and #{count} more"]
-
-  # -- Stuck ---------------------------------------------------------------------------
 
   defp stuck(:unavailable, base),
     do: ["I couldn't check [Failures](#{base}/failures) while writing this."]
 
   defp stuck(%{total: 0}, _base), do: []
 
-  defp stuck(stuck, base) do
-    how_many = if stuck.partial, do: "At least #{stuck.total}", else: "#{stuck.total}"
+  defp stuck(%{total: 1, partial: false}, base),
+    do: ["1 thing is stuck and needs someone to look at it: [Failures](#{base}/failures)"]
 
-    things =
-      if stuck.total == 1,
-        do: "thing needs someone to look at it",
-        else: "things need someone to look at them"
+  defp stuck(%{total: total, partial: partial}, base) do
+    how_many = if partial, do: "At least #{total}", else: "#{total}"
 
-    ["#{how_many} #{things}:"] ++
-      Enum.map(stuck.named, &"- [#{plain(&1.title)}](#{base}#{&1.href})") ++
-      case stuck.total - length(stuck.named) do
-        0 -> []
-        more -> ["- and #{more} more on [Failures](#{base}/failures)"]
-      end
+    [
+      "#{how_many} things are stuck and need someone to look at them: " <>
+        "[Failures](#{base}/failures)"
+    ]
   end
 
   # -- Feedback and what Ryker learned -------------------------------------------------
@@ -300,25 +287,35 @@ defmodule Ryker.WeeklyReport.Digest do
     end
   end
 
+  # Andrew, 2026-09-30, of "Feedback was": "Feedback I have received was".
   defp feedback(%{positive: 0, negative: 0}), do: nil
-  defp feedback(%{positive: 1, negative: 0}), do: "The one piece of feedback I got was positive."
+  defp feedback(%{positive: 1, negative: 0}), do: "Feedback I have received was positive."
+  defp feedback(%{positive: 0, negative: 1}), do: "Feedback I have received was negative."
+
+  defp feedback(%{positive: 2, negative: 0}),
+    do: "Both pieces of feedback I have received were positive."
+
+  defp feedback(%{positive: 0, negative: 2}),
+    do: "Both pieces of feedback I have received were negative."
 
   defp feedback(%{positive: positive, negative: 0}),
-    do: "All #{positive} pieces of feedback I got were positive."
-
-  defp feedback(%{positive: 0, negative: 1}), do: "The one piece of feedback I got was negative."
+    do: "All #{positive} pieces of feedback I have received were positive."
 
   defp feedback(%{positive: 0, negative: negative}),
-    do: "All #{negative} pieces of feedback I got were negative."
+    do: "All #{negative} pieces of feedback I have received were negative."
 
   defp feedback(%{positive: positive, negative: negative}) when positive > negative,
-    do: "Overall, feedback was mostly positive: #{positive} positive and #{negative} negative."
+    do:
+      "Feedback I have received was mostly positive: " <>
+        "#{positive} positive and #{negative} negative."
 
   defp feedback(%{positive: positive, negative: negative}) when positive < negative,
-    do: "Overall, feedback was mostly negative: #{positive} positive and #{negative} negative."
+    do:
+      "Feedback I have received was mostly negative: " <>
+        "#{positive} positive and #{negative} negative."
 
   defp feedback(%{positive: positive, negative: negative}),
-    do: "Feedback was mixed: #{positive} positive and #{negative} negative."
+    do: "Feedback I have received was mixed: #{positive} positive and #{negative} negative."
 
   defp learned(%{count: 0}, _also), do: nil
 
@@ -333,6 +330,9 @@ defmodule Ryker.WeeklyReport.Digest do
     do: "#{count} new things, most recently about “#{plain(name)}”."
 
   # -- Words ---------------------------------------------------------------------------
+
+  defp more(0), do: []
+  defp more(count), do: ["- and #{count} more"]
 
   defp count(1, noun), do: "1 #{noun}"
   defp count(count, noun), do: "#{count} #{noun}s"
