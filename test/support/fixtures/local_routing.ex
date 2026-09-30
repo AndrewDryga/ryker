@@ -4,8 +4,9 @@ defmodule Ryker.Fixtures.LocalRouting do
 
   Harvested read-only on 2026-09-27 from the live install's
   `admission_attempts.response` and `execution_usage`: exactly what
-  gpt-5.6-sol answered to three Chat messages, and what that call measured.
-  None of them is invented; each test that needs a local model's answer uses
+  gpt-5.6-sol answered to three Chat messages, and what that call measured;
+  and on 2026-09-30 from `local_routing_comparisons.local_answer`, what the
+  first local model answered. None of them is invented; each test that needs a local model's answer uses
   one a model really gave.
   """
 
@@ -47,6 +48,17 @@ defmodule Ryker.Fixtures.LocalRouting do
   def deploy_script_reply,
     do:
       ~s({"action":"reply","episode_ref":null,"messages":null,"reactions":null,"relation":"unrelated","reason":"This is a small, focused lookup: read scripts/deploy.sh and summarize what it does before replacing the container in two sentences.","repository":null,"repository_source":null,"work_class":"conversational"})
+
+  @doc """
+  qwen2.5:3b's answer to "Which repositories can you read in this
+  environment?" in the first comparison on the live install (2026-09-30,
+  served by scripts/routing-model-service.sh; the provider chose a quick
+  reply). It starts work on earlier work named `same_work`, which routing
+  never offered, so routing's checks refuse it (`rejected:unknown_candidate`).
+  """
+  def made_up_earlier_work,
+    do:
+      ~s({"action":"start_episode","episode_ref":"same_work","messages":null,"reactions":null,"reason":"The input asks for a list of repositories that can be read in the environment. This is a request for information and does not require any investigation or action. The current conversation does not contain any prior work or requests that would need to be handled. Therefore, the appropriate action is to provide the requested information without starting any new work. The environment's repositories can be read from the provided repository_choices list.","relation":"history_only","repository":"andrewdryga-ryker","repository_source":{"kind":"default"},"work_class":"standard"})
 
   @doc "The model that gave `hi_again_quick_reply/0`, as its session reported it."
   def provider_target, do: "codex:gpt-5.6-sol/medium@default"

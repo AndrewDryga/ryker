@@ -13,8 +13,8 @@
 # `launchctl load` had accepted it and something later dropped it, and the only
 # way that showed up was a deliberate check. A watchdog nobody verified is
 # running is worse than none, because it is also a claim that someone is
-# watching. So this bootstraps rather than loads, and then asserts the agent is
-# actually registered before it reports success.
+# watching. So this bootstraps rather than loads, and asserts the agent is
+# actually registered before it reports success (scripts/launch-agent.sh).
 set -euo pipefail
 
 if [[ $# -ne 0 ]]; then
@@ -24,7 +24,8 @@ fi
 
 label="ai.emisar.ryker.watchdog"
 plist="$HOME/Library/LaunchAgents/$label.plist"
-script="$(cd "$(dirname "$0")" && pwd)/watchdog.sh"
+here=$(cd "$(dirname "$0")" && pwd)
+script="$here/watchdog.sh"
 state="$HOME/.local/state/ryker-watchdog"
 
 mkdir -p "$(dirname "$plist")" "$state"
@@ -47,13 +48,7 @@ cat >"$plist" <<PLIST
 PLIST
 
 /usr/bin/plutil -lint "$plist" >/dev/null
-launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$plist"
-
 # Registered, not merely accepted. The distinction is the whole reason this
 # script exists.
-if ! launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
-  echo "watchdog: launchctl accepted the agent but it is not registered" >&2
-  exit 1
-fi
+"$here/launch-agent.sh" load "$label" "$plist"
 echo "watchdog: installed and registered; checks the Compose installation every 60s, alarms reach this Mac's notifications, logs to $state/watchdog.log"

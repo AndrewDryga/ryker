@@ -25,6 +25,7 @@ write_label=ai.emisar.ryker.whisper
 detect_label=ai.emisar.ryker.whisper-detect
 write_port=${RYKER_WHISPER_PORT:-8178}
 detect_port=${RYKER_WHISPER_DETECT_PORT:-8179}
+here=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
   echo "usage: scripts/voice-service.sh install|status|uninstall" >&2
@@ -98,8 +99,7 @@ install() {
   write_plist "$write_label" "$write_port"
   write_plist "$detect_label" "$detect_port" -dl
   for label in "$write_label" "$detect_label"; do
-    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
-    launchctl bootstrap "gui/$(id -u)" "$agents/$label.plist"
+    "$here/launch-agent.sh" load "$label" "$agents/$label.plist"
   done
 
   # Loading the model takes a few seconds on first start.
@@ -117,7 +117,7 @@ install() {
 
 uninstall() {
   for label in "$write_label" "$detect_label"; do
-    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+    "$here/launch-agent.sh" unload "$label"
     rm -f "$agents/$label.plist"
   done
   echo "Stopped. The model stays in $model_dir; delete it to free 3.1 GB."

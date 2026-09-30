@@ -17,8 +17,8 @@ defmodule Ryker.Settings.Work do
   many routing sessions Ryker starts ahead of time (`Ryker.Admission.ReadyPool`);
   0 turns that off.
 
-  The local routing model is a model the operator runs, such as Ollama on the
-  Mac that runs Ryker, reached at `local_routing_endpoint` and asked for
+  The local routing model is a model the operator runs, such as the one
+  `scripts/routing-model-service.sh` runs on the Mac beside Ryker, reached at `local_routing_endpoint` and asked for
   `local_routing_model`. At `local_routing_mode` `:shadow` it is asked each
   routing prompt after the provider has decided (`Ryker.LocalRouting`); it
   never decides anything. Comparing needs both an endpoint and a model, and

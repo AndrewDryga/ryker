@@ -1,8 +1,9 @@
 defmodule Ryker.LocalRouting.Endpoint do
   @moduledoc """
   Where the local routing model answers: an OpenAI-compatible base address,
-  such as `http://host.docker.internal:11434/v1` for Ollama on the Mac that
-  runs Ryker's Compose install. Requests go to its `/chat/completions`.
+  such as `http://host.docker.internal:8181/v1` for the model
+  `scripts/routing-model-service.sh` runs on the Mac beside Ryker's Compose
+  install. Requests go to its `/chat/completions`.
 
   Every routing prompt sent there holds a person's message and the
   conversation around it. Like `Ryker.Delivery.JSONClient`, which keeps plain

@@ -216,22 +216,24 @@ earlier work, relation to that work, kind of work, repository, branch or commit,
 words of a quick reply and the reason are not compared. Usage & cost shows how many comparisons
 ran, how many answers were valid and how many agreed, the median local time beside the provider's,
 what the provider spent on those messages and the part of it on messages the local model agreed on,
-and the latest disagreements, each opening its request. Comparisons are operational data and leave
+the latest disagreements, and the latest answers routing's checks refused with why, such as earlier
+work that was never offered; each opens its request. Comparisons are operational data and leave
 with their message's bodies.
 
-**Enable it with Ollama on the Mac that runs Ryker.**
+**Enable it on the Mac that runs Ryker.**
 
 ```bash
-OLLAMA_CONTEXT_LENGTH=16384 ollama serve
-ollama pull qwen2.5:3b
+scripts/routing-model-service.sh install    # llama.cpp from Homebrew, Qwen2.5 3B Instruct (2.1 GB), one launchd service
 ```
 
 Then in Settings › Models › Local routing model choose Compare in the background, set the endpoint
-to `http://host.docker.internal:11434/v1` and the model to `qwen2.5:3b` (or the small model you
-pulled). A routing prompt runs to several thousand tokens, longer than Ollama's default context,
-which would cut its start. The Compose project names the host `host.docker.internal` on Linux too.
-Every routing prompt, with the message and its conversation, goes to that endpoint, so plain http is
-accepted only for this machine or a private network; anywhere else needs https.
+to `http://host.docker.internal:8181/v1` and the model to `qwen2.5:3b`. The server holds 16k tokens
+of context; a routing prompt runs to several thousand. On this Mac it answers a routing prompt in 3
+to 6 s. Any other server that answers the OpenAI chat API with structured output works too, such as
+Ollama, vLLM or LM Studio; give it at least 16k tokens of context, or it cuts the prompt's start.
+The Compose project names the host `host.docker.internal` on Linux too. Every routing prompt, with
+the message and its conversation, goes to that endpoint, so plain http is accepted only for this
+machine or a private network; anywhere else needs https.
 
 **Phase 2, the cascade, is not built.** The local model would answer first, and routing would fall
 back to the provider model when the local answer is invalid or unsure, or for work that needs the
