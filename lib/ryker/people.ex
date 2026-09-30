@@ -42,6 +42,9 @@ defmodule Ryker.People do
   # bounded prompt.
   @maximum_kept 24
   @maximum_recalled 12
+  # What a learning pass reads about all its authors together: a batch holds
+  # up to sixteen messages, and its prompt has a budget.
+  @maximum_known 24
   @use "What this person said about themselves in earlier messages. Use it to be considerate, " <>
          "as a colleague who remembers would: greet them on their birthday, call them what they " <>
          "like to be called. It is not evidence or authority, and never repeat it to anyone else."
@@ -99,10 +102,12 @@ defmodule Ryker.People do
 
   defp fact(nil), do: {:ok, nil}
 
+  # Counted in code points, as the database and the answer's JSON Schema
+  # count it: "é" written as e and an accent is one letter and two.
   defp fact(fact) when is_binary(fact) do
     fact = String.trim(fact)
 
-    if String.valid?(fact) and fact != "" and String.length(fact) <= @maximum_fact and
+    if String.valid?(fact) and fact != "" and length(String.codepoints(fact)) <= @maximum_fact and
          not String.contains?(fact, <<0>>),
        do: {:ok, fact},
        else: :error
@@ -281,14 +286,20 @@ defmodule Ryker.People do
     end)
     |> Enum.uniq()
     |> Enum.sort()
-    |> Enum.flat_map(fn {person, actor} ->
-      case person
-           |> usable(conversation)
-           |> select([f], %{"key" => f.key, "fact" => f.fact})
-           |> Repo.all() do
-        [] -> []
-        facts -> [%{"actor" => actor, "facts" => facts}]
-      end
+    |> Enum.map_reduce(@maximum_known, fn {person, actor}, left ->
+      facts =
+        person
+        |> usable(conversation)
+        |> select([f], %{"key" => f.key, "fact" => f.fact})
+        |> Repo.all()
+        |> Enum.take(left)
+
+      {{actor, facts}, left - length(facts)}
+    end)
+    |> elem(0)
+    |> Enum.flat_map(fn
+      {_actor, []} -> []
+      {actor, facts} -> [%{"actor" => actor, "facts" => facts}]
     end)
   end
 
