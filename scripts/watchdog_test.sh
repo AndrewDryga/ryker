@@ -243,6 +243,25 @@ check "a Docker that cannot list the project alarms" \
   "ALERT Ryker is not working — docker compose cannot list the project's containers" "$nodocker"
 
 # ---------------------------------------------------------------------------
+# 2026-09-30: voice moved to whisper on this Mac. When it stops, Ryker falls
+# back to its small model, which wrote Andrew's Ukrainian as Russian, and
+# nothing but this says so. compose.env names the servers the way Ryker's
+# container reaches them, through host.docker.internal.
+reset; ready
+cp "$install/compose.env" "$install/compose.env.voice"
+printf 'RYKER_WHISPER_URL=http://host.docker.internal:%s\nRYKER_WHISPER_DETECT_URL=http://host.docker.internal:%s\n' \
+  "$port" "$port" >>"$install/compose.env.voice"
+answering=$(WATCHDOG_ENV_FILE="$install/compose.env.voice" run)
+refute "whisper servers that answer raise nothing" "strike" "$answering"
+printf 'RYKER_WHISPER_DETECT_URL=http://host.docker.internal:%s\n' "$((port + 1))" >>"$install/compose.env.voice"
+WATCHDOG_ENV_FILE="$install/compose.env.voice" run >/dev/null
+silent=$(WATCHDOG_ENV_FILE="$install/compose.env.voice" run)
+check "a whisper server that stopped answering alarms, as worse rather than stopped" \
+  "ALERT Ryker reads voice messages with its small model — whisper at http://127.0.0.1:$((port + 1)) is not answering" \
+  "$silent"
+refute "the whisper server that answers is not named" "127.0.0.1:$port is not answering" "$silent"
+
+# ---------------------------------------------------------------------------
 # Work whose retries are spent waits for a person on the Failures page. That
 # is a durable state, so it alarms when it appears and when it grows, not on
 # strikes and not every half hour; retention's own blocked gauge is a
