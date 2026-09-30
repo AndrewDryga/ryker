@@ -781,7 +781,7 @@ defmodule Ryker.Behaviors do
              episode.destination_conversation_ref
            ),
          :ok <- authorize_wide_guidance(record, episode),
-         :ok <- authorize_operator_preference(record, turn, attributes.actor_ref),
+         :ok <- authorize_personal_offer(record, turn, attributes.actor_ref),
          :ok <- delivered_from?(episode, turn, attributes.target) do
       case Repo.one(from(behavior in Behavior, where: behavior.offer_record_id == ^record.id)) do
         %Behavior{} = behavior ->
@@ -811,18 +811,23 @@ defmodule Ryker.Behaviors do
 
   defp authorize_wide_guidance(_record, _episode), do: :ok
 
-  defp authorize_operator_preference(
-         %Record{kind: "preference_offer", payload: %{"scope" => "operator"}},
+  # A preference or a rule a person keeps for themselves ("mine") belongs to
+  # whoever confirms it, so only the person who asked for it may. Guidance
+  # went unchecked until 2026-09-30: anyone in the channel could confirm
+  # someone else's rule and it became theirs.
+  defp authorize_personal_offer(
+         %Record{kind: kind, payload: %{"scope" => "operator"}},
          %Turn{submission: submission},
          actor_ref
-       ) do
+       )
+       when kind in ["preference_offer", "guidance_offer"] do
     case current_human_actors(submission) do
       [^actor_ref] -> :ok
       _other -> {:error, :behavior_offer_actor_mismatch}
     end
   end
 
-  defp authorize_operator_preference(_record, _turn, _actor_ref), do: :ok
+  defp authorize_personal_offer(_record, _turn, _actor_ref), do: :ok
 
   defp current_human_actors(%{"context" => %{"mode" => "full", "inputs" => %{"items" => items}}}) do
     items
