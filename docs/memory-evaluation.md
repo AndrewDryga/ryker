@@ -362,8 +362,9 @@ update a topic, and the clarification must update that same topic rather than ad
 With `--probe`, the later authored question asks whether it was stuck and what the team clarified.
 Review must distinguish the initial concern from the attributed correction without inferring that
 the update was subsequently deployed or tested; neither appears in the selected inputs.
-`--scenario chatter` feeds the retained acknowledgement and requires no topic or revision; it does
-not support `--probe`, because there should be no learned subject to retrieve.
+`--scenario chatter` feeds the retained acknowledgement and requires no topic, revision or fact
+about its author; it does not support `--probe`, because there should be no learned subject to
+retrieve.
 Each batch must settle before the next source is imported. The checks require one stable topic ID
 and successive revisions; they do not grade the factual meaning of the summary. Source bodies,
 identities, and event times remain unchanged. The report explicitly labels silent shadow admission,
@@ -485,7 +486,9 @@ are retained in `testdata/learning/retained-one-off-acceptance-request.json`, wi
 prompt/result digests and originating run ID.
 
 `mix ryker.learning_eval --scenario one-off-request` runs only that harvested input through
-the current learner and requires no topic update. The captured answer is used solely to prove
+the current learner and requires no topic update and no fact about the person who asked: a
+request about work says nothing about its author, and a fact kept from it would be recalled into
+each of their later turns. The captured answer is used solely to prove
 that the offline evaluator rejects the old behavior; it is never supplied to the live learner.
 This scenario has no recall probe because a successful run intentionally learns nothing.
 Fresh model qualification must also retain meaningful decisions (such as the `draft-keep`

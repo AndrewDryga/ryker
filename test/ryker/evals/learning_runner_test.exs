@@ -774,6 +774,31 @@ defmodule Ryker.Evals.LearningRunnerTest do
     assert [%{check: true, people: %{facts: [], missing: ["birthday on 4 May"]}}] = report.steps
   end
 
+  # The People eval checked only the facts that should be kept, so a model that read a fact
+  # into every message passed it. A request about work says nothing about the person who sent
+  # it, and a fact learned from it is recalled into each later turn of theirs, with no approval.
+  test "an ordinary request teaches nothing about its author", %{options: options} do
+    [request] = LearningRunner.recorded_sequence("one-off-request")
+
+    learned = %{
+      "updates" => [],
+      "reason" => "Constructed host output.",
+      "people" => [
+        %{
+          "source_input_id" => request.input["id"],
+          "key" => "role",
+          "fact" => "Runs acceptance checks."
+        }
+      ]
+    }
+
+    Agent.update(options.client, &Map.put(&1, :eval_body, Jason.encode!(learned)))
+
+    assert {:ok, report} = LearningRunner.run([request], options)
+    refute report.passed
+    assert [%{check: true, people: %{unexpected: ["Runs acceptance checks."]}}] = report.steps
+  end
+
   test "the command rejects a one-off request recall probe before any start" do
     assert_raise Mix.Error, ~r/one-off-request has no learned topic/, fn ->
       LearningEval.run([
