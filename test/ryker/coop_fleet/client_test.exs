@@ -9,6 +9,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     ControlPlane,
     JobSpec,
     Placement,
+    Worker,
     WorkspaceCheckpointTransfer
   }
 
@@ -1155,7 +1156,7 @@ defmodule Ryker.CoopFleet.ClientTest do
            }
   end
 
-  test "publication freezes the original review placement and command, never placing a new worker",
+  test "publication freezes its first command after its placement ends",
        %{client: client, session: session} do
     session = bind_session!(session, "publication-owner")
     owner = uncertain_review!(session, "publication-owner")
@@ -1210,17 +1211,72 @@ defmodule Ryker.CoopFleet.ClientTest do
                Map.put(body, "candidate_head", String.duplicate("f", 40))
              )
 
+    assert Repo.aggregate(Command, :count) == 2
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
+  # A review waits for a person; its placement's lease does not. On 30 Sep Andrew approved an
+  # emisar draft six hours after its review ran, and PR #2's update a day and a half after its
+  # review. Both placements had lapsed while the worker still held both sessions, so each
+  # publication deferred once a minute (31 and 33 attempts) and its card said "PR preparation
+  # stopped after an error".
+  test "a review approved after its placement lapsed publishes from the worker still holding it",
+       %{client: client, session: session} do
+    session = bind_session!(session, "publication-lapsed")
+    owner = lapsed_review!(session, "publication-lapsed")
+    response = publication_response(session)
+    Process.put(:coop_fleet_await_result, {:ok, response})
+    key = "publish:lapsed"
+
+    assert {:ok, receipt} =
+             Client.publish_review(
+               client,
+               session.coop_session_id,
+               owner.idempotency_key,
+               "review-op",
+               key,
+               publication_body()
+             )
+
+    assert receipt == response["publication"]["receipt"]
+    command = Repo.get_by!(Command, idempotency_key: key)
+    assert command.worker_id == owner.worker_id
+    assert command.placement_generation > owner.placement_generation
+    complete_command!(command, :succeeded, response)
+
+    assert {:ok, ^receipt} =
+             Client.publish_review(
+               client,
+               session.coop_session_id,
+               owner.idempotency_key,
+               "review-op",
+               key,
+               publication_body()
+             )
+
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
+  test "a review whose worker went quiet never publishes from anywhere else",
+       %{client: client, session: session} do
+    session = bind_session!(session, "publication-quiet")
+    owner = lapsed_review!(session, "publication-quiet")
+
+    Repo.get!(Worker, owner.worker_id)
+    |> Ecto.Changeset.change(last_seen_at: DateTime.add(Repo.now!(), -300))
+    |> Repo.update!()
+
     assert {:error, {:coop_session_replacement_required, _, _}} =
              Client.publish_review(
                client,
                session.coop_session_id,
                owner.idempotency_key,
                "review-op",
-               "new-publish",
-               body
+               "publish:quiet",
+               publication_body()
              )
 
-    assert Repo.aggregate(Command, :count) == 2
+    refute Repo.get_by(Command, idempotency_key: "publish:quiet")
     refute_receive {:fleet_command, _, _, _, _, _}
   end
 
@@ -2574,6 +2630,22 @@ defmodule Ryker.CoopFleet.ClientTest do
       "code" => "transport_uncertain",
       "detail" => "worker review request timed out"
     })
+  end
+
+  defp lapsed_review!(session, suffix) do
+    review =
+      session
+      |> command!(suffix,
+        kind: "run_review",
+        payload: %{"coop_session_id" => session.coop_session_id, "expected_revision" => 3}
+      )
+      |> complete_command!(:succeeded, %{"id" => "review-op"})
+
+    Repo.get!(Placement, review.placement_id)
+    |> Ecto.Changeset.change(state: :replaced, lease_expires_at: DateTime.add(Repo.now!(), -60))
+    |> Repo.update!()
+
+    review
   end
 
   defp publication_body do

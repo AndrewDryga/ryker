@@ -506,7 +506,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def publish_review(client, coop_session_id, review_key, review_id, key, body) do
-    with {:ok, %Session{id: session_id}} <- session_by_coop_id(coop_session_id),
+    with {:ok, %Session{id: session_id} = session} <- session_by_coop_id(coop_session_id),
          %Command{
            session_id: ^session_id,
            kind: "run_review",
@@ -515,7 +515,7 @@ defmodule Ryker.CoopFleet.Client do
          } = owner
          when not is_nil(placement_id) <- Repo.get_by(Command, idempotency_key: review_key),
          path <- "/v1/sessions/#{coop_session_id}/reviews/#{review_id}/publish",
-         {:ok, command} <- publication_command(owner, key, path, body),
+         {:ok, command} <- publication_command(client, session, owner, key, path, body),
          {:ok, response} <- publication_command_response(client, command) do
       publication_result(client, command, coop_session_id, response)
     else
@@ -524,7 +524,7 @@ defmodule Ryker.CoopFleet.Client do
     end
   end
 
-  defp publication_command(owner, key, path, body) do
+  defp publication_command(client, session, owner, key, path, body) do
     case Repo.get_by(Command, idempotency_key: key) do
       %Command{
         kind: "api_request",
@@ -535,15 +535,15 @@ defmodule Ryker.CoopFleet.Client do
         identity =
           ~w(authorization_ref candidate_head candidate_tree expected_head pull_request_number)
 
-        if command.placement_id == owner.placement_id and command.session_id == owner.session_id and
+        if command.worker_id == owner.worker_id and command.session_id == owner.session_id and
              Map.take(saved, identity) == Map.take(body, identity),
            do: {:ok, command},
            else: {:error, {:coop_worker_command_conflict, key}}
 
       nil ->
-        with :ok <- current_command_placement(owner) do
+        with {:ok, placement} <- review_holder_placement(client, session, owner) do
           ControlPlane.enqueue_command(
-            owner.placement_id,
+            placement.id,
             "api_request",
             %{"method" => "POST", "path" => path, "body" => body},
             key
@@ -552,6 +552,24 @@ defmodule Ryker.CoopFleet.Client do
 
       _other ->
         {:error, {:coop_worker_command_conflict, key}}
+    end
+  end
+
+  # The review lives in the worker's session, not in the placement that ran it, and a person
+  # may approve the draft long after that placement's lease ran out. Placing the bound session
+  # again returns it to the worker holding it, or fails closed when that worker cannot take it.
+  # A placement on any other worker would have no review to publish.
+  defp review_holder_placement(client, session, %Command{worker_id: worker_id} = owner) do
+    case Bridge.place(session, client.bridge_options) do
+      {:ok, %Placement{worker_id: ^worker_id} = placement} ->
+        {:ok, placement}
+
+      {:ok, %Placement{}} ->
+        {:error,
+         {:coop_session_replacement_required, owner.session_id, owner.placement_generation}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
