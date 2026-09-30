@@ -527,8 +527,10 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     end
   end
 
-  # Capacity proof, not a per-commit check: eleven seconds of the serial suite.
+  # Capacity proof, not a per-commit check: eleven seconds of the serial suite,
+  # and over the default minute on CI's runner on 2026-09-30.
   @tag :slow
+  @tag timeout: 240_000
   test "a saturated topic advances from newly supplied sources without blocking the inbox" do
     # A long-lived alert topic must not trap input 129 in an endless context-stale retry.
     first = input!(1, @firing)
