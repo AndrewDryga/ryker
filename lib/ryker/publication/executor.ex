@@ -230,17 +230,26 @@ defmodule Ryker.Publication.Executor do
 
     case result do
       {:error, {:coop_error, 409, "revision_conflict", _detail} = reason} ->
-        case settings.custody.advance_review_generation(
-               claim.publication.ref,
-               claim.lease_ref,
-               frozen.review_generation
-             ) do
-          {:ok, _publication} -> {:error, {:publication_review_generation_spent, reason}}
-          {:error, _reason} = error -> error
-        end
+        spend_review_generation(claim, frozen, reason, settings)
+
+      # The worker restarted under the review and it will never finish (30 Sep, OrbStack).
+      {:error, {:coop_review_lost, _detail} = reason} ->
+        spend_review_generation(claim, frozen, reason, settings)
 
       other ->
         other
+    end
+  end
+
+  # The next attempt reviews the same change again under a new key.
+  defp spend_review_generation(claim, frozen, reason, settings) do
+    case settings.custody.advance_review_generation(
+           claim.publication.ref,
+           claim.lease_ref,
+           frozen.review_generation
+         ) do
+      {:ok, _publication} -> {:error, {:publication_review_generation_spent, reason}}
+      {:error, _reason} = error -> error
     end
   end
 

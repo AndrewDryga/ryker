@@ -242,6 +242,9 @@ defmodule Ryker.Publication.Followups.Signals do
 
   defp withdraw_cases(_input, _status), do: :ok
 
+  # The pull request stays the task's through every update of it: a comment made while a newer
+  # change is in review or publishing still reaches the task (Andrew, 2026-09-30: a comment on
+  # PR #2 was filed as noise while its update was pending). Polling alone waits for the update.
   defp github_feedback_publications(repository, pull_request_number) do
     Repo.all(
       from(publication in Publication,
@@ -250,7 +253,7 @@ defmodule Ryker.Publication.Followups.Signals do
           followup.publication_id == publication.id and
             followup.episode_id == publication.episode_id,
         where:
-          publication.status == :published and
+          publication.status != :discarded and
             publication.github_repository == ^repository and
             publication.pull_request_number == ^pull_request_number and
             followup.pr_state == "open",

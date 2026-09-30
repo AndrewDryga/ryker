@@ -567,6 +567,68 @@ defmodule Ryker.Publication.FollowupsTest do
     end
   end
 
+  # Andrew, 2026-09-30: "I added a PR comment but don't see any activity in ryker". PR #2's
+  # task was updating its draft (its publication back in review and publish), and feedback
+  # only matched a publication at rest, so GitHub's delivery was filed as noise. The pull
+  # request stays open and the task's own through every update.
+  unpublished = [
+    publication_receipt: nil,
+    publication_receipt_fingerprint: nil,
+    published_at: nil,
+    published_delivery_receipt: nil,
+    published_delivery_receipt_fingerprint: nil
+  ]
+
+  # Review latest state clears the approval and re-reviews; Update draft PR is approved and
+  # publishing. The pull request and its follow-up stay in both.
+  for {status, changes} <- [
+        review_pending:
+          [
+            approval_ref: nil,
+            approved_at: nil,
+            approved_by_actor_ref: nil,
+            review_delivery_receipt: nil,
+            review_delivery_receipt_fingerprint: nil,
+            review_document: nil,
+            review_expected_revision: nil,
+            review_fingerprint: nil,
+            reviewed_at: nil
+          ] ++ unpublished,
+        publish_pending: unpublished
+      ] do
+    test "a comment on the task's pull request reaches it while the PR is being updated (#{status})" do
+      %{publication: publication} =
+        PublicationFixture.published!("feedback-updating-#{unquote(status)}",
+          github_repository: "octo/feedback-equivalence",
+          pull_request_number: 74
+        )
+
+      Repo.update_all(
+        from(saved in Publication, where: saved.id == ^publication.id),
+        set: [{:status, unquote(status)} | unquote(changes)]
+      )
+
+      comment = %{feedback_input("feedback-updating-#{unquote(status)}") | event_kind: :message}
+      assert {:ok, %{status: :recorded}} = Followups.observe_github_feedback(comment)
+    end
+  end
+
+  test "a comment on the pull request of a discarded change starts nothing" do
+    %{publication: publication} =
+      PublicationFixture.published!("feedback-discarded",
+        github_repository: "octo/feedback-equivalence",
+        pull_request_number: 74
+      )
+
+    Repo.update_all(
+      from(saved in Publication, where: saved.id == ^publication.id),
+      set: [status: :discarded]
+    )
+
+    comment = %{feedback_input("feedback-discarded") | event_kind: :message}
+    assert {:ok, :unmatched} = Followups.observe_github_feedback(comment)
+  end
+
   # A bot updating its own review comment, as a checks bot does with each run,
   # is not a person taking back their words.
   test "a bot updating its own review comment keeps the case of the task it reviews" do

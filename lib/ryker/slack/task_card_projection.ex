@@ -25,6 +25,12 @@ defmodule Ryker.Slack.TaskCardProjection do
   # Why a refused grant stopped the draft, in words: the card said "needs operator attention:
   # `publication_authorization_revoked`" (2026-09-30). The recovery is on the card itself.
   @refused_grant "Ryker couldn't get permission to publish this reviewed change."
+  # What an attempt records while Coop is still working on it, or while the next attempt is
+  # already due: Ryker's own wait ended before a long review did, the worker has not finished,
+  # the session is changing placement, a lost review is being asked again. Each clears by
+  # itself, so none is a person's action (Andrew, 2026-09-30: "Action needed: ...
+  # coop_worker_command_timeout. again!!").
+  @in_flight ~w(coop_worker_command_timeout coop_unavailable coop_session_replacement_pending publication_review_generation_spent)
 
   @spec build(TaskCard.t()) ::
           {:ok, %{document: map(), fingerprint: String.t(), ui_revision: pos_integer()}}
@@ -351,8 +357,9 @@ defmodule Ryker.Slack.TaskCardProjection do
        ),
        do: @refused_grant
 
-  defp public_error(%Publication{last_error_code: code}, _turn, _hold) when is_binary(code),
-    do: attention("Draft pull-request work needs operator attention", code)
+  defp public_error(%Publication{last_error_code: code}, _turn, _hold)
+       when is_binary(code) and code not in @in_flight,
+       do: attention("Draft pull-request work needs operator attention", code)
 
   # The generic notice keeps untrusted error text out of Slack, and for a task
   # that never started it was also everything the card ever said — above a
@@ -484,7 +491,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp status(_episode, _turn, %Publication{status: :published}, _offer), do: "published"
 
   defp status(_episode, _turn, %Publication{last_error_code: code}, _offer)
-       when is_binary(code),
+       when is_binary(code) and code not in @in_flight,
        do: "action_required"
 
   defp status(_episode, _turn, %Publication{status: status}, _offer)
@@ -597,7 +604,7 @@ defmodule Ryker.Slack.TaskCardProjection do
          _records,
          %Publication{last_error_code: code} = publication
        )
-       when is_binary(code),
+       when is_binary(code) and code not in @in_flight,
        do: compact(publication.last_error_detail || code, 500)
 
   defp action_needed(%Episode{state: :waiting_for_input}, _turn, records, _publication),
@@ -744,10 +751,12 @@ defmodule Ryker.Slack.TaskCardProjection do
   # A check takes minutes, and the card offered nothing while it ran (Andrew,
   # 2026-09-28): a person can always drop a change that is being checked.
   defp publication_controls(%Publication{status: :review_pending, last_error_code: code}),
-    do: if(is_binary(code), do: ["retry", "discard"], else: ["discard"])
+    do:
+      if(is_binary(code) and code not in @in_flight, do: ["retry", "discard"], else: ["discard"])
 
   defp publication_controls(%Publication{status: status, last_error_code: code})
-       when status in [:review_ready, :publish_pending, :published_ready] and is_binary(code),
+       when status in [:review_ready, :publish_pending, :published_ready] and is_binary(code) and
+              code not in @in_flight,
        do: ["retry"]
 
   # A reviewed candidate only rests here when no task grant covers its draft,

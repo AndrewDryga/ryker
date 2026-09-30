@@ -1038,15 +1038,17 @@ defmodule Ryker.Slack.RendererTest do
         Enum.any?(block["elements"], &(&1["action_id"] == "ryker_task_check"))
       end)
 
+    # The task's "…" menu follows the publication's buttons on the same row.
     assert Enum.map(publication_controls["elements"], & &1["action_id"]) == [
              "ryker_open_publication",
-             "ryker_task_check"
+             "ryker_task_check",
+             "ryker_work_record"
            ]
 
     assert hd(publication_controls["elements"])["url"] ==
              "https://github.com/acme/ryker/pull/91"
 
-    assert List.last(publication_controls["elements"])["value"] ==
+    assert Enum.at(publication_controls["elements"], 1)["value"] ==
              "task-card:abc123|publication:def456"
 
     reviewed =

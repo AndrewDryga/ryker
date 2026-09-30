@@ -176,14 +176,20 @@ defmodule Ryker.Slack.Renderer.WorkCards do
       text =
         "#{escape(title)}: #{label}. #{escape(summary)}" <> action_needed_text(action_needed)
 
+      {publication_blocks, controls_block} =
+        one_row(
+          TaskPublication.blocks(task_ref, repository, publication),
+          work_controls_block(task_ref, controls, :task, task["resume_ref"])
+        )
+
       blocks =
         ([section("*#{escape(title)}*")] ++
            TaskCardDetails.blocks(task) ++
            [fact_fields([{"Repository", %{"ref" => repository, "url" => repository_url}}])] ++
-           TaskPublication.blocks(task_ref, repository, publication) ++
+           publication_blocks ++
            [
              incident_action_block(action_needed),
-             work_controls_block(task_ref, controls, :task, task["resume_ref"]),
+             controls_block,
              context("_Updated #{display_time(updated_at)}_")
            ])
         |> Enum.reject(&is_nil/1)
@@ -224,6 +230,21 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   end
 
   defp resume_reference(_reference, _controls), do: {:error, :invalid_work_controls}
+
+  # The task's own buttons and its "…" menu join the publication's row when it has one
+  # (Andrew, 2026-09-30: "can ... button be in the same row?").
+  defp one_row(publication_blocks, nil), do: {publication_blocks, nil}
+
+  defp one_row(publication_blocks, %{"elements" => controls} = controls_block) do
+    case List.last(publication_blocks) do
+      %{"type" => "actions", "elements" => elements} = row ->
+        {List.replace_at(publication_blocks, -1, %{row | "elements" => elements ++ controls}),
+         nil}
+
+      _no_row ->
+        {publication_blocks, controls_block}
+    end
+  end
 
   defp work_controls_block(_work_ref, [], _kind, _resume_ref), do: nil
 
