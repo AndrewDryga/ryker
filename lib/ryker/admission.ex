@@ -1111,7 +1111,7 @@ defmodule Ryker.Admission do
   defp load_decided_episode(nil), do: nil
   defp load_decided_episode(id), do: Repo.get(Episode, id)
 
-  # Retrieval is bounded, indexed and explainable: four lanes fill a pool of at
+  # Retrieval is bounded, indexed and explainable: five lanes fill a pool of at
   # most 200 eligible episodes, the exact source item's owner is resolved
   # separately so no lane cap can hide it, and ranking chooses at most twenty
   # options while reserving places for supported matches outside this thread.

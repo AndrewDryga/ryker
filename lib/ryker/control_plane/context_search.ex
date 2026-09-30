@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.ContextSearch do
 
   This is Ryker's own preparation, not part of the prompt, so it is a card of
   its own before the routing briefing. The briefing shows exactly what the
-  model was sent; this card says where Ryker looked, how each of its four
+  model was sent; this card says where Ryker looked, how each of its
   searches looked (the words, links and IDs it used), what each found, and
   what it found but left out. Searches recorded before 2026-09-24 kept only
   their counts, so their cards show counts without the words.
