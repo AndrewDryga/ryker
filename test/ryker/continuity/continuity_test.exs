@@ -305,6 +305,46 @@ defmodule Ryker.Continuity.ContinuityTest do
              "no_sources"
   end
 
+  # The token-cost plan (2026-09-30): "irrelevant recent chatter loses to applicable older
+  # knowledge". A briefing's related summaries were the eight most recent, whatever the request
+  # asked about, so the one about the job a person asked after lost its place.
+  test "a summary about what the request names outranks more recent unrelated ones" do
+    {_entry, work, submission} = raw_work!()
+    assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
+    accept!(work, submission)
+    original = Repo.one!(ConversationSummary)
+    old = DateTime.add(DateTime.utc_now(), -3_600)
+    Repo.update!(Ecto.Changeset.change(original, updated_at: old))
+
+    for index <- 1..9 do
+      id = Ecto.UUID.generate()
+      chatter = state("Planning the team lunch, round #{index}")
+
+      Repo.insert!(%{
+        original
+        | id: id,
+          identity_key: CanonicalJSON.digest(id),
+          ref: "continuity:#{id}",
+          thread_ref: "chatter-#{index}",
+          state: chatter,
+          state_fingerprint: CanonicalJSON.digest(chatter),
+          updated_at: DateTime.add(old, index * 60),
+          inserted_at: DateTime.add(old, index * 60)
+      })
+    end
+
+    reader = %{work.episode | destination_thread_ref: "reader-thread"}
+    recent = Continuity.model_context(reader, "tenant-infra")["related"]
+    refute Enum.any?(recent, &(&1["source_ref"] == original.ref))
+
+    assert [first | _rest] =
+             Continuity.model_context(reader, "tenant-infra", ["Is haproxy-edge OOM-killed again?"])[
+               "related"
+             ]
+
+    assert first["source_ref"] == original.ref
+  end
+
   test "receiptless summaries cannot consume recall or compaction slots ahead of healthy sources" do
     {_entry, work, submission} = raw_work!()
     assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))

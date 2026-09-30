@@ -9,6 +9,7 @@ defmodule Ryker.Learning.Observations do
   alias Ryker.Slack.{ChannelFence, ChannelMembership}
 
   alias Ryker.Continuity
+  alias Ryker.Continuity.Relevance
   alias Ryker.Knowledge
   alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
@@ -277,6 +278,27 @@ defmodule Ryker.Learning.Observations do
       _ -> []
     end
   end
+
+  # Notes ranked for a request are chosen from this many of the conversation's, in the order
+  # `context/5` reads them.
+  @related_candidates 32
+  @related_limit 16
+
+  @doc """
+  The notes a model receives beside `input_texts`: those `context/5` would give, chosen from
+  more of them, the ones sharing most with the request first (`Ryker.Continuity.Relevance`).
+  """
+  @spec related_context(term(), String.t() | nil, [String.t()]) :: [map()]
+  def related_context(destination, repository_ref, input_texts) do
+    request = Relevance.request(input_texts)
+
+    destination
+    |> context(repository_ref, "", @related_candidates)
+    |> Relevance.rank(request, &note_text/1)
+    |> Enum.take(@related_limit)
+  end
+
+  defp note_text(note), do: Enum.join([note["summary"] | List.wrap(note["topics"])], "\n")
 
   @doc "Recheck the exact frozen notes before a model submission or accepting its decision."
   def reauthorize(_destination, _repository_ref, []), do: :ok

@@ -322,6 +322,47 @@ defmodule Ryker.Learning.ObservationsTest do
     assert Observations.context(another_workspace, "tenant-infra") == []
   end
 
+  # The token-cost plan's selection outcome (2026-09-30): "irrelevant recent chatter loses to
+  # applicable older knowledge". A briefing carried the sixteen most recent notes of the
+  # conversation whatever the request was about, so the one note about the host a person asked
+  # after was cut by chatter written later.
+  test "a note about what the request names outranks more recent chatter" do
+    joined!("TNOTES", "C1")
+
+    for index <- 1..17 do
+      observe!(
+        "chatter-#{index}",
+        "C1",
+        %{@note | "summary" => "Lunch plans for Friday, round #{index}"},
+        message_ref: "1787832000.#{String.pad_leading(Integer.to_string(index), 6, "0")}"
+      )
+    end
+
+    about =
+      observe!(
+        "about-host",
+        "C1",
+        %{@note | "summary" => "pgsql-prod-01 was failed over to the replica after disk errors"},
+        message_ref: "1787830000.000100"
+      )
+
+    Repo.update_all(
+      from(note in ConversationObservation, where: note.source_input_id == ^about.id),
+      set: [occurred_at: DateTime.add(@now, -86_400, :second)]
+    )
+
+    target = input!("target-host", "C1", message_ref: "1787832100.000100")
+    recent = Observations.context(target, "tenant-infra")
+    refute Enum.any?(recent, &(&1["summary"] =~ "pgsql-prod-01"))
+
+    related =
+      Observations.related_context(target, "tenant-infra", ["Is pgsql-prod-01 healthy now?"])
+
+    assert [%{"summary" => first} | _rest] = related
+    assert first =~ "pgsql-prod-01"
+    assert length(related) == 16
+  end
+
   test "edits and deletions replace source notes and a delayed older revision cannot resurrect them" do
     first = observe!("source", "C1", @note)
 
