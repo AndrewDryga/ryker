@@ -9,12 +9,13 @@ const retained = JSON.parse(readFileSync(new URL("../ryker/work/fixtures/airflow
 
 function fixture(hash = "") {
   let hook
-  const listeners = new Map(), nodes = new Map(), scrolled = []
+  const listeners = new Map(), nodes = new Map(), scrolled = [], documentListeners = new Map()
   const location = {pathname: "/timeline/candidate-ui", search: "?responses_page=1", hash}
   Object.defineProperty(location, "href", {get() { return `http://127.0.0.1:45459${this.pathname}${this.search}${this.hash}` }})
   const document = {body: {id: ""}, documentElement: {scrollHeight: 2000},
     querySelector: () => ({content: "host-test-csrf"}), getElementById: id => nodes.get(id),
-    addEventListener() {}, removeEventListener() {}}
+    addEventListener(name, handler) { documentListeners.set(name, handler) },
+    removeEventListener(name) { documentListeners.delete(name) }}
   document.activeElement = document.body
   const window = {scrollY: 100, innerHeight: 800, scrollTo: value => scrolled.push(value),
     addEventListener: (name, handler) => listeners.set(name, handler), removeEventListener: name => listeners.delete(name)}
@@ -55,7 +56,7 @@ function fixture(hash = "") {
   const pushed = []
   const mounted = Object.assign({el: root, pushEvent: (name, params, reply) => pushed.push([name, params, reply])}, hook)
   return {hook: mounted, document, window, location, root, outer, response, nodes, listeners, scrolled,
-    pushed, rootListeners,
+    pushed, rootListeners, documentListeners,
     get body() { return body }, replaceFocusedBody() {
       body.isConnected = false
       body = node("response-1-body", "DIV", response)
@@ -103,6 +104,25 @@ test("a body the server sends back with its reply replaces the loading line at o
   f.response.querySelector = selector => selector === ".artifact-loading" ? other : null
   reply(undefined)
   assert.equal(other.outerHTML, '<p class="artifact-loading" role="status">Loading…</p>')
+})
+
+test("a body opened before the page connects is opened again and loaded once it does", () => {
+  // 2026-09-30: a heavy timeline takes seconds to connect. A fold opened meanwhile was closed by
+  // the page's first live render, and nothing asked for its body.
+  const f = fixture()
+  f.response.dataset.artifact = "activity-1-output"
+  f.response.open = true
+  f.documentListeners.get("toggle")({target: f.response})
+
+  // The first live render closes it.
+  f.response.open = false
+  f.hook.mounted()
+
+  assert.equal(f.response.open, true)
+  f.rootListeners.get("toggle")({target: f.response})
+  assert.equal(f.pushed.length, 1)
+  assert.equal(f.pushed[0][1].artifact, "activity-1-output")
+  assert.equal(f.documentListeners.has("toggle"), false)
 })
 
 test("a revoked body is closed and never reopened by the reader's earlier state", () => {

@@ -21,6 +21,17 @@ export function createReadingStateHook(environment = {}) {
   const loc = environment.location || location
   const storage = environment.storage || (() => sessionStorage)
   const draftKey = element => element.closest?.("form[phx-change]") ? null : keyFor(element, loc.pathname)
+  // A heavy page takes seconds to connect, and its first live render closes a fold the reader
+  // opened meanwhile, with nothing asking for its body (2026-09-30). Until the hook mounts, the
+  // folds opened are remembered, then opened again, which loads them.
+  const openedEarly = new Set()
+  const onEarlyToggle = event => {
+    const node = event.target
+    if (node?.tagName !== "DETAILS" || !node.id) return
+    if (node.open) openedEarly.add(node.id)
+    else openedEarly.delete(node.id)
+  }
+  doc.addEventListener?.("toggle", onEarlyToggle, true)
 
   return {
     mounted() {
@@ -69,6 +80,12 @@ export function createReadingStateHook(environment = {}) {
         if (artifact && !node.dataset.revoked) this.pushEvent("disclose", {artifact}, reply => fillDisclosed(node, reply))
       }
       this.el.addEventListener("toggle", this.onToggle, true)
+      doc.removeEventListener?.("toggle", onEarlyToggle, true)
+      openedEarly.forEach(id => {
+        const node = doc.getElementById(id)
+        if (node && this.el.contains(node) && !node.open && !node.dataset?.revoked) node.open = true
+      })
+      openedEarly.clear()
       this.onHashChange = () => {
         this.fragmentURL = null
         this.revealFragment()
