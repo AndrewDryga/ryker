@@ -13,7 +13,7 @@ defmodule Ryker.Slack.AppHomeProjection do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication.{Publication, Review}
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
   alias Ryker.Slack.{Collections, IncidentRoom, SavedEntity}
@@ -761,9 +761,17 @@ defmodule Ryker.Slack.AppHomeProjection do
               is_binary(code),
        do: ["retry"]
 
-  defp publication_controls(%Publication{status: status, approval_ref: nil})
-       when status in [:reviewed, :blocked],
-       do: ["update", "discard"]
+  # As on the task card: a change in a repository with no checks gets the same
+  # answer from every review, so it is not offered one.
+  defp publication_controls(%Publication{status: :blocked, approval_ref: nil} = publication) do
+    if Review.draft_shareable?(publication.review_document) and
+         Review.no_checks?(publication.review_document),
+       do: ["discard"],
+       else: ["update", "discard"]
+  end
+
+  defp publication_controls(%Publication{status: :reviewed, approval_ref: nil}),
+    do: ["update", "discard"]
 
   defp publication_controls(%Publication{status: :published, expected_remote_head_sha: head_sha})
        when is_binary(head_sha),

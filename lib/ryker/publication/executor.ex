@@ -149,6 +149,21 @@ defmodule Ryker.Publication.Executor do
     end
   end
 
+  # The worker finishes a publish it was refused a grant for, so the same key only replays the
+  # refusal. The grant is asked for once more under a new key, for the same reviewed change on
+  # the approval it already holds. On PR #2 (2026-09-30) the refusal was a check run under the
+  # worker's earlier lease, and a person could only answer it by approving the change twice more.
+  defp store_publish_result(
+         {:error, :publication_authorization_revoked} = error,
+         %{publication: %{publish_round: 0}} = claim,
+         settings
+       ) do
+    case settings.custody.publish_again(claim.publication.ref, claim.lease_ref, 0) do
+      {:ok, stored} -> {:ok, %{phase: :publish_again, publication: stored}}
+      {:error, _reason} -> error
+    end
+  end
+
   defp store_publish_result({:error, _reason} = error, _claim, _settings), do: error
 
   # Ryker records the close itself when it cleans a session up, and a closed
@@ -257,6 +272,9 @@ defmodule Ryker.Publication.Executor do
     "ryker:publication:review:#{publication.id}:g#{publication.review_generation}"
   end
 
+  def publish_key(%{publish_round: round} = publication) when round > 0,
+    do: "#{publish_key(%{publication | publish_round: 0})}:p#{round}"
+
   def publish_key(publication) do
     "ryker:publication:publish:#{publication.id}:g#{publication.review_generation}"
   end
@@ -317,6 +335,7 @@ defmodule Ryker.Publication.Executor do
           delivery_request: 1,
           advance_review_generation: 3,
           freeze_review_revision: 3,
+          publish_again: 3,
           renew: 3,
           store_publication: 3,
           store_review: 5

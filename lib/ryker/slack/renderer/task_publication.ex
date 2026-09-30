@@ -222,7 +222,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   # right above; this line offers the choice it leaves.
   defp blocked_message(controls, unverified, reason, number) when is_binary(unverified) do
     if "publish" in controls,
-      do: unverified_offer(number),
+      do: unverified_offer(number) <> recheck_offer(controls),
       else: blocked_message(controls, nil, reason, number)
   end
 
@@ -234,11 +234,14 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
   defp unverified_offer(number) when is_integer(number),
     do:
-      "I saved the newer change exactly as it is. I can add it to draft PR ##{number} marked unverified, or review the latest state again."
+      "I saved the newer change exactly as it is. I can add it to draft PR ##{number} marked unverified"
 
   defp unverified_offer(_number),
-    do:
-      "I saved the change exactly as it is. I can open it as a draft PR marked unverified, or review the latest state again."
+    do: "I saved the change exactly as it is. I can open it as a draft PR marked unverified"
+
+  # Only where checking again could give another answer (`Ryker.Slack.TaskCardProjection`).
+  defp recheck_offer(controls),
+    do: if("update" in controls, do: ", or review the latest state again.", else: ".")
 
   defp publish_label(number) when is_integer(number), do: "Update draft PR"
   defp publish_label(_number), do: "Create draft PR"

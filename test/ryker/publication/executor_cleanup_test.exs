@@ -26,6 +26,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
     def delivery_request(_), do: {:error, :not_used}
     def advance_review_generation(_, _, _), do: {:error, :not_used}
     def freeze_review_revision(_, _, _), do: {:error, :not_used}
+    def publish_again(_, _, _), do: {:error, :not_used}
     def store_publication(_, _, _), do: {:error, :not_used}
     def store_review(_, _, _, _, _), do: {:error, :not_used}
     def admit_wakeup(_, _), do: {:error, :not_used}
@@ -55,6 +56,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
     defdelegate delivery_request(event), to: RaisingCustody
     defdelegate advance_review_generation(ref, lease, generation), to: RaisingCustody
     defdelegate freeze_review_revision(ref, lease, revision), to: RaisingCustody
+    defdelegate publish_again(ref, lease, round), to: RaisingCustody
     defdelegate store_publication(ref, lease, receipt), to: RaisingCustody
     defdelegate store_review(ref, lease, generation, dossier, gate_output), to: RaisingCustody
     defdelegate admit_wakeup(ref, lease), to: RaisingCustody

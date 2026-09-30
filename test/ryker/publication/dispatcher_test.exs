@@ -608,6 +608,107 @@ defmodule Ryker.Publication.DispatcherTest do
     assert [_request] = Agent.get(effects, & &1.publication_requests)
   end
 
+  # 2026-09-30, PR #2 in AndrewDryga/test: Andrew pressed Update draft PR at 10:49 and the
+  # worker's grant request was refused, because the check had run under the worker's earlier
+  # lease. The card then asked him to press Review latest state and, minutes later, Update draft
+  # PR again, for the very change he had approved ("why do I even need to click to review latest
+  # state?"). The worker finishes a refused publish for good, so the same key only replays it; a
+  # new key asks for the grant again, for the same reviewed change, on the same approval.
+  test "a refused publish grant is asked again once, on the approval already given" do
+    %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} =
+      delivered_offer!("refused-grant")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
+
+    review = review_document(work_claim)
+    coop = review_coop!(work_claim, "exhausted")
+
+    {:ok, effects} =
+      Agent.start_link(fn ->
+        %{
+          delivery_requests: [],
+          publication_errors: [:publication_authorization_revoked],
+          publication_id: publication.id,
+          publication_requests: []
+        }
+      end)
+
+    options = dispatcher_options(coop, effects)
+    assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
+    assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)
+    approve!(work_claim, publication, "interaction:publish:refused-grant")
+
+    assert {:ok, {:executed, %{phase: :publish_again}}} = Dispatcher.run_once(options)
+
+    waiting = Repo.get!(Publication, publication.id)
+    assert waiting.status == :publish_pending
+    assert waiting.approval_ref == "interaction:publish:refused-grant"
+    assert waiting.last_error_code == nil
+    assert waiting.lease_ref == nil
+
+    # Due now, not after a backoff: nothing is wrong that waiting would change.
+    assert {:ok, {:executed, %{phase: :published}}} = Dispatcher.run_once(options)
+    assert Repo.get!(Publication, publication.id).status == :published_ready
+
+    key = "ryker:publication:review:#{publication.id}:g1"
+    first = "ryker:publication:publish:#{publication.id}:g1"
+    again = "ryker:publication:publish:#{publication.id}:g1:p1"
+
+    assert [{_, ^key, review_id, ^first, body}, {_, ^key, review_id, ^again, body}] =
+             Agent.get(effects, & &1.publication_requests)
+
+    assert review_id == review["operation_id"]
+    assert body["authorization_ref"] == "interaction:publish:refused-grant"
+  end
+
+  # A grant refused twice is not a lapsed lease: something about the approval or the repository
+  # changed, and that is for a person to look at.
+  test "a publish grant refused again waits for a person" do
+    %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} =
+      delivered_offer!("refused-again")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
+
+    coop = review_coop!(work_claim, "exhausted")
+
+    {:ok, effects} =
+      Agent.start_link(fn ->
+        %{
+          delivery_requests: [],
+          publication_errors: [
+            :publication_authorization_revoked,
+            :publication_authorization_revoked
+          ],
+          publication_id: publication.id,
+          publication_requests: []
+        }
+      end)
+
+    options = dispatcher_options(coop, effects)
+    assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
+    assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)
+    approve!(work_claim, publication, "interaction:publish:refused-again")
+
+    assert {:ok, {:executed, %{phase: :publish_again}}} = Dispatcher.run_once(options)
+
+    assert {:ok, {:deferred, :publication_authorization_revoked}} =
+             Dispatcher.run_once(options)
+
+    parked = Repo.get!(Publication, publication.id)
+    assert parked.status == :publish_pending
+    assert parked.last_error_code == "publication_authorization_revoked"
+
+    Repo.update_all(
+      from(saved in Publication, where: saved.id == ^publication.id),
+      set: [next_attempt_at: @now]
+    )
+
+    assert {:ok, :idle} = Dispatcher.run_once(options)
+    assert length(Agent.get(effects, & &1.publication_requests)) == 2
+  end
+
   test "a confirmed revision conflict spends only the review operation generation" do
     %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} =
       delivered_offer!("review-revision")
@@ -873,6 +974,24 @@ defmodule Ryker.Publication.DispatcherTest do
       end)
 
     coop
+  end
+
+  defp approve!(work_claim, publication, approval_ref) do
+    reviewed = Repo.get!(Publication, publication.id)
+
+    assert {:ok, %{status: :approved}} =
+             PublicationCustody.approve(%{
+               actor_ref: "slack:user:U-operator",
+               approval_ref: approval_ref,
+               occurred_at: DateTime.add(@now, 2, :second),
+               publication_ref: publication.ref,
+               target: %{
+                 conversation_ref: work_claim.episode.destination_conversation_ref,
+                 message_ref: reviewed.review_delivery_receipt["message_ref"],
+                 thread_ref: work_claim.episode.destination_thread_ref,
+                 transport: "slack"
+               }
+             })
   end
 
   defp effects!(publication) do

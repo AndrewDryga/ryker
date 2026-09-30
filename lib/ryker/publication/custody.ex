@@ -381,6 +381,22 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
+  @doc """
+  Asks again, under the next publish key, for a publish the worker was refused a grant for.
+
+  The approval and the reviewed change stay exactly as they are, so a person is asked for
+  nothing: whatever the grant rests on is checked afresh when the worker asks for it.
+  """
+  @spec publish_again(String.t(), String.t(), non_neg_integer()) ::
+          {:ok, Publication.t()} | {:error, term()}
+  def publish_again(publication_ref, lease_ref, round) when is_integer(round) and round >= 0 do
+    with :ok <- reference(publication_ref, :publication_ref),
+         :ok <- reference(lease_ref, :lease_ref) do
+      Repo.transaction(fn -> publish_again_locked(publication_ref, lease_ref, round) end)
+      |> transaction_result()
+    end
+  end
+
   def renew(publication_ref, lease_ref, lease_seconds) do
     with :ok <- reference(publication_ref, :publication_ref),
          :ok <- reference(lease_ref, :lease_ref),
@@ -710,6 +726,7 @@ defmodule Ryker.Publication.Custody do
       review_fingerprint: nil,
       review_gate_output: nil,
       review_generation: publication.review_generation + 1,
+      publish_round: 0,
       review_patch: nil,
       reviewed_at: nil,
       status: :review_pending
@@ -843,6 +860,29 @@ defmodule Ryker.Publication.Custody do
       },
       now
     )
+  end
+
+  defp publish_again_locked(publication_ref, lease_ref, round) do
+    with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
+         :ok <- status(publication, :publish_pending),
+         true <- publication.publish_round == round do
+      update!(
+        publication,
+        %{
+          last_error_code: nil,
+          last_error_detail: nil,
+          lease_expires_at: nil,
+          lease_owner: nil,
+          lease_ref: nil,
+          next_attempt_at: now,
+          publish_round: round + 1
+        },
+        now
+      )
+    else
+      false -> Repo.rollback(:publication_publish_round_stale)
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp renew_locked(publication_ref, lease_ref, lease_seconds) do

@@ -766,11 +766,17 @@ defmodule Ryker.Slack.TaskCardProjection do
     do: ["publish", "update", "discard"]
 
   # A safe snapshot whose checks could not run is a person's decision, not the
-  # host's: offer the draft explicitly, never open it automatically.
-  defp publication_controls(%Publication{status: :blocked} = publication) do
-    if Review.draft_shareable?(publication.review_document),
-      do: ["publish", "update", "discard"],
-      else: ["update", "discard"]
+  # host's: offer the draft explicitly, never open it automatically. A repository
+  # with no checks answers every review of a change the same way, and a newer
+  # finished run is reviewed without a click, so there a re-check could only
+  # repeat itself (Andrew, 2026-09-30: "why do I even need to click to review
+  # latest state?").
+  defp publication_controls(%Publication{status: :blocked, review_document: review}) do
+    cond do
+      not Review.draft_shareable?(review) -> ["update", "discard"]
+      Review.no_checks?(review) -> ["publish", "discard"]
+      true -> ["publish", "update", "discard"]
+    end
   end
 
   defp publication_controls(%Publication{status: :published, expected_remote_head_sha: head_sha})

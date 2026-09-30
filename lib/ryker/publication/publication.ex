@@ -77,6 +77,10 @@ defmodule Ryker.Publication.Publication do
     field(:recheck_rounds, :integer, default: 0)
     field(:fix_review_generation, :integer)
 
+    # Publishes of this review generation asked again after a refused grant
+    # (`Ryker.Publication.Executor.publish_key/1`).
+    field(:publish_round, :integer, default: 0)
+
     field(:attempt_count, :integer, default: 0)
     field(:lease_ref, :string)
     field(:lease_owner, :string)
