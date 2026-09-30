@@ -68,10 +68,15 @@ defmodule Ryker.Evals.LearningRunner do
         :same_topic
       ])
 
-  def recorded_sequence("chatter"), do: sequence("retained-great-thanks.json", [:no_change])
+  # Neither says anything about the person who wrote it, so neither may teach a fact about them.
+  def recorded_sequence("chatter"),
+    do: "retained-great-thanks.json" |> sequence([:no_change]) |> nothing_about_authors()
 
   def recorded_sequence("one-off-request"),
-    do: sequence("retained-one-off-acceptance-request.json", [:no_change])
+    do:
+      "retained-one-off-acceptance-request.json"
+      |> sequence([:no_change])
+      |> nothing_about_authors()
 
   # Andrew wrote these in #test on 2026-09-30 as a People test case: his birthday, his favourite
   # show and how he likes to be written to. Each is about its author, so each is a fact about him
@@ -89,6 +94,8 @@ defmodule Ryker.Evals.LearningRunner do
     |> Enum.zip([[birthday], [birthday, show], [birthday, show, texts]])
     |> Enum.map(fn {step, people} -> Map.put(step, :people, people) end)
   end
+
+  defp nothing_about_authors(steps), do: Enum.map(steps, &Map.put(&1, :people, :none))
 
   defp sequence(file, expectations) do
     path = Path.join("testdata/learning", file)
@@ -246,6 +253,7 @@ defmodule Ryker.Evals.LearningRunner do
   defp valid_sequence(_), do: {:error, :learning_eval_invalid_sequence}
 
   defp valid_people?(nil), do: true
+  defp valid_people?(:none), do: true
 
   defp valid_people?(expected) when is_list(expected),
     do: Enum.all?(expected, &match?({label, %Regex{}} when is_binary(label), &1))
@@ -314,7 +322,8 @@ defmodule Ryker.Evals.LearningRunner do
       cleanup: cleanup,
       passed:
         result["status"] in ["applied", "no_change"] and check and matching_check and
-          (is_nil(people) or people.missing == []) and cleanup == :discarded
+          (is_nil(people) or (people.missing == [] and people.unexpected == [])) and
+          cleanup == :discarded
     }
 
     if report.passed,
@@ -365,8 +374,8 @@ defmodule Ryker.Evals.LearningRunner do
 
   defp prepare_concurrent_topic(_step, _entry, _settings), do: nil
 
-  # What Ryker keeps about the step's author by now (`Ryker.People`), and which of the facts the
-  # step expects none of them states.
+  # What Ryker keeps about the step's author by now (`Ryker.People`), which of the facts the
+  # step expects none of them states, and what it kept from a step that says nothing about them.
   defp people_check(%{people: expected}, entry) do
     facts =
       entry
@@ -374,12 +383,18 @@ defmodule Ryker.Evals.LearningRunner do
       |> People.facts()
       |> Enum.map(&%{key: &1.key, fact: &1.fact})
 
-    missing =
-      for {label, pattern} <- expected,
-          not Enum.any?(facts, &Regex.match?(pattern, &1.fact)),
-          do: label
+    case expected do
+      :none ->
+        %{facts: facts, missing: [], unexpected: Enum.map(facts, & &1.fact)}
 
-    %{facts: facts, missing: missing}
+      expected ->
+        missing =
+          for {label, pattern} <- expected,
+              not Enum.any?(facts, &Regex.match?(pattern, &1.fact)),
+              do: label
+
+        %{facts: facts, missing: missing, unexpected: []}
+    end
   end
 
   defp people_check(_step, _entry), do: nil
