@@ -303,13 +303,15 @@ it is not bge-m3.
 ## Weekly report
 
 Settings › Weekly report turns on one post a week in a Slack channel, at a day, time and zone you
-choose, saying how Ryker's week went the way a teammate writes a weekly update: how many messages
-it handled, how long a typical (middle) reply took and how many it answered on the spot, what it got
-done, the PRs it opened and merged and the ones still waiting for review, what is still open, anything
-stuck, and a line on feedback and what it learned. Ryker writes it from PostgreSQL with no model turn. Invite Ryker to the channel
-first. Preview this week's report on that page shows what a report sent now would say; Send to the
-channel posts it there at once, titled as a preview, even while the report is off. A preview is its
-own row in `weekly_reports` (`preview`) and never the week's report.
+choose, saying how Ryker's week went the way a teammate writes a weekly update: the PRs it opened
+that week and the ones already merged, every PR still waiting for review and how long it has waited,
+how many messages it handled, how long a typical (middle) reply took and how many were quick
+answers, the questions it is waiting on people to answer, anything stuck, and a line on feedback and
+what it learned. It names no Slack request it merely answered and gives no completion rate. Ryker
+writes it from PostgreSQL with no model turn. Invite Ryker to the channel first. Preview this week's
+report on that page shows what a report sent now would say; Send to the channel posts it there at
+once, titled as a preview, even while the report is off. A preview is its own row in
+`weekly_reports` (`preview`) and never the week's report.
 
 A report covers the seven days before its send time. Turning it on posts at the next send time,
 never at once. Each week sent is a row in `weekly_reports`, written when the report falls due, so a

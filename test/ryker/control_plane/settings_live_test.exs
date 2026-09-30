@@ -255,7 +255,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert words =~ "Hey everyone 👋 Here's my weekly report for"
     assert words =~ "This past week I handled 1 message"
-    assert words =~ "I answered it on the spot."
+    assert words =~ "It was a quick answer."
 
     # With no channel chosen there is nowhere to send it yet.
     refute has_element?(view, "#send-weekly-report-preview")
