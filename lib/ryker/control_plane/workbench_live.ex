@@ -18,6 +18,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   alias Phoenix.HTML.Safe
 
+  alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
+
   alias Ryker.ControlPlane.{
     Activity,
     ActivityPage,
@@ -1055,10 +1057,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     if MapSet.member?(socket.assigns.disclosed, id) do
       {:noreply, socket}
     else
-      {:noreply,
-       socket
-       |> assign(:disclosed, MapSet.put(socket.assigns.disclosed, id))
-       |> refresh()}
+      disclosed = assign(socket, :disclosed, MapSet.put(socket.assigns.disclosed, id))
+
+      case opened_tool_body(socket, id) do
+        nil -> {:noreply, refresh(disclosed)}
+        html -> {:reply, %{"html" => html}, disclosed}
+      end
     end
   end
 
@@ -1232,6 +1236,23 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # it, and the page listens before it reads. Working out what to listen to
   # changes nothing until it has all been worked out, so a failure there leaves
   # the page listening to what it did.
+  # A tool call's body is one row, so it is read and sent back on its own; projecting the whole
+  # timeline again to show it took 3.4 seconds on emisar#87's (2026-09-30). The page's next
+  # refresh renders the same body, since it is now disclosed.
+  defp opened_tool_body(%{assigns: %{episode: %{episode: %{id: episode_id}}}}, id) do
+    case ToolActivity.disclosed_body(id, episode_id) do
+      {:ok, text} ->
+        ["<pre>", text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string(), "</pre>"]
+        |> Components.copy_block_html()
+        |> IO.iodata_to_binary()
+
+      :error ->
+        nil
+    end
+  end
+
+  defp opened_tool_body(_socket, _id), do: nil
+
   defp refresh(socket, reset \\ false) do
     socket
     |> assign(:setup_progress, SettingsView.setup_progress())
