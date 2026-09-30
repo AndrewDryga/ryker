@@ -99,6 +99,7 @@ defmodule Ryker.GitHub.Input do
          :ok <- Binding.authorize_payload(binding, event.payload),
          {:ok, details} <- event_details(event.event_name, event.payload, event_action),
          {:ok, actor} <- actor(event.event_name, event.payload, binding),
+         :ok <- says_something(event.event_name, details.item),
          {:ok, occurred_at} <- occurred_at(details.item) do
       build_input(event, binding, details, actor, occurred_at)
     end
@@ -152,6 +153,17 @@ defmodule Ryker.GitHub.Input do
       source_item_ref: "github:#{details.item_kind}:#{details.item_id}"
     })
   end
+
+  # GitHub submits a review around every line comment. One without words decides nothing and
+  # says nothing its comments do not, which arrive on their own; emisar#87's timeline showed it
+  # as a message of its own (2026-09-30). An approval or a request for changes is its state.
+  defp says_something("pull_request_review", %{"state" => "commented"} = review) do
+    if is_binary(review["body"]) and String.trim(review["body"]) != "",
+      do: :ok,
+      else: {:error, {:github_input_ignored, :wordless_review}}
+  end
+
+  defp says_something(_event_name, _item), do: :ok
 
   defp exact_event(%{} = event) do
     if Map.keys(event) |> Enum.sort() == Enum.sort(@event_fields),
