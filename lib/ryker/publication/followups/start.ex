@@ -88,13 +88,6 @@ defmodule Ryker.Publication.Followups.Start do
     end
   end
 
-  def request_check(publication_ref, request_ref) do
-    with :ok <- Store.reference(publication_ref, :publication_ref),
-         :ok <- Store.reference(request_ref, :request_ref) do
-      Store.transaction(fn -> request_check_locked(publication_ref, request_ref) end)
-    end
-  end
-
   def nudge_github_event(repository, event_name, delivery_ref, payload)
       when is_binary(repository) and is_binary(event_name) and is_binary(delivery_ref) and
              is_map(payload) do
@@ -127,7 +120,6 @@ defmodule Ryker.Publication.Followups.Start do
         lease_expires_at: nil,
         lease_owner: nil,
         lease_ref: nil,
-        manual_check_ref: nil,
         merge_sha: nil,
         merged_at: nil,
         next_poll_at: now,
@@ -138,41 +130,6 @@ defmodule Ryker.Publication.Followups.Start do
         verified_at: nil
       },
       now
-    )
-  end
-
-  # --- a person's check request ---------------------------------------------
-
-  defp request_check_locked(publication_ref, request_ref) do
-    now = Repo.now!()
-
-    case lock_followup_by_publication_ref(publication_ref) do
-      nil ->
-        Repo.rollback(:publication_followup_not_found)
-
-      %Followup{manual_check_ref: ^request_ref} = followup ->
-        %{followup: followup, status: :duplicate}
-
-      %Followup{} = followup ->
-        updated =
-          Store.update_followup!(
-            followup,
-            %{manual_check_ref: request_ref, next_poll_at: now},
-            now
-          )
-
-        %{followup: updated, status: :requested}
-    end
-  end
-
-  defp lock_followup_by_publication_ref(publication_ref) do
-    Repo.one(
-      from(followup in Followup,
-        join: publication in Publication,
-        on: publication.id == followup.publication_id,
-        where: publication.ref == ^publication_ref,
-        lock: "FOR UPDATE"
-      )
     )
   end
 

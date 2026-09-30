@@ -640,7 +640,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                          :view_handoff,
                          :view_postmortem,
                          :approve_task_publication,
-                         :check_task_publication,
                          :retry_task_publication,
                          :update_task_publication,
                          :discard_task_publication
@@ -744,7 +743,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                        url: nil
                      },
                      %{
-                       action: :check_publication,
+                       action: nil,
                        choices: [],
                        details: [],
                        kind: "publication_result",

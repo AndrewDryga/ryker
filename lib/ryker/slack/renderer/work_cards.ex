@@ -278,12 +278,15 @@ defmodule Ryker.Slack.Renderer.WorkCards do
 
   defp evidence_button(_work_ref, _controls, _kind), do: []
 
+  # Only a control that throws work away is red (Andrew, 2026-09-30: "not too many red buttons in
+  # the same state?"). Stopping a run or closing work keeps the task, its notes and its working
+  # copy, and each still asks first.
   defp work_button("stop", work_ref, _kind) do
     button(
       "ryker_stop_work",
       "Stop current run",
       work_ref,
-      "danger",
+      nil,
       "Stop current run",
       "Cancel only the active agent turn. The task, session context, queue, and working copy remain available for a later correction.",
       "Stop run"
@@ -312,7 +315,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
       "ryker_close_work",
       "Close incident",
       work_ref,
-      "danger",
+      nil,
       "Close incident",
       "Stop remaining agent work and close this incident. Its durable record and retained repository state remain available.",
       "Close incident"
@@ -324,7 +327,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
       "ryker_close_work",
       "Close task",
       work_ref,
-      "danger",
+      nil,
       "Close task",
       "Stop remaining agent work and close this task. Its durable record and retained repository state remain available.",
       "Close task"

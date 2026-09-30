@@ -461,18 +461,9 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
       |> Enum.flat_map(& &1.cards)
       |> Enum.find(&(&1.ref == task_offer.ref))
 
-    assert :check_task_publication in published_task.actions
+    # Ryker looks at an open pull request by itself, so the card only links it (2026-09-30).
+    refute Enum.any?(published_task.actions, &(&1 in [:check_task_publication]))
     assert published_task.url == "https://github.com/example/ryker/pull/42"
-
-    assert {:ok, check} =
-             actions.act_on_lab_record.(
-               @conversation_id,
-               task_offer.ref,
-               :check_task_publication,
-               %{publication_ref: readiness.publication.ref}
-             )
-
-    assert check.status == :requested
 
     # A previously reviewed/published task must not hide a failed correction
     # behind its older publication status. This follows real episode custody.

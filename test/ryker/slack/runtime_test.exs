@@ -121,7 +121,6 @@ defmodule Ryker.Slack.RuntimeTest do
     assert is_function(options.handler_settings.interaction_options.close_work, 1)
     assert is_function(options.handler_settings.interaction_options.show_work_record, 1)
     assert is_function(options.handler_settings.interaction_options.approve_task_publication, 1)
-    assert is_function(options.handler_settings.interaction_options.check_task_publication, 1)
     assert is_function(options.handler_settings.interaction_options.recover_task_publication, 2)
 
     # A channel may select the environment by name. Work there may change any

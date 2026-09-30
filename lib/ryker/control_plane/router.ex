@@ -1474,8 +1474,7 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  defp lab_record_form(conn, action)
-       when action in [:approve_task_publication, :check_task_publication] do
+  defp lab_record_form(conn, :approve_task_publication) do
     with [content_type] <- get_req_header(conn, "content-type"),
          true <-
            String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),

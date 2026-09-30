@@ -888,7 +888,7 @@ defmodule Ryker.Records.TaskOffersTest do
         status: :published
       })
 
-    assert_task_publication(review.card, "published", :published, ["open", "check"])
+    assert_task_publication(review.card, "published", :published, ["open"])
 
     _publication =
       update_publication!(publication, %{
@@ -900,12 +900,7 @@ defmodule Ryker.Records.TaskOffersTest do
     assert stale_task["status"] == "action_required"
     assert stale_task["action_needed"] =~ "head changed"
 
-    assert stale_task["publication"]["controls"] == [
-             "open",
-             "check",
-             "update",
-             "discard"
-           ]
+    assert stale_task["publication"]["controls"] == ["open", "update", "discard"]
 
     assert {:ok, _complete} =
              Episodes.apply(

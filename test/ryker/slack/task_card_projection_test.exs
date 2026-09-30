@@ -731,7 +731,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     # The pull request exists and stays reachable; only the check is missing.
     assert stage(opened, "draft_pr")["state"] == "completed"
     assert stage(opened, "draft_pr")["url"] == "https://github.com/acme/ryker/pull/91"
-    assert task["publication"]["controls"] == ["open", "check"]
+    assert task["publication"]["controls"] == ["open"]
 
     assert task["publication"]["unverified"] ==
              "The repository's checks couldn't start: docker: command not found."

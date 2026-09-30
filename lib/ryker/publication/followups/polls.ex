@@ -182,11 +182,6 @@ defmodule Ryker.Publication.Followups.Polls do
      "GitHub checks passed for PR ##{publication.pull_request_number} (#{status["checks_passed"]} of #{status["checks_total"]}). It is ready for human review or merge."}
   end
 
-  defp transition(%{manual_check_ref: ref}, publication, status, pr_state) when is_binary(ref) do
-    {"status", status_state(pr_state, status["checks_state"]),
-     current_summary(publication, pr_state, status)}
-  end
-
   defp transition(_followup, _publication, _status, _pr_state), do: nil
 
   # Failing checks on the exact reviewed head are the agent's own work to finish
@@ -206,7 +201,6 @@ defmodule Ryker.Publication.Followups.Polls do
         lease_expires_at: nil,
         lease_owner: nil,
         lease_ref: nil,
-        manual_check_ref: nil,
         next_poll_at: next_poll_at
       })
 
@@ -219,8 +213,7 @@ defmodule Ryker.Publication.Followups.Polls do
               kind,
               state,
               status["head_sha"],
-              status["merge_sha"] || "",
-              followup.manual_check_ref || ""
+              status["merge_sha"] || ""
             ])
 
           event =
@@ -244,16 +237,6 @@ defmodule Ryker.Publication.Followups.Polls do
     updated = Store.update_followup!(followup, attributes, now)
     if event, do: Store.insert_lifecycle_event!(event)
     updated
-  end
-
-  defp status_state("merged", _checks), do: "succeeded"
-  defp status_state("closed", _checks), do: "stopped"
-  defp status_state(_pr, "failing"), do: "failed"
-  defp status_state(_pr, _checks), do: "pending"
-
-  defp current_summary(publication, pr_state, status) do
-    checks = status["checks_state"]
-    "PR ##{publication.pull_request_number} is #{pr_state}; GitHub checks are #{checks}."
   end
 
   defp parse_optional_datetime!(nil), do: nil
@@ -356,12 +339,9 @@ defmodule Ryker.Publication.Followups.Polls do
     do: Map.merge(attributes, %{lease_expires_at: nil, lease_owner: nil, lease_ref: nil})
 
   # GitHub was not asked during the wait, so an open pull request is checked at
-  # once: a webhook or check request that came meanwhile gets its check, and
-  # the ten-minute timer resumes from there. A check request on a pull request
-  # that has ended is answered too.
+  # once: a webhook that came meanwhile gets its check, and the timer resumes
+  # from there.
   defp after_wait(followup, now) do
-    if followup.pr_state == "open" or is_binary(followup.manual_check_ref),
-      do: now,
-      else: @far_future
+    if followup.pr_state == "open", do: now, else: @far_future
   end
 end

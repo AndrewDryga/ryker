@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Followups, Publication, Review}
+  alias Ryker.Publication.{Publication, Review}
   alias Ryker.Repo
   alias Ryker.Slack.Runtime, as: SlackRuntime
   alias Ryker.Slack.WorkRecord
@@ -452,8 +452,8 @@ defmodule Ryker.ControlPlane.Actions do
        do: :ok
 
   defp lab_action_arguments(action, %{publication_ref: publication_ref})
-       when action in [:approve_task_publication, :check_task_publication] and
-              is_binary(publication_ref) and byte_size(publication_ref) in 1..1_024,
+       when action == :approve_task_publication and is_binary(publication_ref) and
+              byte_size(publication_ref) in 1..1_024,
        do: :ok
 
   defp lab_action_arguments(action, nil)
@@ -468,8 +468,7 @@ defmodule Ryker.ControlPlane.Actions do
               :review_publication,
               :stop_task,
               :close_task,
-              :approve_publication,
-              :check_publication
+              :approve_publication
             ],
        do: :ok
 
@@ -728,21 +727,6 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp perform_lab_record_action(
-         %Record{kind: "publication_offer"} = record,
-         target,
-         :check_publication,
-         nil,
-         _work_profile,
-         _task_policies,
-         action_ref
-       ) do
-    with {:ok, publication, _published_target} <-
-           lab_publication(record, target, :published, :published) do
-      Followups.request_check(publication.ref, action_ref)
-    end
-  end
-
-  defp perform_lab_record_action(
          %Record{kind: "task_offer", status: :confirmed} = record,
          target,
          :approve_task_publication,
@@ -761,22 +745,6 @@ defmodule Ryker.ControlPlane.Actions do
         publication_ref: publication.ref,
         target: review_target
       })
-    end
-  end
-
-  defp perform_lab_record_action(
-         %Record{kind: "task_offer", status: :confirmed} = record,
-         target,
-         :check_task_publication,
-         %{publication_ref: publication_ref},
-         _work_profile,
-         _task_policies,
-         action_ref
-       ) do
-    with {:ok, episode} <- task_episode(record, target),
-         {:ok, publication, _published_target} <-
-           lab_task_publication(episode.id, publication_ref, target, :published, :published) do
-      Followups.request_check(publication.ref, action_ref)
     end
   end
 
