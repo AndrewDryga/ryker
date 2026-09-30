@@ -22,7 +22,7 @@ defmodule Ryker.Continuity.Recall do
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
 
-  alias Ryker.Continuity.Scope
+  alias Ryker.Continuity.{Relevance, Scope}
 
   @maximum_related 8
   @maximum_rollups 4
@@ -41,11 +41,11 @@ defmodule Ryker.Continuity.Recall do
     case Scope.destination_context(episode, repository_ref) do
       {:ok, context} ->
         context = LearningSources.with_input_boundary(context, episode)
-        result = recall_context(context)
+        result = recall_context(context, Relevance.request(input_texts))
         knowledge = Knowledge.context(episode, repository_ref, {:related, input_texts})
         result = if knowledge == [], do: result, else: Map.put(result, "knowledge", knowledge)
 
-        case Observations.context(episode, repository_ref) do
+        case Observations.related_context(episode, repository_ref, input_texts) do
           [] -> result
           notes -> Map.put(result, "observations", notes)
         end
@@ -57,8 +57,8 @@ defmodule Ryker.Continuity.Recall do
 
   def model_context(_episode, _repository_ref, _input_texts), do: empty_context()
 
-  defp recall_context(context) do
-    case Repo.transaction(fn -> recall_locked(context) end) do
+  defp recall_context(context, request) do
+    case Repo.transaction(fn -> recall_locked(context, request) end) do
       {:ok, result} -> result
       {:error, _reason} -> empty_context()
     end
@@ -128,14 +128,14 @@ defmodule Ryker.Continuity.Recall do
 
   defp account_search_result(:done, _kind, _context), do: :done
 
-  defp recall_locked(context) do
+  defp recall_locked(context, request) do
     current =
       Repo.one(
         from(summary in ConversationSummary, where: summary.identity_key == ^context.identity_key)
       )
       |> learning_visible(context)
 
-    related = related_summaries(context)
+    related = related_summaries(context, request)
     rollups = related_rollups(context)
     now = Repo.now!()
 
@@ -249,7 +249,7 @@ defmodule Ryker.Continuity.Recall do
   defp continuity_search_document({:rollup, rollup}),
     do: rollup |> rollup_document() |> Map.put("kind", "continuity")
 
-  defp related_summaries(context) do
+  defp related_summaries(context, request) do
     query =
       context
       |> searchable_summaries_query("workspace")
@@ -263,10 +263,10 @@ defmodule Ryker.Continuity.Recall do
     # makes a bounded result count a very unbounded application-memory cost.
     Repo.all(
       from(summary in query,
-        select: map(summary, [:id, :conversation_ref, :repository_ref, :updated_at, :ref])
+        select: map(summary, [:id, :conversation_ref, :repository_ref, :updated_at, :ref, :state])
       )
     )
-    |> Enum.sort_by(&summary_rank(&1, context))
+    |> Enum.sort_by(&summary_rank(&1, context, request))
     |> Stream.map(fn item -> Repo.one(from(summary in query, where: summary.id == ^item.id)) end)
     |> Stream.reject(&is_nil/1)
     |> Stream.filter(&summary_visible?(&1, context))
@@ -360,12 +360,25 @@ defmodule Ryker.Continuity.Recall do
 
   defp public_rollup_source_visible?(_scope), do: false
 
-  defp summary_rank(summary, context) do
+  # What the summary shares with the request first (`Ryker.Continuity.Relevance`), then where it
+  # was said and how recently, as before.
+  defp summary_rank(summary, context, request) do
+    relevance = -Relevance.score(state_text(summary.state), request)
     conversation_rank = if summary.conversation_ref == context.conversation_ref, do: 0, else: 1
     repository_rank = if summary.repository_ref == context.repository_ref, do: 0, else: 1
     recent = -DateTime.to_unix(summary.updated_at, :microsecond)
-    {conversation_rank, repository_rank, recent, summary.ref}
+    {relevance, conversation_rank, repository_rank, recent, summary.ref}
   end
+
+  defp state_text(%{} = state),
+    do: state |> Map.values() |> Enum.flat_map(&texts/1) |> Enum.join("\n")
+
+  defp state_text(_state), do: ""
+
+  defp texts(value) when is_binary(value), do: [value]
+  defp texts(values) when is_list(values), do: Enum.flat_map(values, &texts/1)
+  defp texts(%{} = value), do: value |> Map.values() |> Enum.flat_map(&texts/1)
+  defp texts(_value), do: []
 
   defp summary_document(summary) do
     %{
