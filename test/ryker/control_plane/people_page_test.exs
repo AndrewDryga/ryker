@@ -50,13 +50,13 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
     path = "/actions/person/#{URI.encode(person, &URI.char_unreserved?/1)}/forget"
     question = confirmation(path)
     assert question.status == 200
-    assert question.resp_body =~ "Forget what Ryker learned about You?"
+    assert question.resp_body =~ "Forget what Ryker learned about you?"
 
     forgotten = confirm(path)
     assert forgotten.status == 303
     assert Plug.Conn.get_resp_header(forgotten, "location") == ["/memory/people"]
 
-    assert People.about(person, "control_plane:conversation:any") == []
+    assert People.about(person, "control-plane:lab:#{Ecto.UUID.generate()}") == []
     assert PeopleProjection.list() == %{people: []}
     assert confirmation(path).status == 404
 
@@ -81,7 +81,8 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
       status: :kept,
       source_input_id: Ecto.UUID.generate(),
       source_message_ref: "control-plane-message:#{System.unique_integer([:positive])}",
-      conversation_ref: "control_plane:conversation:#{Ecto.UUID.generate()}",
+      # Chat's conversations, as live stores them.
+      conversation_ref: "control-plane:lab:#{Ecto.UUID.generate()}",
       private: private,
       said_at: DateTime.utc_now()
     })
