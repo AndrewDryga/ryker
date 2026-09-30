@@ -18,6 +18,9 @@ defmodule Ryker.Learning.LearningRun do
     field(:generation, :integer)
     field(:status, Ecto.Enum, values: [:prepared, :responded, :applied, :stale, :rejected])
     field(:inputs, Ryker.CanonicalJSON.Type)
+    # The earlier messages of the inputs' thread the run read beside them,
+    # as the same manifest (`Ryker.Learning`).
+    field(:context_inputs, Ryker.CanonicalJSON.Type, default: [])
     field(:source_dependencies, Ryker.CanonicalJSON.Type)
     field(:knowledge, Ryker.CanonicalJSON.Type)
     field(:omissions, Ryker.CanonicalJSON.Type)

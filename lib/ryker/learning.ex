@@ -52,6 +52,8 @@ defmodule Ryker.Learning do
   step lists and temporary execution constraints already live in the input and episode; do not
   create a topic merely to restate them as an unresolved intention. Retain substantive decisions,
   ongoing project questions, intended configuration and corrections even when phrased as requests.
+  A person's report on the state of a service, release or system (that it looks stuck, down or
+  slow) is worth keeping, attributed to them with its time, until a later message settles it.
   Omit greetings, duplicate boilerplate and transient noise. It is valid to return no updates.
   Each input's event_kind is message for a message as it was sent, and edit for a message whose
   author changed it afterwards: its content is then the message's current words. revision only
@@ -126,6 +128,18 @@ defmodule Ryker.Learning do
   describe this pass or the supplied messages, and never call anyone "the user" or "the operator".
   """
 
+  @thread_instructions """
+  thread_context holds earlier messages of the thread these messages reply in, oldest first; they
+  were learned from or left out before. Read them to understand what the messages refer to, learn
+  what the messages add, and include a context message in source_input_ids when an update relies
+  on it.
+  """
+
+  # The earlier messages of a thread read beside a reply, each shortened to
+  # this much text: enough to know what the reply answers.
+  @thread_context 6
+  @thread_text 800
+
   def prepare(ids, %{policy: policy, policy_digest: digest} = settings)
       when is_list(ids) and length(ids) in 1..@max_inputs and is_binary(policy) and
              is_binary(digest) do
@@ -142,6 +156,8 @@ defmodule Ryker.Learning do
 
       entries = load_inputs!(ids)
       manifest = Enum.map(entries, &manifest/1)
+      thread = thread_context!(entries, settings.rebuild)
+      settings = Map.put(settings, :thread, thread)
 
       key =
         CanonicalJSON.digest(
@@ -151,11 +167,12 @@ defmodule Ryker.Learning do
             "policy_digest" => digest,
             "contract" =>
               CanonicalJSON.digest(%{
-                "instructions" => instructions(settings.rebuild),
-                "schema" => request_schema(entries, settings.rebuild)
+                "instructions" => instructions(settings.rebuild, thread),
+                "schema" => request_schema(entries, thread, settings.rebuild)
               })
           }
           |> request_identity(settings.rebuild)
+          |> thread_identity(thread)
         )
 
       lock_batch(key)
@@ -190,15 +207,29 @@ defmodule Ryker.Learning do
 
   defp request_identity(identity, nil), do: identity
   defp request_identity(identity, rebuild), do: Map.put(identity, "rebuild", rebuild)
+
+  # A batch without a thread keeps the key it always had.
+  defp thread_identity(identity, []), do: identity
+
+  defp thread_identity(identity, thread),
+    do: Map.put(identity, "thread", Enum.map(thread, &manifest/1))
+
   defp instructions(nil), do: Ryker.Instructions.prompt_instructions(@instructions)
 
   defp instructions(_rebuild),
     do: Ryker.Instructions.prompt_instructions(@rebuild_instructions)
 
+  defp instructions(nil, []), do: instructions(nil)
+
+  defp instructions(nil, _thread),
+    do: Ryker.Instructions.prompt_instructions(@instructions <> @thread_instructions)
+
+  defp instructions(rebuild, _thread), do: instructions(rebuild)
+
   def authorize(id, claim \\ nil) do
     owned_read(id, claim, fn run ->
       case authorize_run(run) do
-        {:ok, _entries} -> run
+        {:ok, _entries, _thread} -> run
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
@@ -269,8 +300,8 @@ defmodule Ryker.Learning do
   defp check_candidate!(%{status: :applied} = run), do: run
 
   defp check_candidate!(run) do
-    with {:ok, entries, updates} <- checked_updates(run),
-         :ok <- apply_updates(updates, entries, run, :check_sources_in_transaction) do
+    with {:ok, _entries, readable, updates} <- checked_updates(run),
+         :ok <- apply_updates(updates, readable, run, :check_sources_in_transaction) do
       run
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -332,7 +363,7 @@ defmodule Ryker.Learning do
 
   defp authorize_submission!(run) do
     case authorize_run(run) do
-      {:ok, _} -> :ok
+      {:ok, _entries, _thread} -> :ok
       {:error, reason} -> Repo.rollback(reason)
     end
 
@@ -642,7 +673,7 @@ defmodule Ryker.Learning do
   defp prepare_attempt(%{status: status} = existing, entries, manifest, key, settings)
        when status in [:prepared, :responded] do
     case authorize_run(existing) do
-      {:ok, _} ->
+      {:ok, _entries, _thread} ->
         existing
 
       {:error, reason} ->
@@ -673,7 +704,7 @@ defmodule Ryker.Learning do
   defp retry_settings(settings, existing, entries) do
     keys =
       with %{result: result} when is_binary(result) <- existing,
-           {:ok, updates} <- parse_updates(result, entries) do
+           {:ok, updates} <- parse_updates(result, entries ++ Map.get(settings, :thread, [])) do
         Enum.map(updates, & &1["topic_key"])
       else
         _ -> []
@@ -743,7 +774,8 @@ defmodule Ryker.Learning do
     scope = source_scope!(entry)
     {knowledge, required} = select_knowledge!(entries, settings)
 
-    raw = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
+    thread = Map.get(settings, :thread, [])
+    raw = (entries ++ thread) |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
     unless is_list(raw), do: Repo.rollback(:learning_source_stale)
     inputs = Enum.map(entries, &input_document/1)
 
@@ -762,7 +794,7 @@ defmodule Ryker.Learning do
         raw,
         settings.retry_feedback,
         settings.rebuild,
-        {custom_instructions, known}
+        {custom_instructions, known, Enum.map(thread, &context_document/1)}
       )
 
     # A create-check correction is useful only if the next judgment actually
@@ -781,6 +813,7 @@ defmodule Ryker.Learning do
       generation: generation,
       status: :prepared,
       inputs: manifest,
+      context_inputs: Enum.map(thread, &manifest/1),
       source_dependencies: dependencies,
       knowledge: knowledge,
       omissions: omissions,
@@ -788,7 +821,7 @@ defmodule Ryker.Learning do
       policy_digest: settings.policy_digest,
       prompt: prompt,
       prompt_sha256: CanonicalJSON.digest(prompt),
-      output_schema: request_schema(entries, settings.rebuild)
+      output_schema: request_schema(entries, thread, settings.rebuild)
     })
     |> tap(&broadcast_learning_updated(&1.id))
   end
@@ -880,9 +913,9 @@ defmodule Ryker.Learning do
     |> Map.put("reason", if(is_nil(dependencies), do: "source_capacity", else: "prompt_capacity"))
   end
 
-  defp learning_prompt(inputs, knowledge, feedback, rebuild, {custom_instructions, known}) do
+  defp learning_prompt(inputs, knowledge, feedback, rebuild, {custom_instructions, known, thread}) do
     document = %{
-      "instructions" => instructions(rebuild),
+      "instructions" => instructions(rebuild, thread),
       "custom_instructions" => custom_instructions,
       "inputs" => inputs,
       "knowledge" => knowledge,
@@ -893,6 +926,8 @@ defmodule Ryker.Learning do
     document =
       if known == [], do: document, else: Map.put(document, "known_about_authors", known)
 
+    document = if thread == [], do: document, else: Map.put(document, "thread_context", thread)
+
     document =
       if rebuild,
         do:
@@ -901,6 +936,78 @@ defmodule Ryker.Learning do
 
     CanonicalJSON.encode!(document)
   end
+
+  # The earlier messages of the thread the inputs reply in, oldest first: its
+  # opening message and the latest replies before the first input, each one
+  # Ryker still holds, observed and not forgotten, in the inputs' own scope;
+  # never so many that a topic could not name them all among its sources. A
+  # rebuild relearns one topic from its own sources and reads none.
+  defp thread_context!(_entries, rebuild) when is_map(rebuild), do: []
+
+  defp thread_context!([first | _] = entries, nil) do
+    threads =
+      entries |> Enum.map(& &1.destination_thread_ref) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    if threads == [] do
+      []
+    else
+      ids = Enum.map(entries, & &1.id)
+      before = entries |> Enum.map(& &1.occurred_at) |> Enum.min(DateTime)
+
+      from(e in Entry,
+        where:
+          e.destination_transport == ^first.destination_transport and
+            e.destination_conversation_ref == ^first.destination_conversation_ref and
+            (e.destination_thread_ref in ^threads or e.source_item_ref in ^threads) and
+            e.id not in ^ids and e.occurred_at < ^before,
+        order_by: [desc: e.occurred_at, desc: e.id],
+        limit: ^(@thread_context * 3),
+        lock: "FOR SHARE"
+      )
+      |> Repo.all()
+      |> Enum.filter(&(valid_entries?([first, &1]) and is_list(LearningSources.for_entry(&1))))
+      |> Enum.take(min(@thread_context, @max_inputs - length(entries)))
+      |> Enum.reverse()
+    end
+  end
+
+  # What a thread message says, shortened: who, when and its words.
+  defp context_document(entry) do
+    text = if is_map(entry.content), do: entry.content["text"], else: nil
+
+    %{
+      "source_input_id" => entry.id,
+      "actor" => %{"kind" => Atom.to_string(entry.actor_kind), "ref" => entry.actor_ref},
+      "event_kind" => Atom.to_string(entry.event_kind),
+      "occurred_at" => DateTime.to_iso8601(entry.occurred_at),
+      "text" => if(is_binary(text), do: String.slice(text, 0, @thread_text), else: nil)
+    }
+  end
+
+  # The thread a run read, exactly as it was, or nil once any message of it
+  # changed or went.
+  defp load_thread!([]), do: []
+
+  defp load_thread!(manifests) when is_list(manifests) do
+    ids = Enum.map(manifests, & &1["source_input_id"])
+
+    entries =
+      Repo.all(
+        from(e in Entry,
+          where: e.id in ^ids,
+          order_by: [asc: e.occurred_at, asc: e.id],
+          lock: "FOR SHARE"
+        )
+      )
+
+    if Enum.map(entries, &manifest/1) == manifests and
+         Enum.all?(entries, &LearningSources.current_entry?/1) and
+         Enum.all?(entries, &is_list(LearningSources.for_entry(&1))),
+       do: entries,
+       else: nil
+  end
+
+  defp load_thread!(_manifests), do: nil
 
   defp load_inputs!(ids) do
     unless Enum.uniq(ids) == ids and Enum.all?(ids, &(Ecto.UUID.cast(&1) == {:ok, &1})),
@@ -971,15 +1078,17 @@ defmodule Ryker.Learning do
       do: Repo.rollback(:learning_attempt_finished)
 
     entries = load_inputs!(Enum.map(run.inputs, & &1["source_input_id"]))
+    thread = load_thread!(run.context_inputs || [])
     first = hd(entries)
 
-    with true <- Enum.map(entries, &manifest/1) == run.inputs,
+    with true <- is_list(thread),
+         true <- Enum.map(entries, &manifest/1) == run.inputs,
          true <- CanonicalJSON.digest(run.prompt) == run.prompt_sha256,
          :ok <- Rebuilds.authorize_run(run),
          {:ok, scope} <- Observations.locked_scope(first, first.repository_ref),
          true <- LearningSources.valid?(run.source_dependencies, scope),
          :ok <- Knowledge.reauthorize(first, first.repository_ref, run.knowledge) do
-      {:ok, entries}
+      {:ok, entries, thread}
     else
       {:error, {:admission_rejected, :context_stale}} -> {:error, :learning_context_stale}
       _ -> {:error, :learning_source_stale}
@@ -1042,8 +1151,8 @@ defmodule Ryker.Learning do
     if run.status == :applied do
       run
     else
-      with {:ok, entries, updates} <- checked_updates(run),
-           :ok <- apply_updates(updates, entries, run, :record_sources_in_transaction),
+      with {:ok, entries, readable, updates} <- checked_updates(run),
+           :ok <- apply_updates(updates, readable, run, :record_sources_in_transaction),
            :ok <- learn_people(run, entries) do
         Repo.update!(
           Ecto.Changeset.change(run,
@@ -1063,10 +1172,11 @@ defmodule Ryker.Learning do
     unless first && is_binary(run.result), do: Repo.rollback(:learning_source_stale)
 
     with :ok <- Knowledge.lock_scope_in_transaction(first, first.repository_ref),
-         {:ok, entries} <- authorize_run(run),
-         {:ok, updates} <- parse_updates(run.result, entries),
-         :ok <- check_targets(run, entries, updates) do
-      {:ok, entries, updates}
+         {:ok, entries, thread} <- authorize_run(run),
+         readable = entries ++ thread,
+         {:ok, updates} <- parse_updates(run.result, readable),
+         :ok <- check_targets(run, readable, updates) do
+      {:ok, entries, readable, updates}
     end
   end
 
@@ -1142,14 +1252,26 @@ defmodule Ryker.Learning do
     }
 
     {operation, context} = application_context(run, operation, context, entries)
+    # What the run read of the thread is a source of every topic it writes,
+    # named or not, so a person forgetting a thread message reaches it.
+    thread = Enum.map(run.context_inputs || [], & &1["source_input_id"])
 
     updates
     |> Enum.reject(&(&1["action"] == "defer"))
     |> Enum.reduce_while(:ok, fn update, :ok ->
-      sources = Enum.filter(entries, &(&1.id in update["source_input_ids"]))
       # The entire frozen context was checked before any write. An earlier update
       # in this same atomic batch must not make a different target look stale.
       target = Enum.filter(run.knowledge, &(&1["source_ref"] == update["target_ref"]))
+      # A topic that already rests on a thread message keeps that source as it
+      # was recorded.
+      known = rooted(target)
+
+      sources =
+        Enum.filter(
+          entries,
+          &(&1.id in update["source_input_ids"] or
+              (&1.id in thread and not MapSet.member?(known, &1.id)))
+        )
 
       case apply(Knowledge, operation, [
              sources,
@@ -1176,6 +1298,13 @@ defmodule Ryker.Learning do
           {:halt, {:error, :learning_context_stale}}
       end
     end)
+  end
+
+  # The messages a topic already rests on, by their input.
+  defp rooted(target) do
+    target
+    |> Enum.flat_map(&(LearningSources.expand(LearningSources.document_sources(&1)) || []))
+    |> MapSet.new(& &1["source_input_id"])
   end
 
   defp application_context(%{rebuild: nil}, operation, context, _entries),
@@ -1303,11 +1432,11 @@ defmodule Ryker.Learning do
     ).num_rows
   end
 
-  defp request_schema(entries, nil), do: schema(entries)
+  defp request_schema(entries, thread, nil), do: schema(entries, thread)
 
   # A rebuild relearns one topic; it reads nobody's facts and keeps none.
-  defp request_schema(entries, _rebuild) do
-    schema = entries |> schema() |> without_people()
+  defp request_schema(entries, thread, _rebuild) do
+    schema = entries |> schema(thread) |> without_people()
     [item, defer] = schema["properties"]["updates"]["items"]["oneOf"]
 
     item =
@@ -1320,8 +1449,8 @@ defmodule Ryker.Learning do
     |> put_in(["properties", "updates", "items", "oneOf"], [item, defer])
   end
 
-  defp schema(entries) do
-    ids = Enum.map(entries, & &1.id)
+  defp schema(entries, thread) do
+    ids = Enum.map(entries ++ thread, & &1.id)
 
     item =
       KnowledgeUpdate.json_schema()["anyOf"]

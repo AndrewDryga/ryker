@@ -27,14 +27,20 @@ defmodule Ryker.Learning.LearningContextPackingTest do
     %{entries: entries, heads: [large, affordable], selected: selected} = setup_topics!(9_998, 17)
     raw = raw_sources(entries)
     assert LearningSources.merge([raw, large.source_dependencies]) == nil
-    expected_sources = LearningSources.merge([raw, affordable.source_dependencies])
-    assert length(LearningSources.expand(expected_sources)) == 20
+
+    assert length(
+             LearningSources.expand(LearningSources.merge([raw, affordable.source_dependencies]))
+           ) == 20
 
     assert {:ok, run} = Learning.prepare(Enum.map(entries, & &1.id), @policy)
     assert Enum.map(run.knowledge, & &1["topic_key"]) == [affordable.topic_key]
     assert run.knowledge == [List.last(selected)]
     assert run.omissions == [omission(large)]
-    assert run.source_dependencies == expected_sources
+
+    # The run also rests on the earlier messages of its inputs' thread.
+    assert run.source_dependencies ==
+             LearningSources.merge([read_sources(run, entries), affordable.source_dependencies])
+
     assert Repo.get!(LearningRun, run.id) == run
     assert_prompt_matches!(run, entries)
     refute run.prompt =~ large.state["summary"]
@@ -49,7 +55,9 @@ defmodule Ryker.Learning.LearningContextPackingTest do
     assert {:ok, run} = Learning.prepare(Enum.map(entries, & &1.id), @policy)
     assert run.knowledge == selected
     assert run.omissions == []
-    assert length(run.source_dependencies) == 5
+    thread = length(run.context_inputs)
+    assert length(run.source_dependencies) == 5 + thread
+    # Those thread messages are already roots of the offered topics.
     assert length(LearningSources.expand(run.source_dependencies)) == 30
     assert_prompt_matches!(run, entries)
     assert {:ok, ^run} = Learning.authorize(run.id)
@@ -98,9 +106,10 @@ defmodule Ryker.Learning.LearningContextPackingTest do
     assert run.omissions == [omission(later)]
 
     assert run.source_dependencies ==
-             LearningSources.merge([raw_sources(entries), priority.source_dependencies])
+             LearningSources.merge([read_sources(run, entries), priority.source_dependencies])
 
-    assert length(run.source_dependencies) == 4
+    thread = length(run.context_inputs)
+    assert length(run.source_dependencies) == 4 + thread
     assert length(LearningSources.expand(run.source_dependencies)) == 9_984
     assert_prompt_matches!(run, entries)
     assert {:ok, ^run} = Learning.authorize(run.id)
@@ -221,8 +230,16 @@ defmodule Ryker.Learning.LearningContextPackingTest do
 
     assert run.source_dependencies ==
              LearningSources.merge([
-               raw_sources(entries) | Enum.map(run.knowledge, &LearningSources.document_sources/1)
+               read_sources(run, entries)
+               | Enum.map(run.knowledge, &LearningSources.document_sources/1)
              ])
+  end
+
+  # The receipts of a run's inputs and of the earlier thread messages it read.
+  defp read_sources(run, entries) do
+    ids = Enum.map(run.context_inputs, & &1["source_input_id"])
+    thread = Repo.all(from(e in Entry, where: e.id in ^ids))
+    raw_sources(entries ++ thread)
   end
 
   defp raw_sources(entries) do
