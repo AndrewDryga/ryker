@@ -157,6 +157,32 @@ defmodule Ryker.GitHub.InputTest do
     assert input.destination.thread_ref == "github:github-main:pull:42"
   end
 
+  # 141 `check_run created` deliveries were refused as invalid_event from 2026-09-28 on: a check
+  # run has no updated_at or created_at, and completed_at stays null until it finishes. Only its
+  # started_at dates it. The check run below is Ryker's own CI on 47650df1, read in progress.
+  test "a check run that has just started is dated by its start" do
+    payload = %{
+      "action" => "created",
+      "check_run" => %{
+        "completed_at" => nil,
+        "conclusion" => nil,
+        "head_sha" => "47650df10d7495221b7cb17a89d7334c9fa6235f",
+        "id" => 109_892_829_204,
+        "name" => "check",
+        "pull_requests" => [],
+        "started_at" => "2026-09-30T12:48:26Z",
+        "status" => "in_progress"
+      },
+      "installation" => %{"id" => 41},
+      "repository" => %{"full_name" => "octo/example", "id" => 99},
+      "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+    }
+
+    assert {:ok, input} = normalize("check_run", payload)
+    assert DateTime.compare(input.occurred_at, ~U[2026-09-30 12:48:26Z]) == :eq
+    assert input.source_item_ref == "github:check_run:109892829204"
+  end
+
   test "the adapter rejects unsupported actions and payload-selected installation or repository" do
     assert {:error, {:invalid_github_input, :event}} =
              normalize("push", issue_comment_payload())
