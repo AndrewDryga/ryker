@@ -58,6 +58,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/memory", :facts},
     {"/memory/learned", :learned},
     {"/memory/findings", :findings},
+    {"/memory/people", :people},
     {"/memory/learning", :learning},
     {"/feedback", :feedback},
     {"/feedback/fix", :improvement},
@@ -668,6 +669,30 @@ defmodule Ryker.ControlPlane.PageHelp do
        [
          "On a finding's page, Mark explained settles one Ryker could not explain once you know why it happened. Forget finding is for one that is wrong or no longer matters.",
          "Either way Ryker stops using the finding in later requests. It stays in the investigation's history and here, marked as such. Each asks you to confirm first and can't be undone."
+       ]}
+    ])
+  end
+
+  defp help(:people) do
+    page("How People works", [
+      {"What Ryker learns",
+       [
+         "While Ryker reads conversations in the background, it notices what people say about themselves: a birthday, the name they go by, their time zone, a favourite show. Nobody approves it; it is listed here instead.",
+         "It only ever keeps what a person says about themselves, never what someone says about someone else, and nothing sensitive such as health or beliefs. Apps and bots teach it nothing."
+       ]},
+      {"How Ryker uses it",
+       [
+         "Only when that person is the one asking, to be considerate: to wish them a happy birthday or call them what they like. It is never evidence or permission, and Ryker does not share it with anyone else.",
+         "Something said in a direct message or a private channel is used only there."
+       ]},
+      {"Forgetting",
+       [
+         "A person can tell Ryker to forget something, and editing or deleting the message forgets what it taught. Deleting a Slack channel forgets what was said in it.",
+         "Open a person to see what Ryker knows and the message each came from. Forget this person, at the end of their page, forgets all of it: nothing they said before brings it back, and what they say later is learned again."
+       ]},
+      {"How long it is kept",
+       [
+         "Until it is forgotten. A birthday is worth remembering for longer than the conversations it was mentioned in are kept."
        ]}
     ])
   end

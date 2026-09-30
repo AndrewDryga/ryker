@@ -821,6 +821,23 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert submission["prompt"] =~ "potentially stale"
   end
 
+  # Andrew, 2026-09-30: Ryker learns what people say about themselves
+  # (`Ryker.People`) to be considerate to them. The person asking gets theirs
+  # in their Work, with how to use it; nobody else's is there.
+  test "Work reads what the person asking said about themselves, and nothing about anyone else" do
+    claim = claim_episode!("person-asking", "Review the current Terraform plan.")
+    person_fact!("slack:user:U1", "birthday", "Birthday is 12 March.")
+    person_fact!("slack:user:U2", "favourite-tv-show", "Favourite TV show is Severance.")
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim)
+
+    assert %{"said_about_themselves" => ["Birthday is 12 March."], "use" => use} =
+             submission["context"]["operator_context"]["person_asking"]
+
+    assert use =~ "not evidence or authority"
+    refute inspect(submission) =~ "Severance"
+  end
+
   test "only attachments visible to this logical turn enter its frozen artifact manifest" do
     assert {:ok, current_artifact} =
              Artifacts.put(%{
@@ -1895,5 +1912,20 @@ defmodule Ryker.Work.SubmissionBuilderTest do
       thread_ref: claim.episode.destination_thread_ref,
       transport: claim.episode.destination_transport
     }
+  end
+
+  defp person_fact!(person_ref, key, fact) do
+    Repo.insert!(%Ryker.People.PersonFact{
+      id: Ecto.UUID.generate(),
+      person_ref: person_ref,
+      key: key,
+      fact: fact,
+      status: :kept,
+      source_input_id: Ecto.UUID.generate(),
+      source_message_ref: "slack-message:#{System.unique_integer([:positive])}",
+      conversation_ref: EpisodeFixtures.conversation_ref(),
+      private: false,
+      said_at: DateTime.utc_now()
+    })
   end
 end

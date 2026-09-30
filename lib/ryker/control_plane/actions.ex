@@ -28,6 +28,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Behaviors.Automations
   alias Ryker.Memories
   alias Ryker.Memories.Forgetting
+  alias Ryker.People
   alias Ryker.Records.Findings
   alias Ryker.Records.InputRequests
   alias Ryker.Records.Record
@@ -69,6 +70,7 @@ defmodule Ryker.ControlPlane.Actions do
       forget_memory: &Memories.forget/1,
       forget_knowledge: &Forgetting.forget_topic/1,
       forget_finding: &Findings.forget/1,
+      forget_person: &People.forget_person/1,
       accept_improvement: &Improvement.accept(&1, @actor_ref),
       dismiss_improvement: &Improvement.dismiss(&1, @actor_ref),
       mark_finding_explained: &Findings.mark_explained/1,

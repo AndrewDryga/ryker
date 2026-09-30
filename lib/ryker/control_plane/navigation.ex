@@ -35,6 +35,7 @@ defmodule Ryker.ControlPlane.Navigation do
        {"Facts", "/memory"},
        {"Learned", "/memory/learned"},
        {"Findings", "/memory/findings"},
+       {"People", "/memory/people"},
        {"Learning", "/memory/learning"}
      ]}
   ]

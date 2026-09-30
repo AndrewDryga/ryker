@@ -35,6 +35,7 @@ defmodule Ryker.ControlPlane.Pages do
     LearnedPage,
     LearningPage,
     PathRef,
+    PeoplePage,
     RepositoriesPage,
     SchedulesPage,
     SubscriptionsPage,
@@ -358,6 +359,23 @@ defmodule Ryker.ControlPlane.Pages do
     )
   end
 
+  # One person is a sub-page of their own, with the way back to everyone.
+  def page(["memory", "people"], %{"person" => person_ref}, options)
+      when is_binary(person_ref) do
+    case options.projection.person.(person_ref) do
+      {:ok, person} -> sub_page(PeoplePage.heading(person), PeoplePage.person_html(person))
+      :error -> not_found("Person")
+    end
+  end
+
+  def page(["memory", "people"], _params, options) do
+    ok(
+      "People",
+      ConfigurationGuide.description(:people),
+      PeoplePage.html(options.projection.people.())
+    )
+  end
+
   def page(_segments, _params, _options), do: not_found("Page")
 
   @doc """
@@ -393,6 +411,7 @@ defmodule Ryker.ControlPlane.Pages do
   def subscriptions(["memory", "learned"], _params), do: LearnedPage.subscriptions()
   def subscriptions(["memory", "learning"], _params), do: LearningPage.subscriptions()
   def subscriptions(["memory", "findings"], _params), do: FindingsPage.subscriptions()
+  def subscriptions(["memory", "people"], _params), do: PeoplePage.subscriptions()
   def subscriptions(["feedback"], _params), do: FeedbackPage.subscriptions()
   def subscriptions(["feedback", "fix"], _params), do: ImprovementPage.subscriptions()
 

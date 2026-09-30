@@ -10,6 +10,7 @@ defmodule Ryker.Admission.ContextTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.People
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.Session
@@ -50,6 +51,50 @@ defmodule Ryker.Admission.ContextTest do
     historical = Map.delete(saved, "custom_instructions")
     assert {:ok, old} = Context.restore(historical, context.input, entry, %{})
     refute Map.has_key?(Context.for_model(old), "custom_instructions")
+  end
+
+  # Andrew, 2026-09-30: Ryker learns what people say about themselves
+  # (`Ryker.People`) so it can be considerate to them. Routing writes the
+  # quick replies, so it reads what the sender said, frozen with the rest of
+  # its context, and nothing about anyone else.
+  test "routing reads what the sender said about themselves, and nothing about anyone else" do
+    alice = %{kind: :user, ref: "UALICE"}
+
+    told =
+      record_input!(
+        actor: alice,
+        content: %{"text" => "My birthday is 12 March"},
+        message_ref: "1787831000.000100"
+      )
+
+    birthday = %{
+      "source_input_id" => told.id,
+      "key" => "birthday",
+      "fact" => "Birthday is 12 March."
+    }
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn -> People.learn_in_transaction([birthday], [told]) end)
+
+    asking = record_input!(actor: alice, content: %{"text" => "hi!"})
+    assert {:ok, context} = build_context(asking)
+
+    assert %{"said_about_themselves" => ["Birthday is 12 March."], "use" => use} =
+             Context.for_model(context)["person_asking"]
+
+    assert use =~ "never repeat it to anyone else"
+
+    saved = Context.snapshot(context)
+    assert {:ok, 1} = People.forget_person("slack:user:UALICE")
+    assert {:ok, restored} = Context.restore(saved, context.input, asking, %{})
+
+    assert Context.for_model(restored)["person_asking"] ==
+             Context.for_model(context)["person_asking"]
+
+    bob = record_input!(actor: %{kind: :user, ref: "UBOB"}, message_ref: "1787833000.000100")
+    assert {:ok, bob_context} = build_context(bob)
+    refute Map.has_key?(Context.for_model(bob_context), "person_asking")
+    refute Map.has_key?(Context.snapshot(bob_context), "person_asking")
   end
 
   test "addressing is frozen from the receipt and restored independently of current entry metadata" do

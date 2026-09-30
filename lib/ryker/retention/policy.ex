@@ -482,6 +482,12 @@ defmodule Ryker.Retention.Policy do
       why: "operator-confirmed preference, guidance, or standing authority"
     },
     %{
+      table: "person_facts",
+      class: :kept,
+      why:
+        "what people said about themselves (a birthday, the name they go by), kept until they take it back, edit or delete the message, its channel goes, or an operator forgets them on Memory; a forgotten one keeps no words"
+    },
+    %{
       table: "platform_actions",
       class: :episode_history,
       why: "host-authorized Slack or GitHub action intent and exact provider receipt"

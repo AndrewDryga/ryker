@@ -298,6 +298,27 @@ external effects. Shadow/live inputs have the same learning semantics but do not
 execution-mode boundaries. Recent raw excerpts remain available to admission/Work before
 consolidation catches up.
 
+### What people say about themselves
+
+Since 2026-09-30 the same pass also returns `people`: what the author of a message says about
+themselves (a birthday, the name they go by, a time zone, a favourite show), as the message's
+`source_input_id`, a lowercase hyphenated `key` for the kind, and one short `fact`, or null when
+the author takes it back. The schema offers only messages people wrote, never an app's, a bot's
+or a schedule's, and the host attributes each fact to that message's author, so a fact can only
+be about the person who said it (`Ryker.People`). Nothing is approved: the latest fact of each kind
+per person is kept (`person_facts`), at most 24 per person, and the next pass reads the authors'
+facts as `known_about_authors` to reuse a kind or take it back. A rebuild reads and keeps none.
+A result from before `people` existed has none and applies as before.
+
+Such facts are kept until forgotten, not for the conversation-memory horizon: a birthday is worth
+remembering longer than the talk it came up in. The author taking it back, editing or deleting the
+message, deleting the Slack channel, or an operator forgetting the person on Memory › People
+forgets it; a forgotten fact keeps no words and its row, so neither its message nor anything said
+before the forgetting teaches it again. Routing and Work read the asking person's facts as
+`person_asking`, only when there are any, with a note to use them for courtesy only; a fact said
+in a direct message, a private channel or a channel shared with another organisation is used only
+there.
+
 ## 5. Recall contract
 
 Extend existing `search_memory`, not a second tool. Reuse tokenized PostgreSQL search for topic
