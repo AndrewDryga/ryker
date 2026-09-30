@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.ClientTest do
   use Ryker.DataCase, async: true
 
+  import Ecto.Query, only: [from: 2]
+
   alias Ryker.{Artifacts, CanonicalJSON, Instructions}
 
   alias Ryker.CoopFleet.{
@@ -1280,6 +1282,70 @@ defmodule Ryker.CoopFleet.ClientTest do
     refute_receive {:fleet_command, _, _, _, _, _}
   end
 
+  # The same crash can land between a publish being accepted and it finishing: the pull
+  # request is being made on the worker while the placement that asked for it lapses.
+  test "an accepted publish whose placement lapsed is read through the worker still holding it",
+       %{client: client, session: session} do
+    session = bind_session!(session, "publication-accepted")
+    owner = uncertain_review!(session, "publication-accepted")
+    response = publication_response(session)
+    running = %{"operation" => Map.put(response["operation"], "state", "running")}
+    key = "publish:accepted"
+
+    Process.put(:coop_fleet_await_result, fn id ->
+      case Repo.get!(Command, id) do
+        %Command{kind: "api_request", idempotency_key: ^key} -> {:ok, running}
+        %Command{kind: "reconcile_operation"} -> {:ok, Process.get(:publication_operation)}
+        %Command{kind: "api_request"} -> {:ok, response}
+      end
+    end)
+
+    Process.put(:publication_operation, running["operation"])
+
+    assert {:error, {:coop_unavailable, _}} =
+             Client.publish_review(
+               client,
+               session.coop_session_id,
+               owner.idempotency_key,
+               "review-op",
+               key,
+               publication_body()
+             )
+
+    Repo.get!(Placement, owner.placement_id)
+    |> Ecto.Changeset.change(state: :replaced, lease_expires_at: DateTime.add(Repo.now!(), -60))
+    |> Repo.update!()
+
+    Process.put(:publication_operation, response["operation"])
+
+    assert {:ok, receipt} =
+             Client.publish_review(
+               client,
+               session.coop_session_id,
+               owner.idempotency_key,
+               "review-op",
+               key,
+               publication_body()
+             )
+
+    assert receipt == response["publication"]["receipt"]
+
+    lookups =
+      Repo.all(
+        from(command in Command,
+          where:
+            command.kind in ["reconcile_operation", "api_request"] and
+              command.idempotency_key != ^key,
+          order_by: command.inserted_at
+        )
+      )
+
+    assert [_first_reconcile | after_lapse] = lookups
+    assert after_lapse != []
+    assert Enum.all?(after_lapse, &(&1.worker_id == owner.worker_id))
+    assert Enum.all?(after_lapse, &(&1.placement_generation > owner.placement_generation))
+  end
+
   test "accepted background publication recovers through the real poll and remains readable after placement expiry",
        %{session: session} do
     session = bind_session!(session, "publication-background")
@@ -1524,12 +1590,22 @@ defmodule Ryker.CoopFleet.ClientTest do
     session = bind_session!(session, completed_review_fixture()["review"]["session_id"])
     command = uncertain_review!(session, "pending")
 
-    for state <- ["reserved", "running", "uncertain"] do
+    for state <- ["reserved", "running"] do
       Process.put(:coop_fleet_await_result, {:ok, %{"method" => "RunReview", "state" => state}})
 
       assert {:error, {:coop_unavailable, "Review operation has not completed."}} =
                Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
     end
+
+    # Coop marks an operation uncertain when its service restarts under it; that review never
+    # finishes. On 30 Sep OrbStack crashed mid-review and the publication waited on it forever.
+    Process.put(
+      :coop_fleet_await_result,
+      {:ok, %{"method" => "RunReview", "state" => "uncertain"}}
+    )
+
+    assert {:error, {:coop_review_lost, _detail}} =
+             Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
 
     Process.put(:coop_fleet_await_result, {
       :ok,
@@ -1629,7 +1705,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert Repo.get!(Command, command.id) == command
   end
 
-  test "review recovery refuses changed requests and replaced placements without another command",
+  test "review recovery refuses changed requests, and a worker that went quiet, without another command",
        %{client: client, session: session} do
     session = bind_session!(session, completed_review_fixture()["review"]["session_id"])
     command = uncertain_review!(session, "fenced")
@@ -1638,7 +1714,11 @@ defmodule Ryker.CoopFleet.ClientTest do
              Client.run_review(client, session.coop_session_id, command.idempotency_key, 4)
 
     Repo.get!(Placement, command.placement_id)
-    |> Ecto.Changeset.change(state: :replaced)
+    |> Ecto.Changeset.change(state: :replaced, lease_expires_at: DateTime.add(Repo.now!(), -60))
+    |> Repo.update!()
+
+    Repo.get!(Worker, command.worker_id)
+    |> Ecto.Changeset.change(last_seen_at: DateTime.add(Repo.now!(), -300))
     |> Repo.update!()
 
     assert {:error, {:coop_session_replacement_required, _, _}} =
@@ -1648,6 +1728,35 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert Repo.get!(Command, command.id) == command
     refute_receive {:fleet_await, _}
     refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
+  # The review Andrew started at 11:34 on 30 Sep outlived its placement when OrbStack crashed
+  # at 11:36; every later attempt asked for the lapsed placement and stopped there. The
+  # operation lives in the worker's session service, which a newer placement reaches too.
+  test "a review whose placement lapsed is reconciled through the worker still holding it", %{
+    client: client,
+    session: session
+  } do
+    response = completed_review_fixture()
+    session = bind_session!(session, response["review"]["session_id"])
+    command = uncertain_review!(session, "lapsed")
+
+    Repo.get!(Placement, command.placement_id)
+    |> Ecto.Changeset.change(state: :replaced, lease_expires_at: DateTime.add(Repo.now!(), -60))
+    |> Repo.update!()
+
+    Process.put(:coop_fleet_await_result, {:ok, response})
+
+    assert Client.run_review(client, session.coop_session_id, command.idempotency_key, 3) ==
+             {:ok, response}
+
+    assert_receive {:fleet_await, reconciliation_id}
+    reconciliation = Repo.get!(Command, reconciliation_id)
+    assert reconciliation.kind == "reconcile_operation"
+    assert reconciliation.payload == %{"operation_key" => command.idempotency_key}
+    assert reconciliation.worker_id == command.worker_id
+    assert reconciliation.placement_generation > command.placement_generation
+    assert Repo.get!(Command, command.id) == command
   end
 
   # Found live 2026-09-12 — the create that stranded an operator retry was never enqueued

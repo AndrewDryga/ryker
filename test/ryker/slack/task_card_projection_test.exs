@@ -413,6 +413,63 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
              "Ryker couldn't get permission to publish this reviewed change."
 
     refute json =~ "publication_authorization_revoked"
+
+    # Andrew, 2026-09-30, of "Discard candidate" with the "…" menu on its own row below it:
+    # "can ... button be in the same row?"
+    assert [row] = Enum.filter(rendered["blocks"], &(&1["type"] == "actions"))
+
+    assert Enum.map(row["elements"], & &1["action_id"]) == [
+             "ryker_task_update_publication",
+             "ryker_task_discard_publication",
+             "ryker_work_record"
+           ]
+  end
+
+  # Andrew, 2026-09-30, after Review latest state: "Action needed: Draft pull-request work needs
+  # operator attention: coop_worker_command_timeout. again!!" The review was running; Ryker's own
+  # wait for it had ended, as it does for any review longer than the wait. Nothing needed a person.
+  for code <- ~w(coop_worker_command_timeout coop_unavailable publication_review_generation_spent) do
+    @in_flight_code code
+    test "a review still running says it is checking, not that it needs attention (#{code})" do
+      suffix = "in-flight-#{:erlang.phash2(@in_flight_code)}"
+      %{episode: episode} = PublicationFixture.review_requested!(suffix)
+      assert {:ok, claim} = PublicationCustody.claim_next("publication:#{suffix}", 60)
+
+      assert {:ok, _deferred} =
+               PublicationCustody.defer(
+                 claim.publication.ref,
+                 claim.lease_ref,
+                 60,
+                 @in_flight_code,
+                 "{:#{@in_flight_code}, \"25d038fb\"}"
+               )
+
+      source = %Record{
+        kind: "task_offer",
+        status: :confirmed,
+        confirmed_episode_id: episode.id,
+        confirmed_at: DateTime.utc_now(),
+        confirmed_by_actor_ref: "slack:user:U1",
+        ref: "task-card:#{suffix}",
+        payload: %{
+          "title" => "Implement in-flight",
+          "repository" => "ryker",
+          "prompt" => "Implement the change."
+        }
+      }
+
+      assert {:ok, projection} = TaskCardProjection.build(source)
+      card = projection.document["task_card"]
+      assert card["publication"]["controls"] == ["discard"]
+      assert card["action_needed"] == nil
+
+      assert {:ok, rendered} = Renderer.render(projection.document)
+      json = Jason.encode!(rendered)
+      assert json =~ "Checking the changes before creating a PR."
+      refute json =~ @in_flight_code
+      refute json =~ "Action needed"
+      refute json =~ "Action required"
+    end
   end
 
   # Andrew, 2026-09-28: "I clicked review latest state and now all actions are

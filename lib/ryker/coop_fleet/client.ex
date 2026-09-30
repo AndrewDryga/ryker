@@ -399,7 +399,7 @@ defmodule Ryker.CoopFleet.Client do
           payload: ^payload
         } =
             command ->
-          reconcile_review(client, command, coop_session_id, expected_revision)
+          reconcile_review(client, session, command, coop_session_id, expected_revision)
 
         %Command{status: :uncertain} ->
           {:error, {:coop_worker_command_conflict, key}}
@@ -410,25 +410,29 @@ defmodule Ryker.CoopFleet.Client do
     end
   end
 
-  defp reconcile_review(client, command, coop_session_id, revision) do
-    # A review may finish after its HTTP request times out. Keep that receipt and
-    # read the original operation on its owning placement; never place this lookup anew.
-    with :ok <- current_command_placement(command),
+  defp reconcile_review(client, session, command, coop_session_id, revision) do
+    # A review may finish after its HTTP request times out. Keep that receipt and read the
+    # original operation where it runs: in the session service of the worker holding the
+    # session, which keeps operations by key, through whichever placement addresses it now.
+    # The placement that ran the review may have lapsed since (OrbStack crashed mid-review
+    # on 30 Sep); another worker never holds it.
+    with {:ok, placement} <- review_holder_placement(client, session, command),
          {:ok, reconciliation} <-
            ControlPlane.enqueue_command(
-             command.placement_id,
+             placement.id,
              "reconcile_operation",
              %{"operation_key" => command.idempotency_key},
              "ryker:fleet:read:reconcile_operation:#{Ecto.UUID.generate()}"
            ),
          {:ok, response} <-
            client.bridge.await_command(reconciliation.id, client.bridge_options) do
-      reconciled_review(client, command, response, coop_session_id, revision)
+      reconciled_review(client, placement, command, response, coop_session_id, revision)
     end
   end
 
   defp reconciled_review(
          client,
+         placement,
          command,
          %{
            "id" => operation_id,
@@ -442,7 +446,7 @@ defmodule Ryker.CoopFleet.Client do
        ) do
     with {:ok, lookup} <-
            ControlPlane.enqueue_command(
-             command.placement_id,
+             placement.id,
              "get_review",
              %{"coop_session_id" => coop_session_id, "operation_id" => operation_id},
              "ryker:fleet:review:#{command.id}:#{operation_id}"
@@ -456,7 +460,7 @@ defmodule Ryker.CoopFleet.Client do
     end
   end
 
-  defp reconciled_review(_client, _command, response, coop_session_id, revision),
+  defp reconciled_review(_client, _placement, _command, response, coop_session_id, revision),
     do: review_resource(response, coop_session_id, revision)
 
   defp review_resource(
@@ -481,8 +485,18 @@ defmodule Ryker.CoopFleet.Client do
        do: {:ok, response}
 
   defp review_resource(%{"method" => "RunReview", "state" => state}, _session_id, _revision)
-       when state in ["reserved", "running", "uncertain"],
+       when state in ["reserved", "running"],
        do: {:error, {:coop_unavailable, "Review operation has not completed."}}
+
+  # Coop marks an operation uncertain when its service restarts under it, and that review
+  # never finishes: waiting on it kept a publication pending forever. Its caller starts the
+  # review again under a new key.
+  defp review_resource(
+         %{"method" => "RunReview", "state" => "uncertain"},
+         _session_id,
+         _revision
+       ),
+       do: {:error, {:coop_review_lost, "The review stopped when its worker restarted."}}
 
   defp review_resource(
          %{
@@ -576,9 +590,10 @@ defmodule Ryker.CoopFleet.Client do
   defp publication_command_response(client, command) do
     # A completed result lookup is durable even if the original POST only
     # acknowledged a background operation and its placement has since expired.
+    # The lookup runs on the worker holding the session, maybe on a newer placement.
     case Repo.get_by(Command, idempotency_key: publication_result_key(command)) do
-      %Command{status: :succeeded, session_id: session_id, placement_id: placement_id} = result
-      when session_id == command.session_id and placement_id == command.placement_id ->
+      %Command{status: :succeeded, session_id: session_id, worker_id: worker_id} = result
+      when session_id == command.session_id and worker_id == command.worker_id ->
         Bridge.command_response(
           result,
           client.bridge_options[:body_root],
@@ -671,25 +686,32 @@ defmodule Ryker.CoopFleet.Client do
        }),
        do: {:error, {:coop_protocol_error, :publication_resource}}
 
+  # An accepted publish runs on the worker holding the session, whose session service keeps
+  # the operation by key. The placement that asked for it may lapse before it finishes, as
+  # when OrbStack crashed on 30 Sep; a newer placement on the same worker reads it.
   defp publication_result(client, command, session_id, response)
        when response == :reconcile or is_map_key(response, "operation") do
-    with :ok <- current_command_placement(command),
+    with %Session{} = session <- Repo.get(Session, command.session_id),
+         {:ok, placement} <- review_holder_placement(client, session, command),
          {:ok, lookup} <-
            ControlPlane.enqueue_command(
-             command.placement_id,
+             placement.id,
              "reconcile_operation",
              %{"operation_key" => command.idempotency_key},
              "ryker:fleet:read:publication:#{Ecto.UUID.generate()}"
            ),
          {:ok, operation} <- client.bridge.await_command(lookup.id, client.bridge_options) do
-      publication_operation(client, command, session_id, operation)
+      publication_operation(client, placement, command, session_id, operation)
+    else
+      nil -> {:error, {:coop_session_not_found, command.session_id}}
+      {:error, _reason} = error -> error
     end
   end
 
   defp publication_result(_client, _command, _session_id, _response),
     do: {:error, {:coop_protocol_error, :publication_resource}}
 
-  defp publication_operation(client, command, session_id, %{
+  defp publication_operation(client, placement, command, session_id, %{
          "id" => operation_id,
          "method" => "PublishReview",
          "state" => "succeeded",
@@ -698,7 +720,7 @@ defmodule Ryker.CoopFleet.Client do
        }) do
     with {:ok, lookup} <-
            ControlPlane.enqueue_command(
-             command.placement_id,
+             placement.id,
              "api_request",
              %{
                "method" => "GET",
@@ -715,7 +737,7 @@ defmodule Ryker.CoopFleet.Client do
     end
   end
 
-  defp publication_operation(_client, _command, _session_id, %{
+  defp publication_operation(_client, _placement, _command, _session_id, %{
          "method" => "PublishReview",
          "state" => "failed",
          "error_code" => code,
@@ -723,14 +745,14 @@ defmodule Ryker.CoopFleet.Client do
        }),
        do: {:error, {:coop_error, 0, code, detail}}
 
-  defp publication_operation(_client, _command, _session_id, %{
+  defp publication_operation(_client, _placement, _command, _session_id, %{
          "method" => "PublishReview",
          "state" => state
        })
        when state in ~w(reserved running uncertain),
        do: {:error, {:coop_unavailable, "Publication has not completed on its owning worker."}}
 
-  defp publication_operation(_client, _command, _session_id, _response),
+  defp publication_operation(_client, _placement, _command, _session_id, _response),
     do: {:error, {:coop_protocol_error, :publication_operation}}
 
   defp publication_result_key(command), do: "ryker:fleet:publication:#{command.id}"

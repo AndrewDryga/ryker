@@ -781,10 +781,21 @@ defmodule Ryker.Records.TaskOffersTest do
     # A change being checked can always be dropped (Andrew, 2026-09-28).
     assert_task_publication(review.card, "reviewing", :review_pending, ["discard"])
 
+    # Ryker's own wait on a review Coop is still running clears by itself (Andrew, 2026-09-30:
+    # "Action needed: ... coop_worker_command_timeout. again!!").
     publication =
       update_publication!(publication, %{
         last_error_code: "coop_unavailable",
         last_error_detail: "The review worker is temporarily unavailable.",
+        next_attempt_at: DateTime.add(@now, 300, :second)
+      })
+
+    assert_task_publication(review.card, "reviewing", :review_pending, ["discard"])
+
+    publication =
+      update_publication!(publication, %{
+        last_error_code: "publication_coop_protocol_error",
+        last_error_detail: "{:publication_coop_protocol_error, :review}",
         next_attempt_at: DateTime.add(@now, 300, :second)
       })
 
