@@ -681,7 +681,8 @@ host rejects them for nonoperators before any repository or session mutation:
   could not start, did not run or is not configured leaves the change shareable and names the
   missing check, while a failed gate, a rebase conflict, a policy finding, an inexact snapshot and
   any refusal the typed verdict cannot explain are never shareable. Shareability waives no check
-  and grants no authority: the host never opens an unverified draft by itself, it offers one.
+  and grants no authority by itself: a confirmed task's own grant opens the draft, and without
+  one a shareable candidate is offered to a person.
   Readiness never merges, signs, or deploys.
   Checks and follow-up Work share session custody, so a normal reply waits for an active review
   without consuming an execution attempt. Delivery and unrelated sessions continue independently.
@@ -689,7 +690,10 @@ host rejects them for nonoperators before any repository or session mutation:
   requests**, off by default), the confirmed task offer named this repository, and the exact
   reviewed candidate came from that task's work, Ryker opens the draft pull request itself,
   recorded as approved by the task's confirmer: the card says it is opening the draft and offers no publication click,
-  because a click could not change the candidate, the repository or the scope. Revoking the
+  because a click could not change the candidate, the repository or the scope. A candidate whose
+  checks could not run or are not set up goes the same way, opened or updated marked unverified on
+  the pull request and the card (Andrew, 2026-10-01: "Nobody should be clicking to update draft pr
+  manually"); a failed check goes back to the task's work instead. Revoking the
   confirmation, confirming for a different repository, or a task with no repository leaves the
   candidate at **Create draft PR** for a person. The grant is publication only — merge, deployment
   and any other repository stay separate decisions — and an operator's **Discard candidate** is the
@@ -698,7 +702,7 @@ host rejects them for nonoperators before any repository or session mutation:
   that worker to push the exact reviewed commit and its LFS objects directly to GitHub, using
   a short-lived repository-scoped App grant. The branch update checks its expected remote head;
   neither code nor credentials enter Ryker's publication records or the model sandbox.
-  On a blocked candidate whose checks could not finish, the same control
+  Without a task grant, on a blocked candidate whose checks could not finish, the same control
   offers an explicitly unverified draft: its confirmation names the repository and the check that
   never ran, and says that a draft waives nothing and neither merges nor deploys.
   After publication the task shows **Open PR**, and a draft opened that way

@@ -2736,6 +2736,22 @@ defmodule Ryker.Slack.RendererTest do
     publishing_encoded = Jason.encode!(publishing_rendered)
     assert publishing_encoded =~ "Creating the draft PR"
     refute publishing_encoded =~ "ryker_task_publish"
+
+    # A newer change on the task's open draft goes there by itself (Andrew, 2026-10-01), and the
+    # card said "Creating the draft PR" over PR #2.
+    updating =
+      update_in(
+        publishing["publication"],
+        &Map.merge(&1, %{
+          "pull_request_number" => 2,
+          "pull_request_url" => "https://github.com/acme/ryker/pull/2"
+        })
+      )
+
+    assert {:ok, updating_rendered} = Renderer.render(%{"task_card" => updating})
+    updating_encoded = Jason.encode!(updating_rendered)
+    assert updating_encoded =~ "Updating draft PR #2. Waiting for GitHub to confirm."
+    refute updating_encoded =~ "Creating the draft PR"
   end
 
   test "a published pull request has host-owned open and delivery-check controls" do

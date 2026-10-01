@@ -449,6 +449,33 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
               })
             ]
 
+          # An answer chosen on Ryker's question card is the person's reply.
+          # It read "Control plane local · event · revision 1" (Andrew,
+          # 2026-10-01), which said nothing to the person who chose it.
+          %{
+            content: %{"choice" => choice},
+            source_kind: "control_plane",
+            source_ref: "local"
+          }
+          when is_binary(choice) ->
+            [
+              input_identity(input, %{
+                actor: :operator,
+                attachments: [],
+                cards: [],
+                editable: false,
+                event_kind: input.event_kind,
+                item_id: nil,
+                reactions: Map.get(reactions, input.source_item_ref, []),
+                ref: input.ref,
+                retained: true,
+                revision: input.revision,
+                state: nil,
+                status: input.status,
+                text: choice
+              })
+            ]
+
           %{source_kind: source_kind, source_ref: source_ref}
           when is_binary(source_kind) and is_binary(source_ref) ->
             [integration_message(input)]

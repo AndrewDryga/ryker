@@ -134,8 +134,10 @@ is a sentence on its own indented line under the row, never another “·” cla
 2026-09-29: the reason "blends in too much"). The same situation reads the same everywhere: a
 repository with no checks is `−` on Self-review and checks exactly as on CI, never `!`. Why the
 checks did not verify a change is said once, on the Self-review row; the publication line only
-offers the choice it leaves. A newer change for an open draft waits on the Draft PR row with its
-number, link and “← 🙋 your turn”, and its button is Update draft PR, never Create draft PR.
+offers the choice it leaves. A newer change for an open draft goes to that draft under the task's
+grant, checked or not, with no click (Andrew, 2026-10-01: "Nobody should be clicking to update
+draft pr manually"). Only without a grant does it wait on the Draft PR row with its number, link
+and “← 🙋 your turn”, and then its button is Update draft PR, never Create draft PR.
 
 Progress is never folded (Block Kit `expand`); the request is shown whole and may fold behind
 Slack's own "Show more" (Andrew, 2026-09-28). A pull request that cannot be made is said once, on

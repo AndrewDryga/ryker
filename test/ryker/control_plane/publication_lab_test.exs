@@ -130,9 +130,9 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
 
   # My own end-to-end run on 30 Sep, in Chat against AndrewDryga/test: the repository has no
   # checks, so the change was offered as an unverified draft, and "Create draft PR" answered
-  # "Couldn't create the draft pull request. Nothing changed." Slack's button accepts that draft;
-  # Chat's accepted only a reviewed one.
-  test "a Chat task's unverified draft opens when a person asks for it" do
+  # "Couldn't create the draft pull request. Nothing changed." Andrew, 2026-10-01: "Nobody
+  # should be clicking to update draft pr manually" — the task's confirmation opens it.
+  test "a Chat task's unverified draft opens under the task's grant with no click" do
     task_offer = delivered_task_offer!()
 
     actions =
@@ -200,12 +200,14 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     assert {:ok, request} = PublicationCustody.delivery_request(delivery_claim.publication)
     assert {:ok, receipt} = Publisher.publish_message(request, nil)
 
-    assert {:ok, %Publication{status: :blocked}} =
+    assert {:ok, %Publication{status: :publish_pending} = pending} =
              PublicationCustody.confirm_delivery(
                publication.ref,
                delivery_claim.lease_ref,
                receipt
              )
+
+    assert pending.approval_ref == "host:publication:draft:#{publication.id}"
 
     assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
 
@@ -214,17 +216,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
       |> Enum.flat_map(& &1.cards)
       |> Enum.find(&(&1.ref == task_offer.ref))
 
-    assert :approve_task_publication in card.actions
-
-    assert {:ok, _approved} =
-             actions.act_on_lab_record.(
-               @conversation_id,
-               task_offer.ref,
-               :approve_task_publication,
-               %{publication_ref: card.publication_ref}
-             )
-
-    assert Repo.get!(Publication, publication.id).status == :publish_pending
+    refute :approve_task_publication in card.actions
   end
 
   test "a confirmed Lab task starts its checks without another readiness control" do

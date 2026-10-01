@@ -1,6 +1,8 @@
 defmodule Ryker.Delivery.ChatCard do
   @moduledoc false
 
+  import Ecto.Query
+
   alias Ryker.Delivery.OfferWords
   alias Ryker.InspectionRedactor
   alias Ryker.Publication.Card, as: PublicationCard
@@ -12,6 +14,7 @@ defmodule Ryker.Delivery.ChatCard do
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
+  alias Ryker.Records.Response
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleCadence
 
@@ -339,8 +342,8 @@ defmodule Ryker.Delivery.ChatCard do
   # answers." whether it offered any or not, and went on saying it after the
   # answer came. An answered question asks for nothing.
   defp card(%Record{kind: "input_request"} = record, payload) do
-    common(
-      record,
+    record
+    |> common(
       "Input needed",
       payload["question"],
       reply_prompt(record.status, payload["choices"]),
@@ -348,6 +351,7 @@ defmodule Ryker.Delivery.ChatCard do
       if(payload["choices"] == [], do: nil, else: :answer_input),
       payload["choices"]
     )
+    |> Map.put(:chosen, chosen(record, payload["choices"]))
   end
 
   defp card(%Record{kind: "event_wait"} = record, payload) do
@@ -696,6 +700,27 @@ defmodule Ryker.Delivery.ChatCard do
     do: OfferWords.cadence(trigger)
 
   defp changed_cadence(_payload), do: nil
+
+  # Which offered answer the person chose, so the answered card can show it
+  # (Andrew, 2026-10-01: "we need to highlight selected option"). A typed
+  # reply that matched no option chose none.
+  defp chosen(%Record{status: :answered, id: id}, choices)
+       when is_binary(id) and is_list(choices) do
+    from(response in Response,
+      where: response.record_id == ^id,
+      order_by: [desc: response.inserted_at],
+      limit: 1,
+      select: {response.choice_index, response.choice}
+    )
+    |> Repo.one()
+    |> case do
+      {index, _choice} when is_integer(index) -> index
+      {nil, choice} when is_binary(choice) -> Enum.find_index(choices, &(&1 == choice))
+      _none -> nil
+    end
+  end
+
+  defp chosen(_record, _choices), do: nil
 
   defp reply_prompt(:open, []), do: "Reply below."
   defp reply_prompt(:open, _choices), do: "Reply below or choose an answer."

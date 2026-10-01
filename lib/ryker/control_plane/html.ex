@@ -480,12 +480,23 @@ defmodule Ryker.ControlPlane.HTML do
 
     controls = Map.get(card, :controls, []) |> Enum.map(&lab_card_control/1)
 
+    # Answered options keep the buttons' shape, and the one chosen stands out
+    # (Andrew, 2026-10-01: the buttons "became round after selection" and
+    # nothing showed which was picked).
     choices =
       if Enum.any?(Map.get(card, :controls, []), &is_integer(&1.choice_index)) do
         []
       else
-        Enum.map(card.choices, fn choice ->
-          ["<span class=\"choice-chip\">", escape(choice), "</span>"]
+        chosen = Map.get(card, :chosen)
+
+        card.choices
+        |> Enum.with_index()
+        |> Enum.map(fn
+          {choice, ^chosen} ->
+            ["<span class=\"choice-answer\" data-chosen=\"true\">", escape(choice), "</span>"]
+
+          {choice, _index} ->
+            ["<span class=\"choice-answer\">", escape(choice), "</span>"]
         end)
       end
 

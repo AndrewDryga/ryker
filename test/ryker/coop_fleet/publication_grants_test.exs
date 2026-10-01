@@ -244,20 +244,28 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     assert id == replaced.id
   end
 
-  test "lease expiry is temporary but a retired placement is a terminal denial", context do
+  # Andrew's PR #2, 2026-10-01: Coop pushed the commit, then its first attempt ended before
+  # GitHub showed the new head. Each retry asked for a grant at :44 past the minute while Ryker
+  # held the publication's lease for a second at :48 to check on it, so every retry was refused
+  # and the publish never finished: the card said it was updating the PR for as long as anyone
+  # looked. The grant rests on the exact command Ryker sent; Ryker's own checks need no lease.
+  test "a worker retrying an in-flight publish gets its grant between Ryker's checks", context do
     context.publication
-    |> change(lease_expires_at: DateTime.add(Repo.now!(), -1))
+    |> change(
+      lease_ref: nil,
+      lease_owner: nil,
+      lease_expires_at: nil,
+      next_attempt_at: DateTime.add(Repo.now!(), 60)
+    )
     |> Repo.update!()
 
-    assert {:error, :publication_grant_unavailable} = authority(context)
-    assert route(context).status == 503
+    assert {:ok, _authority} = authority(context)
+  end
 
-    context.publication.__struct__
-    |> Repo.get!(context.publication.id)
-    |> change(lease_expires_at: context.publication.lease_expires_at)
-    |> Repo.update!()
-
+  test "placement lease expiry is temporary but a retired placement is a terminal denial",
+       context do
     context.placement |> change(lease_expires_at: DateTime.add(Repo.now!(), -1)) |> Repo.update!()
+    assert route(context).status == 503
     assert {:error, :publication_grant_unavailable} = authority(context)
     context.placement |> change(state: :retired) |> Repo.update!()
     assert {:error, :publication_grant_denied} = authority(context)

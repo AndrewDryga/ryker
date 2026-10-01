@@ -579,6 +579,28 @@ defmodule Ryker.Work.TaskStagesTest do
     assert Map.take(row(rows, "ci"), ~w(state detail)) == Map.take(review, ~w(state detail))
   end
 
+  # Andrew, 2026-10-01: "Nobody should be clicking to update draft pr manually". A task's
+  # newer change now goes to its open draft by itself, and that row read "creating the draft"
+  # over a pull request that already existed.
+  test "a newer change going to an open draft names the pull request it is updating" do
+    updating =
+      facts(
+        episode: %Episode{state: :complete, owner_kind: :turn},
+        turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
+        publication: %Publication{
+          status: :publish_pending,
+          pull_request_number: 2,
+          pull_request_url: "https://github.com/acme/ryker/pull/2"
+        },
+        plan: plan([goal("readme", "implementation", "completed")])
+      )
+
+    draft = row(TaskStages.build(updating), "draft_pr")
+
+    assert {draft["state"], draft["detail"], draft["url"]} ==
+             {"running", "#2 · updating", "https://github.com/acme/ryker/pull/2"}
+  end
+
   test "a newer change waiting for a person names the pull request it updates" do
     # PR #2's continuation, 2026-09-28: its newer change waited for someone to
     # publish it, and the card said "! Draft PR" with no number, no link and no

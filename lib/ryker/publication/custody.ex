@@ -1189,6 +1189,13 @@ defmodule Ryker.Publication.Custody do
           {:error, reason} -> Repo.rollback(reason)
         end
 
+      # Andrew, 2026-10-01: "Nobody should be clicking to update draft pr
+      # manually." A change whose checks could not run goes to the task's own
+      # draft under the same grant, marked unverified on the PR and the card;
+      # without a grant it still waits for a person.
+      Review.draft_shareable?(publication.review_document) ->
+        update!(publication, unverified_draft(publication, delivered, now), now)
+
       true ->
         update!(publication, Map.put(delivered, :status, :blocked), now)
     end
@@ -1231,16 +1238,30 @@ defmodule Ryker.Publication.Custody do
   defp reviewed_or_authorized_draft(publication, delivered, now) do
     case draft_grant(publication) do
       actor_ref when is_binary(actor_ref) ->
-        Map.merge(delivered, %{
-          approval_ref: "host:publication:draft:#{publication.id}",
-          approved_at: now,
-          approved_by_actor_ref: actor_ref,
-          status: :publish_pending
-        })
+        Map.merge(delivered, host_draft_approval(publication, actor_ref, now))
 
       nil ->
         Map.put(delivered, :status, :reviewed)
     end
+  end
+
+  defp unverified_draft(publication, delivered, now) do
+    case draft_grant(publication) do
+      actor_ref when is_binary(actor_ref) ->
+        Map.merge(delivered, host_draft_approval(publication, actor_ref, now))
+
+      nil ->
+        Map.put(delivered, :status, :blocked)
+    end
+  end
+
+  defp host_draft_approval(publication, actor_ref, now) do
+    %{
+      approval_ref: "host:publication:draft:#{publication.id}",
+      approved_at: now,
+      approved_by_actor_ref: actor_ref,
+      status: :publish_pending
+    }
   end
 
   # The grant is the confirmed task record itself: revoke the confirmation or
@@ -1275,8 +1296,9 @@ defmodule Ryker.Publication.Custody do
         is_struct(publication.approved_at, DateTime)
 
     if publication.approval_ref == "host:publication:draft:#{publication.id}" do
-      approved and Review.publishable?(publication.review_document) and
-        draft_grant(publication) == publication.approved_by_actor_ref
+      approved and draft_grant(publication) == publication.approved_by_actor_ref and
+        (Review.publishable?(publication.review_document) or
+           Review.draft_shareable?(publication.review_document))
     else
       approved and Review.draft_shareable?(publication.review_document)
     end
@@ -1322,7 +1344,7 @@ defmodule Ryker.Publication.Custody do
 
   # Merge readiness releases the ordinary publish path. A blocked candidate is
   # releasable only on the separate draft-shareability verdict, and only by an
-  # explicit operator approval: the host never opens an unverified draft itself.
+  # explicit operator approval: a task's own grant opens one before it blocks.
   defp approvable?(%Publication{status: :reviewed, review_document: review}),
     do: Review.publishable?(review)
 

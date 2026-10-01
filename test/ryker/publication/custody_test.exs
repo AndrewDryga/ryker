@@ -1159,12 +1159,12 @@ defmodule Ryker.Publication.CustodyTest do
   test "an operator's discard is the last word on publishing that candidate" do
     %{claim: claim, publication: blocked} =
       task_reviewed_publication!("no-pr",
-        confirmed_repository: "ryker",
+        confirmed_repository: nil,
         gate: "startup_error"
       )
 
-    # Checks could not run, so the host never publishes on its own; the safe
-    # snapshot is offered to a person instead.
+    # Checks could not run and no task granted a draft, so the safe snapshot
+    # is offered to a person.
     assert blocked.status == :blocked
     assert blocked.approval_ref == nil
     assert blocked.review_document["candidate_retained"]
@@ -1191,10 +1191,32 @@ defmodule Ryker.Publication.CustodyTest do
     assert Repo.get!(Publication, blocked.id).status == :discarded
   end
 
-  test "a safe snapshot whose checks could not run is offered, never published automatically" do
+  # Andrew, 2026-10-01, after clicking Update draft PR on PR #2 for one README
+  # line in a repository with no checks: "Nobody should be clicking to update
+  # draft pr manually". Confirming the task granted its draft; a change whose
+  # checks could not run goes to that draft too, marked unverified on the PR
+  # and the card. A draft merges and deploys nothing.
+  test "a change whose checks could not run reaches the task's draft PR with no click" do
+    %{publication: publication} =
+      task_reviewed_publication!("checks-unavailable-granted",
+        confirmed_repository: "ryker",
+        gate: "startup_error"
+      )
+
+    assert publication.status == :publish_pending,
+           "an unverified change under the task's own grant must not wait for a click"
+
+    assert publication.approval_ref == "host:publication:draft:#{publication.id}"
+    assert publication.approved_by_actor_ref == "slack:user:U-confirmer"
+    refute Review.publishable?(publication.review_document)
+    assert Review.draft_shareable?(publication.review_document)
+    assert PublicationCustody.publication_authorized?(publication)
+  end
+
+  test "without a task's grant, a change whose checks could not run is offered to a person" do
     %{claim: claim, publication: blocked} =
       task_reviewed_publication!("checks-unavailable",
-        confirmed_repository: "ryker",
+        confirmed_repository: nil,
         gate: "startup_error"
       )
 

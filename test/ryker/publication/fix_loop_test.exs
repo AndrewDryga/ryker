@@ -376,38 +376,44 @@ defmodule Ryker.Publication.FixLoopTest do
   # asking the agent to fix it invites a change nobody wanted; a repository
   # with no checks, or checks that could not start, is a setting or a machine,
   # and the agent writing the check that judges its own change is no check at
-  # all. A reason this host cannot read is never guessed at.
-  test "a refusal only a person can resolve waits for one" do
-    for {suffix, overrides} <- [
-          {"no-changes",
-           %{
-             "candidate_retained" => false,
-             "gate" => "passed",
-             "not_publishable_reasons" => ["no_changes"]
-           }},
-          {"no-checks",
-           %{"gate" => "none", "not_publishable_reasons" => ["gate_not_configured"]}},
-          {"checks-cannot-start",
-           %{
-             "gate" => "startup_error",
-             "gate_error" => "docker: command not found",
-             "not_publishable_reasons" => ["gate_startup_error"]
-           }},
-          {"unreadable",
-           %{
-             "candidate_retained" => false,
-             "not_publishable_reasons" => ["gate_failed", "lfs_object_missing"]
-           }}
-        ] do
-      %{request: request, blocked: blocked, admitted: admitted} = refuse!(suffix, overrides)
-      assert [%{"kind" => "publication_review"}] = request.document["records"], suffix
-      assert blocked.status == :blocked
-      assert {blocked.fix_rounds, blocked.recheck_rounds} == {0, 0}
+  # all. A reason this host cannot read is never guessed at. None of them loops.
+  # Since 2026-10-01 ("Nobody should be clicking to update draft pr manually")
+  # an unchecked change goes to the task's draft marked unverified; the rest
+  # wait for a person.
+  for {suffix, overrides, status} <- [
+        {"no-changes",
+         %{
+           "candidate_retained" => false,
+           "gate" => "passed",
+           "not_publishable_reasons" => ["no_changes"]
+         }, :blocked},
+        {"no-checks", %{"gate" => "none", "not_publishable_reasons" => ["gate_not_configured"]},
+         :publish_pending},
+        {"checks-cannot-start",
+         %{
+           "gate" => "startup_error",
+           "gate_error" => "docker: command not found",
+           "not_publishable_reasons" => ["gate_startup_error"]
+         }, :publish_pending},
+        {"unreadable",
+         %{
+           "candidate_retained" => false,
+           "not_publishable_reasons" => ["gate_failed", "lfs_object_missing"]
+         }, :blocked}
+      ] do
+    @refusal {suffix, overrides, status}
+    test "a refusal the work cannot fix never loops (#{suffix})" do
+      {suffix, overrides, status} = @refusal
+      %{request: request, blocked: refused, admitted: admitted} = refuse!(suffix, overrides)
+      assert [%{"kind" => "publication_review"}] = request.document["records"]
+      assert refused.status == status
+      assert {refused.fix_rounds, refused.recheck_rounds} == {0, 0}
       assert admitted == 0
       assert Custody.claim_next("work:#{suffix}:after", 60, :work) == {:ok, nil}
     end
+  end
 
-    # Failed checks alone, the one refusal here the work can fix, go back to it.
+  test "failed checks, the one refusal the work can fix, go back to it" do
     assert %{admitted: 1, blocked: %{fix_rounds: 1}} = refuse!("person-control", %{})
   end
 

@@ -323,6 +323,21 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     refute css =~ ".standing-rule-list { overflow"
   end
 
+  # Andrew, 2026-10-01, on Chat's "● Routing your message 5s": "make status
+  # grayed out". The mint dot and bright words read like a message of their
+  # own; the line only says where Ryker is.
+  test "the progress line under a Chat message is gray, dot and words alike" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    assert [_, dot] = Regex.run(~r/\.lab-progress-dot \{([^}]+)\}/, css)
+    assert dot =~ "background:var(--ryker-text-secondary)"
+
+    assert [_, status] =
+             Regex.run(~r/\.lab-message-progress \.lab-progress-status \{([^}]+)\}/, css)
+
+    assert status =~ "color:var(--ryker-text-secondary)"
+  end
+
   test "chapters preserve late follow-ups and tied activity in execution order" do
     now = ~U[2026-09-05 12:00:00Z]
 

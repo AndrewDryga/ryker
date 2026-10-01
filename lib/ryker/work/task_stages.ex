@@ -204,12 +204,27 @@ defmodule Ryker.Work.TaskStages do
     end
   end
 
+  defp draft_pr(
+         %{
+           publication:
+             %Publication{status: :publish_pending, pull_request_number: number} = publication
+         },
+         _stale?
+       )
+       when is_integer(number),
+       do:
+         row("draft_pr", "running",
+           detail: "##{number} · updating",
+           url: publication.pull_request_url
+         )
+
   defp draft_pr(%{publication: %Publication{status: :publish_pending}}, _stale?),
     do: row("draft_pr", "running", detail: "creating the draft")
 
-  # A safe snapshot whose checks could not run waits for a person to publish
-  # it; the host never does. The pull request a newer change belongs to is
-  # still the task's, so the row keeps its number and link.
+  # A safe snapshot whose checks could not run waits for a person only when no
+  # task grant covers it; a granted one goes to the draft marked unverified. The
+  # pull request a newer change belongs to is still the task's, so the row
+  # keeps its number and link.
   defp draft_pr(%{publication: %Publication{status: :blocked} = publication}, _stale?) do
     cond do
       is_binary(publication.last_error_detail) ->
