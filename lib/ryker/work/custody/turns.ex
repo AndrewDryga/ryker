@@ -51,6 +51,22 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
+  @doc """
+  Clears a turn's frozen submission when the knowledge it carries was withdrawn
+  before Coop saw it, so the executor builds it again from what is current.
+  Only a turn with no Coop turn and no remote operation in flight is cleared:
+  one Coop has seen keeps its submission.
+  """
+  @spec thaw_stale_submission(Ecto.UUID.t(), String.t(), String.t()) ::
+          {:ok, Turn.t()} | {:error, term()}
+  def thaw_stale_submission(episode_id, turn_ref, lease_ref) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref) do
+      Repo.transaction(fn -> thaw_locked(episode_id, turn_ref, lease_ref) end)
+    end
+  end
+
   @doc false
   @spec record_final_preflight(
           Ecto.UUID.t(),
@@ -654,6 +670,27 @@ defmodule Ryker.Work.Custody.Turns do
 
       {:error, reason} ->
         Repo.rollback(reason)
+    end
+  end
+
+  defp thaw_locked(episode_id, turn_ref, lease_ref) do
+    {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
+
+    cond do
+      turn.coop_turn_id != nil ->
+        Repo.rollback(:work_turn_already_bound)
+
+      turn.remote_operation_kind != nil ->
+        Repo.rollback(:work_remote_operation_pending)
+
+      turn.submission == nil ->
+        turn
+
+      true ->
+        turn
+        |> TurnChangeset.thaw()
+        |> Repo.update()
+        |> unwrap_or_rollback(:work_submission)
     end
   end
 

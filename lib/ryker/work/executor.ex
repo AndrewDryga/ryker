@@ -74,14 +74,42 @@ defmodule Ryker.Work.Executor do
          {:ok, claim} <- ensure_state_binding(claim, settings),
          {:ok, claim} <- ensure_submission(claim, settings),
          :ok <- KnowledgeSnapshot.authorize_session(claim.episode, claim.session),
-         :ok <-
-           KnowledgeSnapshot.authorize_submission(
-             claim.episode,
-             claim.session.repository_ref,
-             claim.turn.submission
-           ),
+         {:ok, claim} <- authorize_or_rebuild(claim, settings),
          {:ok, claim, remote_turn} <- Turns.ensure_turn(claim, settings) do
       Turns.await_turn(claim, remote_turn, settings, settings.max_polls)
+    end
+  end
+
+  # Knowledge a frozen submission carries can be withdrawn before Coop sees the
+  # turn: a person edits the message a fact came from, or learning replaces it.
+  # Andrew edited a Chat message on 2026-10-01 while Ryker answered it and got
+  # "Model work stopped" instead of a reply. A turn Coop has not seen is built
+  # again from what is current, once; withdrawn knowledge never reaches the
+  # model either way.
+  defp authorize_or_rebuild(claim, settings, rebuilt? \\ false) do
+    case KnowledgeSnapshot.authorize_submission(
+           claim.episode,
+           claim.session.repository_ref,
+           claim.turn.submission
+         ) do
+      :ok ->
+        {:ok, claim}
+
+      {:error, :work_knowledge_context_stale}
+      when not rebuilt? and is_nil(claim.turn.coop_turn_id) and
+             is_nil(claim.turn.remote_operation_kind) ->
+        with {:ok, turn} <-
+               Custody.thaw_stale_submission(
+                 claim.episode.id,
+                 claim.turn.turn_ref,
+                 claim.lease_ref
+               ),
+             {:ok, claim} <- ensure_submission(%{claim | turn: turn}, settings) do
+          authorize_or_rebuild(claim, settings, true)
+        end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

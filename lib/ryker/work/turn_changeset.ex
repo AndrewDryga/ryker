@@ -101,6 +101,22 @@ defmodule Ryker.Work.TurnChangeset do
     |> work_constraints()
   end
 
+  @doc """
+  Clears a frozen submission Coop never saw, so the turn is built again from
+  what is current (`Ryker.Work.Custody.thaw_stale_submission/3`).
+  """
+  @spec thaw(Turn.t()) :: Ecto.Changeset.t()
+  def thaw(%Turn{} = turn) do
+    turn
+    |> change(
+      submission: nil,
+      submission_fingerprint: nil,
+      selected_input_refs: nil,
+      selection_ledger: nil
+    )
+    |> work_constraints()
+  end
+
   @ledger_bytes 4_096
 
   defp normalize_ledger(%{} = ledger) when map_size(ledger) > 0 do

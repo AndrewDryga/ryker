@@ -9,7 +9,8 @@ defmodule Mix.Tasks.Ryker.Eval do
       mix ryker.eval world-merge --results /absolute/world-results.json \\
         /absolute/shard-1.json /absolute/shard-2.json
       mix ryker.eval routing-replay --examples /absolute/routing-examples.jsonl \\
-        --results /absolute/routing-replay.json [--limit N] [--concurrency N]
+        --results /absolute/routing-replay.json [--limit N] [--concurrency N] \\
+        [--local-endpoint http://127.0.0.1:8181/v1 --local-model qwen2.5:3b]
       mix ryker.eval improvement-replay --runs /absolute/analysis-runs.jsonl \\
         --results /absolute/improvement-replay.json [--concurrency N]
 
@@ -33,7 +34,10 @@ defmodule Mix.Tasks.Ryker.Eval do
   again, each with today's instructions and contract, on the model
   `RYKER_EVAL_ROUTING_TARGET` names, and reports how many stay the same and
   which change (`Ryker.Evals.RoutingReplay`). The export holds what people
-  said; keep it and the report outside the repository.
+  said; keep it and the report outside the repository. With `--local-endpoint`
+  and `--local-model` it asks a local routing model instead, the way routing's
+  local comparison does, once per decision with no repair, and reports for
+  each recorded action how often the local model kept it.
 
   `improvement-replay` asks recorded self-analyses again, each with today's
   instructions and contract, on the model `RYKER_EVAL_IMPROVEMENT_TARGET` names,
@@ -120,8 +124,45 @@ defmodule Mix.Tasks.Ryker.Eval do
   end
 
   defp run_routing_replay(arguments) do
-    with {:ok, replay} <- routing_replay_arguments(arguments),
-         {:ok, job} <- Job.routing(),
+    case routing_replay_arguments(arguments) do
+      {:ok, %{local_endpoint: endpoint} = replay} when is_binary(endpoint) ->
+        run_local_routing_replay(replay)
+
+      {:ok, replay} ->
+        run_routing_replay_on_worker(replay)
+
+      {:error, reason} ->
+        Mix.raise("routing replay failed: #{inspect(reason)}")
+    end
+  end
+
+  # A local model answers in seconds; two minutes is far past any answer seen.
+  @local_routing_timeout_ms 120_000
+
+  defp run_local_routing_replay(replay) do
+    with {:ok, cases, skipped} <- RoutingReplay.cases(replay.examples, replay.limit),
+         {:ok, finch} <- start_finch(),
+         {:ok, result} <-
+           RoutingReplay.run_local(cases, %{
+             endpoint: replay.local_endpoint,
+             model: replay.local_model,
+             timeout_ms: @local_routing_timeout_ms,
+             finch: finch
+           }),
+         summary = RoutingReplay.summary(cases, result, skipped),
+         :ok <- File.write(replay.results, Jason.encode!(summary, pretty: true)) do
+      info(
+        "local routing replay: #{summary.same} of #{summary.total} decisions kept, " <>
+          "#{summary.changed} changed, #{summary.not_answered} not usable, " <>
+          "#{length(skipped)} examples skipped; report at #{replay.results}"
+      )
+    else
+      {:error, reason} -> Mix.raise("routing replay failed: #{inspect(reason)}")
+    end
+  end
+
+  defp run_routing_replay_on_worker(replay) do
+    with {:ok, job} <- Job.routing(),
          {:ok, cases, skipped} <- RoutingReplay.cases(replay.examples, replay.limit),
          {:ok, finch} <- start_finch(),
          {:ok, client} <- eval_client(finch),
@@ -183,7 +224,9 @@ defmodule Mix.Tasks.Ryker.Eval do
            examples: :string,
            results: :string,
            limit: :integer,
-           concurrency: :integer
+           concurrency: :integer,
+           local_endpoint: :string,
+           local_model: :string
          ) do
       {:ok, parsed, []} ->
         concurrency = parsed[:concurrency] || @replay_concurrency
@@ -192,8 +235,17 @@ defmodule Mix.Tasks.Ryker.Eval do
              results when is_binary(results) <- parsed[:results],
              true <- Path.type(examples) == :absolute and Path.type(results) == :absolute,
              limit when is_nil(limit) or (is_integer(limit) and limit > 0) <- parsed[:limit],
-             true <- concurrency in 1..16 do
-          {:ok, %{examples: examples, results: results, limit: limit, concurrency: concurrency}}
+             true <- concurrency in 1..16,
+             true <- is_nil(parsed[:local_endpoint]) == is_nil(parsed[:local_model]) do
+          {:ok,
+           %{
+             examples: examples,
+             results: results,
+             limit: limit,
+             concurrency: concurrency,
+             local_endpoint: parsed[:local_endpoint],
+             local_model: parsed[:local_model]
+           }}
         else
           _invalid -> {:error, :routing_replay_needs_absolute_examples_and_results}
         end
