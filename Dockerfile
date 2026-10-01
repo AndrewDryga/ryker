@@ -2,18 +2,21 @@ ARG ELIXIR_IMAGE=hexpm/elixir:1.19.5-erlang-28.4.1-debian-bookworm-20260610-slim
 
 FROM ${ELIXIR_IMAGE} AS build
 
-ARG RYKER_VERSION
-ENV MIX_ENV=prod \
-    RYKER_ELIXIR_VERSION=${RYKER_VERSION}
+ENV MIX_ENV=prod
 
-RUN test -n "$RYKER_VERSION" \
- && apt-get update \
+RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 # mix.exs reads release-assets.txt when it loads, so it is here before mix runs.
+# Dependencies do not depend on Ryker's own version: they build under a fixed
+# one, so they stay cached from one release to the next. On a slow network Hex
+# gave up on its registry at its default timeout and failed the build
+# (2026-10-01), so it waits longer.
 COPY mix.exs mix.lock release-assets.txt ./
+ENV RYKER_ELIXIR_VERSION=0.0.0-dependencies \
+    HEX_HTTP_TIMEOUT=120
 RUN mix local.hex --force \
  && mix local.rebar --force \
  && mix deps.get --only prod \
@@ -29,7 +32,14 @@ COPY deploy/nginx deploy/nginx
 COPY docs docs
 COPY scripts scripts
 
-RUN mix compile --warnings-as-errors \
+# The version is named only from here on. Named before the packages and the
+# dependencies, it made every release download and compile them again, and a
+# deploy took sixteen minutes instead of about one (2026-10-01).
+ARG RYKER_VERSION
+ENV RYKER_ELIXIR_VERSION=${RYKER_VERSION}
+
+RUN test -n "$RYKER_VERSION" \
+ && mix compile --warnings-as-errors \
  && mix release ryker
 
 # Voice messages are transcribed inside the container (Ryker.Transcription.Local):
@@ -92,11 +102,6 @@ RUN curl -fsSL --retry 3 -o /opt/whisper/ggml-base.bin "$WHISPER_MODEL_URL" \
 
 FROM debian:bookworm-slim AS runtime
 
-ARG RYKER_VERSION
-LABEL org.opencontainers.image.title="Ryker" \
-      org.opencontainers.image.version="$RYKER_VERSION" \
-      org.opencontainers.image.source="https://github.com/AndrewDryga/ryker"
-
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client openssl libstdc++6 libncurses6 \
  && rm -rf /var/lib/apt/lists/* \
@@ -124,3 +129,8 @@ ENV LANG=C.UTF-8 \
 EXPOSE 4321 4319 4320 4322
 ENTRYPOINT ["/usr/local/bin/ryker-entrypoint"]
 CMD ["start"]
+
+ARG RYKER_VERSION
+LABEL org.opencontainers.image.title="Ryker" \
+      org.opencontainers.image.version="$RYKER_VERSION" \
+      org.opencontainers.image.source="https://github.com/AndrewDryga/ryker"

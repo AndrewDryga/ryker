@@ -159,6 +159,23 @@ defmodule Ryker.ComposeDistributionTest do
     refute dockerfile =~ "npm install"
   end
 
+  # Every deploy downloaded the build packages and compiled every dependency
+  # again: sixteen minutes on 2026-10-01, where a warm cache takes about one.
+  # The version was named before them, and a changed value starts the cache
+  # over from there.
+  test "the release version is named only after the steps a deploy can reuse" do
+    stages = String.split(read("Dockerfile"), ~r/^FROM /m, trim: true)
+
+    for stage <- stages,
+        {version_at, _length} <- [:binary.match(stage, "RYKER_VERSION")],
+        reusable <- ["apt-get install", "mix deps.compile"],
+        {reusable_at, _length} <- [:binary.match(stage, reusable)] do
+      assert version_at > reusable_at,
+             "RYKER_VERSION is named before #{reusable} in: FROM " <>
+               hd(String.split(stage, "\n"))
+    end
+  end
+
   # Voice messages are transcribed inside the container (2026-09-27), by the
   # programs Ryker.Transcription.Local runs from fixed paths. The gate never
   # builds the image, so this holds the Dockerfile to those paths and to
