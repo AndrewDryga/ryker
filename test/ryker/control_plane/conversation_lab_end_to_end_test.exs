@@ -1020,6 +1020,78 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert Enum.count(articles, &(LazyHTML.text(&1) =~ @edited_reply)) == 1
   end
 
+  # Manual test, 2026-10-01, conversation e38c2c16: the work on Andrew's message
+  # stopped, he edited the message, and the edit brought the work back with both
+  # versions of it. The first version's source had moved to the edit, so each
+  # briefing was refused as stale before Coop saw it: "Model work stopped" again,
+  # and again after every Retry. The earlier words are withdrawn; the edit is answered.
+  test "editing a message whose work stopped gets an answer to the new words" do
+    assert {:ok, %{status: :recorded}} = send_message(@first_event_id, @now, @first_question)
+    {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
+
+    assert {:ok, {:decided, %{result: %{episode: episode}}}} =
+             AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+    {:ok, claim} = Custody.claim_next("stopped-before-edit", 60, :work)
+
+    assert {:ok, _stopped} =
+             Custody.request_block(
+               episode.id,
+               episode.key,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               "The model run failed."
+             )
+
+    edited_at = DateTime.add(@now, 60, :second)
+    edited_question = "Has checkout readiness failed since 08:06?"
+
+    assert {:ok, _receipt} =
+             ConversationLab.edit_message(
+               @conversation_id,
+               @first_event_id,
+               edited_question,
+               profile(),
+               id_generator: fn -> @edit_event_id end,
+               now: fn -> edited_at end
+             )
+
+    candidate_ref =
+      "candidate:" <>
+        binary_part(CanonicalJSON.digest(["ingress-admission-candidate", episode.id]), 0, 12)
+
+    {:ok, edit} = FakeCoopAPI.start_link([decision(:continue_episode, candidate_ref)])
+
+    assert {:ok, {:decided, _resumed}} =
+             AdmissionDispatcher.run_once(admission_options(edit, edited_at))
+
+    {:ok, work} = FakeWorkCoopAPI.start_link([work_reply(@edited_reply)])
+
+    # The stopped run hands the work on with both versions of the message.
+    assert {:ok, {:executed, %{status: :transferred}}} =
+             Ryker.Work.Dispatcher.run_once(work_options(work, "stopped-before-edit"))
+
+    assert length(Repo.get!(Episode, episode.id).active_input_refs) == 2
+
+    assert {:ok, {:executed, %{status: :accepted}}} =
+             Ryker.Work.Dispatcher.run_once(work_options(work, "after-stopped-edit"))
+
+    assert [submitted] = FakeWorkCoopAPI.state(work).submissions
+    items = submitted.prompt |> Jason.decode!() |> get_in(["work", "inputs", "items"])
+
+    assert [%{"content" => %{"content" => %{"text" => ^edited_question}}}] =
+             Enum.filter(items, & &1["current"])
+
+    assert %{"unavailable" => "source_not_current"} in Enum.map(items, & &1["content"])
+
+    assert {:ok, {:delivered, :message, _ref}} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options("after-stopped-edit"))
+
+    articles = chat_articles()
+    refute Enum.any?(articles, &(LazyHTML.text(&1) =~ "Model work stopped"))
+    assert Enum.count(articles, &(LazyHTML.text(&1) =~ @edited_reply)) == 1
+  end
+
   test "an edit reaches the earlier reply on a refresh, though the reply itself did not change" do
     # A refresh patches the latest page and every row changed since the last
     # one. The earlier reply's own rows are old; only its message was edited,

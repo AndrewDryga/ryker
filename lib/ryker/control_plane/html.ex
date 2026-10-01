@@ -532,13 +532,21 @@ defmodule Ryker.ControlPlane.HTML do
         do: [
           "<a class=\"quiet-link\" href=\"",
           escape(card.url),
-          "\" rel=\"noreferrer\">Open exact approval</a>"
+          "\" rel=\"noreferrer\">",
+          card_link_label(card.kind),
+          "</a>"
         ],
         else: ""
       ),
       "</section>"
     ]
   end
+
+  # Only an Emisar approval card links to the approval. A task and a published draft link to
+  # their pull request, which the card called "Open exact approval" on the draft Ryker had just
+  # opened (manual test, 2026-10-01).
+  defp card_link_label("emisar_approval"), do: "Open exact approval"
+  defp card_link_label(_kind), do: "Open pull request"
 
   # One line saying what a confirmed offer did, as the Kit says a state: a dot
   # and a word, then how often it runs and the way to it where there is one.
