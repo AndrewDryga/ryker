@@ -153,10 +153,7 @@ defmodule Ryker.Records.InputRequestsTest do
       assert {:ok, answer} =
                InputRequests.answer(
                  answer(fixture, 1, "resume-#{transport}")
-                 |> Map.put(
-                   :actor_ref,
-                   if(transport == :slack, do: "U123", else: "local-operator")
-                 )
+                 |> Map.put(:actor_ref, answering_actor(transport))
                  |> Map.put(:occurred_at, DateTime.add(DateTime.utc_now(), 1, :second))
                )
 
@@ -537,6 +534,9 @@ defmodule Ryker.Records.InputRequestsTest do
       transport: "control_plane"
     }
   end
+
+  defp answering_actor(:slack), do: "U123"
+  defp answering_actor(:control_plane), do: "local-operator"
 
   defp answer(fixture, choice_index, response_suffix) do
     %{
