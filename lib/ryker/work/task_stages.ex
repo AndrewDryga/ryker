@@ -15,6 +15,7 @@ defmodule Ryker.Work.TaskStages do
   alias Ryker.Work.{FailureCause, Session, Turn}
 
   @stages ~w(workspace_setup planning implementation self_review draft_pr ci review_and_merge)
+  @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
   @terminal_goal_states ~w(completed excluded cancelled)
   @current_states ~w(running waiting failed)
   @published_statuses [:published, :published_ready]
@@ -202,6 +203,25 @@ defmodule Ryker.Work.TaskStages do
       true ->
         row("draft_pr", "completed", detail: detail, url: publication.pull_request_url)
     end
+  end
+
+  # Someone changed the branch or pull request on GitHub while Ryker published, and it stopped
+  # rather than overwrite their work. The row said "creating the draft" (manual test, 2026-10-01).
+  defp draft_pr(
+         %{
+           publication:
+             %Publication{status: :publish_pending, last_error_code: code} = publication
+         },
+         _stale?
+       )
+       when code in @publication_conflicts do
+    detail =
+      case publication.pull_request_number do
+        number when is_integer(number) -> "##{number} · changed on GitHub"
+        nil -> "changed on GitHub"
+      end
+
+    row("draft_pr", "stopped", detail: detail, url: publication.pull_request_url)
   end
 
   defp draft_pr(

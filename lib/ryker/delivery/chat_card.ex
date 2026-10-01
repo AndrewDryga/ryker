@@ -510,13 +510,13 @@ defmodule Ryker.Delivery.ChatCard do
   defp wait_time_warning("poll_after", deadline),
     do: "Wait scheduling failed: the saved polling time is invalid. Hard deadline: #{deadline}."
 
+  # What the Slack card says, and no more: "Work settled" and "Session 1" were Ryker's own
+  # states, which a person cannot act on (manual test, 2026-10-01).
   defp confirmed_task(record, task) do
     details =
       []
       |> optional_detail("Repository", task["repository"])
-      |> optional_detail("Work", task["work_state"])
       |> optional_detail("Action needed", task["action_needed"])
-      |> optional_detail("Session", task["session_generation"])
 
     card = %{
       action: nil,

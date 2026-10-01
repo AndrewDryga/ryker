@@ -157,6 +157,11 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
       "update" in controls ->
         stopped_publish_message(facts.number)
 
+      # Someone changed the branch or pull request on GitHub; nothing can be checked again
+      # against what they did, so Discard is all that is offered.
+      controls == ["discard"] ->
+        changed_on_github_message(facts.number)
+
       is_integer(facts.number) and "retry" not in controls ->
         "Updating draft PR ##{facts.number}. Waiting for GitHub to confirm."
 
@@ -176,6 +181,12 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
   defp stopped_publish_message(_number),
     do: "The draft PR wasn't created. Review latest state checks the changes again first."
+
+  defp changed_on_github_message(number) when is_integer(number),
+    do: "The draft PR wasn't updated. Discard this change, or ask for it again."
+
+  defp changed_on_github_message(_number),
+    do: "The draft PR wasn't created. Discard this change, or ask for it again."
 
   # A draft-authorized task never rests in "reviewed": its checks passing is
   # enough for the draft the confirming person already granted. What is left

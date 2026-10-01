@@ -25,6 +25,9 @@ defmodule Ryker.Slack.TaskCardProjection do
   # Why a refused grant stopped the draft, in words: the card said "needs operator attention:
   # `publication_authorization_revoked`" (2026-09-30). The recovery is on the card itself.
   @refused_grant "Ryker couldn't get permission to publish this reviewed change."
+  # The card printed `:publication_existing_pull_request_changed` once a draft was closed on
+  # GitHub while Ryker updated it (manual test, 2026-10-01). These are the Failures page's words.
+  @changed_on_github "Someone changed this draft's branch or pull request on GitHub, so Ryker stopped rather than overwrite their work."
   # What an attempt records while Coop is still working on it, or while the next attempt is
   # already due: Ryker's own wait ended before a long review did, the worker has not finished,
   # the session is changing placement, a lost review is being asked again. Each clears by
@@ -358,6 +361,10 @@ defmodule Ryker.Slack.TaskCardProjection do
        do: @refused_grant
 
   defp public_error(%Publication{last_error_code: code}, _turn, _hold)
+       when code in @publication_conflicts,
+       do: @changed_on_github
+
+  defp public_error(%Publication{last_error_code: code}, _turn, _hold)
        when is_binary(code) and code not in @in_flight,
        do: attention("Draft pull-request work needs operator attention", code)
 
@@ -597,6 +604,10 @@ defmodule Ryker.Slack.TaskCardProjection do
          %Publication{last_error_code: "publication_authorization_revoked"}
        ),
        do: @refused_grant
+
+  defp action_needed(_episode, _turn, _records, %Publication{last_error_code: code})
+       when code in @publication_conflicts,
+       do: @changed_on_github
 
   defp action_needed(
          _episode,
