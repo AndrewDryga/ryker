@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.SettingsView do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.AppJWT
+  alias Ryker.GitHub.Event, as: GitHubEvent
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.{ChannelConfigurations, Gateway, Names}
@@ -39,6 +40,7 @@ defmodule Ryker.ControlPlane.SettingsView do
           credentials: [map()],
           setup: setup(),
           github_callback_url: String.t(),
+          github_events: %{received: non_neg_integer(), unreadable: non_neg_integer()},
           webhook_base_url: String.t(),
           webhook_secret_names: [String.t()] | :invalid,
           worker_installs: [
@@ -148,6 +150,7 @@ defmodule Ryker.ControlPlane.SettingsView do
       slack_managers:
         Enum.map(snapshot.slack.operators, &Names.person(snapshot.slack.workspace_ref, &1)),
       github_callback_url: Application.fetch_env!(:ryker, :github_public_url),
+      github_events: github_events(),
       webhook_base_url: Application.fetch_env!(:ryker, :webhook_public_url),
       webhook_secret_names: registered_secret_names(),
       worker_installs: worker_installs(),
@@ -155,6 +158,24 @@ defmodule Ryker.ControlPlane.SettingsView do
       # each one is read beside the snapshot rather than from it.
       environment_channels: Environments.channel_counts()
     })
+  end
+
+  # What GitHub sent in the last day, however it arrived: a callback GitHub cannot reach lists
+  # every delivery as failed on GitHub's side while Ryker collects the same events (Andrew,
+  # 2026-10-01: "many failed webhooks on gh").
+  defp github_events do
+    since = DateTime.add(DateTime.utc_now(), -86_400, :second)
+
+    counts =
+      from(event in GitHubEvent,
+        where: event.inserted_at >= ^since,
+        group_by: event.disposition,
+        select: {event.disposition, count(event.id)}
+      )
+      |> Repo.all()
+      |> Map.new()
+
+    %{received: counts |> Map.values() |> Enum.sum(), unreadable: Map.get(counts, "failed", 0)}
   end
 
   @doc "The required setup steps, in order."

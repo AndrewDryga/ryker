@@ -784,6 +784,22 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   # GitHub --------------------------------------------------------------------
 
+  defp local_address?(url) do
+    case URI.parse(url) do
+      %URI{host: host} when host in ["127.0.0.1", "localhost", "::1"] -> true
+      _public -> false
+    end
+  end
+
+  defp github_events(%{received: 0}), do: "No events in the last day."
+
+  defp github_events(%{received: received, unreadable: 0}),
+    do: "#{Integrations.count(received, "event")} in the last day."
+
+  defp github_events(%{received: received, unreadable: unreadable}),
+    do:
+      "#{Integrations.count(received, "event")} in the last day, #{unreadable} couldn't be read."
+
   attr(:view, :map, required: true)
   attr(:commands, :map, required: true)
   attr(:confirm, :any, default: nil)
@@ -878,6 +894,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
       <Components.copy_block label="Copy the callback URL">
         <pre>{@view.github_callback_url}</pre>
       </Components.copy_block>
+      <p id="github-events" class="settings-lede">
+        <span :if={local_address?(@view.github_callback_url)}>
+          GitHub can't reach this computer, so it lists every delivery to this address as failed.
+          Ryker collects the same events from GitHub every 30 seconds instead.
+        </span>
+        {github_events(@view.github_events)}
+      </p>
       <details class="settings-disclosure">
         <summary>Events and permissions the App needs</summary>
         <p>
