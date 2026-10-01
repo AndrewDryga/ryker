@@ -4,6 +4,8 @@ defmodule Ryker.Publication.CustodyTest do
 
   import Ecto.Query
 
+  alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
+  alias Ryker.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
@@ -1345,6 +1347,30 @@ defmodule Ryker.Publication.CustodyTest do
            ) == 1
   end
 
+  # Manual test, 2026-10-01, AndrewDryga/test#4: answering a question on the
+  # draft re-armed its review with nothing changed, and Ryker force-pushed a new
+  # commit of the same tree to the pull request. A turn that leaves the
+  # workspace as the published generation's turn left it publishes nothing; a
+  # turn that changes it still updates the draft.
+  test "a later turn that changed nothing leaves the published draft alone" do
+    %{claim: claim} = task_episode!("unchanged")
+    %{claim: first} = corrected_candidate!(claim, "unchanged", "one", checkpoint: "1")
+    published = publish_task_publication!(first, "unchanged", "one")
+
+    %{claim: answer} = corrected_candidate!(first, "unchanged", "answer", checkpoint: "1")
+
+    assert %Publication{status: :published} = untouched = Repo.get!(Publication, published.id)
+    assert untouched.review_generation == published.review_generation
+    assert untouched.publication_receipt == published.publication_receipt
+
+    %{turn: changed} = corrected_candidate!(answer, "unchanged", "change", checkpoint: "2")
+
+    assert %Publication{status: :review_pending} =
+             rearmed = Repo.get!(Publication, published.id)
+
+    assert rearmed.review_request_ref == "task-readiness:#{changed.id}"
+  end
+
   # Two review generations of one publication are two facts, not one. The
   # delivery ref named only the publication, and a repeat delivery ref
   # reconciles onto the message that already carries it, so a fresh review
@@ -1577,7 +1603,7 @@ defmodule Ryker.Publication.CustodyTest do
 
   # One accepted completed turn carrying the host's own `host:publication:ready`
   # offer, exactly as `Work.Executor` writes it after a checkpointed workspace.
-  defp corrected_candidate!(claim, suffix, label) do
+  defp corrected_candidate!(claim, suffix, label, options \\ []) do
     admit_followup!(claim, label)
     assert {:ok, work} = Custody.claim_next("work:#{suffix}:#{label}", 60, :work)
     work = bind_remote!(work)
@@ -1628,6 +1654,8 @@ defmodule Ryker.Publication.CustodyTest do
                result
              )
 
+    if revision = options[:checkpoint], do: checkpoint!(work, candidate_sha256, revision)
+
     assert {:ok, accepted} =
              Custody.accept_result(
                work.episode.id,
@@ -1661,6 +1689,99 @@ defmodule Ryker.Publication.CustodyTest do
              )
 
     %{claim: work, sha256: candidate_sha256, turn: accepted.turn}
+  end
+
+  # The workspace checkpoint Work stores for a completed task turn before it is
+  # accepted, as the fleet keeps it: a succeeded checkpoint command under the
+  # turn's own key, and the candidate it describes.
+  defp checkpoint!(work, candidate_sha256, revision) do
+    worker_id = "worker:#{work.session.id}"
+
+    Repo.insert!(
+      %Worker{
+        capabilities: [%{"name" => "controller-tools", "version" => "1"}],
+        capacity: %{
+          "session_slots_free" => 2,
+          "session_slots_total" => 4,
+          "state" => "eligible",
+          "turn_slots_free" => 2,
+          "turn_slots_total" => 4,
+          "workspace_slots_free" => 2,
+          "workspace_slots_total" => 4
+        },
+        certificate_sha256: digest(worker_id),
+        clock_at: DateTime.utc_now(),
+        id: worker_id,
+        last_seen_at: DateTime.utc_now(),
+        state: :eligible,
+        protocol_version: "2",
+        sandbox_digest: String.duplicate("a", 64),
+        workspace_ref: "workspace-main"
+      },
+      on_conflict: :nothing
+    )
+
+    assert {:ok, placement} =
+             FleetControlPlane.place_session(
+               work.session.id,
+               %{
+                 capability_names: ["controller-tools"],
+                 repository_ref: work.session.repository_ref,
+                 workspace_ref: "workspace-main"
+               },
+               60
+             )
+
+    key = "ryker:work:checkpoint:#{work.turn.id}:a1:#{candidate_sha256}"
+
+    assert {:ok, command} =
+             FleetControlPlane.enqueue_command(
+               placement.id,
+               "checkpoint_workspace",
+               %{
+                 "coop_session_id" => "remote:#{work.session.id}",
+                 "expected_revision" => 2,
+                 "repository_ref" => work.session.repository_ref,
+                 "session_ref" => work.session.id
+               },
+               key
+             )
+
+    command =
+      Repo.update!(
+        Ecto.Changeset.change(command,
+          completed_at: DateTime.utc_now(),
+          operation_key: key,
+          result: %{"status" => 200, "body" => %{"state" => "stored"}},
+          result_fingerprint: String.duplicate("d", 64),
+          status: :succeeded
+        )
+      )
+
+    committed = String.duplicate(revision, 40)
+
+    Repo.insert!(%WorkspaceCheckpointTransfer{
+      body_command_id: command.id,
+      bundle_byte_size: 4_096,
+      bundle_sha256: String.duplicate("e", 64),
+      checkpoint_ref: "checkpoint:#{work.turn.id}",
+      command_id: command.id,
+      descriptor: %{
+        "base_revision" => String.duplicate("b", 40),
+        "candidate_tree_sha256" => digest(committed),
+        "checkpoint_ref" => "checkpoint:#{work.turn.id}",
+        "committed_revision" => committed,
+        "repository_ref" => work.session.repository_ref,
+        "session_ref" => work.session.id,
+        "version" => 2
+      },
+      encryption_key_sha256: String.duplicate("f", 64),
+      id: Ecto.UUID.generate(),
+      placement_generation: command.placement_generation,
+      repository_ref: work.session.repository_ref,
+      session_ref: work.session.id,
+      worker_id: command.worker_id
+    })
   end
 
   defp reaccept!(%{claim: work, sha256: sha256}) do

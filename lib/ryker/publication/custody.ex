@@ -14,6 +14,7 @@ defmodule Ryker.Publication.Custody do
   import Ecto.Query
 
   alias Ecto.Changeset
+  alias Ryker.CoopFleet.{Command, WorkspaceCheckpointTransfer}
   alias Ryker.Delivery.Request
   alias Ryker.Episodes.Episode
 
@@ -35,8 +36,10 @@ defmodule Ryker.Publication.Custody do
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Work.{DeliveryReceipt, Session, Turn}
+  alias Ryker.Work.Executor.Remote
 
   @claimable [:review_pending, :review_ready, :publish_pending, :published_ready]
+  @checkpointed_candidate ~w(repository_ref base_revision committed_revision candidate_tree_sha256)
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch publication_authorization_revoked)
   @request_fields [:actor_ref, :occurred_at, :record_ref, :request_ref, :target]
   @approval_fields [:actor_ref, :approval_ref, :occurred_at, :publication_ref, :target]
@@ -88,7 +91,7 @@ defmodule Ryker.Publication.Custody do
             :ok
 
           %Publication{} = publication ->
-            rearm_task_review(publication, session, repository, attributes)
+            rearm_task_review(publication, session, turn, repository, attributes)
         end
 
       nil ->
@@ -133,11 +136,14 @@ defmodule Ryker.Publication.Custody do
   # the operator's only routes back were "Review latest state" or retyping the
   # whole task. The review generation, not the row, is what is superseded — the
   # pull request, the branch and the review history all stay.
-  defp rearm_task_review(publication, session, repository, attributes) do
+  defp rearm_task_review(publication, session, turn, repository, attributes) do
     cond do
       # Accepting one result twice is ordinary Work custody; the turn that armed
       # the current generation is named on the publication, so a replay is inert.
       publication.review_request_ref == attributes.request_ref ->
+        :ok
+
+      unchanged_since_published?(publication, turn) ->
         :ok
 
       rearmable?(publication, repository) ->
@@ -171,6 +177,49 @@ defmodule Ryker.Publication.Custody do
 
       true ->
         :ok
+    end
+  end
+
+  # Answering a question on the pull request is a completed task turn too. It
+  # re-armed the published draft with nothing changed, and Ryker force-pushed a
+  # new commit of the same tree to AndrewDryga/test#4 (manual test,
+  # 2026-10-01). A turn that leaves the workspace exactly as the published
+  # generation's turn left it has nothing to publish.
+  defp unchanged_since_published?(
+         %Publication{status: :published, review_request_ref: "task-readiness:" <> armed_id},
+         %Turn{} = turn
+       ) do
+    with {:ok, armed_id} <- Ecto.UUID.cast(armed_id),
+         %Turn{} = armed <- Repo.get(Turn, armed_id),
+         %{} = published <- checkpointed_candidate(armed) do
+      published == checkpointed_candidate(turn)
+    else
+      _unknown -> false
+    end
+  end
+
+  defp unchanged_since_published?(_publication, _turn), do: false
+
+  # Every completed task turn checkpoints its workspace before it is accepted.
+  defp checkpointed_candidate(%Turn{} = turn) do
+    key = Remote.checkpoint_key(turn)
+
+    from(transfer in WorkspaceCheckpointTransfer,
+      join: command in Command,
+      on: command.id == transfer.command_id,
+      where: command.idempotency_key == ^key and command.status == :succeeded,
+      order_by: [desc: transfer.inserted_at, desc: transfer.id],
+      limit: 1,
+      select: transfer.descriptor
+    )
+    |> Repo.one()
+    |> case do
+      %{} = descriptor ->
+        candidate = Map.take(descriptor, @checkpointed_candidate)
+        if map_size(candidate) == length(@checkpointed_candidate), do: candidate
+
+      nil ->
+        nil
     end
   end
 
