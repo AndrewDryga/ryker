@@ -1203,8 +1203,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert task_status.status == "queued"
     assert task_status.title == "Finish Lab parity"
     assert task_status.summary =~ "Conversation Lab parity"
-    assert {"Repository", "ryker"} in task_status.details
-    assert {"Session", "1"} in task_status.details
+    assert task_status.details == [{"Repository", "ryker"}]
     assert task_status.action == nil
 
     assert {:ok, remembered} =

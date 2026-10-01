@@ -3,6 +3,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
 
   import Ecto.Query
 
+  alias Ryker.Delivery.ChatCard
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
@@ -423,6 +424,60 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
              "ryker_task_discard_publication",
              "ryker_work_record"
            ]
+  end
+
+  # Manual test, 2026-10-01: once a draft pull request was closed on GitHub while Ryker updated
+  # it, the task's Chat card read "Action needed :publication_existing_pull_request_changed",
+  # beside "Work settled" and "Session 1", and its Slack card named the same code. Both say what
+  # happened in words, and neither prints Ryker's own states.
+  test "a draft changed on GitHub is said in words on the task card, without codes" do
+    %{claim: work, publication: approved} = PublicationFixture.approved!("changed-on-github")
+    assert {:ok, claim} = PublicationCustody.claim_next("publication:changed-on-github", 60)
+
+    assert {:ok, _refused} =
+             PublicationCustody.defer(
+               approved.ref,
+               claim.lease_ref,
+               60,
+               "publication_existing_pull_request_changed",
+               ":publication_existing_pull_request_changed"
+             )
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: work.episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:changed-on-github",
+      payload: %{
+        "kind" => "engineering",
+        "title" => "Implement changed-on-github",
+        "repository" => "ryker",
+        "prompt" => "Implement the change."
+      }
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+
+    assert projection.document["task_card"]["action_needed"] =~
+             "changed this draft's branch or pull request on GitHub"
+
+    assert {:ok, rendered} = Renderer.render(projection.document)
+    json = Jason.encode!(rendered)
+    refute json =~ "publication_existing_pull_request_changed"
+
+    # Discard is all the card offers here, and it said "Waiting for GitHub to confirm" under
+    # "▸ Draft PR · creating the draft".
+    assert projection.document["task_card"]["publication"]["controls"] == ["discard"]
+    assert json =~ "The draft PR wasn't created."
+    assert json =~ "■ Draft PR · changed on GitHub"
+    refute json =~ "Waiting for GitHub"
+    refute json =~ "creating the draft"
+
+    assert {:ok, card} = ChatCard.project(source)
+    assert Enum.map(card.details, &elem(&1, 0)) == ["Repository", "Action needed"]
+    refute inspect(card.details) =~ "publication_existing_pull_request_changed"
   end
 
   # Andrew, 2026-09-30, of PR #2's card in AndrewDryga/test: "why do I even need to click to
