@@ -1,4 +1,4 @@
-# Training data for a self-hosted routing model
+# Training data for self-hosted models
 
 Andrew, 2026-09-27: "is our current model saves enough data for model training / fine-tuning?" and
 "is our current retention policy defeats the purpose deleting data that will be used for learning
@@ -138,6 +138,31 @@ in memory.
 
 ## What an example still lacks
 
-- **Work's own model calls.** Only routing decisions are copied.
+- **Work's own model calls.** Only routing decisions are copied. Work examples are next (below).
 - **Refused answers from before 2026-09-30.** Routing kept none until then, so older examples have
   an empty list.
+
+## Beyond routing
+
+Andrew, 2026-10-02: the self-hosted model should learn "not just from routing records but actual
+work records too", and the aim is to "replace everything we want to replace with self hosting IN
+LONG TERM". Routing is where the examples started, not where they stop. On the live install work
+turns are a quarter of the model calls but about half of the input tokens, and everything they
+produced is pruned 30 days after their request finishes.
+
+Where the line is:
+
+- **Self-host every model role whose answer Ryker can check**, or whose mistake a person sees and
+  corrects cheaply: routing, reactions and quick replies first; then learning, titles and
+  summaries; then answers that only read; code and infrastructure changes last, per repository,
+  once a local model passes the same gates (tests, review, CI) at a similar rate on replays.
+- **Keep a frontier model as teacher, judge and fallback.** Its live answers are the examples, it
+  grades local answers in replays and shadow comparisons, and it takes the long tail: a refused
+  local answer, low confidence, a kind of request rarely seen. Its share shrinks as examples grow.
+- **Train behaviour, never facts.** What an organization knows stays in retrieval, so forgetting
+  keeps working and a changed fact needs no retraining.
+- **Risky actions stay behind human approval** in Emisar, whichever model asks for them.
+
+Each role goes shadow, then cascade, then primary, promoted and demoted on replay evals and live
+agreement. The plan is in `.agent/tasks/xx_backlog/2026-10-02-self-hosted-models-take-over-each-model-role-ryk`;
+keeping work examples is `.agent/tasks/00_todo/2026-10-02-keep-work-examples-for-training-beside-routing-e`.
