@@ -80,16 +80,9 @@ defmodule Ryker.Slack.WorkControls do
              attributes.target,
              attributes.record_kind
            ),
-         {:ok, message_ref} <-
-           publish(
-             resolved,
-             document,
-             "work-record:#{resolved.work_ref}:#{attributes.record_kind}",
-             options
-           ) do
+         :ok <- show_privately(resolved, attributes.actor_ref, document, options) do
       {:ok,
        %{
-         message_ref: message_ref,
          outcome: :shown,
          record_kind: attributes.record_kind,
          work_ref: resolved.work_ref
@@ -266,38 +259,20 @@ defmodule Ryker.Slack.WorkControls do
       else: {:error, :task_publication_not_ready}
   end
 
-  defp publish(resolved, document, delivery_ref, options) do
-    case options.slack_api.find_message(
-           options.slack_client,
-           resolved.channel_ref,
-           resolved.output_thread_ref,
-           delivery_ref
-         ) do
-      {:ok, message_ref} ->
-        with :ok <-
-               options.slack_api.update_message(
-                 options.slack_client,
-                 resolved.channel_ref,
-                 message_ref,
-                 document,
-                 delivery_ref
-               ) do
-          {:ok, message_ref}
-        end
-
-      :not_found ->
-        options.slack_api.post_message(
-          options.slack_client,
-          resolved.channel_ref,
-          resolved.output_thread_ref,
-          document,
-          delivery_ref
-        )
-
-      {:error, _reason} = error ->
-        error
-    end
+  # Only the person who asked sees a record, in the task's thread (Andrew, 2026-10-01: "should be
+  # visible just for me not posted to thread and spam everyone").
+  defp show_privately(resolved, "slack:user:" <> user, %{"message" => text}, options) do
+    options.slack_api.post_ephemeral(
+      options.slack_client,
+      resolved.channel_ref,
+      user,
+      resolved.output_thread_ref,
+      text
+    )
   end
+
+  defp show_privately(_resolved, _actor_ref, _document, _options),
+    do: {:error, :work_record_not_available}
 
   defp attributes(%{} = attributes, fields) do
     valid =

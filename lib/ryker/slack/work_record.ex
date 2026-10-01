@@ -14,7 +14,7 @@ defmodule Ryker.Slack.WorkRecord do
   alias Ryker.Publication.Publication
   alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Slack.WorkTarget
+  alias Ryker.Slack.{IncidentRoom, TaskCard, TaskCardDetails, WorkTarget}
   alias Ryker.Work.Recovery
   alias Ryker.Work.Turn
 
@@ -104,10 +104,38 @@ defmodule Ryker.Slack.WorkRecord do
       kind: resolved.kind,
       publications: publications,
       records: records,
+      title: work_title(resolved.work_ref),
       turn: current_turn(resolved.episode),
       work_ref: resolved.work_ref
     }
   end
+
+  # The task or incident by its own title; the card's reference is Ryker's (Andrew, 2026-10-01:
+  # "Timeline for task-card:c00814ba-…").
+  defp work_title("task-card:" <> _rest = ref) do
+    Repo.one(
+      from(card in TaskCard,
+        join: record in Record,
+        on: record.id == card.record_id,
+        where: card.ref == ^ref,
+        select: fragment("(?::jsonb)->>'title'", record.payload)
+      )
+    )
+  end
+
+  defp work_title("record:task_offer:" <> _rest = ref) do
+    Repo.one(
+      from(record in Record,
+        where: record.ref == ^ref,
+        select: fragment("(?::jsonb)->>'title'", record.payload)
+      )
+    )
+  end
+
+  defp work_title("incident-room:" <> _rest = ref),
+    do: Repo.one(from(room in IncidentRoom, where: room.ref == ^ref, select: room.title))
+
+  defp work_title(_ref), do: nil
 
   defp current_turn(%Episode{owner_kind: :turn, owner_ref: turn_ref} = episode),
     do: Repo.get_by(Turn, episode_id: episode.id, turn_ref: turn_ref)
@@ -122,23 +150,23 @@ defmodule Ryker.Slack.WorkRecord do
     )
   end
 
+  # A person's account of the task, in Slack's own dates that each reader sees in their time
+  # zone. Andrew, 2026-10-01, of what these said before: "overall all this is simply useless in
+  # slack for humans to see".
   defp render(:timeline, snapshot) do
-    episode_entries = Enum.map(snapshot.events, &event_entry/1)
-    record_entries = Enum.map(snapshot.records, &record_entry/1)
-    publication_entries = Enum.map(snapshot.publications, &publication_entry/1)
+    goals = goal_outcomes(snapshot.records)
 
     entries =
-      (episode_entries ++ record_entries ++ publication_entries)
+      (Enum.map(snapshot.events, &event_entry/1) ++
+         Enum.flat_map(snapshot.records, &record_entry(&1, goals)) ++
+         Enum.map(snapshot.publications, &publication_entry/1))
       |> Enum.sort_by(& &1.sort)
       |> Enum.map(& &1.text)
 
     [
-      "Timeline for #{snapshot.work_ref}",
-      "Current state: #{state_words(snapshot.episode.state)}",
-      if(entries == [],
-        do: "No durable timeline entries are recorded.",
-        else: Enum.join(entries, "\n")
-      )
+      heading("Timeline", snapshot),
+      "Now: #{state_words(snapshot.episode.state)}",
+      if(entries == [], do: "Nothing has happened yet.", else: Enum.join(entries, "\n"))
     ]
     |> Enum.join("\n")
   end
@@ -152,23 +180,26 @@ defmodule Ryker.Slack.WorkRecord do
       Enum.map(evidence, fn record ->
         payload = record.payload
 
-        "- #{payload["source_name"]} · #{payload["confidence"] || "confidence not recorded"}: " <>
-          compact(payload["observation"], 900)
+        confidence =
+          if payload["confidence"], do: " (#{payload["confidence"]} confidence)", else: ""
+
+        "• *#{payload["source_name"]}*#{confidence}: " <> compact(payload["observation"], 900)
       end)
 
-    coverage_lines =
-      Enum.map(coverage, fn record ->
-        payload = record.payload
-        "- #{payload["layer"]}: #{payload["status"]} — #{compact(payload["detail"], 600)}"
-      end)
+    gaps =
+      for %{payload: %{"status" => "unknown"} = payload} <- coverage,
+          do: "• Not checked yet: #{payload["layer"]} — #{compact(payload["detail"], 600)}"
+
+    unexplained =
+      for %{payload: %{"status" => "unexplained"} = payload} <- findings,
+          do: "• Unexplained: #{compact(payload["what"], 600)}"
+
+    lines = evidence_lines ++ gaps ++ unexplained ++ incident_unknowns(snapshot, findings)
 
     [
-      "Evidence for #{snapshot.work_ref}",
-      section("Source ledger", evidence_lines, "No evidence has been recorded."),
-      section("Coverage", coverage_lines, "No bounded coverage assessment has been recorded."),
-      section("Material unknowns", material_unknowns(snapshot, findings, coverage), nil)
+      heading("Evidence", snapshot),
+      if(lines == [], do: "No evidence recorded yet.", else: Enum.join(lines, "\n"))
     ]
-    |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
   end
 
@@ -181,18 +212,17 @@ defmodule Ryker.Slack.WorkRecord do
         &(&1.kind in ["input_request", "event_wait"] and &1.status == :open)
       )
 
-    goals = current_goals(snapshot.records)
-    publication = List.last(snapshot.publications)
+    steps = current_goals(snapshot.records)
 
     [
-      "Handoff summary for #{snapshot.work_ref}",
-      "State: #{state_words(snapshot.episode.state)}",
-      progress_line(progress),
-      section("Open waits", Enum.map(waits, &wait_line/1), "None recorded."),
-      section("Goals", goals, "No durable goals are recorded."),
-      publication_line(publication),
-      section("Material unknowns", material_unknowns(snapshot, [], []), nil)
+      heading("Where this stands", snapshot),
+      "#{state_words(snapshot.episode.state)}. " <> progress_line(progress),
+      if(steps != [], do: "Steps:\n" <> Enum.join(steps, "\n")),
+      Enum.map(waits, &wait_line/1),
+      if(snapshot.kind == :task, do: publication_line(List.last(snapshot.publications))),
+      for("• " <> unknown <- incident_unknowns(snapshot, []), do: "Unknown: " <> unknown)
     ]
+    |> List.flatten()
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
   end
@@ -273,54 +303,85 @@ defmodule Ryker.Slack.WorkRecord do
     |> Enum.join("\n")
   end
 
+  defp heading(view, %{title: title}) when is_binary(title) and title != "",
+    do: "*#{view}* — #{compact(title, 200)}"
+
+  defp heading(view, %{kind: :incident}), do: "*#{view}* — this incident"
+  defp heading(view, _snapshot), do: "*#{view}* — this task"
+
   # The same words the request's timeline uses for each transition.
   defp event_entry(event) do
-    label = Words.lifecycle_title(event.kind)
-
     %{
       sort: {DateTime.to_unix(event.occurred_at, :microsecond), 0, event.sequence},
-      text: "- #{timestamp(event.occurred_at)} · #{label}"
+      text: "• #{slack_time(event.occurred_at)}  #{Words.lifecycle_title(event.kind)}"
     }
   end
 
-  defp record_entry(record) do
-    detail = record_detail(record.kind, record.payload)
+  defp record_entry(record, goals) do
+    case record_words(record.kind, record.payload, goals) do
+      nil ->
+        []
 
-    label = record.kind |> String.replace("_", " ") |> String.capitalize()
-    suffix = if detail, do: " · #{detail}", else: ""
-
-    %{
-      sort: {DateTime.to_unix(record.inserted_at, :microsecond), 1, record.sequence},
-      text: "- #{timestamp(record.inserted_at)} · #{label} recorded#{suffix}"
-    }
+      words ->
+        [
+          %{
+            sort: {DateTime.to_unix(record.inserted_at, :microsecond), 1, record.sequence},
+            text: "• #{slack_time(record.inserted_at)}  #{words}"
+          }
+        ]
+    end
   end
 
-  defp record_detail("evidence", payload),
-    do: "#{payload["source_name"]}: #{compact(payload["observation"], 300)}"
+  defp record_words("evidence", payload, _goals),
+    do: "Evidence: #{payload["source_name"]} — #{compact(payload["observation"], 300)}"
 
-  defp record_detail("progress", payload), do: compact(payload["summary"], 300)
-  defp record_detail("finding", payload), do: compact(payload["what"], 300)
-  defp record_detail("goal", payload), do: compact(payload["requested_outcome"], 300)
-  defp record_detail("goal_state", payload), do: "#{payload["goal_id"]} → #{payload["state"]}"
+  defp record_words("progress", payload, _goals),
+    do: "Update: #{compact(String.trim(payload["summary"] || ""), 300)}"
 
-  defp record_detail("alert_assessment", payload),
-    do: "#{payload["verdict"]}: #{compact(payload["impact"], 300)}"
+  defp record_words("finding", payload, _goals), do: "Finding: #{compact(payload["what"], 300)}"
 
-  defp record_detail("input_request", payload), do: compact(payload["question"], 300)
-  defp record_detail("event_wait", payload), do: compact(payload["verification"], 300)
-  defp record_detail(_kind, _payload), do: nil
+  defp record_words("goal", payload, _goals),
+    do: "Step planned: #{compact(payload["requested_outcome"], 300)}"
+
+  defp record_words("goal_state", %{"goal_id" => id, "state" => state}, goals),
+    do: "Step #{goal_state_words(state)}: " <> Map.get(goals, id, "a step of the plan")
+
+  defp record_words("alert_assessment", payload, _goals),
+    do: "Assessment: #{compact(payload["impact"], 300)}"
+
+  defp record_words("input_request", payload, _goals),
+    do: "Asked: #{compact(payload["question"], 300)}"
+
+  defp record_words("event_wait", payload, _goals),
+    do: "Waiting for: #{compact(payload["verification"], 300)}"
+
+  defp record_words(_kind, _payload, _goals), do: nil
+
+  defp goal_state_words("working"), do: "started"
+  defp goal_state_words("completed"), do: "done"
+  defp goal_state_words("excluded"), do: "dropped"
+  defp goal_state_words("blocked"), do: "blocked"
+  defp goal_state_words(state), do: state |> Words.label() |> String.downcase()
+
+  defp goal_outcomes(records) do
+    for %{kind: "goal", payload: %{"id" => id} = payload} <- records,
+        into: %{},
+        do: {id, compact(payload["requested_outcome"], 300)}
+  end
 
   defp publication_entry(publication) do
-    detail =
-      if publication.pull_request_url,
-        do: " · #{publication.pull_request_url}",
-        else: ""
-
     %{
       sort: {DateTime.to_unix(publication.updated_at, :microsecond), 2, 0},
-      text: "- #{timestamp(publication.updated_at)} · Publication #{publication.status}#{detail}"
+      text: "• #{slack_time(publication.updated_at)}  " <> publication_words(publication)
     }
   end
+
+  # Whether the root cause is known matters to an incident; a task never claimed one.
+  defp incident_unknowns(%{kind: :incident} = snapshot, findings) do
+    for "- " <> line <- material_unknowns(snapshot, findings, []), do: "• " <> line
+  end
+
+  defp incident_unknowns(_snapshot, _findings), do: []
 
   defp material_unknowns(snapshot, findings, coverage) do
     findings =
@@ -351,6 +412,8 @@ defmodule Ryker.Slack.WorkRecord do
     if unknowns == [], do: ["No material unknown is explicitly recorded."], else: unknowns
   end
 
+  # Each step of the plan by what it is meant to achieve, and where it stands; the plan's own ids,
+  # stages and repositories are Ryker's bookkeeping.
   defp current_goals(records) do
     states =
       records
@@ -362,35 +425,15 @@ defmodule Ryker.Slack.WorkRecord do
     |> Enum.map(fn goal ->
       state = get_in(states, [goal.payload["id"], "state"]) || "ready"
 
-      relationships =
-        [
-          optional_goal_relation("stage", goal.payload["stage"]),
-          optional_goal_relation("retries", goal.payload["successor_of"]),
-          optional_goal_relation("parent", goal.payload["parent_goal_id"]),
-          optional_goal_relation(
-            "after",
-            joined_goal_refs(goal.payload["prerequisite_goal_ids"])
-          ),
-          optional_goal_relation("writes", goal.payload["writable_repository"]),
-          optional_goal_relation(
-            "reads",
-            joined_goal_refs(goal.payload["read_only_repositories"])
-          )
-        ]
-        |> Enum.reject(&is_nil/1)
-        |> Enum.join(" · ")
-
-      suffix = if relationships == "", do: "", else: " (#{relationships})"
-
-      "- #{goal.payload["id"]} · #{state}: #{compact(goal.payload["requested_outcome"], 500)}#{suffix}"
+      "#{TaskCardDetails.goal_glyph(state)} #{compact(goal.payload["requested_outcome"], 500)} · " <>
+        goal_state_label(state)
     end)
   end
 
-  defp joined_goal_refs(values) when is_list(values) and values != [], do: Enum.join(values, ", ")
-  defp joined_goal_refs(_values), do: nil
-
-  defp optional_goal_relation(_label, nil), do: nil
-  defp optional_goal_relation(label, value), do: "#{label} #{value}"
+  defp goal_state_label("ready"), do: "not started"
+  defp goal_state_label("working"), do: "in progress"
+  defp goal_state_label("blocked"), do: "blocked"
+  defp goal_state_label(state), do: state |> Words.label() |> String.downcase()
 
   defp corrective_actions(records) do
     records
@@ -402,22 +445,41 @@ defmodule Ryker.Slack.WorkRecord do
 
   defp latest(records, kind), do: records |> Enum.filter(&(&1.kind == kind)) |> List.last()
 
-  defp progress_line(nil), do: "Latest progress: none recorded."
+  defp progress_line(nil), do: "No update yet."
 
   defp progress_line(record),
-    do: "Latest progress: #{record.payload["phase"]} — #{compact(record.payload["summary"], 900)}"
+    do: "Latest update: #{compact(String.trim(record.payload["summary"] || ""), 900)}"
 
   defp wait_line(%Record{kind: "input_request", payload: payload}),
-    do: "- Input: #{compact(payload["question"], 700)}"
+    do: "Waiting for an answer: #{compact(payload["question"], 700)}"
 
   defp wait_line(%Record{kind: "event_wait", payload: payload}),
-    do: "- Event: #{compact(payload["verification"], 700)} by #{payload["deadline_at"]}"
+    do: "Waiting for: #{compact(payload["verification"], 700)}"
 
-  defp publication_line(nil), do: "Publication: none recorded."
+  defp publication_line(nil), do: "No draft PR yet."
+  defp publication_line(publication), do: publication_words(publication)
 
-  defp publication_line(publication),
-    do:
-      "Publication: #{publication.status}#{if publication.pull_request_url, do: " · #{publication.pull_request_url}", else: ""}"
+  defp publication_words(%Publication{pull_request_url: url, pull_request_number: number} = p)
+       when is_binary(url) and is_integer(number),
+       do: "Draft PR <#{url}|##{number}> · #{publication_state(p.status)}"
+
+  defp publication_words(publication), do: "Draft PR · #{publication_state(publication.status)}"
+
+  defp publication_state(:published), do: "open"
+  defp publication_state(:discarded), do: "discarded"
+  defp publication_state(:blocked), do: "stopped"
+
+  defp publication_state(status) when status in [:review_pending, :review_ready],
+    do: "being checked"
+
+  defp publication_state(:reviewed), do: "checked, waiting for approval"
+  defp publication_state(_status), do: "being published"
+
+  # Slack writes the time in each reader's own time zone; the fallback is UTC.
+  defp slack_time(%DateTime{} = at) do
+    fallback = Calendar.strftime(at, "%-d %b %H:%M")
+    "<!date^#{DateTime.to_unix(at)}^{date_short} {time}|#{fallback} UTC>"
+  end
 
   # The request's state in the words its timeline header uses; which internal
   # owner holds it is not something a reader can act on.
@@ -438,8 +500,6 @@ defmodule Ryker.Slack.WorkRecord do
 
   defp kind_available(:task, :postmortem), do: {:error, :work_record_not_available}
   defp kind_available(_work_kind, _record_kind), do: :ok
-
-  defp timestamp(%DateTime{} = value), do: DateTime.to_iso8601(value)
 
   defp compact(value, maximum) when is_binary(value) do
     graphemes = String.graphemes(value)

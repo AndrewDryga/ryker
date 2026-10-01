@@ -69,6 +69,7 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
         left: [],
         messages: %{},
         posts: [],
+        ephemerals: [],
         reacted: [],
         searched_since: [],
         reactions: MapSet.new(),
@@ -84,6 +85,14 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
 
   @doc false
   def default_message_ref(n), do: "#{n}.000001"
+
+  @impl true
+  def post_ephemeral(agent, channel, user, thread, text) do
+    Agent.update(agent, fn state ->
+      shown = %{channel: channel, text: text, thread: thread, user: user}
+      Map.update!(state, :ephemerals, &(&1 ++ [shown]))
+    end)
+  end
 
   @impl true
   def find_message(agent, channel, thread, delivery_ref) do

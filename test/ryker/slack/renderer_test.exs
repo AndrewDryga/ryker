@@ -664,7 +664,6 @@ defmodule Ryker.Slack.RendererTest do
     assert text =~ "no new credo findings"
     assert text =~ "do not merge or deploy"
     assert text =~ "branch `main`"
-    assert text =~ "2 sources"
 
     # The rule that made this a conflict, still enforced.
     refute inspect(rendered) =~ "Change the parser"
@@ -1498,13 +1497,18 @@ defmodule Ryker.Slack.RendererTest do
           "Prevent the next Traefik OOM",
           "tenant-infra",
           "branch",
-          "Traefik stays under its limit",
-          "Never deploy",
-          "*Evidence:* 1 source"
+          "*Done when:*\\n• Traefik stays under its limit\\n• Five replicas remain",
+          "*Limits:*\\n• Never deploy\\n• No production writes"
         ] do
       assert inspect(open) =~ kept
       assert inspect(confirmed) =~ kept
     end
+
+    # Andrew, 2026-10-01, of "Checks: …; …; … Will not: Change only andrewdryga-emisar …;
+    # Evidence: 1 source": "overall formatting of this response can be better". Each check and
+    # limit is a line of its own, and a source count told the person deciding nothing.
+    refute inspect(open) =~ "Evidence:"
+    refute inspect(open) =~ "; "
 
     # The authority is spent, so the button that granted it is gone.
     assert inspect(confirmed) =~ "✓ Task started in this thread."
@@ -1544,40 +1548,6 @@ defmodule Ryker.Slack.RendererTest do
     assert inspect(incident_confirmed) =~ "✓ Investigating in this thread."
   end
 
-  # The brief counted its evidence without looking at the count, so every offer
-  # that cited a single source asked the person authorizing it to trust
-  # "1 sources" — the card that grants authority read like a template.
-  test "an offer that cites one source counts it in the singular" do
-    payload = %{
-      "authority_limits" => ["Never deploy"],
-      "instruction_ref" => "record:instruction:aa11",
-      "kind" => "engineering",
-      "prompt" => "Raise the memory limit.",
-      "repository" => "tenant-infra",
-      "repository_source" => nil,
-      "source_refs" => ["record:evidence:bb22"],
-      "success_checks" => ["Traefik stays under its limit"],
-      "title" => "Prevent the next Traefik OOM"
-    }
-
-    offer = %{
-      "kind" => "task_offer",
-      "payload" => payload,
-      "ref" => "record:task_offer:abc123",
-      "status" => "open"
-    }
-
-    assert {:ok, one} = Renderer.render(%{"message" => "Want me to?", "records" => [offer]})
-    assert Jason.encode!(one) =~ "*Evidence:* 1 source"
-    refute Jason.encode!(one) =~ "1 sources"
-
-    two =
-      put_in(offer, ["payload", "source_refs"], ["record:evidence:bb22", "record:evidence:cc33"])
-
-    assert {:ok, rendered} = Renderer.render(%{"message" => "Want me to?", "records" => [two]})
-    assert Jason.encode!(rendered) =~ "*Evidence:* 2 sources"
-  end
-
   # The brief escaped each check and limit before cutting it to length, so a
   # cut could land inside an entity: the person deciding whether to grant the
   # task read a stray `&a…` where the limit had said `&`.
@@ -1605,7 +1575,7 @@ defmodule Ryker.Slack.RendererTest do
     [_message, summary, _actions] = rendered["blocks"]
 
     assert summary["text"]["text"] =~
-             "*Will not:* #{String.duplicate("a", 197)}&amp;x…"
+             "*Limits:*\n• #{String.duplicate("a", 197)}&amp;x…"
   end
 
   test "renders an inert publication offer with a host-owned review control" do
@@ -2980,7 +2950,10 @@ defmodule Ryker.Slack.RendererTest do
     refute inspect(answered["blocks"]) =~ "ryker_question_choice"
   end
 
-  test "a reusable question explains the saved fact and applicability before the answer" do
+  # Andrew, 2026-10-01, of "I'll remember an operator's answer across conversations for
+  # Infrastructure estate included in company-wide health reviews — …" under a question: "that
+  # text on the bottom is useless". The question says what it needs; the note is gone.
+  test "a reusable question shows the question without a note about remembering the answer" do
     assert {:ok, rendered} =
              Renderer.render(%{
                "message" => "The plan updates the portal template, fleet and monitors.",
@@ -3003,11 +2976,10 @@ defmodule Ryker.Slack.RendererTest do
              })
 
     assert inspect(rendered["blocks"]) =~
-             "I'll remember an operator's answer across conversations"
+             "Which GCP project should I use for the health and backup checks?"
 
-    assert inspect(rendered["blocks"]) =~ "GCP project"
-    assert inspect(rendered["blocks"]) =~ "Production portal"
-    refute inspect(rendered["blocks"]) =~ "already remembered"
+    refute inspect(rendered["blocks"]) =~ "I'll remember"
+    refute inspect(rendered["blocks"]) =~ "Production portal"
   end
 
   test "event-only watches do not append internal instructions or an empty deadline" do

@@ -92,13 +92,16 @@ defmodule Ryker.Slack.TaskCardDetails do
     emphasize("#{glyph(stage["state"])} #{text}", stage["current"])
   end
 
+  # The current step is bold; what it is doing now reads plain beside it, so a long detail is not
+  # three bold lines (Andrew, 2026-10-01).
   defp subtask_line(subtask) do
     text =
       subtask["outcome"]
       |> display(250)
+      |> emphasize(subtask["current"])
       |> with_detail(subtask["detail"])
 
-    "    " <> emphasize("#{goal_glyph(subtask["state"])} #{text}", subtask["current"])
+    "    #{goal_glyph(subtask["state"])} #{text}"
   end
 
   # An exact reference such as #617 or a handoff arrow reads as part of the

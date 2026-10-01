@@ -85,53 +85,57 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert continued.turn.turn_ref == resumed.episode.owner_ref
   end
 
-  test "work records are evidence-backed and say when material conclusions are unknown" do
+  # Andrew, 2026-10-01, of "Timeline for task-card:c00814ba-…", ISO timestamps, "Goal state
+  # recorded · diagnostic-design → working" and "Material unknowns: Root cause is not established
+  # by the recorded evidence": "overall all this is simply useless in slack for humans to see".
+  # Each view is about the task by its title, in a person's words and Slack's own dates.
+  test "a task's records read in plain words and never as Ryker's own references" do
     fixture = task_fixture!("record", rich_records: true)
+    target = attributes(fixture.card.ref).target
 
-    assert {:ok, timeline} =
-             WorkRecord.build(fixture.card.ref, attributes(fixture.card.ref).target, :timeline)
+    assert {:ok, %{"message" => timeline}} = WorkRecord.build(fixture.card.ref, target, :timeline)
+    assert timeline =~ "*Timeline*"
+    assert timeline =~ "<!date^"
+    assert timeline =~ "Step planned: Verify background-worker health"
+    assert timeline =~ "Step blocked: Verify background-worker health"
+    assert timeline =~ "Asked: Which deployment should I inspect?"
+    assert timeline =~ "Evidence: Repository test output"
 
-    assert timeline["message"] =~ "Message added"
-    assert timeline["message"] =~ "Evidence recorded"
-    assert timeline["message"] =~ "Goal state recorded"
-    assert timeline["message"] =~ "Input request recorded"
+    assert {:ok, %{"message" => evidence}} = WorkRecord.build(fixture.card.ref, target, :evidence)
+    assert evidence =~ "*Evidence*"
+    assert evidence =~ "Repository test output"
+    assert evidence =~ "Focused tests passed"
+    assert evidence =~ "Not checked yet: application — Background workers were not sampled."
+    assert evidence =~ "Unexplained: Background-worker health was not verified."
 
-    assert {:ok, evidence} =
-             WorkRecord.build(fixture.card.ref, attributes(fixture.card.ref).target, :evidence)
+    assert {:ok, %{"message" => handoff}} = WorkRecord.build(fixture.card.ref, target, :handoff)
+    assert handoff =~ "*Where this stands*"
+    assert handoff =~ "Latest update: Worker verification remains."
+    assert handoff =~ "! Verify background-worker health · blocked"
+    assert handoff =~ "Waiting for an answer: Which deployment should I inspect?"
+    assert handoff =~ "No draft PR yet."
 
-    assert evidence["message"] =~ "Repository test output"
-    assert evidence["message"] =~ "Focused tests passed"
-    assert evidence["message"] =~ "application: unknown"
-    assert evidence["message"] =~ "remain unexplained"
-    refute evidence["message"] =~ "root cause confirmed"
+    for message <- [timeline, evidence, handoff] do
+      refute message =~ "task-card:"
+      refute message =~ ~r/\d{4}-\d{2}-\d{2}T\d{2}:/
+      refute message =~ "verify-workers"
+      refute message =~ "recorded ·"
+      refute message =~ "Material unknowns"
+      refute message =~ "Root cause is not established"
+    end
 
-    assert {:ok, handoff} =
-             WorkRecord.build(fixture.card.ref, attributes(fixture.card.ref).target, :handoff)
-
-    assert handoff["message"] =~ "Latest progress: verifying"
-    assert handoff["message"] =~ "Which deployment should I inspect?"
-    assert handoff["message"] =~ "verify-workers · blocked"
-    assert handoff["message"] =~ "Publication: none recorded"
-
-    assert WorkRecord.build(
-             fixture.card.ref,
-             attributes(fixture.card.ref).target,
-             :postmortem
-           ) == {:error, :work_record_not_available}
+    assert WorkRecord.build(fixture.card.ref, target, :postmortem) ==
+             {:error, :work_record_not_available}
 
     # Recovery describes a workspace or reply the host is still holding. An
     # ordinary running task holds neither, so the view has nothing to say and
     # must not manufacture a recovery brief for work that is fine.
-    assert WorkRecord.build(
-             fixture.card.ref,
-             attributes(fixture.card.ref).target,
-             :recovery
-           ) == {:error, :work_record_not_available}
+    assert WorkRecord.build(fixture.card.ref, target, :recovery) ==
+             {:error, :work_record_not_available}
 
-    assert WorkRecord.build("unknown", %{}, :timeline) ==
-             {:error, :work_control_not_found}
+    assert WorkRecord.build("unknown", %{}, :timeline) == {:error, :work_control_not_found}
 
-    assert WorkRecord.build(fixture.card.ref, attributes(fixture.card.ref).target, :unknown) ==
+    assert WorkRecord.build(fixture.card.ref, target, :unknown) ==
              {:error, :work_record_not_available}
   end
 
@@ -309,47 +313,34 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert Repo.get!(Publication, fixture.publication.id).status == :discarded
   end
 
-  test "timeline and evidence controls publish one recoverable thread message" do
+  # Andrew, 2026-10-01: "timeline/evidence/handoff summary should be visible just for me not
+  # posted to thread and spam everyone". They went into the task's thread for everyone.
+  test "a task's timeline, evidence and summary go only to the person who asked" do
     fixture = task_fixture!("record-control", rich_records: true)
     slack = start_supervised!({FakeSlackAPI, message_ref: fn _n -> "1787832999.000100" end})
     options = %{slack_api: FakeSlackAPI, slack_client: slack}
 
-    timeline =
-      fixture.card.ref
-      |> attributes()
-      |> Map.put(:record_kind, :timeline)
+    for kind <- [:timeline, :evidence, :handoff] do
+      request = fixture.card.ref |> attributes() |> Map.put(:record_kind, kind)
+      assert {:ok, shown} = WorkControls.show_record(request, options)
+      assert shown.outcome == :shown
+      assert shown.record_kind == kind
+      assert shown.work_ref == fixture.card.ref
+    end
 
-    assert {:ok, first} = WorkControls.show_record(timeline, options)
-    assert first.outcome == :shown
-    assert first.record_kind == :timeline
-    assert first.work_ref == fixture.card.ref
+    state = FakeSlackAPI.state(slack)
+    assert state.posts == []
+    assert state.updates == []
 
-    assert [
-             %{
-               channel: "C456",
-               delivery_ref: delivery_ref,
-               document: %{"message" => message},
-               thread: "1787832000.000100"
-             }
-           ] = FakeSlackAPI.state(slack).posts
+    assert [timeline, evidence, handoff] = state.ephemerals
 
-    assert message =~ "Message added"
-    assert delivery_ref == "work-record:#{fixture.card.ref}:timeline"
+    for shown <- [timeline, evidence, handoff] do
+      assert %{channel: "C456", user: "U123", thread: "1787832000.000100"} = shown
+    end
 
-    assert {:ok, second} = WorkControls.show_record(timeline, options)
-    assert second.message_ref == first.message_ref
-
-    assert [
-             %{
-               channel: "C456",
-               delivery_ref: ^delivery_ref,
-               document: %{"message" => updated},
-               message_ref: message_ref
-             }
-           ] = FakeSlackAPI.state(slack).updates
-
-    assert message_ref == first.message_ref
-    assert updated =~ "Evidence recorded"
+    assert timeline.text =~ "*Timeline*"
+    assert evidence.text =~ "*Evidence*"
+    assert handoff.text =~ "*Where this stands*"
   end
 
   test "close requests stop only the exact active turn and stale controls fail closed" do
