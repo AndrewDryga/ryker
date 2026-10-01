@@ -245,15 +245,26 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
       |> current_revisions()
 
     for {turn_id, episode_id, refs} <- turns,
-        Enum.any?(refs, &superseded_by_edit?(answered[{episode_id, &1}], current)),
+        refs
+        |> Enum.map(&answered[{episode_id, &1}])
+        |> newest_seen()
+        |> Enum.any?(&superseded_by_edit?(&1, current)),
         into: MapSet.new(),
         do: turn_id
   end
 
+  # The newest version of each message a run saw. Work resumed by an edit
+  # sees both versions of the message and answers the newer one, and its reply
+  # read "Answered your earlier wording" (manual test, 2026-10-01).
+  defp newest_seen(inputs) do
+    inputs
+    |> Enum.reject(&is_nil/1)
+    |> Enum.group_by(& &1.native_input_id)
+    |> Enum.map(fn {_native_id, seen} -> Enum.max_by(seen, & &1.revision) end)
+  end
+
   defp superseded_by_edit?(%{native_input_id: native_id, revision: revision}, current),
     do: match?({newer, :edit} when newer > revision, current[native_id])
-
-  defp superseded_by_edit?(nil, _current), do: false
 
   defp current_revisions([]), do: %{}
 
