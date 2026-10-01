@@ -657,10 +657,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <div
           :if={@snapshot.trace.case_file.awaiting_reply && !@snapshot.trace[:startup]}
           class="story-wait"
+          data-state={wait_state(@snapshot)}
+          role="status"
         >
-          <span class="pulse-dot"></span><div>
-            <strong>{pending_answer_label(@snapshot)}</strong><p>{@snapshot.episode.next_action}</p>
-          </div>
+          <strong>{pending_answer_label(@snapshot)}</strong>
+          <p :if={wait_text(@snapshot)}>{wait_text(@snapshot)}</p>
         </div>
         <a href="#execution-timeline">Back to start ↑</a>
       </div>
@@ -1538,6 +1539,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp message_title(%{actor: "Ryker"}), do: "Sent response"
   defp message_title(%{event_kind: :edit}), do: "Message edited"
   defp message_title(%{event_kind: :delete}), do: "Message deleted"
+  defp message_title(%{answer: true}), do: "Answer to Ryker's question"
   defp message_title(%{event_kind: :event}), do: "Incoming event"
   defp message_title(_message), do: "Incoming message"
 
@@ -2150,11 +2152,39 @@ defmodule Ryker.ControlPlane.EpisodePage do
        do: nil
 
   defp source_link(snapshot), do: snapshot.trace.source
+  # The timeline's last line says in words what is happening, and only work in progress moves
+  # (Andrew, 2026-10-01: it read "No visible answer yet · continue work").
   defp pending_answer_label(%{episode: %{state: :cancelled}}), do: "Stopped"
   defp pending_answer_label(%{episode: %{state: :complete}}), do: "No further reply was sent"
   defp pending_answer_label(%{trace: %{stopped: %{headline: headline}}}), do: headline
-  defp pending_answer_label(%{trace: %{case_file: %{reply: nil}}}), do: "No visible answer yet"
+
+  defp pending_answer_label(%{episode: %{state: :waiting_for_input}}),
+    do: "Waiting for your answer"
+
+  defp pending_answer_label(%{episode: %{state: :waiting_for_event}}),
+    do: "Waiting for an event"
+
+  defp pending_answer_label(%{trace: %{case_file: %{reply: nil}}}), do: "Ryker is working on this"
   defp pending_answer_label(_), do: "Follow-up in progress"
+
+  defp wait_state(%{episode: %{state: state}}) when state in [:cancelled, :complete], do: "done"
+  defp wait_state(%{trace: %{stopped: %{headline: _}}}), do: "stopped"
+
+  defp wait_state(%{episode: %{state: state}})
+       when state in [:waiting_for_input, :waiting_for_event],
+       do: "waiting"
+
+  defp wait_state(_snapshot), do: "working"
+
+  defp wait_text(snapshot) do
+    case {wait_state(snapshot), snapshot.episode.state} do
+      {"working", _state} -> "New steps appear here as they happen."
+      {"waiting", :waiting_for_input} -> "Answer Ryker's question in the conversation to go on."
+      {"waiting", _state} -> "The work goes on when it arrives."
+      {"stopped", _state} -> "Next action at the top says what it needs."
+      {"done", _state} -> nil
+    end
+  end
 
   defp outcome_anchor(snapshot) do
     if snapshot.trace.case_file.awaiting_reply do

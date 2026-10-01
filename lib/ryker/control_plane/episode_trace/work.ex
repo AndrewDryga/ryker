@@ -164,7 +164,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     )
   end
 
-  defp validation_presentation("reject"), do: {"Answer rejected", :bad}
+  # A sent-back answer is Ryker's routine check working, not a failure (Andrew, 2026-10-01, of
+  # "Answer rejected": "is it a failure? is it a bug?").
+  defp validation_presentation("reject"), do: {"Sent back to fix", nil}
   defp validation_presentation("accept"), do: {"Answer validated", :good}
   defp validation_presentation(_), do: {"Response recorded", nil}
 
@@ -464,12 +466,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         {"What Ryker told the model", if(violations != [], do: Enum.join(violations, " "))}
       ])
 
-  defp validation_summary("reject", [], _attempt, _turn),
-    do: "Ryker rejected this answer and asked the model to correct it."
-
-  defp validation_summary("reject", _violations, _attempt, _turn),
+  # What was sent back and why, in a person's words; the exact correction the model got stays
+  # under Details.
+  defp validation_summary("reject", violations, _attempt, _turn),
     do:
-      "Ryker sent this answer back for the model to fix. What it told the model is under Details."
+      "Ryker checks every answer before sending it. " <>
+        sent_back_reason(Enum.join(violations, " ")) <> " This is a routine check, not an error."
 
   # In the words the model call's Checks line uses: first time, or on
   # which attempt.
@@ -484,6 +486,52 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   defp validation_summary(_verdict, _violations, _attempt, _turn),
     do: "The model returned an answer for Ryker to check."
+
+  # What the correction was about, as the words a person reads; the first that matches wins.
+  @sent_back [
+    {["required goals remain open"],
+     "The model said it was done while steps of its plan were still open, so Ryker sent it back to finish or close them."},
+    {["no committed task changes"],
+     "The model said it was done before it had changed anything, so Ryker sent it back to make the change."},
+    {["answer the user"],
+     "The model tried to finish without answering the person, so Ryker sent it back to reply."},
+    {["platform actions are unresolved"],
+     "The model tried to finish before its Slack or GitHub actions had gone through, so Ryker sent it back to wait for them."},
+    {["timer wait", "durable waits", "waiting state", "waiting outcome"],
+     "The answer didn't match what the model was waiting for, so Ryker sent it back to fix that."},
+    {["record_refs", "artifact_refs", "host-issued reference"],
+     "The answer pointed to a record or file that doesn't exist, so Ryker sent it back to fix the reference."},
+    {["JSON", "top-level object", "For delivery"],
+     "The answer wasn't in the shape Ryker needs, so Ryker sent it back to be written again."}
+  ]
+
+  defp sent_back_reason(correction) do
+    case uncommitted(correction) do
+      nil ->
+        known_reason(correction)
+
+      1 ->
+        "The model said it was done, but 1 changed file wasn't committed yet, so Ryker sent it back to commit it."
+
+      count ->
+        "The model said it was done, but #{count} changed files weren't committed yet, so Ryker sent it back to commit them."
+    end
+  end
+
+  defp known_reason(correction) do
+    fallback = "This one didn't pass those checks, so Ryker sent it back for the model to fix."
+
+    Enum.find_value(@sent_back, fallback, fn {phrases, words} ->
+      if String.contains?(correction, phrases), do: words
+    end)
+  end
+
+  defp uncommitted(correction) do
+    case Regex.run(~r/has (\d+) uncommitted or conflicted path/, correction) do
+      [_whole, count] -> String.to_integer(count)
+      nil -> nil
+    end
+  end
 
   defp delivery_summary(%{"delivery" => "reply", "message" => message}) when is_binary(message),
     do: "Ryker accepted this response for delivery."

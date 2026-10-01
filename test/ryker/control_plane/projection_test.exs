@@ -576,11 +576,44 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     # QA re-test, 2026-09-26: a rejected answer's step quoted the correction
     # sent to the model ("Call validate_final with this exact candidate…").
     # It says why in a sentence; the exact correction is under Details.
+    # Andrew, 2026-10-01, of "Answer rejected": "i do not follow what this card means in practice,
+    # in simple english, what was rejected, why, etc, is it a failure? is it a bug?.."
     assert Enum.map(validation_steps, & &1.summary) == [
-             "Ryker sent this answer back for the model to fix. What it told the model is under Details.",
+             "Ryker checks every answer before sending it. This one didn't pass those checks, so Ryker sent it back for the model to fix. This is a routine check, not an error.",
              "Ryker checked the answer and accepted it on attempt 3.",
-             "Ryker rejected this answer and asked the model to correct it."
+             "Ryker checks every answer before sending it. This one didn't pass those checks, so Ryker sent it back for the model to fix. This is a routine check, not an error."
            ]
+
+    assert Enum.map(validation_steps, & &1.title) == [
+             "Sent back to fix",
+             "Answer validated",
+             "Sent back to fix"
+           ]
+
+    refute Enum.any?(validation_steps, &(&1.tone == :bad))
+
+    committed =
+      put_in(validation_history, [Access.at(1), "violations"], [
+        "Do not complete while the engineering workspace has 7 uncommitted or conflicted path(s). Commit the intended task changes and return the corrected final in this same turn."
+      ])
+
+    Repo.update_all(
+      from(saved in Ryker.Work.Turn, where: saved.id == ^measured.id),
+      set: [validation_history: committed]
+    )
+
+    assert {:ok, committed_detail} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
+
+    assert Enum.find(committed_detail.trace.steps, &(&1.stage == "Validation")).summary ==
+             "Ryker checks every answer before sending it. The model said it was done, but 7 changed files weren't committed yet, so Ryker sent it back to commit them. This is a routine check, not an error."
+
+    Repo.update_all(
+      from(saved in Ryker.Work.Turn, where: saved.id == ^measured.id),
+      set: [validation_history: validation_history]
+    )
+
+    assert {:ok, validation_detail} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
+    validation_steps = Enum.filter(validation_detail.trace.steps, &(&1.stage == "Validation"))
 
     assert hd(validation_steps).details == [
              %{label: "What Ryker told the model", value: "Supply the missing evidence."}
