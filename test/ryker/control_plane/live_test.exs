@@ -47,6 +47,8 @@ defmodule Ryker.ControlPlane.LiveTest do
       })
 
     options = %{
+      # The address this console is published at, as Tailscale serves one.
+      public_host: "mac-server.example.ts.net",
       actions: Actions.callbacks(%{environments: %{}, fallback_work_profile: lab_profile}),
       csrf_secret: String.duplicate("s", 32),
       observability: %{},
@@ -2127,10 +2129,6 @@ defmodule Ryker.ControlPlane.LiveTest do
   # A console published at a tailnet name (mac-server, 2026-10-01) must go live there too: the
   # page would render and its socket would be refused, leaving every button dead.
   test "socket connect admits the address the console is published at and no other name" do
-    published =
-      Map.put(Endpoint.config(:control_plane), :public_host, "mac-server.example.ts.net")
-
-    :ok = Endpoint.config_change([{Endpoint, [control_plane: published]}], [])
     socket = %Phoenix.Socket{}
 
     tailnet = %{

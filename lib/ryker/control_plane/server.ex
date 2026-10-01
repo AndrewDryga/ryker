@@ -34,6 +34,7 @@ defmodule Ryker.ControlPlane.Server do
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
     options = options!(configuration)
+    :ok = Actions.put_current(actions(options))
 
     Endpoint.child_spec(
       server: true,
@@ -44,22 +45,38 @@ defmodule Ryker.ControlPlane.Server do
       control_plane: %{
         access: options.access,
         public_host: public_host(options.public_url),
-        actions:
-          Actions.callbacks(
-            options.chat,
-            options.task_policies,
-            %{
-              coop_api: options.coop_api,
-              coop_client: options.coop_client
-            },
-            options.schedule_policy_resolver
-          ),
+        actions: Actions.live(),
         csrf_secret: options.csrf_secret,
         observability: Observability.callbacks(),
         projection: Projection.callbacks()
       }
     )
     |> Map.put(:id, __MODULE__)
+  end
+
+  @doc """
+  Takes a changed configuration into the running console when its listener stays the same: its
+  actions call the new one from now on and open pages stay connected. A new listener needs a new
+  console.
+  """
+  @spec reconfigure(keyword() | map(), keyword() | map()) :: :ok | :restart
+  def reconfigure(previous, configuration) do
+    if listener(previous) == listener(configuration),
+      do: configuration |> options!() |> actions() |> Actions.put_current(),
+      else: :restart
+  end
+
+  defp listener(configuration),
+    do:
+      configuration |> normalize!() |> Map.take([:access, :csrf_secret, :ip, :port, :public_url])
+
+  defp actions(options) do
+    Actions.callbacks(
+      options.chat,
+      options.task_policies,
+      %{coop_api: options.coop_api, coop_client: options.coop_client},
+      options.schedule_policy_resolver
+    )
   end
 
   @doc false

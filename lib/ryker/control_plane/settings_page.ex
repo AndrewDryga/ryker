@@ -66,7 +66,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:failure, :string, default: nil)
   attr(:reveal, :map, default: nil)
   attr(:confirm, :any, default: nil, doc: "{action, ref} of the question now open, if any")
-  attr(:slack_members, :list, default: [])
+  attr(:slack_people, :map, default: nil, doc: "Choose people, open: members, search, choice")
 
   attr(:form, :any,
     default: nil,
@@ -167,14 +167,16 @@ defmodule Ryker.ControlPlane.SettingsPage do
         tone={:error}
         class="page-feedback"
       />
+      <%!-- A save is confirmed once: while the running Ryker picks it up, the same line says so
+      (Andrew, 2026-10-01: "confirmation blocks are annoying … why there is always two of them"). --%>
       <Components.form_feedback
         :if={@notice}
-        message={@notice}
+        message={if @view.applying, do: @notice <> " Applying it now…", else: @notice}
         tone={:success}
         class="page-feedback"
       />
       <Components.form_feedback
-        :if={@view.applying}
+        :if={@view.applying and is_nil(@notice)}
         message="Applying the saved settings…"
         tone={:info}
         class="page-feedback"
@@ -210,7 +212,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           view={@view}
           commands={@commands}
           confirm={@confirm}
-          slack_members={@slack_members}
+          slack_people={@slack_people}
         />
         <.github :if={@section == :github} view={@view} commands={@commands} confirm={@confirm} />
         <.emisar :if={@section == :emisar} view={@view} />
@@ -613,7 +615,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:view, :map, required: true)
   attr(:commands, :map, required: true)
   attr(:confirm, :any, default: nil)
-  attr(:slack_members, :list, required: true)
+  attr(:slack_people, :map, required: true)
 
   defp slack(assigns) do
     view = assigns.view
@@ -674,46 +676,15 @@ defmodule Ryker.ControlPlane.SettingsPage do
       title="Who can manage Ryker"
       lede="These people can change Ryker's settings from Slack."
     >
-      <:actions :if={@slack_members == []}>
+      <:actions :if={is_nil(@slack_people)}>
         <button
           type="button"
           class={["ui-button", if(@connected, do: "secondary", else: "primary")]}
           phx-click="load-slack-members"
         >Choose people</button>
       </:actions>
-      <%!-- Each group is said once: the people chosen here by name, and the
-      workspace's admins and owners as the switch below. --%>
-      <Kit.facts
-        :if={@slack_members == [] and @managers != []}
-        id="slack-managers"
-        facts={[{"Chosen people", people(@managers)}]}
-      />
-      <Kit.empty
-        :if={@slack_members == [] and !@admins and @managers == []}
-        variant={:hint}
-        icon={:chat}
-        title="Nobody can manage Ryker yet"
-        text="Choose at least one person who can change Ryker's settings from Slack."
-      />
-      <form :if={@slack_members != []} phx-submit="save-slack-choices" class="settings-people-form">
-        <div class="settings-people-list" role="group" aria-label="People who can manage Ryker">
-          <label :for={member <- @slack_members} class="settings-option">
-            <input
-              type="checkbox"
-              name="operators[]"
-              value={member.id}
-              checked={member.id in @view.snapshot.slack.operators}
-            />
-            <span><strong>{member.name}</strong></span>
-          </label>
-        </div>
-        <div class="settings-actions">
-          <button class="ui-button primary" type="submit">Save changes</button>
-          <button type="button" class="ui-button secondary" phx-click="cancel-slack-members">
-            Cancel
-          </button>
-        </div>
-      </form>
+      <%!-- The switch saves as it changes, so it comes first; the people chosen by
+      name follow with their own Save (Andrew, 2026-10-01: it sat under their buttons). --%>
       <.live_component
         module={SettingsEditor}
         id="settings-slack-admins"
@@ -723,6 +694,21 @@ defmodule Ryker.ControlPlane.SettingsPage do
         show_header={false}
         frame={:none}
       />
+      <%!-- Each group is said once: the people chosen here by name, and the
+      workspace's admins and owners as the switch above. --%>
+      <Kit.facts
+        :if={is_nil(@slack_people) and @managers != []}
+        id="slack-managers"
+        facts={[{"Chosen people", people(@managers)}]}
+      />
+      <Kit.empty
+        :if={is_nil(@slack_people) and !@admins and @managers == []}
+        variant={:hint}
+        icon={:chat}
+        title="Nobody can manage Ryker yet"
+        text="Choose at least one person who can change Ryker's settings from Slack."
+      />
+      <.people_picker :if={@slack_people} people={@slack_people} />
     </Kit.section_card>
 
     <.live_component
@@ -744,6 +730,83 @@ defmodule Ryker.ControlPlane.SettingsPage do
       <.slack_form label="Replace tokens" />
     </Kit.section_card>
     """
+  end
+
+  # Everyone Slack lists, searched and shown a page at a time: a workspace can hold hundreds or
+  # thousands (Andrew, 2026-10-01). The page's rows say who was shown, so a person chosen and then
+  # searched past stays chosen.
+  attr(:people, :map, required: true)
+
+  defp people_picker(assigns) do
+    %{members: members, query: query, shown: shown, chosen: chosen} = assigns.people
+    needle = query |> String.trim() |> String.downcase()
+
+    matching =
+      if needle == "",
+        do: members,
+        else: Enum.filter(members, &String.contains?(String.downcase(&1.name), needle))
+
+    chosen_names = for member <- members, MapSet.member?(chosen, member.id), do: member.name
+
+    assigns =
+      assign(assigns,
+        rows: Enum.take(matching, shown),
+        rest: max(length(matching) - shown, 0),
+        total: length(members),
+        matching: length(matching),
+        chosen_names: chosen_names
+      )
+
+    ~H"""
+    <form
+      id="slack-people"
+      phx-change="slack-people"
+      phx-submit="save-slack-choices"
+      class="settings-people-form"
+      autocomplete="off"
+    >
+      <label class="settings-people-search">
+        <span>Search {@total} people</span><input
+          type="search"
+          name="query"
+          value={@people.query}
+          placeholder="Name"
+          phx-debounce="200"
+        />
+      </label>
+      <p class="settings-help" id="slack-people-chosen">{chosen_line(@chosen_names)}</p>
+      <div class="settings-people-list" role="group" aria-label="People who can manage Ryker">
+        <label :for={member <- @rows} class="settings-option">
+          <input type="hidden" name="shown[]" value={member.id} />
+          <input
+            type="checkbox"
+            name="operators[]"
+            value={member.id}
+            checked={MapSet.member?(@people.chosen, member.id)}
+          />
+          <span><strong>{member.name}</strong></span>
+        </label>
+      </div>
+      <p :if={@matching == 0} class="settings-help">Nobody's name matches “{@people.query}”.</p>
+      <button :if={@rest > 0} type="button" class="ui-button quiet" phx-click="slack-people-more">
+        Show {min(@rest, 50)} more
+      </button>
+      <div class="settings-actions">
+        <button class="ui-button primary" type="submit">Save changes</button>
+        <button type="button" class="ui-button secondary" phx-click="cancel-slack-members">
+          Cancel
+        </button>
+      </div>
+    </form>
+    """
+  end
+
+  defp chosen_line([]), do: "Nobody chosen yet."
+
+  defp chosen_line(names) do
+    {first, rest} = Enum.split(names, 5)
+    more = if rest == [], do: "", else: " and #{length(rest)} more"
+    "#{length(names)} chosen: #{Enum.join(first, ", ")}#{more}"
   end
 
   attr(:label, :string, required: true)
@@ -1216,6 +1279,21 @@ defmodule Ryker.ControlPlane.SettingsPage do
   defp emisar_form(assigns) do
     ~H"""
     <form phx-submit="connect-emisar" autocomplete="off" class="settings-form">
+      <%!-- Emisar cannot say which account a key belongs to, so its name is asked for here
+      (Andrew, 2026-10-01). --%>
+      <div class="settings-field">
+        <label for="emisar-connect-name">Name (optional)</label>
+        <p class="settings-help">
+          How Ryker names this account, such as your company in Emisar. Empty uses its address.
+        </p>
+        <input
+          id="emisar-connect-name"
+          type="text"
+          name="connection[display_name]"
+          maxlength="120"
+          placeholder="Acme, Inc."
+        />
+      </div>
       <div class="settings-field">
         <label for="emisar-connect-token">API key</label>
         <p class="settings-help">

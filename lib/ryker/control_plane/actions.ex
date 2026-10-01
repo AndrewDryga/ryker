@@ -41,6 +41,35 @@ defmodule Ryker.ControlPlane.Actions do
 
   @actor_ref "control-plane:local"
   @lab_actor_ref "local-operator"
+  @current {__MODULE__, :current}
+
+  @doc """
+  The console's actions, each calling the callbacks that are current (`put_current/1`) when it
+  is called. A settings change that gives Chat another environment, or tasks other policies,
+  reaches open pages without restarting the console: a restart dropped every open page, and the
+  one that had just connected an Emisar account reloaded on its empty form (mac-server,
+  2026-10-01).
+  """
+  @spec live() :: map()
+  def live do
+    Map.new(callbacks(), fn {name, fun} ->
+      {:arity, arity} = Function.info(fun, :arity)
+      {name, delegate(name, arity)}
+    end)
+  end
+
+  @doc "Makes `callbacks` what the console's live actions call from now on."
+  @spec put_current(map()) :: :ok
+  def put_current(callbacks) when is_map(callbacks), do: :persistent_term.put(@current, callbacks)
+
+  defp current, do: :persistent_term.get(@current, nil) || callbacks()
+
+  defp delegate(name, 0), do: fn -> current()[name].() end
+  defp delegate(name, 1), do: fn a -> current()[name].(a) end
+  defp delegate(name, 2), do: fn a, b -> current()[name].(a, b) end
+  defp delegate(name, 3), do: fn a, b, c -> current()[name].(a, b, c) end
+  defp delegate(name, 4), do: fn a, b, c, d -> current()[name].(a, b, c, d) end
+  defp delegate(name, 5), do: fn a, b, c, d, e -> current()[name].(a, b, c, d, e) end
 
   # Chat's placements: the Work profile of every environment that can run
   # work, by ref, and the profile of work outside any environment. Each

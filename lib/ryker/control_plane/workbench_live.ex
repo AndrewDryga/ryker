@@ -79,6 +79,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # A burst of announcements (a turn finishing writes a dozen rows) redraws a
   # page once, this long after the first of them.
   @reload_debounce_ms 100
+  # People Choose people shows at a time; Show more adds as many again.
+  @slack_people_page 50
 
   # What the topics pages listen to announce; each context documents its own
   # (`Ryker.Episodes.subscribe_episode/1`, ...). The page hears only the topics
@@ -141,7 +143,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        knowledge_question: nil,
        channel_notice: nil,
        welcome_pending: nil,
-       slack_members: [],
+       slack_people: nil,
        settings_form: nil,
        weekly_preview: nil,
        weekly_sent: nil,
@@ -585,24 +587,24 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
            setup_notice: "The new tokens are verified. Slack stays on for the same people.",
            setup_failure: nil,
            setup_reveal: nil,
-           slack_members: []
+           slack_people: nil
          )}
 
       {:ok, _off} ->
-        members =
-          case IntegrationSetup.slack_members() do
-            {:ok, found} -> found
-            _error -> []
+        socket = refresh_settings(socket)
+
+        people =
+          case list_slack_members() do
+            {:ok, [_ | _] = members} -> slack_people(members, socket)
+            _none -> nil
           end
 
         {:noreply,
-         socket
-         |> refresh_settings()
-         |> assign(
+         assign(socket,
            setup_notice: "Slack is verified.",
            setup_failure: nil,
            setup_reveal: nil,
-           slack_members: members
+           slack_people: people
          )}
 
       {:error, reason} ->
@@ -611,9 +613,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   def handle_event("load-slack-members", _params, socket) do
-    case IntegrationSetup.slack_members() do
+    case list_slack_members() do
       {:ok, members} ->
-        {:noreply, assign(socket, slack_members: members, setup_notice: nil, setup_failure: nil)}
+        {:noreply,
+         assign(socket,
+           slack_people: slack_people(members, socket),
+           setup_notice: nil,
+           setup_failure: nil
+         )}
 
       {:error, reason} ->
         {:noreply, failed(socket, reason)}
@@ -621,19 +628,46 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   def handle_event("cancel-slack-members", _params, socket),
-    do: {:noreply, assign(socket, :slack_members, [])}
+    do: {:noreply, assign(socket, :slack_people, nil)}
+
+  # A search or a tick: the choice lives here, so a person chosen and then searched past stays
+  # chosen (Andrew, 2026-10-01: "some orgs have hundreds of people").
+  def handle_event("slack-people", params, %{assigns: %{slack_people: %{} = people}} = socket) do
+    query = Map.get(params, "query", people.query)
+    shown = if query == people.query, do: people.shown, else: @slack_people_page
+
+    {:noreply,
+     assign(socket, :slack_people, %{
+       people
+       | chosen: chosen_people(people, params),
+         query: query,
+         shown: shown
+     })}
+  end
+
+  def handle_event("slack-people", _params, socket), do: {:noreply, socket}
+
+  def handle_event(
+        "slack-people-more",
+        _params,
+        %{assigns: %{slack_people: %{} = people}} = socket
+      ),
+      do:
+        {:noreply,
+         assign(socket, :slack_people, %{people | shown: people.shown + @slack_people_page})}
+
+  def handle_event("slack-people-more", _params, socket), do: {:noreply, socket}
 
   # Choosing who can manage Ryker finishes connecting Slack and changes nothing
   # else. Until 2026-09-24 this save also wrote "only when mentioned" as the
   # default for every channel, undoing whatever the operator had chosen there.
-  def handle_event("save-slack-choices", params, socket) do
-    allowed_members = MapSet.new(socket.assigns.slack_members, & &1.id)
-
-    operators =
-      params
-      |> Map.get("operators", [])
-      |> List.wrap()
-      |> Enum.filter(&MapSet.member?(allowed_members, &1))
+  def handle_event(
+        "save-slack-choices",
+        params,
+        %{assigns: %{slack_people: %{} = people}} = socket
+      ) do
+    chosen = chosen_people(people, params)
+    operators = for member <- people.members, MapSet.member?(chosen, member.id), do: member.id
 
     view = elem(socket.assigns.settings, 1)
 
@@ -649,13 +683,15 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          |> assign(
            setup_notice: "Saved who can manage Ryker.",
            setup_failure: nil,
-           slack_members: []
+           slack_people: nil
          )}
 
       {:error, reason} ->
         {:noreply, failed(socket, reason)}
     end
   end
+
+  def handle_event("save-slack-choices", _params, socket), do: {:noreply, socket}
 
   def handle_event("connect-github", %{"connection" => params}, socket) do
     case IntegrationSetup.connect_github(params) do
@@ -1626,6 +1662,40 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp finish_setup(socket, {:error, reason}, _message), do: failed(socket, reason)
 
+  # Who Slack lists as the workspace's people. A console's config may name the lister, as tests
+  # do; otherwise Slack is asked.
+  defp list_slack_members do
+    case Map.get(Endpoint.config(:control_plane), :slack_members) do
+      lister when is_function(lister, 0) -> lister.()
+      _slack -> IntegrationSetup.slack_members()
+    end
+  end
+
+  defp slack_people(members, socket) do
+    ids = MapSet.new(members, & &1.id)
+    operators = elem(socket.assigns.settings, 1).snapshot.slack.operators
+
+    %{
+      chosen: operators |> MapSet.new() |> MapSet.intersection(ids),
+      members: members,
+      query: "",
+      shown: @slack_people_page
+    }
+  end
+
+  # The rows the page drew say who was shown; of those, the ticked ones are chosen. Everyone the
+  # page did not draw keeps what they were.
+  defp chosen_people(people, params) do
+    ids = MapSet.new(people.members, & &1.id)
+    shown = params |> Map.get("shown", []) |> List.wrap() |> MapSet.new()
+    ticked = params |> Map.get("operators", []) |> List.wrap() |> MapSet.new()
+
+    people.chosen
+    |> MapSet.difference(shown)
+    |> MapSet.union(MapSet.intersection(ticked, shown))
+    |> MapSet.intersection(ids)
+  end
+
   # A refusal is said in the error tone, never in the tone of a success.
   defp failed(socket, reason),
     do:
@@ -2400,7 +2470,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             failure={@setup_failure}
             confirm={@settings_confirm}
             reveal={@setup_reveal}
-            slack_members={@slack_members}
+            slack_people={@slack_people}
             form={@settings_form}
             params={@params}
             preview={@weekly_preview}

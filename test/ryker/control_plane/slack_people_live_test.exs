@@ -37,24 +37,26 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
   @switch "#{@managers} input[type=checkbox][name=workspace_admins_manage]"
 
   setup do
-    start_supervised!(
-      {Endpoint,
-       server: false,
-       secret_key_base: String.duplicate("s", 64),
-       pubsub_server: Ryker.PubSub.Server,
-       live_view: [signing_salt: "slack-people-test"],
-       check_origin: ["//localhost:4321"],
-       url: [host: "localhost", port: 4321],
-       control_plane: %{
-         actions: Actions.callbacks(),
-         projection: Projection.callbacks(),
-         observability: %{},
-         csrf_secret: String.duplicate("s", 32)
-       }}
-    )
+    people = start_supervised!({Agent, fn -> [] end})
+
+    start_supervised!({Endpoint,
+     server: false,
+     secret_key_base: String.duplicate("s", 64),
+     pubsub_server: Ryker.PubSub.Server,
+     live_view: [signing_salt: "slack-people-test"],
+     check_origin: ["//localhost:4321"],
+     url: [host: "localhost", port: 4321],
+     control_plane: %{
+       actions: Actions.callbacks(),
+       projection: Projection.callbacks(),
+       observability: %{},
+       csrf_secret: String.duplicate("s", 32),
+       # Who Slack lists as the workspace's people, instead of asking Slack.
+       slack_members: fn -> {:ok, Agent.get(people, & &1)} end
+     }})
 
     {:ok, _snapshot} = Settings.initialize(@actor)
-    :ok
+    %{people: people}
   end
 
   test "who can manage Ryker names each person, linked to Slack, and the name arrives without a reload" do
@@ -114,6 +116,56 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
     refute Settings.fetch!().slack.workspace_admins_manage
     assert eventually(fn -> not has_element?(view, "#{@switch}[checked]") end)
     assert has_element?(view, "#{@chosen} dd a[href='#{@profile}']", "@Andrew")
+  end
+
+  # Andrew, 2026-10-01, setting up the blitz workspace: "layout broken and not all people shown
+  # here, need paging and a search too? some orgs have hundreds of people". Choose people drew
+  # every member at once, with the admins switch under its Save and Cancel, and had no way to
+  # find one person among hundreds.
+  test "choosing who can manage Ryker finds anyone in a large workspace and keeps the choice",
+       %{people: listed} do
+    names!(%{})
+    slack_on!([])
+
+    people =
+      [%{id: "U0ADA", name: "Ada Lovelace"}] ++
+        for n <- 1..120,
+            do: %{
+              id: "U0#{1000 + n}",
+              name: "Person #{n |> to_string() |> String.pad_leading(3, "0")}"
+            }
+
+    Agent.update(listed, fn _none -> people end)
+    {:ok, view, _html} = open("/integrations/slack")
+    view |> element("#{@managers} button", "Choose people") |> render_click()
+
+    # The switch saves as it changes, so it comes first; the people follow with their own Save.
+    html = view |> element(@managers) |> render()
+
+    assert position(html, ~s(name="workspace_admins_manage")) <
+             position(html, ~s(id="slack-people"))
+
+    assert has_element?(view, "#slack-people label", "Search 121 people")
+    assert length(rows(view)) == 50
+    assert has_element?(view, "#slack-people button", "Show 50 more")
+
+    # A search finds anyone, and a choice outlives the search that found it.
+    view |> form("#slack-people", %{"query" => "ada"}) |> render_change()
+    assert rows(view) == ["Ada Lovelace"]
+
+    view
+    |> form("#slack-people", %{"query" => "ada", "operators" => ["U0ADA"]})
+    |> render_change()
+
+    view |> form("#slack-people", %{"query" => ""}) |> render_change()
+    assert has_element?(view, "#slack-people input[value=U0ADA][checked]")
+    assert has_element?(view, "#slack-people", "1 chosen: Ada Lovelace")
+
+    view |> element("#slack-people button", "Show 50 more") |> render_click()
+    assert length(rows(view)) == 100
+
+    view |> form("#slack-people") |> render_submit()
+    assert Settings.fetch!().slack.operators == ["U0ADA"]
   end
 
   test "with nobody chosen, workspace admins and owners are who can manage Ryker" do
@@ -305,6 +357,21 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
       Custody.freeze_submission(episode_id, claim.turn.turn_ref, claim.lease_ref, submission)
 
     claim.episode
+  end
+
+  defp rows(view) do
+    view
+    |> render()
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("#slack-people .settings-option strong")
+    |> Enum.map(&LazyHTML.text/1)
+  end
+
+  defp position(html, fragment) do
+    case :binary.match(html, fragment) do
+      {index, _length} -> index
+      :nomatch -> flunk("#{fragment} is not in #{html}")
+    end
   end
 
   defp managers_text(view) do
