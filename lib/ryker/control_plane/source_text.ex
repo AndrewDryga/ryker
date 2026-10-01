@@ -3,6 +3,11 @@ defmodule Ryker.ControlPlane.SourceText do
 
   alias Ryker.GitHub.Input, as: GitHubInput
 
+  # An answer given with a question card's button carries the chosen option, not text
+  # (Andrew, 2026-10-01: the timeline said "Source content not recorded or expired").
+  def from_content(%{"choice" => choice, "interaction_kind" => "button"}) when is_binary(choice),
+    do: "Answered “#{choice}”"
+
   def from_content(%{} = content) do
     text = content["text"]
     blocks = if present?(text), do: [], else: list(content["blocks"])

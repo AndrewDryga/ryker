@@ -1,9 +1,18 @@
 defmodule Ryker.Records.InputRequestsTest do
   use Ryker.DataCase, async: false
+  import Phoenix.LiveViewTest
   import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ryker.Admission.Executor
-  alias Ryker.ControlPlane.{ConversationProjection, HTML}
+
+  alias Ryker.ControlPlane.{
+    ConversationProjection,
+    EpisodePage,
+    EpisodeProjection,
+    HTML,
+    ModelRequests
+  }
+
   alias Ryker.Delivery.ChatCard
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -177,6 +186,59 @@ defmodule Ryker.Records.InputRequestsTest do
       assert FakeCoopAPI.state(routing).submit_count == 0
       assert FakeCoopAPI.state(routing).create_keys == []
     end
+  end
+
+  # Andrew, 2026-10-01, of the timeline after he answered a question card: "Incoming event · You ·
+  # Source content not recorded or expired", then "Participation: The participation decision and
+  # channel settings were not recorded for this message" — "we should show what initiated the
+  # episode continuation not just show 'oh it was something'".
+  @tag isolation: "REPEATABLE READ"
+  test "a card answer reads in the timeline as the answer that continued the work" do
+    fixture = delivered_question!(:control_plane)
+
+    assert {:ok, answer} =
+             InputRequests.answer(
+               answer(fixture, 1, "timeline")
+               |> Map.put(:actor_ref, "local-operator")
+               |> Map.put(:occurred_at, DateTime.add(DateTime.utc_now(), 1, :second))
+             )
+
+    assert {:ok, %{lease_ref: lease_ref}} =
+             Inbox.claim_next("executor:timeline", DateTime.add(@now, 5, :second), 300)
+
+    {:ok, routing} = FakeCoopAPI.start_link([])
+
+    assert {:ok, _execution} =
+             Executor.run(answer.input_ref,
+               api: FakeCoopAPI,
+               client: routing,
+               lease_ref: lease_ref,
+               max_polls: 1,
+               now: fn -> DateTime.add(@now, 5, :second) end,
+               policy: "admission-read-only",
+               policy_digest: String.duplicate("a", 64),
+               poll_interval_ms: 0,
+               renew_lease: fn -> :ok end,
+               sleep: fn _milliseconds -> :ok end
+             )
+
+    {:ok, detail} = EpisodeProjection.fetch(fixture.episode.key)
+    {:ok, timeline} = ModelRequests.timeline(detail.episode.ref, %{})
+
+    document =
+      render_component(&EpisodePage.render/1,
+        snapshot: detail,
+        timeline: timeline,
+        requests: nil,
+        params: %{}
+      )
+      |> LazyHTML.from_fragment()
+
+    text = LazyHTML.text(document)
+    assert text =~ "Answer to Ryker's question"
+    assert text =~ "Answered “Stop the rollout”"
+    refute text =~ "Source content not recorded or expired"
+    refute text =~ "participation decision and channel settings were not recorded"
   end
 
   # Andrew, 2026-10-01, on a Chat question he had answered: his answer read
