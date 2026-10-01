@@ -186,6 +186,27 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ ~s("artifact_refs":)
   end
 
+  # Andrew, 2026-10-01, of a Slack task offer that began "Prepared for confirmation: …" and
+  # explained "Confirmation is required because the repository access provided for this
+  # investigation is read-only": say it as "Okay, I will … If that sounds good please click
+  # "Start task" below and I'll work on a draft PR." And a task that is clearly underspecified
+  # may get a question first, "but also it should not be annoying and grill users with questions
+  # all the time esp for small things".
+  test "a task offer reads as Ryker's plan, and asks first only what decides the work" do
+    instructions =
+      Prompt.build(%{})
+      |> Jason.decode!()
+      |> Map.fetch!("instructions")
+      |> String.replace(~r/\s+/, " ")
+
+    refute instructions =~ "prepared for confirmation"
+    assert instructions =~ "Okay, I'll"
+    assert instructions =~ "click Start task below"
+    assert instructions =~ "Never explain why confirmation is needed"
+    assert instructions =~ "ask one short question with request_input before offering it"
+    assert instructions =~ "Never ask about small or obvious details"
+  end
+
   test "a conversation summary is written for the person reading it" do
     # QA re-test, 2026-09-26: Learned › Conversation summaries showed
     # "Automation offer record:schedule_offer:7ed4…" and "A durable input
