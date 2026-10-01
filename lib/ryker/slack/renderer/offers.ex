@@ -54,20 +54,18 @@ defmodule Ryker.Slack.Renderer.Offers do
   defp offer_summary(%{"repository" => repository, "title" => title} = offer),
     do: offer_lines("*#{escape(title)}*\nRepository: `#{escape(repository)}`", offer)
 
-  defp offer_lines(head, offer), do: Enum.join([head | offer_brief(offer)], "\n")
+  defp offer_lines(head, offer), do: Enum.join([head | offer_brief(offer)], "\n\n")
 
   # What the task will do, from the fields the host validated. The offer's
   # `prompt` is the worker's own instruction and never appears here: this card
   # carries a button that grants authority, so model-authored instructions stay
-  # off it. Checks, limits and the exact source say what is being authorized
-  # without quoting what the worker was told.
-  defp offer_brief(%{"success_checks" => checks, "authority_limits" => limits} = offer)
+  # off it. Checks and limits say what is being authorized without quoting what
+  # the worker was told, each on a line of its own: joined with semicolons under
+  # "Will not:" they read as one run-on sentence, and "Will not: Change only …"
+  # said the opposite of what it meant (Andrew, 2026-10-01).
+  defp offer_brief(%{"success_checks" => checks, "authority_limits" => limits})
        when is_list(checks) and is_list(limits) do
-    [
-      offer_list("Checks", checks),
-      offer_list("Will not", limits),
-      offer_sources(offer["source_refs"])
-    ]
+    [offer_list("Done when", checks), offer_list("Limits", limits)]
     |> Enum.reject(&is_nil/1)
   end
 
@@ -80,19 +78,12 @@ defmodule Ryker.Slack.Renderer.Offers do
     shown =
       values
       |> Enum.take(@brief_items)
-      |> Enum.map_join("; ", &(&1 |> truncate(@brief_item_characters) |> escape()))
+      |> Enum.map(&("• " <> (&1 |> truncate(@brief_item_characters) |> escape())))
 
     hidden = length(values) - @brief_items
-    more = if hidden > 0, do: " · #{hidden} more", else: ""
-    "*#{label}:* #{shown}#{more}"
+    more = if hidden > 0, do: ["• and #{hidden} more"], else: []
+    Enum.join(["*#{label}:*" | shown ++ more], "\n")
   end
-
-  defp offer_sources(refs) when is_list(refs) and refs != [] do
-    count = length(refs)
-    "*Evidence:* #{count} #{plural(count, "source", "sources")}"
-  end
-
-  defp offer_sources(_refs), do: nil
 
   defp offer_source(%{"repository_source" => %{"kind" => kind, "name" => name}})
        when is_binary(kind) and is_binary(name),

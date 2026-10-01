@@ -514,8 +514,11 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     }
 
     assert {:ok, handoff} = WorkRecord.build(room.ref, record_target, :handoff)
-    assert handoff["message"] =~ "Latest progress: verifying"
-    assert handoff["message"] =~ "Publication: none recorded"
+    assert handoff["message"] =~ "*Where this stands* — Checkout errors"
+    assert handoff["message"] =~ "Latest update: Checkout traffic recovered"
+    # An incident opens no pull request, and whether its cause is known matters to it.
+    refute handoff["message"] =~ "draft PR"
+    assert handoff["message"] =~ "Unknown: Root cause is not established"
 
     assert {:ok, postmortem} = WorkRecord.build(room.ref, record_target, :postmortem)
     assert postmortem["message"] =~ "human review is required"

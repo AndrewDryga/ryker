@@ -8,7 +8,9 @@ defmodule Ryker.Slack.TaskCardDetailsTest do
 
   test "task cards keep all seven stages visible, bold the current work and mark the human handoff" do
     # The production card showed four recent progress notes and one flat goal
-    # list, so a waiting subtask erased which stage the task was in.
+    # list, so a waiting subtask erased which stage the task was in. Andrew, 2026-10-01, of a
+    # current plan step bold for three lines: "should plan steps be all bold or just some part of
+    # it bold?" The step is bold; what it is doing now reads plain beside it.
     task =
       Map.put(task(), "stages", [
         stage("workspace_setup", "completed"),
@@ -45,7 +47,7 @@ defmodule Ryker.Slack.TaskCardDetailsTest do
                  "*◷ Implementation · 2/4 subtasks ← 🙋 your turn*",
                  "    ✓ Export bounded per-worker memory metrics",
                  "    ✓ Add protected diagnostic capture",
-                 "    *◷ Drain and recycle workers safely · waiting for the storage-location answer*",
+                 "    ◷ *Drain and recycle workers safely* · waiting for the storage-location answer",
                  "    ○ Cover cooldown and worker replacement",
                  "○ Self-review and checks",
                  "○ Draft PR",

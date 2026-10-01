@@ -1400,8 +1400,10 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     assert handoff.title == "Task handoff"
-    assert handoff.body =~ task_offer.ref
-    assert handoff.body =~ "State: Working"
+    # The task by its title and where it stands, not by Ryker's reference to it (2026-10-01).
+    assert handoff.body =~ "Finish Lab parity"
+    refute handoff.body =~ task_offer.ref
+    assert handoff.body =~ "Working."
     refute handoff.body =~ "owner"
 
     assert view_actions.view_lab_task_record.(

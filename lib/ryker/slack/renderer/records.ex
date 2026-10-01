@@ -352,13 +352,15 @@ defmodule Ryker.Slack.Renderer.Records do
 
   defp flagged_file(:unrecognized), do: "• An issue I can't describe."
 
-  defp input_request_blocks(ref, %{"choices" => choices, "question" => question} = payload) do
+  defp input_request_blocks(ref, %{"choices" => choices, "question" => question}) do
     question_block = %{
       "text" => plain_text(question),
       "type" => "section"
     }
 
-    introduction = [question_block] ++ remembered_answer_notice(payload["remember"])
+    # The question says what it needs; a note that the answer will be remembered said nothing a
+    # person could use (Andrew, 2026-10-01: "that text on the bottom is useless").
+    introduction = [question_block]
 
     case choices do
       [] ->
@@ -435,21 +437,6 @@ defmodule Ryker.Slack.Renderer.Records do
       context("Choose one, then submit. You can also reply in this thread.")
     ]
   end
-
-  defp remembered_answer_notice(%{"subject" => subject, "applicability" => applicability}) do
-    [
-      %{
-        "type" => "context",
-        "elements" => [
-          plain_text(
-            "I'll remember an operator's answer across conversations for #{subject} — #{applicability}."
-          )
-        ]
-      }
-    ]
-  end
-
-  defp remembered_answer_notice(_intent), do: []
 
   defp question_status("answered"), do: "Answered · reply retained separately"
   defp question_status("dismissed"), do: "Question closed"
