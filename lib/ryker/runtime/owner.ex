@@ -235,10 +235,21 @@ defmodule Ryker.Runtime.Owner do
       nil ->
         start_child(state, running, key, module, configuration)
 
-      _changed ->
-        stop_child(state, running, key)
-        start_child(state, Map.delete(running, key), key, module, configuration)
+      %{configuration: previous} = child ->
+        if reconfigured?(module, previous, configuration) do
+          {:ok, Map.put(running, key, %{child | configuration: configuration})}
+        else
+          stop_child(state, running, key)
+          start_child(state, Map.delete(running, key), key, module, configuration)
+        end
     end
+  end
+
+  # A runtime that can take a new configuration while it runs says so, as the console does for
+  # everything but its listener; a restart drops what it holds open, such as every open page.
+  defp reconfigured?(module, previous, configuration) do
+    Code.ensure_loaded?(module) and function_exported?(module, :reconfigure, 2) and
+      module.reconfigure(previous, configuration) == :ok
   end
 
   defp start_child(state, running, key, module, configuration) do

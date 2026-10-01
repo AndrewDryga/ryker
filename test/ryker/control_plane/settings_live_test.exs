@@ -25,21 +25,21 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
         end
       end)
 
-    start_supervised!(
-      {Endpoint,
-       server: false,
-       secret_key_base: String.duplicate("s", 64),
-       pubsub_server: Ryker.PubSub.Server,
-       live_view: [signing_salt: "settings-test"],
-       check_origin: ["//localhost:4321"],
-       url: [host: "localhost", port: 4321],
-       control_plane: %{
-         actions: Actions.callbacks(),
-         projection: projection,
-         observability: %{},
-         csrf_secret: String.duplicate("s", 32)
-       }}
-    )
+    start_supervised!({Endpoint,
+     server: false,
+     secret_key_base: String.duplicate("s", 64),
+     pubsub_server: Ryker.PubSub.Server,
+     live_view: [signing_salt: "settings-test"],
+     check_origin: ["//localhost:4321"],
+     url: [host: "localhost", port: 4321],
+     control_plane: %{
+       actions: Actions.callbacks(),
+       projection: projection,
+       observability: %{},
+       csrf_secret: String.duplicate("s", 32),
+       # Who Slack lists as the workspace's people, instead of asking Slack.
+       slack_members: fn -> {:ok, [%{id: "U0123456789", name: "Andrew"}]} end
+     }})
 
     %{unavailable: unavailable}
   end
@@ -143,7 +143,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     end
 
     # Emisar with no account leads to the page where one is connected, and
-    # that page asks only for the token and the address.
+    # that page asks for the token and the address, and for a name only if the operator wants one:
+    # Emisar cannot say which account a key belongs to (Andrew, 2026-10-01).
     {:ok, emisar, _html} = open("/integrations/emisar")
     assert has_element?(emisar, "a[href='/integrations/emisar/new']", "Connect an account")
     refute has_element?(emisar, "form[phx-submit=connect-emisar]")
@@ -152,7 +153,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(emisar, "form[phx-submit=connect-emisar]", "Connect account")
     refute has_element?(emisar, "details form[phx-submit=connect-emisar]")
     refute has_element?(emisar, "input[name='connection[ref]']")
-    refute has_element?(emisar, "input[name='connection[display_name]']")
+    assert has_element?(emisar, "input[name='connection[display_name]']:not([required])")
 
     assert get(build_conn() |> Map.put(:host, "localhost"), "/settings/connections").status == 404
 
@@ -795,6 +796,32 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert [%{ref: "production", emisar_connection_ref: nil}] = Settings.fetch!().environments
   end
 
+  # Andrew, 2026-10-01, setting up the tenant workspace: "after new emisar account connected i see
+  # form again maybe redirect me here: …/integrations/emisar". Connecting lands on the accounts,
+  # says where the new one is used, and offers no form.
+  test "connecting an Emisar account lands on the accounts and says where it is used" do
+    initialize!()
+    {:ok, view, _html} = open("/integrations/emisar/new")
+
+    # Emisar cannot say which account a key belongs to, so the name is asked for with the key
+    # (Andrew, 2026-10-01: "can it pick up emisar account name automatically? if not add optional
+    # name field to setup form"); both accounts he connected read "emisar.dev" until renamed.
+    view
+    |> form("form[phx-submit=connect-emisar]", %{
+      "connection" => %{
+        "display_name" => "Tenant App, Inc.",
+        "token" => "emisar-token-that-is-long-enough",
+        "rpc_url" => "https://emisar.example/api/mcp/rpc"
+      }
+    })
+    |> render_submit()
+
+    assert_patch(view, "/integrations/emisar")
+    assert has_element?(view, ".form-feedback-success", "Emisar account is connected")
+    refute has_element?(view, "form[phx-submit=connect-emisar]")
+    assert [%{display_name: "Tenant App, Inc."}] = Settings.fetch!().emisar_connections
+  end
+
   test "disconnecting Slack asks what it will do and acts only on the answer" do
     # Disconnect Slack and Disconnect GitHub deleted the saved tokens on one
     # click, with nothing between the button and the loss.
@@ -953,7 +980,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     connect_slack!(:proactive)
     {:ok, view, _html} = open("/integrations/slack")
 
-    render_submit(view, "save-slack-choices", %{})
+    view |> element("button", "Choose people") |> render_click()
+    view |> form("#slack-people") |> render_submit()
 
     slack = Settings.fetch!().slack
     assert slack.enabled

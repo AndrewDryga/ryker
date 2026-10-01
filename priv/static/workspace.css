@@ -1778,8 +1778,8 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .repository-import li input { width:18px; height:18px; accent-color:var(--ryker-mint); }
 .repository-import li strong { min-width:0; overflow-wrap:anywhere; }
 .repository-import li span { font-size:13px; color:var(--ryker-text-secondary); }
-.repository-search { display:grid; gap:6px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.ryker-app .repository-search input { box-sizing:border-box; width:100%; max-width:420px; min-height:var(--ryker-control-height); padding:8px 12px; border:1px solid var(--ryker-control-border); border-radius:8px; background:var(--ryker-control-bg); color:var(--ryker-text); font:inherit; font-size:14px; }
+.repository-search, .settings-people-search { display:grid; gap:6px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.ryker-app :is(.repository-search, .settings-people-search) input { box-sizing:border-box; width:100%; max-width:420px; min-height:var(--ryker-control-height); padding:8px 12px; border:1px solid var(--ryker-control-border); border-radius:8px; background:var(--ryker-control-bg); color:var(--ryker-text); font:inherit; font-size:14px; }
 .repository-import .member-choice { display:flex; align-items:center; gap:8px; font-size:14px; line-height:20px; color:var(--ryker-text); }
 .repository-import-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .repository-select-all { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0; }
@@ -2042,6 +2042,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-address code { font:12px/18px var(--ryker-font-mono); color:var(--ryker-text); overflow-wrap:anywhere; }
 
 .settings-people-form { display:grid; gap:16px; max-width:720px; }
+.settings-people-form > .ui-button.quiet { justify-self:start; }
 .settings-people-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:0 16px; max-height:360px; overflow:auto; }
 .settings-inline-form { display:flex; align-items:flex-end; flex-wrap:wrap; gap:8px 12px; max-width:720px; }
 .settings-inline-form > .settings-field { flex:1 1 320px; }

@@ -154,6 +154,44 @@ defmodule Ryker.IntegrationSetupTest do
     defp response(body), do: {:ok, %{body: body, headers: [], status: 200}}
   end
 
+  # Slack listing a workspace's people a page at a time, as it does: a page may hold fewer
+  # people than the limit while more pages follow.
+  defmodule PagedMembersRequester do
+    def request(_client, :get, "/users.list?limit=200", _body, _headers),
+      do: page([person("U2", "Zoe")], "page-2")
+
+    def request(_client, :get, "/users.list?limit=200&cursor=page-2", _body, _headers),
+      do:
+        page(
+          [person("U3", "Bea"), %{"deleted" => true, "id" => "U9", "is_bot" => false}],
+          "page-3"
+        )
+
+    def request(_client, :get, "/users.list?limit=200&cursor=page-3", _body, _headers),
+      do: page([person("U1", "Ada")], "")
+
+    defp person(id, name),
+      do: %{
+        "deleted" => false,
+        "id" => id,
+        "is_bot" => false,
+        "profile" => %{"real_name" => name}
+      }
+
+    defp page(members, cursor) do
+      {:ok,
+       %{
+         body: %{
+           "members" => members,
+           "ok" => true,
+           "response_metadata" => %{"next_cursor" => cursor}
+         },
+         headers: [],
+         status: 200
+       }}
+    end
+  end
+
   # Slack answering for tokens of another workspace.
   defmodule OtherWorkspaceRequester do
     def request(client, :post, "/auth.test", body, headers) do
@@ -193,6 +231,18 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert {:ok, [%{id: "U1", name: "Ada"}, %{id: "U2", name: "Zoe"}]} =
              IntegrationSetup.slack_members(requester: Requester)
+  end
+
+  # Andrew, 2026-10-01, setting up the tenant workspace: "not all people shown here … some orgs
+  # have hundreds of people". Choose people read only Slack's first page of members, and Slack
+  # often returns fewer than the limit on a page while more pages follow, so most of a large
+  # workspace was never offered.
+  test "Choose people offers everyone in the workspace, page after page" do
+    assert {:ok, _credential} =
+             Credentials.put(:slack_bot, "primary", "xoxb-this-is-a-long-bot-token", @actor)
+
+    assert {:ok, members} = IntegrationSetup.slack_members(requester: PagedMembersRequester)
+    assert Enum.map(members, & &1.name) == ["Ada", "Bea", "Zoe"]
   end
 
   # Andrew chose himself on Integrations › Slack on 2026-09-26 and the list

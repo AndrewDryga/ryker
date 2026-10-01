@@ -61,6 +61,30 @@ defmodule Ryker.Runtime.OwnerTest do
     assert "//127.0.0.1:14321" in Endpoint.config(:check_origin)
   end
 
+  # mac-server, 2026-10-01: connecting the first Emisar account also made the Default environment,
+  # which the console offers Chat, and the owner restarted the whole console for it ("DRAINING 1 of
+  # 1 total connection(s) for socket Ryker.ControlPlane.LiveSocket"). The page that had just
+  # connected the account lost its way back to the accounts and reloaded on the empty form
+  # (Andrew: "after new emisar account connected i see form again"), and open pages came back late
+  # ("it took a while for them to activate themselves").
+  test "a change the console can take in place leaves its open pages connected", context do
+    owner = start_owner(context)
+    {:ok, saved} = initialize()
+    assert applied(owner, saved)
+    console = console_pids(context)
+
+    {:ok, added} =
+      Settings.put_environment(
+        %{ref: "staging", display_name: "Staging"},
+        saved.installation.revision,
+        @actor
+      )
+
+    assert applied(owner, added)
+    assert Map.has_key?(Application.get_env(:ryker, :control_plane).environments, "staging")
+    assert console_pids(context) == console
+  end
+
   test "an unavailable settings database is retried, never mistaken for a fresh install",
        context do
     # Falling back to fresh setup here would generate a second installation
@@ -306,6 +330,12 @@ defmodule Ryker.Runtime.OwnerTest do
     revision = snapshot.installation.revision
     assert Owner.reconcile(owner) in [{:ok, :applied}, {:ok, :unchanged}]
     Owner.applied_revision(owner) == revision
+  end
+
+  defp console_pids(context) do
+    for {_id, pid, _type, [Ryker.ControlPlane.Endpoint]} <-
+          DynamicSupervisor.which_children(context.supervisor),
+        do: pid
   end
 
   defp console_running?(context) do

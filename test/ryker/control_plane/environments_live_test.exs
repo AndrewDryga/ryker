@@ -310,6 +310,17 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert_patch(view, "/environments")
     assert has_element?(view, ".form-feedback-success", "Staging was saved.")
     assert has_element?(view, "#environment-staging .entity-text", "Pre-release checks")
+
+    # Once, in one line (Andrew, 2026-10-01, of "… was saved." over "Applying the saved
+    # settings…": "confirmation blocks are annoying … why there is always two of them").
+    assert [feedback] =
+             view
+             |> render()
+             |> LazyHTML.from_document()
+             |> LazyHTML.query(".page-feedback")
+             |> Enum.to_list()
+
+    assert LazyHTML.text(feedback) =~ "Staging was saved. Applying it now…"
   end
 
   # Andrew, 2026-09-27: "can we here limit read or read/write access per

@@ -321,6 +321,25 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
            end)
   end
 
+  # Andrew, 2026-10-01, of the setup page while he connected Emisar: "emisar is connected but this
+  # card doesn't show it … it took a while for them to activate themselves". The open page follows
+  # a connection made elsewhere; what made it late on mac-server was the console restarting
+  # under it (OwnerTest, "a change the console can take in place …").
+  test "an Emisar account connected elsewhere shows on the open setup page" do
+    assert {:ok, _snapshot} = Settings.initialize(@actor)
+    {:ok, view, _html} = open("/setup")
+    refute has_element?(view, ".setup-emisar[data-state=ready]")
+
+    assert {:ok, _connected} =
+             Ryker.IntegrationSetup.connect_emisar(%{
+               "rpc_url" => "https://emisar.example/api/mcp/rpc",
+               "token" => "emisar-token-that-is-long-enough"
+             })
+
+    assert shows?(fn -> has_element?(view, ".setup-emisar[data-state=ready]", "Connected") end)
+    assert has_element?(view, ".setup-meter-extra[data-done=true]")
+  end
+
   # Andrew, 2026-09-27, on Integrations › Emisar: "blue thing on top of this
   # page appears and disappears in cycles". Repository setup saves a settings
   # revision per step, twice a second while it ran, and every settings page
