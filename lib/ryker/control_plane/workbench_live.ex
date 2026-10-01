@@ -418,6 +418,23 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_async(:slack_members, {:ok, {:ok, members}}, socket),
+    do: {:noreply, assign(socket, :slack_people, slack_people(members, socket))}
+
+  def handle_async(:slack_members, {:ok, {:error, reason}}, socket),
+    do: {:noreply, socket |> assign(:slack_people, nil) |> failed(reason)}
+
+  def handle_async(:slack_members, {:exit, {:shutdown, :cancel}}, socket),
+    do: {:noreply, socket}
+
+  def handle_async(:slack_members, {:exit, _reason}, socket),
+    do:
+      {:noreply,
+       assign(socket,
+         slack_people: nil,
+         setup_failure: "Ryker could not list the people in Slack. Choose people to try again."
+       )}
+
   def handle_async(:github_repositories, {:ok, {:ok, repositories}}, socket),
     do:
       {:noreply,
@@ -591,44 +608,22 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          )}
 
       {:ok, _off} ->
-        socket = refresh_settings(socket)
-
-        people =
-          case list_slack_members() do
-            {:ok, [_ | _] = members} -> slack_people(members, socket)
-            _none -> nil
-          end
-
         {:noreply,
-         assign(socket,
-           setup_notice: "Slack is verified.",
-           setup_failure: nil,
-           setup_reveal: nil,
-           slack_people: people
-         )}
+         socket
+         |> refresh_settings()
+         |> assign(setup_notice: "Slack is verified.", setup_failure: nil, setup_reveal: nil)
+         |> load_slack_people()}
 
       {:error, reason} ->
         {:noreply, failed(socket, reason)}
     end
   end
 
-  def handle_event("load-slack-members", _params, socket) do
-    case list_slack_members() do
-      {:ok, members} ->
-        {:noreply,
-         assign(socket,
-           slack_people: slack_people(members, socket),
-           setup_notice: nil,
-           setup_failure: nil
-         )}
-
-      {:error, reason} ->
-        {:noreply, failed(socket, reason)}
-    end
-  end
+  def handle_event("load-slack-members", _params, socket),
+    do: {:noreply, socket |> assign(setup_notice: nil, setup_failure: nil) |> load_slack_people()}
 
   def handle_event("cancel-slack-members", _params, socket),
-    do: {:noreply, assign(socket, :slack_people, nil)}
+    do: {:noreply, socket |> cancel_async(:slack_members) |> assign(:slack_people, nil)}
 
   # A search or a tick: the choice lives here, so a person chosen and then searched past stays
   # chosen (Andrew, 2026-10-01: "some orgs have hundreds of people").
@@ -1662,12 +1657,23 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp finish_setup(socket, {:error, reason}, _message), do: failed(socket, reason)
 
+  # Reading every page of a large workspace takes a while, so the people load beside the page,
+  # which says so; a second click while they load starts nothing (Andrew, 2026-10-01: "button not
+  # even blocked making me click it 5 times").
+  defp load_slack_people(%{assigns: %{slack_people: :loading}} = socket), do: socket
+
+  defp load_slack_people(socket) do
+    socket
+    |> assign(:slack_people, :loading)
+    |> start_async(:slack_members, slack_members_lister())
+  end
+
   # Who Slack lists as the workspace's people. A console's config may name the lister, as tests
   # do; otherwise Slack is asked.
-  defp list_slack_members do
+  defp slack_members_lister do
     case Map.get(Endpoint.config(:control_plane), :slack_members) do
-      lister when is_function(lister, 0) -> lister.()
-      _slack -> IntegrationSetup.slack_members()
+      lister when is_function(lister, 0) -> lister
+      _slack -> &IntegrationSetup.slack_members/0
     end
   end
 

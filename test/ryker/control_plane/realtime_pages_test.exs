@@ -328,7 +328,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
   test "an Emisar account connected elsewhere shows on the open setup page" do
     assert {:ok, _snapshot} = Settings.initialize(@actor)
     {:ok, view, _html} = open("/setup")
-    refute has_element?(view, ".setup-emisar[data-state=ready]")
+    refute has_element?(view, "#setup-emisar[data-state=done]")
 
     assert {:ok, _connected} =
              Ryker.IntegrationSetup.connect_emisar(%{
@@ -336,8 +336,8 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
                "token" => "emisar-token-that-is-long-enough"
              })
 
-    assert shows?(fn -> has_element?(view, ".setup-emisar[data-state=ready]", "Connected") end)
-    assert has_element?(view, ".setup-meter-extra[data-done=true]")
+    assert shows?(fn -> has_element?(view, "#setup-emisar[data-state=done]", "Emisar") end)
+    assert has_element?(view, ".setup-meter > span[data-optional=true][data-done=true]")
   end
 
   # Andrew, 2026-09-27, on Integrations › Emisar: "blue thing on top of this
