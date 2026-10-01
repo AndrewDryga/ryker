@@ -140,10 +140,11 @@ defmodule Ryker.Evals.OperatorTaskTest do
     # On a fresh CI host, elixir-check and eval-host-replay both tried to create
     # the same Compose container. One lost the name race after ten green minutes
     # of tests, so the database service must exist before the fan-out begins.
+    # A Coop box has no Docker; Coop started the same service as its sidecar.
     makefile = File.read!(Path.expand("../../../Makefile", __DIR__))
 
     assert makefile =~
-             ~r/^test-db-ready:\n\tdocker compose --project-name ryker-kernel --file compose\.test\.yml up --detach --wait episode-db/m
+             ~r/^test-db-ready:\n\tif command -v docker [^\n]*\n\t\tdocker compose --project-name ryker-kernel --file compose\.test\.yml up --detach --wait episode-db/m
 
     assert makefile =~ ~r/^check: test-db-ready$/m
   end

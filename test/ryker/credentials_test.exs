@@ -3,8 +3,9 @@ defmodule Ryker.CredentialsTest do
 
   import Ecto.Query
 
+  alias Ryker.Credential
+  alias Ryker.Credential.Event
   alias Ryker.Credentials
-  alias Ryker.Credentials.{Credential, Event}
 
   @actor "control-plane:test"
   @secret "xoxb-super-secret-value-that-must-never-render"

@@ -894,7 +894,7 @@ defmodule Ryker.Retention.DataTest do
     blocked = insert_reaction!("blocked", "blocked")
     credential_event_id = Ecto.UUID.generate()
 
-    Repo.insert!(%Ryker.Credentials.Event{
+    Repo.insert!(%Ryker.Credential.Event{
       id: credential_event_id,
       kind: :webhook,
       name: "retention-audit",
@@ -913,7 +913,7 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get(Ryker.Delivery.RoutingResponse, delivered) == nil
     assert Repo.get!(Ryker.Delivery.RoutingResponse, blocked).status == :blocked
     assert result.audit_rows == 5
-    assert Repo.get(Ryker.Credentials.Event, credential_event_id) == nil
+    assert Repo.get(Ryker.Credential.Event, credential_event_id) == nil
     assert Actions.fetch("operator-action:old-operator-action") == :error
   end
 

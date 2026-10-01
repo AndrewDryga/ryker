@@ -1,4 +1,4 @@
-defmodule Ryker.Credentials.Credential do
+defmodule Ryker.Credential do
   @moduledoc false
   use Ecto.Schema
 

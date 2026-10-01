@@ -8,7 +8,8 @@ defmodule Ryker.Credentials do
 
   import Ecto.Query
 
-  alias Ryker.Credentials.{Credential, Event}
+  alias Ryker.Credential
+  alias Ryker.Credential.Event
   alias Ryker.Repo
 
   @key_version 1

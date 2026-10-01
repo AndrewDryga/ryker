@@ -2,20 +2,29 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-compose=(docker compose --project-name ryker-kernel --file "$root/compose.test.yml")
 
 cd "$root"
 
-# `up` is a no-op when the healthy container already matches compose.test.yml
-# and recreates it when the file changed, so a capacity change lands on the
-# next run instead of after someone remembers to down it.
-"${compose[@]}" up --detach --wait episode-db >/dev/null
+if command -v docker >/dev/null 2>&1; then
+  compose=(docker compose --project-name ryker-kernel --file "$root/compose.test.yml")
 
-address=$("${compose[@]}" port episode-db 5432)
+  # `up` is a no-op when the healthy container already matches compose.test.yml
+  # and recreates it when the file changed, so a capacity change lands on the
+  # next run instead of after someone remembers to down it.
+  "${compose[@]}" up --detach --wait episode-db >/dev/null
 
-export PGHOST=127.0.0.1
+  address=$("${compose[@]}" port episode-db 5432)
+
+  export PGHOST=127.0.0.1
+  export PGPORT=${address##*:}
+elif [[ -z ${PGHOST:-} ]]; then
+  # A Coop box has no Docker: Coop starts compose.test.yml as the box's sidecar
+  # and names it in PGHOST (.agent/project.yaml).
+  echo "no docker to start compose.test.yml, and no PGHOST naming a test PostgreSQL" >&2
+  exit 1
+fi
+
 export PGPASSWORD=postgres
-export PGPORT=${address##*:}
 export PGUSER=postgres
 
 isolated_database=0
