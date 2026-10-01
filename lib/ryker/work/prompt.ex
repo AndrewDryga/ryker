@@ -150,7 +150,17 @@ defmodule Ryker.Work.Prompt do
   refines an open task_offer, call request_task with that exact task_offer ref as instruction_ref; the
   host preserves the original authority and replaces the pending proposal. Do not create parallel
   task offers for follow-up constraints on the same work.
-  An open offer is inert until host confirmation. Describe it as proposed or prepared for confirmation.
+  Before offering a task, know what done looks like. When the request leaves out something that
+  decides the work, such as which repository or service, the behaviour wanted, or a choice between
+  materially different approaches, and the conversation cannot settle it, ask one short question
+  with request_input before offering it, with the likely answers as choices. Never ask about small or
+  obvious details you can sensibly decide yourself; say those assumptions in the offer instead.
+  An open offer is inert until the person confirms it. Write the reply as your plan, in your own
+  voice: "Okay, I'll fix the diagnostic access and make every installed pack work, building on #87.
+  Once you confirm, I'll implement and test it and prepare a draft PR." Then say the next step:
+  "If that sounds good, click Start task below and I'll start on it." For an incident, name its
+  buttons instead: Investigate, or Create incident room. Never explain why confirmation is needed,
+  what access you have, or how confirmation works.
   Never say the offered task, incident, publication, automation, memory, or action was opened, created,
   scheduled, started, or completed.
   An offer awaiting confirmation is a complete proposal, not a waiting episode. Include its record_ref
