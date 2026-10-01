@@ -110,7 +110,10 @@ defmodule Ryker.Work.SubmissionBuilder do
     items = get_in(context, ["inputs", "items"]) || []
     current = Enum.count(items, & &1["current"])
     earlier = length(items) - current
-    offered = length(snapshot.active) + length(snapshot.historical)
+
+    offered =
+      length(snapshot.active) + length(snapshot.historical) +
+        length(Map.get(snapshot, :linked, []))
 
     %{
       "version" => 1,
@@ -379,11 +382,14 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   defp fit_inputs(context, snapshot, document) do
     %{active: active, historical: historical, total_count: total_count} = snapshot
+    linked = Map.get(snapshot, :linked, [])
 
+    # Sequences count within one request, so the conversation a task came from reads first.
     selected =
-      (active ++ historical)
-      |> Enum.uniq_by(& &1.id)
-      |> Enum.sort_by(& &1.sequence)
+      linked ++
+        ((active ++ historical)
+         |> Enum.uniq_by(& &1.id)
+         |> Enum.sort_by(& &1.sequence))
 
     inputs = %{
       "items" => Enum.map(selected, document),
@@ -397,6 +403,9 @@ defmodule Ryker.Work.SubmissionBuilder do
     cond do
       context_bytes <= @maximum_context_bytes and artifact_count <= 5 ->
         {:ok, fitted, eligible}
+
+      linked != [] ->
+        fit_inputs(context, %{snapshot | linked: tl(linked)}, document)
 
       historical != [] ->
         fit_inputs(context, %{snapshot | historical: tl(historical)}, document)
@@ -589,13 +598,45 @@ defmodule Ryker.Work.SubmissionBuilder do
         |> Enum.reverse()
       end
 
+    linked = linked_inputs(episode, historical_slots - length(historical))
+
     %{
       active: active,
       first: Repo.one(from(event in visible, order_by: [asc: event.sequence], limit: 1)),
       historical: historical,
-      total_count: Repo.aggregate(visible, :count)
+      linked: linked,
+      total_count: Repo.aggregate(visible, :count) + linked_count(episode)
     }
   end
+
+  # A task, or work started from linked history, is a request of its own: the conversation it came
+  # from is another request. Its briefing carried only that request's id, and the model never saw
+  # the messages that led to the task (Andrew, 2026-10-01: "it doesn't receive previous messages
+  # so it can lose important context"). They come before its own, newest kept, and are the first
+  # dropped when the briefing is too big.
+  defp linked_inputs(%Episode{linked_episode_id: linked}, slots)
+       when is_binary(linked) and slots > 0 do
+    from(event in Event,
+      where: event.episode_id == ^linked and event.kind == :input_admitted,
+      order_by: [desc: event.sequence],
+      limit: ^slots
+    )
+    |> Repo.all()
+    |> Enum.reverse()
+  end
+
+  defp linked_inputs(_episode, _slots), do: []
+
+  defp linked_count(%Episode{linked_episode_id: linked}) when is_binary(linked),
+    do:
+      Repo.aggregate(
+        from(event in Event,
+          where: event.episode_id == ^linked and event.kind == :input_admitted
+        ),
+        :count
+      )
+
+  defp linked_count(_episode), do: 0
 
   defp previous_turn(episode_id, turn_id) do
     Repo.one(
