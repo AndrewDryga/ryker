@@ -959,7 +959,14 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
            |> LazyHTML.query(".ui-message-body")
            |> Enum.count(&(LazyHTML.text(&1) =~ reply)) == 1
 
-    for words <- ["Local operator", "Accepted candidate", "Episode title", "Maintenance"] do
+    # "Episode title" alone was a field label; Andrew asked on 2026-10-01 for the line that says a
+    # reply renamed the request to read "Episode title is updated to:".
+    for words <- [
+          "Local operator",
+          "Accepted candidate",
+          ~r/Episode title(?! is updated to:)/,
+          "Maintenance"
+        ] do
       refute html =~ words
     end
 
@@ -981,6 +988,9 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert [edited] = working
     assert LazyHTML.text(edited) =~ @edited_follow_up
     refute Enum.any?(working, &(LazyHTML.text(&1) =~ @first_question))
+
+    # The working line is the routing line's kind, so it does not move when it replaces it.
+    assert edited |> LazyHTML.query("p.lab-message-progress.lab-typing-indicator") |> Enum.any?()
 
     # The same holds when that run stops: "Model work stopped" and its Retry sat
     # under both questions in the same QA pass.

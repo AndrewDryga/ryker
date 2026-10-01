@@ -185,6 +185,35 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     refute source_fields =~ "overflow:visible"
   end
 
+  # Andrew, 2026-10-01, opening a tool step's Response in a timeline: its 941-byte JSON stood on
+  # one line and stretched the step to 3,735 px, because the copy block put the text out of reach
+  # of the disclosure's wrapping rule. Above Raw arguments sat two lines, the card header's
+  # hairline and the disclosure's own border.
+  test "a tool step's raw evidence wraps inside its card, under one line" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    assert [_, raw] =
+             Regex.run(
+               ~r/^\.ui-disclosure-body > pre, \.ui-disclosure-body > \.copy-block > pre \{([^}]+)\}/m,
+               css
+             )
+
+    assert raw =~ "max-width:100%"
+    assert raw =~ "white-space:pre-wrap"
+    assert raw =~ "overflow-wrap:anywhere"
+
+    assert css =~
+             ".case-entry .case-card-heading + .action-description:not(:last-child) + .action-raw { border-top:0; padding-top:0; }"
+
+    assert [_, opened] =
+             Regex.run(
+               ~r/^\.case-entry \.tool-run-body \.case-card-heading \+ \.action-description:not\(:last-child\) \{([^}]+)\}/m,
+               css
+             )
+
+    assert opened =~ "border-bottom:0"
+  end
+
   test "the open mobile workspace menu remains inside the viewport" do
     # At 390px the menu's 320px content box opened from the More trigger and
     # widened the document to 447px. Anchor it to the full mobile navigation.
@@ -336,6 +365,15 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
              Regex.run(~r/\.lab-message-progress \.lab-progress-status \{([^}]+)\}/, css)
 
     assert status =~ "color:var(--ryker-text-secondary)"
+  end
+
+  # Andrew, 2026-10-01: "when status was routing status was closer to the message text then it
+  # 'jumped' down. Status line should not move as it changes." The working line had rules of its
+  # own and stood 24 px tall where the routing line is 18 px, so its words dropped as it took over.
+  # Both are now one kind of line.
+  test "Chat's status line keeps its place as routing gives way to work" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    refute css =~ "lab-typing-indicator"
   end
 
   test "chapters preserve late follow-ups and tied activity in execution order" do

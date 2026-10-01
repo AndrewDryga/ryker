@@ -58,25 +58,32 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   defp work_step(%Turn{remote_finished_at: nil, accepted_at: nil}, _ordinal), do: nil
 
+  # The request card says the model, tokens, cost and how long a run took, so a finished run is a
+  # step of its own only when its timing or usage was not reported (Andrew, 2026-10-01, of
+  # "Run 1 finished · Details · Work claims 8": "how this card is helpful?").
   defp work_step(turn, ordinal) do
-    issue = measurement_issue(turn)
+    case measurement_issue(turn) do
+      nil ->
+        nil
 
-    step(
-      "turn-#{turn.id}-work",
-      :work,
-      turn.remote_finished_at || turn.accepted_at || turn.remote_started_at,
-      %{
-        actor: "Coop",
-        owner: {:turn, turn.id},
-        details: work_details(turn),
-        duration_ms: turn.usage_provider_ms,
-        stage: "Execution",
-        state: work_state(turn),
-        summary: issue,
-        title: "Run #{ordinal} finished",
-        tone: if(issue, do: :warn)
-      }
-    )
+      issue ->
+        step(
+          "turn-#{turn.id}-work",
+          :work,
+          turn.remote_finished_at || turn.accepted_at || turn.remote_started_at,
+          %{
+            actor: "Coop",
+            owner: {:turn, turn.id},
+            details: [],
+            duration_ms: turn.usage_provider_ms,
+            stage: "Execution",
+            state: "finished",
+            summary: issue,
+            title: "Run #{ordinal} finished",
+            tone: :warn
+          }
+        )
+    end
   end
 
   defp answer_steps(turn, ordinal) do
@@ -434,15 +441,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp coop_summary(_payload), do: "The worker sent an update about this request."
   defp coop_tone(kind) when kind in ["candidate", "validation"], do: :good
   defp coop_tone(_kind), do: nil
-
-  defp work_state(%Turn{remote_finished_at: nil, accepted_at: nil}), do: "running"
-  defp work_state(_turn), do: "finished"
-
-  defp work_details(turn) do
-    compact_details([
-      {"Work claims", if(turn.work_attempt_count > 1, do: turn.work_attempt_count)}
-    ])
-  end
 
   defp measurement_issue(%Turn{measurement_error_code: code})
        when is_binary(code) and code != "",

@@ -1256,7 +1256,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp minor_entry?(%{kind: :event, step: %{tone: tone}}) when tone in [:bad, :warn], do: false
 
   defp minor_entry?(%{kind: :event, step: %{stage: stage}})
-       when stage in ["Queue", "Tool call", "Maintenance"],
+       when stage in ["Queue", "Tool call", "Maintenance", "Thinking"],
        do: true
 
   defp minor_entry?(%{kind: :event, step: step} = entry),

@@ -342,7 +342,10 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       |> LazyHTML.from_fragment()
 
     assert renamed |> LazyHTML.query(".title-update") |> LazyHTML.text() |> words() ==
-             "Title updated to: Investigate checkout 502s"
+             "Episode title is updated to: Investigate checkout 502s"
+
+    # Andrew, 2026-10-01: "rename to 'Episode title is updated to: ' and remove pencil icon".
+    refute renamed |> LazyHTML.query(".title-update .ui-icon") |> Enum.any?()
 
     # The same title again, as every later answer of the request sends it.
     # Only the raw response, opened on purpose, still carries it.

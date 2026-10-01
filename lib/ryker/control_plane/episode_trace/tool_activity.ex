@@ -353,12 +353,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   end
 
   # A thought as the model summarized it: Codex writes a bold heading, then
-  # at times a paragraph under it. The heading is the card's title.
+  # at times a paragraph under it. A heading alone, "Selecting the reply
+  # button", read as a step Ryker took (Andrew, 2026-10-01: "what does this
+  # card mean in simple english, in practice?"); it is the model's own note.
   defp activity_step(%ActivityEvent{kind: "model.thought"} = event, _disclosed) do
     {title, summary} =
       case event.payload["text"] do
         text when is_binary(text) -> thought_parts(text)
-        _withheld -> {"Thinking", withheld_thought(event.payload)}
+        _withheld -> {"Model's note", withheld_thought(event.payload)}
       end
 
     step("activity-#{event.id}", :work, event.occurred_at, %{
@@ -483,8 +485,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp thought_parts(text) do
     case Regex.run(~r/\A\s*\*\*([^*\n]{1,200})\*\*\s*(.*)\z/s, text) do
-      [_whole, heading, rest] -> {String.trim(heading), present(String.trim(rest))}
-      nil -> {"Thinking", text}
+      [_whole, heading, rest] ->
+        {"Model's note: " <> String.trim(heading), present(String.trim(rest))}
+
+      nil ->
+        {"Model's note", text}
     end
   end
 

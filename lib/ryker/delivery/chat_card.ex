@@ -575,13 +575,15 @@ defmodule Ryker.Delivery.ChatCard do
   defp task_publication_actions(_publication), do: []
 
   defp common(record, label, title, summary, details, action, choices \\ []) do
+    {outcome, confirmed} = split_outcome(outcome(record))
+
     %{
       action: if(record.status == :open, do: action, else: nil),
       choices: choices,
-      details: details,
+      details: confirmed_details(details, confirmed),
       kind: record.kind,
       label: label,
-      outcome: outcome(record),
+      outcome: outcome,
       ref: record.ref,
       status: record.status,
       summary: summary,
@@ -598,6 +600,21 @@ defmodule Ryker.Delivery.ChatCard do
     do: confirmed_outcome(record)
 
   defp outcome(_record), do: nil
+
+  # What the saved row says about a fact the offer also stated, how often a schedule runs, takes
+  # that fact's place among the details rather than repeating it beside the confirmed state
+  # (Andrew, 2026-10-01: "● Scheduled · runs once on … · Open schedule" under "How often: Once on
+  # …" was "messy").
+  defp split_outcome(%{details: details} = outcome), do: {Map.delete(outcome, :details), details}
+  defp split_outcome(outcome), do: {outcome, []}
+
+  defp confirmed_details(details, []), do: details
+
+  defp confirmed_details(details, confirmed) do
+    Enum.map(details, fn {label, value} ->
+      {label, List.keyfind(confirmed, label, 0, {label, value}) |> elem(1)}
+    end)
+  end
 
   defp confirmed_outcome(%Record{kind: "schedule_offer", id: id}) do
     case Repo.get_by(Schedule, offer_record_id: id) do
@@ -623,7 +640,7 @@ defmodule Ryker.Delivery.ChatCard do
 
   defp confirmed_outcome(%Record{kind: "automation_change_offer", payload: payload}) do
     {link, href} = automation_link(payload["automation_id"])
-    outcome_line(:on, "Change applied", nil, link, href)
+    outcome_line(:on, "Change applied", link, href)
   end
 
   defp confirmed_outcome(_record), do: nil
@@ -631,12 +648,15 @@ defmodule Ryker.Delivery.ChatCard do
   defp schedule_outcome(%Schedule{status: :active} = schedule) do
     cadence = ScheduleCadence.describe(schedule.recurrence, schedule.timezone)
     {link, href} = automation_link(schedule.ref)
-    outcome_line(:on, "Scheduled", "runs " <> lowercase_first(cadence), link, href)
+
+    :on
+    |> outcome_line("Scheduled", link, href)
+    |> Map.put(:details, [{"How often", cadence}])
   end
 
   defp schedule_outcome(%Schedule{status: status} = schedule) do
     {link, href} = automation_link(schedule.ref)
-    outcome_line(:off, "Schedule " <> schedule_state(status), nil, link, href)
+    outcome_line(:off, "Schedule " <> schedule_state(status), link, href)
   end
 
   defp schedule_state(:paused), do: "paused"
@@ -645,27 +665,27 @@ defmodule Ryker.Delivery.ChatCard do
   defp schedule_state(:deleted), do: "deleted"
 
   defp memory_outcome(%MemoryEntry{status: :active, ref: ref}),
-    do: outcome_line(:on, "Saved to memory", nil, "Open facts", "/memory#" <> fact_id(ref))
+    do: outcome_line(:on, "Saved to memory", "Open facts", "/memory#" <> fact_id(ref))
 
   defp memory_outcome(%MemoryEntry{status: :superseded}),
-    do: outcome_line(:off, "Memory replaced by a newer version", nil, nil, nil)
+    do: outcome_line(:off, "Memory replaced by a newer version", nil, nil)
 
   defp memory_outcome(%MemoryEntry{status: :deleted}),
-    do: outcome_line(:off, "Memory forgotten", nil, nil, nil)
+    do: outcome_line(:off, "Memory forgotten", nil, nil)
 
   defp memory_outcome(%MemoryEntry{status: :expired}),
-    do: outcome_line(:off, "Memory expired", nil, nil, nil)
+    do: outcome_line(:off, "Memory expired", nil, nil)
 
   defp behavior_outcome(%Behavior{kind: kind, status: status, ref: ref}) do
     name = behavior_name(kind)
     {link, href} = behavior_link(kind, ref)
 
     case status do
-      :active -> outcome_line(:on, name <> " saved", nil, link, href)
-      :disabled -> outcome_line(:off, name <> " paused", nil, link, href)
-      :deleted -> outcome_line(:off, name <> " deleted", nil, nil, nil)
-      :expired -> outcome_line(:off, name <> " expired", nil, nil, nil)
-      :superseded -> outcome_line(:off, name <> " replaced by a newer version", nil, nil, nil)
+      :active -> outcome_line(:on, name <> " saved", link, href)
+      :disabled -> outcome_line(:off, name <> " paused", link, href)
+      :deleted -> outcome_line(:off, name <> " deleted", nil, nil)
+      :expired -> outcome_line(:off, name <> " expired", nil, nil)
+      :superseded -> outcome_line(:off, name <> " replaced by a newer version", nil, nil)
     end
   end
 
@@ -682,17 +702,12 @@ defmodule Ryker.Delivery.ChatCard do
   defp automation_link("behavior:" <> _rest = ref), do: {"Open rules", "/rules#behavior-" <> ref}
   defp automation_link(_ref), do: {nil, nil}
 
-  defp outcome_line(tone, word, text, link, href),
-    do: %{href: href, link: link, text: text, tone: tone, word: word}
+  defp outcome_line(tone, word, link, href),
+    do: %{href: href, link: link, tone: tone, word: word}
 
   # The Facts page names each row by its reference with every character outside
   # letters, digits, "_" and "-" replaced.
   defp fact_id(ref), do: "fact-" <> String.replace(ref, ~r/[^A-Za-z0-9_-]/, "-")
-
-  defp lowercase_first(<<first::utf8, rest::binary>>),
-    do: String.downcase(<<first::utf8>>) <> rest
-
-  defp lowercase_first(text), do: text
 
   # A time automation's change names the cadence it leaves the schedule on, in
   # the same words as the schedule itself.

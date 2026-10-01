@@ -478,7 +478,11 @@ defmodule Ryker.ControlPlane.HTML do
         ]
       end)
 
-    controls = Map.get(card, :controls, []) |> Enum.map(&lab_card_control/1)
+    # The pull request (or the Emisar approval) is the next step, so it is the first button and
+    # the prominent one (Andrew, 2026-10-01).
+    controls =
+      [card_link(card) | Enum.map(Map.get(card, :controls, []), &lab_card_control/1)]
+      |> Enum.reject(&(&1 == ""))
 
     # Answered options keep the buttons' shape, and the one chosen stands out
     # (Andrew, 2026-10-01: the buttons "became round after selection" and
@@ -528,19 +532,21 @@ defmodule Ryker.ControlPlane.HTML do
         do: "",
         else: ["<div class=\"lab-card-actions\">", controls, "</div>"]
       ),
-      if(card.url,
-        do: [
-          "<a class=\"quiet-link\" href=\"",
-          escape(card.url),
-          "\" rel=\"noreferrer\">",
-          card_link_label(card.kind),
-          "</a>"
-        ],
-        else: ""
-      ),
       "</section>"
     ]
   end
+
+  defp card_link(%{url: url} = card) when is_binary(url) do
+    [
+      "<a class=\"button primary\" href=\"",
+      escape(url),
+      "\" target=\"_blank\" rel=\"noreferrer\">",
+      card_link_label(card.kind),
+      "</a>"
+    ]
+  end
+
+  defp card_link(_card), do: ""
 
   # Only an Emisar approval card links to the approval. A task and a published draft link to
   # their pull request, which the card called "Open exact approval" on the draft Ryker had just
@@ -548,21 +554,26 @@ defmodule Ryker.ControlPlane.HTML do
   defp card_link_label("emisar_approval"), do: "Open exact approval"
   defp card_link_label(_kind), do: "Open pull request"
 
-  # One line saying what a confirmed offer did, as the Kit says a state: a dot
-  # and a word, then how often it runs and the way to it where there is one.
+  # One row saying what a confirmed offer did, as the Kit says a state: a dot and a word, then the
+  # way to it where there is one, at the card's own text size (Andrew, 2026-10-01).
   defp lab_card_outcome(%{tone: tone, word: word} = outcome) do
     [
-      "<p class=\"lab-card-outcome\"><span class=\"state-word\" data-tone=\"",
+      "<div class=\"lab-card-outcome\" data-tone=\"",
       escape(tone),
-      "\">",
+      "\"><span class=\"lab-card-outcome-state\">",
       escape(word),
       "</span>",
-      if(outcome.text, do: [" · ", escape(outcome.text)], else: ""),
       if(outcome.href,
-        do: [" · <a href=\"", escape(outcome.href), "\">", escape(outcome.link), "</a>"],
+        do: [
+          "<a class=\"lab-card-outcome-link\" href=\"",
+          escape(outcome.href),
+          "\">",
+          escape(outcome.link),
+          "</a>"
+        ],
         else: ""
       ),
-      "</p>"
+      "</div>"
     ]
   end
 
