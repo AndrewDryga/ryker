@@ -2,6 +2,8 @@ defmodule Ryker.Records.InputRequestsTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
 
+  alias Ryker.ControlPlane.{ConversationProjection, HTML}
+  alias Ryker.Delivery.ChatCard
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
@@ -122,6 +124,33 @@ defmodule Ryker.Records.InputRequestsTest do
     assert entry.destination_transport == "control_plane"
     assert entry.destination_conversation_ref == fixture.receipt["conversation_ref"]
     assert entry.destination_thread_ref == fixture.receipt["thread_ref"]
+  end
+
+  # Andrew, 2026-10-01, on a Chat question he had answered: his answer read
+  # "Integration · Control plane local · event · revision 1", the options
+  # turned from buttons into round pills, and none showed which he chose.
+  test "a Chat answer reads as the person's words and its card shows the option they chose" do
+    fixture = delivered_question!(:control_plane)
+
+    assert {:ok, _answer} =
+             InputRequests.answer(
+               fixture
+               |> answer(1, "lab-answer-shown")
+               |> Map.put(:actor_ref, "local-operator")
+             )
+
+    assert {:ok, snapshot} = ConversationProjection.fetch("018f3ef7-1f62-7ee0-a83c-0c12f21d83e6")
+
+    assert %{actor: :operator, text: "Stop the rollout"} =
+             Enum.find(snapshot.messages, &(&1.ref == "interaction:lab-answer-shown"))
+
+    assert {:ok, card} = fixture.record.id |> then(&Repo.get!(Record, &1)) |> ChatCard.project()
+    assert card.chosen == 1
+
+    html = %{cards: [card]} |> HTML.lab_message_extras() |> IO.iodata_to_binary()
+    assert html =~ ~s(<span class="choice-answer" data-chosen="true">Stop the rollout</span>)
+    assert html =~ ~s(<span class="choice-answer">Roll out to one percent</span>)
+    refute html =~ "choice-chip"
   end
 
   test "typed answer association keeps one original without inventing a selected choice" do

@@ -150,10 +150,19 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   defp publication_message("blocked", controls, facts),
     do: blocked_message(controls, facts.unverified, facts.blocked_reason, facts.number)
 
+  # A task's newer change goes to its open draft by itself (Andrew, 2026-10-01), so a
+  # publication with a pull request is updating that one, never creating a draft.
   defp publication_message("publish_pending", controls, facts) do
-    if "update" in controls,
-      do: stopped_publish_message(facts.number),
-      else: publication_status_message("publish_pending", controls, facts.unverified)
+    cond do
+      "update" in controls ->
+        stopped_publish_message(facts.number)
+
+      is_integer(facts.number) and "retry" not in controls ->
+        "Updating draft PR ##{facts.number}. Waiting for GitHub to confirm."
+
+      true ->
+        publication_status_message("publish_pending", controls, facts.unverified)
+    end
   end
 
   defp publication_message(status, controls, facts),

@@ -346,6 +346,9 @@
 .chat-message-extras .lab-card dt { margin:0; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; }
 .chat-message-extras .lab-card dd { margin:2px 0 0; color:var(--ink); overflow-wrap:anywhere; }
 .chat-message-extras .lab-card-actions, .chat-message-extras .choice-list { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:12px; }
+/* An answered question's options keep the buttons' box; the chosen one is marked in mint. */
+.chat-message-extras .choice-answer { display:inline-flex; align-items:center; box-sizing:border-box; background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); border:1px solid var(--ryker-stroke); border-radius:4px; font-weight:500; font-size:14px; line-height:20px; padding:6px 10px; min-height:var(--ryker-control-height); }
+.chat-message-extras .choice-answer[data-chosen] { border-color:var(--ryker-accent); background:var(--ryker-accent-soft); color:var(--ryker-text); }
 /* What a confirmed offer did: the Kit's dot and word, then how often and the way to it. */
 .chat-message-extras .lab-card .lab-card-outcome { margin:12px 0 0; font-size:13px; line-height:18px; }
 .chat-message-extras .reaction-chip { color:var(--ryker-text-secondary); background:var(--ryker-surface-raised); border-color:var(--ryker-text-secondary); }
@@ -1515,8 +1518,8 @@
 /* The live line while Ryker routes or works: a small breathing dot and one plain sentence
    (Andrew, 2026-09-30: the 120px bar was "too big, need something more subtle"). */
 .lab-message-progress, .lab-typing-indicator { display:flex; align-items:center; gap:8px; margin:10px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.lab-progress-dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--ryker-accent); }
-.lab-message-progress .lab-progress-status { color:var(--ryker-text); }
+.lab-progress-dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--ryker-text-secondary); }
+.lab-message-progress .lab-progress-status { color:var(--ryker-text-secondary); }
 @media (prefers-reduced-motion:no-preference) { .lab-progress-dot { animation:lab-progress-breathe 1.6s ease-in-out infinite; } @keyframes lab-progress-breathe { 0%, 100% { opacity:.3; } 50% { opacity:1; } } }
 
 .lab-composer-dock { background:var(--ryker-surface-sunken); padding-bottom:16px; }

@@ -35,8 +35,8 @@ defmodule Ryker.CoopFleet.PublicationGrants do
     end
   end
 
-  # Leases/settings can be temporarily unavailable; an exact authority denial is
-  # distinct so Coop can finish a revoked publication without retrying forever.
+  # A placement lease or the settings can be temporarily unavailable; an exact authority denial
+  # is distinct so Coop can finish a revoked publication without retrying forever.
   def publication_grant_authority(certificate, job_ref, request) when is_map(request) do
     with true <- is_binary(request["command_key"]),
          {:ok, worker_id} <- ControlPlane.authenticate_certificate(certificate),
@@ -92,22 +92,18 @@ defmodule Ryker.CoopFleet.PublicationGrants do
          true <-
            repository_id == source["github_repository_id"] and
              github_repository == source["github_repository"] do
-      if is_binary(publication.lease_ref) and is_struct(publication.lease_expires_at, DateTime) and
-           DateTime.compare(publication.lease_expires_at, Repo.now!()) == :gt do
-        {:ok,
-         %{
-           binding: Map.take(binding, [:name, :repository_id, :installation_id, :ryker_actor_id]),
-           placement: {placement.id, placement.generation},
-           command: {command.id, command.payload_fingerprint},
-           approval:
-             {publication.approval_ref, publication.approved_by_actor_ref,
-              publication.approved_at},
-           review: publication.review_fingerprint,
-           lease: publication.lease_ref
-         }}
-      else
-        {:error, :publication_grant_unavailable}
-      end
+      # No publication lease is asked for: Ryker holds one only for the second it takes to check
+      # on the worker, and a worker retrying the exact command it was sent must be able to finish
+      # between those checks (Andrew's PR #2, 2026-10-01, stuck "updating" until anyone looked).
+      {:ok,
+       %{
+         binding: Map.take(binding, [:name, :repository_id, :installation_id, :ryker_actor_id]),
+         placement: {placement.id, placement.generation},
+         command: {command.id, command.payload_fingerprint},
+         approval:
+           {publication.approval_ref, publication.approved_by_actor_ref, publication.approved_at},
+         review: publication.review_fingerprint
+       }}
     else
       _unproven -> {:error, :publication_grant_denied}
     end
