@@ -5,9 +5,12 @@ defmodule Ryker.Evals.WorldSourceTest do
 
   @at ~U[2026-08-21 02:21:46Z]
 
-  # Coop finds a staged source by this key and nothing else. The value was printed by Go's
-  # json.Marshal over copies of workerproto.JobSource and session.SourceBinding (2026-09-30), so
-  # a drift in field order or shape fails here rather than as "job source is not staged".
+  # Coop finds a staged source by this key and nothing else. The envelope below is the one Go's
+  # json.Marshal printed over copies of workerproto.JobSource and session.SourceBinding
+  # (2026-09-30), so a drift in field order or shape fails here rather than as "job source is not
+  # staged". Only the repository name is a pseudonym, so the key is the SHA-256 of that exact
+  # envelope rather than the digest Go printed for the real repository; the byte-exact `go_json`
+  # assertion above is what holds the wire shape.
   test "the staging key is the one Coop computes for the same source" do
     source =
       WorldSource.source(
@@ -21,7 +24,7 @@ defmodule Ryker.Evals.WorldSourceTest do
              ~s({"repository_ref":"tenant-rivals-scraper","github_repository":"ryker-eval/tenant-rivals-scraper","github_repository_id":1,"binding":{"version":1,"kind":"default","requested":{"kind":"default"},"remote_identity":"origin","default_ref":"refs/heads/main","default_commit":"1111111111111111111111111111111111111111","selected_ref":"refs/heads/main","selected_commit":"1111111111111111111111111111111111111111","base_commit":"1111111111111111111111111111111111111111","admitted_tree":"2222222222222222222222222222222222222222","resolved_at":"2026-08-21T20:48:00Z"},"submodules":[]})
 
     assert WorldSource.staging_key(source) ==
-             "c95fd3ca6a1043ba8695f14155a04aa2a8b29383b074bf8059c6df209a871e93"
+             "7f42901dc2bd059b5c1d08fde0a864f5d9c5cd82ff77fd26a5e9502042078e39"
   end
 
   test "the captured Rivals checkout is staged once, at its key, with the exact commit" do

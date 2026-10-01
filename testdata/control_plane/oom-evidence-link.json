@@ -18,13 +18,13 @@
   },
   "record": {
     "id": "1a40264d-6f17-49ca-b87e-d71d9058bc22",
-    "ref": "record:evidence:2ad3285a4df9d793effa7cade7832c1e",
+    "ref": "record:evidence:98d1587002f09f1c0c9a8865893f7099",
     "kind": "evidence",
     "status": "open",
     "payload": {
       "claim": "website HAProxy cgroup OOM alert resolution",
       "target": "website HAProxy cgroup OOM alert resolution",
-      "claim_id": "citation:935e57b9009fe6b4488fffc99bec0158",
+      "claim_id": "citation:f8cb3ce296c4cdb7bbcdd2c063b46bdf",
       "relation": "supports",
       "freshness": null,
       "source_id": "slack-source:v1:T0TENANT001:C0TENANTOPS:message:1788629364.235999",
@@ -44,7 +44,7 @@
     "inserted_at": "2026-09-06T13:03:45.131193",
     "subject_ref": null,
     "continuation": null,
-    "operation_id": "host:28c2354dfa2cc47f5642e58f01d2cb17555c1c11feea4bb19797783e558fbb4b",
+    "operation_id": "host:f88b10ad33f2016953b6532767a22e45732f13231ef279913b081ae7386bf3a8",
     "payload_fingerprint": "07bb489a247515daa4a7e4836ac5e58f8edbc06472568b560569e1cd97dd473b"
   },
   "activities": [
@@ -77,7 +77,7 @@
       "coop_turn_id": "turn_041123947e7511c0b0ad39b1517f888c",
       "remote_event_id": "evt_77a36f2a17005aaf52c404dcce5b1bb1",
       "remote_session_id": "remote_210dfe296ee78313cd8452958030bceb",
-      "payload_fingerprint": "3d40434bb0e49d59a992f774b6accd7a5100939469aef26609f999edce2749d2",
+      "payload_fingerprint": "5af3be787e15a1f7c679ee192f64331d3fbd7ab7b9afcc14db713de0f0a834f1",
       "operational_pruned_at": null,
       "remote_payload_fingerprint": "b30d0f471157c4fa05e12317a83769183a286634298849819d97e011e7c10fc2"
     },

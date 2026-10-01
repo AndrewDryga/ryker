@@ -14,7 +14,7 @@
   "input": {
     "actor": {"kind": "app", "ref": "B0TENANTBT2"},
     "channel_ref": "C0TENANTOPS",
-    "content": {"text": "league is ready to be deployed\n*Repository:* <https://github.com/tenantcorp/tenant-backend-rs>\nCommit SHA: `d72cc0af049147066063da4f416763f457a51983`"},
+    "content": {"text": "league is ready to be deployed\n*Repository:* <https://github.com/tenantcorp/tenant-backend-rs>\nCommit SHA: `0f8710c74c1133e7ba440a47e9dea1a7dfaf2443`"},
     "event_kind": "message",
     "event_ref": "Ev0BT44ND5T7",
     "message_ref": "1787861071.635649",

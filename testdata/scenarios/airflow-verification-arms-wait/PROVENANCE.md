@@ -1,10 +1,18 @@
 # Airflow verification scope
 
+Every tenant identifier here is a pseudonym: the workspace, channels, users,
+`tenant-infra`, `SME-Tenant`, the Terraform run and commit identifiers, and the
+host names. The Terraform excerpts are the harvested text with those names
+substituted, so the repository intent and environment they establish are the
+original ones while the resource identities are inventions. See "The corpus is
+pseudonymized" in `docs/memory-evaluation.md`. Source timestamps and the random
+`context_`/`episode_run_` refs are unchanged.
+
 The initial event retains its bounded verification objective and now includes
 the original Terraform notification from `context_9a9c4ac87f5e52330c266f277e234f22`,
 episode `episode_run_9cbd448e67a15696c4453516482c57ac` in the retained Tenant ledger.
 That manifest pins `tenant-infra` read-only at
-`756bb64853ef5554ac81770c164f4e3aae99c6b7`.
+`a1b2c3d400000000000000000000000000000001`.
 
 Two exact, line-numbered excerpts from that revision restore information the
 old scenario omitted:

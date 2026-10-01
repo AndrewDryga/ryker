@@ -338,7 +338,9 @@ defmodule Ryker.Continuity.ContinuityTest do
     refute Enum.any?(recent, &(&1["source_ref"] == original.ref))
 
     assert [first | _rest] =
-             Continuity.model_context(reader, "tenant-infra", ["Is haproxy-edge OOM-killed again?"])[
+             Continuity.model_context(reader, "tenant-infra", [
+               "Is haproxy-edge OOM-killed again?"
+             ])[
                "related"
              ]
 

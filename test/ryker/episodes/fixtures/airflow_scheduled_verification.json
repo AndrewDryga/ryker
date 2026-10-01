@@ -47,7 +47,7 @@
       "episode_key": "terraform:tenant-infra:run-sBbtTAxOfCwLmMSH",
       "expected_wait": {"kind": "event", "ref": "verify-airflow-756bb648"},
       "occurred_at": "2026-08-27T20:28:13.128433Z",
-      "resolution_ref": "admit_input:d49929debd44acda45c5cdaeb9299c2628ebd89f7de291fc2fded5b58f581013",
+      "resolution_ref": "admit_input:4f08a84a4d3000ca1c85f984e6895d1b652744ae31abaf6dc3d3259e19e6ff71",
       "turn_ref": "turn-airflow-check-1"
     },
     {
@@ -77,7 +77,7 @@
       "episode_key": "terraform:tenant-infra:run-sBbtTAxOfCwLmMSH",
       "expected_wait": {"kind": "event", "ref": "airflow-756bb648-post-apply-2"},
       "occurred_at": "2026-08-27T20:58:15.246606Z",
-      "resolution_ref": "admit_input:30d2c65ebea08c6249e2835d13a1c4eb01189e9bc1527380ccbfae210b0b6282",
+      "resolution_ref": "admit_input:9fb7058d7a43272d2e7ab6a048c41f27ec31a49d66f69275aee919f833568f7b",
       "turn_ref": "turn-airflow-check-2"
     },
     {

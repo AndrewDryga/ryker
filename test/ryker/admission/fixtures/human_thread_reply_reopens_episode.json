@@ -22,7 +22,7 @@
     "input": {
       "actor": {"kind": "user", "ref": "U0TENANTUS2"},
       "channel_ref": "C0TENANTENG",
-      "content": {"text": "IDK if you deployed but it's still a redirect:\n```❯ curl -I <https://tenantcorp.gg/ads.txt>\nHTTP/2 301\ndate: Fri, 28 Aug 2026 00:09:50 GMT\ncontent-type: text/html\ncontent-length: 169```"},
+      "content": {"text": "IDK if you deployed but it's still a redirect:\n```❯ curl -I <https://tenantcorp.example/ads.txt>\nHTTP/2 301\ndate: Fri, 28 Aug 2026 00:09:50 GMT\ncontent-type: text/html\ncontent-length: 169```"},
       "event_kind": "message",
       "event_ref": "Ev0BT5H3F21K",
       "message_ref": "1787875811.328459",

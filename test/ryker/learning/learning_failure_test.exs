@@ -115,6 +115,8 @@ defmodule Ryker.Learning.LearningFailureTest do
     [first, second, third] = fixture["public_responses"]
     assert {:error, _} = Jason.decode(first["text"])
     assert second["text"] == third["text"]
+    # The model split one run id across a space, which is why the topic key was
+    # rejected. Both halves are pseudonyms; the corruption is the original.
     assert String.contains?(second["text"], "qvdi1rseve zytq9x")
     assert fixture["learning_run"]["result"] == nil
     assert fixture["learning_run"]["result_sha256"] == nil

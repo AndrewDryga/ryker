@@ -13,7 +13,7 @@
   "responses": [
     {
       "body": "{\"decision_reason\":null,\"delivery\":\"reply\",\"message\":\"Verification is scheduled after a 10-minute observation window. The available deployment reading predates this apply, so revision 756bb648 is not yet verified. I’ll check fresh deployment, backend health, and monitoring data and report here, with a fallback deadline of 13:18 UTC.\",\"outcome\":{\"artifact_refs\":[],\"record_refs\":[\"record:evidence:364542d7588e192334f44536cf7545cd\",\"record:event_wait:6a132975f41f63e6ac4b4ca23b61aaa3\"],\"state\":\"waiting_for_event\"}}",
-      "sha256": "a9322fa3ed13f7e668af90e714b3e912967123a55d1798b29dfb3d3e1bd7e6b7",
+      "sha256": "753b144b4a510a0d6ba7bc58f7a729ca95d5c996fbc75f9c24349aac99ece132",
       "bytes": 517,
       "source": "other retained Airflow candidate"
     },

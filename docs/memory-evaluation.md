@@ -91,7 +91,8 @@ The learning fixtures in `testdata/learning/` contain retained Tenant material:
   for presentation tests; it does not contain original source inputs or a learning-run receipt.
 - `retained-auth-wal-context-packing.json`: retained context used for packing regressions.
 - `retained-output-contract-failure.json`: all exact rejected public bodies and corrections from
-  an exhausted learning run. Preserve their bytes and digests, including malformed JSON.
+  an exhausted learning run, including malformed JSON. Preserve their bytes and digests apart from
+  the pseudonymization below, which is the one sanctioned rewrite.
 
 The current `action`/`anchors` learning protocol differs from older captured results. Deterministic
 host tests may explicitly project an old recorded subject into the new contract, but must label
@@ -102,6 +103,51 @@ cardinality, concurrency, or privacy tests is also host setup, not a harvested m
 Only public responses, progress, tool events, receipts, and original source inputs belong in these
 fixtures. Do not copy provider-private reasoning. Source time remains historical; if a host test
 rebases execution time to keep a wait or retention horizon valid, record that separately.
+
+## The corpus is pseudonymized, and that is not a harvest
+
+This repository is public. The harvested fixtures above were originally committed with the
+operated tenant's real Slack workspace, channel, user, app and subteam identifiers, its GitHub
+organization and private repository names, its Terraform Cloud organization, Google Cloud project
+and Terraform run ids, its host inventory and private tailnet, one teammate's given name, and a
+third-party publisher's pre-release build label and manifest. None of
+that is ours to publish, so every one of those values is now a pseudonym. `Tenant`, `T0TENANT001`,
+`C0TENANT*`, `U0TENANT*`, `tenant-*`, `SME-Tenant`, `nomad-hst0*`, `cassandra-dbzrk10*` and the
+`Starfall`/`Vertex Studios` release notice are inventions. Do not read them as a real workspace,
+and do not try to reconcile them against the operated deployment.
+
+The substitution is one-for-one and corpus-wide, so every behaviour these fixtures hold shut is
+unchanged: thread parents, ordering, cardinality and conflict shapes all still line up. Three
+digest families are re-derived rather than preserved, because they are computed from values that
+moved — `dedupe_key` from `CanonicalJSON.digest([source_kind, source_ref, event_ref])`,
+`native_input_id` from `digest([workspace_ref, channel_ref, message_ref])`, and
+`event_fingerprint` from the `Ingress.Input.document/1` map with
+`source_capabilities` of `%{"react" => %{"emoji_names" => nil}}`. They are the production
+functions over pseudonymized inputs, computed to a fixed point because the fingerprint contains
+the native id, so they remain reproducible from the bytes on disk. They are no longer the digests
+the live deployment recorded, and no test may present them as such. The routing benchmark's
+recorded vectors in `testdata/routing_search/embeddings.json` are keyed by the SHA-256 of their
+text, so the fifteen rewritten texts were embedded again with the same bge-m3 model and the vectors
+of their original wording were dropped; every other vector is the one first recorded.
+
+Three things deliberately survive. Source message timestamps are unchanged, because waits, ordering
+and retention horizons are measured against them and a pseudonym cannot carry that; once the
+workspace and channel are inventions a bare timestamp identifies nothing. Internal record UUIDs
+and context refs are also unchanged, because they are random and encode nothing about their
+origin. And names made only of a region and a generic role are unchanged: the `va1` region and
+everything named after it, such as the `va1-apps`, `va1-postgres` and `va1-observability`
+Terraform Cloud workspaces, Grafana rules like `va1-host-oom` and the
+`va1-health-review-repairs-and-finishes` scenario, as well as Google Cloud regions and services
+like `us-central1` and `draft-ai-suggestions`. With the organization, project, repositories,
+tailnet and hosts around them invented, a region code and a role identify no one; the run ids
+inside such names were substituted. `va1` runs through some seventy files, including the public
+site, so it is one family: pseudonymize all of it or none of it, never a single workspace.
+
+`RedactionAuditTest` holds this shut from the other direction: it allowlists every Slack-shaped
+identifier the corpus is permitted to contain, so a fresh harvest that carries a real workspace,
+channel or user into a tracked file fails the gate rather than reaching a public commit. Harvest
+through a pseudonymizing extraction, add the new pseudonyms to that allowlist, and never widen it
+to a shape like `~r/^U0/` that would admit anything.
 
 ## Offline gates
 
