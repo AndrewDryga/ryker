@@ -465,13 +465,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert prepared.state == ""
     refute inspect(detail.trace) =~ "redacted by projection"
 
-    assert Enum.any?(detail.trace.steps, &(&1.title == "Run 1 finished"))
-    # A completed execution used to be stamped at its start, above tools it had not run yet.
-    model_work = Enum.find(detail.trace.steps, &(&1.title == "Run 1 finished"))
-    assert model_work.at == measured.remote_finished_at
-    assert model_work.duration_ms == measured.usage_provider_ms
-    assert model_work.summary == nil
-    assert model_work.details == []
+    # Andrew, 2026-10-01, of "Run 1 finished · 28.5 s · Details · Work claims 8": "how this card
+    # is helpful?" The request card already says the model, tokens, cost and how long the run
+    # took, and a worker's claim count is Ryker's own bookkeeping. A run is a step of its own only
+    # when its timing or usage was not reported.
+    refute Enum.any?(detail.trace.steps, &(&1.title == "Run 1 finished"))
 
     assert {:ok, unmeasured_detail} = EpisodeProjection.fetch(episode_key!(unmeasured.episode_id))
     unmeasured_work = Enum.find(unmeasured_detail.trace.steps, &(&1.title == "Run 1 finished"))
@@ -479,6 +477,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert unmeasured_work.duration_ms == nil
     assert unmeasured_work.summary == "Timing and usage were not reported."
     assert unmeasured_work.tone == :warn
+    assert unmeasured_work.details == []
     # validate_final can finish before the model returns its answer; that is
     # still work, not evidence of an already-delivered answer.
     for {offset, band} <- [{-1, :work}, {1, :answer}] do
@@ -594,10 +593,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       )
 
       assert {:ok, duration_detail} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
-      work_step = Enum.find(duration_detail.trace.steps, &(&1.title == "Run 1 finished"))
-      work_details = Map.new(work_step.details, &{&1.label, &1.value})
-      assert work_step.duration_ms == provider_ms
-      assert work_details == %{}
+      refute Enum.any?(duration_detail.trace.steps, &(&1.title == "Run 1 finished"))
     end
 
     assert %{provider: "claude", model: "opus", effort: "high", attempts: 1} =

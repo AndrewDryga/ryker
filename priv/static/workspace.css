@@ -334,7 +334,9 @@
 .chat-message-extras > * { margin-top:8px; }
 .chat-message-extras > :empty { display:none; }
 .chat-message-extras { --line:var(--ryker-stroke); --muted:var(--ryker-text-secondary); --accent:var(--ryker-accent); --text:var(--ryker-text); --panel:var(--ryker-surface-raised); }
-.chat-message-extras button, .chat-message-extras .button { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); border:1px solid var(--ryker-stroke); border-radius:4px; font-weight:500; font-size:14px; line-height:20px; padding:6px 10px; min-height:var(--ryker-control-height); }
+.chat-message-extras button, .chat-message-extras .button { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); border:1px solid var(--ryker-stroke); border-radius:4px; font-weight:500; font-size:14px; line-height:20px; padding:6px 10px; min-height:var(--ryker-control-height); text-decoration:none; }
+.chat-message-extras .button.primary { background:var(--ryker-control-primary-bg); color:var(--ryker-control-primary-text); border-color:var(--ryker-control-primary-bg); font-weight:600; }
+.chat-message-extras .button.primary:hover { background:var(--ryker-control-primary-hover-bg); border-color:var(--ryker-control-primary-hover-bg); }
 .chat-message-extras a { color:var(--ryker-text-secondary); }
 .chat-message-extras .lab-card { background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); border-radius:6px; padding:14px 16px 16px; }
 .chat-message-extras .lab-card-head { display:flex; align-items:center; flex-wrap:wrap; gap:8px; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
@@ -350,7 +352,13 @@
 .chat-message-extras .choice-answer { display:inline-flex; align-items:center; box-sizing:border-box; background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); border:1px solid var(--ryker-stroke); border-radius:4px; font-weight:500; font-size:14px; line-height:20px; padding:6px 10px; min-height:var(--ryker-control-height); }
 .chat-message-extras .choice-answer[data-chosen] { border-color:var(--ryker-accent); background:var(--ryker-accent-soft); color:var(--ryker-text); }
 /* What a confirmed offer did: the Kit's dot and word, then how often and the way to it. */
-.chat-message-extras .lab-card .lab-card-outcome { margin:12px 0 0; font-size:13px; line-height:18px; }
+.chat-message-extras .lab-card .lab-card-outcome { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; margin:16px 0 0; font-size:14px; line-height:20px; }
+.chat-message-extras .lab-card-outcome-state { display:inline-flex; align-items:center; gap:8px; color:var(--ryker-text); font-weight:600; }
+.chat-message-extras .lab-card-outcome-state::before { content:""; flex:none; width:8px; height:8px; border-radius:50%; background:var(--ryker-accent); }
+.chat-message-extras .lab-card-outcome[data-tone=off] .lab-card-outcome-state { color:var(--ryker-text-secondary); font-weight:500; }
+.chat-message-extras .lab-card-outcome[data-tone=off] .lab-card-outcome-state::before { background:var(--ryker-text-secondary); }
+.chat-message-extras .lab-card-outcome-link { color:var(--ryker-accent); font-weight:500; text-decoration:none; }
+.chat-message-extras .lab-card-outcome-link:hover { text-decoration:underline; }
 .chat-message-extras .reaction-chip { color:var(--ryker-text-secondary); background:var(--ryker-surface-raised); border-color:var(--ryker-text-secondary); }
 .chat-message-extras .attachment-chip { background:var(--ryker-surface-raised); border-color:var(--ryker-text-secondary); color:var(--ryker-text-secondary); font-size:14px; }
 .chat-message-extras .attachment-chip span { color:var(--ryker-text-secondary); }
@@ -411,7 +419,6 @@
 .lab-message-failure { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; margin:8px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .lab-message-failure a { font-weight:600; }
 .lab-message-progress .lab-progress-elapsed { color:var(--secondary); font-variant-numeric:tabular-nums; }
-.lab-typing-indicator { display:flex; align-items:center; gap:8px; min-height:24px; margin:8px 0 0; color:var(--secondary); font-size:13px; line-height:18px; }
 /* The composer and its one hint share a dock pinned to the bottom of the window: the hint line keeps
    the composer off the window's edge, and the white dock covers the transcript scrolling beneath. */
 .lab-composer-dock { position:sticky; bottom:0; z-index:2; margin:12px 0 0; background:var(--ryker-surface-raised); }
@@ -574,7 +581,7 @@
 .ui-disclosure-label { min-width:0; overflow-wrap:anywhere; }
 .ui-disclosure-meta { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px 10px; min-width:0; margin-left:auto; color:var(--ryker-text-secondary); font-size:12px; font-weight:400; text-align:right; }
 .ui-disclosure-body { min-width:0; padding:0 0 8px; }
-.ui-disclosure-body > pre { max-width:100%; max-height:480px; box-sizing:border-box; margin:0; padding:12px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; border:1px solid var(--ryker-stroke); border-radius:4px; background:var(--ryker-surface); color:var(--ryker-text-secondary); font:13px/1.6 var(--ryker-font-mono); }
+.ui-disclosure-body > pre, .ui-disclosure-body > .copy-block > pre { max-width:100%; max-height:480px; box-sizing:border-box; margin:0; padding:12px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; border:1px solid var(--ryker-stroke); border-radius:4px; background:var(--ryker-surface); color:var(--ryker-text-secondary); font:13px/1.6 var(--ryker-font-mono); }
 .ui-disclosure-diagnostic .ui-disclosure-body { padding:4px 12px 12px; border-left:2px solid var(--ryker-stroke-strong); }
 .ui-disclosure-source { margin:0; border-left:3px solid var(--ryker-stroke-strong); border-bottom:1px solid var(--ryker-stroke); background:var(--ryker-surface-raised); }
 .ui-disclosure-source > summary { min-height:56px; gap:10px; padding:10px 16px; color:var(--ink); font-size:14px; line-height:20px; }
@@ -606,8 +613,7 @@
 .candidate-response { min-width:0; margin-top:8px; }
 .candidate-decision-reason { margin:10px 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; }
 /* The new title an answer gave its request, on that answer's card. */
-.title-update { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:12px 0 4px; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
-.title-update .ui-icon { width:16px; height:16px; flex:none; color:var(--ryker-accent-strong); }
+.ryker-app .title-update { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; margin:16px 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
 .title-update strong { min-width:0; color:var(--ryker-text); font-weight:600; }
 .candidate-response-raw { margin-top:8px; border-left-color:var(--ryker-info); }
 .prompt-assembly { margin:0; }
@@ -1340,6 +1346,12 @@
 .case-minor .case-entry-time { padding-top:11px; }
 .case-minor .case-card-heading + .case-event-summary, .case-minor .case-card-heading + .action-description { margin-top:0; font-size:13px; }
 .case-minor .action-raw { border-top:0; padding-top:0; }
+/* The header hairline already separates a card's first collapsible; in an opened step the header
+   is hidden, so its description draws no hairline and the collapsibles keep their own lines. */
+.case-entry .case-card-heading + .action-description:not(:last-child) + .action-raw { border-top:0; padding-top:0; }
+.case-entry .tool-run-body .case-card-heading + .action-description:not(:last-child) { margin:0 0 4px; padding:0; border-bottom:0; }
+.case-entry .tool-run-body .case-card-heading + .action-description:not(:last-child) + .action-raw { border-top:1px solid var(--stroke); padding-top:8px; }
+.tool-run-step, .tool-run-detail { min-width:0; }
 
 /* Input queue: the custody steps as a small timeline, read left to right:
    exact time, then the dot that says the step's state (a line joins the
@@ -1517,7 +1529,7 @@
 
 /* The live line while Ryker routes or works: a small breathing dot and one plain sentence
    (Andrew, 2026-09-30: the 120px bar was "too big, need something more subtle"). */
-.lab-message-progress, .lab-typing-indicator { display:flex; align-items:center; gap:8px; margin:10px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.lab-message-progress { display:flex; align-items:center; gap:8px; margin:10px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .lab-progress-dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--ryker-text-secondary); }
 .lab-message-progress .lab-progress-status { color:var(--ryker-text-secondary); }
 @media (prefers-reduced-motion:no-preference) { .lab-progress-dot { animation:lab-progress-breathe 1.6s ease-in-out infinite; } @keyframes lab-progress-breathe { 0%, 100% { opacity:.3; } 50% { opacity:1; } } }

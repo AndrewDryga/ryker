@@ -276,11 +276,11 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
 
     document = timeline_document(episode)
 
-    assert title_update(document, first) == "Title updated to: #{named}"
+    assert title_update(document, first) == "Episode title is updated to: #{named}"
     assert title_update(document, kept) == nil
 
     assert title_update(document, renamed) ==
-             "Title updated to: Checkout 502s traced to the readiness probe"
+             "Episode title is updated to: Checkout 502s traced to the readiness probe"
 
     refute LazyHTML.text(document) =~ "Request title"
   end

@@ -1262,10 +1262,11 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert schedule_saved.outcome == %{
              href: "/schedules/" <> URI.encode(scheduled.schedule.ref, &URI.char_unreserved?/1),
              link: "Open schedule",
-             text: "runs every day at 09:00 UTC",
              tone: :on,
              word: "Scheduled"
            }
+
+    assert {"How often", "Every day at 09:00 UTC"} in schedule_saved.details
 
     assert %{tone: :on, word: "Preference saved", link: "Open instructions"} =
              preference_saved.outcome

@@ -474,10 +474,9 @@ defmodule Ryker.ControlPlane.LabPage do
           navigate={row.href}
         >Inspect this revision</.link>
       </p>
-      <div :if={@typing} class="lab-typing-indicator" role="status" aria-label="Ryker is working">
-        <span class="lab-progress-dot" aria-hidden="true"></span>
-        <span>Ryker is working on a reply</span>
-      </div>
+      <p :if={@typing} class="lab-message-progress lab-typing-indicator" role="status">
+        <span class="lab-progress-dot" aria-hidden="true"></span><span class="lab-progress-status">Ryker is working on a reply</span>
+      </p>
     </article>
     """
   end

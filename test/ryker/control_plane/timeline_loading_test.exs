@@ -273,6 +273,16 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert text =~ "Checking the deploy script"
     assert text =~ "The readiness probe starts before the migration."
     refute text =~ "**Checking"
+
+    # Andrew, 2026-10-01, of a card titled only "Selecting the reply button": "what does this card
+    # mean in simple english, in practice?" It is the model's own note on what it was doing, and
+    # it reads as one: a quiet line, not a card.
+    assert [note] =
+             document
+             |> LazyHTML.query("article.case-minor")
+             |> Enum.filter(&(LazyHTML.text(&1) =~ "Checking the deploy script"))
+
+    assert LazyHTML.text(note) =~ "Model's note: Checking the deploy script"
   end
 
   defp activity!(work, sequence, kind, payload) do
