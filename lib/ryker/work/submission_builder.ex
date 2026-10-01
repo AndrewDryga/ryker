@@ -630,7 +630,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   # place its question was asked.
   defp input_document(event, episode, origins, notes) do
     command = event.payload
-    current = event.dedupe_key in episode.active_input_refs
+    current = current_input?(event, episode)
     sources = LearningSources.for_work_input(command["payload"])
     note = if current, do: Map.get(notes, routing_key(command["payload"]))
 
@@ -652,6 +652,16 @@ defmodule Ryker.Work.SubmissionBuilder do
       |> then(&if(note, do: Map.put(&1, "routing_note", note), else: &1))
 
     source_linked_input(event, document, sources, not current)
+  end
+
+  # Work that stopped and is resumed by an edit keeps its first message beside
+  # the edit, so both versions of one message can be current. Only the newest
+  # is what the person says now. The older one's source moved to the edit, and
+  # as current input it made every briefing stale: Andrew's edit stopped again
+  # with each Retry (manual test, 2026-10-01). It is withdrawn instead.
+  defp current_input?(%Event{dedupe_key: ref, payload: command}, episode) do
+    ref in episode.active_input_refs and
+      Map.get(episode.input_revisions, command["native_input_id"], 0) <= command["revision"]
   end
 
   # Routing's own account of why each message came to this work: the action it
@@ -852,7 +862,10 @@ defmodule Ryker.Work.SubmissionBuilder do
     repository = pinned_repository || trusted_repository(events)
     # Only inputs advanced into this turn may influence its topic selection.
     # Queued future instructions and unrelated recent topics are not a briefing.
-    input_texts = Enum.map(snapshot.active, &RecallText.from(&1.payload["payload"]))
+    input_texts =
+      for event <- snapshot.active,
+          current_input?(event, episode),
+          do: RecallText.from(event.payload["payload"])
 
     operator_ref =
       events
