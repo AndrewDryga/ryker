@@ -81,37 +81,33 @@ defmodule Ryker.Slack.TaskCardDetails do
   defp reason_line(nil), do: []
   defp reason_line(reason), do: ["    " <> display(reason, 500)]
 
+  # The current stage or step is bold; what it is doing now reads plain beside it, so a long
+  # detail is not three bold lines (Andrew, 2026-10-01).
   defp stage_line(stage) do
-    text =
-      stage["stage"]
-      |> label()
-      |> with_detail(stage["detail"])
-      |> link(stage["url"])
-      |> handoff(stage["your_turn"])
+    {name, fact} = split_detail(label(stage["stage"]), stage["detail"])
 
-    emphasize("#{glyph(stage["state"])} #{text}", stage["current"])
+    "#{glyph(stage["state"])} #{link(name, stage["url"])}"
+    |> emphasize(stage["current"])
+    |> Kernel.<>(fact)
+    |> handoff(stage["your_turn"])
   end
 
-  # The current step is bold; what it is doing now reads plain beside it, so a long detail is not
-  # three bold lines (Andrew, 2026-10-01).
   defp subtask_line(subtask) do
-    text =
-      subtask["outcome"]
-      |> display(250)
-      |> emphasize(subtask["current"])
-      |> with_detail(subtask["detail"])
+    {name, fact} = split_detail(display(subtask["outcome"], 250), subtask["detail"])
 
-    "    #{goal_glyph(subtask["state"])} #{text}"
+    "    #{goal_glyph(subtask["state"])} #{emphasize(name, subtask["current"])}#{fact}"
   end
 
   # An exact reference such as #617 or a handoff arrow reads as part of the
   # stage name; every other value is a separate fact.
-  defp with_detail(text, nil), do: text
+  defp split_detail(text, nil), do: {text, ""}
 
-  defp with_detail(text, detail) do
+  defp split_detail(text, detail) do
     detail = display(detail, 200)
-    separator = if String.starts_with?(detail, ["#", "←"]), do: " ", else: " · "
-    text <> separator <> detail
+
+    if String.starts_with?(detail, ["#", "←"]),
+      do: {text <> " " <> detail, ""},
+      else: {text, " · " <> detail}
   end
 
   defp link(text, nil), do: text
