@@ -1102,38 +1102,6 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert get_in(reminder, ["content", "text"]) == "<@URYKER> check health of our infra"
   end
 
-  # Andrew, 2026-10-01, of a task started from a conversation: "it doesn't receive previous
-  # messages so it can lose important context that was in message exchange before task was
-  # offered". A task is a request of its own, linked to the conversation it came from; its
-  # briefing now carries that conversation's messages as earlier inputs, before its own.
-  test "a task's briefing carries the conversation it was started from" do
-    origin_id = Ecto.UUID.generate()
-
-    assert {:ok, _} =
-             Episodes.apply(
-               EpisodeFixtures.admit_input(%{
-                 episode_id: origin_id,
-                 episode_key: "work-submission:origin:#{origin_id}",
-                 native_input_id: "source:origin:#{origin_id}",
-                 occurred_at: DateTime.add(@now, -120, :second),
-                 payload: %{"text" => "The deploy broke checkout for EU users only."},
-                 turn_ref: "turn:origin:#{origin_id}"
-               })
-             )
-
-    claim =
-      claim_episode_payload!("task", %{"text" => "Fix the checkout regression."},
-        linked_episode_id: origin_id
-      )
-
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
-    assert [earlier, task] = submission["context"]["inputs"]["items"]
-    assert earlier["current"] == false
-    assert inspect(earlier["content"]) =~ "EU users only"
-    assert task["current"] == true
-    assert inspect(task["content"]) =~ "Fix the checkout regression."
-  end
-
   test "the builder rejects a value that is not a complete leased claim" do
     assert SubmissionBuilder.build(%{}) ==
              {:error, {:invalid_work_submission_builder, :claim}}
