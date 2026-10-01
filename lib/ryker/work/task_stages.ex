@@ -60,8 +60,30 @@ defmodule Ryker.Work.TaskStages do
        ci,
        review_and_merge(facts, ci, stale?)
      ] ++ unassigned(facts))
+    |> open_stage_at_work(facts)
     |> mark_current()
   end
+
+  # While the worker runs and no step says it started, the first stage with open steps is the one
+  # at work. Every stage with an unfinished step used to read as running.
+  defp open_stage_at_work(rows, %{turn: %Turn{status: :pending}}) do
+    if Enum.any?(rows, &(&1["state"] in @current_states)) do
+      rows
+    else
+      case Enum.find_index(rows, &open_plan_stage?/1) do
+        nil -> rows
+        index -> List.update_at(rows, index, &%{&1 | "state" => "running"})
+      end
+    end
+  end
+
+  defp open_stage_at_work(rows, _facts), do: rows
+
+  defp open_plan_stage?(%{"stage" => stage, "state" => "pending", "subtasks" => [_ | _]})
+       when stage in ~w(planning implementation self_review),
+       do: true
+
+  defp open_plan_stage?(_row), do: false
 
   # Setting the workspace up is also keeping it: a working copy the host never
   # snapshotted is this stage's failure, and saying "✓ Workspace setup" above it
@@ -411,12 +433,12 @@ defmodule Ryker.Work.TaskStages do
 
   defp run_state(_facts), do: nil
 
-  defp goal_state(goals, facts) do
+  # A stage runs when one of its steps does; one whose steps have not begun has not either.
+  defp goal_state(goals, _facts) do
     cond do
       Enum.any?(goals, &(&1["state"] == "working")) -> "running"
       Enum.any?(goals, &(&1["state"] == "waiting")) -> "waiting"
       Enum.any?(goals, &(&1["state"] == "blocked")) -> "failed"
-      match?(%Turn{status: :pending}, facts.turn) -> "running"
       true -> "pending"
     end
   end
@@ -460,8 +482,13 @@ defmodule Ryker.Work.TaskStages do
   # Subtasks belong under the stage a reader is acting on. A completed stage
   # keeps its name and its count; its items stay in the episode's full history.
   # The unassigned row is the exception: its list is the whole point of the row.
+  # A stage waiting on a person or stopped needs attention first; otherwise the current stage is
+  # the furthest one at work. A model that starts implementing before it closes its planning step
+  # left the card reading "Planning" while files were being edited (Andrew, 2026-10-01).
   defp mark_current(rows) do
-    current = Enum.find(rows, &(&1["state"] in @current_states))
+    current =
+      Enum.find(rows, &(&1["state"] in ["waiting", "failed"])) ||
+        rows |> Enum.filter(&(&1["state"] == "running")) |> List.last()
 
     Enum.map(rows, fn
       ^current -> current |> Map.put("current", true) |> mark_current_subtask()

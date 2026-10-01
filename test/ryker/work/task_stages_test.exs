@@ -250,6 +250,46 @@ defmodule Ryker.Work.TaskStagesTest do
     refute Enum.any?(running, & &1["your_turn"])
   end
 
+  # Andrew, 2026-10-01, of a task card reading "▸ Planning" in bold above "▸ Implementation · 0/2
+  # subtasks" and "▸ Self-review and checks": "it shows planning but actually we are editing files
+  # already!!!" The model had started an implementation step without closing its planning step,
+  # and every stage with an unfinished step read as running while the worker ran.
+  test "the current stage is the furthest one at work, and a stage not begun is not running" do
+    rows =
+      TaskStages.build(
+        facts(
+          plan:
+            plan([
+              goal("design", "planning", "working"),
+              goal("admission", "implementation", "working"),
+              goal("prerequisites", "implementation", "ready"),
+              goal("review", "self_review", "ready")
+            ])
+        )
+      )
+
+    assert row(rows, "implementation")["current"]
+    refute row(rows, "planning")["current"]
+    assert row(rows, "self_review")["state"] == "pending"
+
+    # With no step marked as started while the worker runs, the first open stage is the one at work.
+    unmarked =
+      TaskStages.build(
+        facts(
+          plan:
+            plan([
+              goal("design", "planning", "completed"),
+              goal("admission", "implementation", "ready"),
+              goal("review", "self_review", "ready")
+            ])
+        )
+      )
+
+    assert row(unmarked, "implementation")["state"] == "running"
+    assert row(unmarked, "implementation")["current"]
+    assert row(unmarked, "self_review")["state"] == "pending"
+  end
+
   test "implementation counts current leaves and a missing plan has no denominator" do
     rows =
       TaskStages.build(
