@@ -4,6 +4,7 @@ defmodule Ryker.Runtime.OwnerTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.{Bootstrap, Credentials, Repo, Settings}
+  alias Ryker.ControlPlane.Endpoint
   alias Ryker.Runtime.{Assembly, Owner}
   alias Ryker.Slack.Names
 
@@ -46,6 +47,18 @@ defmodule Ryker.Runtime.OwnerTest do
     assert console_running?(context)
     assert Application.get_env(:ryker, :work) == nil
     assert Application.get_env(:ryker, :slack) == nil
+  end
+
+  # mac-server, 2026-10-01: a setup page reached at the address Compose published, not the
+  # container's own port, rendered and never went live. Setup runs on this console, before any
+  # settings exist.
+  test "a console started before any settings accepts the browser at its published address",
+       context do
+    bootstrap = %{context.bootstrap | control_public_url: "http://127.0.0.1:14321"}
+    owner = start_owner(%{context | bootstrap: bootstrap})
+
+    assert Owner.reconcile(owner) == {:ok, :not_initialized}
+    assert "//127.0.0.1:14321" in Endpoint.config(:check_origin)
   end
 
   test "an unavailable settings database is retried, never mistaken for a fresh install",

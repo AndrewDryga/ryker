@@ -45,6 +45,32 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
     assert BrowserGuard.peer_allowed?({172, 22, 0, 1}, :network)
   end
 
+  # Andrew, 2026-10-01, of the tenant instance on mac-server: "Maybe setup tailscale service?" A
+  # console published at a tailnet name would have answered every request "Misdirected request",
+  # since only the loopback names were the console. The address it is published at is the console
+  # too, and every other name is still refused.
+  test "the console answers at the address it is published at and at no other name" do
+    published = [access: :network, public_host: "mac-server.example.ts.net"]
+    peer = {172, 22, 0, 1}
+
+    assert %{status: nil, halted: false} =
+             BrowserGuard.call(conn("/", "mac-server.example.ts.net", peer), published)
+
+    assert %{status: 421, halted: true} =
+             BrowserGuard.call(conn("/", "evil.example", peer), published)
+
+    assert %{status: 421, halted: true} =
+             BrowserGuard.call(conn("/", "mac-server.example.ts.net", peer), access: :network)
+
+    options =
+      ControlPlaneOptions.options(self())
+      |> Map.merge(%{access: :network, public_host: "mac-server.example.ts.net"})
+      |> Router.init()
+
+    assert Router.call(conn("/healthz", "mac-server.example.ts.net", peer), options).status == 200
+    assert Router.call(conn("/healthz", "evil.example", peer), options).status == 421
+  end
+
   test "every response carries the same browser boundary headers, refused or not" do
     # Until 2026-09-13 the HTTP router set cross-origin-resource-policy and the
     # live pages did not, because each path carried its own copy of the list.
