@@ -151,7 +151,17 @@ install_ryker() {
   compose up --detach --build --wait database ryker ryker-coop-docker
   compose exec -T ryker \
     /opt/ryker/bin/ryker eval 'Ryker.Release.prepare_bundled_coop(log: false)'
-  compose run --rm --no-deps --entrypoint coop ryker-coop build
+  # Those settings were saved by a one-off process, and the running Ryker applies
+  # settings saved elsewhere only when it starts: without this its worker gateway
+  # never opened and the worker could not connect.
+  compose restart ryker
+  compose up --detach --wait ryker
+  # Coop refuses to build from a directory that holds its own network records, as
+  # the container's "/" does, and a fresh volume has no temporary directory until
+  # the worker's entrypoint makes one.
+  # shellcheck disable=SC2016 # $TMPDIR is expanded by the container's shell
+  compose run --rm --no-deps -w /tmp --entrypoint /bin/sh ryker-coop \
+    -c 'umask 077; mkdir -p "$TMPDIR"; coop build; exit $?'
 
   if ! compose run --rm --no-deps -T \
     --entrypoint sh ryker-coop -c \

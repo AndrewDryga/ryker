@@ -237,5 +237,66 @@ defmodule Ryker.ComposeDistributionTest do
     refute manifest =~ "deploy/launchd"
   end
 
+  # mac-server, 2026-10-01, the first fresh install in weeks, stopped three times. `coop build`
+  # from the worker container's "/" was refused ("coop's network records must live outside every
+  # directory an agent can reach"); from /tmp it failed on the fresh volume's missing temporary
+  # directory; and once the worker ran, it could not reach Ryker's gateway, because the settings
+  # the installer saves from a one-off process reach the running Ryker only when it starts. This
+  # Mac's install predates all three, so nothing here had noticed.
+  test "a fresh install builds the box from /tmp and restarts Ryker onto the settings it saved" do
+    dir = Path.join(System.tmp_dir!(), "ryker-install-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    bin = Path.join(dir, "bin")
+    File.mkdir_p!(bin)
+    log = Path.join(dir, "docker.log")
+
+    fake!(bin, "docker", """
+    printf '%s\\n' "$*" >>"$FAKE_LOG"
+    """)
+
+    fake!(bin, "curl", """
+    case "$*" in
+      *--dump-header*) printf 'HTTP/1.1 200 OK\\r\\nx-ryker-version: 0.1.0-install-test\\r\\n' ;;
+    esac
+    """)
+
+    {output, status} =
+      System.cmd("sh", [Path.join(@root, "scripts/compose.sh"), "install"],
+        env: [
+          {"PATH", bin <> ":/usr/bin:/bin"},
+          {"FAKE_LOG", log},
+          {"HOME", dir},
+          {"RYKER_INSTALL_STATE", Path.join(dir, "state")},
+          {"RYKER_VERSION", "0.1.0-install-test"}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+    calls = log |> File.read!() |> String.split("\n", trim: true)
+
+    prepared = index!(calls, "prepare_bundled_coop")
+    restarted = index!(calls, "restart ryker")
+    built = index!(calls, "coop build")
+    worker = index!(calls, "--wait ryker-coop")
+
+    assert prepared < restarted and restarted < worker
+    assert built < worker
+
+    assert Enum.at(calls, built) =~
+             ~s(run --rm --no-deps -w /tmp --entrypoint /bin/sh ryker-coop -c umask 077; mkdir -p "$TMPDIR"; coop build)
+  end
+
+  defp fake!(bin, name, body) do
+    path = Path.join(bin, name)
+    File.write!(path, "#!/bin/sh\n" <> body)
+    File.chmod!(path, 0o755)
+  end
+
+  defp index!(calls, fragment) do
+    Enum.find_index(calls, &String.contains?(&1, fragment)) ||
+      flunk("the installer never ran #{inspect(fragment)}:\n" <> Enum.join(calls, "\n"))
+  end
+
   defp read(relative), do: File.read!(Path.join(@root, relative))
 end
