@@ -19,6 +19,7 @@ defmodule Ryker.Admission.Executor do
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Knowledge
   alias Ryker.Learning.Observations
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Work.Session
 
@@ -34,8 +35,8 @@ defmodule Ryker.Admission.Executor do
          :ok <- renew_lease(settings),
          {:ok, entry} <- Inbox.fetch(input_ref),
          {:ok, entry, context} <- execution_context(input_ref, entry, settings) do
-      case deletion_decision(context) do
-        %Decision{} = decision -> settle_deletion(entry, context, decision, settings)
+      case host_decision(context) do
+        {kind, %Decision{} = decision} -> settle_host(entry, context, kind, decision, settings)
         nil -> run_model(entry, context, settings)
       end
     else
@@ -94,6 +95,42 @@ defmodule Ryker.Admission.Executor do
   end
 
   defp deletion_decision(_context), do: nil
+
+  # Some inputs leave a model nothing to decide.
+  defp host_decision(context) do
+    cond do
+      decision = deletion_decision(context) -> {:deletion, decision}
+      decision = answer_decision(context) -> {:answer, decision}
+      true -> nil
+    end
+  end
+
+  # An answer on Ryker's own question card goes to the work that asked it. Routing weighed each one
+  # like a message: it chose "reply" for one of Andrew's answers and "quick_reply · unrelated" for
+  # another, so the request went on waiting for an answer it had ("Needs your input") and the
+  # answer became a request of its own (2026-10-01). Only the button carries the question's ref; a
+  # typed reply is still routed, since its words may be about something else.
+  defp answer_decision(%Context{
+         input: %Input{content: %{"input_request_ref" => ref, "interaction_kind" => "button"}},
+         candidates: candidates
+       })
+       when is_binary(ref) do
+    with %Record{kind: "input_request", episode_id: episode_id} <-
+           Repo.get_by(Record, ref: ref),
+         %{ref: candidate_ref} <- Enum.find(candidates, &(&1.episode.id == episode_id)) do
+      deletion(
+        :continue_episode,
+        candidate_ref,
+        :same_work,
+        :standard,
+        "The person answered the question this work asked."
+      )
+    else
+      _not_waiting_here -> nil
+    end
+  end
+
+  defp answer_decision(_context), do: nil
 
   # Creating the routing session was the longest wait before the model
   # started: 5.6 s of the 28.6 s a plain "hi" took on the live install on
@@ -168,10 +205,10 @@ defmodule Ryker.Admission.Executor do
     }
   end
 
-  defp settle_deletion(entry, context, decision, settings) do
+  defp settle_host(entry, context, kind, decision, settings) do
     with {:ok, work_policy} <- work_policy(entry, decision, settings),
          {:ok, result} <-
-           Admission.commit(context, decision, "host:deletion:#{entry.id}",
+           Admission.commit(context, decision, "host:#{kind}:#{entry.id}",
              lease_ref: settings.lease_ref,
              work_policy: work_policy
            ) do

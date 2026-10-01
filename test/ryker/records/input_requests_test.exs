@@ -2,6 +2,7 @@ defmodule Ryker.Records.InputRequestsTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
 
+  alias Ryker.Admission.Executor
   alias Ryker.ControlPlane.{ConversationProjection, HTML}
   alias Ryker.Delivery.ChatCard
   alias Ryker.Episodes
@@ -13,6 +14,7 @@ defmodule Ryker.Records.InputRequestsTest do
   alias Ryker.Records.Response
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Slack.InteractionAudit
+  alias Ryker.TestSupport.FakeCoopAPI
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -124,6 +126,57 @@ defmodule Ryker.Records.InputRequestsTest do
     assert entry.destination_transport == "control_plane"
     assert entry.destination_conversation_ref == fixture.receipt["conversation_ref"]
     assert entry.destination_thread_ref == fixture.receipt["thread_ref"]
+  end
+
+  # Andrew, 2026-10-01: "why me clicking reply buttons on the cards ... are not attached to the
+  # same episode timeline?" and, of the request that asked, "says need my input but I clicked on
+  # every card". Each answer went through routing like any message: the model chose "reply" for
+  # one and "quick_reply · unrelated" for another, so the request kept waiting for an answer it
+  # had and the answer became a request of its own. An answer to Ryker's question goes to the work
+  # that asked it, and no model decides that.
+  for transport <- [:control_plane, :slack] do
+    @tag isolation: "REPEATABLE READ"
+    test "an answer on a #{transport} question card resumes the request that asked it, without routing" do
+      transport = unquote(transport)
+      fixture = delivered_question!(transport)
+      assert fixture.episode.state == :waiting_for_input
+
+      assert {:ok, answer} =
+               InputRequests.answer(
+                 answer(fixture, 1, "resume-#{transport}")
+                 |> Map.put(
+                   :actor_ref,
+                   if(transport == :slack, do: "U123", else: "local-operator")
+                 )
+                 |> Map.put(:occurred_at, DateTime.add(DateTime.utc_now(), 1, :second))
+               )
+
+      assert {:ok, %{entry: claimed, lease_ref: lease_ref}} =
+               Inbox.claim_next("executor:answer", DateTime.add(@now, 5, :second), 300)
+
+      assert claimed.id == Inbox.fetch(answer.input_ref) |> elem(1) |> Map.get(:id)
+      {:ok, routing} = FakeCoopAPI.start_link([])
+
+      assert {:ok, execution} =
+               Executor.run(answer.input_ref,
+                 api: FakeCoopAPI,
+                 client: routing,
+                 lease_ref: lease_ref,
+                 max_polls: 1,
+                 now: fn -> DateTime.add(@now, 5, :second) end,
+                 policy: "admission-read-only",
+                 policy_digest: String.duplicate("a", 64),
+                 poll_interval_ms: 0,
+                 renew_lease: fn -> :ok end,
+                 sleep: fn _milliseconds -> :ok end
+               )
+
+      assert execution.result.entry.decision_action == :continue_episode
+      assert execution.result.episode.id == fixture.episode.id
+      assert Repo.get!(Ryker.Episodes.Episode, fixture.episode.id).state == :working
+      assert FakeCoopAPI.state(routing).submit_count == 0
+      assert FakeCoopAPI.state(routing).create_keys == []
+    end
   end
 
   # Andrew, 2026-10-01, on a Chat question he had answered: his answer read
