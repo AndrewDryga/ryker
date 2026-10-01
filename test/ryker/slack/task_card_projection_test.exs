@@ -297,7 +297,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
 
     assert {:ok, rendered} = Renderer.render(many_goals.document)
     json = Jason.encode!(rendered)
-    assert json =~ "Implementation · 8/9 subtasks"
+    assert json =~ "*▸ Implementation* · 8/9 subtasks"
     assert json =~ "Showing 6 of 9 subtasks"
   end
 
@@ -742,7 +742,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     json = Jason.encode!(rendered)
     assert json =~ "✓ CI · 8/8"
     # The row links to the pull request it merged.
-    assert json =~ "✓ <https://github.com/acme/ryker/pull/91|Review and merge · merged>"
+    assert json =~ "✓ <https://github.com/acme/ryker/pull/91|Review and merge> · merged"
     assert json =~ "<https://github.com/acme/ryker|ryker>"
   end
 

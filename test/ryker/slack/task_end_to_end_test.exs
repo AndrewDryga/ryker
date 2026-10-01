@@ -252,7 +252,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
 
       # The worker has not bound its Coop session yet, so Workspace setup is the
       # stage waiting; the plan still counts its own subtask truthfully.
-      assert rendered =~ "◷ Workspace setup · waiting for a worker"
+      assert rendered =~ "*◷ Workspace setup* · waiting for a worker"
 
       if state == "completed",
         do: assert(rendered =~ "✓ Implementation · 1/1 subtasks"),
