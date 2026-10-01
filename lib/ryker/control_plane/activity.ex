@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.Activity do
   alias Ryker.Episodes.{Episode, RoutingDigest}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleOccurrence
@@ -253,10 +254,13 @@ defmodule Ryker.ControlPlane.Activity do
             episode.owner_kind == :turn,
         left_join: digest in RoutingDigest,
         on: digest.episode_id == episode.id,
+        left_join: task in subquery(confirmed_tasks()),
+        on: task.episode_id == episode.id,
         select: %{
           id: episode.id,
           kind: type(^"episode", :string),
-          episode_title: digest.title,
+          episode_title: fragment("COALESCE(?, ?)", task.title, digest.title),
+          task_kind: task.kind,
           schedule_title: scheduled.title,
           ref: episode.key,
           conversation: episode.destination_conversation_ref,
@@ -304,6 +308,7 @@ defmodule Ryker.ControlPlane.Activity do
           id: entry.id,
           kind: type(^"admission", :string),
           episode_title: type(^nil, :string),
+          task_kind: type(^nil, :string),
           schedule_title: type(^nil, :string),
           ref: fragment("?::text", entry.id),
           conversation: entry.destination_conversation_ref,
@@ -347,6 +352,21 @@ defmodule Ryker.ControlPlane.Activity do
     )
   end
 
+  # A task starts from its confirmation, not from a message: its row reads as the task, and says
+  # what kind of task it is (Andrew, 2026-10-01).
+  defp confirmed_tasks do
+    from(record in Record,
+      where:
+        record.kind == "task_offer" and record.status == :confirmed and
+          not is_nil(record.confirmed_episode_id),
+      select: %{
+        episode_id: record.confirmed_episode_id,
+        title: fragment("(?::jsonb)->>'title'", record.payload),
+        kind: fragment("(?::jsonb)->>'kind'", record.payload)
+      }
+    )
+  end
+
   # A scheduled run starts from its schedule, not from a message.
   defp scheduled_runs do
     from(occurrence in ScheduleOccurrence,
@@ -382,9 +402,18 @@ defmodule Ryker.ControlPlane.Activity do
           |> String.slice(0, 200)
 
     row
-    |> Map.drop([:text, :ref, :conversation, :episode_state, :episode_title, :schedule_title])
+    |> Map.drop([
+      :text,
+      :ref,
+      :conversation,
+      :episode_state,
+      :episode_title,
+      :schedule_title,
+      :task_kind
+    ])
     |> Map.merge(%{
       conversation: row.conversation,
+      kind_label: kind_label(row[:task_kind]),
       title: title,
       source: source,
       href:
@@ -402,6 +431,10 @@ defmodule Ryker.ControlPlane.Activity do
     artifact = InspectionRedactor.artifact(text, secrets: secrets, max_bytes: max_bytes)
     if artifact.text, do: String.trim(artifact.text)
   end
+
+  defp kind_label("engineering"), do: "Engineering task"
+  defp kind_label("incident"), do: "Incident task"
+  defp kind_label(_kind), do: nil
 
   defp source("control_plane"), do: "Direct conversation"
   defp source("slack"), do: "Slack"

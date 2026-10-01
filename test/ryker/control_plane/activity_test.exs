@@ -550,6 +550,74 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert Activity.list(%{"q" => "weekday open incident"}).total == 1
   end
 
+  # Andrew, 2026-10-01, of Activity rows reading "Message text no longer available": a task is
+  # started by its confirmation, not by a message, so its row "should be the task title", and the
+  # row should say what kind of request it is ("eg this one is engineering task"). An answer given
+  # on a question card has no text either; it reads as the answer.
+  test "a task reads as its task, and a card answer as what was chosen" do
+    asked = counted_episode!("task-asked")
+    {:ok, _session} = Custody.pin_episode(asked.id, "ryker-read", String.duplicate("a", 64))
+    {:ok, claim} = Custody.claim_next("worker:activity-task", 60, :work)
+    task = counted_episode!("task-run")
+
+    payload = %{
+      "kind" => "engineering",
+      "prompt" => "Add the file.",
+      "repository" => "test",
+      "title" => "Demo: add a greeting file"
+    }
+
+    Repo.insert!(%Ryker.Records.Record{
+      id: Ecto.UUID.generate(),
+      confirmation_ref: "confirmation:activity-task",
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "local-operator",
+      confirmed_episode_id: task.id,
+      episode_id: asked.id,
+      kind: "task_offer",
+      operation_id: "task",
+      payload: payload,
+      payload_fingerprint: Ryker.CanonicalJSON.digest(payload),
+      ref: "record:task_offer:activity",
+      status: :confirmed,
+      turn_id: claim.turn.id
+    })
+
+    row = Enum.find(Activity.list(%{}).items, &(&1.id == task.id))
+    assert row.title == "Demo: add a greeting file"
+    assert row.kind_label == "Engineering task"
+
+    {:ok, input} =
+      Ryker.Ingress.Input.new(%{
+        actor: %{kind: :user, ref: "local-operator"},
+        content: %{
+          "choice" => "Sunglasses",
+          "choice_index" => 2,
+          "input_request_ref" => "record:input_request:activity",
+          "interaction_kind" => "button"
+        },
+        destination: %{
+          conversation_ref: "control-plane:lab:activity",
+          thread_ref: "control-plane:lab:activity",
+          transport: "control_plane"
+        },
+        event_kind: :event,
+        event_ref: "control-plane-action:activity",
+        native_input_id: "control-plane-response:activity",
+        occurred_at: DateTime.utc_now(),
+        occurred_at_source: :ingress,
+        revision: 1,
+        source: %{kind: "control_plane", ref: "local"},
+        source_capabilities: %{},
+        source_item_ref: "control-plane-action:activity"
+      })
+
+    {:ok, %{entry: answer}} = Inbox.record(input)
+
+    assert Enum.find(Activity.list(%{}).items, &(&1.id == answer.id)).title ==
+             "Answered “Sunglasses”"
+  end
+
   # Manual testing, 2026-09-26: deleting a message added a second row,
   # "Message deleted · No response needed", beside the message's own row, and
   # counted the deletion as one more request.

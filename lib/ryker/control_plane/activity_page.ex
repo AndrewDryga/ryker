@@ -297,7 +297,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
   end
 
   # Where the request came from and its repository; when is the row's edge.
-  defp meta(item), do: [{:strong, where(item)}, item.repository]
+  defp meta(item), do: [item[:kind_label], {:strong, where(item)}, item.repository]
 
   # Where a request came from is the one thing its tile says.
   defp source_icon(%{source: "Slack"}), do: :hash
