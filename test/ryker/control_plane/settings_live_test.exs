@@ -900,6 +900,51 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(view, ".settings-connection .state-word[data-tone=off]", "Not connected")
   end
 
+  # Andrew, 2026-10-01, pasting the GitHub App's "Recent Deliveries": "many failed webhooks on gh,
+  # you need to test gh integration more thoughtfully and deeply". GitHub cannot reach a callback
+  # URL on this computer, so it lists every delivery as failed, and Ryker collects the same events
+  # from GitHub every 30 seconds instead. The page said only "Paste this callback URL".
+  test "a GitHub App on a local address says why GitHub lists failures and what Ryker received" do
+    initialize!()
+    connect_github!()
+
+    for {disposition, reason} <- [
+          {"routed", nil},
+          {"metadata", "no_request_or_rule"},
+          {"failed", "invalid_event"}
+        ] do
+      Repo.insert!(%Ryker.GitHub.Event{
+        id: Ecto.UUID.generate(),
+        delivery_ref: Ecto.UUID.generate(),
+        binding_ref: "acme-ryker",
+        repository_id: 1,
+        event_name: "check_run",
+        action: "completed",
+        event_ref: Ecto.UUID.generate(),
+        payload_digest: String.duplicate("a", 64),
+        disposition: disposition,
+        reason: reason,
+        occurred_at: DateTime.utc_now(),
+        processed_at: DateTime.utc_now()
+      })
+    end
+
+    {:ok, view, _html} = open("/integrations/github")
+
+    status =
+      view
+      |> element("#github-events")
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.text()
+      |> String.replace(~r/\s+/, " ")
+
+    assert status =~ "GitHub can't reach this computer"
+    assert status =~ "every 30 seconds"
+    assert status =~ "3 events in the last day"
+    assert status =~ "1 couldn't be read"
+  end
+
   test "choosing who manages Ryker never changes how Ryker takes part in channels" do
     # Until 2026-09-24 saving the operators also wrote "only when mentioned" as
     # every channel's default, silently undoing the choice made under New
