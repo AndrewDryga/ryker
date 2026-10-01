@@ -18,6 +18,21 @@ RUN apt-get update \
  && groupadd --gid 1000 coop \
  && useradd --uid 1000 --gid coop --home-dir /var/lib/coop --create-home --shell /bin/sh coop
 
+# Coop starts a review's declared service stack with `docker compose`, which Debian's docker.io
+# lacks. The plugin is a pinned release, its checksum checked for this image's architecture.
+ARG COMPOSE_VERSION=v5.1.2
+RUN case "$(dpkg --print-architecture)" in \
+      arm64) arch=aarch64 sum=d5ce4020039cdbe81679b770e64f89d2cc601398d3b1aacd84a02a9176cd9d20 ;; \
+      amd64) arch=x86_64 sum=c372e512a36e67716b0b3a1264ccdc461dec7a7beff601b81f7c5fb008e3511e ;; \
+      *) echo "no pinned Docker Compose for $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac \
+ && mkdir -p /usr/libexec/docker/cli-plugins \
+ && curl -fsSL -o /usr/libexec/docker/cli-plugins/docker-compose \
+      "https://github.com/docker/compose/releases/download/$COMPOSE_VERSION/docker-compose-linux-$arch" \
+ && echo "$sum  /usr/libexec/docker/cli-plugins/docker-compose" | sha256sum -c - \
+ && chmod 0755 /usr/libexec/docker/cli-plugins/docker-compose \
+ && docker compose version
+
 COPY --from=build /out/coop /usr/local/bin/coop
 RUN coop version \
  && coop help sessions connect >/dev/null

@@ -237,6 +237,21 @@ defmodule Ryker.ComposeDistributionTest do
     refute manifest =~ "deploy/launchd"
   end
 
+  # emisar's draft-PR reviews, 2026-10-01: its review stack (PostgreSQL) never started, and once
+  # Coop starts a review's declared stack, it does so with `docker compose`, which Debian's
+  # docker.io in the worker image does not include ("'compose' is not a docker command"). The
+  # plugin is a pinned release whose checksum is checked for each architecture.
+  test "the worker can start a review's services with a verified Docker Compose" do
+    worker_image = read("deploy/compose/coop/Dockerfile")
+
+    assert worker_image =~ "ARG COMPOSE_VERSION=v5.1.2"
+    assert worker_image =~ "docker-compose-linux-$arch"
+    assert worker_image =~ "d5ce4020039cdbe81679b770e64f89d2cc601398d3b1aacd84a02a9176cd9d20"
+    assert worker_image =~ "c372e512a36e67716b0b3a1264ccdc461dec7a7beff601b81f7c5fb008e3511e"
+    assert worker_image =~ "sha256sum -c -"
+    assert worker_image =~ "docker compose version"
+  end
+
   # mac-server, 2026-10-01, the first fresh install in weeks, stopped three times. `coop build`
   # from the worker container's "/" was refused ("coop's network records must live outside every
   # directory an agent can reach"); from /tmp it failed on the fresh volume's missing temporary
