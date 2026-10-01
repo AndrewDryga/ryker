@@ -23,7 +23,7 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
   alias Ryker.Work.{Custody, Session}
 
   @captured Jason.decode!(File.read!("testdata/learning/recorded-private-source-citation.json"))
-  @conversation "slack:T01J1LW4DF1:C08MMETA3U3"
+  @conversation "slack:T0TENANT001:C0TENANTOPS"
 
   defmodule API do
     def update_message(agent, _channel, _message, document, _ref) do
@@ -184,7 +184,7 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
     assert {:ok, offered} =
              Records.create(Records.token(producer.turn), "captured-task", "task_offer", %{
                "kind" => "engineering",
-               "repository" => "blitz-infra",
+               "repository" => "tenant-infra",
                "title" => @captured["arguments"]["subject"],
                "prompt" => @captured["arguments"]["observation"]
              })
@@ -228,8 +228,8 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
         record_id: offer.id,
         episode_id: task.episode.id,
         ref: "task-card:#{offer.id}",
-        workspace_ref: "T01J1LW4DF1",
-        channel_ref: "C08MMETA3U3",
+        workspace_ref: "T0TENANT001",
+        channel_ref: "C0TENANTOPS",
         thread_ref: task.episode.destination_thread_ref,
         message_ref: "1787832001.000200"
       })
@@ -262,7 +262,7 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
                })
              )
 
-    assert {:ok, _} = Custody.pin_episode(id, "fixture", digest(), nil, "blitz-infra")
+    assert {:ok, _} = Custody.pin_episode(id, "fixture", digest(), nil, "tenant-infra")
     assert {:ok, claim} = Custody.claim_next("worker:#{id}", 60, :work)
     claim
   end

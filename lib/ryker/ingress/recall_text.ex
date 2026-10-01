@@ -42,7 +42,7 @@ defmodule Ryker.Ingress.RecallText do
   What a message or alert names outside its words, for finding the work it belongs to: the links
   a Slack message carries on attachment titles, buttons and rich text, and the rule, host, both
   together and fingerprint an Alertmanager alert is known by, with its graph link. 706 of 1,034
-  alerts in the Blitz history carried their link only there, and none of it was searched (ID7,
+  alerts in the Tenant history carried their link only there, and none of it was searched (ID7,
   2026-09-30); the same rule on the same host is the same incident, the host alone only related
   (ID9).
   """
@@ -110,7 +110,7 @@ defmodule Ryker.Ingress.RecallText do
     do: texts |> Enum.take(16) |> Enum.map_join("\n", &cut/1)
 
   # A part ends at its last whole word before the limit. Cut inside a link, the rest of it was
-  # an identifier unrelated alerts shared (".../alerting/sil" in 14 Blitz alerts, ID4,
+  # an identifier unrelated alerts shared (".../alerting/sil" in 14 Tenant alerts, ID4,
   # 2026-09-30). Text with nowhere to cut, one long token or a script written without spaces,
   # is cut where the limit falls.
   defp cut(text) do

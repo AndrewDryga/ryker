@@ -8,7 +8,7 @@
           "admit_input:18cd34925103f932ba176894b9f2a83d4a47fff87511c54f77312e0040a26ab3"
         ],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1787726072.993859",
           "transport": "slack"
         },
@@ -34,7 +34,7 @@
       "episode": {
         "active_inputs": [],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1787726072.993859",
           "transport": "slack"
         },
@@ -61,7 +61,7 @@
       "episode": {
         "active_inputs": [],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1787726072.993859",
           "transport": "slack"
         },
@@ -88,7 +88,7 @@
       "episode": {
         "active_inputs": [],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1787726072.993859",
           "transport": "slack"
         },
@@ -113,7 +113,7 @@
   "episode": {
     "active_inputs": [],
     "destination": {
-      "conversation_ref": "C08MMETA3U3",
+      "conversation_ref": "C0TENANTOPS",
       "thread_ref": "1787726072.993859",
       "transport": "slack"
     },
@@ -134,13 +134,13 @@
   "events": [
     {
       "dedupe_key": "admit_input:18cd34925103f932ba176894b9f2a83d4a47fff87511c54f77312e0040a26ab3",
-      "fingerprint": "081fcdfea6cf5280ad7f4c7264048e5684ee32d4d4187012d68e4fdfd8f335f6",
+      "fingerprint": "066787fba18417c72cb04db594a54c543ff822ceafc850a91413a2eecc12b231",
       "kind": "input_admitted",
       "occurred_at": "2026-08-26T06:34:32.993859Z",
       "payload": {
         "actor_ref": "slack:app:grafana",
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1787726072.993859",
           "transport": "slack"
         },

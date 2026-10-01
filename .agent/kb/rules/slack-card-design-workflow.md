@@ -33,12 +33,12 @@ partial, stale or cancelled paths just because the happy-path mock looks good.
 
 ## 2. Use real evidence, with explicit proposed variants
 
-Reuse the sanitized Blitz corpus and prior sent card in the reference task below. They contain
+Reuse the sanitized Tenant corpus and prior sent card in the reference task below. They contain
 real requests, repositories, goals, observations, tool calls and publication failures. Choose
 representative cases; do not copy irrelevant follow-ups or old progress labels into a new design.
 
 When additional evidence is needed, inspect the real store read-only and use an allowlisted
-extraction. The existing harvest-blitz.mjs is a historical SQLite extractor with exact selected
+extraction. The existing harvest-tenant.mjs is a historical SQLite extractor with exact selected
 episode IDs, not a generic current-production database client. Read it before running it; do not
 rehash/reharvest a stable corpus just to change layout. Verify the current schema/location first.
 
@@ -94,8 +94,8 @@ The reusable pieces in that folder are:
 
 | File | Responsibility |
 | --- | --- |
-| review-data.js / blitz-design.js | Purpose-based families, alternate states, shared compositions, source-backed/proposed labels |
-| blitz-records.js | Immutable sanitized historical corpus |
+| review-data.js / tenant-design.js | Purpose-based families, alternate states, shared compositions, source-backed/proposed labels |
+| tenant-records.js | Immutable sanitized historical corpus |
 | block-kit.js | Task-only native Block Kit compiler, full source-preserving fallback, exact Builder envelope |
 | review.html / review-ui.js | Search/navigation, state buttons, per-item links/exports and full local source details |
 | slack-validation.js | Successful exact-envelope hashes, message/view scope and check timestamps |

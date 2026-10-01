@@ -40,14 +40,14 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
     # whenever an episode had a generic opening and a generic latest update.
     episode = admit!("digest:middle", "Investigating something in production")
 
-    admit_more!(episode, "The failing host is nomad-hvn05 and the job is tolgee-postgres-metrics")
+    admit_more!(episode, "The failing host is nomad-hst05 and the job is tolgee-postgres-metrics")
     admit_more!(episode, "Still looking into it")
 
     digest = RoutingDigests.fetch(episode.id)
 
     assert digest.objective =~ "Investigating something in production"
     assert digest.latest_development =~ "Still looking into it"
-    assert digest.search_text =~ "nomad-hvn05"
+    assert digest.search_text =~ "nomad-hst05"
     assert digest.search_text =~ "tolgee-postgres-metrics"
     assert digest.input_count == 3
   end
@@ -56,14 +56,14 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
     episode =
       admit!(
         "digest:anchors",
-        "Run https://app.terraform.io/app/SME-Blitz/blitz-infra/runs/run-TT4LiosRo6Eh8Rnq failed"
+        "Run https://app.terraform.io/app/SME-Tenant/tenant-infra/runs/run-TobiKjYqqj17v2YB failed"
       )
 
     digest = RoutingDigests.fetch(episode.id)
     assert digest.anchor_keys != []
 
     assert RoutingDigests.anchor_keys([
-             "https://app.terraform.io/app/SME-Blitz/blitz-infra/runs/run-TT4LiosRo6Eh8Rnq"
+             "https://app.terraform.io/app/SME-Tenant/tenant-infra/runs/run-TobiKjYqqj17v2YB"
            ]) -- digest.anchor_keys == []
 
     assert RoutingDigests.anchor_keys(["https://app.terraform.io/app/Other/other/runs/run-ZZZ"]) --
@@ -140,7 +140,7 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
         do: refute(word in identifiers, word)
   end
 
-  # The replay over the Blitz alert history (2026-09-30): a UUID counted three times, its first
+  # The replay over the Tenant alert history (2026-09-30): a UUID counted three times, its first
   # and last blocks also read as commit hashes (69 messages, ID2), and an uppercase hex ID never
   # matched at all ("!tft_update 37357FE72DED74EE prod", 56 messages, ID3).
   test "a UUID is one identifier, and an uppercase hex ID is one too" do
@@ -151,7 +151,7 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
              ["37357fe72ded74ee"]
   end
 
-  # The replay over the Blitz alert history (2026-09-30, ID5): one thing linked two ways did
+  # The replay over the Tenant alert history (2026-09-30, ID5): one thing linked two ways did
   # not match, as #482 and its pull request link, its files tab and the pull request itself, or
   # one dashboard opened over two time ranges.
   test "one thing linked two ways is one identifier" do
@@ -175,7 +175,7 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
            ]
   end
 
-  # The replay over the Blitz alert history (2026-09-30, ID8): the names people and alerts give
+  # The replay over the Tenant alert history (2026-09-30, ID8): the names people and alerts give
   # things were missed when they had no "v", fewer than three parts or no digit, as incident
   # 1010598742, version 2.14.0, TargetDown, HighCPU or checkout-api. Shared ones now count by how
   # rare they are (ID1), so they can be read without every ordinary word becoming one.

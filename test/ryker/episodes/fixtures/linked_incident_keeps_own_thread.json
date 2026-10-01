@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source": {
-    "database": "blitz responder.db",
+    "database": "tenant responder.db",
     "episode_ids": ["episode_run_472ea3247b91552b7726ec9f9a0ff6f3", "episode_run_cfa38a8fc5e751b5c17930634baa402d"],
     "reason": "A related Better Stack incident may inherit history but must never inherit the older incident's Slack destination."
   },
@@ -10,7 +10,7 @@
       {
         "type": "admit_input",
         "actor_ref": "slack:app:better-stack",
-        "destination": {"transport": "slack", "conversation_ref": "C091FK0HHAQ", "thread_ref": "1787251157.958149"},
+        "destination": {"transport": "slack", "conversation_ref": "C0TENANTAL1", "thread_ref": "1787251157.958149"},
         "episode_id": "01993e00-0000-7000-8000-000000000004",
         "episode_key": "better-stack:incident:1004352797",
         "linked_episode_id": null,
@@ -36,7 +36,7 @@
     {
       "type": "admit_input",
       "actor_ref": "slack:app:better-stack",
-      "destination": {"transport": "slack", "conversation_ref": "C091FK0HHAQ", "thread_ref": "1787251168.146869"},
+      "destination": {"transport": "slack", "conversation_ref": "C0TENANTAL1", "thread_ref": "1787251168.146869"},
       "episode_id": "01993e00-0000-7000-8000-000000000005",
       "episode_key": "better-stack:incident:1004352798",
       "linked_episode_id": "01993e00-0000-7000-8000-000000000004",
@@ -66,7 +66,7 @@
   ],
   "expected": {
     "active_input_count": 0,
-    "destination": {"conversation_ref": "C091FK0HHAQ", "thread_ref": "1787251168.146869", "transport": "slack"},
+    "destination": {"conversation_ref": "C0TENANTAL1", "thread_ref": "1787251168.146869", "transport": "slack"},
     "event_kinds": ["input_admitted", "result_accepted", "delivery_confirmed"],
     "event_count": 3,
     "linked_episode_id": "01993e00-0000-7000-8000-000000000004",

@@ -9,7 +9,7 @@ defmodule Ryker.Knowledge.KnowledgeUpdateTest do
       "topic_key" => "draft-ai-suggestions",
       "title" => "Keep draft-ai-suggestions",
       "summary" =>
-        "U03EPT4RP5M wants to keep `draft-ai-suggestions` and plans to look into it at an unspecified future time.",
+        "U0TENANTUS3 wants to keep `draft-ai-suggestions` and plans to look into it at an unspecified future time.",
       "topics" => ["draft-ai-suggestions"],
       "anchors" => [],
       "target_ref" => nil,

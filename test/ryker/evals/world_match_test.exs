@@ -40,20 +40,20 @@ defmodule Ryker.Evals.WorldMatchTest do
   test "reviewed aliases may choose among bounded text concept groups" do
     pattern = %{
       "$one_of" => [
-        %{"$contains_all" => ["uptime", "nomad-hvn03"]},
-        %{"$contains_all" => ["node_boot_time", "nomad-hvn03"]}
+        %{"$contains_all" => ["uptime", "nomad-hst03"]},
+        %{"$contains_all" => ["node_boot_time", "nomad-hst03"]}
       ]
     }
 
     assert WorldMatch.valid?(pattern)
-    assert WorldMatch.matches?(pattern, "What is the uptime for nomad-hvn03?")
+    assert WorldMatch.matches?(pattern, "What is the uptime for nomad-hst03?")
 
     assert WorldMatch.matches?(
              pattern,
-             ~s|time() - node_boot_time_seconds{instance="nomad-hvn03"}|
+             ~s|time() - node_boot_time_seconds{instance="nomad-hst03"}|
            )
 
-    refute WorldMatch.matches?(pattern, "memory usage for nomad-hvn03")
+    refute WorldMatch.matches?(pattern, "memory usage for nomad-hst03")
   end
 
   test "only bounded non-nested operators and JSON-shaped values are valid" do

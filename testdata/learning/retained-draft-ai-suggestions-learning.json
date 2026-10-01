@@ -1,25 +1,25 @@
 {
   "provenance": {
-    "database": "responder_blitz_history_20260906_m8zykx",
+    "database": "responder_tenant_history_20260906_m8zykx",
     "snapshot_at": "2026-09-07T19:08:06.17791+00:00",
     "run_id": "0e60477a-b6cf-4c3a-97a0-c6d32fa4be3d",
     "applied_at": "2026-09-07T19:05:53.201078",
     "prompt_sha256": "233e1298ee99e37558c1d53e8bcf0f4282008bf834af961cc2bdd8805cf3b2a1",
-    "result_sha256": "ab2e6b47e83629d5199c3cce86fb7e637892761d2bbe2e30ee761056010587ad",
+    "result_sha256": "73f16061c6dd1c3e0484e205aa7ff43d226423717152df1aa8d980a0768e4f28",
     "note": "Exact source fields and unchanged final result harvested from a read-only private replay snapshot. Capacity receipts in the test are structural host setup, not a recorded model saturation judgment.",
     "reshaped": "2026-09-27: each stored decision_document was rewritten as the live-replies migration rewrote stored decisions (reaction became reactions; messages, repository and repository_source were added as null) and decision_fingerprint taken again from the rewritten document. The recorded choice is unchanged."
   },
   "input": {
     "id": "d04b8a6b-dc90-4dc8-ab71-0882e9a10539",
-    "dedupe_key": "ingress-event:4142cd830c215f66e9b574e1b49bced6e689cc850d64ed15f595abe66847c94f",
-    "event_ref": "blitz-backfill:20260906:C01KJP8SQSZ:1788373067.797329",
-    "event_fingerprint": "196e917971985ff2e555d796091c52e921f5d9a156416f86a9bfb9ef37cb2ad9",
+    "dedupe_key": "ingress-event:d6ce5cc21f19f325a9991798bf45af3b1ac9235256f7a8ec82a592e40f716a2a",
+    "event_ref": "tenant-backfill:20260906:C0TENANTENG:1788373067.797329",
+    "event_fingerprint": "2bcd33c124ad4512d8fb1d6b6ca9f25932b7e1cf49248bf146c87a9f864ec4ba",
     "source_kind": "slack",
-    "source_ref": "T01J1LW4DF1",
-    "native_input_id": "slack-message:0f63f14d66d92fc75a1d7d895111b7b4d3fd8938ebd95f22e2d82427b8034cc9",
+    "source_ref": "T0TENANT001",
+    "native_input_id": "slack-message:d0ab44fef3a84aa867a487cc219a9727f20bf3e8a341c340c07244f59508918c",
     "source_item_ref": "1788373067.797329",
     "actor_kind": "user",
-    "actor_ref": "U089UCBNT38",
+    "actor_ref": "U0TENANTUS2",
     "event_kind": "message",
     "revision": 7153492271189316,
     "occurred_at": "2026-09-02T18:17:47.797329",
@@ -32,10 +32,10 @@
       }
     },
     "destination_transport": "slack",
-    "destination_conversation_ref": "slack:T01J1LW4DF1:C01KJP8SQSZ",
+    "destination_conversation_ref": "slack:T0TENANT001:C0TENANTENG",
     "destination_thread_ref": "1788373067.797329",
-    "repository_ref": "blitz-infra",
-    "work_policy": "blitz-replay-conversation-v1",
+    "repository_ref": "tenant-infra",
+    "work_policy": "tenant-replay-conversation-v1",
     "work_policy_digest": "535a8566d33cadc50bfce8c1410e4fa0652c3745b428925791e5a489f5703679",
     "decision_ref": "coop-admission:turn_d9d4adf328fffabd14c2cbf460dd1880:8b907c73114c833ca2ea3b84d07f535830d1f840e7b12e92b992aeb7a9ee065d",
     "decision_fingerprint": "750c278d2bf3fe7e41dcec2fcc1b5399df297d24f1eafe1b40d30694e574f19b",
@@ -56,14 +56,14 @@
       "attachments": [
         {
           "fallback": "Google Cloud Platform",
-          "from_url": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports",
+          "from_url": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=tenant-esports",
           "id": 1,
-          "original_url": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports",
+          "original_url": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=tenant-esports",
           "service_icon": "https://accounts.google.com/favicon.ico",
           "service_name": "accounts.google.com",
           "text": "Google Cloud Platform lets you build, deploy, and scale applications, websites, and services on the same infrastructure as Google.",
           "title": "Google Cloud Platform",
-          "title_link": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports"
+          "title_link": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=tenant-esports"
         }
       ],
       "blocks": [
@@ -74,17 +74,17 @@
               "elements": [
                 {
                   "type": "user",
-                  "user_id": "U03U3L56YFL"
+                  "user_id": "U0TENANTUS1"
                 },
                 {
                   "text": " do we need this cloud function or I can delete it? ",
                   "type": "text"
                 },
                 {
-                  "text": "console.cloud.google.com/run/detail/…/metrics?project=blitz-esports",
+                  "text": "console.cloud.google.com/run/detail/…/metrics?project=tenant-esports",
                   "truncated": true,
                   "type": "link",
-                  "url": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports"
+                  "url": "https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=tenant-esports"
                 }
               ],
               "type": "rich_text_section"
@@ -96,8 +96,8 @@
       "files": [],
       "slack_event_kind": "message",
       "subtype": null,
-      "text": "<@U03U3L56YFL> do we need this cloud function or I can delete it? <https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports|console.cloud.google.com/run/detail/…/metrics?project=blitz-esports>"
+      "text": "<@U0TENANTUS1> do we need this cloud function or I can delete it? <https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=tenant-esports|console.cloud.google.com/run/detail/…/metrics?project=tenant-esports>"
     }
   },
-  "result": "{\"updates\":[{\"topic_key\":\"draft-ai-suggestions-retention\",\"title\":\"draft-ai-suggestions retention question\",\"summary\":\"On September 2, 2026, Slack user U089UCBNT38 asked U03U3L56YFL whether draft-ai-suggestions is still needed or can be deleted, linking its Cloud Run metrics page in project blitz-esports, region us-central1. The sender called it a cloud function. No answer or deletion decision is recorded.\",\"topics\":[\"draft-ai-suggestions\",\"blitz-esports\",\"Google Cloud\",\"resource retention\"],\"target_ref\":null,\"expected_version\":0,\"source_input_ids\":[\"d04b8a6b-dc90-4dc8-ab71-0882e9a10539\"]}],\"reason\":\"Preserved the unresolved resource retention question without inferring usage or authorization to delete.\"}"
+  "result": "{\"updates\":[{\"topic_key\":\"draft-ai-suggestions-retention\",\"title\":\"draft-ai-suggestions retention question\",\"summary\":\"On September 2, 2026, Slack user U0TENANTUS2 asked U0TENANTUS1 whether draft-ai-suggestions is still needed or can be deleted, linking its Cloud Run metrics page in project tenant-esports, region us-central1. The sender called it a cloud function. No answer or deletion decision is recorded.\",\"topics\":[\"draft-ai-suggestions\",\"tenant-esports\",\"Google Cloud\",\"resource retention\"],\"target_ref\":null,\"expected_version\":0,\"source_input_ids\":[\"d04b8a6b-dc90-4dc8-ab71-0882e9a10539\"]}],\"reason\":\"Preserved the unresolved resource retention question without inferring usage or authorization to delete.\"}"
 }

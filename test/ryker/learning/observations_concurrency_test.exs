@@ -42,20 +42,20 @@ defmodule Ryker.Learning.ObservationsConcurrencyTest do
         source_message_ref: "1787832000.000100",
         source_result_ref: "result",
         source_fingerprint: String.duplicate("a", 64),
-        actor_ref: "U03EPT4RP5M",
+        actor_ref: "U0TENANTUS3",
         execution_mode: :shadow,
         revision: 1,
         occurred_at: now,
         note: %{
           "summary" =>
-            "U03EPT4RP5M wants to keep `draft-ai-suggestions` and plans to look into it at an unspecified future time.",
+            "U0TENANTUS3 wants to keep `draft-ai-suggestions` and plans to look into it at an unspecified future time.",
           "topics" => ["draft-ai-suggestions"]
         }
       })
 
       {:ok, input} =
         Input.new(%{
-          actor: %{kind: :user, ref: "U03EPT4RP5M"},
+          actor: %{kind: :user, ref: "U0TENANTUS3"},
           channel_ref: "CTARGET",
           workspace_ref: workspace,
           message_ref: "1787832000.000101",

@@ -21,7 +21,7 @@ defmodule Ryker.Learning.ObservationsTest do
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
 
   @now ~U[2026-09-06 10:00:00.000000Z]
-  # Harvested from the Blitz service-retention discussion, not a synthetic policy.
+  # Harvested from the Tenant service-retention discussion, not a synthetic policy.
   @message "`draft-ai-suggestions`\nplanning to look into it at some point, let’s keep it"
   @note %{
     "summary" => @message,
@@ -36,7 +36,7 @@ defmodule Ryker.Learning.ObservationsTest do
     page = MemorySearchPage.first("draft-ai-suggestions", "current_channel")
 
     assert {:ok, {:ok, found, _}} =
-             Repo.transaction(fn -> Observations.search_page(entry, "blitz-infra", page) end)
+             Repo.transaction(fn -> Observations.search_page(entry, "tenant-infra", page) end)
 
     assert found["source_input_id"] == entry.id
     assert found["occurred_at"] == DateTime.to_iso8601(@now)
@@ -75,7 +75,7 @@ defmodule Ryker.Learning.ObservationsTest do
   test "memory resolves bare people references without corrupting mentions, code or links" do
     # Model summaries mix bare attribution IDs with already-formatted source content.
     text =
-      "U03EPT4RP5M and <@U03EPT4RP5M> kept `U03EPT4RP5M`.\n\n```U03EPT4RP5M```\n\n[record](https://example.test/U03EPT4RP5M)"
+      "U0TENANTUS3 and <@U0TENANTUS3> kept `U0TENANTUS3`.\n\n```U0TENANTUS3```\n\n[record](https://example.test/U0TENANTUS3)"
 
     entry = observe!("formatting", "C1", %{@note | "summary" => text})
     summary = summary!(LearningSources.for_entry(entry))
@@ -90,9 +90,9 @@ defmodule Ryker.Learning.ObservationsTest do
 
     # Both become the person, linked to their profile.
     assert length(Regex.scan(~r/class="kit-person slack-mention"/, html)) == 2
-    assert html =~ "<code>U03EPT4RP5M</code>"
-    assert html =~ ~s(<pre class="md-code"><code>U03EPT4RP5M</code></pre>)
-    assert html =~ "href=\"https://example.test/U03EPT4RP5M\""
+    assert html =~ "<code>U0TENANTUS3</code>"
+    assert html =~ ~s(<pre class="md-code"><code>U0TENANTUS3</code></pre>)
+    assert html =~ "href=\"https://example.test/U0TENANTUS3\""
     refute html =~ "&lt;@"
   end
 
@@ -220,7 +220,7 @@ defmodule Ryker.Learning.ObservationsTest do
     destination = destination(next)
 
     assert [%{"source_input_id" => source}] =
-             Continuity.model_context(destination, "blitz-infra")["observations"]
+             Continuity.model_context(destination, "tenant-infra")["observations"]
 
     assert source == first.id
     page = MemorySearchPage.first("draft-ai", "current_channel")
@@ -230,7 +230,7 @@ defmodule Ryker.Learning.ObservationsTest do
                MemorySearchPage.read(
                  page,
                  10,
-                 &Observations.search_page(destination, "blitz-infra", &1)
+                 &Observations.search_page(destination, "tenant-infra", &1)
                )
              end)
   end
@@ -307,19 +307,19 @@ defmodule Ryker.Learning.ObservationsTest do
     end
 
     target = input!("target", "C2")
-    assert [public] = Observations.context(target, "blitz-infra")
+    assert [public] = Observations.context(target, "tenant-infra")
     assert public["conversation_ref"] == "slack:TNOTES:C1"
 
     Repo.update_all(from(m in ChannelMembership, where: m.channel_ref == "C1"),
       set: [status: :left, left_at: @now]
     )
 
-    assert Observations.context(target, "blitz-infra") == []
+    assert Observations.context(target, "tenant-infra") == []
     private_target = input!("private-target", "CPRIVATE", message_ref: "1787832000.000101")
-    assert [private] = Observations.context(private_target, "blitz-infra")
+    assert [private] = Observations.context(private_target, "tenant-infra")
     assert private["conversation_ref"] == "slack:TNOTES:CPRIVATE"
     another_workspace = %{target | destination_conversation_ref: "slack:OTHER:C2"}
-    assert Observations.context(another_workspace, "blitz-infra") == []
+    assert Observations.context(another_workspace, "tenant-infra") == []
   end
 
   # The token-cost plan's selection outcome (2026-09-30): "irrelevant recent chatter loses to
@@ -352,11 +352,11 @@ defmodule Ryker.Learning.ObservationsTest do
     )
 
     target = input!("target-host", "C1", message_ref: "1787832100.000100")
-    recent = Observations.context(target, "blitz-infra")
+    recent = Observations.context(target, "tenant-infra")
     refute Enum.any?(recent, &(&1["summary"] =~ "pgsql-prod-01"))
 
     related =
-      Observations.related_context(target, "blitz-infra", ["Is pgsql-prod-01 healthy now?"])
+      Observations.related_context(target, "tenant-infra", ["Is pgsql-prod-01 healthy now?"])
 
     assert [%{"summary" => first} | _rest] = related
     assert first =~ "pgsql-prod-01"
@@ -515,7 +515,7 @@ defmodule Ryker.Learning.ObservationsTest do
   defp input!(event, channel, options \\ []) do
     {:ok, input} =
       Input.new(%{
-        actor: %{kind: :user, ref: "U03EPT4RP5M"},
+        actor: %{kind: :user, ref: "U0TENANTUS3"},
         channel_ref: channel,
         workspace_ref: "TNOTES",
         message_ref: Keyword.get(options, :message_ref, "1787832000.000100"),
@@ -534,7 +534,7 @@ defmodule Ryker.Learning.ObservationsTest do
         work_profile: %{
           policy: "test-read-only",
           policy_digest: String.duplicate("a", 64),
-          repository_ref: "blitz-infra"
+          repository_ref: "tenant-infra"
         }
       )
 

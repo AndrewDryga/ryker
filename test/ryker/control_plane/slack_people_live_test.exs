@@ -118,7 +118,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
     assert has_element?(view, "#{@chosen} dd a[href='#{@profile}']", "@Andrew")
   end
 
-  # Andrew, 2026-10-01, setting up the blitz workspace: "layout broken and not all people shown
+  # Andrew, 2026-10-01, setting up the tenant workspace: "layout broken and not all people shown
   # here, need paging and a search too? some orgs have hundreds of people". Choose people drew
   # every member at once, with the admins switch under its Save and Cancel, and had no way to
   # find one person among hundreds.

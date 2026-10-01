@@ -92,7 +92,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
 
     {:ok, input} =
       Input.new(%{
-        actor: %{kind: :bot, ref: "B08N64XSHNU"},
+        actor: %{kind: :bot, ref: "B0TENANTBT1"},
         channel_ref: "C456",
         content: %{"text" => "", "attachments" => [%{"fallback" => title}]},
         event_kind: :message,

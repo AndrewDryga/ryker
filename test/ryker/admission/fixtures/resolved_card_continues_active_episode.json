@@ -2,7 +2,7 @@
   "name": "a lifecycle resolution continues the active episode",
   "source": {
     "reshaped": "2026-09-27: the recorded routing decision was rewritten into the current contract, as the live-replies migration rewrote stored decisions: reaction became reactions, and messages and repository were added as null. The recorded choice is unchanged.",
-    "database": "blitz responder.db",
+    "database": "tenant responder.db",
     "slack_input_ids": [
       "slack_message_6a8d30c5d13a52accb36ce0c7264bc13",
       "slack_message_299c0fd4ba42c05e1fe43e59f34bca82"
@@ -19,29 +19,29 @@
     "state": "working",
     "updated_at": "2026-08-28T00:01:33.000000Z",
     "input": {
-      "actor": {"kind": "app", "ref": "B0BAVUVCNNP"},
-      "channel_ref": "C0910HL4KRB",
-      "content": {"text": "<https://grafana.tail7c930.ts.net/alerting/grafana/va1-target-down/view?orgId=1|[VA1 FIRING:1] CRITICAL | Scrape target down>\n*FIRING - 1 alert*\n\n*Target tolgee-postgres-metrics on nomad-hvn05 is DOWN*\nVictoriaMetrics can't scrape this target — the workload or its host may be down.\n*Service:* `tolgee`\n*Component:* `postgres`\n*Metrics job:* `tolgee-postgres-metrics`\n*Instance:* `nomad-hvn05`\n*Started:* <!date^1787875280^{date_short_pretty} at {time_secs}|2026-08-28 00:01:20 UTC>\n*Evaluation:*"},
+      "actor": {"kind": "app", "ref": "B0TENANTBT5"},
+      "channel_ref": "C0TENANTAL2",
+      "content": {"text": "<https://grafana.tailexample.ts.net/alerting/grafana/va1-target-down/view?orgId=1|[VA1 FIRING:1] CRITICAL | Scrape target down>\n*FIRING - 1 alert*\n\n*Target tolgee-postgres-metrics on nomad-hst05 is DOWN*\nVictoriaMetrics can't scrape this target — the workload or its host may be down.\n*Service:* `tolgee`\n*Component:* `postgres`\n*Metrics job:* `tolgee-postgres-metrics`\n*Instance:* `nomad-hst05`\n*Started:* <!date^1787875280^{date_short_pretty} at {time_secs}|2026-08-28 00:01:20 UTC>\n*Evaluation:*"},
       "event_kind": "message",
       "event_ref": "Ev0BT3B9CQG3",
       "message_ref": "1787875292.814229",
       "occurred_at": "2026-08-28T00:01:32.000000Z",
       "revision": 1,
       "thread_ref": null,
-      "workspace_ref": "T01J1LW4DF1"
+      "workspace_ref": "T0TENANT001"
     }
   },
   "input": {
-    "actor": {"kind": "app", "ref": "B0BAVUVCNNP"},
-    "channel_ref": "C0910HL4KRB",
-    "content": {"text": "<https://grafana.tail7c930.ts.net/alerting/grafana/va1-target-down/view?orgId=1|[VA1 RESOLVED:1] CRITICAL | Scrape target down>\n*RESOLVED - 1 alert*\n\n*Target tolgee-postgres-metrics on nomad-hvn05 is DOWN*\nVictoriaMetrics can't scrape this target — the workload or its host may be down.\n*Service:* `tolgee`\n*Component:* `postgres`\n*Metrics job:* `tolgee-postgres-metrics`\n*Instance:* `nomad-hvn05`\n*Started:* <!date^1787875280^{date_short_pretty} at {time_secs}|2026-08-28 00:01:20 UTC>\n*Resolved:* <!date^1787875580^{date_short_pretty} at {time_secs}|2026-08-28 00:06:20 UTC>\n*Evaluation:*"},
+    "actor": {"kind": "app", "ref": "B0TENANTBT5"},
+    "channel_ref": "C0TENANTAL2",
+    "content": {"text": "<https://grafana.tailexample.ts.net/alerting/grafana/va1-target-down/view?orgId=1|[VA1 RESOLVED:1] CRITICAL | Scrape target down>\n*RESOLVED - 1 alert*\n\n*Target tolgee-postgres-metrics on nomad-hst05 is DOWN*\nVictoriaMetrics can't scrape this target — the workload or its host may be down.\n*Service:* `tolgee`\n*Component:* `postgres`\n*Metrics job:* `tolgee-postgres-metrics`\n*Instance:* `nomad-hst05`\n*Started:* <!date^1787875280^{date_short_pretty} at {time_secs}|2026-08-28 00:01:20 UTC>\n*Resolved:* <!date^1787875580^{date_short_pretty} at {time_secs}|2026-08-28 00:06:20 UTC>\n*Evaluation:*"},
     "event_kind": "message",
     "event_ref": "Ev0BU40R1GSU",
     "message_ref": "1787875592.957649",
     "occurred_at": "2026-08-28T00:06:32.000000Z",
     "revision": 1,
     "thread_ref": null,
-    "workspace_ref": "T01J1LW4DF1"
+    "workspace_ref": "T0TENANT001"
   },
   "decision": {
     "action": "continue_episode",

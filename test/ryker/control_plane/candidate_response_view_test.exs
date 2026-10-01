@@ -39,10 +39,10 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
   end
 
   test "a reply with a configured secret in it shows the secret removed and no disclaimer" do
-    # The recorded Airflow reply names revision 99183465; configured here as a
+    # The recorded Airflow reply names revision 756bb648; configured here as a
     # secret, it is exactly a secret that turned up in a model's answer.
     [%{text: body}, _second] = responses()
-    redacted = InspectionRedactor.artifact(body, secrets: ["99183465"])
+    redacted = InspectionRedactor.artifact(body, secrets: ["756bb648"])
     assert redacted.redacted
 
     raw =
@@ -66,7 +66,7 @@ defmodule Ryker.ControlPlane.CandidateResponseViewTest do
       )
 
     for html <- [raw, timeline] do
-      refute html =~ "99183465"
+      refute html =~ "756bb648"
       assert html =~ "[redacted]"
       assert html =~ "JSON"
       refute html =~ ~r/secrets redacted/i

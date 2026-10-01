@@ -38,7 +38,7 @@ defmodule Ryker.Ingress.RecallTextTest do
     assert RecallText.from(livebook) == livebook["text"]
   end
 
-  # The replay over the Blitz alert history (2026-09-30, ID4): each part was cut at 512
+  # The replay over the Tenant alert history (2026-09-30, ID4): each part was cut at 512
   # characters, so a link crossing the cut became ".../alerting/sil", an identifier fourteen
   # unrelated alerts then shared. A part ends at its last whole word before the limit.
   test "a part cut at its limit ends at a whole word, never inside a link" do
@@ -52,7 +52,7 @@ defmodule Ryker.Ingress.RecallTextTest do
     assert String.length(RecallText.from(%{"title" => String.duplicate("x", 600)})) == 512
   end
 
-  # The replay over the Blitz alert history (2026-09-30, ID7): 706 of 1,034 alerts carried their
+  # The replay over the Tenant alert history (2026-09-30, ID7): 706 of 1,034 alerts carried their
   # link only on an attachment title or a button, mostly the Grafana rule page, and 85 of them
   # named nothing else; none of it was searched. This alert is one of them, its host renamed.
   test "a message's links on attachment titles, buttons and rich text are what it names" do

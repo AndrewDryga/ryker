@@ -17,7 +17,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
 
   for root_without_thread <- [false, true] do
     test "an elliptical reply receives its existing topic with root thread missing: #{root_without_thread}" do
-      # Real draft_c replay froze knowledge=[] for 'I think Apinat set it up...'
+      # Real draft_c replay froze knowledge=[] for 'I think Dana set it up...'
       # despite a maintained topic from the same thread. The model deferred;
       # lexical retrieval cannot recover an identity omitted by the host.
       {_first, second, expected} = learned_thread!(unquote(root_without_thread))
@@ -119,7 +119,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
     selector = {:threads, [second.destination_thread_ref]}
     assert [^topic] = Knowledge.context(second, second.repository_ref, selector, 8, "writable")
 
-    other_channel = %{second | destination_conversation_ref: "slack:T01J1LW4DF1:C-not-the-source"}
+    other_channel = %{second | destination_conversation_ref: "slack:T0TENANT001:C-not-the-source"}
     assert Knowledge.context(other_channel, second.repository_ref, selector, 8, "writable") == []
 
     # The conversation's own topic stays its own when its work moves to another
@@ -139,13 +139,13 @@ defmodule Ryker.Learning.LearningThreadContextTest do
     assert Knowledge.context(second, second.repository_ref, selector, 8, "writable") == []
   end
 
-  # 2026-09-30, the recorded fortnite-correction case: "Nothing is stuck, this
+  # 2026-09-30, the recorded starfall-correction case: "Nothing is stuck, this
   # is done manually. Just woke up" replies in a thread whose release notice
   # and "It looks like this got stuck" had taught nothing on their own.
   # Learning saw only the reply, deferred it because it "does not identify the
-  # process", and that Fortnite releases are done by hand was never kept.
+  # process", and that Starfall releases are done by hand was never kept.
   test "a reply is read beside the thread it answers, and what is learned rests on that thread" do
-    [notice, worry, correction] = fortnite_thread!()
+    [notice, worry, correction] = starfall_thread!()
 
     assert {:ok, run} = Learning.prepare([correction.id], @policy)
     prompt = Jason.decode!(run.prompt)
@@ -167,7 +167,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
     create =
       recorded_proposal()
       |> Map.merge(%{
-        "topic_key" => "fortnite-release-process",
+        "topic_key" => "starfall-release-process",
         "anchors" => [],
         "source_input_ids" => [correction.id, worry.id]
       })
@@ -175,7 +175,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
     result = Jason.encode!(%{"updates" => [create], "reason" => "Keep the release process."})
     assert {:ok, %{status: :applied}} = Fixtures.accept(run.id, result, %{})
     assert [topic] = Knowledge.context(correction, correction.repository_ref)
-    %{id: topic_id} = Repo.get_by!(ConversationKnowledge, topic_key: "fortnite-release-process")
+    %{id: topic_id} = Repo.get_by!(ConversationKnowledge, topic_key: "starfall-release-process")
 
     # Every thread message read beside the reply is a source, named or not.
     sourced =
@@ -195,7 +195,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
   end
 
   test "a run whose thread changed before its result is applied is not applied" do
-    [_notice, worry, correction] = fortnite_thread!()
+    [_notice, worry, correction] = starfall_thread!()
     assert {:ok, run} = Learning.prepare([correction.id], @policy)
 
     # The worry is forgotten while the model is still answering.
@@ -288,10 +288,10 @@ defmodule Ryker.Learning.LearningThreadContextTest do
     entry
   end
 
-  # The recorded fortnite thread: the release notice, the worry and the
+  # The recorded starfall thread: the release notice, the worry and the
   # correction, each observed as it was.
-  defp fortnite_thread! do
-    "testdata/learning/retained-fortnite-manual-correction.json"
+  defp starfall_thread! do
+    "testdata/learning/retained-starfall-manual-correction.json"
     |> File.read!()
     |> Jason.decode!()
     |> Map.fetch!("inputs")

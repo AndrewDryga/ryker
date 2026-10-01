@@ -407,10 +407,10 @@ blob	testdata/learning/recorded-no-change-result.json
 blob	testdata/learning/recorded-private-source-citation.json
 blob	testdata/learning/retained-auth-memory-recurrence.json
 blob	testdata/learning/retained-auth-wal-context-packing.json
-blob	testdata/learning/retained-blitz-release-knowledge.json
+blob	testdata/learning/retained-tenant-release-knowledge.json
 blob	testdata/learning/retained-draft-ai-suggestions-learning.json
 blob	testdata/learning/retained-draft-keep-thread.json
-blob	testdata/learning/retained-fortnite-manual-correction.json
+blob	testdata/learning/retained-starfall-manual-correction.json
 blob	testdata/learning/retained-great-thanks.json
 blob	testdata/learning/retained-haproxy-lifecycle.json
 blob	testdata/learning/retained-livebook-briefing-memory.json

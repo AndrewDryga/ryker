@@ -60,9 +60,9 @@ defmodule Ryker.Evals.LearningRunner do
     ]
   end
 
-  def recorded_sequence("fortnite-correction"),
+  def recorded_sequence("starfall-correction"),
     do:
-      sequence("retained-fortnite-manual-correction.json", [
+      sequence("retained-starfall-manual-correction.json", [
         :optional_topic,
         :topic_progress,
         :same_topic

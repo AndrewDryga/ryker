@@ -246,14 +246,14 @@ defmodule Ryker.Admission.CommitTest do
   end
 
   test "ignoring keeps an original source excerpt without letting admission write topic memory" do
-    # Blitz's real keep-service decision must remain recallable even when the bot
+    # Tenant's real keep-service decision must remain recallable even when the bot
     # has nothing useful to add. Previously ignore retained no conversation memory.
     for mode <- [:live, :shadow] do
       input =
         input!(
           event_ref: "observe-#{mode}",
           message_ref: "1787832000.000#{if mode == :live, do: "101", else: "102"}",
-          actor: %{kind: :user, ref: "U03EPT4RP5M"},
+          actor: %{kind: :user, ref: "U0TENANTUS3"},
           content: %{
             "text" =>
               "`draft-ai-suggestions`\nplanning to look into it at some point, let’s keep it"

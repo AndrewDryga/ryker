@@ -414,7 +414,7 @@ defmodule Ryker.Episodes.Replay do
   end
 
   defp validate_source_database!(source) do
-    if source["database"] not in ["blitz responder.db", "emisar responder.db"],
+    if source["database"] not in ["tenant responder.db", "emisar responder.db"],
       do: raise(ArgumentError, "fixture source database is unsupported")
   end
 

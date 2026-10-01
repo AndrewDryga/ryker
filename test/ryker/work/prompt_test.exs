@@ -126,7 +126,7 @@ defmodule Ryker.Work.PromptTest do
   end
 
   test "a task brief leads with the user-visible problem and never expands scope" do
-    # The recorded ultralite-overlay request arrived as a dense forensic trace
+    # The recorded tenant-overlay request arrived as a dense forensic trace
     # with function names and line numbers; the confirmed brief must read as
     # the problem, the outcome and the bounded change instead.
     instructions = normalized_instructions()

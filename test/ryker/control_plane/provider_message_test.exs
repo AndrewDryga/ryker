@@ -73,7 +73,7 @@ defmodule Ryker.ControlPlane.ProviderMessageTest do
       "summary" => "backend api has no healthy servers",
       "status" => "firing",
       "severity" => "critical",
-      "labels" => %{"service" => "api", "instance" => "hvn01:9101"},
+      "labels" => %{"service" => "api", "instance" => "hst01:9101"},
       "annotations" => %{},
       "starts_at" => "2026-09-03T14:08:50Z",
       "ends_at" => nil,
@@ -88,7 +88,7 @@ defmodule Ryker.ControlPlane.ProviderMessageTest do
     assert card.subject == "HAProxy backend down"
     facts = Map.new(card.facts, &{&1.label, &1.value})
     assert facts["Service"] == "api"
-    assert facts["Instance"] == "hvn01:9101"
+    assert facts["Instance"] == "hst01:9101"
     assert facts["Severity"] == "critical"
     assert facts["Started"] == "2026-09-03T14:08:50Z"
     refute Map.has_key?(facts, "Ended")

@@ -39,7 +39,7 @@ described work as targets; the documents below describe it as it runs.
   qualification journeys in [testing.md](testing.md#manual-qualification). Its standing rules
   survive elsewhere: Slack acceptance is confined to the joined test channel, and a Ryker deploy
   never restarts or installs Coop.
-- `docs/elixir-slack-admission-corpus.md` (a read-only review of the Blitz and Emisar databases taken
+- `docs/elixir-slack-admission-corpus.md` (a read-only review of the Tenant and Emisar databases taken
   2026-08-27: 1,708 Work episodes, 2,812 agent runs, 148 retained Slack inputs, 391 reviewed quality
   findings). Its repeated failure shapes — prior work silently discarded by a newer lifecycle update,
   separate external runs merged because their cards shared an app or a time, one lifecycle split by

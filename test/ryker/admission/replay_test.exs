@@ -232,7 +232,7 @@ defmodule Ryker.Admission.ReplayTest do
   end
 
   defp validate_source!(source) do
-    assert source["database"] in ["blitz responder.db", "emisar responder.db"]
+    assert source["database"] in ["tenant responder.db", "emisar responder.db"]
     assert is_binary(source["reason"]) and source["reason"] != ""
     assert is_list(source["slack_input_ids"]) and source["slack_input_ids"] != []
     assert Enum.all?(source["slack_input_ids"], &is_binary/1)

@@ -227,7 +227,7 @@ defmodule Ryker.Work.ResultCustodyTest do
     assert delivery_claim.turn.delivery_attempt_count == 1
     receipt = receipt(work, "1787932801.000100")
 
-    wrong_destination = %{receipt | "conversation_ref" => "slack:T-blitz:C-other"}
+    wrong_destination = %{receipt | "conversation_ref" => "slack:T-tenant:C-other"}
 
     assert {:error, :work_delivery_destination_mismatch} =
              Custody.confirm_delivery(
@@ -307,7 +307,7 @@ defmodule Ryker.Work.ResultCustodyTest do
     gone = accepted.turn.delivery_target["conversation_ref"]
 
     alert = %{
-      "conversation_ref" => "slack:TBLITZ:CALERTS",
+      "conversation_ref" => "slack:TTENANT:CALERTS",
       "thread_ref" => "1787932800.000100",
       "transport" => "slack"
     }

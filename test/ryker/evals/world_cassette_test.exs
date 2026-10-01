@@ -92,7 +92,7 @@ defmodule Ryker.Evals.WorldCassetteTest do
              WorldCassette.call(airflow_cassette, "monitoring.query", %{
                "environment" => "production",
                "query" =>
-                 "Airflow revision 99183465 health, errors, and availability during the bounded window"
+                 "Airflow revision 756bb648 health, errors, and availability during the bounded window"
              })
 
     assert {:ok,
@@ -126,7 +126,7 @@ defmodule Ryker.Evals.WorldCassetteTest do
 
     assert {:ok, %{"uptime_seconds" => 734_400}} =
              WorldCassette.call(uptime_cassette, "monitoring.query", %{
-               "query" => "What is the current uptime for nomad-hvn03 in production?"
+               "query" => "What is the current uptime for nomad-hst03 in production?"
              })
 
     assert {:ok, %{"alerts" => []}} =

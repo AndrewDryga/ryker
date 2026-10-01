@@ -80,7 +80,7 @@ defmodule Ryker.Continuity.ContinuityTest do
           "database-clock-update",
           work.episode.destination_conversation_ref,
           work.episode.destination_thread_ref,
-          "blitz-infra"
+          "tenant-infra"
         )
 
       assert {:ok, _} =
@@ -94,7 +94,7 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     assert {:ok, {:ok, match, _position}} =
              Repo.transaction(fn ->
-               Recall.search_page(kind, work.episode, "blitz-infra", page)
+               Recall.search_page(kind, work.episode, "tenant-infra", page)
              end)
 
     saved = Repo.one!(schema)
@@ -123,7 +123,7 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     assert {:ok, :done} =
              Repo.transaction(fn ->
-               Recall.search_page(kind, work.episode, "blitz-infra", %{
+               Recall.search_page(kind, work.episode, "tenant-infra", %{
                  page
                  | cutoff: DateTime.add(database_time, -1)
                })
@@ -248,20 +248,20 @@ defmodule Ryker.Continuity.ContinuityTest do
 
       schema = if unquote(compact?), do: ConversationRollup, else: ConversationSummary
       original = Repo.one!(schema)
-      context = Continuity.model_context(work.episode, "blitz-infra")
+      context = Continuity.model_context(work.episode, "tenant-infra")
       document = if unquote(compact?), do: hd(context["rollups"]), else: context["current"]
 
       Repo.update!(
         Ecto.Changeset.change(original, source_dependencies: unquote(Macro.escape(missing)))
       )
 
-      current = Continuity.model_context(work.episode, "blitz-infra")
+      current = Continuity.model_context(work.episode, "tenant-infra")
       assert current["current"] == nil
       assert current["related"] == []
       assert current["rollups"] == []
 
       for kind <- [:summary, :rollup] do
-        assert search!(kind, work.episode, "blitz-infra", "haproxy", "workspace", 20) == []
+        assert search!(kind, work.episode, "tenant-infra", "haproxy", "workspace", 20) == []
       end
 
       frozen = %{
@@ -269,7 +269,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       }
 
       assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", frozen)
+               KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", frozen)
 
       assert {:error, :work_knowledge_context_stale} =
                KnowledgeSnapshot.expose(work.claim, [document])
@@ -334,11 +334,13 @@ defmodule Ryker.Continuity.ContinuityTest do
     end
 
     reader = %{work.episode | destination_thread_ref: "reader-thread"}
-    recent = Continuity.model_context(reader, "blitz-infra")["related"]
+    recent = Continuity.model_context(reader, "tenant-infra")["related"]
     refute Enum.any?(recent, &(&1["source_ref"] == original.ref))
 
     assert [first | _rest] =
-             Continuity.model_context(reader, "blitz-infra", ["Is haproxy-edge OOM-killed again?"])[
+             Continuity.model_context(reader, "tenant-infra", [
+               "Is haproxy-edge OOM-killed again?"
+             ])[
                "related"
              ]
 
@@ -370,10 +372,10 @@ defmodule Ryker.Continuity.ContinuityTest do
     end
 
     reader = %{work.episode | destination_thread_ref: "reader-thread"}
-    assert [related] = Continuity.model_context(reader, "blitz-infra")["related"]
+    assert [related] = Continuity.model_context(reader, "tenant-infra")["related"]
     assert related["source_ref"] == original.ref
 
-    assert [match] = search!(:summary, reader, "blitz-infra", "haproxy", "workspace", 1)
+    assert [match] = search!(:summary, reader, "tenant-infra", "haproxy", "workspace", 1)
     assert match["source_ref"] == original.ref
 
     # Recall sorts newest first; compaction sorts oldest first. Exercise both full windows.
@@ -508,10 +510,10 @@ defmodule Ryker.Continuity.ContinuityTest do
   for event_kind <- [:edit, :delete] do
     test "a #{event_kind} to raw input withdraws its summary without requiring prior knowledge" do
       {entry, work, submission} = raw_work!()
-      situation = "Grafana reported website/haproxy-edge OOM on nomad-hvn01."
+      situation = "Grafana reported website/haproxy-edge OOM on nomad-hst01."
       assert {:ok, _} = Continuity.stage(work.state_token, state(situation))
       accept!(work, submission)
-      assert Continuity.model_context(work.episode, "blitz-infra")["current"] != nil
+      assert Continuity.model_context(work.episode, "tenant-infra")["current"] != nil
 
       changed = %{
         entry
@@ -522,10 +524,10 @@ defmodule Ryker.Continuity.ContinuityTest do
       }
 
       assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(changed) end)
-      assert Continuity.model_context(work.episode, "blitz-infra")["current"] == nil
+      assert Continuity.model_context(work.episode, "tenant-infra")["current"] == nil
 
       for kind <- [:summary, :rollup] do
-        assert search!(kind, work.episode, "blitz-infra", "nomad-hvn01", "workspace", 20) == []
+        assert search!(kind, work.episode, "tenant-infra", "nomad-hst01", "workspace", 20) == []
       end
     end
   end
@@ -540,7 +542,7 @@ defmodule Ryker.Continuity.ContinuityTest do
         end)
 
       assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", changed)
+               KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", changed)
     end
   end
 
@@ -554,7 +556,7 @@ defmodule Ryker.Continuity.ContinuityTest do
         end)
 
       assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", changed)
+               KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", changed)
     end
   end
 
@@ -572,7 +574,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     [item] = get_in(rebuilt, ["context", "inputs", "items"])
     assert item["content"]["source_dependencies"] == []
     assert Enum.any?(item["source_dependencies"], &(&1["source_input_id"] == entry.id))
-    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", rebuilt)
+    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt)
   end
 
   test "historical truncation retains exact raw lineage and malformed ingress fails closed" do
@@ -582,7 +584,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     [historical] = get_in(rebuilt, ["context", "inputs", "items"])
     assert historical["content"]["truncated"]
     assert Enum.any?(historical["source_dependencies"], &(&1["source_input_id"] == entry.id))
-    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", rebuilt)
+    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt)
 
     event = Repo.get!(Ryker.Episodes.Event, historical["source_event_id"])
     payload = Map.delete(event.payload["payload"], "native_input_id")
@@ -594,7 +596,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert {:ok, malformed} = SubmissionBuilder.build(work.claim)
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", malformed)
+             KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", malformed)
   end
 
   test "withdrawn historical inputs become no-prose tombstones but active requests fail closed" do
@@ -607,14 +609,14 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert active_input["source_dependencies"] == nil
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", active)
+             KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", active)
 
     claim = %{work.claim | episode: %{work.episode | active_input_refs: []}}
     assert {:ok, rebuilt} = SubmissionBuilder.build(claim)
     [historical] = get_in(rebuilt, ["context", "inputs", "items"])
     assert historical["content"] == %{"unavailable" => "source_not_current"}
-    refute Jason.encode!(historical) =~ "nomad-hvn01"
-    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", rebuilt)
+    refute Jason.encode!(historical) =~ "nomad-hst01"
+    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt)
   end
 
   test "a delta's withdrawn first input cannot reintroduce its original prose" do
@@ -632,8 +634,8 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert delta["context"]["mode"] == "continuation"
     first = get_in(delta, ["context", "continuity", "first_input"])
     assert first["content"] == %{"unavailable" => "source_not_current"}
-    refute Jason.encode!(first) =~ "nomad-hvn01"
-    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", delta)
+    refute Jason.encode!(first) =~ "nomad-hst01"
+    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", delta)
 
     assert {:error, :work_knowledge_context_stale} =
              KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
@@ -661,7 +663,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       |> Map.put("revision", deleted.revision)
       |> Map.put("event_kind", "delete")
 
-    assert Jason.encode!(envelope) =~ "nomad-hvn01"
+    assert Jason.encode!(envelope) =~ "nomad-hst01"
 
     Repo.update!(
       Ecto.Changeset.change(event, payload: Map.put(event.payload, "payload", envelope))
@@ -673,13 +675,13 @@ defmodule Ryker.Continuity.ContinuityTest do
       put_in(submission, ["context", "inputs", "items"], [%{original | "content" => envelope}])
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", raw)
+             KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", raw)
 
     assert {:ok, current} = SubmissionBuilder.build(work.claim)
     [notice] = get_in(current, ["context", "inputs", "items"])
     assert notice["content"] == %{"event_kind" => "delete", "unavailable" => "source_deleted"}
-    refute Jason.encode!(current) =~ "nomad-hvn01"
-    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "blitz-infra", current)
+    refute Jason.encode!(current) =~ "nomad-hst01"
+    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", current)
 
     assert {:error, :work_knowledge_context_stale} =
              KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
@@ -688,7 +690,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert {:ok, historical} = SubmissionBuilder.build(claim)
     [tombstone] = get_in(historical, ["context", "inputs", "items"])
     assert tombstone["content"] == notice["content"]
-    refute Jason.encode!(tombstone) =~ "nomad-hvn01"
+    refute Jason.encode!(tombstone) =~ "nomad-hst01"
   end
 
   for {kind, source_ref, actor_ref, content_kind} <- [
@@ -808,7 +810,7 @@ defmodule Ryker.Continuity.ContinuityTest do
                episode.id,
                "ryker-read",
                String.duplicate("a", 64),
-               "blitz-infra"
+               "tenant-infra"
              )
 
     assert {:ok, claim} = Custody.claim_next("raw-source-review", 60, :work)

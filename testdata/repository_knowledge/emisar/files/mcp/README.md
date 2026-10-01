@@ -107,7 +107,7 @@ current one, or choose one for a single command:
 emisar-mcp auth
 emisar-mcp accounts list
 emisar-mcp accounts use immersive
-emisar-mcp --account blitz list_runners
+emisar-mcp --account tenant list_runners
 ```
 
 `accounts list` shows a star beside the current account. Add `--json` for a

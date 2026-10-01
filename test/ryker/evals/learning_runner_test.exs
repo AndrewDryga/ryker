@@ -433,7 +433,7 @@ defmodule Ryker.Evals.LearningRunnerTest do
       # The source messages are harvested. HostAPI deliberately copies source
       # text as a constructed contract output; only a separate live run can
       # establish whether a real model interprets the correction correctly.
-      sequence = LearningRunner.recorded_sequence("fortnite-correction")
+      sequence = LearningRunner.recorded_sequence("starfall-correction")
 
       if unquote(release) == :no_change,
         do:
@@ -469,9 +469,9 @@ defmodule Ryker.Evals.LearningRunnerTest do
       assert Enum.map(inputs, & &1["content"]) == Enum.map(sequence, & &1.input["content"])
 
       assert Enum.map(inputs, & &1["actor"]) == [
-               %{"kind" => "app", "ref" => "A04FC43DC3F"},
-               %{"kind" => "user", "ref" => "U0B1ZF12S49"},
-               %{"kind" => "user", "ref" => "U034C9C4LLB"}
+               %{"kind" => "app", "ref" => "A0TENANTAP1"},
+               %{"kind" => "user", "ref" => "U0TENANTUS9"},
+               %{"kind" => "user", "ref" => "U0TENANTUS5"}
              ]
 
       refute Jason.encode!(report.runs) =~ "Updated assets, had to update the asset scraper"
@@ -481,7 +481,7 @@ defmodule Ryker.Evals.LearningRunnerTest do
 
   @tag :correction
   test "optional release learning does not waive the later human concern", %{options: options} do
-    sequence = LearningRunner.recorded_sequence("fortnite-correction")
+    sequence = LearningRunner.recorded_sequence("starfall-correction")
     ignored = sequence |> Enum.take(2) |> Enum.map(& &1.input["id"])
     Agent.update(options.client, &Map.put(&1, :eval_no_change_input_ids, ignored))
     assert {:ok, report} = LearningRunner.run(sequence, options)

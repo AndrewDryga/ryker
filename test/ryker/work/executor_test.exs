@@ -1753,16 +1753,16 @@ defmodule Ryker.Work.ExecutorTest do
     assert {:ok, wait} =
              Records.create(Records.token(claim.turn), "verify-rollout", "event_wait", %{
                "deadline_at" => "2099-08-28T12:30:00.000000Z",
-               "event_matcher" => %{"revision" => "99183465", "state" => "verification_due"},
+               "event_matcher" => %{"revision" => "756bb648", "state" => "verification_due"},
                "kind" => "deployment_health",
-               "verification" => "Verify Airflow revision 99183465."
+               "verification" => "Verify Airflow revision 756bb648."
              })
 
     waiting =
       Jason.encode!(%{
         "decision_reason" => nil,
         "delivery" => "reply",
-        "message" => "I will verify revision 99183465 after the observation window.",
+        "message" => "I will verify revision 756bb648 after the observation window.",
         "outcome" => %{
           "artifact_refs" => [],
           "record_refs" => [wait.ref],
@@ -3160,15 +3160,15 @@ defmodule Ryker.Work.ExecutorTest do
       claim_with_bound_repository_context!(
         "eval-workspace-map",
         "ryker",
-        ["blitz-rivals-scraper"]
+        ["tenant-rivals-scraper"]
       )
 
     {:ok, fake} = fake_for(claim, [reply("The repository is available.")])
 
     companion = %{
       "base_commit" => "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7",
-      "name" => "blitz-rivals-scraper",
-      "path" => "/coop/repositories/blitz-rivals-scraper"
+      "name" => "tenant-rivals-scraper",
+      "path" => "/coop/repositories/tenant-rivals-scraper"
     }
 
     freshness = [
@@ -3185,7 +3185,7 @@ defmodule Ryker.Work.ExecutorTest do
       },
       %{
         "fetched_at" => "2026-09-04T08:00:01Z",
-        "name" => "blitz-rivals-scraper",
+        "name" => "tenant-rivals-scraper",
         "remote_identity" => "origin",
         "requested_revision" => "refs/heads/main",
         "resolved_revision" => "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7",
@@ -3264,7 +3264,7 @@ defmodule Ryker.Work.ExecutorTest do
       claim_with_bound_repository_context!(
         "eval-repository-context-missing",
         "ryker",
-        ["blitz-rivals-scraper"]
+        ["tenant-rivals-scraper"]
       )
 
     {:ok, context_missing_fake} =

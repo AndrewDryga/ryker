@@ -796,7 +796,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert [%{ref: "production", emisar_connection_ref: nil}] = Settings.fetch!().environments
   end
 
-  # Andrew, 2026-10-01, setting up the blitz workspace: "after new emisar account connected i see
+  # Andrew, 2026-10-01, setting up the tenant workspace: "after new emisar account connected i see
   # form again maybe redirect me here: …/integrations/emisar". Connecting lands on the accounts,
   # says where the new one is used, and offers no form.
   test "connecting an Emisar account lands on the accounts and says where it is used" do
@@ -809,7 +809,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     view
     |> form("form[phx-submit=connect-emisar]", %{
       "connection" => %{
-        "display_name" => "Blitz App, Inc.",
+        "display_name" => "Tenant App, Inc.",
         "token" => "emisar-token-that-is-long-enough",
         "rpc_url" => "https://emisar.example/api/mcp/rpc"
       }
@@ -819,7 +819,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert_patch(view, "/integrations/emisar")
     assert has_element?(view, ".form-feedback-success", "Emisar account is connected")
     refute has_element?(view, "form[phx-submit=connect-emisar]")
-    assert [%{display_name: "Blitz App, Inc."}] = Settings.fetch!().emisar_connections
+    assert [%{display_name: "Tenant App, Inc."}] = Settings.fetch!().emisar_connections
   end
 
   test "disconnecting Slack asks what it will do and acts only on the answer" do

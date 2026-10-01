@@ -8,7 +8,7 @@
           "admit_input:9f0415a1d2e1ea4e11364ba2be678af3c58ec4ce085355871f0a99da1108fce8"
         ],
         "destination": {
-          "conversation_ref": "C0922F5C533",
+          "conversation_ref": "C0TENANTAL3",
           "thread_ref": "1787861164.890169",
           "transport": "slack"
         },
@@ -34,7 +34,7 @@
       "episode": {
         "active_inputs": [],
         "destination": {
-          "conversation_ref": "C0922F5C533",
+          "conversation_ref": "C0TENANTAL3",
           "thread_ref": "1787861164.890169",
           "transport": "slack"
         },
@@ -61,7 +61,7 @@
       "episode": {
         "active_inputs": [],
         "destination": {
-          "conversation_ref": "C0922F5C533",
+          "conversation_ref": "C0TENANTAL3",
           "thread_ref": "1787861164.890169",
           "transport": "slack"
         },
@@ -86,7 +86,7 @@
   "episode": {
     "active_inputs": [],
     "destination": {
-      "conversation_ref": "C0922F5C533",
+      "conversation_ref": "C0TENANTAL3",
       "thread_ref": "1787861164.890169",
       "transport": "slack"
     },
@@ -107,13 +107,13 @@
   "events": [
     {
       "dedupe_key": "admit_input:9f0415a1d2e1ea4e11364ba2be678af3c58ec4ce085355871f0a99da1108fce8",
-      "fingerprint": "850620b852ea62209f67faa2aabc90f8c7adb3e57f85f8fb266088aa20abf5de",
+      "fingerprint": "c913eaca9deac53ca00bfb254d699eb04bd567c14a5298c1ba7653df4a31c958",
       "kind": "input_admitted",
       "occurred_at": "2026-08-27T20:06:04.890169Z",
       "payload": {
         "actor_ref": "slack:app:grafana",
         "destination": {
-          "conversation_ref": "C0922F5C533",
+          "conversation_ref": "C0TENANTAL3",
           "thread_ref": "1787861164.890169",
           "transport": "slack"
         },

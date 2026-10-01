@@ -130,7 +130,7 @@ defmodule Ryker.Records.DerivedContextTest do
     assert Enum.any?(submission["context"]["records"], &(&1["ref"] == record.ref))
 
     assert :ok =
-             KnowledgeSnapshot.authorize_submission(recipient.episode, "blitz-infra", submission)
+             KnowledgeSnapshot.authorize_submission(recipient.episode, "tenant-infra", submission)
 
     assert :ok =
              KnowledgeSnapshot.expose_submission(%{
@@ -155,12 +155,12 @@ defmodule Ryker.Records.DerivedContextTest do
       )
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(recipient.episode, "blitz-infra", forged)
+             KnowledgeSnapshot.authorize_submission(recipient.episode, "tenant-infra", forged)
 
     other = claim!("another-episode", producer.episode.destination_conversation_ref)
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(other.episode, "blitz-infra", submission)
+             KnowledgeSnapshot.authorize_submission(other.episode, "tenant-infra", submission)
   end
 
   test "physically removed source roots fail closed without deleting retained record history" do
@@ -169,7 +169,7 @@ defmodule Ryker.Records.DerivedContextTest do
     assert {:ok, %{"records" => [_]}} = work_state(recipient)
 
     Repo.delete!(Repo.get!(ConversationObservation, source.id))
-    assert Records.model_records(recipient.episode, "blitz-infra") == []
+    assert Records.model_records(recipient.episode, "tenant-infra") == []
     assert Enum.any?(Records.retained_records(recipient.episode.id), &(&1["ref"] == record.ref))
   end
 
@@ -177,12 +177,12 @@ defmodule Ryker.Records.DerivedContextTest do
     {producer, _source, _record} = cited_source!()
     recipient = replacement!(producer)
     Repo.delete_all(from(e in SourceExposure, where: e.session_id == ^producer.session.id))
-    assert Records.model_records(recipient.episode, "blitz-infra") == []
+    assert Records.model_records(recipient.episode, "tenant-infra") == []
   end
 
   test "partial exposure pruning cannot be healed by another otherwise valid disclosure" do
     {producer, source, _record} = cited_source!()
-    {_extra_source, knowledge} = KnowledgeFixtures.learn!(producer.episode, "blitz-infra")
+    {_extra_source, knowledge} = KnowledgeFixtures.learn!(producer.episode, "tenant-infra")
     assert :ok = KnowledgeSnapshot.expose(producer, [knowledge])
     session = Repo.get!(Session, producer.session.id)
     assert session.source_exposure_count == 2
@@ -198,7 +198,7 @@ defmodule Ryker.Records.DerivedContextTest do
              KnowledgeSnapshot.expose(producer, [knowledge])
 
     assert Repo.get!(Session, session.id).source_exposure_count == 2
-    assert Records.model_records(producer.episode, "blitz-infra") == []
+    assert Records.model_records(producer.episode, "tenant-infra") == []
   end
 
   test "tracked zero is valid but a legacy record cannot be retrospectively certified" do
@@ -211,7 +211,7 @@ defmodule Ryker.Records.DerivedContextTest do
 
     assert :ok = KnowledgeSnapshot.expose(producer, [])
     assert Repo.get!(Session, producer.session.id).source_exposure_count == nil
-    assert Records.model_records(producer.episode, "blitz-infra") == []
+    assert Records.model_records(producer.episode, "tenant-infra") == []
 
     # This separate fresh session explicitly accounts for its source-free host
     # input before producing any model record; absence alone is not the proof.
@@ -225,7 +225,7 @@ defmodule Ryker.Records.DerivedContextTest do
                binding: tool_binding(fresh)
              })
 
-    assert [_] = Records.model_records(fresh.episode, "blitz-infra")
+    assert [_] = Records.model_records(fresh.episode, "tenant-infra")
   end
 
   test "failed exposure does not initialize custody and repeated exposure is idempotent" do
@@ -245,7 +245,7 @@ defmodule Ryker.Records.DerivedContextTest do
 
   test "later producer disclosures are inherited conservatively including knowledge withdrawal" do
     {producer, _source, _record} = cited_source!()
-    {_additional_source, knowledge} = KnowledgeFixtures.learn!(producer.episode, "blitz-infra")
+    {_additional_source, knowledge} = KnowledgeFixtures.learn!(producer.episode, "tenant-infra")
     assert :ok = KnowledgeSnapshot.expose(producer, [knowledge])
     recipient = replacement!(producer)
     assert {:ok, %{"records" => [_]}} = work_state(recipient)
@@ -276,7 +276,7 @@ defmodule Ryker.Records.DerivedContextTest do
 
     for context <- contexts do
       assert :ok =
-               KnowledgeSnapshot.authorize_submission(producer.episode, "blitz-infra", %{
+               KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
                  "context" => context
                })
     end
@@ -285,7 +285,7 @@ defmodule Ryker.Records.DerivedContextTest do
 
     for context <- contexts do
       assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.authorize_submission(producer.episode, "blitz-infra", %{
+               KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
                  "context" => context
                })
     end
@@ -297,7 +297,7 @@ defmodule Ryker.Records.DerivedContextTest do
     document = DerivedContext.delivery_document(turn)
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(producer.episode, "blitz-infra", %{
+             KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
                "context" => %{
                  "prior_outcome" => %{document | "source_turn_ref" => Ecto.UUID.generate()}
                }
@@ -311,7 +311,7 @@ defmodule Ryker.Records.DerivedContextTest do
     )
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(producer.episode, "blitz-infra", %{
+             KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
                "context" => %{"prior_outcome" => document}
              })
   end
@@ -320,7 +320,7 @@ defmodule Ryker.Records.DerivedContextTest do
     {producer, _source, record} = cited_source!()
 
     {[_], baseline_queries} =
-      source_queries(fn -> Records.model_records(producer.episode, "blitz-infra") end)
+      source_queries(fn -> Records.model_records(producer.episode, "tenant-infra") end)
 
     # Structural repetition of the captured record, not invented model output.
     # Source roots can reach 10,000; resolving that lineage per row is quadratic.
@@ -339,7 +339,7 @@ defmodule Ryker.Records.DerivedContextTest do
     end
 
     {records, expanded_queries} =
-      source_queries(fn -> Records.model_records(producer.episode, "blitz-infra") end)
+      source_queries(fn -> Records.model_records(producer.episode, "tenant-infra") end)
 
     assert length(records) == 32
     assert expanded_queries <= baseline_queries + 2
@@ -536,7 +536,7 @@ defmodule Ryker.Records.DerivedContextTest do
 
   defp claim!(suffix, conversation \\ nil) do
     id = Ecto.UUID.generate()
-    conversation = conversation || "slack:T#{String.replace(id, "-", "")}:C08MMETA3U3"
+    conversation = conversation || "slack:T#{String.replace(id, "-", "")}:C0TENANTOPS"
 
     {:ok, _} =
       Episodes.apply(
@@ -554,7 +554,7 @@ defmodule Ryker.Records.DerivedContextTest do
         })
       )
 
-    {:ok, _} = Custody.pin_episode(id, "fixture", String.duplicate("a", 64), nil, "blitz-infra")
+    {:ok, _} = Custody.pin_episode(id, "fixture", String.duplicate("a", 64), nil, "tenant-infra")
     {:ok, claim} = Custody.claim_next("worker:#{id}", 60, :work)
     claim
   end

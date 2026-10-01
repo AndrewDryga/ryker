@@ -43,7 +43,7 @@ defmodule Ryker.Admission.OccurrenceClaimTest do
       Ryker.Slack.Input.new(%{
         actor: %{kind: :app, ref: "A123"},
         channel_ref: "CDEVOPS",
-        content: %{"text" => "Run run-TT4LiosRo6Eh8Rnq needs confirmation"},
+        content: %{"text" => "Run run-TobiKjYqqj17v2YB needs confirmation"},
         event_kind: :message,
         event_ref: "Ev-1789000000",
         message_ref: "1789000000.000100",

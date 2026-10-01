@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source": {
-    "database": "blitz responder.db",
+    "database": "tenant responder.db",
     "episode_ids": ["episode_run_1d2dd5837f955a97f57ed40a56e2f1e2"],
     "reason": "A replacement worker must take custody once; a repeated handoff after restart must reconcile without another event."
   },
@@ -9,7 +9,7 @@
     {
       "type": "admit_input",
       "actor_ref": "slack:user:U-andrew",
-      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787449203.470699"},
+      "destination": {"transport": "slack", "conversation_ref": "C0TENANTOPS", "thread_ref": "1787449203.470699"},
       "episode_id": "01993e00-0000-7000-8000-000000000011",
       "episode_key": "engineering-task:owner-fencing:1d2dd583",
       "linked_episode_id": null,
@@ -46,7 +46,7 @@
   ],
   "expected": {
     "active_input_count": 1,
-    "destination": {"conversation_ref": "C08MMETA3U3", "thread_ref": "1787449203.470699", "transport": "slack"},
+    "destination": {"conversation_ref": "C0TENANTOPS", "thread_ref": "1787449203.470699", "transport": "slack"},
     "event_count": 3,
     "event_kinds": ["input_admitted", "owner_transferred", "owner_transferred"],
     "linked_episode_id": null,

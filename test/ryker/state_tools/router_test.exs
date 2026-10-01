@@ -781,7 +781,7 @@ defmodule Ryker.StateTools.RouterTest do
     assert prompt["work"]["repository_ref"] == nil
     assert prompt["work"]["workspace"]["primary"]["name"] == "primary"
 
-    assert [%{"name" => "blitz-rivals-scraper", "read_only" => true}] =
+    assert [%{"name" => "tenant-rivals-scraper", "read_only" => true}] =
              prompt["work"]["workspace"]["companions"]
 
     claim = claim!("task-companion-documentation")

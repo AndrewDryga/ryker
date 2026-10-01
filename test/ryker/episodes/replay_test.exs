@@ -4,7 +4,7 @@ defmodule Ryker.Episodes.ReplayTest do
   alias Ryker.Episodes.Replay
 
   @source %{
-    "database" => "blitz responder.db",
+    "database" => "tenant responder.db",
     "episode_ids" => ["episode_run_2ad8185d881fe0b6dc6cd30969331a9c"],
     "reason" => "Parser regression derived from the harvested Grafana lifecycle episode."
   }
@@ -113,7 +113,7 @@ defmodule Ryker.Episodes.ReplayTest do
     assert_raise ArgumentError, ~r/source must include at least one stable identity/, fn ->
       fixture
       |> Map.put("source", %{
-        "database" => "blitz responder.db",
+        "database" => "tenant responder.db",
         "reason" => "This deliberately lacks a source identity."
       })
       |> Replay.run!()

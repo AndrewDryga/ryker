@@ -16,7 +16,7 @@ defmodule Ryker.ControlPlane.ConversationMemoryReadOnlyTest do
   alias Ryker.Learning.LearningSources
 
   test "read-only inspection shows usable knowledge and revision history without acquiring write locks" do
-    # The restored Blitz inspection server rejected FOR SHARE and hid every
+    # The restored Tenant inspection server rejected FOR SHARE and hid every
     # Knowledge card, although its retained source history was still readable.
     with_topics(fn fixture ->
       before = snapshot(fixture.workspace)

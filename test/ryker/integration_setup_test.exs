@@ -233,7 +233,7 @@ defmodule Ryker.IntegrationSetupTest do
              IntegrationSetup.slack_members(requester: Requester)
   end
 
-  # Andrew, 2026-10-01, setting up the blitz workspace: "not all people shown here … some orgs
+  # Andrew, 2026-10-01, setting up the tenant workspace: "not all people shown here … some orgs
   # have hundreds of people". Choose people read only Slack's first page of members, and Slack
   # often returns fewer than the limit on a page while more pages follow, so most of a large
   # workspace was never offered.

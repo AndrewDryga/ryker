@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source": {
-    "database": "blitz responder.db",
+    "database": "tenant responder.db",
     "episode_ids": ["episode_run_2ad8185d881fe0b6dc6cd30969331a9c"],
     "reason": "A RESOLVED lifecycle update moved the destination from the original FIRING card to the newer Grafana card."
   },
@@ -9,7 +9,7 @@
     {
       "type": "admit_input",
       "actor_ref": "slack:app:grafana",
-      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787538003.466009"},
+      "destination": {"transport": "slack", "conversation_ref": "C0TENANTOPS", "thread_ref": "1787538003.466009"},
       "episode_id": "01993e00-0000-7000-8000-000000000001",
       "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
       "linked_episode_id": null,
@@ -39,7 +39,7 @@
     {
       "type": "admit_input",
       "actor_ref": "slack:app:grafana",
-      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787538003.466009"},
+      "destination": {"transport": "slack", "conversation_ref": "C0TENANTOPS", "thread_ref": "1787538003.466009"},
       "episode_id": "01993e00-0000-7000-8000-000000000001",
       "episode_key": "grafana:va1-vector-errors:cycle:2026-08-24T02:20:03Z",
       "linked_episode_id": null,
@@ -69,7 +69,7 @@
   ],
   "expected": {
     "active_input_count": 0,
-    "destination": {"conversation_ref": "C08MMETA3U3", "thread_ref": "1787538003.466009", "transport": "slack"},
+    "destination": {"conversation_ref": "C0TENANTOPS", "thread_ref": "1787538003.466009", "transport": "slack"},
     "event_kinds": ["input_admitted", "result_accepted", "delivery_confirmed", "input_admitted", "result_accepted", "delivery_confirmed"],
     "event_count": 6,
     "linked_episode_id": null,

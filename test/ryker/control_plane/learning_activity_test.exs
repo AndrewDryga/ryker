@@ -189,21 +189,21 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
 
     {:ok, settings} =
       Settings.put_repository(
-        %{ref: "blitz-infra", github_repository: "Blitz/infra"},
+        %{ref: "tenant-infra", github_repository: "Tenant/infra"},
         settings.installation.revision,
         actor
       )
 
-    {:ok, _} = Settings.delete_repository("blitz-infra", settings.installation.revision, actor)
+    {:ok, _} = Settings.delete_repository("tenant-infra", settings.installation.revision, actor)
 
     inputs!()
     assert {:ok, claim} = Batches.claim("inspection-test", @settings)
-    assert claim.batch.repository_ref == "blitz-infra"
+    assert claim.batch.repository_ref == "tenant-infra"
 
     html = render(%{"batch" => claim.batch.id})
-    assert html =~ "Blitz/infra"
-    refute html =~ "blitz-infra"
-    assert render(%{}) =~ "Blitz/infra"
+    assert html =~ "Tenant/infra"
+    refute html =~ "tenant-infra"
+    assert render(%{}) =~ "Tenant/infra"
   end
 
   @tag :policy_recovery_ui

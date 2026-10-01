@@ -315,7 +315,7 @@ thread, and a rebuild, read no thread and are prepared as before.
 
 The same day, the instructions started to say that a person's report on the state of a service,
 release or system (that it looks stuck, down or slow) is worth keeping, attributed with its time,
-until a later message settles it: on the recorded fortnite-correction case the model had skipped
+until a later message settles it: on the recorded starfall-correction case the model had skipped
 the worry as transient noise. Every recorded learning scenario passes with both changes.
 
 ### What people say about themselves
@@ -470,7 +470,7 @@ Implement in ordered slices, with focused tests after each change:
    schema/semantic/create-check budget exhaustion, generation/pruning invariance and cleanup.
 5. Recall/UI: real later pages, lexical paraphrase, kind diversity, dates, cursor tampering,
    permission changes, source expansion, useful operator errors and read-only inspection.
-6. Harvested model evaluation: recorded Blitz decisions, Livebook intent, OOM lifecycle and
+6. Harvested model evaluation: recorded Tenant decisions, Livebook intent, OOM lifecycle and
    duplicate-topic cases under pinned policy; held-out later questions, no later-event leakage,
    no public replay activity. Measure false splits/merges, answer quality, cost and learning lag.
 

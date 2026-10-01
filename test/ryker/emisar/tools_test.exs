@@ -209,7 +209,7 @@ defmodule Ryker.Emisar.ToolsTest do
       "pack_ref" =>
         "linux-core@0.5.0/sha256:f4f5f29abc2aa8ccef433224da60d01159ba1434d6749172ef3795583d794bcf",
       "reason" => "Check whether /srv filled before the reload storm.",
-      "runner_refs" => ["nomad-hvn01~f5e3a96782c44bd31186fcaa14ba6efb"]
+      "runner_refs" => ["nomad-hst01~f5e3a96782c44bd31186fcaa14ba6efb"]
     }
   end
 

@@ -216,7 +216,7 @@ defmodule Ryker.Admission.ConversationContextTest do
     assert bundle["current"]["content"]["text"] == "And now?"
   end
 
-  # Blitz's VA1 alert of 2026-09-05 carries 1,033 characters in its
+  # Tenant's VA1 alert of 2026-09-05 carries 1,033 characters in its
   # attachment. Routing read the alert that fired before its recovery as its
   # first 512, stopping at "*Alert:", with its links gone and nothing saying
   # the message went on.
@@ -468,7 +468,7 @@ defmodule Ryker.Admission.ConversationContextTest do
     |> get_in(["messages", name])
   end
 
-  # An input harvested from Blitz, with its original sender, time and content.
+  # An input harvested from Tenant, with its original sender, time and content.
   defp record_harvested!(input) do
     record_content!(
       input["content"],

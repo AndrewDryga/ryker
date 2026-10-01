@@ -73,11 +73,11 @@ defmodule Ryker.Learning.LearningTest do
   end
 
   test "the frozen learning input preserves the original conversation and reply identities" do
-    # Fortnite replay fortnite_b.json, run 380c7761-2ed8-4f66-a084-8d6519c96bef,
+    # Starfall replay starfall_b.json, run 380c7761-2ed8-4f66-a084-8d6519c96bef,
     # deferred the concern below because its prompt omitted the actual reply/thread
     # identity. The release topic was offered, but the host hid their relationship.
     raw =
-      "testdata/learning/retained-fortnite-manual-correction.json"
+      "testdata/learning/retained-starfall-manual-correction.json"
       |> File.read!()
       |> Jason.decode!()
       |> Map.fetch!("inputs")
@@ -150,7 +150,7 @@ defmodule Ryker.Learning.LearningTest do
     assert applied.result_sha256 == CanonicalJSON.digest(candidate)
     assert [revision] = Repo.all(KnowledgeRevision)
     assert revision.source_result_ref == "learning:#{run.id}:#{applied.result_sha256}"
-    assert [item] = Knowledge.context(hd(entries), "blitz-infra")
+    assert [item] = Knowledge.context(hd(entries), "tenant-infra")
     assert item["source_count"] == 2
     assert protected_rows() == before
 
@@ -180,7 +180,7 @@ defmodule Ryker.Learning.LearningTest do
   # The answer is constructed host-contract output over harvested messages.
   test "a learning pass keeps what an author said about themselves, and the next pass reads it" do
     [release, stuck, woke] =
-      "testdata/learning/retained-fortnite-manual-correction.json"
+      "testdata/learning/retained-starfall-manual-correction.json"
       |> File.read!()
       |> Jason.decode!()
       |> Map.fetch!("inputs")
@@ -298,7 +298,7 @@ defmodule Ryker.Learning.LearningTest do
   test "exact source identities retrieve a renamed subject and unsupported anchors are rejected" do
     entries = Fixtures.inputs!()
     [first, second] = entries
-    anchor = "311e38f3-a17c-7d1b-1235-05c256ba3c39"
+    anchor = "7abc3462-415e-4c6a-8688-c6a0778fe5bc"
     assert {:ok, run} = Learning.prepare([first.id], @policy)
     document = Jason.decode!(result([first]))
     proposal = hd(document["updates"]) |> Map.put("anchors", [anchor])
@@ -392,7 +392,7 @@ defmodule Ryker.Learning.LearningTest do
     document = Jason.decode!(result([first]))
 
     proposal =
-      hd(document["updates"]) |> Map.put("anchors", ["311e38f3-a17c-7d1b-1235-05c256ba3c39"])
+      hd(document["updates"]) |> Map.put("anchors", ["7abc3462-415e-4c6a-8688-c6a0778fe5bc"])
 
     assert {:ok, _} =
              Fixtures.accept(
@@ -599,7 +599,7 @@ defmodule Ryker.Learning.LearningTest do
     }
 
     assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(edited) end)
-    assert Knowledge.context(hd(entries), "blitz-infra") == []
+    assert Knowledge.context(hd(entries), "tenant-infra") == []
   end
 
   test "operational source pruning also removes the learning copy in the same retention pass" do
@@ -674,8 +674,8 @@ defmodule Ryker.Learning.LearningTest do
 
     Repo.insert!(%ChannelMembership{
       id: Ecto.UUID.generate(),
-      workspace_ref: "T01J1LW4DF1",
-      channel_ref: "C08MMETA3U3",
+      workspace_ref: "T0TENANT001",
+      channel_ref: "C0TENANTOPS",
       private: false,
       external_shared: false,
       generation: 1,
@@ -731,7 +731,7 @@ defmodule Ryker.Learning.LearningTest do
     assert {:ok, _} =
              Fixtures.accept(fresh.id, update_result([second], current), %{})
 
-    assert [head] = Knowledge.context(second, "blitz-infra")
+    assert [head] = Knowledge.context(second, "tenant-infra")
     assert head["version"] == 3
     assert head["source_count"] == 2
     assert Repo.aggregate(KnowledgeRevision, :count) == 3

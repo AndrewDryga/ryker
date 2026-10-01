@@ -4,7 +4,7 @@
       "candidate": {
         "decision_reason": null,
         "delivery": "reply",
-        "message": "Verification is scheduled after a 10-minute observation window. The available deployment reading predates this apply, so revision 99183465 is not yet verified. I’ll check fresh deployment, backend health, and monitoring data and report here, with a fallback deadline of 13:18 UTC.",
+        "message": "Verification is scheduled after a 10-minute observation window. The available deployment reading predates this apply, so revision 756bb648 is not yet verified. I’ll check fresh deployment, backend health, and monitoring data and report here, with a fallback deadline of 13:18 UTC.",
         "outcome": {
           "artifact_refs": [],
           "record_refs": [
@@ -31,7 +31,7 @@
             "dimensions": {},
             "freshness": null,
             "health_effect": null,
-            "observation": "The deployment tool returned an Airflow running observation for revision bd561fcf63f9e1db8fc65232db0e4c899b11237e observed at 2026-08-27T20:31:57Z, with observation_window incomplete. This predates the current applied notification and does not verify revision 99183465ac95a33f1312a4f4973b66b736a55606.",
+            "observation": "The deployment tool returned an Airflow running observation for revision bd561fcf63f9e1db8fc65232db0e4c899b11237e observed at 2026-08-27T20:31:57Z, with observation_window incomplete. This predates the current applied notification and does not verify revision 756bb64853ef5554ac81770c164f4e3aae99c6b7.",
             "observed_at": null,
             "relation": null,
             "scope_note": null,
@@ -49,11 +49,11 @@
             "deadline_at": "2026-09-07T13:18:00Z",
             "event_matcher": {
               "delay": "10m",
-              "on_timeout": "Attempt fresh production Airflow deployment, backend health, and monitoring reads; report verified results or explicitly report inability to verify revision 99183465ac95a33f1312a4f4973b66b736a55606 in this same conversation. Do not claim success from stale observations.",
+              "on_timeout": "Attempt fresh production Airflow deployment, backend health, and monitoring reads; report verified results or explicitly report inability to verify revision 756bb64853ef5554ac81770c164f4e3aae99c6b7 in this same conversation. Do not claim success from stale observations.",
               "type": "after"
             },
             "kind": "after",
-            "verification": "After a chosen 10-minute observation window, verify production GCP Airflow revision 99183465ac95a33f1312a4f4973b66b736a55606 (Terraform run run-vMEdeDLHwpWZsBYH): obtain fresh deployment, backend health and monitoring observations covering the window, compare with intended GCP topology (Airflow deliberately absent from VA1), and report result in the bound conversation. Distinguish Terraform revision from deployed application revision and confirm their association before claiming success."
+            "verification": "After a chosen 10-minute observation window, verify production GCP Airflow revision 756bb64853ef5554ac81770c164f4e3aae99c6b7 (Terraform run run-sBbtTAxOfCwLmMSH): obtain fresh deployment, backend health and monitoring observations covering the window, compare with intended GCP topology (Airflow deliberately absent from VA1), and report result in the bound conversation. Distinguish Terraform revision from deployed application revision and confirm their association before claiming success."
           }
         }
       ],
@@ -82,7 +82,7 @@
       "candidate": {
         "decision_reason": null,
         "delivery": "reply",
-        "message": "Post-window verification is inconclusive. All three checks returned August 27 observations: deployment showed revision bd561fcf running, backend health showed healthy, and monitoring reported insufficient_history with an incomplete window. These do not verify the September 7 apply of 99183465. Fresh deployment and health evidence is still needed; no current outage is established.",
+        "message": "Post-window verification is inconclusive. All three checks returned August 27 observations: deployment showed revision bd561fcf running, backend health showed healthy, and monitoring reported insufficient_history with an incomplete window. These do not verify the September 7 apply of 756bb648. Fresh deployment and health evidence is still needed; no current outage is established.",
         "outcome": {
           "artifact_refs": [],
           "record_refs": [
@@ -105,7 +105,7 @@
           "ref": "record:goal:a7bd0a7e98907c2cbab0f3139c0462f9",
           "payload": {
             "authority": "read_only",
-            "completion_contract": "Check post-window production deployment, backend health and monitoring for revision 99183465, distinguishing verified state from gaps.",
+            "completion_contract": "Check post-window production deployment, backend health and monitoring for revision 756bb648, distinguishing verified state from gaps.",
             "id": "verify_airflow",
             "kind": "check",
             "parent_goal_id": null,
@@ -153,7 +153,7 @@
             "dimensions": {},
             "freshness": null,
             "health_effect": null,
-            "observation": "Post-window deployment lookup returned Airflow instance airflow-0b68 running revision bd561fcf63f9e1db8fc65232db0e4c899b11237e, observed 2026-08-27T21:01:35Z. It predates the September 7 apply notification and does not establish association with Terraform revision 99183465.",
+            "observation": "Post-window deployment lookup returned Airflow instance airflow-0b68 running revision bd561fcf63f9e1db8fc65232db0e4c899b11237e, observed 2026-08-27T21:01:35Z. It predates the September 7 apply notification and does not establish association with Terraform revision 756bb648.",
             "observed_at": null,
             "relation": "supports",
             "scope_note": null,
@@ -212,7 +212,7 @@
               "record:evidence:e6312f64a11b338c609a6726ff6b7a10"
             ],
             "reason": "All available verification sources returned August 27 observations after the September 7 observation timer; deployment-to-Terraform revision association and current health remain unverified.",
-            "scope": "Production GCP Airflow, Terraform run run-vMEdeDLHwpWZsBYH / revision 99183465",
+            "scope": "Production GCP Airflow, Terraform run run-sBbtTAxOfCwLmMSH / revision 756bb648",
             "status": "unexplained",
             "what": "Post-window verification is inconclusive: stale deployment and backend observations plus insufficient monitoring history cannot establish success or an outage for this apply."
           }
@@ -265,9 +265,9 @@
         {
           "arguments": {
             "environment": "production",
-            "query": "Airflow post-apply verification for Terraform revision 99183465ac95a33f1312a4f4973b66b736a55606, run run-vMEdeDLHwpWZsBYH: deployment revision association, availability, HTTP 5xx, and scheduler health over the observation window from 2026-09-07T12:57:34Z to 2026-09-07T13:08:11Z."
+            "query": "Airflow post-apply verification for Terraform revision 756bb64853ef5554ac81770c164f4e3aae99c6b7, run run-sBbtTAxOfCwLmMSH: deployment revision association, availability, HTTP 5xx, and scheduler health over the observation window from 2026-09-07T12:57:34Z to 2026-09-07T13:08:11Z."
           },
-          "arguments_sha256": "d87c27a60213dc42442522888c43ca9e753ea9bf3978951ffb4d5cb359e87d54",
+          "arguments_sha256": "7c2e5b7b1c21da9d049887c991240f6210e5a32a5baae97ddd90aefd46d61ddd",
           "outcome": "result",
           "result": {
             "observation_window": "incomplete",

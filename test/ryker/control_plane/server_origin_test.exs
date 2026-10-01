@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.ServerOriginTest do
 
   alias Ryker.ControlPlane.Server
 
-  # mac-server, 2026-10-01: the blitz instance's setup page, reached through an SSH tunnel on port
+  # mac-server, 2026-10-01: the tenant instance's setup page, reached through an SSH tunnel on port
   # 14321, rendered and never went live, so none of its buttons could work. The console accepted
   # a browser only at the container's own port, 4321, while Compose publishes it on
   # RYKER_CONTROL_PORT: any install that changed that port had the same dead setup page.

@@ -2,7 +2,7 @@
   "name": "a new lifecycle starts under its own card with old history",
   "source": {
     "reshaped": "2026-09-27: the recorded routing decision was rewritten into the current contract, as the live-replies migration rewrote stored decisions: reaction became reactions, and messages and repository were added as null. The recorded choice is unchanged.",
-    "database": "blitz responder.db",
+    "database": "tenant responder.db",
     "slack_input_ids": [
       "slack_message_0fd6cbc19792cb7a7cc32d8bef15b51b",
       "slack_message_4da8260bb00d49527da7f8cefeb09dc5",
@@ -24,29 +24,29 @@
     "state": "complete",
     "updated_at": "2026-08-27T21:24:58.000000Z",
     "input": {
-      "actor": {"kind": "app", "ref": "B092P4MUX1C"},
-      "channel_ref": "C091FK0HHAQ",
-      "content": {"text": "<https://grafana.tail7c930.ts.net/alerting/grafana/va1-traefik-reload-frequency/view?orgId=1|[VA1 FIRING:1] WARNING | Traefik config reload frequency high>\n*FIRING - 1 alert*\n\n*Traefik completed more than 10 configuration reloads in 10 minutes*\nA normal app rollout should settle quickly. Sustained successful reloads can drive retained-memory growth even when every configuration applies successfully.\n*Started:* <!date^1787865260^{date_short_pretty} at {time_secs}|2026-08-27 21:14:20 UTC>\n*Evaluation:*"},
+      "actor": {"kind": "app", "ref": "B0TENANTBT4"},
+      "channel_ref": "C0TENANTAL1",
+      "content": {"text": "<https://grafana.tailexample.ts.net/alerting/grafana/va1-traefik-reload-frequency/view?orgId=1|[VA1 FIRING:1] WARNING | Traefik config reload frequency high>\n*FIRING - 1 alert*\n\n*Traefik completed more than 10 configuration reloads in 10 minutes*\nA normal app rollout should settle quickly. Sustained successful reloads can drive retained-memory growth even when every configuration applies successfully.\n*Started:* <!date^1787865260^{date_short_pretty} at {time_secs}|2026-08-27 21:14:20 UTC>\n*Evaluation:*"},
       "event_kind": "message",
       "event_ref": "Ev0BT4KKLH6Z",
       "message_ref": "1787865298.499319",
       "occurred_at": "2026-08-27T21:14:58.000000Z",
       "revision": 1,
       "thread_ref": null,
-      "workspace_ref": "T01J1LW4DF1"
+      "workspace_ref": "T0TENANT001"
     }
   },
   "input": {
-    "actor": {"kind": "app", "ref": "B092P4MUX1C"},
-    "channel_ref": "C091FK0HHAQ",
-    "content": {"text": "<https://grafana.tail7c930.ts.net/alerting/grafana/va1-traefik-reload-frequency/view?orgId=1|[VA1 FIRING:1] WARNING | Traefik config reload frequency high>\n*FIRING - 1 alert*\n\n*Traefik completed more than 10 configuration reloads in 10 minutes*\nA normal app rollout should settle quickly. Sustained successful reloads can drive retained-memory growth even when every configuration applies successfully.\n*Started:* <!date^1787866040^{date_short_pretty} at {time_secs}|2026-08-27 21:27:20 UTC>\n*Evaluation:*"},
+    "actor": {"kind": "app", "ref": "B0TENANTBT4"},
+    "channel_ref": "C0TENANTAL1",
+    "content": {"text": "<https://grafana.tailexample.ts.net/alerting/grafana/va1-traefik-reload-frequency/view?orgId=1|[VA1 FIRING:1] WARNING | Traefik config reload frequency high>\n*FIRING - 1 alert*\n\n*Traefik completed more than 10 configuration reloads in 10 minutes*\nA normal app rollout should settle quickly. Sustained successful reloads can drive retained-memory growth even when every configuration applies successfully.\n*Started:* <!date^1787866040^{date_short_pretty} at {time_secs}|2026-08-27 21:27:20 UTC>\n*Evaluation:*"},
     "event_kind": "message",
     "event_ref": "Ev0BTAMZJ31P",
     "message_ref": "1787866078.236309",
     "occurred_at": "2026-08-27T21:27:58.000000Z",
     "revision": 1,
     "thread_ref": null,
-    "workspace_ref": "T01J1LW4DF1"
+    "workspace_ref": "T0TENANT001"
   },
   "decision": {
     "action": "start_episode",

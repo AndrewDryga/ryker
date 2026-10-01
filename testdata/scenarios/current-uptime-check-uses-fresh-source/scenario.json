@@ -4,7 +4,7 @@
   "provenance": {
     "kind": "synthetic",
     "episode_refs": [
-      "synthetic:nomad-hvn03-uptime"
+      "synthetic:nomad-hst03-uptime"
     ],
     "captured_at": "2026-08-30T14:20:00Z"
   },
@@ -36,7 +36,7 @@
       "kind": "input",
       "occurred_at": "2026-08-30T14:20:00Z",
       "payload": {
-        "text": "Confirm the current uptime of nomad-hvn03 and record what you observed."
+        "text": "Confirm the current uptime of nomad-hst03 and record what you observed."
       }
     }
   ],
@@ -44,19 +44,19 @@
     "repositories": [],
     "tool_rules": [
       {
-        "id": "nomad-hvn03-current-health",
+        "id": "nomad-hst03-current-health",
         "match": {
           "environment": {
             "$one_of": ["va1", "production", "prod"]
           },
-          "service": "nomad-hvn03"
+          "service": "nomad-hst03"
         },
         "responses": [
           {
             "kind": "result",
             "value": {
               "observed_at": "2026-08-30T14:20:03Z",
-              "source_ref": "source:nomad-hvn03:health:20260830T142003Z",
+              "source_ref": "source:nomad-hst03:health:20260830T142003Z",
               "status": "running",
               "uptime_seconds": 734400
             }
@@ -65,12 +65,12 @@
         "tool": "nomad.service_health"
       },
       {
-        "id": "nomad-hvn03-current-uptime-query",
+        "id": "nomad-hst03-current-uptime-query",
         "match": {
           "query": {
             "$one_of": [
-              {"$contains_all": ["uptime", "nomad-hvn03"]},
-              {"$contains_all": ["node_boot_time", "nomad-hvn03"]}
+              {"$contains_all": ["uptime", "nomad-hst03"]},
+              {"$contains_all": ["node_boot_time", "nomad-hst03"]}
             ]
           }
         },
@@ -79,7 +79,7 @@
             "kind": "result",
             "value": {
               "observed_at": "2026-08-30T14:20:03Z",
-              "source_ref": "source:nomad-hvn03:health:20260830T142003Z",
+              "source_ref": "source:nomad-hst03:health:20260830T142003Z",
               "status": "running",
               "uptime_seconds": 734400
             }
@@ -97,16 +97,16 @@
           {
             "arguments": {
               "environment": "va1",
-              "service": "nomad-hvn03"
+              "service": "nomad-hst03"
             },
             "kind": "fabricated",
             "tool": "nomad.service_health"
           },
           {
             "arguments": {
-              "observation": "nomad-hvn03 was running with 734400 seconds of uptime at 2026-08-30T14:20:03Z.",
+              "observation": "nomad-hst03 was running with 734400 seconds of uptime at 2026-08-30T14:20:03Z.",
               "relation": "supports",
-              "source_ref": "source:nomad-hvn03:health:20260830T142003Z",
+              "source_ref": "source:nomad-hst03:health:20260830T142003Z",
               "subject": "host.uptime",
               "supersedes": []
             },
@@ -120,7 +120,7 @@
             "document": {
               "decision_reason": null,
               "delivery": "reply",
-              "message": "nomad-hvn03 is running and reported 8 days 12 hours of uptime at 14:20:03Z.",
+              "message": "nomad-hst03 is running and reported 8 days 12 hours of uptime at 14:20:03Z.",
               "outcome": {
                 "artifact_refs": [],
                 "record_refs": [
@@ -152,7 +152,7 @@
               "environment": {
                 "$one_of": ["va1", "production", "prod"]
               },
-              "service": "nomad-hvn03"
+              "service": "nomad-hst03"
             },
             "tool": "nomad.service_health"
           },
@@ -160,8 +160,8 @@
             "arguments": {
               "query": {
                 "$one_of": [
-                  {"$contains_all": ["uptime", "nomad-hvn03"]},
-                  {"$contains_all": ["node_boot_time", "nomad-hvn03"]}
+                  {"$contains_all": ["uptime", "nomad-hst03"]},
+                  {"$contains_all": ["node_boot_time", "nomad-hst03"]}
                 ]
               }
             },

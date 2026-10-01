@@ -1050,7 +1050,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
       "kind" => "check",
       "authority" => "read_only",
       "requested_outcome" =>
-        "Establish available scope and observation-window context for Airflow revision 99183465.",
+        "Establish available scope and observation-window context for Airflow revision 756bb648.",
       "completion_contract" =>
         "Inspect supplied context, available repository documentation, and durable state; record material uncertainties.",
       "parent_goal_id" => nil,
@@ -1395,7 +1395,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                    "authority_limits" => ["do not deploy or publish"],
                    "instruction_ref" => instruction_ref,
                    "prompt" => Enum.at(prompts, index),
-                   "repository" => "blitz-rivals-scraper",
+                   "repository" => "tenant-rivals-scraper",
                    "source_refs" => [],
                    "success_checks" => ["focused repository tests pass"],
                    "title" => "Improve Rivals Gate timeout observability"
@@ -1431,7 +1431,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                id_generator: fn -> "world-task-feedback-replaces" end,
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
-               repository_ref: "blitz-rivals-scraper",
+               repository_ref: "tenant-rivals-scraper",
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
                state_tools_secret: "world-eval-state-tools-secret",
                worker_ref: "world-eval-worker:task-feedback"
@@ -1465,7 +1465,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
       assert Map.new(submission.artifacts, &{&1["name"], {&1["data"], &1["sha256"]}}) == expected
       assert submission.prompt =~ "captured_source_excerpts"
       assert submission.prompt =~ "captured_revision"
-      assert Jason.decode!(submission.prompt)["work"]["repository_ref"] == "blitz-rivals-scraper"
+      assert Jason.decode!(submission.prompt)["work"]["repository_ref"] == "tenant-rivals-scraper"
     end
   end
 
@@ -2508,20 +2508,20 @@ defmodule Ryker.Evals.WorldRunnerTest do
                "wait_for",
                %{
                  "deadline" => "2099-08-27T20:28:13.000000Z",
-                 "on_timeout" => "Report that revision 99183465 could not be verified in time.",
+                 "on_timeout" => "Report that revision 756bb648 could not be verified in time.",
                  "trigger" => %{
-                   "match" => %{"revision" => "99183465", "state" => "verification_due"},
+                   "match" => %{"revision" => "756bb648", "state" => "verification_due"},
                    "source_kind" => "terraform",
                    "type" => "source_event"
                  },
                  "verification" =>
-                   "Verify Airflow revision 99183465 after the observation window."
+                   "Verify Airflow revision 756bb648 after the observation window."
                },
                binding_options(claim)
              )
 
     {record_ref, "waiting_for_event",
-     "I will verify revision 99183465 after the observation window."}
+     "I will verify revision 756bb648 after the observation window."}
   end
 
   defp record_state_tool!("propose_memory", claim) do

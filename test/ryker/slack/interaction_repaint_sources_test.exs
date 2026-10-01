@@ -113,7 +113,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
   test "a valid simple reply retains its exact content and delivery identity" do
     fixture = fixture!(:simple)
     assert :ok = repaint(fixture.audit)
-    assert_received {:updated, "C08MMETA3U3", "1787832001.000200", document, delivery}
+    assert_received {:updated, "C0TENANTOPS", "1787832001.000200", document, delivery}
     assert document == %{"message" => @captured["candidate"]["message"]}
     assert delivery == fixture.turn.delivery_ref
   end
@@ -183,7 +183,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
       offer_record_id: record.id,
       kind: :standing_assignment,
       status: :active,
-      workspace_ref: "slack:T08MMETA3U3",
+      workspace_ref: "slack:T0TENANT001",
       scope_kind: :conversation,
       scope_ref: fixture.claim.episode.destination_conversation_ref,
       identity_key: proposal["trigger"]["source_kind"],
@@ -314,7 +314,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
       turn: turn,
       audit: %InteractionAudit{
         workspace_ref: source.source_ref,
-        channel_ref: "C08MMETA3U3",
+        channel_ref: "C0TENANTOPS",
         thread_ref: "repaint-source",
         message_ref: "1787832001.000200"
       }
@@ -372,7 +372,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
                })
              )
 
-    assert {:ok, _} = Custody.pin_episode(id, "fixture", digest(), nil, "blitz-infra")
+    assert {:ok, _} = Custody.pin_episode(id, "fixture", digest(), nil, "tenant-infra")
     assert {:ok, claim} = Custody.claim_next("worker:#{id}", 60, :work)
     claim
   end

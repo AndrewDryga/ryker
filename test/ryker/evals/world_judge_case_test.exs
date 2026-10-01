@@ -51,7 +51,7 @@ defmodule Ryker.Evals.WorldJudgeCaseTest do
     assert [planning, applied] = prompt["evidence"]["source_events"]
     assert planning["payload"]["state"] == "planning"
     assert applied["payload"]["state"] == "applied"
-    assert applied["payload"]["run_id"] == "run-okjyXsDYXyMqqBYY"
+    assert applied["payload"]["run_id"] == "run-5gvASLsVavas4TRg"
   end
 
   test "the judge sees sanitized trusted state-tool outcomes" do

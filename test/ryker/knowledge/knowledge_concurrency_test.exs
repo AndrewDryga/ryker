@@ -145,7 +145,7 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
       "title" => "Website HAProxy memory limit",
       "summary" => entry.content |> RecallText.from() |> String.slice(0, 1200),
       "topics" => ["website", "haproxy-edge", "Host OOM kills"],
-      "anchors" => ["311e38f3-a17c-7d1b-1235-05c256ba3c39"],
+      "anchors" => ["7abc3462-415e-4c6a-8688-c6a0778fe5bc"],
       "target_ref" => nil,
       "expected_version" => 0
     }
@@ -298,7 +298,7 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
 
         note = %{
           "summary" =>
-            "U03EPT4RP5M wants to keep `draft-ai-suggestions` and plans to look into it at an unspecified future time.",
+            "U0TENANTUS3 wants to keep `draft-ai-suggestions` and plans to look into it at an unspecified future time.",
           "topics" => ["draft-ai-suggestions"]
         }
 
@@ -314,7 +314,7 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
             source_message_ref: "1787832000.000100",
             source_result_ref: "recorded-result",
             source_fingerprint: String.duplicate("a", 64),
-            actor_ref: "U03EPT4RP5M",
+            actor_ref: "U0TENANTUS3",
             execution_mode: :shadow,
             revision: 1,
             occurred_at: now,

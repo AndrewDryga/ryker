@@ -5,7 +5,7 @@ defmodule Ryker.Repo.Migrations.LearningReadsTheThread do
   # only beside the thread it answers ("Nothing is stuck, this is done
   # manually") was deferred as impossible to place once the messages before it
   # had taught nothing on their own, and what it said was lost (the recorded
-  # fortnite-correction case, 2026-09-30).
+  # starfall-correction case, 2026-09-30).
   #
   # A run now also reads the earlier messages of the thread its inputs reply
   # in, and keeps which ones, as it keeps its inputs: they are checked again

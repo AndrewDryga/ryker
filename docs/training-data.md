@@ -88,6 +88,13 @@ part of each link after `?`. Only what redaction changes differs; everything els
 byte. On the live install on 2026-09-27, 77 of 82 prompts came through unchanged; the other five
 lost the query of a link.
 
+Redaction is not pseudonymization, and reading it as such is how the published corpus came to
+carry a real workspace. `InspectionRedactor` removes credential-shaped values and link queries;
+it does not touch a workspace, channel or user identifier, a private repository name, a person's
+name or a third party's build label, because none of those look like a secret. Anything harvested
+into a tracked fixture needs the separate substitution in
+`docs/memory-evaluation.md#the-corpus-is-pseudonymized-and-that-is-not-a-harvest` as well.
+
 **A person forgetting wins.** Forgetting a fact or a learned topic, deleting a message in Slack,
 editing its words, or deleting a Slack channel erases, in the same transaction, every copy whose
 prompt quoted that message, topic or conversation: its own message, the earlier messages of its

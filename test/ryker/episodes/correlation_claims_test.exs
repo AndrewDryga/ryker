@@ -14,20 +14,20 @@ defmodule Ryker.Episodes.CorrelationClaimsTest do
     devops = episode!("claims:devops")
     alerts = episode!("claims:alerts")
 
-    assert {:ok, claim} = claim(devops, "slack:T1", "slack:app:B1", "run-9R1YWKbeFV8rtWRQ")
+    assert {:ok, claim} = claim(devops, "slack:T1", "slack:app:B1", "run-tUoH3vXT6cLH5kRB")
     assert claim.status == :active and claim.lifecycle_state == :active
 
     assert {:error, {:occurrence_claimed, owner}} =
-             claim(alerts, "slack:T1", "slack:app:B1", "run-9R1YWKbeFV8rtWRQ")
+             claim(alerts, "slack:T1", "slack:app:B1", "run-tUoH3vXT6cLH5kRB")
 
     assert owner.episode_id == devops.id
 
     # The same identifier from another workspace or another reporting app is
     # a different claim: shared strings never cross a security domain.
-    assert {:ok, _other_scope} = claim(alerts, "slack:T2", "slack:app:B1", "run-9R1YWKbeFV8rtWRQ")
-    assert {:ok, _other_app} = claim(alerts, "slack:T1", "slack:app:B2", "run-9R1YWKbeFV8rtWRQ")
+    assert {:ok, _other_scope} = claim(alerts, "slack:T2", "slack:app:B1", "run-tUoH3vXT6cLH5kRB")
+    assert {:ok, _other_app} = claim(alerts, "slack:T1", "slack:app:B2", "run-tUoH3vXT6cLH5kRB")
 
-    assert CorrelationClaims.owner("slack:T1", "slack:app:B1", "run-9R1YWKbeFV8rtWRQ").id ==
+    assert CorrelationClaims.owner("slack:T1", "slack:app:B1", "run-tUoH3vXT6cLH5kRB").id ==
              claim.id
   end
 

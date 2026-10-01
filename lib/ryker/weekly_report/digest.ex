@@ -9,11 +9,11 @@ defmodule Ryker.WeeklyReport.Digest do
       Hey everyone 👋 Here's my weekly report for 23–30 Sep.
 
       I opened 3 PRs this week, and 2 are already merged:
-      - VA1: prevent VictoriaLogs cgroup OOM recurrence · blitz-infra#555
-      - Add website worker OOM diagnostics and containment · blitz-app-svelte#617
+      - VA1: prevent VictoriaLogs cgroup OOM recurrence · tenant-infra#555
+      - Add website worker OOM diagnostics and containment · tenant-app-svelte#617
 
       Still waiting for review:
-      - Overlay: stop stranding the Flutter render-method query · ultralite-overlay#51, open for 2 days
+      - Overlay: stop stranding the Flutter render-method query · tenant-overlay#51, open for 2 days
 
       I also handled 214 messages, and a typical reply took about 40 seconds.
       150 were quick answers; the other 64 needed deeper work.

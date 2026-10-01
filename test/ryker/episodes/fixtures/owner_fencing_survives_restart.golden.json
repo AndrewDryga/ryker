@@ -8,7 +8,7 @@
           "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388"
         ],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1787449203.470699",
           "transport": "slack"
         },
@@ -36,7 +36,7 @@
           "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388"
         ],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1787449203.470699",
           "transport": "slack"
         },
@@ -64,7 +64,7 @@
           "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388"
         ],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1787449203.470699",
           "transport": "slack"
         },
@@ -92,7 +92,7 @@
           "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388"
         ],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1787449203.470699",
           "transport": "slack"
         },
@@ -118,7 +118,7 @@
       "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388"
     ],
     "destination": {
-      "conversation_ref": "C08MMETA3U3",
+      "conversation_ref": "C0TENANTOPS",
       "thread_ref": "1787449203.470699",
       "transport": "slack"
     },
@@ -138,13 +138,13 @@
   "events": [
     {
       "dedupe_key": "admit_input:fe578fd9282649e68417674e78a44638ef92e283b23c33127ea1343c0fe3f388",
-      "fingerprint": "7a3ad160c5037e204a15928dabed006f4e1d0a93f8880241fe5c53326686c950",
+      "fingerprint": "a7206e56ac4ca72b922ff5948e40c5587245583f35d20e1b9f79a25363f11c30",
       "kind": "input_admitted",
       "occurred_at": "2026-08-22T21:40:03.470699Z",
       "payload": {
         "actor_ref": "slack:user:U-andrew",
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1787449203.470699",
           "transport": "slack"
         },

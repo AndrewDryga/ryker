@@ -43,7 +43,7 @@
     {
       "actor_ref": "slack:user:U-andrew",
       "destination": {
-        "conversation_ref": "slack:TEVAL:C08MMETA3U3",
+        "conversation_ref": "slack:TEVAL:C0TENANTOPS",
         "thread_ref": "1786978800.742289",
         "transport": "slack"
       },
@@ -56,7 +56,7 @@
     {
       "actor_ref": "slack:user:U-bruno",
       "destination": {
-        "conversation_ref": "slack:TEVAL:C08MMETA3U3",
+        "conversation_ref": "slack:TEVAL:C0TENANTOPS",
         "thread_ref": "1786978800.742289",
         "transport": "slack"
       },
@@ -69,7 +69,7 @@
     {
       "actor_ref": "slack:user:U-andrew",
       "destination": {
-        "conversation_ref": "slack:TEVAL:C08MMETA3U3",
+        "conversation_ref": "slack:TEVAL:C0TENANTOPS",
         "thread_ref": "1786978800.742289",
         "transport": "slack"
       },
@@ -135,7 +135,7 @@
         "kind": "same_session_continuation"
       },
       {
-        "conversation_ref": "slack:TEVAL:C08MMETA3U3",
+        "conversation_ref": "slack:TEVAL:C0TENANTOPS",
         "kind": "delivery_target",
         "thread_ref": "1786978800.742289",
         "transport": "slack"

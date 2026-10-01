@@ -8,7 +8,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
         --results /absolute/new-report.json --scenario haproxy
 
   Scenarios: haproxy (default), auth-memory-recurrence, draft-keep, unoffered-draft-match,
-  fortnite-correction, chatter, one-off-request, people.
+  starfall-correction, chatter, one-off-request, people.
   Each needs its own empty database.
 
   Create and migrate the explicitly disposable database first. This task starts
@@ -59,7 +59,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
              keys -- supplied == [] and length(Enum.uniq(supplied)) == length(supplied),
            do:
              Mix.raise(
-               "provide each required flag once: --database --socket --target --results; optional --scenario haproxy|auth-memory-recurrence|draft-keep|unoffered-draft-match|fortnite-correction|chatter|one-off-request|people --probe"
+               "provide each required flag once: --database --socket --target --results; optional --scenario haproxy|auth-memory-recurrence|draft-keep|unoffered-draft-match|starfall-correction|chatter|one-off-request|people --probe"
              )
 
     options
@@ -71,7 +71,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
              "auth-memory-recurrence",
              "draft-keep",
              "unoffered-draft-match",
-             "fortnite-correction",
+             "starfall-correction",
              "chatter",
              "one-off-request",
              "people"
@@ -151,19 +151,19 @@ defmodule Mix.Tasks.Ryker.LearningEval do
   # Authored evaluation questions, deliberately separate from harvested inputs.
   defp probe_question("haproxy"),
     do:
-      "What do we know about the website HAProxy OOM on nomad-hvn01, and what does the later resolved alert establish or leave unverified? Answer from the conversation history; do not run infrastructure checks."
+      "What do we know about the website HAProxy OOM on nomad-hst01, and what does the later resolved alert establish or leave unverified? Answer from the conversation history; do not run infrastructure checks."
 
   defp probe_question("auth-memory-recurrence"),
     do:
-      "What is the latest recorded state of auth/auth resident-memory pressure on nomad-hvn02, and how does it relate to the earlier firing and resolved alerts? Answer from the conversation history, distinguish separate occurrences, and do not inspect live infrastructure."
+      "What is the latest recorded state of auth/auth resident-memory pressure on nomad-hst02, and how does it relate to the earlier firing and resolved alerts? Answer from the conversation history, distinguish separate occurrences, and do not inspect live infrastructure."
 
   defp probe_question("draft-keep"),
     do:
       "What did the team decide about keeping draft-ai-suggestions, and why? Answer from the conversation history; do not change code or inspect live systems."
 
-  defp probe_question("fortnite-correction"),
+  defp probe_question("starfall-correction"),
     do:
-      "Was the Fortnite release stuck, and what did the team clarify about how updates happen? Answer from the conversation history, distinguish the initial concern from the later clarification, and do not inspect live systems."
+      "Was the Starfall release stuck, and what did the team clarify about how updates happen? Answer from the conversation history, distinguish the initial concern from the later clarification, and do not inspect live systems."
 
   @doc false
   def write_result(file, scenario, execute) do

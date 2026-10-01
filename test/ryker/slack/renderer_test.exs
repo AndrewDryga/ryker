@@ -1471,7 +1471,7 @@ defmodule Ryker.Slack.RendererTest do
       "instruction_ref" => "record:instruction:aa11",
       "kind" => "engineering",
       "prompt" => "Raise the memory limit.",
-      "repository" => "blitz-infra",
+      "repository" => "tenant-infra",
       "repository_source" => %{"kind" => "branch", "name" => "main"},
       "source_refs" => ["record:evidence:bb22"],
       "success_checks" => ["Traefik stays under its limit", "Five replicas remain"],
@@ -1495,7 +1495,7 @@ defmodule Ryker.Slack.RendererTest do
 
     for kept <- [
           "Prevent the next Traefik OOM",
-          "blitz-infra",
+          "tenant-infra",
           "branch",
           "*Done when:*\\n• Traefik stays under its limit\\n• Five replicas remain",
           "*Limits:*\\n• Never deploy\\n• No production writes"
@@ -1561,7 +1561,7 @@ defmodule Ryker.Slack.RendererTest do
         "instruction_ref" => "record:instruction:aa11",
         "kind" => "engineering",
         "prompt" => "Raise the memory limit.",
-        "repository" => "blitz-infra",
+        "repository" => "tenant-infra",
         "repository_source" => nil,
         "source_refs" => [],
         "success_checks" => ["Traefik stays under its limit"],
@@ -3684,12 +3684,12 @@ defmodule Ryker.Slack.RendererTest do
       "customized_by" => nil,
       "environment" => %{
         "emisar" => false,
-        "name" => "Blitz",
+        "name" => "Tenant",
         "ready" => true,
-        "ref" => "blitz",
+        "ref" => "tenant",
         "repositories" => [
-          %{"ref" => "blitz-infra", "url" => nil},
-          %{"ref" => "blitz-app-svelte", "url" => nil}
+          %{"ref" => "tenant-infra", "url" => nil},
+          %{"ref" => "tenant-app-svelte", "url" => nil}
         ]
       },
       "environment_count" => 1,

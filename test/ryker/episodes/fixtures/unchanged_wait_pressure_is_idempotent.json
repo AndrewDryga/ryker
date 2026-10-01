@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source": {
-    "database": "blitz responder.db",
+    "database": "tenant responder.db",
     "episode_ids": ["episode_run_40011ab69d445c6e605b95604d3b3f46"],
     "observed_attempts": 101,
     "observed_wakeups": 98,
@@ -11,7 +11,7 @@
     {
       "type": "admit_input",
       "actor_ref": "slack:app:grafana",
-      "destination": {"transport": "slack", "conversation_ref": "C08MMETA3U3", "thread_ref": "1787726072.993859"},
+      "destination": {"transport": "slack", "conversation_ref": "C0TENANTOPS", "thread_ref": "1787726072.993859"},
       "episode_id": "01993e00-0000-7000-8000-000000000012",
       "episode_key": "grafana:disk-will-fill:cycle:1787726072",
       "linked_episode_id": null,
@@ -51,7 +51,7 @@
   ],
   "expected": {
     "active_input_count": 0,
-    "destination": {"conversation_ref": "C08MMETA3U3", "thread_ref": "1787726072.993859", "transport": "slack"},
+    "destination": {"conversation_ref": "C0TENANTOPS", "thread_ref": "1787726072.993859", "transport": "slack"},
     "event_count": 2,
     "event_kinds": ["input_admitted", "event_wait_started"],
     "linked_episode_id": null,

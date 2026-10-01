@@ -88,7 +88,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
                  "event_matcher" => %{
                    "type" => "source_event",
                    "source_kind" => "slack",
-                   "match" => %{"run_id" => "run-okjyXsDYXyMqqBYY"},
+                   "match" => %{"run_id" => "run-5gvASLsVavas4TRg"},
                    "poll_after" => "2099-09-07T12:01:12Z",
                    "on_timeout" => "Report the unverified outcome."
                  },
@@ -100,7 +100,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
       # Accepted first-turn reply harvested from Terraform capture 1788782169504;
       # only the record reference is rebound to this isolated Lab fixture.
       candidate =
-        "I’m waiting for the next update on Terraform run run-okjyXsDYXyMqqBYY (va1-postgres). I’ll check again by 12:01 UTC and report any unverified outcome at the 12:26 UTC deadline."
+        "I’m waiting for the next update on Terraform run run-5gvASLsVavas4TRg (va1-postgres). I’ll check again by 12:01 UTC and report any unverified outcome at the 12:26 UTC deadline."
         |> work_reply()
         |> Jason.decode!()
         |> put_in(["outcome", "record_refs"], [record.ref])

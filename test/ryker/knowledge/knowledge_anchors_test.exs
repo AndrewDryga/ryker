@@ -48,11 +48,11 @@ defmodule Ryker.Knowledge.KnowledgeAnchorsTest do
   test "automatic candidate identities are bounded and never generalize a URL path" do
     identities =
       KnowledgeAnchors.discover([
-        "See https://github.com/Acme/Api/pull/42 and allocation 311e38f3-a17c-7d1b-1235-05c256ba3c39."
+        "See https://github.com/Acme/Api/pull/42 and allocation 7abc3462-415e-4c6a-8688-c6a0778fe5bc."
       ])
 
     assert "https://github.com/acme/api/pull/42" in identities
-    assert "311e38f3-a17c-7d1b-1235-05c256ba3c39" in identities
+    assert "7abc3462-415e-4c6a-8688-c6a0778fe5bc" in identities
     refute "https://github.com/acme/api" in identities
 
     assert length(

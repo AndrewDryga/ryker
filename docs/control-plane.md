@@ -884,7 +884,7 @@ the episode. It is what record-episode, promote-fixtures and any later export
 read.
 
 Before the second copy existed there was only the first, and the survivorship
-said what that cost: 428 of 1221 manifests on the blitz database still held a
+said what that cost: 428 of 1221 manifests on the tenant database still held a
 prompt, and every one of them was from the previous two days. The harvest was
 never limited to a code path, it was limited to yesterday.
 
@@ -894,7 +894,7 @@ that instead and labels it "Redacted archive", saying in as many words that the
 text will not hash to the fingerprint below it. Neither copy is silently
 substituted for the other.
 
-What it costs, measured on both deployments before it shipped: blitz freezes
+What it costs, measured on both deployments before it shipped: tenant freezes
 ~142 manifests a day at ~132 KB of prompt each — ~19 MB a day, ~131 MB a week,
 ~560 MB once the thirty-day horizon fills. emisar, ~26 a day, is ~2 MB a day and
 ~60 MB filled. Prompts are bounded by `coop.MaxPromptBytes` at 256 KiB, not by

@@ -59,9 +59,9 @@ defmodule Ryker.Admission.CandidateSearchTest do
     assert result.receipt["cutoff_reason"] =~ "non-local"
   end
 
-  # The "Same links or IDs" replay over the Blitz alert history (2026-09-30, ID1): every shared
+  # The "Same links or IDs" replay over the Tenant alert history (2026-09-30, ID1): every shared
   # identifier scored 350 points, more than a perfect match in words and meaning, even
-  # nomad-hvn02, which 54 requests named. A host most requests name says little about which
+  # nomad-hst02, which 54 requests named. A host most requests name says little about which
   # request a message is about; a run ID only one request has says it is that one.
   test "an identifier most requests share does not outrank the request the message is about" do
     about =
@@ -73,7 +73,7 @@ defmodule Ryker.Admission.CandidateSearchTest do
     for index <- 1..6 do
       episode!("routing:host-#{index}",
         channel_ref: "CDEVOPS",
-        text: "Disk usage alert #{index} on nomad-hvn02",
+        text: "Disk usage alert #{index} on nomad-hst02",
         updated_at: DateTime.add(@now, -index, :second)
       )
 
@@ -87,17 +87,17 @@ defmodule Ryker.Admission.CandidateSearchTest do
     result =
       search!(
         channel_ref: "CDEVOPS",
-        text: "The checkout payment webhook keeps timing out on nomad-hvn02"
+        text: "The checkout payment webhook keeps timing out on nomad-hst02"
       )
 
     assert hd(result.selected).episode.id == about.id
 
     rare = episode!("routing:rare", channel_ref: "CDEVOPS", text: "Deploy run run-7f2a1c failed")
-    result = search!(channel_ref: "CDEVOPS", text: "Why did run-7f2a1c fail on nomad-hvn02?")
+    result = search!(channel_ref: "CDEVOPS", text: "Why did run-7f2a1c fail on nomad-hst02?")
     assert hd(result.selected).episode.id == rare.id
   end
 
-  # The replay over the Blitz alert history (2026-09-30, ID7): an alert's Grafana rule page sat
+  # The replay over the Tenant alert history (2026-09-30, ID7): an alert's Grafana rule page sat
   # only on its attachment title, never searched, so a repeat of one rule's alert found its
   # earlier work by words alone, tied with every alert worded like it.
   test "an alert finds the work for its rule by the rule page it links to" do
@@ -215,7 +215,7 @@ defmodule Ryker.Admission.CandidateSearchTest do
     match =
       episode!("routing:lane-evidence",
         channel_ref: "CDEVOPS",
-        text: "Terraform run run-TT4LiosRo6Eh8Rnq needs confirmation for blitz-infra"
+        text: "Terraform run run-TobiKjYqqj17v2YB needs confirmation for tenant-infra"
       )
 
     # Enough other work that "terraform" still tells work apart (a word in
@@ -240,7 +240,7 @@ defmodule Ryker.Admission.CandidateSearchTest do
     result =
       search!(
         channel_ref: "CDEVOPS",
-        text: "The Terraform run run-TT4LiosRo6Eh8Rnq applied successfully for blitz-infra"
+        text: "The Terraform run run-TobiKjYqqj17v2YB applied successfully for tenant-infra"
       )
 
     assert match.id in Enum.map(result.selected, & &1.episode.id)
@@ -496,7 +496,7 @@ defmodule Ryker.Admission.CandidateSearchTest do
     Repo.get!(Episode, id)
   end
 
-  # A Grafana alert as Slack delivers it, from the Blitz history with its host renamed.
+  # A Grafana alert as Slack delivers it, from the Tenant history with its host renamed.
   defp grafana_alert(rule) do
     %{
       "text" => "",

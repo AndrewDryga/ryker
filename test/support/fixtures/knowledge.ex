@@ -62,10 +62,10 @@ defmodule Ryker.Fixtures.Knowledge do
     })
   end
 
-  # Retained Blitz observation: draft-ai-suggestions was to be kept, not deleted.
+  # Retained Tenant observation: draft-ai-suggestions was to be kept, not deleted.
   @note %{
     "summary" =>
-      "U03EPT4RP5M wants to keep `draft-ai-suggestions` and plans to look into it at an unspecified future time.",
+      "U0TENANTUS3 wants to keep `draft-ai-suggestions` and plans to look into it at an unspecified future time.",
     "topics" => ["draft-ai-suggestions"]
   }
 
@@ -89,7 +89,7 @@ defmodule Ryker.Fixtures.Knowledge do
             event_kind: :message,
             revision: 1,
             event_fingerprint: String.duplicate("a", 64),
-            actor_ref: "U03EPT4RP5M",
+            actor_ref: "U0TENANTUS3",
             content: %{"text" => @note["summary"]},
             occurred_at: DateTime.utc_now(),
             execution_mode: :shadow,

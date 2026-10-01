@@ -78,6 +78,13 @@ Fixtures are harvested, never invented. `agent_runs.result_json` holds hundreds 
 answers and `context_manifests.submitted_prompt` the prompts that produced them, so the exact
 result that broke production is already on disk.
 
+Harvested behaviour is not harvested identity. This repository is public, so a fixture keeps the
+exact decision, ordering and malformed bytes that broke production, and carries pseudonyms for
+every tenant identifier, identifying resource name, person and third-party build. See
+"The corpus is pseudonymized" in `docs/memory-evaluation.md` for the substitution, the three digest
+families re-derived from it, and what deliberately survives;
+`test/ryker/redaction_audit_test.exs` fails on any real Slack identifier reaching a tracked file.
+
 ### Where each kind of test belongs
 
 - **Host mishandled a valid result** → ExUnit test beside the owning module. Deterministic, no model.

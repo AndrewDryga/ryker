@@ -55,13 +55,13 @@ defmodule Ryker.Evals.WorldCaseTest do
     assert {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
     payload = hd(scenario.events)["payload"]
     assert [production, va1] = payload["repository_excerpts"]
-    assert production["commit"] == "99183465ac95a33f1312a4f4973b66b736a55606"
+    assert production["commit"] == "756bb64853ef5554ac81770c164f4e3aae99c6b7"
     assert production["path"] == "terraform/environments/production/app_datalake.tf"
     assert production["text"] =~ "module \"airflow\""
     assert production["text"] =~ "google-cloud/container"
     assert va1["text"] =~ "deliberately NOT ported"
     assert va1["text"] =~ "stays in GCP"
-    assert payload["source_message"]["text"] =~ "run-vMEdeDLHwpWZsBYH"
+    assert payload["source_message"]["text"] =~ "run-sBbtTAxOfCwLmMSH"
     tools = WorldCase.fabricated_tools(scenario) |> Enum.map(& &1["name"])
     assert "gcp.deployment" in tools
     assert "gcp.backend_health" in tools
@@ -267,7 +267,7 @@ defmodule Ryker.Evals.WorldCaseTest do
            end)
 
     assert Enum.find(scenario.actors, &(&1["authority"] == "source_event"))["actor_ref"] ==
-             "slack:bot:B08N64XSHNU"
+             "slack:bot:B0TENANTBT1"
 
     refute Enum.any?(scenario.actors, &(&1["input_profile"]["source"]["kind"] == "system"))
 
@@ -282,7 +282,7 @@ defmodule Ryker.Evals.WorldCaseTest do
                WorldCassette.call(cassette, tool, %{
                  "environment" => "va1",
                  "service" => "airflow",
-                 "query" => "airflow revision 99183465"
+                 "query" => "airflow revision 756bb648"
                })
     end
 
@@ -292,7 +292,7 @@ defmodule Ryker.Evals.WorldCaseTest do
           {"monitoring.query",
            %{
              "environment" => "production",
-             "query" => "airflow revision 99183465"
+             "query" => "airflow revision 756bb648"
            }}
         ] do
       assert {:ok, first} = WorldCassette.call(cassette, tool, arguments)
@@ -431,10 +431,10 @@ defmodule Ryker.Evals.WorldCaseTest do
     assert {:ok, observation} =
              WorldCassette.call(cassette, "monitoring.query", %{
                "environment" => "production",
-               "query" => "time() - node_boot_time_seconds{instance=\"nomad-hvn03\"}"
+               "query" => "time() - node_boot_time_seconds{instance=\"nomad-hst03\"}"
              })
 
-    assert observation["source_ref"] == "source:nomad-hvn03:health:20260830T142003Z"
+    assert observation["source_ref"] == "source:nomad-hst03:health:20260830T142003Z"
     assert observation["observed_at"] == "2026-08-30T14:20:03Z"
     assert observation["uptime_seconds"] == 734_400
   end
@@ -566,7 +566,7 @@ defmodule Ryker.Evals.WorldCaseTest do
         %{
           "base_commit" => "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7",
           "path" => "repository",
-          "ref" => "blitz-rivals-scraper",
+          "ref" => "tenant-rivals-scraper",
           "sha256" => repository_digest(repository_dir)
         }
       ])
@@ -577,7 +577,7 @@ defmodule Ryker.Evals.WorldCaseTest do
 
     assert {:ok, [capture]} = WorldCase.fixture_context(compiled)
     assert capture["captured_revision"] == "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7"
-    assert capture["repository"] == "blitz-rivals-scraper"
+    assert capture["repository"] == "tenant-rivals-scraper"
     assert capture["sha256"] == repository_digest(repository_dir)
     assert [file] = capture["files"]
     assert file["path"] == "gate.py"

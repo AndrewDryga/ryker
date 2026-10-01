@@ -78,7 +78,7 @@ defmodule Ryker.Evals.JobTest do
 
     source =
       WorldSource.source(
-        "blitz-rivals-scraper",
+        "tenant-rivals-scraper",
         String.duplicate("1", 40),
         String.duplicate("2", 40),
         ~U[2026-08-21 02:21:46Z]

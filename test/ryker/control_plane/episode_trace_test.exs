@@ -467,7 +467,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   end
 
   test "an attachment-only source remains visible instead of looking erased" do
-    # Blitz's Traefik alert retained its payload but rendered an empty heading and message.
+    # Tenant's Traefik alert retained its payload but rendered an empty heading and message.
     {entry, episode} = admitted_input!()
 
     Repo.update_all(from(i in Entry, where: i.id == ^entry.id),

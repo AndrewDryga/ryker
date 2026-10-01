@@ -8,14 +8,14 @@ defmodule Ryker.Work.DeliveryReceiptTest do
              DeliveryReceipt.new(
                "delivery:turn-1",
                "slack",
-               "slack:T-blitz:C-alerts",
+               "slack:T-tenant:C-alerts",
                "1787932000.000100",
                "1787932801.000100"
              )
 
     assert receipt == %{
              "delivery_ref" => "delivery:turn-1",
-             "conversation_ref" => "slack:T-blitz:C-alerts",
+             "conversation_ref" => "slack:T-tenant:C-alerts",
              "message_ref" => "1787932801.000100",
              "thread_ref" => "1787932000.000100",
              "transport" => "slack"

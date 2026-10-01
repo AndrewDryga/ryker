@@ -84,7 +84,7 @@ defmodule Ryker.Evals.ClientJobTest do
   } do
     source =
       WorldSource.source(
-        "blitz-rivals-scraper",
+        "tenant-rivals-scraper",
         String.duplicate("1", 40),
         String.duplicate("2", 40),
         ~U[2026-08-21 02:21:46Z]
@@ -93,7 +93,7 @@ defmodule Ryker.Evals.ClientJobTest do
     {:ok, sourced} = Job.with_source(job, source)
     client = %{client | job: sourced}
 
-    session = work_session(sourced, "blitz-rivals-scraper")
+    session = work_session(sourced, "tenant-rivals-scraper")
     key = Custody.Sessions.create_operation_key(session)
     ref = Session.coop_task_ref(session)
     default = RepositorySource.default()
@@ -113,7 +113,7 @@ defmodule Ryker.Evals.ClientJobTest do
                default
              )
 
-    unsourced = work_session(job, "blitz-rivals-scraper")
+    unsourced = work_session(job, "tenant-rivals-scraper")
 
     assert {:error, :model_eval_session_authority_mismatch} =
              Client.prepare_create_session(

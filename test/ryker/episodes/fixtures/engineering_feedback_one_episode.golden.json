@@ -8,7 +8,7 @@
           "admit_input:e6770c7baf983425b584b1f4f633ac9bf6e031e0f1659b3fa0c55af85c612f11"
         ],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },
@@ -34,7 +34,7 @@
       "episode": {
         "active_inputs": [],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },
@@ -60,7 +60,7 @@
       "episode": {
         "active_inputs": [],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },
@@ -85,7 +85,7 @@
           "admit_input:23b016a247160b5502e0e731ab099fca3d8cb83df2a338b98ed4f6ef1d3e0231"
         ],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },
@@ -114,7 +114,7 @@
           "admit_input:23b016a247160b5502e0e731ab099fca3d8cb83df2a338b98ed4f6ef1d3e0231"
         ],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },
@@ -144,7 +144,7 @@
       "episode": {
         "active_inputs": [],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },
@@ -176,7 +176,7 @@
           "admit_input:d83e0cbce85fe579d4a06d450b0dac716984e722727b3ec9c0881d71f8d2564f"
         ],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },
@@ -204,7 +204,7 @@
       "episode": {
         "active_inputs": [],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },
@@ -232,7 +232,7 @@
       "episode": {
         "active_inputs": [],
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },
@@ -255,7 +255,7 @@
   "episode": {
     "active_inputs": [],
     "destination": {
-      "conversation_ref": "C08MMETA3U3",
+      "conversation_ref": "C0TENANTOPS",
       "thread_ref": "1786978800.742289",
       "transport": "slack"
     },
@@ -274,13 +274,13 @@
   "events": [
     {
       "dedupe_key": "admit_input:e6770c7baf983425b584b1f4f633ac9bf6e031e0f1659b3fa0c55af85c612f11",
-      "fingerprint": "5b78263129a4a51348b3ffe715a8ef487c290d4e7e914b6ab0d6a6a5c9210feb",
+      "fingerprint": "c08dfbe4cc669fe737e5877e793e74f2080b6ae54568eaa0407c356b8ce81ed5",
       "kind": "input_admitted",
       "occurred_at": "2026-08-21T02:21:46.748258Z",
       "payload": {
         "actor_ref": "slack:user:U-andrew",
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },
@@ -333,13 +333,13 @@
     },
     {
       "dedupe_key": "admit_input:23b016a247160b5502e0e731ab099fca3d8cb83df2a338b98ed4f6ef1d3e0231",
-      "fingerprint": "5cb8d6e5e9810a96c3406395f36a986945d88900165293466ccb2383d0da9b2f",
+      "fingerprint": "fec8c45441866295e35dcf25000172f82160087e2fe30ea40d7f4fc03908fece",
       "kind": "input_admitted",
       "occurred_at": "2026-08-21T20:44:43.714515Z",
       "payload": {
         "actor_ref": "slack:user:U-bruno",
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },
@@ -360,13 +360,13 @@
     },
     {
       "dedupe_key": "admit_input:d83e0cbce85fe579d4a06d450b0dac716984e722727b3ec9c0881d71f8d2564f",
-      "fingerprint": "ab09782f32715c3e91e015055a5f88dc4102ab67f2dd3a50c931010267e9bdde",
+      "fingerprint": "2ca95a0f04a2ec593f08d76b857cdaa822307c7f42d5a3db2805b3bc44458eda",
       "kind": "input_admitted",
       "occurred_at": "2026-08-21T20:44:50.795903Z",
       "payload": {
         "actor_ref": "slack:user:U-andrew",
         "destination": {
-          "conversation_ref": "C08MMETA3U3",
+          "conversation_ref": "C0TENANTOPS",
           "thread_ref": "1786978800.742289",
           "transport": "slack"
         },

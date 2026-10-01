@@ -115,7 +115,9 @@ defmodule Ryker.Learning.LearningFailureTest do
     [first, second, third] = fixture["public_responses"]
     assert {:error, _} = Jason.decode(first["text"])
     assert second["text"] == third["text"]
-    assert String.contains?(second["text"], "nqkx5fn4cw fkb6qx")
+    # The model split one run id across a space, which is why the topic key was
+    # rejected. Both halves are pseudonyms; the corruption is the original.
+    assert String.contains?(second["text"], "qvdi1rseve zytq9x")
     assert fixture["learning_run"]["result"] == nil
     assert fixture["learning_run"]["result_sha256"] == nil
   end
@@ -509,8 +511,8 @@ defmodule Ryker.Learning.LearningFailureTest do
   defp delete_membership! do
     Repo.insert!(%ChannelMembership{
       id: Ecto.UUID.generate(),
-      workspace_ref: "T01J1LW4DF1",
-      channel_ref: "C08MMETA3U3",
+      workspace_ref: "T0TENANT001",
+      channel_ref: "C0TENANTOPS",
       private: false,
       external_shared: false,
       generation: 1,

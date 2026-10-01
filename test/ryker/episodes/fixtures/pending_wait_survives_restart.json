@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source": {
-    "database": "blitz responder.db",
+    "database": "tenant responder.db",
     "episode_ids": ["episode_run_088e19c3e5c6cb4a950e6b1af294bcf3"],
     "wakeup_ids": ["host-stream-open-episode_run_088e19c3e5c6cb4a950e6b1af294bcf3"],
     "reason": "A host-stream wait must retain its exact deadline and custody across a process restart."
@@ -10,7 +10,7 @@
     {
       "type": "admit_input",
       "actor_ref": "slack:app:grafana",
-      "destination": {"transport": "slack", "conversation_ref": "C0922F5C533", "thread_ref": "1787861164.890169"},
+      "destination": {"transport": "slack", "conversation_ref": "C0TENANTAL3", "thread_ref": "1787861164.890169"},
       "episode_id": "01993e00-0000-7000-8000-000000000010",
       "episode_key": "grafana:project-service-health:cycle:1787861164",
       "linked_episode_id": null,
@@ -41,7 +41,7 @@
   ],
   "expected": {
     "active_input_count": 0,
-    "destination": {"conversation_ref": "C0922F5C533", "thread_ref": "1787861164.890169", "transport": "slack"},
+    "destination": {"conversation_ref": "C0TENANTAL3", "thread_ref": "1787861164.890169", "transport": "slack"},
     "event_count": 2,
     "event_kinds": ["input_admitted", "event_wait_started"],
     "linked_episode_id": null,

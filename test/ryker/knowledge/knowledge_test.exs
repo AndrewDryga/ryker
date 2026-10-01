@@ -29,26 +29,26 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   # The knowledge proposal below is a host-contract test, not a claimed model recording.
   @firing %{
     "summary" =>
-      "Grafana bot B0910HETYAH reported a historical VA1 warning starting 2026-09-05 at 17:18:50 UTC: the kernel OOM-killed website/haproxy-edge process haproxy on nomad-hvn01. CONSTRAINT_MEMCG indicates the workload cgroup reached its limit; it does not establish host RAM exhaustion. [Alert](https://grafana.tail7c930.ts.net/alerting/grafana/va1-host-oom/view?orgId=1).",
+      "Grafana bot B0TENANTBT3 reported a historical VA1 warning starting 2026-09-05 at 17:18:50 UTC: the kernel OOM-killed website/haproxy-edge process haproxy on nomad-hst01. CONSTRAINT_MEMCG indicates the workload cgroup reached its limit; it does not establish host RAM exhaustion. [Alert](https://grafana.tailexample.ts.net/alerting/grafana/va1-host-oom/view?orgId=1).",
     "topics" => [
       "VA1",
       "website",
       "haproxy-edge",
       "haproxy",
-      "nomad-hvn01",
+      "nomad-hst01",
       "OOM",
       "CONSTRAINT_MEMCG"
     ]
   }
   @resolved %{
     "summary" =>
-      "Grafana bot B0910HETYAH reported the VA1 OOM warning for website/haproxy-edge (haproxy) on nomad-hvn01 resolved at 2026-09-05 17:28:50 UTC, after starting at 17:18:50 UTC. This supersedes the firing alert's status; no remediation or service recovery details were supplied. [Alert](https://grafana.tail7c930.ts.net/alerting/grafana/va1-host-oom/view?orgId=1).",
+      "Grafana bot B0TENANTBT3 reported the VA1 OOM warning for website/haproxy-edge (haproxy) on nomad-hst01 resolved at 2026-09-05 17:28:50 UTC, after starting at 17:18:50 UTC. This supersedes the firing alert's status; no remediation or service recovery details were supplied. [Alert](https://grafana.tailexample.ts.net/alerting/grafana/va1-host-oom/view?orgId=1).",
     "topics" => [
       "VA1",
       "website",
       "haproxy-edge",
       "haproxy",
-      "nomad-hvn01",
+      "nomad-hst01",
       "OOM",
       "alert resolution"
     ]
@@ -64,7 +64,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     page = MemorySearchPage.first("haproxy", "current_channel")
 
     assert {:ok, {:ok, before, _}} =
-             Repo.transaction(fn -> Knowledge.search_page(first, "blitz-infra", page) end)
+             Repo.transaction(fn -> Knowledge.search_page(first, "tenant-infra", page) end)
 
     assert before["version"] == 1
 
@@ -75,7 +75,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
              Repo.transaction(fn ->
                Knowledge.search_page(
                  second,
-                 "blitz-infra",
+                 "tenant-infra",
                  MemorySearchPage.first("haproxy", "current_channel")
                )
              end)
@@ -97,7 +97,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     %{id: id} = Repo.one!(ConversationKnowledge)
     assert_received {:knowledge_updated, ^id}
 
-    [before] = Knowledge.context(first, "blitz-infra")
+    [before] = Knowledge.context(first, "tenant-infra")
     second = input!(2, @resolved)
     learn!(second, @resolved, before)
     assert_received {:knowledge_updated, ^id}
@@ -109,7 +109,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     first = input!(1, @firing)
     learn!(first, @firing)
 
-    assert Knowledge.context(first, "blitz-infra", {:related, "quasar billing subscription"}) ==
+    assert Knowledge.context(first, "tenant-infra", {:related, "quasar billing subscription"}) ==
              []
   end
 
@@ -122,8 +122,8 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     first = input!(1, @firing)
     learn!(first, @firing)
 
-    later = input!(2, @resolved, repository: "blitz-app")
-    assert later.repository_ref == "blitz-app"
+    later = input!(2, @resolved, repository: "tenant-app")
+    assert later.repository_ref == "tenant-app"
 
     assert [%{"topic_key" => "website-haproxy-oom"} = topic] =
              Knowledge.context(
@@ -137,7 +137,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     # The later pass revises the same topic, which moves with the conversation.
     learn!(later, @resolved, topic)
     assert [updated] = Knowledge.context(later, later.repository_ref)
-    assert {updated["version"], updated["repository_ref"]} == {2, "blitz-app"}
+    assert {updated["version"], updated["repository_ref"]} == {2, "tenant-app"}
   end
 
   test "late supporting input is incorporated without moving the latest source time backward" do
@@ -145,11 +145,11 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     # useful evidence to an already newer topic; silently returning :ok loses it.
     latest = input!(2, @resolved)
     learn!(latest, @resolved)
-    [before] = Knowledge.context(latest, "blitz-infra")
+    [before] = Knowledge.context(latest, "tenant-infra")
     older = input!(1, @resolved)
     learn!(older, @resolved, before)
 
-    [after_update] = Knowledge.context(latest, "blitz-infra")
+    [after_update] = Knowledge.context(latest, "tenant-infra")
     assert after_update["version"] == before["version"] + 1
     assert after_update["source_count"] == 2
     assert after_update["latest_source_at"] == before["latest_source_at"]
@@ -158,7 +158,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   test "silent updates maintain one topic with both sources and immutable revisions" do
     first = input!(1, @firing, mode: :shadow)
     learn!(first, @firing)
-    [before] = Knowledge.context(first, "blitz-infra")
+    [before] = Knowledge.context(first, "tenant-infra")
     assert before["version"] == 1
     assert before["source_count"] == 1
 
@@ -173,7 +173,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     assert restored.knowledge == [before]
     learn!(second, @resolved, before)
 
-    assert [after_update] = Knowledge.context(second, "blitz-infra")
+    assert [after_update] = Knowledge.context(second, "tenant-infra")
     assert after_update["source_ref"] == before["source_ref"]
     assert after_update["version"] == 2
     assert after_update["source_count"] == 2
@@ -194,7 +194,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
         )
       )
 
-    assert Continuity.model_context(destination, "blitz-infra", [
+    assert Continuity.model_context(destination, "tenant-infra", [
              RecallText.from(second.content)
            ])["knowledge"] == [after_update]
 
@@ -205,7 +205,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
                MemorySearchPage.read(
                  page,
                  10,
-                 &Knowledge.search_page(destination, "blitz-infra", &1)
+                 &Knowledge.search_page(destination, "tenant-infra", &1)
                )
              end)
 
@@ -216,7 +216,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
                MemorySearchPage.read(
                  page,
                  10,
-                 &Observations.search_page(destination, "blitz-infra", &1)
+                 &Observations.search_page(destination, "tenant-infra", &1)
                )
              end)
 
@@ -240,14 +240,14 @@ defmodule Ryker.Knowledge.KnowledgeTest do
              )
 
     assert {:ok, %{status: :pending}} = Inbox.fetch(Inbox.ref(second))
-    assert [item] = Knowledge.context(first, "blitz-infra")
+    assert [item] = Knowledge.context(first, "tenant-infra")
     assert item["version"] == 1
   end
 
   test "updates must name an exact offered version and cannot invent target identities" do
     first = input!(1, @firing)
     learn!(first, @firing)
-    [item] = Knowledge.context(first, "blitz-infra")
+    [item] = Knowledge.context(first, "tenant-infra")
     second = input!(2, @resolved)
     stale = context!(second)
     third = input!(3, @resolved)
@@ -273,14 +273,14 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   test "a late alert can support the current understanding without erasing its resolution" do
     latest = input!(2, @resolved)
     learn!(latest, @resolved)
-    [item] = Knowledge.context(latest, "blitz-infra")
+    [item] = Knowledge.context(latest, "tenant-infra")
     older = input!(1, @firing)
 
     # The host must not infer the proposed summary's meaning from source time.
     # The learning judgment sees the current resolution and incorporates the
     # historical firing message. Semantic regression is a model-eval concern.
     learn!(older, @resolved, item)
-    assert [current] = Knowledge.context(latest, "blitz-infra")
+    assert [current] = Knowledge.context(latest, "tenant-infra")
     assert current["summary"] == item["summary"]
     assert current["version"] == item["version"] + 1
     assert current["source_count"] == 2
@@ -291,17 +291,17 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   test "edits and deletions invalidate derived facts even if they were not the latest source" do
     first = input!(1, @firing)
     learn!(first, @firing)
-    [item] = Knowledge.context(first, "blitz-infra")
+    [item] = Knowledge.context(first, "tenant-infra")
     second = input!(2, @resolved)
     learn!(second, @resolved, item)
-    [current] = Knowledge.context(second, "blitz-infra")
+    [current] = Knowledge.context(second, "tenant-infra")
 
     edited = input!(1, @resolved, revision: 2, kind: :edit)
     learn!(edited, @resolved, nil, knowledge: false)
-    assert Knowledge.context(second, "blitz-infra") == []
+    assert Knowledge.context(second, "tenant-infra") == []
 
     assert {:error, {:admission_rejected, :context_stale}} =
-             Knowledge.reauthorize(second, "blitz-infra", [current])
+             Knowledge.reauthorize(second, "tenant-infra", [current])
 
     assert length(Knowledge.history(item["source_ref"])) == 2
   end
@@ -318,18 +318,18 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     Application.put_env(:ryker, :retention, %{conversation_memory_seconds: 3600})
     first = input!(1, @firing)
     learn!(first, @firing)
-    [item] = Knowledge.context(first, "blitz-infra")
+    [item] = Knowledge.context(first, "tenant-infra")
     assert is_binary(item["expires_at"])
 
     Repo.update_all(ConversationObservation,
       set: [updated_at: DateTime.add(DateTime.utc_now(), -3601)]
     )
 
-    assert Knowledge.context(first, "blitz-infra") == []
+    assert Knowledge.context(first, "tenant-infra") == []
     Application.delete_env(:ryker, :retention)
-    assert [_] = Knowledge.context(first, "blitz-infra")
+    assert [_] = Knowledge.context(first, "tenant-infra")
     Repo.delete_all(ConversationObservation)
-    assert Knowledge.context(first, "blitz-infra") == []
+    assert Knowledge.context(first, "tenant-infra") == []
   end
 
   test "cross-channel knowledge recall rechecks membership without merging ownership" do
@@ -338,7 +338,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     first = input!(1, @firing)
     learn!(first, @firing)
     target = input!(2, @resolved, channel: "C2")
-    assert [item] = Knowledge.context(target, "blitz-infra")
+    assert [item] = Knowledge.context(target, "tenant-infra")
 
     assert {:error, {:admission_rejected, :context_stale}} =
              Ryker.Fixtures.Knowledge.commit_topic(
@@ -351,14 +351,14 @@ defmodule Ryker.Knowledge.KnowledgeTest do
       set: [private: true]
     )
 
-    assert Knowledge.context(target, "blitz-infra") == []
+    assert Knowledge.context(target, "tenant-infra") == []
 
     assert {:error, {:admission_rejected, :context_stale}} =
-             Knowledge.reauthorize(target, "blitz-infra", [item])
+             Knowledge.reauthorize(target, "tenant-infra", [item])
 
     assert Knowledge.context(
              %{target | destination_conversation_ref: "slack:OTHER:C2"},
-             "blitz-infra"
+             "tenant-infra"
            ) == []
   end
 
@@ -377,10 +377,10 @@ defmodule Ryker.Knowledge.KnowledgeTest do
         set: [private: true]
       )
 
-      assert Knowledge.context(copy, "blitz-infra") == []
+      assert Knowledge.context(copy, "tenant-infra") == []
 
       assert [%{"source_input_id" => id, "summary" => text}] =
-               Observations.context(copy, "blitz-infra")
+               Observations.context(copy, "tenant-infra")
 
       assert id == copy.id
       assert text == copy.content["text"]
@@ -402,11 +402,11 @@ defmodule Ryker.Knowledge.KnowledgeTest do
              )
 
     _edit = input!(1, @resolved, revision: 2, kind: :delete)
-    assert Knowledge.context(copy, "blitz-infra") == []
+    assert Knowledge.context(copy, "tenant-infra") == []
     # The copied derived topic is revoked, but this separate original message
     # remains an eligible excerpt: it did not inherit the older model prose.
     assert [%{"source_input_id" => source_id, "summary" => summary}] =
-             Observations.context(copy, "blitz-infra")
+             Observations.context(copy, "tenant-infra")
 
     assert source_id == copy.id
     assert summary == copy.content["text"]
@@ -438,8 +438,8 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     assert Enum.any?(context.source_dependencies, &(&1["source_input_id"] == first.id))
     learn!(second, @firing)
     _deleted = input!(1, @resolved, revision: 2, kind: :delete)
-    assert Knowledge.context(second, "blitz-infra") == []
-    assert [%{"source_input_id" => id}] = Observations.context(second, "blitz-infra")
+    assert Knowledge.context(second, "tenant-infra") == []
+    assert [%{"source_input_id" => id}] = Observations.context(second, "tenant-infra")
     assert id == second.id
   end
 
@@ -448,10 +448,10 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     # new input is not permission to discard the earlier topic's dependencies.
     first = input!(1, @firing)
     learn!(first, @firing)
-    [before] = Knowledge.context(first, "blitz-infra")
+    [before] = Knowledge.context(first, "tenant-infra")
     edited = input!(1, @resolved, revision: 2, kind: :delete)
     learn!(edited, @resolved, nil, knowledge: false)
-    assert Knowledge.context(first, "blitz-infra") == []
+    assert Knowledge.context(first, "tenant-infra") == []
 
     fresh = input!(3, @resolved)
 
@@ -462,7 +462,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
                "unavailable-topic"
              )
 
-    assert Knowledge.context(fresh, "blitz-infra") == []
+    assert Knowledge.context(fresh, "tenant-infra") == []
     assert length(Knowledge.history(before["source_ref"])) == 1
   end
 
@@ -494,7 +494,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
           :text ->
             Knowledge.context(
               first,
-              "blitz-infra",
+              "tenant-infra",
               {:related, "What happened to HAProxy OOM?"},
               8
             )
@@ -502,7 +502,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
           :batch ->
             Knowledge.context(
               first,
-              "blitz-infra",
+              "tenant-infra",
               {:related,
                [
                  String.duplicate("An unrelated project discussion. ", 200),
@@ -538,7 +538,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
 
     for n <- 2..128 do
       entry = input!(n, @resolved)
-      [current] = Knowledge.context(entry, "blitz-infra")
+      [current] = Knowledge.context(entry, "tenant-infra")
       learn!(entry, @resolved, current)
     end
 
@@ -591,7 +591,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
                "at-capacity"
              )
 
-    assert [%{"version" => 129, "source_count" => 129}] = Knowledge.context(next, "blitz-infra")
+    assert [%{"version" => 129, "source_count" => 129}] = Knowledge.context(next, "tenant-infra")
     assert Repo.aggregate(KnowledgeRevision, :count) == 129
     assert Enum.all?(Repo.all(KnowledgeRevision), &(length(&1.source_dependencies) == 1))
     assert Repo.aggregate(KnowledgeSource, :count) == 129
@@ -604,10 +604,10 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     second = input!(2, @firing, channel: "C2")
     learn!(first, @firing)
     learn!(second, @firing)
-    assert length(Knowledge.context(first, "blitz-infra")) == 2
+    assert length(Knowledge.context(first, "tenant-infra")) == 2
 
     assert [item] =
-             Knowledge.context(first, "blitz-infra", {:topic_keys, ["website-haproxy-oom"]}, 16)
+             Knowledge.context(first, "tenant-infra", {:topic_keys, ["website-haproxy-oom"]}, 16)
 
     assert item["conversation_ref"] == first.destination_conversation_ref
     assert item["can_update"]
@@ -635,7 +635,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
                "unavailable-inherited-topic"
              )
 
-    assert Knowledge.context(fresh, "blitz-infra") == []
+    assert Knowledge.context(fresh, "tenant-infra") == []
   end
 
   test "an omitted foreign topic does not reserve the same topic key in this channel" do
@@ -673,7 +673,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
                "foreign-capacity"
              )
 
-    assert Enum.count(Knowledge.context(second, "blitz-infra"), & &1["can_update"]) == 1
+    assert Enum.count(Knowledge.context(second, "tenant-infra"), & &1["can_update"]) == 1
   end
 
   for kind <- [:knowledge, :observation] do
@@ -717,7 +717,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
       )
 
       module = if unquote(kind) == :knowledge, do: Knowledge, else: Observations
-      assert [%{"summary" => summary}] = module.context(old, "blitz-infra", "", 1)
+      assert [%{"summary" => summary}] = module.context(old, "tenant-infra", "", 1)
       # Topics inherited C1's disclosure and must yield to the older valid fact.
       # The C2 source excerpts are independent original messages, not copies of
       # the model's C1 knowledge, so making C1 private must not revoke them.
@@ -729,7 +729,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   test "Memory shows one current topic, source count, expiry and readable revision history" do
     first = input!(1, @firing)
     learn!(first, @firing)
-    [before] = Knowledge.context(first, "blitz-infra")
+    [before] = Knowledge.context(first, "tenant-infra")
     second = input!(2, @resolved)
     learn!(second, @resolved, before)
     view = ConversationMemory.project(%{})
@@ -786,7 +786,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
 
     for n <- 2..51 do
       entry = input!(n, @resolved)
-      [current] = Knowledge.context(entry, "blitz-infra")
+      [current] = Knowledge.context(entry, "tenant-infra")
       learn!(entry, @resolved, current)
     end
 
@@ -832,7 +832,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     learn!(first, @firing)
     edited = input!(1, @resolved, revision: 2, kind: :edit)
     assert edited.status == :pending
-    assert Knowledge.context(first, "blitz-infra") == []
+    assert Knowledge.context(first, "tenant-infra") == []
     {:ok, decided} = Inbox.fetch(Inbox.ref(first))
 
     assert {:ok, :ok} =
@@ -840,7 +840,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
                Observations.record_excerpt_in_transaction(decided)
              end)
 
-    assert Knowledge.context(first, "blitz-infra") == []
+    assert Knowledge.context(first, "tenant-infra") == []
 
     assert {:error, :knowledge_target_unavailable} =
              Ryker.Fixtures.Knowledge.commit_topic(
@@ -849,7 +849,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
                "edited-unavailable-topic"
              )
 
-    assert Knowledge.context(edited, "blitz-infra") == []
+    assert Knowledge.context(edited, "tenant-infra") == []
   end
 
   test "a newer source received before the first classifier prevents resurrection" do
@@ -863,8 +863,8 @@ defmodule Ryker.Knowledge.KnowledgeTest do
                "stale-first-result"
              )
 
-    assert Observations.context(first, "blitz-infra") == []
-    assert Knowledge.context(first, "blitz-infra") == []
+    assert Observations.context(first, "tenant-infra") == []
+    assert Knowledge.context(first, "tenant-infra") == []
     assert [%{revision: 2, note: nil}] = Repo.all(ConversationObservation)
   end
 
@@ -872,7 +872,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     # A source's expiry must cover aggregate and revision copies, not merely hide recall.
     first = input!(1, @firing)
     learn!(first, @firing)
-    [item] = Knowledge.context(first, "blitz-infra")
+    [item] = Knowledge.context(first, "tenant-infra")
     old = DateTime.add(DateTime.utc_now(), -3601)
     Repo.update_all(ConversationObservation, set: [updated_at: old])
     Repo.update_all(KnowledgeSource, set: [retained_at: old])
@@ -888,7 +888,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     }
 
     assert {:ok, _} = Data.prune(settings)
-    assert Knowledge.context(first, "blitz-infra") == []
+    assert Knowledge.context(first, "tenant-infra") == []
     assert [%{state: %{"retention" => "pruned"}}] = Knowledge.history(item["source_ref"])
 
     assert [%{state: %{"retention" => "pruned"}}] =
@@ -903,21 +903,21 @@ defmodule Ryker.Knowledge.KnowledgeTest do
                Observations.record_excerpt_in_transaction(decided)
              end)
 
-    assert Observations.context(first, "blitz-infra") == []
+    assert Observations.context(first, "tenant-infra") == []
     assert {:ok, _} = Inbox.fetch(Inbox.ref(first))
   end
 
   test "frozen Work knowledge survives a newer source but never a withdrawn dependency" do
     first = input!(1, @firing)
     learn!(first, @firing)
-    [frozen] = Knowledge.context(first, "blitz-infra")
+    [frozen] = Knowledge.context(first, "tenant-infra")
     second = input!(2, @resolved)
     learn!(second, @resolved, frozen)
-    assert :ok = KnowledgeSnapshot.reauthorize(first, "blitz-infra", [frozen])
+    assert :ok = KnowledgeSnapshot.reauthorize(first, "tenant-infra", [frozen])
     _edit = input!(1, @resolved, revision: 2, kind: :delete)
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.reauthorize(first, "blitz-infra", [frozen])
+             KnowledgeSnapshot.reauthorize(first, "tenant-infra", [frozen])
   end
 
   test "copying into a fresh topic cannot retain expired source prose or refresh its displayed expiry" do
@@ -958,7 +958,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     expected_expiry = old |> DateTime.add(3600) |> DateTime.to_iso8601()
 
     copied =
-      Enum.find(Knowledge.context(copy, "blitz-infra"), &(&1["topic_key"] == "copied-topic"))
+      Enum.find(Knowledge.context(copy, "tenant-infra"), &(&1["topic_key"] == "copied-topic"))
 
     assert copied["expires_at"] == expected_expiry
 
@@ -1073,7 +1073,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
 
     {:ok, input} =
       Input.new(%{
-        actor: %{kind: :app, ref: "B0910HETYAH"},
+        actor: %{kind: :app, ref: "B0TENANTBT3"},
         channel_ref: Keyword.get(options, :channel, "C1"),
         workspace_ref: "TKNOWLEDGE",
         message_ref: "1788632364.#{String.pad_leading(to_string(n), 6, "0")}",
@@ -1091,7 +1091,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
         work_profile: %{
           policy: "test-read-only",
           policy_digest: String.duplicate("a", 64),
-          repository_ref: Keyword.get(options, :repository, "blitz-infra")
+          repository_ref: Keyword.get(options, :repository, "tenant-infra")
         }
       )
 

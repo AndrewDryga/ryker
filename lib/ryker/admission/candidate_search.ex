@@ -504,8 +504,8 @@ defmodule Ryker.Admission.CandidateSearch do
 
   # How rare each of the message's links and identifiers is where it could belong, weighed as
   # words are: 1 for one only a single request names, falling as more do, and 0 once more than a
-  # quarter of them do. Every shared identifier used to count alike, so nomad-hvn02, which 54
-  # requests in the Blitz history name, outranked a perfect match in words (ID1, 2026-09-30).
+  # quarter of them do. Every shared identifier used to count alike, so nomad-hst02, which 54
+  # requests in the Tenant history name, outranked a perfect match in words (ID1, 2026-09-30).
   defp anchor_weights(_request, _scope, []), do: %{}
 
   defp anchor_weights(request, scope, anchors) do

@@ -1214,7 +1214,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     # Exact topic state harvested from the private replay, September 7. Topic
     # knowledge shared the source-note omission in the compact briefing view.
     topic =
-      "testdata/learning/retained-blitz-release-knowledge.json"
+      "testdata/learning/retained-tenant-release-knowledge.json"
       |> File.read!()
       |> Jason.decode!()
 

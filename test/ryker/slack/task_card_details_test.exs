@@ -72,7 +72,7 @@ defmodule Ryker.Slack.TaskCardDetailsTest do
       stage("self_review", "stale", %{"detail" => "previous version checked"}),
       stage("draft_pr", "completed", %{
         "detail" => "#617",
-        "url" => "https://github.com/theblitzapp/blitz-app-svelte/pull/617"
+        "url" => "https://github.com/tenantcorp/tenant-app-svelte/pull/617"
       }),
       stage("ci", "skipped", %{"detail" => "no checks set up"}),
       stage("review_and_merge", "running", %{"current" => true})
@@ -87,7 +87,7 @@ defmodule Ryker.Slack.TaskCardDetailsTest do
     assert progress =~ "↻ Self-review and checks · previous version checked"
 
     assert progress =~
-             "✓ <https://github.com/theblitzapp/blitz-app-svelte/pull/617|Draft PR #617>"
+             "✓ <https://github.com/tenantcorp/tenant-app-svelte/pull/617|Draft PR #617>"
 
     assert progress =~ "− CI · no checks set up"
     assert progress =~ "*▸ Review and merge*"
@@ -112,13 +112,13 @@ defmodule Ryker.Slack.TaskCardDetailsTest do
     assert [%{"fields" => [%{"text" => "*Repository*\n`emisar`"}]}] =
              Enum.filter(rendered["blocks"], &Map.has_key?(&1, "fields"))
 
-    linked = Map.put(task, "repository_url", "https://github.com/theblitzapp/emisar")
+    linked = Map.put(task, "repository_url", "https://github.com/tenantcorp/emisar")
     assert {:ok, rendered} = Renderer.render(%{"task_card" => linked})
 
     assert [
              %{
                "fields" => [
-                 %{"text" => "*Repository*\n<https://github.com/theblitzapp/emisar|emisar>"}
+                 %{"text" => "*Repository*\n<https://github.com/tenantcorp/emisar|emisar>"}
                ]
              }
            ] =

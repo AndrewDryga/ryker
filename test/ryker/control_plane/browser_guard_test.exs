@@ -45,7 +45,7 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
     assert BrowserGuard.peer_allowed?({172, 22, 0, 1}, :network)
   end
 
-  # Andrew, 2026-10-01, of the blitz instance on mac-server: "Maybe setup tailscale service?" A
+  # Andrew, 2026-10-01, of the tenant instance on mac-server: "Maybe setup tailscale service?" A
   # console published at a tailnet name would have answered every request "Misdirected request",
   # since only the loopback names were the console. The address it is published at is the console
   # too, and every other name is still refused.

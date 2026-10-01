@@ -2,7 +2,7 @@
   "name": "a later human reply reopens the same thread episode",
   "source": {
     "reshaped": "2026-09-27: the recorded routing decision was rewritten into the current contract, as the live-replies migration rewrote stored decisions: reaction became reactions, and messages and repository were added as null. The recorded choice is unchanged.",
-    "database": "blitz responder.db",
+    "database": "tenant responder.db",
     "slack_input_ids": [
       "slack_message_3c56151e0b8eb84ec8c70a221d0aa1e4",
       "slack_message_8d2c2744294eb88e0c186974bca38b5f"
@@ -20,21 +20,21 @@
     "state": "complete",
     "updated_at": "2026-08-28T00:10:12.000000Z",
     "input": {
-      "actor": {"kind": "user", "ref": "U089UCBNT38"},
-      "channel_ref": "C01KJP8SQSZ",
-      "content": {"text": "IDK if you deployed but it's still a redirect:\n```❯ curl -I <https://blitzapp.gg/ads.txt>\nHTTP/2 301\ndate: Fri, 28 Aug 2026 00:09:50 GMT\ncontent-type: text/html\ncontent-length: 169```"},
+      "actor": {"kind": "user", "ref": "U0TENANTUS2"},
+      "channel_ref": "C0TENANTENG",
+      "content": {"text": "IDK if you deployed but it's still a redirect:\n```❯ curl -I <https://tenantcorp.example/ads.txt>\nHTTP/2 301\ndate: Fri, 28 Aug 2026 00:09:50 GMT\ncontent-type: text/html\ncontent-length: 169```"},
       "event_kind": "message",
       "event_ref": "Ev0BT5H3F21K",
       "message_ref": "1787875811.328459",
       "occurred_at": "2026-08-28T00:10:11.000000Z",
       "revision": 1,
       "thread_ref": "1787875059.450839",
-      "workspace_ref": "T01J1LW4DF1"
+      "workspace_ref": "T0TENANT001"
     }
   },
   "input": {
-    "actor": {"kind": "user", "ref": "U089UCBNT38"},
-    "channel_ref": "C01KJP8SQSZ",
+    "actor": {"kind": "user", "ref": "U0TENANTUS2"},
+    "channel_ref": "C0TENANTENG",
     "content": {"text": "also we don't have www. subdomain attached, do we need it?"},
     "event_kind": "message",
     "event_ref": "Ev0BT3CLSRTM",
@@ -42,7 +42,7 @@
     "occurred_at": "2026-08-28T00:10:20.000000Z",
     "revision": 1,
     "thread_ref": "1787875059.450839",
-    "workspace_ref": "T01J1LW4DF1"
+    "workspace_ref": "T0TENANT001"
   },
   "decision": {
     "action": "continue_episode",

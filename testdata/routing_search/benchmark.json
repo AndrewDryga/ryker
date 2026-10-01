@@ -1,5 +1,5 @@
 {
-  "provenance": "Routing search benchmark, 2026-09-30. Andrew asked whether routing's search for earlier work would hold up in real life. Work W01 and W05 open with alerts harvested from live (testdata/learning/retained-haproxy-lifecycle.json and retained-auth-memory-recurrence.json), W06 with the harvested Slack thread in retained-draft-keep-thread.json, W02-W04 follow the world scenarios one-outage-two-channels-joins-one-episode and similar-alert-different-environment-stays-separate, W20 is the request in Andrew's screenshot; the rest are written the way the team talks. Titles are the one line Work writes when it names a request. Each message names the work it belongs to, or null for a new request. Add every real miss here. Distractors (D001-D150) are routine work a busy team has in a month, generated from templates over twenty services and six hosts so that the search has to rank, not just return everything. Follow-ups without a subject (\"any update on this?\") belong to the most recent running work in their channel: nothing but where and when ties them to it. W21-W25 are the first of two firings of one Grafana rule on one host from the Blitz alert history (2026-09-01 to 09-04, the Grafana host renamed), and the five alert messages are the second firing of each: three are Traefik rules worded alike, told apart only by the rule page their title links to (ID6 and ID7, 2026-09-30).",
+  "provenance": "Routing search benchmark, 2026-09-30. Andrew asked whether routing's search for earlier work would hold up in real life. Work W01 and W05 open with alerts harvested from live (testdata/learning/retained-haproxy-lifecycle.json and retained-auth-memory-recurrence.json), W06 with the harvested Slack thread in retained-draft-keep-thread.json, W02-W04 follow the world scenarios one-outage-two-channels-joins-one-episode and similar-alert-different-environment-stays-separate, W20 is the request in Andrew's screenshot; the rest are written the way the team talks. Titles are the one line Work writes when it names a request. Each message names the work it belongs to, or null for a new request. Add every real miss here. Distractors (D001-D150) are routine work a busy team has in a month, generated from templates over twenty services and six hosts so that the search has to rank, not just return everything. Follow-ups without a subject (\"any update on this?\") belong to the most recent running work in their channel: nothing but where and when ties them to it. W21-W25 are the first of two firings of one Grafana rule on one host from the Tenant alert history (2026-09-01 to 09-04, the Grafana host renamed), and the five alert messages are the second firing of each: three are Traefik rules worded alike, told apart only by the rule page their title links to (ID6 and ID7, 2026-09-30).",
   "channels": [
     "CALERTS",
     "CDEVOPS",
@@ -12,9 +12,9 @@
       "channel": "CALERTS",
       "hours_ago": 48,
       "state": "complete",
-      "title": "Website haproxy-edge OOM-killed on nomad-hvn01",
+      "title": "Website haproxy-edge OOM-killed on nomad-hst01",
       "messages": [
-        "[VA1 FIRING:1] WARNING | Host OOM kills. Kernel OOM-killed website/haproxy-edge (haproxy) on nomad-hvn01. OOM constraint CONSTRAINT_MEMCG. CONSTRAINT_MEMCG means the workload cgroup reached its limit; it does not by itself mean the host ran out of RAM. Nomad job: website. Allocation: 311e38f3-a17c-7d1b-1235-05c256ba3c39. Task: haproxy-edge. Process: haproxy. Instance: nomad-hvn01"
+        "[VA1 FIRING:1] WARNING | Host OOM kills. Kernel OOM-killed website/haproxy-edge (haproxy) on nomad-hst01. OOM constraint CONSTRAINT_MEMCG. CONSTRAINT_MEMCG means the workload cgroup reached its limit; it does not by itself mean the host ran out of RAM. Nomad job: website. Allocation: 7abc3462-415e-4c6a-8688-c6a0778fe5bc. Task: haproxy-edge. Process: haproxy. Instance: nomad-hst01"
       ]
     },
     {
@@ -52,9 +52,9 @@
       "channel": "CALERTS",
       "hours_ago": 120,
       "state": "complete",
-      "title": "auth resident memory near its limit on nomad-hvn02",
+      "title": "auth resident memory near its limit on nomad-hst02",
       "messages": [
-        "[VA1 FIRING:1] WARNING | Alloc resident memory near limit. auth/auth resident memory and swap exceed 95% of its limit. OOM-kill risk after excluding reclaimable file cache; raise the limit or fix the leak. Service: cluster. Component: nomad-agent. Nomad job: auth. Namespace: blitz-apps-backend. Task: auth. Instance: nomad-hvn02"
+        "[VA1 FIRING:1] WARNING | Alloc resident memory near limit. auth/auth resident memory and swap exceed 95% of its limit. OOM-kill risk after excluding reclaimable file cache; raise the limit or fix the leak. Service: cluster. Component: nomad-agent. Nomad job: auth. Namespace: tenant-apps-backend. Task: auth. Instance: nomad-hst02"
       ]
     },
     {
@@ -64,7 +64,7 @@
       "state": "complete",
       "title": "Keep the draft-ai-suggestions cloud function",
       "messages": [
-        "do we need this cloud function or I can delete it? https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=blitz-esports",
+        "do we need this cloud function or I can delete it? https://console.cloud.google.com/run/detail/us-central1/draft-ai-suggestions/observability/metrics?project=tenant-esports",
         "draft-ai-suggestions, planning to look into it at some point, let's keep it"
       ]
     },
@@ -235,7 +235,7 @@
       "channel": "CALERTS",
       "hours_ago": 20,
       "state": "complete",
-      "title": "Traefik config reload burst on nomad-hvn01",
+      "title": "Traefik config reload burst on nomad-hst01",
       "messages": [
         {
           "text": "",
@@ -243,7 +243,7 @@
             {
               "title": "[VA1 FIRING:2] WARNING | Traefik config reload burst",
               "title_link": "https://grafana.example.net/alerting/grafana/va1-traefik-reload-burst/view?orgId=1",
-              "text": "*FIRING - 2 alerts*\n\n*Traefik reloaded configuration more than 10 times in 15m on nomad-hvn01*\nA provider is churning dynamic configuration. Correlate the reload graph with Consul catalog changes and file-template renders; the 10s provider throttle should coalesce short bursts.\n*Service:* `cluster`\n*Component:* `traefik`\n*Metrics job:* `traefik-metrics`\n*Instance:* `nomad-hvn01`\n*Started:* <!date^1788480500^{date_short_pretty} at {time_secs}|2026-09-04 00:08:20 UTC>\n*Evaluation:*",
+              "text": "*FIRING - 2 alerts*\n\n*Traefik reloaded configuration more than 10 times in 15m on nomad-hst01*\nA provider is churning dynamic configuration. Correlate the reload graph with Consul catalog changes and file-template renders; the 10s provider throttle should coalesce short bursts.\n*Service:* `cluster`\n*Component:* `traefik`\n*Metrics job:* `traefik-metrics`\n*Instance:* `nomad-hst01`\n*Started:* <!date^1788480500^{date_short_pretty} at {time_secs}|2026-09-04 00:08:20 UTC>\n*Evaluation:*",
               "fallback": "[VA1 FIRING:2] WARNING | Traefik config reload burst",
               "color": "daa038"
             }
@@ -256,7 +256,7 @@
       "channel": "CALERTS",
       "hours_ago": 26,
       "state": "complete",
-      "title": "Traefik memory near its limit on nomad-hvn04",
+      "title": "Traefik memory near its limit on nomad-hst04",
       "messages": [
         {
           "text": "",
@@ -264,7 +264,7 @@
             {
               "title": "[VA1 FIRING:1, RESOLVED:1] WARNING | Traefik resident memory near limit",
               "title_link": "https://grafana.example.net/alerting/grafana/va1-traefik-memory/view?orgId=1",
-              "text": "*FIRING - 1 alert*\n\n*Traefik resident memory and swap exceed 75% of the allocation limit on nomad-hvn04*\nReload-driven retention can exhaust the allocation before the generic 95% alert fires. Check reload frequency and capture a heap profile during a controlled rollout.\n*Service:* `cluster`\n*Component:* `nomad-agent`\n*Nomad job:* `traefik`\n*Namespace:* `platform`\n*Allocation:* `df00f105-bdf0-b67a-e9ed-148e3b0e5ff2`\n*Task:* `traefik`\n*Metrics job:* `nomad-agent`\n*Instance:* `nomad-hvn04`\n*Started:* <!date^1788224600^{date_short_pretty} at {time_secs}|2026-09-01 01:03:20 UTC>\n*Evaluation:*",
+              "text": "*FIRING - 1 alert*\n\n*Traefik resident memory and swap exceed 75% of the allocation limit on nomad-hst04*\nReload-driven retention can exhaust the allocation before the generic 95% alert fires. Check reload frequency and capture a heap profile during a controlled rollout.\n*Service:* `cluster`\n*Component:* `nomad-agent`\n*Nomad job:* `traefik`\n*Namespace:* `platform`\n*Allocation:* `6e3ba24e-efbf-4846-8be1-e771ce4275f9`\n*Task:* `traefik`\n*Metrics job:* `nomad-agent`\n*Instance:* `nomad-hst04`\n*Started:* <!date^1788224600^{date_short_pretty} at {time_secs}|2026-09-01 01:03:20 UTC>\n*Evaluation:*",
               "fallback": "[VA1 FIRING:1, RESOLVED:1] WARNING | Traefik resident memory near limit",
               "color": "daa038"
             }
@@ -277,7 +277,7 @@
       "channel": "CALERTS",
       "hours_ago": 12,
       "state": "complete",
-      "title": "Scrape target cassandra-dbcas101 down",
+      "title": "Scrape target cassandra-dbzrk101 down",
       "messages": [
         {
           "text": "",
@@ -285,7 +285,7 @@
             {
               "title": "[VA1 FIRING:3] CRITICAL | Scrape target down",
               "title_link": "https://grafana.example.net/alerting/grafana/va1-target-down/view?orgId=1",
-              "text": "*FIRING - 3 alerts*\n\n*Target cassandra-management-api on cassandra-dbcas101 is DOWN*\nVictoriaMetrics can't scrape this target — the workload or its host may be down.\n*Service:* `cluster`\n*Component:* `cassandra`\n*Metrics job:* `cassandra-management-api`\n*Instance:* `cassandra-dbcas101`\n*Started:* <!date^1788425420^{date_short_pretty} at {time_secs}|2026-09-03 08:50:20 UTC>\n*Evaluation:*",
+              "text": "*FIRING - 3 alerts*\n\n*Target cassandra-management-api on cassandra-dbzrk101 is DOWN*\nVictoriaMetrics can't scrape this target — the workload or its host may be down.\n*Service:* `cluster`\n*Component:* `cassandra`\n*Metrics job:* `cassandra-management-api`\n*Instance:* `cassandra-dbzrk101`\n*Started:* <!date^1788425420^{date_short_pretty} at {time_secs}|2026-09-03 08:50:20 UTC>\n*Evaluation:*",
               "fallback": "[VA1 FIRING:3] CRITICAL | Scrape target down",
               "color": "a30200"
             }
@@ -298,7 +298,7 @@
       "channel": "CALERTS",
       "hours_ago": 8,
       "state": "complete",
-      "title": "Typesense node unhealthy on nomad-hvn01",
+      "title": "Typesense node unhealthy on nomad-hst01",
       "messages": [
         {
           "text": "",
@@ -306,7 +306,7 @@
             {
               "title": "[VA1 FIRING:1] CRITICAL | Typesense node unhealthy",
               "title_link": "https://grafana.example.net/alerting/grafana/va1-typesense-health/view?orgId=1",
-              "text": "*FIRING - 1 alert*\n\n*Typesense replica-1 reports unhealthy*\nThe local /health probe failed or returned ok=false, so this node cannot safely serve the search data path. Check the Typesense allocation logs, Raft state, storage, and memory pressure.\n*Instance:* `nomad-hvn01`\n*Started:* <!date^1788434330^{date_short_pretty} at {time_secs}|2026-09-03 11:18:50 UTC>\n*Evaluation:*",
+              "text": "*FIRING - 1 alert*\n\n*Typesense replica-1 reports unhealthy*\nThe local /health probe failed or returned ok=false, so this node cannot safely serve the search data path. Check the Typesense allocation logs, Raft state, storage, and memory pressure.\n*Instance:* `nomad-hst01`\n*Started:* <!date^1788434330^{date_short_pretty} at {time_secs}|2026-09-03 11:18:50 UTC>\n*Evaluation:*",
               "fallback": "[VA1 FIRING:1] CRITICAL | Typesense node unhealthy",
               "color": "a30200"
             }
@@ -547,7 +547,7 @@
           {
             "title": "[VA1 FIRING:5] WARNING | Traefik config reload burst",
             "title_link": "https://grafana.example.net/alerting/grafana/va1-traefik-reload-burst/view?orgId=1",
-            "text": "*FIRING - 5 alerts*\n\n*Traefik reloaded configuration more than 10 times in 15m on nomad-hvn01*\nA provider is churning dynamic configuration. Correlate the reload graph with Consul catalog changes and file-template renders; the 10s provider throttle should coalesce short bursts.\n*Service:* `cluster`\n*Component:* `traefik`\n*Metrics job:* `traefik-metrics`\n*Instance:* `nomad-hvn01`\n*Started:* <!date^1788480500^{date_short_pretty} at {time_secs}|2026-09-04 00:08:20 UTC>\n*Evaluation:*",
+            "text": "*FIRING - 5 alerts*\n\n*Traefik reloaded configuration more than 10 times in 15m on nomad-hst01*\nA provider is churning dynamic configuration. Correlate the reload graph with Consul catalog changes and file-template renders; the 10s provider throttle should coalesce short bursts.\n*Service:* `cluster`\n*Component:* `traefik`\n*Metrics job:* `traefik-metrics`\n*Instance:* `nomad-hst01`\n*Started:* <!date^1788480500^{date_short_pretty} at {time_secs}|2026-09-04 00:08:20 UTC>\n*Evaluation:*",
             "fallback": "[VA1 FIRING:5] WARNING | Traefik config reload burst",
             "color": "daa038"
           }
@@ -564,7 +564,7 @@
           {
             "title": "[VA1 FIRING:1] WARNING | Traefik resident memory near limit",
             "title_link": "https://grafana.example.net/alerting/grafana/va1-traefik-memory/view?orgId=1",
-            "text": "*FIRING - 1 alert*\n\n*Traefik resident memory and swap exceed 75% of the allocation limit on nomad-hvn04*\nReload-driven retention can exhaust the allocation before the generic 95% alert fires. Check reload frequency and capture a heap profile during a controlled rollout.\n*Service:* `cluster`\n*Component:* `nomad-agent`\n*Nomad job:* `traefik`\n*Namespace:* `platform`\n*Allocation:* `df00f105-bdf0-b67a-e9ed-148e3b0e5ff2`\n*Task:* `traefik`\n*Metrics job:* `nomad-agent`\n*Instance:* `nomad-hvn04`\n*Started:* <!date^1788224600^{date_short_pretty} at {time_secs}|2026-09-01 01:03:20 UTC>\n*Evaluation:*",
+            "text": "*FIRING - 1 alert*\n\n*Traefik resident memory and swap exceed 75% of the allocation limit on nomad-hst04*\nReload-driven retention can exhaust the allocation before the generic 95% alert fires. Check reload frequency and capture a heap profile during a controlled rollout.\n*Service:* `cluster`\n*Component:* `nomad-agent`\n*Nomad job:* `traefik`\n*Namespace:* `platform`\n*Allocation:* `6e3ba24e-efbf-4846-8be1-e771ce4275f9`\n*Task:* `traefik`\n*Metrics job:* `nomad-agent`\n*Instance:* `nomad-hst04`\n*Started:* <!date^1788224600^{date_short_pretty} at {time_secs}|2026-09-01 01:03:20 UTC>\n*Evaluation:*",
             "fallback": "[VA1 FIRING:1] WARNING | Traefik resident memory near limit",
             "color": "daa038"
           }
@@ -581,7 +581,7 @@
           {
             "title": "[VA1 FIRING:2, RESOLVED:1] CRITICAL | Scrape target down",
             "title_link": "https://grafana.example.net/alerting/grafana/va1-target-down/view?orgId=1",
-            "text": "*FIRING - 2 alerts*\n\n*Target cassandra-management-api on cassandra-dbcas101 is DOWN*\nVictoriaMetrics can't scrape this target — the workload or its host may be down.\n*Service:* `cluster`\n*Component:* `cassandra`\n*Metrics job:* `cassandra-management-api`\n*Instance:* `cassandra-dbcas101`\n*Started:* <!date^1788425420^{date_short_pretty} at {time_secs}|2026-09-03 08:50:20 UTC>\n*Evaluation:*",
+            "text": "*FIRING - 2 alerts*\n\n*Target cassandra-management-api on cassandra-dbzrk101 is DOWN*\nVictoriaMetrics can't scrape this target — the workload or its host may be down.\n*Service:* `cluster`\n*Component:* `cassandra`\n*Metrics job:* `cassandra-management-api`\n*Instance:* `cassandra-dbzrk101`\n*Started:* <!date^1788425420^{date_short_pretty} at {time_secs}|2026-09-03 08:50:20 UTC>\n*Evaluation:*",
             "fallback": "[VA1 FIRING:2, RESOLVED:1] CRITICAL | Scrape target down",
             "color": "a30200"
           }
@@ -598,7 +598,7 @@
           {
             "title": "[VA1 FIRING:1] CRITICAL | Typesense node unhealthy",
             "title_link": "https://grafana.example.net/alerting/grafana/va1-typesense-health/view?orgId=1",
-            "text": "*FIRING - 1 alert*\n\n*Typesense replica-1 reports unhealthy*\nThe local /health probe failed or returned ok=false, so this node cannot safely serve the search data path. Check the Typesense allocation logs, Raft state, storage, and memory pressure.\n*Instance:* `nomad-hvn01`\n*Started:* <!date^1788439850^{date_short_pretty} at {time_secs}|2026-09-03 12:50:50 UTC>\n*Evaluation:*",
+            "text": "*FIRING - 1 alert*\n\n*Typesense replica-1 reports unhealthy*\nThe local /health probe failed or returned ok=false, so this node cannot safely serve the search data path. Check the Typesense allocation logs, Raft state, storage, and memory pressure.\n*Instance:* `nomad-hst01`\n*Started:* <!date^1788439850^{date_short_pretty} at {time_secs}|2026-09-03 12:50:50 UTC>\n*Evaluation:*",
             "fallback": "[VA1 FIRING:1] CRITICAL | Typesense node unhealthy",
             "color": "a30200"
           }
@@ -782,9 +782,9 @@
       "channel": "CGENERAL",
       "hours_ago": 402.8,
       "state": "complete",
-      "title": "mobile-backend health check flapping on nomad-hvn04",
+      "title": "mobile-backend health check flapping on nomad-hst04",
       "messages": [
-        "mobile-backend health check is flapping on nomad-hvn04"
+        "mobile-backend health check is flapping on nomad-hst04"
       ]
     },
     {
@@ -1432,9 +1432,9 @@
       "channel": "CALERTS",
       "hours_ago": 514.0,
       "state": "complete",
-      "title": "nomad-hvn03 disk space low",
+      "title": "nomad-hst03 disk space low",
       "messages": [
-        "[FIRING:1] DiskSpaceLow. nomad-hvn03 root volume at 88%"
+        "[FIRING:1] DiskSpaceLow. nomad-hst03 root volume at 88%"
       ]
     },
     {
@@ -1762,9 +1762,9 @@
       "channel": "CDEVOPS",
       "hours_ago": 547.4,
       "state": "complete",
-      "title": "cms health check flapping on nomad-hvn03",
+      "title": "cms health check flapping on nomad-hst03",
       "messages": [
-        "cms health check is flapping on nomad-hvn03"
+        "cms health check is flapping on nomad-hst03"
       ]
     },
     {
@@ -2082,9 +2082,9 @@
       "channel": "CALERTS",
       "hours_ago": 516.5,
       "state": "complete",
-      "title": "nomad-hvn04 memory usage high",
+      "title": "nomad-hst04 memory usage high",
       "messages": [
-        "[FIRING:1] HostMemoryHigh. nomad-hvn04 memory usage above 85% for 15 minutes"
+        "[FIRING:1] HostMemoryHigh. nomad-hst04 memory usage above 85% for 15 minutes"
       ]
     },
     {

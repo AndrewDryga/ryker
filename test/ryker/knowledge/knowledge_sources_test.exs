@@ -30,14 +30,14 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
              end)
 
     assert Repo.all(ConversationObservation) == before
-    assert [item] = Knowledge.context(hd(entries), "blitz-infra")
+    assert [item] = Knowledge.context(hd(entries), "tenant-infra")
     assert item["source_count"] == 2
     assert item["version"] == 1
     assert [revision] = Repo.all(KnowledgeRevision)
     assert revision.source_result_ref == "learning-result:host-contract-test"
     assert LearningSources.expand(revision.source_dependencies) == dependencies
     assert revision.source_input_id == List.last(entries).id
-    assert :ok = KnowledgeSnapshot.reauthorize(hd(entries), "blitz-infra", [item])
+    assert :ok = KnowledgeSnapshot.reauthorize(hd(entries), "tenant-infra", [item])
 
     # Filling a derived observation later does not change the raw source.
     assert {:ok, :ok} =
@@ -45,8 +45,8 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
                Observations.record_excerpt_in_transaction(hd(entries))
              end)
 
-    assert [^item] = Knowledge.context(hd(entries), "blitz-infra")
-    assert :ok = KnowledgeSnapshot.reauthorize(hd(entries), "blitz-infra", [item])
+    assert [^item] = Knowledge.context(hd(entries), "tenant-infra")
+    assert :ok = KnowledgeSnapshot.reauthorize(hd(entries), "tenant-infra", [item])
   end
 
   test "raw learning cannot reduce disclosed lineage to the claimed supporting sources" do
@@ -66,7 +66,7 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
 
   test "raw learning carries every offered topic source even when creating a different topic" do
     entries = sources!()
-    {old_source, offered} = Ryker.Fixtures.Knowledge.learn!(hd(entries), "blitz-infra")
+    {old_source, offered} = Ryker.Fixtures.Knowledge.learn!(hd(entries), "tenant-infra")
     raw = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
 
     assert {:ok, {:error, _}} =
@@ -90,14 +90,14 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
                })
              end)
 
-    assert length(Knowledge.context(hd(entries), "blitz-infra")) == 2
+    assert length(Knowledge.context(hd(entries), "tenant-infra")) == 2
     Ryker.Fixtures.Knowledge.revoke!(old_source)
-    assert Knowledge.context(hd(entries), "blitz-infra") == []
+    assert Knowledge.context(hd(entries), "tenant-infra") == []
   end
 
   test "raw learning does not copy an old derived observation it never disclosed" do
     entries = sources!()
-    {_old_source, offered} = Ryker.Fixtures.Knowledge.learn!(hd(entries), "blitz-infra")
+    {_old_source, offered} = Ryker.Fixtures.Knowledge.learn!(hd(entries), "tenant-infra")
     older_at = DateTime.add(DateTime.utc_now(), -3601)
 
     older_roots =
@@ -162,13 +162,13 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
                })
              end)
 
-    [item] = Knowledge.context(hd(entries), "blitz-infra")
+    [item] = Knowledge.context(hd(entries), "tenant-infra")
     Repo.update_all(ConversationKnowledge, set: [state: %{"retention" => "pruned"}])
     Repo.update_all(KnowledgeRevision, set: [state: %{"retention" => "pruned"}])
-    assert Knowledge.context(hd(entries), "blitz-infra") == []
+    assert Knowledge.context(hd(entries), "tenant-infra") == []
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.reauthorize(hd(entries), "blitz-infra", [item])
+             KnowledgeSnapshot.reauthorize(hd(entries), "tenant-infra", [item])
   end
 
   test "an edit to a raw supporting input invalidates both recall and frozen Work" do
@@ -184,7 +184,7 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
                })
              end)
 
-    [item] = Knowledge.context(hd(entries), "blitz-infra")
+    [item] = Knowledge.context(hd(entries), "tenant-infra")
     first = hd(entries)
 
     edited = %{
@@ -196,10 +196,10 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     }
 
     assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(edited) end)
-    assert Knowledge.context(List.last(entries), "blitz-infra") == []
+    assert Knowledge.context(List.last(entries), "tenant-infra") == []
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.reauthorize(List.last(entries), "blitz-infra", [item])
+             KnowledgeSnapshot.reauthorize(List.last(entries), "tenant-infra", [item])
   end
 
   defp sources! do

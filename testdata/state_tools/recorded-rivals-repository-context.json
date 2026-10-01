@@ -18,8 +18,8 @@
       },
       "companions": [
         {
-          "name": "blitz-rivals-scraper",
-          "path": "/coop/repositories/blitz-rivals-scraper",
+          "name": "tenant-rivals-scraper",
+          "path": "/coop/repositories/tenant-rivals-scraper",
           "read_only": true,
           "base_commit": "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7"
         }
