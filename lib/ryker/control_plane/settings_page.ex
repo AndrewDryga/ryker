@@ -66,7 +66,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:failure, :string, default: nil)
   attr(:reveal, :map, default: nil)
   attr(:confirm, :any, default: nil, doc: "{action, ref} of the question now open, if any")
-  attr(:slack_people, :map, default: nil, doc: "Choose people, open: members, search, choice")
+
+  attr(:slack_people, :any,
+    default: nil,
+    doc: "Choose people: nil, :loading while Slack answers, or members, search and choice"
+  )
 
   attr(:form, :any,
     default: nil,
@@ -203,7 +207,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         confirm={@confirm}
       />
       <%= if is_nil(@form) do %>
-        <SetupPage.render :if={@section == :setup} view={@view} />
+        <SetupPage.render :if={@section == :setup} view={@view} params={@params} />
         <EnvironmentsPage.render :if={@section == :environments} view={@view} params={@params} />
         <.integrations :if={@section == :integrations} view={@view} />
         <.settings_overview :if={@section == :settings} view={@view} />
@@ -615,7 +619,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:view, :map, required: true)
   attr(:commands, :map, required: true)
   attr(:confirm, :any, default: nil)
-  attr(:slack_people, :map, required: true)
+  attr(:slack_people, :any, required: true)
 
   defp slack(assigns) do
     view = assigns.view
@@ -676,12 +680,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
       title="Who can manage Ryker"
       lede="These people can change Ryker's settings from Slack."
     >
-      <:actions :if={is_nil(@slack_people)}>
+      <:actions :if={!is_map(@slack_people)}>
         <button
           type="button"
           class={["ui-button", if(@connected, do: "secondary", else: "primary")]}
           phx-click="load-slack-members"
-        >Choose people</button>
+          phx-disable-with="Loading people…"
+          disabled={@slack_people == :loading}
+        >{if @slack_people == :loading, do: "Loading people…", else: "Choose people"}</button>
       </:actions>
       <%!-- The switch saves as it changes, so it comes first; the people chosen by
       name follow with their own Save (Andrew, 2026-10-01: it sat under their buttons). --%>
@@ -696,8 +702,16 @@ defmodule Ryker.ControlPlane.SettingsPage do
       />
       <%!-- Each group is said once: the people chosen here by name, and the
       workspace's admins and owners as the switch above. --%>
+      <Kit.empty
+        :if={@slack_people == :loading}
+        id="slack-people-loading"
+        variant={:hint}
+        icon={:chat}
+        title="Loading people from Slack…"
+        text="Ryker reads every page of the workspace's people; a large workspace takes a little while."
+      />
       <Kit.facts
-        :if={is_nil(@slack_people) and @managers != []}
+        :if={!is_map(@slack_people) and @managers != []}
         id="slack-managers"
         facts={[{"Chosen people", people(@managers)}]}
       />
@@ -708,7 +722,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         title="Nobody can manage Ryker yet"
         text="Choose at least one person who can change Ryker's settings from Slack."
       />
-      <.people_picker :if={@slack_people} people={@slack_people} />
+      <.people_picker :if={is_map(@slack_people)} people={@slack_people} />
     </Kit.section_card>
 
     <.live_component

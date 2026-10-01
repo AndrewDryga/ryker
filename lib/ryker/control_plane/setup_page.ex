@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.SetupPage do
   @moduledoc """
-  Onboarding at /setup: the six steps that make Ryker useful, in order, and
-  Emisar as the one strongly recommended extra.
+  Onboarding at /setup: the six steps that make Ryker useful, in order, with
+  Emisar as an optional fourth between them.
 
   One step is open at a time, the first that is not done. It says why it
   matters, what it needs and about how long it takes, and has one button to
@@ -11,56 +11,77 @@ defmodule Ryker.ControlPlane.SetupPage do
   would prove nothing. There is no step for environments: adding the first
   repository creates the Default one, and the repositories step says so.
 
-  Emisar never blocks "ready". It is optional, but without it Ryker cannot act
-  on anything that is running, so it has its own panel with its own primary
-  action instead of a footnote.
+  Emisar never blocks "ready". Without it Ryker cannot act on anything that
+  is running, so it opens in its turn, after the repositories, like any other
+  step; it can be skipped, and doing a later step first passes it too. A
+  passed Emisar step keeps its place with a quiet way back to it.
 
   Whether a step is done comes from `SettingsView` (`setup.steps`), the same
   facts the sidebar counts; this module only presents them. The Slack, GitHub
-  and Emisar parts say their state in the words every page uses
-  (`Integrations`): a step that is half done, such as verified Slack tokens
-  with nobody to manage Ryker, is titled and timed by what is left.
+  and Emisar steps say their state in the words every page uses
+  (`Integrations`), but only when it is worth knowing: a step that is half
+  done, such as verified Slack tokens with nobody to manage Ryker, or broken
+  is titled and timed by what is left, and one only not done yet adds nothing
+  to its own title.
   """
 
   use Phoenix.Component
 
-  alias Ryker.ControlPlane.{ChannelsPage, Components, Integrations, Kit, SettingsView}
+  alias Ryker.ControlPlane.{ChannelsPage, Components, Integrations, Kit}
 
-  @type status :: :done | :current | :later
+  @type status :: :done | :current | :later | :skipped
+
+  # The required steps (`SettingsView.setup_steps/0`) with Emisar, the one
+  # optional step, fourth: what it lets Ryker do follows from the code it
+  # can reach, and the Slack steps after it are checked off by themselves.
+  @order [:slack, :github, :repositories, :emisar, :invited, :channel_environment, :request]
+  @optional [:emisar]
 
   @doc """
-  The required steps in order, each with whether it is done, current or
-  later. The current step is the first one not done, even when a later step
-  already is: setup goes in order, and a done later step keeps its check.
+  The steps in order, each with whether it is done, current, later or, for
+  the optional step, skipped. The current step is the first one not done,
+  even when a later step already is: setup goes in order, and a done later
+  step keeps its check. The optional step is passed once it is skipped
+  (`skipped`) or a step after it is done, so it never holds the open step
+  after setup moved on without it.
   """
-  @spec steps(map()) :: [map()]
-  def steps(view) do
-    done = view.setup.steps
-    order = SettingsView.setup_steps()
-    current = Enum.find(order, &(not Map.fetch!(done, &1)))
+  @spec steps(map(), [atom()]) :: [map()]
+  def steps(view, skipped \\ []) do
+    done = Map.put(view.setup.steps, :emisar, Integrations.emisar(view).status == :on)
+    passed = Enum.filter(@optional, &(&1 in skipped or done_after?(&1, done)))
+    current = Enum.find_index(@order, &(not Map.fetch!(done, &1) and &1 not in passed))
 
-    for key <- order do
+    for {key, index} <- Enum.with_index(@order) do
       status =
         cond do
           Map.fetch!(done, key) -> :done
-          key == current -> :current
+          index == current -> :current
+          is_nil(current) or index < current -> :skipped
           true -> :later
         end
 
       key
       |> step(view)
-      |> Map.merge(%{key: key, status: status})
+      |> Map.merge(%{key: key, status: status, optional: key in @optional})
     end
   end
 
-  @doc "How far setup is: steps done, how many there are, and about how many minutes are left."
+  defp done_after?(key, done) do
+    @order
+    |> Enum.drop_while(&(&1 != key))
+    |> tl()
+    |> Enum.any?(&Map.fetch!(done, &1))
+  end
+
+  @doc "How far the required steps are: done, how many there are, and about how many minutes are left."
   @spec progress([map()]) :: %{done: non_neg_integer(), total: pos_integer(), minutes: integer()}
   def progress(steps) do
-    open = Enum.reject(steps, &(&1.status == :done))
+    required = Enum.reject(steps, & &1.optional)
+    open = Enum.reject(required, &(&1.status == :done))
 
     %{
-      done: length(steps) - length(open),
-      total: length(steps),
+      done: length(required) - length(open),
+      total: length(required),
       minutes: Enum.sum_by(open, & &1.minutes)
     }
   end
@@ -73,104 +94,102 @@ defmodule Ryker.ControlPlane.SetupPage do
     do: "Connect Ryker to Slack and your code, then check it with one real request."
 
   attr(:view, :map, required: true)
+  attr(:params, :map, default: %{}, doc: "The page's query: skip=emisar passes the optional step")
 
   def render(assigns) do
-    steps = steps(assigns.view)
+    steps = steps(assigns.view, skipped(assigns.params))
     progress = progress(steps)
-    emisar = Integrations.emisar(assigns.view)
 
     assigns =
       assign(assigns,
         steps: steps,
         progress: progress,
-        # "3 of 6 required steps done · 1 recommended · about 6 minutes left":
-        # the recommended step is counted apart, because it never blocks ready.
-        progress_rest:
-          "required steps done" <>
-            if(emisar.status == :on, do: "", else: " · 1 recommended") <>
-            " · " <> minutes(progress.minutes),
         complete: assigns.view.setup.complete,
-        emisar: emisar,
         channel: channel_name(assigns.view),
         bot: bot(assigns.view)
       )
 
     ~H"""
     <div class="setup">
-      <div class="setup-main">
-        <section :if={@complete} class="setup-ready" aria-labelledby="setup-ready-title">
-          <span class="setup-ready-mark" aria-hidden="true"><Components.icon name={:check} /></span>
-          <div>
-            <h2 id="setup-ready-title">Ryker is ready</h2>
-            <p>
-              Mention @{@bot} in {@channel || "a channel it is in"} and it answers there. You can
-              also ask it anything in Chat.
-            </p>
-            <div class="setup-ready-actions">
-              <.link
-                navigate="/conversations"
-                class={["ui-button", if(@emisar.status == :on, do: "primary", else: "secondary")]}
-              >Open Chat</.link>
-              <.link navigate="/channels" class="ui-button secondary">See channels</.link>
-            </div>
-          </div>
-        </section>
-
-        <div :if={!@complete} class="setup-progress">
-          <p id="setup-progress-text">
-            <strong>{@progress.done} of {@progress.total}</strong> {@progress_rest}
+      <section :if={@complete} class="setup-ready" aria-labelledby="setup-ready-title">
+        <span class="setup-ready-mark" aria-hidden="true"><Components.icon name={:check} /></span>
+        <div>
+          <h2 id="setup-ready-title">Ryker is ready</h2>
+          <p>
+            Mention @{@bot} in {@channel || "a channel it is in"} and it answers there. You can
+            also ask it anything in Chat.
           </p>
-          <div class="setup-meter" aria-hidden="true">
-            <span :for={step <- @steps} data-done={to_string(step.status == :done)}></span>
-            <span class="setup-meter-extra" data-done={to_string(@emisar.status == :on)}></span>
+          <div class="setup-ready-actions">
+            <.link navigate="/conversations" class="ui-button primary">Open Chat</.link>
+            <.link navigate="/channels" class="ui-button secondary">See channels</.link>
           </div>
         </div>
+      </section>
 
-        <Kit.section_head
-          :if={@complete}
-          title="What is set up"
-          lede="Change any of these on its own page."
-        />
-        <ol
-          class="setup-steps"
-          aria-label="Setup steps"
-          aria-describedby={if !@complete, do: "setup-progress-text"}
-        >
-          <li
-            :for={{step, number} <- Enum.with_index(@steps, 1)}
-            class="setup-step"
-            data-state={step.status}
-            aria-current={if step.status == :current, do: "step"}
-          >
-            <span class="setup-marker" aria-hidden="true">
-              <Components.icon :if={step.status == :done} name={:check} />
-              <span :if={step.status != :done}>{number}</span>
-            </span>
-            <.done :if={step.status == :done} step={step} />
-            <.current :if={step.status == :current} step={step} />
-            <.later :if={step.status == :later} step={step} />
-          </li>
-        </ol>
+      <div :if={!@complete} class="setup-progress">
+        <p id="setup-progress-text">
+          <strong>{@progress.done} of {@progress.total}</strong>
+          required steps done · {minutes(@progress.minutes)}
+        </p>
+        <div class="setup-meter" aria-hidden="true">
+          <span
+            :for={step <- @steps}
+            data-done={to_string(step.status == :done)}
+            data-optional={to_string(step.optional)}
+          ></span>
+        </div>
       </div>
 
-      <aside class="setup-aside" aria-label="Recommended">
-        <.emisar emisar={@emisar} />
-      </aside>
+      <Kit.section_head
+        :if={@complete}
+        title="What is set up"
+        lede="Change any of these on its own page."
+      />
+      <ol
+        class="setup-steps"
+        aria-label="Setup steps"
+        aria-describedby={if !@complete, do: "setup-progress-text"}
+      >
+        <li
+          :for={{step, number} <- Enum.with_index(@steps, 1)}
+          id={"setup-#{step.key}"}
+          class="setup-step"
+          data-state={step.status}
+          data-optional={step.optional && "true"}
+          aria-current={if step.status == :current, do: "step"}
+        >
+          <span class="setup-marker" aria-hidden="true">
+            <Components.icon :if={step.status == :done} name={:check} />
+            <span :if={step.status != :done}>{number}</span>
+          </span>
+          <.done :if={step.status == :done} step={step} />
+          <.current :if={step.status == :current} step={step} />
+          <.later :if={step.status in [:later, :skipped]} step={step} />
+        </li>
+      </ol>
     </div>
     """
   end
+
+  defp skipped(%{"skip" => "emisar"}), do: [:emisar]
+  defp skipped(_params), do: []
 
   attr(:step, :map, required: true)
 
   defp done(assigns) do
     ~H"""
     <div class="setup-step-body">
-      <p class="setup-step-line">
-        <span class="sr-only">Done: </span><strong>{@step.done_title}</strong>
-        <span :if={@step.summary} class="setup-step-summary">· {@step.summary}</span>
-        <Kit.state :if={@step[:state]} tone={elem(@step.state, 0)} word={elem(@step.state, 1)} />
-      </p>
-      <p :if={@step[:broken]} class="setup-step-note">{@step.note}</p>
+      <div class="setup-step-done">
+        <p class="setup-step-line">
+          <span class="sr-only">Done: </span><strong>{@step.done_title}</strong>
+          <span :if={@step.summary} class="setup-step-summary">· {@step.summary}</span><span
+            :if={@step[:link]}
+            class="setup-step-summary"
+          > · <.link navigate={@step.link.href}>{@step.link.label}</.link></span>
+          <Kit.state :if={@step[:state]} tone={elem(@step.state, 0)} word={elem(@step.state, 1)} />
+        </p>
+        <p :if={@step[:broken] && @step[:reason]} class="setup-step-reason">{@step.reason}</p>
+      </div>
       <.link :if={@step[:manage]} navigate={@step.manage.href} class="setup-step-manage">
         {@step.manage.label}<span class="sr-only">{" " <> @step.done_title}</span>
       </.link>
@@ -183,13 +202,10 @@ defmodule Ryker.ControlPlane.SetupPage do
   defp current(assigns) do
     ~H"""
     <div class="setup-step-body">
-      <h3 class="setup-step-title">{@step.title}</h3>
+      <.title step={@step} />
       <p class="setup-step-why">{@step.why}</p>
-      <p :if={@step[:state]} class="setup-step-note">
-        <Kit.state tone={elem(@step.state, 0)} word={elem(@step.state, 1)} />
-        <span :if={@step[:note]}>{@step.note}</span>
-      </p>
-      <p :if={@step[:note] && !@step[:state]} class="setup-step-note">{@step.note}</p>
+      <.status :if={@step[:state]} step={@step} />
+      <p :if={@step[:note]} class="setup-step-note">{@step.note}</p>
       <p :if={@step[:how]} class="setup-step-how">
         {@step.how}
         <span :if={@step[:command]} class="setup-command">
@@ -233,6 +249,9 @@ defmodule Ryker.ControlPlane.SetupPage do
           target="_blank"
           rel="noopener noreferrer"
         >{@step.action.label}<span class="sr-only"> (opens Slack)</span></a>
+        <.link :if={@step.optional} patch={"/setup?skip=#{@step.key}"} class="ui-button secondary">
+          Skip for now
+        </.link>
       </div>
     </div>
     """
@@ -240,121 +259,45 @@ defmodule Ryker.ControlPlane.SetupPage do
 
   attr(:step, :map, required: true)
 
-  # A later step is quiet unless what it connects is broken: that is worth
-  # knowing before its turn comes.
+  # A later step is quiet unless what it connects is half done or broken:
+  # that is worth knowing before its turn comes. A skipped one keeps a quiet
+  # way back to it.
   defp later(assigns) do
     ~H"""
     <div class="setup-step-body">
-      <h3 class="setup-step-title">{@step.title}</h3>
-      <p :if={!@step[:broken]} class="setup-step-short">{@step.short}</p>
-      <p :if={@step[:broken]} class="setup-step-short">
-        <Kit.state tone={elem(@step.state, 0)} word={elem(@step.state, 1)} />
-        <span>{@step.note}</span>
-      </p>
+      <.title step={@step} />
+      <p :if={!@step[:state]} class="setup-step-short">{@step.short}</p>
+      <.status :if={@step[:state]} step={@step} />
+      <.link
+        :if={@step.status == :skipped and @step[:action]}
+        navigate={@step.action.href}
+        class="setup-step-back"
+      >{@step.action.label}</.link>
     </div>
     """
   end
 
-  attr(:emisar, :map, required: true)
+  attr(:step, :map, required: true)
 
-  # Emisar's own panel: what it lets Ryker do and what Ryker cannot do
-  # without it, in words, with the one action that fits where it stands.
-  defp emisar(%{emisar: %{status: :on}} = assigns) do
+  defp title(assigns) do
     ~H"""
-    <section class="setup-emisar" data-state="ready" aria-labelledby="setup-emisar-title">
-      <div class="setup-emisar-head">
-        <span class="setup-emisar-done" aria-hidden="true"><Components.icon name={:check} /></span>
-        <h2 id="setup-emisar-title">Emisar</h2>
-        <Kit.state tone={elem(@emisar.state, 0)} word={elem(@emisar.state, 1)} />
-      </div>
-      <p class="setup-emisar-lede">
-        Ryker can carry out the fixes you ask for once a person approves them in Emisar.
-      </p>
-      <p class="setup-emisar-facts">
-        {Enum.join(@emisar.facts, " · ")}<span :if={@emisar.unassigned > 0}> · <.link navigate="/environments">{Integrations.unassigned(
-          @emisar.unassigned
-        )}</.link></span>
-      </p>
-      <.link navigate="/integrations/emisar" class="ui-button secondary">Manage Emisar</.link>
-    </section>
+    <div class="setup-step-head">
+      <h3 class="setup-step-title">{@step.title}</h3>
+      <span :if={@step.optional} class="entity-tag">Optional</span>
+    </div>
     """
   end
 
-  # Short of connected, the panel is titled by what is missing: nothing
-  # connected, an account the running system left out (so it needs repair),
-  # an account no work can use yet (a warning, so a person has something to
-  # finish) or every account paused on purpose.
-  defp emisar(assigns) do
-    assigns =
-      assign(assigns,
-        title:
-          case assigns.emisar do
-            %{status: :not_set_up} -> "Connect Emisar"
-            %{status: :broken} -> "Repair Emisar"
-            %{state: {:warn, _missing}} -> "Finish connecting Emisar"
-            %{state: {:off, _paused}} -> "Emisar is paused"
-          end,
-        paused: match?(%{status: :off, state: {:off, _paused}}, assigns.emisar)
-      )
+  attr(:step, :map, required: true)
 
+  # Where the step's connection stands, when that is more than not done yet:
+  # the dot and word on their own line, the reason under it.
+  defp status(assigns) do
     ~H"""
-    <section
-      class="setup-emisar"
-      id="connect-emisar"
-      data-state={@emisar.status}
-      aria-labelledby="setup-emisar-title"
-    >
-      <div class="setup-emisar-head">
-        <h2 id="setup-emisar-title">{@title}</h2>
-        <span :if={!@paused} class="entity-tag">Recommended</span>
-      </div>
-      <p :if={@emisar.status == :not_set_up} class="setup-emisar-lede">
-        Let Ryker act on your running systems, not only on your code.
-      </p>
-      <p :if={@emisar.status != :not_set_up} class="setup-emisar-lede">
-        <Kit.state tone={elem(@emisar.state, 0)} word={elem(@emisar.state, 1)} />
-        {@emisar.reason}
-      </p>
-      <h3 class="setup-emisar-subhead">With Emisar</h3>
-      <ul class="setup-emisar-gains">
-        <li>
-          <Components.icon name={:check} />
-          <span>
-            Ryker carries out the operational fixes you ask for, such as restarting a service or
-            rolling back a deploy.
-          </span>
-        </li>
-        <li>
-          <Components.icon name={:check} />
-          <span>
-            A person approves each risky action in Emisar before it runs. Ryker never approves on
-            anyone's behalf.
-          </span>
-        </li>
-        <li>
-          <Components.icon name={:check} />
-          <span>
-            Once it is decided, Ryker picks the same request back up and reports the result where
-            you asked.
-          </span>
-        </li>
-      </ul>
-      <h3 class="setup-emisar-subhead">Without it</h3>
-      <p class="setup-emisar-without">
-        Ryker can investigate and change code, but it cannot act on anything that is running. It
-        can only tell you what to run.
-      </p>
-      <div class="setup-emisar-actions">
-        <.link
-          navigate={@emisar.action.href}
-          class={["ui-button", if(@paused, do: "secondary", else: "primary")]}
-        >{@emisar.action.label}</.link>
-        <p :if={@emisar.status == :not_set_up}>
-          Optional, but strongly recommended. You need an Emisar account and an agent API key. About
-          3 minutes.
-        </p>
-      </div>
-    </section>
+    <div class="setup-step-status">
+      <Kit.state tone={elem(@step.state, 0)} word={elem(@step.state, 1)} />
+      <p :if={@step[:reason]}>{@step.reason}</p>
+    </div>
     """
   end
 
@@ -376,8 +319,8 @@ defmodule Ryker.ControlPlane.SetupPage do
           do: "The people in your workspace who should change Ryker's settings from Slack",
           else: "A Slack app for Ryker, with its app token (xapp-…) and bot token (xoxb-…)"
         ),
-      state: if(slack.status != :on, do: slack.state),
-      note: slack.reason,
+      state: worth_knowing(slack, :state),
+      reason: worth_knowing(slack, :reason),
       broken: slack.status == :broken,
       minutes: if(finishing, do: 1, else: 5),
       action: slack.action,
@@ -398,8 +341,8 @@ defmodule Ryker.ControlPlane.SetupPage do
       why:
         "Ryker reads your code and opens pull requests through a GitHub App, so GitHub decides what it can reach.",
       needs: "A GitHub App, its App ID and a private key file (.pem)",
-      state: if(github.status != :on, do: github.state),
-      note: github.reason,
+      state: worth_knowing(github, :state),
+      reason: worth_knowing(github, :reason),
       broken: broken,
       minutes: 5,
       action: github.action,
@@ -423,6 +366,38 @@ defmodule Ryker.ControlPlane.SetupPage do
       done_title: "Repositories",
       summary: repositories(view.snapshot.repositories),
       manage: %{label: "Manage", href: "/repositories"}
+    }
+  end
+
+  # Short of connected, the step is titled by what is missing: nothing
+  # connected, an account the running system left out (so it needs repair),
+  # an account no work can use yet, or every account paused on purpose.
+  defp step(:emisar, view) do
+    emisar = Integrations.emisar(view)
+
+    %{
+      title:
+        case emisar do
+          %{status: status} when status in [:not_set_up, :on] -> "Connect Emisar"
+          %{status: :broken} -> "Repair Emisar"
+          %{state: {:warn, _missing}} -> "Finish connecting Emisar"
+          %{state: {:off, _paused}} -> "Emisar is paused"
+        end,
+      short: "Let Ryker act on your running systems, not only on your code.",
+      why:
+        "With Emisar, Ryker carries out the fixes you ask for, such as restarting a service or rolling back a deploy, once a person approves each risky one in Emisar. Without it, Ryker can only tell you what to run.",
+      needs: "An Emisar account and an agent API key",
+      state: worth_knowing(emisar, :state),
+      reason: worth_knowing(emisar, :reason),
+      broken: emisar.status == :broken,
+      minutes: 3,
+      action: emisar.action,
+      done_title: "Emisar",
+      summary: if(emisar.facts != [], do: Enum.join(emisar.facts, " · ")),
+      link:
+        emisar.unassigned > 0 &&
+          %{label: Integrations.unassigned(emisar.unassigned), href: "/environments"},
+      manage: %{label: "Manage", href: "/integrations/emisar"}
     }
   end
 
@@ -479,6 +454,13 @@ defmodule Ryker.ControlPlane.SetupPage do
   end
 
   # Helpers ------------------------------------------------------------------
+
+  # An integration's state and reason are worth a line in its step only when
+  # it is half done or broken; one not set up yet is what the step asks for.
+  defp worth_knowing(%{status: status} = integration, key) when status in [:off, :broken],
+    do: Map.fetch!(integration, key)
+
+  defp worth_knowing(_integration, _key), do: nil
 
   defp workspace(%{workspace_name: name, workspace_ref: ref, bot_name: bot}) do
     case {name || ref, bot} do

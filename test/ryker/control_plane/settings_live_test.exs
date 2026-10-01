@@ -363,7 +363,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert Enum.count(actions) == 1
     assert has_element?(view, "ol.setup-steps > li[data-state=later]", "Connect GitHub")
-    assert has_element?(view, "#connect-emisar a.ui-button.primary", "Connect Emisar")
+    assert has_element?(view, "#setup-emisar[data-state=later]", "Connect Emisar")
   end
 
   test "Setup's channel step is done once a joined channel has an environment" do
@@ -981,6 +981,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, view, _html} = open("/integrations/slack")
 
     view |> element("button", "Choose people") |> render_click()
+    render_async(view)
     assert has_element?(view, "#slack-people label", "Search 1 person")
     view |> form("#slack-people") |> render_submit()
 

@@ -2340,20 +2340,19 @@ html:has(.kit-modal) { overflow:hidden; }
 .case-timeline .background-chapter > .chapter-heading p:not(.chapter-background) { margin-top:2px; font-size:13px; line-height:18px; }
 
 /* Setup and Integrations (2026-09-24 day 2 redesign): onboarding at /setup is
-   an ordered stepper with one open step, Emisar's recommended panel beside it
-   and a calm ready state; the Integrations overview is Kit rows. */
-.setup { display:grid; grid-template-columns:minmax(0, 1fr) minmax(280px, 340px); gap:56px; align-items:start; max-width:1040px; margin-top:28px; }
-.setup-main { min-width:0; max-width:640px; }
-.setup-aside { position:sticky; top:24px; min-width:0; }
+   an ordered stepper with one open step and a calm ready state, Emisar its
+   optional fourth step since 2026-10-02; the Integrations overview is Kit rows. */
+.setup { max-width:640px; margin-top:28px; }
 .setup-progress { margin:0 0 28px; }
 .ryker-app .setup-progress p { margin:0 0 10px; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
 .setup-progress strong { font-weight:600; color:var(--ryker-text); }
 .setup-meter { display:flex; gap:4px; }
 .setup-meter span { flex:1; height:6px; border-radius:3px; background:var(--ryker-stroke); }
 .setup-meter span[data-done=true] { background:var(--ryker-accent); }
-/* The recommended step sits apart from the six, outlined until it is done. */
-.setup-meter .setup-meter-extra { box-sizing:border-box; margin-left:10px; background:transparent; border:1px dashed color-mix(in srgb, var(--ryker-accent) 55%, transparent); }
-.setup-meter .setup-meter-extra[data-done=true] { border-style:solid; border-color:var(--ryker-accent); background:var(--ryker-accent); }
+/* The optional step is outlined, on the meter and on its marker, until it is done. */
+.setup-meter span[data-optional=true] { box-sizing:border-box; background:transparent; border:1px dashed color-mix(in srgb, var(--ryker-accent) 55%, transparent); }
+.setup-meter span[data-optional=true][data-done=true] { border-style:solid; border-color:var(--ryker-accent); background:var(--ryker-accent); }
+.setup-step[data-optional=true]:is([data-state=later], [data-state=skipped]) .setup-marker { border-style:dashed; }
 
 .setup-steps { margin:0; padding:0; list-style:none; }
 .setup-step { position:relative; display:grid; grid-template-columns:28px minmax(0, 1fr); column-gap:16px; padding:0 0 22px; }
@@ -2369,17 +2368,27 @@ html:has(.kit-modal) { overflow:hidden; }
 .setup-step[data-state=current] .setup-marker { border:2px solid var(--ryker-accent); color:var(--ryker-text); box-shadow:0 0 0 4px color-mix(in srgb, var(--ryker-accent) 16%, transparent); }
 .setup-step-body { min-width:0; padding-top:3px; }
 .setup-step[data-state=done] .setup-step-body { display:flex; align-items:baseline; gap:16px; padding-top:4px; }
-.ryker-app .setup-step-line { flex:1; min-width:0; margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
+.setup-step-done { flex:1; min-width:0; }
+.ryker-app .setup-step-line { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
+.ryker-app .setup-step-line a { color:var(--ryker-text-secondary); text-decoration:underline; text-decoration-color:color-mix(in srgb, currentColor 40%, transparent); text-underline-offset:3px; }
+.ryker-app .setup-step-reason { margin:2px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .setup-step-line strong { font-weight:600; color:var(--ryker-text); }
 .setup-step-line .state-word { margin-left:6px; }
 .ryker-app .setup-step-manage { flex:none; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
 .ryker-app .setup-step-manage:hover { color:var(--ryker-text); text-decoration:underline; text-underline-offset:3px; }
 .ryker-app .setup-step-title { margin:0; font-size:15px; line-height:22px; font-weight:600; color:var(--ryker-text); }
 .ryker-app .setup-step[data-state=current] .setup-step-title { font-size:17px; line-height:24px; }
-.ryker-app .setup-step[data-state=later] .setup-step-title { font-weight:500; color:var(--ryker-text-secondary); }
+.ryker-app .setup-step:is([data-state=later], [data-state=skipped]) .setup-step-title { font-weight:500; color:var(--ryker-text-secondary); }
+.setup-step-head { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; }
+/* A state worth knowing sits on its own line, its reason under it in plain text. */
+.setup-step-status { max-width:560px; margin:12px 0 0; }
+.setup-step:is([data-state=later], [data-state=skipped]) .setup-step-status { margin-top:4px; }
+.ryker-app .setup-step-status p { margin:2px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.ryker-app .setup-step-back { display:inline-block; margin-top:4px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); text-decoration:underline; text-decoration-color:color-mix(in srgb, currentColor 40%, transparent); text-underline-offset:3px; }
+.ryker-app .setup-step-back:hover { color:var(--ryker-text); }
 .ryker-app .setup-step-short { margin:2px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .ryker-app .setup-step-why { max-width:560px; margin:4px 0 0; font-size:14px; line-height:21px; color:var(--ryker-text); }
-.ryker-app .setup-step-note { max-width:560px; margin:10px 0 0; font-size:13px; line-height:18px; color:var(--ryker-warning); }
+.ryker-app .setup-step-note { max-width:560px; margin:10px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .ryker-app .setup-step-how { max-width:560px; margin:14px 0 0; font-size:14px; line-height:24px; color:var(--ryker-text); }
 .setup-step-how q { color:var(--ryker-text); font-weight:500; }
 .setup-command { display:inline-flex; align-items:center; margin-left:4px; padding-left:10px; border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface-sunken); vertical-align:middle; }
@@ -2391,7 +2400,7 @@ html:has(.kit-modal) { overflow:hidden; }
 .setup-step-facts dd { margin:0; color:var(--ryker-text); }
 .setup-step-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:20px; }
 
-.settings-page .setup-main > .section-head { margin-top:36px; }
+.settings-page .setup > .section-head { margin-top:36px; }
 .setup-ready { display:grid; grid-template-columns:48px minmax(0, 1fr); gap:18px; }
 .setup-ready-mark { display:inline-flex; align-items:center; justify-content:center; width:48px; height:48px; border-radius:50%; background:color-mix(in srgb, var(--ryker-accent) 16%, transparent); color:var(--ryker-accent); }
 .ryker-app .setup-ready-mark .ui-icon { width:24px; height:24px; stroke-width:2.2; }
@@ -2399,28 +2408,6 @@ html:has(.kit-modal) { overflow:hidden; }
 .ryker-app .setup-ready p { max-width:560px; margin:4px 0 0; font-size:14px; line-height:21px; color:var(--ryker-text); }
 .setup-ready-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
 
-/* Emisar has visual weight of its own: a faint mint panel, its value in
-   words, and a primary action. Once connected it becomes a plain summary. */
-.setup-emisar { padding:20px 22px 22px; border:1px solid color-mix(in srgb, var(--ryker-accent) 42%, var(--ryker-stroke)); border-radius:12px; background:color-mix(in srgb, var(--ryker-accent) 5%, var(--ryker-surface)); }
-.setup-emisar:is([data-state=ready], [data-state=paused]) { border-color:var(--ryker-stroke); background:var(--ryker-surface-raised); }
-.setup-emisar-head { display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; }
-.ryker-app .setup-emisar-head h2 { margin:0; font-size:17px; line-height:24px; font-weight:600; color:var(--ryker-text); }
-.setup-emisar-done { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--ryker-accent); color:var(--ryker-control-primary-text); }
-.ryker-app .setup-emisar-done .ui-icon { width:13px; height:13px; stroke-width:2.6; }
-.ryker-app .setup-emisar-lede { margin:8px 0 0; font-size:14px; line-height:21px; color:var(--ryker-text); }
-.ryker-app .setup-emisar-subhead { margin:18px 0 8px; font-size:13px; line-height:18px; font-weight:600; color:var(--ryker-text-secondary); }
-.setup-emisar-gains { display:grid; gap:10px; margin:0; padding:0; list-style:none; }
-.setup-emisar-gains li { display:grid; grid-template-columns:16px minmax(0, 1fr); gap:10px; font-size:13px; line-height:19px; color:var(--ryker-text); }
-.ryker-app .setup-emisar-gains .ui-icon { width:16px; height:16px; margin-top:1px; color:var(--ryker-accent); stroke-width:2.2; }
-.ryker-app .setup-emisar-without { margin:0; font-size:13px; line-height:19px; color:var(--ryker-text-secondary); }
-.setup-emisar-actions { display:grid; justify-items:start; gap:10px; margin-top:22px; }
-.ryker-app .setup-emisar-actions p { margin:0; font-size:12px; line-height:17px; color:var(--ryker-text-secondary); }
-.ryker-app .setup-emisar-facts { margin:6px 0 16px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-
-@media (max-width:1180px) {
-  .setup { grid-template-columns:minmax(0, 1fr); gap:36px; }
-  .setup-aside { position:static; max-width:640px; }
-}
 @media (max-width:600px) {
   .setup-step[data-state=done] .setup-step-body { flex-wrap:wrap; gap:2px 12px; }
   .setup-step-facts { grid-template-columns:minmax(0, 1fr); gap:2px; }

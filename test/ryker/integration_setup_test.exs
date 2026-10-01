@@ -192,6 +192,27 @@ defmodule Ryker.IntegrationSetupTest do
     end
   end
 
+  # Slack turning one page away for a moment, as it does for a large workspace read quickly.
+  defmodule LimitedMembersRequester do
+    def request(_client, :get, "/users.list?limit=200", _body, _headers) do
+      if Process.get(:limited_once) do
+        PagedMembersRequester.request(nil, :get, "/users.list?limit=200", nil, [])
+      else
+        Process.put(:limited_once, true)
+
+        {:ok,
+         %{
+           body: %{"ok" => false, "error" => "ratelimited"},
+           headers: [{"retry-after", "2"}],
+           status: 429
+         }}
+      end
+    end
+
+    def request(client, method, path, body, headers),
+      do: PagedMembersRequester.request(client, method, path, body, headers)
+  end
+
   # Slack answering for tokens of another workspace.
   defmodule OtherWorkspaceRequester do
     def request(client, :post, "/auth.test", body, headers) do
@@ -243,6 +264,24 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert {:ok, members} = IntegrationSetup.slack_members(requester: PagedMembersRequester)
     assert Enum.map(members, & &1.name) == ["Ada", "Bea", "Zoe"]
+  end
+
+  # Reading every page of a large workspace quickly meets Slack's rate limit; the page it turned
+  # away is asked again after the wait Slack names, instead of failing the whole list.
+  test "Choose people waits out Slack's rate limit instead of failing" do
+    assert {:ok, _credential} =
+             Credentials.put(:slack_bot, "primary", "xoxb-this-is-a-long-bot-token", @actor)
+
+    parent = self()
+
+    assert {:ok, members} =
+             IntegrationSetup.slack_members(
+               requester: LimitedMembersRequester,
+               sleep: fn milliseconds -> send(parent, {:waited, milliseconds}) end
+             )
+
+    assert Enum.map(members, & &1.name) == ["Ada", "Bea", "Zoe"]
+    assert_received {:waited, 2_000}
   end
 
   # Andrew chose himself on Integrations › Slack on 2026-09-26 and the list

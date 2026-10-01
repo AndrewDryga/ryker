@@ -37,7 +37,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
   @switch "#{@managers} input[type=checkbox][name=workspace_admins_manage]"
 
   setup do
-    people = start_supervised!({Agent, fn -> [] end})
+    people = start_supervised!({Agent, fn -> %{people: [], hold: false, calls: 0} end})
 
     start_supervised!({Endpoint,
      server: false,
@@ -52,7 +52,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
        observability: %{},
        csrf_secret: String.duplicate("s", 32),
        # Who Slack lists as the workspace's people, instead of asking Slack.
-       slack_members: fn -> {:ok, Agent.get(people, & &1)} end
+       slack_members: fn -> list_people(people) end
      }})
 
     {:ok, _snapshot} = Settings.initialize(@actor)
@@ -135,9 +135,10 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
               name: "Person #{n |> to_string() |> String.pad_leading(3, "0")}"
             }
 
-    Agent.update(listed, fn _none -> people end)
+    Agent.update(listed, &%{&1 | people: people})
     {:ok, view, _html} = open("/integrations/slack")
     view |> element("#{@managers} button", "Choose people") |> render_click()
+    render_async(view)
 
     # The switch saves as it changes, so it comes first; the people follow with their own Save.
     html = view |> element(@managers) |> render()
@@ -166,6 +167,27 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
 
     view |> form("#slack-people") |> render_submit()
     assert Settings.fetch!().slack.operators == ["U0ADA"]
+  end
+
+  # Andrew, 2026-10-01, of Choose people on the blitz workspace: "I wait for ages without any
+  # progress indication, loader or button not even blocked making me click it 5 times". Reading
+  # every page of a large workspace takes a while; the page says so, and more clicks start nothing.
+  test "choosing people says it is loading and starts one load however often it is clicked",
+       %{people: listed} do
+    names!(%{})
+    slack_on!([])
+    Agent.update(listed, &%{&1 | people: [%{id: "U0ADA", name: "Ada Lovelace"}], hold: true})
+    {:ok, view, _html} = open("/integrations/slack")
+
+    view |> element("#{@managers} button", "Choose people") |> render_click()
+    assert has_element?(view, @managers, "Loading people from Slack")
+    assert has_element?(view, "#{@managers} button[disabled]", "Loading people")
+    render_click(view, "load-slack-members", %{})
+
+    Agent.update(listed, &%{&1 | hold: false})
+    render_async(view)
+    assert rows(view) == ["Ada Lovelace"]
+    assert Agent.get(listed, & &1.calls) == 1
   end
 
   test "with nobody chosen, workspace admins and owners are who can manage Ryker" do
@@ -357,6 +379,22 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
       Custody.freeze_submission(episode_id, claim.turn.turn_ref, claim.lease_ref, submission)
 
     claim.episode
+  end
+
+  # Who Slack lists, counted, and held back while a test looks at the page in between.
+  defp list_people(agent) do
+    Agent.update(agent, &Map.update!(&1, :calls, fn calls -> calls + 1 end))
+    held(agent, 500)
+    {:ok, Agent.get(agent, & &1.people)}
+  end
+
+  defp held(_agent, 0), do: :ok
+
+  defp held(agent, tries) do
+    if Agent.get(agent, & &1.hold) do
+      Process.sleep(10)
+      held(agent, tries - 1)
+    end
   end
 
   defp rows(view) do

@@ -21,6 +21,7 @@ defmodule Ryker.IntegrationSetup do
   @minimum_signing_secret_bytes 32
   # 200 people a page: room for a workspace of ten thousand.
   @slack_member_pages 50
+  @slack_rate_waits 10
   @slack_scopes ~w(
     app_mentions:read assistant:write bookmarks:read channels:history
     channels:join channels:manage channels:read chat:write commands files:read files:write
@@ -80,7 +81,8 @@ defmodule Ryker.IntegrationSetup do
   def slack_members(options \\ []) do
     with {:ok, token} <- Credentials.fetch(:slack_bot, "primary"),
          {:ok, http} <- slack_http(token, options),
-         {:ok, members} <- slack_member_pages(http, options, nil, [], @slack_member_pages) do
+         {:ok, members} <-
+           slack_member_pages(http, options, nil, [], {@slack_member_pages, @slack_rate_waits}) do
       people = Enum.filter(members, &human_slack_member?/1)
 
       :ok =
@@ -1174,10 +1176,12 @@ defmodule Ryker.IntegrationSetup do
   # while more follow. Reading only the first page offered a fraction of a large workspace
   # (Andrew, 2026-10-01: "some orgs have hundreds of people"), so every page is read, and a
   # page that fails fails the list rather than leaving people out of it.
-  defp slack_member_pages(_http, _options, _cursor, _members, 0),
+  # Reading every page of a large workspace quickly meets Slack's rate limit: the page it turns
+  # away is asked again after the wait Slack names, a bounded number of times.
+  defp slack_member_pages(_http, _options, _cursor, _members, {0, _waits}),
     do: {:error, {:slack_verification_failed, :members}}
 
-  defp slack_member_pages(http, options, cursor, members, pages_left) do
+  defp slack_member_pages(http, options, cursor, members, {pages_left, waits}) do
     path =
       if cursor,
         do: "/users.list?limit=200&cursor=" <> URI.encode_www_form(cursor),
@@ -1187,11 +1191,15 @@ defmodule Ryker.IntegrationSetup do
       {:ok, %{body: %{"members" => page, "ok" => true} = body, status: 200}} when is_list(page) ->
         case get_in(body, ["response_metadata", "next_cursor"]) do
           next when is_binary(next) and next != "" ->
-            slack_member_pages(http, options, next, [page | members], pages_left - 1)
+            slack_member_pages(http, options, next, [page | members], {pages_left - 1, waits})
 
           _last ->
             {:ok, [page | members] |> Enum.reverse() |> Enum.concat()}
         end
+
+      {:ok, %{status: 429} = limited} when waits > 0 ->
+        Keyword.get(options, :sleep, &Process.sleep/1).(retry_after(limited) * 1_000)
+        slack_member_pages(http, options, cursor, members, {pages_left, waits - 1})
 
       {:error, _reason} = error ->
         error
@@ -1200,6 +1208,20 @@ defmodule Ryker.IntegrationSetup do
         {:error, {:slack_verification_failed, :members}}
     end
   end
+
+  # Slack names its wait in seconds; a missing or odd one waits a second, a long one at most 30.
+  defp retry_after(%{headers: headers}) when is_list(headers) do
+    headers
+    |> Enum.find_value(fn {name, value} ->
+      String.downcase(to_string(name)) == "retry-after" && Integer.parse(to_string(value))
+    end)
+    |> case do
+      {seconds, ""} -> seconds |> max(1) |> min(30)
+      _missing_or_odd -> 1
+    end
+  end
+
+  defp retry_after(_response), do: 1
 
   defp human_slack_member?(%{"id" => "USLACKBOT"}), do: false
   defp human_slack_member?(%{"is_app_user" => true}), do: false

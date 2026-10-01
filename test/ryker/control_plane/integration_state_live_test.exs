@@ -121,14 +121,15 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
   end
 
   test "an integration nothing was set up for reads the same on every page" do
+    # Setup names no state for a step that is only not done yet: the step is the call to connect
+    # it, and its own title and first line already say why (SetupPageTest).
     assert_same(
       :slack,
       "Not connected",
-      "Ryker cannot read or reply in Slack until you connect it."
+      "Ryker cannot read or reply in Slack until you connect it.",
+      except: "/setup"
     )
 
-    # Setup leads with Slack, so GitHub's step waits quietly, and Emisar's
-    # panel is its own call to connect it; neither names a state there.
     assert_same(
       :github,
       "Not connected",
@@ -381,7 +382,7 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
     do: [
       {"/integrations", "#integration-emisar"},
       {"/integrations/emisar", ".settings-connection"},
-      {"/setup", ".setup-emisar"}
+      {"/setup", "#setup-emisar"}
     ]
 
   defp surfaces(:webhooks),

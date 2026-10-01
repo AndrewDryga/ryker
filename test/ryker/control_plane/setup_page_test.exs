@@ -22,6 +22,7 @@ defmodule Ryker.ControlPlane.SetupPageTest do
              slack: :done,
              github: :current,
              repositories: :later,
+             emisar: :later,
              invited: :done,
              channel_environment: :later,
              request: :later
@@ -29,14 +30,43 @@ defmodule Ryker.ControlPlane.SetupPageTest do
 
     document = render_setup(view)
 
-    assert LazyHTML.query(document, "ol.setup-steps > li") |> Enum.count() == 6
+    assert LazyHTML.query(document, "ol.setup-steps > li") |> Enum.count() == 7
 
     current = LazyHTML.query(document, "ol.setup-steps > li[aria-current=step]")
     assert Enum.count(current) == 1
     assert LazyHTML.query(current, "h3") |> LazyHTML.text() == "Connect GitHub"
 
     assert LazyHTML.query(document, "#setup-progress-text") |> text() =~
-             "2 of 6 required steps done · 1 recommended · about 10 minutes left"
+             "2 of 6 required steps done · about 10 minutes left"
+  end
+
+  # Andrew, 2026-10-01, of the open GitHub step on a new installation: "layout is broken here". It
+  # read "● Not connected Ryker cannot read your code or open pull requests until you connect it.":
+  # a grey state and a yellow sentence run together on one line, both saying again what the step's
+  # own title and first line say. A step that is only not done yet adds nothing; a state worth
+  # knowing, half done or broken, has its own line with its reason under it.
+  test "an open step adds no state while nothing is connected, and a state worth knowing sits above its reason" do
+    open = render_setup(view(done: [:slack])) |> LazyHTML.query("li[aria-current=step]")
+    assert LazyHTML.query(open, "h3") |> LazyHTML.text() == "Connect GitHub"
+    assert Enum.empty?(LazyHTML.query(open, ".state-word"))
+    refute text(open) =~ "until you connect it"
+
+    finishing =
+      view(done: [:slack])
+      |> put_in([:setup, :steps, :slack], false)
+      |> put_in([:snapshot, :slack, :enabled], false)
+
+    for {document, id, word, reason} <- [
+          {render_setup(finishing), "setup-slack", "Finish connecting",
+           "The tokens are verified, but Slack stays off until you choose who can manage Ryker."},
+          {render_setup(view(github_connection: :invalid)), "setup-github", "Needs repair",
+           "The saved App ID or private key no longer works."}
+        ] do
+      step = LazyHTML.query(document, "##{id}")
+      assert LazyHTML.query(step, ".setup-step-status > .state-word") |> LazyHTML.text() == word
+      assert LazyHTML.query(step, ".setup-step-status > p") |> text() == reason
+      assert Enum.empty?(LazyHTML.query(step, "p .state-word")), id
+    end
   end
 
   test "only the open step offers an action, and it leads to where that step is done" do
@@ -95,7 +125,7 @@ defmodule Ryker.ControlPlane.SetupPageTest do
         slack: %{workspace_url: "https://acme.slack.com/", bot_name: "ryker"}
       )
 
-    current = render_setup(view) |> LazyHTML.query("li[aria-current=step]")
+    current = render_setup(view, %{"skip" => "emisar"}) |> LazyHTML.query("li[aria-current=step]")
     assert LazyHTML.query(current, "h3") |> LazyHTML.text() == "Invite Ryker to a channel"
     assert LazyHTML.query(current, ".setup-command code") |> LazyHTML.text() == "/invite @ryker"
     assert text(current) =~ "Ryker notices on its own"
@@ -154,37 +184,91 @@ defmodule Ryker.ControlPlane.SetupPageTest do
     assert text(current) =~ "Each one joins the Default environment, which Ryker creates for you."
   end
 
-  test "Emisar is offered as a recommended step with its own action and never blocks ready" do
-    # "Optional: Connect Emisar for governed approvals." was one quiet line
-    # under the checklist. Andrew, 2026-09-24: "yes it's optional but without
-    # it ryker is way more limited so we really need to push users to connect
-    # it". It has its own panel and primary action, counted apart from the six.
+  # Andrew, 2026-10-01: "put emisar as step 4 after Add repositories and before Invite Ryker to a
+  # channel so it's not on the side, just keep it not required". It had been a panel beside the
+  # steps since 2026-09-24 ("without it ryker is way more limited so we really need to push users
+  # to connect it"), so in its turn it is the open step, with Connect as its primary button and a
+  # way past it, and it never counts toward ready.
+  test "Emisar is optional step 4: it opens after the repositories, can be skipped, and never blocks ready" do
     refute :emisar in SettingsView.setup_steps()
+    keys = view(done: []) |> SetupPage.steps() |> Enum.map(& &1.key)
+    assert keys -- [:emisar] == SettingsView.setup_steps()
 
-    for done <- [[], @steps] do
-      document = render_setup(view(done: done, complete: done == @steps))
-      panel = LazyHTML.query(document, "#connect-emisar")
+    started = render_setup(view(done: []))
+    assert Enum.empty?(LazyHTML.query(started, ".setup-aside, .setup-emisar"))
 
-      assert LazyHTML.query(panel, "h2") |> LazyHTML.text() == "Connect Emisar"
-      assert LazyHTML.query(panel, ".entity-tag") |> LazyHTML.text() == "Recommended"
-      assert text(panel) =~ "it cannot act on anything that is running"
+    assert LazyHTML.query(started, "ol.setup-steps > li")
+           |> Enum.map(&LazyHTML.attribute(&1, "id")) ==
+             Enum.map(
+               ~w(slack github repositories emisar invited channel_environment request),
+               &["setup-#{&1}"]
+             )
 
-      assert LazyHTML.query(panel, "a.ui-button.primary[href='/integrations/emisar']")
-             |> LazyHTML.text() == "Connect Emisar"
+    emisar = LazyHTML.query(started, "#setup-emisar")
+    assert LazyHTML.attribute(emisar, "data-state") == ["later"]
+    assert LazyHTML.query(emisar, ".setup-marker") |> text() == "4"
+    assert LazyHTML.query(emisar, ".setup-step-head") |> text() == "Connect Emisar Optional"
+
+    assert LazyHTML.query(started, "#setup-progress-text") |> text() ==
+             "0 of 6 required steps done · about 16 minutes left"
+
+    # The meter has a segment for each step, the optional one drawn apart.
+    assert LazyHTML.query(started, ".setup-meter > span") |> Enum.count() == 7
+    assert LazyHTML.query(started, ".setup-meter > span[data-optional=true]") |> Enum.count() == 1
+
+    assert LazyHTML.query(started, ".setup-meter > span:nth-child(4)[data-optional=true]")
+           |> Enum.count() == 1
+
+    reached = view(done: [:slack, :github, :repositories])
+    open = render_setup(reached) |> LazyHTML.query("li[aria-current=step]")
+    assert LazyHTML.attribute(open, "id") == ["setup-emisar"]
+    assert text(open) =~ "Without it, Ryker can only tell you what to run."
+
+    assert LazyHTML.query(open, "a.ui-button.primary") |> LazyHTML.attribute("href") == [
+             "/integrations/emisar"
+           ]
+
+    assert LazyHTML.query(open, "a.ui-button.secondary") |> text() == "Skip for now"
+
+    assert LazyHTML.query(open, "a.ui-button.secondary") |> LazyHTML.attribute("href") == [
+             "/setup?skip=emisar"
+           ]
+
+    # Skipped, or passed by a later step done first, it stays in its place with a quiet way back.
+    for {view, params} <- [
+          {reached, %{"skip" => "emisar"}},
+          {view(done: [:slack, :github, :repositories, :invited]), %{}}
+        ] do
+      document = render_setup(view, params)
+      emisar = LazyHTML.query(document, "#setup-emisar")
+      assert LazyHTML.attribute(emisar, "data-state") == ["skipped"]
+      assert Enum.empty?(LazyHTML.query(emisar, ".ui-button"))
+      assert LazyHTML.query(emisar, "a") |> LazyHTML.attribute("href") == ["/integrations/emisar"]
+
+      refute LazyHTML.query(document, "li[aria-current=step]") |> LazyHTML.attribute("id") == [
+               "setup-emisar"
+             ]
     end
 
-    # Six segments for the required steps and one apart for Emisar.
-    started = render_setup(view(done: []))
-    assert LazyHTML.query(started, ".setup-meter > span") |> Enum.count() == 7
-    assert LazyHTML.query(started, ".setup-meter > .setup-meter-extra") |> Enum.count() == 1
+    skipped = render_setup(reached, %{"skip" => "emisar"})
+
+    assert LazyHTML.query(skipped, "li[aria-current=step] h3") |> LazyHTML.text() ==
+             "Invite Ryker to a channel"
 
     ready = render_setup(view(done: @steps, complete: true))
     assert LazyHTML.query(ready, ".setup-ready h2") |> LazyHTML.text() == "Ryker is ready"
     assert Enum.empty?(LazyHTML.query(ready, "li[aria-current=step], #setup-progress-text"))
     assert LazyHTML.query(ready, "ol.setup-steps > li[data-state=done]") |> Enum.count() == 6
 
+    assert LazyHTML.query(ready, "#setup-emisar") |> LazyHTML.attribute("data-state") == [
+             "skipped"
+           ]
+
     assert LazyHTML.query(ready, ".setup-ready a") |> LazyHTML.attribute("href") ==
              ["/conversations", "/channels"]
+
+    assert LazyHTML.query(ready, ".setup-ready a.ui-button.primary") |> LazyHTML.text() ==
+             "Open Chat"
   end
 
   test "a connected Emisar that no work can use says what is still missing" do
@@ -219,10 +303,12 @@ defmodule Ryker.ControlPlane.SetupPageTest do
     ready =
       render_setup(view(emisar: [%{account | monitoring_enabled: true}], environments: [using]))
 
-    panel = LazyHTML.query(ready, ".setup-emisar[data-state=ready]")
-    assert text(panel) =~ "Production approvals"
-    refute text(panel) =~ "without an Emisar account"
-    assert Enum.empty?(LazyHTML.query(ready, "#connect-emisar"))
+    step = LazyHTML.query(ready, "#setup-emisar[data-state=done]")
+
+    assert LazyHTML.query(step, ".setup-step-line") |> text() ==
+             "Done: Emisar · Production approvals"
+
+    refute text(step) =~ "without an Emisar account"
   end
 
   # Work in an environment without an account records no approvals at all.
@@ -249,10 +335,12 @@ defmodule Ryker.ControlPlane.SetupPageTest do
     assert emisar.facts == ["Production approvals"]
     assert emisar.unassigned == 1
 
-    panel = render_setup(view) |> LazyHTML.query(".setup-emisar[data-state=ready]")
-    assert text(panel) =~ "Production approvals · 1 environment without an Emisar account"
+    step = render_setup(view) |> LazyHTML.query("#setup-emisar[data-state=done]")
 
-    assert LazyHTML.query(panel, "a[href='/environments']") |> LazyHTML.text() ==
+    assert LazyHTML.query(step, ".setup-step-line") |> text() ==
+             "Done: Emisar · Production approvals · 1 environment without an Emisar account"
+
+    assert LazyHTML.query(step, "a[href='/environments']") |> LazyHTML.text() ==
              "1 environment without an Emisar account"
 
     overview =
@@ -338,8 +426,13 @@ defmodule Ryker.ControlPlane.SetupPageTest do
     assert LazyHTML.query(document, "#integration-emisar .entity-tag") |> Enum.count() == 1
   end
 
-  defp render_setup(view) do
-    render_component(&SettingsPage.render/1, view: {:ok, view}, commands: %{}, section: :setup)
+  defp render_setup(view, params \\ %{}) do
+    render_component(&SettingsPage.render/1,
+      view: {:ok, view},
+      commands: %{},
+      section: :setup,
+      params: params
+    )
     |> LazyHTML.from_fragment()
   end
 
