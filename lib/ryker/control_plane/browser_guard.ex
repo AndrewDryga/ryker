@@ -21,17 +21,21 @@ defmodule Ryker.ControlPlane.BrowserGuard do
 
   def call(conn, options) do
     conn = headers(conn)
-    access = access(options)
+    {access, published_host} = boundary(options)
 
     cond do
-      not local_host?(conn.host) -> refuse(conn, 421, "Misdirected request")
+      not local_host?(conn.host, published_host) -> refuse(conn, 421, "Misdirected request")
       not peer_allowed?(conn.remote_ip, access) -> refuse(conn, 403, "Loopback access only")
       true -> conn
     end
   end
 
-  @doc "Whether `host` is one of the names the control plane answers to."
-  def local_host?(host), do: host in @hosts
+  @doc """
+  Whether `host` is one of the names the control plane answers to: the loopback names, and the
+  host of the address it is published at, such as a tailnet name.
+  """
+  def local_host?(host, published_host \\ nil),
+    do: host in @hosts or (is_binary(published_host) and host == published_host)
 
   def loopback?({127, _, _, _}), do: true
   def loopback?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
@@ -41,14 +45,14 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   def peer_allowed?(address, :loopback), do: loopback?(address)
   def peer_allowed?(address, :network), do: is_tuple(address)
 
-  defp access(options) do
+  defp boundary(options) do
     case Keyword.get(options, :access, :loopback) do
       :endpoint ->
-        Endpoint.config(:control_plane)
-        |> Map.get(:access, :loopback)
+        control_plane = Endpoint.config(:control_plane)
+        {Map.get(control_plane, :access, :loopback), Map.get(control_plane, :public_host)}
 
       access when access in [:loopback, :network] ->
-        access
+        {access, Keyword.get(options, :public_host)}
     end
   end
 

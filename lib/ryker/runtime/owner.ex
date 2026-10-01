@@ -193,7 +193,8 @@ defmodule Ryker.Runtime.Owner do
       access: Map.get(state.bootstrap.control_plane, :access, :loopback),
       csrf_secret: state.csrf_secret,
       ip: state.bootstrap.control_plane.ip,
-      port: state.bootstrap.control_plane.port
+      port: state.bootstrap.control_plane.port,
+      public_url: state.bootstrap.control_public_url
     }
   end
 

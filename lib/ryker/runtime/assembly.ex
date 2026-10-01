@@ -1122,6 +1122,7 @@ defmodule Ryker.Runtime.Assembly do
       fallback_work_profile: outside,
       ip: bootstrap.control_plane.ip,
       port: bootstrap.control_plane.port,
+      public_url: bootstrap.control_public_url,
       schedule_policies: schedules,
       task_policies:
         for(

@@ -106,7 +106,10 @@ defmodule Ryker.ControlPlane.Router do
   # direct call to the router is refused and headed exactly the same way.
   @impl Plug
   def call(conn, options) do
-    case BrowserGuard.call(conn, access: Map.get(options, :access, :loopback)) do
+    case BrowserGuard.call(conn,
+           access: Map.get(options, :access, :loopback),
+           public_host: Map.get(options, :public_host)
+         ) do
       %Plug.Conn{halted: true} = refused -> refused
       conn -> conn |> HTTPConnection.close_after_refusal() |> route(options)
     end

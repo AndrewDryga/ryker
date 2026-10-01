@@ -2124,6 +2124,30 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert :error = LiveSocket.connect(%{}, socket, %{})
   end
 
+  # A console published at a tailnet name (mac-server, 2026-10-01) must go live there too: the
+  # page would render and its socket would be refused, leaving every button dead.
+  test "socket connect admits the address the console is published at and no other name" do
+    published =
+      Map.put(Endpoint.config(:control_plane), :public_host, "mac-server.example.ts.net")
+
+    :ok = Endpoint.config_change([{Endpoint, [control_plane: published]}], [])
+    socket = %Phoenix.Socket{}
+
+    tailnet = %{
+      peer_data: %{address: {127, 0, 0, 1}},
+      uri: URI.parse("https://mac-server.example.ts.net/live"),
+      session: %{}
+    }
+
+    assert {:ok, _connected} = LiveSocket.connect(%{}, socket, tailnet)
+
+    assert :error =
+             LiveSocket.connect(%{}, socket, %{
+               tailnet
+               | uri: URI.parse("https://evil.example/live")
+             })
+  end
+
   test "an input keeps one canonical timeline while routing adds evidence and becomes work" do
     {entry, _id} = lab_input!()
     conn = build_conn() |> Map.put(:host, "localhost")

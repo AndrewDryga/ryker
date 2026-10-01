@@ -26,6 +26,7 @@ defmodule Ryker.ControlPlane.Server do
     :fallback_work_profile,
     :ip,
     :port,
+    :public_url,
     :schedule_policies,
     :task_policies
   ]
@@ -38,14 +39,11 @@ defmodule Ryker.ControlPlane.Server do
       server: true,
       http: [ip: options.ip, port: options.port],
       url: [host: "localhost", port: options.port],
-      check_origin: [
-        "//localhost:#{options.port}",
-        "//127.0.0.1:#{options.port}",
-        "//[::1]:#{options.port}"
-      ],
+      check_origin: origins(options.port, options.public_url),
       secret_key_base: Base.encode64(:crypto.hash(:sha512, options.csrf_secret)),
       control_plane: %{
         access: options.access,
+        public_host: public_host(options.public_url),
         actions:
           Actions.callbacks(
             options.chat,
@@ -82,8 +80,10 @@ defmodule Ryker.ControlPlane.Server do
 
     coop_api = Map.get(configuration, :coop_api)
     coop_client = Map.get(configuration, :coop_client)
+    public_url = Map.get(configuration, :public_url)
 
     validate_listener!(access, ip, port)
+    validate_public_url!(public_url)
     validate_csrf_secret!(csrf_secret)
 
     # A fresh installation has no reviewed policy yet. The console still starts
@@ -104,6 +104,7 @@ defmodule Ryker.ControlPlane.Server do
       csrf_secret: csrf_secret,
       ip: ip,
       port: port,
+      public_url: public_url,
       schedule_policy_resolver: schedule_policy_resolver,
       task_policies: task_policies
     }
@@ -145,6 +146,45 @@ defmodule Ryker.ControlPlane.Server do
     if access == :loopback and ip not in [@loopback_v4, @loopback_v6],
       do: raise(ArgumentError, "control-plane IP must be loopback")
   end
+
+  defp validate_public_url!(nil), do: :ok
+
+  defp validate_public_url!(url) do
+    unless is_binary(url) and
+             match?(
+               %URI{scheme: scheme, host: host}
+               when scheme in ["http", "https"] and is_binary(host) and host != "",
+               URI.parse(url)
+             ),
+           do: raise(ArgumentError, "control-plane public URL must be an HTTP or HTTPS address")
+  end
+
+  # A browser sends the address it opened as its origin. The console listens on its own port,
+  # and Compose publishes it on RYKER_CONTROL_PORT; a setup page reached at the published port
+  # rendered and never went live (mac-server, 2026-10-01). A loopback address is the console
+  # under each loopback name, any other is accepted only as itself.
+  defp origins(port, public_url) do
+    published =
+      case public_url && URI.parse(public_url) do
+        %URI{host: host, port: published_port}
+        when host in ["localhost", "127.0.0.1", "[::1]", "::1"] ->
+          loopback_origins(published_port)
+
+        %URI{host: host, port: published_port} when is_binary(host) ->
+          ["//#{host}:#{published_port}"]
+
+        nil ->
+          []
+      end
+
+    Enum.uniq(loopback_origins(port) ++ published)
+  end
+
+  defp public_host(nil), do: nil
+  defp public_host(url), do: URI.parse(url).host
+
+  defp loopback_origins(port),
+    do: ["//localhost:#{port}", "//127.0.0.1:#{port}", "//[::1]:#{port}"]
 
   defp validate_csrf_secret!(secret) do
     unless is_binary(secret) and byte_size(secret) == 32,

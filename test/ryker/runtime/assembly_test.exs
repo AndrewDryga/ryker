@@ -50,6 +50,17 @@ defmodule Ryker.Runtime.AssemblyTest do
     :ok
   end
 
+  # mac-server, 2026-10-01: a setup page reached at the address Compose published, not the
+  # container's own port, rendered and never went live. The console accepts that address only
+  # if it is told it.
+  test "the console is told the address it is published on" do
+    {:ok, _settings} = Settings.initialize(@actor)
+    bootstrap = %{bootstrap() | control_public_url: "http://127.0.0.1:14321"}
+
+    assert {:ok, configuration} = Assembly.build(bootstrap, Settings.fetch!())
+    assert configuration.control_plane.public_url == "http://127.0.0.1:14321"
+  end
+
   test "a clean installation gives Chat and Slack the bundled installation profile" do
     {:ok, settings} = Settings.initialize(@actor)
 

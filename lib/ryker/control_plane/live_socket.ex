@@ -10,11 +10,14 @@ defmodule Ryker.ControlPlane.LiveSocket do
 
   @impl true
   def connect(_params, socket, %{peer_data: %{address: address}, uri: %URI{host: host}}) do
-    access = Endpoint.config(:control_plane) |> Map.get(:access, :loopback)
+    control_plane = Endpoint.config(:control_plane)
+    access = Map.get(control_plane, :access, :loopback)
+    published_host = Map.get(control_plane, :public_host)
 
-    if BrowserGuard.peer_allowed?(address, access) and BrowserGuard.local_host?(host),
-      do: {:ok, socket},
-      else: :error
+    if BrowserGuard.peer_allowed?(address, access) and
+         BrowserGuard.local_host?(host, published_host),
+       do: {:ok, socket},
+       else: :error
   end
 
   def connect(_params, _socket, _info), do: :error
