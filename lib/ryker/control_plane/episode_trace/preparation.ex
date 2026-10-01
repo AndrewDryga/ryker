@@ -60,9 +60,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
           tone: engagement.tone
         })
 
-      [participation_step | queue_steps(input, Map.get(transitions, input.id, []), now)]
+      # An answer on Ryker's own question card joins the work that asked it with nothing to
+      # decide, so it has no participation to explain (Andrew, 2026-10-01).
+      if answer?(input),
+        do: queue_steps(input, Map.get(transitions, input.id, []), now),
+        else: [participation_step | queue_steps(input, Map.get(transitions, input.id, []), now)]
     end)
   end
+
+  defp answer?(%{content: %{"input_request_ref" => _, "interaction_kind" => "button"}}), do: true
+  defp answer?(_input), do: false
 
   defp custody_transitions(input_rows) do
     ids = Enum.map(input_rows, & &1.id)

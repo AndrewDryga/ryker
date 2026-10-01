@@ -333,6 +333,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       expired_at: input.operational_pruned_at,
       href: "/timeline/ingress-input%3A#{input.id}",
       event_kind: input.event_kind,
+      answer: match?(%{"input_request_ref" => _, "interaction_kind" => "button"}, input.content),
       provider:
         if(is_nil(input.operational_pruned_at),
           do: ProviderMessage.recognize(input.source_kind, input.content)
