@@ -11,12 +11,17 @@
 # box: the posture every run in this repo inherits. An explicit COOP_* env/conf setting still
 # wins for a one-off, so a committed value can only TIGHTEN the default (egress's default is the
 # loosest — "open" — so a repo can pin none but never widen your explicit none).
-# box:
+box:
+  # The test PostgreSQL the host's scripts/elixir-test.sh starts with Docker. A box has no
+  # Docker, so Coop starts the same server as the box's sidecar and the script uses PGHOST.
+  compose: compose.test.yml
+  env:
+    PGHOST: episode-db
+    PGPORT: "5432"
+    # The checkout is shared with a macOS host and compiled NIFs (lazy_html) are per platform,
+    # so a box builds beside the host's _build rather than into it.
+    MIX_BUILD_ROOT: _build/box
 #   dockerfile: <path>  # box image (default .agent/Dockerfile; or reuse a repo Dockerfile)
-#   compose: <path>     # sidecars (default .agent/compose.yml; or point at your own)
-#   env:                # committed, non-secret box defaults; agents/env wins; COOP_* is reserved
-#     PGHOST: db
-#     PGPORT: "5432"
 #   egress: none        # "open" = npm + model API (default); "none" cuts ALL network — forensics only, agents can't work
 #   auto_up: false      # auto-start the sidecar services (default true)
 #   network: false      # join the sibling-services network (default true)
@@ -34,4 +39,4 @@
 
 # gate: the revalidation 'coop fork merge' runs IN THE BOX before landing a fork (rolled back on
 # failure). Same shape as COOP_GATE; an explicit COOP_GATE wins. Use the gate AGENTS.md names.
-# gate: <this repo's gate command>
+gate: make dev-check

@@ -77,6 +77,70 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
     end
   end
 
+  test "a Coop box without Docker tests against the sidecar its PGHOST names" do
+    # On 2026-10-01 a box agent could not run one test all evening: this script
+    # started the database with Docker, and a Coop box has none. Coop starts
+    # compose.test.yml as the box's sidecar and names it in PGHOST instead.
+    root = box_without_docker!()
+
+    {_output, 0} =
+      System.cmd(Path.join(root, "scripts/elixir-test.sh"), ["test/ryker/owning_test.exs"],
+        cd: root,
+        env: box_environment(root, %{"PGHOST" => "episode-db", "PGPORT" => "5432"})
+      )
+
+    assert root |> Path.join("calls.log") |> File.read!() |> String.split("\n", trim: true) == [
+             "episode-db:5432|ecto.create --quiet",
+             "episode-db:5432|do ecto.migrate --quiet + test test/ryker/owning_test.exs"
+           ]
+  end
+
+  test "without Docker or a PGHOST the script stops before compiling anything" do
+    root = box_without_docker!()
+
+    {output, 1} =
+      System.cmd(Path.join(root, "scripts/elixir-test.sh"), [],
+        cd: root,
+        env: box_environment(root, %{"PGHOST" => nil, "PGPORT" => nil}),
+        stderr_to_stdout: true
+      )
+
+    assert output =~ "no docker to start compose.test.yml, and no PGHOST"
+    refute File.exists?(Path.join(root, "calls.log"))
+  end
+
+  # A checkout whose PATH holds only what the script needs, so no Docker is found
+  # wherever the host keeps its own.
+  defp box_without_docker! do
+    root = Path.join(System.tmp_dir!(), "test-database-box-#{Ecto.UUID.generate()}")
+    File.mkdir_p!(Path.join(root, "scripts"))
+    File.mkdir_p!(Path.join(root, "bin"))
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.cp!(
+      Path.join(@repository, "scripts/elixir-test.sh"),
+      Path.join(root, "scripts/elixir-test.sh")
+    )
+
+    File.chmod!(Path.join(root, "scripts/elixir-test.sh"), 0o755)
+
+    for tool <- ["dirname", "env"] do
+      File.ln_s!(System.find_executable(tool), Path.join(root, "bin/#{tool}"))
+    end
+
+    executable!(root, "scripts/elixir-mix.sh", """
+    #!/bin/bash
+    printf '%s:%s|%s\\n' "$PGHOST" "$PGPORT" "$*" >> "#{Path.join(root, "calls.log")}"
+    """)
+
+    root
+  end
+
+  defp box_environment(root, overrides) do
+    Map.merge(%{"PATH" => Path.join(root, "bin"), "RYKER_TEST_ISOLATED" => nil}, overrides)
+    |> Enum.to_list()
+  end
+
   defp executable!(root, path, text) do
     path = Path.join(root, path)
     File.write!(path, text)

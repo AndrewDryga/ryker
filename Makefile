@@ -169,8 +169,11 @@ deploy-check:
 # A fresh Compose project cannot safely be created by two `up` processes at
 # once. The full gate fans out two Elixir targets, so establish their shared
 # PostgreSQL service before that fan-out; each target still gets its own DB.
+# A Coop box has no Docker; Coop started the same service as its sidecar.
 test-db-ready:
-	docker compose --project-name ryker-kernel --file compose.test.yml up --detach --wait episode-db >/dev/null
+	if command -v docker >/dev/null 2>&1; then \
+		docker compose --project-name ryker-kernel --file compose.test.yml up --detach --wait episode-db >/dev/null; \
+	fi
 
 # The commit and deploy gate: everything deterministic that the suite itself
 # proves, minus the `slow` capacity tests, and nothing that is already inside

@@ -46,6 +46,10 @@ Do not repeatedly run credentialed model evals during ordinary edit-test cycles.
 working in parallel run their owning tests; one `make dev-check` on the merged tree before
 the commit is the gate, not one per agent.
 
+The same commands work inside a Coop box: Coop starts the test PostgreSQL as the box's sidecar
+and the box builds into `_build/box` (`.agent/project.yaml`, "Focused development tests" in
+`docs/testing.md`).
+
 ## Every fix carries the test that would have caught it
 
 A fix without a test is a fix with a scheduled return date. On 2026-08-13 eight defects

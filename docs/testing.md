@@ -11,6 +11,13 @@ Run the owning ExUnit file while editing:
 scripts/elixir-test.sh test/ryker/work/executor_test.exs
 ```
 
+The same commands work inside a Coop box. A box has no Docker, so Coop starts `compose.test.yml`
+as the box's sidecar and `.agent/project.yaml` names it in `PGHOST`. The box compiles into
+`_build/box`, because the checkout's `_build` belongs to the macOS host and compiled NIFs are per
+platform. `coop fork merge` runs `make dev-check` in the box before it lands a fork. Coop hides any
+path named like a secret (`credentials`, `secrets`, `*.pem`, …) from a box, so no source path may
+use such a name; `test/ryker/coop_box_visibility_test.exs` fails on one.
+
 Parallel PostgreSQL tests must use suite-owned conversation and workspace identities. Sandbox
 rollback does not release transaction-scoped advisory locks until the test ends, so unrelated tests
 must not reuse shared fixture identities. Do not increase production lock timeouts to hide fixture
