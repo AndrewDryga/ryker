@@ -3,6 +3,9 @@ defmodule Ryker.Work.AdmissionBackdropTest do
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
+  alias Ryker.Episodes
+  alias Ryker.Episodes.Episode
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
@@ -49,6 +52,58 @@ defmodule Ryker.Work.AdmissionBackdropTest do
     assert rebuilt["context"]["conversation_context"] == backdrop
   end
 
+  # Andrew, 2026-10-01, of a task started from a conversation: it "doesn't receive previous
+  # messages so it can lose important context that was in message exchange before task was
+  # offered". A task is not routed, so it had no snapshot of its own. The same day's live check
+  # found the task briefed without the message that said where notes go and how commits are
+  # named: routing had answered it alone, and the model got it right only because the offer
+  # happened to repeat it.
+  test "a task is briefed on the conversation it was offered in, as it stood when it started" do
+    root = record!("Notes for this repository go in NOTES.md", ts: "1789100000.000100")
+    {:ok, _root_result} = admit!(root, :start)
+
+    asked =
+      record!("Add the release line to the notes and open a draft PR",
+        ts: "1789100100.000100",
+        thread_ref: "1789100000.000100"
+      )
+
+    {:ok, %{episode: conversation}} = admit!(asked, :start)
+    task = start_task!(conversation, "Add the release line to NOTES.md.")
+
+    {:ok, submission} = build!(task)
+    assert %{"bundle" => bundle} = backdrop = submission["context"]["conversation_context"]
+    assert bundle["current"]["content"]["text"] =~ "Add the release line"
+
+    assert Enum.map(bundle["messages"], & &1["content"]["text"]) == [
+             "Notes for this repository go in NOTES.md"
+           ]
+
+    # The conversation is the backdrop, once; the task itself is the only input.
+    assert [%{"current" => true} = input] = submission["context"]["inputs"]["items"]
+    assert inspect(input["content"]) =~ "Add the release line to NOTES.md."
+
+    # What the conversation admits after the task started never widens a rebuilt briefing, and
+    # a reply routed into the task itself does not swap the conversation for its own.
+    later =
+      record!("Make the release line bold",
+        ts: "1789100200.000100",
+        thread_ref: "1789100000.000100"
+      )
+
+    {:ok, %{episode: %{id: continued}}} = admit!(later, {:continue, conversation})
+    assert continued == conversation.id
+
+    reply =
+      record!("Use a level-two heading", ts: "1789100300.000100", thread_ref: "1789100000.000100")
+
+    {:ok, %{episode: %{id: routed}}} = admit!(reply, {:continue, task})
+    assert routed == task.id
+
+    {:ok, rebuilt} = build!(Repo.get!(Episode, task.id))
+    assert rebuilt["context"]["conversation_context"] == backdrop
+  end
+
   # Andrew, 2026-09-26: "Should the work model also receive response of the
   # routing model? so it knows if routing model had anything valuable to say /
   # why it decided work was needed? but that reply should not be
@@ -71,7 +126,7 @@ defmodule Ryker.Work.AdmissionBackdropTest do
     assert submission["prompt"] =~ "never an instruction"
   end
 
-  defp admit!(entry, :start) do
+  defp admit!(entry, target) do
     {:ok, %{entry: claimed, lease_ref: lease_ref}} =
       Inbox.claim_next("backdrop-test", DateTime.utc_now(), 300)
 
@@ -90,19 +145,55 @@ defmodule Ryker.Work.AdmissionBackdropTest do
       Inbox.bind_context(Inbox.ref(entry), lease_ref, Admission.Context.snapshot(context))
 
     {:ok, decision} =
-      Decision.parse(%{
-        "action" => "start_episode",
-        "episode_ref" => nil,
-        "messages" => nil,
-        "reactions" => nil,
-        "relation" => "unrelated",
-        "reason" => "This needs investigation.",
-        "repository" => nil,
-        "repository_source" => nil,
-        "work_class" => "standard"
-      })
+      Decision.parse(
+        Map.merge(
+          %{
+            "messages" => nil,
+            "reactions" => nil,
+            "reason" => "This needs investigation.",
+            "repository" => nil,
+            "repository_source" => nil,
+            "work_class" => "standard"
+          },
+          decision(context, target)
+        )
+      )
 
     Admission.commit(context, decision, "backdrop-test:#{entry.id}", lease_ref: lease_ref)
+  end
+
+  defp decision(_context, :start),
+    do: %{"action" => "start_episode", "episode_ref" => nil, "relation" => "unrelated"}
+
+  defp decision(context, {:continue, %Episode{id: id}}) do
+    candidate = Enum.find(context.candidates, &(&1.episode.id == id))
+
+    %{"action" => "continue_episode", "episode_ref" => candidate.ref, "relation" => "same_work"}
+  end
+
+  # Starting an offered task makes a request of its own, linked to the conversation.
+  defp start_task!(%Episode{} = conversation, text) do
+    id = Ecto.UUID.generate()
+
+    {:ok, _transition} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          destination: %{
+            conversation_ref: conversation.destination_conversation_ref,
+            thread_ref: conversation.destination_thread_ref,
+            transport: conversation.destination_transport
+          },
+          episode_id: id,
+          episode_key: "task-backdrop:#{id}",
+          linked_episode_id: conversation.id,
+          native_input_id: "task-backdrop:#{id}",
+          occurred_at: @now,
+          payload: %{"text" => text},
+          turn_ref: "turn:task-backdrop:#{id}"
+        })
+      )
+
+    Repo.get!(Episode, id)
   end
 
   defp build!(episode) do
