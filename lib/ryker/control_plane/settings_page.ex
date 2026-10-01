@@ -766,7 +766,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       autocomplete="off"
     >
       <label class="settings-people-search">
-        <span>Search {@total} people</span><input
+        <span>Search {if @total == 1, do: "1 person", else: "#{@total} people"}</span><input
           type="search"
           name="query"
           value={@people.query}
