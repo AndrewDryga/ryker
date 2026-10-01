@@ -981,6 +981,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, view, _html} = open("/integrations/slack")
 
     view |> element("button", "Choose people") |> render_click()
+    assert has_element?(view, "#slack-people label", "Search 1 person")
     view |> form("#slack-people") |> render_submit()
 
     slack = Settings.fetch!().slack
