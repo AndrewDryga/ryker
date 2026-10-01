@@ -112,7 +112,11 @@ defmodule Ryker.ComposeDistributionTest do
     assert compose_entrypoint =~ "grep -q 'does match certificate'"
     refute worker =~ "capabilities:"
     refute worker =~ "slots_free:"
-    assert worker_image =~ "COOP_REVISION=cb5178ebb9f0e6c53999df51ffffe73bd5f84e6c"
+    # The recipe builds the newest Coop on GitHub that the live worker is built from. It pinned
+    # cb5178eb, worker protocol v1, for days after Ryker spoke only v2 (2026-09-27): rebuilding
+    # the worker from the recipe would have produced one that could not talk to Ryker at all.
+    assert worker_image =~ "COOP_REVISION=5596c527c8d630ea77f9ce06534a97cf04a1d484"
+    assert worker_image =~ "COOP_VERSION=v9.0.0-552-g5596c527"
     # The Coop pin lives in one place, the worker Dockerfile; compose.yml only
     # passes an operator's COOP_VERSION override through. Two copies of the
     # default once had to be bumped together.
