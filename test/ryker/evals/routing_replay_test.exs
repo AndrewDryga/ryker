@@ -15,6 +15,40 @@ defmodule Ryker.Evals.RoutingReplayTest do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.TestSupport.FakeCoopAPI
 
+  defmodule LocalModel do
+    @moduledoc false
+    @behaviour Plug
+
+    import Plug.Conn
+
+    @impl true
+    def init(options), do: options
+
+    # Answers each chat completion with the next scripted answer and tells
+    # the test what it was asked.
+    @impl true
+    def call(conn, {test, script}) do
+      {:ok, body, conn} = read_body(conn, length: 4_000_000)
+      send(test, {:local_request, conn.request_path, Jason.decode!(body)})
+      content = Agent.get_and_update(script, fn [next | rest] -> {next, rest} end)
+
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(
+        200,
+        Jason.encode!(%{
+          "choices" => [
+            %{
+              "finish_reason" => "stop",
+              "message" => %{"content" => content, "role" => "assistant"}
+            }
+          ],
+          "usage" => %{"completion_tokens" => 40, "prompt_tokens" => 2_300}
+        })
+      )
+    end
+  end
+
   setup do
     context = context!()
     request = Prompt.build(context)
@@ -36,6 +70,45 @@ defmodule Ryker.Evals.RoutingReplayTest do
     refute replay.prompt =~ "Yesterday's wording."
     assert replay.schema == schema(context)
     assert replay.eval_id == "routing-replay:#{line["labels"]["example_id"]}"
+  end
+
+  # Andrew, 2026-10-01: "do the routing thing now". The local routing model's cascade is built
+  # from which decisions it makes the same as the provider, and a week of live traffic is a few
+  # dozen decisions while the routing examples hold every one Ryker kept. The local replay asks
+  # the local model each recorded decision once, with no repair, since a cascade acts on its first
+  # answer, and says for each recorded action how often it agreed and how long it took.
+  test "a local model is asked each recorded decision once and scored per action",
+       %{example: line, candidate: candidate, request: request, context: context} do
+    {:ok, continued_case} = RoutingReplayCase.new(line)
+    {:ok, quick_case} = RoutingReplayCase.new(line(request, context, quick_reply()))
+
+    endpoint =
+      local_model!([Jason.encode!(continued(candidate)), "The checkout outage again."])
+
+    assert {:ok, result} =
+             RoutingReplay.run_local([continued_case, quick_case], %{
+               endpoint: endpoint,
+               model: "qwen2.5:3b",
+               timeout_ms: 5_000
+             })
+
+    # Exactly what routing's local comparison sends: the prompt as the one
+    # user message, under routing's contract as structured output.
+    assert_received {:local_request, "/v1/chat/completions", sent}
+    assert [%{"content" => prompt, "role" => "user"}] = sent["messages"]
+    assert prompt == continued_case.prompt
+    assert sent["response_format"]["type"] == "json_schema"
+
+    summary = RoutingReplay.summary([continued_case, quick_case], result, [])
+    assert {summary.same, summary.changed, summary.not_answered} == {1, 0, 1}
+
+    assert summary.by_action == %{
+             "continue_episode" => %{total: 1, valid: 1, same: 1, changed_to: %{}},
+             "quick_reply" => %{total: 1, valid: 0, same: 0, changed_to: %{}}
+           }
+
+    assert %{count: 2, median: median} = summary.latency_ms
+    assert is_integer(median)
   end
 
   test "an answer that makes Ryker do the same passes, whatever its words",
@@ -225,6 +298,24 @@ defmodule Ryker.Evals.RoutingReplayTest do
       "repository_source" => nil,
       "work_class" => nil
     }
+  end
+
+  defp local_model!(script) do
+    {:ok, answers} = Agent.start_link(fn -> script end)
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+
+    start_supervised!(
+      Bandit.child_spec(
+        ip: {127, 0, 0, 1},
+        plug: {LocalModel, {self(), answers}},
+        port: port,
+        startup_log: false
+      )
+    )
+
+    "http://127.0.0.1:#{port}/v1"
   end
 
   defp options(fake) do

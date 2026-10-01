@@ -15,6 +15,7 @@ defmodule Ryker.Evals.RoutingReplay do
   """
 
   alias Ryker.Evals.{CoopRunner, RoutingReplayCase}
+  alias Ryker.LocalRouting.Client
 
   @doc """
   The cases in an export file, oldest first, at most `limit` of them, and the
@@ -59,6 +60,39 @@ defmodule Ryker.Evals.RoutingReplay do
   def run(cases, options), do: CoopRunner.run(cases, options)
 
   @doc """
+  Runs the cases on a local routing model, the way routing's local comparison
+  asks it (`Ryker.LocalRouting.Client`): each case once, one at a time, with
+  no repair, since a cascade acts on the first answer the local model gives.
+  """
+  @spec run_local([RoutingReplayCase.t()], map()) :: {:ok, map()}
+  def run_local(cases, %{endpoint: _endpoint, model: _model, timeout_ms: _timeout} = options),
+    do: {:ok, %{results: Enum.map(cases, &local_result(&1, options))}}
+
+  defp local_result(replay, options) do
+    case Client.ask(options, replay.prompt, replay.schema) do
+      {:ok, %{content: content, ms: ms}} when is_binary(content) ->
+        case RoutingReplayCase.validate(replay, content) do
+          {:accept, %{document: document, passed: passed}} ->
+            %{
+              eval_id: replay.eval_id,
+              status: if(passed, do: :passed, else: :failed),
+              decision: document,
+              ms: ms
+            }
+
+          {:reject, [why | _more]} ->
+            %{eval_id: replay.eval_id, status: :failed, reason: {:refused_answer, why}, ms: ms}
+        end
+
+      {:ok, %{ms: ms}} ->
+        %{eval_id: replay.eval_id, status: :failed, reason: :empty_answer, ms: ms}
+
+      {:error, {_kind, why}} ->
+        %{eval_id: replay.eval_id, status: :failed, reason: {:local_model, why}}
+    end
+  end
+
+  @doc """
   How many decisions stayed the same, field by field, and each one that
   changed or could not be asked again, by its example.
   """
@@ -85,8 +119,44 @@ defmodule Ryker.Evals.RoutingReplay do
           {field, Enum.count(answered, &(&1.recorded[field] == &1.replayed[field]))}
         end),
       sentiment: sentiment(cases, rows),
+      by_action: by_action(rows),
+      latency_ms: latency(results),
       examples: Enum.reject(rows, &(&1.status == :same))
     }
+  end
+
+  # For each action routing recorded: how many answers routing could act on,
+  # how many made Ryker do the same, and what the others did instead. A cascade
+  # trusts the local model only with actions it reliably keeps.
+  defp by_action(rows) do
+    rows
+    |> Enum.group_by(& &1.recorded["action"])
+    |> Map.new(fn {action, rows} ->
+      changed = for %{status: :changed, replayed: %{"action" => to}} <- rows, do: to
+
+      {action,
+       %{
+         total: length(rows),
+         valid: Enum.count(rows, &(&1.status in [:same, :changed])),
+         same: Enum.count(rows, &(&1.status == :same)),
+         changed_to: Enum.frequencies(changed)
+       }}
+    end)
+  end
+
+  # How long each answer took, where the run measured it: a local model does.
+  defp latency(results) do
+    case results |> Enum.map(&Map.get(&1, :ms)) |> Enum.filter(&is_integer/1) |> Enum.sort() do
+      [] ->
+        nil
+
+      times ->
+        %{
+          count: length(times),
+          median: Enum.at(times, div(length(times), 2)),
+          p90: Enum.at(times, min(length(times) - 1, div(length(times) * 9, 10)))
+        }
+    end
   end
 
   # Where routing was asked how the sender feels, how many answers said, and

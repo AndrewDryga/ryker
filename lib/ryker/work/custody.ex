@@ -313,6 +313,10 @@ defmodule Ryker.Work.Custody do
   defdelegate freeze_submission(episode_id, turn_ref, lease_ref, submission, options \\ []),
     to: Turns
 
+  @spec thaw_stale_submission(Ecto.UUID.t(), String.t(), String.t()) ::
+          {:ok, Turn.t()} | {:error, term()}
+  defdelegate thaw_stale_submission(episode_id, turn_ref, lease_ref), to: Turns
+
   @doc false
   @spec record_final_preflight(
           Ecto.UUID.t(),

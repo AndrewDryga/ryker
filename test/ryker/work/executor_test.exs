@@ -230,14 +230,19 @@ defmodule Ryker.Work.ExecutorTest do
     assert Process.get(counter) >= 2
   end
 
-  test "withdrawn frozen knowledge cannot reach the model" do
-    # A queued retry can outlive the source that supplied its briefing.
+  # A queued retry can outlive the source that supplied its briefing, and a person can edit the
+  # message a fact came from while Ryker answers it. Andrew did that in Chat on 2026-10-01 and the
+  # reply never came: "Model work stopped". The frozen briefing was refused before Coop saw the
+  # turn, and nothing built it again. Withdrawn knowledge still never reaches the model; a turn
+  # Coop has not seen is built again from what is current.
+  test "a turn whose frozen knowledge was withdrawn before Coop saw it is rebuilt without it" do
     claim = claim_with_bound_empty_session!("withdrawn-knowledge")
     {:ok, submission} = SubmissionBuilder.build(claim)
+    withdrawn = "knowledge:#{Ecto.UUID.generate()}"
 
     context =
       put_in(submission["context"], ["operator_context", "continuity", "knowledge"], [
-        %{"source_ref" => "knowledge:#{Ecto.UUID.generate()}", "version" => 1}
+        %{"source_ref" => withdrawn, "version" => 1}
       ])
 
     submission = %{submission | "context" => context}
@@ -251,9 +256,12 @@ defmodule Ryker.Work.ExecutorTest do
       )
 
     claim = %{claim | turn: turn}
-    {:ok, fake} = fake_for(claim, [reply("Must not use withdrawn memory.")])
-    assert {:error, :work_knowledge_context_stale} = Executor.run(claim, options(fake))
-    assert FakeAPI.state(fake).submissions == []
+    {:ok, fake} = fake_for(claim, [reply("Answered from what is current.")])
+
+    assert {:ok, %{status: :accepted, turn: answered}} = Executor.run(claim, options(fake))
+    assert [submitted] = FakeAPI.state(fake).submissions
+    refute submitted.prompt =~ withdrawn
+    refute answered.submission_fingerprint == turn.submission_fingerprint
   end
 
   test "withdrawn knowledge is rechecked inside result acceptance before delivery is created" do
