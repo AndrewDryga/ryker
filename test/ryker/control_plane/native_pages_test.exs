@@ -462,6 +462,39 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
     following = put_in(snapshot, [:trace, :stopped], nil)
     assert episode_html(following) =~ "Follow-up in progress"
+
+    # Andrew, 2026-10-01, of the timeline's last line "No visible answer yet · continue work":
+    # "make it nicely designed animation that works continues, maybe some outline with minimal
+    # animation". It says in words what is happening, and only work in progress moves.
+    working = put_in(following, [:trace, :case_file, :reply], nil)
+
+    [wait] =
+      working
+      |> episode_html()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".story-wait")
+      |> Enum.to_list()
+
+    assert LazyHTML.attribute(wait, "data-state") == ["working"]
+    assert LazyHTML.text(wait) =~ "Ryker is working on this"
+    refute LazyHTML.text(wait) =~ "continue work"
+
+    asking = put_in(working, [:episode, :state], :waiting_for_input)
+
+    [wait] =
+      asking
+      |> episode_html()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".story-wait")
+      |> Enum.to_list()
+
+    assert LazyHTML.attribute(wait, "data-state") == ["waiting"]
+    assert LazyHTML.text(wait) =~ "Waiting for your answer"
+
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    assert css =~
+             "@media (prefers-reduced-motion:no-preference) { .story-wait[data-state=working]::before { animation:story-wait-sweep 3s linear infinite; }"
   end
 
   # Episode-history retention deletes the kernel events, origins and closed

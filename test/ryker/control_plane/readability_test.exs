@@ -214,6 +214,25 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert opened =~ "border-bottom:0"
   end
 
+  # Andrew, 2026-10-01, of a Work briefing's "Preferences used" and "Memory recalled": "the
+  # rendering of those is way off, text too large, make it properly designed and more minimalistic
+  # without loosing the data/features". Group names read as the cards' other section labels and
+  # each entry at the cards' body size.
+  test "a briefing's saved context reads at the card's own sizes" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    assert [_, group] = Regex.run(~r/^\.applied-context h4 \{([^}]+)\}/m, css)
+    assert group =~ "font-size:11px"
+    assert group =~ "text-transform:uppercase"
+
+    assert [_, entry] = Regex.run(~r/^\.applied-context li \{([^}]+)\}/m, css)
+    assert entry =~ "font-size:14px"
+    assert entry =~ "line-height:20px"
+
+    assert [_, title] = Regex.run(~r/^\.applied-context li strong \{([^}]+)\}/m, css)
+    assert title =~ "font-size:14px"
+  end
+
   test "the open mobile workspace menu remains inside the viewport" do
     # At 390px the menu's 320px content box opened from the More trigger and
     # widened the document to 447px. Anchor it to the full mobile navigation.

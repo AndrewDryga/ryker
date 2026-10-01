@@ -324,7 +324,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     target = LazyHTML.query_by_id(document, String.trim_leading(href, "#"))
 
     assert target |> LazyHTML.query(".case-card-heading h3") |> LazyHTML.text() ==
-             "Answer rejected"
+             "Sent back to fix"
   end
 
   def record_query(_event, _measurements, %{query: query, result: {:ok, result}}, owner) do

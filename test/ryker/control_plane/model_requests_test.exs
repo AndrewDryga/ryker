@@ -155,7 +155,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     first = LazyHTML.query(document, "#event-turn-#{turn.id}-validation-1")
     second = LazyHTML.query(document, "#event-turn-#{turn.id}-validation-2")
 
-    assert LazyHTML.text(first) =~ "Answer rejected"
+    assert LazyHTML.text(first) =~ "Sent back to fix"
     assert LazyHTML.text(first) =~ "not ready"
     assert LazyHTML.text(second) =~ "Answer validated"
 

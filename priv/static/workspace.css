@@ -264,12 +264,16 @@
 .episode-title-actions form { margin:0; }
 .episode-title-actions .ui-button { min-height:44px; }
 .episode-page-intro > p { font-size:14px; color:var(--ryker-text-secondary); }
-.story-wait { display:flex; gap:12px; padding:24px 0; color:var(--ryker-text-secondary); }
-.story-wait .pulse-dot { flex-shrink:0; margin-top:8px; }
-.story-wait strong { font-size:14px; color:var(--ryker-text-secondary); font-weight:500; }
-.story-wait p { font-size:14px; margin:7px 0; }
+.story-wait { position:relative; isolation:isolate; display:grid; gap:2px; max-width:640px; box-sizing:border-box; padding:14px 18px; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
+.story-wait strong { color:var(--ryker-text); font-size:14px; line-height:20px; font-weight:600; }
+.ryker-app .story-wait p { margin:0; font-size:13px; line-height:18px; }
 .story-wait a { color:var(--ryker-text-secondary); font-size:14px; }
 .story-wait .ui-icon { height:12px; }
+/* Work in progress: one accent highlight travels slowly around the outline. */
+@property --story-wait-angle { syntax:'<angle>'; inherits:false; initial-value:0deg; }
+.story-wait[data-state=working] { border-color:transparent; }
+.story-wait[data-state=working]::before { content:""; position:absolute; inset:-1px; z-index:-1; box-sizing:border-box; padding:1px; border-radius:inherit; background:conic-gradient(from var(--story-wait-angle), var(--ryker-stroke) 0deg, var(--ryker-stroke) 250deg, var(--ryker-accent) 320deg, var(--ryker-stroke) 360deg); -webkit-mask:linear-gradient(currentColor 0 0) content-box, linear-gradient(currentColor 0 0); -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none; }
+@media (prefers-reduced-motion:no-preference) { .story-wait[data-state=working]::before { animation:story-wait-sweep 3s linear infinite; } @keyframes story-wait-sweep { to { --story-wait-angle:360deg; } } }
 .story-stop { padding:20px; background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); border-radius:5px; color:var(--ryker-text-secondary); margin-top:20px; font-size:14px; }
 .story-stop h3 { color:var(--ryker-text-secondary); font-size:15px; margin:0 0 9px; font-weight:550; }
 .story-stop strong { display:block; font-size:14px; color:var(--ryker-text-secondary); margin:12px 0; }
@@ -770,8 +774,7 @@
 .artifact-unavailable { font-size:14px; line-height:1.5; color:var(--ryker-text-secondary); margin:0; padding:12px 16px; }
 .prompt-source-body pre { font-size:13px; max-height:480px; max-width:100%; box-sizing:border-box; white-space:pre-wrap; overflow-wrap:anywhere; overflow:auto; }
 .case-outcome { padding:16px 0 0 84px; font-size:14px; color:var(--secondary); }
-.case-outcome .story-wait { padding:8px 0; }
-.case-outcome .story-wait strong { font-size:17px; }
+.case-outcome .story-wait { margin:0 0 16px; }
 .story-stop { margin:8px 0 20px; padding:16px 20px; font-size:15px; }
 .story-stop h3 { font-size:19px; }
 .story-stop strong { font-size:15px; }
@@ -825,12 +828,13 @@
   .context-record { padding:12px; }
 }
 
-.applied-context a { color:var(--ryker-text-secondary); }
-.applied-context { border-left:3px solid var(--ryker-stroke-strong); background:var(--ryker-surface-raised); padding:14px 18px; margin:16px 0; display:grid; gap:16px; }
-.applied-context h4 { margin:0 0 8px; font-size:15px; }
-.applied-context ul { list-style:none; margin:0 0 8px; padding:0; }
-.applied-context li { display:flex; flex-wrap:wrap; gap:4px 12px; line-height:1.5; margin:4px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
-.applied-context a { font-size:13px; }
+.applied-context { display:grid; gap:14px; margin:16px 0; padding:12px 16px; border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface-raised); }
+.applied-context h4 { margin:0 0 6px; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+.applied-context ul { display:grid; gap:6px; list-style:none; margin:0; padding:0; }
+.applied-context li { display:flex; flex-wrap:wrap; gap:2px 8px; margin:0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.applied-context li strong { color:var(--ryker-text); font-size:14px; font-weight:600; }
+.applied-context a { display:inline-block; margin-top:6px; color:var(--ryker-text-secondary); font-size:13px; line-height:18px; }
+.applied-context a:hover { color:var(--ryker-text); }
 /* Mobile keeps the same order: title, action, description, help, then stacked toolbar controls. */
 @media (max-width:600px) {
   .ryker-app .page-surface, .ryker-app .native-page > .instructions-page { padding:20px 16px; }
