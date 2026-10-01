@@ -1090,6 +1090,10 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     articles = chat_articles()
     refute Enum.any?(articles, &(LazyHTML.text(&1) =~ "Model work stopped"))
     assert Enum.count(articles, &(LazyHTML.text(&1) =~ @edited_reply)) == 1
+
+    # The run saw both versions and answered the new one. Live, the reply still
+    # read "Answered your earlier wording" once it arrived.
+    refute Enum.any?(articles, &(LazyHTML.text(&1) =~ "Answered your earlier wording"))
   end
 
   test "an edit reaches the earlier reply on a refresh, though the reply itself did not change" do
