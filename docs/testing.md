@@ -18,6 +18,12 @@ platform. `coop fork merge` runs `make dev-check` in the box before it lands a f
 path named like a secret (`credentials`, `secrets`, `*.pem`, …) from a box, so no source path may
 use such a name; `test/ryker/coop_box_visibility_test.exs` fails on one.
 
+A Ryker Work job and the draft-PR review of Ryker's own repository run in the fleet's trusted box
+(`deploy/compose/coop/Box.Dockerfile`), which gets neither Docker nor sidecar services. It carries
+the release's Erlang and Elixir and the PostgreSQL server `compose.test.yml` pins, and
+`scripts/elixir-test.sh` starts a private server from them for the run and removes it at exit. The
+review runs the `gate:` in `.agent/project.yaml`, `make dev-check`.
+
 Parallel PostgreSQL tests must use suite-owned conversation and workspace identities. Sandbox
 rollback does not release transaction-scoped advisory locks until the test ends, so unrelated tests
 must not reuse shared fixture identities. Do not increase production lock timeouts to hide fixture

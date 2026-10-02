@@ -1,4 +1,10 @@
 ARG COOP_BASE_IMAGE=coop-box
+# The image the release builds with (Dockerfile ELIXIR_IMAGE), so a job or review
+# of Ryker's own repository builds and tests it with the release's toolchain.
+ARG ELIXIR_IMAGE=hexpm/elixir:1.19.5-erlang-28.4.1-debian-bookworm-20260610-slim
+
+FROM ${ELIXIR_IMAGE} AS elixir
+
 FROM ${COOP_BASE_IMAGE}
 
 USER root
@@ -14,6 +20,27 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends chromium-headless-shell imagemagick \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
+
+# The PostgreSQL server compose.test.yml pins. A job or review gets neither
+# Docker nor sidecar services, so Ryker's scripts/elixir-test.sh starts a private
+# server from these binaries; without one every review of Ryker failed its gate.
+RUN install -d /usr/share/postgresql-common/pgdg \
+ && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+      https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+ && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends postgresql-common \
+ && sed -ri 's/^#?(create_main_cluster) .*$/\1 = false/' /etc/postgresql-common/createcluster.conf \
+ && apt-get install -y --no-install-recommends postgresql-18 \
+ && ln -s /usr/lib/postgresql/18/bin/initdb /usr/lib/postgresql/18/bin/pg_ctl /usr/local/bin/ \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=elixir /usr/local/lib/erlang /usr/local/lib/erlang
+COPY --from=elixir /usr/local/lib/elixir /usr/local/lib/elixir
+RUN for tool in erl erlc escript epmd; do ln -s ../lib/erlang/bin/$tool /usr/local/bin/$tool; done \
+ && for tool in elixir elixirc iex mix; do ln -s ../lib/elixir/bin/$tool /usr/local/bin/$tool; done
 
 USER node
 ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/ryker-ca.crt
