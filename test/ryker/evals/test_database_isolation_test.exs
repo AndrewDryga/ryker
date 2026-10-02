@@ -5,9 +5,12 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
 
   for exit_status <- [0, 37] do
     @exit_status exit_status
-    test "the canonical gate isolates its database and preserves exit #{@exit_status}" do
+    test "the canonical gate runs every test file once, each partition in a fresh database, and preserves exit #{@exit_status}" do
       # A draft migration had already been applied to ryker_test. The full
       # gate skipped the edited migration and failed hundreds of unrelated tests.
+      # Since 2026-10-02 the async files run in one VM and the serial files are
+      # dealt across others beside it, so each needs a database of its own, every
+      # one is dropped, no file is lost or run twice, and one red VM is a red gate.
       # Read the recipe with a clean make environment: inside `make check` this
       # child would otherwise inherit the parent's jobserver flags and warn.
       {commands, 0} =
@@ -25,6 +28,7 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
       root = Path.join(System.tmp_dir!(), "test-database-isolation-#{Ecto.UUID.generate()}")
       File.mkdir_p!(Path.join(root, "scripts"))
       File.mkdir_p!(Path.join(root, "bin"))
+      File.mkdir_p!(Path.join(root, "test/ryker"))
       on_exit(fn -> File.rm_rf!(root) end)
 
       File.cp!(
@@ -33,6 +37,19 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
       )
 
       File.chmod!(Path.join(root, "scripts/elixir-test.sh"), 0o755)
+
+      for {name, use} <- [
+            a: "use ExUnit.Case, async: true",
+            b: "use Ryker.DataCase",
+            c: "use Ryker.DataCase, async: true",
+            d: "use ExUnit.Case, async: false",
+            e: "use Ryker.DataCase"
+          ] do
+        File.write!(
+          Path.join(root, "test/ryker/#{name}_test.exs"),
+          "defmodule T do\n  #{use}\nend\n"
+        )
+      end
 
       executable!(root, "bin/docker", """
       #!/bin/bash
@@ -43,11 +60,12 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
       esac
       """)
 
+      # Only the VM holding d_test.exs fails, as a real red gate usually does.
       executable!(root, "scripts/elixir-mix.sh", """
       #!/bin/bash
       printf '%s|%s\\n' "$PGDATABASE" "$*" >> "$ISOLATION_LOG"
       case "$*" in
-        do*) exit "$ISOLATION_EXIT" ;;
+        *'+ test '*d_test.exs*) exit "$ISOLATION_EXIT" ;;
         *) exit 0 ;;
       esac
       """)
@@ -61,18 +79,34 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
             {"PATH", Path.join(root, "bin") <> ":" <> System.fetch_env!("PATH")},
             {"PGDATABASE", "inherited_database_must_not_be_touched"},
             {"RYKER_TEST_ISOLATED", "0"},
+            {"RYKER_TEST_PARTITIONS", "2"},
             {"ISOLATION_LOG", log},
             {"ISOLATION_EXIT", Integer.to_string(@exit_status)}
           ]
         )
 
-      calls = File.read!(log) |> String.split("\n", trim: true)
-      databases = Enum.map(calls, &(String.split(&1, "|", parts: 2) |> hd())) |> Enum.uniq()
-      assert [database] = databases
-      assert database =~ ~r/^ryker_test_\d+_\d+$/
-      assert Enum.any?(calls, &String.ends_with?(&1, "|ecto.create --quiet"))
-      assert Enum.any?(calls, &String.ends_with?(&1, "|ecto.drop --quiet"))
-      assert Enum.any?(calls, &String.contains?(&1, "ecto.migrate --quiet + test"))
+      calls =
+        File.read!(log) |> String.split("\n", trim: true) |> Enum.map(&String.split(&1, "|"))
+
+      suites =
+        for [database, "do ecto.create --quiet + ecto.migrate --quiet + test " <> files] <- calls,
+            into: %{},
+            do:
+              {String.replace(database, ~r/^ryker_test_\d+_\d+_/, ""),
+               files |> String.split() |> Enum.filter(&String.ends_with?(&1, "_test.exs"))}
+
+      assert suites == %{
+               "p0" => ["test/ryker/a_test.exs", "test/ryker/c_test.exs"],
+               "p1" => ["test/ryker/b_test.exs", "test/ryker/e_test.exs"],
+               "p2" => ["test/ryker/d_test.exs"]
+             }
+
+      databases = for [database, "do ecto.create" <> _] <- calls, do: database
+      assert Enum.all?(databases, &(&1 =~ ~r/^ryker_test_\d+_\d+_p[012]$/))
+      assert length(Enum.uniq(databases)) == 3
+      dropped = for [database, "ecto.drop --quiet"] <- calls, do: database
+      assert Enum.sort(dropped) == Enum.sort(databases)
+      refute Enum.any?(calls, &(hd(&1) == "inherited_database_must_not_be_touched"))
       assert status == @exit_status
     end
   end
@@ -90,8 +124,7 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
       )
 
     assert root |> Path.join("calls.log") |> File.read!() |> String.split("\n", trim: true) == [
-             "episode-db:5432|ecto.create --quiet",
-             "episode-db:5432|do ecto.migrate --quiet + test test/ryker/owning_test.exs"
+             "episode-db:5432|do ecto.create --quiet + ecto.migrate --quiet + test test/ryker/owning_test.exs"
            ]
   end
 
@@ -124,8 +157,9 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
     assert initdb =~ "--username=postgres --auth=trust"
     assert [start] = Enum.filter(calls, &String.starts_with?(&1, "pg_ctl|start"))
     assert [_, port] = Regex.run(~r/-c port=(\d+)/, start)
-    assert "127.0.0.1:#{port}|ecto.create --quiet" in calls
-    assert "127.0.0.1:#{port}|do ecto.migrate --quiet + test test/ryker/owning_test.exs" in calls
+
+    assert "127.0.0.1:#{port}|do ecto.create --quiet + ecto.migrate --quiet + test test/ryker/owning_test.exs" in calls
+
     assert List.last(calls) =~ ~r/^pg_ctl\|stop .*--mode=immediate/
     assert File.ls!(Path.join(root, "tmp")) == []
   end

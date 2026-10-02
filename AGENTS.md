@@ -29,10 +29,12 @@ Use the narrowest validation that proves the current edit while iterating:
 
 1. Run the owning test after each code change, for example
    `scripts/elixir-test.sh test/ryker/work/executor_test.exs:120`. It runs against the
-   shared test database and finishes in about a second.
+   shared test database and finishes in about a second. `scripts/elixir-test.sh --stale` runs
+   only the test files that reference what changed since its previous `--stale` run.
 2. Run `make dev-check` once before committing. It is the deterministic repository gate:
-   formatting, warnings-as-errors, Credo, ExUnit except slow capacity tests in a fresh database,
-   control-plane JavaScript, and ShellCheck. It takes a few minutes and never calls a model.
+   formatting, warnings-as-errors, Credo, ExUnit except slow capacity tests in parallel
+   partitions with a fresh database each, control-plane JavaScript, and ShellCheck. It takes
+   a few minutes and never calls a model.
 3. Commit, then run `scripts/deploy.sh` (see "Finish by deploying").
 4. `make check` is the full gate: dev-check plus the deterministic host replay in an
    isolated database, the watchdog, deploy and live-acceptance script self-tests, the
