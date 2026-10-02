@@ -13,6 +13,7 @@ defmodule Ryker.Runtime.AssemblyTest do
   alias Ryker.RoutingExamples.Worker, as: RoutingExampleWorker
   alias Ryker.Runtime.Assembly
   alias Ryker.Slack.Runtime, as: SlackRuntime
+  alias Ryker.WorkExamples.Worker, as: WorkExampleWorker
 
   @actor "control-plane:local"
   @lab "control-plane:lab:6f1a0f38-0b74-4f77-9f20-7a0c1e2d3b44"
@@ -521,6 +522,42 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert configuration[:retention].routing_examples_enabled == true
     assert configuration[:retention].routing_examples_seconds == 180 * 86_400
     assert RoutingExampleWorker.options!(copy) == copy
+  end
+
+  # Work examples carry a customer's code and command output, so they have a
+  # setting of their own (Andrew, 2026-10-02: train "not just from routing
+  # records but actual work records too").
+  test "work examples are copied only while kept, apart from routing examples, with every stored credential redacted" do
+    settings = connected!()
+    assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
+    assert configuration[:work_examples] == nil
+
+    {:ok, routing_only} =
+      Settings.save_retention(
+        %{routing_examples_enabled: true},
+        settings.installation.revision,
+        @actor
+      )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), routing_only)
+    assert configuration[:routing_examples]
+    assert configuration[:work_examples] == nil
+
+    {:ok, kept} =
+      Settings.save_retention(
+        %{work_examples_enabled: true, work_examples_seconds: 200 * 86_400},
+        routing_only.installation.revision,
+        @actor
+      )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), kept)
+    copy = configuration[:work_examples]
+    assert copy.window_seconds == 200 * 86_400
+    assert @alert_secret in copy.redaction_secrets
+    assert @custody_secret in copy.redaction_secrets
+    assert configuration[:retention].work_examples_enabled == true
+    assert configuration[:retention].work_examples_seconds == 200 * 86_400
+    assert WorkExampleWorker.options!(copy) == copy
   end
 
   test "the worker gateway carries the checkpoint custody the deployment registered" do

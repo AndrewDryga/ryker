@@ -4,12 +4,13 @@ defmodule Ryker.Settings.Validation do
   import Ecto.Changeset
 
   @ten_years 10 * 365 * 86_400
-  # Every retention limit, in seconds, then whether routing examples are kept
-  # at all. The routing example limit is bounded like the others but ordered
+  # Every retention limit, in seconds, then whether routing and work examples
+  # are kept at all. The example limits are bounded like the others but ordered
   # against none: an example is a copy and outlives what it was copied from.
-  @retention_limits ~w(operational_data_seconds conversation_memory_seconds closed_work_seconds episode_history_seconds audit_data_seconds routing_examples_seconds)a
+  @retention_limits ~w(operational_data_seconds conversation_memory_seconds closed_work_seconds episode_history_seconds audit_data_seconds routing_examples_seconds work_examples_seconds)a
   @retention_types Map.new(@retention_limits, &{&1, :integer})
                    |> Map.put(:routing_examples_enabled, :boolean)
+                   |> Map.put(:work_examples_enabled, :boolean)
   @retention_fields Map.keys(@retention_types)
   @reference ~r/\A[a-z0-9][a-z0-9_-]{0,63}\z/
   @slack_id ~r/\A[A-Z0-9]{1,255}\z/

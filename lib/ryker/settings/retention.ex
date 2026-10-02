@@ -14,5 +14,9 @@ defmodule Ryker.Settings.Retention do
     # (`Ryker.RoutingExamples`), and how long each copy is kept.
     field(:routing_examples_enabled, :boolean, default: false)
     field(:routing_examples_seconds, :integer)
+    # Whether settled Work turns are copied into the training set
+    # (`Ryker.WorkExamples`), and how long each copy is kept.
+    field(:work_examples_enabled, :boolean, default: false)
+    field(:work_examples_seconds, :integer)
   end
 end

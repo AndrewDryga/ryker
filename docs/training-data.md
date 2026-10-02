@@ -138,9 +138,73 @@ in memory.
 
 ## What an example still lacks
 
-- **Work's own model calls.** Only routing decisions are copied. Work examples are next (below).
+- **Work's own model calls.** Routing examples copy routing decisions only; work examples (below)
+  copy what Work's model did.
 - **Refused answers from before 2026-09-30.** Routing kept none until then, so older examples have
   an empty list.
+
+## Work examples
+
+With **Keep work examples for training** on (Settings › Data retention, beside the routing setting),
+Ryker copies each settled Work turn into `work_examples`, kept for its own limit, **Work examples**,
+a year by default, counted from when the turn settled. It is a setting of its own because a work
+example carries what a routing example never does: the customer's code, command output and whatever
+the worker read. Turning it off deletes every copy and asks first.
+
+**Why a copy, not a longer limit on the source.** Andrew asked, 2026-10-02: "why do we have yet
+another copy of the same data? should we just bump the retention for its source?" A turn is not
+one row: it is tied to its request, its session and the messages it was asked in (deleting one is
+blocked or cascades along those links), so keeping turns for a year would keep every raw message,
+request history and session for a year too. Those tables also change shape before v1, and a year
+of old rows would have to survive every change. The copy is one flat, redacted record with its own
+switch, its own window and forgetting of its own, while the source keeps the 30 days its own limit
+promises. The two overlap only for those 30 days.
+
+**When a turn is copied.** Once it has settled (its result accepted and delivered) and nothing in its
+request is still running, the rest learning and routing examples wait for. Its bodies are still
+there then; they are pruned only after the request's sessions are discarded.
+
+**What a copy holds.**
+
+- `briefing`, `context`, `output_schema`: the exact prompt the worker was sent, and what was sent
+  beside it.
+- `trajectory`: what the worker did, in order, as `episode_work_activity` recorded it: each tool
+  call's input and output (`tool.completed`), its progress notes (`model.thought`,
+  `model.progress`), and `activity.elided` where the recorder dropped events.
+- `result`: the result Ryker accepted, exactly. `rejected_results`: each result it refused before,
+  with the violations it named, for preference training.
+- `outcome`: the request's and the turn's state, and how the change it published ended, if any.
+- `usage`: tokens, cost or an estimate at the saved model price, and timings.
+- Feedback on the request, copied beside it as it arrives (`work_example_feedback`), as for routing
+  examples.
+
+On the live install on 2026-10-02 a settled turn's briefing was about 33 KB, its result under 1 KB
+and its trajectory about 10 KB: about 4,400 turns and 200 MB a year at that pace.
+
+**Redaction and forgetting** work as for routing examples, through the same paths and the same lock:
+forgetting a fact or topic, deleting or editing a message, or deleting a Slack channel erases every
+work example whose request was asked in that message or whose routing quoted it, and a turn whose
+message was forgotten first is kept as identity only.
+
+**Getting them out.** **Download work examples** on Settings › Data retention, or from a source
+checkout:
+
+```bash
+MIX_ENV=prod mix ryker.work_examples --output work-examples.jsonl
+```
+
+Each line is one chat example like a routing example's: `messages` holds the briefing as the user
+turn and the accepted result as the assistant turn, with `trajectory`, `rejected_results`,
+`context`, `output_schema` and `labels` beside it. The trajectory stays in the shape Ryker recorded,
+for whoever trains to map onto their own tool-call format.
+
+**What a work example still lacks.**
+
+- **The model's own words between tool calls.** Ryker keeps them only as progress notes, cut at a
+  bound, so a trajectory is close to, not exactly, what the model saw and said.
+- **What forgetting cannot trace.** A briefing can carry what Work looked up on its own, such as
+  related requests' outcomes, and a trajectory what a tool read. A forgotten message only those
+  quote stays in the copy until its window ends or keeping work examples is turned off.
 
 ## Beyond routing
 
@@ -148,7 +212,7 @@ Andrew, 2026-10-02: the self-hosted model should learn "not just from routing re
 work records too", and the aim is to "replace everything we want to replace with self hosting IN
 LONG TERM". Routing is where the examples started, not where they stop. On the live install work
 turns are a quarter of the model calls but about half of the input tokens, and everything they
-produced is pruned 30 days after their request finishes.
+produced is pruned 30 days after their request finishes unless work examples keep it.
 
 Where the line is:
 
@@ -164,5 +228,4 @@ Where the line is:
 - **Risky actions stay behind human approval** in Emisar, whichever model asks for them.
 
 Each role goes shadow, then cascade, then primary, promoted and demoted on replay evals and live
-agreement. The plan is in `.agent/tasks/xx_backlog/2026-10-02-self-hosted-models-take-over-each-model-role-ryk`;
-keeping work examples is `.agent/tasks/00_todo/2026-10-02-keep-work-examples-for-training-beside-routing-e`.
+agreement. The plan is in `.agent/tasks/xx_backlog/2026-10-02-self-hosted-models-take-over-each-model-role-ryk`.

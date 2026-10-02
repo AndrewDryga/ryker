@@ -41,11 +41,18 @@ defmodule Ryker.Settings.RetentionImpact do
     routing_examples_seconds: [
       {"routing examples",
        "SELECT count(*) FROM routing_examples WHERE forgotten_at IS NULL AND decided_at < clock_timestamp() - ($1 * interval '1 second')"}
+    ],
+    work_examples_seconds: [
+      {"work examples",
+       "SELECT count(*) FROM work_examples WHERE forgotten_at IS NULL AND settled_at < clock_timestamp() - ($1 * interval '1 second')"}
     ]
   }
 
-  # Turning off keeping routing examples deletes every one kept.
-  @all_routing_examples "SELECT count(*) FROM routing_examples WHERE forgotten_at IS NULL"
+  # Turning off keeping routing or work examples deletes every one kept.
+  @all_examples %{
+    routing_examples: "SELECT count(*) FROM routing_examples WHERE forgotten_at IS NULL",
+    work_examples: "SELECT count(*) FROM work_examples WHERE forgotten_at IS NULL"
+  }
 
   @spec estimate(map(), map()) :: %{atom() => [%{label: String.t(), count: non_neg_integer()}]}
   def estimate(current, proposed) do
@@ -62,12 +69,20 @@ defmodule Ryker.Settings.RetentionImpact do
          end)}
       end)
 
-    if current.routing_examples_enabled and not proposed.routing_examples_enabled do
-      %{rows: [[count]]} = Repo.query!(@all_routing_examples, [], log: false)
+    shorter
+    |> turned_off(current, proposed, :routing_examples, "routing examples")
+    |> turned_off(current, proposed, :work_examples, "work examples")
+  end
+
+  defp turned_off(shorter, current, proposed, kind, label) do
+    enabled = :"#{kind}_enabled"
+
+    if Map.fetch!(current, enabled) and not Map.fetch!(proposed, enabled) do
+      %{rows: [[count]]} = Repo.query!(Map.fetch!(@all_examples, kind), [], log: false)
 
       shorter
-      |> Map.delete(:routing_examples_seconds)
-      |> Map.put(:routing_examples_enabled, [%{label: "routing examples", count: count}])
+      |> Map.delete(:"#{kind}_seconds")
+      |> Map.put(enabled, [%{label: label, count: count}])
     else
       shorter
     end

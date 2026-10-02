@@ -617,7 +617,9 @@ defmodule Ryker.Learning.LearningTest do
                episode_history_seconds: 3600,
                audit_data_seconds: 3600,
                routing_examples_enabled: false,
-               routing_examples_seconds: 365 * 86_400
+               routing_examples_seconds: 365 * 86_400,
+               work_examples_enabled: false,
+               work_examples_seconds: 365 * 86_400
              })
 
     assert Repo.get!(LearningRun, run.id).prompt == nil

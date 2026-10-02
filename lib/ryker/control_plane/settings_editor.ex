@@ -1535,6 +1535,22 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       label: "Stop keeping them"
     }
 
+  defp impact_question(%{shortened_fields: [:work_examples_enabled]}),
+    do: %{
+      title: "Stop keeping work examples?",
+      text:
+        "Turning this off deletes every work example kept for training. They cannot be brought back.",
+      label: "Stop keeping them"
+    }
+
+  defp impact_question(%{shortened_fields: [:routing_examples_enabled, :work_examples_enabled]}),
+    do: %{
+      title: "Stop keeping routing and work examples?",
+      text:
+        "Turning these off deletes every routing and work example kept for training. They cannot be brought back.",
+      label: "Stop keeping them"
+    }
+
   defp impact_question(_impact),
     do: %{
       title: "Apply shorter limits?",

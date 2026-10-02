@@ -956,6 +956,15 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
              fun
            )}
         end,
+        # One work example, handed on as the export does.
+        work_examples: fn acc, fun ->
+          {:ok,
+           Enum.reduce_while(
+             [~s({"messages":[{"role":"user","content":"brief"}],"trajectory":[]}\n)],
+             acc,
+             fun
+           )}
+        end,
         repositories: fn _params -> [repository_row()] end,
         repository: fn
           "ryker" -> {:ok, repository_row()}

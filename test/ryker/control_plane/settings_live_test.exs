@@ -1937,6 +1937,53 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     refute has_element?(view, "#download-routing-examples")
   end
 
+  # Andrew, 2026-10-02: train "not just from routing records but actual work records too". Work
+  # examples carry a customer's code and command output, so keeping them is its own consent,
+  # beside the routing one, with its own file.
+  test "Data retention keeps work examples apart from routing examples, and offers them" do
+    initialize!()
+    {:ok, view, _html} = open("/settings/retention")
+
+    assert has_element?(
+             view,
+             "label[for=settings-retention-work_examples_enabled]",
+             "Keep work examples for training"
+           )
+
+    assert has_element?(view, "#settings-retention-work_examples_enabled:not([checked])")
+    assert has_element?(view, "#settings-retention-work_examples_seconds[value='365']")
+    refute has_element?(view, "#download-work-examples")
+
+    view
+    |> form("#settings-retention-form", %{"work_examples_enabled" => "true"})
+    |> render_submit()
+
+    retention = Settings.fetch!().retention
+    assert {retention.work_examples_enabled, retention.routing_examples_enabled} == {true, false}
+
+    assert has_element?(
+             view,
+             "a#download-work-examples[href='/settings/retention/work-examples.jsonl'][download]",
+             "Download work examples"
+           )
+
+    refute has_element?(view, "#download-routing-examples")
+
+    view
+    |> form("#settings-retention-form", %{"work_examples_enabled" => "false"})
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "#settings-retention-impact[role=alertdialog]",
+             "Stop keeping work examples?"
+           )
+
+    view |> element("#settings-retention-impact button", "Stop keeping them") |> render_click()
+    refute Settings.fetch!().retention.work_examples_enabled
+    refute has_element?(view, "#download-work-examples")
+  end
+
   test "a retention limit out of order or out of range is refused with a reason to act on" do
     # An ordering refusal named no field of the form, so the page showed
     # nothing at all; a limit past ten years said only "was refused."

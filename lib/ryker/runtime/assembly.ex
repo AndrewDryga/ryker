@@ -71,6 +71,8 @@ defmodule Ryker.Runtime.Assembly do
     # Its own key, so turning keeping routing examples on or off, or a stored
     # credential changing, restarts only the copy, never cleanup.
     {:routing_examples, Ryker.RoutingExamples.Worker},
+    # The same for keeping work examples, which copy settled Work turns.
+    {:work_examples, Ryker.WorkExamples.Worker},
     {:github, Ryker.GitHub.Runtime},
     # RYKER.md for each repository: model turns through Work's adapter, and
     # GitHub through the App, so it starts after both.
@@ -164,6 +166,7 @@ defmodule Ryker.Runtime.Assembly do
 
     retention = retention(settings, work, learning)
     routing_examples = routing_examples(settings, admission)
+    work_examples = work_examples(settings, work)
 
     state_tools =
       state_tools(bootstrap, settings, emisar, slack, github, control_plane, %{
@@ -198,6 +201,7 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:repository_knowledge, repository_knowledge)
     |> put_optional(:retention, retention)
     |> put_optional(:routing_examples, routing_examples)
+    |> put_optional(:work_examples, work_examples)
     |> put_optional(:schedules, schedules)
     |> put_optional(:slack, slack && slack.runtime)
     |> put_optional(:slack_names, slack_names)
@@ -697,7 +701,9 @@ defmodule Ryker.Runtime.Assembly do
         :episode_history_seconds,
         :operational_data_seconds,
         :routing_examples_enabled,
-        :routing_examples_seconds
+        :routing_examples_seconds,
+        :work_examples_enabled,
+        :work_examples_seconds
       ])
     )
     |> Map.merge(%{
@@ -722,6 +728,19 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp routing_examples(_settings, _admission), do: nil
+
+  # Work examples are copied only while a person keeps them on, and only where
+  # Work runs, with the same redaction material as routing examples.
+  defp work_examples(%{retention: %{work_examples_enabled: true} = retention}, work)
+       when is_map(work) do
+    Defaults.fetch!(:work_examples)
+    |> Map.merge(%{
+      redaction_secrets: credential_redaction_values(),
+      window_seconds: retention.work_examples_seconds
+    })
+  end
+
+  defp work_examples(_settings, _work), do: nil
 
   # Transports -----------------------------------------------------------------
 

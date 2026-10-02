@@ -30,7 +30,9 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     episode_history_seconds: 60,
     operational_data_seconds: 60,
     routing_examples_enabled: false,
-    routing_examples_seconds: 365 * 86_400
+    routing_examples_seconds: 365 * 86_400,
+    work_examples_enabled: false,
+    work_examples_seconds: 365 * 86_400
   }
 
   test "an answer-confirmed global fact is recalled without disclosing its private source" do
@@ -87,7 +89,9 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
                conversation_memory_seconds: 60,
                audit_data_seconds: 120,
                routing_examples_enabled: false,
-               routing_examples_seconds: 365 * 86_400
+               routing_examples_seconds: 365 * 86_400,
+               work_examples_enabled: false,
+               work_examples_seconds: 365 * 86_400
              })
 
     assert Repo.get(MemoryEntry, entry.id),

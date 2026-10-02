@@ -42,6 +42,24 @@ defmodule Ryker.ControlPlane.RouterTest do
                ~s({"messages":[{"role":"user","content":"two"}]}\n)
   end
 
+  # Work examples are kept and downloaded apart from routing examples: they
+  # carry a customer's code and command output (Andrew, 2026-10-02).
+  test "work examples download as their own JSON Lines file" do
+    response = request(:get, "/settings/retention/work-examples.jsonl")
+
+    assert response.status == 200
+    assert response.state == :chunked
+    assert [disposition] = get_resp_header(response, "content-disposition")
+
+    assert disposition =~
+             ~r/\Aattachment; filename="ryker-work-examples-\d{4}-\d{2}-\d{2}\.jsonl"\z/
+
+    assert response.resp_body ==
+             ~s({"messages":[{"role":"user","content":"brief"}],"trajectory":[]}\n)
+
+    assert request(:get, "/settings/retention/other-examples.jsonl").status == 404
+  end
+
   # The download sent its 200 before it read a row. A database that could not
   # answer handed the browser an empty file, as if no example were kept, and
   # one that failed part-way could end the file cleanly after the lines it

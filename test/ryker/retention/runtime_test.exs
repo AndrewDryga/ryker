@@ -33,7 +33,9 @@ defmodule Ryker.Retention.RuntimeTest do
              episode_history_seconds: 2_592_000,
              operational_data_seconds: 86_400,
              routing_examples_enabled: true,
-             routing_examples_seconds: 31_536_000
+             routing_examples_seconds: 31_536_000,
+             work_examples_enabled: false,
+             work_examples_seconds: 31_536_000
            }
 
     assert Runtime.child_spec(configuration()).id == Runtime
@@ -53,6 +55,8 @@ defmodule Ryker.Retention.RuntimeTest do
           Map.put(configuration(), :operational_data_seconds, 700_000),
           Map.put(configuration(), :routing_examples_enabled, nil),
           Map.put(configuration(), :routing_examples_seconds, 0),
+          Map.put(configuration(), :work_examples_enabled, nil),
+          Map.put(configuration(), :work_examples_seconds, 0),
           Map.put(configuration(), :storage_low_watermark_bytes, 70_000_000_000),
           Map.put(configuration(), :storage_reserve_bytes, 70_000_000_000),
           Map.put(configuration(), :disposable_bytes_limit, 70_000_000_000),
@@ -179,6 +183,8 @@ defmodule Ryker.Retention.RuntimeTest do
       retry_max_seconds: 300,
       routing_examples_enabled: true,
       routing_examples_seconds: 31_536_000,
+      work_examples_enabled: false,
+      work_examples_seconds: 31_536_000,
       storage_high_watermark_bytes: 64_424_509_440,
       storage_low_watermark_bytes: 48_318_382_080,
       storage_reserve_bytes: 5_368_709_120,

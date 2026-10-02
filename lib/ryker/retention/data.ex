@@ -33,6 +33,7 @@ defmodule Ryker.Retention.Data do
           conversation_memory: non_neg_integer(),
           routing_examples: non_neg_integer(),
           routing_responses: non_neg_integer(),
+          work_examples: non_neg_integer(),
           episode_histories: non_neg_integer(),
           feedback: non_neg_integer(),
           improvement: non_neg_integer(),
@@ -75,7 +76,9 @@ defmodule Ryker.Retention.Data do
            Repo.transaction(fn -> prune_closed_work(operational, settings) end),
          {:ok, history} <- Repo.transaction(fn -> prune_history(closed_work, settings) end),
          {:ok, audit} <- Repo.transaction(fn -> prune_audit(history, settings) end) do
-      Repo.transaction(fn -> prune_routing_examples(audit, settings) end)
+      Repo.transaction(fn ->
+        audit |> prune_routing_examples(settings) |> prune_work_examples(settings)
+      end)
       |> tap(&broadcast_history_pruned/1)
     end
   end
@@ -1121,6 +1124,33 @@ defmodule Ryker.Retention.Data do
     %{result | routing_examples: count}
   end
 
+  # Work examples (`Ryker.WorkExamples`) leave the same way: only their own
+  # window, counted from when the turn settled, or turning keeping them off.
+  # Their copied feedback goes with them by its foreign key.
+  @prune_work_examples """
+  WITH candidates AS (
+    SELECT id
+    FROM work_examples
+    WHERE NOT $1 OR settled_at < clock_timestamp() - ($2 * interval '1 second')
+    ORDER BY settled_at, id
+    LIMIT 1000
+    FOR UPDATE SKIP LOCKED
+  )
+  DELETE FROM work_examples AS example
+  USING candidates
+  WHERE example.id = candidates.id
+  """
+
+  defp prune_work_examples(result, settings) do
+    count =
+      execute_count(@prune_work_examples, [
+        settings.work_examples_enabled,
+        settings.work_examples_seconds
+      ])
+
+    %{result | work_examples: count}
+  end
+
   defp audit_candidates(horizon) do
     @audit_candidates
     |> Repo.query!([horizon])
@@ -1218,6 +1248,7 @@ defmodule Ryker.Retention.Data do
       conversation_memory: 0,
       routing_examples: 0,
       routing_responses: 0,
+      work_examples: 0,
       episode_histories: 0,
       feedback: 0,
       improvement: 0,
@@ -1241,21 +1272,27 @@ defmodule Ryker.Retention.Data do
 
   defp settings(%{} = settings) do
     horizons =
-      ~w(audit_data_seconds closed_work_seconds conversation_memory_seconds episode_history_seconds operational_data_seconds routing_examples_seconds)a
+      ~w(audit_data_seconds closed_work_seconds conversation_memory_seconds episode_history_seconds operational_data_seconds routing_examples_seconds work_examples_seconds)a
+
+    switches = [:routing_examples_enabled, :work_examples_enabled]
 
     valid =
-      Map.keys(settings) |> Enum.sort() == Enum.sort([:routing_examples_enabled | horizons]) and
-        is_boolean(settings.routing_examples_enabled) and
+      Map.keys(settings) |> Enum.sort() == Enum.sort(switches ++ horizons) and
+        Enum.all?(switches, &is_boolean(settings[&1])) and
         Enum.all?(horizons, &(is_integer(settings[&1]) and settings[&1] > 0)) and
-        settings.operational_data_seconds <= settings.closed_work_seconds and
-        settings.closed_work_seconds <= settings.episode_history_seconds and
-        settings.episode_history_seconds <= settings.audit_data_seconds and
-        settings.operational_data_seconds <= settings.conversation_memory_seconds
+        horizons_ordered?(settings)
 
     if valid, do: {:ok, settings}, else: {:error, {:invalid_retention_data, :settings}}
   end
 
   defp settings(_settings), do: {:error, {:invalid_retention_data, :settings}}
+
+  defp horizons_ordered?(settings) do
+    settings.operational_data_seconds <= settings.closed_work_seconds and
+      settings.closed_work_seconds <= settings.episode_history_seconds and
+      settings.episode_history_seconds <= settings.audit_data_seconds and
+      settings.operational_data_seconds <= settings.conversation_memory_seconds
+  end
 
   # -- PubSub ------------------------------------------------------------------
 
