@@ -45,7 +45,7 @@ defmodule Ryker.WorkExamplesTest do
   @channel "C456"
   @conversation "slack:TE5D7C8842D32:C456"
   # A credential Ryker stores, as the assembly hands every one to the copy.
-  @stored_secret "xoxb-stored-credential-0123456789"
+  @stored_secret "stored-credential-value-0123456789"
   @options %{batch_size: 5, redaction_secrets: [@stored_secret], window_seconds: 365 * @day}
 
   @start_episode ~s({"action":"start_episode","episode_ref":null,"messages":null,"reactions":null,"relation":"unrelated","reason":"The person asks Ryker to find why the staging api is down.","repository":null,"repository_source":null,"work_class":"standard"})
