@@ -85,11 +85,14 @@ defmodule Ryker.Evals.RoutingReplayTest do
     endpoint =
       local_model!([Jason.encode!(continued(candidate)), "The checkout outage again."])
 
+    # A budget no loaded host reaches: this counts answers, it does not time them. With
+    # five seconds, the first answer missed it twice on 2026-10-02 at load 60–110 and read
+    # as unanswered, failing the gate a draft-PR review of Ryker runs.
     assert {:ok, result} =
              RoutingReplay.run_local([continued_case, quick_case], %{
                endpoint: endpoint,
                model: "qwen2.5:3b",
-               timeout_ms: 5_000
+               timeout_ms: 60_000
              })
 
     # Exactly what routing's local comparison sends: the prompt as the one
