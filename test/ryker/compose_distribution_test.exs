@@ -252,6 +252,34 @@ defmodule Ryker.ComposeDistributionTest do
     assert worker_image =~ "docker compose version"
   end
 
+  # emisar's draft-PR reviews, 2026-10-02, once the worker had Docker Compose: Coop still refused
+  # to start the review stack ("restricted networking requires an absolute local unix:// Docker
+  # endpoint"), because the worker reached its Docker daemon over TCP. It now reaches the daemon
+  # through a socket the two containers share, and the daemon no longer listens on the network,
+  # where any container on Ryker's network could drive it.
+  test "the worker reaches its Docker daemon through a shared local socket, never over the network" do
+    services = YamlElixir.read_from_string!(read("compose.yml"))["services"]
+    daemon = services["ryker-coop-docker"]
+    worker = services["ryker-coop"]
+    socket = "/run/ryker-coop-docker/docker.sock"
+
+    assert worker["environment"]["DOCKER_HOST"] == "unix://" <> socket
+    assert ("--host=unix://" <> socket) in daemon["command"]
+    refute Enum.any?(daemon["command"], &String.contains?(&1, "tcp://"))
+
+    shared = "ryker-coop-docker-socket:" <> Path.dirname(socket)
+    assert shared in daemon["volumes"]
+    assert shared in worker["volumes"]
+
+    # The worker runs as the coop user, so the socket belongs to that user's group.
+    [gid] =
+      Regex.run(~r/groupadd --gid (\d+) coop/, read("deploy/compose/coop/Dockerfile"),
+        capture: :all_but_first
+      )
+
+    assert ("--group=" <> gid) in daemon["command"]
+  end
+
   # Ryker's draft-PR reviews of its own repository run `make dev-check` in the
   # trusted box, which gets no Docker and no sidecar. On 2026-10-02 that box had
   # neither Elixir nor a PostgreSQL server, so every such review failed its gate.
