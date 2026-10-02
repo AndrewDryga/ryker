@@ -141,7 +141,7 @@ defmodule Ryker.WeeklyReportTest do
 
     assert part(report, :questions) == [
              "I'm waiting for an answer to 1 question:",
-             "- [Add a smoke test](#{@base}#{timeline(waiting.key)}) in #{where}"
+             "- [Add a smoke test](#{@base}#{timeline(waiting)}) in #{where}"
            ]
 
     for title <- [
@@ -424,7 +424,7 @@ defmodule Ryker.WeeklyReportTest do
     {1, _} = Repo.update_all(from(row in schema, where: row.id == ^id), set: [{field, at}])
   end
 
-  defp timeline(key), do: "/timeline/" <> URI.encode_www_form(key)
+  defp timeline(request), do: "/timeline/" <> request.id
 
   # -- Requests ------------------------------------------------------------------------
 

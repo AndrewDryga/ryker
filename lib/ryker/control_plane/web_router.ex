@@ -59,14 +59,18 @@ defmodule Ryker.ControlPlane.WebRouter do
     live("/integrations/webhooks/sources/:item/edit", Ryker.ControlPlane.WorkbenchLive)
 
     live("/conversations/:id", Ryker.ControlPlane.WorkbenchLive)
-    live("/timeline/:ref", Ryker.ControlPlane.WorkbenchLive)
-    live("/incident-rooms/:ref", Ryker.ControlPlane.WorkbenchLive)
-    live("/schedules/:ref", Ryker.ControlPlane.WorkbenchLive)
+    # A record is addressed by its plain id or slug (`Ryker.ControlPlane.Paths`).
+    live("/timeline/:id", Ryker.ControlPlane.WorkbenchLive)
+    live("/incident-rooms/:slug", Ryker.ControlPlane.WorkbenchLive)
+    live("/schedules/:id", Ryker.ControlPlane.WorkbenchLive)
     live("/channels/:workspace/:channel", Ryker.ControlPlane.WorkbenchLive)
-    live("/failures/:kind/:ref", Ryker.ControlPlane.WorkbenchLive)
+    live("/failures/:kind/:id", Ryker.ControlPlane.WorkbenchLive)
   end
 
-  forward("/", Ryker.ControlPlane.HttpPlug)
+  # Everything else: actions, downloads, record views and health. A `~p` path
+  # that only this forward matches warns, so a verified link always names a
+  # page above (`Ryker.ControlPlane.Paths`).
+  forward("/", Ryker.ControlPlane.HttpPlug, [], warn_on_verify: true)
 
   # A record that does not exist answers 404 on the server-rendered load, with
   # the page the browser shows for it. The page's assigns reach the response

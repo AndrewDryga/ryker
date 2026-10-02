@@ -27,7 +27,7 @@ defmodule Ryker.ControlPlane.SetupPage do
 
   use Phoenix.Component
 
-  alias Ryker.ControlPlane.{ChannelsPage, Components, Integrations, Kit}
+  alias Ryker.ControlPlane.{Components, Integrations, Kit, Paths}
 
   @type status :: :done | :current | :later | :skipped
 
@@ -505,7 +505,7 @@ defmodule Ryker.ControlPlane.SetupPage do
 
   defp channel_page(%{workspace_ref: workspace, channel_ref: channel})
        when is_binary(workspace) and is_binary(channel),
-       do: %{label: "Choose an environment", href: ChannelsPage.path(workspace, channel)}
+       do: %{label: "Choose an environment", href: Paths.channel(workspace, channel)}
 
   defp channel_page(_none), do: %{label: "See channels", href: "/channels"}
 

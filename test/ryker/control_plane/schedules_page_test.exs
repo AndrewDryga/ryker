@@ -11,6 +11,8 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
   alias Ryker.Fixtures.ControlPlaneOptions
 
   @now ~U[2026-09-24 10:00:00Z]
+  # The request the schedule was set up in.
+  @source_id "0193a5d2-7c1e-7b8a-9f00-00000000500c"
 
   @item %{
     authority: :read_only,
@@ -39,7 +41,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       # The schedule page printed "slack:slack:T123:C456 / 1787832000.001000":
       # the transport glued onto a reference that already carries it, then the
       # thread's raw timestamp. People know a channel by its name.
-      page = Pages.page(["schedules", "schedule%3Aone"], %{}, fixture())
+      page = Pages.page(["schedules", "one"], %{}, fixture())
 
       refute page.body =~ "slack:slack:"
       refute page.body =~ "1787832000.001000"
@@ -54,7 +56,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       # The execution column printed "complete / settled" straight from two
       # enums, beside "Dispatched" from a third, so nobody could tell whether
       # the run had worked.
-      page = Pages.page(["schedules", "schedule%3Aone"], %{}, fixture())
+      page = Pages.page(["schedules", "one"], %{}, fixture())
       run = page.body |> LazyHTML.from_fragment() |> LazyHTML.query(".schedule-runs .entity-row")
 
       assert LazyHTML.query(run, ".entity-side .state-word") |> LazyHTML.text() == "Completed"
@@ -85,7 +87,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
     test "a row names what it asks for, how often in its own zone, where results go and the next run" do
       row = list_row(@item)
 
-      assert LazyHTML.query(row, ".entity-name a[href='/schedules/schedule%3Aone']")
+      assert LazyHTML.query(row, ".entity-name a[href='/schedules/one']")
              |> LazyHTML.text() == "Morning incident summary"
 
       # The whole row opens the schedule, and its state sits at the far edge.
@@ -153,7 +155,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
           snapshot(%{status: status})
           |> detail()
           |> LazyHTML.query(
-            "#delete-schedule form[action='/actions/schedule/schedule%3Aone/deleted'] button.danger"
+            "#delete-schedule form[action='/actions/schedule/one/deleted'] button.danger"
           )
 
         assert Enum.count(delete) == if(deletable, do: 1, else: 0)
@@ -312,7 +314,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
                {"Started from", "Set up the morning summary"}
              ]
 
-      assert LazyHTML.query(document, "dl.kit-facts a[href='/timeline/episode%3Asource']")
+      assert LazyHTML.query(document, "dl.kit-facts a[href='/timeline/#{@source_id}']")
              |> LazyHTML.text() == "Set up the morning summary"
 
       assert LazyHTML.query(document, ".section-head h2") |> Enum.map(&LazyHTML.text/1) == [
@@ -330,14 +332,14 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       assert details
              |> LazyHTML.query("button[data-copy-value]")
              |> LazyHTML.attribute("data-copy-value") ==
-               ["schedule:one", "episode:source", "stored diagnostic sha256:abc"]
+               ["schedule:one", @source_id, "stored diagnostic sha256:abc"]
 
       assert LazyHTML.text(details) =~ "Europe/Berlin"
 
       # Outside Details the page carries no reference, revision or digest.
       outside = document |> LazyHTML.query(".schedule-view > :not(details)") |> LazyHTML.text()
       refute outside =~ "schedule:one"
-      refute outside =~ "episode:"
+      refute outside =~ @source_id
       refute outside =~ "sha256"
     end
 
@@ -366,7 +368,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       assert runs
              |> LazyHTML.query(".entity-name a")
              |> LazyHTML.attribute("href")
-             |> Enum.take(2) == ["/timeline/episode%3Arun-4", "/timeline/episode%3Arun-3"]
+             |> Enum.take(2) == ["/timeline/#{run_id(4)}", "/timeline/#{run_id(3)}"]
 
       # A missed run never started, so there is no timeline to open.
       assert runs |> Enum.at(2) |> LazyHTML.query(".entity-name a") |> Enum.empty?()
@@ -427,7 +429,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
 
     test "the page title is the schedule's title, and its actions sit opposite it" do
       options = %{projection: %{schedule: fn "schedule:one" -> {:ok, snapshot()} end}}
-      page = Pages.page(["schedules", "schedule%3Aone"], %{}, options)
+      page = Pages.page(["schedules", "one"], %{}, options)
 
       assert page.title == "Morning incident summary"
       assert page.description == nil
@@ -457,9 +459,9 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
           ref: "schedule:one",
           repository: "acme/api",
           revision: 4,
-          source_episode_ref: "episode:source",
+          source_episode_id: @source_id,
           source_request: %{
-            href: "/timeline/episode%3Asource",
+            href: "/timeline/#{@source_id}",
             title: "Set up the morning summary"
           },
           status: :active,
@@ -493,7 +495,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       %{
         run(2, ~N[2026-09-22 09:00:00], %{})
         | status: :missed,
-          episode_ref: nil,
+          episode_id: nil,
           missed_reason: "outside_misfire_grace"
       },
       run(1, ~N[2026-09-21 14:12:00], %{
@@ -520,7 +522,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
         accepted_at: nil,
         delivered_at: nil,
         due_local: due_local,
-        episode_ref: "episode:run-#{index}",
+        episode_id: run_id(index),
         episode_state: nil,
         failure_cause: nil,
         failure_code: nil,
@@ -538,6 +540,8 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       fields
     )
   end
+
+  defp run_id(index), do: "0193a5d2-7c1e-7b8a-9f00-00000000000#{index}"
 
   defp list_row(item) do
     [item]

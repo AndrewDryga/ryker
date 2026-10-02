@@ -31,6 +31,7 @@ defmodule Ryker.ControlPlane.Router do
     LabControls,
     LearningActivity,
     PathRef,
+    Paths,
     PeoplePage,
     RelearnPanel
   }
@@ -84,7 +85,7 @@ defmodule Ryker.ControlPlane.Router do
     uri = URI.parse(path)
 
     with ["actions", kind, encoded, action] <- String.split(uri.path || "", "/", trim: true),
-         {:ok, resource_ref} <- PathRef.decode(encoded),
+         {:ok, resource_ref} <- PathRef.reference(kind, encoded, options.projection.request_key),
          {:ok, title, explanation, canonical_action, tone} <-
            confirmation(kind, resource_ref, action, options) do
       {:ok,
@@ -92,7 +93,9 @@ defmodule Ryker.ControlPlane.Router do
          title: title,
          text: explanation,
          tone: tone,
-         action: action_path(kind, resource_ref, action) <> back_query(back_param(uri.query)),
+         action:
+           action_target(kind, encoded, resource_ref, action) <>
+             back_query(back_param(uri.query)),
          token: CSRF.token(options.csrf_secret, canonical_action, resource_ref)
        }}
     else
@@ -306,7 +309,7 @@ defmodule Ryker.ControlPlane.Router do
         200,
         snapshot.title,
         HTML.lab_task_record(snapshot),
-        {"Conversation", "/conversations/#{conversation_id}"}
+        {"Conversation", Paths.conversation(conversation_id)}
       )
     else
       {:error, :path_ref} -> text(conn, 404, "Conversation or record not found")
@@ -342,7 +345,7 @@ defmodule Ryker.ControlPlane.Router do
          {:ok, _result} <-
            act_on_lab_record(options, conversation_id, record_ref, action, action_context) do
       conn
-      |> put_resp_header("location", "/conversations/#{conversation_id}")
+      |> put_resp_header("location", Paths.conversation(conversation_id))
       |> send_resp(303, "")
       |> halt()
     else
@@ -360,7 +363,7 @@ defmodule Ryker.ControlPlane.Router do
 
       {:error, {:lab_record_failed, conversation_id, action, reason}} ->
         {title, explanation} = LabControls.record_failure(action, reason)
-        back = "/conversations/#{conversation_id}"
+        back = Paths.conversation(conversation_id)
         html(conn, 409, title, HTML.lab_record_failure(explanation, back))
     end
   end
@@ -479,7 +482,7 @@ defmodule Ryker.ControlPlane.Router do
         conn,
         200,
         "Edit this fact",
-        FactsPage.edit_form(review, action_path("memory-review", resource_ref, "edit"), token)
+        FactsPage.edit_form(review, Paths.action("memory-review", resource_ref, "edit"), token)
       )
     else
       {:error, _reason} -> html(conn, 404, "Not found", HTML.not_found("Action"))
@@ -522,14 +525,14 @@ defmodule Ryker.ControlPlane.Router do
   end
 
   defp route(
-         %Plug.Conn{method: "GET", path_info: ["actions", kind, resource_ref, action]} = conn,
+         %Plug.Conn{method: "GET", path_info: ["actions", kind, segment, action]} = conn,
          options
        ) do
-    with {:ok, resource_ref} <- PathRef.decode(resource_ref),
+    with {:ok, resource_ref} <- PathRef.reference(kind, segment, options.projection.request_key),
          {:ok, title, explanation, canonical_action, _tone} <-
            confirmation(kind, resource_ref, action, options) do
       back = back(conn)
-      path = action_path(kind, resource_ref, action) <> back_query(back)
+      path = action_target(kind, segment, resource_ref, action) <> back_query(back)
       token = CSRF.token(options.csrf_secret, canonical_action, resource_ref)
 
       html(
@@ -545,15 +548,15 @@ defmodule Ryker.ControlPlane.Router do
         )
       )
     else
-      {:error, _reason} -> html(conn, 404, "Not found", HTML.not_found("Action"))
+      _not_found -> html(conn, 404, "Not found", HTML.not_found("Action"))
     end
   end
 
   defp route(
-         %Plug.Conn{method: "POST", path_info: ["actions", kind, resource_ref, action]} = conn,
+         %Plug.Conn{method: "POST", path_info: ["actions", kind, segment, action]} = conn,
          options
        ) do
-    with {:ok, resource_ref} <- PathRef.decode(resource_ref),
+    with {:ok, resource_ref} <- PathRef.reference(kind, segment, options.projection.request_key),
          {:ok, _title, _explanation, canonical_action, _tone} <-
            confirmation(kind, resource_ref, action, options),
          {:ok, token, conn} <- form_token(conn),
@@ -572,11 +575,14 @@ defmodule Ryker.ControlPlane.Router do
       {:error, :form} ->
         text(conn, 400, "Invalid form")
 
+      :not_found ->
+        html(conn, 404, "Not found", HTML.not_found("Action"))
+
       {:error, reason} ->
         back =
-          case PathRef.decode(resource_ref) do
+          case PathRef.reference(kind, segment, options.projection.request_key) do
             {:ok, ref} -> back(conn) || action_return_path(kind, ref, action, options)
-            {:error, _invalid} -> "/"
+            _invalid -> "/"
           end
 
         html(conn, 409, "Not done", HTML.action_refused(ActionRefusal.explain(reason), back))
@@ -587,6 +593,17 @@ defmodule Ryker.ControlPlane.Router do
     do: html(conn, 404, "Not found", HTML.not_found("Page"))
 
   defp route(conn, _options), do: text(conn, 405, "Method not allowed")
+
+  # A confirmation posts back to the address it was opened at: a request's
+  # kinds are addressed by the request's id, not by the key it resolved to.
+  defp action_target(kind, segment, resource_ref, action) do
+    with {:ok, id} <- PathRef.decode(segment),
+         :request <- Paths.reference(kind, id) do
+      Paths.action(kind, id, action)
+    else
+      _record -> Paths.action(kind, resource_ref, action)
+    end
+  end
 
   # Set once an examples file has begun. An export that raises drops the conn
   # that would say so, so its failure reads this instead.
@@ -681,7 +698,7 @@ defmodule Ryker.ControlPlane.Router do
 
     case page do
       %{offset: offset, snapshot_digest: digest} ->
-        base <> "?" <> URI.encode_query(%{"offset" => offset, "snapshot" => digest})
+        Paths.query(base, %{"offset" => offset, "snapshot" => digest})
 
       _first_page ->
         base
@@ -1131,9 +1148,6 @@ defmodule Ryker.ControlPlane.Router do
   defp memory_review_action("merge"), do: :merge
   defp memory_review_action("forget"), do: :forget
 
-  defp action_return_path("episode", resource_ref),
-    do: "/timeline/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}"
-
   defp action_return_path(kind, _resource_ref) when kind in @recoverable_failures,
     do: "/failures"
 
@@ -1183,6 +1197,14 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # A request's action returns to the request's page, addressed by its id.
+  defp action_return_path("episode", resource_ref, options) do
+    case options.projection.request_id.(resource_ref) do
+      nil -> "/"
+      id -> Paths.request(id)
+    end
+  end
+
   defp action_return_path(kind, resource_ref, _options),
     do: action_return_path(kind, resource_ref)
 
@@ -1192,7 +1214,7 @@ defmodule Ryker.ControlPlane.Router do
   defp action_return_path("schedule", _resource_ref, "deleted", _options), do: "/schedules"
 
   defp action_return_path("schedule", resource_ref, _action, _options),
-    do: "/schedules/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}"
+    do: Paths.schedule(resource_ref)
 
   defp action_return_path(kind, resource_ref, _action, options),
     do: action_return_path(kind, resource_ref, options)
@@ -1234,7 +1256,7 @@ defmodule Ryker.ControlPlane.Router do
   defp allowed_back(_params), do: nil
 
   defp back_query(nil), do: ""
-  defp back_query(back), do: "?" <> URI.encode_query(%{"back" => back})
+  defp back_query(back), do: "?" <> Paths.encode_query(%{"back" => back})
 
   defp form_token(conn) do
     with [content_type] <- get_req_header(conn, "content-type"),
@@ -1538,7 +1560,7 @@ defmodule Ryker.ControlPlane.Router do
       |> halt()
     else
       conn
-      |> put_resp_header("location", "/conversations/#{conversation_id}")
+      |> put_resp_header("location", Paths.conversation(conversation_id))
       |> send_resp(303, "")
       |> halt()
     end
@@ -1547,9 +1569,6 @@ defmodule Ryker.ControlPlane.Router do
   # The person using this console is "You" on every page, and "you" mid-sentence.
   defp object("You"), do: "you"
   defp object(name), do: name
-
-  defp action_path(kind, resource_ref, action),
-    do: "/actions/#{kind}/#{URI.encode(resource_ref, &URI.char_unreserved?/1)}/#{action}"
 
   defp editable_memory_review(resource_ref, options) do
     case Enum.find(options.projection.memory.(%{}).reviews, &(&1["review_ref"] == resource_ref)) do

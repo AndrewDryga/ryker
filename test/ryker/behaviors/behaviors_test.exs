@@ -118,7 +118,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
         csrf_secret: String.duplicate("x", 32)
       })
 
-    path = "/actions/behavior/#{URI.encode_www_form(confirmed.behavior.ref)}/disabled"
+    path = "/actions/behavior/#{confirmed.behavior.id}/disabled"
 
     response =
       Plug.Test.conn(:get, path)

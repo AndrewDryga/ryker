@@ -22,6 +22,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
   alias Ryker.ControlPlane.{
     Components,
     Kit,
+    Paths,
     RequestFilters,
     SchedulesPage,
     SlackMarkdown,
@@ -202,7 +203,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
             :for={schedule <- @schedules}
             id={"coming-up-" <> schedule.ref}
             name={schedule.title}
-            href={"/schedules/" <> URI.encode_www_form(schedule.ref)}
+            href={Paths.schedule(schedule.ref)}
             link_row
             meta={SchedulesPage.row_facts(schedule)}
           />
@@ -375,7 +376,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
     do:
       path <>
         "?" <>
-        URI.encode_query(
+        Paths.encode_query(
           Map.merge(
             Map.take(
               UsageProjection.link_params(params),
@@ -390,7 +391,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
     do:
       path <>
         "?" <>
-        URI.encode_query(
+        Paths.encode_query(
           Map.put(
             Map.take(
               UsageProjection.link_params(params),
@@ -418,7 +419,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
     if UsageProjection.filtered?(params) do
       mode = if params["mode"] in ~w(all shadow), do: params["mode"], else: "live"
       window = UsageProjection.window(params["usage_window"])
-      {"Usage & cost", "/usage?" <> URI.encode_query(%{"window" => window, "mode" => mode})}
+      {"Usage & cost", Paths.query("/usage", %{"window" => window, "mode" => mode})}
     end
   end
 

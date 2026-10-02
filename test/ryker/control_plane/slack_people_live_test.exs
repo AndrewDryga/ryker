@@ -210,7 +210,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
     :ok = GenServer.call(Names, :refresh)
     entry = slack_message!("U0SENDER1", "Can <@#{@andrew}> look at the deploy?")
 
-    {:ok, view, _html} = open("/timeline/ingress-input%3A#{entry.id}")
+    {:ok, view, _html} = open("/timeline/#{entry.id}")
     body = "#story-message-#{entry.id} .ui-message-body"
 
     assert has_element?(view, "#{body} a[href='#{@profile}']", "Slack user")
@@ -228,7 +228,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
     names!(%{@andrew => "Andrew"})
     episode = work_request!(@andrew, "Is the deploy healthy?")
 
-    {:ok, view, _html} = open("/timeline/" <> URI.encode_www_form(episode.key))
+    {:ok, view, _html} = open("/timeline/" <> episode.id)
     sender = ".prompt-assembly .ui-message-header a[href='#{@profile}']"
 
     assert has_element?(view, sender, "Slack user")

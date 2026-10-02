@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.Activity do
     ConversationProjection,
     CurrentInputs,
     PagedRelation,
+    Paths,
     RepositoryNames,
     Search,
     SlackMarkdown,
@@ -36,7 +37,7 @@ defmodule Ryker.ControlPlane.Activity do
   def conversation_link(transport, conversation_ref, execution_mode \\ :live)
 
   def conversation_link(_transport, "control-plane:lab:" <> id, _execution_mode),
-    do: %{href: "/conversations/" <> id, label: "Open in Chat"}
+    do: %{href: Paths.conversation(id), label: "Open in Chat"}
 
   def conversation_link(transport, conversation_ref, execution_mode)
       when is_binary(transport) and is_binary(conversation_ref) do
@@ -62,8 +63,7 @@ defmodule Ryker.ControlPlane.Activity do
 
   def conversation_path(transport, conversation, thread \\ nil) do
     params = %{"transport" => transport, "conversation" => conversation, "mode" => "all"}
-    params = if thread in [nil, ""], do: params, else: Map.put(params, "thread", thread)
-    "/activity?" <> URI.encode_query(params)
+    Paths.query("/activity", Map.put(params, "thread", thread))
   end
 
   @doc """
@@ -416,8 +416,7 @@ defmodule Ryker.ControlPlane.Activity do
       kind_label: kind_label(row[:task_kind]),
       title: title,
       source: source,
-      href:
-        "/timeline/#{URI.encode_www_form(if row.kind == "episode", do: row.ref, else: "ingress-input:#{row.ref}")}"
+      href: Paths.request(row.id)
     })
   end
 

@@ -425,42 +425,40 @@ defmodule Ryker.ControlPlane.LabPageTest do
     # latest episode; a message from an earlier episode had no way to its own
     # execution. Each link now comes from the message's exact input id or
     # producing turn, never from list position, title text or the newest episode.
-    pending = %{actor: :operator, input_id: "0193", episode_id: nil, status: :pending}
-    assert LabPage.timeline_href(pending) == "/timeline/ingress-input%3A0193"
+    message = "0193a5d2-7c1e-7b8a-9f00-0000000000a1"
+    pending = %{actor: :operator, input_id: message, episode_id: nil, status: :pending}
+    assert LabPage.timeline_href(pending) == "/timeline/#{message}"
 
     assert LabPage.timeline_href(%{pending | status: :blocked}) ==
-             "/timeline/ingress-input%3A0193"
+             "/timeline/#{message}"
 
     admitted = %{
       actor: :operator,
-      input_id: "0193",
-      episode_id: "episode-uuid",
+      input_id: message,
+      episode_id: "0193a5d2-7c1e-7b8a-9f00-00000000e01e",
       status: :decided,
       decision_action: :start_episode
     }
 
     # Once routed, the same route is this input's own admission request on its
     # episode; an ignored input's is its recorded decision.
-    assert LabPage.timeline_href(admitted) == "/timeline/ingress-input%3A0193"
+    assert LabPage.timeline_href(admitted) == "/timeline/#{message}"
 
     assert LabPage.timeline_href(%{admitted | episode_id: nil, decision_action: :ignore}) ==
-             "/timeline/ingress-input%3A0193"
+             "/timeline/#{message}"
 
-    integration = %{actor: :integration, input_id: "0194", episode_id: nil, status: :pending}
-    assert LabPage.timeline_href(integration) == "/timeline/ingress-input%3A0194"
+    integration = %{actor: :integration, input_id: "0193a5d2-7c1e-7b8a-9f00-0000000000a2"}
+    assert LabPage.timeline_href(integration) == "/timeline/0193a5d2-7c1e-7b8a-9f00-0000000000a2"
 
-    reply = %{
-      actor: :ryker,
-      episode_ref: "conversation-lab:abc",
-      turn_id: "turn-uuid",
-      status: :settled
-    }
+    # A reply opens its request at the attempt that wrote it.
+    request = "0193a5d2-7c1e-7b8a-9f00-00000000e02e"
+    reply = %{actor: :ryker, episode_id: request, turn_id: "turn-uuid", status: :settled}
 
     assert LabPage.timeline_href(reply) ==
-             "/timeline/conversation-lab%3Aabc?attempt=turn-uuid#request-turn-uuid"
+             "/timeline/#{request}?attempt=turn-uuid#request-turn-uuid"
 
-    action = %{actor: :ryker, episode_ref: "grafana:rule-1:cycle-1", status: :delivered}
-    assert LabPage.timeline_href(action) == "/timeline/grafana%3Arule-1%3Acycle-1"
+    action = %{actor: :ryker, episode_id: request, status: :delivered}
+    assert LabPage.timeline_href(action) == "/timeline/#{request}"
 
     # No provenance, no guessed URL.
     assert LabPage.timeline_href(%{actor: :ryker, status: :delivered, text: "hi"}) == nil

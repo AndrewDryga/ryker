@@ -614,7 +614,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
                Enum.find(timeline.items, &(&1.id == "admission-#{entry.id}-#{generation}"))
 
       assert request.href ==
-               "/timeline/#{URI.encode_www_form(episode.key)}#admission-#{entry.id}-#{generation}"
+               "/timeline/#{episode.id}#admission-#{entry.id}-#{generation}"
 
       assert result =
                Enum.find(timeline.items, &(&1.id == "admission-#{entry.id}-#{generation}-result"))

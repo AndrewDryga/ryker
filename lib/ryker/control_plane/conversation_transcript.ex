@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   import Ecto.Query
 
   alias Ryker.Artifacts.OutputArtifact
+  alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.TranscriptCursor
   alias Ryker.Delivery.{ChatCard, PlatformAction, RoutingResponse}
   alias Ryker.Episodes.{Episode, Event, Reactions}
@@ -136,7 +137,6 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
         where: episode.id in ^episode_ids,
         select: %{
           id: episode.id,
-          key: episode.key,
           active_input_refs: episode.active_input_refs,
           state:
             fragment(
@@ -413,8 +413,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
       bytes: artifact.byte_size,
       media_type: artifact.media_type,
       name: artifact.name,
-      path:
-        "/conversations/#{conversation_id}/turns/#{artifact.turn_id}/artifacts/#{URI.encode(artifact.ref, &URI.char_unreserved?/1)}",
+      path: Paths.artifact(conversation_id, artifact.turn_id, artifact.ref),
       ref: artifact.ref,
       status: "available"
     }
@@ -607,7 +606,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
         actor: :ryker,
         attachments: [],
         cards: [],
-        episode_ref: action.episode_ref,
+        episode_id: action.episode_id,
         feedback_reactions: Map.get(message_reactions, message_ref, []),
         identity: "action:" <> action.id,
         message_ref: message_ref,
@@ -636,7 +635,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
         actor: :ryker,
         attachments: [],
         cards: [],
-        episode_ref: nil,
+        episode_id: nil,
         feedback_reactions: Map.get(message_reactions, message_ref, []),
         identity: "quick-reply:" <> response.id,
         input_id: response.input_id,
@@ -749,7 +748,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
         actor: :ryker,
         attachments: [],
         cards: [],
-        episode_ref: reply.episode_ref,
+        episode_id: reply.episode_id,
         feedback_reactions: [],
         generated_files: [],
         identity: "reply:" <> reply.turn_id,
@@ -804,7 +803,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
               _missing -> []
             end
           end),
-        episode_ref: reply.episode_ref,
+        episode_id: reply.episode_id,
         feedback_reactions: Map.get(feedback_reactions, reply.ref, []),
         message_ref: reply_message_ref(reply),
         occurred_at: reply.occurred_at,

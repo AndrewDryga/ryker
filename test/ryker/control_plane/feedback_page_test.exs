@@ -101,7 +101,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
              ["Frustrated", "Angry"]
 
     assert frustrated |> LazyHTML.query(".entity-name a") |> LazyHTML.attribute("href") ==
-             List.duplicate("/timeline/" <> URI.encode_www_form(reply.episode.key), 2)
+             List.duplicate("/timeline/" <> reply.episode.id, 2)
 
     assert text(frustrated) =~ "Is checkout up?"
     assert text(frustrated) =~ "“They say checkout is down for them.”"
@@ -111,7 +111,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
     assert text(satisfied) =~ "Count to three"
 
     assert satisfied |> LazyHTML.query(".entity-name a") |> LazyHTML.attribute("href") ==
-             ["/timeline/" <> URI.encode_www_form("ingress-input:#{greeting.id}")]
+             ["/timeline/" <> greeting.id]
 
     # A state says what it means when pointed at.
     assert document

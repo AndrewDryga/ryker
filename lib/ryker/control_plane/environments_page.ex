@@ -19,7 +19,8 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
     EnvironmentEditor,
     Environments,
     Integrations,
-    Kit
+    Kit,
+    Paths
   }
 
   alias Ryker.Settings.Environment
@@ -59,7 +60,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
           id={"environment-" <> environment.ref}
           icon={:grid}
           name={environment.display_name}
-          href={edit_path(environment.ref)}
+          href={Paths.edit_environment(environment.ref)}
           navigate={true}
           link_row={true}
           tag={if environment.is_default, do: "Default"}
@@ -145,10 +146,6 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
     </Kit.empty>
     """
   end
-
-  @doc "Where one environment is edited, on its own page."
-  @spec edit_path(String.t()) :: String.t()
-  def edit_path(ref), do: "/environments/" <> URI.encode(ref, &URI.char_unreserved?/1) <> "/edit"
 
   # The page leads with how many environments it lists and, once any channel
   # chose none, how many channels work without code or Emisar.

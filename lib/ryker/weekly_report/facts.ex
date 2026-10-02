@@ -25,7 +25,7 @@ defmodule Ryker.WeeklyReport.Facts do
   import Ecto.Query
 
   alias Ryker.Accounting.Query, as: Ledger
-  alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
+  alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, Paths}
   alias Ryker.Episodes.{Episode, Event, RoutingDigests}
   alias Ryker.Feedback.Signal
   alias Ryker.Ingress.Inbox.Entry
@@ -158,7 +158,7 @@ defmodule Ryker.WeeklyReport.Facts do
         %{
           title: titles[request.id],
           where: Names.destination(request.conversation),
-          href: "/timeline/" <> URI.encode_www_form(request.key),
+          href: Paths.request(request.id),
           rank: {unix(request.last_at), request.key}
         }
       end)

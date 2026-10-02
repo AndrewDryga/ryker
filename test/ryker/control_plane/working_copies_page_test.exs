@@ -10,10 +10,13 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
   alias Ryker.ControlPlane.{PageHelp, Pages, WorkingCopiesPage}
 
   @now ~U[2026-08-28 14:00:00Z]
+  # The request a copy was checked out for, by the id its page is addressed by.
+  @request "0193a5d2-7c1e-7b8a-9f00-00000000e01e"
 
   @blocked %{
     action: :rearm,
     discard_after: nil,
+    episode_id: @request,
     episode_ref: "episode:one",
     execution_kind: :work,
     kind: "coop_session",
@@ -132,7 +135,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     resume =
       LazyHTML.query(
         document,
-        "[id='copy-workspace:blocked'] .entity-actions form.action-control[method=get][action='/actions/retention/workspace%3Ablocked/rearm'] button[type=submit]"
+        "[id='copy-workspace:blocked'] .entity-actions form.action-control[method=get][action='/actions/retention/workspace:blocked/rearm'] button[type=submit]"
       )
 
     assert LazyHTML.text(resume) == "Resume cleanup"
@@ -141,7 +144,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     discard =
       LazyHTML.query(
         document,
-        "form.action-control[method=get][action='/actions/retention/workspace%3Aunmerged/discard'] button[type=submit]"
+        "form.action-control[method=get][action='/actions/retention/workspace:unmerged/discard'] button[type=submit]"
       )
 
     assert LazyHTML.text(discard) == "Discard unmerged"
@@ -170,7 +173,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     [blocked, unmerged, dirty, kept, active] = Enum.to_list(rows)
     assert LazyHTML.query(blocked, "h3.entity-name") |> LazyHTML.text() =~ "acme/checkout-api"
 
-    request = LazyHTML.query(blocked, "p.entity-text a[href='/timeline/episode%3Aone']")
+    request = LazyHTML.query(blocked, "p.entity-text a[href='/timeline/#{@request}']")
     assert LazyHTML.text(request) == "Fix the build"
 
     assert meta(blocked) ==
@@ -188,7 +191,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
   test "two requests in one repository stay distinguishable before cleanup" do
     rows =
       for title <- ["Investigate portal errors", "Update runner version"] do
-        %{@removed | episode_ref: title, ref: title, request_title: title}
+        %{@removed | episode_id: Ecto.UUID.generate(), ref: title, request_title: title}
       end
 
     html = rows |> render(@storage, "removed") |> LazyHTML.to_html()
@@ -210,6 +213,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     learning = %{
       @blocked
       | action: nil,
+        episode_id: nil,
         episode_ref: nil,
         execution_kind: :learning,
         ref: "ryker-learning:one",

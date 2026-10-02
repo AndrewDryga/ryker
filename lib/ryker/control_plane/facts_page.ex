@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.FactsPage do
 
   alias Phoenix.HTML.Safe
   alias Ryker.{Behaviors, Memories, Records}
-  alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection}
+  alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection, Paths}
   alias Ryker.InspectionRedactor
   alias Ryker.Slack.Names
 
@@ -194,7 +194,7 @@ defmodule Ryker.ControlPlane.FactsPage do
         uses(item[:recall_count], nil),
         MemoryFormat.time(item[:confirmed_at], "Saved ")
       ],
-      forget: "/actions/memory/#{segment(item.ref)}/forget"
+      forget: Paths.action("memory", item.ref, "forget")
     }
   end
 
@@ -204,7 +204,7 @@ defmodule Ryker.ControlPlane.FactsPage do
   defp review(%{"kind" => kind, "review_ref" => ref} = review) do
     secrets = InspectionRedactor.configured_secrets()
     entries = Enum.map(review["entries"] || [], &entry(&1, secrets))
-    base = %{id: "review-" <> dom_id(ref), actions: actions(kind, entries, segment(ref))}
+    base = %{id: "review-" <> dom_id(ref), actions: actions(kind, entries, ref)}
 
     case {kind, entries} do
       {"stale", [entry]} ->
@@ -251,23 +251,23 @@ defmodule Ryker.ControlPlane.FactsPage do
 
   defp actions("duplicate", _entries, ref),
     do: [
-      {"Keep separate", "/actions/memory-review/#{ref}/keep"},
-      {"Merge", "/actions/memory-review/#{ref}/merge"},
-      {"Forget", "/actions/memory-review/#{ref}/forget"}
+      {"Keep separate", Paths.action("memory-review", ref, "keep")},
+      {"Merge", Paths.action("memory-review", ref, "merge")},
+      {"Forget", Paths.action("memory-review", ref, "forget")}
     ]
 
   # Only one stale fact can be corrected in place; the router refuses any other.
   defp actions("stale", [_entry], ref),
     do: [
-      {"Keep", "/actions/memory-review/#{ref}/keep"},
-      {"Edit", "/actions/memory-review/#{ref}/edit"},
-      {"Forget", "/actions/memory-review/#{ref}/forget"}
+      {"Keep", Paths.action("memory-review", ref, "keep")},
+      {"Edit", Paths.action("memory-review", ref, "edit")},
+      {"Forget", Paths.action("memory-review", ref, "forget")}
     ]
 
   defp actions(_kind, _entries, ref),
     do: [
-      {"Keep", "/actions/memory-review/#{ref}/keep"},
-      {"Forget", "/actions/memory-review/#{ref}/forget"}
+      {"Keep", Paths.action("memory-review", ref, "keep")},
+      {"Forget", Paths.action("memory-review", ref, "forget")}
     ]
 
   defp subjects([]), do: "Saved facts"
@@ -348,5 +348,4 @@ defmodule Ryker.ControlPlane.FactsPage do
   defp search_text(_value), do: ""
 
   defp dom_id(ref), do: String.replace(to_string(ref), ~r/[^A-Za-z0-9_-]/, "-")
-  defp segment(value), do: value |> to_string() |> URI.encode(&URI.char_unreserved?/1)
 end

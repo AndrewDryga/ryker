@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
     assert run.status == :missed
 
     assert detail.source_request.href ==
-             "/timeline/" <> URI.encode_www_form(source.episode.key)
+             "/timeline/" <> source.episode.id
   end
 
   test "a one-time schedule says its moment in its own zone even after it has run" do

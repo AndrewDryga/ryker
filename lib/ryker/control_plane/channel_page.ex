@@ -27,7 +27,16 @@ defmodule Ryker.ControlPlane.ChannelPage do
     Settings
   }
 
-  alias Ryker.ControlPlane.{Activity, ChannelScope, ChannelsPage, Components, Kit, ShortTime}
+  alias Ryker.ControlPlane.{
+    Activity,
+    ChannelScope,
+    ChannelsPage,
+    Components,
+    Kit,
+    Paths,
+    ShortTime
+  }
+
   alias Ryker.Episodes.Words
   alias Ryker.Slack.{ChannelConfigurations, IncidentRooms, Names}
 
@@ -331,7 +340,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
             <% {_source, repositories} -> %>
               <ul class="channel-repositories">
                 <li :for={repository <- repositories}>
-                  <a href={"/repositories/" <> encode(repository.ref)}>{repository.name}</a>
+                  <a href={Paths.repository(repository.ref)}>{repository.name}</a>
                   <span :if={access_words(repository)} class="channel-fact-note">
                     {access_words(repository)}
                   </span>
@@ -349,9 +358,9 @@ defmodule Ryker.ControlPlane.ChannelPage do
       </dl>
       <dl class="channel-facts">
         <.fact :if={@room} label="Incident room">
-          <a href={"/incident-rooms/" <> encode(@room.ref)}>{@room.title}</a>
+          <a href={Paths.incident_room(@room.ref)}>{@room.title}</a>
           <span class="channel-fact-note">· {room_status(@room.status)}</span>
-          <a :if={@room.episode_ref} href={"/timeline/" <> encode(@room.episode_ref)}>
+          <a :if={@room.episode_id} href={Paths.request(@room.episode_id)}>
             Investigation
           </a>
         </.fact>
@@ -807,7 +816,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           :for={item <- @view.schedules.items}
           id={"schedule-" <> item.ref}
           name={item.title}
-          href={"/schedules/" <> encode(item.ref)}
+          href={Paths.schedule(item.ref)}
           link_row
           state={schedule_state(item.status)}
           meta={[
@@ -874,9 +883,9 @@ defmodule Ryker.ControlPlane.ChannelPage do
       >
         <Kit.entity_row
           :for={item <- @view.episodes.items}
-          id={"episode-" <> item.ref}
+          id={"episode-" <> item.id}
           name={item.title || "Untitled request"}
-          href={"/timeline/" <> encode(item.ref)}
+          href={Paths.request(item.id)}
           link_row
           state={episode_state(item.state)}
           meta={[
@@ -960,7 +969,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   end
 
   defp base_path(%ChannelScope{} = scope),
-    do: ChannelsPage.path(scope.workspace_ref, scope.channel_ref)
+    do: Paths.channel(scope.workspace_ref, scope.channel_ref)
 
   # One pager link carries every other section's resolved page and lands on
   # its own anchor, so paging summaries never resets episodes.
@@ -970,8 +979,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
         do: Map.put(params, relation.key, Integer.to_string(page)),
         else: Map.delete(params, relation.key)
 
-    query = if params == %{}, do: "", else: "?" <> URI.encode_query(params)
-    base <> query <> "#" <> anchor
+    Paths.query(base, params) <> "#" <> anchor
   end
 
   # A row says what a thing is in a few lines; the whole text is one click
@@ -1087,6 +1095,4 @@ defmodule Ryker.ControlPlane.ChannelPage do
 
     "$" <> Decimal.to_string(Decimal.round(cost, precision), :normal)
   end
-
-  defp encode(value), do: URI.encode(value, &URI.char_unreserved?/1)
 end

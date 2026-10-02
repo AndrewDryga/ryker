@@ -386,7 +386,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     refute conversation.live
 
     assert LabPage.timeline_href(answer) ==
-             "/timeline/ingress-input%3A#{admitted.result.entry.id}"
+             "/timeline/#{admitted.result.entry.id}"
 
     # Manual test, 2026-09-26: that page's heading said "Couldn't start" for
     # every message that did not become work, including one routing had just

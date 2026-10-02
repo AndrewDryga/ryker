@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.PeopleProjection do
   and, for one person, what it learned and where they said it.
   """
 
+  alias Ryker.ControlPlane.Paths
   alias Ryker.People
   alias Ryker.Slack.Names
 
@@ -73,7 +74,7 @@ defmodule Ryker.ControlPlane.PeopleProjection do
       text: fact.fact,
       said_at: fact.said_at,
       where: where(fact.conversation_ref, fact.private),
-      message_href: "/timeline/" <> URI.encode_www_form("ingress-input:#{fact.source_input_id}")
+      message_href: Paths.request(fact.source_input_id)
     }
   end
 

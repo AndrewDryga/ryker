@@ -101,7 +101,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     params = URI.decode_query(uri.query)
     assert params["responses_page"] == "1"
     assert params["attempt"] == turn.id
-    assert uri.path == "/timeline/#{URI.encode_www_form(episode.key)}"
+    assert uri.path == "/timeline/#{episode.id}"
     assert uri.fragment == "turn-#{turn.id}-response-1-body"
 
     {:ok, older} = ModelRequests.timeline(episode.key, params)
@@ -219,7 +219,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     refute LazyHTML.text(latest) =~ "Response body not retained"
     [href] = latest |> LazyHTML.query(".candidate-evidence a") |> LazyHTML.attribute("href")
     uri = URI.parse(href)
-    assert uri.path == "/timeline/#{URI.encode_www_form(episode.key)}"
+    assert uri.path == "/timeline/#{episode.id}"
     params = URI.decode_query(uri.query)
     assert params == %{"attempt" => turn.id}
 

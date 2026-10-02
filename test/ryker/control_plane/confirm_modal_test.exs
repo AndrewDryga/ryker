@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
   test "Delete on a rule asks over the list and posts the same confirmed action" do
     source = SavedEntities.source!("slack:T123:C456")
     rule = rule!(source, "Watch Terraform applies.")
-    path = "/actions/behavior/#{URI.encode_www_form(rule.ref)}/deleted"
+    path = "/actions/behavior/#{rule.id}/deleted"
     {:ok, view, _html} = open("/rules")
 
     refute has_element?(view, "#action-question")
@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
   test "a question about something already gone is not asked" do
     source = SavedEntities.source!("slack:T123:C456")
     rule = rule!(source, "Watch Terraform applies.")
-    path = "/actions/behavior/#{URI.encode_www_form(rule.ref)}/deleted"
+    path = "/actions/behavior/#{rule.id}/deleted"
     {:ok, view, _html} = open("/rules")
 
     Repo.update!(Ecto.Changeset.change(Repo.get!(Behavior, rule.id), status: :deleted))

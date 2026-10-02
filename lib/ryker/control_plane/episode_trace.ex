@@ -17,6 +17,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   alias Ryker.ControlPlane.{
     EpisodeCausality,
     EpisodeResponseMetrics,
+    Paths,
     RepositoryNames,
     SavedRecords
   }
@@ -430,7 +431,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
         "Inspect the delivery failure and check the conversation before retrying the saved reply.",
       attempted: [],
       headline: "The reply could not be delivered",
-      href: "/failures/delivery/#{segment(ref)}",
+      href: Paths.failure("delivery", ref),
       reason: "The answer is already saved. Delivery recovery does not run the model again."
     }
   end
@@ -455,7 +456,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       model_output: recovery.model_output,
       delivery: recovery.delivery,
       not_started: recovery.not_started,
-      href: recovery.setup_href || "/failures/work/#{segment(episode.key)}",
+      href: recovery.setup_href || Paths.failure("work", episode.id),
       link_label: if(recovery.setup_href, do: "View required setup", else: "Open recovery"),
       reason: recovery.cause
     }
@@ -581,14 +582,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
         )
       )
 
-    back = URI.encode_query(%{"back" => "/timeline/#{segment(episode.key)}"})
+    back = %{"back" => Paths.request(episode.id)}
 
     %{
       awaiting:
         episode.state in [:complete, :cancelled] and not rated and
           not closed_here?(episode, events),
-      good: "/actions/episode/#{segment(episode.key)}/rate-good?" <> back,
-      needs_work: "/actions/episode/#{segment(episode.key)}/rate-needs-work?" <> back
+      good: Paths.query(Paths.action("episode", episode.id, "rate-good"), back),
+      needs_work: Paths.query(Paths.action("episode", episode.id, "rate-needs-work"), back)
     }
   end
 
@@ -617,14 +618,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     |> maybe_action(
       recovery != nil and recovery.action == :retry,
       if(recovery, do: recovery.action_label, else: "Retry work"),
-      "/actions/work/#{segment(episode.key)}/retry?" <>
-        URI.encode_query(%{"back" => "/timeline/#{segment(episode.key)}"}),
+      Paths.query(Paths.action("work", episode.id, "retry"), %{
+        "back" => Paths.request(episode.id)
+      }),
       :primary
     )
     |> maybe_action(
       resolvable?(episode, current_turn),
       "Close as no longer needed",
-      "/actions/episode/#{segment(episode.key)}/resolve",
+      Paths.action("episode", episode.id, "resolve"),
       :danger
     )
   end

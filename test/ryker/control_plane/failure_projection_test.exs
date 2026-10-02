@@ -459,19 +459,19 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     )
     |> Repo.update!()
 
-    encoded = URI.encode(session.external_ref, &URI.char_unreserved?/1)
+    address = session.external_ref
 
     assert {:ok, failures} = FailureProjection.list(%{})
 
     assert %{worker: %{reporting: true, job_valid: false, free_slot: false}} =
              Enum.find(failures, &(&1.ref == session.external_ref))
 
-    row = failure_row("retention", encoded)
+    row = failure_row("retention", address)
     assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() == "Retry should work"
     assert LazyHTML.text(row) =~ "still holds this session"
 
     # The row opens the failure's page, where the retry is the primary step.
-    detail = page(["failures", "retention", encoded])
+    detail = page(["failures", "retention", address])
     assert detail.status == 200
     assert detail.body =~ "Should work"
     refute detail.body =~ "Will fail"
@@ -479,14 +479,14 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert detail.body
            |> IO.iodata_to_binary()
            |> LazyHTML.from_fragment()
-           |> LazyHTML.query("form[action='/actions/retention/#{encoded}/rearm'] button")
+           |> LazyHTML.query("form[action='/actions/retention/#{address}/rearm'] button")
            |> LazyHTML.attribute("class") == ["ui-button primary"]
 
     # A worker removed from Ryker holds nothing Ryker can reach: the retry
     # records the session as unreachable instead of waiting on it.
     assert {:ok, %{status: :revoked}} = WorkerLifecycle.revoke(worker.id, "operator:test")
 
-    row = failure_row("retention", encoded)
+    row = failure_row("retention", address)
     assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() == "Retry should work"
     assert LazyHTML.text(row) =~ "was removed from Ryker"
   end
@@ -515,6 +515,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     row = %{
       kind: "work",
       ref: "episode:one",
+      episode_id: Ecto.UUID.generate(),
       episode_ref: "episode:one",
       action: :retry,
       attempt_count: 1,
@@ -547,14 +548,14 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     |> Ecto.Changeset.change(last_seen_at: DateTime.add(DateTime.utc_now(), -600, :second))
     |> Repo.update!()
 
-    encoded = URI.encode(work.episode.key, &URI.char_unreserved?/1)
+    address = work.episode.id
 
     assert {:ok, failures} = FailureProjection.list(%{})
 
     assert %{kind: "stopping", action: nil, worker: %{reporting: false}} =
              Enum.find(failures, &(&1.ref == work.episode.key and &1.kind == "stopping"))
 
-    row = failure_row("stopping", encoded)
+    row = failure_row("stopping", address)
     assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() == "Fix needed first"
     assert LazyHTML.text(row) =~ "#{worker.id} is not reporting"
     assert Enum.empty?(LazyHTML.query(row, "form[action^='/actions/']"))
@@ -563,7 +564,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
     # The row's own page opens; a listed kind that answered 404 to its link
     # is how publications were unreachable in production.
-    detail = page(["failures", "stopping", encoded])
+    detail = page(["failures", "stopping", address])
     assert detail.status == 200
     assert detail.body =~ "Bring worker #{worker.id} back"
 
@@ -781,7 +782,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
   defp page(segments), do: Pages.page(segments, %{}, %{projection: Projection.callbacks()})
 
-  defp failure_row(kind, encoded_ref) do
+  defp failure_row(kind, address) do
     page = page(["failures"])
     assert page.status == 200
 
@@ -790,7 +791,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     |> LazyHTML.query("article.failure-row")
     |> Enum.find(fn article ->
       LazyHTML.query(article, ".entity-name a") |> LazyHTML.attribute("href") ==
-        ["/failures/#{kind}/#{encoded_ref}"]
+        ["/failures/#{kind}/#{address}"]
     end)
     |> tap(&assert(&1, "the #{kind} failure is not listed"))
   end

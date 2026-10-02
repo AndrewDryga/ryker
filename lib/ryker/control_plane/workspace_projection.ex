@@ -185,6 +185,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
     %{
       action: workspace_action(session),
       kind: "coop_session",
+      episode_id: session.episode_id,
       episode_ref: episode_ref,
       execution_kind: session.execution_kind,
       learning_state: learning_state(session, learning_run, learning_batch),

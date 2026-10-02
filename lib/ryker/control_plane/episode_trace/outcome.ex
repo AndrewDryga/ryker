@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   import Ryker.ControlPlane.EpisodeTrace.Step
 
   alias Ryker.ControlPlane.Emoji
+  alias Ryker.ControlPlane.Paths
   alias Ryker.Delivery.PlatformAction
   alias Ryker.InspectionRedactor
   alias Ryker.Publication.Publication
@@ -124,7 +125,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
               {"Incident room", room.ref, identifier: true},
               {"Repository", room.repository_ref}
             ]),
-          href: "/incident-rooms/#{segment(room.ref)}",
+          href: Paths.incident_room(room.ref),
           stage: "Incident",
           state: nil,
           summary: "An incident room was requested. Open the room for its current state.",
@@ -209,8 +210,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
           title: platform_action_title(action.tool),
           state: capitalize(human(action.status)),
           error: InspectionRedactor.artifact(action.last_error_code).text,
-          href:
-            if(action.status == :blocked, do: "/failures/delivery/#{segment(action.action_ref)}"),
+          href: if(action.status == :blocked, do: Paths.failure("delivery", action.action_ref)),
           link_label: "Open recovery"
         }
       end
@@ -250,7 +250,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
             compact_details([
               {"Schedule", schedule.ref, identifier: true}
             ]),
-          href: "/schedules/#{segment(schedule.ref)}",
+          href: Paths.schedule(schedule.ref),
           stage: "Schedule",
           state: nil,
           summary: "A schedule was created. Open it for its configuration and next run.",

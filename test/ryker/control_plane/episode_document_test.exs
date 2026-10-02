@@ -434,7 +434,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       band: :ready,
       target: "codex:gpt-5.6-luna/low@emisar",
       timing: [],
-      href: "/timeline/ingress-input%3Aone",
+      href: "/timeline/one",
       sections: []
     }
 
@@ -978,7 +978,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       title: "Admission · execution 1 · result",
       target: "codex:gpt-5.6-luna/low@emisar",
       status: :decided,
-      href: "/timeline/ingress-input%3Arecorded",
+      href: "/timeline/recorded",
       timing: [%{label: "Agent execution", value: "37.7 s"}],
       sections: [
         section("routing", "Routing evidence", %{
@@ -1155,7 +1155,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
             title: "Admission",
             target: "Not recorded",
             timing: [],
-            href: "/timeline/ingress-input%3Amissing",
+            href: "/timeline/missing",
             sections: [
               %{id: "candidate", title: "Decision", source_kind: :admission, artifact: artifact}
             ]
@@ -1618,8 +1618,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.text(rate) =~ "Needs work sends it to Self-improvement"
 
     assert rate |> LazyHTML.query("form") |> LazyHTML.attribute("action") == [
-             "/actions/episode/#{URI.encode(episode.key, &URI.char_unreserved?/1)}/rate-good",
-             "/actions/episode/#{URI.encode(episode.key, &URI.char_unreserved?/1)}/rate-needs-work"
+             "/actions/episode/#{episode.id}/rate-good",
+             "/actions/episode/#{episode.id}/rate-needs-work"
            ]
 
     {:ok, _rated} =

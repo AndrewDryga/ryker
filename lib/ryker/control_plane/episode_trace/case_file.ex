@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.ControlPlane.{CurrentInputs, ProviderMessage, SlackMarkdown}
+  alias Ryker.ControlPlane.{CurrentInputs, Paths, ProviderMessage, SlackMarkdown}
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.{Episode, RoutingDigests}
@@ -239,7 +239,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
           select: %{
             inserted_at: record.inserted_at,
             confirmed_at: record.confirmed_at,
-            episode_key: source.key
+            episode_id: source.id
           },
           order_by: [desc: record.confirmed_at, desc: record.id],
           limit: 1
@@ -255,7 +255,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
               %{
                 label: "Task proposed",
                 at: offer.inserted_at,
-                href: "/timeline/" <> segment(offer.episode_key)
+                href: Paths.request(offer.episode_id)
               },
             offer && offer.confirmed_at &&
               %{label: "Task approved", at: offer.confirmed_at, href: nil},
@@ -331,7 +331,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       available: artifact.state == :retained,
       repository: input.repository_ref,
       expired_at: input.operational_pruned_at,
-      href: "/timeline/ingress-input%3A#{input.id}",
+      href: Paths.request(input.id),
       event_kind: input.event_kind,
       answer: match?(%{"input_request_ref" => _, "interaction_kind" => "button"}, input.content),
       provider:

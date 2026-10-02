@@ -32,7 +32,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
     ]
 
   alias Ryker.Accounting.Execution
-  alias Ryker.ControlPlane.{BackgroundCards, CallRun, ConversationMemory, LearningActivity}
+  alias Ryker.ControlPlane.{BackgroundCards, CallRun, ConversationMemory, LearningActivity, Paths}
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor, as: Redactor
@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
           left_join: episode in Episode,
           on: episode.id == entry.episode_id,
           where: entry.id in ^ids,
-          select: {entry.id, episode.key}
+          select: {entry.id, episode.id}
         )
       )
       |> Map.new()
@@ -92,15 +92,14 @@ defmodule Ryker.ControlPlane.LearningRequests do
     Map.new(runs, fn run ->
       read = read(run)
 
+      # The request the message joined, or the message's own page before any did.
       page =
-        Enum.find_value(read, &(keys[&1] && timeline(keys[&1]))) ||
-          Enum.find_value(read, &(Map.has_key?(keys, &1) && timeline("ingress-input:" <> &1)))
+        Enum.find_value(read, &(keys[&1] && Paths.request(keys[&1]))) ||
+          Enum.find_value(read, &(Map.has_key?(keys, &1) && Paths.request(&1)))
 
       {run.id, page && page <> "#" <> card_id(run)}
     end)
   end
-
-  defp timeline(ref), do: "/timeline/" <> URI.encode_www_form(ref)
 
   # The result card stands for an attempt that got an answer or ended; one
   # still waiting on its model has only its briefing.

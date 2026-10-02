@@ -24,7 +24,7 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
   import Ryker.ControlPlane.CurrentInputs, only: [visible_preview: 3]
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Environments, Kit, SlackMarkdown}
+  alias Ryker.ControlPlane.{Environments, Kit, Paths, SlackMarkdown}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.LocalRouting
@@ -226,8 +226,7 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
   defp listed(row, prefix, words) do
     %{
       at: row.at,
-      href:
-        "/timeline/ingress-input%3A#{row.input_id}#admission-#{row.input_id}-#{row.generation}",
+      href: Paths.request(row.input_id) <> "#admission-#{row.input_id}-#{row.generation}",
       id: "#{prefix}-#{row.input_id}-#{row.generation}",
       name: row.name,
       text: Keyword.fetch!(words, :text),

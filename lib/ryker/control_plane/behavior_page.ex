@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   """
   use Phoenix.Component
   alias Ryker.{Behaviors, Instructions}
-  alias Ryker.ControlPlane.{Components, Kit}
+  alias Ryker.ControlPlane.{Components, Kit, Paths}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.{ChannelConfigurations, IncidentRooms, Names}
 
@@ -98,8 +98,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
             :for={run <- @view.runs}
             name={rule_name(@view.items, run.rule_ref)}
             href={
-              if run.episode_ref,
-                do: "/timeline/" <> URI.encode_www_form(run.episode_ref),
+              if run.episode_id,
+                do: Paths.request(run.episode_id),
                 else: "#behavior-" <> run.rule_ref
             }
             link_row
@@ -486,7 +486,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     ])
   end
 
-  defp action(item, status), do: "/actions/behavior/#{URI.encode_www_form(item.ref)}/#{status}"
+  defp action(item, status), do: Paths.action("behavior", item.ref, to_string(status))
 
   defp rule_name(items, ref) do
     case Enum.find(items, &(&1.ref == ref)) do
@@ -579,7 +579,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
         value in [nil, "", 1] or {key, value} in [{"view", "current"}, {"show", "all"}]
       end)
       |> Enum.sort()
-      |> URI.encode_query()
+      |> Paths.encode_query()
 
     if query == "", do: path <> fragment, else: path <> "?" <> query <> fragment
   end
@@ -591,7 +591,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     channels
     |> Enum.map(fn channel ->
       name = Names.name(channel.workspace_ref, channel.channel_ref)
-      page = "/channels/#{segment(channel.workspace_ref)}/#{segment(channel.channel_ref)}"
+      page = Paths.channel(channel.workspace_ref, channel.channel_ref)
 
       %{
         id: "channel-instructions-#{channel.workspace_ref}-#{channel.channel_ref}",
@@ -613,8 +613,6 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       do: (text |> String.slice(0, @quote_limit) |> String.replace(~r/\s+\S*\z/u, "")) <> "…",
       else: text
   end
-
-  defp segment(value), do: URI.encode(value, &URI.char_unreserved?/1)
 
   # A fact with emphasised references, code or a time in it. Every text part
   # is escaped here; the :safe tuple tells the Kit it is already HTML.
@@ -662,7 +660,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   @doc false
   def source_url(%{source_conversation_ref: "control-plane:lab:" <> id}) do
     case Ecto.UUID.cast(id) do
-      {:ok, id} -> "/conversations/#{id}"
+      {:ok, id} -> Paths.conversation(id)
       :error -> nil
     end
   end

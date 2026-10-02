@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     Environments,
     Integrations,
     Kit,
+    Paths,
     SettingsView,
     ShortTime
   }
@@ -111,7 +112,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
           id={"repository-" <> item.ref}
           icon={:repository}
           name={name(item)}
-          href={path(item.ref)}
+          href={Paths.repository(item.ref)}
           link_row
           state={state(item)}
           text={problem(item) || knowledge_problem(item)}
@@ -455,10 +456,6 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     """
   end
 
-  @doc "A repository's own page."
-  @spec path(String.t()) :: String.t()
-  def path(ref), do: "/repositories/" <> URI.encode(ref, &URI.char_unreserved?/1)
-
   @doc "A repository's page as the route hands it to the shell, under its name."
   @spec detail_html(map(), DateTime.t()) :: iodata()
   def detail_html(item, now \\ DateTime.utc_now()),
@@ -601,9 +598,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
               <%!-- Each name but the last carries its comma, so no space
               ever comes before one. --%>
               <%= for {environment, comma} <- with_commas(@item.in_environments) do %>
-                <a href={
-                  "/environments/" <> URI.encode(environment.ref, &URI.char_unreserved?/1) <> "/edit"
-                }>{environment.name}</a>{comma}
+                <a href={Paths.edit_environment(environment.ref)}>{environment.name}</a>{comma}
               <% end %>
             <% end %>
           </.fact>
@@ -611,7 +606,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
           <.fact label="Schedules">{count(@item.schedules, "schedule", "schedules")}</.fact>
           <.fact label="Tasks">
             {count(@item.sessions, "task", "tasks")}<span> · </span><a href={
-              "/activity?" <> URI.encode_query(%{"repository" => @item.ref})
+              Paths.query("/activity", %{"repository" => @item.ref})
             }>See its requests</a>
           </.fact>
           <.fact :if={@item.publications > 0} label="Pull requests">

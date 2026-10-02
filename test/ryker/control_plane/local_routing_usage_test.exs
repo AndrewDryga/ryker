@@ -123,7 +123,7 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
     assert text(row, ".entity-name") == Harvested.hi_text()
 
     assert LazyHTML.attribute(LazyHTML.query(row, ".entity-name a"), "href") == [
-             "/timeline/ingress-input%3A#{differed.id}#admission-#{differed.id}-1"
+             "/timeline/#{differed.id}#admission-#{differed.id}-1"
            ]
 
     assert text(row, ".entity-text") ==
@@ -210,7 +210,7 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
     assert text(row, ".entity-name") == Harvested.hi_text()
 
     assert LazyHTML.attribute(LazyHTML.query(row, ".entity-name a"), "href") == [
-             "/timeline/ingress-input%3A#{refused.id}#admission-#{refused.id}-1"
+             "/timeline/#{refused.id}#admission-#{refused.id}-1"
            ]
 
     assert text(row, ".entity-text") ==

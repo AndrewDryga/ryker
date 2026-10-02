@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     ImprovementRequests,
     LearningRequests,
     PagedRelation,
+    Paths,
     RoutingReason,
     ThreadContext,
     UsageProjection
@@ -133,7 +134,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       [
         secrets: Redactor.configured_secrets(),
         max_bytes: 2 * 1_024 * 1_024,
-        episode_ref: episode.key,
+        request_id: episode.id,
         execution_mode: episode.execution_mode,
         sessions: sessions,
         admission_failures: admission_failures,
@@ -156,7 +157,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
             "request-#{turn.id}",
             turn.remote_finished_at,
             turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
-            "/timeline/#{URI.encode_www_form(episode.key)}#request-#{turn.id}",
+            Paths.request(episode.id) <> "#request-#{turn.id}",
             %{kind: :work, run: CallRun.from_turn(turn), title_update: title_updates[turn.id]}
           )
       end)
@@ -307,7 +308,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
         "admission-#{entry.id}-#{generation}",
         completed,
         attempt != nil and attempt.phase in ~w(response_received host_validation committed),
-        "/timeline/#{URI.encode_www_form(options[:episode_ref])}#admission-#{entry.id}-#{generation}",
+        Paths.request(options[:request_id]) <> "#admission-#{entry.id}-#{generation}",
         %{
           failure: failure,
           kind: :admission,
@@ -796,7 +797,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       [
         secrets: Redactor.configured_secrets(),
         max_bytes: 2 * 1_024 * 1_024,
-        episode_ref: "ingress-input:#{entry.id}",
+        request_id: entry.id,
         execution_mode: entry.execution_mode,
         admission_failures: admission_failures([entry.id], Enum.reject(attempts, &is_nil/1)),
         disclosed: disclosed
@@ -994,12 +995,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
       do: %{},
       else:
         Repo.all(
-          from(episode in Episode,
-            where: episode.id in ^Map.keys(refs),
-            select: {episode.id, episode.key}
-          )
+          from(episode in Episode, where: episode.id in ^Map.keys(refs), select: episode.id)
         )
-        |> Map.new(fn {id, key} -> {refs[id], "/timeline/" <> URI.encode_www_form(key)} end)
+        |> Map.new(&{refs[&1], Paths.request(&1)})
   end
 
   defp candidate_episodes(_snapshot), do: %{}
@@ -1175,16 +1173,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp current_response?(_turn, _attempt, _digest), do: false
 
-  defp response_request_path(turn, options, params) do
-    query = URI.encode_query(Map.put(params, :attempt, turn.id))
-
-    "/timeline/#{URI.encode_www_form(options[:episode_ref])}?#{query}"
-  end
+  defp response_request_path(turn, options, params),
+    do: Paths.query(Paths.request(options[:request_id]), Map.put(params, :attempt, turn.id))
 
   defp admission_recovery(%{status: :blocked} = entry) do
     %{
       summary: Redactor.artifact(entry.last_error_code || "Routing stopped", max_bytes: 200).text,
-      href: "/actions/admission/#{URI.encode_www_form(Inbox.ref(entry))}/rearm"
+      href: Paths.action("admission", Inbox.ref(entry), "rearm")
     }
   end
 

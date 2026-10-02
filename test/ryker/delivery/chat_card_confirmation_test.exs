@@ -28,7 +28,7 @@ defmodule Ryker.Delivery.ChatCardConfirmationTest do
       |> Repo.update!()
 
     offer = %{Repo.get!(Record, schedule.offer_record_id) | status: :confirmed}
-    path = "/schedules/" <> URI.encode(schedule.ref, &URI.char_unreserved?/1)
+    path = "/schedules/" <> schedule.id
 
     assert {:ok, card} = ChatCard.project(offer)
     assert card.action == nil

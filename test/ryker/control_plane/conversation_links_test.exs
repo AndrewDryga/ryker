@@ -23,7 +23,7 @@ defmodule Ryker.ControlPlane.ConversationLinksTest do
            }) == nil
 
     assert Activity.conversation_path("control_plane", "control-plane:lab:" <> id) =~
-             "conversation=control-plane%3Alab%3A" <> id
+             "conversation=control-plane:lab:" <> id
   end
 
   test "the direct-conversation transport is named without Lab phrasing" do

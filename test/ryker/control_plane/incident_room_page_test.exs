@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
              {"Last change", "Yesterday at 08:48"}
            ]
 
-    assert text(document, "#incident-room-facts a[href='#{timeline(source.episode.key)}']") ==
+    assert text(document, "#incident-room-facts a[href='#{timeline(source.episode)}']") ==
              "The alert thread"
 
     assert LazyHTML.query(document, ".incident-room-facts") |> LazyHTML.attribute("class") == [
@@ -117,7 +117,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
 
     assert text(
              document,
-             "#investigation .section-actions a[href='#{timeline(source.episode.key)}']"
+             "#investigation .section-actions a[href='#{timeline(source.episode)}']"
            ) ==
              "Open the timeline"
 
@@ -156,7 +156,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     assert {"Channel ID", "C0DEMOROOM1"} in references
     assert {"Opened from channel ID", "C0DEMOALERTS"} in references
     assert {"Offer record ID", progress.ref} in references
-    assert {"Investigation request ID", source.episode.key} in references
+    assert {"Investigation request ID", source.episode.id} in references
 
     outside = document |> LazyHTML.query(".incident-room-view > :not(details)") |> LazyHTML.text()
 
@@ -387,7 +387,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
 
     assert text(
              document,
-             "#incident-room-status a[href='/failures/slack_incident/incident-room%3Ademo-checkout-readiness']"
+             "#incident-room-status a[href='/failures/slack_incident/demo-checkout-readiness']"
            ) == "See what stopped"
 
     assert {"Channel", "Not created yet"} in facts(document, "#incident-room-facts")
@@ -477,7 +477,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     |> List.first()
   end
 
-  defp timeline(key), do: "/timeline/" <> URI.encode(key, &URI.char_unreserved?/1)
+  defp timeline(episode), do: "/timeline/" <> episode.id
 
   # The demo room as the Compose database holds it: opened from the alert
   # thread in #demo-alerts, investigated in that same request, with the

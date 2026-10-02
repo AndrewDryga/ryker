@@ -13,9 +13,25 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
   alias Ryker.ControlPlane.{EpisodeCausality, FeedbackProjection}
 
   @secret String.duplicate("s", 32)
+  # The recorded request's id: its page is `/timeline/<id>` (`Ryker.ControlPlane.Paths`), and its
+  # store keeps it under the key "episode:one".
+  @episode_one_id "0193a5d2-7c1e-7b8a-9f00-00000000e01e"
+  @episode_blocked_id "0193a5d2-7c1e-7b8a-9f00-00000000b10c"
+  @episode_incident_id "0193a5d2-7c1e-7b8a-9f00-00000000141c"
+  # The message whose admission failed: no request yet, so its page is the message's own.
+  @admission_input_id "0193a5d2-7c1e-7b8a-9f00-0000000000a1"
 
   @doc "The CSRF secret every token in `options/1` is minted with."
   def secret, do: @secret
+
+  @doc "The id the recorded request is addressed by."
+  def episode_one_id, do: @episode_one_id
+
+  def episode_blocked_id, do: @episode_blocked_id
+  def episode_incident_id, do: @episode_incident_id
+
+  @doc "The id of the message whose admission failed."
+  def admission_input_id, do: @admission_input_id
 
   def options(parent) do
     %{
@@ -249,6 +265,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  items: [
                    %{
                      execution_mode: :live,
+                     id: @episode_one_id,
                      ref: "episode:one",
                      state: :working,
                      thread_ref: "1787832000.001000",
@@ -294,7 +311,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                      maintenance_retry_at: nil,
                      recall_count: 0,
                      last_recalled_at: nil,
-                     request_path: "/timeline/episode%3Aone",
+                     request_path: "/timeline/#{@episode_one_id}",
                      source: nil
                    }
                  ],
@@ -319,7 +336,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  output_tokens: 0,
                  reasoning_tokens: 0,
                  cost_usd: nil,
-                 link: "/activity?mode=all&usage_channel=slack%3AT123%3AC456&usage_window=7d",
+                 link: "/activity?mode=all&usage_channel=slack:T123:C456&usage_window=7d",
                  usage_path: "/usage?mode=all&window=7d"
                },
                learning: %{enabled: true, needs_attention: 0, waiting: 0}
@@ -327,6 +344,20 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
 
           _workspace, _channel, _params ->
             :not_found
+        end,
+        request_key: fn
+          @episode_one_id -> {:ok, "episode:one"}
+          @episode_blocked_id -> {:ok, "episode:blocked"}
+          @episode_incident_id -> {:ok, "episode:incident"}
+          # A message no request has taken yet is read by its own reference.
+          @admission_input_id -> {:ok, "ingress-input:" <> @admission_input_id}
+          _id -> :not_found
+        end,
+        request_id: fn
+          "episode:one" -> @episode_one_id
+          "episode:blocked" -> @episode_blocked_id
+          "episode:incident" -> @episode_incident_id
+          _key -> nil
         end,
         episode: fn
           "episode:one", _params ->
@@ -352,7 +383,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  causality: EpisodeCausality.index([], [], []),
                  actions: [
                    %{
-                     href: "/actions/episode/episode%3Aone/resolve",
+                     href: "/actions/episode/#{@episode_one_id}/resolve",
                      label: "Close as no longer needed",
                      tone: :danger
                    }
@@ -394,9 +425,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  rating: %{
                    awaiting: true,
                    good:
-                     "/actions/episode/episode%3Aone/rate-good?back=%2Ftimeline%2Fepisode%253Aone",
+                     "/actions/episode/#{@episode_one_id}/rate-good?back=/timeline/#{@episode_one_id}",
                    needs_work:
-                     "/actions/episode/episode%3Aone/rate-needs-work?back=%2Ftimeline%2Fepisode%253Aone"
+                     "/actions/episode/#{@episode_one_id}/rate-needs-work?back=/timeline/#{@episode_one_id}"
                  },
                  source: %{
                    href: "https://slack.com/archives/C456/p1787832000001000",
@@ -409,7 +440,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                    action: "Inspect the failure and retry only after its cause is corrected",
                    attempted: ["3 answers checked", "Ryker checked an answer"],
                    headline: "Work needs operator recovery",
-                   href: "/failures/work/episode%3Aone",
+                   href: "/failures/work/#{@episode_one_id}",
                    reason: "work execution blocked"
                  }
                },
@@ -443,11 +474,11 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
               channel_name: "inc-latency",
               channel_ref: "CINCIDENT",
               channel_state: :active,
-              episode_ref: "episode:incident",
+              episode_id: @episode_incident_id,
               private: true,
               publication_ref: nil,
               publication_status: nil,
-              ref: "incident:one",
+              ref: "incident-room:one",
               repository_ref: "ryker",
               requested_at: ~U[2026-08-28 11:55:00Z],
               status: :ready,
@@ -458,7 +489,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           ]
         end,
         incident: fn
-          "incident:one" ->
+          "incident-room:one" ->
             {:ok,
              %{
                lifecycle: [
@@ -484,13 +515,13 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  channel_name: "inc-latency",
                  channel_ref: "CINCIDENT",
                  channel_state: :active,
-                 episode_ref: "episode:incident",
+                 episode_id: @episode_incident_id,
                  private: true,
-                 ref: "incident:one",
+                 ref: "incident-room:one",
                  repository_ref: "ryker",
                  requested_at: ~U[2026-08-28 11:55:00Z],
                  source_channel_ref: "C456",
-                 source_episode_ref: "episode:one",
+                 source_episode_id: @episode_one_id,
                  status: :ready,
                  title: "Investigate latency",
                  updated_at: ~U[2026-08-28 12:00:00Z],
@@ -821,7 +852,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                 id: "018f3ef7-1f62-7ee0-a83c-0c12f21d83aa",
                 title: "Deploy window",
                 conversation: "#infra",
-                conversation_path: "/activity?conversation=slack%3AT123%3AC456",
+                conversation_path: "/activity?conversation=slack:T123:C456",
                 workspace: nil,
                 at: ~U[2026-08-28 12:00:00Z],
                 changed_at: ~U[2026-08-28 12:00:00Z],
@@ -1013,7 +1044,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
               title: "A matching GitHub update",
               condition: nil,
               episode_title: "Review the deployment",
-              episode_href: "/timeline/episode%3Aone",
+              episode_href: "/timeline/#{@episode_one_id}",
               place: nil,
               repository: "ryker",
               source_label: "GitHub",
@@ -1036,7 +1067,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                    accepted_at: nil,
                    delivered_at: ~U[2026-08-28 09:05:30Z],
                    due_local: ~N[2026-08-28 09:00:00],
-                   episode_ref: "episode:one",
+                   episode_id: @episode_one_id,
                    episode_state: :complete,
                    failure_cause: nil,
                    failure_code: nil,
@@ -1070,9 +1101,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  ref: "schedule:one",
                  repository: "ryker",
                  revision: 1,
-                 source_episode_ref: "episode:one",
+                 source_episode_id: @episode_one_id,
                  source_request: %{
-                   href: "/timeline/episode%3Aone",
+                   href: "/timeline/#{@episode_one_id}",
                    title: "Set up a daily health check"
                  },
                  status: :active,
@@ -1268,7 +1299,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
       status: :deferred,
       label: "Needs attention",
       conversation: "#infra",
-      conversation_path: "/activity?conversation=slack%3AT123%3AC456",
+      conversation_path: "/activity?conversation=slack:T123:C456",
       repository: "ryker",
       mode: :live,
       input_count: 2,
@@ -1312,6 +1343,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         delivery_kind: :message,
         detail: "stored diagnostic sha256:delivery",
         destination: "slack:T123:C456 / 1787832000.001",
+        episode_id: @episode_one_id,
         episode_ref: "episode:one",
         kind: "delivery",
         ref: "delivery:one",
@@ -1325,9 +1357,10 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         attempt_count: 3,
         detail: "stored diagnostic sha256:admission",
         destination: "github:github-main:repository:99 / github:github-main:pull:42",
+        episode_id: nil,
         episode_ref: nil,
         kind: "admission",
-        ref: "ingress-input:one",
+        ref: "ingress-input:" <> @admission_input_id,
         source: "github:github-main · github-delivery-one",
         status: :blocked,
         summary: "operation_uncertain",
@@ -1338,6 +1371,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         attempt_count: 1,
         detail: "stored diagnostic sha256:publication",
         destination: "ryker / symbolicator-deploy",
+        episode_id: @episode_one_id,
         episode_ref: "episode:one",
         kind: "publication",
         ref: "publication:one",
@@ -1349,6 +1383,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
       %{
         action: :retry,
         attempt_count: 1,
+        episode_id: @episode_blocked_id,
         episode_ref: "episode:blocked",
         kind: "work",
         ref: "episode:blocked",
@@ -1424,6 +1459,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         cleanup_phase: :plan_pending,
         closed_at: ~U[2026-08-28 11:40:00Z],
         discarded_at: nil,
+        episode_id: @episode_one_id,
         episode_ref: "episode:one",
         execution_kind: :work,
         kind: "retention",

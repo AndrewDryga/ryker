@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.Components do
   alias Phoenix.HTML.Safe
   alias Phoenix.LiveView.JS
   alias Ryker.ControlPlane.Kit
+  alias Ryker.ControlPlane.Paths
   alias Ryker.Episodes.Words
   alias Ryker.Work.ExecutionTarget
 
@@ -873,7 +874,7 @@ defmodule Ryker.ControlPlane.Components do
       )
       |> Enum.reject(fn {_name, value} -> value in [nil, ""] end)
 
-    case URI.encode_query(params) do
+    case Paths.encode_query(params) do
       "" -> path
       encoded -> path <> "?" <> encoded
     end

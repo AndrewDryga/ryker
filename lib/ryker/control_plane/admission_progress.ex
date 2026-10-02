@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
   import Ecto.Query
   require Ryker.ControlPlane.CurrentInputs
   alias Ryker.Admission.Attempt
-  alias Ryker.ControlPlane.CurrentInputs
+  alias Ryker.ControlPlane.{CurrentInputs, Paths}
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.InputCustodyTransition
@@ -78,7 +78,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
         generation: row.generation,
         claims: row.claims,
         retry_at: row.retry_at,
-        href: "/timeline/ingress-input%3A#{row.id}",
+        href: Paths.request(row.id),
         ref: Inbox.ref(%Entry{id: row.id}),
         cause: stopped_cause(row)
       }

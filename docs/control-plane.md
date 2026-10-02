@@ -21,10 +21,20 @@ explicitly unmeasured rather than appearing as zero.
 Execution reading uses two named surfaces, and their routes match those names.
 There are no compatibility aliases for earlier paths.
 
+Every console path comes from `Ryker.ControlPlane.Paths`, and a page path is a
+`~p` path checked against the route map when it compiles. A record is addressed
+by its plain id or slug, never by the reference Ryker keeps for it: the route
+already names the kind, so `/incident-rooms/demo-checkout-readiness`, not
+`/incident-rooms/incident-room%3Ademo-checkout-readiness`, and
+`/actions/memory/<id>/forget`, not `/actions/memory/memory%3A<id>/forget`. A
+reference of another shape keeps its own prefix, readably
+(`/failures/delivery/platform-action:<id>`), and query values keep `:`, `@` and
+`/` as written. An address that repeats its kind's prefix answers 404.
+
 | Surface | Route | What it holds |
 | --- | --- | --- |
 | **Activity** | `/` and `/activity` | The global list of inputs, running work and delivered answers, with its filters in the query string. It leads with how many requests it lists, then how many are in progress and how many need you, each counted from the rows its view lists and opening that view. One toolbar row holds search, the work included, the All · Needs you · In progress · Finished views, then a chip per filter and "+ Filter", which picks a field, then a value, which applies at once. Search matches message text, the repository the request's work used and a scheduled run's schedule, and applies as you type, as every list's search does. Each request is one row that opens its timeline; a message that started no work says what routing did with it (Answered right away, Reaction selected, No response needed), Routing while a routing worker holds it, and Queued only while it waits to be picked up. A worker problem and the scheduled runs coming up follow the list as sections. `/` is the application root and renders the same list. |
-| **Timeline** | `/timeline/:ref` | One request's chronological case file, titled by its subject. It includes each model request's retained briefing, response checks and technical identity in place. `:ref` is a durable episode key or `ingress-input:<id>` for a message with no request of its own, which opens that message's page. |
+| **Timeline** | `/timeline/:id` | One request's chronological case file, titled by its subject. It includes each model request's retained briefing, response checks and technical identity in place. `:id` is the request's id. A request a message started has the message's id, so a message with no request of its own opens that message's page at the address its request takes once routing starts one. |
 
 ### Live updates
 
@@ -129,7 +139,7 @@ that row is always "Not recorded".
 
 A message with no request of its own (a greeting routing answered itself, one
 it reacted to or left alone, or one still waiting for routing) opens a message
-page at `/timeline/ingress-input:<id>`, drawn with the request page's parts: the
+page at `/timeline/<id>`, the message's own id, drawn with the request page's parts: the
 header says what the message says, its Slack mentions named from the names
 cache, what happened to it in Activity's words, when, and where it was sent; the
 summary strip carries its response time (to the first thing Ryker sent) and
@@ -304,7 +314,7 @@ opens to work on an incident: one row per room with its state in words (Setting
 up, Open, Needs attention, Closed), its channel, repository, when it opened and a
 link to its investigation. A room is opened only from Ryker's incident offer in
 Slack, so the page says how to ask for one instead of offering a create button.
-Each room opens at `/incident-rooms/:ref` in the order someone handling the incident needs it: its
+Each room opens at `/incident-rooms/:slug` in the order someone handling the incident needs it: its
 state, when it opened and its channel on one line; its facts two to a line
 (channel, who can join, the alert thread it was opened from, its environment and
 repository, when it opened and last changed); a **Now** card with Ryker's latest
@@ -998,7 +1008,7 @@ replacement, not the older dashboard or the intended final design above.
 | Page | Wired |
 |---|---|
 | Chat (`/conversations`) | Live, with durable messages/files, generated-image delivery, the exact Slack chat tool schemas through a local-only adapter, reactions, confirmed extra posts, native cards/actions, episode custody, and same-session continuation |
-| Activity (`/`) and Timeline (`/timeline/:ref`) | Live: the counts that lead Activity (in progress, needs you), bounded search, the All · Needs you · In progress · Finished views and filters, pagination, and one timeline per request with its lifecycle and typed state records. There is no separate Overview or Episodes page |
+| Activity (`/`) and Timeline (`/timeline/:id`) | Live: the counts that lead Activity (in progress, needs you), bounded search, the All · Needs you · In progress · Finished views and filters, pagination, and one timeline per request with its lifecycle and typed state records. There is no separate Overview or Episodes page |
 | Incident rooms list and detail | Live, with bounded search, Slack-room lifecycle, linked source and investigation episodes, typed evidence records, and sanitized publication state |
 | Schedules list and detail | Live, with bounded search, confirmed run-now, direct-conversation replacement, recurrence and authority, destination, trigger kind, child execution state and timing, attempts, sanitized failures, and dispatched or missed occurrence history |
 | Follow-ups (`/follow-ups`) | Live, with active-first bounded search, readable target/condition/request, relative timing and exact UTC timestamps, accurate event/timer resolution, and collapsed technical details without raw source payloads |

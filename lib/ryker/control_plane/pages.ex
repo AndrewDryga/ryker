@@ -73,8 +73,8 @@ defmodule Ryker.ControlPlane.Pages do
     )
   end
 
-  def page(["incident-rooms", incident_ref], _params, options) do
-    with {:ok, incident_ref} <- PathRef.decode(incident_ref),
+  def page(["incident-rooms", slug], _params, options) do
+    with {:ok, incident_ref} <- PathRef.reference("slack_incident", slug),
          {:ok, snapshot} <- options.projection.incident.(incident_ref) do
       snapshot.room.title
       |> ok(IncidentRoomsPage.summary(snapshot.room), IncidentRoomsPage.detail(snapshot))
@@ -93,8 +93,8 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   # A schedule that can still change keeps its controls opposite the title.
-  def page(["schedules", schedule_ref], _params, options) do
-    with {:ok, schedule_ref} <- PathRef.decode(schedule_ref),
+  def page(["schedules", id], _params, options) do
+    with {:ok, schedule_ref} <- PathRef.reference("schedule", id),
          {:ok, snapshot} <- options.projection.schedule.(schedule_ref) do
       page =
         snapshot.schedule.title
@@ -290,11 +290,11 @@ defmodule Ryker.ControlPlane.Pages do
     end
   end
 
-  # One failure is read by its kind and reference, not found in the bounded
-  # list, and titled by what stopped rather than a generic "Recovery".
-  def page(["failures", kind, resource_ref], _params, options) do
+  # One failure is read by its kind and the record's id, not found in the
+  # bounded list, and titled by what stopped rather than a generic "Recovery".
+  def page(["failures", kind, id], _params, options) do
     with true <- kind in FailureProjection.kinds(),
-         {:ok, resource_ref} <- PathRef.decode(resource_ref),
+         {:ok, resource_ref} <- PathRef.reference(kind, id, options.projection.request_key),
          {:ok, row} <- options.projection.failure.(kind, resource_ref) do
       explanation = FailureExplanation.explain(row)
 
@@ -387,19 +387,19 @@ defmodule Ryker.ControlPlane.Pages do
   @spec subscriptions([String.t()], map()) :: [{module(), atom(), list()}]
   def subscriptions(["incident-rooms"], _params), do: IncidentRoomsPage.subscriptions()
 
-  def subscriptions(["incident-rooms", incident_ref], _params) do
-    case PathRef.decode(incident_ref) do
+  def subscriptions(["incident-rooms", slug], _params) do
+    case PathRef.reference("slack_incident", slug) do
       {:ok, incident_ref} -> IncidentProjection.subscriptions(incident_ref)
-      {:error, :path_ref} -> []
+      _not_an_address -> []
     end
   end
 
   def subscriptions(["schedules"], _params), do: SchedulesPage.subscriptions(nil)
 
-  def subscriptions(["schedules", schedule_ref], _params) do
-    case PathRef.decode(schedule_ref) do
+  def subscriptions(["schedules", id], _params) do
+    case PathRef.reference("schedule", id) do
       {:ok, schedule_ref} -> SchedulesPage.subscriptions(schedule_ref)
-      {:error, :path_ref} -> []
+      _not_an_address -> []
     end
   end
 

@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     EpisodeTrace,
     FeedbackPage,
     Kit,
+    Paths,
     RequestContextHTML,
     ThreadContext,
     ToolCard
@@ -947,7 +948,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       params
       |> Map.take(["events"])
       |> Map.put("calls", to_string(page))
-      |> URI.encode_query()
+      |> Paths.encode_query()
 
     base(snapshot) <> "?" <> query
   end
@@ -2142,7 +2143,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp title_label(%{title_kind: :task}), do: "Task"
   defp title_label(_case_file), do: "Initial request"
 
-  defp base(snapshot), do: "/timeline/" <> URI.encode_www_form(snapshot.episode.ref)
+  defp base(snapshot), do: Paths.request(snapshot.episode.id)
 
   # A Chat request's source is the Chat itself; the header links there once.
   defp source_link(%{

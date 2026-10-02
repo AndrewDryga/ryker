@@ -907,10 +907,10 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
 
   # The card an attempt's link opens: the page its path names, at its anchor.
   defp timeline_card("/timeline/" <> rest) do
-    [ref, anchor] = String.split(rest, "#")
-    ref = URI.decode_www_form(ref)
-    {:ok, snapshot} = EpisodeProjection.fetch(ref)
-    {:ok, timeline} = ModelRequests.timeline(ref, %{})
+    [id, anchor] = String.split(rest, "#")
+    {:ok, key} = EpisodeProjection.request_key(id)
+    {:ok, snapshot} = EpisodeProjection.fetch(key)
+    {:ok, timeline} = ModelRequests.timeline(key, %{})
 
     card =
       render_component(&EpisodePage.render/1,

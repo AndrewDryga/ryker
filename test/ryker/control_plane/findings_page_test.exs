@@ -58,7 +58,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     assert {:ok, detail} = FindingsProjection.fetch(record.id)
     assert [%{text: observation, path: path}] = detail.evidence
     assert observation =~ "deliberately disables"
-    episode_path = "/timeline/" <> URI.encode_www_form(claim.episode.key)
+    episode_path = "/timeline/" <> claim.episode.id
     # Findings and evidence must land on actual timeline cards, not dead fragments.
     assert path == episode_path <> "#event-record-" <> evidence.id
     assert detail.path == episode_path <> "#event-record-" <> record.id
@@ -212,12 +212,12 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
         reason: "Every timeout retried three times",
         scope: "Portal API",
         at: ~U[2026-09-10 09:00:00Z],
-        path: "/timeline/episode%3Aone#event-record-1",
+        path: "/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e#event-record-1",
         evidence: [
           %{
             text: "Retry counter climbed to 3",
             label: "Show on the timeline",
-            path: "/timeline/episode%3Aone#event-record-2"
+            path: "/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e#event-record-2"
           }
         ]
       }
@@ -233,7 +233,9 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     assert facts =~ "Portal API"
 
     assert page
-           |> LazyHTML.query("#finding-facts a[href='/timeline/episode%3Aone#event-record-1']")
+           |> LazyHTML.query(
+             "#finding-facts a[href='/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e#event-record-1']"
+           )
            |> LazyHTML.text() == "Open the investigation"
 
     # Evidence reads in the page's flow, not boxed with 52px of empty space
@@ -244,7 +246,9 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
              "Retry counter climbed to 3"
 
     assert page
-           |> LazyHTML.query("#evidence a[href='/timeline/episode%3Aone#event-record-2']")
+           |> LazyHTML.query(
+             "#evidence a[href='/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e#event-record-2']"
+           )
            |> LazyHTML.text() == "Show on the timeline"
 
     assert Enum.empty?(LazyHTML.query(page, "details"))
@@ -381,7 +385,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     assert [finding] = FindingsProjection.list(%{}).items
     assert finding.what == "An older useful conclusion"
     assert {:ok, detail} = FindingsProjection.fetch(original.id)
-    assert detail.path == "/timeline/" <> URI.encode_www_form(claim.episode.key)
+    assert detail.path == "/timeline/" <> claim.episode.id
   end
 
   test "finding prose and linked evidence cross the redaction and escaping boundary" do

@@ -128,7 +128,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
           at: r.inserted_at,
           outcome: r.outcome,
           action: r.decision_action,
-          episode_ref: e.key
+          episode_id: e.id
         }
       )
     )

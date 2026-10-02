@@ -647,7 +647,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert target_episode.id == measured.episode_id
 
     assert target_episode.href ==
-             "/timeline/#{URI.encode_www_form(episode_key!(measured.episode_id))}"
+             "/timeline/#{measured.episode_id}"
   end
 
   test "cost and power-user totals follow each triggering input without double counting" do
@@ -1442,7 +1442,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert blocked_detail.episode.next_action == "operator recovery"
 
     assert blocked_detail.trace.stopped.href ==
-             "/failures/work/#{URI.encode(working.episode.key, &URI.char_unreserved?/1)}"
+             "/failures/work/#{working.episode.id}"
 
     assert "Started once" in blocked_detail.trace.stopped.attempted
 
@@ -1645,7 +1645,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              pages: 1
            }
 
-    assert map_size(Projection.callbacks()) == 49
+    assert map_size(Projection.callbacks()) == 51
     # Everyone Ryker learned something about, and one of them, for Memory ›
     # People and the question its Forget this person asks.
     assert is_function(Projection.callbacks().people, 0)
@@ -2138,7 +2138,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              IncidentProjection.list(%{"q" => "Operator incident", "status" => "blocked"})
 
     assert {:ok, incident} = IncidentProjection.fetch(room.ref)
-    assert incident.room.episode_ref == source.episode.key
+    assert incident.room.episode_id == source.episode.id
     assert [%{kind: :observed_active}] = incident.lifecycle
     assert Enum.map(incident.records, & &1.ref) == [record.ref, followup_record.ref]
 
@@ -2164,7 +2164,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert [
              %{
-               episode_ref: episode_ref,
+               episode_id: episode_id,
                episode_state: :working,
                ref: occurrence_ref,
                trigger: :scheduled,
@@ -2173,7 +2173,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
            ] = schedule_detail.occurrences
 
     assert occurrence_ref == occurrence.ref
-    assert episode_ref == source.episode.key
+    assert episode_id == source.episode.id
 
     assert [projected_subscription] =
              SubscriptionProjection.list(%{"q" => "github", "view" => "current"})
@@ -2320,7 +2320,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                &(&1.id == "platform-action-#{post_action.id}")
              )
 
-    assert action_href == "/failures/delivery/" <> URI.encode_www_form(post_action.action_ref)
+    assert action_href == "/failures/delivery/" <> post_action.action_ref
 
     assert %{state: "Review pending", error: "later-error"} =
              Enum.find(later.trace.follow_through, &(&1.id == "publication-#{publication.id}"))

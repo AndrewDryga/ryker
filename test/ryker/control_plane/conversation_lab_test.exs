@@ -85,7 +85,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert {:ok, queued} = ConversationProjection.fetch(@conversation_id)
     assert [waiting] = queued.admission_progress
     assert waiting.phase == "Queued"
-    assert waiting.href == "/timeline/ingress-input%3A#{entry.id}"
+    assert waiting.href == "/timeline/#{entry.id}"
     assert queued.episodes == []
 
     now = DateTime.utc_now()
@@ -1001,7 +1001,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     # The reply names the turn that produced it and that turn's episode, so its
     # inspection link cannot drift to a newer episode of the same conversation.
     assert ryker.turn_id == accepted.turn.id
-    assert ryker.episode_ref == transition.episode.key
+    assert ryker.episode_id == transition.episode.id
 
     assert Enum.map(ryker.cards, &{&1.kind, &1.ref}) == [
              {"task_offer", task_offer.ref},
@@ -1260,7 +1260,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert %{tone: :on, word: "Saved to memory", link: "Open facts"} = memory_saved.outcome
 
     assert schedule_saved.outcome == %{
-             href: "/schedules/" <> URI.encode(scheduled.schedule.ref, &URI.char_unreserved?/1),
+             href: "/schedules/" <> scheduled.schedule.id,
              link: "Open schedule",
              tone: :on,
              word: "Scheduled"

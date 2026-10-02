@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, ShortTime, SlackMarkdown}
+  alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, SlackMarkdown}
   alias Ryker.Slack.Names
 
   @gib 1_073_741_824
@@ -171,13 +171,13 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
       <:actions :if={@row.action}>
         <Components.action_button
           :if={@row.action == :rearm}
-          path={"/actions/retention/" <> encode(@row.ref) <> "/rearm"}
+          path={Paths.action("retention", @row.ref, "rearm")}
           label="Resume cleanup"
           tone={:secondary}
         />
         <Components.action_button
           :if={@row.action == :discard_unmerged}
-          path={"/actions/retention/" <> encode(@row.ref) <> "/discard"}
+          path={Paths.action("retention", @row.ref, "discard")}
           label="Discard unmerged"
           tone={:danger}
         />
@@ -188,14 +188,14 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
 
   # The request the copy was checked out for, by what was asked, linking to
   # its timeline. Two copies of one repository stay distinguishable by it.
-  defp request(%{episode_ref: ref} = row) when is_binary(ref) do
+  defp request(%{episode_id: id} = row) when is_binary(id) do
     title =
       case Names.workspace_from_destination(row[:request_conversation]) do
         nil -> row[:request_title] || "Open the request"
         workspace -> SlackMarkdown.plain(row[:request_title] || "Open the request", workspace)
       end
 
-    request_link(%{__changed__: nil, href: "/timeline/" <> encode(ref), title: title})
+    request_link(%{__changed__: nil, href: Paths.request(id), title: title})
   end
 
   defp request(_row), do: nil
@@ -333,8 +333,6 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
 
   defp plural(1, unit), do: "1 #{unit}"
   defp plural(count, unit), do: "#{count} #{unit}s"
-
-  defp encode(value), do: URI.encode(value, &URI.char_unreserved?/1)
 
   defp space_in_use?(workers),
     do:

@@ -15,6 +15,11 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
   alias Ryker.Work.FailureCause
 
   @now ~U[2026-09-24 12:00:00Z]
+  # The requests the failures belong to, by the ids their pages are addressed by, and the message
+  # whose reading failed.
+  @request_one "0193a5d2-7c1e-7b8a-9f00-00000000e01e"
+  @request_two "0193a5d2-7c1e-7b8a-9f00-00000000e02e"
+  @input_one "0193a5d2-7c1e-7b8a-9f00-0000000000a1"
 
   test "a timer follow-up says when work continues without pretending to watch any source" do
     now = ~U[2026-09-07 12:00:00Z]
@@ -27,7 +32,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
           place: nil,
           repository: nil,
           episode_title: "Follow up on the deployment",
-          episode_href: "/timeline/episode%3Atimer",
+          episode_href: "/timeline/#{@request_two}",
           source_label: "Timer",
           target_url: nil,
           cursor_digest: nil,
@@ -149,6 +154,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       kind: "retention",
       ref: "session:one",
       episode_ref: "episode:one",
+      episode_id: @request_one,
       status: :blocked,
       summary: "coop_error",
       updated_at: ~U[2026-09-02 13:56:40Z],
@@ -174,7 +180,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert LazyHTML.query(document, ".failure-status .state-word") |> LazyHTML.text() ==
              "Retry won't help"
 
-    assert LazyHTML.query(document, ".failure-status a[href='/timeline/episode%3Aone']")
+    assert LazyHTML.query(document, ".failure-status a[href='/timeline/#{@request_one}']")
            |> LazyHTML.text() == "Hi"
 
     # The retry stays reachable for an operator who knows better, but only as
@@ -242,7 +248,11 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     refute LazyHTML.text(document) =~ "Rearm"
 
-    for {row, article} <- Enum.zip(rows, LazyHTML.query(document, "article.failure-row")) do
+    # Each action is addressed by its record's id; a kind with no prefix keeps the reference.
+    paths = ["/actions/delivery/one/rearm", "/actions/slack_interaction/interaction:one/rearm"]
+    articles = LazyHTML.query(document, "article.failure-row")
+
+    for {row, article, path} <- Enum.zip([rows, articles, paths]) do
       explanation = FailureExplanation.explain(row, @now)
       next = LazyHTML.query(article, ".failure-next") |> LazyHTML.text()
 
@@ -255,7 +265,6 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       [_label, effect] = String.split(next, ":", parts: 2)
       assert String.trim(effect) == hd(Enum.filter(explanation.options, & &1[:path])).effect
 
-      path = "/actions/#{row.kind}/#{URI.encode(row.ref, &URI.char_unreserved?/1)}/rearm"
       button = row |> detail() |> LazyHTML.query("form[method='get'][action='#{path}'] button")
       assert LazyHTML.text(button) == explanation.button.label
       assert LazyHTML.attribute(button, "class") == ["ui-button primary"]
@@ -298,7 +307,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
            )
            |> Enum.count() == 1
 
-    retry = LazyHTML.query(detail, "form[action='/actions/delivery/delivery%3Aone/rearm'] button")
+    retry = LazyHTML.query(detail, "form[action='/actions/delivery/one/rearm'] button")
     assert LazyHTML.attribute(retry, "class") == ["ui-button secondary"]
     assert LazyHTML.text(detail) =~ "Fails until fixed"
 
@@ -313,7 +322,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     retry =
       rejoined
       |> detail()
-      |> LazyHTML.query("form[action='/actions/delivery/delivery%3Aone/rearm'] button")
+      |> LazyHTML.query("form[action='/actions/delivery/one/rearm'] button")
 
     assert LazyHTML.attribute(retry, "class") == ["ui-button primary"]
   end
@@ -327,6 +336,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
         kind: "publication",
         ref: "publication:one",
         episode_ref: "episode:one",
+        episode_id: @request_one,
         action: nil,
         attempt_count: 3_127,
         source: "ryker",
@@ -338,6 +348,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
         kind: "publication",
         ref: "publication:two",
         episode_ref: "episode:two",
+        episode_id: @request_two,
         action: nil,
         attempt_count: 1_330,
         source: "ryker",
@@ -474,6 +485,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       kind: "work",
       ref: "episode:one",
       episode_ref: "episode:one",
+      episode_id: @request_one,
       action: :retry,
       attempt_count: 1,
       status: :blocked,
@@ -532,6 +544,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       kind: "retention",
       ref: "session:one",
       episode_ref: "episode:one",
+      episode_id: @request_one,
       action: :rearm,
       status: :blocked,
       summary: "coop_error",
@@ -541,8 +554,20 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     rows = [
       cleanup,
       %{cleanup | ref: "session:two"},
-      %{cleanup | kind: "delivery", ref: "delivery:one", episode_ref: "episode:two"},
-      %{cleanup | kind: "admission", ref: "input:one", episode_ref: nil}
+      %{
+        cleanup
+        | kind: "delivery",
+          ref: "delivery:one",
+          episode_ref: "episode:two",
+          episode_id: @request_two
+      },
+      %{
+        cleanup
+        | kind: "admission",
+          ref: "ingress-input:" <> @input_one,
+          episode_ref: nil,
+          episode_id: nil
+      }
     ]
 
     document =
@@ -642,6 +667,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
           kind: "retention",
           ref: "session:one",
           episode_ref: "episode:one",
+          episode_id: @request_one,
           status: :blocked,
           summary: "coop_error",
           detail: "stored diagnostic sha256:" <> String.duplicate("a", 64),
@@ -697,6 +723,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
         kind: "work",
         ref: "task-offer:record:task_offer:one",
         episode_ref: "task-offer:record:task_offer:one",
+        episode_id: @request_one,
         action: :retry,
         attempt_count: 8,
         status: :blocked,
