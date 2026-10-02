@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
   defp render_filters(assigns) do
     render_component(
       &RequestFilters.render/1,
-      Map.merge(%{params: %{}, values: [], path: "/activity", menu: nil}, assigns)
+      Map.merge(%{params: %{}, values: [], path: "/activity", menu: nil, search: %{}}, assigns)
     )
   end
 
@@ -159,7 +159,87 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
       |> LazyHTML.query("#filter-values-conversation button[phx-click=set-filter]")
 
     assert LazyHTML.attribute(choices, "phx-value-choice") == [ref]
-    assert LazyHTML.attribute(choices, "title") == []
+    refute Enum.any?(LazyHTML.attribute(choices, "title"), &(&1 =~ "control-plane:"))
+  end
+
+  # Andrew, 2026-10-03, of "+ Filter" › Conversation, which listed every conversation as a button
+  # several lines tall: "are you crazy showing all options of such long list as dropdown option
+  # in filters?!" A long list opens as a search over its most recent few, one line each, and
+  # typing searches all of them.
+  test "a long value list opens as a search over its most recent few, one line each" do
+    values =
+      for n <- 1..30 do
+        %{
+          conversation_ref: "slack:T1:C#{n}",
+          conversation_label: "#channel-#{n}",
+          conversation_name: "#channel-#{n}",
+          conversation_source: "Slack"
+        }
+      end
+
+    panel = fn search ->
+      render_filters(%{menu: "fields", values: values, search: search})
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#filter-values-conversation")
+    end
+
+    first = panel.(%{})
+
+    assert LazyHTML.query(
+             first,
+             "form[phx-change=filter-values-search] input[type=hidden][name=key][value=conversation]"
+           )
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(first, "input[type=search][name=q]")
+           |> LazyHTML.attribute("placeholder") ==
+             ["Find a conversation"]
+
+    shown = LazyHTML.query(first, "button[phx-click=set-filter]")
+    assert LazyHTML.attribute(shown, "phx-value-choice") == for(n <- 1..8, do: "slack:T1:C#{n}")
+    assert LazyHTML.query(first, ".filter-more") |> LazyHTML.text() =~ "22 more"
+
+    # One line each: the name, and where the conversation is as a quiet word beside it.
+    [row | _rest] = Enum.to_list(shown)
+    assert LazyHTML.query(row, ".filter-choice-name") |> LazyHTML.text() == "#channel-1"
+    assert LazyHTML.query(row, ".filter-choice-tag") |> LazyHTML.text() == "Slack"
+
+    # Typing searches every conversation, not only the few shown.
+    found = panel.(%{"conversation" => "NEL-27"})
+
+    assert LazyHTML.query(found, "button[phx-click=set-filter]")
+           |> LazyHTML.attribute("phx-value-choice") == ["slack:T1:C27"]
+
+    assert LazyHTML.query(found, ".filter-more") |> Enum.empty?()
+
+    assert panel.(%{"conversation" => "nothing like it"})
+           |> LazyHTML.query(".filter-empty")
+           |> LazyHTML.text() =~ "Nothing matches"
+
+    # A short list stays a list: three sources need no search.
+    transport =
+      render_filters(%{menu: "fields"})
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#filter-values-transport")
+
+    assert LazyHTML.query(transport, "input[type=search]") |> Enum.empty?()
+  end
+
+  test "the value a chip holds stays in its list even when it is not among the most recent" do
+    values =
+      for n <- 1..30,
+          do: %{conversation_ref: "slack:T1:C#{n}", conversation_label: "#channel-#{n}"}
+
+    pressed =
+      render_filters(%{
+        params: %{"conversation" => "slack:T1:C30"},
+        menu: "conversation",
+        values: values
+      })
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#filter-popover button[aria-pressed=true]")
+
+    assert LazyHTML.attribute(pressed, "phx-value-choice") == ["slack:T1:C30"]
   end
 
   test "removing a filter, or saving an empty value, keeps every other filter" do

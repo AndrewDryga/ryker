@@ -153,6 +153,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        overview: nil,
        activity: nil,
        filter_menu: nil,
+       filter_search: %{},
        filter_values: [],
        schedules: [],
        row_ids: [],
@@ -1171,13 +1172,25 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         true -> nil
       end
 
-    {:noreply, assign(socket, :filter_menu, menu)}
+    {:noreply, assign(socket, filter_menu: menu, filter_search: %{})}
   end
 
   def handle_event("filter-menu", _params, socket), do: {:noreply, socket}
 
   def handle_event("filter-menu-close", _params, socket),
-    do: {:noreply, assign(socket, :filter_menu, nil)}
+    do: {:noreply, assign(socket, filter_menu: nil, filter_search: %{})}
+
+  # What has been typed into a long value list's search; the list narrows to
+  # what matches, and nothing is applied until a value is chosen.
+  def handle_event("filter-values-search", %{"key" => key, "q" => query}, socket)
+      when is_binary(query) do
+    if key in RequestFilters.keys(),
+      do:
+        {:noreply, update(socket, :filter_search, &Map.put(&1, key, String.slice(query, 0, 200)))},
+      else: {:noreply, socket}
+  end
+
+  def handle_event("filter-values-search", _params, socket), do: {:noreply, socket}
 
   # The value travels as "choice": LiveView's client overwrites a clicked
   # element's "value" with the button's own, which is empty.
@@ -1267,7 +1280,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp patch_filters(socket, params) do
     query = Paths.encode_query(params)
     path = if query == "", do: socket.assigns.path, else: socket.assigns.path <> "?" <> query
-    {:noreply, socket |> assign(:filter_menu, nil) |> push_patch(to: path)}
+    {:noreply, socket |> assign(filter_menu: nil, filter_search: %{}) |> push_patch(to: path)}
   end
 
   # The setup count is read first because what the shell listens to depends on
@@ -2443,6 +2456,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             :if={@native == :activity && @activity}
             activity={@activity}
             filter_menu={@filter_menu}
+            filter_search={@filter_search}
             filter_values={@filter_values}
             overview={@overview}
             schedules={@schedules}

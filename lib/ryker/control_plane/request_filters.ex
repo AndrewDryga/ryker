@@ -23,6 +23,11 @@ defmodule Ryker.ControlPlane.RequestFilters do
 
   @efforts ~w(none minimal low medium high xhigh max)
 
+  # A list of recorded values grows with use, so past a handful it opens as a
+  # search over its most recent few instead of every value at once.
+  @searchable [:conversation, :user, :channel]
+  @shown_values 8
+
   # Every filter a view can carry, in chip order, with the words its chip shows.
   @fields [
     {"conversation", "Conversation", :conversation},
@@ -102,6 +107,11 @@ defmodule Ryker.ControlPlane.RequestFilters do
 
   attr(:disabled, :boolean, default: false)
 
+  attr(:search, :map,
+    default: %{},
+    doc: "What has been typed into each long value list's search, by filter key"
+  )
+
   def render(assigns) do
     params = UsageProjection.link_params(assigns.params)
     chips = chips(params, assigns.values)
@@ -146,6 +156,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
           current={@params[chip.key]}
           values={@values}
           params={@params}
+          search={@search[chip.key]}
           return={"[data-filter=#{chip.key}] .filter-chip-edit"}
         />
       </span>
@@ -159,7 +170,13 @@ defmodule Ryker.ControlPlane.RequestFilters do
           phx-value-key="fields"
           aria-expanded={to_string(@adding)}
         ><.icon name={:plus} />Filter</button>
-        <.menu :if={@adding && !@disabled} groups={@groups} values={@values} params={@params} />
+        <.menu
+          :if={@adding && !@disabled}
+          groups={@groups}
+          values={@values}
+          params={@params}
+          search={@search}
+        />
       </span>
       <.link :if={@cleared && !@disabled} class="filter-clear" patch={@path}>Clear</.link>
     </div>
@@ -177,6 +194,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
   attr(:groups, :list, required: true)
   attr(:values, :list, required: true)
   attr(:params, :map, required: true)
+  attr(:search, :map, required: true)
 
   # The field list stays put; each field's values sit in a hidden panel beside
   # it, which the FilterMenu hook shows on hover, focus or click. Choosing a
@@ -218,7 +236,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
         hidden
       >
         <button type="button" class="filter-back" data-back><.icon name={:chevron} />{label}</button>
-        <.values field={field} current={nil} values={@values} params={@params} />
+        <.values field={field} current={nil} values={@values} params={@params} search={@search[key]} />
       </div>
     </div>
     """
@@ -228,6 +246,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
   attr(:current, :any, default: nil)
   attr(:values, :list, required: true)
   attr(:params, :map, required: true)
+  attr(:search, :string, default: nil)
   attr(:return, :string, required: true, doc: "Where focus goes when Escape closes the popover")
 
   # Editing an applied filter: that field's values alone, the current one marked.
@@ -246,7 +265,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
       phx-key="Escape"
     >
       <h3>{@label}</h3>
-      <.values field={@field} current={@current} values={@values} params={@params} />
+      <.values field={@field} current={@current} values={@values} params={@params} search={@search} />
     </div>
     """
   end
@@ -255,22 +274,34 @@ defmodule Ryker.ControlPlane.RequestFilters do
   attr(:current, :any, default: nil)
   attr(:values, :list, required: true)
   attr(:params, :map, required: true)
+  attr(:search, :string, default: nil)
 
   # A value applies as soon as it is chosen. It travels as "choice": LiveView's
   # client overwrites a clicked button's "value" with the button's own, empty one.
+  # A long list shows a search and its most recent few; typing searches them all.
   defp values(assigns) do
     {key, label, type} = assigns.field
+
+    choices =
+      if type == :text,
+        do: [],
+        else: choices(type, assigns.values, assigns.current, assigns.params)
+
+    searchable = type in @searchable and length(choices) > @shown_values
+    query = if searchable, do: String.trim(assigns.search || ""), else: ""
+    matches = matching(choices, query)
+    shown = shown(matches, assigns.current)
 
     assigns =
       assign(assigns,
         key: key,
         label: label,
         type: type,
-        choices:
-          if(type == :text,
-            do: [],
-            else: choices(type, assigns.values, assigns.current, assigns.params)
-          )
+        choices: choices,
+        searchable: searchable,
+        query: query,
+        shown: shown,
+        more: length(matches) - length(shown)
       )
 
     ~H"""
@@ -287,17 +318,38 @@ defmodule Ryker.ControlPlane.RequestFilters do
       />
       <button type="submit" class="ui-button primary">Apply</button>
     </form>
+    <form
+      :if={@searchable}
+      class="filter-search"
+      role="search"
+      phx-change="filter-values-search"
+      phx-submit="filter-values-search"
+    >
+      <input type="hidden" name="key" value={@key} />
+      <label class="sr-only" for={"filter-search-#{@key}"}>Find a {String.downcase(@label)}</label>
+      <input
+        id={"filter-search-#{@key}"}
+        type="search"
+        name="q"
+        value={@query}
+        maxlength="200"
+        autocomplete="off"
+        phx-debounce="150"
+        placeholder={"Find a #{String.downcase(@label)}"}
+      />
+    </form>
     <div :if={@type != :text} class="filter-choices">
       <button
-        :for={{value, name} <- @choices}
+        :for={{value, name, tag} <- @shown}
         type="button"
         phx-click="set-filter"
         phx-value-key={@key}
         phx-value-choice={value}
         aria-pressed={to_string(value == @current)}
-      >
-        {name}
-      </button>
+        title={name}
+      ><span class="filter-choice-name">{name}</span><span :if={tag} class="filter-choice-tag">{tag}</span></button>
+      <p :if={@more > 0} class="filter-more">{@more} more. Type to find one.</p>
+      <p :if={@shown == [] and @query != ""} class="filter-empty">Nothing matches “{@query}”.</p>
       <p :if={@choices == []} class="filter-empty">Nothing recorded yet.</p>
     </div>
     """
@@ -360,13 +412,18 @@ defmodule Ryker.ControlPlane.RequestFilters do
     end
   end
 
+  # Each value as {value, name, tag}: a conversation names where it is in a
+  # quiet word beside its name ("Chat", "Slack"); other values need none.
   defp choices(type, rows, selected, params) do
     options =
       case type do
         :conversation ->
           rows
           |> Enum.filter(&Map.has_key?(&1, :conversation_label))
-          |> Enum.map(&{&1.conversation_ref, &1.conversation_label})
+          |> Enum.map(
+            &{&1.conversation_ref, &1[:conversation_name] || &1.conversation_label,
+             &1[:conversation_source]}
+          )
 
         :user ->
           rows
@@ -376,24 +433,47 @@ defmodule Ryker.ControlPlane.RequestFilters do
              if(row.source == "slack",
                do: Names.name(row.workspace, row.actor),
                else: row.actor
-             )}
+             ), nil}
           end)
 
         :channel ->
           rows
           |> Enum.filter(&(&1[:transport] == "slack"))
-          |> Enum.map(&{&1.conversation_ref, Names.destination(&1.conversation_ref)})
+          |> Enum.map(&{&1.conversation_ref, Names.destination(&1.conversation_ref), nil})
 
         values ->
-          Enum.map(values, &{&1, choice_label(&1)})
+          Enum.map(values, &{&1, choice_label(&1), nil})
       end
 
     options =
-      Enum.reject(options, fn {value, _} -> value in [nil, ""] end) |> Enum.uniq_by(&elem(&1, 0))
+      options
+      |> Enum.reject(fn {value, _name, _tag} -> value in [nil, ""] end)
+      |> Enum.uniq_by(&elem(&1, 0))
 
     if selected in [nil, ""] or Enum.any?(options, &(elem(&1, 0) == selected)),
       do: options,
-      else: options ++ [{selected, value_label(type, selected, params, rows)}]
+      else: options ++ [{selected, value_label(type, selected, params, rows), nil}]
+  end
+
+  # Typed words find a value by its name or where it is, in any case.
+  defp matching(choices, ""), do: choices
+
+  defp matching(choices, query) do
+    query = String.downcase(query)
+
+    Enum.filter(choices, fn {_value, name, tag} ->
+      String.contains?(String.downcase("#{name} #{tag}"), query)
+    end)
+  end
+
+  # The most recent few, and the value a chip holds even when it is older.
+  defp shown(matches, current) do
+    {shown, rest} = Enum.split(matches, @shown_values)
+
+    case Enum.find(rest, &(elem(&1, 0) == current)) do
+      nil -> shown
+      held -> shown ++ [held]
+    end
   end
 
   defp choice_label(value) when value in @efforts, do: ExecutionTarget.effort_name(value)

@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.Activity do
     UsageProjection
   }
 
-  alias Ryker.Episodes.{Episode, RoutingDigest}
+  alias Ryker.Episodes.{Episode, RoutingDigest, Words}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Records.Record
@@ -67,9 +67,12 @@ defmodule Ryker.ControlPlane.Activity do
   end
 
   @doc """
-  The conversations the Conversation filter offers, each named the way Chat
-  and Slack name it: a chat by its title, a channel by its name. The most
-  recently active come first within each source.
+  The conversations the Conversation filter offers, most recently active
+  first, each named the way Chat and Slack name it: a chat by its title, a
+  channel by its name. `conversation_name` is that name and
+  `conversation_source` the word for where it is, which the filter's list
+  shows side by side; `conversation_label` is both in one phrase, for the
+  chip of a chosen one.
   """
   def conversation_filter_options do
     secrets = InspectionRedactor.configured_secrets()
@@ -81,7 +84,7 @@ defmodule Ryker.ControlPlane.Activity do
         limit: 500
       )
       |> Repo.all()
-      |> Enum.sort_by(&{&1.source, -DateTime.to_unix(&1.updated_at, :microsecond)})
+      |> Enum.sort_by(&(-DateTime.to_unix(&1.updated_at, :microsecond)))
 
     chats =
       rows
@@ -91,27 +94,34 @@ defmodule Ryker.ControlPlane.Activity do
 
     rows
     |> Enum.map(fn row ->
-      label =
+      name =
         if row.source == "control_plane",
-          do:
-            "Direct conversation · " <> (chats[row.conversation] || present(row, secrets).title),
+          do: chats[row.conversation] || present(row, secrets).title,
           else: Names.destination(row.conversation)
 
-      {row, label}
+      {row, name}
     end)
     |> distinguish_repeats()
-    |> Enum.map(fn {row, label} ->
+    |> Enum.map(fn {row, name} ->
       %{
         source: row.source,
         transport: row.source,
         conversation_ref: row.conversation,
-        conversation_label: label,
+        conversation_label:
+          if(row.source == "control_plane", do: "Direct conversation · " <> name, else: name),
+        conversation_name: name,
+        conversation_source: source_word(row.source),
         actor: nil,
         actor_kind: nil,
         workspace: nil
       }
     end)
   end
+
+  defp source_word("control_plane"), do: "Chat"
+  defp source_word("slack"), do: "Slack"
+  defp source_word("github"), do: "GitHub"
+  defp source_word(source), do: Words.label(source)
 
   # Chats often share a title ("What Ryker does"), and four identical entries
   # could not be told apart; each repeat carries the time of its latest

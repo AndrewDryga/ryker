@@ -67,6 +67,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
       assigns
       |> assign(:activity, Map.put_new(assigns.activity, :searchable, assigns.activity.total > 0))
       |> assign_new(:filter_menu, fn -> nil end)
+      |> assign_new(:filter_search, fn -> %{} end)
       |> assign_new(:filter_values, fn -> [] end)
 
     filtered = filtered?(assigns.params)
@@ -119,6 +120,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
           params={@params}
           path={@path}
           menu={@filter_menu}
+          search={@filter_search}
           disabled={!@activity.searchable}
         />
       </Kit.toolbar>
