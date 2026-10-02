@@ -267,6 +267,11 @@ defmodule Ryker.ComposeDistributionTest do
     assert ("--host=unix://" <> socket) in daemon["command"]
     refute Enum.any?(daemon["command"], &String.contains?(&1, "tcp://"))
 
+    # The docker:dind entrypoint puts its own --host=tcp://0.0.0.0:2375 in front of a command
+    # that starts with a flag, so the first live check after this change still found the port
+    # open. Naming dockerd first runs exactly these arguments.
+    assert hd(daemon["command"]) == "dockerd"
+
     shared = "ryker-coop-docker-socket:" <> Path.dirname(socket)
     assert shared in daemon["volumes"]
     assert shared in worker["volumes"]
