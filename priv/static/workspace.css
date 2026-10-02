@@ -147,6 +147,14 @@
 .ryker-app .filter-text input { flex:1; min-width:0; height:36px; margin:0; padding:0 10px; border:1px solid var(--ryker-stroke); border-radius:6px; font-size:14px; }
 .ryker-app .filter-text .ui-button { min-height:36px; height:36px; padding:0 12px; }
 .filter-empty { margin:4px 8px 8px; font-size:13px; color:var(--secondary); }
+/* A value is one line: its name, cut short when long (the whole name is its title), then where it
+   is as a quiet word. A long list leads with its search and says how many more it holds. */
+.ryker-app .filter-choices button:not(.ui-button) { display:flex; align-items:center; gap:8px; }
+.filter-choice-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.filter-choice-tag { flex:none; font-size:12px; color:var(--ryker-text-secondary); }
+.filter-search { padding:2px 2px 4px; }
+.ryker-app .filter-search input { box-sizing:border-box; width:100%; height:34px; margin:0; padding:0 10px; border:1px solid var(--ryker-stroke); border-radius:6px; font-size:14px; }
+.filter-more { margin:4px 8px 6px; font-size:12px; color:var(--secondary); }
 /* The add menu cascades: the field list stays and a field's values open beside it (to the left near
    the viewport's edge); on phones the values cover the list with a way back. filter-menu.mjs places them. */
 .filter-popover.filter-cascade { width:auto; max-height:none; overflow:visible; padding:0; }
@@ -155,7 +163,7 @@
 .ryker-app .filter-cascade button.filter-field { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .ryker-app .filter-cascade button.filter-field .ui-icon { flex:none; width:14px; height:14px; color:var(--ryker-text-secondary); }
 .ryker-app .filter-cascade button.filter-field[aria-expanded=true] { background:var(--ryker-hover-bg); }
-.filter-values { position:absolute; top:0; left:calc(100% + 4px); z-index:1; box-sizing:border-box; width:248px; max-height:320px; overflow:auto; padding:6px; border:1px solid var(--ryker-stroke); border-radius:10px; background:var(--ryker-surface-raised); box-shadow:0 12px 32px var(--ryker-shadow-medium); }
+.filter-values { position:absolute; top:0; left:calc(100% + 4px); z-index:1; box-sizing:border-box; width:248px; max-height:400px; overflow:auto; padding:6px; border:1px solid var(--ryker-stroke); border-radius:10px; background:var(--ryker-surface-raised); box-shadow:0 12px 32px var(--ryker-shadow-medium); }
 .filter-values[hidden] { display:none; }
 .filter-cascade.opens-start .filter-values { left:auto; right:calc(100% + 4px); }
 .ryker-app .filter-values button.filter-back { display:none; }
