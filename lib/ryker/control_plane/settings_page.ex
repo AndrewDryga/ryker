@@ -162,6 +162,16 @@ defmodule Ryker.ControlPlane.SettingsPage do
             <Components.icon name={:arrow_down} />Download routing examples
           </a>
         </:action>
+        <:action :if={@section == :retention and @view.snapshot.retention.work_examples_enabled}>
+          <a
+            id="download-work-examples"
+            href="/settings/retention/work-examples.jsonl"
+            class="ui-button secondary"
+            download
+          >
+            <Components.icon name={:arrow_down} />Download work examples
+          </a>
+        </:action>
       </Components.page_header>
 
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="page-feedback" />
@@ -582,7 +592,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
     days =
       Settings.retention_defaults()
       |> Map.keys()
-      |> Kernel.--([:routing_examples_enabled, :routing_examples_seconds])
+      |> Kernel.--([
+        :routing_examples_enabled,
+        :routing_examples_seconds,
+        :work_examples_enabled,
+        :work_examples_seconds
+      ])
       |> Enum.map(&Map.get(retention, &1))
       |> Enum.filter(&is_integer/1)
       |> Enum.map(&div(&1, 86_400))
@@ -594,10 +609,21 @@ defmodule Ryker.ControlPlane.SettingsPage do
         {shortest, longest} -> "Keeps each kind of data #{shortest} to #{days(longest)}"
       end
 
-    if kept && retention.routing_examples_enabled,
-      do:
-        "#{kept}, and routing examples #{days(div(retention.routing_examples_seconds, 86_400))}",
-      else: kept
+    examples =
+      for {kind, enabled, seconds} <- [
+            {"routing examples", retention.routing_examples_enabled,
+             retention.routing_examples_seconds},
+            {"work examples", retention.work_examples_enabled, retention.work_examples_seconds}
+          ],
+          enabled,
+          do: "#{kind} #{days(div(seconds, 86_400))}"
+
+    case {kept, examples} do
+      {nil, _examples} -> nil
+      {kept, []} -> kept
+      {kept, [one]} -> "#{kept}, and #{one}"
+      {kept, [first, second]} -> "#{kept}, #{first} and #{second}"
+    end
   end
 
   defp set_now(:pricing, %{snapshot: %{pricing_rates: []}}), do: "No prices yet"

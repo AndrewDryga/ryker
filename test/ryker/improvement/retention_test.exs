@@ -257,7 +257,9 @@ defmodule Ryker.Improvement.RetentionTest do
       episode_history_seconds: 600,
       operational_data_seconds: 600,
       routing_examples_enabled: training?,
-      routing_examples_seconds: 365 * 86_400
+      routing_examples_seconds: 365 * 86_400,
+      work_examples_enabled: false,
+      work_examples_seconds: 365 * 86_400
     }
   end
 end

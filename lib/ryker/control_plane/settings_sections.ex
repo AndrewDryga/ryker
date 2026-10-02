@@ -819,6 +819,24 @@ defmodule Ryker.ControlPlane.SettingsSections do
           help:
             "How long each copy is kept; each is about the size of one routing prompt. Deleting " <>
               "a message or forgetting what Ryker learned from it removes it from every copy at once."
+        },
+        %{
+          name: :work_examples_enabled,
+          kind: :boolean,
+          label: "Keep work examples for training",
+          help:
+            "Keeps a copy of each finished piece of work: what the worker was told, what it did, " <>
+              "the answer Ryker accepted and how it turned out, to train a self-hosted model to " <>
+              "do more of the work later. It includes your code and command output, so it is " <>
+              "separate from routing examples. Off until you turn it on."
+        },
+        %{
+          name: :work_examples_seconds,
+          kind: :days,
+          label: "Work examples",
+          help:
+            "How long each copy is kept; each is about the size of a long document. Deleting a " <>
+              "message or forgetting what Ryker learned from it removes it from every copy at once."
         }
       ]
     },

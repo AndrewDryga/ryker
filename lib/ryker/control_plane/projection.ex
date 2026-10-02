@@ -41,6 +41,7 @@ defmodule Ryker.ControlPlane.Projection do
   alias Ryker.Improvement.Export, as: EvalCases
   alias Ryker.RoutingExamples.Export
   alias Ryker.WeeklyReport
+  alias Ryker.WorkExamples.Export, as: WorkExamplesExport
 
   @spec callbacks() :: map()
   def callbacks do
@@ -83,6 +84,7 @@ defmodule Ryker.ControlPlane.Projection do
       repository: &RepositoryProjection.fetch/1,
       repository_detail: &RepositoryProjection.detail/1,
       routing_examples: &Export.reduce/2,
+      work_examples: &WorkExamplesExport.reduce/2,
       schedule: &ScheduleProjection.fetch/1,
       schedules: &ScheduleProjection.list/1,
       settings: &SettingsView.fetch/0,

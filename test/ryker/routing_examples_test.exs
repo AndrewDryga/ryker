@@ -984,7 +984,9 @@ defmodule Ryker.RoutingExamplesTest do
       episode_history_seconds: 60,
       operational_data_seconds: 60,
       routing_examples_enabled: true,
-      routing_examples_seconds: routing_examples_seconds
+      routing_examples_seconds: routing_examples_seconds,
+      work_examples_enabled: false,
+      work_examples_seconds: 365 * @day
     }
   end
 

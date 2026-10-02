@@ -16,6 +16,7 @@ defmodule Ryker.Retention.Policy do
           | :cascade
           | :kept
           | :routing_examples
+          | :work_examples
   @type policy :: %{class: class(), table: String.t(), why: String.t()}
 
   @policies [
@@ -518,6 +519,18 @@ defmodule Ryker.Retention.Policy do
       class: :cascade,
       why:
         "copies of the feedback about a routing example's request (its kind, value, category and time; never who gave it or a note's words) leave with their example, and at once when a person's forgetting empties it"
+    },
+    %{
+      table: "work_examples",
+      class: :work_examples,
+      why:
+        "redacted copies of settled Work turns kept for training, only while a person keeps them on, for their own window counted from when the turn settled; a forgotten one keeps only its identity until then"
+    },
+    %{
+      table: "work_example_feedback",
+      class: :cascade,
+      why:
+        "copies of the feedback about a work example's request (its kind, value, category and time; never who gave it or a note's words) leave with their example, and at once when a person's forgetting empties it"
     },
     %{
       table: "schema_migrations",

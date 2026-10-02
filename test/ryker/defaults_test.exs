@@ -39,7 +39,7 @@ defmodule Ryker.DefaultsTest do
     # History, memory and audit durations are product settings owned by
     # PostgreSQL; shipping them here would recreate a second writer.
     horizons =
-      ~w(operational_data_seconds conversation_memory_seconds closed_work_seconds episode_history_seconds audit_data_seconds routing_examples_seconds routing_examples_enabled)a
+      ~w(operational_data_seconds conversation_memory_seconds closed_work_seconds episode_history_seconds audit_data_seconds routing_examples_seconds routing_examples_enabled work_examples_seconds work_examples_enabled)a
 
     for owner <- Defaults.owners(), horizon <- horizons do
       refute Map.has_key?(Defaults.fetch!(owner), horizon)

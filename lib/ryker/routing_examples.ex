@@ -24,8 +24,9 @@ defmodule Ryker.RoutingExamples do
   message in Slack, editing its words, or deleting a Slack channel erases
   every example whose prompt quoted that message, topic or conversation, in
   the same transaction, what improvement candidates hold about it
-  (`Ryker.Improvement`), and the local routing comparisons of such a prompt
-  (`Ryker.LocalRouting`). A person's edit takes back the words it replaced;
+  (`Ryker.Improvement`), the local routing comparisons of such a prompt
+  (`Ryker.LocalRouting`), and the work examples of a request asked in it or
+  whose routing quoted it (`Ryker.WorkExamples`). A person's edit takes back the words it replaced;
   one that left them as they were, as Slack reports a link's preview
   arriving, takes back nothing, and so does an app updating its own message,
   as an alert does when it resolves. An erased example keeps only its
@@ -63,6 +64,7 @@ defmodule Ryker.RoutingExamples do
   alias Ryker.Settings.Retention
   alias Ryker.Slack.ChannelMembership
   alias Ryker.Work.{Custody, Turn}
+  alias Ryker.WorkExamples
 
   @lock "ryker-routing-examples"
 
@@ -818,6 +820,7 @@ defmodule Ryker.RoutingExamples do
     :ok = lock(:exclusive)
     :ok = Improvement.forget_conversation_in_transaction(conversation_ref)
     :ok = LocalRouting.forget_conversation_in_transaction(conversation_ref)
+    :ok = WorkExamples.forget_conversation_in_transaction(conversation_ref)
 
     erase(
       from(example in Example,
@@ -832,6 +835,7 @@ defmodule Ryker.RoutingExamples do
     :ok = lock(:exclusive)
     :ok = Improvement.forget_in_transaction(keys)
     :ok = LocalRouting.forget_in_transaction(identities, keys)
+    :ok = WorkExamples.forget_in_transaction(identities, keys)
 
     erase(
       from(example in Example,
@@ -873,8 +877,8 @@ defmodule Ryker.RoutingExamples do
   Holds, until the transaction ends, the lock a copy holds (shared, where
   every forgetting holds it exclusively), for anything else that copies what
   a person may forget: the evidence an analysis prompt or an accepted case
-  freezes (`Ryker.Improvement`), and the prompt the local routing model is
-  sent (`Ryker.LocalRouting`). Take it before reading what is copied, and
+  freezes (`Ryker.Improvement`), the prompt the local routing model is
+  sent (`Ryker.LocalRouting`), and each work example (`Ryker.WorkExamples`). Take it before reading what is copied, and
   before locking any row a forgetting writes only once it holds the lock,
   such as a candidate: a forgetting then either committed before the read,
   or waits and finds what the copy saved.

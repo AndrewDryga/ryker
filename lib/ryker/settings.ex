@@ -42,7 +42,7 @@ defmodule Ryker.Settings do
   @actor "control-plane:local"
   @lock_tag "ryker-settings"
   @day 86_400
-  # Keeping routing examples for training is off until a person turns it on.
+  # Keeping routing or work examples for training is off until a person turns it on.
   @retention_defaults %{
     operational_data_seconds: 30 * @day,
     conversation_memory_seconds: 90 * @day,
@@ -50,7 +50,9 @@ defmodule Ryker.Settings do
     episode_history_seconds: 30 * @day,
     audit_data_seconds: 30 * @day,
     routing_examples_enabled: false,
-    routing_examples_seconds: 365 * @day
+    routing_examples_seconds: 365 * @day,
+    work_examples_enabled: false,
+    work_examples_seconds: 365 * @day
   }
   @retention_fields Map.keys(@retention_defaults)
   @application_failures [:assembly_failed, :runtime_start_failed]
@@ -275,9 +277,9 @@ defmodule Ryker.Settings do
     |> Enum.sort()
   end
 
-  # Turning off keeping routing examples deletes the ones kept, so it asks
-  # first, like a shorter limit. While none are kept, a shorter limit for them
-  # deletes nothing and asks nothing.
+  # Turning off keeping routing or work examples deletes the ones kept, so it
+  # asks first, like a shorter limit. While none are kept, a shorter limit for
+  # them deletes nothing and asks nothing.
   defp shortened?(:routing_examples_enabled, current, proposed),
     do: current.routing_examples_enabled and not proposed.routing_examples_enabled
 
@@ -285,6 +287,14 @@ defmodule Ryker.Settings do
     do:
       current.routing_examples_enabled and
         proposed.routing_examples_seconds < current.routing_examples_seconds
+
+  defp shortened?(:work_examples_enabled, current, proposed),
+    do: current.work_examples_enabled and not proposed.work_examples_enabled
+
+  defp shortened?(:work_examples_seconds, current, proposed),
+    do:
+      current.work_examples_enabled and
+        proposed.work_examples_seconds < current.work_examples_seconds
 
   defp shortened?(field, current, proposed),
     do: Map.fetch!(proposed, field) < Map.fetch!(current, field)

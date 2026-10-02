@@ -30,6 +30,8 @@ defmodule Ryker.Retention.Runtime do
     :storage_high_watermark_bytes,
     :storage_low_watermark_bytes,
     :storage_reserve_bytes,
+    :work_examples_enabled,
+    :work_examples_seconds,
     :worker_ref
   ]
 
@@ -83,7 +85,9 @@ defmodule Ryker.Retention.Runtime do
            episode_history_seconds: settings.episode_history_seconds,
            operational_data_seconds: settings.operational_data_seconds,
            routing_examples_enabled: settings.routing_examples_enabled,
-           routing_examples_seconds: settings.routing_examples_seconds
+           routing_examples_seconds: settings.routing_examples_seconds,
+           work_examples_enabled: settings.work_examples_enabled,
+           work_examples_seconds: settings.work_examples_seconds
          },
          poll_interval_ms: settings.poll_interval_ms
        ]}
@@ -137,7 +141,8 @@ defmodule Ryker.Retention.Runtime do
       :routing_examples_seconds,
       :storage_high_watermark_bytes,
       :storage_low_watermark_bytes,
-      :storage_reserve_bytes
+      :storage_reserve_bytes,
+      :work_examples_seconds
     ]
 
     valid =
@@ -146,6 +151,7 @@ defmodule Ryker.Retention.Runtime do
         retry_bounds_valid?(settings) and
         retention_horizons_valid?(settings) and
         is_boolean(settings.routing_examples_enabled) and
+        is_boolean(settings.work_examples_enabled) and
         storage_budgets_valid?(settings) and
         Reference.valid?(settings.worker_ref)
 

@@ -121,6 +121,8 @@ defmodule Ryker.Defaults do
   # Copying routing examples for training. Whether they are kept and for how
   # long are product settings in PostgreSQL, never here.
   @routing_examples %{batch_size: 25, poll_interval_ms: 10_000}
+  # A work example's briefing is about fifty times a routing prompt, so a pass copies fewer.
+  @work_examples %{batch_size: 5, poll_interval_ms: 10_000}
   @github %{max_body_bytes: 40_000, receive_timeout_ms: 30_000}
   @webhooks %{max_body_bytes: 40_000, max_clock_skew_seconds: 300}
   @coop_worker_gateway %{certificate_ttl_seconds: 86_400}
@@ -139,6 +141,7 @@ defmodule Ryker.Defaults do
     repository_knowledge: @repository_knowledge,
     retention: @retention,
     routing_examples: @routing_examples,
+    work_examples: @work_examples,
     schedules: @schedules,
     slack: @slack,
     webhooks: @webhooks,

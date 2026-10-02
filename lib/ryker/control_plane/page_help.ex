@@ -939,7 +939,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How data retention works", [
       {"What this page sets",
        [
-         "How long Ryker keeps each kind of data: prompts, replies and tool activity; finished work; request history; the audit trail; conversation memory; and, when you keep them, routing examples for training. Older data is deleted on its own."
+         "How long Ryker keeps each kind of data: prompts, replies and tool activity; finished work; request history; the audit trail; and conversation memory. When you keep them, it also sets how long routing and work examples for training stay. Older data is deleted on its own."
        ]},
       {"Shortening a limit",
        [
@@ -954,6 +954,11 @@ defmodule Ryker.ControlPlane.PageHelp do
        [
          "With Keep routing examples for training on, Ryker keeps a copy of each routing decision once its outcome is known. A copy holds the exact prompt, the model's answer, the decision, how the request turned out and the cost. Credentials, and the part of a link after the question mark, are taken out first.",
          "Copies stay for their own limit, a year unless you change it, after the prompts above are deleted. Turning it off deletes every copy, so Ryker asks first. Deleting a message or a channel, or forgetting what Ryker learned from a message, removes it from every copy at once. Download routing examples saves them as a JSON Lines file for fine-tuning a model."
+       ]},
+      {"Work examples for training",
+       [
+         "With Keep work examples for training on, Ryker keeps a copy of each finished piece of work once its outcome is known. A copy holds the exact instructions the worker got and each command it ran with its output. It also holds the answer Ryker accepted, any it refused with why, how the request turned out and the cost. Credentials are taken out first.",
+         "It is a setting of its own because a copy holds your code and command output. Copies stay for their own limit, a year unless you change it. Turning it off deletes every copy, so Ryker asks first. Deleting or forgetting a message removes it from every copy at once. Download work examples saves them as a JSON Lines file."
        ]}
     ])
   end
