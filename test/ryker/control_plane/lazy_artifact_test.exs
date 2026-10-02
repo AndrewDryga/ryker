@@ -125,7 +125,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
     id = prompt_section(work).artifact_id
 
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _html} = live(conn, "/timeline/" <> URI.encode_www_form(work.episode.key))
+    {:ok, view, _html} = live(conn, "/timeline/" <> work.episode.id)
 
     refute render(view) =~ String.duplicate("a", 200)
 
@@ -146,7 +146,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
     id = "activity-#{event.id}-output"
 
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _html} = live(conn, "/timeline/" <> URI.encode_www_form(work.episode.key))
+    {:ok, view, _html} = live(conn, "/timeline/" <> work.episode.id)
     assert render(view) =~ ~s(data-artifact="#{id}")
 
     render_hook(view, "disclose", %{"artifact" => id})
@@ -168,7 +168,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
   test "an unknown or oversized artifact reference discloses nothing" do
     work = work_with_prompt!("guarded", String.duplicate("a", 30_000))
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _html} = live(conn, "/timeline/" <> URI.encode_www_form(work.episode.key))
+    {:ok, view, _html} = live(conn, "/timeline/" <> work.episode.id)
 
     render_hook(view, "disclose", %{"artifact" => String.duplicate("x", 512)})
     render_hook(view, "disclose", %{"artifact" => "work-unknown-request"})

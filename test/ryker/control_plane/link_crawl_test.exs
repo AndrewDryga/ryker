@@ -98,7 +98,15 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
       |> Map.merge(Map.drop(fixture.projection, [:lab_conversation, :lab_index, :lab_artifact]))
       |> Map.merge(%{
         episode: fn _ref, params -> EpisodeProjection.fetch(episode.key, params) end,
-        model_timeline: fn _ref, params -> ModelRequests.timeline(episode.key, params) end
+        model_timeline: fn _ref, params -> ModelRequests.timeline(episode.key, params) end,
+        # A request link names the fixture's stand-in ids or the real episode's id.
+        request_key: fn id ->
+          with :not_found <- fixture.projection.request_key.(id),
+               do: EpisodeProjection.request_key(id)
+        end,
+        request_id: fn key ->
+          fixture.projection.request_id.(key) || EpisodeProjection.key_id(key)
+        end
       })
 
     # With settings in place the settings pages render their editors, which

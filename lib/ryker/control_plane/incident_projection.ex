@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Environments, EpisodeProjection, RepositoryNames, Search}
+  alias Ryker.ControlPlane.{Environments, RepositoryNames, Search}
   alias Ryker.Delivery.ChatCard
   alias Ryker.{Episodes, Settings}
   alias Ryker.Episodes.Episode
@@ -72,7 +72,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
           channel_name: room.channel_name,
           channel_ref: room.channel_ref,
           channel_state: room.channel_state,
-          episode_ref: episode.key,
+          episode_id: room.episode_id,
           private: room.private,
           publication_ref: publication.ref,
           publication_status: publication.status,
@@ -142,7 +142,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       closed_note: closed_note(room),
       environment_name: environment_name(settings, room.environment_ref),
       environment_ref: room.environment_ref,
-      episode_ref: episode && episode.key,
+      episode_id: room.episode_id,
       episode_state: episode && episode.state,
       invited_at: room.audience_prepared_at,
       invited_groups: length(room.invite_user_group_refs),
@@ -158,7 +158,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       repository_ref: room.repository_ref,
       requested_at: room.requested_at,
       source_channel_ref: room.source_channel_ref,
-      source_episode_ref: EpisodeProjection.key(room.source_episode_id),
+      source_episode_id: room.source_episode_id,
       status: room.status,
       stopped_at: if(room.status == :blocked, do: room.updated_at),
       title: room.title,

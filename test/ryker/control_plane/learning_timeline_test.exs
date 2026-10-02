@@ -177,10 +177,10 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
   # a pass finishing under an open Timeline never showed there.
   test "a learning pass that finishes is heard by its request's open Timeline" do
     [first, _second] = entries = inputs!()
-    key = episode_key(first)
+    id = first.episode_id
 
     for {module, function, arguments} <-
-          WorkbenchLive.page_subscriptions("/timeline/" <> key, %{"ref" => key}, nil),
+          WorkbenchLive.page_subscriptions("/timeline/" <> id, %{"id" => id}, nil),
         do: :ok = apply(module, function, arguments)
 
     learn!(entries, saved(entries))
@@ -254,7 +254,7 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
     revision = Repo.one!(KnowledgeRevision)
     # The attempt opens beside the first message it read.
     first = Enum.find(entries, &(&1.id == hd(run.inputs)["source_input_id"]))
-    card = "/timeline/#{URI.encode_www_form(episode_key(first))}#learning-#{run.id}-result"
+    card = "/timeline/#{first.episode_id}#learning-#{run.id}-result"
 
     learning =
       %{"batch" => batch.id}
@@ -291,7 +291,7 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
     run = learn!([ignored], "{\"reason\":\"Nothing durable here.\",\"updates\":[]}")
     batch = Repo.one!(from(b in Batch, where: b.id == ^run.batch_id))
 
-    path = "/timeline/#{URI.encode_www_form("ingress-input:#{ignored.id}")}"
+    path = "/timeline/#{ignored.id}"
 
     assert %{"batch" => batch.id}
            |> LearningActivity.project()

@@ -89,7 +89,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
 
   test "a running request's Timeline shows what the run records while it is open" do
     source = SavedEntities.source!("slack:T123:C456")
-    {:ok, view, _html} = open("/timeline/" <> URI.encode_www_form(source.episode.key))
+    {:ok, view, _html} = open("/timeline/" <> source.episode.id)
     refute render(view) =~ "Readiness probes fail after each deploy"
 
     assert {:ok, _record} =
@@ -231,7 +231,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
 
     {:ok, page, _html} = open("/feedback")
     assert has_element?(page, ".kit-empty-title", "No feedback yet")
-    {:ok, timeline, _html} = open("/timeline/" <> URI.encode_www_form(episode.key))
+    {:ok, timeline, _html} = open("/timeline/" <> episode.id)
     refute has_element?(timeline, "#feedback")
 
     assert {:ok, %{status: :recorded}} =

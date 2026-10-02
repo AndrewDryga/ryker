@@ -33,12 +33,14 @@ defmodule Ryker.ControlPlane.LiveUpdatesTest do
     command = EpisodeFixtures.admit_input()
     assert {:ok, %{episode: episode}} = Episodes.apply(command)
 
+    # A request's page and its failure's are addressed by the request's id.
     params = %{
       "channel" => "C456",
-      "id" => Ecto.UUID.generate(),
+      "id" => episode.id,
       "item" => "item-one",
       "kind" => "work",
-      "ref" => episode.key,
+      "ref" => "ryker",
+      "slug" => "one",
       "workspace" => "T123"
     }
 

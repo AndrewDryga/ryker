@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
     CSRF,
     Kit,
     LearningActivity,
+    Paths,
     SlackMarkdown,
     SourceText
   }
@@ -282,7 +283,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
 
   defp path(preview, page) do
     "/memory/learned?" <>
-      URI.encode_query(%{
+      Paths.encode_query(%{
         "item" => preview.topic_id,
         "rebuild_q" => Map.get(preview, :q, ""),
         "rebuild_page" => page

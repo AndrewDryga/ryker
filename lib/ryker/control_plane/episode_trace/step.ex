@@ -180,8 +180,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
 
   def state_tone(_state), do: nil
 
-  def segment(value), do: URI.encode(to_string(value), &URI.char_unreserved?/1)
-
   def timestamp_precise(%DateTime{} = value),
     do: Calendar.strftime(value, "%d %b %Y %H:%M:%S.%f UTC")
 

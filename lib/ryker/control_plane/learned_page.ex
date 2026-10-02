@@ -24,6 +24,7 @@ defmodule Ryker.ControlPlane.LearnedPage do
     ConversationMemory,
     Kit,
     MemoryFormat,
+    Paths,
     RelearnPanel
   }
 
@@ -487,7 +488,7 @@ defmodule Ryker.ControlPlane.LearnedPage do
       [{"kind", if(kind == "context", do: "context")}, {"q", view.q}, {"page", page}]
       |> Enum.reject(fn {key, value} -> value in [nil, ""] or {key, value} == {"page", 1} end)
 
-    case URI.encode_query(query) do
+    case Paths.encode_query(query) do
       "" -> "/memory/learned"
       encoded -> "/memory/learned?" <> encoded
     end
@@ -498,11 +499,11 @@ defmodule Ryker.ControlPlane.LearnedPage do
       [{"kind", "sources"}, {"related_to", related_to}, {"q", q}, {"page", page}]
       |> Enum.reject(fn {key, value} -> value in [nil, ""] or {key, value} == {"page", 1} end)
 
-    "/memory/learned?" <> URI.encode_query(query)
+    Paths.query("/memory/learned", query)
   end
 
   defp history_path(view, page),
     do:
       "/memory/learned?" <>
-        URI.encode_query(%{"item" => view.selected, "history_page" => page}) <> "#history"
+        Paths.encode_query(%{"item" => view.selected, "history_page" => page}) <> "#history"
 end

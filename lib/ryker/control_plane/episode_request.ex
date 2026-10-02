@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   alias Ryker.Admission.Sentiment
   alias Ryker.ControlPlane.CallRun
   alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.RoutingReason
   alias Ryker.Episodes.Words
@@ -808,8 +809,10 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp relation_fact(%{"episode_ref" => "candidate:" <> _ = ref}),
     do: %{label: "Selected work", value: ref, identifier: true}
 
+  # A decision routed before candidates were opaque names the request it joined
+  # by key; one a message started links by the message's id.
   defp relation_fact(%{"episode_ref" => ref}) when is_binary(ref) and ref != "",
-    do: %{label: "Joins", value: ref, href: "/timeline/#{URI.encode_www_form(ref)}"}
+    do: %{label: "Joins", value: ref, href: Paths.request_id(ref) && Paths.request(ref)}
 
   defp relation_fact(%{"relation" => relation}) when is_binary(relation),
     do: %{label: "Earlier work", value: relation_label(relation)}

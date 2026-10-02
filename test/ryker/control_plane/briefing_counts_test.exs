@@ -390,7 +390,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     }
 
     {entry, _episode} = admitted!(snapshot, [candidate])
-    href = "/timeline/" <> URI.encode_www_form(candidate_key)
+    href = "/timeline/" <> candidate_id
 
     assert {:ok, view} = ModelRequests.project_input(entry.id, %{})
     briefing = Enum.find(view.timeline, &(&1.id == "admission-#{entry.id}-1"))

@@ -385,7 +385,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
   defp open(entry) do
     live(
       build_conn() |> Map.put(:host, "localhost"),
-      "/timeline/" <> URI.encode_www_form("ingress-input:#{entry.id}")
+      "/timeline/" <> entry.id
     )
   end
 

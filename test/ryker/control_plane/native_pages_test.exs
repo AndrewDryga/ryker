@@ -88,7 +88,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     assert LazyHTML.query(document, "#coming-up .section-head h2") |> LazyHTML.text() ==
              "Coming up"
 
-    assert LazyHTML.query(document, "#coming-up .entity-name a[href='/schedules/schedule%3Aone']")
+    assert LazyHTML.query(document, "#coming-up .entity-name a[href='/schedules/one']")
            |> LazyHTML.text() == "Weekly review"
 
     assert LazyHTML.query(document, "#coming-up .entity-meta") |> LazyHTML.text() =~
@@ -411,7 +411,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
         href: "/failures/delivery/example",
         attempted: ["Reconciled the previous request"]
       })
-      |> Map.put(:steps, [%{step | href: "/timeline/ingress-input%3Aexample"}])
+      |> Map.put(:steps, [%{step | href: "/timeline/example"}])
       |> Map.update!(:case_file, fn file ->
         %{file | conversation: [message], repository: "ryker", reply: message.text}
       end)

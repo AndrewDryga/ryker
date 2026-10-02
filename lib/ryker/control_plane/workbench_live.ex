@@ -43,6 +43,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     PageHelp,
     Pages,
     PathRef,
+    Paths,
     RepositoriesPage,
     RequestFilters,
     Router,
@@ -301,8 +302,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp page_subscriptions_at(segments, _params, _draft_id) when segments in [[], ["activity"]],
     do: ActivityPage.subscriptions()
 
-  defp page_subscriptions_at(["timeline", _ref], params, _draft_id),
-    do: EpisodeProjection.subscriptions(params["ref"])
+  defp page_subscriptions_at(["timeline", _id], params, _draft_id),
+    do: EpisodeProjection.subscriptions(params["id"])
 
   defp page_subscriptions_at(["instructions"], _params, _draft_id),
     do: BehaviorPage.subscriptions(:instructions)
@@ -1123,7 +1124,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         Map.take(UsageProjection.link_params(params), ~w(q mode))
       )
 
-    patch_path = socket.assigns.path <> "?" <> URI.encode_query(params)
+    # Every filter is kept as given: an empty usage filter is one (`Paths.encode_query/1`).
+    patch_path =
+      case Paths.encode_query(params) do
+        "" -> socket.assigns.path
+        query -> socket.assigns.path <> "?" <> query
+      end
+
     {:noreply, push_patch(socket, to: patch_path, replace: true)}
   end
 
@@ -1146,7 +1153,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             into: %{},
             do: {name, value}
 
-      query = if query == %{}, do: "", else: "?" <> URI.encode_query(query)
+      query = if query == %{}, do: "", else: "?" <> Paths.encode_query(query)
       {:noreply, push_patch(socket, to: path <> query <> fragment, replace: true)}
     else
       {:noreply, socket}
@@ -1258,7 +1265,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp lab_mutation_reason(_reason), do: "conflict"
 
   defp patch_filters(socket, params) do
-    query = URI.encode_query(params)
+    query = Paths.encode_query(params)
     path = if query == "", do: socket.assigns.path, else: socket.assigns.path <> "?" <> query
     {:noreply, socket |> assign(:filter_menu, nil) |> push_patch(to: path)}
   end
@@ -1399,15 +1406,18 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  defp load_detail(socket, options, ["timeline", _ref | _rest]) do
+  # The address carries the request's id (`Paths.request/1`); the projections
+  # read the request by the reference it resolves to.
+  defp load_detail(socket, options, ["timeline", _id | _rest]) do
     disclosed =
       %{"disclosed" => MapSet.to_list(socket.assigns.disclosed)}
       |> Map.merge(Map.take(socket.assigns.params, ["events"]))
 
-    with {:ok, episode} <- options.projection.episode.(socket.assigns.params["ref"], disclosed),
+    with {:ok, key} <- options.projection.request_key.(socket.assigns.params["id"]),
+         {:ok, episode} <- options.projection.episode.(key, disclosed),
          {:ok, timeline} <-
            options.projection.model_timeline.(
-             socket.assigns.params["ref"],
+             key,
              Map.merge(
                disclosed,
                Map.take(socket.assigns.params, ["attempt", "responses_page", "calls"])
@@ -2092,10 +2102,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     )
   end
 
-  defp load_unassigned_input(
-         %{assigns: %{params: %{"ref" => "ingress-input:" <> id}}} = socket,
-         options
-       ) do
+  defp load_unassigned_input(%{assigns: %{params: %{"id" => id}}} = socket, options)
+       when is_binary(id) do
     case options.projection.admission_request.(
            id,
            Map.put(

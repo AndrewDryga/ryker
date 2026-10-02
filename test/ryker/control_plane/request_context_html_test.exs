@@ -1562,14 +1562,16 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       %{"candidates" => [candidate]}
       |> InspectionRedactor.artifact()
       |> RequestContextHTML.assembly("$.context", "admission", %{
-        "candidate_episodes" => %{"candidate:history" => "/timeline/episode%3A1"}
+        "candidate_episodes" => %{
+          "candidate:history" => "/timeline/0193a5d2-7c1e-7b8a-9f00-000000000001"
+        }
       })
       |> IO.iodata_to_binary()
       |> LazyHTML.from_fragment()
 
     assert document
            |> LazyHTML.query(".context-candidate a.candidate-episode-link")
-           |> LazyHTML.attribute("href") == ["/timeline/episode%3A1"]
+           |> LazyHTML.attribute("href") == ["/timeline/0193a5d2-7c1e-7b8a-9f00-000000000001"]
 
     refute LazyHTML.text(document) =~ "not sent to the model"
     assert Enum.empty?(LazyHTML.query(document, "[data-artifact]"))

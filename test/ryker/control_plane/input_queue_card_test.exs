@@ -332,7 +332,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     assert card =~ "Automatic retries stopped"
     assert card =~ "Provider unavailable"
     assert card =~ "8 attempts"
-    assert html =~ "href=\"/failures/admission/#{URI.encode_www_form(Inbox.ref(entry))}\""
+    assert html =~ "href=\"/failures/admission/#{entry.id}\""
     refute card =~ "Picked up"
 
     # The way to recovery belongs to the step that stopped, under its
@@ -340,7 +340,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     assert LazyHTML.from_document(html)
            |> LazyHTML.query("#event-queue-#{entry.id} li[data-kind=blocked] a")
            |> LazyHTML.attribute("href") == [
-             "/failures/admission/#{URI.encode_www_form(Inbox.ref(entry))}"
+             "/failures/admission/#{entry.id}"
            ]
   end
 
@@ -378,9 +378,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     assert card =~ "Current"
 
     assert LazyHTML.from_document(html)
-           |> LazyHTML.query(
-             "#event-queue-#{second.id} a[href='/timeline/ingress-input%3A#{first.id}']"
-           )
+           |> LazyHTML.query("#event-queue-#{second.id} a[href='/timeline/#{first.id}']")
            |> Enum.count() == 1
   end
 

@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   (`subscriptions/0`).
   """
   alias Ryker.{Accounting, LocalRouting, Settings}
-  alias Ryker.ControlPlane.{Kit, LocalRoutingUsage, SettingsRows, UsageChart}
+  alias Ryker.ControlPlane.{Kit, LocalRoutingUsage, Paths, SettingsRows, UsageChart}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
@@ -129,7 +129,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp filter_link(params, label, selected) do
     [
       "<a href=\"/usage?",
-      e(URI.encode_query(params)),
+      e(Paths.encode_query(params)),
       "\"",
       if(selected, do: " aria-current=\"page\"", else: ""),
       ">",
@@ -381,7 +381,7 @@ defmodule Ryker.ControlPlane.UsagePage do
       "<a title=\"",
       e(label),
       "\" href=\"/activity?",
-      e(URI.encode_query(params)),
+      e(Paths.encode_query(params)),
       "\">",
       e(label),
       "</a>"

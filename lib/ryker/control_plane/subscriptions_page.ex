@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, ShortTime}
+  alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
   alias Ryker.ControlPlane.SubscriptionPresentation, as: Presentation
   alias Ryker.Records
   alias Ryker.Waits.EventSubscriptions
@@ -228,7 +228,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
     |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
     |> case do
       [] -> "/follow-ups"
-      params -> "/follow-ups?" <> URI.encode_query(params)
+      params -> Paths.query("/follow-ups", params)
     end
   end
 end

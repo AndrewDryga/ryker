@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   import Ryker.ControlPlane.EpisodeTrace.Step
 
   alias Ryker.Behaviors
-  alias Ryker.ControlPlane.{Activity, RepositoryNames}
+  alias Ryker.ControlPlane.{Activity, Paths, RepositoryNames}
   alias Ryker.CoopFleet.Placement
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
@@ -183,7 +183,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       -1,
       &%{
         &1
-        | href: "/failures/admission/#{segment("ingress-input:#{input.id}")}",
+        | href: Paths.failure("admission", "ingress-input:#{input.id}"),
           link_label: "View recovery"
       }
     )
@@ -251,9 +251,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       transition,
       "Waiting for an earlier input",
       "This conversation already had an earlier message waiting to be routed.",
-      href:
-        transition.predecessor_input_id &&
-          "/timeline/ingress-input%3A#{transition.predecessor_input_id}",
+      href: transition.predecessor_input_id && Paths.request(transition.predecessor_input_id),
       link_label:
         transition.predecessor_input_id &&
           "“#{queue_blocker_text(transition)}” · View earlier input"

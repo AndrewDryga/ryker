@@ -34,6 +34,7 @@ defmodule Ryker.ControlPlane.FeedbackPage do
     FeedbackProjection,
     ImprovementPage,
     Kit,
+    Paths,
     ShortTime
   }
 
@@ -474,7 +475,7 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   defp tone_path(tone, q) do
     [{"tone", tone && Atom.to_string(tone)}, {"q", q}]
     |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
-    |> URI.encode_query()
+    |> Paths.encode_query()
     |> case do
       "" -> @path
       query -> @path <> "?" <> query
@@ -493,11 +494,11 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   defp category_path(category, ""), do: "#{@path}?category=#{category}"
 
   defp category_path(category, q),
-    do: "#{@path}?" <> URI.encode_query(%{"category" => category, "q" => q})
+    do: Paths.query(@path, %{"category" => category, "q" => q})
 
   defp page_path(view, page) do
     "#{@path}?" <>
-      URI.encode_query(
+      Paths.encode_query(
         %{"category" => view.category, "page" => page}
         |> Map.merge(if(view.q != "", do: %{"q" => view.q}, else: %{}))
       )

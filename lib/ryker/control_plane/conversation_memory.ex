@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     LearningActivity,
     LearningRequests,
     PagedRelation,
+    Paths,
     RepositoryNames
   }
 
@@ -328,19 +329,19 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   end
 
   @doc "Where one learned topic opens: its full text, history and sources."
-  def topic_path(id), do: "/memory/learned?" <> URI.encode_query(%{"item" => id})
+  def topic_path(id), do: Paths.query("/memory/learned", %{"item" => id})
 
   @doc "Where one conversation summary's page is."
   @spec summary_path(String.t()) :: String.t()
   def summary_path(id),
-    do: "/memory/learned?" <> URI.encode_query(%{"kind" => "context", "item" => id})
+    do: Paths.query("/memory/learned", %{"kind" => "context", "item" => id})
 
   defp source_path(_kind, _id, 0), do: nil
 
   defp source_path(kind, id, _count),
     do:
       "/memory/learned?" <>
-        URI.encode_query(%{"kind" => "sources", "related_to" => "#{kind}:#{id}"})
+        Paths.encode_query(%{"kind" => "sources", "related_to" => "#{kind}:#{id}"})
 
   defp selected_kind(value, _) when value in ["knowledge", "context"], do: value
   defp selected_kind("sources", %{}), do: "sources"
@@ -617,10 +618,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         item.source_dependencies |> LearningSources.oldest(item.updated_at) |> expires_at(),
       repository: RepositoryNames.name(lookup.names, item.repository_ref),
       request_path:
-        case lookup.episodes[item.source_episode_id] do
-          nil -> nil
-          key -> "/timeline/" <> URI.encode(key, &URI.char_unreserved?/1)
-        end
+        if(Map.has_key?(lookup.episodes, item.source_episode_id),
+          do: Paths.request(item.source_episode_id)
+        )
     }
   end
 
@@ -655,7 +655,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         transport: "control_plane",
         conversation_ref: "control-plane:lab:" <> id
       }),
-      do: "/conversations/" <> URI.encode(id, &URI.char_unreserved?/1)
+      do: Paths.conversation(id)
 
   def source_message(_), do: nil
 end

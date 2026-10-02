@@ -1014,7 +1014,7 @@ defmodule Ryker.Work.ExecutorTest do
     assert detail.trace.stopped.headline == "The reply could not be delivered"
 
     assert detail.trace.stopped.href ==
-             "/failures/delivery/" <> URI.encode_www_form(delivery.turn.delivery_ref)
+             "/failures/delivery/" <> delivery.turn.id
 
     assert :not_found = FailureProjection.work(claim.episode.key)
 

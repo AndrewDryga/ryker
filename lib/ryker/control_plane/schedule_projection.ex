@@ -148,7 +148,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
             schedule.repository &&
               RepositoryNames.name(RepositoryNames.all(), schedule.repository),
           revision: schedule.revision,
-          source_episode_ref: source_episode_ref,
+          source_episode_id: schedule.source_episode_id,
           source_request: source_request(source_episode_ref),
           status: schedule.status,
           task: schedule.task,
@@ -189,7 +189,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
         accepted_at: turn.accepted_at,
         delivered_at: turn.delivered_at,
         due_local: local(^schedule.timezone, occurrence.scheduled_for),
-        episode_ref: episode.key,
+        episode_id: episode.id,
         episode_state: episode.state,
         failure_code: turn.last_error_code,
         failure_detail: turn.last_error_detail,

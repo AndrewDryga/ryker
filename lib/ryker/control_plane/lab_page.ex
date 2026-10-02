@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.LabPage do
   """
   use Phoenix.Component
   import Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.{ConversationLab, Environments, FailureExplanation, HTML, Kit}
+  alias Ryker.ControlPlane.{ConversationLab, Environments, FailureExplanation, HTML, Kit, Paths}
   alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.{Episodes, Settings}
   alias Ryker.Episodes.Words
@@ -158,7 +158,7 @@ defmodule Ryker.ControlPlane.LabPage do
             <h2 :if={day}>{day}</h2>
             <.link
               :for={item <- items}
-              navigate={"/conversations/#{item.id}"}
+              navigate={Paths.conversation(item.id)}
               class="lab-directory-item"
               title={item.title}
               aria-current={if item.id == @selected, do: "page"}
@@ -270,7 +270,7 @@ defmodule Ryker.ControlPlane.LabPage do
               class="composer lab-native-composer"
               method="post"
               enctype="multipart/form-data"
-              action={"/conversations/#{@snapshot.conversation_id}/messages"}
+              action={Paths.conversation(@snapshot.conversation_id) <> "/messages"}
               data-draft-action={if @snapshot[:draft], do: "new"}
             >
               <input type="hidden" name="_token" value={@token} /><label
@@ -568,20 +568,18 @@ defmodule Ryker.ControlPlane.LabPage do
   """
   def timeline_href(%{actor: actor, input_id: id})
       when actor in [:operator, :integration] and is_binary(id),
-      do: "/timeline/ingress-input%3A#{id}"
+      do: Paths.request(id)
 
-  def timeline_href(%{actor: :ryker, episode_ref: episode_ref} = message)
-      when is_binary(episode_ref) do
-    path = "/timeline/" <> URI.encode_www_form(episode_ref)
-
+  def timeline_href(%{actor: :ryker, episode_id: episode_id} = message)
+      when is_binary(episode_id) do
     case message[:turn_id] do
-      turn_id when is_binary(turn_id) -> path <> "?attempt=#{turn_id}#request-#{turn_id}"
-      _no_turn -> path
+      turn_id when is_binary(turn_id) -> Paths.request_attempt(episode_id, turn_id)
+      _no_turn -> Paths.request(episode_id)
     end
   end
 
   def timeline_href(%{actor: :ryker, input_id: id}) when is_binary(id),
-    do: "/timeline/ingress-input%3A#{id}"
+    do: Paths.request(id)
 
   def timeline_href(_message), do: nil
 
@@ -603,31 +601,30 @@ defmodule Ryker.ControlPlane.LabPage do
   # navigation that would fail the socket join first, and it comes back to
   # this conversation.
   defp message_failure(
-         %{actor: :operator, execution: %{state: "blocked", key: key}},
+         %{actor: :operator, episode_id: id, execution: %{state: "blocked"}},
          conversation
        ) do
-    back =
-      if conversation, do: "?" <> URI.encode_query(%{"back" => "/conversations/#{conversation}"})
-
-    path = "/actions/work/#{URI.encode_www_form(key)}/retry#{back}"
+    path = Paths.query(Paths.action("work", id, "retry"), %{"back" => back(conversation)})
     %{label: "Model work stopped", retry: path, inspect: "/failures"}
   end
 
   defp message_failure(_message, _conversation), do: nil
+
+  # A retry comes back to the conversation it was asked from.
+  defp back(nil), do: nil
+  defp back(conversation), do: Paths.conversation(conversation)
 
   # Routing that stopped is a failure of the message like stopped work: its
   # cause and the retry Failures offers read beside it, and its clock stops.
   # The live install, 2026-09-26, showed "Routing stopped 260m 45s" for
   # hours, with nothing to do about it.
   defp routing_failure(row, conversation) do
-    back =
-      if conversation, do: "?" <> URI.encode_query(%{"back" => "/conversations/#{conversation}"})
-
     failure = %{action: :rearm, kind: "admission", ref: row.ref}
 
     %{
       label: if(row.cause, do: "Routing stopped: " <> row.cause, else: "Routing stopped"),
-      retry: FailureExplanation.action_path(failure) <> (back || ""),
+      retry:
+        Paths.query(FailureExplanation.action_path(failure), %{"back" => back(conversation)}),
       inspect: FailureExplanation.path(failure)
     }
   end

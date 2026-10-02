@@ -122,7 +122,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
       assert item.episode_title == "Run run-k9CpPp3nWjQrkCMG"
       assert item.condition == nil
       assert item.target_url =~ "https://app.terraform.io/"
-      assert item.episode_href == "/timeline/#{context.episode.key}"
+      assert item.episode_href == "/timeline/#{context.episode.id}"
       assert item.place =~ "Slack channel"
       refute Map.has_key?(item, :matcher)
       refute inspect(item) =~ "never-display-this-body"

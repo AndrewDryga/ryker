@@ -30,6 +30,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   protocol facts and a digest of the stored diagnostic.
   """
 
+  alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.Slack.Names
 
@@ -89,14 +90,20 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   @doc "The failure's own page."
   @spec path(map()) :: String.t()
-  def path(row), do: "/failures/#{segment(row.kind)}/#{segment(row.ref)}"
+  def path(row), do: Paths.failure(row.kind, address(row))
 
   @doc "Where the recovery action's confirmation lives, when the failure has one."
   @spec action_path(map()) :: String.t() | nil
   def action_path(%{action: action} = row) when action in [:rearm, :retry],
-    do: "/actions/#{segment(row.kind)}/#{segment(row.ref)}/#{action}"
+    do: Paths.action(row.kind, address(row), Atom.to_string(action))
 
   def action_path(_row), do: nil
+
+  # A request's failure is addressed by the request's id, like its page.
+  defp address(%{kind: kind, episode_id: id}) when kind in ~w(work stopping) and is_binary(id),
+    do: id
+
+  defp address(row), do: row.ref
 
   @doc "The request the failure belongs to: a link when it has one, words when it has none."
   @spec request(map()) :: %{text: String.t(), href: String.t()} | %{text: String.t()} | nil
@@ -105,10 +112,12 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   def request(%{execution_kind: :improvement}),
     do: %{text: "Self-analysis", href: "/feedback/fix"}
 
-  def request(%{episode_ref: ref} = row) when is_binary(ref),
-    do: %{text: Map.get(row, :request_title) || "Open the request", href: timeline(ref)}
+  def request(%{episode_id: id} = row) when is_binary(id),
+    do: %{text: Map.get(row, :request_title) || "Open the request", href: Paths.request(id)}
 
-  def request(%{kind: "admission", ref: ref}), do: %{text: "The message", href: timeline(ref)}
+  def request(%{kind: "admission", ref: ref}),
+    do: %{text: "The message", href: Paths.request(ref)}
+
   def request(_row), do: nil
 
   @doc "Where it happened, in words: a channel name, a direct conversation, GitHub."
@@ -880,10 +889,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       # Closing belongs to the request's own page, which confirms it against
       # the request's current owner.
       alternative:
-        if(is_binary(row[:episode_ref]) and not completion and not paused?(row),
+        if(is_binary(row[:episode_id]) and not completion and not paused?(row),
           do: %{
             label: "Close the request",
-            href: timeline(row.episode_ref),
+            href: Paths.request(row.episode_id),
             link: "Open the request",
             effect:
               "If the task is no longer needed, “Close as no longer needed” on the request’s page closes it. Nothing is deleted and nothing is sent to the person who asked."
@@ -2392,10 +2401,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       outlook_note: cause.note,
       fix: cause.fix,
       alternative:
-        row[:episode_ref] &&
+        row[:episode_id] &&
           %{
             label: "Open the task",
-            href: timeline(row.episode_ref),
+            href: Paths.request(row.episode_id),
             link: "Open the request",
             effect: "Inspect the task's current state and available recovery actions."
           }
@@ -2717,9 +2726,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp plural(1, one, _many), do: "1 #{one}"
   defp plural(count, _one, many), do: "#{count} #{many}"
-
-  defp timeline(ref), do: "/timeline/" <> segment(ref)
-  defp segment(value), do: value |> to_string() |> URI.encode(&URI.char_unreserved?/1)
 
   defp utc(%DateTime{} = at), do: at
   defp utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")

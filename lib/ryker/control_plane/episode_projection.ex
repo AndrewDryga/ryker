@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
     FeedbackProjection,
     ImprovementRequests,
     ModelRequests,
+    Paths,
     TaskProgress,
     UsageProjection
   }
@@ -41,25 +42,59 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
     Repo.one(from(episode in Episode, where: episode.id == ^id, select: episode.key, limit: 1))
   end
 
+  @doc "The id of the episode kept under `key`, or nil when there is none: `key/1` read back."
+  @spec key_id(String.t() | nil) :: Ecto.UUID.t() | nil
+  def key_id(key) when is_binary(key) and byte_size(key) <= 1_024,
+    do: Repo.one(from(episode in Episode, where: episode.key == ^key, select: episode.id))
+
+  def key_id(_key), do: nil
+
   @doc """
-  The topics a request's page listens to, as the context functions that
-  subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): the request, which
-  every context that keeps something for it announces, and the conversation
-  it answers, whose messages its thread shows. A message no request has taken
-  yet (`ingress-input:<id>`) listens to the message and its conversation; the
-  message is announced when a request takes it, and the page listens to the
-  request from then on. Both show the learning passes over their messages,
-  which learning announces on its own topic.
+  The reference a request's page reads, from the id its address carries
+  (`Ryker.ControlPlane.Paths.request/1`): the request's key when a request
+  has that id, otherwise the message's (`ingress-input:<id>`) when a message
+  does. A request a message started has the message's id, so the message's
+  page becomes the request's at the same address.
   """
-  @spec subscriptions(String.t() | nil) :: [{module(), atom(), list()}]
-  def subscriptions("ingress-input:" <> id) do
+  @spec request_key(String.t() | nil) :: {:ok, String.t()} | :not_found
+  def request_key(id) when is_binary(id) do
     case Ecto.UUID.cast(id) do
-      {:ok, id} -> input_subscriptions(id)
-      :error -> []
+      {:ok, id} -> stored_request_key(id)
+      :error -> :not_found
     end
   end
 
-  def subscriptions(key) when is_binary(key) and byte_size(key) <= 1_024 do
+  def request_key(_id), do: :not_found
+
+  defp stored_request_key(id) do
+    cond do
+      key = key(id) -> {:ok, key}
+      Repo.exists?(from(entry in Entry, where: entry.id == ^id)) -> {:ok, "ingress-input:" <> id}
+      true -> :not_found
+    end
+  end
+
+  @doc """
+  The topics a request's page listens to, by the id its address carries, as
+  the context functions that subscribe to them
+  (`Ryker.ControlPlane.WorkbenchLive`): the request, which every context that
+  keeps something for it announces, and the conversation it answers, whose
+  messages its thread shows. A message no request has taken yet listens to the
+  message and its conversation; the message is announced when a request takes
+  it, and the page listens to the request from then on. Both show the learning
+  passes over their messages, which learning announces on its own topic.
+  """
+  @spec subscriptions(String.t() | nil) :: [{module(), atom(), list()}]
+  def subscriptions(id) do
+    case request_key(id) do
+      {:ok, key} -> key_subscriptions(key)
+      :not_found -> []
+    end
+  end
+
+  defp key_subscriptions("ingress-input:" <> id), do: input_subscriptions(id)
+
+  defp key_subscriptions(key) do
     case Repo.one(
            from(episode in Episode,
              where: episode.key == ^key,
@@ -75,8 +110,6 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
         []
     end
   end
-
-  def subscriptions(_ref), do: []
 
   defp input_subscriptions(id) do
     case Repo.one(
@@ -242,7 +275,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
           %{
             ref: other.key,
             title: get_in(titles, [other.key, :title]) || "Earlier request",
-            href: "/timeline/" <> URI.encode_www_form(other.key),
+            href: Paths.request(other.id),
             at: other.inserted_at,
             state: other.state,
             relation:

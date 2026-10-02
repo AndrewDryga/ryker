@@ -24,6 +24,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
     FeedbackChart,
     ImprovementProjection,
     PagedRelation,
+    Paths,
     Search,
     SlackMarkdown
   }
@@ -284,7 +285,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
       {id,
        %{
          title: title[:title] || "Request",
-         href: "/timeline/" <> URI.encode_www_form(key),
+         href: Paths.request(id),
          conversation: conversation,
          where: place(title[:source], conversation)
        }}
@@ -310,7 +311,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
       {id,
        %{
          title: message_title(preview, conversation),
-         href: "/timeline/" <> URI.encode_www_form("ingress-input:#{id}"),
+         href: Paths.request(id),
          conversation: conversation,
          where: place(source(transport), conversation)
        }}
@@ -352,8 +353,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
 
   defp who(%Signal{}, _request), do: %{name: "You", href: nil}
 
-  defp message_href("ingress-input:" <> _id = ref),
-    do: "/timeline/" <> URI.encode_www_form(ref)
+  defp message_href("ingress-input:" <> _id = ref), do: Paths.request(ref)
 
   defp message_href(_source_ref), do: nil
 

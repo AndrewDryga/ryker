@@ -198,7 +198,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert %{items: [item], total: 1} = Activity.list(%{})
     assert item.title == "Inspect the slow admission request"
     assert item.state == "pending"
-    assert item.href == "/timeline/ingress-input%3A#{entry.id}"
+    assert item.href == "/timeline/#{entry.id}"
     assert item.bucket == "running"
     assert item.conversation == "slack:T123:C456"
     assert Activity.list(%{"q" => "slow admission"}).total == 1
@@ -219,7 +219,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
 
     assert %{items: [item], total: 1} = Activity.list(%{})
     assert item.title == "Inspect the slow admission request"
-    assert item.href == "/timeline/#{URI.encode_www_form(episode.key)}"
+    assert item.href == "/timeline/#{episode.id}"
 
     assert %{title: "Inspect the slow admission request"} =
              Activity.request_titles([episode.key])[episode.key]
@@ -278,7 +278,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
 
     assert %{items: [item]} = Activity.list(%{"state" => "working", "q" => "paging"})
     assert item.id == episode.id
-    assert item.href == "/timeline/paging"
+    assert item.href == "/timeline/" <> episode.id
 
     # The native search keeps its own 200-character bound, not the removed
     # listing's behavior of silently ignoring any query over 120 bytes.

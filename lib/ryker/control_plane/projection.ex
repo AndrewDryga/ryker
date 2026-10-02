@@ -53,6 +53,8 @@ defmodule Ryker.ControlPlane.Projection do
       channel: &ChannelDetail.fetch/3,
       channels: &ChannelDirectory.list/1,
       episode: &EpisodeProjection.fetch/2,
+      request_key: &EpisodeProjection.request_key/1,
+      request_id: &EpisodeProjection.key_id/1,
       failure: &FailureProjection.fetch/2,
       failures: &FailureProjection.list/1,
       eval_cases: &EvalCases.zip/0,

@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
     ConversationProjection,
     LearningRequests,
     PagedRelation,
+    Paths,
     RepositoryNames
   }
 
@@ -221,7 +222,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
         where: not is_nil(t.summary_error_code),
         select: %{
           turn_id: t.id,
-          episode_key: e.key,
+          episode_id: e.id,
           conversation: e.destination_conversation_ref,
           accepted_at: t.accepted_at,
           delivered_at: t.delivered_at,
@@ -238,12 +239,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
           at: item.accepted_at,
           explanation: handover_error(item.error_code),
           response_status: if(item.delivered_at, do: "Reply sent", else: "Reply not confirmed"),
-          request_path:
-            "/timeline/" <>
-              URI.encode(item.episode_key, &URI.char_unreserved?/1) <>
-              "?" <>
-              URI.encode_query(%{"attempt" => item.turn_id}) <>
-              "#request-#{item.turn_id}"
+          request_path: Paths.request_attempt(item.episode_id, item.turn_id)
         }
       end)
 
@@ -576,7 +572,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   defp next_check(_row, _context), do: nil
 
   @doc "Where one batch opens on the Learning page."
-  def path(id), do: "/memory/learning?" <> URI.encode_query(%{"batch" => id})
+  def path(id), do: Paths.query("/memory/learning", %{"batch" => id})
 
   def retry_resource(id, version), do: id <> ":" <> Integer.to_string(version)
 

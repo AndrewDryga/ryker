@@ -99,7 +99,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     assert text(row) =~ "Frustrated, reacted with a thumbs down"
 
     assert row |> LazyHTML.query(".entity-name a") |> LazyHTML.attribute("href") ==
-             ["/timeline/" <> URI.encode_www_form(access.request_ref)]
+             ["/timeline/" <> access.episode_id]
 
     assert actions(row) == ["Accept as eval case", "Dismiss"]
 

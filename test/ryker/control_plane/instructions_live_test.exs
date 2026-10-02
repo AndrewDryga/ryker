@@ -203,7 +203,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert has_element?(view, guidance_row <> " h3", "Migrations need a rollback note")
     assert has_element?(view, guidance_row <> " .entity-meta", "everywhere")
 
-    pause = "/actions/behavior/#{URI.encode_www_form(preference.ref)}/disabled"
+    pause = "/actions/behavior/#{preference.id}/disabled"
 
     assert has_element?(
              view,
@@ -260,7 +260,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     {:ok, view, _html} = open("/instructions")
     row = "section.instructions-saved article[id='behavior-#{preference.ref}']"
-    resume = "/actions/behavior/#{URI.encode_www_form(preference.ref)}/active"
+    resume = "/actions/behavior/#{preference.id}/active"
     assert has_element?(view, row <> " h3", "Reply length: Concise")
     refute has_element?(view, row <> " form.action-control[action='#{resume}']")
 

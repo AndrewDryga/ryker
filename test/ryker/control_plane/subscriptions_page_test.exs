@@ -47,7 +47,8 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
     text = LazyHTML.query(row, ".entity-text")
     assert words(text) == "Continues: Review the portal deployment"
 
-    assert LazyHTML.query(text, "a[href='/timeline/episode%3Arun-monitor']") |> LazyHTML.text() ==
+    assert LazyHTML.query(text, "a[href='/timeline/0193a5d2-7c1e-7b8a-9f00-0000000000b1']")
+           |> LazyHTML.text() ==
              "Review the portal deployment"
 
     assert words(LazyHTML.query(row, ".entity-meta")) ==
@@ -309,7 +310,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
       ref: "event-subscription:9751a3c9-bc54-4d81-8b2d-173ed92fb54c",
       episode_ref: "episode:run-monitor",
       episode_title: "Review the portal deployment",
-      episode_href: "/timeline/episode%3Arun-monitor",
+      episode_href: "/timeline/0193a5d2-7c1e-7b8a-9f00-0000000000b1",
       place: "#infra",
       repository: "emisar",
       title: "An update on Run run-t2W6yCNeLUU9xFso",

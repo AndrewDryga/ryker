@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.LabControls do
   one the router will accept, and nothing else is.
   """
 
-  alias Ryker.ControlPlane.{ConversationProjection, CSRF, PathRef}
+  alias Ryker.ControlPlane.{ConversationProjection, CSRF, PathRef, Paths}
 
   @send_action "conversation_lab:send"
   @message_action "conversation_lab:message"
@@ -474,6 +474,5 @@ defmodule Ryker.ControlPlane.LabControls do
 
   @doc "The route a record card's `action` posts to, or a read-only view opens."
   def record_path(conversation_id, record_ref, action),
-    do:
-      "/conversations/#{conversation_id}/records/#{URI.encode(record_ref, &URI.char_unreserved?/1)}/#{record_action_name(action)}"
+    do: Paths.conversation_record(conversation_id, record_ref, record_action_name(action))
 end

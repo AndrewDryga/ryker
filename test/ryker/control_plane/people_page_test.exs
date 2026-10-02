@@ -26,7 +26,7 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
            |> LazyHTML.query(".entity-row a")
            |> LazyHTML.attribute("href")
            |> Enum.uniq() ==
-             ["/memory/people?person=control_plane%3Auser%3Alocal-operator"]
+             ["/memory/people?person=control_plane:user:local-operator"]
 
     # No kind names or references: what a person reads is what was said.
     refute LazyHTML.text(document) =~ "birthday"
@@ -47,7 +47,7 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
     assert LazyHTML.text(page) =~ "Said in Chat"
     assert page |> LazyHTML.query("form[method=get] button") |> LazyHTML.text() =~ "Forget"
 
-    path = "/actions/person/#{URI.encode(person, &URI.char_unreserved?/1)}/forget"
+    path = "/actions/person/#{person}/forget"
     question = confirmation(path)
     assert question.status == 200
     assert question.resp_body =~ "Forget what Ryker learned about you?"

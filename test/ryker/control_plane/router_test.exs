@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     LabControls,
     LabPage,
     Pages,
+    Paths,
     Router,
     UsagePage,
     WorkingCopiesPage
@@ -22,6 +23,10 @@ defmodule Ryker.ControlPlane.RouterTest do
   alias Ryker.Fixtures.ControlPlaneOptions
 
   @secret ControlPlaneOptions.secret()
+  # The recorded requests' ids: a request's pages and actions are addressed by it.
+  @episode_one ControlPlaneOptions.episode_one_id()
+  @episode_blocked ControlPlaneOptions.episode_blocked_id()
+  @admission ControlPlaneOptions.admission_input_id()
 
   # The file the Data retention page offers: every kept example a line at a
   # time, saved rather than shown, and never the whole set held at once.
@@ -120,22 +125,22 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     expected = [
       {"/actions/learning/#{batch}/drop", :danger},
-      {"/actions/memory/memory%3Aone/forget", :danger},
+      {"/actions/memory/one/forget", :danger},
       {"/actions/knowledge/knowledge-one/forget", :danger},
-      {"/actions/memory-review/memory-review%3Aone/merge", :danger},
-      {"/actions/memory-review/memory-review%3Aone/forget", :danger},
-      {"/actions/behavior/behavior%3Aone/deleted", :danger},
-      {"/actions/schedule/schedule%3Aone/deleted", :danger},
-      {"/actions/retention/workspace%3Aunmerged/discard", :danger},
-      {"/actions/memory-review/memory-review%3Aone/keep", :primary},
-      {"/actions/behavior/behavior%3Aone/disabled", :primary},
-      {"/actions/schedule/schedule%3Aone/paused", :primary},
-      {"/actions/schedule/schedule%3Aone/run-now", :primary},
-      {"/actions/episode/episode%3Aone/resolve", :primary},
-      {"/actions/episode/episode%3Aone/rate-good", :primary},
-      {"/actions/episode/episode%3Aone/rate-needs-work", :primary},
-      {"/actions/work/episode%3Ablocked/retry", :primary},
-      {"/actions/admission/ingress-input%3Aone/rearm", :primary}
+      {"/actions/memory-review/memory-review:one/merge", :danger},
+      {"/actions/memory-review/memory-review:one/forget", :danger},
+      {"/actions/behavior/one/deleted", :danger},
+      {"/actions/schedule/one/deleted", :danger},
+      {"/actions/retention/workspace:unmerged/discard", :danger},
+      {"/actions/memory-review/memory-review:one/keep", :primary},
+      {"/actions/behavior/one/disabled", :primary},
+      {"/actions/schedule/one/paused", :primary},
+      {"/actions/schedule/one/run-now", :primary},
+      {"/actions/episode/#{@episode_one}/resolve", :primary},
+      {"/actions/episode/#{@episode_one}/rate-good", :primary},
+      {"/actions/episode/#{@episode_one}/rate-needs-work", :primary},
+      {"/actions/work/#{@episode_blocked}/retry", :primary},
+      {"/actions/admission/#{@admission}/rearm", :primary}
     ]
 
     asked =
@@ -275,7 +280,7 @@ defmodule Ryker.ControlPlane.RouterTest do
   end
 
   test "a confirmed-action page renders in the static shell with hard browser boundaries" do
-    conn = request(:get, "/actions/memory/memory%3Aone/forget")
+    conn = request(:get, "/actions/memory/one/forget")
 
     assert conn.status == 200
 
@@ -322,17 +327,17 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert conversation.resp_body =~ "Repository"
 
     assert conversation.resp_body =~
-             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Alab/confirm-task"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:lab/confirm-task"
 
     assert conversation.resp_body =~ ">Start task<"
 
     assert conversation.resp_body =~
-             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aincident/open-incident"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:incident/open-incident"
 
     assert conversation.resp_body =~ ">Open local incident<"
 
     assert conversation.resp_body =~
-             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:confirmed/diff"
 
     assert conversation.resp_body =~ ">View diff<"
     assert conversation.resp_body =~ ">Timeline<"
@@ -453,7 +458,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     for path <- [
           "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/edit",
           "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/messages/018f3ef7-1f62-7ee0-a83c-0c12f21d83e7/delete",
-          "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/replies/control-plane-message%3Alab-reply/reactions"
+          "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/replies/control-plane-message:lab-reply/reactions"
         ] do
       assert request(:post, path, "_token=stale").status == 405
     end
@@ -464,7 +469,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     [_, task_token] =
       Regex.run(
-        ~r/action="\/conversations\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record%3Atask_offer%3Alab\/confirm-task".*?name="_token" value="([^"]+)"/s,
+        ~r/action="\/conversations\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record:task_offer:lab\/confirm-task".*?name="_token" value="([^"]+)"/s,
         conversation.resp_body
       )
 
@@ -480,7 +485,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     refused_task =
       request(
         :post,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Alab/confirm-task",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:lab/confirm-task",
         URI.encode_query(%{"_token" => "wrong"})
       )
 
@@ -490,7 +495,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     accepted_task =
       request(
         :post,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Alab/confirm-task",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:lab/confirm-task",
         URI.encode_query(%{"_token" => task_token})
       )
 
@@ -505,14 +510,14 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     [_, choice_token] =
       Regex.run(
-        ~r/action="\/conversations\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record%3Ainput_request%3Alab\/answer"><input type="hidden" name="_token" value="([^"]+)"><input type="hidden" name="choice_index" value="1">/,
+        ~r/action="\/conversations\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record:input_request:lab\/answer"><input type="hidden" name="_token" value="([^"]+)"><input type="hidden" name="choice_index" value="1">/,
         conversation.resp_body
       )
 
     crossed_choice =
       request(
         :post,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Ainput_request%3Alab/answer",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:input_request:lab/answer",
         URI.encode_query(%{"_token" => choice_token, "choice_index" => "0"})
       )
 
@@ -521,7 +526,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     accepted_choice =
       request(
         :post,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Ainput_request%3Alab/answer",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:input_request:lab/answer",
         URI.encode_query(%{"_token" => choice_token, "choice_index" => "1"})
       )
 
@@ -532,14 +537,14 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     [_, stop_token] =
       Regex.run(
-        ~r/action="\/conversations\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record%3Atask_offer%3Aconfirmed\/stop-task".*?name="_token" value="([^"]+)"/s,
+        ~r/action="\/conversations\/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6\/records\/record:task_offer:confirmed\/stop-task".*?name="_token" value="([^"]+)"/s,
         conversation.resp_body
       )
 
     stopped =
       request(
         :post,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/stop-task",
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:confirmed/stop-task",
         URI.encode_query(%{"_token" => stop_token})
       )
 
@@ -551,7 +556,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     task_view =
       request(
         :get,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/timeline"
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:confirmed/timeline"
       )
 
     assert task_view.status == 200
@@ -569,7 +574,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       rendered =
         request(
           :get,
-          "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/#{view_name}"
+          "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:confirmed/#{view_name}"
         )
 
       assert rendered.status == 200
@@ -580,17 +585,17 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     assert request(
              :get,
-             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/unknown"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:confirmed/unknown"
            ).status == 404
 
     assert request(
              :get,
-             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/timeline?unexpected=true"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:confirmed/timeline?unexpected=true"
            ).status == 400
 
     assert request(
              :get,
-             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff?offset=2400"
+             "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:confirmed/diff?offset=2400"
            ).status == 400
 
     refute_received {:lab_task_view, _conversation, _record, :diff, _params}
@@ -600,7 +605,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     diff_view =
       request(
         :get,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff"
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:confirmed/diff"
       )
 
     assert diff_view.status == 200
@@ -616,7 +621,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     next_diff =
       request(
         :get,
-        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/diff?offset=2400&snapshot=#{digest}"
+        "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:confirmed/diff?offset=2400&snapshot=#{digest}"
       )
 
     assert next_diff.status == 200
@@ -944,8 +949,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     conversation = %{resp_body: conversation_html(conversation_id)}
 
     for {record_ref, action_name, action} <- actions do
-      encoded_ref = URI.encode(record_ref, &URI.char_unreserved?/1)
-      path = "/conversations/#{conversation_id}/records/#{encoded_ref}/#{action_name}"
+      path = Paths.conversation_record(conversation_id, record_ref, action_name)
       assert conversation.resp_body =~ path
 
       resource = "#{conversation_id}:#{record_ref}:#{action}:none"
@@ -961,8 +965,7 @@ defmodule Ryker.ControlPlane.RouterTest do
            "publication:confirmed-task"}
         ] do
       record_ref = "record:task_offer:confirmed"
-      encoded_ref = URI.encode(record_ref, &URI.char_unreserved?/1)
-      path = "/conversations/#{conversation_id}/records/#{encoded_ref}/#{action_name}"
+      path = Paths.conversation_record(conversation_id, record_ref, action_name)
       assert conversation.resp_body =~ path
 
       resource = "#{conversation_id}:#{record_ref}:#{action}:#{value}"
@@ -981,8 +984,7 @@ defmodule Ryker.ControlPlane.RouterTest do
           {"task-discard", :discard_task_publication}
         ] do
       record_ref = "record:task_offer:confirmed"
-      encoded_ref = URI.encode(record_ref, &URI.char_unreserved?/1)
-      path = "/conversations/#{conversation_id}/records/#{encoded_ref}/#{action_name}"
+      path = Paths.conversation_record(conversation_id, record_ref, action_name)
       assert conversation.resp_body =~ path
 
       publication_ref = "publication:confirmed-task"
@@ -1037,12 +1039,12 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert html =~ "Message added"
     assert html =~ "Work needs operator recovery"
     assert html =~ "3 answers checked"
-    assert html =~ "/failures/work/episode%3Aone"
+    assert html =~ "/failures/work/#{@episode_one}"
     assert html =~ "Open in Slack"
     assert html =~ "https://slack.com/archives/C456/p1787832000001000"
-    assert html =~ "/actions/episode/episode%3Aone/resolve"
-    assert html =~ "/actions/episode/episode%3Aone/rate-good"
-    assert html =~ "/actions/episode/episode%3Aone/rate-needs-work"
+    assert html =~ "/actions/episode/#{@episode_one}/resolve"
+    assert html =~ "/actions/episode/#{@episode_one}/rate-good"
+    assert html =~ "/actions/episode/#{@episode_one}/rate-needs-work"
     refute html =~ "raw-secret-value"
     document = LazyHTML.from_document(html)
     assert LazyHTML.query(document, "a[href^='/actions/']") |> LazyHTML.to_tree() == []
@@ -1067,16 +1069,16 @@ defmodule Ryker.ControlPlane.RouterTest do
           {"rate-needs-work", "Does this request need work?",
            {:rated_episode, "episode:one", :needs_work}}
         ] do
-      path = "/actions/episode/episode%3Aone/#{action}"
+      path = "/actions/episode/#{@episode_one}/#{action}"
       confirmation = request(:get, path)
       assert confirmation.status == 200
       assert confirmation.resp_body =~ title
-      assert confirmation.resp_body =~ "href=\"/timeline/episode%3Aone\""
+      assert confirmation.resp_body =~ "href=\"/timeline/#{@episode_one}\""
       [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
 
       accepted = request(:post, path, URI.encode_query(%{"_token" => token}))
       assert accepted.status == 303
-      assert get_resp_header(accepted, "location") == ["/timeline/episode%3Aone"]
+      assert get_resp_header(accepted, "location") == ["/timeline/#{@episode_one}"]
       assert_received ^received
     end
   end
@@ -1086,10 +1088,11 @@ defmodule Ryker.ControlPlane.RouterTest do
     # and "the local operator read this exact terminal semantic version" on the
     # pages that ask a person to confirm. A person confirms what they understand.
     for {path, undo} <- [
-          {"/actions/episode/episode%3Aone/resolve", "You can't reopen it"},
-          {"/actions/episode/episode%3Aone/rate-good", "You can't change the rating afterwards."},
-          {"/actions/episode/episode%3Aone/rate-needs-work", "you can't change the rating"},
-          {"/actions/retention/workspace%3Aunmerged/discard", "This can't be undone."}
+          {"/actions/episode/#{@episode_one}/resolve", "You can't reopen it"},
+          {"/actions/episode/#{@episode_one}/rate-good",
+           "You can't change the rating afterwards."},
+          {"/actions/episode/#{@episode_one}/rate-needs-work", "you can't change the rating"},
+          {"/actions/retention/workspace:unmerged/discard", "This can't be undone."}
         ] do
       page = request(:get, path)
       assert page.status == 200, path
@@ -1106,7 +1109,7 @@ defmodule Ryker.ControlPlane.RouterTest do
   end
 
   test "memory mutations require a local two-step confirmation and exact CSRF token" do
-    confirm = request(:get, "/actions/memory/memory%3Aone/forget")
+    confirm = request(:get, "/actions/memory/one/forget")
     assert confirm.status == 200
     assert confirm.resp_body =~ "Forget checkout-api?"
     assert confirm.resp_body =~ "Ryker stops using this fact and erases what it saved."
@@ -1123,7 +1126,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     refused =
       request(
         :post,
-        "/actions/memory/memory%3Aone/forget",
+        "/actions/memory/one/forget",
         URI.encode_query(%{"_token" => "wrong"})
       )
 
@@ -1133,7 +1136,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     accepted =
       request(
         :post,
-        "/actions/memory/memory%3Aone/forget",
+        "/actions/memory/one/forget",
         URI.encode_query(%{"_token" => token})
       )
 
@@ -1180,7 +1183,7 @@ defmodule Ryker.ControlPlane.RouterTest do
           {"merge", "Merge these facts?", "forgets the other copies"},
           {"forget", "Forget checkout-api, payments-api?", "erases what it saved"}
         ] do
-      path = "/actions/memory-review/memory-review%3Aone/#{action}"
+      path = "/actions/memory-review/memory-review:one/#{action}"
       confirm = request(:get, path)
       assert confirm.status == 200
       assert confirm.resp_body =~ title
@@ -1193,7 +1196,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       assert Atom.to_string(resolved) == action
     end
 
-    edit_path = "/actions/memory-review/memory-review%3Atwo/edit"
+    edit_path = "/actions/memory-review/memory-review:two/edit"
     edit = request(:get, edit_path)
     assert edit.status == 200
     assert edit.resp_body =~ "<title>Edit this fact · Ryker</title>"
@@ -1220,7 +1223,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert get_resp_header(accepted, "location") == ["/memory#review"]
 
     # No page offers to dismiss a review, so there is no dismissal to confirm.
-    dismiss = "/actions/memory-review/memory-review%3Aone/dismiss"
+    dismiss = "/actions/memory-review/memory-review:one/dismiss"
     assert request(:get, dismiss).status == 404
     assert Router.question(dismiss, options()) == {:error, :not_found}
   end
@@ -1231,13 +1234,13 @@ defmodule Ryker.ControlPlane.RouterTest do
   # action no page offers was refused with a way back to Facts.
   test "an action on a fact or a fact review returns to where it was taken from" do
     for {path, action, refusal, back} <- [
-          {"/actions/memory/memory%3Aone/forget", :forget_memory, fn _ref -> {:error, :stale} end,
+          {"/actions/memory/one/forget", :forget_memory, fn _ref -> {:error, :stale} end,
            "/memory"},
-          {"/actions/memory-review/memory-review%3Aone/keep", :resolve_memory_review,
+          {"/actions/memory-review/memory-review:one/keep", :resolve_memory_review,
            fn _ref, _action, _replacement -> {:error, :stale} end, "/memory#review"},
-          {"/actions/memory-review/memory-review%3Aone/merge", :resolve_memory_review,
+          {"/actions/memory-review/memory-review:one/merge", :resolve_memory_review,
            fn _ref, _action, _replacement -> {:error, :stale} end, "/memory#review"},
-          {"/actions/memory-review/memory-review%3Aone/forget", :resolve_memory_review,
+          {"/actions/memory-review/memory-review:one/forget", :resolve_memory_review,
            fn _ref, _action, _replacement -> {:error, :stale} end, "/memory#review"}
         ] do
       confirmation = request(:get, path)
@@ -1255,7 +1258,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       assert {path, links(refused, ".document-unavailable a")} == {path, [back]}
     end
 
-    edit = "/actions/memory-review/memory-review%3Atwo/edit"
+    edit = "/actions/memory-review/memory-review:two/edit"
     [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, request(:get, edit).resp_body)
 
     form =
@@ -1310,7 +1313,7 @@ defmodule Ryker.ControlPlane.RouterTest do
           :not_found
       end)
 
-    path = "/actions/retention/learning%3Aone/rearm"
+    path = "/actions/retention/learning:one/rearm"
     confirm = request_with_options(:get, path, nil, options)
     assert confirm.status == 200
     assert confirm.resp_body =~ ~s(href="/memory/learning")
@@ -1325,7 +1328,7 @@ defmodule Ryker.ControlPlane.RouterTest do
   end
 
   test "a blocked delivery can be rearmed only from its exact confirmed intent" do
-    confirm = request(:get, "/actions/delivery/delivery%3Aone/rearm")
+    confirm = request(:get, "/actions/delivery/one/rearm")
     assert confirm.status == 200
     assert confirm.resp_body =~ "Post this reply again?"
     assert confirm.resp_body =~ "href=\"/failures\""
@@ -1342,7 +1345,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     accepted =
       request(
         :post,
-        "/actions/delivery/delivery%3Aone/rearm",
+        "/actions/delivery/one/rearm",
         URI.encode_query(%{"_token" => token})
       )
 
@@ -1350,13 +1353,16 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert get_resp_header(accepted, "location") == ["/failures"]
     assert_received {:rearmed_delivery, "delivery:one"}
 
-    stale = request(:get, "/actions/delivery/delivery%3Astale/rearm")
+    stale = request(:get, "/actions/delivery/stale/rearm")
     assert stale.status == 404
+
+    # The address that carried the reference's prefix is gone, not an alias.
+    assert request(:get, "/actions/delivery/delivery:one/rearm").status == 404
   end
 
   test "a completed-result confirmation cannot authorize a different stopped turn" do
     # An old recovery tab must never turn a save-only action into fresh model work.
-    path = "/actions/work/episode%3Ablocked/retry"
+    path = "/actions/work/#{@episode_blocked}/retry"
     initial = options()
     {:ok, row} = initial.projection.failure.("work", "episode:blocked")
 
@@ -1390,14 +1396,13 @@ defmodule Ryker.ControlPlane.RouterTest do
     # QA re-test, 2026-09-26: Cancel on "Run this task again?" led to
     # Failures even when the person had opened it from the request's
     # timeline, dropping them on a list they never came from.
-    path = "/actions/work/episode%3Ablocked/retry"
+    path = "/actions/work/#{@episode_blocked}/retry"
 
     for back <- [
-          "/timeline/episode%3Ablocked",
-          "/timeline/task-offer%3Aa.b",
+          "/timeline/#{@episode_blocked}",
           "/conversations/c-1"
         ] do
-      query = "?" <> URI.encode_query(%{"back" => back})
+      query = "?" <> Paths.encode_query(%{"back" => back})
       confirmation = request(:get, path <> query)
       assert confirmation.status == 200
       assert confirmation.resp_body =~ ~s(<a href="#{back}">Cancel</a>)
@@ -1429,7 +1434,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     # The confirmation is the last thing an operator reads before pressing, so
     # it has to name the resume rather than a fresh retry that would restart
     # from the repository with the saved working copy left behind.
-    path = "/actions/work/episode%3Ablocked/retry"
+    path = "/actions/work/#{@episode_blocked}/retry"
     initial = options()
     {:ok, row} = initial.projection.failure.("work", "episode:blocked")
 
@@ -1460,8 +1465,8 @@ defmodule Ryker.ControlPlane.RouterTest do
 
   test "each recoverable blocked custody has a typed confirmed action" do
     for {kind, ref, action, title, received} <- [
-          {"admission", "ingress-input:one", "rearm", "Read this message again?",
-           {:rearmed_admission, "ingress-input:one"}},
+          {"admission", "ingress-input:" <> @admission, "rearm", "Read this message again?",
+           {:rearmed_admission, "ingress-input:" <> @admission}},
           {"work", "episode:blocked", "retry", "Run this task again?",
            {:retried_work, "episode:blocked"}},
           {"emisar", "approval:one", "rearm", "Start watching this approval again?",
@@ -1477,8 +1482,8 @@ defmodule Ryker.ControlPlane.RouterTest do
            "Write this thread status again?",
            {:rearmed_slack_thread_status, "0d0c5c7e-1c3d-4a4a-9a8f-2d0d0a1b2c3d"}}
         ] do
-      encoded_ref = URI.encode(ref, &URI.char_unreserved?/1)
-      path = "/actions/#{kind}/#{encoded_ref}/#{action}"
+      # A request's work is addressed by the request's id, everything else by its own reference.
+      path = Paths.action(kind, if(kind == "work", do: @episode_blocked, else: ref), action)
 
       confirmation = request(:get, path)
       assert confirmation.status == 200
@@ -1557,7 +1562,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       end)
 
     for ref <- ["admission:one", "chat:one"] do
-      path = "/actions/retention/#{URI.encode(ref, &URI.char_unreserved?/1)}/rearm"
+      path = "/actions/retention/#{ref}/rearm"
       confirmation = request_with_options(:get, path, nil, options)
       assert confirmation.status == 200, ref
       assert confirmation.resp_body =~ ~s(href="/failures"), ref
@@ -1573,7 +1578,7 @@ defmodule Ryker.ControlPlane.RouterTest do
   end
 
   test "retention recovery is confirmed from the exact current working copy state" do
-    rearm = request(:get, "/actions/retention/workspace%3Ablocked/rearm")
+    rearm = request(:get, "/actions/retention/workspace:blocked/rearm")
     assert rearm.status == 200
     assert rearm.resp_body =~ "Try cleaning up this working copy again?"
     assert rearm.resp_body =~ "for this working copy only"
@@ -1582,7 +1587,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     accepted_rearm =
       request(
         :post,
-        "/actions/retention/workspace%3Ablocked/rearm",
+        "/actions/retention/workspace:blocked/rearm",
         URI.encode_query(%{"_token" => rearm_token})
       )
 
@@ -1590,7 +1595,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert get_resp_header(accepted_rearm, "location") == ["/working-copies"]
     assert_received {:rearmed_retention, "workspace:blocked"}
 
-    discard = request(:get, "/actions/retention/workspace%3Aunmerged/discard")
+    discard = request(:get, "/actions/retention/workspace:unmerged/discard")
     assert discard.status == 200
     assert discard.resp_body =~ "Delete this working copy and its unmerged commits?"
     assert discard.resp_body =~ "keeps it if it has uncommitted changes"
@@ -1599,14 +1604,14 @@ defmodule Ryker.ControlPlane.RouterTest do
     accepted_discard =
       request(
         :post,
-        "/actions/retention/workspace%3Aunmerged/discard",
+        "/actions/retention/workspace:unmerged/discard",
         URI.encode_query(%{"_token" => discard_token})
       )
 
     assert accepted_discard.status == 303
     assert_received {:discarded_retention, "workspace:unmerged"}
 
-    assert request(:get, "/actions/retention/workspace%3Adirty/discard").status == 404
+    assert request(:get, "/actions/retention/workspace:dirty/discard").status == 404
   end
 
   test "rejects DNS-rebinding hosts and non-loopback peers before routing anything" do
@@ -1720,14 +1725,12 @@ defmodule Ryker.ControlPlane.RouterTest do
     for {kind, ref, action, expected, return_path} <- [
           {"behavior", "behavior:one", "disabled", {:behavior_status, :disabled}, "/rules"},
           {"behavior", "behavior:one", "deleted", {:behavior_status, :deleted}, "/rules"},
-          {"schedule", "schedule:one", "paused", {:schedule_status, :paused},
-           "/schedules/schedule%3Aone"},
-          {"schedule", "schedule:one", "active", {:schedule_status, :active},
-           "/schedules/schedule%3Aone"},
+          {"schedule", "schedule:one", "paused", {:schedule_status, :paused}, "/schedules/one"},
+          {"schedule", "schedule:one", "active", {:schedule_status, :active}, "/schedules/one"},
           {"schedule", "schedule:one", "deleted", {:schedule_status, :deleted}, "/schedules"},
-          {"schedule", "schedule:one", "run-now", :schedule_run_now, "/schedules/schedule%3Aone"}
+          {"schedule", "schedule:one", "run-now", :schedule_run_now, "/schedules/one"}
         ] do
-      path = "/actions/#{kind}/#{URI.encode(ref, &URI.char_unreserved?/1)}/#{action}"
+      path = Paths.action(kind, ref, action)
       confirmation = request(:get, path)
       assert confirmation.status == 200
       [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
@@ -1747,7 +1750,7 @@ defmodule Ryker.ControlPlane.RouterTest do
   # text page reading "Action is no longer available", with no reason and no
   # way back, even for a schedule whose previous run was still going.
   test "a refused action says why in words and offers the way back" do
-    path = "/actions/schedule/schedule%3Aone/run-now"
+    path = "/actions/schedule/one/run-now"
     confirmation = request(:get, path)
     [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
 
@@ -1763,7 +1766,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
       assert refused.status == 409
       assert refused.resp_body =~ words
-      assert refused.resp_body =~ ~s(href="/schedules/schedule%3Aone")
+      assert refused.resp_body =~ ~s(href="/schedules/one")
       refute refused.resp_body =~ "Action is no longer available"
     end
   end
@@ -1778,7 +1781,7 @@ defmodule Ryker.ControlPlane.RouterTest do
           {"deleted", "Delete Daily health?", "Its past runs stay listed."},
           {"run-now", "Run Daily health now?", "The regular schedule does not change."}
         ] do
-      body = request(:get, "/actions/schedule/schedule%3Aone/#{action}").resp_body
+      body = request(:get, "/actions/schedule/one/#{action}").resp_body
       document = LazyHTML.from_document(body)
 
       assert LazyHTML.query(document, "main h1") |> LazyHTML.text() == title
@@ -1824,14 +1827,14 @@ defmodule Ryker.ControlPlane.RouterTest do
           end)
     }
 
-    live = "/actions/behavior/behavior%3Aone/disabled"
+    live = "/actions/behavior/one/disabled"
     confirmation = request_with_options(:get, live, nil, options)
     assert confirmation.status == 200
     [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
 
     # The row was deleted after the menu was opened: no confirmation, no action.
     for action <- ["active", "disabled", "deleted"] do
-      stale = "/actions/behavior/behavior%3Agone/#{action}"
+      stale = "/actions/behavior/gone/#{action}"
       assert request_with_options(:get, stale, nil, options).status == 404
 
       rejected =
@@ -1841,7 +1844,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     end
 
     # A token for Pause cannot delete, and a token for one row cannot touch another.
-    crossed = "/actions/behavior/behavior%3Aone/deleted"
+    crossed = "/actions/behavior/one/deleted"
 
     assert request_with_options(:post, crossed, URI.encode_query(%{"_token" => token}), options).status ==
              403
@@ -1852,7 +1855,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert request_with_options(:post, live, URI.encode_query(%{"_token" => foreign}), options).status ==
              403
 
-    assert request_with_options(:get, "/actions/behavior/behavior%3Aone/expired", nil, options).status ==
+    assert request_with_options(:get, "/actions/behavior/one/expired", nil, options).status ==
              404
 
     refute_received {{:behavior_status, _}, _}
@@ -1895,7 +1898,7 @@ defmodule Ryker.ControlPlane.RouterTest do
             end)
       }
 
-      path = "/actions/behavior/behavior%3Asaved/disabled"
+      path = "/actions/behavior/saved/disabled"
       confirmation = request_with_options(:get, path, nil, options)
       assert confirmation.status == 200
       assert confirmation.resp_body =~ name
@@ -1924,11 +1927,11 @@ defmodule Ryker.ControlPlane.RouterTest do
       actions = LazyHTML.from_fragment(page.action)
 
       assert actions
-             |> LazyHTML.query("form[action='/actions/schedule/schedule%3Aone/#{action}'] button")
+             |> LazyHTML.query("form[action='/actions/schedule/one/#{action}'] button")
              |> LazyHTML.text() == label
 
       assert actions
-             |> LazyHTML.query("form[action='/actions/schedule/schedule%3Aone/run-now'] button")
+             |> LazyHTML.query("form[action='/actions/schedule/one/run-now'] button")
              |> LazyHTML.text() == "Run now"
 
       refute page.action =~ "/deleted"
@@ -1937,13 +1940,13 @@ defmodule Ryker.ControlPlane.RouterTest do
              |> IO.iodata_to_binary()
              |> LazyHTML.from_fragment()
              |> LazyHTML.query(
-               "#delete-schedule form[action='/actions/schedule/schedule%3Aone/deleted'] button.danger"
+               "#delete-schedule form[action='/actions/schedule/one/deleted'] button.danger"
              )
              |> LazyHTML.text() == "Delete schedule"
     end
 
     completed = schedule_page(detail, :completed)
-    assert completed.action =~ "/actions/schedule/schedule%3Aone/run-now"
+    assert completed.action =~ "/actions/schedule/one/run-now"
     refute completed.action =~ "/deleted"
     refute IO.iodata_to_binary(completed.body) =~ "/deleted"
 
@@ -1957,15 +1960,15 @@ defmodule Ryker.ControlPlane.RouterTest do
   defp schedule_page(detail, status) do
     snapshot = %{detail | schedule: %{detail.schedule | status: status}}
     options = put_in(options(), [:projection, :schedule], fn _ref -> {:ok, snapshot} end)
-    Pages.page(["schedules", "schedule%3Aone"], %{}, options)
+    Pages.page(["schedules", "one"], %{}, options)
   end
 
   test "malformed, stale, and unsupported mutations fail closed" do
-    confirmation = request(:get, "/actions/memory/memory%3Aone/forget")
+    confirmation = request(:get, "/actions/memory/one/forget")
     [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
 
     missing_content_type =
-      conn(:post, "/actions/memory/memory%3Aone/forget", URI.encode_query(%{"_token" => token}))
+      conn(:post, "/actions/memory/one/forget", URI.encode_query(%{"_token" => token}))
       |> Map.put(:host, "localhost")
       |> Map.put(:remote_ip, {127, 0, 0, 1})
       |> then(&Router.call(&1, Router.init(options())))
@@ -1975,14 +1978,14 @@ defmodule Ryker.ControlPlane.RouterTest do
     extra_form =
       request(
         :post,
-        "/actions/memory/memory%3Aone/forget",
+        "/actions/memory/one/forget",
         URI.encode_query(%{"_token" => token, "extra" => "no"})
       )
 
     assert extra_form.status == 400
 
     too_large = String.duplicate("x", 4_097)
-    assert request(:post, "/actions/memory/memory%3Aone/forget", too_large).status == 400
+    assert request(:post, "/actions/memory/one/forget", too_large).status == 400
 
     unavailable =
       options()
@@ -1990,7 +1993,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       |> then(fn opts ->
         request_with_options(
           :post,
-          "/actions/memory/memory%3Aone/forget",
+          "/actions/memory/one/forget",
           URI.encode_query(%{"_token" => token}),
           opts
         )
@@ -2002,7 +2005,11 @@ defmodule Ryker.ControlPlane.RouterTest do
   end
 
   test "native pages have no parallel static routes or secondary bodies" do
-    for path <- ["/activity", "/timeline/episode%3Aone", "/timeline/episode%3Aone/model-calls"] do
+    for path <- [
+          "/activity",
+          "/timeline/#{@episode_one}",
+          "/timeline/#{@episode_one}/model-calls"
+        ] do
       response = request(:get, path)
       assert response.status == 404
       assert get_resp_header(response, "location") == []
@@ -2039,10 +2046,10 @@ defmodule Ryker.ControlPlane.RouterTest do
           "/healthz",
           "/readyz",
           "/metrics",
-          "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record%3Atask_offer%3Aconfirmed/timeline",
+          "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:confirmed/timeline",
           "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/turns/018f3ef7-1f62-7ee0-a83c-0c12f21d83e9/artifacts/artifact_chart",
-          "/actions/memory/memory%3Aone/forget",
-          "/actions/memory-review/memory-review%3Atwo/edit"
+          "/actions/memory/one/forget",
+          "/actions/memory-review/memory-review:two/edit"
         ] do
       assert request(:get, path).status == 200, path
 
@@ -2053,7 +2060,8 @@ defmodule Ryker.ControlPlane.RouterTest do
   end
 
   defp sample_segment(":id"), do: "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
-  defp sample_segment(":ref"), do: "episode%3Aone"
+  defp sample_segment(":ref"), do: "episode:one"
+  defp sample_segment(":slug"), do: "incident-one"
   defp sample_segment(":workspace"), do: "T123"
   defp sample_segment(":channel"), do: "C456"
   defp sample_segment(":kind"), do: "delivery"

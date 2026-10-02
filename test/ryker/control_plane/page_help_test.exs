@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.PageHelpTest do
     assert PageHelp.for_path("/activity") == PageHelp.for_path("/")
     assert PageHelp.for_path("/incident-rooms/").title == "How incident rooms work"
 
-    assert PageHelp.for_path("/incident-rooms/incident%3Aone").title ==
+    assert PageHelp.for_path("/incident-rooms/one").title ==
              "How an incident room works"
 
     assert PageHelp.for_path("/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6") ==
@@ -175,7 +175,7 @@ defmodule Ryker.ControlPlane.PageHelpTest do
       (route
        |> String.split("/", trim: true)
        |> Enum.map_join("/", fn
-         ":" <> _param -> "ref%3Aone"
+         ":" <> _param -> "one"
          segment -> segment
        end))
   end

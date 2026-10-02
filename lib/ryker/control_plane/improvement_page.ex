@@ -23,6 +23,7 @@ defmodule Ryker.ControlPlane.ImprovementPage do
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.Kit
+  alias Ryker.ControlPlane.Paths
   alias Ryker.Improvement
   alias Ryker.Improvement.Candidate
 
@@ -146,10 +147,14 @@ defmodule Ryker.ControlPlane.ImprovementPage do
       <:actions :if={@accept or @dismiss}>
         <.action_button
           :if={@accept}
-          path={action_path(@item.id, "accept")}
+          path={Paths.action("improvement", @item.id, "accept")}
           label="Accept as eval case"
         />
-        <.action_button :if={@dismiss} path={action_path(@item.id, "dismiss")} label="Dismiss" />
+        <.action_button
+          :if={@dismiss}
+          path={Paths.action("improvement", @item.id, "dismiss")}
+          label="Dismiss"
+        />
       </:actions>
     </Kit.entity_row>
     """
@@ -349,7 +354,7 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   def view_path(status, nil), do: "#{@path}?status=#{status}"
 
   def view_path(status, category),
-    do: "#{@path}?" <> URI.encode_query(%{"status" => status, "category" => category})
+    do: Paths.query(@path, %{"status" => status, "category" => category})
 
   defp page_path(view, page) do
     query =
@@ -360,10 +365,8 @@ defmodule Ryker.ControlPlane.ImprovementPage do
       ]
       |> Enum.reject(fn {_key, value} -> value in [nil, false] end)
 
-    "#{@path}?" <> URI.encode_query(query)
+    Paths.query(@path, query)
   end
-
-  defp action_path(id, action), do: "/actions/improvement/#{id}/#{action}"
 
   defp empty_title(:open), do: "Nothing to decide"
   defp empty_title(:accepted), do: "No eval cases yet"

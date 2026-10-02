@@ -30,6 +30,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     EnvironmentsPage,
     Integrations,
     Kit,
+    Paths,
     SettingsEditor,
     SettingsRows,
     SettingsSections,
@@ -1169,7 +1170,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           :for={account <- @accounts}
           id={"emisar-account-" <> account.ref}
           name={account.display_name}
-          href={"/integrations/emisar/#{account.ref}/edit"}
+          href={Paths.edit_emisar_account(account.ref)}
           navigate={true}
           link_row={true}
           state={@account_states[account.ref].state}

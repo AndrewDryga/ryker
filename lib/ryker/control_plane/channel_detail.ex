@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
     ChannelScope,
     Environments,
     PagedRelation,
+    Paths,
     RepositoryNames,
     UsageProjection
   }
@@ -155,12 +156,12 @@ defmodule Ryker.ControlPlane.ChannelDetail do
       cost_usd: if(totals.costed > 0, do: totals.cost_usd),
       link:
         "/activity?" <>
-          URI.encode_query(%{
+          Paths.encode_query(%{
             "usage_channel" => scope.conversation_ref,
             "usage_window" => window,
             "mode" => mode
           }),
-      usage_path: "/usage?" <> URI.encode_query(%{"window" => window, "mode" => mode})
+      usage_path: Paths.query("/usage", %{"window" => window, "mode" => mode})
     }
   end
 
@@ -220,7 +221,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
         select: %{
           channel_name: room.channel_name,
           channel_state: room.channel_state,
-          episode_ref: episode.key,
+          episode_id: room.episode_id,
           private: room.private,
           ref: room.ref,
           repository_ref: room.repository_ref,
@@ -339,6 +340,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
             episode.destination_conversation_ref == ^scope.conversation_ref,
         select: %{
           execution_mode: episode.execution_mode,
+          id: episode.id,
           ref: episode.key,
           state: episode.state,
           thread_ref: episode.destination_thread_ref,

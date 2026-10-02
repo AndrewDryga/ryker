@@ -162,7 +162,7 @@ defmodule Ryker.ControlPlane.NavigationTest do
           {"/settings/models", "/settings/models"},
           {"/environments", "/environments"},
           {"/channels/T1/C1", "/channels"},
-          {"/schedules/schedule%3Aone", "/schedules"}
+          {"/schedules/one", "/schedules"}
         ] do
       document =
         render_component(&Navigation.sidebar/1, path: path, live: true)
@@ -185,7 +185,7 @@ defmodule Ryker.ControlPlane.NavigationTest do
   test "incident rooms keep selected navigation on both their list and detail routes" do
     # The primary sidebar becomes the compact primary navigation on mobile;
     # mobile/1 supplies only the separate More menu.
-    for path <- ["/incident-rooms", "/incident-rooms/incident%3Aone"], live <- [true, false] do
+    for path <- ["/incident-rooms", "/incident-rooms/one"], live <- [true, false] do
       document =
         render_component(&Navigation.sidebar/1, path: path, live: live)
         |> LazyHTML.from_fragment()

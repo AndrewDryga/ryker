@@ -16,7 +16,7 @@ defmodule Ryker.ControlPlane.PeoplePage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, MemoryFormat, ShortTime}
+  alias Ryker.ControlPlane.{Components, Kit, MemoryFormat, Paths, ShortTime}
   alias Ryker.Learning
 
   @path "/memory/people"
@@ -26,7 +26,7 @@ defmodule Ryker.ControlPlane.PeoplePage do
 
   @doc "Where one person's page is."
   @spec path(String.t()) :: String.t()
-  def path(person_ref), do: @path <> "?" <> URI.encode_query(%{"person" => person_ref})
+  def path(person_ref), do: Paths.query(@path, %{"person" => person_ref})
 
   @doc "The heading of one person's page: their name, how much Ryker knows, and the way back."
   @spec heading(map()) :: map()
@@ -140,6 +140,5 @@ defmodule Ryker.ControlPlane.PeoplePage do
   defp things(count), do: "#{count} things"
 
   # Asking first, then back to all people (`Ryker.ControlPlane.Router`).
-  defp action_path(person_ref),
-    do: "/actions/person/#{URI.encode(person_ref, &URI.char_unreserved?/1)}/forget"
+  defp action_path(person_ref), do: Paths.action("person", person_ref, "forget")
 end

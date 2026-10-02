@@ -48,7 +48,7 @@ defmodule Ryker.ControlPlane.RouteMapTest do
     {:ok, %{episode: episode}} =
       Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
 
-    timeline = "/timeline/" <> URI.encode_www_form(episode.key)
+    timeline = "/timeline/" <> episode.id
 
     assert {:ok, _view, activity} = live(conn(), "/activity")
     assert activity =~ "Activity"
@@ -68,7 +68,7 @@ defmodule Ryker.ControlPlane.RouteMapTest do
     {:ok, %{episode: episode}} =
       Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
 
-    encoded = URI.encode_www_form(episode.key)
+    encoded = episode.id
 
     for path <- ["/episodes", "/episodes/" <> encoded, "/episodes/#{encoded}/requests"] do
       response = get(conn(), path)
@@ -116,7 +116,7 @@ defmodule Ryker.ControlPlane.RouteMapTest do
   test "a deep link into an input with no episode resolves on the Timeline route" do
     {:ok, entry} = lab_entry()
 
-    assert {:ok, view, _html} = live(conn(), "/timeline/ingress-input%3A#{entry.id}")
+    assert {:ok, view, _html} = live(conn(), "/timeline/#{entry.id}")
     assert has_element?(view, ".kit-back a[href=\"/\"]", "Activity")
     assert has_element?(view, "#execution-timeline")
     # Nothing has been routed yet, so the page shows the queue, not a briefing

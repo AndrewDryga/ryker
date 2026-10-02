@@ -115,7 +115,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     assert body =~ "portal-prod"
     assert body =~ "Production portal"
     assert body =~ "Everywhere"
-    assert body =~ "/actions/memory/#{URI.encode(entry.ref, &URI.char_unreserved?/1)}/forget"
+    assert body =~ "/actions/memory/#{entry.id}/forget"
     refute body =~ entry.scope_ref
   end
 

@@ -16,7 +16,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, ShortTime, UsageProjection}
+  alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, Paths, ShortTime, UsageProjection}
   alias Ryker.Publication.Custody, as: Publications
   alias Ryker.Slack.{IncidentRooms, Names}
 
@@ -117,7 +117,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
           :for={{room, group} <- Enum.zip(@items, Kit.day_groups(@items, & &1[:requested_at], @now))}
           id={"room-" <> dom_id(room.ref)}
           name={room.title}
-          href={room_path(room.ref)}
+          href={Paths.incident_room(room.ref)}
           link_row
           icon={:incident}
           icon_tone={if room.status in [:ready, :requested, :blocked], do: :warn, else: :off}
@@ -179,10 +179,14 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
     <div class="incident-room-view">
       <Kit.status_line id="incident-room-status" state={state(@room.status)}>
         <.moment :if={@room.requested_at} at={@room.requested_at} now={@now} prefix="opened " />
-        <a :if={@room.channel_ref} href={channel_path(@room.workspace_ref, @room.channel_ref)}>
+        <a :if={@room.channel_ref} href={Paths.channel(@room.workspace_ref, @room.channel_ref)}>
           {channel(@room)}
         </a>
-        <a :if={@room.status == :blocked} href={failure_path(@room.ref)} data-tone="warn">
+        <a
+          :if={@room.status == :blocked}
+          href={Paths.failure("slack_incident", @room.ref)}
+          data-tone="warn"
+        >
           See what stopped
         </a>
       </Kit.status_line>
@@ -210,8 +214,8 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
           title="Investigation"
           lede="What Ryker recorded while it worked on the incident, newest first. The timeline has every step."
         >
-          <:actions :if={@room.episode_ref}>
-            <a href={timeline_path(@room.episode_ref)}>Open the timeline</a>
+          <:actions :if={@room.episode_id}>
+            <a href={Paths.request(@room.episode_id)}>Open the timeline</a>
           </:actions>
         </Kit.section_head>
         <Kit.entity_list
@@ -226,14 +230,14 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
           />
         </Kit.entity_list>
         <Kit.empty
-          :if={@records == [] and is_nil(@room.episode_ref)}
+          :if={@records == [] and is_nil(@room.episode_id)}
           variant={:hint}
           icon={:clock}
           title="The investigation has not started"
           text="It starts in the room once the channel is ready and the responders are invited."
         />
         <Kit.empty
-          :if={@records == [] and is_binary(@room.episode_ref)}
+          :if={@records == [] and is_binary(@room.episode_id)}
           variant={:hint}
           icon={:activity}
           title="Nothing recorded yet"
@@ -348,7 +352,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
     [
       channel_fact(room),
       repository(room),
-      room.episode_ref && anchor(%{href: timeline_path(room.episode_ref), text: "investigation"}),
+      room.episode_id && anchor(%{href: Paths.request(room.episode_id), text: "investigation"}),
       publication_words(room.publication_status)
     ]
   end
@@ -385,7 +389,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp room_channel(room) do
     %{
       __changed__: nil,
-      href: channel_path(room.workspace_ref, room.channel_ref),
+      href: Paths.channel(room.workspace_ref, room.channel_ref),
       text: channel(room),
       state: channel_state(room.channel_state)
     }
@@ -409,8 +413,8 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
         do: "The alert thread in " <> Names.name(room.workspace_ref, room.source_channel_ref),
         else: "The alert thread"
 
-    case room[:source_episode_ref] do
-      ref when is_binary(ref) -> anchor(%{href: timeline_path(ref), text: text})
+    case room[:source_episode_id] do
+      ref when is_binary(ref) -> anchor(%{href: Paths.request(ref), text: text})
       _none -> text
     end
   end
@@ -618,9 +622,9 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
       {"Channel ID", code(room.channel_ref)},
       {"Opened from channel ID", code(room[:source_channel_ref])},
       {"Offer record ID", code(room[:record_ref])},
-      {"Investigation request ID", code(room.episode_ref)},
+      {"Investigation request ID", code(room.episode_id)},
       {"Opened from request ID",
-       code(if room[:source_episode_ref] != room.episode_ref, do: room[:source_episode_ref])},
+       code(if room[:source_episode_id] != room.episode_id, do: room[:source_episode_id])},
       {"Environment ID", code(room[:environment_ref])},
       {"Code change ID", code(publication && publication.ref)},
       {"Commit", code(publication && publication.commit_sha)},
@@ -670,7 +674,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
       %{
         value: Enum.count(items, &(&1.status == :ready)),
         label: "open",
-        href: "/incident-rooms?" <> URI.encode_query(open_view(query))
+        href: Paths.query("/incident-rooms", open_view(query))
       }
     ]
   end
@@ -683,13 +687,5 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
 
   defp anchor(assigns), do: ~H|<a href={@href}>{@text}</a>|
 
-  defp room_path(ref), do: "/incident-rooms/" <> segment(ref)
-  defp timeline_path(ref), do: "/timeline/" <> segment(ref)
-  defp failure_path(ref), do: "/failures/slack_incident/" <> segment(ref)
-
-  defp channel_path(workspace, channel),
-    do: "/channels/" <> segment(workspace) <> "/" <> segment(channel)
-
   defp dom_id(ref), do: String.replace(to_string(ref), ~r/[^A-Za-z0-9_-]/, "-")
-  defp segment(value), do: value |> to_string() |> URI.encode(&URI.char_unreserved?/1)
 end

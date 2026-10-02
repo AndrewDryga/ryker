@@ -3,6 +3,7 @@ defmodule Ryker.Delivery.ChatCard do
 
   import Ecto.Query
 
+  alias Ryker.ControlPlane.Paths
   alias Ryker.Delivery.OfferWords
   alias Ryker.InspectionRedactor
   alias Ryker.Publication.Card, as: PublicationCard
@@ -696,8 +697,7 @@ defmodule Ryker.Delivery.ChatCard do
   defp behavior_link(:standing_assignment, ref), do: {"Open rules", "/rules#behavior-" <> ref}
   defp behavior_link(_kind, ref), do: {"Open instructions", "/instructions#behavior-" <> ref}
 
-  defp automation_link("schedule:" <> _rest = ref),
-    do: {"Open schedule", "/schedules/" <> URI.encode(ref, &URI.char_unreserved?/1)}
+  defp automation_link("schedule:" <> _rest = ref), do: {"Open schedule", Paths.schedule(ref)}
 
   defp automation_link("behavior:" <> _rest = ref), do: {"Open rules", "/rules#behavior-" <> ref}
   defp automation_link(_ref), do: {nil, nil}

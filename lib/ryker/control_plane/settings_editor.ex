@@ -33,6 +33,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     Components,
     Integrations,
     Kit,
+    Paths,
     SettingsRows,
     SettingsSections,
     SettingsView
@@ -717,8 +718,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   @doc "Where a list section's row is edited, on its own page."
   @spec edit_path(%{items: String.t()}, String.t()) :: String.t()
-  def edit_path(%{items: items}, key),
-    do: items <> "/" <> URI.encode(key, &URI.char_unreserved?/1) <> "/edit"
+  def edit_path(%{items: items}, key), do: Paths.edit_item(items, key)
 
   # A row's element id from its key, which may hold characters an id cannot.
   defp row_id(key), do: Base.url_encode64(key, padding: false)

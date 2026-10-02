@@ -87,7 +87,7 @@ defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
   end
 
   defp request_path(episode),
-    do: "/timeline/#{URI.encode_www_form(episode.key)}"
+    do: "/timeline/#{episode.id}"
 
   defp fixture_responses,
     do: @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("responses")

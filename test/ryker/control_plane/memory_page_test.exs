@@ -91,7 +91,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     id: @topic_id,
     title: "Deploy window decision",
     conversation: "#infra",
-    conversation_path: "/activity?conversation=slack%3AT123%3AC456",
+    conversation_path: "/activity?conversation=slack:T123:C456",
     workspace: nil,
     at: @at,
     changed_at: @at,
@@ -102,7 +102,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     source: nil,
     available: true,
     source_count: 2,
-    source_path: "/memory/learned?kind=sources&related_to=knowledge%3A#{@topic_id}",
+    source_path: "/memory/learned?kind=sources&related_to=knowledge:#{@topic_id}",
     version: 3,
     request_path: nil,
     expires_at: nil
@@ -129,7 +129,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     id: "summary-1",
     title: "Validation schedule",
     conversation: "#infra",
-    conversation_path: "/activity?conversation=slack%3AT123%3AC456",
+    conversation_path: "/activity?conversation=slack:T123:C456",
     workspace: nil,
     at: @at,
     changed_at: @at,
@@ -140,7 +140,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     source: nil,
     source_count: 0,
     source_path: nil,
-    request_path: "/timeline/episode%3Aone",
+    request_path: "/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e",
     expires_at: DateTime.add(@at, 30 * 86_400),
     recall_warning: nil,
     maintenance_error: nil,
@@ -152,7 +152,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     status: :deferred,
     label: "Needs attention",
     conversation: "#infra",
-    conversation_path: "/activity?conversation=slack%3AT123%3AC456",
+    conversation_path: "/activity?conversation=slack:T123:C456",
     repository: "ryker",
     mode: :live,
     input_count: 1,
@@ -212,7 +212,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       forget =
         LazyHTML.query(
           row,
-          "form.action-control[method=get][action='/actions/memory/memory%3Aone/forget'] button.ui-button.secondary"
+          "form.action-control[method=get][action='/actions/memory/one/forget'] button.ui-button.secondary"
         )
 
       assert LazyHTML.text(forget) == "Forget"
@@ -272,9 +272,9 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
                "Saved more than once"
 
       assert actions(duplicate) == [
-               {"Keep separate", "/actions/memory-review/memory-review%3Aone/keep"},
-               {"Merge", "/actions/memory-review/memory-review%3Aone/merge"},
-               {"Forget", "/actions/memory-review/memory-review%3Aone/forget"}
+               {"Keep separate", "/actions/memory-review/memory-review:one/keep"},
+               {"Merge", "/actions/memory-review/memory-review:one/merge"},
+               {"Forget", "/actions/memory-review/memory-review:one/forget"}
              ]
 
       stale = LazyHTML.query(section, "article#review-memory-review-two")
@@ -285,9 +285,9 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert LazyHTML.query(stale, ".entity-meta") |> LazyHTML.text() =~ "Repository link"
 
       assert actions(stale) == [
-               {"Keep", "/actions/memory-review/memory-review%3Atwo/keep"},
-               {"Edit", "/actions/memory-review/memory-review%3Atwo/edit"},
-               {"Forget", "/actions/memory-review/memory-review%3Atwo/forget"}
+               {"Keep", "/actions/memory-review/memory-review:two/keep"},
+               {"Edit", "/actions/memory-review/memory-review:two/edit"},
+               {"Forget", "/actions/memory-review/memory-review:two/forget"}
              ]
 
       # A reviewed value is a person's own words and is redacted like a fact.
@@ -316,14 +316,14 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       [_duplicate, stale] = @reviews
 
       document =
-        FactsPage.edit_form(stale, "/actions/memory-review/memory-review%3Atwo/edit", "token")
+        FactsPage.edit_form(stale, "/actions/memory-review/memory-review:two/edit", "token")
         |> IO.iodata_to_binary()
         |> LazyHTML.from_fragment()
 
       form = LazyHTML.query(document, "form.memory-edit[method=post]")
 
       assert LazyHTML.attribute(form, "action") == [
-               "/actions/memory-review/memory-review%3Atwo/edit"
+               "/actions/memory-review/memory-review:two/edit"
              ]
 
       assert LazyHTML.query(form, "label[for=memory-edit-subject]") |> LazyHTML.text() =~
@@ -466,7 +466,8 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       facts = page |> LazyHTML.query("#summary-facts")
       assert LazyHTML.text(facts) =~ "Kept until"
 
-      assert LazyHTML.query(facts, "a[href='/timeline/episode%3Aone']") |> LazyHTML.text() ==
+      assert LazyHTML.query(facts, "a[href='/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e']")
+             |> LazyHTML.text() ==
                "Open request"
 
       assert LearnedPage.heading(%{kind: "context", selected: "summary-1", items: [@summary]}).back ==
@@ -503,7 +504,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
         source_input_id: nil,
         source: "https://slack.com/archives/C456/p1757494800000000",
         learning_path:
-          "/timeline/episode%3Aone#learning-55555555-5555-4555-8555-555555555555-result"
+          "/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e#learning-55555555-5555-4555-8555-555555555555-result"
       }
 
       view = %{@learned | selected: @topic_id, history: [revision], history_pages: 2}
@@ -730,7 +731,8 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
         explanation:
           "Its source history exceeded the safe memory limit, so no conversation context was saved.",
         response_status: "Reply sent",
-        request_path: "/timeline/episode%3Aone?attempt=turn-1#request-turn-1"
+        request_path:
+          "/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e?attempt=turn-1#request-turn-1"
       }
 
       document =
@@ -800,7 +802,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
 
       assert LazyHTML.query(
                blocked,
-               "form.action-control[method=get][action='/actions/retention/coop%3Alearning%3A2/rearm'] button"
+               "form.action-control[method=get][action='/actions/retention/coop:learning:2/rearm'] button"
              )
              |> LazyHTML.text() == "Resume cleanup"
 
@@ -817,7 +819,8 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
         error: "The model response did not match the learning contract.",
         error_code: "invalid_learning_result",
         pruned_at: nil,
-        path: "/timeline/episode%3Aone#learning-44444444-4444-4444-8444-444444444444-result"
+        path:
+          "/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e#learning-44444444-4444-4444-8444-444444444444-result"
       }
 
       selected =

@@ -927,7 +927,6 @@ defmodule Ryker.ControlPlane.ConversationProjection do
         select: %{
           document: turn.delivery_document,
           episode_id: turn.episode_id,
-          episode_ref: episode.key,
           external_receipt: turn.external_receipt,
           occurred_at: turn.accepted_at,
           pruned_at: turn.operational_pruned_at,
@@ -1025,7 +1024,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
           action_ref: action.action_ref,
           delivered_at: action.delivered_at,
           document: action.document,
-          episode_ref: episode.key,
+          episode_id: episode.id,
           external_receipt: action.external_receipt,
           id: action.id,
           kind: action.kind,

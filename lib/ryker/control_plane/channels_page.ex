@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Integrations, Kit, SettingsView, ShortTime}
+  alias Ryker.ControlPlane.{Components, Integrations, Kit, Paths, SettingsView, ShortTime}
   alias Ryker.Episodes
   alias Ryker.Slack.{IncidentRooms, Names}
 
@@ -106,7 +106,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
           icon={:hash}
           icon_tone={:info}
           name={channel_name(item.workspace_ref, item.channel_ref, item.incident_room)}
-          href={path(item.workspace_ref, item.channel_ref)}
+          href={Paths.channel(item.workspace_ref, item.channel_ref)}
           link_row
           state={
             state(item.membership, match?(%{open: true}, item[:incident_room]), item.channel_ref)
@@ -185,11 +185,6 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   def state(nil, _incident_open, "D" <> _direct), do: nil
   def state(nil, _incident_open, _channel_ref), do: {:off, "Not connected"}
 
-  @doc "The page of one channel."
-  @spec path(String.t(), String.t()) :: String.t()
-  def path(workspace_ref, channel_ref),
-    do: "/channels/" <> encode(workspace_ref) <> "/" <> encode(channel_ref)
-
   defp meta(item, now) do
     [
       if(item[:private], do: "Private"),
@@ -223,7 +218,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
       [{"q", view.q}, {"show", if(show == "all", do: "all")}]
       |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
 
-    if query == [], do: "/channels", else: "/channels?" <> URI.encode_query(query)
+    if query == [], do: "/channels", else: Paths.query("/channels", query)
   end
 
   defp empty_title(%{q: q}) when q != "", do: "No channels match “#{q}”"
@@ -244,6 +239,4 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   defp empty_text(_view),
     do:
       "Invite Ryker to a Slack channel with /invite, and the channel appears here with how Ryker takes part in it."
-
-  defp encode(value), do: URI.encode(value, &URI.char_unreserved?/1)
 end

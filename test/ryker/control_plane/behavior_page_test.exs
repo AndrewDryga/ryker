@@ -101,7 +101,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     assert LazyHTML.query(menu, "summary") |> LazyHTML.text() =~ "More actions for <unsafe>"
 
     assert LazyHTML.query(menu, "form.action-control") |> LazyHTML.attribute("action") == [
-             "/actions/behavior/behavior%3Aone/deleted"
+             "/actions/behavior/one/deleted"
            ]
 
     assert LazyHTML.query(menu, "a[href^='https://slack.com/']") |> LazyHTML.text() =~
@@ -247,14 +247,14 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
       | runs: [
           %{
             rule_ref: item.ref,
-            episode_ref: "episode:one",
+            episode_id: "0193a5d2-7c1e-7b8a-9f00-00000000e01e",
             at: ~U[2026-09-24 10:00:00Z],
             outcome: :decided,
             action: :ignore
           },
           %{
             rule_ref: item.ref,
-            episode_ref: nil,
+            episode_id: nil,
             at: ~U[2026-09-24 11:59:30Z],
             outcome: :pending,
             action: nil
@@ -273,7 +273,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     # A match that started work opens it from the whole row; one still
     # waiting opens its rule on this page.
     assert rows |> LazyHTML.query("h3 a") |> LazyHTML.attribute("href") == [
-             "/timeline/episode%3Aone",
+             "/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e",
              "#behavior-behavior:one"
            ]
 
@@ -461,7 +461,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
       assert LazyHTML.attribute(forms, "method") |> Enum.uniq() == ["get"]
 
       for action <- LazyHTML.attribute(forms, "action") do
-        assert String.starts_with?(action, "/actions/behavior/behavior%3Aone/"), action
+        assert String.starts_with?(action, "/actions/behavior/one/"), action
       end
 
       assert Enum.count(

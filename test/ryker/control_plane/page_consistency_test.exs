@@ -282,7 +282,7 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
         {"activity-episode-1",
          %{
            kind: "episode",
-           href: "/timeline/episode%3Aone",
+           href: "/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e",
            title: "Why did checkout slow down?",
            source: "Direct conversation",
            repository: nil,

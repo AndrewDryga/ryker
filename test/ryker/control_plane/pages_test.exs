@@ -13,13 +13,18 @@ defmodule Ryker.ControlPlane.PagesTest do
   alias Ryker.ControlPlane.{HTML, Pages, RunningSystem}
   alias Ryker.Fixtures.ControlPlaneOptions
 
+  @episode_one ControlPlaneOptions.episode_one_id()
+  @episode_blocked ControlPlaneOptions.episode_blocked_id()
+  @episode_incident ControlPlaneOptions.episode_incident_id()
+  @admission ControlPlaneOptions.admission_input_id()
+
   test "operator actions are buttons while inspection remains navigation" do
     # Text links made recovery actions look like more inspection pages.
     for path <- [
-          "/failures/delivery/delivery%3Aone",
+          "/failures/delivery/one",
           "/working-copies",
           "/memory",
-          "/schedules/schedule%3Aone"
+          "/schedules/one"
         ] do
       # A record's own controls may sit opposite its title, in the page action.
       page = page(path)
@@ -55,9 +60,9 @@ defmodule Ryker.ControlPlane.PagesTest do
           {"/memory/learned", "Deploys happen after 15:00 UTC on weekdays."},
           {"/memory/learning", "2 messages waiting"},
           {"/incident-rooms", "Slack channels Ryker opens to work on an incident"},
-          {"/incident-rooms/incident%3Aone", "Room history"},
+          {"/incident-rooms/one", "Room history"},
           {"/schedules", "Tasks Ryker runs at a set time"},
-          {"/schedules/schedule%3Aone", "What it asks for"},
+          {"/schedules/one", "What it asks for"},
           {"/follow-ups", "Follow-ups"},
           {"/channels", "Slack channels Ryker is in"},
           {"/channels/T123/C456", "What Ryker knows"},
@@ -97,10 +102,10 @@ defmodule Ryker.ControlPlane.PagesTest do
     # standartized across app too". A failure, a schedule, a room and a
     # channel had no way back at all but the sidebar.
     for {path, back} <- [
-          {"/incident-rooms/incident%3Aone", {"All incident rooms", "/incident-rooms"}},
-          {"/schedules/schedule%3Aone", {"All schedules", "/schedules"}},
+          {"/incident-rooms/one", {"All incident rooms", "/incident-rooms"}},
+          {"/schedules/one", {"All schedules", "/schedules"}},
           {"/channels/T123/C456", {"All channels", "/channels"}},
-          {"/failures/delivery/delivery%3Aone", {"All failures", "/failures"}}
+          {"/failures/delivery/one", {"All failures", "/failures"}}
         ] do
       assert page(path).back == back, path
     end
@@ -110,7 +115,7 @@ defmodule Ryker.ControlPlane.PagesTest do
       refute Map.has_key?(page(path), :back), path
     end
 
-    failure = page("/failures/delivery/delivery%3Aone")
+    failure = page("/failures/delivery/one")
 
     header =
       HTML.page(failure.title, failure.description, failure.body, failure.back)
@@ -130,9 +135,15 @@ defmodule Ryker.ControlPlane.PagesTest do
 
     assert page.description == "Slack channels Ryker opens to work on an incident with your team."
 
-    assert page.body =~ "href=\"/incident-rooms/incident%3Aone\""
+    assert page.body =~ "href=\"/incident-rooms/one\""
     refute page.body =~ "Incident rooms and local incidents"
-    assert page("/incident-rooms/incident%3Aone").status == 200
+    assert page("/incident-rooms/one").status == 200
+    # The address that carried the room's reference, prefix and all, is gone, and an open page at
+    # it listens to nothing rather than failing to mount.
+    assert page("/incident-rooms/incident-room:one").status == 404
+    assert page("/incident-rooms/incident-room%3Aone").status == 404
+    assert Pages.subscriptions(["incident-rooms", "incident-room:one"], %{}) == []
+    assert Pages.subscriptions(["schedules", "schedule:one"], %{}) == []
     assert page("/incident-rooms", %{"q" => "room", "status" => "blocked"}).status == 200
 
     for path <- ["/incidents", "/incidents/incident%3Aone", "/audit"] do
@@ -153,7 +164,7 @@ defmodule Ryker.ControlPlane.PagesTest do
   # hundred-and-first could be listed nowhere and opened by no link.
   test "a failure opens by its reference, not by being among the listed hundred" do
     options = put_in(options(), [:projection, :failures], fn _params -> {:ok, []} end)
-    delivery = page("/failures/delivery/delivery%3Aone", %{}, options)
+    delivery = page("/failures/delivery/one", %{}, options)
     assert delivery.status == 200
     assert delivery.title == "Posting a reply stopped"
     assert delivery.description =~ "The reply is written, but the person has not received it."
@@ -197,13 +208,13 @@ defmodule Ryker.ControlPlane.PagesTest do
 
     [row] = LazyHTML.query(document, ".entity-list > article.entity-row") |> Enum.to_list()
 
-    assert LazyHTML.query(row, ".entity-name a[href='/incident-rooms/incident%3Aone']")
+    assert LazyHTML.query(row, ".entity-name a[href='/incident-rooms/one']")
            |> LazyHTML.text() == "Investigate latency"
 
     assert LazyHTML.query(row, ".entity-side .state-word[data-tone=on]") |> LazyHTML.text() ==
              "Open"
 
-    assert LazyHTML.query(row, ".entity-meta a[href='/timeline/episode%3Aincident']")
+    assert LazyHTML.query(row, ".entity-meta a[href='/timeline/#{@episode_incident}']")
            |> LazyHTML.text() == "investigation"
 
     # When it opened is the row's edge, under the heading of its day.
@@ -214,7 +225,7 @@ defmodule Ryker.ControlPlane.PagesTest do
 
     # No table, no filled pill, no raw reference or ISO stamp in the list.
     assert LazyHTML.query(document, "table, .ui-status, code") |> LazyHTML.to_tree() == []
-    refute LazyHTML.text(document) =~ "incident:one"
+    refute LazyHTML.text(document) =~ "incident-room:one"
     refute LazyHTML.text(document) =~ "2026-08-28T"
 
     # An empty page first says which it is: nothing matches, or nothing exists,
@@ -270,7 +281,7 @@ defmodule Ryker.ControlPlane.PagesTest do
     # A room's page: its state a dot and a word under the title, its facts as
     # label and value, what Ryker recorded, its code change and the room's
     # history as rows, and every time short with its exact value kept.
-    incident = body("/incident-rooms/incident%3Aone")
+    incident = body("/incident-rooms/one")
     assert LazyHTML.query(incident, "table, .table-wrap, .ui-status") |> LazyHTML.to_tree() == []
     assert LazyHTML.query(incident, ".kit-status-line .state-word") |> LazyHTML.text() == "Open"
 
@@ -300,7 +311,7 @@ defmodule Ryker.ControlPlane.PagesTest do
 
     # A schedule's page is the Kit's rows, not a table: its state and each run's
     # are a dot and a word, and every time is short with its exact value kept.
-    schedule = body("/schedules/schedule%3Aone")
+    schedule = body("/schedules/one")
     assert LazyHTML.query(schedule, "table, .table-wrap, .ui-status") |> LazyHTML.to_tree() == []
     assert LazyHTML.query(schedule, ".kit-status-line .state-word") |> LazyHTML.text() == "On"
     assert LazyHTML.query(schedule, ".entity-row .state-word") |> LazyHTML.text() == "Completed"
@@ -360,8 +371,8 @@ defmodule Ryker.ControlPlane.PagesTest do
   test "the failures page names each blocked custody, its cause and its exact recovery action" do
     failures = page("/failures")
     assert failures.status == 200
-    assert failures.body =~ "/timeline/episode%3Aone"
-    assert failures.body =~ "/failures/admission/ingress-input%3Aone"
+    assert failures.body =~ "/timeline/#{@episode_one}"
+    assert failures.body =~ "/failures/admission/#{@admission}"
     assert failures.body =~ "3 attempts"
     # References and raw destinations belong to a failure's Technical details.
     refute failures.body =~ "delivery:one"
@@ -373,24 +384,22 @@ defmodule Ryker.ControlPlane.PagesTest do
     # beside the reason it will fail.
     refute failures.body =~ "/actions/"
 
-    for {kind, ref, action} <- [
-          {"delivery", "delivery:one", "rearm"},
-          {"admission", "ingress-input:one", "rearm"},
-          {"work", "episode:blocked", "retry"},
+    # Each is addressed by its id, or by the reference itself when its kind has no prefix.
+    for {kind, id, action} <- [
+          {"delivery", "one", "rearm"},
+          {"admission", @admission, "rearm"},
+          {"work", @episode_blocked, "retry"},
           {"emisar", "approval:one", "rearm"},
           {"slack_interaction", "interaction:one", "rearm"}
         ] do
-      encoded_ref = URI.encode(ref, &URI.char_unreserved?/1)
-
-      assert page("/failures/#{kind}/#{encoded_ref}").body =~
-               "/actions/#{kind}/#{encoded_ref}/#{action}"
+      assert page("/failures/#{kind}/#{id}").body =~ "/actions/#{kind}/#{id}/#{action}"
     end
 
-    incident = page("/failures/slack_incident/incident-room%3Aone")
-    assert incident.body =~ "/actions/slack_incident/incident-room%3Aone/rearm"
+    incident = page("/failures/slack_incident/one")
+    assert incident.body =~ "/actions/slack_incident/one/rearm"
     assert incident.body =~ "Will fail"
 
-    admission = page("/failures/admission/ingress-input%3Aone")
+    admission = page("/failures/admission/#{@admission}")
     assert admission.status == 200
     assert admission.body =~ "github:github-main"
     assert admission.body =~ "github-delivery-one"
@@ -399,7 +408,7 @@ defmodule Ryker.ControlPlane.PagesTest do
     assert admission.body =~ "stored diagnostic sha256:"
     refute admission.body =~ "Frozen validation result was uncertain"
 
-    delivery = page("/failures/delivery/delivery%3Aone")
+    delivery = page("/failures/delivery/one")
     assert delivery.status == 200
     assert delivery.body =~ "stored diagnostic sha256:"
     refute delivery.body =~ "Slack returned HTTP 503"
@@ -409,9 +418,9 @@ defmodule Ryker.ControlPlane.PagesTest do
     workspaces = page("/working-copies")
     assert workspaces.status == 200
     assert workspaces.body =~ "workspace:blocked"
-    assert workspaces.body =~ "/actions/retention/workspace%3Ablocked/rearm"
-    assert workspaces.body =~ "/actions/retention/workspace%3Aunmerged/discard"
-    refute workspaces.body =~ "/actions/retention/workspace%3Adirty/discard"
+    assert workspaces.body =~ "/actions/retention/workspace:blocked/rearm"
+    assert workspaces.body =~ "/actions/retention/workspace:unmerged/discard"
+    refute workspaces.body =~ "/actions/retention/workspace:dirty/discard"
   end
 
   test "failure collection errors remain unavailable instead of appearing empty" do
@@ -421,15 +430,13 @@ defmodule Ryker.ControlPlane.PagesTest do
       |> put_in([:projection, :failure], fn _kind, _ref -> {:error, :database_unavailable} end)
 
     assert page("/failures", %{}, unavailable).status == 503
-    assert page("/failures/delivery/delivery%3Aone", %{}, unavailable).status == 503
+    assert page("/failures/delivery/one", %{}, unavailable).status == 503
   end
 
   test "an unavailable record page is reported, never rendered as a page" do
     for {path, projection, unavailable} <- [
-          {"/incident-rooms/incident%3Aone", :incident,
-           fn _ref -> {:error, :database_unavailable} end},
-          {"/schedules/schedule%3Aone", :schedule,
-           fn _ref -> {:error, :database_unavailable} end},
+          {"/incident-rooms/one", :incident, fn _ref -> {:error, :database_unavailable} end},
+          {"/schedules/one", :schedule, fn _ref -> {:error, :database_unavailable} end},
           {"/channels/T123/C456", :channel,
            fn _workspace, _channel, _params -> {:error, :database_unavailable} end}
         ] do
@@ -450,8 +457,8 @@ defmodule Ryker.ControlPlane.PagesTest do
           "/instructions",
           "/conversations",
           "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
-          "/timeline/episode%3Aone",
-          "/timeline/episode%3Aone/model-calls",
+          "/timeline/#{@episode_one}",
+          "/timeline/#{@episode_one}/model-calls",
           "/card-lab",
           "/lab",
           "/lab/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
@@ -462,7 +469,7 @@ defmodule Ryker.ControlPlane.PagesTest do
           "/channels/T999/C999",
           "/channels/T123",
           "/failures/delivery/missing",
-          "/failures/unknown-kind/delivery%3Aone",
+          "/failures/unknown-kind/one",
           "/failures/delivery/%FF"
         ] do
       page = page(path)

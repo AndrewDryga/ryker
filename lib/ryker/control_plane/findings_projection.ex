@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{PagedRelation, Search}
+  alias Ryker.ControlPlane.{PagedRelation, Paths, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.InspectionRedactor
   alias Ryker.Records.Record
@@ -40,7 +40,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
         join: episode in Episode,
         on: episode.id == record.episode_id,
         where: record.kind == "finding",
-        select: {record, episode.key}
+        select: {record, episode.id}
       )
       |> search(q)
 
@@ -79,13 +79,13 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   @spec fetch(String.t()) :: {:ok, map()} | :error
   def fetch(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         {%Record{kind: "finding"} = record, episode_key} <-
+         {%Record{kind: "finding"} = record, episode_id} <-
            Repo.one(
              from(record in Record,
                join: episode in Episode,
                on: episode.id == record.episode_id,
                where: record.id == ^id,
-               select: {record, episode.key}
+               select: {record, episode.id}
              )
            ) do
       refs = Map.get(record.payload, "cause_evidence", [])
@@ -102,7 +102,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
 
       visible = visible_episode_records([record.episode_id])
       secrets = InspectionRedactor.configured_secrets()
-      {:ok, finding_item({record, episode_key}, evidence, visible, secrets)}
+      {:ok, finding_item({record, episode_id}, evidence, visible, secrets)}
     else
       _missing -> :error
     end
@@ -150,7 +150,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   defp view_of(_superseded, _classification), do: nil
 
   # A row of the list: the conclusion, how it stands, its scope and when.
-  defp row({record, _episode_key}, secrets) do
+  defp row({record, _episode_id}, secrets) do
     payload = InspectionRedactor.document(record.payload, secrets)
 
     %{
@@ -205,9 +205,9 @@ defmodule Ryker.ControlPlane.FindingsProjection do
       else: path
   end
 
-  defp finding_item({record, episode_key}, evidence, visible_records, secrets) do
+  defp finding_item({record, episode_id}, evidence, visible_records, secrets) do
     payload = InspectionRedactor.document(record.payload, secrets)
-    path = "/timeline/" <> URI.encode_www_form(episode_key)
+    path = Paths.request(episode_id)
     refs = Map.get(record.payload, "cause_evidence", [])
 
     %{

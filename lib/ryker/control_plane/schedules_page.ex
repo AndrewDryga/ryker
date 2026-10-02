@@ -20,7 +20,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, ShortTime}
+  alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
   alias Ryker.{Episodes, Schedules}
   alias Ryker.Schedules.ScheduleCadence
   alias Ryker.Slack.Names
@@ -91,7 +91,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
           id={"schedule-" <> item.ref}
           icon={:clock}
           name={item.title}
-          href={schedule_path(item.ref)}
+          href={Paths.schedule(item.ref)}
           link_row
           state={state(item.status)}
           text={first_line(item.task)}
@@ -182,15 +182,18 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   # first. Deleting it, which cannot be undone, is the page's last card.
   defp controls(assigns) do
     ~H"""
-    <Components.action_button path={action_path(@schedule.ref, "run-now")} label="Run now" />
+    <Components.action_button
+      path={Paths.action("schedule", @schedule.ref, "run-now")}
+      label="Run now"
+    />
     <Components.action_button
       :if={@schedule.status == :active}
-      path={action_path(@schedule.ref, "paused")}
+      path={Paths.action("schedule", @schedule.ref, "paused")}
       label="Pause"
     />
     <Components.action_button
       :if={@schedule.status == :paused}
-      path={action_path(@schedule.ref, "active")}
+      path={Paths.action("schedule", @schedule.ref, "active")}
       label="Resume"
     />
     """
@@ -233,7 +236,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
           <Kit.entity_row
             :for={run <- @runs}
             name={due(run, @schedule)}
-            href={run.episode_ref && timeline_path(run.episode_ref)}
+            href={run.episode_id && Paths.request(run.episode_id)}
             link_row
             state={run_state(run)}
             meta={run_facts(run, @now)}
@@ -256,7 +259,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
         id="delete-schedule"
         title="Delete schedule"
         text="Ryker stops running it for good. Its past runs stay listed."
-        path={action_path(@schedule.ref, "deleted")}
+        path={Paths.action("schedule", @schedule.ref, "deleted")}
       />
     </div>
     """
@@ -303,8 +306,8 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   defp started_from(%{source_request: %{title: title, href: href}}),
     do: anchor(%{href: href, text: title})
 
-  defp started_from(%{source_episode_ref: ref}) when is_binary(ref),
-    do: anchor(%{href: timeline_path(ref), text: "The conversation where it was set up"})
+  defp started_from(%{source_episode_id: id}) when is_binary(id),
+    do: anchor(%{href: Paths.request(id), text: "The conversation where it was set up"})
 
   defp started_from(_schedule), do: nil
 
@@ -319,8 +322,8 @@ defmodule Ryker.ControlPlane.SchedulesPage do
       %{label: "Revision", value: to_string(schedule.revision)},
       %{label: "Time zone", value: schedule.timezone},
       schedule[:confirmed_at] && %{label: "Set up", value: exact(schedule.confirmed_at)},
-      schedule[:source_episode_ref] &&
-        %{label: "Started from request", value: schedule.source_episode_ref, identifier: true},
+      schedule[:source_episode_id] &&
+        %{label: "Started from request", value: schedule.source_episode_id, identifier: true},
       schedule[:last_error] &&
         %{label: "Last problem", value: schedule.last_error, identifier: true}
     ]
@@ -416,7 +419,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   defp destination(%{destination_conversation_ref: "control-plane:lab:" <> id}) do
     case Ecto.UUID.cast(id) do
-      {:ok, id} -> anchor(%{href: "/conversations/" <> id, text: "A direct conversation"})
+      {:ok, id} -> anchor(%{href: Paths.conversation(id), text: "A direct conversation"})
       :error -> "A direct conversation"
     end
   end
@@ -440,7 +443,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   defp channel_path("slack:" <> rest) do
     case String.split(rest, ":") do
       [workspace, <<prefix, _rest::binary>> = channel] when prefix in [?C, ?G] ->
-        "/channels/#{segment(workspace)}/#{segment(channel)}"
+        Paths.channel(workspace, channel)
 
       _other ->
         nil
@@ -541,19 +544,8 @@ defmodule Ryker.ControlPlane.SchedulesPage do
     ]
   end
 
-  defp view_path(path, query, view) do
-    [{"q", query}, {"view", if(view == "past", do: "past")}]
-    |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
-    |> case do
-      [] -> path
-      params -> path <> "?" <> URI.encode_query(params)
-    end
-  end
-
-  defp schedule_path(ref), do: "/schedules/" <> segment(ref)
-  defp timeline_path(ref), do: "/timeline/" <> segment(ref)
-  defp action_path(ref, action), do: "/actions/schedule/#{segment(ref)}/#{action}"
-  defp segment(value), do: URI.encode(to_string(value), &URI.char_unreserved?/1)
+  defp view_path(path, query, view),
+    do: Paths.query(path, q: query, view: if(view == "past", do: "past"))
 
   # The fragments below go where the Kit expects text.
 

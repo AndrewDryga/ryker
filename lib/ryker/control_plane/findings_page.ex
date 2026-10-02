@@ -19,7 +19,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
   import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1, pager: 1]
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{FindingsProjection, Kit, MemoryFormat}
+  alias Ryker.ControlPlane.{FindingsProjection, Kit, MemoryFormat, Paths}
   alias Ryker.Records
 
   @path "/memory/findings"
@@ -38,7 +38,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
 
   @doc "Where one finding's page is."
   @spec path(String.t()) :: String.t()
-  def path(id), do: @path <> "?" <> URI.encode_query(%{"finding" => id})
+  def path(id), do: Paths.query(@path, %{"finding" => id})
 
   @doc "The heading of one finding's page: the start of its conclusion, and the way back."
   @spec heading(map()) :: map()
@@ -232,7 +232,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
   defp path_for(view, q, page) do
     [{"view", view}, {"q", q}, {"page", page}]
     |> Enum.reject(fn {_key, value} -> value in [nil, "", 1] end)
-    |> URI.encode_query()
+    |> Paths.encode_query()
     |> case do
       "" -> @path
       query -> @path <> "?" <> query

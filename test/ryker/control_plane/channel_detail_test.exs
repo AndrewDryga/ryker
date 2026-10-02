@@ -147,9 +147,11 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     # workspace and channel IDs, a settings revision and a membership
     # generation. The page shows none of them; Open in Slack is the way to
     # the channel itself.
+    # Its links can name the conversation, readably; its words never do.
     html = page("/channels/T123/C456")
     document = LazyHTML.from_document(html)
-    refute html =~ "slack:T123"
+    refute LazyHTML.text(document) =~ "slack:T123"
+    refute html =~ ~s(data-copy-value="slack:T123)
     assert Enum.empty?(LazyHTML.query(document, "#taking-part code, #channel-details"))
 
     # Andrew, 2026-09-28: the channel's title opens it in Slack; "In Slack"
@@ -320,7 +322,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
              repository_ref: "ryker"
            } = view.channel.incident_room
 
-    assert view.channel.incident_room.episode_ref == source.episode.key
+    assert view.channel.incident_room.episode_id == source.episode.id
 
     # An incident room keeps the repository it was opened with; it has no
     # environment of its own to choose.
@@ -328,7 +330,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert view.scope.repository_ref == "ryker"
 
     html = page("/channels/T123/CINCIDENT")
-    assert html =~ "href=\"/incident-rooms/incident-room%3Aoperator\""
+    assert html =~ "href=\"/incident-rooms/operator\""
 
     # QA re-test, 2026-09-26: the room's channel page was titled "Slack
     # channel C0DEMOROOM1 — An incident room in Slack workspace T0DEMOWORK"
@@ -573,7 +575,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert [row] = Enum.to_list(rows)
       link = LazyHTML.query(row, "h3.entity-name a")
       assert LazyHTML.text(link) =~ "checkout is returning 502s"
-      assert LazyHTML.attribute(link, "href") == ["/timeline/" <> URI.encode_www_form(key)]
+      assert LazyHTML.attribute(link, "href") == ["/timeline/" <> episode.id]
       refute LazyHTML.text(row) =~ key
       assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() != ""
     end
@@ -772,7 +774,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert item.repository_ref == "ryker"
 
       assert item.request_path ==
-               "/timeline/" <> URI.encode(source.episode.key, &URI.char_unreserved?/1)
+               "/timeline/" <> source.episode.id
 
       assert item.source == "https://slack.com/archives/C456/p1787832000000100"
       assert item.maintenance_error == LearningActivity.error("source_capacity")

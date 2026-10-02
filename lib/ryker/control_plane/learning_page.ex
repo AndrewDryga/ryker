@@ -20,7 +20,7 @@ defmodule Ryker.ControlPlane.LearningPage do
   alias Ryker.ControlPlane.Components
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{CSRF, Kit, LearningActivity, MemoryFormat}
+  alias Ryker.ControlPlane.{CSRF, Kit, LearningActivity, MemoryFormat, Paths}
   alias Ryker.Ingress.Inbox
   alias Ryker.{Knowledge, Learning, Settings}
   alias Ryker.Work.Custody, as: WorkCustody
@@ -220,7 +220,7 @@ defmodule Ryker.ControlPlane.LearningPage do
               </:details>
               <:actions :if={session[:action] == :rearm}>
                 <.action_button
-                  path={"/actions/retention/#{segment(session.ref)}/rearm"}
+                  path={Paths.action("retention", session.ref, "rearm")}
                   label="Resume cleanup"
                 />
               </:actions>
@@ -345,7 +345,7 @@ defmodule Ryker.ControlPlane.LearningPage do
             <form
               class="action-control"
               method="post"
-              action={"/actions/learning/" <> @batch.id <> "/retry"}
+              action={Paths.action("learning", @batch.id, "retry")}
             >
               <input type="hidden" name="budget_version" value={@batch.budget_version} />
               <input
@@ -370,7 +370,7 @@ defmodule Ryker.ControlPlane.LearningPage do
           text="Ryker stops trying to learn from these messages and the batch no longer needs you. Nothing Ryker already learned changes, and replies are unaffected."
         >
           <:actions>
-            <.action_button path={"/actions/learning/" <> @batch.id <> "/drop"} label="Drop batch" />
+            <.action_button path={Paths.action("learning", @batch.id, "drop")} label="Drop batch" />
           </:actions>
         </Kit.entity_row>
       </Kit.entity_list>
@@ -486,8 +486,9 @@ defmodule Ryker.ControlPlane.LearningPage do
   # Forgetting a topic from a batch's page asks first, then comes back here.
   defp forget_path(topic_id, batch_id),
     do:
-      "/actions/knowledge/#{topic_id}/forget?" <>
-        URI.encode_query(%{"back" => LearningActivity.path(batch_id)})
+      Paths.query(Paths.action("knowledge", topic_id, "forget"), %{
+        "back" => LearningActivity.path(batch_id)
+      })
 
   defp state_word(:on), do: {:on, "Learning is on"}
   defp state_word(:starting), do: {:busy, "Learning is starting"}
@@ -563,14 +564,8 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp outcome_label("sources_changed"), do: "Sources changed"
 
   defp path(key, page, outcome \\ "") do
-    query =
-      [{"outcome", outcome}, {key, page}]
-      |> Enum.reject(fn {name, value} -> value in [nil, ""] or {name, value} == {"page", 1} end)
-
-    case URI.encode_query(query) do
-      "" -> "/memory/learning"
-      encoded -> "/memory/learning?" <> encoded
-    end
+    query = Enum.reject([{"outcome", outcome}, {key, page}], &(&1 == {"page", 1}))
+    Paths.query("/memory/learning", query)
   end
 
   # What an attempt did to one topic.
@@ -580,9 +575,7 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp update_state(_action), do: nil
 
   defp attempts_path(batch, page),
-    do:
-      "/memory/learning?" <>
-        URI.encode_query(%{"batch" => batch.id, "attempt_page" => page}) <> "#attempts"
+    do: Paths.query("/memory/learning", batch: batch.id, attempt_page: page) <> "#attempts"
 
   # Worker sessions, worded the way the Working copies page used to word them
   # when learning sessions were listed there.
@@ -648,5 +641,4 @@ defmodule Ryker.ControlPlane.LearningPage do
   end
 
   defp dom_id(ref), do: String.replace(to_string(ref), ~r/[^A-Za-z0-9_-]/, "-")
-  defp segment(value), do: value |> to_string() |> URI.encode(&URI.char_unreserved?/1)
 end

@@ -23,7 +23,6 @@ defmodule Ryker.ControlPlane.LiveTest do
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Feedback
   alias Ryker.Fixtures.{Answers, SavedEntities}
-  alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.EntryChangeset
   alias Ryker.Ingress.WorkProfile
 
@@ -285,8 +284,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     # Opening the menu is a disclosure; opening Delete is its confirmation page.
     assert has_element?(view, rows <> " details.behavior-menu:not([open])")
-    ref = URI.encode_www_form(active.ref)
-    confirmation = get(conn, "/actions/behavior/#{ref}/deleted")
+    confirmation = get(conn, "/actions/behavior/#{active.id}/deleted")
     assert confirmation.status == 200
     assert confirmation.resp_body =~ "Delete"
     assert Repo.get!(Ryker.Behaviors.Behavior, active.id) == before
@@ -596,6 +594,20 @@ defmodule Ryker.ControlPlane.LiveTest do
     refute has_element?(view, ".filter-chip")
   end
 
+  # A usage drilldown asks for the calls that named no reasoning effort with an empty value. The
+  # readable query encoder first left empty values out, which would have widened such a drilldown
+  # to every effort the moment someone searched within it.
+  test "a search within a usage drilldown keeps its empty effort filter" do
+    {:ok, view, _} =
+      live(
+        build_conn() |> Map.put(:host, "localhost"),
+        "/activity?usage_effort=&usage_model=opus"
+      )
+
+    render_change(view, "search-activity", %{"q" => "new", "mode" => "all"})
+    assert_patch(view, "/activity?mode=all&q=new&usage_effort=&usage_model=opus")
+  end
+
   test "a free-text filter applies when its value is submitted and Escape closes the menu" do
     {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/activity")
     view |> element("#filter-add") |> render_click()
@@ -635,7 +647,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     for path <- [
           "/timeline/missing",
-          "/timeline/ingress-input%3A#{Ecto.UUID.generate()}"
+          "/timeline/#{Ecto.UUID.generate()}"
         ] do
       render_patch(view, path)
       assert has_element?(view, "a", "Back to activity")
@@ -1230,7 +1242,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     assert has_element?(
              view,
-             "#lab-messages a.lab-message-inspect[href='/timeline/ingress-input%3A#{first.id}']",
+             "#lab-messages a.lab-message-inspect[href='/timeline/#{first.id}']",
              "Timeline"
            )
 
@@ -1251,12 +1263,12 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     # The admitted message still links its own input, which now resolves to
     # its own admission request on its episode.
-    input_href = "/timeline/ingress-input%3A#{first.id}"
+    input_href = "/timeline/#{first.id}"
     assert has_element?(view, "#lab-messages a.lab-message-inspect[href='#{input_href}']")
 
     # The reply links the work request of the turn that produced it.
     reply_href =
-      "/timeline/#{URI.encode_www_form(episode.key)}?attempt=#{turn.id}#request-#{turn.id}"
+      "/timeline/#{episode.id}?attempt=#{turn.id}#request-#{turn.id}"
 
     assert has_element?(
              view,
@@ -1267,7 +1279,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # The second, still-pending message links only itself and owns the only progress row.
     assert has_element?(
              view,
-             "#lab-messages a.lab-message-inspect[href='/timeline/ingress-input%3A#{second.id}']"
+             "#lab-messages a.lab-message-inspect[href='/timeline/#{second.id}']"
            )
 
     assert length(find_all(view, ".lab-message-progress")) == 1
@@ -1294,7 +1306,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     assert has_element?(
              view,
-             "#lab-messages a.lab-message-inspect[href='/timeline/ingress-input%3A#{second.id}']",
+             "#lab-messages a.lab-message-inspect[href='/timeline/#{second.id}']",
              "Timeline"
            )
 
@@ -1407,9 +1419,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     # The retry comes back to this conversation (QA re-test, 2026-09-26:
     # Cancel led to Failures).
-    retry =
-      "/actions/work/#{URI.encode_www_form(episode.key)}/retry?" <>
-        URI.encode_query(%{"back" => "/conversations/#{id}"})
+    retry = "/actions/work/#{episode.id}/retry?back=/conversations/#{id}"
 
     assert has_element?(view, "#lab-messages .lab-message-failure a[href='#{retry}']", "Retry")
     assert length(find_all(view, ".lab-message-failure")) == 1
@@ -1476,10 +1486,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     conn = build_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/conversations/#{id}")
 
-    ref = URI.encode("ingress-input:#{entry.id}", &URI.char_unreserved?/1)
-
-    retry =
-      "/actions/admission/#{ref}/rearm?" <> URI.encode_query(%{"back" => "/conversations/#{id}"})
+    retry = "/actions/admission/#{entry.id}/rearm?back=/conversations/#{id}"
 
     assert has_element?(
              view,
@@ -1491,7 +1498,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     assert has_element?(
              view,
-             "#lab-messages .lab-message-failure a[href='/failures/admission/#{ref}']",
+             "#lab-messages .lab-message-failure a[href='/failures/admission/#{entry.id}']",
              "Inspect cause"
            )
 
@@ -1996,7 +2003,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     {:ok, %{episode: episode}} =
       Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
 
-    path = "/timeline/" <> URI.encode_www_form(episode.key)
+    path = "/timeline/" <> episode.id
     {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), path)
     assert has_element?(view, "#execution-timeline", "Execution timeline")
     assert has_element?(view, ".case-event", "Message added")
@@ -2020,8 +2027,13 @@ defmodule Ryker.ControlPlane.LiveTest do
       refute has_element?(missing, ".app-warning", "This view could not refresh")
     end
 
+    # A request that exists, whose projection then fails. It is addressed by its id; the address
+    # that carried its key is gone, not an alias.
+    {:ok, %{episode: episode}} = Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
+    assert get(conn, "/timeline/" <> episode.id).status == 200
+    assert get(conn, "/timeline/" <> URI.encode_www_form(episode.key)).status == 404
     Agent.update(counters, &Map.put(&1, :episode_fail, true))
-    {:ok, unavailable, _} = live(conn, "/timeline/unavailable")
+    {:ok, unavailable, _} = live(conn, "/timeline/" <> episode.id)
 
     assert has_element?(
              unavailable,
@@ -2149,7 +2161,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   test "an input keeps one canonical timeline while routing adds evidence and becomes work" do
     {entry, _id} = lab_input!()
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/timeline/ingress-input%3A#{entry.id}")
+    {:ok, view, _} = live(conn, "/timeline/#{entry.id}")
 
     assert has_element?(view, "#execution-timeline")
     # A routing call that has not started has no card yet; its queue card says
@@ -2205,7 +2217,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     refute has_element?(view, ".model-inspector")
 
     {:ok, reopened, _} =
-      live(conn, "/timeline/ingress-input%3A#{entry.id}?generation=1")
+      live(conn, "/timeline/#{entry.id}?generation=1")
 
     assert has_element?(reopened, "#execution-timeline")
     assert has_element?(reopened, "#admission-#{entry.id}-1")
@@ -2219,9 +2231,9 @@ defmodule Ryker.ControlPlane.LiveTest do
     |> Repo.update!()
 
     conn = build_conn() |> Map.put(:host, "localhost")
-    {:ok, view, _} = live(conn, "/timeline/ingress-input%3A#{entry.id}")
+    {:ok, view, _} = live(conn, "/timeline/#{entry.id}")
     assert has_element?(view, ".admission-recovery", "Provider unavailable")
-    href = "/actions/admission/#{URI.encode_www_form(Inbox.ref(entry))}/rearm"
+    href = "/actions/admission/#{entry.id}/rearm"
     refute has_element?(view, "a[href='#{href}']")
 
     assert has_element?(

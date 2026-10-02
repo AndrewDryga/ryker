@@ -772,7 +772,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     )
 
     {:ok, detail} = EpisodeProjection.fetch(episode.key)
-    timeline = "/timeline/" <> URI.encode(episode.key, &URI.char_unreserved?/1)
+    timeline = "/timeline/" <> episode.id
 
     assert [retry] =
              Enum.filter(
