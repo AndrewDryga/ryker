@@ -252,6 +252,24 @@ defmodule Ryker.ComposeDistributionTest do
     assert worker_image =~ "docker compose version"
   end
 
+  # Ryker's draft-PR reviews of its own repository run `make dev-check` in the
+  # trusted box, which gets no Docker and no sidecar. On 2026-10-02 that box had
+  # neither Elixir nor a PostgreSQL server, so every such review failed its gate.
+  test "the trusted box builds and tests Ryker with the release's Elixir and its own PostgreSQL" do
+    box = read("deploy/compose/coop/Box.Dockerfile")
+
+    [elixir_image] =
+      Regex.run(~r/^ARG ELIXIR_IMAGE=(\S+)$/m, read("Dockerfile"), capture: :all_but_first)
+
+    [postgres_major] =
+      Regex.run(~r/image: postgres:(\d+)\./, read("compose.test.yml"), capture: :all_but_first)
+
+    assert box =~ "ARG ELIXIR_IMAGE=#{elixir_image}\n"
+    assert box =~ "COPY --from=elixir /usr/local/lib/erlang /usr/local/lib/erlang"
+    assert box =~ "apt-get install -y --no-install-recommends postgresql-#{postgres_major} \\"
+    assert box =~ "/usr/lib/postgresql/#{postgres_major}/bin/pg_ctl /usr/local/bin/"
+  end
+
   # mac-server, 2026-10-01, the first fresh install in weeks, stopped three times. `coop build`
   # from the worker container's "/" was refused ("coop's network records must live outside every
   # directory an agent can reach"); from /tmp it failed on the fresh volume's missing temporary
