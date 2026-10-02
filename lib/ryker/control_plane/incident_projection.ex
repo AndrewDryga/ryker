@@ -72,6 +72,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
           channel_name: room.channel_name,
           channel_ref: room.channel_ref,
           channel_state: room.channel_state,
+          closing: not is_nil(room.close_requested_at) and room.status != :closed,
           episode_id: room.episode_id,
           private: room.private,
           publication_ref: publication.ref,
@@ -140,6 +141,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       # row's last change is when setup stopped or it closed.
       closed_at: if(room.status == :closed, do: room.updated_at),
       closed_note: closed_note(room),
+      # A person asked to close it, and the room worker has not finished yet.
+      closing: not is_nil(room.close_requested_at) and room.status != :closed,
+      close_requested_at: room.close_requested_at,
       environment_name: environment_name(settings, room.environment_ref),
       environment_ref: room.environment_ref,
       episode_id: room.episode_id,
@@ -234,12 +238,12 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   defp channel_created_at(_room), do: nil
 
-  # The worker writes this note, in fixed words, when it closes a room whose
-  # channel Slack deleted, for whoever opens the room later: whether it told
-  # the alert thread and where a reply it still owed waits.
-  defp closed_note(
-         %IncidentRoom{status: :closed, last_error_code: "incident_room_deleted"} = room
-       ),
+  # The worker writes this note, in fixed words, when it closes a room, on a
+  # person's request or because Slack deleted its channel, for whoever opens
+  # the room later: whether it said so in Slack and where a reply it still
+  # owed waits.
+  defp closed_note(%IncidentRoom{status: :closed, last_error_code: code} = room)
+       when code in ["incident_room_closed", "incident_room_deleted"],
        do: room.last_error_detail
 
   defp closed_note(_room), do: nil

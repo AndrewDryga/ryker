@@ -17,6 +17,8 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
     :channel_state,
     :channel_state_changed_at,
     :channel_state_event_ref,
+    :close_requested_at,
+    :close_requested_by,
     :confirmation_ref,
     :environment_ref,
     :episode_id,
@@ -64,6 +66,8 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
                        :channel_checked_at,
                        :channel_state_changed_at,
                        :channel_state_event_ref,
+                       :close_requested_at,
+                       :close_requested_by,
                        :environment_ref,
                        :episode_id,
                        :handoff_message_ref,
@@ -142,6 +146,7 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
       name: :slack_incident_room_repository_context_valid
     )
     |> check_constraint(:environment_ref, name: :slack_incident_rooms_environment_valid)
+    |> check_constraint(:close_requested_by, name: :slack_incident_rooms_close_request_valid)
   end
 
   defp validate_repository_context(changeset) do

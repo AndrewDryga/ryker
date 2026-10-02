@@ -847,6 +847,169 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              IncidentRooms.request(%{request(delivered_offer!()) | maximum_open_rooms: 1})
   end
 
+  # Andrew, 2026-10-03: "why I can't do shit to incident rooms, how about at least closing them?"
+  # A room closed only when Slack deleted its channel, so a room whose incident was over stayed
+  # open, counted against the open-room limit, and Ryker kept working in it.
+  test "a room a person closes stops its investigation, says so in the room and the alert thread, and frees its place" do
+    save_channel_configuration!()
+    %{agent: agent, episode: episode, room: room} = ready_room!("closed-on-request")
+    publish_through_slack!(agent)
+    wait_for_an_answer!(episode)
+    posted_before = Agent.get(agent, & &1.posts)
+
+    assert {:ok, %IncidentRoom{status: :ready, close_requested_by: "control-plane:local"}} =
+             IncidentRooms.request_close(room.ref, "control-plane:local")
+
+    # Asking twice is one request.
+    assert {:ok, %IncidentRoom{status: :ready}} =
+             IncidentRooms.request_close(room.ref, "control-plane:local")
+
+    room_ref = room.ref
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    # Closed the way a person closes a request, saying why; nothing is deleted.
+    assert %Episode{state: :cancelled} = closed_episode = Repo.get!(Episode, episode.id)
+
+    assert cancellation_reason(closed_episode) ==
+             "Closed with its incident room ##{room.channel_name}."
+
+    # One note in the room, while people still read it, and one in the alert thread.
+    assert Agent.get(agent, & &1.posts) -- posted_before == [
+             {room.channel_ref, nil,
+              %{
+                "message" =>
+                  "This incident room is closed. Ryker won't answer here anymore. Archive the channel in Slack when you no longer need it."
+              }, "incident-room:#{room.ref}:closed-room"},
+             {"C456", "1787832000.000100",
+              %{"message" => "The incident room ##{room.channel_name} is closed."},
+              "incident-room:#{room.ref}:closed"}
+           ]
+
+    closed = Repo.get!(IncidentRoom, room.id)
+    assert closed.status == :closed
+    assert closed.channel_state == :active
+    assert closed.last_error_code == "incident_room_closed"
+
+    assert closed.last_error_detail ==
+             "Closed on request from Ryker's console. Ryker said so in the room and in the alert thread it was opened from."
+
+    # Nothing is left to do, a closed room stays closed, and it no longer counts as open.
+    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert length(Agent.get(agent, & &1.posts)) == length(posted_before) + 2
+
+    assert {:error, :incident_room_closed} =
+             IncidentRooms.request_close(room.ref, "control-plane:local")
+
+    assert {:ok, %{status: :requested}} =
+             IncidentRooms.request(%{request(delivered_offer!()) | maximum_open_rooms: 1})
+  end
+
+  # The demo room on the Compose install, 2026-10-03, names a channel Slack does not know: Ryker
+  # could not reach it, said its work there was paused, and offered nothing to do about it.
+  test "a room whose channel Ryker cannot reach closes, saying so only in the alert thread" do
+    save_channel_configuration!()
+    %{agent: agent, episode: episode, room: room} = ready_room!("closed-unreachable")
+    publish_through_slack!(agent)
+    wait_for_an_answer!(episode)
+
+    Repo.update_all(from(saved in IncidentRoom, where: saved.id == ^room.id),
+      set: [channel_state: :unavailable, reconciled_channel_state: :unavailable]
+    )
+
+    posted_before = Agent.get(agent, & &1.posts)
+    assert {:ok, _closing} = IncidentRooms.request_close(room.ref, "control-plane:local")
+
+    room_ref = room.ref
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert Repo.get!(Episode, episode.id).state == :cancelled
+
+    assert [{"C456", "1787832000.000100", %{"message" => note}, _ref}] =
+             Agent.get(agent, & &1.posts) -- posted_before
+
+    assert note == "The incident room ##{room.channel_name} is closed."
+
+    assert Repo.get!(IncidentRoom, room.id).last_error_detail ==
+             "Closed on request from Ryker's console. Ryker said so in the alert thread it was opened from."
+  end
+
+  # A reply Ryker already finished for the room belongs in the room, where people are reading;
+  # closing waits for it to be posted there, then closes what the request went on to do.
+  test "a reply finished just as a room is closed is posted in the room before it closes" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    publish_through_slack!(agent)
+
+    assert {:ok, _requested} = IncidentRooms.request(request(fixture))
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    reply = accept_investigation_reply!(room, @finished_answer)
+    posted_before = Agent.get(agent, & &1.posts)
+
+    assert {:ok, _closing} = IncidentRooms.request_close(room_ref, "control-plane:local")
+    assert {:ok, {:deferred, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert Agent.get(agent, & &1.posts) == posted_before
+
+    assert {:ok, {:delivered, :message, delivery_ref}} =
+             Dispatcher.run_once(delivery_options(agent))
+
+    assert delivery_ref == reply.delivery_ref
+    make_room_retryable!(room.id)
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    # The reply in the room's thread under its card, then the note for everyone in the channel.
+    answer = Map.take(@finished_answer, ["message"])
+
+    assert [
+             {channel, room_thread, ^answer, ^delivery_ref},
+             {channel, nil, %{"message" => "This incident room is closed." <> _}, _room_note},
+             {"C456", "1787832000.000100", %{"message" => _thread_note}, _ref}
+           ] = Agent.get(agent, & &1.posts) -- posted_before
+
+    assert channel == room.channel_ref
+    assert room_thread == Repo.get!(IncidentRoom, room.id).root_message_ref
+    assert Repo.get!(Episode, room.episode_id).state == :complete
+  end
+
+  test "a room whose setup stopped closes on request without waiting for a person to retry it" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    Agent.update(agent, &Map.put(&1, :allowed_users, MapSet.new(["U123", "U300"])))
+    publish_through_slack!(agent)
+
+    assert {:ok, requested} = IncidentRooms.request(request(fixture))
+    room_ref = requested.room.ref
+
+    assert {:ok, {:blocked, ^room_ref, :incident_audience_member_invalid}} =
+             IncidentRoomWorker.run_once(worker_options(agent))
+
+    assert {:ok, %IncidentRoom{status: :requested, close_requested_at: %DateTime{}}} =
+             IncidentRooms.request_close(room_ref, "control-plane:local")
+
+    posted_before = Agent.get(agent, & &1.posts)
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    # No channel was ever made, so there is no room to post in and nothing to stop.
+    assert [{"C456", "1787832000.000100", %{"message" => note}, _ref}] =
+             Agent.get(agent, & &1.posts) -- posted_before
+
+    assert note == "The incident room for this alert was closed before Ryker set it up."
+    assert Agent.get(agent, & &1.conversations) == []
+    assert Repo.get!(IncidentRoom, requested.room.id).status == :closed
+  end
+
+  test "closing a room asks for a known room and a named person" do
+    assert {:error, :incident_room_not_found} =
+             IncidentRooms.request_close("incident-room:missing", "control-plane:local")
+
+    assert {:error, {:invalid_incident_room_request, :actor_ref}} =
+             IncidentRooms.request_close("incident-room:missing", "")
+
+    assert {:error, {:invalid_incident_room_request, :room_ref}} =
+             IncidentRooms.request_close(nil, "control-plane:local")
+  end
+
   # A run still working when its room is deleted is stopped through the same
   # cancellation custody as a person's close: the request closes on the
   # worker's answer, never on Ryker's say-so, and the note waits for it.
@@ -2183,6 +2346,28 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     }
 
     accept_reply!(running, room, document, continuation)
+  end
+
+  # The investigation asks the room a question and waits for the answer.
+  defp wait_for_an_answer!(episode) do
+    assert {:ok, claim} = Custody.claim_next("incident-room:waiting", 60, :work)
+    assert claim.episode.id == episode.id
+
+    assert {:ok, question} =
+             Records.create(Records.token(claim.turn), "question", "input_request", %{
+               "choices" => ["rollback", "continue"],
+               "question" => "Should we roll back the checkout deployment?"
+             })
+
+    assert {:ok, %{episode: %Episode{state: :waiting_for_input}}} =
+             Episodes.apply(
+               EpisodeFixtures.start_wait(%{
+                 episode_key: episode.key,
+                 expected_turn_ref: episode.owner_ref,
+                 occurred_at: DateTime.add(@now, 5, :second),
+                 wait_ref: question.ref
+               })
+             )
   end
 
   defp ready_room!(suffix) do

@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Publication, Review}
   alias Ryker.Repo
+  alias Ryker.Slack.IncidentRooms
   alias Ryker.Slack.Runtime, as: SlackRuntime
   alias Ryker.Slack.WorkRecord
   alias Ryker.WeeklyReport
@@ -111,6 +112,7 @@ defmodule Ryker.ControlPlane.Actions do
       rearm_emisar: &retry_failure("emisar", &1),
       rearm_retention: &retry_failure("retention", &1),
       rearm_slack_incident: &retry_failure("slack_incident", &1),
+      close_incident_room: &IncidentRooms.request_close(&1, @actor_ref),
       rearm_slack_interaction: &retry_failure("slack_interaction", &1),
       rearm_slack_task_card: &retry_failure("slack_task_card", &1),
       rearm_slack_thread_status: &retry_failure("slack_thread_status", &1),

@@ -252,9 +252,10 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     )
 
     # The sentence under the title said "Ryker works on the incident there"
-    # about a channel nobody could post in.
+    # about a channel nobody could post in. It says what to do now.
     assert description(room.ref) ==
-             "The room's channel is archived in Slack, so Ryker's work in it is paused."
+             "#inc-checkout-readiness-probes is archived in Slack, so Ryker stopped working in it. " <>
+               "Restore the channel in Slack to carry on, or close the room."
 
     document = page(room.ref)
     assert text(document, "#now .state-word") == "Paused"
@@ -283,8 +284,10 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
 
   # Ryker left the channel, or Slack stopped letting it in. Its replies wait
   # for the channel, and the sentence under the title still said Ryker worked
-  # there with the team.
-  test "a room whose channel Ryker cannot reach says its work there is paused" do
+  # there with the team. Andrew, 2026-10-03, of the next wording, "Ryker cannot
+  # reach the room's channel in Slack, so its work in it is paused.": "wtf?"
+  # It now says what happened in Slack's terms and what a person can do.
+  test "a room whose channel Ryker cannot reach says why and what a person can do" do
     %{room: room} = demo_room!()
     left_at = ~U[2026-09-25 09:15:00.000000Z]
     lifecycle!(room, :left, left_at)
@@ -299,7 +302,11 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     )
 
     assert description(room.ref) ==
-             "Ryker cannot reach the room's channel in Slack, so its work in it is paused."
+             "Ryker can't find #inc-checkout-readiness-probes in Slack: the channel is gone, " <>
+               "or Ryker is no longer in it. Add Ryker to the channel again, or close the room."
+
+    assert {:ok, snapshot} = IncidentProjection.fetch(room.ref)
+    assert IncidentRoomsPage.actions(snapshot.room) =~ ~s(/actions/slack_incident/)
 
     document = page(room.ref)
     assert text(document, "#incident-room-status .state-word") == "Open"
@@ -341,8 +348,33 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     assert text(document, "#now .state-word") == "Closed"
     assert text(document, "#now .incident-room-now-note") == @closed_note
 
+    # A closed room has nothing left to close.
+    assert {:ok, snapshot} = IncidentProjection.fetch(room.ref)
+    assert IncidentRoomsPage.actions(snapshot.room) == nil
+
     assert document |> rows("#room-history") |> Enum.take(-2) |> Enum.map(&{&1.name, &1.at}) ==
              [{"Channel deleted", "09:20"}, {"Room closed", "09:21"}]
+  end
+
+  # Andrew, 2026-10-03: "why I can't do shit to incident rooms, how about at least closing them?"
+  test "an open room offers Close opposite its title, and reads Closing once asked" do
+    %{room: room} = demo_room!()
+    assert {:ok, snapshot} = IncidentProjection.fetch(room.ref)
+
+    assert snapshot.room
+           |> IncidentRoomsPage.actions()
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("form[method=get] button")
+           |> LazyHTML.text() == "Close room"
+
+    Repo.update_all(from(saved in IncidentRoom, where: saved.id == ^room.id),
+      set: [close_requested_at: @now, close_requested_by: "control-plane:local"]
+    )
+
+    assert {:ok, closing} = IncidentProjection.fetch(room.ref)
+    assert IncidentRoomsPage.actions(closing.room) == nil
+    assert IncidentRoomsPage.summary(closing.room) =~ "Closing"
+    assert text(page(room.ref), "#incident-room-status .state-word") == "Closing"
   end
 
   # A room's saved error is the Slack or worker failure behind it, which only

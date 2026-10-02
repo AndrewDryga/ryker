@@ -140,7 +140,8 @@ defmodule Ryker.ControlPlane.RouterTest do
       {"/actions/episode/#{@episode_one}/rate-good", :primary},
       {"/actions/episode/#{@episode_one}/rate-needs-work", :primary},
       {"/actions/work/#{@episode_blocked}/retry", :primary},
-      {"/actions/admission/#{@admission}/rearm", :primary}
+      {"/actions/admission/#{@admission}/rearm", :primary},
+      {"/actions/slack_incident/one/close", :primary}
     ]
 
     asked =
@@ -150,6 +151,43 @@ defmodule Ryker.ControlPlane.RouterTest do
       end
 
     assert asked == expected
+  end
+
+  # Andrew, 2026-10-03: "why I can't do shit to incident rooms, how about at least closing them?"
+  # Close asks first, says what it does in Slack, and returns to the room, which reads Closing.
+  test "an incident room closes from its own confirmed question and comes back to the room" do
+    path = "/actions/slack_incident/one/close"
+    question = request(:get, path)
+    assert question.status == 200
+    assert question.resp_body =~ "Close Investigate latency?"
+    assert question.resp_body =~ "Ryker stops investigating, posts a closing note in"
+    assert question.resp_body =~ "archive it there when you no longer need it"
+    assert question.resp_body =~ ~s(href="/incident-rooms/one")
+
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, question.resp_body)
+    refute_received {:closed_incident_room, _ref}
+
+    closed = request(:post, path, URI.encode_query(%{"_token" => token}))
+    assert closed.status == 303
+    assert get_resp_header(closed, "location") == ["/incident-rooms/one"]
+    assert_received {:closed_incident_room, "incident-room:one"}
+
+    # A room already closing, or closed, has nothing left to ask.
+    for {room, status} <- [
+          {%{closing: false}, 200},
+          {%{closing: true}, 404},
+          {%{status: :closed}, 404}
+        ] do
+      options =
+        update_in(options(), [:projection, :incident], fn incident ->
+          fn ref ->
+            with {:ok, snapshot} <- incident.(ref),
+                 do: {:ok, update_in(snapshot.room, &Map.merge(&1, room))}
+          end
+        end)
+
+      assert request_with_options(:get, path, nil, options).status == status, inspect(room)
+    end
   end
 
   test "removed admission pages are not redirects or compatibility aliases" do

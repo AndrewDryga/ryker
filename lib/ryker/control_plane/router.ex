@@ -28,6 +28,7 @@ defmodule Ryker.ControlPlane.Router do
     FindingsPage,
     HTML,
     ImprovementPage,
+    IncidentRoomsPage,
     LabControls,
     LearningActivity,
     PathRef,
@@ -930,6 +931,22 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # Closing a room stops Ryker's work in it and says so in Slack. The channel
+  # and the room's history stay, so the question is not in the danger tone.
+  defp confirmation("slack_incident", resource_ref, "close", options) do
+    case options.projection.incident.(resource_ref) do
+      {:ok, %{room: %{status: status} = room}} when status in [:requested, :ready, :blocked] ->
+        if room[:closing],
+          do: {:error, :not_found},
+          else:
+            {:ok, "Close #{room.title}?", IncidentRoomsPage.close_explanation(room),
+             "slack_incident:close", :primary}
+
+      _unavailable ->
+        {:error, :not_found}
+    end
+  end
+
   defp confirmation("episode", resource_ref, "resolve", options) do
     case options.projection.episode.(resource_ref, %{}) do
       {:ok, %{trace: %{actions: actions}}} ->
@@ -1086,6 +1103,9 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("slack_incident", resource_ref, "rearm", actions),
     do: actions.rearm_slack_incident.(resource_ref)
 
+  defp perform("slack_incident", resource_ref, "close", actions),
+    do: actions.close_incident_room.(resource_ref)
+
   defp perform("slack_task_card", resource_ref, "rearm", actions),
     do: actions.rearm_slack_task_card.(resource_ref)
 
@@ -1215,6 +1235,10 @@ defmodule Ryker.ControlPlane.Router do
 
   defp action_return_path("schedule", resource_ref, _action, _options),
     do: Paths.schedule(resource_ref)
+
+  # Closing returns to the room, where it reads Closing until it is closed.
+  defp action_return_path("slack_incident", resource_ref, "close", _options),
+    do: Paths.incident_room(resource_ref)
 
   defp action_return_path(kind, resource_ref, _action, options),
     do: action_return_path(kind, resource_ref, options)

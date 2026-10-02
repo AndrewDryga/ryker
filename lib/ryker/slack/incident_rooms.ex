@@ -277,12 +277,14 @@ defmodule Ryker.Slack.IncidentRooms do
           lifecycle:
             type(
               fragment(
-                "CASE WHEN (? = 'requested' AND ? IN ('pending', 'active')) OR (? = 'ready' AND ? <> ?) THEN GREATEST(?, ?) END",
+                "CASE WHEN (? = 'requested' AND ? IN ('pending', 'active')) OR (? = 'ready' AND ? <> ?) OR (? IN ('requested', 'ready') AND ? IS NOT NULL) THEN GREATEST(?, ?) END",
                 room.status,
                 room.channel_state,
                 room.status,
                 room.channel_state,
                 room.reconciled_channel_state,
+                room.status,
+                room.close_requested_at,
                 room.next_attempt_at,
                 room.lease_expires_at
               ),
@@ -291,11 +293,12 @@ defmodule Ryker.Slack.IncidentRooms do
           health:
             type(
               fragment(
-                "CASE WHEN ? = 'ready' AND ? <> 'deleted' AND ? = ? THEN GREATEST(?, ?) END",
+                "CASE WHEN ? = 'ready' AND ? <> 'deleted' AND ? = ? AND ? IS NULL THEN GREATEST(?, ?) END",
                 room.status,
                 room.channel_state,
                 room.channel_state,
                 room.reconciled_channel_state,
+                room.close_requested_at,
                 datetime_add(room.channel_checked_at, ^health_check_seconds, "second"),
                 room.lease_expires_at
               ),
@@ -304,11 +307,12 @@ defmodule Ryker.Slack.IncidentRooms do
           root_card:
             type(
               fragment(
-                "CASE WHEN ? = 'ready' AND ? = 'active' AND ? = 'active' AND ? IS NOT NULL THEN GREATEST(?, ?) END",
+                "CASE WHEN ? = 'ready' AND ? = 'active' AND ? = 'active' AND ? IS NOT NULL AND ? IS NULL THEN GREATEST(?, ?) END",
                 room.status,
                 room.channel_state,
                 room.reconciled_channel_state,
                 room.root_message_ref,
+                room.close_requested_at,
                 datetime_add(room.root_card_checked_at, ^root_card_check_seconds, "second"),
                 room.lease_expires_at
               ),
@@ -550,6 +554,59 @@ defmodule Ryker.Slack.IncidentRooms do
     end
   end
 
+  @doc """
+  Asks to close a room on a person's behalf. The room worker carries it out:
+  it closes the room's investigation, says so in the room and in the alert
+  thread the room came from, then closes the room (`close_on_request/3`).
+  The channel stays in Slack, and Ryker no longer answers there.
+
+  A room whose setup stopped goes back to its worker, as a retry would, so
+  the worker can close it. Asking again while a close is pending answers with
+  the room as it is; a closed room refuses.
+  """
+  @spec request_close(String.t(), String.t()) :: {:ok, IncidentRoom.t()} | {:error, term()}
+  def request_close(room_ref, actor_ref) do
+    with :ok <- reference(room_ref, :room_ref),
+         :ok <- bounded_text(actor_ref, 256, :actor_ref) do
+      Repo.transaction(fn -> request_close_locked(room_ref, actor_ref) end)
+      |> transaction_result()
+    end
+  end
+
+  defp request_close_locked(room_ref, actor_ref) do
+    case Repo.one(from(room in IncidentRoom, where: room.ref == ^room_ref, lock: "FOR UPDATE")) do
+      nil ->
+        Repo.rollback(:incident_room_not_found)
+
+      %IncidentRoom{status: :closed} ->
+        Repo.rollback(:incident_room_closed)
+
+      # Pending, unless closing it stopped too and it waits for a person again.
+      %IncidentRoom{status: status, close_requested_at: %DateTime{}} = room
+      when status != :blocked ->
+        room
+
+      %IncidentRoom{} = room ->
+        now = database_now!()
+        update!(room, close_request_attributes(room, actor_ref, now), now)
+    end
+  end
+
+  defp close_request_attributes(%IncidentRoom{status: :blocked} = room, actor_ref, now) do
+    %{
+      attempt_count: 0,
+      close_requested_at: now,
+      close_requested_by: actor_ref,
+      last_error_code: nil,
+      last_error_detail: nil,
+      next_attempt_at: nil,
+      status: if(room.episode_id, do: :ready, else: :requested)
+    }
+  end
+
+  defp close_request_attributes(_room, actor_ref, now),
+    do: %{close_requested_at: now, close_requested_by: actor_ref, next_attempt_at: nil}
+
   @spec mark_lifecycle_reconciled(Ecto.UUID.t(), Ecto.UUID.t(), atom()) ::
           {:ok, IncidentRoom.t()} | {:error, term()}
   def mark_lifecycle_reconciled(room_id, lease_ref, expected_state)
@@ -572,6 +629,34 @@ defmodule Ryker.Slack.IncidentRooms do
   def close_deleted(room_id, lease_ref, detail) do
     with :ok <- bounded_text(detail, @maximum_error_detail_bytes, :detail) do
       mutate_claim(room_id, lease_ref, &close_deleted_locked(&1, &2, detail))
+    end
+  end
+
+  @doc """
+  Closes a room a person asked to close (`request_close/2`), once the worker
+  has closed its investigation and said so in the room and the alert thread,
+  or found it cannot. `detail` records which, for whoever opens the room
+  later.
+  """
+  @spec close_on_request(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
+          {:ok, IncidentRoom.t()} | {:error, term()}
+  def close_on_request(room_id, lease_ref, detail) do
+    with :ok <- bounded_text(detail, @maximum_error_detail_bytes, :detail) do
+      mutate_claim(room_id, lease_ref, fn room, now ->
+        if is_nil(room.close_requested_at),
+          do: Repo.rollback(:incident_room_close_not_requested)
+
+        attributes =
+          room.channel_state
+          |> reconciled_attributes()
+          |> Map.merge(%{
+            last_error_code: "incident_room_closed",
+            last_error_detail: detail,
+            status: :closed
+          })
+
+        update!(room, attributes, now)
+      end)
     end
   end
 
@@ -1121,15 +1206,18 @@ defmodule Ryker.Slack.IncidentRooms do
     end
   end
 
+  # A room a person asked to close comes first, whatever step it is at.
   defp next_claimable_room(now) do
     Repo.one(
       from(room in IncidentRoom,
         where:
           ((room.status == :requested and room.channel_state in [:pending, :active]) or
-             (room.status == :ready and room.channel_state != room.reconciled_channel_state)) and
+             (room.status == :ready and room.channel_state != room.reconciled_channel_state) or
+             (room.status in [:requested, :ready] and not is_nil(room.close_requested_at))) and
             (is_nil(room.next_attempt_at) or room.next_attempt_at <= ^now) and
             (is_nil(room.lease_expires_at) or room.lease_expires_at <= ^now),
         order_by: [
+          asc_nulls_last: room.close_requested_at,
           asc: fragment("CASE WHEN ? = 'ready' THEN 0 ELSE 1 END", room.status),
           asc: room.updated_at,
           asc: room.id
@@ -1150,6 +1238,7 @@ defmodule Ryker.Slack.IncidentRooms do
           where:
             room.status == :ready and room.channel_state != :deleted and
               room.channel_state == room.reconciled_channel_state and
+              is_nil(room.close_requested_at) and
               (is_nil(room.channel_checked_at) or room.channel_checked_at <= ^due_at) and
               (is_nil(room.lease_expires_at) or room.lease_expires_at <= ^now),
           order_by: [asc_nulls_first: room.channel_checked_at, asc: room.id],
@@ -1190,6 +1279,7 @@ defmodule Ryker.Slack.IncidentRooms do
         where:
           room.status == :ready and room.channel_state == :active and
             room.reconciled_channel_state == :active and not is_nil(room.root_message_ref) and
+            is_nil(room.close_requested_at) and
             (is_nil(room.root_card_checked_at) or room.root_card_checked_at <= ^due_at) and
             (is_nil(room.lease_expires_at) or room.lease_expires_at <= ^now),
         order_by: [
