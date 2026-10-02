@@ -119,10 +119,17 @@ services:
         condition: service_completed_successfully
     environment:
       DOCKER_TLS_CERTDIR: ""
-    command: ["--host=tcp://0.0.0.0:2375", "--host=unix:///var/run/docker.sock"]
+    # The worker reaches this daemon only through the socket the two share; Coop starts a
+    # review's services only through a local unix socket, and a daemon listening on the network
+    # could be driven by any container on it. The socket belongs to the worker's coop group.
+    command:
+      - "--host=unix:///var/run/docker.sock"
+      - "--host=unix:///run/ryker-coop-docker/docker.sock"
+      - "--group=1000"
     volumes:
       - ryker-coop-docker:/var/lib/docker
       - ryker-coop-state:/var/lib/coop
+      - ryker-coop-docker-socket:/run/ryker-coop-docker
     healthcheck:
       test: ["CMD", "docker", "info"]
       interval: 2s
@@ -151,12 +158,13 @@ services:
       ryker-coop-docker:
         condition: service_healthy
     environment:
-      DOCKER_HOST: tcp://ryker-coop-docker:2375
+      DOCKER_HOST: unix:///run/ryker-coop-docker/docker.sock
       RYKER_BUNDLED_COOP_WORKER_ID: ryker-compose
       RYKER_BUNDLED_COOP_WORKSPACE: ryker-compose
     volumes:
       - ryker-coop-state:/var/lib/coop
       - ryker-coop-config:/var/lib/ryker-coop
+      - ryker-coop-docker-socket:/run/ryker-coop-docker
     healthcheck:
       test: ["CMD", "coop", "sessions", "doctor", "--socket", "/var/lib/coop/sessions/control.sock"]
       interval: 5s
@@ -175,6 +183,7 @@ volumes:
   ryker-coop-state:
   ryker-coop-config:
   ryker-coop-docker:
+  ryker-coop-docker-socket:
 
 networks:
   default:
