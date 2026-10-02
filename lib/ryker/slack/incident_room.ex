@@ -69,6 +69,10 @@ defmodule Ryker.Slack.IncidentRoom do
     field(:lease_expires_at, :utc_datetime_usec)
     field(:last_error_code, :string)
     field(:last_error_detail, :string)
+    # A person asked to close the room; the room worker closes it
+    # (`Ryker.Slack.IncidentRooms.request_close/2`).
+    field(:close_requested_at, :utc_datetime_usec)
+    field(:close_requested_by, :string)
     timestamps(type: :utc_datetime_usec)
   end
 

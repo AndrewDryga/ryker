@@ -38,18 +38,27 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   @spec description() :: String.t()
   def description, do: "Slack channels Ryker opens to work on an incident with your team."
 
-  @doc "The one sentence under a room's title: where the room stands, in words."
+  @doc "The one sentence under a room's title: where the room stands, in words, and what to do."
   @spec summary(map()) :: String.t()
+  def summary(%{closing: true}),
+    do: "Closing: Ryker is stopping its work here and saying so in Slack."
+
   def summary(%{status: :requested}),
     do: "Ryker is creating this Slack room and inviting the responders."
 
-  # An open room whose channel is gone for now says that first: the channel
-  # is where Ryker's work in the room happens.
-  def summary(%{status: :ready, channel_state: :archived}),
-    do: "The room's channel is archived in Slack, so Ryker's work in it is paused."
+  # An open room whose channel Ryker cannot use says so first, and what to do
+  # about it: the channel is where Ryker's work in the room happens. Andrew,
+  # 2026-10-03, of "Ryker cannot reach the room's channel in Slack, so its work
+  # in it is paused.": "wtf?"
+  def summary(%{status: :ready, channel_state: :archived} = room),
+    do:
+      "#{channel(room)} is archived in Slack, so Ryker stopped working in it. " <>
+        "Restore the channel in Slack to carry on, or close the room."
 
-  def summary(%{status: :ready, channel_state: :unavailable}),
-    do: "Ryker cannot reach the room's channel in Slack, so its work in it is paused."
+  def summary(%{status: :ready, channel_state: :unavailable} = room),
+    do:
+      "Ryker can't find #{channel(room)} in Slack: the channel is gone, or Ryker is no longer in it. " <>
+        "Add Ryker to the channel again, or close the room."
 
   def summary(%{status: :ready, channel_state: :deleted}),
     do: "Slack deleted the room's channel, so Ryker is closing the room."
@@ -58,10 +67,60 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
     do: "The room is open in Slack. Ryker works on the incident there with your team."
 
   def summary(%{status: :blocked}),
-    do: "Setting up this Slack room stopped before it finished, and it needs a person."
+    do: "Setting up this Slack room stopped before it finished. Retry it, or close the room."
 
   def summary(%{status: :closed}), do: "The room is closed."
   def summary(_room), do: "A Slack room Ryker opened for an incident."
+
+  @doc """
+  Close, opposite a room's title, while the room is open, being set up or
+  stuck. It asks first, saying what closing does (`close_explanation/1`).
+  """
+  @spec actions(map()) :: String.t() | nil
+  def actions(%{status: status} = room) when status in [:requested, :ready, :blocked] do
+    if room[:closing] do
+      nil
+    else
+      %{__changed__: nil, room: room}
+      |> close_control()
+      |> Safe.to_iodata()
+      |> IO.iodata_to_binary()
+    end
+  end
+
+  def actions(_room), do: nil
+
+  defp close_control(assigns) do
+    ~H"""
+    <Components.action_button
+      path={Paths.action("slack_incident", @room.ref, "close")}
+      label="Close room"
+    />
+    """
+  end
+
+  @doc "What closing a room does, in the words its Close question uses."
+  @spec close_explanation(map()) :: String.t()
+  def close_explanation(%{channel_ref: nil}),
+    do:
+      "Ryker stops setting up the room and says so in the alert thread it came from. " <>
+        "You can't reopen it."
+
+  def close_explanation(room) do
+    said =
+      if room.status == :ready and room.channel_state == :active,
+        do: "posts a closing note in #{channel(room)} and in the alert thread it came from",
+        else: "says so in the alert thread it came from"
+
+    "Ryker stops investigating, #{said}, and won't answer in the channel again. " <>
+      "The channel stays in Slack; archive it there when you no longer need it. " <>
+      "The room's history stays here, and you can't reopen it."
+  end
+
+  @doc "A room's state as a dot and a word; one a person asked to close says so."
+  @spec room_state(map()) :: {atom(), String.t()}
+  def room_state(%{closing: true}), do: {:busy, "Closing"}
+  def room_state(room), do: state(room.status)
 
   @doc "The list body: its counts, the toolbar, one row per room, and what would put one here."
   @spec list([map()], map(), DateTime.t() | nil) :: iodata()
@@ -122,7 +181,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
           icon={:incident}
           icon_tone={if room.status in [:ready, :requested, :blocked], do: :warn, else: :off}
           group={group}
-          state={state(room.status)}
+          state={room_state(room)}
           at={Kit.clock(room[:requested_at])}
           at_time={room[:requested_at]}
           meta={row_facts(room)}
@@ -177,7 +236,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp detail_view(assigns) do
     ~H"""
     <div class="incident-room-view">
-      <Kit.status_line id="incident-room-status" state={state(@room.status)}>
+      <Kit.status_line id="incident-room-status" state={room_state(@room)}>
         <.moment :if={@room.requested_at} at={@room.requested_at} now={@now} prefix="opened " />
         <a :if={@room.channel_ref} href={Paths.channel(@room.workspace_ref, @room.channel_ref)}>
           {channel(@room)}

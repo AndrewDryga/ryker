@@ -73,12 +73,19 @@ defmodule Ryker.ControlPlane.Pages do
     )
   end
 
+  # A room that can still close keeps Close opposite its title.
   def page(["incident-rooms", slug], _params, options) do
     with {:ok, incident_ref} <- PathRef.reference("slack_incident", slug),
          {:ok, snapshot} <- options.projection.incident.(incident_ref) do
-      snapshot.room.title
-      |> ok(IncidentRoomsPage.summary(snapshot.room), IncidentRoomsPage.detail(snapshot))
-      |> Map.put(:back, {"All incident rooms", "/incident-rooms"})
+      page =
+        snapshot.room.title
+        |> ok(IncidentRoomsPage.summary(snapshot.room), IncidentRoomsPage.detail(snapshot))
+        |> Map.put(:back, {"All incident rooms", "/incident-rooms"})
+
+      case IncidentRoomsPage.actions(snapshot.room) do
+        nil -> page
+        action -> Map.put(page, :action, action)
+      end
     else
       {:error, :path_ref} -> not_found("Incident room")
       :not_found -> not_found("Incident room")
