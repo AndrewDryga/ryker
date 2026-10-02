@@ -5,15 +5,19 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 
 cd "$root"
 
-isolated_database=0
+databases=()
 private_postgres=
 
 cleanup() {
   status=$?
   trap - EXIT
 
-  if [[ $isolated_database == 1 ]]; then
-    env MIX_ENV=test scripts/elixir-mix.sh ecto.drop --quiet >/dev/null 2>&1 || true
+  # A private server goes whole, so only a shared one needs its databases dropped.
+  if [[ -z $private_postgres ]]; then
+    for database in ${databases[@]+"${databases[@]}"}; do
+      PGDATABASE=$database env MIX_ENV=test scripts/elixir-mix.sh ecto.drop --quiet >/dev/null 2>&1 &
+    done
+    wait
   fi
 
   if [[ -n $private_postgres ]]; then
@@ -78,24 +82,97 @@ export PGUSER=postgres
 
 if [[ ${RYKER_TEST_ISOLATED:-0} == 1 ]]; then
   export PGDATABASE="ryker_test_$$_${RANDOM}"
-  env MIX_ENV=test scripts/elixir-mix.sh ecto.create --quiet
-  isolated_database=1
+  isolate=1
 else
   # The compose project name changed with the 2026-09-13 rename, so a fresh
-  # container may be serving; create the shared database when it is absent
-  # (ecto.create is a no-op when it already exists).
+  # container may be serving; ecto.create makes the shared database when it is
+  # absent and is a no-op when it already exists.
   export PGDATABASE=${PGDATABASE:-ryker_test}
-  env MIX_ENV=test scripts/elixir-mix.sh ecto.create --quiet
+  isolate=0
 fi
+
+# The full suite spends most of its time in `async: false` modules, which one VM
+# runs one at a time: 283 of 336 seconds on 2026-10-02. So the async files run
+# together in one VM, as before, and the serial files are dealt across more VMs
+# that run beside it, each with a database of its own. Mix's own --partitions
+# put async files in every VM: four of them ran ~96 async tests at once and
+# turned a loaded host's local test servers into timeouts. About one serial VM
+# per three cores, so a small CI runner keeps one.
+test_partitions() {
+  local count=${RYKER_TEST_PARTITIONS:-$(($(getconf _NPROCESSORS_ONLN) / 3))}
+  local logs partition file dealt=0 status=0 red=""
+  local pids=()
+  ((count >= 1)) || count=1
+  logs=$(mktemp -d "${TMPDIR:-/tmp}/ryker-test-partitions.XXXXXX")
+
+  while IFS= read -r file; do
+    if grep -q -E '^[[:space:]]*use [A-Za-z.]+,.*async: true' "$file"; then
+      echo "$file" >>"$logs/0.files"
+    else
+      echo "$file" >>"$logs/$((dealt % count + 1)).files"
+      dealt=$((dealt + 1))
+    fi
+  done < <(find test -name '*_test.exs' | LC_ALL=C sort)
+
+  for ((partition = 0; partition <= count; partition++)); do
+    [[ -s $logs/$partition.files ]] || continue
+
+    if [[ $isolate == 1 ]]; then
+      databases+=("${PGDATABASE}_p$partition")
+    fi
+
+    PGDATABASE="${PGDATABASE}_p$partition" \
+      test_files "$logs/$partition.files" "$@" >"$logs/$partition.log" 2>&1 &
+    pids[partition]=$!
+  done
+
+  for ((partition = 0; partition <= count; partition++)); do
+    [[ -s $logs/$partition.files ]] || continue
+
+    wait "${pids[partition]}" || {
+      status=$?
+      red="$red $partition"
+    }
+
+    if ((partition == 0)); then
+      echo "== async files"
+    else
+      echo "== serial files, partition $partition of $count"
+    fi
+
+    cat "$logs/$partition.log"
+  done
+
+  echo "== red partitions:${red:- none}"
+  rm -rf "$logs"
+  return "$status"
+}
+
+# Creates and migrates PGDATABASE, then tests the files listed in $1.
+test_files() {
+  local list=$1 file
+  local files=()
+  shift
+
+  while IFS= read -r file; do
+    files+=("$file")
+  done <"$list"
+
+  env MIX_ENV=test scripts/elixir-mix.sh "do" ecto.create --quiet + ecto.migrate --quiet + \
+    test "$@" "${files[@]}"
+}
 
 if [[ ${1:-} == "--check" ]]; then
   shift
   env MIX_ENV=test scripts/elixir-mix.sh "do" \
     format --check-formatted + \
     compile --warnings-as-errors + \
-    credo --strict + \
-    ecto.migrate --quiet + \
-    test "$@"
+    credo --strict
+  test_partitions "$@"
 else
-  env MIX_ENV=test scripts/elixir-mix.sh "do" ecto.migrate --quiet + test "$@"
+  if [[ $isolate == 1 ]]; then
+    databases+=("$PGDATABASE")
+  fi
+
+  env MIX_ENV=test scripts/elixir-mix.sh "do" ecto.create --quiet + ecto.migrate --quiet + test "$@"
 fi
