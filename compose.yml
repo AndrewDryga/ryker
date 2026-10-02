@@ -122,7 +122,10 @@ services:
     # The worker reaches this daemon only through the socket the two share; Coop starts a
     # review's services only through a local unix socket, and a daemon listening on the network
     # could be driven by any container on it. The socket belongs to the worker's coop group.
+    # dockerd comes first: given a command that starts with a flag, the image's entrypoint adds
+    # its own --host=tcp://0.0.0.0:2375.
     command:
+      - "dockerd"
       - "--host=unix:///var/run/docker.sock"
       - "--host=unix:///run/ryker-coop-docker/docker.sock"
       - "--group=1000"
