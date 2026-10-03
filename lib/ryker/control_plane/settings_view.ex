@@ -291,13 +291,16 @@ defmodule Ryker.ControlPlane.SettingsView do
 
   defp successful_channel_request?([]), do: false
 
+  # A reply Ryker delivered in a set-up channel, however the conversation went on: one that then
+  # asked the person something waits for their answer, and the step stayed open on tenant while
+  # it did (2026-10-04).
   defp successful_channel_request?(conversations) do
     Repo.exists?(
       from(episode in Episode,
         join: turn in Turn,
         on: turn.episode_id == episode.id,
         where:
-          episode.destination_transport == "slack" and episode.state == :complete and
+          episode.destination_transport == "slack" and
             episode.destination_conversation_ref in ^conversations and
             not is_nil(turn.external_receipt)
       )

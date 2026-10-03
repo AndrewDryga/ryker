@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.SettingsLiveTest do
   use Ryker.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
@@ -364,6 +365,50 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert Enum.count(actions) == 1
     assert has_element?(view, "ol.setup-steps > li[data-state=later]", "Connect GitHub")
     assert has_element?(view, "#setup-emisar[data-state=later]", "Connect Emisar")
+  end
+
+  # tenant, 2026-10-04: Andrew asked a real question in #emisar-test and Ryker answered it, then
+  # asked him something back. Setup kept "Send a real request" open at 5 of 6: it counted only a
+  # request whose conversation had ended, and that one was waiting for his answer. A reply
+  # delivered in a set-up channel is the proof the step asks for, whatever comes after it.
+  test "Setup's request step is done once Ryker has answered in a set-up channel, ended or not" do
+    snapshot = initialize!()
+
+    {:ok, _snapshot} =
+      Settings.put_environment(
+        %{ref: "production", display_name: "Production", repositories: []},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    joined!("CINFRA", "production")
+
+    asked =
+      Answers.slack_message!(
+        workspace: "T0123456789",
+        channel: "CINFRA",
+        text: "run a deep check for health of our infrastructure",
+        ts: "1791029840.480119"
+      )
+
+    {:ok, view} = SettingsView.fetch()
+    refute view.setup.steps.request
+
+    %{episode: episode} =
+      Answers.work_reply!(
+        asked,
+        "Arena needs attention first.",
+        "1791061953.391349",
+        DateTime.utc_now()
+      )
+
+    # Ryker's next reply asked a question, so the conversation waits for the person.
+    Repo.update_all(from(saved in Ryker.Episodes.Episode, where: saved.id == ^episode.id),
+      set: [state: :waiting_for_input, owner_kind: :input, owner_ref: "question-1"]
+    )
+
+    {:ok, view} = SettingsView.fetch()
+    assert view.setup.steps.request
   end
 
   test "Setup's channel step is done once a joined channel has an environment" do
