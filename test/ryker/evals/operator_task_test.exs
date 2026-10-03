@@ -32,6 +32,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
                "confirmed-guidance-becomes-memory",
                "creative-request-needs-no-fake-evidence",
                "current-uptime-check-uses-fresh-source",
+               "deep-check-closes-its-gaps-before-reporting",
                "explicit-operator-incident-offer",
                "explicit-response-preference-needs-confirmation",
                "github-pr-review-remains-in-thread",

@@ -18,6 +18,29 @@ defmodule Ryker.Work.PromptTest do
     refute instructions =~ ~r/\b80 (Unicode )?characters/
   end
 
+  # tenant, 2026-10-03: a deep health check made 196 tool calls, then ended on "Remaining gaps"
+  # (an alert-rule listing that came back cut off, CDN and DNS behaviour it never looked up).
+  # The person asked why it had not closed them; the next turn closed most of them with
+  # ordinary read-only actions (Grafana's own rule counts, CDN statistics, DNS lookups). The
+  # same answer put its recap into the question card under a reply that already had it.
+  test "a gap the tools can close is closed before it is reported, and the card does not repeat the reply" do
+    instructions =
+      Prompt.build(%{})
+      |> Jason.decode!()
+      |> Map.fetch!("instructions")
+      |> String.replace(~r/\s+/, " ")
+
+    assert instructions =~ "Close a gap before you report it."
+    assert instructions =~ "count first, filter, split by group or page through it"
+    assert instructions =~ "look for that source before calling the fact unchecked"
+    assert instructions =~ "say what you tried and exactly what would close it"
+
+    assert instructions =~
+             "every gap the reply names was tried with the tools you hold"
+
+    assert instructions =~ "context is one sentence on why the answer is needed, never the recap"
+  end
+
   test "a missing operational fact leads to discovery and one useful remembered question" do
     # The retained Terraform response stopped at an unknown project ID instead
     # of asking for the fact that would unlock its health and backup checks.

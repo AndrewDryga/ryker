@@ -8,6 +8,7 @@
       "missing-project-denied-access-asks-about-access"
     ],
     "missing_stale_contradictory_evidence": [
+      "deep-check-closes-its-gaps-before-reporting",
       "missing-project-discovery-failure-stays-honest",
       "missing-project-empty-discovery-still-asks",
       "missing-project-review-asks-for-context",
@@ -82,6 +83,7 @@
       "ordinary-thread-question-gets-natural-answer"
     ],
     "research": [
+      "deep-check-closes-its-gaps-before-reporting",
       "va1-health-review-repairs-and-finishes"
     ],
     "terraform": [
