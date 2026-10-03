@@ -693,10 +693,13 @@ reason for each incoming message. Response checks appear as individual events
 in the same timeline. Each model call's card opens its full retained artifacts
 in place; there is no separate request inspector or second timeline.
 
-Usage compares work classes and models using the execution ledger: runs, failures,
-elapsed model time, and retained response corrections. Provider retries are not
-counted as response corrections. Credentialed evaluation results remain in their
-recorded reports and are not presented as live-traffic quality scores.
+Usage ranks where the money went using the execution ledger, one breakdown at a
+time (`?by=work-type`, `model`, `channel`, `repository`, `person` or `account`):
+each row's share of the period's cost, its cost, requests, cost per request and
+failed runs, and under its name its runs, time per run and retained response
+corrections. Provider retries are not counted as response corrections.
+Credentialed evaluation results remain in their recorded reports and are not
+presented as live-traffic quality scores.
 
 There are no standalone Decisions or Calibration pages. The current Elixir
 control plane does not provide fixture-candidate keep/discard controls.
@@ -1017,7 +1020,7 @@ replacement, not the older dashboard or the intended final design above.
 | Repositories | Live: each repository as Ready, Setting up, Not fully added or Needs attention with its one next step, which environments it is in, where it is used, the last code Ryker used, and where its knowledge stands (Knowledge updated with its date, Writing knowledge, an outline, or why the last step failed), each row opening the repository's page at `/repositories/<ref>`. That page holds, in cards: What to do, with Retry setup for a stopped setup or Add it again for one whose adding stopped half-way; Knowledge, the document Ryker keeps (Ryker writes nothing to the repository), who wrote it and when, why, and its daily checks, with Refresh knowledge, which asks first and has a model read the repository again now; Where it is used (its environments, channels, schedules, tasks and requests); GitHub (access, permissions, allowed actions, events); Code (the last code a task used); and Remove repository, last, which asks first, takes it out of every environment and webhook deployment report, deletes its GitHub binding and the mirror Ryker keeps of it and stops its setup, while its requests stay, then returns to the list. Add repositories, the list's one action, is its own page at `/repositories/new`: it lists what the connected GitHub App can reach as it opens and again on Refresh, and each repository added joins the default environment |
 | Failures | Live, with typed confirmed recovery for admission, Work, delivery, Slack repaint/incident, Emisar monitoring, and retention custody |
 | Working copies | Live, with worker storage, audited cleanup rearm and explicit safe discard |
-| Usage | Filtered execution ledger, cost and timing, plus work-class/model comparisons and retained response corrections |
+| Usage | The period's cost, tokens and timing, then where the money went, ranked by cost, by work type, model, channel, repository, person or account (`?by=`), with share, cost per request, failed runs and response corrections; the local routing model's comparison is its own page, Settings › Models › Local routing model (`/settings/models/local-routing`) |
 | Findings | Live: how many findings there are and how many are not explained yet, a search over what each concluded, why and its scope, and a toggle of the views that have findings (All, Not explained yet, Explained, Expected, Out of scope, Forgotten; `?view=unexplained`), which a search keeps. Each finding is one line: the start of its conclusion, its state in words (each saying what it means on hover) and its scope and time, opening the finding's own page (`?finding=<id>`, "← All findings"): its state and when it was found, the whole conclusion, why it holds, its scope and a link into the investigation, the evidence it cites, each opening on the timeline, then Mark explained for a finding Ryker could not explain and Forget finding, the last card, for every open one; each asks first and comes back to the finding, and afterwards Ryker stops using it while the investigation keeps it. Paged. |
 | Rules | Live, with search and Current/Past views (`?view=past`, as on Schedules and Follow-ups), paginated confirmed rules in plain words (when a rule acts, who can set it off, repository, expiry, usage), event conditions in a closed disclosure, original conversation, recent matches, and confirmed pause/resume/delete |
 | Instructions | Live global editor, the channels that add their own instructions, and the preferences and guidance confirmed in conversations (All/Preferences/Guidance and Current/Past views, where each applies, expiry, usage) with confirmed pause/resume/delete |

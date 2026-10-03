@@ -1,12 +1,15 @@
-defmodule Ryker.ControlPlane.LocalRoutingUsage do
+defmodule Ryker.ControlPlane.LocalRoutingPage do
   @moduledoc """
-  The Local routing model section of Usage & cost: how the model you run
-  yourself would have routed the messages the provider model routed
-  (`Ryker.LocalRouting`), built only from Kit parts.
+  The local routing model's own page, under Settings › Models beside its
+  setting: how the model you run yourself would have routed the live
+  messages the provider model routed (`Ryker.LocalRouting`), built only from
+  Kit parts. It lived on Usage & cost until Andrew asked, 2026-10-03, "why
+  the fuck you added Local routing model and Where it decided differently to
+  usage and costs?!"
 
-  One card says where the comparison stands (a dot and a word, the model,
-  and the way to its setting in Settings › Models) and the figures for the
-  page's period and scope: comparisons run, the share of answers routing's
+  A status line says where the comparison stands (a dot and a word, the
+  model, and the way to its setting), then a period switch, then the
+  figures for the period: comparisons run, the share of answers routing's
   checks took (valid) and the share that decided what the provider decided
   (agreed), the median time the local model took beside the provider's, and
   what the provider spent on those messages, which is what a cascade would
@@ -14,9 +17,6 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
   latest valid answers that would have made Ryker do something else, and a
   third the latest answers routing's checks refused, each saying why in
   plain words; every row opens its request's timeline at the routing call.
-
-  While the mode is off and nothing was compared in the period, the section
-  is its title and one line saying so, with the way to the setting.
   """
   use Phoenix.Component
 
@@ -30,9 +30,29 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.Comparison
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Slack.Names
 
   @setting "/settings/models#local-routing"
+  @path "/settings/models/local-routing"
+  @windows [{"24h", "24 hours"}, {"7d", "7 days"}, {"30d", "30 days"}, {"all", "All time"}]
+
+  @doc "Where the page is."
+  def path, do: @path
+
+  @doc "The sentence under the page's title."
+  def description,
+    do:
+      "How a small model you run yourself would have routed the messages the provider model " <>
+        "routed. Routing never uses its answers."
+
+  @doc """
+  The topics an open page listens to: comparisons queued and settled, and
+  the settings, which hold the model it compares.
+  """
+  def subscriptions,
+    do: [{LocalRouting, :subscribe_comparisons, []}, {Settings, :subscribe, []}]
+
   @listed 10
   @preview_characters 120
 
@@ -283,21 +303,19 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
 
   # -- Rendering ----------------------------------------------------------------
 
-  @doc "The section as HTML, for the string-built Usage page."
-  @spec render(map() | nil) :: iodata()
-  def render(nil), do: []
-
-  def render(summary) do
-    %{__changed__: nil, summary: summary}
-    |> section()
+  @doc "The page's body for one period (`24h`, `7d`, `30d` or `all`)."
+  @spec render(map(), String.t()) :: iodata()
+  def render(summary, window) do
+    %{__changed__: nil, summary: summary, window: window}
+    |> page()
     |> Safe.to_iodata()
   end
 
   attr(:summary, :map, required: true)
+  attr(:window, :string, required: true)
 
-  defp section(assigns) do
+  defp page(assigns) do
     %{setting: setting, figures: figures} = assigns.summary
-    measured? = figures.compared + figures.waiting + figures.failed > 0
 
     assigns =
       assign(assigns,
@@ -305,12 +323,6 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
         groups: Kit.day_groups(assigns.summary.disagreements, & &1.at, DateTime.utc_now()),
         refusals: assigns.summary.refusals,
         refusal_groups: Kit.day_groups(assigns.summary.refusals, & &1.at, DateTime.utc_now()),
-        lede:
-          if(setting.mode == :shadow or measured?,
-            do:
-              "How a small model you run yourself would have routed the messages the " <>
-                "provider model routed. Routing uses only the provider model's decision."
-          ),
         link:
           if(setting.mode == :shadow, do: "Change it", else: "Turn it on") <>
             " in Settings › Models",
@@ -319,21 +331,40 @@ defmodule Ryker.ControlPlane.LocalRoutingUsage do
         primary: primary(figures),
         secondary: secondary(figures),
         setting_href: @setting,
-        state: state(setting.mode, assigns.summary.last_settled)
+        state: state(setting.mode, assigns.summary.last_settled),
+        windows:
+          Enum.map(@windows, fn {key, label} ->
+            {label, @path <> "?window=" <> key, key == assigns.window}
+          end)
       )
 
     ~H"""
-    <div id="local-routing" class="usage-local-routing">
-      <Kit.section_card title="Local routing model" lede={@lede}>
-        <Kit.status_line state={@state}>
-          <span :if={@model}> · {@model}</span> · <a href={@setting_href}>{@link}</a>
-        </Kit.status_line>
-        <Kit.counts :if={@primary != []} items={@primary} label="Local routing model" />
+    <div id="local-routing" class="local-routing-page">
+      <Kit.status_line state={@state}>
+        <span :if={@model}>{@model}</span>
+        <a href={@setting_href}>{@link}</a>
+      </Kit.status_line>
+      <Kit.toolbar>
+        <Kit.segmented label="Period" options={@windows} />
+      </Kit.toolbar>
+      <Kit.section_card
+        id="local-routing-figures"
+        title="How it compares"
+        lede="Of the live messages routed in this period, how many the local model answered, and how often routing could use its answer and it decided what the provider decided."
+      >
+        <Kit.counts :if={@primary != []} items={@primary} label="How it compares" />
         <Kit.counts
           :if={@secondary != []}
           items={@secondary}
-          label="Local routing model, in more detail"
+          label="How it compares, in more detail"
           secondary
+        />
+        <Kit.empty
+          :if={@primary == [] and @secondary == []}
+          variant={:hint}
+          icon={:clock}
+          title="Nothing compared in this period"
+          text="Each message routed while the comparison is on is counted here."
         />
       </Kit.section_card>
       <Kit.section_card

@@ -1127,7 +1127,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         end,
         usage: fn _params ->
           %{
-            channels: [],
+            by: "model",
             days: [
               %{
                 attempts: 1,
@@ -1137,8 +1137,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                 tokens: 2_325
               }
             ],
-            repositories: [],
-            targets: [
+            rows: [
               %{
                 attempts: 1,
                 cost_usd: Decimal.new("0.0125"),
@@ -1147,7 +1146,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                 measured: 1,
                 model: "opus",
                 provider: "claude",
-                target: "claude:opus/high@work",
                 tokens: 2_325
               }
             ],

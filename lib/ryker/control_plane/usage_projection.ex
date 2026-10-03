@@ -2,10 +2,10 @@ defmodule Ryker.ControlPlane.UsageProjection do
   @moduledoc "Comparable usage breakdowns from the same deduplicated execution ledger."
   import Ecto.Query
   alias Ryker.Accounting.Pricing
-  alias Ryker.ControlPlane.{LocalRoutingUsage, RepositoryNames}
+  alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Work.{Measurement, Turn}
+  alias Ryker.Work.Turn
 
   @filters %{
     "usage_profile" => :profile,
@@ -30,24 +30,32 @@ defmodule Ryker.ControlPlane.UsageProjection do
   def window(value) when value in ~w(24h 7d 30d all), do: value
   def window(_), do: "7d"
 
+  # What the cost can be broken down by, in the order the page offers them.
+  @breakdowns ~w(work-type model channel repository person account)
+
+  @doc "The breakdowns Usage offers, in order."
+  def breakdowns, do: @breakdowns
+
+  @doc "The breakdown a page asked for, or work type, the one it opens on."
+  def breakdown(value) when value in @breakdowns, do: value
+  def breakdown(_), do: "work-type"
+
   @doc """
-  The Usage page: every breakdown for the requested window and execution mode.
-  Like Activity, it opens on live work.
+  The Usage page for the requested window and execution mode: the totals, the
+  days, the rates that made estimates, and the cost broken down one way
+  (`breakdown/1`). Like Activity, it opens on live work.
   """
   @spec page(term()) :: map()
   def page(params) when is_map(params) do
     window = window(params["window"])
     mode = if params["mode"] in ~w(all shadow), do: params["mode"], else: "live"
+    by = breakdown(params["by"])
 
     window
     |> since()
     |> Ryker.Accounting.Query.executions(mode)
-    |> snapshot()
-    |> Map.merge(%{
-      local_routing: LocalRoutingUsage.project(since(window), mode),
-      mode: mode,
-      window: window
-    })
+    |> snapshot(by)
+    |> Map.merge(%{by: by, mode: mode, window: window})
   end
 
   def page(_params), do: page(%{})
@@ -101,33 +109,40 @@ defmodule Ryker.ControlPlane.UsageProjection do
   def since("30d"), do: DateTime.add(DateTime.utc_now(), -30, :day)
   def since(_), do: DateTime.add(DateTime.utc_now(), -7, :day)
 
-  def snapshot(query) do
+  def snapshot(query, by \\ "work-type") do
     prices = Pricing.used(query)
     query = dimensions(query)
 
-    targets =
-      groups(query, [:execution_target])
-      |> Enum.map(fn row ->
-        row
-        |> Map.put(:target, row.execution_target)
-        |> Map.merge(Measurement.target_parts(row.execution_target))
-      end)
-
     %{
       totals: totals(query),
-      profiles: groups(query, [:provider, :profile]),
-      targets: targets,
-      models: groups(query, [:provider, :model, :effort]),
-      performance: groups(query, [:work_kind, :provider, :model, :effort]),
-      channels:
-        groups(from(e in query, where: e.transport == "slack"), [:transport, :conversation_ref]),
-      repositories: query |> groups([:repository_ref]) |> named_repositories(),
-      kinds: groups(query, [:work_kind]),
-      users: groups(people(query), [:source, :workspace, :actor]),
+      rows: rows(query, by),
       days: days(query),
       prices: prices
     }
   end
+
+  # A kind of work names the models it ran on, most runs first.
+  defp rows(query, "work-type") do
+    models =
+      query
+      |> groups([:work_kind, :provider, :model, :effort])
+      |> Enum.sort_by(&(-&1.attempts))
+      |> Enum.group_by(& &1.work_kind)
+
+    query
+    |> groups([:work_kind])
+    |> Enum.map(&Map.put(&1, :models, Map.get(models, &1.work_kind, [])))
+  end
+
+  defp rows(query, "model"), do: groups(query, [:provider, :model, :effort])
+
+  # By channel lists Slack channels only: Chat has no channel.
+  defp rows(query, "channel"),
+    do: groups(from(e in query, where: e.transport == "slack"), [:transport, :conversation_ref])
+
+  defp rows(query, "repository"), do: query |> groups([:repository_ref]) |> named_repositories()
+  defp rows(query, "person"), do: groups(people(query), [:source, :workspace, :actor])
+  defp rows(query, "account"), do: groups(query, [:provider, :profile])
 
   def totals(query), do: query |> aggregate() |> Repo.one!() |> finish()
 
@@ -173,6 +188,8 @@ defmodule Ryker.ControlPlane.UsageProjection do
         workspace: entry.source_ref,
         actor: entry.actor_ref,
         actor_kind: type(entry.actor_kind, :string),
+        # The answers Ryker's checks sent back to the model to fix, which the
+        # self-improvement pass watches per kind of work and model.
         corrections:
           fragment(
             "CASE WHEN ? = 'work' AND (? = ? OR (? IS NULL AND ? = ?)) THEN (SELECT count(*) FROM jsonb_array_elements(COALESCE(?::jsonb, '[]'::jsonb)) AS v WHERE v->>'verdict' = 'reject') ELSE 0 END",
@@ -239,13 +256,22 @@ defmodule Ryker.ControlPlane.UsageProjection do
     |> subquery()
   end
 
+  # Most cost first, then most tokens: the order the page ranks them in.
   defp groups(query, fields) do
     query
     |> group_by([e], ^fields)
     |> aggregate()
-    |> correction_counts(fields)
+    |> select_merge([e], %{
+      corrections: type(fragment("COALESCE(SUM(?), 0)::bigint", e.corrections), :integer)
+    })
     |> select_merge([e], map(e, ^fields))
     |> order_by([e],
+      desc:
+        fragment(
+          "COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0)",
+          e.usage_cost_usd,
+          e.estimated_cost_usd
+        ),
       desc:
         fragment(
           "COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0)",
@@ -258,16 +284,16 @@ defmodule Ryker.ControlPlane.UsageProjection do
     |> limit(501)
     |> Repo.all()
     |> Enum.map(&finish/1)
-    |> Enum.sort_by(&{-&1.tokens, -&1.attempts, inspect(Map.take(&1, fields))})
+    |> Enum.sort_by(&{-cost(&1), -&1.tokens, -&1.attempts, inspect(Map.take(&1, fields))})
   end
 
-  defp correction_counts(query, [:work_kind, :provider, :model, :effort]),
+  @doc "What a group cost, reported and estimated together, in USD."
+  @spec cost(map()) :: float()
+  def cost(row),
     do:
-      select_merge(query, [e], %{
-        corrections: type(fragment("COALESCE(SUM(?), 0)::bigint", e.corrections), :integer)
-      })
-
-  defp correction_counts(query, _), do: query
+      Decimal.to_float(
+        Decimal.add(row[:cost_usd] || Decimal.new(0), row[:estimated_cost_usd] || Decimal.new(0))
+      )
 
   defp days(query) do
     query

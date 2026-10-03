@@ -1,11 +1,24 @@
 defmodule Ryker.ControlPlane.UsagePage do
   @moduledoc """
-  Usage as an operator's ledger: totals, subscriptions, and the work behind
-  them. An open page redraws when usage is recorded or a price changes
-  (`subscriptions/0`).
+  Usage & cost: the period's totals, its tokens over time, where the time
+  went, then where the money went, one breakdown at a time, and the rates
+  that made the estimates. An open page redraws when usage is recorded or a
+  price changes (`subscriptions/0`).
   """
-  alias Ryker.{Accounting, LocalRouting, Settings}
-  alias Ryker.ControlPlane.{Kit, LocalRoutingUsage, Paths, SettingsRows, UsageChart}
+  use Phoenix.Component
+
+  alias Phoenix.HTML.Safe
+  alias Ryker.{Accounting, Settings}
+
+  alias Ryker.ControlPlane.{
+    Components,
+    Kit,
+    Paths,
+    SettingsRows,
+    UsageChart,
+    UsageProjection
+  }
+
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
@@ -18,14 +31,12 @@ defmodule Ryker.ControlPlane.UsagePage do
   @doc """
   The topics an open Usage page listens to, as the context functions that
   subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): every execution's
-  usage, the prices in the settings, and the local routing model's
-  comparisons.
+  usage and the prices in the settings.
   """
   def subscriptions,
     do: [
       {Accounting, :subscribe_usage, []},
-      {Settings, :subscribe, []},
-      {LocalRouting, :subscribe_comparisons, []}
+      {Settings, :subscribe, []}
     ]
 
   def render(snapshot) do
@@ -53,74 +64,25 @@ defmodule Ryker.ControlPlane.UsagePage do
       "</section><section class=\"usage-timing-panel\"><h2>Where the time went</h2>",
       timing(totals),
       "</section></div>",
-      performance(Map.get(snapshot, :performance, []), snapshot),
-      LocalRoutingUsage.render(Map.get(snapshot, :local_routing)),
-      section("By account", "profiles", Map.get(snapshot, :profiles, []), snapshot, :profile),
-      section(
-        "By model",
-        "models",
-        Map.get(snapshot, :models, snapshot.targets),
-        snapshot,
-        :model
-      ),
-      section("By channel", "channels", snapshot.channels, snapshot, :channel),
-      section("By repository", "repositories", snapshot.repositories, snapshot, :repository),
-      section("By work type", "work-types", Map.get(snapshot, :kinds, []), snapshot, :kind),
-      section("By user", "users", Map.get(snapshot, :users, []), snapshot, :user),
+      breakdown(snapshot),
       methodology(snapshot),
       "</div>"
     ]
   end
 
-  defp performance([], _), do: []
-
-  defp performance(rows, snapshot) do
-    [
-      "<section id=\"model-performance\" class=\"usage-section\"><h2>Model performance by work type</h2>",
-      "<div class=\"table-wrap\"><table class=\"usage-performance-table\"><thead><tr><th>Work type / model</th><th>Executions</th><th>Failed runs</th><th>Response corrections</th><th>Average model time</th></tr></thead><tbody>",
-      Enum.map(Enum.take(rows, 500), fn row ->
-        [
-          "<tr><td>",
-          kind_link(
-            row.work_kind,
-            kind_name(row.work_kind),
-            %{
-              work_kind: row.work_kind,
-              model: row.model,
-              provider: row.provider,
-              effort: row.effort
-            },
-            snapshot
-          ),
-          "<br><small>",
-          e(Enum.join(Enum.reject([row.provider, row.model, row.effort], &is_nil/1), " · ")),
-          "</small></td><td>",
-          e(number(row.attempts)),
-          "</td><td>",
-          e(number(row.unsuccessful)),
-          "</td><td>",
-          e(number(row.corrections)),
-          "</td><td>",
-          e(duration(row.average_provider_ms)),
-          "</td></tr>"
-        ]
-      end),
-      "</tbody></table></div></section>"
-    ]
-  end
-
   defp filters(snapshot) do
     mode = Map.get(snapshot, :mode, "live")
+    by = Map.get(snapshot, :by, "work-type")
 
     [
       "<div class=\"usage-filters\"><nav class=\"windows\" aria-label=\"Usage window\">",
       Enum.map(~w(24h 7d 30d all), fn window ->
-        filter_link(%{window: window, mode: mode}, window, window == snapshot.window)
+        filter_link([window: window, mode: mode, by: by], window, window == snapshot.window)
       end),
       "</nav><nav class=\"windows usage-scope\" aria-label=\"Execution scope\">",
       Enum.map([{"all", "All work"}, {"live", "Live work"}, {"shadow", "Evaluations"}], fn {scope,
                                                                                             label} ->
-        filter_link(%{window: snapshot.window, mode: scope}, label, scope == mode)
+        filter_link([window: snapshot.window, mode: scope, by: by], label, scope == mode)
       end),
       "</nav></div>"
     ]
@@ -128,8 +90,8 @@ defmodule Ryker.ControlPlane.UsagePage do
 
   defp filter_link(params, label, selected) do
     [
-      "<a href=\"/usage?",
-      e(Paths.encode_query(params)),
+      "<a href=\"",
+      e(usage_path(params)),
       "\"",
       if(selected, do: " aria-current=\"page\"", else: ""),
       ">",
@@ -137,6 +99,9 @@ defmodule Ryker.ControlPlane.UsagePage do
       "</a>"
     ]
   end
+
+  # Its parameters as a keyword list, so a link reads the same on every load.
+  defp usage_path(params), do: "/usage?" <> Paths.encode_query(params)
 
   defp stat(label, amount, class \\ "") do
     [
@@ -150,168 +115,147 @@ defmodule Ryker.ControlPlane.UsagePage do
     ]
   end
 
-  # A row without a saved identity counts in every total but gets no row or
-  # note of its own.
-  defp section(title, id, rows, snapshot, kind) do
-    known = Enum.reject(rows, &missing_identity?(&1, kind))
+  # -- Where the money went ----------------------------------------------------
 
-    [
-      "<section class=\"usage-breakdown\" id=\"usage-",
-      id,
-      "\"><div class=\"usage-section-heading\"><h2>",
-      title,
-      "</h2><span>",
-      if(length(rows) > 500, do: "500+", else: number(length(known))),
-      "</span></div>",
-      if(known == [] and rows != [], do: "", else: breakdown(known, snapshot, kind)),
-      truncation(rows),
-      "</section>"
-    ]
+  # Andrew, 2026-10-03, of six tables of token columns, the cost cut off at the
+  # right edge: "what i am supposed to do or learn by looking at them?" One
+  # table now answers one question at a time, chosen above it: what each kind
+  # of work, model, channel, repository, person or account cost, most first,
+  # with its share of the whole, what one request cost and how many runs
+  # failed. Each name opens the requests behind it on Activity.
+  @breakdowns [
+    {"work-type", "Work type"},
+    {"model", "Model"},
+    {"channel", "Channel"},
+    {"repository", "Repository"},
+    {"person", "Person"},
+    {"account", "Account"}
+  ]
+
+  @ledes %{
+    "work-type" => "What each kind of work cost, most first.",
+    "model" => "What each model cost, and how often its runs failed.",
+    "channel" => "What the requests from each Slack channel cost.",
+    "repository" => "What the work in each repository cost.",
+    "person" => "What the requests each person made cost.",
+    "account" => "What ran on each model account."
+  }
+
+  defp breakdown(snapshot) do
+    by = Map.get(snapshot, :by, "work-type")
+    rows = Map.get(snapshot, :rows, [])
+    known = Enum.reject(rows, &missing_identity?(&1, by))
+    total = snapshot.totals
+    by_cost? = cost(total) > 0
+
+    %{
+      __changed__: nil,
+      by: by,
+      label: label(by),
+      lede: Map.fetch!(@ledes, by),
+      options:
+        Enum.map(@breakdowns, fn {key, label} ->
+          {label,
+           usage_path(window: snapshot.window, mode: Map.get(snapshot, :mode, "live"), by: key),
+           key == by}
+        end),
+      rows: known |> Enum.take(500) |> Enum.map(&line(&1, by, snapshot, total, by_cost?)),
+      share: if(by_cost?, do: "Share of cost", else: "Share of tokens"),
+      empty: if(known == [], do: empty(by)),
+      truncated: length(rows) > 500
+    }
+    |> breakdown_view()
+    |> Safe.to_iodata()
   end
 
-  defp breakdown([], _, kind) do
-    {title, text} = empty(kind)
-    Kit.empty_html(variant: :hint, icon: :usage, title: title, text: text)
+  defp breakdown_view(assigns) do
+    ~H"""
+    <section id="usage-breakdown" class="usage-breakdown" aria-label="Where the money went">
+      <Kit.section_head title="Where the money went" lede={@lede}>
+        <:actions>
+          <Kit.segmented label="Break the cost down by" options={@options} />
+        </:actions>
+      </Kit.section_head>
+      <Kit.table
+        :if={@rows != []}
+        id="usage-breakdown-table"
+        label={"Cost by " <> String.downcase(@label)}
+        rows={@rows}
+      >
+        <:col :let={row} label={@label}>
+          <span class="usage-name">{row.name}</span>
+          <small :if={row.details != []} class="usage-details">
+            <%= for {detail, index} <- Enum.with_index(row.details) do %>
+              <span :if={index > 0} aria-hidden="true"> · </span>{detail}
+            <% end %>
+          </small>
+        </:col>
+        <:col :let={row} label={@share} numeric>
+          <span class="usage-share">
+            <svg viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true">
+              <rect class="usage-share-track" width="100" height="6" rx="3" />
+              <rect class="usage-share-fill" width={row.share_width} height="6" rx="3" />
+            </svg>
+            <span class="usage-share-value">{row.share}</span>
+          </span>
+        </:col>
+        <:col :let={row} label="Cost" numeric>{row.cost}</:col>
+        <:col :let={row} label="Requests" numeric>{row.requests}</:col>
+        <:col :let={row} label="Per request" numeric>{row.per_request}</:col>
+        <:col :let={row} label="Failed runs" numeric>{row.failed}</:col>
+      </Kit.table>
+      <Kit.empty
+        :if={@empty}
+        variant={:hint}
+        icon={:usage}
+        title={elem(@empty, 0)}
+        text={elem(@empty, 1)}
+      />
+      <p :if={@truncated} class="usage-truncated">
+        Showing the 500 largest. The totals above include all of it.
+      </p>
+    </section>
+    """
   end
 
-  defp breakdown(rows, snapshot, :user) do
-    [
-      "<div class=\"table-wrap\"><table class=\"usage-breakdown-table usage-users-table\"><thead><tr><th>User</th><th>Requests</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>",
-      Enum.map(Enum.take(rows, 500), fn row ->
-        [
-          "<tr><td class=\"usage-identity\">",
-          identity(row, snapshot, :user),
-          "</td><td>",
-          primary(number(value(row, :requests)), ""),
-          "</td><td>",
-          primary(tokens(row, :tokens), ""),
-          "</td><td class=\"usage-money\">",
-          e(money(row)),
-          "</td></tr>"
-        ]
-      end),
-      "</tbody></table></div>"
-    ]
+  # One row: its name, which opens what it stands for, the line under it, and
+  # its figures.
+  defp line(row, by, snapshot, total, by_cost?) do
+    share =
+      if by_cost?,
+        do: cost(row) / cost(total),
+        else: share(row, total)
+
+    %{
+      name: name(row, by, snapshot),
+      details: row |> details(by) |> Enum.reject(&is_nil/1),
+      share: percent(share),
+      share_width: coordinate(min((share || 0) * 100, 100)),
+      cost: money(row),
+      requests: if(value(row, :requests) > 0, do: number(row.requests), else: "—"),
+      per_request: per_request(row),
+      failed: failed(row)
+    }
   end
 
-  defp breakdown(rows, snapshot, kind) do
-    [
-      "<div class=\"table-wrap\"><table class=\"usage-breakdown-table usage-detail-table\">",
-      "<colgroup><col class=\"usage-name-col\"></colgroup><colgroup><col class=\"usage-count-col\"></colgroup>",
-      "<colgroup><col span=\"2\" class=\"usage-token-col\"></colgroup><colgroup><col span=\"2\" class=\"usage-token-col\"></colgroup>",
-      "<colgroup><col class=\"usage-performance-col\"></colgroup><colgroup><col class=\"usage-cost-col\"></colgroup>",
-      "<thead><tr class=\"usage-column-groups\"><th scope=\"col\" rowspan=\"2\">",
-      heading(kind),
-      "</th><th scope=\"col\" rowspan=\"2\">Usage</th><th scope=\"colgroup\" colspan=\"2\" class=\"usage-group-start\">Input</th><th scope=\"colgroup\" colspan=\"2\" class=\"usage-group-start\">Output</th>",
-      "<th scope=\"col\" rowspan=\"2\" class=\"usage-group-start usage-performance\">Performance</th><th scope=\"col\" rowspan=\"2\" class=\"usage-group-start\">Cost</th></tr>",
-      "<tr class=\"usage-metric-headings\"><th scope=\"col\" class=\"usage-group-start\">Fresh input</th><th scope=\"col\">Cached input</th><th scope=\"col\" class=\"usage-group-start\">Output</th><th scope=\"col\">Reasoning</th></tr></thead><tbody>",
-      Enum.map(Enum.take(rows, 500), &row(&1, snapshot, kind)),
-      "</tbody></table></div>"
-    ]
-  end
+  defp label(by), do: @breakdowns |> List.keyfind(by, 0) |> elem(1)
 
-  defp row(row, snapshot, kind) do
-    [
-      "<tr><td class=\"usage-identity\">",
-      identity(row, snapshot, kind),
-      "</td><td>",
-      usage(row),
-      secondary(percent(share(row, snapshot.totals)) <> " of tokens"),
-      "</td>",
-      Enum.map([:input_tokens, :cached_input_tokens, :output_tokens, :reasoning_tokens], fn key ->
-        [
-          "<td class=\"usage-token-cell",
-          if(key in [:input_tokens, :output_tokens], do: " usage-group-start", else: ""),
-          "\">",
-          e(tokens(row, key)),
-          "</td>"
-        ]
-      end),
-      "<td class=\"usage-group-start usage-performance\">",
-      primary(percent(Map.get(row, :cache_hit_rate)), " cache"),
-      secondary("Avg. model time: " <> elapsed(Map.get(row, :average_provider_ms))),
-      "</td><td class=\"usage-money usage-group-start\">",
-      e(money(row)),
-      "</td></tr>"
-    ]
-  end
+  # What the row stands for, as a link to the requests behind it.
+  defp name(row, "work-type", snapshot),
+    do: kind_link(row.work_kind, kind_name(row.work_kind), %{work_kind: row.work_kind}, snapshot)
 
-  # A group leads with the requests its link lists on Activity. Work that
-  # belongs to no request, such as learning, leads with how many times it ran.
-  defp usage(%{requests: requests} = row) when requests > 0 do
-    [
-      primary(number(requests), plural(requests, " request", " requests")),
-      secondary(executions(row) <> " · " <> tokens(row, :tokens) <> " tokens")
-    ]
-  end
-
-  defp usage(row) do
-    [
-      primary(number(row.attempts), plural(row.attempts, " execution", " executions")),
-      secondary(tokens(row, :tokens) <> " tokens")
-    ]
-  end
-
-  defp executions(row),
-    do: number(row.attempts) <> plural(row.attempts, " execution", " executions")
-
-  defp plural(1, one, _many), do: one
-  defp plural(_count, _one, many), do: many
-
-  # What an empty breakdown means. Channels are Slack channels and users are
-  # people in Slack or GitHub, so either is empty while Chat work ran; "No
-  # activity in this period" there contradicted the totals above it.
-  defp empty(:channel),
-    do: {"No work came from a Slack channel in this period", "Chat is not listed by channel."}
-
-  defp empty(:user),
+  defp name(row, "model", snapshot),
     do:
-      {"No work came from a person in Slack or GitHub in this period",
-       "Chat is not listed by user."}
-
-  defp empty(_kind),
-    do: {"No activity in this period", "Choose a longer window to see earlier work."}
-
-  defp truncation(rows),
-    do:
-      if(length(rows) > 500,
-        do: "<p>Showing the 500 largest groups. Totals include all activity.</p>",
-        else: ""
-      )
-
-  defp missing_identity?(row, :profile), do: is_nil(row.profile)
-
-  defp missing_identity?(row, :kind), do: row.work_kind not in @work_kinds
-
-  defp missing_identity?(row, :user), do: is_nil(row.actor)
-
-  defp missing_identity?(row, :model),
-    do: is_nil(row.model) or (Map.has_key?(row, :target) and is_nil(row.target))
-
-  defp missing_identity?(_, _), do: false
-
-  defp identity(row, snapshot, :profile) do
-    [
-      entity_link(row.profile, %{profile: row.profile, provider: row.provider}, snapshot),
-      secondary(row.provider)
-    ]
-  end
-
-  defp identity(row, snapshot, :model) do
-    [
       entity_link(
-        Enum.join(Enum.reject([row.model, Map.get(row, :effort)], &is_nil/1), "/"),
+        model_name(row),
         %{model: row.model, provider: row.provider, effort: Map.get(row, :effort)},
         snapshot
-      ),
-      secondary(row.provider || "Provider not saved")
-    ]
-  end
+      )
 
-  defp identity(row, snapshot, :channel),
+  defp name(row, "channel", snapshot),
     do: entity_link(channel(row), %{channel: row.conversation_ref}, snapshot)
 
-  defp identity(row, snapshot, :repository),
+  defp name(row, "repository", snapshot),
     do:
       entity_link(
         row[:repository_name] || "No repository",
@@ -319,53 +263,157 @@ defmodule Ryker.ControlPlane.UsagePage do
         snapshot
       )
 
-  defp identity(row, snapshot, :kind),
-    do: kind_link(row.work_kind, kind_name(row.work_kind), %{work_kind: row.work_kind}, snapshot)
-
-  defp identity(row, snapshot, :user) do
-    [
+  defp name(row, "person", snapshot),
+    do:
       entity_link(
         user(row),
         %{actor: row.actor, actor_kind: "user", workspace: row.workspace, source: row.source},
         snapshot
-      ),
-      source_line(row)
-    ]
+      )
+
+  defp name(row, "account", snapshot),
+    do: entity_link(row.profile, %{profile: row.profile, provider: row.provider}, snapshot)
+
+  # The quiet line under a name, one line long: how many runs it took, how
+  # long one took and how many answers were sent back, what it ran on, or
+  # where a person comes from.
+  defp details(row, "work-type"),
+    do: [runs(row), each(row), corrections(row), models(row[:models] || [])]
+
+  defp details(row, "model"),
+    do: [row.provider, runs(row), each(row), corrections(row), tokens_line(row)]
+
+  defp details(row, "person"), do: [source(row), runs(row)]
+  defp details(row, "account"), do: [row.provider, runs(row), tokens_line(row)]
+  defp details(row, _by), do: [runs(row), tokens_line(row)]
+
+  # The models a kind of work ran on, most runs first; the rest are named
+  # when the pointer rests on them.
+  defp models([]), do: nil
+  defp models([one]), do: "on " <> model_name(one)
+
+  defp models([one | rest] = all),
+    do:
+      more_mark(%{
+        __changed__: nil,
+        first: model_name(one),
+        more: length(rest),
+        all: Enum.map_join(all, ", ", &model_name/1)
+      })
+
+  defp more_mark(assigns) do
+    ~H"""
+    <span title={@all}>on {@first} and {@more} more</span>
+    """
   end
 
-  # Where a user comes from, said quietly under the name. A Slack member's
-  # "Slack" opens their profile, the way every person links to Slack; the
-  # name itself opens their activity, like every other row here.
-  defp source_line(%{source: "slack", workspace: workspace, actor: actor} = row) do
-    case Names.person(workspace, actor) do
-      %{href: href} when is_binary(href) ->
-        [
-          "<span class=\"usage-secondary\"><a href=\"",
-          e(href),
-          "\" target=\"_blank\" rel=\"noopener noreferrer\">",
-          e(source_name(row.source)),
-          "</a></span>"
-        ]
+  defp model_name(row),
+    do: Enum.join(Enum.reject([row.model, Map.get(row, :effort)], &is_nil/1), "/")
 
-      _no_profile ->
-        secondary(source_name(row.source))
+  defp runs(%{attempts: 1}), do: "1 run"
+  defp runs(row), do: number(row.attempts) <> " runs"
+
+  # Answers Ryker's checks sent back to the model to fix, named the way the
+  # request's timeline names them.
+  defp corrections(%{corrections: 1}), do: "1 correction"
+
+  defp corrections(%{corrections: count}) when is_integer(count) and count > 1,
+    do: number(count) <> " corrections"
+
+  defp corrections(_row), do: nil
+
+  defp each(%{average_provider_ms: ms}) when is_integer(ms), do: elapsed(ms) <> " a run"
+  defp each(_row), do: nil
+
+  defp tokens_line(row) do
+    case tokens(row, :tokens) do
+      "—" -> nil
+      amount -> amount <> " tokens"
     end
   end
 
-  defp source_line(row), do: secondary(source_name(row.source))
+  # Where a person comes from, said quietly under the name. A Slack member's
+  # links to their profile, the way every person links to Slack; the name
+  # itself opens their requests, like every other row here (Andrew,
+  # 2026-10-03: "slack" should not be same as large and same style as username
+  # link).
+  defp source(%{source: "slack", workspace: workspace, actor: actor} = row) do
+    case Names.person(workspace, actor) do
+      %{href: href} when is_binary(href) ->
+        source_mark(%{__changed__: nil, href: href, source: row.source})
+
+      _no_profile ->
+        source_mark(%{__changed__: nil, href: nil, source: row.source})
+    end
+  end
+
+  defp source(row), do: source_mark(%{__changed__: nil, href: nil, source: row.source})
+
+  defp source_mark(assigns) do
+    assigns =
+      assign(assigns, name: source_name(assigns.source), icon: source_icon(assigns.source))
+
+    ~H"""
+    <a :if={@href} class="usage-source" href={@href} target="_blank" rel="noopener noreferrer"><Components.icon
+      :if={@icon}
+      name={@icon}
+    />{@name}</a><span :if={!@href} class="usage-source"><Components.icon :if={@icon} name={@icon} />{@name}</span>
+    """
+  end
+
+  defp source_icon("slack"), do: :slack
+  defp source_icon("github"), do: :github
+  defp source_icon("webhook"), do: :plug
+  defp source_icon(_source), do: nil
+
+  defp per_request(%{requests: requests} = row) when requests > 0 do
+    if measured_cost?(row), do: usd(cost(row) / requests), else: "—"
+  end
+
+  defp per_request(_row), do: "—"
+
+  defp failed(%{unsuccessful: 0}), do: "None"
+
+  defp failed(%{unsuccessful: failed, attempts: runs}) when is_integer(failed),
+    do: "#{number(failed)} of #{number(runs)}"
+
+  defp failed(_row), do: "None"
+
+  # What an empty breakdown means. Channels are Slack channels and people are
+  # people in Slack or GitHub, so either is empty while Chat work ran; "No
+  # activity in this period" there contradicted the totals above it.
+  defp empty("channel"),
+    do: {"No work came from a Slack channel in this period", "Chat is not listed by channel."}
+
+  defp empty("person"),
+    do:
+      {"No work came from a person in Slack or GitHub in this period",
+       "Chat is not listed by person."}
+
+  defp empty(_by),
+    do: {"No activity in this period", "Choose a longer window to see earlier work."}
+
+  defp missing_identity?(row, "account"), do: is_nil(row.profile)
+  defp missing_identity?(row, "work-type"), do: row.work_kind not in @work_kinds
+  defp missing_identity?(row, "person"), do: is_nil(row.actor)
+
+  defp missing_identity?(row, "model"),
+    do: is_nil(row.model)
+
+  defp missing_identity?(_row, _by), do: false
 
   # Learning spends on batches of conversation inputs, never on an episode.
   defp kind_link("learning", label, _params, _snapshot),
-    do: ["<a title=\"Learning\" href=\"/memory/learning\">", e(label), "</a>"]
+    do: link_to(label, "/memory/learning")
 
   # Self-analysis spends on requests people were unhappy with, one model call
   # each, and belongs to no request of its own.
   defp kind_link("self_analysis", label, _params, _snapshot),
-    do: ["<a title=\"What to fix\" href=\"/feedback/fix\">", e(label), "</a>"]
+    do: link_to(label, "/feedback/fix")
 
   # Reading each repository for its RYKER.md belongs to no request either.
   defp kind_link("repository_knowledge", label, _params, _snapshot),
-    do: ["<a title=\"Repositories\" href=\"/repositories\">", e(label), "</a>"]
+    do: link_to(label, "/repositories")
 
   defp kind_link(_kind, label, params, snapshot), do: entity_link(label, params, snapshot)
 
@@ -377,23 +425,17 @@ defmodule Ryker.ControlPlane.UsagePage do
         "usage_window" => snapshot.window
       })
 
-    [
-      "<a title=\"",
-      e(label),
-      "\" href=\"/activity?",
-      e(Paths.encode_query(params)),
-      "\">",
-      e(label),
-      "</a>"
-    ]
+    link_to(label, "/activity?" <> Paths.encode_query(params))
   end
 
-  defp heading(:profile), do: "Account"
-  defp heading(:model), do: "Provider / model"
-  defp heading(:channel), do: "Channel"
-  defp heading(:repository), do: "Repository"
-  defp heading(:kind), do: "Work type"
-  defp heading(:user), do: "User"
+  defp link_to(label, href), do: link_mark(%{__changed__: nil, label: label, href: href})
+
+  defp link_mark(assigns) do
+    ~H"""
+    <a href={@href}>{@label}</a>
+    """
+  end
+
   # A work type names what the execution bought, not an internal taxonomy.
   # "Admission", "Standard work" and "Deep work" were the router's own words for
   # its compute tiers and told an operator reading a cost page nothing.
@@ -579,8 +621,15 @@ defmodule Ryker.ControlPlane.UsagePage do
         do: value(row, :tokens) / total.tokens
       )
 
-  defp primary(value, suffix), do: ["<strong>", e(value), "</strong>", e(suffix)]
   defp secondary(text), do: ["<span class=\"usage-secondary\">", e(text), "</span>"]
+  defp cost(row), do: UsageProjection.cost(row)
+  defp measured_cost?(row), do: value(row, :costed) + value(row, :estimated) > 0
+
+  defp usd(amount) when amount > 0 and amount < 0.01,
+    do: "$" <> :erlang.float_to_binary(amount, decimals: 4)
+
+  defp usd(amount), do: "$" <> :erlang.float_to_binary(amount * 1.0, decimals: 2)
+
   defp money(%{attempts: 0}), do: "$0.00"
 
   defp money(row) do

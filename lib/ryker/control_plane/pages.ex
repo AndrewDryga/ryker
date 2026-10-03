@@ -34,12 +34,14 @@ defmodule Ryker.ControlPlane.Pages do
     IncidentRoomsPage,
     LearnedPage,
     LearningPage,
+    LocalRoutingPage,
     PathRef,
     PeoplePage,
     RepositoriesPage,
     SchedulesPage,
     SubscriptionsPage,
     UsagePage,
+    UsageProjection,
     WorkingCopiesPage
   }
 
@@ -277,8 +279,20 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   def page(["usage"], params, options) do
-    snapshot = options.projection.usage.(Map.take(params, ["window", "mode", "page"]))
+    snapshot = options.projection.usage.(Map.take(params, ["window", "mode", "by"]))
     ok("Usage & cost", UsagePage.render(snapshot))
+  end
+
+  # How the local routing model compares on live routing, beside its setting:
+  # Andrew, 2026-10-03, of it on Usage & cost: "why the fuck you added Local
+  # routing model and Where it decided differently to usage and costs?!"
+  def page(["settings", "models", "local-routing"], params, _options) do
+    window = UsageProjection.window(params["window"])
+    summary = LocalRoutingPage.project(UsageProjection.since(window), "live")
+
+    "Local routing model"
+    |> ok(LocalRoutingPage.description(), LocalRoutingPage.render(summary, window))
+    |> Map.put(:back, {"Models", "/settings/models"})
   end
 
   # A hundred failures a page, newest first; older ones are the next page,
@@ -424,6 +438,10 @@ defmodule Ryker.ControlPlane.Pages do
 
   def subscriptions(["rules"], _params), do: BehaviorPage.subscriptions(:rules)
   def subscriptions(["usage"], _params), do: UsagePage.subscriptions()
+
+  def subscriptions(["settings", "models", "local-routing"], _params),
+    do: LocalRoutingPage.subscriptions()
+
   def subscriptions(["failures" | _failure], _params), do: FailuresPage.subscriptions()
   def subscriptions(["working-copies"], _params), do: WorkingCopiesPage.subscriptions()
   def subscriptions(_segments, _params), do: []

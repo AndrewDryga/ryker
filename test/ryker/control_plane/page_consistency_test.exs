@@ -360,7 +360,8 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
       {"Rules", rules(), 1},
       {"Working copies", empty_working_copies(), 1},
       {"Failures", [] |> FailuresPage.list() |> fragment(), 1},
-      {"Usage & cost", empty_usage(), 8}
+      # The token chart, the time, and the one breakdown shown.
+      {"Usage & cost", empty_usage(), 3}
     ]
   end
 
@@ -407,7 +408,7 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
 
     totals = Map.new(snapshot.totals, fn {key, value} -> {key, zero.(value)} end)
 
-    %{snapshot | days: [], targets: [], channels: [], repositories: [], totals: totals}
+    %{snapshot | days: [], rows: [], totals: totals}
     |> UsagePage.render()
     |> IO.iodata_to_binary()
     |> LazyHTML.from_document()

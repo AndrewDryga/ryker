@@ -123,12 +123,12 @@ defmodule Ryker.Learning.AccountingTest do
              :count
            ) == 1
 
-    snapshot = UsageProjection.snapshot(ledger)
-    assert [kind] = snapshot.kinds
+    snapshot = UsageProjection.snapshot(ledger, "work-type")
+    assert [kind] = snapshot.rows
     assert kind.work_kind == "learning"
     assert kind.tokens == 4_100 + 900 + 640
     assert kind.attempts == 1
-    assert [model] = snapshot.models
+    assert [model] = UsageProjection.snapshot(ledger, "model").rows
     assert model.model == "gpt-5.6-luna"
     assert model.effort == "low"
     assert model.provider == "codex"
