@@ -138,7 +138,7 @@ defmodule Ryker.IntegrationSetupTest do
        }}
     end
 
-    defp response_for("/installation/repositories?per_page=100") do
+    defp response_for("/installation/repositories?per_page=100&page=1") do
       response(%{
         "repositories" => [
           %{
@@ -152,6 +152,48 @@ defmodule Ryker.IntegrationSetupTest do
     end
 
     defp response(body), do: {:ok, %{body: body, headers: [], status: 200}}
+  end
+
+  # An organization with more repositories than GitHub lists on one page, as tenantcorp has:
+  # GitHub lists a hundred at a time and says how many there are in all.
+  defmodule PagedRepositoriesRequester do
+    alias Ryker.IntegrationSetupTest.Requester
+
+    def request(_client, :get, "/installation/repositories?per_page=100&page=1", _body, _headers),
+      do:
+        page(
+          Enum.map(1..100, &repository("acme/quiet-#{&1}", 1_000 + &1, "2026-01-01T00:00:00Z"))
+        )
+
+    def request(_client, :get, "/installation/repositories?per_page=100&page=2", _body, _headers),
+      do:
+        page([
+          repository("acme/recent", 2_001, "2026-09-30T09:00:00Z"),
+          repository("acme/retired", 2_002, "2026-10-03T09:00:00Z", true),
+          repository("acme/busy", 2_003, "2026-10-02T09:00:00Z")
+        ])
+
+    def request(client, method, path, body, headers),
+      do: Requester.request(client, method, path, body, headers)
+
+    defp repository(full_name, id, pushed_at, archived \\ false),
+      do: %{
+        "archived" => archived,
+        "default_branch" => "main",
+        "full_name" => full_name,
+        "id" => id,
+        "private" => true,
+        "pushed_at" => pushed_at
+      }
+
+    defp page(repositories),
+      do:
+        {:ok,
+         %{
+           body: %{"repositories" => repositories, "total_count" => 103},
+           headers: [],
+           status: 200
+         }}
   end
 
   # Slack listing a workspace's people a page at a time, as it does: a page may hold fewer
@@ -477,6 +519,23 @@ defmodule Ryker.IntegrationSetupTest do
   # An imported repository now joins the default environment, which Chat and
   # every conversation without its own setting use: it is usable at once, and
   # the first repository stays the one work changes.
+  # Andrew, 2026-10-03, on tenant's Add repositories: "those ar enot all repos, we have more than
+  # 100 and also we should order them somehow by activity and hide archived ones?" GitHub lists a
+  # hundred repositories a page, and the picker read only the first page, alphabetically, archived
+  # ones included.
+  test "the picker offers every repository the App reaches, most recently active first, never an archived one" do
+    connect_github!()
+
+    assert {:ok, repositories} =
+             IntegrationSetup.github_repositories(requester: PagedRepositoriesRequester)
+
+    names = Enum.map(repositories, & &1.full_name)
+    assert length(names) == 102
+    assert Enum.take(names, 2) == ["acme/busy", "acme/recent"]
+    assert "acme/quiet-100" in names
+    refute "acme/retired" in names
+  end
+
   test "importing a repository puts it in the default environment" do
     connect_github!()
     assert {:ok, [repository]} = IntegrationSetup.github_repositories(requester: Requester)
