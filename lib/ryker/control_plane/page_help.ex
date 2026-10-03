@@ -317,7 +317,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"When a retry won't help",
        [
          "If something has to change first, such as a token or Ryker's place in a Slack channel, the page links to where to change it. Fix that, then come back and retry.",
-         "Technical details hold the error codes, for support."
+         "Leave it takes a failure off this list until something changes it again, so it stops asking for you."
        ]},
       {"After it is fixed",
        [

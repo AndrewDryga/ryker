@@ -60,6 +60,22 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     refute inspect(explanation) =~ "keeps retrying"
   end
 
+  # Andrew, 2026-10-03, of a failure page: it "doesn't tell what was the issue, show an error". A
+  # cause Ryker has no words for said "The Technical details keep its code" after Technical
+  # details were gone; it now shows the saved code itself, and only ever a code.
+  test "an error Ryker has no words for is shown by its saved code" do
+    for kind <- ~w(admission publication retention) do
+      row = %{kind: kind, summary: "contract_drift_v2", source: "ryker", attempt_count: 1}
+      words = inspect(FailureExplanation.explain(row))
+      assert words =~ "The saved error is “contract_drift_v2”.", kind
+      refute words =~ "Technical details", kind
+
+      refute inspect(FailureExplanation.explain(%{row | summary: "#{kind} blocked"})) =~
+               "saved error is",
+             kind
+    end
+  end
+
   # A reaction is the one delivery that belongs to an input rather than an
   # episode. The failures page looked its conversation up through that input,
   # but the delivery row dropped the input id on the way in, so a blocked

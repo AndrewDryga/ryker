@@ -26,8 +26,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     * `:automatic`: Ryker is still retrying on its own.
 
   Raw error bodies never appear here: they may carry provider bodies, source
-  text or credentials. The Technical details list the saved code, allowlisted
-  protocol facts and a digest of the stored diagnostic.
+  text or credentials. An error Ryker has no words for is shown by its saved
+  code, and the allowlisted protocol facts (what Slack said, the worker's HTTP
+  status) are listed under What happened (`details/1`).
   """
 
   alias Ryker.ControlPlane.LearningActivity
@@ -200,11 +201,22 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp http_status(%{http_status: status}), do: "HTTP #{status}"
   defp http_status(_diagnosis), do: nil
 
+  # An error Ryker has no words for, as it was saved: a closed code, never a
+  # provider's body, and the one thing to look up or report (Andrew,
+  # 2026-10-03: "doesn't tell what was the issue, show an error").
+  defp saved_error(code) when is_binary(code) do
+    if Regex.match?(~r/\A[a-z0-9_.:-]{1,128}\z/, code),
+      do: " The saved error is “#{code}”.",
+      else: ""
+  end
+
+  defp saved_error(_code), do: ""
+
   defp stopped_step(%{cleanup_phase: phase}) when not is_nil(phase), do: phase_name(phase)
   defp stopped_step(%{setup_step: step}) when not is_nil(step), do: sentence(setup_step(step))
   defp stopped_step(_row), do: nil
 
-  @doc "The cleanup steps and how far this cleanup got, for the Technical details."
+  @doc "The cleanup steps and how far this cleanup got, for What happened."
   @spec cleanup_steps(map()) :: [map()]
   def cleanup_steps(%{kind: "retention", cleanup_phase: phase} = row) when not is_nil(phase) do
     [
@@ -639,10 +651,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp retention_cause(_row) do
+  defp retention_cause(row) do
     cause(
       "Cleanup stopped before Ryker could confirm it finished.",
-      "The saved error does not name a cause Ryker recognises. The Technical details keep its code.",
+      "The saved error does not name a cause Ryker recognises." <> saved_error(row[:summary]),
       :unknown,
       "Whether it works depends on the cause, which the saved error does not name."
     )
@@ -762,7 +774,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     if holder_reporting?(worker, now) do
       cause(
         "Its worker #{id} is reporting but has not confirmed the run stopped.",
-        "Each attempt ended with “#{words(row.summary)}”. The Technical details keep the code.",
+        "Each attempt ended with “#{words(row.summary)}”.",
         :automatic,
         "Ryker keeps asking worker #{id}; the stop finishes as soon as it answers."
       )
@@ -1420,10 +1432,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp admission_cause(_row) do
+  defp admission_cause(row) do
     cause(
       "It stopped before Ryker could confirm why.",
-      "The saved error does not name a cause Ryker recognises. The Technical details keep its code.",
+      "The saved error does not name a cause Ryker recognises." <> saved_error(row[:summary]),
       :unknown,
       "Whether it works depends on the cause, which the saved error does not name."
     )
@@ -1596,9 +1608,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       code when code in ["slack_workspace_not_configured", "delivery_adapter_not_configured"] ->
         {"Slack is not set up for this workspace.", :auth, nil}
 
-      _other ->
+      other ->
         {"Slack refused the post, or the saved reply did not pass a check.", :unknown,
-         "Whether it works depends on the cause. The Technical details keep the saved code."}
+         "Whether it works depends on the cause." <> saved_error(other)}
     end
   end
 
@@ -1843,9 +1855,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       "delivery_credentials_unavailable" ->
         {"Ryker had no Slack sign-in to update the message with.", :auth, nil}
 
-      _other ->
+      other ->
         {"Ryker could not rebuild or update the message.", :unknown,
-         "Whether it works depends on the cause. The Technical details keep the saved code."}
+         "Whether it works depends on the cause." <> saved_error(other)}
     end
   end
 
@@ -1906,9 +1918,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       "delivery_credentials_unavailable" ->
         {"Ryker had no Slack sign-in to update the card with.", :auth, nil}
 
-      _other ->
+      other ->
         {"Ryker could not rebuild or update the card.", :unknown,
-         "Whether it works depends on the cause. The Technical details keep the saved code."}
+         "Whether it works depends on the cause." <> saved_error(other)}
     end
   end
 
@@ -1967,9 +1979,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       "delivery_credentials_unavailable" ->
         {"Ryker had no Slack sign-in to write the status with.", :auth, nil}
 
-      _other ->
+      other ->
         {"Slack did not take the status.", :unknown,
-         "Whether it works depends on the cause. The Technical details keep the saved code."}
+         "Whether it works depends on the cause." <> saved_error(other)}
     end
   end
 
@@ -2352,12 +2364,12 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp emisar_refusal(_code, _row, _live) do
+  defp emisar_refusal(code, _row, _live) do
     cause(
       "Emisar refused, or answered in a way Ryker did not expect.",
-      "The watch stopped on an answer Ryker cannot act on.",
+      "The watch stopped on an answer Ryker cannot act on." <> saved_error(code),
       :unknown,
-      "Whether it works depends on the cause. The Technical details keep the saved code."
+      "Whether it works depends on the cause."
     )
   end
 
@@ -2524,10 +2536,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp publication_cause(_row) do
+  defp publication_cause(row) do
     cause(
       "Something failed while reviewing or publishing the change.",
-      "The saved error does not name a cause Ryker can describe. The Technical details keep its code.",
+      "The saved error does not name a cause Ryker can describe." <> saved_error(row[:summary]),
       :automatic,
       "Ryker keeps retrying on its own. If it never succeeds, open the task and discard or review it again."
     )
