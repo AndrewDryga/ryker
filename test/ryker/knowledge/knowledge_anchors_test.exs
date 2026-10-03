@@ -45,6 +45,25 @@ defmodule Ryker.Knowledge.KnowledgeAnchorsTest do
              {:error, :knowledge_anchor_not_sourced}
   end
 
+  # Harvested from the live install, 2026-10-01 (learning batches af1a2541 and 8d0546d7): "Before a
+  # change in AndrewDryga/test: the changelog there is HISTORY.md, …". The colon after the
+  # repository is punctuation, yet it was read as the identity going on, as in "deploy:BuildA",
+  # so every attempt that named the repository was refused: three starts each, and both
+  # conversations stopped being learned until a person granted more.
+  test "an identity followed by a colon and a space is the whole identity" do
+    text =
+      "Before a change in AndrewDryga/test: the changelog there is HISTORY.md, newest entry on top, and every entry starts with a date in brackets. Just confirm for now."
+
+    assert KnowledgeAnchors.validate(["AndrewDryga/test", "HISTORY.md"], [text], []) == :ok
+
+    assert KnowledgeAnchors.validate(["AndrewDryga/test"], ["Deploy AndrewDryga/test:"], []) ==
+             :ok
+
+    # A colon that joins more identity still does not end it.
+    assert KnowledgeAnchors.validate(["deploy"], ["Failure in deploy:BuildA."], []) ==
+             {:error, :knowledge_anchor_not_sourced}
+  end
+
   test "automatic candidate identities are bounded and never generalize a URL path" do
     identities =
       KnowledgeAnchors.discover([
