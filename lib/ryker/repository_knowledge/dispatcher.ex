@@ -16,6 +16,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   more file the model may read.
   """
 
+  require Logger
+
   alias Ryker.CoopFleet.JobTemplates
 
   alias Ryker.RepositoryKnowledge.{
@@ -275,16 +277,31 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
       {:error, :repository_knowledge_lease_lost} = error ->
         error
 
-      {:error, _reason} ->
-        unresolved(claim, run)
+      {:error, reason} ->
+        unresolved(claim, run, reason)
     end
   end
 
   # Coop or GitHub could not be asked, or its answer did not settle the step:
   # nothing is replaced; the same run is asked again, less often each time.
-  defp unresolved(claim, run) do
+  defp unresolved(claim, run, reason) do
     with {:ok, run} <- Custody.reconciliation_failed(claim, run.id) do
+      log_unresolved(run, reason)
       Custody.yield(claim, min(Integer.pow(2, min(run.reconcile_attempt_count, 6)), 60))
+    end
+  end
+
+  # The first tries and then every tenth, about every ten minutes once the
+  # wait is a minute: tenant's tenantcorp/tenant-core retried 456 times on
+  # 2026-10-03 and nothing said why.
+  defp log_unresolved(run, reason) do
+    count = run.reconcile_attempt_count
+
+    if count <= 3 or rem(count, 10) == 0 do
+      Logger.warning(
+        "repository knowledge for #{run.repository_ref} could not take its next step " <>
+          "(try #{count}): " <> inspect(reason, limit: 8, printable_limit: 300)
+      )
     end
   end
 

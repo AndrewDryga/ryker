@@ -87,6 +87,26 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
                 to: API
   end
 
+  # Every preparation of the session is refused before it reaches the worker.
+  defmodule RefusedPreparationAPI do
+    alias Ryker.RepositoryKnowledge.LaneTest.API
+
+    def prepare_create_session(_client, _key, _policy, _ref, _source),
+      do: {:error, {:coop_worker_source_refused, "AndrewDryga/emisar", "skypjack/entt"}}
+
+    defdelegate create_session(client, key, policy, ref, source), to: API
+    defdelegate get_session(client, id), to: API
+    defdelegate get_turn(client, session_id, turn_id), to: API
+    defdelegate cancel_turn(client, session_id, turn_id, key, revision), to: API
+    defdelegate operation_by_key(client, key), to: API
+
+    defdelegate submit_frozen_turn(client, session_id, key, revision, submission, gate, extra),
+      to: API
+
+    defdelegate validate_frozen_candidate(client, session_id, turn_id, key, attempt, sha, v),
+      to: API
+  end
+
   setup do
     {:ok, snapshot} = Settings.initialize(@actor)
 
@@ -214,6 +234,22 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert_received {:rival_claim, {:ok, :idle}}
     assert {:ok, :written} in results
     assert RepositoryKnowledge.entry("emisar").document_by == :model
+  end
+
+  # tenant's RYKER.md for tenantcorp/tenant-core retried its session 456 times on 2026-10-03,
+  # once a minute, and nothing anywhere said why: the step's error was dropped.
+  test "a step that keeps failing says why in the log" do
+    github!()
+    coop = coop!([answer_json()])
+    ready!()
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        drain(settings(coop, api: RefusedPreparationAPI), 4)
+      end)
+
+    assert log =~ "repository knowledge for emisar could not take its next step"
+    assert log =~ "skypjack/entt"
   end
 
   # Andrew, 2026-09-27: "also when those are updated?" Once a day each
