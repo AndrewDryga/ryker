@@ -642,22 +642,24 @@ defmodule Ryker.Slack.IncidentRooms do
           {:ok, IncidentRoom.t()} | {:error, term()}
   def close_on_request(room_id, lease_ref, detail) do
     with :ok <- bounded_text(detail, @maximum_error_detail_bytes, :detail) do
-      mutate_claim(room_id, lease_ref, fn room, now ->
-        if is_nil(room.close_requested_at),
-          do: Repo.rollback(:incident_room_close_not_requested)
-
-        attributes =
-          room.channel_state
-          |> reconciled_attributes()
-          |> Map.merge(%{
-            last_error_code: "incident_room_closed",
-            last_error_detail: detail,
-            status: :closed
-          })
-
-        update!(room, attributes, now)
-      end)
+      mutate_claim(room_id, lease_ref, &close_requested_locked(&1, &2, detail))
     end
+  end
+
+  defp close_requested_locked(%IncidentRoom{close_requested_at: nil}, _now, _detail),
+    do: Repo.rollback(:incident_room_close_not_requested)
+
+  defp close_requested_locked(room, now, detail) do
+    attributes =
+      room.channel_state
+      |> reconciled_attributes()
+      |> Map.merge(%{
+        last_error_code: "incident_room_closed",
+        last_error_detail: detail,
+        status: :closed
+      })
+
+    update!(room, attributes, now)
   end
 
   @doc """
@@ -1210,12 +1212,7 @@ defmodule Ryker.Slack.IncidentRooms do
   defp next_claimable_room(now) do
     Repo.one(
       from(room in IncidentRoom,
-        where:
-          ((room.status == :requested and room.channel_state in [:pending, :active]) or
-             (room.status == :ready and room.channel_state != room.reconciled_channel_state) or
-             (room.status in [:requested, :ready] and not is_nil(room.close_requested_at))) and
-            (is_nil(room.next_attempt_at) or room.next_attempt_at <= ^now) and
-            (is_nil(room.lease_expires_at) or room.lease_expires_at <= ^now),
+        where: ^dynamic([room], ^next_step() and ^unleased_and_due(now)),
         order_by: [
           asc_nulls_last: room.close_requested_at,
           asc: fragment("CASE WHEN ? = 'ready' THEN 0 ELSE 1 END", room.status),
@@ -1228,6 +1225,38 @@ defmodule Ryker.Slack.IncidentRooms do
     )
   end
 
+  # A room with a step to take: setting up, catching up with its channel, or
+  # closing on a person's request.
+  defp next_step do
+    dynamic(
+      [room],
+      (room.status == :requested and room.channel_state in [:pending, :active]) or
+        (room.status == :ready and room.channel_state != room.reconciled_channel_state) or
+        (room.status in [:requested, :ready] and not is_nil(room.close_requested_at))
+    )
+  end
+
+  defp unleased_and_due(now) do
+    dynamic(
+      [room],
+      (is_nil(room.next_attempt_at) or room.next_attempt_at <= ^now) and
+        (is_nil(room.lease_expires_at) or room.lease_expires_at <= ^now)
+    )
+  end
+
+  # An open room settled with its channel whose last check is older than the
+  # interval; a room being closed is checked no more.
+  defp health_check_due(due_at, now) do
+    dynamic(
+      [room],
+      room.status == :ready and room.channel_state != :deleted and
+        room.channel_state == room.reconciled_channel_state and
+        is_nil(room.close_requested_at) and
+        (is_nil(room.channel_checked_at) or room.channel_checked_at <= ^due_at) and
+        (is_nil(room.lease_expires_at) or room.lease_expires_at <= ^now)
+    )
+  end
+
   defp claim_health_check_locked(worker_ref, lease_seconds, check_interval_seconds) do
     now = database_now!()
     due_at = DateTime.add(now, -check_interval_seconds, :second)
@@ -1235,12 +1264,7 @@ defmodule Ryker.Slack.IncidentRooms do
     room =
       Repo.one(
         from(room in IncidentRoom,
-          where:
-            room.status == :ready and room.channel_state != :deleted and
-              room.channel_state == room.reconciled_channel_state and
-              is_nil(room.close_requested_at) and
-              (is_nil(room.channel_checked_at) or room.channel_checked_at <= ^due_at) and
-              (is_nil(room.lease_expires_at) or room.lease_expires_at <= ^now),
+          where: ^health_check_due(due_at, now),
           order_by: [asc_nulls_first: room.channel_checked_at, asc: room.id],
           limit: 1,
           lock: "FOR UPDATE SKIP LOCKED"

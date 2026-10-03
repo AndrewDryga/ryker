@@ -416,37 +416,8 @@ defmodule Ryker.ControlPlane.RequestFilters do
   # quiet word beside its name ("Chat", "Slack"); other values need none.
   defp choices(type, rows, selected, params) do
     options =
-      case type do
-        :conversation ->
-          rows
-          |> Enum.filter(&Map.has_key?(&1, :conversation_label))
-          |> Enum.map(
-            &{&1.conversation_ref, &1[:conversation_name] || &1.conversation_label,
-             &1[:conversation_source]}
-          )
-
-        :user ->
-          rows
-          |> Enum.filter(&(&1[:actor_kind] == "user" and &1[:source] != "control_plane"))
-          |> Enum.map(fn row ->
-            {row.actor,
-             if(row.source == "slack",
-               do: Names.name(row.workspace, row.actor),
-               else: row.actor
-             ), nil}
-          end)
-
-        :channel ->
-          rows
-          |> Enum.filter(&(&1[:transport] == "slack"))
-          |> Enum.map(&{&1.conversation_ref, Names.destination(&1.conversation_ref), nil})
-
-        values ->
-          Enum.map(values, &{&1, choice_label(&1), nil})
-      end
-
-    options =
-      options
+      type
+      |> options(rows)
       |> Enum.reject(fn {value, _name, _tag} -> value in [nil, ""] end)
       |> Enum.uniq_by(&elem(&1, 0))
 
@@ -454,6 +425,32 @@ defmodule Ryker.ControlPlane.RequestFilters do
       do: options,
       else: options ++ [{selected, value_label(type, selected, params, rows), nil}]
   end
+
+  defp options(:conversation, rows) do
+    rows
+    |> Enum.filter(&Map.has_key?(&1, :conversation_label))
+    |> Enum.map(
+      &{&1.conversation_ref, &1[:conversation_name] || &1.conversation_label,
+       &1[:conversation_source]}
+    )
+  end
+
+  defp options(:user, rows) do
+    rows
+    |> Enum.filter(&(&1[:actor_kind] == "user" and &1[:source] != "control_plane"))
+    |> Enum.map(&{&1.actor, user_name(&1), nil})
+  end
+
+  defp options(:channel, rows) do
+    rows
+    |> Enum.filter(&(&1[:transport] == "slack"))
+    |> Enum.map(&{&1.conversation_ref, Names.destination(&1.conversation_ref), nil})
+  end
+
+  defp options(values, _rows), do: Enum.map(values, &{&1, choice_label(&1), nil})
+
+  defp user_name(%{source: "slack"} = row), do: Names.name(row.workspace, row.actor)
+  defp user_name(row), do: row.actor
 
   # Typed words find a value by its name or where it is, in any case.
   defp matching(choices, ""), do: choices
