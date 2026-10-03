@@ -491,6 +491,15 @@ evidence and prompts in reach of any node on the tailnet. If the dashboard ever
 needs to be reachable from a phone, that is a separate decision requiring
 Tailscale identity headers and an allowlist, not a bind-address change.
 
+An install published through Tailscale Serve (`RYKER_CONTROL_PUBLIC_URL`, as on
+mac-server) also answers at that host. Serve sets `Tailscale-User-Login` and
+`Tailscale-User-Name` on each request and replaces any a client sent, so a
+request at the published host names its tailnet user: the sidebar shows them,
+and everything they change is recorded as `control-plane:tailscale:<login>`. A
+request at a loopback name never passed through Serve, so its headers are
+ignored and it acts as `control-plane:local`. The name grants nothing; who may
+use the console is still decided by who can reach it.
+
 Consequences to respect:
 - **Read-only by default.** Write paths (retry, discard, publish, keep) are
   individually opted in, each with a confirmation, because there is no second

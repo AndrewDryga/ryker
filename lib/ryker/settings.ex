@@ -40,6 +40,7 @@ defmodule Ryker.Settings do
   alias Ryker.Slack.Operators
 
   @actor "control-plane:local"
+  @tailnet_actor "control-plane:tailscale:"
   @lock_tag "ryker-settings"
   @day 86_400
   # Keeping routing or work examples for training is off until a person turns it on.
@@ -73,7 +74,6 @@ defmodule Ryker.Settings do
           pricing_rates: [PricingRate.t()]
         }
 
-  def actor, do: @actor
   def retention_defaults, do: @retention_defaults
 
   @doc """
@@ -157,6 +157,7 @@ defmodule Ryker.Settings do
   def saved_by_person?(%{installation: %{saved_by: saved_by}}), do: person?(saved_by)
 
   defp person?(@actor), do: true
+  defp person?(@tailnet_actor <> _login), do: true
   defp person?("slack:user:" <> _user_ref), do: true
   defp person?(_system), do: false
 
@@ -801,11 +802,13 @@ defmodule Ryker.Settings do
         Ryker.PubSub.broadcast(application_topic(), {:settings_applied, revision})
       end)
 
-  # The local console is trusted by reach. A Slack actor is trusted only when
-  # the saved settings let that person manage Ryker: chosen by name, or an admin
-  # of the saved workspace while admins may (`Ryker.Slack.Operators`). The
-  # payload's own claim of who sent it is never the grant.
+  # The local console is trusted by reach, and so is the tailnet user Tailscale
+  # Serve named there (`Ryker.ControlPlane.Viewer`). A Slack actor is trusted
+  # only when the saved settings let that person manage Ryker: chosen by name, or
+  # an admin of the saved workspace while admins may (`Ryker.Slack.Operators`).
+  # The payload's own claim of who sent it is never the grant.
   defp authorize(@actor), do: :ok
+  defp authorize(@tailnet_actor <> login) when byte_size(login) in 1..200, do: :ok
   defp authorize("github:webhook"), do: :ok
   defp authorize("github:onboarding"), do: :ok
 

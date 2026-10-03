@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.ActionsTest do
   use Ryker.DataCase, async: false
 
-  alias Ryker.ControlPlane.{Actions, EpisodeProjection}
+  alias Ryker.ControlPlane.{Actions, Actor, EpisodeProjection}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -91,6 +91,30 @@ defmodule Ryker.ControlPlane.ActionsTest do
     # One rating per ending: a different one is refused, not rewritten.
     assert callbacks.rate_episode.(complete.episode.key, :good) ==
              {:error, :episode_review_conflict}
+  end
+
+  # Every console action was recorded as control-plane:local, so on a console
+  # several people reach through Tailscale nobody could tell who did what.
+  test "an action taken by a tailnet user is recorded as theirs" do
+    :ok = Actor.act_for(%{login: "andrew@example.com", name: "Andrew Example"})
+    complete = start_episode!("tailnet-review")
+
+    assert {:ok, _completed} =
+             Episodes.apply(
+               EpisodeFixtures.accept_result(%{
+                 decision_reason: "No visible reply is required.",
+                 delivery: :none,
+                 delivery_ref: nil,
+                 episode_key: complete.episode.key,
+                 expected_turn_ref: complete.episode.owner_ref,
+                 result_ref: "result:tailnet-review:#{complete.episode.id}"
+               })
+             )
+
+    assert {:ok, %{review: review}} =
+             Actions.callbacks().rate_episode.(complete.episode.key, :good)
+
+    assert review.actor_ref == "control-plane:tailscale:andrew@example.com"
   end
 
   test "closing a request does not ask its closer to rate the ending they chose" do

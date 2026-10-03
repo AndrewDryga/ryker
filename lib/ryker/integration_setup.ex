@@ -9,6 +9,7 @@ defmodule Ryker.IntegrationSetup do
   require Logger
 
   alias Ryker.{Bootstrap, Credentials}
+  alias Ryker.ControlPlane.Actor
   alias Ryker.CoopFleet.ManagedSources
   alias Ryker.Delivery.JSONClient
   alias Ryker.Emisar.Approvals
@@ -17,7 +18,6 @@ defmodule Ryker.IntegrationSetup do
   alias Ryker.Settings.{EmisarConnection, Environment}
   alias Ryker.Slack.Names
 
-  @actor "control-plane:local"
   @minimum_signing_secret_bytes 32
   # 200 people a page: room for a workspace of ten thousand.
   @slack_member_pages 50
@@ -49,11 +49,11 @@ defmodule Ryker.IntegrationSetup do
          {:ok, auth_response} <- request(bot_http, :post, "/auth.test", %{}, [], options),
          {:ok, identity} <- slack_identity(auth_response, bot_http, options),
          :ok <- required_slack_scopes(auth_response.headers),
-         {:ok, _app} <- Credentials.put(:slack_app, "primary", app_token, @actor),
-         {:ok, _bot} <- Credentials.put(:slack_bot, "primary", bot_token, @actor),
+         {:ok, _app} <- Credentials.put(:slack_app, "primary", app_token, Actor.ref()),
+         {:ok, _bot} <- Credentials.put(:slack_bot, "primary", bot_token, Actor.ref()),
          {:ok, snapshot} <- save_slack_identity(identity),
-         {:ok, _app} <- Credentials.verify(:slack_app, "primary", :verified, @actor),
-         {:ok, _bot} <- Credentials.verify(:slack_bot, "primary", :verified, @actor) do
+         {:ok, _app} <- Credentials.verify(:slack_app, "primary", :verified, Actor.ref()),
+         {:ok, _bot} <- Credentials.verify(:slack_bot, "primary", :verified, Actor.ref()) do
       {:ok,
        %{
          enabled: snapshot.slack.enabled,
@@ -110,13 +110,13 @@ defmodule Ryker.IntegrationSetup do
          :ok <- exact_app(app, app_id),
          {:ok, actor} <- github_actor(app_http, api_url, app["slug"], options),
          {:ok, _key} <-
-           Credentials.put(:github_private_key, "primary", private_key, @actor),
+           Credentials.put(:github_private_key, "primary", private_key, Actor.ref()),
          {:ok, _secret} <-
-           Credentials.put(:github_webhook, "primary", webhook_secret, @actor),
+           Credentials.put(:github_webhook, "primary", webhook_secret, Actor.ref()),
          {:ok, snapshot} <- save_github_identity(app, actor, api_url),
          {:ok, _key} <-
-           Credentials.verify(:github_private_key, "primary", :verified, @actor),
-         {:ok, _secret} <- Credentials.verify(:github_webhook, "primary", :verified, @actor) do
+           Credentials.verify(:github_private_key, "primary", :verified, Actor.ref()),
+         {:ok, _secret} <- Credentials.verify(:github_webhook, "primary", :verified, Actor.ref()) do
       {:ok,
        %{
          app_id: app["id"],
@@ -231,7 +231,7 @@ defmodule Ryker.IntegrationSetup do
       case Settings.save_github(
              %{enabled: true, auto_add_repositories: auto_add},
              :current,
-             @actor
+             Actor.ref()
            ) do
         {:ok, _snapshot} ->
           :ok
@@ -270,7 +270,7 @@ defmodule Ryker.IntegrationSetup do
          display_name <- optional_text(params, "display_name", identity.account_label),
          :ok <- connection_ref(ref),
          :ok <- bounded_text(display_name, 1, 120, :display_name),
-         {:ok, _credential} <- Credentials.put(:emisar, ref, token, @actor),
+         {:ok, _credential} <- Credentials.put(:emisar, ref, token, Actor.ref()),
          {:ok, _snapshot} <-
            Settings.put_emisar_connection(
              %{
@@ -284,9 +284,9 @@ defmodule Ryker.IntegrationSetup do
                verified_at: DateTime.utc_now()
              },
              Settings.fetch!().installation.revision,
-             @actor
+             Actor.ref()
            ),
-         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, @actor),
+         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, Actor.ref()),
          {:ok, _watched_again} <- Approvals.token_replaced(ref),
          {:ok, snapshot} <- serve_environments(ref) do
       {:ok,
@@ -355,7 +355,7 @@ defmodule Ryker.IntegrationSetup do
           end
 
         with {:ok, saved} <-
-               Settings.put_environment(attributes, snapshot.installation.revision, @actor) do
+               Settings.put_environment(attributes, snapshot.installation.revision, Actor.ref()) do
           {:ok, saved, Environment.default(saved)}
         end
     end
@@ -370,8 +370,8 @@ defmodule Ryker.IntegrationSetup do
     with connection when not is_nil(connection) <-
            Enum.find(snapshot.emisar_connections, &(&1.ref == ref)),
          {:ok, _identity} <- verify_emisar(token, connection.rpc_url, options),
-         {:ok, _credential} <- Credentials.put(:emisar, ref, token, @actor),
-         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, @actor),
+         {:ok, _credential} <- Credentials.put(:emisar, ref, token, Actor.ref()),
+         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, Actor.ref()),
          {:ok, _watched_again} <- Approvals.token_replaced(ref) do
       {:ok, %{ref: ref, status: :rotated}}
     else
@@ -384,8 +384,8 @@ defmodule Ryker.IntegrationSetup do
           {:ok, %{name: String.t(), secret: String.t()}} | {:error, term()}
   def create_webhook_credential(name, supplied \\ nil) do
     with {:ok, secret} <- signing_secret(supplied),
-         {:ok, _metadata} <- Credentials.put(:webhook, name, secret, @actor),
-         {:ok, _metadata} <- Credentials.verify(:webhook, name, :verified, @actor) do
+         {:ok, _metadata} <- Credentials.put(:webhook, name, secret, Actor.ref()),
+         {:ok, _metadata} <- Credentials.verify(:webhook, name, :verified, Actor.ref()) do
       {:ok, %{name: name, secret: secret}}
     end
   end
@@ -445,7 +445,7 @@ defmodule Ryker.IntegrationSetup do
             monitoring_enabled: connection.monitoring_enabled
           },
           snapshot.installation.revision,
-          @actor
+          Actor.ref()
         )
     end
   end
@@ -465,7 +465,7 @@ defmodule Ryker.IntegrationSetup do
             monitoring_enabled: connection.monitoring_enabled
           },
           snapshot.installation.revision,
-          @actor
+          Actor.ref()
         )
     end
   end
@@ -485,7 +485,7 @@ defmodule Ryker.IntegrationSetup do
             monitoring_enabled: enabled
           },
           snapshot.installation.revision,
-          @actor
+          Actor.ref()
         )
     end
   end
@@ -511,7 +511,7 @@ defmodule Ryker.IntegrationSetup do
 
         with :ok <- unreferenced(connection, %{snapshot | environments: others ++ released}),
              {:ok, snapshot} <- set_emisar_account(using, nil, snapshot) do
-          Settings.delete_emisar_connection(ref, snapshot.installation.revision, @actor)
+          Settings.delete_emisar_connection(ref, snapshot.installation.revision, Actor.ref())
         end
     end
   end
@@ -528,7 +528,7 @@ defmodule Ryker.IntegrationSetup do
       case Settings.put_environment(
              %{ref: environment.ref, emisar_connection_ref: connection_ref},
              current.installation.revision,
-             @actor
+             Actor.ref()
            ) do
         {:ok, saved} -> {:cont, {:ok, saved}}
         {:error, _reason} = error -> {:halt, error}
@@ -548,7 +548,7 @@ defmodule Ryker.IntegrationSetup do
         Settings.put_repository(
           %{ref: ref, onboarding_state: :pending, onboarding_error: nil},
           snapshot.installation.revision,
-          @actor
+          Actor.ref()
         )
 
       _repository ->
@@ -608,7 +608,7 @@ defmodule Ryker.IntegrationSetup do
          {:ok, _snapshot} <- leave_environments(snapshot, ref),
          {:ok, _snapshot} <- leave_deployment_reports(snapshot, ref),
          {:ok, _snapshot} <- drop_github_bindings(snapshot, ref),
-         {:ok, snapshot} <- Settings.delete_repository(ref, :current, @actor) do
+         {:ok, snapshot} <- Settings.delete_repository(ref, :current, Actor.ref()) do
       {:ok, %{repository: repository, snapshot: snapshot}}
     end
   end
@@ -641,7 +641,11 @@ defmodule Ryker.IntegrationSetup do
             [] -> refs
           end
 
-        Settings.put_environment(%{ref: environment.ref, repositories: refs}, :current, @actor)
+        Settings.put_environment(
+          %{ref: environment.ref, repositories: refs},
+          :current,
+          Actor.ref()
+        )
     end
   end
 
@@ -661,7 +665,7 @@ defmodule Ryker.IntegrationSetup do
       Settings.put_webhook_source(
         %{name: source.name, publication_lifecycle: lifecycle},
         :current,
-        @actor
+        Actor.ref()
       )
     end)
   end
@@ -669,7 +673,7 @@ defmodule Ryker.IntegrationSetup do
   defp drop_github_bindings(snapshot, ref) do
     snapshot.github_bindings
     |> Enum.filter(&(&1.repository_ref == ref))
-    |> each_write(&Settings.delete_github_binding(&1.name, :current, @actor))
+    |> each_write(&Settings.delete_github_binding(&1.name, :current, Actor.ref()))
   end
 
   defp each_write(items, write) do
@@ -686,7 +690,7 @@ defmodule Ryker.IntegrationSetup do
     if Enum.any?(Settings.fetch!().webhook_sources, &(&1.secret_name == name)) do
       {:error, :credential_in_use}
     else
-      with {:ok, :ok} <- Credentials.delete(:webhook, name, @actor) do
+      with {:ok, :ok} <- Credentials.delete(:webhook, name, Actor.ref()) do
         {:ok, %{name: name, status: :deleted}}
       end
     end
@@ -760,7 +764,7 @@ defmodule Ryker.IntegrationSetup do
         bot_name: identity.bot_name
       },
       snapshot.installation.revision,
-      @actor
+      Actor.ref()
     )
   end
 
@@ -781,7 +785,7 @@ defmodule Ryker.IntegrationSetup do
         bot_login: actor["login"]
       },
       snapshot.installation.revision,
-      @actor
+      Actor.ref()
     )
   end
 
@@ -807,20 +811,20 @@ defmodule Ryker.IntegrationSetup do
   end
 
   defp disable(:slack, snapshot),
-    do: Settings.save_slack(%{enabled: false}, snapshot.installation.revision, @actor)
+    do: Settings.save_slack(%{enabled: false}, snapshot.installation.revision, Actor.ref())
 
   defp disable(:github, snapshot),
-    do: Settings.save_github(%{enabled: false}, snapshot.installation.revision, @actor)
+    do: Settings.save_github(%{enabled: false}, snapshot.installation.revision, Actor.ref())
 
   defp delete_connection_credentials(:slack) do
-    with {:ok, :ok} <- Credentials.delete(:slack_app, "primary", @actor),
-         {:ok, :ok} <- Credentials.delete(:slack_bot, "primary", @actor),
+    with {:ok, :ok} <- Credentials.delete(:slack_app, "primary", Actor.ref()),
+         {:ok, :ok} <- Credentials.delete(:slack_bot, "primary", Actor.ref()),
          do: :ok
   end
 
   defp delete_connection_credentials(:github) do
-    with {:ok, :ok} <- Credentials.delete(:github_private_key, "primary", @actor),
-         {:ok, :ok} <- Credentials.delete(:github_webhook, "primary", @actor),
+    with {:ok, :ok} <- Credentials.delete(:github_private_key, "primary", Actor.ref()),
+         {:ok, :ok} <- Credentials.delete(:github_webhook, "primary", Actor.ref()),
          do: :ok
   end
 
@@ -1006,7 +1010,7 @@ defmodule Ryker.IntegrationSetup do
                    normalize_github_permissions(repository_value(repository, :permissions))
                },
                :current,
-               @actor
+               Actor.ref()
              ),
            do: {:ok, :added}
     end)
@@ -1027,7 +1031,7 @@ defmodule Ryker.IntegrationSetup do
         base_branch: repository_value(repository, :default_branch)
       },
       :current,
-      @actor
+      Actor.ref()
     )
   end
 
@@ -1039,7 +1043,7 @@ defmodule Ryker.IntegrationSetup do
       Settings.put_repository(
         %{ref: ref, onboarding_state: :pending, onboarding_error: nil},
         :current,
-        @actor
+        Actor.ref()
       )
 
   @doc false

@@ -5,8 +5,13 @@ defmodule Ryker.ControlPlane.Viewer do
   Served through Tailscale Serve, every request carries the tailnet user's
   login and display name in `Tailscale-User-Login` and `Tailscale-User-Name`,
   and Serve replaces any a client sent itself. The sidebar shows that person
-  (Andrew, 2026-10-03: "console shows who is using it, from Tailscale"). It
-  grants nothing: what the console may do is still decided by who can reach it.
+  (Andrew, 2026-10-03: "console shows who is using it, from Tailscale"), and
+  what they change is recorded as theirs (`Ryker.ControlPlane.Actor`). It grants
+  nothing: what the console may do is still decided by who can reach it.
+
+  Only a request at the published host came through Serve. One at a loopback
+  name came from this machine with whatever headers it chose, so it names
+  nobody.
 
   A name outside ASCII arrives as RFC 2047 words, the way Serve encodes it.
   """
@@ -14,6 +19,8 @@ defmodule Ryker.ControlPlane.Viewer do
   @behaviour Plug
 
   import Plug.Conn
+
+  alias Ryker.ControlPlane.{Actor, Endpoint}
 
   @type t :: %{login: String.t(), name: String.t()}
 
@@ -24,12 +31,26 @@ defmodule Ryker.ControlPlane.Viewer do
   # load sends no new cookie.
   @impl true
   def call(conn, _options) do
-    case {from_headers(conn), get_session(conn, "viewer")} do
+    published_host = Map.get(Endpoint.config(:control_plane), :public_host)
+
+    case {stored(from_conn(conn, published_host)), get_session(conn, "viewer")} do
       {same, same} -> conn
       {nil, _previous} -> delete_session(conn, "viewer")
       {viewer, _previous} -> put_session(conn, "viewer", viewer)
     end
   end
+
+  @doc "Who a request names, when it reached the console at `published_host`."
+  @spec from_conn(Plug.Conn.t(), String.t() | nil) :: t() | nil
+  def from_conn(%Plug.Conn{host: host} = conn, published_host)
+      when is_binary(published_host) and host == published_host,
+      do: from_headers(conn)
+
+  def from_conn(_conn, _published_host), do: nil
+
+  @doc "What an action this request takes is recorded as."
+  @spec actor_ref(Plug.Conn.t(), String.t() | nil) :: String.t()
+  def actor_ref(conn, published_host), do: conn |> from_conn(published_host) |> Actor.of()
 
   @doc "The viewer a LiveView session carries, or nil."
   @spec from_session(map()) :: t() | nil
@@ -39,9 +60,11 @@ defmodule Ryker.ControlPlane.Viewer do
 
   def from_session(_session), do: nil
 
+  # A login is an email-like address; 200 bytes keeps the actor it becomes
+  # within what every record of an actor holds.
   defp from_headers(conn) do
     with [login] <- get_req_header(conn, "tailscale-user-login"),
-         {:ok, login} <- text(login, 254) do
+         {:ok, login} <- text(login, 200) do
       name =
         with [name] <- get_req_header(conn, "tailscale-user-name"),
              {:ok, name} <- text(decode(name), 120) do
@@ -50,11 +73,14 @@ defmodule Ryker.ControlPlane.Viewer do
           _missing -> login
         end
 
-      %{"login" => login, "name" => name}
+      %{login: login, name: name}
     else
       _missing -> nil
     end
   end
+
+  defp stored(nil), do: nil
+  defp stored(%{login: login, name: name}), do: %{"login" => login, "name" => name}
 
   defp text(value, maximum) do
     value = String.trim(value)

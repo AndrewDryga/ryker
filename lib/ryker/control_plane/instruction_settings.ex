@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.InstructionSettings do
   @moduledoc "Instruction controls for the existing loopback operator, never a model tool."
   import Ecto.Query
+  alias Ryker.ControlPlane.Actor
   alias Ryker.Episodes.Episode
   alias Ryker.Instructions
   alias Ryker.Instructions.Setting
@@ -50,7 +51,7 @@ defmodule Ryker.ControlPlane.InstructionSettings do
          {:ok, text} <- Instructions.normalize_text(text) do
       if membership in [:left, :deleted] and text != "",
         do: {:error, :instructions_scope_unavailable},
-        else: Instructions.save(scope, text, revision, "control-plane:local")
+        else: Instructions.save(scope, text, revision, Actor.ref())
     end
   end
 
