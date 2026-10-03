@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     refute html =~ "Standing-rule evaluation was not recorded"
 
     assert LazyHTML.query(document, ".participation-summary") |> LazyHTML.text() ==
-             "Ryker processed this message because the standing rule “Review Terraform plans” matched."
+             ~s(Ryker processed this message because the standing rule "Review Terraform plans" matched.)
 
     # The card precedes the routing decision in the reading order.
     assert [rules_at, routing_at] =
@@ -132,12 +132,12 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert matched["Looks for"] == "Terraform plans from apps and bots in Slack channel C456"
     refute Enum.any?(["Rule", "Revision at the time", "Scope"], &Map.has_key?(matched, &1))
     assert matched["Sender"] == "An app, which this rule listens to"
-    assert matched["Content"] == "Contains “Plan: 2 to add,”"
+    assert matched["Content"] == ~s(Contains "Plan: 2 to add,")
 
     [missed] = details.("not_matched")
     assert missed["Looks for"] == "Terraform plans from people in Slack channel C456"
     assert missed["Sender"] == "An app; this rule only listens to people"
-    assert missed["Content"] == "Contains “Plan: 2 to add,”"
+    assert missed["Content"] == ~s(Contains "Plan: 2 to add,")
 
     # A paused rule was never checked: it says what it looks for and nothing more.
     [paused] = details.("disabled")
@@ -224,7 +224,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
       rule(
         "Late rule",
         "not_considered",
-        "Only the first 100 applicable rules are evaluated. This rule’s trigger was not checked."
+        "Only the first 100 applicable rules are evaluated. This rule's trigger was not checked."
       )
     ])
 

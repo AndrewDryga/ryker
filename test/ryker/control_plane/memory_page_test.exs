@@ -225,7 +225,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       help = PageHelp.for_path("/memory")
 
       assert Enum.map_join(help.sections, " ", &Enum.join(&1.paragraphs, " ")) =~
-               "“Remember that pay-gw is the payments gateway.”"
+               ~s("Remember that pay-gw is the payments gateway.")
     end
 
     test "a global fact says it applies everywhere and what for, never its internal scope" do
@@ -304,7 +304,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
                "/memory"
              ]
 
-      assert LazyHTML.text(miss) =~ "No facts match “deploy”"
+      assert LazyHTML.text(miss) =~ ~s(No facts match "deploy")
       refute LazyHTML.text(miss) =~ "No facts yet"
 
       none = facts(%{memories: [], reviews: [], memory_total: 0, q: ""})
@@ -421,7 +421,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
 
     test "a search that finds nothing is told apart from a list with nothing learned yet" do
       miss = learned(%{@learned | q: "absent", items: [], total: 0})
-      assert LazyHTML.text(miss) =~ "Nothing matches “absent”"
+      assert LazyHTML.text(miss) =~ ~s(Nothing matches "absent")
 
       assert LazyHTML.query(miss, "form.filter-toolbar a.filter-clear")
              |> LazyHTML.attribute("href") ==
@@ -614,7 +614,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
             }
         })
 
-      assert heading.title == "Messages behind “Validation schedule”"
+      assert heading.title == ~s(Messages behind "Validation schedule")
 
       assert heading.back ==
                {"Conversation summaries", "/memory/learned?kind=context#summary-summary-1"}
@@ -658,7 +658,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
 
       for {state, tone, word, note} <- [
             {:off, "off", "Learning is off", "learns nothing from them until learning is on"},
-            {:cannot_start, "warn", "Learning can’t start", "no worker or model"},
+            {:cannot_start, "warn", "Learning can't start", "no worker or model"},
             {:not_running, "warn", "Learning is not running here", "not running in this Ryker"}
           ] do
         document = learning(%{@activity | state: state})
@@ -991,11 +991,11 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
 
     for {segments, title, description} <- [
           {["memory"], "Facts",
-           "Things people told Ryker to remember. Ryker uses them as context, never as permission."},
+           "Things people told Ryker to remember. It uses them as context, and they don't give it permission to act."},
           {["memory", "learned"], "Learned",
            "What Ryker learned by reading conversations, with the messages it learned from."},
           {["memory", "learning"], "Learning",
-           "Ryker reads conversations in the background and keeps what it learned up to date. Learning never sends a reply."},
+           "Ryker reads conversations in the background and keeps what it learned up to date."},
           {["memory", "findings"], "Findings",
            "Conclusions Ryker reached in investigations, with the evidence behind them."}
         ] do

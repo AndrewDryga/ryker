@@ -83,9 +83,9 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
         conversation_sentence(settings, bot_user_ref) <>
         "\n\n" <> alert_sentence(settings),
       "*#{heading("What I can help with")}*\n" <>
-        "• *Tasks* — “Add per-worker memory metrics to the website.” I'll plan the work, implement it, run checks and open a draft PR.\n" <>
-        "• *Scheduled tasks* — “Check our infrastructure every morning and flag any issues.”\n" <>
-        "• *Standing rules* — “Review new Terraform deployments, summarize the plan and release changes, and watch applies for failures.”",
+        "• *Tasks*: \"Add per-worker memory metrics to the website.\" I'll plan the work, implement it, run checks and open a draft PR.\n" <>
+        "• *Scheduled tasks*: \"Check our infrastructure every morning and flag any issues.\"\n" <>
+        "• *Standing rules*: \"Review new Terraform deployments, summarize the plan and release changes, and watch applies for failures.\"",
       welcome_closing(settings, notice)
     ]
     |> Enum.reject(&is_nil/1)
@@ -149,7 +149,7 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
 
   defp conversation_sentence(%{"observation" => %{"on" => true}}, bot_user_ref),
     do:
-      "I'm watching quietly for now — reading along to learn how this channel works, and staying out of the conversation. Mention #{mention(bot_user_ref)} whenever you want me in it."
+      "For now I'm only reading along to learn how this channel works, and I'll stay out of the conversation. Mention #{mention(bot_user_ref)} whenever you want me in it."
 
   defp conversation_sentence(%{"participation" => %{"value" => "proactive"}}, bot_user_ref),
     do:
@@ -291,7 +291,7 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
         Enum.map(invitations["user_group_refs"], &group_mention/1)
 
     case chosen do
-      [] -> "no one automatically — you can add people yourself"
+      [] -> "no one automatically; you can add people yourself"
       chosen -> join_names(chosen)
     end
   end

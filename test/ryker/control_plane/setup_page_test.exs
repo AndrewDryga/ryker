@@ -222,7 +222,7 @@ defmodule Ryker.ControlPlane.SetupPageTest do
     reached = view(done: [:slack, :github, :repositories])
     open = render_setup(reached) |> LazyHTML.query("li[aria-current=step]")
     assert LazyHTML.attribute(open, "id") == ["setup-emisar"]
-    assert text(open) =~ "Without it, Ryker can only tell you what to run."
+    assert text(open) =~ "Otherwise it can only tell you what to run."
 
     assert LazyHTML.query(open, "a.ui-button.primary") |> LazyHTML.attribute("href") == [
              "/integrations/emisar"

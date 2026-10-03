@@ -109,10 +109,10 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
     # the list: it is the "How this page works" panel the shell renders now.
     for {path, description, example} <- [
           {"/schedules", "Tasks Ryker runs at a set time, once or on repeat.",
-           "“Every Monday at 09:00 Berlin time, summarize unresolved incidents in this channel.”"},
+           ~s("Every Monday at 09:00 Berlin time, summarize unresolved incidents in this channel.")},
           {"/follow-ups",
            "Work Ryker paused and will pick up again at a set time or when something happens.",
-           "“Check again tomorrow morning.”"}
+           ~s("Check again tomorrow morning.")}
         ] do
       page = Pages.page(String.split(path, "/", trim: true), %{}, options())
       document = HTML.page(page.title, page.description, page.body) |> LazyHTML.from_document()
@@ -162,11 +162,11 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
     # needs now sits in the sentence under the title and the page itself.
     for {path, title, description} <- [
           {"/memory", "Facts",
-           "Things people told Ryker to remember. Ryker uses them as context, never as permission."},
+           "Things people told Ryker to remember. It uses them as context, and they don't give it permission to act."},
           {"/memory/learned", "Learned",
            "What Ryker learned by reading conversations, with the messages it learned from."},
           {"/memory/learning", "Learning",
-           "Ryker reads conversations in the background and keeps what it learned up to date. Learning never sends a reply."},
+           "Ryker reads conversations in the background and keeps what it learned up to date."},
           {"/memory/findings", "Findings",
            "Conclusions Ryker reached in investigations, with the evidence behind them."}
         ] do

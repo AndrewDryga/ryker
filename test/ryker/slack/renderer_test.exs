@@ -310,7 +310,7 @@ defmodule Ryker.Slack.RendererTest do
     assert {:ok, rendered} = Renderer.render(welcome_document(configuration_ref, observing))
     text = Jason.encode!(rendered)
     assert text =~ "I don't have access to any repos, so please connect one (or more)"
-    assert text =~ "watching quietly for now"
+    assert text =~ "For now I'm only reading along"
     assert text =~ "I'll wait to be asked before looking into one"
     assert text =~ "/ryker shadow inherit"
 
@@ -400,7 +400,7 @@ defmodule Ryker.Slack.RendererTest do
                "*Alerts*\nInvestigate in the existing thread",
                "*Environment*\nProduction",
                "*Repositories*\n<https://github.com/acme/backend|backend> — default\n`infrastructure` — available",
-               "*Incident invitations*\nNo one automatically — you can add people yourself",
+               "*Incident invitations*\nNo one automatically; you can add people yourself",
                "*Observation mode*\nOff"
              ]
 

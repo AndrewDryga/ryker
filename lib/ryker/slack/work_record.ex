@@ -266,7 +266,7 @@ defmodule Ryker.Slack.WorkRecord do
     impact =
       if assessment,
         do: compact(assessment.payload["impact"], 1_200),
-        else: "Unknown — no alert impact assessment is recorded."
+        else: "Unknown: no alert impact assessment is recorded."
 
     cause =
       cond do
@@ -277,7 +277,7 @@ defmodule Ryker.Slack.WorkRecord do
           compact(explained.payload["what"], 1_200)
 
         true ->
-          "Unknown — no evidence-backed root cause is recorded."
+          "Unknown: no evidence-backed root cause is recorded."
       end
 
     actions = corrective_actions(snapshot.records)
@@ -295,7 +295,7 @@ defmodule Ryker.Slack.WorkRecord do
       section(
         "Corrective actions",
         actions,
-        "Unknown — no durable corrective-action goals are recorded."
+        "Unknown: no durable corrective-action goals are recorded."
       ),
       section("Material unknowns", material_unknowns(snapshot, [], []), nil)
     ]

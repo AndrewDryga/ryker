@@ -223,7 +223,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     work = routed_work!("linked", entry, decision, environment_pin(), earlier.id)
 
     assert fact(rendered(work.episode), work.turn, "Request") ==
-             "New · this message started it, with “Payouts are failing for earlier” linked as background"
+             ~s(New · this message started it, with "Payouts are failing for earlier" linked as background)
   end
 
   test "a direct message runs in the default environment and its setup says why" do

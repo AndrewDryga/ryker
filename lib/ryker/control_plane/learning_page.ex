@@ -320,7 +320,7 @@ defmodule Ryker.ControlPlane.LearningPage do
         <Kit.entity_row
           :for={topic <- @batch.relearn}
           id={"relearn-" <> topic.id}
-          name={"Relearn “#{topic.title}”"}
+          name={"Relearn \"#{topic.title}\""}
           text="Ryker relearns the topic from messages you choose that still exist. One more start can then update it with these messages."
         >
           <:actions><a class="ui-button primary" href={topic.path}>Relearn</a></:actions>
@@ -328,7 +328,7 @@ defmodule Ryker.ControlPlane.LearningPage do
         <Kit.entity_row
           :for={topic <- @batch.relearn}
           id={"forget-" <> topic.id}
-          name={"Forget “#{topic.title}”"}
+          name={"Forget \"#{topic.title}\""}
           text="Ryker stops using the topic, erases what it learned and never learns from its messages again. One more start can then read these messages without it."
         >
           <:actions>
@@ -466,11 +466,11 @@ defmodule Ryker.ControlPlane.LearningPage do
   # them; any other says what its code means.
   defp cause(%{relearn: [topic]}),
     do:
-      "Every attempt stopped on “#{topic.title}”, a learned topic that lost the messages it was learned from. Ryker does not change such a topic."
+      "Every attempt stopped on \"#{topic.title}\", a learned topic that lost the messages it was learned from. Ryker does not change such a topic."
 
   defp cause(%{relearn: [_, _ | _] = topics}),
     do:
-      "Every attempt stopped on #{Enum.map_join(topics, ", ", &"“#{&1.title}”")}, learned topics that lost the messages they were learned from. Ryker does not change such topics."
+      "Every attempt stopped on #{Enum.map_join(topics, ", ", &"\"#{&1.title}\"")}, learned topics that lost the messages they were learned from. Ryker does not change such topics."
 
   defp cause(batch), do: batch.error
 
@@ -494,7 +494,7 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp state_word(:starting), do: {:busy, "Learning is starting"}
   defp state_word(:paused), do: {:warn, "Learning is paused"}
   defp state_word(:not_running), do: {:warn, "Learning is not running here"}
-  defp state_word(:cannot_start), do: {:warn, "Learning can’t start"}
+  defp state_word(:cannot_start), do: {:warn, "Learning can't start"}
   defp state_word(:off), do: {:off, "Learning is off"}
 
   defp state_note(:off),

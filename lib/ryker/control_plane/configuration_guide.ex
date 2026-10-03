@@ -6,14 +6,14 @@ defmodule Ryker.ControlPlane.ConfigurationGuide do
       "Rules tell Ryker to act when something happens, like a new alert or a merged pull request."
 
   def description(:memory),
-    do: "Things people told Ryker to remember. Ryker uses them as context, never as permission."
+    do:
+      "Things people told Ryker to remember. It uses them as context, and they don't give it permission to act."
 
   def description(:learned),
     do: "What Ryker learned by reading conversations, with the messages it learned from."
 
   def description(:learning),
-    do:
-      "Ryker reads conversations in the background and keeps what it learned up to date. Learning never sends a reply."
+    do: "Ryker reads conversations in the background and keeps what it learned up to date."
 
   def description(:instructions),
     do: "How Ryker should work. It follows these in every reply, investigation and task."

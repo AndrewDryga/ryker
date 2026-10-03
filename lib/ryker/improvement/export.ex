@@ -376,7 +376,7 @@ defmodule Ryker.Improvement.Export do
 
     feedback =
       for signal <- snapshot["feedback"] || [] do
-        words = [signal["kind"], signal["value"], signal["note"] && "“#{signal["note"]}”"]
+        words = [signal["kind"], signal["value"], signal["note"] && "\"#{signal["note"]}\""]
         "- #{signal["at"]}: " <> (words |> Enum.reject(&is_nil/1) |> Enum.join(" "))
       end
 

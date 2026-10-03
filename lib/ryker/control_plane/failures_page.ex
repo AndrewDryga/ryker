@@ -67,8 +67,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
   @doc "The one sentence under the page title."
   @spec description() :: String.t()
   def description,
-    do:
-      "Work Ryker could not finish on its own. Each one says what happened, what it affects and what you can do."
+    do: "Work Ryker couldn't finish by itself. Open one to see what happened and what you can do."
 
   @doc "The Failures list: the counts, then the failures grouped by who they affect."
   @spec list([map()], DateTime.t()) :: iodata()
@@ -94,7 +93,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
         <Kit.empty
           icon={:check}
           title="Nothing needs you"
-          text="When Ryker cannot finish something on its own, such as a reply, a Slack update or a cleanup, it shows up here with what you can do about it."
+          text="When Ryker can't finish something by itself, like a reply, a Slack update or a cleanup, it shows up here with what you can do."
         />
       <% else %>
         <Kit.counts label="Failures" items={@counts} />
@@ -102,7 +101,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
           <Kit.section_head
             id="affects-people"
             title="Affects people"
-            lede="Someone is missing a reply, an update or a result until these are fixed."
+            lede="Someone is waiting on these for a reply, an update or a result."
           />
           <Kit.entity_list label="Failures that affect people">
             <.row :for={{row, explanation} <- @people} row={row} e={explanation} now={@now} />
@@ -112,7 +111,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
           <Kit.section_head
             id="housekeeping"
             title="Housekeeping"
-            lede="Background work such as cleanup and learning. No one is missing a reply, an update or a result because of these, but some need you to decide."
+            lede="Background work such as cleanup and learning. No reply, update or result depends on these, but some need a decision from you."
           />
           <Kit.entity_list label="Housekeeping failures">
             <.row :for={{row, explanation} <- @housekeeping} row={row} e={explanation} now={@now} />
@@ -267,7 +266,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
           </div>
         </dl>
         <details :if={@report} class="recovery-worker-report failure-report">
-          <summary>The worker’s last answer</summary>
+          <summary>The worker's last answer</summary>
           <p class="recovery-attribution">
             The worker wrote this. Ryker has not checked the claims in it.
           </p>

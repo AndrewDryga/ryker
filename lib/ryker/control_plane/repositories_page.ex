@@ -122,7 +122,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
       <Kit.empty
         :if={@items == [] and @view.q != ""}
         icon={:search}
-        title={"No repositories match “#{@view.q}”"}
+        title={"No repositories match \"#{@view.q}\""}
         text="Try another name or clear the search."
       />
       <Kit.empty

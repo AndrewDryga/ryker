@@ -221,7 +221,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
     if query == [], do: "/channels", else: Paths.query("/channels", query)
   end
 
-  defp empty_title(%{q: q}) when q != "", do: "No channels match “#{q}”"
+  defp empty_title(%{q: q}) when q != "", do: "No channels match \"#{q}\""
   defp empty_title(%{show: "in_use"}), do: "Ryker is not in any channel now"
   defp empty_title(_view), do: "No channels yet"
 

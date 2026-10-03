@@ -64,7 +64,7 @@ defmodule Ryker.ControlPlane.PageHelpTest do
 
       refute text =~ ~r/\bLab\b/, "#{route} calls Chat the Lab: #{text}"
 
-      for sentence <- String.split(text, ~r/(?<=[.?!]|[.?!]”)\s+/u) do
+      for sentence <- String.split(text, ~r/(?<=[.?!]|[.?!]["”])\s+/u) do
         words = length(String.split(sentence))
         assert words <= 32, "#{route} has a #{words}-word sentence: #{sentence}"
       end

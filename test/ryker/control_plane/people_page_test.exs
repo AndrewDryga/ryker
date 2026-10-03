@@ -90,7 +90,7 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
 
     question = confirmation(forget)
     assert question.status == 200
-    assert question.resp_body =~ "Forget “Birthday is 12 March.”?"
+    assert question.resp_body =~ "Forget &quot;Birthday is 12 March.&quot;?"
 
     forgotten = confirm(forget)
     assert forgotten.status == 303

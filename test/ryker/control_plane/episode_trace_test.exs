@@ -87,7 +87,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     assert LazyHTML.text(LazyHTML.query(document, "h1")) == source["title"]
 
     assert LazyHTML.text(LazyHTML.query(document, ".episode-title-row .ui-status")) ==
-             "Couldn’t start"
+             "Couldn't start"
 
     assert html =~ "No files changed. No checks ran."
     assert html =~ "No task reply was sent."

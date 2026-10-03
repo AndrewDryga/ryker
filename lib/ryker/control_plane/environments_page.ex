@@ -72,7 +72,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
       <Kit.empty
         :if={@environments != [] and @rows == []}
         icon={:search}
-        title={"No environments match “#{@query}”"}
+        title={"No environments match \"#{@query}\""}
         text="Try another name or clear the search."
       />
     </div>

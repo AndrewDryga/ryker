@@ -157,7 +157,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       miss = render([], %{"q" => "absent"})
 
       assert LazyHTML.query(miss, ".kit-empty-title") |> LazyHTML.text() ==
-               "No channels match “absent”"
+               ~s(No channels match "absent")
 
       assert Enum.empty?(LazyHTML.query(miss, "form.filter-toolbar input[disabled]"))
     end

@@ -137,7 +137,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
            |> Enum.count() == 1
 
     assert LazyHTML.query(document, ".kit-empty-title") |> LazyHTML.text() ==
-             "No findings match “absent”"
+             ~s(No findings match "absent")
   end
 
   test "an empty findings page says what puts a finding there and offers no way to make one" do

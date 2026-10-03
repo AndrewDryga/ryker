@@ -90,7 +90,7 @@ defmodule Ryker.ControlPlane.PagesTest do
 
     memory = page("/memory")
     assert memory.title == "Facts"
-    assert memory.description =~ "never as permission"
+    assert memory.description =~ "don't give it permission to act"
     assert memory.body =~ "Across the workspace"
     refute memory.body =~ "slack:T123"
     assert memory.body =~ "Keep separate"
@@ -157,7 +157,7 @@ defmodule Ryker.ControlPlane.PagesTest do
     assert failure_page.title == "Failures"
 
     assert failure_page.description ==
-             "Work Ryker could not finish on its own. Each one says what happened, what it affects and what you can do."
+             "Work Ryker couldn't finish by itself. Open one to see what happened and what you can do."
   end
 
   # The page found a failure by listing a hundred and searching them, so the

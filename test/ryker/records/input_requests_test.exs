@@ -233,7 +233,7 @@ defmodule Ryker.Records.InputRequestsTest do
 
     text = LazyHTML.text(document)
     assert text =~ "Answer to Ryker's question"
-    assert text =~ "Answered “Stop the rollout”"
+    assert text =~ ~s(Answered "Stop the rollout")
     refute text =~ "Source content not recorded or expired"
     refute text =~ "participation decision and channel settings were not recorded"
   end

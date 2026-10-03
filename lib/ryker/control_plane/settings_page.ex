@@ -828,7 +828,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           <span><strong>{member.name}</strong></span>
         </label>
       </div>
-      <p :if={@matching == 0} class="settings-help">Nobody's name matches “{@people.query}”.</p>
+      <p :if={@matching == 0} class="settings-help">Nobody's name matches "{@people.query}".</p>
       <button :if={@rest > 0} type="button" class="ui-button quiet" phx-click="slack-people-more">
         Show {min(@rest, 50)} more
       </button>
@@ -1759,7 +1759,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     do: %{
       title: "Emisar",
       description:
-        "Emisar lets Ryker act on your running systems. A person approves each risky action in Emisar before it runs; Ryker never approves on anyone's behalf."
+        "Emisar lets Ryker act on your running systems. A person approves each risky action in Emisar before it runs, and Ryker can't approve for anyone."
     }
 
   defp page(:webhooks),

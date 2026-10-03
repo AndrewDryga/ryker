@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.LearnedPage do
 
   def heading(%{kind: "sources", source_parent: %{} = parent}) do
     %{
-      title: "Messages behind “#{parent.title}”",
+      title: "Messages behind \"#{parent.title}\"",
       description: "What Ryker learned this from. Each message opens where it was said.",
       back: {parent.back_label, parent.back_path},
       action: nil
@@ -366,7 +366,7 @@ defmodule Ryker.ControlPlane.LearnedPage do
     <Kit.empty
       :if={@view.items == [] and @view.q != ""}
       icon={:search}
-      title={"Nothing matches “#{@view.q}”"}
+      title={"Nothing matches \"#{@view.q}\""}
       text="Try other words, or clear the search."
     />
     <Kit.empty

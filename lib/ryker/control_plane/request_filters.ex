@@ -349,7 +349,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
         title={name}
       ><span class="filter-choice-name">{name}</span><span :if={tag} class="filter-choice-tag">{tag}</span></button>
       <p :if={@more > 0} class="filter-more">{@more} more. Type to find one.</p>
-      <p :if={@shown == [] and @query != ""} class="filter-empty">Nothing matches “{@query}”.</p>
+      <p :if={@shown == [] and @query != ""} class="filter-empty">Nothing matches "{@query}".</p>
       <p :if={@choices == []} class="filter-empty">Nothing recorded yet.</p>
     </div>
     """

@@ -5,7 +5,7 @@ defmodule Ryker.Work.Recovery do
 
   # What a brief says when the saved error names no cause. A surface with its
   # own sentence for that case reads `explained` instead of comparing text.
-  @unexplained_cause "The saved error does not establish a specific cause. The worker’s final response, if available below, may describe a separate task blocker."
+  @unexplained_cause "The saved error does not establish a specific cause. The worker's final response, if available below, may describe a separate task blocker."
 
   @doc """
   The brief for a live turn, with the host facts every surface must share.
@@ -139,7 +139,7 @@ defmodule Ryker.Work.Recovery do
   defp startup_explanation(%{not_started: true} = brief, checkpoint_supported?) do
     %{
       brief
-      | headline: "I couldn’t start the code changes",
+      | headline: "I couldn't start the code changes",
         cause:
           "The code-editing service could not save a recoverable copy of its work. I stopped before editing any files.",
         next_step:

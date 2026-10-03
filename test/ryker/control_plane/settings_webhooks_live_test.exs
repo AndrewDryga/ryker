@@ -145,7 +145,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
              view,
              "#settings-webhooks .settings-notice",
              "Ryker cannot read or reply in Slack until you connect it. Until then a source " <>
-               "that posts to Slack does not take events"
+               "that posts to Slack doesn't take events"
            )
 
     assert has_element?(

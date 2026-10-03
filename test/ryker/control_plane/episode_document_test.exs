@@ -1642,7 +1642,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert card |> LazyHTML.query(".state-word") |> LazyHTML.text() == "Needs work"
 
     assert card |> LazyHTML.query(".case-event-summary") |> LazyHTML.text() |> String.trim() ==
-             "“It stopped for good; the deploy needed a retry.”"
+             ~s("It stopped for good; the deploy needed a retry.")
 
     assert %{reasons: ["rated"]} =
              Repo.get_by(Ryker.Improvement.Candidate, episode_id: episode.id)

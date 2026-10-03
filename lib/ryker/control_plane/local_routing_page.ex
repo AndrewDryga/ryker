@@ -41,8 +41,8 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   @doc "The sentence under the page's title."
   def description,
     do:
-      "How a small model you run yourself would have routed the messages the provider model " <>
-        "routed. Routing never uses its answers."
+      "How the small model you run yourself would have routed live messages, compared with " <>
+        "the provider model. Routing doesn't use its answers."
 
   @doc """
   The topics an open page listens to: comparisons queued and settled, and
@@ -365,7 +365,7 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
       <Kit.section_card
         id="local-routing-figures"
         title="How it compares"
-        lede="Of the live messages routed in this period, how many the local model answered, and how often routing could use its answer and it decided what the provider decided."
+        lede="How the local model did on the live messages routed in this period."
       >
         <Kit.counts :if={@primary != []} items={@primary} label="How it compares" />
         <Kit.counts
@@ -386,7 +386,7 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
         :if={@decisions != []}
         id="local-routing-decisions"
         title="By what the provider decided"
-        lede="How often the local model's answer was usable and matched, for each kind of decision the provider made."
+        lede="For each kind of decision the provider made, how often the local model's answer was usable and matched it."
       >
         <Kit.table label="By what the provider decided" rows={@decisions}>
           <:col :let={row} label="The provider chose">{row.name}</:col>
@@ -401,7 +401,7 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
         :if={@differences != []}
         id="local-routing-differences"
         title="What differed"
-        lede="When its answer was usable but did not match, what it decided differently."
+        lede="Where its usable answers differed from the provider's."
       >
         <Kit.table label="What differed" rows={@differences}>
           <:col :let={row} label="What differed">{row.name}</:col>
@@ -414,7 +414,7 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
         :if={@refusals != []}
         id="local-routing-refused"
         title="Why routing refused its answers"
-        lede="Answers that failed the checks every routing answer goes through, so routing could not have used them."
+        lede="Answers that failed routing's checks, so routing couldn't have used them."
       >
         <Kit.table label="Why routing refused its answers" rows={@refusals}>
           <:col :let={row} label="The local model">{row.name}</:col>

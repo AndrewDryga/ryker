@@ -383,9 +383,9 @@ defmodule Ryker.ControlPlane.SetupPage do
           %{state: {:warn, _missing}} -> "Finish connecting Emisar"
           %{state: {:off, _paused}} -> "Emisar is paused"
         end,
-      short: "Let Ryker act on your running systems, not only on your code.",
+      short: "Let Ryker act on your running systems as well as your code.",
       why:
-        "With Emisar, Ryker carries out the fixes you ask for, such as restarting a service or rolling back a deploy, once a person approves each risky one in Emisar. Without it, Ryker can only tell you what to run.",
+        "With Emisar, Ryker carries out the fixes you ask for, such as restarting a service or rolling back a deploy, once a person approves each risky one. Otherwise it can only tell you what to run.",
       needs: "An Emisar account and an agent API key",
       state: worth_knowing(emisar, :state),
       reason: worth_knowing(emisar, :reason),

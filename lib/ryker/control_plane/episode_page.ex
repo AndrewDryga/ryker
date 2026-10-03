@@ -255,10 +255,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
           :if={@snapshot.trace.stopped[:model_output]}
           class="recovery-worker-report"
           id="recovery-worker-report"
-          label="Worker’s saved response"
+          label="Worker's saved response"
         >
           <p class="recovery-attribution">
-            {@snapshot.trace.stopped[:delivery]} This is the worker’s report, not an independently verified check result.
+            {@snapshot.trace.stopped[:delivery]} This is the worker's report, not an independently verified check result.
           </p>
           <div class="recovery-model-output">
             {Phoenix.HTML.raw(SlackMarkdown.preview(@snapshot.trace.stopped.model_output))}
@@ -1202,7 +1202,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # under it.
   defp feedback_reason(%{kind: kind, note: note})
        when kind in [:sentiment, :reviewed] and is_binary(note),
-       do: "“#{note}”"
+       do: "\"#{note}\""
 
   defp feedback_reason(_feedback), do: nil
 
@@ -1639,7 +1639,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     do: "Its source marked it as #{Words.label(class)}, not #{trigger_name(trigger, :one)}"
 
   defp trigger_evidence(%{"trigger_text" => text}, _trigger) when is_binary(text),
-    do: "Contains “#{text}”"
+    do: "Contains \"#{text}\""
 
   defp trigger_evidence(_evidence, trigger),
     do: "Nothing in it reads as #{trigger_name(trigger, :one)}"

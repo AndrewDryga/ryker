@@ -61,7 +61,7 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
           ref,
           "danger",
           "Forget this memory?",
-          "I'll stop recalling “#{title}” and forget what I learned from the same message. Messages I already sent and the original conversation stay as they are.",
+          "I'll stop recalling \"#{title}\" and forget what I learned from the same message. Messages I already sent and the original conversation stay as they are.",
           "Forget memory"
         )
       ])
@@ -80,19 +80,19 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
       case kind do
         "schedule" ->
           {"Delete schedule", "ryker_delete_schedule", "schedule-control:#{ref}:#{revision}",
-           "Stop future runs of “#{title}”. Already-started work and its history remain."}
+           "Stop future runs of \"#{title}\". Already-started work and its history remain."}
 
         "standing_rule" ->
           {"Delete rule", "ryker_delete_behavior", "behavior-control:#{ref}:#{revision}",
-           "Stop reacting to “#{title}”. Work it already started and its history remain."}
+           "Stop reacting to \"#{title}\". Work it already started and its history remain."}
 
         "preference" ->
           {"Delete preference", "ryker_delete_behavior", "behavior-control:#{ref}:#{revision}",
-           "Stop applying “#{title}”. Replies I already sent stay as they are."}
+           "Stop applying \"#{title}\". Replies I already sent stay as they are."}
 
         "guidance" ->
           {"Delete guidance", "ryker_delete_behavior", "behavior-control:#{ref}:#{revision}",
-           "Stop following “#{title}”. Replies I already sent stay as they are."}
+           "Stop following \"#{title}\". Replies I already sent stay as they are."}
       end
 
     [
@@ -115,7 +115,7 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
         "behavior-control:#{ref}:#{revision}",
         nil,
         "Resume this rule?",
-        "I'll start reacting to “#{entity["title"]}” again from now on. Nothing that happened while it was paused is replayed.",
+        "I'll start reacting to \"#{entity["title"]}\" again from now on. Nothing that happened while it was paused is replayed.",
         "Resume"
       )
     ]

@@ -770,7 +770,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert delete["confirm"]["title"]["text"] == "Delete preference?"
 
     assert delete["confirm"]["text"]["text"] ==
-             "Stop applying “response_detail”. Replies I already sent stay as they are."
+             ~s(Stop applying "response_detail". Replies I already sent stay as they are.)
 
     assert delete["confirm"]["confirm"]["text"] == "Delete preference"
     assert delete["confirm"]["deny"]["text"] == "Cancel"
@@ -832,7 +832,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert delete["confirm"]["title"]["text"] == "Delete guidance?"
 
     assert delete["confirm"]["text"]["text"] ==
-             "Stop following “terraform_review_style”. Replies I already sent stay as they are."
+             ~s(Stop following "terraform_review_style". Replies I already sent stay as they are.)
 
     assert delete["confirm"]["confirm"]["text"] == "Delete guidance"
     assert delete["confirm"]["deny"]["text"] == "Cancel"

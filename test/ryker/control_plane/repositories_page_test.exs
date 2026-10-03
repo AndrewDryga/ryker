@@ -439,7 +439,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     miss = render([], %{"q" => "absent"})
 
     assert LazyHTML.query(miss, ".kit-empty-title") |> LazyHTML.text() ==
-             "No repositories match “absent”"
+             ~s(No repositories match "absent")
   end
 
   test "without a working GitHub App the page offers no Add repositories action" do

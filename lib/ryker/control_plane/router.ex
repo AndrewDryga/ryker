@@ -763,7 +763,7 @@ defmodule Ryker.ControlPlane.Router do
   defp confirmation("finding", resource_ref, "forget", options) do
     case options.projection.finding.(resource_ref) do
       {:ok, %{status: :open} = finding} ->
-        {:ok, "Forget “#{finding.what}”?",
+        {:ok, "Forget \"#{finding.what}\"?",
          "Ryker stops using this finding: later requests no longer read it, and the investigation that reached it no longer counts on it. It stays in the investigation's history and is listed here as forgotten. You can't undo this.",
          "finding:forget", :danger}
 
@@ -791,7 +791,7 @@ defmodule Ryker.ControlPlane.Router do
   defp confirmation("person-fact", resource_ref, "forget", options) do
     case options.projection.person_fact.(resource_ref) do
       {:ok, fact} ->
-        {:ok, "Forget “#{fact.text}”?",
+        {:ok, "Forget \"#{fact.text}\"?",
          "Ryker stops using it and erases the words. Nothing said before brings it back; if they say it again later, it is learned again. You can't undo this.",
          "person-fact:forget", :danger}
 
@@ -803,7 +803,7 @@ defmodule Ryker.ControlPlane.Router do
   defp confirmation("finding", resource_ref, "mark-explained", options) do
     case options.projection.finding.(resource_ref) do
       {:ok, %{status: :open, classification: "unexplained"} = finding} ->
-        {:ok, "Mark “#{finding.what}” as explained?",
+        {:ok, "Mark \"#{finding.what}\" as explained?",
          "It stops counting as not explained yet, and Ryker stops bringing it up as an open question in later requests. It stays in the investigation's history. You can't undo this.",
          "finding:mark-explained", :primary}
 

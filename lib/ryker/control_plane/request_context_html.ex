@@ -53,7 +53,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "Source access and platform actions offered for this request. Ryker still enforces what the request may do."},
     "workspace" =>
       {"Workspace access", "tools", "Bound worker workspace",
-       "Workspace scope supplied to this request, not an inventory of tools the model actually used."},
+       "The workspace this request was given. It doesn't list the tools the model used."},
     "repository_ref" =>
       {"Repository scope", "runtime", "Pinned work session",
        "The repository selected by the host for this session. Incoming text cannot widen it."},

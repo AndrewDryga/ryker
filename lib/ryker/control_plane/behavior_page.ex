@@ -508,7 +508,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp when_fact(%DateTime{} = at, now), do: rich([{:time, at, ago(at, now)}])
   defp when_fact(_at, _now), do: nil
 
-  defp rules_empty(%{params: %{"q" => q}}) when q != "", do: "No rules match “#{q}”"
+  defp rules_empty(%{params: %{"q" => q}}) when q != "", do: "No rules match \"#{q}\""
 
   defp rules_empty(%{params: params, counts: counts}) do
     cond do
@@ -596,7 +596,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       %{
         id: "channel-instructions-#{channel.workspace_ref}-#{channel.channel_ref}",
         name: name,
-        quote: "“" <> clamp(channel.text) <> "”",
+        quote: "\"" <> clamp(channel.text) <> "\"",
         href: page <> "#instructions-slack:#{channel.workspace_ref}:#{channel.channel_ref}"
       }
     end)

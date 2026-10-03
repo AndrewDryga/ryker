@@ -616,7 +616,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     {:ok, %{entry: answer}} = Inbox.record(input)
 
     assert Enum.find(Activity.list(%{}).items, &(&1.id == answer.id)).title ==
-             "Answered “Sunglasses”"
+             ~s(Answered "Sunglasses")
   end
 
   # Manual testing, 2026-09-26: deleting a message added a second row,

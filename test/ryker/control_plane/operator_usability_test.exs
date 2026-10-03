@@ -633,7 +633,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     lede = document |> LazyHTML.query(".section-head p") |> LazyHTML.text()
     refute lede =~ "Nobody is waiting"
-    assert lede =~ "No one is missing a reply"
+    assert lede =~ "No reply, update or result depends on these"
   end
 
   test "a reply moved out of a deleted incident room says where it went, in one line" do
@@ -665,7 +665,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert LazyHTML.query(document, ".kit-empty-title") |> LazyHTML.text() ==
              "Nothing needs you"
 
-    assert LazyHTML.text(document) =~ "When Ryker cannot finish something on its own"
+    assert LazyHTML.text(document) =~ "When Ryker can't finish something by itself"
     assert Enum.empty?(LazyHTML.query(document, ".kit-counts"))
   end
 
@@ -721,7 +721,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     # An error Ryker has no words for is shown as it was saved, once, in the
     # sentence that says so (Andrew, 2026-10-03: "show an error").
-    assert words =~ "The saved error is “coop_error”."
+    assert words =~ ~s(The saved error is "coop_error".)
     assert length(String.split(words, "coop_error")) == 2
   end
 

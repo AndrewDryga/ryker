@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         </p>
       </section>
       <p :if={@result? && @explanation} class="request-rationale">
-        <small :if={@reason_from_model?}>Model’s reason</small>{@explanation}
+        <small :if={@reason_from_model?}>Model's reason</small>{@explanation}
       </p>
       <section
         :if={@applied != []}
