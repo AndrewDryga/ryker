@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.WebRouter do
     plug(:fetch_query_params)
     plug(:accepts, ["html"])
     plug(:fetch_session)
+    plug(Ryker.ControlPlane.Viewer)
     plug(:fetch_live_flash)
     plug(:protect_from_forgery)
     plug(:put_root_layout, html: {Ryker.ControlPlane.Layouts, :root})

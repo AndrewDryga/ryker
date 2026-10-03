@@ -350,8 +350,8 @@ at most one Emisar account. Every repository in it is available to its work: a
 task picks the one it changes, the others are mounted read-only beside it, and
 the first is the default. Slack channels and webhook sources choose an
 environment; Chat and every conversation without its own choice use the default
-one. Adding a repository puts it in the default environment and creates "Default"
-when there is none, so a new installation needs no extra step. There are no
+one. An added repository joins no environment until one chooses it (Andrew,
+2026-10-03: "envs should not include all repos by default"). There are no
 repository groups and no approval routes.
 
 `/environments` leads with how many environments it lists and, once a channel

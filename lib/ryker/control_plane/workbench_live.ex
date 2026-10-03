@@ -50,7 +50,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     RunningSystem,
     SettingsPage,
     SettingsView,
-    UsageProjection
+    UsageProjection,
+    Viewer
   }
 
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
@@ -103,10 +104,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def page_events, do: @page_events
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     {:ok,
      socket
      |> assign(
+       viewer: Viewer.from_session(session),
        path: "/",
        params: %{},
        body: "",
@@ -2424,7 +2426,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       data-connection-state={if @connected, do: "connected", else: "connecting"}
       data-updated-at={if @observed_at, do: DateTime.to_iso8601(@observed_at)}
     >
-      <Navigation.sidebar path={@path} live={true} setup={@setup_progress} />
+      <Navigation.sidebar path={@path} live={true} setup={@setup_progress} viewer={@viewer} />
       <div class="app-workspace">
         <div class="mobile-navigation">
           <Navigation.mobile path={@path} live={true} setup={@setup_progress} />

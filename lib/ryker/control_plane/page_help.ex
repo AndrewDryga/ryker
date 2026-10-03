@@ -358,7 +358,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Repositories",
        [
          "Work can read every repository in its environment, and each repository is read only or read and write. A task that changes code uses a read and write repository, the default one unless it picks another.",
-         "The default repository is always read and write. Adding a repository puts it in the default environment, and creates one called Default if there is none."
+         "The default repository is always read and write. A repository you add joins no environment: choose it here for work to use it."
        ]},
       {"Emisar",
        [

@@ -170,11 +170,9 @@ defmodule Ryker.ControlPlane.SetupPageTest do
              ["https://acme.slack.com/archives/C0123456789"]
   end
 
-  test "setup says adding a repository creates the Default environment, so it asks for none" do
-    # Environments replaced repository groups on 2026-09-25. Importing a
-    # repository puts it in the default environment and creates "Default"
-    # when there is none, so an extra step would ask for something already
-    # done; the step that adds repositories says so instead.
+  test "the step that adds repositories says to choose them in an environment" do
+    # An added repository joins no environment (Andrew, 2026-10-03: "envs should not include
+    # all repos by default"), so the step that adds them says where work gets to use them.
     assert SettingsView.setup_steps() == @steps
 
     current =
