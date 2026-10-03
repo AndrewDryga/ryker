@@ -772,7 +772,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       label: label,
       summary: summary,
       tone: tone,
-      current: kind != :ready,
+      current: kind not in [:ready, :replaced],
       current_step: current_step
     }
   end
