@@ -60,7 +60,7 @@ defmodule Ryker.ControlPlane.PagesTest do
           {"/memory/learned", "Deploys happen after 15:00 UTC on weekdays."},
           {"/memory/learning", "2 messages waiting"},
           {"/incident-rooms", "Slack channels Ryker opens to work on an incident"},
-          {"/incident-rooms/one", "Room history"},
+          {"/incident-rooms/one", "What happened"},
           {"/schedules", "Tasks Ryker runs at a set time"},
           {"/schedules/one", "What it asks for"},
           {"/follow-ups", "Follow-ups"},
@@ -291,12 +291,12 @@ defmodule Ryker.ControlPlane.PagesTest do
     assert LazyHTML.query(incident, "#code-change .entity-row .state-word[data-tone=warn]")
            |> LazyHTML.text() == "Needs attention"
 
-    assert LazyHTML.query(incident, "#investigation .kit-empty-title") |> LazyHTML.text() ==
-             "Nothing recorded yet"
+    assert LazyHTML.query(incident, "#now .kit-empty-title") |> LazyHTML.text() ==
+             "No update yet"
 
     # A channel whose creation time the projection does not name keeps its
     # place after the request, without a time.
-    assert LazyHTML.query(incident, "#room-history .entity-name")
+    assert LazyHTML.query(incident, "#timeline .entity-name")
            |> Enum.map(&String.trim(LazyHTML.text(&1))) == [
              "Room requested",
              "Channel created",

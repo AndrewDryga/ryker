@@ -2643,6 +2643,12 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
    rows, and the references last. Tone stays in the dots and state words. */
 .ryker-app .kit-facts.incident-room-facts { grid-template-columns:minmax(96px, max-content) minmax(0, 1fr) minmax(96px, max-content) minmax(0, 1fr); gap:10px 24px; max-width:1040px; }
 .ryker-app .incident-room-facts > div:nth-child(even) > dt { padding-left:24px; }
+/* An incident room's numbers are the request page's summary strip; the page surface's definition
+   lists would otherwise rule and pad each one. */
+.ryker-app .incident-room-numbers dt, .ryker-app .incident-room-numbers dd { padding:0; border:0; }
+.ryker-app .incident-room-numbers dt { margin:0 0 6px; }
+.incident-room-story .entity-text { white-space:pre-line; }
+.incident-room-view .entity-list + .incident-room-now, .incident-room-now + .entity-list { margin-top:20px; }
 .incident-room-now { box-sizing:border-box; max-width:1040px; margin:28px 0 0; padding:18px 24px 20px; border:1px solid var(--ryker-stroke); border-radius:12px; background:var(--ryker-surface-raised); }
 .ryker-app .incident-room-now-title { margin:0; font-size:12px; line-height:16px; font-weight:600; letter-spacing:.02em; color:var(--ryker-text-secondary); }
 .ryker-app .incident-room-now-state { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; margin:12px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
