@@ -72,6 +72,8 @@ defmodule Ryker.ControlPlane.Navigation do
     doc: "While required setup steps are open, %{done: count or nil, total: count}"
   )
 
+  attr(:viewer, :map, default: nil, doc: "The tailnet user Tailscale Serve named, if any")
+
   def sidebar(assigns) do
     assigns =
       assign(assigns,
@@ -131,6 +133,10 @@ defmodule Ryker.ControlPlane.Navigation do
           </details>
         <% end %>
       </nav>
+      <p :if={@viewer} class="app-viewer" title={"Signed in to Tailscale as #{@viewer.login}"}>
+        <strong>{@viewer.name}</strong>
+        <small :if={@viewer.name != @viewer.login}>{@viewer.login}</small>
+      </p>
     </aside>
     """
   end
