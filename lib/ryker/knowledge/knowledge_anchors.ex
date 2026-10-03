@@ -80,12 +80,16 @@ defmodule Ryker.Knowledge.KnowledgeAnchors do
     |> Enum.sort()
   end
 
+  # An identity stands alone: nothing that could continue it touches either
+  # side. A colon continues one only when more of it follows ("deploy:BuildA");
+  # a colon before a space or the end is punctuation ("in AndrewDryga/test:
+  # the changelog …").
   defp contains_identity?(text, anchor) when is_binary(text) do
     Regex.match?(
       Regex.compile!(
         "(?<![\\p{L}\\p{N}_:/-])" <>
           Regex.escape(anchor) <>
-          "(?![\\p{L}\\p{N}_:/-])",
+          "(?![\\p{L}\\p{N}_/-]|:\\S)",
         "u"
       ),
       text
