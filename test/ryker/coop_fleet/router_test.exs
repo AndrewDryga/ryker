@@ -44,6 +44,9 @@ defmodule Ryker.CoopFleet.RouterTest do
                  DateTime.utc_now() |> DateTime.add(3_600, :second) |> DateTime.to_iso8601()
              }
            }}
+
+        {:complete_source_token, response} ->
+          response
       after
         5_000 -> {:error, :test_mint_not_released}
       end
@@ -626,6 +629,20 @@ defmodule Ryker.CoopFleet.RouterTest do
     send(provider, :complete_source_token)
     assert {:error, :coop_worker_source_grant_not_authorized} = Task.await(task)
     Repo.get!(Placement, placement.id) |> Ecto.Changeset.change(state: :active) |> Repo.update!()
+
+    # GitHub busy or silent may answer the worker's next try, so the worker hears that it
+    # is unavailable for now. Told "not found", blitz's worker failed a create for good when
+    # GitHub answered a token request with 503 (2026-10-03).
+    for answer <- [{:ok, %{status: 503, body: %{}}}, {:error, :timeout}] do
+      task = begin_mint.()
+      send(provider, {:complete_source_token, answer})
+      assert {:error, :coop_worker_source_grant_unavailable} = Task.await(task)
+    end
+
+    # A token GitHub refused, it refuses again.
+    task = begin_mint.()
+    send(provider, {:complete_source_token, {:ok, %{status: 403, body: %{}}}})
+    assert {:error, :coop_worker_source_grant_not_authorized} = Task.await(task)
 
     Repo.get!(Session, session.id)
     |> Ecto.Changeset.change(worker_job_digest: String.duplicate("f", 64))
