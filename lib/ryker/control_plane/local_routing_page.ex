@@ -13,25 +13,23 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   checks took (valid) and the share that decided what the provider decided
   (agreed), the median time the local model took beside the provider's, and
   what the provider spent on those messages, which is what a cascade would
-  save on each message the local model gets right. A second card lists the
-  latest valid answers that would have made Ryker do something else, and a
-  third the latest answers routing's checks refused, each saying why in
-  plain words; every row opens its request's timeline at the routing call.
+  save on each message the local model gets right. Three tables follow: by
+  what the provider decided, how many of the local model's answers were
+  usable and matched; what differed when a usable answer did not match; and
+  why routing refused the rest. Each row links to its latest message, opened
+  at the routing step.
   """
   use Phoenix.Component
 
   import Ecto.Query
-  import Ryker.ControlPlane.CurrentInputs, only: [visible_preview: 3]
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Environments, Kit, Paths, SlackMarkdown}
+  alias Ryker.ControlPlane.{Kit, Paths, ShortTime}
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.InspectionRedactor
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.Comparison
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Slack.Names
 
   @setting "/settings/models#local-routing"
   @path "/settings/models/local-routing"
@@ -52,9 +50,6 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   """
   def subscriptions,
     do: [{LocalRouting, :subscribe_comparisons, []}, {Settings, :subscribe, []}]
-
-  @listed 10
-  @preview_characters 120
 
   # Why routing's checks refused an answer (`Ryker.LocalRouting.Verdict`),
   # as the rest of a sentence that starts "The local model".
@@ -97,12 +92,15 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
     setting = LocalRouting.setting()
     comparisons = comparisons(since, scope, setting.model)
 
+    compared = compared(comparisons)
+
     %{
       setting: setting,
       figures: figures(comparisons),
       last_settled: last_settled(comparisons),
-      disagreements: disagreements(comparisons),
-      refusals: refusals(comparisons)
+      decisions: decisions(compared),
+      differences: differences(compared),
+      refusals: refusals(compared)
     }
   end
 
@@ -184,120 +182,138 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
     )
   end
 
-  defp disagreements(comparisons) do
-    comparisons
-    |> where([c], c.status == :compared and c.valid and not c.agrees)
-    |> latest()
-    |> Enum.map(fn row ->
-      local =
-        case Jason.decode(row.local_answer || "") do
-          {:ok, %{} = decision} -> decision
-          _unreadable -> %{}
-        end
+  # The period's settled comparisons, newest first, with what the provider
+  # decided for each message.
+  @summarized 10_000
 
-      listed(row, "local-routing",
-        text:
-          "The provider chose #{decision(row.provider)}. The local model chose #{decision(local)}.",
-        meta: ["Differs in " <> Environments.sentence(Enum.map(row.differing, &field_words/1))]
-      )
-    end)
-  end
-
-  defp refusals(comparisons) do
-    comparisons
-    |> where([c], c.status == :compared and not c.valid)
-    |> latest()
-    |> Enum.map(
-      &listed(&1, "local-routing-refused",
-        text:
-          "The local model #{refusal(&1.invalid_reason)}. " <>
-            "The provider chose #{decision(&1.provider)}.",
-        meta: []
-      )
-    )
-  end
-
-  # The latest settled comparisons of one kind, with the message each
-  # answered.
-  defp latest(comparisons) do
-    secrets = InspectionRedactor.configured_secrets()
-
+  defp compared(comparisons) do
     from(c in comparisons,
       join: entry in Entry,
       on: entry.id == c.input_id,
+      where: c.status == :compared,
       order_by: [desc: c.compared_at, desc: c.id],
-      limit: @listed,
+      limit: @summarized,
       select: %{
+        agrees: c.agrees,
         at: c.compared_at,
-        conversation: entry.destination_conversation_ref,
         differing: c.differing_fields,
         generation: c.generation,
         input_id: c.input_id,
         invalid_reason: c.invalid_reason,
         local_answer: c.local_answer,
         provider: entry.decision_document,
-        text: visible_preview(entry.operational_pruned_at, entry.event_kind, entry.content)
+        valid: c.valid
       }
     )
     |> Repo.all()
-    |> Enum.map(&Map.put(&1, :name, preview(&1.text, &1.conversation, secrets)))
   end
 
-  defp listed(row, prefix, words) do
-    %{
-      at: row.at,
-      href: Paths.request(row.input_id) <> "#admission-#{row.input_id}-#{row.generation}",
-      id: "#{prefix}-#{row.input_id}-#{row.generation}",
-      name: row.name,
-      text: Keyword.fetch!(words, :text),
-      meta: Keyword.fetch!(words, :meta)
-    }
+  # Andrew, 2026-10-03, of the two lists this page had: "the way you built
+  # those tables is piece of shit, they are useless, what i am supposed to do
+  # or learn by looking at them?" Each table answers one question about
+  # whether the local model could route instead: which of the provider's
+  # decisions it matches, what it gets wrong when its answer is usable, and
+  # why routing could not use the rest. Each row links to its latest message.
+
+  # By what the provider decided: how many of the local model's answers were
+  # usable and matched, and what it chose most often when it did not.
+  defp decisions(compared) do
+    compared
+    |> Enum.group_by(&decision_kind(&1.provider))
+    |> Enum.map(fn {kind, rows} ->
+      valid = Enum.filter(rows, & &1.valid)
+
+      %{
+        name: decision_name(kind),
+        messages: length(rows),
+        valid: length(valid),
+        agreed: Enum.count(valid, & &1.agrees),
+        instead: instead(Enum.reject(valid, & &1.agrees)),
+        latest: hd(rows)
+      }
+    end)
+    |> Enum.sort_by(&{-&1.messages, &1.name})
   end
+
+  defp instead([]), do: nil
+
+  defp instead(rows) do
+    {kind, times} =
+      rows
+      |> Enum.frequencies_by(&decision_kind(local_decision(&1)))
+      |> Enum.max_by(fn {kind, times} -> {times, kind} end)
+
+    "#{decision_name(kind)} (#{times})"
+  end
+
+  # When its answer was usable but not the provider's: what differed, and
+  # how often that was the only difference.
+  defp differences(compared) do
+    compared
+    |> Enum.filter(&(&1.valid and not &1.agrees))
+    |> Enum.flat_map(fn row -> Enum.map(row.differing || [], &{&1, row}) end)
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.map(fn {field, rows} ->
+      %{
+        name: String.capitalize(field_words(field)),
+        answers: length(rows),
+        only: Enum.count(rows, &(&1.differing == [field])),
+        latest: hd(rows)
+      }
+    end)
+    |> Enum.sort_by(&{-&1.answers, &1.name})
+  end
+
+  # Why routing could not use its answer.
+  defp refusals(compared) do
+    compared
+    |> Enum.reject(& &1.valid)
+    |> Enum.group_by(&refusal(&1.invalid_reason))
+    |> Enum.map(fn {words, rows} ->
+      %{name: String.capitalize(words), answers: length(rows), latest: hd(rows)}
+    end)
+    |> Enum.sort_by(&{-&1.answers, &1.name})
+  end
+
+  defp local_decision(row) do
+    case Jason.decode(row.local_answer || "") do
+      {:ok, %{} = decision} -> decision
+      _unreadable -> %{}
+    end
+  end
+
+  # The message a row is about, opened at its routing step.
+  defp latest_href(row),
+    do: Paths.request(row.input_id) <> "#admission-#{row.input_id}-#{row.generation}"
 
   defp refusal("decision:" <> _field), do: "gave a decision routing could not read"
   defp refusal(reason), do: Map.get(@refusals, reason, "gave an answer routing's checks refused")
 
-  defp preview(nil, _conversation, _secrets), do: "Message text no longer available"
+  # What a decision has Ryker do, named the way Usage names work types: a
+  # reply is always a conversation, and new or continued work is an
+  # investigation, standard or deep.
+  defp decision_kind(%{"action" => "start_episode", "work_class" => "deep"}), do: :start_deep
+  defp decision_kind(%{"action" => "start_episode"}), do: :start
 
-  defp preview(text, conversation, secrets) do
-    plain =
-      text
-      |> InspectionRedactor.artifact(secrets: secrets, max_bytes: 4_096)
-      |> Map.get(:text)
-      |> Kernel.||("")
-      |> SlackMarkdown.plain(Names.workspace_from_destination(conversation))
-      |> String.replace(~r/\s+/, " ")
-      |> String.trim()
+  defp decision_kind(%{"action" => "continue_episode", "work_class" => "deep"}),
+    do: :continue_deep
 
-    cond do
-      plain == "" ->
-        "Message text no longer available"
+  defp decision_kind(%{"action" => "continue_episode"}), do: :continue
+  defp decision_kind(%{"action" => "reply"}), do: :reply
+  defp decision_kind(%{"action" => "quick_reply"}), do: :quick_reply
+  defp decision_kind(%{"action" => "react"}), do: :react
+  defp decision_kind(%{"action" => "ignore"}), do: :ignore
+  defp decision_kind(_unreadable), do: :unreadable
 
-      String.length(plain) > @preview_characters ->
-        String.slice(plain, 0, @preview_characters - 1) <> "…"
-
-      true ->
-        plain
-    end
-  end
-
-  # What a decision would have had Ryker do, as the rest of a sentence, in
-  # the words Usage names work types with: a reply is always a conversation,
-  # and new or continued work is an investigation, standard or deep.
-  defp decision(%{"action" => "start_episode", "work_class" => "deep"}),
-    do: "to start a deep investigation"
-
-  defp decision(%{"action" => "start_episode"}), do: "to start an investigation"
-
-  defp decision(%{"action" => "continue_episode", "work_class" => "deep"}),
-    do: "to continue earlier work as a deep investigation"
-
-  defp decision(%{"action" => "continue_episode"}), do: "to continue earlier work"
-  defp decision(%{"action" => "reply"}), do: "to reply"
-  defp decision(%{"action" => "quick_reply"}), do: "a quick reply"
-  defp decision(%{"action" => "react"}), do: "to add an emoji"
-  defp decision(%{"action" => "ignore"}), do: "to leave it"
-  defp decision(_unreadable), do: "something it could not read"
+  defp decision_name(:start_deep), do: "A deep investigation"
+  defp decision_name(:start), do: "An investigation"
+  defp decision_name(:continue_deep), do: "Earlier work, as a deep investigation"
+  defp decision_name(:continue), do: "Earlier work"
+  defp decision_name(:reply), do: "A reply"
+  defp decision_name(:quick_reply), do: "A quick reply"
+  defp decision_name(:react), do: "An emoji"
+  defp decision_name(:ignore), do: "Leaving it"
+  defp decision_name(:unreadable), do: "Something unreadable"
 
   defp field_words(field), do: Map.get(@field_words, field, field)
 
@@ -319,14 +335,13 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
 
     assigns =
       assign(assigns,
-        disagreements: assigns.summary.disagreements,
-        groups: Kit.day_groups(assigns.summary.disagreements, & &1.at, DateTime.utc_now()),
+        decisions: assigns.summary.decisions,
+        differences: assigns.summary.differences,
         refusals: assigns.summary.refusals,
-        refusal_groups: Kit.day_groups(assigns.summary.refusals, & &1.at, DateTime.utc_now()),
+        now: DateTime.utc_now(),
         link:
           if(setting.mode == :shadow, do: "Change it", else: "Turn it on") <>
             " in Settings › Models",
-        compared_valid?: figures.valid > 0,
         model: setting.mode == :shadow && setting.model,
         primary: primary(figures),
         secondary: secondary(figures),
@@ -368,54 +383,57 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
         />
       </Kit.section_card>
       <Kit.section_card
-        :if={@compared_valid?}
-        id="local-routing-differences"
-        title="Where it decided differently"
-        lede="The latest valid answers that would have made Ryker do something else. Each opens its request."
+        :if={@decisions != []}
+        id="local-routing-decisions"
+        title="By what the provider decided"
+        lede="How often the local model's answer was usable and matched, for each kind of decision the provider made."
       >
-        <Kit.entity_list :if={@disagreements != []} label="Where it decided differently">
-          <Kit.entity_row
-            :for={{row, group} <- Enum.zip(@disagreements, @groups)}
-            id={row.id}
-            name={row.name}
-            href={row.href}
-            link_row
-            text={row.text}
-            meta={row.meta}
-            at={Kit.clock(row.at)}
-            at_time={row.at}
-            group={group}
-          />
-        </Kit.entity_list>
-        <Kit.empty
-          :if={@disagreements == []}
-          variant={:hint}
-          icon={:check}
-          title="No disagreements in this period"
-          text="Every valid answer decided what the provider decided."
-        />
+        <Kit.table label="By what the provider decided" rows={@decisions}>
+          <:col :let={row} label="The provider chose">{row.name}</:col>
+          <:col :let={row} label="Messages" numeric>{row.messages}</:col>
+          <:col :let={row} label="Usable answers" numeric>{row.valid}</:col>
+          <:col :let={row} label="Matched" numeric>{row.agreed}</:col>
+          <:col :let={row} label="When it differed, it chose">{row.instead || "—"}</:col>
+          <:col :let={row} label="Latest" numeric><.latest row={row.latest} now={@now} /></:col>
+        </Kit.table>
+      </Kit.section_card>
+      <Kit.section_card
+        :if={@differences != []}
+        id="local-routing-differences"
+        title="What differed"
+        lede="When its answer was usable but did not match, what it decided differently."
+      >
+        <Kit.table label="What differed" rows={@differences}>
+          <:col :let={row} label="What differed">{row.name}</:col>
+          <:col :let={row} label="Answers" numeric>{row.answers}</:col>
+          <:col :let={row} label="The only difference" numeric>{row.only}</:col>
+          <:col :let={row} label="Latest" numeric><.latest row={row.latest} now={@now} /></:col>
+        </Kit.table>
       </Kit.section_card>
       <Kit.section_card
         :if={@refusals != []}
         id="local-routing-refused"
-        title="Answers routing refused"
-        lede="The latest answers that failed the checks every provider answer goes through. Each opens its request."
+        title="Why routing refused its answers"
+        lede="Answers that failed the checks every routing answer goes through, so routing could not have used them."
       >
-        <Kit.entity_list label="Answers routing refused">
-          <Kit.entity_row
-            :for={{row, group} <- Enum.zip(@refusals, @refusal_groups)}
-            id={row.id}
-            name={row.name}
-            href={row.href}
-            link_row
-            text={row.text}
-            at={Kit.clock(row.at)}
-            at_time={row.at}
-            group={group}
-          />
-        </Kit.entity_list>
+        <Kit.table label="Why routing refused its answers" rows={@refusals}>
+          <:col :let={row} label="The local model">{row.name}</:col>
+          <:col :let={row} label="Answers" numeric>{row.answers}</:col>
+          <:col :let={row} label="Latest" numeric><.latest row={row.latest} now={@now} /></:col>
+        </Kit.table>
       </Kit.section_card>
     </div>
+    """
+  end
+
+  attr(:row, :map, required: true)
+  attr(:now, :any, required: true)
+
+  # The latest message a row is about, by when it was routed, opened at its
+  # routing step.
+  defp latest(assigns) do
+    ~H"""
+    <a href={latest_href(@row)}>{ShortTime.text(@row.at, @now)}</a>
     """
   end
 

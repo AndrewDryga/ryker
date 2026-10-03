@@ -153,29 +153,31 @@ defmodule Ryker.ControlPlane.LocalRoutingPageTest do
              {"1", "could not be asked"}
            ]
 
-    # Only the answer that would have made Ryker do something else is a
-    # disagreement; the refused one counts against valid and is listed
-    # apart, with why.
-    assert [row] =
-             LazyHTML.query(section, "#local-routing-differences .entity-row") |> Enum.to_list()
-
-    assert text(row, ".entity-name") == Harvested.hi_text()
-
-    assert LazyHTML.attribute(LazyHTML.query(row, ".entity-name a"), "href") == [
-             "/timeline/#{differed.id}#admission-#{differed.id}-1"
+    # Andrew, 2026-10-03, of the lists of messages this page had: "what i am
+    # supposed to do or learn by looking at them?" By what the provider
+    # decided: how many answers were usable and matched, and what it chose
+    # when it did not.
+    assert table(section, "#local-routing-decisions") == [
+             ["A quick reply", "4", "3", "2", "A reply (1)", "just now"]
            ]
 
-    assert text(row, ".entity-text") ==
-             "The provider chose a quick reply. The local model chose to reply."
+    # What differed when a usable answer did not match; the refused one
+    # counts against usable and is listed apart, with why.
+    assert table(section, "#local-routing-differences") == [
+             ["Kind of work", "1", "0", "just now"],
+             ["What to do", "1", "0", "just now"]
+           ]
 
-    assert text(row, ".entity-meta") =~ "Differs in what to do and kind of work"
+    assert table(section, "#local-routing-refused") == [
+             ["Gave a decision routing could not read", "1", "just now"]
+           ]
 
-    assert [refused_row] =
-             LazyHTML.query(section, "#local-routing-refused .entity-row") |> Enum.to_list()
-
-    assert text(refused_row, ".entity-text") ==
-             "The local model gave a decision routing could not read. " <>
-               "The provider chose a quick reply."
+    # Latest opens that row's newest message at its routing step.
+    assert section
+           |> LazyHTML.query("#local-routing-differences tbody tr:first-child a")
+           |> LazyHTML.attribute("href") == [
+             "/timeline/#{differed.id}#admission-#{differed.id}-1"
+           ]
   end
 
   # The Mac running Ollama went to sleep: comparisons stop coming back, and
@@ -244,17 +246,19 @@ defmodule Ryker.ControlPlane.LocalRoutingPageTest do
              ".kit-counts-secondary"
            )
 
-    assert text(section, "#local-routing-refused h2") == "Answers routing refused"
-    assert [row] = LazyHTML.query(section, "#local-routing-refused .entity-row") |> Enum.to_list()
-    assert text(row, ".entity-name") == Harvested.hi_text()
-
-    assert LazyHTML.attribute(LazyHTML.query(row, ".entity-name a"), "href") == [
-             "/timeline/#{refused.id}#admission-#{refused.id}-1"
+    assert table(section, "#local-routing-decisions") == [
+             ["A quick reply", "1", "0", "0", "—", "just now"]
            ]
 
-    assert text(row, ".entity-text") ==
-             "The local model named earlier work that was not offered. " <>
-               "The provider chose a quick reply."
+    assert text(section, "#local-routing-refused h2") == "Why routing refused its answers"
+
+    assert table(section, "#local-routing-refused") == [
+             ["Named earlier work that was not offered", "1", "just now"]
+           ]
+
+    assert section
+           |> LazyHTML.query("#local-routing-refused tbody a")
+           |> LazyHTML.attribute("href") == ["/timeline/#{refused.id}#admission-#{refused.id}-1"]
   end
 
   test "its open page redraws when a comparison is queued or settles" do
@@ -287,6 +291,16 @@ defmodule Ryker.ControlPlane.LocalRoutingPageTest do
   end
 
   defp options, do: %{projection: Projection.callbacks()}
+
+  defp table(section, selector) do
+    section
+    |> LazyHTML.query(selector <> " tbody tr")
+    |> Enum.map(fn row ->
+      row
+      |> LazyHTML.query("td")
+      |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
+    end)
+  end
 
   defp text(node, selector),
     do:

@@ -87,8 +87,7 @@ mistake, not a problem or unclear, the step, what went wrong and what it should 
 ## 4. Eval and cost health — is it getting better?
 
 - The control plane's Usage page (`/usage`, windows of 24h, 7d, 30d and all) —
-  its Work type and Model breakdowns (`?by=work-type`, `?by=model`): cost, failed
-  runs and corrections per kind of work and per model and effort. A lane whose
+  corrections and cost per work kind, provider, model and effort. A lane whose
   correction rate jumped is a regression to diagnose (host-vs-prompt split again);
   a lane whose cost dwarfs its quality difference is a routing decision to propose.
   Compare the 7d window against the last pass.

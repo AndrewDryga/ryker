@@ -2502,33 +2502,9 @@ html:has(.kit-modal) { overflow:hidden; }
 .usage-charts { display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:24px; margin:28px 0 36px; }
 .usage-charts > section { min-width:0; background:var(--ryker-surface-raised); border:1px solid var(--stroke); border-radius:8px; padding:22px 24px; }
 .ryker-app .usage-page h2 { font-size:20px; letter-spacing:-.4px; margin:0 0 16px; }
-/* Where the money went (Andrew, 2026-10-03, of six tables of token columns:
-   "what i am supposed to do or learn by looking at them?"): one Kit table at
-   a time, ranked by cost, its share drawn as a bar beside the number. Under
-   each name a quiet line, where a person's Slack or GitHub is a small mark
-   and a word, never a second name-sized link. */
-.usage-breakdown { margin:36px 0 32px; }
-.ryker-app .usage-page .usage-breakdown .section-head h2 { margin:0; }
-.usage-page .usage-breakdown .kit-table-wrap { max-width:none; }
-.usage-page .usage-breakdown .kit-table td:first-child { width:40%; }
-.usage-share { display:inline-flex; align-items:center; justify-content:flex-end; gap:10px; }
-.usage-share svg { width:64px; height:6px; flex:none; }
-.usage-share-track { fill:color-mix(in srgb, var(--ryker-text) 10%, transparent); }
-.usage-share-fill { fill:var(--ryker-accent); }
-.usage-share-value { min-width:5ch; }
-.ryker-app .usage-page .kit-table td small.usage-details { margin-top:2px; }
-.ryker-app .usage-page .kit-table td small a.usage-source { color:var(--ryker-text-secondary); text-decoration:none; }
-.ryker-app .usage-page .kit-table td small a.usage-source:hover { color:var(--ryker-text); text-decoration:underline; text-underline-offset:3px; }
-.usage-source { display:inline-flex; align-items:center; gap:4px; vertical-align:bottom; }
-.usage-source .ui-icon { width:13px; height:13px; flex:none; }
-.usage-truncated { margin-top:12px; font-size:13px; color:var(--ryker-text-secondary); }
-/* On a phone the switch goes under the title and scrolls on its own, and the
-   table keeps room for its names and scrolls sideways under its shade. */
-@media (max-width:700px) {
-  .usage-breakdown .section-head { flex-direction:column; align-items:stretch; }
-  .usage-breakdown .section-actions { margin-left:0; max-width:100%; overflow-x:auto; }
-  .usage-page .usage-breakdown .kit-table { min-width:640px; }
-}
+.usage-breakdown { margin:32px 0; }
+.usage-section-heading { display:flex; align-items:baseline; gap:10px; }
+.usage-section-heading > span { color:var(--secondary); font-size:13px; }
 .usage-page .table-wrap { background:var(--ryker-surface-raised); border:1px solid var(--stroke); border-radius:6px; }
 /* A chart or table wider than the screen scrolls sideways. A shade on each
    side that still has more says so and fades once that side is reached
@@ -2542,21 +2518,42 @@ html:has(.kit-modal) { overflow:hidden; }
     radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--ryker-text) 30%, transparent), transparent) right center / 12px 100% no-repeat scroll,
     var(--ryker-surface-raised);
 }
-/* The breakdown sits on the page itself, unframed like every Kit table, so
-   its shade is drawn in the page's colour. */
-.usage-page .kit-table-wrap {
-  background:
-    linear-gradient(to right, var(--ryker-surface) 40%, transparent) left center / 24px 100% no-repeat local,
-    linear-gradient(to left, var(--ryker-surface) 40%, transparent) right center / 24px 100% no-repeat local,
-    radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--ryker-text) 30%, transparent), transparent) left center / 12px 100% no-repeat scroll,
-    radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--ryker-text) 30%, transparent), transparent) right center / 12px 100% no-repeat scroll,
-    var(--ryker-surface);
-}
-.ryker-app .usage-page .kit-table-wrap > table { background:transparent; }
 /* The table sits on the same surface, so letting it show the wrapper through
    changes nothing but the shade. */
 .ryker-app .usage-page .table-wrap > table { background:transparent; }
+.ryker-app .usage-breakdown-table { width:100%; min-width:850px; border-collapse:collapse; margin:0; table-layout:fixed; }
+.ryker-app .usage-page .usage-detail-table { min-width:1040px; }
+.usage-name-col { width:20%; }
+.usage-count-col, .usage-performance-col { width:18%; }
+.usage-token-col { width:8.5%; }
+.usage-cost-col { width:10%; }
+.ryker-app .usage-breakdown-table th { background:var(--ryker-surface-sunken); color:var(--ryker-text-secondary); font-size:11px; font-weight:650; padding:10px 16px; letter-spacing:.05em; text-transform:uppercase; }
+.ryker-app .usage-breakdown-table td { padding:16px; vertical-align:top; font-size:14px; font-variant-numeric:tabular-nums; color:var(--ink); border-bottom:1px solid var(--stroke); overflow-wrap:anywhere; }
+.ryker-app .usage-breakdown-table td:first-child a { white-space:normal; font-size:15px; font-weight:600; color:var(--green); }
+.usage-breakdown-table strong { font-weight:600; }
 .usage-secondary { display:block; color:var(--secondary); font-size:13px; line-height:1.6; margin-top:2px; }
+/* Where a person comes from: small grey text with the place's mark, never the
+   name's size and colour (Andrew, 2026-10-03). */
+.usage-source { display:inline-flex; align-items:center; gap:5px; }
+.usage-source .ui-icon { width:13px; height:13px; flex:none; }
+.ryker-app .usage-breakdown-table td:first-child a.usage-source { font-size:13px; font-weight:400; color:var(--ryker-text-secondary); }
+.ryker-app .usage-breakdown-table td:first-child a.usage-source:hover { color:var(--ryker-text); text-decoration:underline; text-underline-offset:3px; }
+.usage-money { text-align:right; white-space:nowrap; font-weight:600; }
+.usage-breakdown-table th:last-child { text-align:right; }
+.ryker-app .usage-detail-table th, .ryker-app .usage-detail-table td { padding-left:10px; padding-right:10px; }
+.ryker-app .usage-detail-table th { font-size:12px; letter-spacing:0; text-transform:none; }
+.ryker-app .usage-column-groups th[rowspan] { vertical-align:middle; }
+.ryker-app .usage-column-groups th[scope=colgroup] { text-align:center; }
+.ryker-app .usage-metric-headings th { text-align:center; font-weight:500; }
+.ryker-app .usage-token-cell { text-align:center; white-space:nowrap; font-weight:500; }
+.ryker-app .usage-detail-table .usage-group-start { border-left:1px solid var(--stroke); }
+.ryker-app .usage-detail-table .usage-performance { text-align:center; }
+.ryker-app .usage-page .usage-users-table { min-width:0; }
+.ryker-app .usage-users-table th:first-child { width:46%; }
+.ryker-app .usage-users-table th:not(:first-child) { width:18%; text-align:right; }
+.ryker-app .usage-users-table td:not(:first-child) { text-align:right; }
+.ryker-app .usage-users-table .usage-money { white-space:normal; }
+@media(max-width:700px) { .ryker-app .usage-users-table th, .ryker-app .usage-users-table td { padding:12px 8px; } .ryker-app .usage-users-table th:first-child { width:40%; } .ryker-app .usage-users-table th:not(:first-child) { width:20%; } .ryker-app .usage-users-table th { letter-spacing:0; font-size:10px; } .ryker-app .usage-users-table td { font-size:13px; } }
 .usage-page .measurement-notes { border:0; border-top:1px solid var(--stroke); border-radius:0; background:none; padding:18px 0; }
 .usage-page .measurement-notes summary { font-size:14px; color:var(--secondary); }
 .usage-page .measurement-notes p { font-size:14px; max-width:90ch; }
@@ -2575,7 +2572,7 @@ html:has(.kit-modal) { overflow:hidden; }
 .ryker-app details.measurement-notes { margin:20px 0; padding:16px 20px; background:var(--ryker-surface-raised); border:1px solid var(--stroke); border-radius:6px; }
 details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var(--green); }
 .ryker-app .table-wrap:has(th:nth-child(9)) table { min-width:1140px; }
-.ryker-app .table-wrap:has(th:nth-child(6)) table td:first-child a { white-space:nowrap; }
+.ryker-app .table-wrap:has(th:nth-child(6)) table:not(.usage-breakdown-table) td:first-child a { white-space:nowrap; }
 .page-surface .windows { gap:4px; margin:16px 0; padding:4px; width:fit-content; max-width:100%; border:1px solid var(--stroke); border-radius:6px; background:var(--ryker-surface-raised); }
 .page-surface .windows a { padding:6px 12px; color:var(--ryker-text-secondary); border-radius:3px; font-size:15px; }
 .page-surface .windows a[aria-current=page] { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); font-weight:650; }
@@ -2584,6 +2581,8 @@ details.measurement-notes > summary { cursor:pointer; font-weight:600; color:var
 .usage-filters .windows > span { color:var(--ryker-text-secondary); font-size:14px; padding:6px 8px; }
 .page-surface .table-wrap { max-width:100%; overflow:auto; border:1px solid var(--stroke); border-radius:6px; }
 .measurement-notes p { max-width:100ch; margin-bottom:12px; }
+.usage-performance-table th:not(:first-child), .usage-performance-table td:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
+.usage-performance-table td { vertical-align:middle; }
 @media (max-width:580px) { .page-surface .table-wrap table { min-width:680px; } }
 /* The page's help (PageHelp). Andrew, 2026-09-26: "not collapsible like
    that ... a button that will open/hide that side bar completely". One quiet

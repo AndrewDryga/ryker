@@ -629,17 +629,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       refute Enum.any?(duration_detail.trace.steps, &(&1.title == "Run 1 finished"))
     end
 
-    models = breakdown(%{"window" => "24h"}, "model")
-
     assert %{provider: "claude", model: "opus", effort: "high", attempts: 1} =
-             Enum.find(models, &(&1.model == "opus"))
+             Enum.find(snapshot.targets, &(&1.target == measured.execution_target))
 
-    assert [%{attempts: 2, costed: 1, measured: 1}] = breakdown(%{"window" => "24h"}, "channel")
-
-    assert [%{attempts: 2, costed: 1, measured: 1}] =
-             breakdown(%{"window" => "24h"}, "repository")
-
-    assert Enum.any?(models, &(&1.model == "gpt-5.6-sol" and &1.effort == "xhigh"))
+    assert [%{attempts: 2, costed: 1, measured: 1}] = snapshot.channels
+    assert [%{attempts: 2, costed: 1, measured: 1}] = snapshot.repositories
+    assert Enum.any?(snapshot.targets, &(&1.target == "codex:gpt-5.6-sol/xhigh@work"))
     assert [%{attempts: 2, measured: 1}] = snapshot.days
 
     assert [target_episode] =
@@ -704,15 +699,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Decimal.equal?(snapshot.totals.cost_usd, Decimal.new("0.0125"))
     assert Decimal.equal?(snapshot.totals.estimated_cost_usd, Decimal.new("0.01112"))
 
-    people = breakdown(%{"window" => "24h"}, "person")
-
-    assert Enum.sort(Enum.map(people, &{&1.actor, &1.attempts, &1.costed, &1.estimated})) ==
+    assert Enum.sort(Enum.map(snapshot.users, &{&1.actor, &1.attempts, &1.costed, &1.estimated})) ==
              [{"U123", 1, 1, 0}, {"U456", 1, 0, 1}]
 
-    assert [%{attempts: 2, costed: 1, estimated: 1}] = breakdown(%{"window" => "24h"}, "model")
-
-    assert Enum.reduce(breakdown(%{"window" => "24h"}, "channel"), 0, &(&1.attempts + &2)) ==
-             2
+    assert [%{attempts: 2, costed: 1, estimated: 1}] = snapshot.targets
+    assert Enum.reduce(snapshot.channels, 0, &(&1.attempts + &2)) == 2
   end
 
   test "follow-on turns are typed by their turn family instead of an unsaved work type" do
@@ -736,12 +727,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       turn |> Ecto.Changeset.change(turn_ref: prefix <> turn.id) |> Repo.update!()
     end
 
-    kinds = breakdown(%{"window" => "24h"}, "work-type")
+    snapshot = UsageProjection.page(%{"window" => "24h"})
 
-    assert Enum.sort(Enum.map(kinds, & &1.work_kind)) ==
+    assert Enum.sort(Enum.map(snapshot.kinds, & &1.work_kind)) ==
              Enum.sort(Map.values(families))
 
-    assert Enum.all?(kinds, &(&1.attempts == 1 and &1.usage_measured == 1))
+    assert Enum.all?(snapshot.kinds, &(&1.attempts == 1 and &1.usage_measured == 1))
     assert Activity.list(%{"usage_work_kind" => "resumed", "usage_window" => "24h"}).total == 1
   end
 
@@ -804,19 +795,19 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     # A legacy execution with no retained sender must not invent a person either.
     measured_turn!("people-missing", "codex:gpt-5.6-sol/medium@emisar", now)
-    snapshot = UsageProjection.page(%{"by" => "person"})
+    snapshot = UsageProjection.page(%{})
 
-    assert Enum.sort(Enum.map(snapshot.rows, &{&1.source, &1.actor, &1.attempts})) == [
+    assert Enum.sort(Enum.map(snapshot.users, &{&1.source, &1.actor, &1.attempts})) == [
              {"github", "andrew", 2},
              {"slack", "U0BHTNFCW6S", 2}
            ]
 
     assert snapshot.totals.attempts == 13
     assert snapshot.totals.tokens == 16_160
-    assert Enum.sum(Enum.map(breakdown(%{}, "account"), & &1.attempts)) == 13
+    assert Enum.sum(Enum.map(snapshot.profiles, & &1.attempts)) == 13
 
     document = snapshot |> UsagePage.render() |> IO.iodata_to_binary() |> LazyHTML.from_document()
-    people = LazyHTML.query(document, "#usage-breakdown")
+    people = LazyHTML.query(document, "#usage-users")
 
     for label <- ["Direct conversation", "universal", "Slack app", "without a saved"],
         do: refute(LazyHTML.text(people) =~ label)
@@ -874,12 +865,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert snapshot.totals.requests == 4
     assert snapshot.totals.reasoning_tokens == 75
     assert Enum.sum(Enum.map(snapshot.days, & &1.tokens)) == 6_900
+    assert Enum.sum(Enum.map(snapshot.channels, & &1.tokens)) == 6_900
+    assert Enum.sum(Enum.map(snapshot.repositories, & &1.tokens)) == 6_900
+    assert Enum.sum(Enum.map(snapshot.kinds, & &1.tokens)) == 6_900
+    assert Enum.sum(Enum.map(snapshot.profiles, & &1.tokens)) == 6_900
 
-    for by <- ~w(channel repository work-type account),
-        do: assert(Enum.sum(Enum.map(breakdown(%{"window" => "24h"}, by), & &1.tokens)) == 6_900)
-
-    accounts = breakdown(%{"window" => "24h"}, "account")
-    emisar = Enum.find(accounts, &(&1.profile == "emisar"))
+    emisar = Enum.find(snapshot.profiles, &(&1.profile == "emisar"))
     assert emisar.provider == "codex"
     assert emisar.attempts == 2
     assert emisar.requests == 2
@@ -889,7 +880,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert emisar.cache_hit_rate == 0.4
     assert Decimal.equal?(emisar.cost_usd, Decimal.new("0.025"))
     refute Map.has_key?(emisar, :models)
-    assert Enum.find(accounts, &is_nil(&1.profile)).usage_measured == 0
+    assert Enum.find(snapshot.profiles, &is_nil(&1.profile)).usage_measured == 0
 
     assert Activity.list(%{
              "usage_profile" => "emisar",
@@ -915,7 +906,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
   test "profile attribution never guesses a credential from an account ladder" do
     measured_turn!("profile-ladder", "codex:gpt-5.6-sol/medium@work,personal", DateTime.utc_now())
-    assert [%{profile: nil, attempts: 1}] = breakdown(%{"window" => "24h"}, "account")
+    snapshot = UsageProjection.page(%{"window" => "24h"})
+    assert [%{profile: nil, attempts: 1}] = snapshot.profiles
     assert Activity.list(%{"usage_profile" => %{"unexpected" => "nested query"}}).total == 0
     assert Activity.list(%{"usage_profile" => String.duplicate("x", 513)}).total == 0
     assert Activity.list(%{"usage_profile" => "", "usage_window" => "all"}).total == 1
@@ -958,15 +950,14 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         ],
         do: measured_turn!(suffix, target, now)
 
-    snapshot = UsageProjection.page(%{"by" => "model"})
+    snapshot = UsageProjection.page(%{})
 
-    assert Enum.sort(Enum.map(snapshot.rows, &{Map.get(&1, :effort), &1.attempts})) ==
+    assert Enum.sort(Enum.map(snapshot.models, &{Map.get(&1, :effort), &1.attempts})) ==
              [{nil, 1}, {"high", 1}, {"medium", 2}]
 
     document = snapshot |> UsagePage.render() |> IO.iodata_to_binary() |> LazyHTML.from_document()
 
-    for href <-
-          document |> LazyHTML.query("#usage-breakdown tbody a") |> LazyHTML.attribute("href") do
+    for href <- document |> LazyHTML.query("#usage-models a") |> LazyHTML.attribute("href") do
       params = URI.decode_query(URI.parse(href).query)
       assert Map.has_key?(params, "usage_effort")
       assert Activity.list(params).total == if(params["usage_effort"] == "medium", do: 2, else: 1)
@@ -989,9 +980,10 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     end
 
     measured_turn!("slack-one", "codex:gpt-5.6-sol/medium", now)
-    snapshot = UsageProjection.page(%{"window" => "24h", "by" => "channel"})
+    snapshot = UsageProjection.page(%{"window" => "24h"})
 
-    assert [%{attempts: 1, conversation_ref: "slack:T123:C456"}] = snapshot.rows
+    assert [%{attempts: 1, conversation_ref: "slack:T123:C456"}] =
+             snapshot.channels
 
     assert snapshot.totals.attempts == 3
   end
@@ -1704,7 +1696,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert ScheduleProjection.list(%{}) == []
     assert ChannelDirectory.list(%{}) == []
     assert RepositoryProjection.list(%{}) == []
-    assert UsageProjection.page(%{"window" => "24h"}).rows == []
+    assert UsageProjection.page(%{"window" => "24h"}).performance == []
 
     assert IncidentProjection.fetch("missing") == :not_found
     assert ScheduleProjection.fetch("missing") == :not_found
@@ -1714,7 +1706,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert ScheduleProjection.list(:invalid) == []
     assert ChannelDirectory.list(:invalid) == []
     assert RepositoryProjection.list(:invalid) == []
-    assert UsageProjection.page(:invalid).rows == []
+    assert UsageProjection.page(:invalid).performance == []
     assert IncidentProjection.fetch(nil) == :not_found
     assert ScheduleProjection.fetch(nil) == :not_found
     assert ChannelDetail.fetch(nil, nil, %{}) == :not_found
@@ -2411,9 +2403,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       set: [turn_ref: "ingress-turn:#{entry.id}", validation_generation: 2]
     )
 
-    assert %{window: "all", rows: [kind]} = UsageProjection.page(%{"window" => "all"})
-    assert kind.work_kind == "standard"
-    assert [row] = kind.models
+    assert %{window: "all", performance: [row]} = UsageProjection.page(%{"window" => "all"})
     assert row.work_kind == "standard"
     assert row.provider == "codex"
     assert row.model == "gpt-5.6-sol"
@@ -2426,9 +2416,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       set: [validation_history: [%{"candidate_attempt" => 1, "verdict" => "reject"}]]
     )
 
-    assert [%{corrections: 1, models: [%{corrections: 1}]}] =
-             UsageProjection.page(%{"window" => "all"}).rows
-
+    assert [%{corrections: 1}] = UsageProjection.page(%{"window" => "all"}).performance
     assert row.average_provider_ms == 5_000
     assert Decimal.equal?(row.cost_usd, Decimal.new("0.0125"))
 
@@ -2446,7 +2434,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     )
 
     # Usage reads the frozen execution ledger, not a later mutation of the custody row.
-    assert %{rows: [%{models: [%{average_provider_ms: 5_000}]}], window: "7d"} =
+    assert %{performance: [%{average_provider_ms: 5_000}], window: "7d"} =
              UsageProjection.page(%{"window" => "7d"})
   end
 
@@ -2819,9 +2807,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     }
     |> Repo.insert!()
   end
-
-  # The rows of one Usage breakdown (`UsageProjection.breakdowns/0`).
-  defp breakdown(params, by), do: UsageProjection.page(Map.put(params, "by", by)).rows
 
   defp measured_turn!(suffix, target, accepted_at, usage? \\ true, delivery \\ :none) do
     transition = start_episode!("usage-#{suffix}")

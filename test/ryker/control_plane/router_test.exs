@@ -2183,25 +2183,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       window: "24h"
     }
 
-    # Each breakdown is its own view of the page.
-    render = fn by, rows, mode ->
-      snapshot
-      |> Map.drop([:channels, :repositories, :targets])
-      |> Map.merge(%{by: by, rows: rows, mode: mode})
-      |> UsagePage.render()
-      |> IO.iodata_to_binary()
-    end
-
-    html =
-      Enum.map_join(
-        [
-          {"channel", snapshot.channels},
-          {"model", snapshot.targets},
-          {"repository", snapshot.repositories}
-        ],
-        fn {by, rows} -> render.(by, rows, "live") end
-      )
-
+    html = snapshot |> UsagePage.render() |> IO.iodata_to_binary()
     assert html =~ "github:channel/with spaces"
     assert html =~ "opus/high"
     assert html =~ "No repository"
@@ -2215,8 +2197,8 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert html =~ "<strong>1,000</strong>"
 
     # Changing the date previously silently reset a shadow audit to live traffic.
-    shadow = render.("channel", snapshot.channels, "shadow")
-    assert shadow =~ "/usage?window=7d&amp;mode=shadow&amp;by=channel"
+    shadow = snapshot |> Map.put(:mode, "shadow") |> UsagePage.render() |> IO.iodata_to_binary()
+    assert shadow =~ "mode=shadow&amp;window=7d"
     refute shadow =~ "<h2>Measurement coverage"
     assert shadow =~ "Where the time went"
     refute shadow =~ "Token pricing"
