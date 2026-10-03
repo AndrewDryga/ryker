@@ -716,8 +716,13 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     refute html =~ "data-copy-value"
     words = LazyHTML.text(document)
 
-    for reference <- ["session:one", "sha256", "control-plane:lab:one", "coop_error"],
+    for reference <- ["session:one", "sha256", "control-plane:lab:one"],
         do: refute(words =~ reference, reference)
+
+    # An error Ryker has no words for is shown as it was saved, once, in the
+    # sentence that says so (Andrew, 2026-10-03: "show an error").
+    assert words =~ "The saved error is “coop_error”."
+    assert length(String.split(words, "coop_error")) == 2
   end
 
   test "a stopped task's page says the cause the worker gave, not only that it stopped" do
