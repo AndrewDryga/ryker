@@ -256,17 +256,23 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How an incident room works", [
       {"What this page shows",
        [
-         "One incident room: Ryker's latest update, the Slack channel, what the investigation recorded and what happened to the channel. The page updates on its own as the room changes."
+         "One incident room, read as an incident report: how long it has been open, what started it, where Ryker stands now and what it found.",
+         "Timeline tells the whole story oldest first. It shows the alert, the room's steps, what people and Ryker said in the channel, what Ryker recorded and what Slack reported. The page updates on its own."
        ]},
       {"The investigation",
        [
-         "People and Ryker work on the incident in the room's Slack channel, and Ryker posts its progress there. Investigation lists the evidence and findings it recorded; Open the timeline shows every step.",
+         "People and Ryker work on the incident in the room's Slack channel. Every step of the investigation opens the request's own timeline, with each model call.",
          "If Ryker proposed a fix, Code change shows its pull request and where it stands."
+       ]},
+      {"Closing a room",
+       [
+         "Close room stops Ryker's investigation and posts a closing note in the channel and in the alert thread. Ryker won't answer in the channel again.",
+         "The channel stays in Slack, so archive it there when you no longer need it. The room's history stays here, and a closed room can't be reopened."
        ]},
       {"When the channel changes",
        [
-         "If the channel is archived, the investigation pauses until someone unarchives it. If the channel is deleted, the room closes and Ryker says so in the alert's thread.",
-         "A reply Ryker still owed the room goes to that thread instead."
+         "If the channel is archived, Ryker pauses until someone restores it. If Ryker can't find the channel, add Ryker to it again or close the room.",
+         "If the channel is deleted, the room closes and Ryker says so in the alert thread. A reply Ryker still owed the room goes to that thread instead."
        ]},
       {"When something looks wrong",
        [

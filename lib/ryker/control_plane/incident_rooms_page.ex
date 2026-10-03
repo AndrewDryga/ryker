@@ -16,7 +16,18 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, Paths, ShortTime, UsageProjection}
+  alias Ryker.Accounting.Pricing
+
+  alias Ryker.ControlPlane.{
+    ChannelsPage,
+    Components,
+    Kit,
+    Paths,
+    ShortTime,
+    SlackMarkdown,
+    UsageProjection
+  }
+
   alias Ryker.Publication.Custody, as: Publications
   alias Ryker.Slack.{IncidentRooms, Names}
 
@@ -204,30 +215,36 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   end
 
   @doc """
-  A room's own page body: its state, when it opened and its channel on one
-  line, its facts two to a line, one card with what Ryker says now, what its
-  investigation recorded newest first, any code change it proposed, what
-  happened to the room and its channel oldest first, and its references in
-  one closed Details.
+  A room's own page, read as an incident report: where the room stands, its
+  numbers (how long it has been open, when Ryker first found something, how
+  much was said, what it cost), its channel and where it came from, what
+  happened (the alert, where Ryker stands now and what it found), the whole
+  story oldest first, any code change, the people, and its references in one
+  closed Details.
+
+  Andrew, 2026-10-03, of the room page before this: "that page is not helpful
+  overall, it should be like an incident report page with timeline, what
+  happened, etc".
   """
   @spec detail(map(), DateTime.t() | nil) :: iodata()
-  def detail(
-        %{room: room, lifecycle: lifecycle, records: records, publication: publication},
-        now \\ nil
-      ) do
+  def detail(%{room: room, lifecycle: lifecycle, records: records} = snapshot, now \\ nil) do
+    now = now || DateTime.utc_now()
     records = Enum.filter(records, &is_binary(&1.label))
     progress = records |> Enum.filter(&(&1.kind == "progress")) |> List.last()
-    history = history(room, lifecycle)
+    alert = snapshot[:alert]
+    conversation = snapshot[:conversation] || []
 
     %{
       __changed__: nil,
       room: room,
+      alert: alert,
       latest: latest(room, progress),
-      records: Enum.reverse(records),
-      publication: publication,
-      history: history,
-      last_change: last_change(history, records, publication),
-      now: now || DateTime.utc_now()
+      found: found(records),
+      publication: snapshot[:publication],
+      timeline: timeline(room, alert, conversation, records, lifecycle),
+      numbers: numbers(room, records, conversation, snapshot[:accounting], now),
+      people: people(room, conversation),
+      now: now
     }
     |> detail_view()
     |> Safe.to_iodata()
@@ -235,7 +252,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
 
   defp detail_view(assigns) do
     ~H"""
-    <div class="incident-room-view">
+    <div class="incident-room-view incident-report">
       <Kit.status_line id="incident-room-status" state={room_state(@room)}>
         <.moment :if={@room.requested_at} at={@room.requested_at} now={@now} prefix="opened " />
         <a :if={@room.channel_ref} href={Paths.channel(@room.workspace_ref, @room.channel_ref)}>
@@ -249,59 +266,89 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
           See what stopped
         </a>
       </Kit.status_line>
-      <Kit.facts
-        id="incident-room-facts"
-        class="incident-room-facts"
-        facts={room_facts(@room, @last_change, @now)}
-      />
-      <section id="now" class="incident-room-now" aria-labelledby="now-title">
-        <h2 id="now-title" class="incident-room-now-title">Now</h2>
-        <%= if @latest do %>
-          <p class="incident-room-now-state">
-            <Kit.state tone={elem(@latest.state, 0)} word={elem(@latest.state, 1)} />
-            <.moment :if={@latest.at} at={@latest.at} now={@now} prefix="updated " />
-          </p>
-          <p :if={@latest.text} class="incident-room-now-text">{@latest.text}</p>
-          <p :if={@latest.note} class="incident-room-now-note">{@latest.note}</p>
-        <% else %>
-          <Kit.empty variant={:bare} icon={:chat} title="No update yet" text={no_update(@room)} />
-        <% end %>
+      <section class="episode-metrics incident-room-numbers" aria-label="The incident in numbers">
+        <div class="metric-group metric-group-timing">
+          <p class="metric-group-label">Timing</p>
+          <dl class="metric-group-items">
+            <div class="metric">
+              <dt>{@numbers.span_label}</dt>
+              <dd>{@numbers.span}</dd>
+            </div>
+            <div class="metric">
+              <dt>First finding</dt>
+              <dd>{@numbers.first_finding}</dd>
+            </div>
+          </dl>
+        </div>
+        <div class="metric-group metric-group-conversation">
+          <p class="metric-group-label">In the room</p>
+          <dl class="metric-group-items">
+            <div class="metric">
+              <dt>Messages</dt>
+              <dd>{@numbers.messages}</dd>
+            </div>
+            <div class="metric">
+              <dt>Findings</dt>
+              <dd>{@numbers.findings}</dd>
+            </div>
+          </dl>
+        </div>
+        <div class="metric-group metric-group-cost">
+          <p class="metric-group-label">Cost</p>
+          <dl class="metric-group-items">
+            <div class="metric">
+              <dt>Investigation</dt>
+              <dd>{@numbers.cost}</dd>
+            </div>
+          </dl>
+        </div>
       </section>
-      <section id="investigation" aria-labelledby="investigation-title">
-        <Kit.section_head
-          id="investigation-title"
-          title="Investigation"
-          lede="What Ryker recorded while it worked on the incident, newest first. The timeline has every step."
-        >
-          <:actions :if={@room.episode_id}>
-            <a href={Paths.request(@room.episode_id)}>Open the timeline</a>
-          </:actions>
-        </Kit.section_head>
-        <Kit.entity_list
-          :if={@records != []}
-          label="What Ryker recorded"
-          class="incident-room-records"
-        >
-          <.record_row
-            :for={{record, group} <- Enum.zip(@records, Kit.day_groups(@records, & &1[:at], @now))}
-            record={record}
-            group={group}
+      <Kit.facts id="incident-room-facts" class="incident-room-facts" facts={room_facts(@room)} />
+      <section id="what-happened" aria-labelledby="what-happened-title">
+        <Kit.section_head id="what-happened-title" title="What happened" />
+        <Kit.entity_list :if={@alert} label="How it started" class="incident-room-alert">
+          <.story_row entry={alert_entry(@alert)} group="It started with" now={@now} />
+        </Kit.entity_list>
+        <section id="now" class="incident-room-now" aria-labelledby="now-title">
+          <h3 id="now-title" class="incident-room-now-title">Now</h3>
+          <%= if @latest do %>
+            <p class="incident-room-now-state">
+              <Kit.state tone={elem(@latest.state, 0)} word={elem(@latest.state, 1)} />
+              <.moment :if={@latest.at} at={@latest.at} now={@now} prefix="updated " />
+            </p>
+            <p :if={@latest.text} class="incident-room-now-text">{@latest.text}</p>
+            <p :if={@latest.note} class="incident-room-now-note">{@latest.note}</p>
+          <% else %>
+            <Kit.empty variant={:bare} icon={:chat} title="No update yet" text={no_update(@room)} />
+          <% end %>
+        </section>
+        <Kit.entity_list :if={@found != []} label="What Ryker found" class="incident-room-found">
+          <.story_row
+            :for={{entry, index} <- Enum.with_index(@found)}
+            entry={entry}
+            group={if index == 0, do: "What Ryker found"}
+            now={@now}
           />
         </Kit.entity_list>
-        <Kit.empty
-          :if={@records == [] and is_nil(@room.episode_id)}
-          variant={:hint}
-          icon={:clock}
-          title="The investigation has not started"
-          text="It starts in the room once the channel is ready and the responders are invited."
-        />
-        <Kit.empty
-          :if={@records == [] and is_binary(@room.episode_id)}
-          variant={:hint}
-          icon={:activity}
-          title="Nothing recorded yet"
-          text="Evidence, findings and progress appear here as Ryker records them."
-        />
+      </section>
+      <section id="timeline" aria-labelledby="timeline-title">
+        <Kit.section_head
+          id="timeline-title"
+          title="Timeline"
+          lede="Everything that happened, oldest first."
+        >
+          <:actions :if={@room.episode_id}>
+            <a href={Paths.request(@room.episode_id)}>Every step of the investigation</a>
+          </:actions>
+        </Kit.section_head>
+        <Kit.entity_list label="Timeline" class="incident-room-timeline">
+          <.story_row
+            :for={{entry, group} <- Enum.zip(@timeline, Kit.day_groups(@timeline, & &1.at, @now))}
+            entry={entry}
+            group={group}
+            now={@now}
+          />
+        </Kit.entity_list>
       </section>
       <section :if={@publication} id="code-change" aria-labelledby="code-change-title">
         <Kit.section_head
@@ -322,27 +369,9 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
           />
         </Kit.entity_list>
       </section>
-      <section id="room-history" aria-labelledby="room-history-title">
-        <Kit.section_head
-          id="room-history-title"
-          title="Room history"
-          lede="What happened to the room and its Slack channel, oldest first."
-        />
-        <Kit.entity_list label="Room history">
-          <Kit.entity_row
-            :for={
-              {{event, group}, index} <-
-                @history |> Enum.zip(Kit.day_groups(@history, & &1.at, @now)) |> Enum.with_index()
-            }
-            id={"room-event-#{index}"}
-            icon={event.icon}
-            name={event.name}
-            meta={event.meta}
-            group={group}
-            at={Kit.clock(event.at)}
-            at_time={event.at}
-          />
-        </Kit.entity_list>
+      <section :if={@people != []} id="people" aria-labelledby="people-title">
+        <Kit.section_head id="people-title" title="People" />
+        <Kit.facts id="incident-room-people" facts={@people} />
       </section>
       <Components.disclosure id="incident-room-details" label="Details" class="incident-room-details">
         <Kit.facts facts={support_facts(@room, @publication)} />
@@ -351,26 +380,33 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
     """
   end
 
-  attr(:record, :map, required: true)
+  attr(:entry, :map, required: true)
   attr(:group, :string, default: nil)
+  attr(:now, :any, required: true)
 
-  # One thing Ryker recorded: a tile for its kind, its title and what it says,
-  # the kind as the word at the edge beside the clock. Words longer than about
-  # three lines show three and open in place.
-  defp record_row(assigns) do
-    assigns = assign(assigns, :long, long?(assigns.record.summary))
+  # One thing that happened: who or what, what it says, the kind of thing at
+  # the edge beside the clock. Words longer than about three lines show three
+  # and open in place.
+  defp story_row(assigns) do
+    assigns =
+      assign(assigns,
+        long: long?(assigns.entry[:text]),
+        words: words(assigns.entry[:text], assigns.entry[:workspace])
+      )
 
     ~H"""
     <Kit.entity_row
-      id={"record-" <> dom_id(@record.ref)}
-      class={["incident-room-record", @long && "incident-room-long"]}
-      icon={record_icon(@record.kind)}
-      name={record_name(@record)}
-      text={@record.summary}
-      state={{:off, @record.label}}
+      id={"story-" <> @entry.id}
+      class={["incident-room-story", @long && "incident-room-long"]}
+      icon={@entry.icon}
+      icon_tone={@entry[:tone] || :off}
+      name={@entry.name}
+      text={@words}
+      meta={@entry[:meta] || []}
+      state={@entry[:state]}
       group={@group}
-      at={Kit.clock(@record[:at])}
-      at_time={@record[:at]}
+      at={Kit.clock(@entry.at)}
+      at_time={@entry.at}
     >
       <:details :if={@long}>
         <details class="incident-room-more">
@@ -381,16 +417,234 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
     """
   end
 
+  # -- The story ---------------------------------------------------------------
+
+  # Everything that happened, oldest first: the alert, the room's steps, what
+  # people and Ryker said in it, what Ryker recorded, what Slack reported
+  # about the channel, and how the room closed. A step without a time keeps
+  # its place after the step before it.
+  defp timeline(room, alert, conversation, records, lifecycle) do
+    [
+      alert && alert_entry(alert),
+      %{
+        id: "requested",
+        at: room.requested_at,
+        icon: :incident,
+        name: "Room requested",
+        meta: [requested_words(room)]
+      },
+      room.channel_ref &&
+        %{id: "channel", at: room[:channel_created_at], icon: :hash, name: "Channel created"},
+      room[:invited_at] &&
+        %{
+          id: "invited",
+          at: room.invited_at,
+          icon: :chat,
+          name: "People invited",
+          meta: [invited(room)]
+        },
+      room[:ready_at] &&
+        %{
+          id: "ready",
+          at: room.ready_at,
+          icon: :check,
+          name: "Room ready",
+          meta: ["Ryker started investigating"]
+        },
+      room[:stopped_at] &&
+        %{id: "stopped", at: room.stopped_at, icon: :incident, name: "Setup stopped", tone: :warn}
+    ]
+    |> Enum.concat(Enum.map(conversation, &message_entry/1))
+    |> Enum.concat(Enum.map(records, &record_entry/1))
+    |> Enum.concat(Enum.with_index(lifecycle, &lifecycle_entry/2))
+    |> Enum.concat([
+      room[:closing] &&
+        %{
+          id: "closing",
+          at: room[:close_requested_at],
+          icon: :close,
+          name: "Close requested",
+          meta: ["Ryker is stopping its work here and saying so in Slack"]
+        },
+      room[:closed_at] &&
+        %{
+          id: "closed",
+          at: room.closed_at,
+          icon: :close,
+          name: "Room closed",
+          text: room[:closed_note]
+        }
+    ])
+    |> Enum.filter(& &1)
+    |> oldest_first()
+  end
+
+  # The message the room was opened from: an alert an app posted, or what a
+  # person asked.
+  defp alert_entry(alert) do
+    %{
+      id: "alert",
+      at: alert.at,
+      icon: :bell,
+      tone: :warn,
+      name: who(alert.from),
+      text: alert.text || "The message is no longer kept.",
+      workspace: alert.workspace,
+      meta: [alert.place],
+      state: {:off, if(alert.from == :app, do: "Alert", else: "Message")}
+    }
+  end
+
+  defp message_entry(%{from: :ryker} = message) do
+    %{
+      id: "reply-" <> message.id,
+      at: message.at,
+      icon: :chat,
+      tone: :accent,
+      name: "Ryker",
+      text: message.text || "The reply is no longer kept.",
+      state: {:off, "Reply"}
+    }
+  end
+
+  defp message_entry(message) do
+    %{
+      id: "message-" <> message.id,
+      at: message.at,
+      icon: :chat,
+      name: who(message.from),
+      text: message.text || "The message is no longer kept.",
+      workspace: message.workspace,
+      state: {:off, "Message"}
+    }
+  end
+
+  defp record_entry(record) do
+    %{
+      id: "record-" <> dom_id(record.ref),
+      at: record[:at],
+      icon: record_icon(record.kind),
+      tone: if(record.kind == "finding", do: :info, else: :off),
+      name: record_name(record),
+      text: record.summary,
+      state: {:off, record.label}
+    }
+  end
+
+  defp lifecycle_entry(event, index) do
+    %{
+      id: "channel-#{index}",
+      at: event.occurred_at,
+      icon: event_icon(event.kind),
+      tone: if(event.kind in [:observed_unavailable, :left, :deleted], do: :warn, else: :off),
+      name: event_words(event.kind)
+    }
+  end
+
+  # What Ryker found, newest first: its findings, and its evidence while it
+  # has no findings yet. Three at most; the timeline has the rest.
+  defp found(records) do
+    findings = Enum.filter(records, &(&1.kind == "finding"))
+    evidence = Enum.filter(records, &(&1.kind == "evidence"))
+
+    if(findings != [], do: findings, else: evidence)
+    |> Enum.reverse()
+    |> Enum.take(3)
+    |> Enum.map(&record_entry/1)
+    |> Enum.map(&Map.update!(&1, :id, fn id -> "found-" <> id end))
+  end
+
+  defp who({:person, person}), do: Kit.person(%{__changed__: nil, person: person, class: nil})
+  defp who(:you), do: "You"
+  defp who(:app), do: "An app"
+  defp who(_someone), do: "Someone"
+
+  # Who asked for the room: the person who chose Create incident room, or, for
+  # a room the channel opens for every alert, that setting.
+  defp requested_words(%{requested_by: ref} = room) when is_binary(ref) do
+    if Names.person_ref?(ref),
+      do:
+        Kit.person(%{__changed__: nil, person: Names.person(room.workspace_ref, ref), class: nil}),
+      else: "opened for the alert by the channel's setting"
+  end
+
+  defp requested_words(_room), do: nil
+
+  # -- The numbers -----------------------------------------------------------------
+
+  defp numbers(room, records, conversation, accounting, now) do
+    until = room[:closed_at] || now
+
+    %{
+      span_label: if(room.status == :closed, do: "Lasted", else: "Open for"),
+      span: if(room.requested_at, do: span(room.requested_at, until), else: "Not opened"),
+      first_finding: first_finding(room, records),
+      messages: length(conversation),
+      findings: Enum.count(records, &(&1.kind in ["finding", "evidence"])),
+      cost: cost(accounting)
+    }
+  end
+
+  # How long after the room opened Ryker first recorded what it found.
+  defp first_finding(%{requested_at: nil}, _records), do: "None yet"
+
+  defp first_finding(room, records) do
+    case Enum.find(records, &(&1.kind in ["finding", "evidence"] and &1[:at])) do
+      nil -> "None yet"
+      record -> "after " <> span(room.requested_at, record.at)
+    end
+  end
+
+  # A span the way a person says it: 40 min, 3 h 5 min, 9 d 4 h.
+  defp span(from, to) do
+    minutes = max(div(DateTime.diff(utc(to), utc(from), :second), 60), 0)
+
+    cond do
+      minutes < 1 -> "under a minute"
+      minutes < 60 -> "#{minutes} min"
+      minutes < 1_440 -> hours(div(minutes, 60), rem(minutes, 60))
+      true -> days(div(minutes, 1_440), div(rem(minutes, 1_440), 60))
+    end
+  end
+
+  defp hours(hours, 0), do: "#{hours} h"
+  defp hours(hours, minutes), do: "#{hours} h #{minutes} min"
+  defp days(days, 0), do: "#{days} d"
+  defp days(days, hours), do: "#{days} d #{hours} h"
+
+  # Counted the way the request page counts it, an estimate marked ≈.
+  defp cost(%{costed: _} = totals), do: Pricing.amount(totals)
+  defp cost(_no_investigation), do: "None"
+
+  # -- The people ------------------------------------------------------------------
+
+  # Who asked for the room, who it invited, and who wrote in it.
+  defp people(room, conversation) do
+    invited = Enum.map(room[:invite_user_refs] || [], &Names.person(room.workspace_ref, &1))
+    groups = Enum.map(room[:invite_user_group_refs] || [], &("user group " <> &1))
+
+    wrote =
+      for %{from: {:person, person}} <- conversation, uniq: true, do: person
+
+    [
+      {"Asked for it", requested_words(room)},
+      (invited != [] or groups != []) &&
+        {"Invited", Kit.people(%{__changed__: nil, people: invited, more: groups})},
+      wrote != [] &&
+        {"Wrote in the room", Kit.people(%{__changed__: nil, people: wrote, more: []})}
+    ]
+    |> Enum.filter(&(is_tuple(&1) and elem(&1, 1) not in [nil, ""]))
+  end
+
   attr(:at, :any, required: true)
   attr(:now, :any, required: true)
   attr(:prefix, :string, default: nil)
-  attr(:capital, :boolean, default: false)
 
   # A time the way a person says it, "opened yesterday at 08:01", with the
   # exact UTC instant a pointer away.
   defp moment(assigns) do
     ~H"""
-    <time datetime={iso(@at)} title={ShortTime.full(utc(@at))}>{@prefix}{spoken(@at, @now, @capital)}</time>
+    <time datetime={iso(@at)} title={ShortTime.full(utc(@at))}>{@prefix}{spoken(@at, @now)}</time>
     """
   end
 
@@ -420,16 +674,15 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp channel_fact(room), do: {:strong, channel(room)}
 
   # A room's facts, read two to a line: its channel and who can join it, where
-  # it came from and where its work runs, when it opened and last changed.
-  defp room_facts(room, last_change, now) do
+  # it came from and where its work runs. When it opened and how long it has
+  # been open are its status line and its numbers.
+  defp room_facts(room) do
     [
       {"Channel", room_channel(room)},
       {"Who can join",
        if(room.private, do: "Only people who are invited", else: "Anyone in the workspace")},
       {"Opened from", source(room)},
-      works_in(room),
-      {"Opened", fact_time(room.requested_at, now)},
-      {"Last change", fact_time(last_change, now)}
+      works_in(room)
     ]
   end
 
@@ -481,7 +734,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   # An open channel needs no word beside its name; one that is not is said.
   defp channel_state(:archived), do: "archived"
   defp channel_state(:deleted), do: "deleted"
-  defp channel_state(:unavailable), do: "Ryker cannot reach it"
+  defp channel_state(:unavailable), do: "Ryker can't find it"
   defp channel_state(_active_or_pending), do: nil
 
   # What Ryker says now: its latest progress, the stage as the word, lit while
@@ -495,7 +748,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
       card(
         {:off, "Paused"},
         progress,
-        "The channel is archived, so Ryker paused the investigation; its reply waits until someone restores the channel in Slack."
+        "The channel is archived in Slack. Ryker's next reply waits until someone restores it."
       )
 
   defp latest(%{status: :ready, channel_state: :unavailable}, progress),
@@ -503,7 +756,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
       card(
         {:off, "Paused"},
         progress,
-        "Ryker cannot reach the channel, so it paused the investigation; its reply waits until Ryker can post there again."
+        "Ryker can't post in the channel. Its next reply waits until it can."
       )
 
   defp latest(%{status: :ready, channel_state: :deleted}, progress),
@@ -565,6 +818,21 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
 
   defp long?(_text), do: false
 
+  # A message's words with their formatting and mentions, HTML-inert, on the
+  # lines of its row: a code block reads as inline code, so the row keeps its
+  # three lines and its size.
+  defp words(nil, _workspace), do: nil
+  defp words(text, nil), do: {:safe, text |> inline_code() |> SlackMarkdown.render()}
+
+  defp words(text, workspace),
+    do: {:safe, text |> inline_code() |> SlackMarkdown.render(workspace)}
+
+  defp inline_code(text) do
+    Regex.replace(~r/```[a-z]*\n?([\s\S]*?)```/u, text, fn _block, code ->
+      "`" <> (code |> String.split(~r/\s*\n\s*/u, trim: true) |> Enum.join(" · ")) <> "`"
+    end)
+  end
+
   defp change_name(%{pr_number: number}) when is_integer(number), do: "Pull request ##{number}"
   defp change_name(_publication), do: "Proposed change"
 
@@ -596,31 +864,6 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp publication_words(:blocked), do: "code change needs attention"
   defp publication_words(:discarded), do: "code change discarded"
   defp publication_words(_status), do: "code change"
-
-  # The room's milestones in the order they happen, what Slack reported about
-  # its channel, and its closing, oldest first. A channel whose state changed
-  # since it was created no longer knows when that was: it keeps its place
-  # after the request, without a time.
-  defp history(room, lifecycle) do
-    [
-      %{name: "Room requested", icon: :bell, at: room.requested_at},
-      room.channel_ref && %{name: "Channel created", icon: :hash, at: room[:channel_created_at]},
-      room[:invited_at] &&
-        %{name: "People invited", icon: :chat, at: room.invited_at, meta: [invited(room)]},
-      room[:ready_at] && %{name: "Room ready", icon: :check, at: room.ready_at},
-      room[:stopped_at] && %{name: "Setup stopped", icon: :incident, at: room.stopped_at}
-    ]
-    |> Enum.concat(
-      Enum.map(
-        lifecycle,
-        &%{name: event_words(&1.kind), icon: event_icon(&1.kind), at: &1.occurred_at}
-      )
-    )
-    |> Enum.concat([room[:closed_at] && %{name: "Room closed", icon: :close, at: room.closed_at}])
-    |> Enum.filter(& &1)
-    |> Enum.map(&Map.put_new(&1, :meta, []))
-    |> oldest_first()
-  end
 
   # A step without a time sorts at the time of the step before it.
   defp oldest_first(events) do
@@ -654,7 +897,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp event_words(:deleted), do: "Channel deleted"
   defp event_words(:observed_active), do: "Ryker found the channel active"
   defp event_words(:observed_archived), do: "Ryker found the channel archived"
-  defp event_words(:observed_unavailable), do: "Ryker could not reach the channel"
+  defp event_words(:observed_unavailable), do: "Ryker couldn't find the channel in Slack"
   defp event_words(kind), do: words(to_string(kind))
 
   defp event_icon(:joined), do: :arrow
@@ -663,16 +906,6 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp event_icon(kind) when kind in [:left, :deleted], do: :close
   defp event_icon(:observed_unavailable), do: :incident
   defp event_icon(_observed), do: :search
-
-  # The newest thing the page shows: a record, a step of the room, or its
-  # code change. The room's own row changes with every check of its channel,
-  # which is not a change anyone reading the page would recognise.
-  defp last_change(history, records, publication) do
-    [publication && publication.updated_at | Enum.map(history, & &1.at)]
-    |> Enum.concat(Enum.map(records, & &1[:at]))
-    |> Enum.filter(& &1)
-    |> Enum.max(DateTime, fn -> nil end)
-  end
 
   defp support_facts(room, publication) do
     [
@@ -696,17 +929,13 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp code(value), do: code_tag(%{__changed__: nil, value: value})
   defp code_tag(assigns), do: ~H|<code>{@value}</code>|
 
-  defp fact_time(nil, _now), do: nil
-
-  defp fact_time(at, now),
-    do: moment(%{__changed__: nil, at: at, now: now, prefix: nil, capital: true})
-
-  # "yesterday at 08:01": the day the way a day heading names it, then the
-  # clock; in a sentence today and yesterday are lower case.
-  defp spoken(at, now, capital) do
+  # "yesterday at 08:01": the day the way a day heading names it, in a
+  # sentence's lower case, then the clock.
+  defp spoken(at, now) do
     at = utc(at)
-    day = Kit.day_label(DateTime.to_date(at), DateTime.to_date(now))
-    if(capital, do: day, else: in_sentence(day)) <> " at " <> Kit.clock(at)
+
+    in_sentence(Kit.day_label(DateTime.to_date(at), DateTime.to_date(now))) <>
+      " at " <> Kit.clock(at)
   end
 
   defp in_sentence("Today"), do: "today"

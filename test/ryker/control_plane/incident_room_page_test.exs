@@ -21,9 +21,18 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
   alias Ryker.ControlPlane.{Components, IncidentProjection, IncidentRoomsPage}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.{ChannelEnvironments, SavedEntities}
+  alias Ryker.Ingress.Inbox
   alias Ryker.Records
   alias Ryker.Records.Record
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomChangeset, IncidentRoomLifecycleEventChangeset}
+
+  alias Ryker.Slack.{
+    IncidentRoom,
+    IncidentRoomChangeset,
+    IncidentRoomLifecycleEventChangeset,
+    Input
+  }
+
+  alias Ryker.Work.Turn
 
   # The page is read the morning after the room opened.
   @now ~U[2026-09-25 10:00:00Z]
@@ -61,8 +70,13 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
   # after telling the alert thread (IncidentRoomWorker.deletion_detail/1).
   @closed_note "Slack deleted the room's channel, so Ryker closed the room and said so in the alert thread it was opened from."
 
-  test "a room's page says where it stands, what Ryker says now, what it found and what happened to the room, in that order" do
+  # Andrew, 2026-10-03, of this page: "that page is not helpful overall, it should be like an
+  # incident report page with timeline, what happened, etc, and all properly designed". It was
+  # Ryker's latest words in a card, a list of records and a list of the room's own steps: three
+  # stories side by side, none of them saying how the incident started or who said what.
+  test "a room reads as an incident report: its numbers, what happened, then the whole story oldest first" do
     %{room: room, source: source, progress: progress} = demo_room!()
+    conversation!(source)
     document = page(room.ref)
 
     # Where the room stands: its state, when it opened and its channel, on one line.
@@ -73,68 +87,78 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     assert text(status, "a[href='/channels/T0DEMOWORK/C0DEMOROOM1']") ==
              "#inc-checkout-readiness-probes"
 
+    # Its numbers, stated the way the request page states its own.
+    assert metrics(document) == [
+             {"Open for", "1 d 1 h"},
+             {"First finding", "after 31 min"},
+             {"Messages", "2"},
+             {"Findings", "1"},
+             {"Investigation", "Not measured"}
+           ]
+
     # Its facts in words, two to a line; the alert thread is a way back to the
     # conversation the room was opened from, never its channel's raw ID.
     assert facts(document, "#incident-room-facts") == [
              {"Channel", "#inc-checkout-readiness-probes"},
              {"Who can join", "Anyone in the workspace"},
              {"Opened from", "The alert thread"},
-             {"Repository", "acme/checkout-api"},
-             {"Opened", "Yesterday at 08:01"},
-             {"Last change", "Yesterday at 08:48"}
+             {"Repository", "acme/checkout-api"}
            ]
 
     assert text(document, "#incident-room-facts a[href='#{timeline(source.episode)}']") ==
              "The alert thread"
 
-    assert LazyHTML.query(document, ".incident-room-facts") |> LazyHTML.attribute("class") == [
-             "kit-facts incident-room-facts"
-           ]
+    # What happened: what started it, where Ryker stands now, what it found.
+    # It started with the alert an app posted in the alert channel.
+    assert [started] = rows(document, ".incident-room-alert")
 
-    # Now: Ryker's latest update, its stage as the state word.
+    assert {started.group, started.name, started.state, started.text, started.meta, started.icon} ==
+             {"It started with", "An app", "Alert",
+              "[FIRING:1] KubePodNotReady checkout-api pods are not ready after the deploy", nil,
+              icon(:bell)}
+
     now = LazyHTML.query(document, "#now")
-    assert text(now, "h2") == "Now"
+    assert text(now, "h3") == "Now"
     assert text(now, ".state-word") == "Investigating"
     assert text(now, ".incident-room-now-text") == @progress["summary"]
     assert text(now, "time") == "updated yesterday at 08:48"
     assert text(now, ".incident-room-now-note") == nil
 
-    # Investigation: what Ryker recorded, newest first, each kind with its own
-    # tile, the kind as the word and the clock under the day's heading.
-    records = rows(document, "#investigation")
+    assert [found] = rows(document, ".incident-room-found")
 
-    assert Enum.map(records, & &1.name) == [
-             "Investigating",
-             "Kubernetes readiness probe behavior"
+    assert {found.group, found.name, found.state, found.text} ==
+             {"What Ryker found", "Kubernetes readiness probe behavior", "Evidence",
+              @evidence["observation"]}
+
+    # The whole story, oldest first, under one heading per day, each kind with its own tile and
+    # the kind as the word beside the clock.
+    story = rows(document, "#timeline")
+
+    # Who said what in the room is part of it, a person by name and Ryker as Ryker.
+    assert Enum.map(story, &{&1.name, &1.state, &1.at, &1.group}) == [
+             {"An app", "Alert", "08:00", "Yesterday"},
+             {"Room requested", nil, "08:01", nil},
+             {"Channel created", nil, "08:01", nil},
+             {"People invited", nil, "08:02", nil},
+             {"Room ready", nil, "08:32", nil},
+             {"Kubernetes readiness probe behavior", "Evidence", "08:32", nil},
+             {"Slack user", "Message", "08:40", nil},
+             {"Ryker", "Reply", "08:45", nil},
+             {"Investigating", "Progress", "08:48", nil}
            ]
 
-    assert Enum.map(records, & &1.text) == [@progress["summary"], @evidence["observation"]]
-    assert Enum.map(records, & &1.state) == ["Progress", "Evidence"]
-    assert Enum.map(records, & &1.icon) == [icon(:activity), icon(:search)]
-    assert Enum.map(records, & &1.at) == ["08:48", "08:32"]
-    assert Enum.map(records, & &1.group) == ["Yesterday", nil]
-    assert Enum.map(records, & &1.more) == [false, false]
+    assert Enum.map(story, & &1.meta) |> Enum.slice(1..3) == ["Slack user", nil, "1 person"]
+    assert Enum.find(story, &(&1.name == "Ryker")).text =~ "readiness timeout is one second"
 
-    assert text(
-             document,
-             "#investigation .section-actions a[href='#{timeline(source.episode)}']"
-           ) ==
-             "Open the timeline"
+    assert text(document, "#timeline .section-actions a[href='#{timeline(source.episode)}']") ==
+             "Every step of the investigation"
 
-    # Room history: what happened to the room and its channel, oldest first.
-    history = rows(document, "#room-history")
-
-    assert Enum.map(history, & &1.name) == [
-             "Room requested",
-             "Channel created",
-             "People invited",
-             "Room ready"
+    # The people: who asked for it and who it invited, by name, never a raw ID.
+    assert facts(document, "#incident-room-people") == [
+             {"Asked for it", "Slack user"},
+             {"Invited", "Slack user"},
+             {"Wrote in the room", "Slack user"}
            ]
-
-    assert Enum.map(history, & &1.at) == ["08:01", "08:01", "08:02", "08:32"]
-    assert Enum.map(history, & &1.group) == ["Yesterday", nil, nil, nil]
-    assert Enum.map(history, & &1.meta) == [nil, nil, "1 person", nil]
-    assert Enum.all?(history, &is_binary(&1.icon))
 
     # In that order, with the references last.
     assert document
@@ -142,9 +166,9 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
            |> LazyHTML.attribute("id") == [
              "incident-room-status",
              "incident-room-facts",
-             "now",
-             "investigation",
-             "room-history",
+             "what-happened",
+             "timeline",
+             "people",
              "incident-room-details"
            ]
 
@@ -189,7 +213,10 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
 
     at!(finding, ~U[2026-09-24 08:52:10.000000Z])
 
-    [long, progress, short] = rows(page(room.ref), "#investigation")
+    story = rows(page(room.ref), "#timeline")
+    long = Enum.find(story, &(&1.state == "Finding"))
+    progress = Enum.find(story, &(&1.state == "Progress"))
+    short = Enum.find(story, &(&1.state == "Evidence"))
 
     assert {long.name, long.state, long.icon} == {"Explained", "Finding", icon(:incident)}
     assert long.text =~ "Terraform apply succeeded."
@@ -234,7 +261,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     assert text(document, "#now .incident-room-now-text") ==
              "The probe timeout is raised; new pods become ready."
 
-    assert [%{name: "Mitigating", at: "10:00"} | _older] = rows(document, "#investigation")
+    assert %{name: "Mitigating", at: "10:00"} = document |> rows("#timeline") |> List.last()
   end
 
   test "a room whose channel was archived says the investigation is paused until the channel is back" do
@@ -262,7 +289,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     assert text(document, "#now .incident-room-now-text") == @progress["summary"]
 
     assert text(document, "#now .incident-room-now-note") ==
-             "The channel is archived, so Ryker paused the investigation; its reply waits until someone restores the channel in Slack."
+             "The channel is archived in Slack. Ryker's next reply waits until someone restores it."
 
     assert {"Channel", "#inc-checkout-readiness-probes · archived"} in facts(
              document,
@@ -271,13 +298,15 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
 
     # The archive replaced when the channel was created, so that one keeps its
     # place after the request without a time.
-    history = rows(document, "#room-history")
+    story = rows(document, "#timeline")
 
-    assert Enum.map(history, &{&1.name, &1.at, &1.group}) == [
+    assert Enum.map(story, &{&1.name, &1.at, &1.group}) == [
              {"Room requested", "08:01", "Yesterday"},
              {"Channel created", nil, nil},
              {"People invited", "08:02", nil},
              {"Room ready", "08:32", nil},
+             {"Kubernetes readiness probe behavior", "08:32", nil},
+             {"Investigating", "08:48", nil},
              {"Channel archived", "09:15", "Today"}
            ]
   end
@@ -313,14 +342,14 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     assert text(document, "#now .state-word") == "Paused"
 
     assert text(document, "#now .incident-room-now-note") ==
-             "Ryker cannot reach the channel, so it paused the investigation; its reply waits until Ryker can post there again."
+             "Ryker can't post in the channel. Its next reply waits until it can."
 
-    assert {"Channel", "#inc-checkout-readiness-probes · Ryker cannot reach it"} in facts(
+    assert {"Channel", "#inc-checkout-readiness-probes · Ryker can't find it"} in facts(
              document,
              "#incident-room-facts"
            )
 
-    assert document |> rows("#room-history") |> List.last() |> Map.take([:name, :at, :group]) ==
+    assert document |> rows("#timeline") |> List.last() |> Map.take([:name, :at, :group]) ==
              %{name: "Ryker left the channel", at: "09:15", group: "Today"}
   end
 
@@ -352,8 +381,11 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     assert {:ok, snapshot} = IncidentProjection.fetch(room.ref)
     assert IncidentRoomsPage.actions(snapshot.room) == nil
 
-    assert document |> rows("#room-history") |> Enum.take(-2) |> Enum.map(&{&1.name, &1.at}) ==
-             [{"Channel deleted", "09:20"}, {"Room closed", "09:21"}]
+    assert document
+           |> rows("#timeline")
+           |> Enum.take(-2)
+           |> Enum.map(&{&1.name, &1.at, &1.text}) ==
+             [{"Channel deleted", "09:20", nil}, {"Room closed", "09:21", @closed_note}]
   end
 
   # Andrew, 2026-10-03: "why I can't do shit to incident rooms, how about at least closing them?"
@@ -425,16 +457,17 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     assert {"Channel", "Not created yet"} in facts(document, "#incident-room-facts")
     assert text(document, "#now .kit-empty-title") == "No update yet"
 
-    assert text(document, "#investigation .kit-empty-title") ==
-             "The investigation has not started"
+    assert text(document, "#now .kit-empty-text") ==
+             "Setting up the room stopped before Ryker started investigating."
+
+    assert rows(document, ".incident-room-found") == []
 
     # When setup stopped is the room's last step, not when it was requested.
-    assert Enum.map(rows(document, "#room-history"), &{&1.name, &1.at}) == [
+    assert Enum.map(rows(document, "#timeline"), &{&1.name, &1.at}) == [
              {"Room requested", "08:01"},
              {"Setup stopped", "08:03"}
            ]
 
-    assert {"Last change", "Yesterday at 08:03"} in facts(document, "#incident-room-facts")
     refute LazyHTML.to_html(document) =~ "private-invite-failure-detail"
   end
 
@@ -449,7 +482,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
 
     assert {"Environment", "Production · acme/checkout-api"} in room_facts
     refute Enum.any?(room_facts, &match?({"Repository", _value}, &1))
-    assert length(room_facts) == 6
+    assert length(room_facts) == 4
   end
 
   defp page(ref) do
@@ -483,6 +516,12 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
         text: text(row, ".entity-text")
       }
     end)
+  end
+
+  defp metrics(document) do
+    document
+    |> LazyHTML.query(".incident-room-numbers .metric")
+    |> Enum.map(&{text(&1, "dt"), text(&1, "dd")})
   end
 
   defp facts(document, selector) do
@@ -541,6 +580,70 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     )
 
     %{evidence: evidence, progress: progress, room: room, source: source}
+  end
+
+  # The alert the room was opened from, a person's message in the room and Ryker's reply there,
+  # on the request the demo room investigates in.
+  defp conversation!(source) do
+    said!(source, %{
+      actor: %{kind: :app, ref: "B0ALERTMGR"},
+      channel_ref: "C0DEMOALERTS",
+      content: %{
+        "text" => "[FIRING:1] KubePodNotReady checkout-api pods are not ready after the deploy"
+      },
+      event_ref: "Ev-demo-alert",
+      message_ref: "1790001200.000100",
+      occurred_at: ~U[2026-09-24 08:00:30.000000Z]
+    })
+
+    said!(source, %{
+      actor: %{kind: :user, ref: "U0ANDREW"},
+      channel_ref: "C0DEMOROOM1",
+      content: %{"text" => "Rollback is ready if we need it."},
+      event_ref: "Ev-demo-room-message",
+      message_ref: "1790001400.000100",
+      occurred_at: ~U[2026-09-24 08:40:00.000000Z]
+    })
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^source.turn.id),
+      set: [
+        delivered_at: ~U[2026-09-24 08:45:00.000000Z],
+        delivery_document: %{
+          "delivery" => "reply",
+          "message" =>
+            "New pods fail readiness because the probe hits `/healthz` before the cache warms; the readiness timeout is one second."
+        },
+        delivery_fingerprint: String.duplicate("1", 64),
+        delivery_ref: "delivery:demo-room-reply",
+        external_receipt: %{"message_ref" => "1790001500.000100"},
+        external_receipt_fingerprint: String.duplicate("2", 64)
+      ]
+    )
+  end
+
+  defp said!(source, attributes) do
+    {:ok, input} =
+      attributes
+      |> Map.merge(%{
+        event_kind: :message,
+        revision: 1,
+        thread_ref: nil,
+        workspace_ref: "T0DEMOWORK"
+      })
+      |> Input.new()
+
+    {:ok, %{entry: entry}} = Inbox.record(input)
+
+    Repo.update_all(from(saved in Inbox.Entry, where: saved.id == ^entry.id),
+      set: [
+        episode_id: source.episode.id,
+        status: :decided,
+        decision_action: :start_episode,
+        decision_ref: "decision:#{attributes.event_ref}",
+        decision_fingerprint: String.duplicate("a", 64),
+        decision_document: %{"action" => "start_episode", "episode_ref" => source.episode.key}
+      ]
+    )
   end
 
   defp room_attributes(source, offer) do

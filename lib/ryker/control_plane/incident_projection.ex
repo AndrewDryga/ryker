@@ -9,15 +9,26 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Environments, RepositoryNames, Search}
+  require Ryker.ControlPlane.CurrentInputs
+
+  alias Ryker.ControlPlane.{
+    CurrentInputs,
+    Environments,
+    RepositoryNames,
+    Search,
+    UsageProjection
+  }
+
   alias Ryker.Delivery.ChatCard
-  alias Ryker.{Episodes, Settings}
+  alias Ryker.{Episodes, InspectionRedactor, Settings}
   alias Ryker.Episodes.Episode
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Operator.FailureDetail
   alias Ryker.Publication.Publication
   alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, IncidentRooms}
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, IncidentRooms, Names}
+  alias Ryker.Work.Turn
 
   @list_limit 100
   @detail_limit 200
@@ -101,14 +112,17 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   def list(_params), do: list(%{})
 
   @doc """
-  One incident room with its lifecycle, records and latest publication.
+  One incident room as its report reads it: the room, the message it was
+  opened from (`alert`), what people said in it and what Ryker answered there
+  (`conversation`), its lifecycle, the records its investigation wrote, its
+  latest publication and what the investigation cost (`accounting`).
 
   The room carries its milestones as times (`channel_created_at`,
   `invited_at`, `ready_at`, `stopped_at`, `closed_at`), where its
   investigation stands (`episode_state`), the names of its environment and
-  repository, and, for a room Ryker closed because Slack deleted its channel,
-  the note it wrote about where its words went (`closed_note`). No other saved
-  error leaves the Failures page.
+  repository, and, for a room Ryker closed, the note it wrote about where its
+  words went (`closed_note`). No other saved error leaves the Failures page.
+  Message text is redacted before it leaves here.
   """
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(from(room in IncidentRoom, where: room.ref == ^ref, limit: 1)) do
@@ -118,9 +132,14 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       room ->
         episode = if room.episode_id, do: Repo.get(Episode, room.episode_id)
         names = RepositoryNames.all()
+        secrets = InspectionRedactor.configured_secrets()
+        alert = alert(room, secrets)
 
         {:ok,
          %{
+           accounting: accounting(room.episode_id),
+           alert: alert,
+           conversation: conversation(room.episode_id, alert, secrets),
            lifecycle: lifecycle(room),
            publication: publication(room.episode_id, names),
            records: records(room.episode_id),
@@ -151,6 +170,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       invited_at: room.audience_prepared_at,
       invited_groups: length(room.invite_user_group_refs),
       invited_people: length(room.invite_user_refs),
+      invite_user_refs: room.invite_user_refs,
+      invite_user_group_refs: room.invite_user_group_refs,
+      requested_by: room.requested_by_actor_ref,
       private: room.private,
       # The investigation starts in the same transaction that makes the room
       # ready, so its request's creation is when it did.
@@ -169,6 +191,127 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       updated_at: room.updated_at,
       workspace_ref: room.workspace_ref
     }
+  end
+
+  # The message the room was opened from: the alert, or what someone asked,
+  # as the request in its thread first read it.
+  defp alert(%IncidentRoom{source_episode_id: nil}, _secrets), do: nil
+
+  defp alert(room, secrets) do
+    from(entry in Entry,
+      where: entry.episode_id == ^room.source_episode_id and entry.event_kind == :message,
+      order_by: [asc: entry.occurred_at, asc: entry.id],
+      limit: 1
+    )
+    |> said()
+    |> Repo.one()
+    |> message(secrets)
+  end
+
+  # What people said in the room and what Ryker answered there, oldest first:
+  # the newest two hundred of each, without the alert when the investigation
+  # began in the alert's own thread.
+  defp conversation(nil, _alert, _secrets), do: []
+
+  defp conversation(episode_id, alert, secrets) do
+    people =
+      from(entry in Entry,
+        where: entry.episode_id == ^episode_id and entry.event_kind == :message,
+        order_by: [desc: entry.occurred_at, desc: entry.id],
+        limit: @detail_limit
+      )
+      |> said()
+      |> Repo.all()
+      |> Enum.reject(&(alert && &1.id == alert.id))
+      |> Enum.map(&message(&1, secrets))
+
+    ryker =
+      Repo.all(
+        from(turn in Turn,
+          where:
+            turn.episode_id == ^episode_id and not is_nil(turn.delivered_at) and
+              fragment("?::jsonb->>'delivery' = 'reply'", turn.delivery_document),
+          order_by: [desc: turn.delivered_at, desc: turn.id],
+          limit: @detail_limit,
+          select: %{
+            at: turn.delivered_at,
+            id: turn.id,
+            text: fragment("left(?::jsonb->>'message', 12000)", turn.delivery_document)
+          }
+        )
+      )
+      |> Enum.map(
+        &%{at: &1.at, from: :ryker, id: &1.id, text: redacted(&1.text, secrets), workspace: nil}
+      )
+
+    Enum.sort_by(people ++ ryker, &DateTime.to_unix(&1.at, :microsecond))
+  end
+
+  defp said(query) do
+    from(entry in query,
+      select: %{
+        actor_kind: entry.actor_kind,
+        actor_ref: entry.actor_ref,
+        at: entry.occurred_at,
+        conversation_ref: entry.destination_conversation_ref,
+        id: entry.id,
+        source_kind: entry.source_kind,
+        source_ref: entry.source_ref,
+        text:
+          CurrentInputs.visible_preview(
+            entry.operational_pruned_at,
+            entry.event_kind,
+            entry.content
+          )
+      }
+    )
+  end
+
+  # Who said it, as the request page's thread says it: a Slack person by name,
+  # the console's own person as "You", an app or a system as the place it
+  # posted from. The words stay as written, redacted; the page renders their
+  # formatting and names their mentions from `workspace`.
+  defp message(nil, _secrets), do: nil
+
+  defp message(entry, secrets) do
+    %{
+      at: entry.at,
+      from: sender(entry),
+      id: entry.id,
+      place: place(entry.conversation_ref),
+      text: redacted(entry.text, secrets),
+      workspace: if(entry.source_kind == "slack", do: entry.source_ref)
+    }
+  end
+
+  # Where it was said, by the name Slack gave it; never a channel's raw ID
+  # while Slack has not named it yet.
+  defp place("slack:" <> _ = ref), do: if(Names.named?(ref), do: Names.destination(ref))
+  defp place(ref), do: Names.destination(ref)
+
+  defp sender(%{actor_kind: :user, source_kind: "slack"} = entry),
+    do: {:person, Names.person(entry.source_ref, entry.actor_ref)}
+
+  defp sender(%{actor_kind: :user, actor_ref: "local-operator"}), do: :you
+  defp sender(%{actor_kind: :user}), do: :someone
+  defp sender(_entry), do: :app
+
+  defp redacted(nil, _secrets), do: nil
+
+  defp redacted(text, secrets) do
+    case InspectionRedactor.artifact(text, secrets: secrets, max_bytes: 12_000).text do
+      nil -> nil
+      text -> String.trim(text)
+    end
+  end
+
+  # What the investigation's model work cost, the way the request page counts it.
+  defp accounting(nil), do: nil
+
+  defp accounting(episode_id) do
+    Ryker.Accounting.Query.executions(nil, "all")
+    |> where([execution], execution.episode_id == ^episode_id)
+    |> UsageProjection.totals()
   end
 
   defp lifecycle(room) do
