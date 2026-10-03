@@ -216,7 +216,8 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  # Adding a repository is what switches GitHub on. The save used to be
+  # Adding a repository keeps GitHub on (verifying the App switched it on)
+  # and saves the auto-add choice. The save used to be
   # ignored: on 2026-09-26 it did not happen, and GitHub read "Add a repository
   # to start" with two repositories added. It is written against the current
   # settings, and a refusal is the import's answer.
@@ -781,12 +782,16 @@ defmodule Ryker.IntegrationSetup do
     )
   end
 
+  # Verifying the App switches GitHub on, so Ryker answers GitHub's events from
+  # then on. Before a repository was added nothing listened, and every delivery
+  # GitHub made while the App was being set up failed (Andrew, 2026-10-03,
+  # showing a failed ping and installation.created: "errors on setup").
   defp save_github_identity(app, actor, api_url) do
     snapshot = Settings.fetch!()
 
     Settings.save_github(
       %{
-        enabled: false,
+        enabled: true,
         app_id: app["id"],
         app_slug: app["slug"],
         api_url: api_url,

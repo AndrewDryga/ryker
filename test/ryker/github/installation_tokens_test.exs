@@ -336,8 +336,11 @@ defmodule Ryker.GitHub.InstallationTokensTest do
 
     assert InstallationTokens.options!(Map.to_list(valid)).bindings == valid.bindings
 
+    # A verified App with no repository added yet holds no binding, and still
+    # starts so the listener can answer GitHub.
+    assert InstallationTokens.options!(%{valid | bindings: %{}}).bindings == %{}
+
     invalid = [
-      put_in(valid, [:bindings], %{}),
       put_in(valid, [:bindings], %{"github-main" => %{installation_id: 0, repository_id: 99}}),
       put_in(valid, [:requester], :not_a_requester),
       Map.put(valid, :clock, :not_a_clock),

@@ -7,7 +7,7 @@ defmodule Ryker.IntegrationSetupTest do
   alias Ryker.{Credentials, Episodes, IntegrationSetup, Repo, Settings}
   alias Ryker.Emisar.Connections
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.GitHub.{Access, Binding}
+  alias Ryker.GitHub.{Access, Auth, Binding, Router}
   alias Ryker.Settings.Environment
   alias Ryker.Slack.Names
   alias Ryker.TestSupport.EmisarMCP
@@ -802,6 +802,90 @@ defmodule Ryker.IntegrationSetupTest do
              IntegrationSetup.github_repositories(requester: Requester)
   end
 
+  # Andrew, 2026-10-03, showing the App's Recent Deliveries: ping and
+  # installation.created both failed, "errors on setup". Verifying the App left
+  # GitHub off until a repository was added, so nothing listened while the App
+  # was installed. Verifying now switches it on, and with no repository added
+  # yet the listener still answers GitHub.
+  test "a verified App with no repository yet is on and answers GitHub" do
+    connect_github!()
+
+    snapshot = Settings.fetch!()
+    assert snapshot.github.enabled
+    assert snapshot.github_bindings == []
+
+    for {event, payload} <- [
+          {"ping", %{"zen" => "Keep it logically awesome.", "hook_id" => 1}},
+          {"installation",
+           %{
+             "action" => "created",
+             "installation" => %{"id" => 41, "account" => %{"login" => "Acme"}}
+           }}
+        ] do
+      conn = github_event(event, payload, %{})
+      assert conn.status == 200, "#{event} answered #{conn.status}: #{conn.resp_body}"
+    end
+  end
+
+  # "Add new repositories automatically" never added anything: GitHub names a
+  # repository the App was just given only in an installation_repositories
+  # event, and no binding names that repository yet, so the router answered
+  # "ignored" before the event could reach Access.
+  test "a repository the App is given is added through GitHub's own event when auto-add is on" do
+    connect_github!()
+    assert {:ok, [repository]} = IntegrationSetup.github_repositories(requester: Requester)
+
+    assert {:ok, %{added: ["acme/widget"]}} =
+             IntegrationSetup.import_github_repositories([repository], requester: Requester)
+
+    {:ok, _snapshot} =
+      Settings.save_github(
+        %{enabled: true, auto_add_repositories: true},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    binding = hd(Settings.fetch!().github_bindings)
+
+    assert {:ok, trusted} =
+             Binding.new(%{
+               action_grants: binding.action_grants,
+               installation_id: binding.installation_id,
+               name: binding.name,
+               repository_full_name: "acme/widget",
+               repository_id: binding.repository_id,
+               ryker_actor_id: binding.ryker_actor_id,
+               secret: String.duplicate("s", 32)
+             })
+
+    conn =
+      github_event(
+        "installation_repositories",
+        %{
+          "action" => "added",
+          "installation" => %{
+            "account" => %{"id" => 99, "login" => "Acme"},
+            "id" => 41,
+            "permissions" => %{"contents" => "write", "pull_requests" => "write"}
+          },
+          "repositories_added" => [
+            %{
+              "default_branch" => "main",
+              "full_name" => "acme/gizmo",
+              "id" => 777,
+              "private" => true
+            }
+          ],
+          "repositories_removed" => []
+        },
+        %{binding.name => trusted}
+      )
+
+    assert conn.status == 202, conn.resp_body
+    assert Enum.any?(Settings.fetch!().repositories, &(&1.github_repository == "acme/gizmo"))
+    assert Enum.any?(Settings.fetch!().github_bindings, &(&1.repository_id == 777))
+  end
+
   test "installation events refresh permissions and auto-add with verified identities" do
     key = :public_key.generate_key({:rsa, 2_048, 65_537})
     pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
@@ -1181,6 +1265,26 @@ defmodule Ryker.IntegrationSetupTest do
       )
 
     snapshot
+  end
+
+  # One signed GitHub event, through the router the listener runs.
+  defp github_event(event, payload, bindings) do
+    secret = String.duplicate("s", 32)
+    body = Jason.encode!(payload)
+
+    Plug.Test.conn(:post, "/v1/github", body)
+    |> Plug.Conn.put_req_header("content-type", "application/json")
+    |> Plug.Conn.put_req_header("x-github-event", event)
+    |> Plug.Conn.put_req_header("x-github-delivery", "delivery-" <> Ecto.UUID.generate())
+    |> Plug.Conn.put_req_header("x-hub-signature-256", Auth.signature(secret, body))
+    |> Router.call(
+      Router.init(
+        bindings: bindings,
+        bot_login: "ryker-test",
+        repository_access: fn _binding, _payload -> :ok end,
+        secret: secret
+      )
+    )
   end
 
   defp connect_github! do

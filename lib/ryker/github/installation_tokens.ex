@@ -278,9 +278,8 @@ defmodule Ryker.GitHub.InstallationTokens do
   defp valid_binding?(_entry), do: false
 
   defp validate_bindings!(bindings) do
-    unless is_map(bindings) and map_size(bindings) > 0 and
-             Enum.all?(bindings, &valid_binding?/1),
-           do: raise(ArgumentError, "GitHub installation-token bindings are invalid")
+    unless is_map(bindings) and Enum.all?(bindings, &valid_binding?/1),
+      do: raise(ArgumentError, "GitHub installation-token bindings are invalid")
   end
 
   defp validate_requester!(requester) do

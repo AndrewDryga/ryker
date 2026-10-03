@@ -368,7 +368,8 @@ defmodule Ryker.WeeklyReportTest do
 
     assert part(compose(now), :closing) == [
              "Feedback I have received was mostly positive: 2 positive and 1 negative. " <>
-               ~s(I also learned 3 new things, most recently about "Release process". ) <> @no_cost
+               ~s(I also learned 3 new things, most recently about "Release process". ) <>
+               @no_cost
            ]
   end
 

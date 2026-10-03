@@ -39,16 +39,21 @@ defmodule Ryker.GitHub.Router do
       bindings: bindings,
       bot_login: bot_login,
       confirmations: confirmations,
-      max_body_bytes: bindings |> Map.values() |> Enum.map(& &1.max_body_bytes) |> Enum.max(),
+      max_body_bytes:
+        bindings
+        |> Map.values()
+        |> Enum.map(& &1.max_body_bytes)
+        |> Enum.max(fn -> Binding.default_max_body_bytes() end),
       repository_access: repository_access,
       secret: secret
     }
   end
 
   defp validate_options!(bindings, bot_login, repository_access, secret) do
-    unless is_map(bindings) and map_size(bindings) > 0 and
-             Enum.all?(bindings, &valid_binding_entry?/1),
-           do: raise(ArgumentError, "GitHub bindings must map names to matching bindings")
+    # No binding is a verified App with no repository added yet: it still
+    # answers GitHub's ping and installation events.
+    unless is_map(bindings) and Enum.all?(bindings, &valid_binding_entry?/1),
+      do: raise(ArgumentError, "GitHub bindings must map names to matching bindings")
 
     unless is_binary(secret) and byte_size(secret) in 32..1_024,
       do: raise(ArgumentError, "GitHub webhook secret must contain 32 to 1024 bytes")
@@ -118,34 +123,21 @@ defmodule Ryker.GitHub.Router do
     receipts =
       Enum.map(bindings, &Events.record(&1, delivery_ref, event_ref, event_name, payload))
 
-    cond do
-      Enum.any?(receipts, &(&1 == {:error, :github_event_conflict})) ->
+    case access_step(receipts, bindings, event_name, payload) do
+      :conflict ->
         InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
 
-      Enum.any?(receipts, &match?({:error, _}, &1)) ->
+      :unavailable ->
         InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
 
-      bindings == [] ->
+      :ignored ->
         InboundHTTP.respond(conn, 200, %{"status" => "ignored"})
 
-      Enum.all?(receipts, &(&1 == {:ok, :duplicate})) ->
+      :duplicate ->
         InboundHTTP.respond(conn, 202, %{"status" => "duplicate"})
 
-      true ->
-        case Access.apply(event_name, payload, options.bindings) do
-          {:ok, changed} ->
-            complete_receipts(receipts, "metadata", "access_updated")
-
-            InboundHTTP.respond(conn, 202, %{
-              "repositories" => length(changed),
-              "status" => "updated"
-            })
-
-          {:error, _reason} ->
-            complete_receipts(receipts, "failed", "settings_update_failed")
-
-            InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
-        end
+      :apply ->
+        apply_access(conn, receipts, event_name, payload, options)
     end
   end
 
@@ -174,6 +166,35 @@ defmodule Ryker.GitHub.Router do
     else
       false -> InboundHTTP.respond(conn, 413, %{"error" => "payload_too_large"})
       {:error, :binding} -> InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+    end
+  end
+
+  # What an access event's receipts and bindings call for. A repository the
+  # App was just given has no binding yet, so an event that adds one goes on
+  # to Access, which adds it when auto-add is on.
+  defp access_step(receipts, bindings, event_name, payload) do
+    cond do
+      Enum.any?(receipts, &(&1 == {:error, :github_event_conflict})) -> :conflict
+      Enum.any?(receipts, &match?({:error, _}, &1)) -> :unavailable
+      bindings == [] and not Access.adds_repositories?(event_name, payload) -> :ignored
+      receipts != [] and Enum.all?(receipts, &(&1 == {:ok, :duplicate})) -> :duplicate
+      true -> :apply
+    end
+  end
+
+  defp apply_access(conn, receipts, event_name, payload, options) do
+    case Access.apply(event_name, payload, options.bindings) do
+      {:ok, changed} ->
+        complete_receipts(receipts, "metadata", "access_updated")
+
+        InboundHTTP.respond(conn, 202, %{
+          "repositories" => length(changed),
+          "status" => "updated"
+        })
+
+      {:error, _reason} ->
+        complete_receipts(receipts, "failed", "settings_update_failed")
+        InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
     end
   end
 
