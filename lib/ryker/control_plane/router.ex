@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.Router do
     CSRF,
     FactsPage,
     FailureExplanation,
+    FailureProjection,
     FindingsPage,
     HTML,
     ImprovementPage,
@@ -931,6 +932,19 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # Leaving a failure as it is: Failures stops listing it until it changes
+  # again. One already left has nothing to leave.
+  defp confirmation(kind, resource_ref, "leave", options) do
+    with true <- kind in FailureProjection.kinds(),
+         {:ok, row} <- options.projection.failure.(kind, resource_ref),
+         true <- is_nil(row[:left_at]),
+         {:ok, title, explanation} <- FailureExplanation.leave_confirmation(row) do
+      {:ok, title, explanation, "failure:leave", :primary}
+    else
+      _unavailable -> {:error, :not_found}
+    end
+  end
+
   # Closing a room stops Ryker's work in it and says so in Slack. The channel
   # and the room's history stay, so the question is not in the danger tone.
   defp confirmation("slack_incident", resource_ref, "close", options) do
@@ -1106,6 +1120,9 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("slack_incident", resource_ref, "close", actions),
     do: actions.close_incident_room.(resource_ref)
 
+  defp perform(kind, resource_ref, "leave", actions),
+    do: actions.leave_failure.(kind, resource_ref)
+
   defp perform("slack_task_card", resource_ref, "rearm", actions),
     do: actions.rearm_slack_task_card.(resource_ref)
 
@@ -1235,6 +1252,9 @@ defmodule Ryker.ControlPlane.Router do
 
   defp action_return_path("schedule", resource_ref, _action, _options),
     do: Paths.schedule(resource_ref)
+
+  # A failure left as it is returns to the list it no longer appears on.
+  defp action_return_path(_kind, _resource_ref, "leave", _options), do: "/failures"
 
   # Closing returns to the room, where it reads Closing until it is closed.
   defp action_return_path("slack_incident", resource_ref, "close", _options),

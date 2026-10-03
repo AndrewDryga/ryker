@@ -17,6 +17,7 @@ defmodule Ryker.ControlPlane.Activity do
   alias Ryker.Episodes.{Episode, RoutingDigest, Words}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
+  alias Ryker.Operator.FailureDismissal
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
@@ -228,9 +229,9 @@ defmodule Ryker.ControlPlane.Activity do
     Map.merge(%{"attention" => 0, "running" => 0, "done" => 0}, counted)
   end
 
-  defp rows do
-    now = DateTime.utc_now()
+  defp rows, do: union_all(episode_rows(), ^admission_rows(DateTime.utc_now()))
 
+  defp episode_rows do
     first_inputs =
       from(entry in Entry,
         join: current in subquery(CurrentInputs.latest()),
@@ -250,105 +251,111 @@ defmodule Ryker.ControlPlane.Activity do
         }
       )
 
-    episodes =
-      from(episode in Episode,
-        left_join: input in subquery(first_inputs),
-        on: input.episode_id == episode.id,
-        left_join: checkout in subquery(checkouts()),
-        on: checkout.episode_id == episode.id,
-        left_join: scheduled in subquery(scheduled_runs()),
-        on: scheduled.episode_id == episode.id,
-        left_join: turn in Turn,
-        on:
-          turn.episode_id == episode.id and turn.turn_ref == episode.owner_ref and
-            episode.owner_kind == :turn,
-        left_join: digest in RoutingDigest,
-        on: digest.episode_id == episode.id,
-        left_join: task in subquery(confirmed_tasks()),
-        on: task.episode_id == episode.id,
-        select: %{
-          id: episode.id,
-          kind: type(^"episode", :string),
-          episode_title: fragment("COALESCE(?, ?)", task.title, digest.title),
-          task_kind: task.kind,
-          schedule_title: scheduled.title,
-          ref: episode.key,
-          conversation: episode.destination_conversation_ref,
-          thread: episode.destination_thread_ref,
-          episode_state: fragment("?::text", episode.state),
-          mode: fragment("?::text", episode.execution_mode),
-          state:
-            fragment(
-              "CASE WHEN ? = 'blocked' THEN 'blocked' WHEN ? = 'delivery' THEN 'delivery_pending' ELSE ?::text END",
-              turn.status,
-              episode.owner_kind,
-              episode.state
-            ),
-          bucket:
-            fragment(
-              "CASE WHEN ? = 'blocked' OR ? = 'waiting_for_input' THEN 'attention' WHEN ? IN ('complete','cancelled') THEN 'done' ELSE 'running' END",
-              turn.status,
-              episode.state,
-              episode.state
-            ),
-          source: episode.destination_transport,
-          repository: fragment("COALESCE(?, ?)", input.repository, checkout.repository),
-          source_available:
-            not is_nil(input.content) and is_nil(input.pruned_at) and input.event_kind != :delete,
-          text: CurrentInputs.visible_preview(input.pruned_at, input.event_kind, input.content),
-          started_at: fragment("LEAST(?, ?)", episode.inserted_at, input.inserted_at),
-          updated_at: episode.updated_at
-        }
-      )
+    from(episode in Episode,
+      left_join: input in subquery(first_inputs),
+      on: input.episode_id == episode.id,
+      left_join: checkout in subquery(checkouts()),
+      on: checkout.episode_id == episode.id,
+      left_join: scheduled in subquery(scheduled_runs()),
+      on: scheduled.episode_id == episode.id,
+      left_join: turn in Turn,
+      on:
+        turn.episode_id == episode.id and turn.turn_ref == episode.owner_ref and
+          episode.owner_kind == :turn,
+      left_join: digest in RoutingDigest,
+      on: digest.episode_id == episode.id,
+      left_join: task in subquery(confirmed_tasks()),
+      on: task.episode_id == episode.id,
+      select: %{
+        id: episode.id,
+        kind: type(^"episode", :string),
+        episode_title: fragment("COALESCE(?, ?)", task.title, digest.title),
+        task_kind: task.kind,
+        schedule_title: scheduled.title,
+        ref: episode.key,
+        conversation: episode.destination_conversation_ref,
+        thread: episode.destination_thread_ref,
+        episode_state: fragment("?::text", episode.state),
+        mode: fragment("?::text", episode.execution_mode),
+        state:
+          fragment(
+            "CASE WHEN ? = 'blocked' THEN 'blocked' WHEN ? = 'delivery' THEN 'delivery_pending' ELSE ?::text END",
+            turn.status,
+            episode.owner_kind,
+            episode.state
+          ),
+        bucket:
+          fragment(
+            "CASE WHEN ? = 'blocked' OR ? = 'waiting_for_input' THEN 'attention' WHEN ? IN ('complete','cancelled') THEN 'done' ELSE 'running' END",
+            turn.status,
+            episode.state,
+            episode.state
+          ),
+        source: episode.destination_transport,
+        repository: fragment("COALESCE(?, ?)", input.repository, checkout.repository),
+        source_available:
+          not is_nil(input.content) and is_nil(input.pruned_at) and input.event_kind != :delete,
+        text: CurrentInputs.visible_preview(input.pruned_at, input.event_kind, input.content),
+        started_at: fragment("LEAST(?, ?)", episode.inserted_at, input.inserted_at),
+        updated_at: episode.updated_at
+      }
+    )
+  end
 
-    # A deletion is a revision of a message that already has its row, which
-    # reads "Message deleted" from then on; as a row of its own it was a
-    # second "Message deleted" counted as one more request (manual testing,
-    # 2026-09-26). Routing settles deletions without a model, so no spend
-    # loses its row.
-    admissions =
-      from(entry in Entry,
-        join: current in subquery(CurrentInputs.latest()),
-        on:
-          current.native_input_id == entry.native_input_id and
-            current.execution_mode == entry.execution_mode,
-        where: is_nil(entry.episode_id),
-        where: entry.event_kind != :delete,
-        select: %{
-          id: entry.id,
-          kind: type(^"admission", :string),
-          episode_title: type(^nil, :string),
-          task_kind: type(^nil, :string),
-          schedule_title: type(^nil, :string),
-          ref: fragment("?::text", entry.id),
-          conversation: entry.destination_conversation_ref,
-          thread: entry.destination_thread_ref,
-          episode_state: type(^nil, :string),
-          mode: fragment("?::text", entry.execution_mode),
-          state: CurrentInputs.input_state(entry, ^now),
-          bucket:
-            fragment(
-              "CASE WHEN ? = 'blocked' THEN 'attention' WHEN ? = 'pending' THEN 'running' ELSE 'done' END",
-              entry.status,
-              entry.status
-            ),
-          source: entry.destination_transport,
-          repository: entry.repository_ref,
-          source_available:
-            not is_nil(current.content) and is_nil(current.operational_pruned_at) and
-              current.event_kind != :delete,
-          text:
-            CurrentInputs.visible_preview(
-              current.operational_pruned_at,
-              current.event_kind,
-              current.content
-            ),
-          started_at: entry.inserted_at,
-          updated_at: entry.updated_at
-        }
-      )
-
-    union_all(episodes, ^admissions)
+  # A deletion is a revision of a message that already has its row, which
+  # reads "Message deleted" from then on; as a row of its own it was a
+  # second "Message deleted" counted as one more request (manual testing,
+  # 2026-09-26). Routing settles deletions without a model, so no spend
+  # loses its row.
+  #
+  # A stopped message a person left as it is on Failures needs nobody now.
+  defp admission_rows(now) do
+    from(entry in Entry,
+      join: current in subquery(CurrentInputs.latest()),
+      on:
+        current.native_input_id == entry.native_input_id and
+          current.execution_mode == entry.execution_mode,
+      left_join: left in FailureDismissal,
+      on:
+        left.kind == "admission" and
+          left.ref == fragment("'ingress-input:' || ?::text", entry.id) and
+          left.failure_updated_at >= entry.updated_at,
+      where: is_nil(entry.episode_id),
+      where: entry.event_kind != :delete,
+      select: %{
+        id: entry.id,
+        kind: type(^"admission", :string),
+        episode_title: type(^nil, :string),
+        task_kind: type(^nil, :string),
+        schedule_title: type(^nil, :string),
+        ref: fragment("?::text", entry.id),
+        conversation: entry.destination_conversation_ref,
+        thread: entry.destination_thread_ref,
+        episode_state: type(^nil, :string),
+        mode: fragment("?::text", entry.execution_mode),
+        state: CurrentInputs.input_state(entry, ^now),
+        bucket:
+          fragment(
+            "CASE WHEN ? = 'blocked' AND ? IS NULL THEN 'attention' WHEN ? = 'pending' THEN 'running' ELSE 'done' END",
+            entry.status,
+            left.kind,
+            entry.status
+          ),
+        source: entry.destination_transport,
+        repository: entry.repository_ref,
+        source_available:
+          not is_nil(current.content) and is_nil(current.operational_pruned_at) and
+            current.event_kind != :delete,
+        text:
+          CurrentInputs.visible_preview(
+            current.operational_pruned_at,
+            current.event_kind,
+            current.content
+          ),
+        started_at: entry.inserted_at,
+        updated_at: entry.updated_at
+      }
+    )
   end
 
   # The repository the latest working copy checked out, for work whose

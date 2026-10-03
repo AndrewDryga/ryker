@@ -60,7 +60,7 @@ defmodule Ryker.ControlPlane.PagesTest do
           {"/memory/learned", "Deploys happen after 15:00 UTC on weekdays."},
           {"/memory/learning", "2 messages waiting"},
           {"/incident-rooms", "Slack channels Ryker opens to work on an incident"},
-          {"/incident-rooms/one", "What happened"},
+          {"/incident-rooms/one", "Timeline"},
           {"/schedules", "Tasks Ryker runs at a set time"},
           {"/schedules/one", "What it asks for"},
           {"/follow-ups", "Follow-ups"},
@@ -285,7 +285,11 @@ defmodule Ryker.ControlPlane.PagesTest do
     assert LazyHTML.query(incident, "table, .table-wrap, .ui-status") |> LazyHTML.to_tree() == []
     assert LazyHTML.query(incident, ".kit-status-line .state-word") |> LazyHTML.text() == "Open"
 
-    assert LazyHTML.query(incident, "#incident-room-facts a[href='/channels/T123/CINCIDENT']")
+    # The channel is the status line's, and only there.
+    assert LazyHTML.query(incident, "a[href='/channels/T123/CINCIDENT']")
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(incident, "#incident-room-status a[href='/channels/T123/CINCIDENT']")
            |> Enum.count() == 1
 
     assert LazyHTML.query(incident, "#code-change .entity-row .state-word[data-tone=warn]")
@@ -305,9 +309,9 @@ defmodule Ryker.ControlPlane.PagesTest do
 
     refute LazyHTML.text(incident) =~ ~r/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/
     assert LazyHTML.query(incident, "time[datetime]") |> LazyHTML.to_tree() != []
-    # References stay in the closed Details disclosure.
-    assert LazyHTML.query(incident, "details#incident-room-details:not([open])") |> Enum.count() ==
-             1
+    # A room's references are on no page (Andrew, 2026-10-03: "details on bottom are useless").
+    assert LazyHTML.query(incident, "#incident-room-details") |> Enum.empty?()
+    refute LazyHTML.text(incident) =~ "incident-room:one"
 
     # A schedule's page is the Kit's rows, not a table: its state and each run's
     # are a dot and a word, and every time is short with its exact value kept.
@@ -399,18 +403,23 @@ defmodule Ryker.ControlPlane.PagesTest do
     assert incident.body =~ "/actions/slack_incident/one/rearm"
     assert incident.body =~ "Will fail"
 
+    # A failure's page says what happened in words; its references and the digest of its stored
+    # diagnostic are on no page, and the diagnostic itself never was (Andrew, 2026-10-03).
     admission = page("/failures/admission/#{@admission}")
     assert admission.status == 200
-    assert admission.body =~ "github:github-main"
-    assert admission.body =~ "github-delivery-one"
-    assert admission.body =~ "github:github-main:repository:99"
     assert admission.body =~ "3 attempts"
-    assert admission.body =~ "stored diagnostic sha256:"
-    refute admission.body =~ "Frozen validation result was uncertain"
+
+    for reference <- [
+          "github:github-main",
+          "github-delivery-one",
+          "stored diagnostic sha256:",
+          "Frozen validation result was uncertain"
+        ],
+        do: refute(admission.body =~ reference, reference)
 
     delivery = page("/failures/delivery/one")
     assert delivery.status == 200
-    assert delivery.body =~ "stored diagnostic sha256:"
+    refute delivery.body =~ "stored diagnostic sha256:"
     refute delivery.body =~ "Slack returned HTTP 503"
   end
 

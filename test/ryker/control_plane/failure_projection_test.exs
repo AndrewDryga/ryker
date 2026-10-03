@@ -5,12 +5,15 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   # workspace so the conversation lock never waits on another suite.
   @moduletag isolation: "REPEATABLE READ"
 
+  import Ecto.Query, only: [from: 2]
+
   alias Ryker.Admission
   alias Ryker.Admission.{Decision, ReadySessions}
 
   alias Ryker.CanonicalJSON
 
   alias Ryker.ControlPlane.{
+    Actions,
     ConversationMemory,
     FailureExplanation,
     FailureProjection,
@@ -289,7 +292,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     path = "/memory/learning?batch=#{batch.id}"
     assert explained.button == %{label: "Open its attempts", href: path}
 
-    assert "Ryker is not learning from these messages; replies are unaffected." in explained.affects
+    assert "Only learning: replies are unaffected, and newer messages are learned as usual." in explained.affects
 
     html = [row] |> FailuresPage.list() |> IO.iodata_to_binary()
     assert html =~ "Background learning"
@@ -329,7 +332,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
       |> FailuresPage.detail()
       |> IO.iodata_to_binary()
       |> LazyHTML.from_fragment()
-      |> LazyHTML.query("#failure-technical")
+      |> LazyHTML.query("#failure-summary")
 
     assert details |> LazyHTML.query("a.kit-person") |> LazyHTML.text() == "Slack user"
 
@@ -635,6 +638,40 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
              nil
 
     assert FailureProjection.provider_error(nil) == nil
+  end
+
+  # Andrew, 2026-10-03, of a failure page whose other choice was "Leave it": "how do I hide the
+  # alert if I want to leave it and not be annoyed by having a failure pending forever?" Leaving
+  # one takes it off Failures, and off every count that reads the list, until it changes again:
+  # a change is news worth seeing.
+  test "a failure left as it is leaves Failures until it changes again" do
+    session = blocked_learning_cleanup!("coop_session_replacement_required")
+    ref = session.external_ref
+
+    assert {:ok, %{left_at: nil, updated_at: changed_at}} =
+             FailureProjection.fetch("retention", ref)
+
+    assert listed?(ref)
+
+    assert {:ok, _left} = Actions.callbacks().leave_failure.("retention", ref)
+
+    refute listed?(ref)
+
+    # Its own page still opens, and has nothing left to leave.
+    assert {:ok, %{left_at: %DateTime{}} = left} = FailureProjection.fetch("retention", ref)
+    refute Enum.any?(FailureExplanation.explain(left).options, &(&1.label == "Leave it"))
+
+    Repo.update_all(from(saved in Session, where: saved.id == ^session.id),
+      set: [updated_at: DateTime.add(changed_at, 1, :second)]
+    )
+
+    assert listed?(ref)
+    assert {:ok, %{left_at: nil}} = FailureProjection.fetch("retention", ref)
+  end
+
+  defp listed?(ref) do
+    assert {:ok, failures} = FailureProjection.list(%{})
+    Enum.any?(failures, &(&1.ref == ref))
   end
 
   defp blocked_learning_cleanup!(code) do

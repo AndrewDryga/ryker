@@ -661,6 +661,14 @@ defmodule Ryker.ControlPlane.LearningActivity do
     do:
       "A source changed, was removed, or expired. This batch cannot be retried with its old inputs."
 
+  def error("knowledge_anchor_not_sourced"),
+    do:
+      "A topic it wrote named something Ryker could not find in these messages, so Ryker refused to save it."
+
+  def error("knowledge_match_ambiguous"),
+    do:
+      "These messages fit more than one learned topic, and Ryker could not safely choose between them."
+
   def error("knowledge_target_unavailable"),
     do:
       "A topic's source history is no longer valid. This attempt cannot safely update that topic."

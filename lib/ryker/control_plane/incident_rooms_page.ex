@@ -49,8 +49,13 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   @spec description() :: String.t()
   def description, do: "Slack channels Ryker opens to work on an incident with your team."
 
-  @doc "The one sentence under a room's title: where the room stands, in words, and what to do."
-  @spec summary(map()) :: String.t()
+  @doc """
+  The sentence under a room's title, when the room needs one: what is wrong
+  and what to do, or what is happening to it. An open room says nothing
+  there, and neither does a closed one: the status line already says so, and
+  Now says where Ryker stands. The channel's name is the status line's alone.
+  """
+  @spec summary(map()) :: String.t() | nil
   def summary(%{closing: true}),
     do: "Closing: Ryker is stopping its work here and saying so in Slack."
 
@@ -61,27 +66,23 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   # about it: the channel is where Ryker's work in the room happens. Andrew,
   # 2026-10-03, of "Ryker cannot reach the room's channel in Slack, so its work
   # in it is paused.": "wtf?"
-  def summary(%{status: :ready, channel_state: :archived} = room),
+  def summary(%{status: :ready, channel_state: :archived}),
     do:
-      "#{channel(room)} is archived in Slack, so Ryker stopped working in it. " <>
+      "The room's channel is archived in Slack, so Ryker stopped working in it. " <>
         "Restore the channel in Slack to carry on, or close the room."
 
-  def summary(%{status: :ready, channel_state: :unavailable} = room),
+  def summary(%{status: :ready, channel_state: :unavailable}),
     do:
-      "Ryker can't find #{channel(room)} in Slack: the channel is gone, or Ryker is no longer in it. " <>
+      "Ryker can't find the room's channel in Slack: it is gone, or Ryker is no longer in it. " <>
         "Add Ryker to the channel again, or close the room."
 
   def summary(%{status: :ready, channel_state: :deleted}),
     do: "Slack deleted the room's channel, so Ryker is closing the room."
 
-  def summary(%{status: :ready}),
-    do: "The room is open in Slack. Ryker works on the incident there with your team."
-
   def summary(%{status: :blocked}),
     do: "Setting up this Slack room stopped before it finished. Retry it, or close the room."
 
-  def summary(%{status: :closed}), do: "The room is closed."
-  def summary(_room), do: "A Slack room Ryker opened for an incident."
+  def summary(_open_or_closed), do: nil
 
   @doc """
   Close, opposite a room's title, while the room is open, being set up or
@@ -215,16 +216,19 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   end
 
   @doc """
-  A room's own page, read as an incident report: where the room stands, its
-  numbers (how long it has been open, when Ryker first found something, how
-  much was said, what it cost), its channel and where it came from, what
-  happened (the alert, where Ryker stands now and what it found), the whole
-  story oldest first, any code change, the people, and its references in one
-  closed Details.
+  A room's own page, read as an incident report: its state, when it opened
+  and its channel on one line, then where Ryker stands now, its numbers (how
+  long it has been open, when Ryker first found something, how much was said,
+  what it cost), who can join and where it came from, the whole story oldest
+  first (the alert, the room's steps, what was said and found), any code
+  change, and the people. Each thing is said once, and nothing is a
+  reference.
 
   Andrew, 2026-10-03, of the room page before this: "that page is not helpful
   overall, it should be like an incident report page with timeline, what
-  happened, etc".
+  happened, etc", and of the next one: "there is so much duplicate
+  information here, like channel link for example. details on bottom are
+  useless. "Now" is in middle of other elements not placed logically".
   """
   @spec detail(map(), DateTime.t() | nil) :: iodata()
   def detail(%{room: room, lifecycle: lifecycle, records: records} = snapshot, now \\ nil) do
@@ -237,9 +241,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
     %{
       __changed__: nil,
       room: room,
-      alert: alert,
       latest: latest(room, progress),
-      found: found(records),
       publication: snapshot[:publication],
       timeline: timeline(room, alert, conversation, records, lifecycle),
       numbers: numbers(room, records, conversation, snapshot[:accounting], now),
@@ -266,6 +268,19 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
           See what stopped
         </a>
       </Kit.status_line>
+      <section id="now" class="incident-room-now" aria-labelledby="now-title">
+        <h2 id="now-title" class="incident-room-now-title">Now</h2>
+        <%= if @latest do %>
+          <p class="incident-room-now-state">
+            <Kit.state tone={elem(@latest.state, 0)} word={elem(@latest.state, 1)} />
+            <.moment :if={@latest.at} at={@latest.at} now={@now} prefix="updated " />
+          </p>
+          <p :if={@latest.text} class="incident-room-now-text">{@latest.text}</p>
+          <p :if={@latest.note} class="incident-room-now-note">{@latest.note}</p>
+        <% else %>
+          <Kit.empty variant={:bare} icon={:chat} title="No update yet" text={no_update(@room)} />
+        <% end %>
+      </section>
       <section class="episode-metrics incident-room-numbers" aria-label="The incident in numbers">
         <div class="metric-group metric-group-timing">
           <p class="metric-group-label">Timing</p>
@@ -304,33 +319,6 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
         </div>
       </section>
       <Kit.facts id="incident-room-facts" class="incident-room-facts" facts={room_facts(@room)} />
-      <section id="what-happened" aria-labelledby="what-happened-title">
-        <Kit.section_head id="what-happened-title" title="What happened" />
-        <Kit.entity_list :if={@alert} label="How it started" class="incident-room-alert">
-          <.story_row entry={alert_entry(@alert)} group="It started with" now={@now} />
-        </Kit.entity_list>
-        <section id="now" class="incident-room-now" aria-labelledby="now-title">
-          <h3 id="now-title" class="incident-room-now-title">Now</h3>
-          <%= if @latest do %>
-            <p class="incident-room-now-state">
-              <Kit.state tone={elem(@latest.state, 0)} word={elem(@latest.state, 1)} />
-              <.moment :if={@latest.at} at={@latest.at} now={@now} prefix="updated " />
-            </p>
-            <p :if={@latest.text} class="incident-room-now-text">{@latest.text}</p>
-            <p :if={@latest.note} class="incident-room-now-note">{@latest.note}</p>
-          <% else %>
-            <Kit.empty variant={:bare} icon={:chat} title="No update yet" text={no_update(@room)} />
-          <% end %>
-        </section>
-        <Kit.entity_list :if={@found != []} label="What Ryker found" class="incident-room-found">
-          <.story_row
-            :for={{entry, index} <- Enum.with_index(@found)}
-            entry={entry}
-            group={if index == 0, do: "What Ryker found"}
-            now={@now}
-          />
-        </Kit.entity_list>
-      </section>
       <section id="timeline" aria-labelledby="timeline-title">
         <Kit.section_head
           id="timeline-title"
@@ -373,9 +361,6 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
         <Kit.section_head id="people-title" title="People" />
         <Kit.facts id="incident-room-people" facts={@people} />
       </section>
-      <Components.disclosure id="incident-room-details" label="Details" class="incident-room-details">
-        <Kit.facts facts={support_facts(@room, @publication)} />
-      </Components.disclosure>
     </div>
     """
   end
@@ -541,19 +526,6 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
     }
   end
 
-  # What Ryker found, newest first: its findings, and its evidence while it
-  # has no findings yet. Three at most; the timeline has the rest.
-  defp found(records) do
-    findings = Enum.filter(records, &(&1.kind == "finding"))
-    evidence = Enum.filter(records, &(&1.kind == "evidence"))
-
-    if(findings != [], do: findings, else: evidence)
-    |> Enum.reverse()
-    |> Enum.take(3)
-    |> Enum.map(&record_entry/1)
-    |> Enum.map(&Map.update!(&1, :id, fn id -> "found-" <> id end))
-  end
-
   defp who({:person, person}), do: Kit.person(%{__changed__: nil, person: person, class: nil})
   defp who(:you), do: "You"
   defp who(:app), do: "An app"
@@ -673,12 +645,11 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp channel_fact(%{channel_ref: nil}), do: "channel not created yet"
   defp channel_fact(room), do: {:strong, channel(room)}
 
-  # A room's facts, read two to a line: its channel and who can join it, where
-  # it came from and where its work runs. When it opened and how long it has
-  # been open are its status line and its numbers.
+  # A room's facts: who can join it, where it came from and where its work
+  # runs. Its channel, when it opened and how long it has been open are its
+  # status line's and its numbers'.
   defp room_facts(room) do
     [
-      {"Channel", room_channel(room)},
       {"Who can join",
        if(room.private, do: "Only people who are invited", else: "Anyone in the workspace")},
       {"Opened from", source(room)},
@@ -695,21 +666,6 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp works_in(room), do: {"Repository", repository(room)}
 
   defp repository(room), do: room[:repository_name] || room.repository_ref
-
-  defp room_channel(%{channel_ref: nil}), do: "Not created yet"
-
-  defp room_channel(room) do
-    %{
-      __changed__: nil,
-      href: Paths.channel(room.workspace_ref, room.channel_ref),
-      text: channel(room),
-      state: channel_state(room.channel_state)
-    }
-    |> channel_link()
-  end
-
-  defp channel_link(assigns),
-    do: ~H|<a href={@href}>{@text}</a>{if @state, do: " · " <> @state}|
 
   # A channel Slack has not named for Ryker yet keeps the name Ryker gave it.
   defp channel(room), do: ChannelsPage.channel_name(room.workspace_ref, room.channel_ref, room)
@@ -731,41 +687,20 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
     end
   end
 
-  # An open channel needs no word beside its name; one that is not is said.
-  defp channel_state(:archived), do: "archived"
-  defp channel_state(:deleted), do: "deleted"
-  defp channel_state(:unavailable), do: "Ryker can't find it"
-  defp channel_state(_active_or_pending), do: nil
-
   # What Ryker says now: its latest progress, the stage as the word, lit while
   # its investigation is working. A closed room, or one whose channel is gone
   # for now, says that first and where Ryker's words went.
   defp latest(%{status: :closed} = room, progress),
     do: card({:off, "Closed"}, progress, room[:closed_note] || "The room is closed.")
 
-  defp latest(%{status: :ready, channel_state: :archived}, progress),
-    do:
-      card(
-        {:off, "Paused"},
-        progress,
-        "The channel is archived in Slack. Ryker's next reply waits until someone restores it."
-      )
-
-  defp latest(%{status: :ready, channel_state: :unavailable}, progress),
-    do:
-      card(
-        {:off, "Paused"},
-        progress,
-        "Ryker can't post in the channel. Its next reply waits until it can."
-      )
+  # A channel Ryker cannot use pauses the work; the sentence under the title
+  # says why and what to do, so Now says only that it is paused.
+  defp latest(%{status: :ready, channel_state: state}, progress)
+       when state in [:archived, :unavailable],
+       do: card({:off, "Paused"}, progress, nil)
 
   defp latest(%{status: :ready, channel_state: :deleted}, progress),
-    do:
-      card(
-        {:busy, "Closing"},
-        progress,
-        "Slack deleted the channel, so Ryker is closing the room."
-      )
+    do: card({:busy, "Closing"}, progress, nil)
 
   defp latest(_room, nil), do: nil
 
@@ -906,28 +841,6 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp event_icon(kind) when kind in [:left, :deleted], do: :close
   defp event_icon(:observed_unavailable), do: :incident
   defp event_icon(_observed), do: :search
-
-  defp support_facts(room, publication) do
-    [
-      {"Room ID", code(room.ref)},
-      {"Slack workspace ID", code(room.workspace_ref)},
-      {"Channel ID", code(room.channel_ref)},
-      {"Opened from channel ID", code(room[:source_channel_ref])},
-      {"Offer record ID", code(room[:record_ref])},
-      {"Investigation request ID", code(room.episode_id)},
-      {"Opened from request ID",
-       code(if room[:source_episode_id] != room.episode_id, do: room[:source_episode_id])},
-      {"Environment ID", code(room[:environment_ref])},
-      {"Code change ID", code(publication && publication.ref)},
-      {"Commit", code(publication && publication.commit_sha)},
-      {"Code change problem",
-       code(publication && publication.status == :blocked && publication.last_error)}
-    ]
-  end
-
-  defp code(value) when value in [nil, false], do: nil
-  defp code(value), do: code_tag(%{__changed__: nil, value: value})
-  defp code_tag(assigns), do: ~H|<code>{@value}</code>|
 
   # "yesterday at 08:01": the day the way a day heading names it, in a
   # sentence's lower case, then the clock.

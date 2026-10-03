@@ -1548,7 +1548,8 @@ defmodule Ryker.ControlPlane.RouterTest do
       retry =
         Enum.find(
           explanation.options,
-          &(is_binary(&1[:path]) and String.starts_with?(&1.path, "/actions/#{row.kind}/"))
+          &(is_binary(&1[:path]) and String.starts_with?(&1.path, "/actions/#{row.kind}/") and
+              String.ends_with?(&1.path, "/#{action}"))
         )
 
       confirmation = request(:get, retry.path)

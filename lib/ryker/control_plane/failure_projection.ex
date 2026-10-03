@@ -33,6 +33,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   }
 
   alias Ryker.Learning.LearningRun
+  alias Ryker.Operator.FailureDismissals
   alias Ryker.Work.{Cancellation, FailureCause, Recovery, Session, Turn}
 
   # The phases Ryker is still retrying. A recorded failure there is a stuck
@@ -197,6 +198,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
       {:ok,
        failures
+       |> FailureDismissals.reject_left()
+       |> Enum.map(&Map.put(&1, :left_at, nil))
        |> Enum.sort_by(&DateTime.to_unix(&1.updated_at, :microsecond), :desc)
        |> Enum.slice((page - 1) * @page_size, @page_size)
        |> decorate_failures()}
@@ -244,8 +247,11 @@ defmodule Ryker.ControlPlane.FailureProjection do
   """
   def fetch(kind, ref) do
     case failure_exact(kind, ref) do
-      {:ok, item} -> {:ok, decorate_failure(item)}
-      other -> other
+      {:ok, item} ->
+        {:ok, item |> decorate_failure() |> Map.put(:left_at, FailureDismissals.left_at(item))}
+
+      other ->
+        other
     end
   rescue
     _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :unavailable}
@@ -728,6 +734,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     %{
       action: nil,
       attempt_count: batch.start_count,
+      attempt_error: last_attempt_error(batch.id),
       destination: batch.conversation_ref,
       execution_kind: :learning,
       input_count: batch.input_count,
@@ -742,6 +749,18 @@ defmodule Ryker.ControlPlane.FailureProjection do
       summary: LearningActivity.cause_code(batch) || "learning_deferred",
       updated_at: batch.updated_at
     }
+  end
+
+  # What the batch's last attempt stopped on, so its page can say it in words.
+  defp last_attempt_error(batch_id) do
+    Repo.one(
+      from(run in LearningRun,
+        where: run.batch_id == ^batch_id and not is_nil(run.error_code),
+        order_by: [desc: run.inserted_at, desc: run.id],
+        limit: 1,
+        select: run.error_code
+      )
+    )
   end
 
   # Where to relearn the topics a batch stopped on: the topic itself when

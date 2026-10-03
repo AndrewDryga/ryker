@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.ControlPlane.{
+    Actions,
     Activity,
     ActivityPage,
     EpisodeProjection,
@@ -785,6 +786,41 @@ defmodule Ryker.ControlPlane.ActivityTest do
            "two counts open the same view: #{inspect(counts)}"
 
     assert Enum.map(counts, &{elem(&1, 0), elem(&1, 1)}) == [{2, "in progress"}, {2, "need you"}]
+  end
+
+  # Leaving a stopped message as it is on Failures (Andrew, 2026-10-03: "how do I hide the alert
+  # if I want to leave it and not be annoyed by having a failure pending forever?") must also stop
+  # Activity counting it as needing someone, or the count still nags. A change counts it again.
+  test "a stopped message left as it is on Failures no longer needs anyone until it changes" do
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: "C456",
+        content: %{"text" => "Route this one please"},
+        event_kind: :message,
+        event_ref: "Ev-left-as-it-is",
+        message_ref: "1787832199.000100",
+        occurred_at: DateTime.utc_now(),
+        revision: 1,
+        thread_ref: nil,
+        workspace_ref: "T123"
+      })
+
+    {:ok, %{entry: entry}} = Inbox.record(input)
+    {:ok, %{lease_ref: lease}} = Inbox.claim_next("slot:left", DateTime.utc_now(), 60)
+    assert {:ok, _blocked} = Inbox.block(Inbox.ref(entry), lease, "blocked", "stopped")
+    assert %{views: %{"attention" => 1}, items: [%{bucket: "attention"}]} = Activity.list(%{})
+
+    assert {:ok, _left} = Actions.callbacks().leave_failure.("admission", Inbox.ref(entry))
+    assert %{views: %{"attention" => 0}, items: [%{bucket: "done"}]} = Activity.list(%{})
+
+    blocked = Repo.get!(Entry, entry.id)
+
+    Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
+      set: [updated_at: DateTime.add(blocked.updated_at, 1, :second)]
+    )
+
+    assert %{views: %{"attention" => 1}} = Activity.list(%{})
   end
 
   defp counted_episode!(name) do

@@ -74,18 +74,32 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
   # incident report page with timeline, what happened, etc, and all properly designed". It was
   # Ryker's latest words in a card, a list of records and a list of the room's own steps: three
   # stories side by side, none of them saying how the incident started or who said what.
-  test "a room reads as an incident report: its numbers, what happened, then the whole story oldest first" do
-    %{room: room, source: source, progress: progress} = demo_room!()
+  test "a room reads as an incident report: where it stands now first, then the whole story oldest first" do
+    %{room: room, source: source} = demo_room!()
     conversation!(source)
     document = page(room.ref)
 
-    # Where the room stands: its state, when it opened and its channel, on one line.
+    # Where the room stands: its state, when it opened and its channel, on one line; the channel's
+    # one place on the page (Andrew, 2026-10-03: "so much duplicate information here, like channel
+    # link for example").
     status = LazyHTML.query(document, "#incident-room-status")
     assert text(status, ".state-word") == "Open"
     assert text(status, "time") == "opened yesterday at 08:01"
 
     assert text(status, "a[href='/channels/T0DEMOWORK/C0DEMOROOM1']") ==
              "#inc-checkout-readiness-probes"
+
+    assert LazyHTML.query(document, "a[href='/channels/T0DEMOWORK/C0DEMOROOM1']") |> Enum.count() ==
+             1
+
+    # Now comes first: where Ryker stands, in its own latest words ("Now" is in middle of other
+    # elements not placed logically").
+    now = LazyHTML.query(document, "#now")
+    assert text(now, "h2") == "Now"
+    assert text(now, ".state-word") == "Investigating"
+    assert text(now, ".incident-room-now-text") == @progress["summary"]
+    assert text(now, "time") == "updated yesterday at 08:48"
+    assert text(now, ".incident-room-now-note") == nil
 
     # Its numbers, stated the way the request page states its own.
     assert metrics(document) == [
@@ -96,10 +110,9 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
              {"Investigation", "Not measured"}
            ]
 
-    # Its facts in words, two to a line; the alert thread is a way back to the
-    # conversation the room was opened from, never its channel's raw ID.
+    # Its facts in words; the alert thread is a way back to the conversation the room was opened
+    # from, never its channel's raw ID.
     assert facts(document, "#incident-room-facts") == [
-             {"Channel", "#inc-checkout-readiness-probes"},
              {"Who can join", "Anyone in the workspace"},
              {"Opened from", "The alert thread"},
              {"Repository", "acme/checkout-api"}
@@ -108,33 +121,11 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     assert text(document, "#incident-room-facts a[href='#{timeline(source.episode)}']") ==
              "The alert thread"
 
-    # What happened: what started it, where Ryker stands now, what it found.
-    # It started with the alert an app posted in the alert channel.
-    assert [started] = rows(document, ".incident-room-alert")
-
-    assert {started.group, started.name, started.state, started.text, started.meta, started.icon} ==
-             {"It started with", "An app", "Alert",
-              "[FIRING:1] KubePodNotReady checkout-api pods are not ready after the deploy", nil,
-              icon(:bell)}
-
-    now = LazyHTML.query(document, "#now")
-    assert text(now, "h3") == "Now"
-    assert text(now, ".state-word") == "Investigating"
-    assert text(now, ".incident-room-now-text") == @progress["summary"]
-    assert text(now, "time") == "updated yesterday at 08:48"
-    assert text(now, ".incident-room-now-note") == nil
-
-    assert [found] = rows(document, ".incident-room-found")
-
-    assert {found.group, found.name, found.state, found.text} ==
-             {"What Ryker found", "Kubernetes readiness probe behavior", "Evidence",
-              @evidence["observation"]}
-
     # The whole story, oldest first, under one heading per day, each kind with its own tile and
-    # the kind as the word beside the clock.
+    # the kind as the word beside the clock: the alert it started with, who said what in the room
+    # (a person by name, Ryker as Ryker), and what Ryker found. Each is told once.
     story = rows(document, "#timeline")
 
-    # Who said what in the room is part of it, a person by name and Ryker as Ryker.
     assert Enum.map(story, &{&1.name, &1.state, &1.at, &1.group}) == [
              {"An app", "Alert", "08:00", "Yesterday"},
              {"Room requested", nil, "08:01", nil},
@@ -147,6 +138,12 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
              {"Investigating", "Progress", "08:48", nil}
            ]
 
+    [alert | _rest] = story
+
+    assert alert.text ==
+             "[FIRING:1] KubePodNotReady checkout-api pods are not ready after the deploy"
+
+    assert alert.icon == icon(:bell)
     assert Enum.map(story, & &1.meta) |> Enum.slice(1..3) == ["Slack user", nil, "1 person"]
     assert Enum.find(story, &(&1.name == "Ryker")).text =~ "readiness timeout is one second"
 
@@ -160,29 +157,18 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
              {"Wrote in the room", "Slack user"}
            ]
 
-    # In that order, with the references last.
+    # In that order, and no references at all ("details on bottom are useless").
     assert document
            |> LazyHTML.query(".incident-room-view > [id]")
            |> LazyHTML.attribute("id") == [
              "incident-room-status",
+             "now",
              "incident-room-facts",
-             "what-happened",
              "timeline",
-             "people",
-             "incident-room-details"
+             "people"
            ]
 
-    # References wait in one closed Details, as facts, and nowhere else.
-    details = LazyHTML.query(document, "details#incident-room-details:not([open])")
-    references = facts(details, ".kit-facts")
-    assert {"Room ID", "incident-room:demo-checkout-readiness"} in references
-    assert {"Slack workspace ID", "T0DEMOWORK"} in references
-    assert {"Channel ID", "C0DEMOROOM1"} in references
-    assert {"Opened from channel ID", "C0DEMOALERTS"} in references
-    assert {"Offer record ID", progress.ref} in references
-    assert {"Investigation request ID", source.episode.id} in references
-
-    outside = document |> LazyHTML.query(".incident-room-view > :not(details)") |> LazyHTML.text()
+    words = LazyHTML.text(document)
 
     for reference <- [
           room.ref,
@@ -193,10 +179,10 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
           "record:",
           source.episode.key
         ] do
-      refute outside =~ reference, "#{reference} is outside Details"
+      refute words =~ reference, "#{reference} is on the page"
     end
 
-    refute outside =~ ~r/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
+    refute words =~ ~r/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
   end
 
   test "a long record opens in place from three lines, and a short one is whole" do
@@ -281,20 +267,15 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     # The sentence under the title said "Ryker works on the incident there"
     # about a channel nobody could post in. It says what to do now.
     assert description(room.ref) ==
-             "#inc-checkout-readiness-probes is archived in Slack, so Ryker stopped working in it. " <>
+             "The room's channel is archived in Slack, so Ryker stopped working in it. " <>
                "Restore the channel in Slack to carry on, or close the room."
 
     document = page(room.ref)
     assert text(document, "#now .state-word") == "Paused"
     assert text(document, "#now .incident-room-now-text") == @progress["summary"]
 
-    assert text(document, "#now .incident-room-now-note") ==
-             "The channel is archived in Slack. Ryker's next reply waits until someone restores it."
-
-    assert {"Channel", "#inc-checkout-readiness-probes · archived"} in facts(
-             document,
-             "#incident-room-facts"
-           )
+    # The sentence under the title already says it; Now does not say it again.
+    assert text(document, "#now .incident-room-now-note") == nil
 
     # The archive replaced when the channel was created, so that one keeps its
     # place after the request without a time.
@@ -331,8 +312,8 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     )
 
     assert description(room.ref) ==
-             "Ryker can't find #inc-checkout-readiness-probes in Slack: the channel is gone, " <>
-               "or Ryker is no longer in it. Add Ryker to the channel again, or close the room."
+             "Ryker can't find the room's channel in Slack: it is gone, or Ryker is no longer in it. " <>
+               "Add Ryker to the channel again, or close the room."
 
     assert {:ok, snapshot} = IncidentProjection.fetch(room.ref)
     assert IncidentRoomsPage.actions(snapshot.room) =~ ~s(/actions/slack_incident/)
@@ -341,13 +322,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
     assert text(document, "#incident-room-status .state-word") == "Open"
     assert text(document, "#now .state-word") == "Paused"
 
-    assert text(document, "#now .incident-room-now-note") ==
-             "Ryker can't post in the channel. Its next reply waits until it can."
-
-    assert {"Channel", "#inc-checkout-readiness-probes · Ryker can't find it"} in facts(
-             document,
-             "#incident-room-facts"
-           )
+    assert text(document, "#now .incident-room-now-note") == nil
 
     assert document |> rows("#timeline") |> List.last() |> Map.take([:name, :at, :group]) ==
              %{name: "Ryker left the channel", at: "09:15", group: "Today"}
@@ -454,7 +429,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
              "#incident-room-status a[href='/failures/slack_incident/demo-checkout-readiness']"
            ) == "See what stopped"
 
-    assert {"Channel", "Not created yet"} in facts(document, "#incident-room-facts")
+    refute LazyHTML.text(document) =~ "#inc-"
     assert text(document, "#now .kit-empty-title") == "No update yet"
 
     assert text(document, "#now .kit-empty-text") ==
@@ -482,7 +457,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
 
     assert {"Environment", "Production · acme/checkout-api"} in room_facts
     refute Enum.any?(room_facts, &match?({"Repository", _value}, &1))
-    assert length(room_facts) == 4
+    assert length(room_facts) == 3
   end
 
   defp page(ref) do

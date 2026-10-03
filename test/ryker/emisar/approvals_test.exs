@@ -276,7 +276,10 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert explanation.outlook == :fix_first
     assert explanation.button == %{label: "Open Emisar settings", href: "/integrations/emisar"}
     assert explanation.summary =~ "monitoring is off"
-    refute Enum.any?(explanation.options, &is_binary(&1[:path]))
+    # The fix is in Emisar's settings; the one thing to press here leaves it as it is.
+    assert Enum.flat_map(explanation.options, &List.wrap(&1[:path])) ==
+             ["/actions/emisar/production%2Fapr-unwatched/leave"]
+
     assert failures_page() =~ "/failures/emisar/production%2Fapr-unwatched"
 
     assert {:ok, _snapshot} = IntegrationSetup.enable_emisar_monitoring(@connection_ref)

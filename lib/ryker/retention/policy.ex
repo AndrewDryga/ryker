@@ -499,6 +499,12 @@ defmodule Ryker.Retention.Policy do
       why: "one bounded payload-free current scheduler heartbeat per runtime lane"
     },
     %{
+      table: "failure_dismissals",
+      class: :kept,
+      why:
+        "a person's choice to leave a failure as it is: its kind, reference and when it last changed; one tiny row per failure left, kept while it can change again"
+    },
+    %{
       table: "ryker_operator_actions",
       class: :audit,
       why: "idempotent privileged retry and replay decision ledger"
