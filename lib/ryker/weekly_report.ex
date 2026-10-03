@@ -73,7 +73,9 @@ defmodule Ryker.WeeklyReport do
   """
   @spec preview(keyword()) :: Digest.t()
   def preview(options \\ []) do
-    now = Keyword.get_lazy(options, :now, &DateTime.utc_now/0)
+    # Messages are stamped by the database's clock, so the week ends by it too: a
+    # host clock behind the database's left out a message answered a moment earlier.
+    now = Keyword.get_lazy(options, :now, &Repo.now!/0)
 
     zone =
       case Repo.one(from(report in Report, select: report.timezone)) do
@@ -92,7 +94,7 @@ defmodule Ryker.WeeklyReport do
   """
   @spec send_preview(keyword()) :: {:ok, map()} | {:error, term()}
   def send_preview(options \\ []) do
-    now = Keyword.get_lazy(options, :now, &DateTime.utc_now/0)
+    now = Keyword.get_lazy(options, :now, &Repo.now!/0)
     database = database(options)
 
     with {:ok, configured} <- destination(),

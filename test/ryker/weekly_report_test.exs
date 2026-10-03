@@ -64,6 +64,33 @@ defmodule Ryker.WeeklyReportTest do
              "Hey everyone 👋 Here's a preview of my weekly report for 28 Sep – 5 Oct.\n\n"
   end
 
+  # Messages are stamped by the database's clock, and the preview's week ended at the host's.
+  # After the Mac restarted on 2026-10-03 the database ran a quarter of a second ahead, and a
+  # message answered just before the preview fell outside its week: the Weekly report page
+  # said "nobody asked me for anything" whenever its test ran right after the others.
+  test "a message answered just before the preview is counted in its week", %{
+    workspace: workspace
+  } do
+    asked =
+      Answers.slack_message!(
+        workspace: workspace,
+        channel: "CPREVIEW",
+        text: "Is staging healthy?",
+        ts: "1790700001.000100"
+      )
+
+    Answers.quick_reply!(asked, "Yes, it is.", "1790700001.000200", DateTime.utc_now())
+
+    # The answer as the database stamped it, a moment ahead of the host's clock.
+    Repo.update_all(from(entry in Entry, where: entry.id == ^asked.id),
+      set: [inserted_at: DateTime.add(Repo.now!(), 300, :millisecond)]
+    )
+
+    Process.sleep(400)
+
+    assert WeeklyReport.preview(base_url: @base).text =~ "This past week I handled 1 message"
+  end
+
   # Andrew, 2026-09-30, of a report that listed the Slack requests Ryker
   # finished: "those are random tasks in slack, they are irrelevant compared
   # to value that PRs deliver". The PRs lead; the messages are one sentence;
