@@ -136,6 +136,8 @@ defmodule Ryker.CoopFleet.Router do
     else
       {:error, :coop_worker_certificate_not_authorized} -> json_error(conn, 401, "unauthorized")
       {:error, :client_certificate} -> json_error(conn, 401, "unauthorized")
+      # The worker tries again on 503 and gives up on 404.
+      {:error, :coop_worker_source_grant_unavailable} -> json_error(conn, 503, "unavailable")
       _unavailable -> json_error(conn, 404, "not_found")
     end
   end

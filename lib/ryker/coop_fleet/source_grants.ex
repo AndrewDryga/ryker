@@ -62,15 +62,29 @@ defmodule Ryker.CoopFleet.SourceGrants do
        }}
     else
       refused ->
-        # The worker only hears 404, so this is the one place that says why a
-        # job could not fetch its repository. Never the token: it was not issued.
+        # The worker only hears 404 or 503, so this is the one place that says why
+        # a job could not fetch its repository. Never the token: it was not issued.
         Logger.warning(
           "Coop job source grant refused for #{job_ref}: #{inspect(refused, limit: 12)}"
         )
 
-        {:error, :coop_worker_source_grant_not_authorized}
+        if for_now?(refused),
+          do: {:error, :coop_worker_source_grant_unavailable},
+          else: {:error, :coop_worker_source_grant_not_authorized}
     end
   end
+
+  # GitHub busy or silent may answer the worker's next try; one that refused the
+  # token, or a binding that changed, refuses again. Told "not found" when GitHub
+  # answered a token request with 503, tenant's worker failed a create for good
+  # (2026-10-03).
+  defp for_now?({:error, {:github_installation_token_unavailable, reason}}),
+    do: token_for_now?(reason)
+
+  defp for_now?(_refused), do: false
+
+  defp token_for_now?({:http_status, status}), do: status >= 500 or status in [408, 429]
+  defp token_for_now?(reason), do: reason not in [:binding, :purpose]
 
   @doc false
   @spec source_grant_authority(binary(), String.t(), map()) ::
