@@ -153,13 +153,16 @@ defmodule Ryker.IntegrationSetup do
         {:ok, repositories} ->
           known = set_up_repositories(snapshot)
 
+          # Most recently pushed first, so the ones in use lead a long list; by name
+          # among those pushed at the same moment, or never.
           {:ok,
            repositories
            |> Enum.map(fn repository ->
              repository
              |> Map.put(:already_present, MapSet.member?(known, repository.full_name))
            end)
-           |> Enum.sort_by(&String.downcase(&1.full_name))}
+           |> Enum.sort_by(&String.downcase(&1.full_name))
+           |> Enum.sort_by(&(&1.pushed_at || ""), :desc)}
 
         {:error, _reason} = error ->
           error
@@ -906,23 +909,17 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
+  # An archived repository takes no new work, so it is never offered.
   defp installation_repositories(app_http, api_url, installation, options) do
     with id when is_integer(id) <- installation["id"],
          {:ok, %{body: %{"token" => token} = access, status: 201}} <-
            request(app_http, :post, "/app/installations/#{id}/access_tokens", %{}, [], options),
          {:ok, installation_http} <- json_http(api_url, token, options),
-         {:ok, %{body: %{"repositories" => repositories}, status: 200}} <-
-           request(
-             installation_http,
-             :get,
-             "/installation/repositories?per_page=100",
-             nil,
-             [],
-             options
-           ),
-         true <- is_list(repositories) do
+         {:ok, repositories} <- repository_pages(installation_http, options, 1, []) do
       {:ok,
-       Enum.map(repositories, fn repository ->
+       repositories
+       |> Enum.reject(&(&1["archived"] == true))
+       |> Enum.map(fn repository ->
          %{
            default_branch: repository["default_branch"] || "main",
            full_name: repository["full_name"],
@@ -931,15 +928,48 @@ defmodule Ryker.IntegrationSetup do
            installation_id: id,
            permissions: access["permissions"] || installation["permissions"] || %{},
            private: repository["private"] == true,
+           pushed_at: repository["pushed_at"],
            repository_id: repository["id"]
          }
        end)}
     else
-      false -> {:error, {:github_verification_failed, :repositories}}
       {:error, _reason} = error -> error
       _invalid -> {:error, {:github_verification_failed, :repositories}}
     end
   end
+
+  # GitHub lists an installation's repositories a hundred a page and says how
+  # many there are; every page is read. Reading the first only offered a hundred
+  # of theblitzapp's (Andrew, 2026-10-03: "those ar enot all repos, we have more
+  # than 100"). A page that fails fails the list rather than leaving some out.
+  @repository_page 100
+  @repository_pages 100
+
+  defp repository_pages(_http, _options, page, read) when page > @repository_pages,
+    do: {:ok, read}
+
+  defp repository_pages(http, options, page, read) do
+    path = "/installation/repositories?per_page=#{@repository_page}&page=#{page}"
+
+    case request(http, :get, path, nil, [], options) do
+      {:ok, %{body: %{"repositories" => repositories} = body, status: 200}}
+      when is_list(repositories) ->
+        read = read ++ repositories
+
+        if length(repositories) < @repository_page or length(read) >= total(body, read),
+          do: {:ok, read},
+          else: repository_pages(http, options, page + 1, read)
+
+      {:error, _reason} = error ->
+        error
+
+      _invalid ->
+        {:error, {:github_verification_failed, :repositories}}
+    end
+  end
+
+  defp total(%{"total_count" => total}, _read) when is_integer(total), do: total
+  defp total(_body, read), do: length(read) + 1
 
   defp import_repository(repository, ryker_actor_id, {added, present, failed}) do
     full_name = repository_value(repository, :full_name)
