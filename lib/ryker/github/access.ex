@@ -26,6 +26,16 @@ defmodule Ryker.GitHub.Access do
 
   def affected(_event, _payload, _bindings), do: []
 
+  @doc """
+  Whether an event gives the App repositories, which auto-add may add even
+  though no binding names them yet.
+  """
+  @spec adds_repositories?(String.t(), map()) :: boolean()
+  def adds_repositories?("installation_repositories", payload),
+    do: repositories_added(payload) != []
+
+  def adds_repositories?(_event, _payload), do: false
+
   @events ["installation", "installation_repositories", "repository"]
 
   @doc """

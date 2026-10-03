@@ -95,7 +95,8 @@ defmodule Ryker.GitHub.Server do
     )
   end
 
-  defp normalize_bindings!(bindings) when is_map(bindings) and map_size(bindings) > 0 do
+  # An empty map is a verified App with no repository added yet.
+  defp normalize_bindings!(bindings) when is_map(bindings) do
     Map.new(bindings, fn
       {name, %Binding{} = binding} when is_binary(name) ->
         if binding.name == name,
@@ -117,7 +118,7 @@ defmodule Ryker.GitHub.Server do
   end
 
   defp normalize_bindings!(_bindings),
-    do: raise(ArgumentError, "at least one GitHub binding is required")
+    do: raise(ArgumentError, "GitHub bindings must be a map")
 
   defp valid_port?(port), do: is_integer(port) and port >= 1 and port <= 65_535
 

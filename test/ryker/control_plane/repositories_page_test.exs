@@ -666,7 +666,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
           # Add repositories is the list's own action; the line opens GitHub's
           # page instead of offering it a second time.
           {:ready, false,
-           "GitHub Add a repository to start The App is verified. Ryker starts GitHub work once a repository is added.",
+           "GitHub Add a repository to start The App is verified. Add a repository for Ryker to work in.",
            "Manage", "/integrations/github"},
           {:invalid, true, "GitHub Needs repair The saved App ID or private key no longer works.",
            "Repair GitHub", "/integrations/github#github-app"},

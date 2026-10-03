@@ -9,6 +9,10 @@ defmodule Ryker.GitHub.Binding do
   alias Ryker.Ingress.WorkProfile
 
   @default_max_body_bytes 40_000
+
+  @doc "The body limit a binding takes when it names none."
+  @spec default_max_body_bytes() :: pos_integer()
+  def default_max_body_bytes, do: @default_max_body_bytes
   @maximum_id 9_223_372_036_854_775_807
   @fields [
     :action_grants,

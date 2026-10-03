@@ -147,8 +147,8 @@ defmodule Ryker.ControlPlane.Integrations do
       no_repository: %{
         status: :off,
         state: {:warn, "Add a repository to start"},
-        means: "the App is verified, and GitHub work starts once a repository is added.",
-        reason: "The App is verified. Ryker starts GitHub work once a repository is added.",
+        means: "the App is verified, and work starts once a repository is added.",
+        reason: "The App is verified. Add a repository for Ryker to work in.",
         action: {"Add repositories", "/repositories/new"}
       },
       connected: %{
@@ -357,7 +357,7 @@ defmodule Ryker.ControlPlane.Integrations do
       :missing ->
         state(:github, :not_connected, facts: [])
 
-      :ready when github.enabled ->
+      :ready when github.enabled and view.snapshot.repositories != [] ->
         state(:github, :connected,
           facts: facts([app, count(length(view.snapshot.repositories), "repository")])
         )

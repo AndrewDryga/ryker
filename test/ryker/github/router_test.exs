@@ -841,8 +841,13 @@ defmodule Ryker.GitHub.RouterTest do
            ).status == 400
   end
 
-  test "refuses an empty or mismatched binding registry" do
-    assert_raise ArgumentError, fn -> Router.init(bindings: %{}, secret: @secret) end
+  # A verified App with no repository added yet has no binding; it still
+  # listens, so GitHub's deliveries during setup do not fail.
+  test "takes an empty binding registry and refuses a mismatched one" do
+    assert %{binding_index: index} =
+             Router.init(bindings: %{}, bot_login: "ryker-test", secret: @secret)
+
+    assert index == %{}
 
     assert_raise ArgumentError, fn ->
       Router.init(bindings: %{"wrong" => binding!()}, secret: @secret)

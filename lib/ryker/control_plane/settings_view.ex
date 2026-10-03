@@ -227,7 +227,7 @@ defmodule Ryker.ControlPlane.SettingsView do
 
   # Slack's step is done once Slack is switched on, working or not: a
   # connection that stopped says so on the done step. GitHub's is done once
-  # the App is verified; adding a repository, the next step, switches it on.
+  # the App is verified, which switches it on.
   defp setup_status(%{snapshot: snapshot} = connections, joined) do
     configured = Enum.filter(joined, &is_binary(&1.environment_ref))
 
