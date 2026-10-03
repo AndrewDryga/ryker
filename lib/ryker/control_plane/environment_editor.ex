@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
 
   use Phoenix.LiveComponent
 
-  alias Ryker.ControlPlane.{Components, Environments, SettingsView}
+  alias Ryker.ControlPlane.{Actor, Components, Environments, SettingsView}
   alias Ryker.Settings
   alias Ryker.Settings.Environment
 
@@ -221,7 +221,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
            Settings.put_environment(
              attributes,
              socket.assigns.expected_revision,
-             Settings.actor()
+             Actor.ref()
            )
          end) do
       {:ok, snapshot} ->

@@ -540,7 +540,8 @@ defmodule Ryker.ControlPlane.ChannelPage do
     do: ~H"Never changed; this channel follows the defaults"
 
   # Who saved it: a Slack person by name, linked to their profile, or Ryker's
-  # own pages, which read "by Slack reference" until 2026-09-26.
+  # own pages, which read "by Slack reference" until 2026-09-26, with the
+  # tailnet user who saved there.
   defp saved(assigns) do
     actor = assigns.configuration.actor_ref
     person = if Names.person_ref?(actor), do: Names.person(assigns.workspace, actor)
@@ -552,6 +553,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
     """
   end
 
+  defp saved_by("control-plane:tailscale:" <> login, _person), do: " in Ryker by #{login}"
   defp saved_by("control-plane:" <> _console, _person), do: " in Ryker"
   defp saved_by(_actor, nil), do: ""
   defp saved_by(_actor, _person), do: " by"

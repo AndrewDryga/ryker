@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   Nothing here writes a row or decides what is allowed.
   """
 
-  alias Ryker.ControlPlane.SettingsSections
+  alias Ryker.ControlPlane.{Actor, SettingsSections}
   alias Ryker.Credentials
   alias Ryker.Settings
   alias Ryker.Webhooks.Preview
@@ -16,7 +16,7 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   @type result :: {:ok, Settings.snapshot()} | {:error, term()}
 
   @spec initialize() :: result()
-  def initialize, do: Settings.initialize(Settings.actor())
+  def initialize, do: Settings.initialize(Actor.ref())
 
   @doc "Saves one singleton or retention section at an expected revision."
   @spec save(atom() | String.t(), map(), integer()) :: result()
@@ -150,5 +150,5 @@ defmodule Ryker.ControlPlane.SettingsCommands do
     |> Enum.map(& &1.name)
   end
 
-  defp actor, do: Settings.actor()
+  defp actor, do: Actor.ref()
 end

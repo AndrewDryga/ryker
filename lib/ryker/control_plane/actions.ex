@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.Actions do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
+  alias Ryker.ControlPlane.Actor
   alias Ryker.ControlPlane.ConversationLab
   alias Ryker.ControlPlane.FailureProjection
   alias Ryker.ControlPlane.InstructionSettings
@@ -41,7 +42,6 @@ defmodule Ryker.ControlPlane.Actions do
 
   alias Ryker.Work.{Custody, Session, Turn}
 
-  @actor_ref "control-plane:local"
   @lab_actor_ref "local-operator"
   @current {__MODULE__, :current}
 
@@ -103,8 +103,8 @@ defmodule Ryker.ControlPlane.Actions do
       forget_finding: &Findings.forget/1,
       forget_person: &People.forget_person/1,
       forget_person_fact: &People.forget_fact/1,
-      accept_improvement: &Improvement.accept(&1, @actor_ref),
-      dismiss_improvement: &Improvement.dismiss(&1, @actor_ref),
+      accept_improvement: &Improvement.accept(&1, Actor.ref()),
+      dismiss_improvement: &Improvement.dismiss(&1, Actor.ref()),
       mark_finding_explained: &Findings.mark_explained/1,
       resolve_episode: &resolve_episode/1,
       resolve_memory_review: &resolve_memory_review/3,
@@ -113,14 +113,14 @@ defmodule Ryker.ControlPlane.Actions do
       rearm_emisar: &retry_failure("emisar", &1),
       rearm_retention: &retry_failure("retention", &1),
       rearm_slack_incident: &retry_failure("slack_incident", &1),
-      close_incident_room: &IncidentRooms.request_close(&1, @actor_ref),
+      close_incident_room: &IncidentRooms.request_close(&1, Actor.ref()),
       leave_failure: &leave_failure/2,
       rearm_slack_interaction: &retry_failure("slack_interaction", &1),
       rearm_slack_task_card: &retry_failure("slack_task_card", &1),
       rearm_slack_thread_status: &retry_failure("slack_thread_status", &1),
       react_to_lab_message: &ConversationLab.react_to_message/4,
       retry_work: &retry_work/2,
-      rate_episode: &EpisodeReviews.review(&1, @actor_ref, &2),
+      rate_episode: &EpisodeReviews.review(&1, Actor.ref(), &2),
       run_schedule: run_schedule(schedule_policy_resolver),
       send_lab_message: lab_sender(placements),
       set_behavior_status: &Behaviors.set_status/2,
@@ -147,7 +147,7 @@ defmodule Ryker.ControlPlane.Actions do
       case Repo.get_by(Schedule, ref: schedule_ref) do
         %{revision: revision} ->
           action_ref = "control-plane:run-schedule:#{schedule_ref}:#{revision}"
-          Schedules.run_now_for_operator(schedule_ref, @actor_ref, action_ref, policy_resolver)
+          Schedules.run_now_for_operator(schedule_ref, Actor.ref(), action_ref, policy_resolver)
 
         nil ->
           {:error, :schedule_not_found}
@@ -164,7 +164,7 @@ defmodule Ryker.ControlPlane.Actions do
            from(review in Ryker.Memories.MemoryReviewItem, where: review.ref == ^review_ref)
          ) do
       %Ryker.Memories.MemoryReviewItem{workspace_ref: workspace_ref} ->
-        Memories.resolve_review(review_ref, action, @actor_ref, workspace_ref, replacement)
+        Memories.resolve_review(review_ref, action, Actor.ref(), workspace_ref, replacement)
 
       nil ->
         {:error, :memory_review_not_found}
@@ -176,7 +176,7 @@ defmodule Ryker.ControlPlane.Actions do
       LearningOperator.drop(
         id,
         budget_version,
-        @actor_ref,
+        Actor.ref(),
         "control-plane:learning-drop:#{id}:#{budget_version}"
       )
 
@@ -184,7 +184,7 @@ defmodule Ryker.ControlPlane.Actions do
   defp leave_failure(kind, ref) do
     case FailureProjection.fetch(kind, ref) do
       {:ok, row} ->
-        FailureDismissals.leave(row.kind, row.ref, row.updated_at || Repo.now!(), @actor_ref)
+        FailureDismissals.leave(row.kind, row.ref, row.updated_at || Repo.now!(), Actor.ref())
 
       :not_found ->
         {:error, :failure_not_found}
@@ -197,14 +197,14 @@ defmodule Ryker.ControlPlane.Actions do
   defp retry_failure(kind, ref) do
     Failures.retry(kind, ref,
       action_ref: "control-plane:retry:#{Ecto.UUID.generate()}",
-      actor_ref: @actor_ref
+      actor_ref: Actor.ref()
     )
   end
 
   defp retry_work(ref, expected_recovery) do
     Failures.retry("work", ref,
       action_ref: "control-plane:retry:#{Ecto.UUID.generate()}",
-      actor_ref: @actor_ref,
+      actor_ref: Actor.ref(),
       expected_recovery: expected_recovery
     )
   end
@@ -534,7 +534,7 @@ defmodule Ryker.ControlPlane.Actions do
     case task_policy(task_policies, work_profile, payload["repository"]) do
       {:ok, %{name: name, digest: digest} = policy} ->
         TaskOffers.confirm(%{
-          actor_ref: @actor_ref,
+          actor_ref: Actor.ref(),
           confirmation_ref: action_ref,
           occurred_at: now(),
           policy:
@@ -565,7 +565,7 @@ defmodule Ryker.ControlPlane.Actions do
     case WorkProfile.policy_for(work_profile, :conversational, payload["repository"]) do
       {:ok, policy} ->
         TaskOffers.confirm(%{
-          actor_ref: @actor_ref,
+          actor_ref: Actor.ref(),
           confirmation_ref: action_ref,
           occurred_at: now(),
           policy:
@@ -648,7 +648,7 @@ defmodule Ryker.ControlPlane.Actions do
          action_ref
        ) do
     SlackPostOffers.confirm(%{
-      actor_ref: @actor_ref,
+      actor_ref: Actor.ref(),
       confirmation_ref: action_ref,
       occurred_at: now(),
       record_ref: record.ref,
@@ -666,7 +666,7 @@ defmodule Ryker.ControlPlane.Actions do
          action_ref
        ) do
     PublicationCustody.request_review(%{
-      actor_ref: @actor_ref,
+      actor_ref: Actor.ref(),
       occurred_at: now(),
       record_ref: record.ref,
       request_ref: action_ref,
@@ -743,7 +743,7 @@ defmodule Ryker.ControlPlane.Actions do
     with {:ok, episode} <- task_episode(record, target),
          %Publication{} = publication <- task_publication(episode.id, publication_ref) do
       PublicationOperator.recover(publication.ref, recovery_action, expected_generation,
-        actor_ref: @actor_ref,
+        actor_ref: Actor.ref(),
         action_ref: action_ref
       )
     else
@@ -764,7 +764,7 @@ defmodule Ryker.ControlPlane.Actions do
     with {:ok, publication, review_target} <-
            lab_publication(record, target, :reviewed, :review) do
       PublicationCustody.approve(%{
-        actor_ref: @actor_ref,
+        actor_ref: Actor.ref(),
         approval_ref: action_ref,
         occurred_at: now(),
         publication_ref: publication.ref,
@@ -786,7 +786,7 @@ defmodule Ryker.ControlPlane.Actions do
          {:ok, publication, review_target} <-
            approvable_lab_task_publication(episode.id, publication_ref, target) do
       PublicationCustody.approve(%{
-        actor_ref: @actor_ref,
+        actor_ref: Actor.ref(),
         approval_ref: action_ref,
         occurred_at: now(),
         publication_ref: publication.ref,
@@ -823,7 +823,7 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp confirm_record(module, record, target, action_ref) do
     module.confirm(%{
-      actor_ref: @actor_ref,
+      actor_ref: Actor.ref(),
       confirmation_ref: action_ref,
       occurred_at: now(),
       record_ref: record.ref,
@@ -838,7 +838,7 @@ defmodule Ryker.ControlPlane.Actions do
           ConversationLab.operator_actor_ref()
 
         _other ->
-          @actor_ref
+          Actor.ref()
       end
 
     Behaviors.confirm(%{
@@ -1054,7 +1054,7 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp discard_retention(ref) do
-    RetentionOperator.discard_unmerged(ref, @actor_ref, action_ref(:discard_unmerged))
+    RetentionOperator.discard_unmerged(ref, Actor.ref(), action_ref(:discard_unmerged))
   end
 
   defp action_ref(action),

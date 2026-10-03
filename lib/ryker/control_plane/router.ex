@@ -35,7 +35,8 @@ defmodule Ryker.ControlPlane.Router do
     PathRef,
     Paths,
     PeoplePage,
-    RelearnPanel
+    RelearnPanel,
+    Viewer
   }
 
   alias Ryker.HTTPConnection
@@ -387,7 +388,7 @@ defmodule Ryker.ControlPlane.Router do
            LearningOperator.retry(
              id,
              form.version,
-             "control-plane:local",
+             Viewer.actor_ref(conn, Map.get(options, :public_host)),
              "control-plane:learning-retry:#{id}:#{form.version}"
            ) do
       conn
@@ -421,7 +422,7 @@ defmodule Ryker.ControlPlane.Router do
              form.version,
              form.generation,
              form.sources,
-             "control-plane:local",
+             Viewer.actor_ref(conn, Map.get(options, :public_host)),
              "control-plane:knowledge-relearn:#{id}:#{form.version}:#{form.generation}"
            ) do
       learning_redirect(conn, batch_id)
@@ -457,7 +458,7 @@ defmodule Ryker.ControlPlane.Router do
              form.budget_version,
              %{version: form.version, generation: form.generation},
              form.sources,
-             "control-plane:local",
+             Viewer.actor_ref(conn, Map.get(options, :public_host)),
              "control-plane:learning-reselect:#{id}:#{form.budget_version}"
            ) do
       learning_redirect(conn, batch_id)

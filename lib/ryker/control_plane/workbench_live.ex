@@ -23,6 +23,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   alias Ryker.ControlPlane.{
     Activity,
     ActivityPage,
+    Actor,
     BehaviorPage,
     ChannelDetail,
     ChannelPage,
@@ -58,9 +59,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   alias Ryker.Retention.Data, as: RetentionData
   alias Ryker.Slack.{ChannelConfigurations, Names}
 
-  # Who a choice made on these pages is recorded as, like every other
-  # control-plane write.
-  @actor_ref "control-plane:local"
   @confirmed_settings_actions ~w(disconnect-slack disconnect-github delete-emisar delete-environment delete-webhook-credential turn-off-learning remove-repository leave-channel)
   @settings_pages %{
     ["setup"] => :setup,
@@ -105,10 +103,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   @impl true
   def mount(_params, session, socket) do
+    viewer = Viewer.from_session(session)
+    # Only the connected process runs actions, and it serves this one page.
+    if connected?(socket), do: Actor.act_for(viewer)
+
     {:ok,
      socket
      |> assign(
-       viewer: Viewer.from_session(session),
+       viewer: viewer,
        path: "/",
        params: %{},
        body: "",
@@ -673,7 +675,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     case Settings.save_slack(
            %{enabled: true, operators: operators},
            view.revision,
-           Settings.actor()
+           Actor.ref()
          ) do
       {:ok, _snapshot} ->
         {:noreply,
@@ -1025,7 +1027,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     name = socket.assigns.knowledge_question && socket.assigns.knowledge_question.name
 
     notice =
-      case RepositoryKnowledge.refresh(ref, @actor_ref) do
+      case RepositoryKnowledge.refresh(ref, Actor.ref()) do
         {:ok, :requested} ->
           {:list, :success, "Ryker is reading #{name || ref} again to rewrite its knowledge."}
 
@@ -1825,7 +1827,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp delete_environment(socket, ref) do
     with {:ok, view} <- socket.assigns.settings,
          %{} = environment <- Environments.find(view.snapshot, ref) do
-      case Settings.delete_environment(ref, view.revision, Settings.actor()) do
+      case Settings.delete_environment(ref, view.revision, Actor.ref()) do
         {:ok, _snapshot} ->
           socket
           |> refresh_settings()
@@ -1931,7 +1933,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp save_channel_setting(workspace, channel, "environment", %{"environment" => ref})
        when is_binary(ref) do
     choice = if ref == "", do: nil, else: ref
-    ChannelConfigurations.select_environment(workspace, channel, choice, @actor_ref)
+    ChannelConfigurations.select_environment(workspace, channel, choice, Actor.ref())
   end
 
   defp save_channel_setting(workspace, channel, name, params)
@@ -1945,7 +1947,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          {revision, ""} <- Integer.parse(to_string(params["revision"])) do
       change.(%{
         String.to_existing_atom(name) => value,
-        actor_ref: @actor_ref,
+        actor_ref: Actor.ref(),
         channel_ref: channel,
         configuration_ref: params["configuration"],
         event_ref: "control-plane:channel:" <> Ecto.UUID.generate(),
