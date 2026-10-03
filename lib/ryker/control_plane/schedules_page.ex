@@ -113,7 +113,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
     ~H"""
     <Kit.empty
       icon={:search}
-      title={"No schedules match “#{@query}”"}
+      title={"No schedules match \"#{@query}\""}
       text={"Try other words, or look under #{if @view == "past", do: "Current", else: "Past"}."}
     />
     """

@@ -206,7 +206,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   # 2026-10-03: "doesn't tell what was the issue, show an error").
   defp saved_error(code) when is_binary(code) do
     if Regex.match?(~r/\A[a-z0-9_.:-]{1,128}\z/, code),
-      do: " The saved error is “#{code}”.",
+      do: " The saved error is \"#{code}\".",
       else: ""
   end
 
@@ -437,13 +437,13 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       happened: [retention_happened(row, thing)],
       affects: [
         retention_affects(row),
-        "Until cleanup finishes, the worker may keep this session’s files on its disk."
+        "Until cleanup finishes, the worker may keep this session's files on its disk."
       ],
       tried: [tried(row, now), cause[:tried] || cleanup_stop_reason()],
       if_left:
-        "Nothing gets worse. Ryker will not try this cleanup again by itself, and the session’s files stay on the worker until it is cleaned up.",
+        "Nothing gets worse. Ryker will not try this cleanup again by itself, and the session's files stay on the worker until it is cleaned up.",
       nothing:
-        "A retry would stop the same way. Leaving it costs only the session’s files on the worker.",
+        "A retry would stop the same way. Leaving it costs only the session's files on the worker.",
       cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
@@ -452,7 +452,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         label: "Try cleanup again",
         question: "Try cleaning up this #{thing} again?",
         effect:
-          "Ryker runs the cleanup step that stopped (#{phase_step(row[:cleanup_phase])}) once more, for this #{thing} only. Nothing else changes."
+          "Ryker runs the cleanup step that stopped (#{phase_step(row[:cleanup_phase])}) once more, for this #{thing} only."
       }
     }
   end
@@ -469,7 +469,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
        when is_binary(repository) and repository != "no repository",
        do: "Removing a working copy of #{repository} stopped"
 
-  defp retention_title(_row), do: "Removing a worker session’s files stopped"
+  defp retention_title(_row), do: "Removing a worker session's files stopped"
 
   defp retained_thing(%{execution_kind: :learning}), do: "learning session"
   defp retained_thing(%{execution_kind: :improvement}), do: "self-analysis session"
@@ -503,20 +503,21 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp retention_owner(_row), do: "The request is not held up by this."
 
   defp retention_affects(%{ready_state: :retired}),
-    do: "Nobody. No message used this session; this is Ryker tidying up after it."
+    do: "Nobody is waiting on it. No message used this session, so this is only Ryker tidying up."
 
   defp retention_affects(%{execution_kind: :learning}),
     do:
-      "Nobody. Background learning runs without a requester, and this cleanup came after its work."
+      "Nobody is waiting on it. Background learning has no requester, and this cleanup came after its work."
 
   defp retention_affects(%{execution_kind: :improvement}),
-    do: "Nobody. Self-analysis runs without a requester, and this cleanup came after its work."
+    do:
+      "Nobody is waiting on it. Self-analysis has no requester, and this cleanup came after its work."
 
   defp retention_affects(%{request_state: :complete}),
-    do: "Nobody. The request is complete; this is Ryker tidying up after it."
+    do: "Nobody is waiting on it. The request is complete, so this is only Ryker tidying up."
 
   defp retention_affects(%{request_state: :cancelled}),
-    do: "Nobody. The request was stopped; this is Ryker tidying up after it."
+    do: "Nobody is waiting on it. The request was stopped, so this is only Ryker tidying up."
 
   defp retention_affects(_row),
     do:
@@ -545,11 +546,11 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp cleanup_stop_reason,
     do:
-      "Ryker keeps retrying cleanup on its own while a worker is offline, busy or slow to answer. It stops at once when the worker refuses for a reason a retry cannot change, so it never removes files it cannot prove belong to this session."
+      "Ryker keeps retrying cleanup while a worker is offline, busy or slow to answer. It stops at once when the worker refuses for a reason a retry can't change, and it only removes files it can prove belong to this session."
 
   defp retention_cause(%{diagnosis: %{reason: :missing_ownership}}) do
     cause(
-      "Ryker cannot prove this older session’s files belong to it, so it stopped rather than risk deleting another run’s files.",
+      "Ryker can't prove this older session's files belong to it, so it stopped to avoid deleting another run's files.",
       "The worker has no record linking this run to its folder. Sessions started before that record existed cannot prove which folder is theirs, and a retry cannot create the record.",
       :stuck,
       "It will stop the same way: a retry cannot supply the missing ownership record. Leave the folder in place; freeing this space needs a cleanup fix in Coop, not a change to the request or your settings."
@@ -604,7 +605,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp retention_cause(%{summary: "coop_session_replacement_pending"}) do
     cause(
       "A worker was still handing this session over when cleanup ran.",
-      "The session’s worker was releasing it to another placement at that moment, so cleanup could not reach it.",
+      "The session's worker was releasing it to another placement at that moment, so cleanup could not reach it.",
       :ready,
       "It should work: a handover ends within a minute, and cleanup now waits for one instead of stopping."
     )
@@ -617,7 +618,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "The worker kept changing the session while Ryker tried to clean it up.",
         "Each time Ryker asked the worker to finish the step, the session had changed or its answer could not be confirmed.",
         :unknown,
-        "It starts the step again from the session’s current state. It should work if the worker has settled; if it stops again, the worker needs checking."
+        "It starts the step again from the session's current state. It should work if the worker has settled; if it stops again, the worker needs checking."
       ),
       :tried,
       "Ryker tried #{attempt_words(row)}, the most it tries on its own for this, and then stopped so it would not keep acting on a session it could not pin down."
@@ -629,14 +630,14 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       "The worker no longer knows this session.",
       "The worker answered that it has no session with this identity, so there is nothing Ryker can ask it to close or remove.",
       :ready,
-      "It should work: Ryker now records a session its worker no longer knows as already gone instead of stopping on it. Any files left behind are the worker’s to remove."
+      "It should work: Ryker now records a session its worker no longer knows as already gone instead of stopping on it. Any files left behind are the worker's to remove."
     )
   end
 
   defp retention_cause(%{diagnosis: %{code: code}}) when is_binary(code) do
     cause(
       "The worker refused this cleanup step (#{words(code)}).",
-      "The worker refused the step with “#{words(code)}”. Ryker keeps the session as it is rather than guess what the worker meant.",
+      "The worker refused the step with \"#{words(code)}\". Ryker left the session as it is.",
       :unknown,
       "It works only if what the worker objected to has changed since. If it stops again, check the session on the worker."
     )
@@ -644,7 +645,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp retention_cause(%{summary: "coop_protocol_error"}) do
     cause(
-      "The worker’s answer did not match this session, so Ryker stopped rather than risk removing the wrong files.",
+      "The worker's answer didn't match this session, so Ryker stopped before it could remove the wrong files.",
       "The worker answered about a session whose identity or state did not match what Ryker recorded for this one.",
       :unknown,
       "It works only if the session has since settled on the worker. If it stops again, check the session on the worker."
@@ -665,7 +666,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       "Its worker #{worker.id} was removed from Ryker, so nothing Ryker can reach is left to clean up.",
       "Only the worker that holds a session can close or remove it, and worker #{worker.id} is no longer enrolled: its certificates and placements were revoked for good.",
       :ready,
-      "It should work: Ryker records the session as unreachable and stops tracking it. Anything still on worker #{worker.id} is outside Ryker’s reach."
+      "It should work: Ryker records the session as unreachable and stops tracking it. Anything still on worker #{worker.id} is outside Ryker's reach."
     )
   end
 
@@ -706,7 +707,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       affects: [stopping_affects(row)],
       tried: [
         tried(row, now),
-        "Ryker keeps trying on its own, once a minute. It never counts a run as stopped without its worker’s answer, unless that worker was removed from Ryker."
+        "Ryker keeps trying on its own, once a minute. It never counts a run as stopped without its worker's answer, unless that worker was removed from Ryker."
       ],
       if_left:
         "Ryker keeps trying. The stop finishes by itself as soon as the worker answers, or once the worker is removed from Ryker.",
@@ -737,10 +738,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     asked =
       case row[:stop_intent] do
         "transfer" ->
-          "A new message arrived while a run was still working on this request, so Ryker asked that run’s worker to stop it first."
+          "A new message arrived while a run was still working on this request, so Ryker asked that run's worker to stop it first."
 
         "cancel" ->
-          "The request was closed while a run was still working on it, so Ryker asked that run’s worker to stop it."
+          "The request was closed while a run was still working on it, so Ryker asked that run's worker to stop it."
 
         _block ->
           "Ryker was asked to stop the run working on this request."
@@ -764,7 +765,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp stopping_cause(%{worker: %{enrolled: false} = worker}, _now) do
     cause(
       "Its worker #{worker.id} was removed from Ryker, so nothing that run does can reach Ryker any more.",
-      "A removed worker’s certificates and placements are revoked for good, and the run’s access to Ryker went with them.",
+      "A removed worker's certificates and placements are revoked for good, and the run's access to Ryker went with them.",
       :automatic,
       "Ryker records the stop on its next attempt, within a minute."
     )
@@ -774,7 +775,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     if holder_reporting?(worker, now) do
       cause(
         "Its worker #{id} is reporting but has not confirmed the run stopped.",
-        "Each attempt ended with “#{words(row.summary)}”.",
+        "Each attempt ended with \"#{words(row.summary)}\".",
         :automatic,
         "Ryker keeps asking worker #{id}; the stop finishes as soon as it answers."
       )
@@ -843,7 +844,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp replacement_cause(%{setup_current: false} = worker, _row, _verb) do
     cause(
-      "Its worker’s setup changed since the session started, so it cannot take the session back.",
+      "Its worker's setup changed since the session started, so it cannot take the session back.",
       "The session is still on worker #{worker.id}, but its workspace, sandbox or required capabilities no longer match the saved placement.",
       :stuck,
       "It will stop the same way unless worker #{worker.id} gets its earlier setup back."
@@ -934,7 +935,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
             href: Paths.request(row.episode_id),
             link: "Open the request",
             effect:
-              "If the task is no longer needed, “Close as no longer needed” on the request’s page closes it. Nothing is deleted and nothing is sent to the person who asked."
+              "If the task is no longer needed, \"Close as no longer needed\" on the request's page closes it. Nothing is deleted and nothing is sent to the person who asked."
           }
         )
     }
@@ -950,7 +951,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp work_title(_row, %{kind: :completion}), do: "Saving a finished task stopped"
 
   defp work_title(_row, %{action: nil, model_output: output}) when is_binary(output),
-    do: "Saving a finished task’s changes stopped"
+    do: "Saving a finished task's changes stopped"
 
   defp work_title(_row, %{action: nil, setup_href: href}) when is_binary(href),
     do: "Task could not make repository changes"
@@ -971,7 +972,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp work_title(_row, _brief), do: "Task stopped before it finished"
 
   defp work_question(%{not_started: true}), do: "Start this task?"
-  defp work_question(%{kind: :completion}), do: "Finish saving this task’s result?"
+  defp work_question(%{kind: :completion}), do: "Finish saving this task's result?"
 
   defp work_question(%{resume: resume}) when is_map(resume),
     do: "Continue this task on another worker?"
@@ -1050,7 +1051,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp work_left(_row, _brief),
     do:
-      "The request stays open and the person gets no answer. Ryker will not retry on its own, but a new reply in the thread starts the task again. The worker keeps the stopped run’s files until the request ends."
+      "The request stays open and the person gets no answer. Ryker will not retry on its own, but a new reply in the thread starts the task again. The worker keeps the stopped run's files until the request ends."
 
   defp work_cause(_row, %{not_started: true, action: nil} = brief) do
     cause(
@@ -1153,15 +1154,15 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       case inner do
         "coop_worker_command_timeout" ->
           {"The worker did not take or finish its commands in time.",
-           "Each time Ryker gave the worker the task’s next step, the worker did not pick it up or finish it in time."}
+           "Each time Ryker gave the worker the task's next step, the worker did not pick it up or finish it in time."}
 
         "coop_error" ->
           {"The worker kept failing with a server error.",
-           "Each time Ryker asked the worker for the task’s next step, the worker answered with a server error."}
+           "Each time Ryker asked the worker for the task's next step, the worker answered with a server error."}
 
         _unreachable ->
           {"The worker could not be reached.",
-           "Each time Ryker asked the worker for the task’s next step, it could not reach the worker or confirm what it did."}
+           "Each time Ryker asked the worker for the task's next step, it could not reach the worker or confirm what it did."}
       end
 
     fleet_cause(row, short, long)
@@ -1171,7 +1172,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     fleet_cause(
       row,
       "No worker was free to take it, so it never started on one.",
-      "No reporting worker had this job’s required capabilities and free capacity when Ryker tried."
+      "No reporting worker had this job's required capabilities and free capacity when Ryker tried."
     )
   end
 
@@ -1204,13 +1205,13 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     do: "The worker ended the task early: it failed, was cancelled or ran out of budget."
 
   defp stop_words("coop_protocol_error"),
-    do: "The worker’s answer did not match what Ryker recorded for this task."
+    do: "The worker's answer did not match what Ryker recorded for this task."
 
   defp stop_words("coop_worker_storage_refused"),
     do: "The worker refused new work because its disk is full."
 
   defp stop_words("coop_session_replacement_pending"),
-    do: "The worker was handing the task’s session over when it ran."
+    do: "The worker was handing the task's session over when it ran."
 
   defp stop_words("coop_workspace_checkpoint_required"),
     do: "No saved copy of the working files was available to continue from."
@@ -1305,7 +1306,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "A new message arrived#{place_words(row)}. Ryker began deciding how to respond to it, whether to reply, react or start a task, and stopped before it decided."
       ],
       affects: [
-        "The person who wrote the message has had no reply and no reaction. In Slack, Ryker’s “thinking” status simply went away.",
+        "The person who wrote the message got no reply and no reaction. In Slack, Ryker's \"thinking\" status went away.",
         "Later messages in the same channel are not held up by it."
       ],
       tried: [tried(row, now), cause[:tried] || admission_tried(row)],
@@ -1371,10 +1372,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp admission_cause(%{summary: code})
        when code in ["coop_protocol_error", "admission_execution_failed"] do
     cause(
-      "The worker’s answer did not match the run Ryker recorded.",
+      "The worker's answer did not match the run Ryker recorded.",
       "The decision the worker returned did not match the run Ryker started for this message, so Ryker did not act on it.",
       :unknown,
-      "It works if the worker’s state has settled. If it stops the same way, ask the person to post again."
+      "It works if the worker's state has settled. If it stops the same way, ask the person to post again."
     )
   end
 
@@ -1406,9 +1407,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
        }) do
     cause(
       cause,
-      "The model provider refused the run that reads the message, because the account the worker signs in with is limited. The provider said: “#{words}”",
+      "The model provider refused the run that reads the message, because the account the worker signs in with is limited. The provider said: \"#{words}\"",
       :fix_first,
-      "It fails until the model account can run again. The provider’s words above say when.",
+      "It fails until the model account can run again. The provider's words above say when.",
       %{
         label: "Give the worker a model account that can run",
         href: "/settings/models",
@@ -1490,9 +1491,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       happened:
         "Ryker decided to acknowledge a message with a reaction instead of a reply, and adding the reaction stopped",
       affects: [
-        "The person who wrote the message saw no reply and no reaction. Nothing else is waiting on it."
+        "The person who wrote the message saw no reply and no reaction. Nothing else waits on it."
       ],
-      left: "The reaction is never added. Nothing else is affected.",
+      left: "The reaction is never added.",
       label: "Add the reaction again",
       question: "Add this reaction again?",
       effect:
@@ -1506,9 +1507,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       happened:
         "Ryker answered a simple message itself, without starting work, and sending that answer stopped",
       affects: [
-        "The person who wrote the message saw no reply. Nothing else is waiting on it."
+        "The person who wrote the message saw no reply. Nothing else waits on it."
       ],
-      left: "The answer is never sent. Nothing else is affected.",
+      left: "The answer is never sent.",
       label: "Send the reply again",
       question: "Send this reply again?",
       effect:
@@ -1537,7 +1538,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       affected: "The channel has not received this week's report.",
       happened: "Ryker wrote this week's report and posting it stopped",
       affects: [
-        "The channel chosen under Settings › Weekly report has not received this week's report. Nothing else is waiting on it."
+        "The channel chosen under Settings › Weekly report hasn't received this week's report."
       ],
       left:
         "This week's report is never posted. Next week's report is written and posted as usual.",
@@ -1630,14 +1631,14 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp slack_refusal("not_in_channel", row, slack, _fallback), do: not_in_channel(row, slack)
 
   defp slack_refusal(code, row, slack, _fallback) when code in @auth_errors,
-    do: slack_auth(row, slack, "Slack no longer accepts Ryker’s sign-in (#{words(code)}).")
+    do: slack_auth(row, slack, "Slack no longer accepts Ryker's sign-in (#{words(code)}).")
 
   defp slack_refusal("missing_scope", row, slack, _fallback),
     do:
       slack_auth(
         row,
         slack,
-        "Ryker’s Slack app is missing a permission it needs for this.",
+        "Ryker's Slack app is missing a permission it needs for this.",
         "Reinstall the Slack app with the permissions Ryker asks for"
       )
 
@@ -1668,7 +1669,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp slack_refusal(code, _row, _slack, _fallback) when code in @policy_errors do
     cause(
       "A Slack workspace setting stops Ryker from doing this there.",
-      "Slack refused with “#{words(code)}”: the workspace’s settings do not allow it.",
+      "Slack refused with \"#{words(code)}\": the workspace's settings do not allow it.",
       :fix_first,
       "It fails until a Slack admin allows it.",
       %{
@@ -1681,7 +1682,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp slack_refusal(code, _row, _slack, _fallback) when code in @busy_errors do
     cause(
       "Slack kept failing or asking Ryker to slow down.",
-      "Slack answered “#{words(code)}” every time Ryker tried.",
+      "Slack answered \"#{words(code)}\" every time Ryker tried.",
       :unknown,
       "It usually works once Slack answers normally again, within minutes."
     )
@@ -1694,7 +1695,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp from_code(row, _slack, {short, :fix_first, note}) do
     cause(short, short, :fix_first, note, %{
       label: "Make the room active again",
-      effect: "Unarchive the room’s channel in Slack or invite Ryker back, then try again.",
+      effect: "Unarchive the room's channel in Slack or invite Ryker back, then try again.",
       href: slack_url(row),
       link: "Open in Slack"
     })
@@ -1733,7 +1734,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     if renewed_since?(slack[:renewed_at], row[:updated_at]) do
       cause(
         short,
-        short <> " Slack’s sign-in was saved again after that.",
+        short <> " Slack's sign-in was saved again after that.",
         :ready,
         "It should work: Slack was reconnected after this stopped."
       )
@@ -1826,7 +1827,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         label: "Update the message again",
         question: "Update this Slack message again?",
         effect:
-          "Ryker rebuilds the same Slack message from what is true now and replaces it. It never posts a new message."
+          "Ryker rebuilds the same Slack message from what is true now and replaces it in place."
       }
     }
   end
@@ -1872,10 +1873,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     cause = slack_cause(row, task_card_code_cause(row))
 
     %{
-      title: "Updating a task’s card stopped",
+      title: "Updating a task's card stopped",
       impact: :people,
-      lede: "The task’s card in Slack is out of date. #{outlook_short(cause.outlook)}",
-      summary: "The task’s card in Slack is out of date. #{cause.short}",
+      lede: "The task's card in Slack is out of date. #{outlook_short(cause.outlook)}",
+      summary: "The task's card in Slack is out of date. #{cause.short}",
       happened: [
         "Ryker keeps a card in Slack up to date as an engineering task moves, by editing the same message. Updating it stopped#{place_words(row)}."
       ],
@@ -1895,9 +1896,8 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       fix: cause.fix,
       retry: %{
         label: "Update the card again",
-        question: "Update this task’s card again?",
-        effect:
-          "Ryker rebuilds the card from what is true now and replaces the same Slack message. It never posts a new card."
+        question: "Update this task's card again?",
+        effect: "Ryker rebuilds the card from what is true now and replaces it in place."
       }
     }
   end
@@ -1906,7 +1906,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     case code do
       "task_card_source_not_found" ->
         {"The task this card belonged to no longer exists.", :stuck,
-         "It will stop the same way: the task’s record is gone, so there is nothing to show. The card can be left as it is."}
+         "It will stop the same way: the task's record is gone, so there is nothing to show. The card can be left as it is."}
 
       "delivery_rate_limited" ->
         {"Slack kept asking Ryker to slow down.", :unknown,
@@ -1934,12 +1934,12 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
     wanted =
       case row[:desired_text] do
-        text when is_binary(text) and text != "" -> "show “#{text}” under the thread"
+        text when is_binary(text) and text != "" -> "show \"#{text}\" under the thread"
         _clear -> "clear the status under the thread"
       end
 
     %{
-      title: "Showing Ryker’s status in a thread stopped",
+      title: "Showing Ryker's status in a thread stopped",
       impact: :housekeeping,
       lede: "The status under the thread may be wrong. #{outlook_short(cause.outlook)}",
       summary: "The status under the thread may be wrong. #{cause.short}",
@@ -1954,7 +1954,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "Ryker retries a failed status write eight times with growing waits, then stops. The next change in what Ryker is doing there starts again on its own. It stops at once when Slack says the thread or its channel is gone."
       ],
       if_left:
-        "The status under the thread stays as it is until Ryker’s next change there. Nothing else waits on it.",
+        "The status under the thread stays as it is until Ryker's next change there. Nothing else waits on it.",
       cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
@@ -1999,10 +1999,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     %{
       title: "Setting up an incident room stopped",
       impact: :people,
-      lede: "No investigation is running for “#{title}” yet. #{outlook_short(cause.outlook)}",
-      summary: "No investigation is running for “#{title}” yet. #{cause.short}",
+      lede: "No investigation is running for \"#{title}\" yet. #{outlook_short(cause.outlook)}",
+      summary: "No investigation is running for \"#{title}\" yet. #{cause.short}",
       happened: [
-        "#{if row[:automatic], do: "An alert rule", else: "Someone"} asked for an incident room for “#{title}”#{place_words(row)}. Ryker sets a room up in steps: create the channel, post its first message, invite people, set the topic, pin the card, then tell the original thread. It stopped at the step to #{setup_step(row[:setup_step])}."
+        "#{if row[:automatic], do: "An alert rule", else: "Someone"} asked for an incident room for \"#{title}\"#{place_words(row)}. Ryker sets a room up in steps: create the channel, post its first message, invite people, set the topic, pin the card, then tell the original thread. It stopped at the step to #{setup_step(row[:setup_step])}."
       ],
       affects: [
         "The investigation starts only when the room is ready, so nothing is being investigated. Nobody in Slack was told that setup stopped.",
@@ -2022,16 +2022,16 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         label: "Continue setting up the room",
         question: "Continue setting up this incident room?",
         effect:
-          "Ryker continues from the step that stopped and keeps everything already done. It never creates a second channel or posts twice. The invite list, name and topic stay as they were when the room was requested."
+          "Ryker continues from the step that stopped, reusing the channel and everything already posted. The invite list, name and topic stay as they were when the room was requested."
       }
     }
   end
 
   defp setup_step(:channel), do: "create the channel"
-  defp setup_step(:root), do: "post the room’s first message"
+  defp setup_step(:root), do: "post the room's first message"
   defp setup_step(:audience), do: "invite people"
   defp setup_step(:topic), do: "set the topic"
-  defp setup_step(:pin), do: "pin the room’s card"
+  defp setup_step(:pin), do: "pin the room's card"
   defp setup_step(:handoff), do: "tell the original thread"
   defp setup_step(:finalize), do: "start the investigation"
   defp setup_step(_step), do: "set it up"
@@ -2045,7 +2045,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ),
       "The invite list includes a person Slack will not add to the room: deactivated, a guest, a bot, or from another workspace, or a group with nobody in it. The list was fixed when the room was requested, so changing it now does not change this room.",
       :stuck,
-      "It will stop the same way unless that person can be invited again. Fix the channel’s invite list, then ask for a new room.",
+      "It will stop the same way unless that person can be invited again. Fix the channel's invite list, then ask for a new room.",
       nil
     )
   end
@@ -2073,8 +2073,8 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         label: if(state == :archived, do: "Unarchive the room", else: "Invite Ryker back"),
         effect:
           if(state == :archived,
-            do: "Unarchive the room’s channel in Slack, then continue.",
-            else: "Invite Ryker back into the room’s channel in Slack, then continue."
+            do: "Unarchive the room's channel in Slack, then continue.",
+            else: "Invite Ryker back into the room's channel in Slack, then continue."
           ),
         href: room_path(row),
         link: "Open in Slack"
@@ -2318,7 +2318,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp emisar_refusal("emisar_approval_identity_mismatch", _row, _live) do
     cause(
       "Emisar reported a different run for this request.",
-      "Emisar answered with a run whose identity does not match the request Ryker made, so Ryker stopped rather than report the wrong result.",
+      "Emisar answered with a run that doesn't match the request Ryker made, so Ryker stopped instead of reporting the wrong result.",
       :stuck,
       "It will stop the same way: the identity will not match."
     )
@@ -2330,7 +2330,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp emisar_refusal("emisar_http_404", _row, _live) do
     cause(
       "Emisar no longer knows this request.",
-      "Emisar answered “not found” for the approval request.",
+      "Emisar answered \"not found\" for the approval request.",
       :unknown,
       "It works only if the Emisar address is wrong and has been corrected since."
     )
@@ -2338,7 +2338,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp emisar_refusal("emisar_review_unreadable", _row, _live) do
     cause(
-      "Emisar’s answer has a shape this version of Ryker cannot read.",
+      "Emisar's answer has a shape this version of Ryker cannot read.",
       "Emisar sent a review in a format Ryker does not accept.",
       :stuck,
       "It will stop the same way until Ryker is upgraded to read it."
@@ -2376,15 +2376,15 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp emisar_token(row, live) do
     if renewed_since?(live[:token_changed_at], row[:updated_at]) do
       cause(
-        "Emisar refused Ryker’s token then, and the token was replaced since.",
-        "Emisar refused Ryker’s token when it checked on the approval.",
+        "Emisar refused Ryker's token then, and the token was replaced since.",
+        "Emisar refused Ryker's token when it checked on the approval.",
         :ready,
         "It should work: the Emisar token was replaced after this stopped."
       )
     else
       cause(
-        "Emisar refused Ryker’s token.",
-        "Emisar refused Ryker’s token when it checked on the approval: it was revoked or lacks access.",
+        "Emisar refused Ryker's token.",
+        "Emisar refused Ryker's token when it checked on the approval: it was revoked or lacks access.",
         :fix_first,
         "It fails until Ryker has a working Emisar token.",
         emisar_fix(
@@ -2402,7 +2402,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       effect: effect
     }
 
-  defp action_words(%{action_id: action}) when is_binary(action), do: "“#{action}”"
+  defp action_words(%{action_id: action}) when is_binary(action), do: "\"#{action}\""
   defp action_words(_row), do: "an action"
 
   defp expired_words(%DateTime{} = expires, now) do
@@ -2431,7 +2431,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ],
       affects: [
         "The person who asked has no pull request. The task card in the conversation says it needs attention.",
-        "Until it is published, the worker keeps the task’s working copy."
+        "Until it is published, the worker keeps the task's working copy."
       ],
       tried: [tried(row, now)],
       if_left: cause[:left] || cause.note,
@@ -2456,7 +2456,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "The repository was not set up for pull requests, and it is now.",
         "Ryker could not publish to #{repository_words(row)}: pull requests were not set up for it. They are now.",
         :automatic,
-        "It should go through on Ryker’s next attempt, within a minute."
+        "It should go through on Ryker's next attempt, within a minute."
       )
     else
       cause(
@@ -2479,8 +2479,8 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   # What is left is an answer Ryker could not read.
   defp publication_cause(%{summary: "publication_coop_protocol_error"}) do
     cause(
-      "The worker’s answer about the change did not match what Ryker expected.",
-      "Ryker reviews a change in the worker session that made it. The worker’s answer about that session or its review did not match what Ryker recorded, so Ryker did not use it.",
+      "The worker's answer about the change did not match what Ryker expected.",
+      "Ryker reviews a change in the worker session that made it. The worker's answer about that session or its review did not match what Ryker recorded, so Ryker did not use it.",
       :automatic,
       "Ryker keeps retrying on its own. If it never succeeds, open the task and discard it or review the latest state."
     )
@@ -2489,7 +2489,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp publication_cause(%{summary: "publication_credentials_unavailable"}) do
     cause(
       "Ryker has no working GitHub access to publish with.",
-      "GitHub refused Ryker’s app credentials for this repository: the app was removed, suspended or lost access.",
+      "GitHub refused Ryker's app credentials for this repository: the app was removed, suspended or lost access.",
       :fix_first,
       "It goes through on its own once GitHub access is restored.",
       %{
@@ -2520,7 +2520,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
             ] do
     cause(
       "Its branch or pull request changed on GitHub.",
-      "Someone changed the branch or pull request on GitHub after Ryker created it, so Ryker stopped rather than overwrite their work.",
+      "Someone changed the branch or pull request on GitHub after Ryker created it, so Ryker stopped to avoid overwriting their work.",
       :fix_first,
       "Ryker stopped retrying this. Choose on the task card whether to review the latest state or discard.",
       nil
@@ -2572,8 +2572,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       tried: [
         tried(row, now) <> " It does not start again on its own: each start is a model call."
       ],
-      if_left:
-        "These messages stay unlearned, and Ryker stops asking you about them. Nothing else changes.",
+      if_left: "These messages stay unlearned, and Ryker stops asking you about them.",
       cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
@@ -2678,7 +2677,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       retry: %{
         label: "Try again",
         question: "Try this again?",
-        effect: "Ryker runs the step that stopped once more. Nothing else changes."
+        effect: "Ryker runs the step that stopped once more."
       }
     }
   end

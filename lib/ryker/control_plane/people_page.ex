@@ -92,7 +92,7 @@ defmodule Ryker.ControlPlane.PeoplePage do
       <section id="known" class="memory-section">
         <Kit.section_head
           title="What they said about themselves"
-          lede="Ryker uses these only when this person is the one asking, and never shares them with anyone else."
+          lede="Ryker uses these only when this person is the one asking, and doesn't share them with anyone else."
         />
         <Kit.entity_list label="What they said about themselves">
           <Kit.entity_row

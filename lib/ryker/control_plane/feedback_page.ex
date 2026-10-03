@@ -138,7 +138,7 @@ defmodule Ryker.ControlPlane.FeedbackPage do
     <Kit.empty
       :if={@view.total == 0 and @view.q != ""}
       icon={:search}
-      title={"No #{tone_word(@view.tone)}feedback matches “#{@view.q}”"}
+      title={"No #{tone_word(@view.tone)}feedback matches \"#{@view.q}\""}
       text="Try other words, or clear the search to see all of it."
     />
     <Kit.empty
@@ -218,7 +218,7 @@ defmodule Ryker.ControlPlane.FeedbackPage do
     <Kit.empty
       :if={@view.items == [] and @view.q != ""}
       icon={:search}
-      title={"No #{String.downcase(label(@view.category))} feedback matches “#{@view.q}”"}
+      title={"No #{String.downcase(label(@view.category))} feedback matches \"#{@view.q}\""}
       text="Try other words, or clear the search to see all of it."
     />
     <Kit.empty
@@ -337,14 +337,14 @@ defmodule Ryker.ControlPlane.FeedbackPage do
 
   @doc "What a signal says, in a sentence: the reason or note, or what the person did."
   @spec text(map()) :: String.t() | nil
-  def text(%{kind: :sentiment, note: note}) when is_binary(note), do: "“#{note}”"
+  def text(%{kind: :sentiment, note: note}) when is_binary(note), do: "\"#{note}\""
   def text(%{kind: :sentiment}), do: "Routing read this from their next message."
   def text(%{kind: :reaction_added, value: emoji}), do: "Reacted #{Emoji.glyph(emoji)}"
   def text(%{kind: :reaction_removed, value: emoji}), do: "Took back #{Emoji.glyph(emoji)}"
   def text(%{kind: :asked_again}), do: "Asked the same thing again after the answer."
   def text(%{kind: :message_edited}), do: "Edited their message after Ryker answered it."
   def text(%{kind: :message_deleted}), do: "Deleted their message after Ryker answered it."
-  def text(%{kind: :reviewed, note: note}) when is_binary(note), do: "“#{note}”"
+  def text(%{kind: :reviewed, note: note}) when is_binary(note), do: "\"#{note}\""
   def text(%{kind: :reviewed, value: "good"}), do: "Rated how this request went: it went well."
 
   def text(%{kind: :reviewed, value: "needs_work"}),

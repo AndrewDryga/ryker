@@ -162,7 +162,7 @@ defmodule Ryker.Publication.Followups.Polls do
 
   defp transition(followup, publication, _status, "merged") when followup.pr_state != "merged" do
     {"merged", "succeeded",
-     "Draft PR ##{publication.pull_request_number} was merged. I’ll keep this task linked only to deployment or Terraform signals carrying its exact PR, branch, head SHA, or merge SHA."}
+     "Draft PR ##{publication.pull_request_number} was merged. I'll keep this task linked only to deployment or Terraform signals carrying its exact PR, branch, head SHA, or merge SHA."}
   end
 
   defp transition(followup, publication, _status, "closed") when followup.pr_state != "closed" do

@@ -173,7 +173,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     assert entry["verdict"] == "not_considered"
 
     assert entry["reason"] ==
-             "Only the first 100 applicable rules are evaluated. This rule’s trigger was not checked."
+             "Only the first 100 applicable rules are evaluated. This rule's trigger was not checked."
 
     # Scheduling is unchanged: still exactly the hundred the runtime considered.
     assert {:ok, 100} = Behaviors.observe_input(input, "input:window")

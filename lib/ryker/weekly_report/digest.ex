@@ -24,7 +24,7 @@ defmodule Ryker.WeeklyReport.Digest do
       1 thing is stuck and needs someone to look at it: Failures
 
       Feedback I have received was mostly positive: 9 positive and 1 negative.
-      I also learned 6 new things, most recently about “VictoriaLogs retention”.
+      I also learned 6 new things, most recently about \"VictoriaLogs retention\".
       In total, this week's work cost about $41.20 at API prices.
 
   A part with nothing to say is left out, except that a report that could
@@ -369,10 +369,10 @@ defmodule Ryker.WeeklyReport.Digest do
 
   defp things(%{count: 1, newest: nil}), do: "1 new thing."
   defp things(%{count: count, newest: nil}), do: "#{count} new things."
-  defp things(%{count: 1, newest: name}), do: "1 new thing, about “#{plain(name)}”."
+  defp things(%{count: 1, newest: name}), do: "1 new thing, about \"#{plain(name)}\"."
 
   defp things(%{count: count, newest: name}),
-    do: "#{count} new things, most recently about “#{plain(name)}”."
+    do: "#{count} new things, most recently about \"#{plain(name)}\"."
 
   # -- Words ---------------------------------------------------------------------------
 
@@ -393,8 +393,8 @@ defmodule Ryker.WeeklyReport.Digest do
       "[" -> "("
       "]" -> ")"
     end)
-    |> String.replace("“", "\"")
-    |> String.replace("”", "\"")
+    |> String.replace("\"", "\"")
+    |> String.replace("\"", "\"")
     |> String.trim()
     |> truncate()
   end

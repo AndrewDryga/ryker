@@ -15,7 +15,7 @@ defmodule Ryker.Episodes.Words do
   def label("pending"), do: "Queued"
   def label("routing"), do: "Routing"
   def label("working"), do: "Working"
-  def label("not_started"), do: "Couldn’t start"
+  def label("not_started"), do: "Couldn't start"
   def label("delivery_pending"), do: "Sending reply"
   def label("waiting_for_input"), do: "Needs your input"
   def label("waiting_for_event"), do: "Waiting for an event"

@@ -522,8 +522,8 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     assert {:ok, postmortem} = WorkRecord.build(room.ref, record_target, :postmortem)
     assert postmortem["message"] =~ "human review is required"
-    assert postmortem["message"] =~ "Unknown — no alert impact assessment"
-    assert postmortem["message"] =~ "Unknown — no evidence-backed root cause"
+    assert postmortem["message"] =~ "Unknown: no alert impact assessment"
+    assert postmortem["message"] =~ "Unknown: no evidence-backed root cause"
   end
 
   # A room continues the work of the conversation it was opened from, so it

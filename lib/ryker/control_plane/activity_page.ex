@@ -270,7 +270,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
     %{
       name: "Worker status is unknown",
       text:
-        "Ryker could not read the workers’ state. Check the worker settings before starting work.",
+        "Ryker could not read the workers' state. Check the worker settings before starting work.",
       seen: seen(fleet)
     }
   end

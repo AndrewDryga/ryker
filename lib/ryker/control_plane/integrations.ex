@@ -45,10 +45,10 @@ defmodule Ryker.ControlPlane.Integrations do
   # means the word says enough, or that the reason depends on what is saved
   # and is written where the state is read. Variants that share a meaning are
   # explained together in the help.
-  @on_but_not_working "Slack is on but not working yet, and the page says why."
+  @on_but_not_working "Slack is on but not working yet."
   @no_sender "No other system can send Ryker events yet."
-  @source_left_out "an enabled source is not taking events, and the page says which one and why."
-  @account_left_out "an account is not watched for approval decisions, and the page says which one and why."
+  @source_left_out "an enabled source is not taking events."
+  @account_left_out "an account is not watched for approval decisions."
   @states %{
     slack: [
       not_connected: %{
@@ -161,7 +161,7 @@ defmodule Ryker.ControlPlane.Integrations do
       not_running: %{
         status: :broken,
         state: {:bad, "Not running"},
-        means: "GitHub is on but did not start, and the page says why.",
+        means: "GitHub is on but did not start.",
         reason: nil,
         action: {"Repair GitHub", "/integrations/github"}
       }
@@ -184,8 +184,7 @@ defmodule Ryker.ControlPlane.Integrations do
       not_in_use: %{
         status: :off,
         state: {:warn, "Not in use yet"},
-        means:
-          "an account is connected, but no work can use it yet; the page says what is missing.",
+        means: "an account is connected, but no work can use it yet.",
         reason: nil,
         action: {"Finish connecting", "/integrations/emisar"}
       },

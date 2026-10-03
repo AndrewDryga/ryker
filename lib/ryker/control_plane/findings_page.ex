@@ -97,7 +97,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
       <Kit.empty
         :if={@view.items == [] and @q != ""}
         icon={:search}
-        title={"No findings match “#{@q}”"}
+        title={"No findings match \"#{@q}\""}
         text="Try other words, or clear the search to see every finding."
       />
       <Kit.empty

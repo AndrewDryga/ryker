@@ -209,7 +209,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
         :if={@items == [] and not @filtered}
         icon={:incident}
         title="No incident rooms yet"
-        text="A room opens when someone chooses Create incident room on Ryker’s offer in an alert’s Slack thread, or when a channel is set to open one for every alert."
+        text="A room opens when someone chooses Create incident room on Ryker's offer in an alert's Slack thread, or when a channel is set to open one for every alert."
       />
     </div>
     """

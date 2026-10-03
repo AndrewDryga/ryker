@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.FactsPage do
       <Kit.empty
         :if={@view.facts == [] and @view.q != ""}
         icon={:search}
-        title={"No facts match “#{@view.q}”"}
+        title={"No facts match \"#{@view.q}\""}
         text="Try other words, or clear the search to see every fact."
       />
       <Kit.empty
@@ -150,7 +150,7 @@ defmodule Ryker.ControlPlane.FactsPage do
       <div class="memory-edit-field">
         <label for="memory-edit-value">What to remember</label>
         <p id="memory-edit-value-help">
-          Ryker uses this as context in later work, never as permission.
+          Ryker uses this as context in later work. It doesn't give Ryker permission to act.
         </p>
         <textarea
           id="memory-edit-value"

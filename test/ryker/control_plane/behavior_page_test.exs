@@ -147,8 +147,8 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
     help = PageHelp.for_path("/rules")
     text = Enum.map_join(help.sections, " ", &Enum.join(&1.paragraphs, " "))
-    assert text =~ "“When someone posts a Terraform plan here, review it for risky changes.”"
-    assert text =~ "saves it only after you confirm"
+    assert text =~ ~s("When someone posts a Terraform plan here, review it for risky changes.")
+    assert text =~ "saves it once you confirm"
 
     for href <- document |> LazyHTML.query("a[href]") |> LazyHTML.attribute("href") do
       refute String.starts_with?(href, "/card-lab"), href
@@ -182,7 +182,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     empty = LazyHTML.query(document, ".kit-empty")
 
     assert LazyHTML.query(empty, ".kit-empty-title") |> LazyHTML.text() ==
-             "No rules match “missing”"
+             ~s(No rules match "missing")
 
     # Clearing the search keeps the view the reader chose.
     assert LazyHTML.query(empty, "a") |> LazyHTML.attribute("href") == ["/rules?view=past"]
@@ -598,7 +598,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
            |> PageHelp.for_path()
            |> Map.fetch!(:sections)
            |> Enum.map_join(" ", &Enum.join(&1.paragraphs, " ")) =~
-             "“Remember to keep incident updates short.”"
+             ~s("Remember to keep incident updates short.")
 
     empty = instructions_document([], %{view(:preference, []) | kinds: [:preference, :guidance]})
 
@@ -636,9 +636,9 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
              ["Slack channel C456", "Slack channel C999"]
 
     [long, short] = rows |> LazyHTML.query(".entity-text") |> Enum.map(&LazyHTML.text/1)
-    assert short == "“Always link the Grafana dashboard you looked at.”"
-    assert long =~ ~r/\A“Include the affected service and time window\. More detail\./
-    assert String.ends_with?(long, "…”")
+    assert short == ~s("Always link the Grafana dashboard you looked at.")
+    assert long =~ ~r/\A"Include the affected service and time window\. More detail\./
+    assert String.ends_with?(long, ~s(…"))
     assert String.length(long) < 200
 
     # Andrew, 2026-09-28: a row that opens something opens it from anywhere

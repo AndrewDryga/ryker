@@ -152,7 +152,7 @@ defmodule Ryker.ControlPlane.LabPage do
             <p>Send a message and it will appear here.</p>
           </div>
           <p :if={@items != [] and @days == []} class="lab-directory-empty">
-            No conversation matches “{@filter}”.
+            No conversation matches "{@filter}".
           </p>
           <section :for={{day, items} <- @days} class="lab-directory-day">
             <h2 :if={day}>{day}</h2>

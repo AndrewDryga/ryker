@@ -9,7 +9,7 @@ defmodule Ryker.Work.RecoveryTest do
     # though the checkpoint guard stopped it before creating a coding session.
     turn = not_started_turn()
     brief = Recovery.project(turn, :ok)
-    assert brief.headline == "I couldn’t start the code changes"
+    assert brief.headline == "I couldn't start the code changes"
     assert brief.cause =~ "save a recoverable copy"
     assert brief.next_step =~ "administrator"
     assert brief.workspace == "No files changed. No checks ran."
@@ -114,7 +114,7 @@ defmodule Ryker.Work.RecoveryTest do
 
     html = row |> FailuresPage.detail() |> IO.iodata_to_binary()
     assert html =~ brief.headline
-    assert html =~ "The worker’s last answer"
+    assert html =~ "The worker's last answer"
     assert html =~ "lacks Docker"
     assert html =~ "What you can do"
     assert html =~ "Preserve the existing working copy"
@@ -302,7 +302,7 @@ defmodule Ryker.Work.RecoveryTest do
     refute html =~ ~s(<details class="recovery-worker-report failure-report" open)
     # What happened is read first; the worker's own words sit, closed, under it.
     {happened, _} = :binary.match(html, "What happened")
-    {report, _} = :binary.match(html, "The worker’s last answer")
+    {report, _} = :binary.match(html, "The worker's last answer")
     {options, _} = :binary.match(html, "What you can do")
     assert happened < report and report < options
   end

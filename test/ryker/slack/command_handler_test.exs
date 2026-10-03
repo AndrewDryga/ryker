@@ -53,7 +53,7 @@ defmodule Ryker.Slack.CommandHandlerTest do
              "*Alerts*\nOffer an in-place task or incident room",
              "*Environment*\nProduction, with Emisar",
              "*Repositories*\n<https://github.com/acme/ryker|ryker> — default\n`docs` — available",
-             "*Incident invitations*\nNo one automatically — you can add people yourself",
+             "*Incident invitations*\nNo one automatically; you can add people yourself",
              "*Observation mode*\nOff"
            ]
 

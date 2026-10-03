@@ -285,7 +285,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert delete["confirm"]["title"]["text"] == "Delete schedule?"
 
     assert delete["confirm"]["text"]["text"] ==
-             "Stop future runs of “Daily service health”. Already-started work and its history remain."
+             ~s(Stop future runs of "Daily service health". Already-started work and its history remain.)
 
     assert delete["confirm"]["confirm"]["text"] == "Delete schedule"
     assert delete["confirm"]["deny"]["text"] == "Cancel"

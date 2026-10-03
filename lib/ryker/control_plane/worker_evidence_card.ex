@@ -107,7 +107,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
   defp enforcement(%{state: :observed, status: status, reason: reason}),
     do: "Enforcer reported #{status} (#{reason})"
 
-  defp enforcement(_enforcement), do: "Not recorded — configured is not enforced"
+  defp enforcement(_enforcement), do: "Not recorded, so the configured limits may not be enforced"
 
   defp access_facts(access) do
     [
@@ -291,7 +291,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
   defp loss_detail(%{availability: %{state: :recorded}} = loss) do
     [
       loss.records.label,
-      if(loss.unknown?, do: "unattributed loss — totals are lower bounds"),
+      if(loss.unknown?, do: "some loss is unattributed, so totals are lower bounds"),
       if(loss.detail_truncated?, do: "detail truncated"),
       if(loss.suppressed_alerts.value not in [nil, 0],
         do: "#{loss.suppressed_alerts.value} alerts suppressed"

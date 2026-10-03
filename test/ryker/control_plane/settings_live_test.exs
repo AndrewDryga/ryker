@@ -1004,7 +1004,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
           {"mentions", "Only when mentioned", "Ryker replies when someone writes @Ryker."},
           {"proactive", "Join relevant conversations",
            "Ryker also replies when it can clearly help."},
-          {"shadow", "Watch quietly", "Ryker reads and learns, but never replies."}
+          {"shadow", "Watch quietly", "Ryker reads and learns without replying."}
         ] do
       assert has_element?(
                view,
@@ -1325,8 +1325,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "investigated in its own thread instead of a room."},
           {"learning_models",
            "Reads the messages Ryker picks up in the background, including ones it did not " <>
-             "answer, and notes what is worth remembering about each conversation. It never " <>
-             "replies, and runs only while learning is on."}
+             "answer, and notes what is worth remembering about each conversation. It doesn't " <>
+             "reply, and runs only while learning is on."}
         ] do
       card =
         if name in ~w(routing_models conversation_models standard_models deep_models),

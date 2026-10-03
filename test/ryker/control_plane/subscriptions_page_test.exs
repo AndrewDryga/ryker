@@ -263,8 +263,8 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
 
     help = PageHelp.for_path("/follow-ups")
     text = Enum.map_join(help.sections, " ", &Enum.join(&1.paragraphs, " "))
-    assert text =~ "Ryker adds follow-ups on its own when work has to wait."
-    assert text =~ "“Check again tomorrow morning.”"
+    assert text =~ "Ryker adds follow-ups by itself when work has to wait."
+    assert text =~ ~s("Check again tomorrow morning.")
   end
 
   test "an empty list says what would put a follow-up there, and a search miss says it missed" do
@@ -273,7 +273,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
            "When Ryker has to pause a request until a set time or an update, it shows here."},
           {%{"view" => "past"}, "No past follow-ups",
            "Follow-ups move here once the work continues, the deadline passes or they are cancelled."},
-          {%{"q" => "absent"}, "No follow-ups match “absent”",
+          {%{"q" => "absent"}, ~s(No follow-ups match "absent"),
            "Try other words, or look under Past."}
         ] do
       page = Pages.page(["follow-ups"], params, %{projection: %{subscriptions: fn _ -> [] end}})

@@ -67,7 +67,8 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     for kind <- ~w(admission publication retention) do
       row = %{kind: kind, summary: "contract_drift_v2", source: "ryker", attempt_count: 1}
       words = inspect(FailureExplanation.explain(row))
-      assert words =~ "The saved error is “contract_drift_v2”.", kind
+      cause = row |> FailureExplanation.explain() |> Map.fetch!(:cause) |> Enum.join(" ")
+      assert cause =~ ~s(The saved error is "contract_drift_v2".), kind
       refute words =~ "Technical details", kind
 
       refute inspect(FailureExplanation.explain(%{row | summary: "#{kind} blocked"})) =~
@@ -178,7 +179,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
              "Nobody is waiting on it: Ryker started it ahead of time and no message used it."
 
     assert hd(explanation.happened) =~ "When Ryker stopped keeping it ready"
-    assert hd(explanation.affects) =~ "Nobody."
+    assert hd(explanation.affects) =~ "Nobody is waiting on it."
 
     detail = row |> FailuresPage.detail() |> IO.iodata_to_binary()
     refute detail =~ "the message was already read"

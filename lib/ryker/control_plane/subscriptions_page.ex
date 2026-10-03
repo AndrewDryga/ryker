@@ -117,7 +117,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
     ~H"""
     <Kit.empty
       icon={:search}
-      title={"No follow-ups match “#{@query}”"}
+      title={"No follow-ups match \"#{@query}\""}
       text={"Try other words, or look under #{if @view == "past", do: "Current", else: "Past"}."}
     />
     """

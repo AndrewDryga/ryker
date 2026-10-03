@@ -32,7 +32,7 @@ defmodule Ryker.ControlPlane.FactsProjectionTest do
     miss = MemoryProjection.fetch(%{"q" => "absent"})
     assert miss.memories == []
     html = miss |> FactsPage.html() |> IO.iodata_to_binary()
-    assert html =~ "No facts match “absent”"
+    assert html =~ "No facts match &quot;absent&quot;"
     refute html =~ "No facts yet"
   end
 end

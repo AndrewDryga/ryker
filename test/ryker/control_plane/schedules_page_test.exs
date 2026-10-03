@@ -264,7 +264,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       text = Enum.map_join(help.sections, " ", &Enum.join(&1.paragraphs, " "))
 
       assert text =~
-               "“Every Monday at 09:00 Berlin time, summarize unresolved incidents in this channel.”"
+               ~s("Every Monday at 09:00 Berlin time, summarize unresolved incidents in this channel.")
     end
 
     test "an unknown view is the current list" do
@@ -284,9 +284,9 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
              "A schedule appears here once you ask Ryker to run something at a set time and confirm it."},
             {%{"view" => "past"}, "No past schedules",
              "Schedules move here when they finish, expire or are deleted."},
-            {%{"q" => "absent"}, "No schedules match “absent”",
+            {%{"q" => "absent"}, ~s(No schedules match "absent"),
              "Try other words, or look under Past."},
-            {%{"q" => "absent", "view" => "past"}, "No schedules match “absent”",
+            {%{"q" => "absent", "view" => "past"}, ~s(No schedules match "absent"),
              "Try other words, or look under Current."}
           ] do
         page = Pages.page(["schedules"], params, %{projection: %{schedules: fn _ -> [] end}})

@@ -1514,7 +1514,7 @@ defmodule Ryker.ControlPlane.RouterTest do
           {"slack_incident", "incident-room:one", "rearm",
            "Continue setting up this incident room?",
            {:rearmed_slack_incident, "incident-room:one"}},
-          {"slack_task_card", "task-card:one", "rearm", "Update this task’s card again?",
+          {"slack_task_card", "task-card:one", "rearm", "Update this task's card again?",
            {:rearmed_slack_task_card, "task-card:one"}},
           {"slack_thread_status", "0d0c5c7e-1c3d-4a4a-9a8f-2d0d0a1b2c3d", "rearm",
            "Write this thread status again?",
@@ -1525,7 +1525,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
       confirmation = request(:get, path)
       assert confirmation.status == 200
-      assert confirmation.resp_body =~ title
+      assert confirmation.resp_body =~ IO.iodata_to_binary(Plug.HTML.html_escape(title))
       [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
 
       accepted = request(:post, path, URI.encode_query(%{"_token" => token}))

@@ -55,7 +55,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   @participation [
     {"mentions", "Only when mentioned", "Ryker replies when someone writes @Ryker."},
     {"proactive", "Join relevant conversations", "Ryker also replies when it can clearly help."},
-    {"shadow", "Watch quietly", "Ryker reads and learns, but never replies."}
+    {"shadow", "Watch quietly", "Ryker reads and learns without replying."}
   ]
   # How a sender proves a request is theirs, each said the way it works for
   # them. A signed request's secret must be at least 32 characters: the
@@ -258,8 +258,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :boolean,
           label: "Post a weekly report",
           help:
-            "The first report goes out at the next day and time below, never the moment " <>
-              "you turn it on."
+            "The first report goes out at the next day and time below, not when you turn it on."
         },
         %{name: :channel_ref, kind: :text, label: "Slack channel"},
         %{name: :weekday, kind: :select, label: "Day", options: @weekdays},
@@ -280,9 +279,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
       schema: Learning,
       title: "Learning",
       description:
-        "Model-based background learning. Turning it off pauses new batches; " <>
-          "batches already running finish, and durable budgets are not reset. " <>
-          "Deterministic memory compaction is mandatory and runs either way.",
+        "Ryker learns from conversations in the background with a model. Turning it off " <>
+          "pauses new batches and lets the running ones finish.",
       fields: [%{name: :enabled, kind: :boolean, label: "Learn from past conversations"}]
     },
     %{
@@ -316,7 +314,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       item_key: :name,
       title: "GitHub repository bindings",
       description:
-        "The exact verified installation identity for one repository. People with write " <>
+        "The GitHub App installation that reaches one repository. People with write " <>
           "access to that repository can ask Ryker to work there.",
       fields: [
         %{name: :name, kind: :text, label: "Binding name", identity: true},
@@ -605,8 +603,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
           label: "Learning",
           help:
             "Reads the messages Ryker picks up in the background, including ones it did not " <>
-              "answer, and notes what is worth remembering about each conversation. It never " <>
-              "replies, and runs only while learning is on.",
+              "answer, and notes what is worth remembering about each conversation. It doesn't " <>
+              "reply, and runs only while learning is on.",
           errors: @ladder_errors
         }
       ]
@@ -636,7 +634,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
             "One account per row, as provider@name. Sign an account in on the worker first " <>
               "with scripts/compose.sh model-login claude@work, then add it here. If a model " <>
               "uses an account the worker has not signed in, the worker keeps running the " <>
-              "models saved before, and this page says so.",
+              "models saved before and shows a warning here.",
           errors: %{
             length: "List at least one account, such as codex@default.",
             format: "Fix the account marked above, then save again.",
@@ -664,8 +662,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
       # How it compares is a page of its own, opened from the card's title.
       link: {"See how it compares", "/settings/models/local-routing"},
       description:
-        "A small model you run yourself, tried on routing beside the provider model to see how " <>
-          "often it would decide the same. It never changes what Ryker does.",
+        "A small model you run yourself, asked to route each message after the provider model " <>
+          "has, to see how often the two agree. Routing doesn't use its answers.",
       help:
         "To try one on the Mac that runs Ryker, run scripts/routing-model-service.sh install, " <>
           "then save http://host.docker.internal:8181/v1 and qwen2.5:3b here. Any server that " <>
@@ -772,7 +770,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           label: "Prompts, replies and tool activity",
           help:
             "The words themselves: messages people sent, every prompt and answer of a model " <>
-              "call, and what each tool call sent and got back. By far the largest part. Once " <>
+              "call, and what each tool call sent and got back. This is most of the data. Once " <>
               "deleted, a request's page still shows each step, without the text."
         },
         %{
@@ -780,8 +778,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :days,
           label: "Finished work",
           help:
-            "Ryker's records of closed incident rooms and of task cards in Slack. Small. It never " <>
-              "touches code: working copies of repositories are cleaned up on their own (see " <>
+            "Ryker's records of closed incident rooms and of task cards in Slack, which take " <>
+              "little space. Working copies of repositories are cleaned up separately (see " <>
               "Working copies)."
         },
         %{
@@ -790,14 +788,14 @@ defmodule Ryker.ControlPlane.SettingsSections do
           label: "Request history",
           help:
             "The steps behind each finished request's page: decisions, work turns, approvals, " <>
-              "pull requests and schedule runs, without the words above. Small. Once deleted, " <>
+              "pull requests and schedule runs, without the words above. Once deleted, " <>
               "the request leaves Activity."
         },
         %{
           name: :audit_data_seconds,
           kind: :days,
           label: "Audit trail",
-          help: "Who changed settings, instructions, channels and credentials, and when. Small."
+          help: "Who changed settings, instructions, channels and credentials, and when."
         },
         %{
           name: :conversation_memory_seconds,
@@ -805,7 +803,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           label: "Conversation memory",
           help:
             "What Ryker learned from each conversation: learned topics, notes and summaries. " <>
-              "Small. Facts someone confirmed for the whole workspace stay regardless."
+              "Facts someone confirmed for the whole workspace stay regardless."
         },
         %{
           name: :routing_examples_enabled,

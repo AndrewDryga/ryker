@@ -104,7 +104,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
              List.duplicate("/timeline/" <> reply.episode.id, 2)
 
     assert text(frustrated) =~ "Is checkout up?"
-    assert text(frustrated) =~ "“They say checkout is down for them.”"
+    assert text(frustrated) =~ ~s("They say checkout is down for them.")
     assert text(frustrated) =~ "Reacted 👎"
 
     satisfied = LazyHTML.query(document, "#feedback-satisfied .entity-row")
@@ -262,7 +262,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
     assert chapter |> LazyHTML.query(".feedback-card .state-word") |> Enum.map(&text/1) ==
              ["Angry", "Frustrated", "Asked again", "Reviewed"]
 
-    assert text(chapter) =~ "“They say checkout is down for them.”"
+    assert text(chapter) =~ ~s("They say checkout is down for them.")
 
     {:ok, view} = ModelRequests.project_input(greeting.id, %{})
 

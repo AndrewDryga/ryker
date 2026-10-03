@@ -1518,7 +1518,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     %{
       text:
         slack.reason <>
-          " Until then a source that posts to Slack does not take events, and this page says so.",
+          " Until then a source that posts to Slack doesn't take events.",
       link: slack.action.label,
       href: slack.action.href
     }

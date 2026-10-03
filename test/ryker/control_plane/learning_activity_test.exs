@@ -89,7 +89,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
 
     assert :ok = Ryker.Settings.record_application(installation.revision, :ok)
     assert LearningActivity.project(%{}).state == :cannot_start
-    assert render(%{}) =~ "Learning can’t start"
+    assert render(%{}) =~ "Learning can&#39;t start"
 
     Application.put_env(:ryker, :learning, %{policy: @settings.policy})
     assert LearningActivity.project(%{}).state == :not_running

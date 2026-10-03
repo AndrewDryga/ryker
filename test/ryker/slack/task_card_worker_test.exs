@@ -55,7 +55,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     assert row.episode_ref == card.episode.key
 
     explanation = FailureExplanation.explain(row)
-    assert explanation.title == "Updating a task’s card stopped"
+    assert explanation.title == "Updating a task's card stopped"
     assert explanation.outlook == :stuck
     assert FailureExplanation.kind_name("slack_task_card") == "Task card update"
   end

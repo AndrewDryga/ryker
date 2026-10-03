@@ -27,7 +27,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   @refused_grant "Ryker couldn't get permission to publish this reviewed change."
   # The card printed `:publication_existing_pull_request_changed` once a draft was closed on
   # GitHub while Ryker updated it (manual test, 2026-10-01). These are the Failures page's words.
-  @changed_on_github "Someone changed this draft's branch or pull request on GitHub, so Ryker stopped rather than overwrite their work."
+  @changed_on_github "Someone changed this draft's branch or pull request on GitHub, so Ryker stopped to avoid overwriting their work."
   # What an attempt records while Coop is still working on it, or while the next attempt is
   # already due: Ryker's own wait ended before a long review did, the worker has not finished,
   # the session is changing placement, a lost review is being asked again. Each clears by
@@ -572,7 +572,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp held_report(nil), do: nil
 
   defp held_report(report),
-    do: "The worker's own report, which is not a check result: “#{compact(report, 900)}”"
+    do: "The worker's own report, which is not a check result: \"#{compact(report, 900)}\""
 
   defp unstarted_review(%Episode{state: :complete}, nil, %{"status" => "open"}),
     do:

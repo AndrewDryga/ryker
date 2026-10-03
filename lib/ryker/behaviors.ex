@@ -654,7 +654,7 @@ defmodule Ryker.Behaviors do
       # could not have caused.
       not MapSet.member?(considered, behavior.id) ->
         {"not_considered",
-         "Only the first #{@runtime_candidate_limit} applicable rules are evaluated. This rule’s trigger was not checked."}
+         "Only the first #{@runtime_candidate_limit} applicable rules are evaluated. This rule's trigger was not checked."}
 
       assignment_matches?(behavior.payload, input) ->
         {"matched", assignment_match_reason(behavior.payload, input)}

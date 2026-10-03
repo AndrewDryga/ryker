@@ -145,7 +145,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
     # The receipt's own coverage and loss, not the newest run's: nine
     # lower-bound metrics and an unattributed loss is why it says partial.
     assert rendered =~ "proxy_bytes lower-bound"
-    assert rendered =~ "unattributed loss — totals are lower bounds"
+    assert rendered =~ "some loss is unattributed, so totals are lower bounds"
     assert rendered =~ "counter_overflow"
   end
 

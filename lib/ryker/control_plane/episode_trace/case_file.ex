@@ -260,7 +260,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
             offer && offer.confirmed_at &&
               %{label: "Task approved", at: offer.confirmed_at, href: nil},
             %{
-              label: "Couldn’t start — code-editing setup needs attention",
+              label: "Couldn't start: code-editing setup needs attention",
               at: turn.cancelled_at || turn.updated_at,
               href: nil
             }
