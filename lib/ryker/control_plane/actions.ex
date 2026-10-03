@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.Actions do
 
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.ConversationLab
+  alias Ryker.ControlPlane.FailureProjection
   alias Ryker.ControlPlane.InstructionSettings
   alias Ryker.ControlPlane.SettingsCommands
   alias Ryker.ControlPlane.WorkChanges
@@ -13,7 +14,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Improvement
   alias Ryker.Ingress.WorkProfile
   alias Ryker.IntegrationSetup
-  alias Ryker.Operator.{EpisodeReviews, Failures}
+  alias Ryker.Operator.{EpisodeReviews, FailureDismissals, Failures}
   alias Ryker.Operator.Learning, as: LearningOperator
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Operator.Retention, as: RetentionOperator
@@ -113,6 +114,7 @@ defmodule Ryker.ControlPlane.Actions do
       rearm_retention: &retry_failure("retention", &1),
       rearm_slack_incident: &retry_failure("slack_incident", &1),
       close_incident_room: &IncidentRooms.request_close(&1, @actor_ref),
+      leave_failure: &leave_failure/2,
       rearm_slack_interaction: &retry_failure("slack_interaction", &1),
       rearm_slack_task_card: &retry_failure("slack_task_card", &1),
       rearm_slack_thread_status: &retry_failure("slack_thread_status", &1),
@@ -177,6 +179,20 @@ defmodule Ryker.ControlPlane.Actions do
         @actor_ref,
         "control-plane:learning-drop:#{id}:#{budget_version}"
       )
+
+  # The failure as it is now, so a later change lists it again.
+  defp leave_failure(kind, ref) do
+    case FailureProjection.fetch(kind, ref) do
+      {:ok, row} ->
+        FailureDismissals.leave(row.kind, row.ref, row.updated_at || Repo.now!(), @actor_ref)
+
+      :not_found ->
+        {:error, :failure_not_found}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
 
   defp retry_failure(kind, ref) do
     Failures.retry(kind, ref,

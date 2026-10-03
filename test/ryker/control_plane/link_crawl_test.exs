@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   """
   use Ryker.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
@@ -18,6 +19,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
     Actions,
     Endpoint,
     EpisodeProjection,
+    FailureProjection,
     InstructionSettings,
     ModelRequests,
     PageHelp,
@@ -27,6 +29,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.ControlPlaneOptions
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Work.{Custody, Turn}
 
   @endpoint Endpoint
 
@@ -63,8 +66,22 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
     # The fixture's pages link stand-in episode refs ("episode:one") that no
     # database holds, and its conversation doubles describe a transcript the
     # live page cannot page. One real admitted episode stands behind every
-    # episode link, and the real projections read an empty transcript.
+    # episode link, and the real projections read an empty transcript. Its
+    # work stopped, so its page offers every step a request can take, and the
+    # crawl opens each one's question: a stopped request's Leave it closes it.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, _session} = Custody.pin_episode(episode.id, "policy:crawl", String.duplicate("a", 64))
+    {:ok, claim} = Custody.claim_next("crawl", 60, :work)
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id),
+      set: [
+        status: :blocked,
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil,
+        next_attempt_at: nil
+      ]
+    )
 
     # One environment behind the Environments page, so its rows and the
     # editor each row's name opens are crawled too.
@@ -106,6 +123,11 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
         end,
         request_id: fn key ->
           fixture.projection.request_id.(key) || EpisodeProjection.key_id(key)
+        end,
+        # The stopped request behind every request link is a real failure.
+        failure: fn kind, ref ->
+          with :not_found <- fixture.projection.failure.(kind, ref),
+               do: FailureProjection.fetch(kind, ref)
         end
       })
 

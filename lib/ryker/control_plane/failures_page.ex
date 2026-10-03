@@ -196,7 +196,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
       row: row,
       e: explanation,
       facts: facts(row, now),
-      technical: FailureExplanation.technical(row),
+      details: FailureExplanation.details(row),
       steps: FailureExplanation.cleanup_steps(row),
       report: get_in(row, [:work_recovery, :model_output])
     }
@@ -207,8 +207,9 @@ defmodule Ryker.ControlPlane.FailuresPage do
   # Andrew, 2026-09-28, of this page: "this is shitton of text without proper
   # design, page is not usable". Four headed runs of prose are now two cards:
   # what happened, in labelled rows a person can scan, then what they can do,
-  # one row an option with its button. The worker's own words and the
-  # technical details stay folded underneath.
+  # one row an option with its button. What the failure's own sources said is
+  # a row of what happened; its references are on no page (Andrew,
+  # 2026-10-03: ""Technical details" can be dropped?").
   defp detail_view(assigns) do
     ~H"""
     <div class="failure-page">
@@ -241,6 +242,27 @@ defmodule Ryker.ControlPlane.FailuresPage do
             <dt>What Ryker tried</dt>
             <dd>
               <p :for={paragraph <- @e.tried}>{paragraph}</p>
+            </dd>
+          </div>
+          <div :if={@details != []}>
+            <dt>Details</dt>
+            <dd>
+              <p :for={fact <- @details}>
+                {fact.label}:
+                <Kit.person :if={fact[:presentation] == :person} person={fact.value} /><span :if={
+                  fact[:presentation] != :person
+                }>{fact.value}</span>
+              </p>
+            </dd>
+          </div>
+          <div :if={@steps != []}>
+            <dt>Cleanup steps</dt>
+            <dd>
+              <ol class="failure-steps" aria-label="Cleanup steps">
+                <li :for={step <- @steps} data-state={step.state}>
+                  <strong>{step.label}</strong> <span>{step.status}</span>
+                </li>
+              </ol>
             </dd>
           </div>
         </dl>
@@ -287,19 +309,6 @@ defmodule Ryker.ControlPlane.FailuresPage do
           </Kit.entity_row>
         </Kit.entity_list>
       </Kit.section_card>
-
-      <Components.disclosure
-        id="failure-technical"
-        label="Technical details"
-        class="failure-technical"
-      >
-        <Components.fact_list facts={@technical} />
-        <ol :if={@steps != []} class="failure-steps" aria-label="Cleanup steps">
-          <li :for={step <- @steps} data-state={step.state}>
-            <strong>{step.label}</strong> <span>{step.status}</span>
-          </li>
-        </ol>
-      </Components.disclosure>
     </div>
     """
   end

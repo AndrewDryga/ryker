@@ -578,9 +578,11 @@
 .execution-target-inline { font:inherit; color:inherit; overflow-wrap:anywhere; }
 .ui-identifier { display:inline-flex; min-width:0; align-items:center; gap:4px; vertical-align:middle; }
 .ui-identifier code { min-width:0; overflow-wrap:anywhere; color:var(--ryker-text); font:13px/20px var(--ryker-font-mono); }
-.copy-value { display:inline-grid; width:44px; height:44px; margin:-12px -8px -12px 0; padding:0; place-items:center; border:0; background:transparent; color:var(--ryker-text-secondary); cursor:pointer; }
-.copy-value:hover, .copy-value[data-copy-state="copied"] { color:var(--ryker-accent-strong); }
-.copy-value:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:-6px; }
+/* A copy button is its icon alone, wherever it sits: the page surface's filled button rule
+   (.page-surface button) no longer reaches it (Andrew, 2026-10-03: "wtf with that button style"). */
+.ryker-app .copy-value { display:inline-grid; width:44px; height:44px; margin:-12px -8px -12px 0; padding:0; place-items:center; border:0; border-radius:6px; background:transparent; color:var(--ryker-text-secondary); cursor:pointer; }
+.ryker-app .copy-value:hover, .ryker-app .copy-value[data-copy-state="copied"] { background:transparent; color:var(--ryker-accent-strong); }
+.ryker-app .copy-value:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:-6px; }
 .copy-value .ui-icon { width:15px; height:15px; }
 .ui-disclosure { margin-top:8px; color:var(--ryker-text-secondary); font-size:14px; }
 .ui-disclosure > summary { display:grid; grid-template-columns:16px minmax(0,1fr) auto; min-height:44px; box-sizing:border-box; align-items:center; gap:8px; width:100%; max-width:100%; cursor:pointer; color:var(--ryker-text-secondary); font-size:13px; line-height:20px; font-weight:600; list-style:none; }

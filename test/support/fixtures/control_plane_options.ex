@@ -84,6 +84,10 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {:lab_reaction, conversation_id, message_ref, action, emoji_name})
           {:ok, %{status: :applied}}
         end,
+        leave_failure: fn kind, ref ->
+          send(parent, {:left_failure, kind, ref})
+          {:ok, %{kind: kind, ref: ref}}
+        end,
         close_incident_room: fn ref ->
           send(parent, {:closed_incident_room, ref})
           {:ok, %{ref: ref}}

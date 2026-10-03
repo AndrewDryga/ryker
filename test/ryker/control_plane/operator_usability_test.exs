@@ -185,15 +185,24 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     # The retry stays reachable for an operator who knows better, but only as
     # a secondary step marked as failing, never as the page's primary button.
-    retry = LazyHTML.query(document, ".failure-option form[action^='/actions/retention/'] button")
+    retry =
+      LazyHTML.query(
+        document,
+        ".failure-option form[action^='/actions/retention/'][action$='/rearm'] button"
+      )
+
     assert Enum.count(retry) == 1
     assert LazyHTML.attribute(retry, "class") == ["ui-button secondary"]
-    assert Enum.empty?(LazyHTML.query(document, ".failure-option .ui-button.primary"))
+    # Leaving the folder is the step that helps, and its button is the page's primary one.
+    assert LazyHTML.query(document, ".failure-option .ui-button.primary") |> LazyHTML.text() ==
+             "Leave it"
 
-    [primary | _] = String.split(detail, "id=\"failure-technical\"")
-    refute primary =~ "stored diagnostic sha256"
-    refute primary =~ "HTTP 409"
-    assert detail =~ "HTTP 409"
+    # What the worker answered is part of what happened; the stored diagnostic's digest is on no
+    # page.
+    assert document |> LazyHTML.query("#failure-summary") |> LazyHTML.text() =~
+             ~r/Worker response:\s+HTTP 409/
+
+    refute detail =~ "stored diagnostic sha256"
 
     list = [row] |> FailuresPage.list(@now) |> IO.iodata_to_binary()
     assert list |> LazyHTML.from_fragment() |> LazyHTML.text() =~ "Retry won't help"
@@ -660,7 +669,11 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert Enum.empty?(LazyHTML.query(document, ".kit-counts"))
   end
 
-  test "a failure's page leads with what happened and keeps opaque IDs in Technical details" do
+  # Andrew, 2026-10-03, of a failure's Technical details: ""Technical details" can be dropped?"
+  # The fold under every failure held its references, a digest of its stored diagnostic and its
+  # conversation's raw reference, with copy buttons drawn as green squares. What its sources said
+  # is a row of what happened now, and no reference is on the page.
+  test "a failure's page says what happened and what to do, and shows no references" do
     html =
       FailuresPage.detail(
         %{
@@ -699,15 +712,12 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert html =~ "Direct conversation"
     refute html =~ "Conversation Lab"
 
-    technical = LazyHTML.query(document, "details#failure-technical")
-    refute LazyHTML.attribute(technical, "open") == [""]
-    assert LazyHTML.text(technical) =~ "Technical details"
-    assert LazyHTML.text(technical) =~ "Diagnostic reference"
-    assert html =~ ~s(data-copy-value="stored diagnostic sha256:)
+    assert LazyHTML.query(document, "details#failure-technical") |> Enum.empty?()
+    refute html =~ "data-copy-value"
+    words = LazyHTML.text(document)
 
-    [primary | _] = String.split(html, "id=\"failure-technical\"")
-    refute primary =~ "session:one"
-    refute primary =~ "sha256"
+    for reference <- ["session:one", "sha256", "control-plane:lab:one", "coop_error"],
+        do: refute(words =~ reference, reference)
   end
 
   test "a stopped task's page says the cause the worker gave, not only that it stopped" do

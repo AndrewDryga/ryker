@@ -30,6 +30,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   protocol facts and a digest of the stored diagnostic.
   """
 
+  alias Ryker.ControlPlane.LearningActivity
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.Slack.Names
@@ -62,7 +63,12 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       tried: story.tried,
       options_lede: options_lede(level),
       options:
-        [retry, fix && fix_option(fix, level), story[:alternative], leave_option(story, level)]
+        [
+          retry,
+          fix && fix_option(fix, level),
+          story[:alternative],
+          leave_option(row, story, level)
+        ]
         |> Enum.reject(&is_nil/1)
         |> Enum.sort_by(&if(&1[:recommended], do: 0, else: 1)),
       next: next(level, retry, fix, story),
@@ -167,44 +173,29 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   end
 
   @doc """
-  The Technical details: codes, references and allowlisted protocol facts for
-  support, never the stored diagnostic itself.
+  What the failure's own sources said and who was involved, for its page's
+  What happened: Slack's answer, the worker's, the step it stopped at, how the
+  worker stands now and who pressed the button. Its codes, references and
+  digests are on no page (Andrew, 2026-10-03: ""Technical details" can be
+  dropped?").
   """
-  @spec technical(map()) :: [map()]
-  def technical(row) do
-    worker = Map.get(row, :worker)
-
+  @spec details(map()) :: [map()]
+  def details(row) do
     [
-      fact("Kind", kind_name(row.kind)),
-      fact("Error code", error_code(row)),
       fact("Slack said", row[:provider_error]),
       fact("Worker response", http_status(row[:diagnosis])),
       fact("Stopped at", stopped_step(row)),
-      identifier("Worker", worker_id(worker)),
-      fact("Worker now", worker_now(worker)),
-      fact("Policy", row[:policy]),
-      identifier("Record", row.ref),
-      identifier("Request", row[:episode_ref]),
-      person("Pressed by", row[:pressed_by]),
-      identifier("Source", source(row[:source])),
-      identifier("Conversation", row[:destination]),
-      identifier("Diagnostic reference", row[:detail]),
-      fact("Stopped", exact_time(row[:updated_at]))
+      fact("Worker now", worker_now(Map.get(row, :worker))),
+      person("Pressed by", row[:pressed_by])
     ]
     |> Enum.reject(&is_nil/1)
   end
 
-  defp fact(_label, nil), do: nil
-  defp fact(label, value), do: %{label: label, value: value}
-
-  defp identifier(_label, nil), do: nil
-  defp identifier(label, value), do: %{label: label, value: to_string(value), identifier: true}
-
   defp person(_label, nil), do: nil
   defp person(label, person), do: %{label: label, value: person, presentation: :person}
 
-  defp source("no repository"), do: nil
-  defp source(source), do: source
+  defp fact(_label, nil), do: nil
+  defp fact(label, value), do: %{label: label, value: value}
 
   defp http_status(%{http_status: status}), do: "HTTP #{status}"
   defp http_status(_diagnosis), do: nil
@@ -212,12 +203,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp stopped_step(%{cleanup_phase: phase}) when not is_nil(phase), do: phase_name(phase)
   defp stopped_step(%{setup_step: step}) when not is_nil(step), do: sentence(setup_step(step))
   defp stopped_step(_row), do: nil
-
-  defp worker_id(%{id: id}), do: id
-  defp worker_id(_worker), do: nil
-
-  defp exact_time(nil), do: nil
-  defp exact_time(at), do: ShortTime.full(utc(at))
 
   @doc "The cleanup steps and how far this cleanup got, for the Technical details."
   @spec cleanup_steps(map()) :: [map()]
@@ -286,13 +271,55 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     }
   end
 
-  # Leaving it is the recommendation only when nothing else can help.
-  defp leave_option(story, level),
+  # Leaving it is the recommendation only when nothing else can help, and it is
+  # a step of its own (`leave_path/1`). One already left has nothing to leave.
+  defp leave_option(%{left_at: %DateTime{}}, _story, _level), do: nil
+
+  defp leave_option(row, story, level),
     do: %{
       label: "Leave it",
+      path: leave_path(row),
       effect: story.if_left,
       recommended: level == :automatic or (level == :stuck and is_nil(story[:fix]))
     }
+
+  @doc """
+  Where leaving a failure as it is lives. A failure that ends where it lives
+  ends there: a learning batch is dropped, an incident room closed, a stopped
+  request closed. Any other is left on Failures itself, which stops listing it
+  until it changes again (Andrew, 2026-10-03: "how do I hide the alert if I
+  want to leave it and not be annoyed by having a failure pending forever?").
+  """
+  @spec leave_path(map()) :: String.t() | nil
+  def leave_path(%{kind: "learning", ref: batch_id}) when is_binary(batch_id),
+    do: Paths.action("learning", batch_id, "drop")
+
+  def leave_path(%{kind: "slack_incident", ref: ref}) when is_binary(ref),
+    do: Paths.action("slack_incident", ref, "close")
+
+  def leave_path(%{kind: "work", episode_id: id}) when is_binary(id),
+    do: Paths.action("episode", id, "resolve")
+
+  def leave_path(%{kind: "stopping", episode_id: id}) when is_binary(id),
+    do: Paths.action("stopping", id, "leave")
+
+  # A request's failure is addressed by its request's id; without one there is
+  # nowhere to leave it.
+  def leave_path(%{kind: kind}) when kind in ~w(work stopping), do: nil
+
+  def leave_path(%{kind: kind, ref: ref} = row) when is_binary(kind) and is_binary(ref),
+    do: Paths.action(kind, address(row), "leave")
+
+  def leave_path(_row), do: nil
+
+  @doc "The question Leave it asks for a failure Failures itself leaves, and what it says."
+  @spec leave_confirmation(map()) :: {:ok, String.t(), String.t()}
+  def leave_confirmation(row) do
+    story = story(row, DateTime.utc_now())
+
+    {:ok, "Leave this as it is?",
+     story.if_left <> " It stops appearing on Failures until it changes again."}
+  end
 
   # Why it stopped: the cause in a sentence, then what the saved detail adds.
   defp cause_lines(nil), do: []
@@ -2526,20 +2553,15 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       title: "Learning from a conversation stopped",
       impact: :housekeeping,
       lede:
-        "Ryker is not learning from #{messages} in this conversation. #{outlook_short(cause.outlook)}",
+        "Ryker could not learn from #{messages} here. Decide whether it tries once more or leaves them unlearned.",
       summary: "Ryker is not learning from #{messages} in this conversation. #{cause.short}",
-      happened: [
-        "Ryker reads conversations in the background and keeps what is worth remembering as learned topics. Reading #{messages} here stopped."
-      ],
-      affects: [
-        "Ryker is not learning from these messages; replies are unaffected.",
-        "Newer messages in this conversation are learned as usual."
-      ],
+      happened: ["Learning what is worth remembering from #{messages} in this conversation."],
+      affects: ["Only learning: replies are unaffected, and newer messages are learned as usual."],
       tried: [
-        tried(row, now),
-        "Ryker does not start again on its own, because a start can be a model call."
+        tried(row, now) <> " It does not start again on its own: each start is a model call."
       ],
-      if_left: "These messages stay unlearned. Nothing else changes.",
+      if_left:
+        "These messages stay unlearned, and Ryker stops asking you about them. Nothing else changes.",
       cause: cause,
       outlook: cause.outlook,
       outlook_note: cause.note,
@@ -2571,13 +2593,14 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "The Learning page shows why each attempt stopped. Grant one more start there and Ryker reads these messages again with the learning settings in place now."
     }
 
-  defp learning_cause(%{summary: "learning_retry_exhausted"}),
+  # Every start was used: the last attempt's own error says why, in words.
+  defp learning_cause(%{summary: "learning_retry_exhausted"} = row),
     do:
       cause(
-        "Every start it was given was used.",
-        "Each attempt ended without a change Ryker could save.",
+        "Every start it was given was used, and each attempt stopped.",
+        attempt_error_words(row[:attempt_error]),
         :unknown,
-        "Another start works if what stopped the attempts has changed; each attempt says what that was."
+        "Another start works if what stopped the attempts has changed."
       )
 
   defp learning_cause(%{summary: "knowledge_target_unavailable", relearn_path: path})
@@ -2651,6 +2674,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   # ---------------------------------------------------------------------------
   # Shared words
 
+  defp attempt_error_words(nil), do: "Each attempt ended without a change Ryker could save."
+  defp attempt_error_words(code), do: "The last attempt: " <> LearningActivity.error(code)
+
   defp tried(row, now) do
     when_text =
       case Map.get(row, :updated_at) do
@@ -2705,9 +2731,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       name -> " in #{name}"
     end
   end
-
-  defp error_code(%{kind: "work"} = row), do: row[:stop_code] || row.summary
-  defp error_code(row), do: get_in(row, [:diagnosis, :code]) || row.summary
 
   defp seen(%{last_seen_at: %DateTime{} = at}), do: " since #{ShortTime.full(at)}"
   defp seen(_worker), do: " yet"
