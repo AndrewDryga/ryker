@@ -334,10 +334,10 @@ defmodule Ryker.ControlPlane.PageHelp do
          "How much work Ryker ran and what it cost, over the last 24 hours, 7 days, 30 days or all time. It covers every model call: routing messages, replies, investigations, tasks and background learning.",
          "It opens on live work, like Activity. All work adds evaluation runs."
        ]},
-      {"Where the money went",
+      {"Read the tables",
        [
-         "The table ranks what the cost went to, most first, by kind of work, model, channel, repository, person or account: choose one above it. Share is its part of the period's cost, Per request what one request cost on average, and Failed runs how many of its runs stopped without an answer.",
-         "Under each name: what it ran on, how many runs it took, how long a run took and how many tokens it used. Click a name to see the requests behind it on Activity."
+         "The top figures show cost, requests, runs and tokens. The tables break the same numbers down by model, channel, repository, kind of work and person.",
+         "Click a row to see the requests behind it on Activity."
        ]},
       {"How cost is counted",
        [
@@ -345,7 +345,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"When something looks wrong",
        [
-         "A high cost usually comes from one kind of work or one model: start with the work type breakdown. A kind of work that costs a lot per request may not need its model's effort; one with many failed runs wastes what it spends. Change the model a kind of work uses in Settings, Models."
+         "A high cost usually comes from one model or one kind of work, and the tables show which. To use a different model for a kind of work, change it in Settings, Models."
        ]}
     ])
   end
@@ -953,9 +953,10 @@ defmodule Ryker.ControlPlane.PageHelp do
        [
          "Median local time is how long the local model took to answer; median provider time is the provider's. Provider cost is what the provider spent routing these messages, and the part of it spent on messages the local model agreed on is what letting it route them would have saved."
        ]},
-      {"Where it decided differently",
+      {"The tables",
        [
-         "The latest valid answers that would have made Ryker do something else, and the latest answers routing refused, each with why. Click one to open its request at the routing step."
+         "By what the provider decided shows which decisions the local model already matches: those are the ones it could take over first. What differed shows what it gets wrong when its answer is usable, and Why routing refused its answers shows why the rest could not be used.",
+         "Latest opens the most recent message of that row at its routing step."
        ]},
       {"Changing it",
        [

@@ -397,7 +397,8 @@ defmodule Ryker.LocalRoutingTest do
       drain(endpoint)
 
       compared = LocalRoutingPage.project(nil, "all")
-      assert {compared.figures.compared, length(compared.disagreements)} == {2, 1}
+      differed = Enum.sum(Enum.map(compared.decisions, &(&1.valid - &1.agreed)))
+      assert {compared.figures.compared, differed} == {2, 1}
 
       delete!("Ev-local-compared")
 
@@ -408,7 +409,7 @@ defmodule Ryker.LocalRoutingTest do
       assert Map.take(usage.figures, [:compared, :valid, :agreed, :waiting, :failed]) ==
                %{compared: 1, valid: 1, agreed: 1, waiting: 0, failed: 0}
 
-      assert usage.disagreements == []
+      assert usage.differences == []
     end
 
     # The lane holds a comparison it took before the deletion committed, so
