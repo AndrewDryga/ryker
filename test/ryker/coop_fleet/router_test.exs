@@ -303,6 +303,78 @@ defmodule Ryker.CoopFleet.RouterTest do
     assert denied.status == 401
   end
 
+  # theblitzapp/blitz-core vendors skypjack/entt, which no installation of the GitHub App
+  # reaches (2026-10-03). Anyone may read a public repository, so its grant carries no
+  # credential and the worker fetches it anonymously; it is granted only as a submodule.
+  test "a public repository a job vendors as a submodule is granted without a credential" do
+    certificate = authorize_and_poll!()
+    session = session!()
+    job_ref = session.external_ref
+    {:ok, _snapshot} = Settings.initialize("control-plane:local")
+    commit = String.duplicate("a", 40)
+
+    public = %{
+      "repository_ref" => "public:skypjack:entt",
+      "github_repository" => "skypjack/entt",
+      "github_repository_id" => 123_456
+    }
+
+    module =
+      Map.merge(public, %{
+        "path" => "lib/libentt",
+        "commit" => commit,
+        "tree" => String.duplicate("c", 40),
+        "submodules" => []
+      })
+
+    job =
+      job_ref
+      |> WorkerJob.build(session.repository_ref || "repo:one")
+      |> put_in(["source", "submodules"], [module])
+
+    assert {:ok, digest} = JobSpec.digest(job)
+
+    session
+    |> Ecto.Changeset.change(worker_job_document: job, worker_job_digest: digest)
+    |> Repo.update!()
+
+    assert {:ok, _placement} =
+             ControlPlane.place_session(
+               session.id,
+               %{
+                 capability_names: [],
+                 repository_ref: session.repository_ref,
+                 workspace_ref: "workspace-main"
+               },
+               60
+             )
+
+    assert {:ok, grant} = SourceGrants.source_grant(certificate, job_ref, public)
+    assert grant["token"] == ""
+    assert grant["public"] == true
+    assert Map.take(grant, Map.keys(public)) == public
+    assert {:ok, expires_at, 0} = DateTime.from_iso8601(grant["expires_at"])
+    assert DateTime.compare(expires_at, DateTime.add(Repo.now!(), 60, :second)) == :gt
+
+    # Not one the job vendors, and never as a source of its own.
+    other = Map.put(public, "github_repository_id", 654_321)
+
+    as_source =
+      put_in(job, ["source"], Map.merge(job["source"], Map.put(public, "submodules", [])))
+
+    assert {:error, :coop_worker_source_grant_not_authorized} =
+             SourceGrants.source_grant(certificate, job_ref, other)
+
+    {:ok, source_digest} = JobSpec.digest(as_source)
+
+    Repo.get!(Session, session.id)
+    |> Ecto.Changeset.change(worker_job_document: as_source, worker_job_digest: source_digest)
+    |> Repo.update!()
+
+    assert {:error, :coop_worker_source_grant_not_authorized} =
+             SourceGrants.source_grant(certificate, job_ref, public)
+  end
+
   test "only an actively leased job may request its exact GitHub source grant without a create command" do
     certificate = authorize_and_poll!()
     session = session!()

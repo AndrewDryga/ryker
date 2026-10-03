@@ -143,6 +143,50 @@ defmodule Ryker.Work.SessionChangeset do
     |> check_constraint(:worker_job_document, name: :episode_work_session_worker_job_valid)
   end
 
+  @doc """
+  The authority current settings give a session no worker ever took. Its job
+  is pinned again from them, so the one pinned before is dropped.
+  """
+  def refresh_authority(%Session{} = session, %{
+        policy_digest: policy_digest,
+        authority_digest: authority_digest,
+        repository_context: repository_context,
+        emisar: emisar
+      }) do
+    session
+    |> cast(
+      %{
+        policy_digest: policy_digest,
+        authority_digest: authority_digest,
+        repository_context: repository_context,
+        emisar_connection_ref: emisar && emisar.connection_ref,
+        emisar_account_ref: emisar && emisar.account_ref,
+        emisar_rpc_url: emisar && emisar.rpc_url,
+        worker_job_document: nil,
+        worker_job_digest: nil
+      },
+      [
+        :policy_digest,
+        :authority_digest,
+        :repository_context,
+        :emisar_connection_ref,
+        :emisar_account_ref,
+        :emisar_rpc_url,
+        :worker_job_document,
+        :worker_job_digest
+      ]
+    )
+    |> validate_required([:policy_digest])
+    |> validate_format(:policy_digest, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:authority_digest, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_worker_job()
+    |> validate_repository_context()
+    |> validate_emisar_pin()
+    |> check_constraint(:repository_context, name: :episode_work_session_repository_context_valid)
+    |> check_constraint(:emisar_connection_ref, name: :episode_work_session_emisar_pin_valid)
+    |> check_constraint(:worker_job_document, name: :episode_work_session_worker_job_valid)
+  end
+
   def pin_worker_job(session, document, digest) do
     session
     |> cast(%{worker_job_document: document, worker_job_digest: digest}, [

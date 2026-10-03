@@ -12,10 +12,37 @@ defmodule Ryker.CoopFleet.SourceGrants do
 
   @identity ~w(repository_ref github_repository github_repository_id)
 
-  @doc "A fresh Contents:read grant only for a repository in the leased worker's frozen job."
+  # A grant without a credential is only a promise that Ryker will not object.
+  @public_grant_seconds 3_600
+
+  @doc """
+  A fresh Contents:read grant only for a repository in the leased worker's
+  frozen job. A public repository the job vendors as a submodule, and Ryker
+  was never given, is read by anyone: its grant carries no credential and says
+  so (`"public"`), and the worker fetches it anonymously.
+  """
   @spec source_grant(binary(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def source_grant(certificate, job_ref, source, provider \\ InstallationTokens) do
-    with {:ok, binding, ^source} <- source_grant_authority(certificate, job_ref, source),
+    case source_grant_authority(certificate, job_ref, source) do
+      {:ok, :public, ^source} -> {:ok, public_grant(source)}
+      authority -> minted_grant(authority, certificate, job_ref, source, provider)
+    end
+  end
+
+  defp public_grant(source) do
+    %{
+      "repository_ref" => source["repository_ref"],
+      "github_repository" => source["github_repository"],
+      "github_repository_id" => source["github_repository_id"],
+      "token" => "",
+      "public" => true,
+      "expires_at" =>
+        Repo.now!() |> DateTime.add(@public_grant_seconds, :second) |> DateTime.to_iso8601()
+    }
+  end
+
+  defp minted_grant(authority, certificate, job_ref, source, provider) do
+    with {:ok, binding, ^source} <- authority,
          {:ok, %{token: token, expires_at: expires_at}} <-
            InstallationTokens.fresh_source_token(
              provider,
@@ -61,15 +88,8 @@ defmodule Ryker.CoopFleet.SourceGrants do
              [job["source"] | Enum.map(job["companions"], & &1["source"])],
              &grants_repository?(&1, source)
            ),
-         {:ok, snapshot} <- Settings.fetch(),
-         %{repository_id: repository_id} = binding <-
-           Enum.find(snapshot.github_bindings, &(&1.repository_ref == source["repository_ref"])),
-         %{github_repository: github_repository, github_access: :available} <-
-           Enum.find(snapshot.repositories, &(&1.ref == source["repository_ref"])),
-         true <-
-           github_repository == source["github_repository"] and
-             repository_id == source["github_repository_id"] do
-      {:ok, Map.take(binding, [:name, :repository_id, :installation_id]), source}
+         {:ok, binding} <- grant_binding(source) do
+      {:ok, binding, source}
     else
       invalid ->
         Logger.warning(
@@ -95,9 +115,34 @@ defmodule Ryker.CoopFleet.SourceGrants do
 
   defp grants_repository?(nil, _identity), do: false
 
+  # A public repository is only ever a submodule the job vendors: Ryker pins
+  # one only for that, never as a source of its own.
+  defp grants_repository?(source, %{"repository_ref" => "public:" <> _} = identity),
+    do: Enum.any?(source["submodules"], &vendors?(&1, identity))
+
   defp grants_repository?(source, identity) do
     Map.take(source, @identity) == identity or
       Enum.any?(source["submodules"], &grants_repository?(&1, identity))
+  end
+
+  defp vendors?(module, identity) do
+    Map.take(module, @identity) == identity or
+      Enum.any?(module["submodules"], &vendors?(&1, identity))
+  end
+
+  defp grant_binding(%{"repository_ref" => "public:" <> _}), do: {:ok, :public}
+
+  defp grant_binding(source) do
+    with {:ok, snapshot} <- Settings.fetch(),
+         %{repository_id: repository_id} = binding <-
+           Enum.find(snapshot.github_bindings, &(&1.repository_ref == source["repository_ref"])),
+         %{github_repository: github_repository, github_access: :available} <-
+           Enum.find(snapshot.repositories, &(&1.ref == source["repository_ref"])),
+         true <-
+           github_repository == source["github_repository"] and
+             repository_id == source["github_repository_id"] do
+      {:ok, Map.take(binding, [:name, :repository_id, :installation_id])}
+    end
   end
 
   defp leased_sessions(worker_id, job_ref) do

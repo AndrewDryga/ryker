@@ -66,10 +66,9 @@ defmodule Ryker.Work.FailureCause do
      %{
        cause:
          "Ryker's settings for this work changed after the task began, for example the " <>
-           "repositories in its environment, so it can't run again as it was set up.",
+           "repositories in its environment, so it couldn't start as it was set up.",
        next_step:
-         "Close it as no longer needed and ask again. The new request uses the settings as " <>
-           "they are now."
+         "Run the task again. A task that never started picks up the settings as they are now."
      }},
     {"coop_worker_command_timeout",
      %{

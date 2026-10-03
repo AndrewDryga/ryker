@@ -407,13 +407,13 @@ defmodule Ryker.Work.RecoveryTest do
   # Taking theblitzapp/blitz-core out of the environment let new tasks run, but the task
   # already stopped on it kept the repositories it was admitted with, and its retry stopped
   # again with a cause its page could not name (2026-10-03).
-  test "a task whose settings changed under it says to ask again" do
+  test "a task whose settings changed before it started says to run it again" do
     changed =
       blocked(~S|coop_worker_job_settings_unavailable: :coop_worker_job_settings_unavailable|)
 
     assert changed.explained
     assert changed.cause =~ "settings for this work changed after the task began"
-    assert changed.next_step =~ "ask again"
+    assert changed.next_step =~ "Run the task again"
     refute changed.cause =~ "coop_worker_job_settings_unavailable"
   end
 
