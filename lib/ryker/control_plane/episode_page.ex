@@ -1722,7 +1722,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <p :if={@artifact.state == :collapsed} class="artifact-loading" role="status">Loading…</p>
       <p :if={@artifact.state == :not_recorded} class="artifact-unavailable">{@absent}</p>
       <p :if={@artifact.state == :expired} class="artifact-unavailable">
-        Removed by retention. No reconstructed substitute is shown.
+        Removed after the retention period.
       </p>
       <p :if={@artifact.state == :omitted} class="artifact-unavailable">
         {omission(@artifact)}
@@ -1733,7 +1733,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   end
 
   defp omission(%{reason: "oversized", omitted_bytes: bytes}),
-    do: "The source payload was #{bytes(bytes)}, beyond the 64 KiB bound, so it was not stored."
+    do: "The source payload was #{bytes(bytes)}, over the 64 KiB limit, so it wasn't stored."
 
   defp omission(%{reason: reason}), do: "The source payload was not stored (#{reason})."
 
@@ -1836,7 +1836,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <p :if={@artifact.state == :collapsed} class="artifact-loading" role="status">Loading…</p>
       <p :if={@artifact.state in [:expired, :not_recorded]} class="artifact-unavailable">
         {if @artifact.state == :expired,
-          do: "Removed by retention. No reconstructed substitute is shown.",
+          do: "Removed after the retention period.",
           else: "This body was not recorded."}
       </p>
       <pre :if={@artifact.state == :retained}>{@artifact.text}</pre>

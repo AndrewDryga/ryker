@@ -581,7 +581,7 @@ defmodule Ryker.Records.TaskOffersTest do
 
     assert {:ok, recovery} = WorkRecord.build(fixture.card.ref, target, :recovery)
     assert recovery["message"] =~ "The worker finished, but its workspace could not be saved"
-    assert recovery["message"] =~ "Preserve the existing working copy"
+    assert recovery["message"] =~ "Keep the working copy and task notes"
     assert recovery["message"] =~ "its own report and not a check result"
     assert recovery["message"] =~ "Can this task resume in a Docker-capable workspace"
     refute recovery["message"] =~ "invalid_work_executor"

@@ -5,7 +5,7 @@ defmodule Ryker.Work.Recovery do
 
   # What a brief says when the saved error names no cause. A surface with its
   # own sentence for that case reads `explained` instead of comparing text.
-  @unexplained_cause "The saved error does not establish a specific cause. The worker's final response, if available below, may describe a separate task blocker."
+  @unexplained_cause "The saved error doesn't say what went wrong. If the worker wrote a final answer, it's shown below and may say more."
 
   @doc """
   The brief for a live turn, with the host facts every surface must share.
@@ -56,7 +56,8 @@ defmodule Ryker.Work.Recovery do
       delivery:
         if(is_nil(turn.external_receipt),
           do: "This response has not been sent.",
-          else: "A delivery receipt is recorded; check the conversation before sending again."
+          else:
+            "Ryker has a record that the answer was delivered, so check the conversation before sending it again."
         ),
       workspace: workspace_status(unsupported, finalizing, closed),
       setup_href: if(unsupported, do: "/settings/advanced#code-editing"),
@@ -118,7 +119,7 @@ defmodule Ryker.Work.Recovery do
 
   defp retry_effect(_finalizing, nil),
     do:
-      "Ryker starts the task again as a new run, and the model works on it again. Changes the stopped run did not save may be lost, so preserve any unfinished changes you need first."
+      "Ryker starts the task again as a new run, and the model works on it again. Changes the stopped run did not save may be lost, so save any unfinished changes you need first."
 
   # The host holds this exact tree, so the next placement restores it instead of
   # starting from the repository. Saying what the resume does not do matters as
@@ -126,7 +127,7 @@ defmodule Ryker.Work.Recovery do
   # likely to read as a waiver.
   defp retry_effect(_finalizing, %{byte_size: bytes, repository_ref: repository}),
     do:
-      "Ryker restores the saved working copy of #{repository} (#{size(bytes)}) onto another eligible worker and continues the task there. It does not waive any check, and it does not merge or deploy."
+      "Ryker restores the saved working copy of #{repository} (#{size(bytes)}) onto another eligible worker and continues the task there. Every check still runs, and nothing is merged or deployed."
 
   defp size(bytes) when bytes < 1_024, do: "#{bytes} bytes"
   defp size(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1_024, 1)} KB"
@@ -199,12 +200,12 @@ defmodule Ryker.Work.Recovery do
     next_step =
       if closed,
         do:
-          "Preserve the existing working copy and task notes. Configure a checkpoint-capable fleet worker, then restore the work into a correctly bound workspace. The closed session cannot be fixed by a normal retry.",
+          "Keep the working copy and task notes. Connect a worker that can save its work, then restore the work onto it. Running the task again won't fix this closed session.",
         else:
-          "Configure a checkpoint-capable fleet worker before starting repository work. The direct worker adapter cannot save these changes."
+          "Connect a worker that can save its work before starting repository work. The direct worker connection can't save these changes."
 
     {headline,
-     "The configured worker connection does not support workspace snapshots. This is a host configuration problem, not a failed code check.",
+     "The worker connection can't save the working copy. This is a setup problem in Ryker, and the code checks did not fail.",
      next_step}
   end
 
@@ -219,7 +220,7 @@ defmodule Ryker.Work.Recovery do
     case turn.last_error_code do
       code when code in ~w(coop_unavailable coop_transport_error) ->
         {"The worker connection failed", "Ryker could not confirm what the worker did.",
-         "Restore the worker connection and inspect the last confirmed step before retrying."}
+         "Reconnect the worker and check its last confirmed step before trying again."}
 
       _ ->
         {cause, step} = execution_failure(turn.last_error_detail || "")
@@ -238,7 +239,7 @@ defmodule Ryker.Work.Recovery do
 
       nil ->
         {@unexplained_cause,
-         "Inspect the saved response and failure diagnostics. Correct the underlying problem and preserve unfinished changes before retrying."}
+         "Read the saved answer and the error, fix what they point to, and keep any unfinished changes before trying again."}
     end
   end
 
@@ -247,38 +248,37 @@ defmodule Ryker.Work.Recovery do
   defp completion_failure(code) when code in ~w(coop_unavailable coop_transport_error),
     do:
       {"The worker connection failed while Ryker was saving the completed result.",
-       "Restore the worker connection and confirm the same completed session is accessible."}
+       "Reconnect the worker and check that the finished session is still there."}
 
   defp completion_failure("coop_session_replacement_required"),
     do:
       {"The completed worker session is no longer available on its recorded worker.",
-       "Recover the original session and workspace; replacing it would lose the completed task's identity."}
+       "Recover the original session and its working copy. A new session would lose the finished work."}
 
   defp completion_failure("coop_protocol_error"),
     do:
       {"The worker response did not match what Ryker recorded for the completed run.",
-       "Inspect the same worker run and settle the mismatch before continuing."}
+       "Check that worker run and settle the difference before continuing."}
 
   defp completion_failure(_code),
     do:
-      {"A step Ryker takes to finish the answer failed before the completed reply could be sent. The recorded error does not establish a more specific cause.",
-       "Inspect the failed finalization step and correct its underlying cause."}
+      {"A step Ryker takes to finish the answer failed before the reply was sent. The saved error doesn't say more.",
+       "Check the step that failed and fix what caused it."}
 
   defp stranded_recovery,
     do:
-      "Preserve the existing working copy and task notes. Configure a checkpoint-capable fleet worker, then restore the work into a correctly bound workspace. The closed session cannot be fixed by a normal retry."
+      "Keep the working copy and task notes. Connect a worker that can save its work, then restore the work onto it. Running the task again won't fix this closed session."
 
   defp workspace_status(true, _finalizing, true),
     do:
-      "The worker session was closed. No recoverable workspace snapshot was confirmed; do not delete its working copy."
+      "The worker session was closed and no saved copy of its work was confirmed, so don't delete its working copy."
 
   defp workspace_status(_unsupported, true, _closed),
     do:
-      "Ryker did not cancel the completed worker. Workspace recovery has not yet been confirmed. Repository tasks require a saved workspace before delivery."
+      "Ryker left the finished worker running. Its working copy isn't confirmed saved yet, and a repository task needs that before the answer goes out."
 
   defp workspace_status(_unsupported, _finalizing, _closed),
-    do:
-      "Workspace recovery has not been confirmed. Keep any unfinished changes until they are safely recovered."
+    do: "The working copy isn't confirmed saved yet. Keep any unfinished changes until it is."
 
   defp saved_output(%Turn{
          operational_pruned_at: nil,

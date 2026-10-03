@@ -226,11 +226,11 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     Application.delete_env(:ryker, :learning)
     selected = LearningActivity.project(params).selected
     refute selected.retry_available
-    assert selected.retry_blocked =~ "Learning is disabled"
+    assert selected.retry_blocked =~ "Learning is off"
     Application.put_env(:ryker, :learning, %{})
     selected = LearningActivity.project(params).selected
     refute selected.retry_available
-    assert selected.retry_blocked =~ "configuration"
+    assert selected.retry_blocked =~ "settings aren't valid"
   end
 
   test "a batch stopped by a topic that lost its sources points to relearning it, not another start" do
@@ -365,10 +365,10 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     refute selected.retry_available
     relearn = ConversationMemory.topic_path(topic.id) <> "#relearn"
     assert [%{path: ^relearn}] = selected.relearn
-    assert selected.error =~ "A topic's source history is no longer valid"
+    assert selected.error =~ "The messages behind a topic it would update changed or are gone"
 
     [listed] = LearningActivity.project(%{}).attention.items
-    assert listed.error =~ "A topic's source history is no longer valid"
+    assert listed.error =~ "The messages behind a topic it would update changed or are gone"
 
     # Failures says the same and points to the topic.
     assert {:ok, row} = FailureProjection.fetch("learning", claim.batch.id)
@@ -484,7 +484,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     # response and says why it was rejected.
     result = timeline_card(attempt.path)
     assert text(result, "h3") == attempt.label
-    assert text(result, ".request-decision") =~ "did not match"
+    assert text(result, ".request-decision") =~ "wasn't in the form Ryker needs"
     assert text(result, ".routing-evidence") =~ "Raw model response"
 
     briefing = timeline_card(String.replace_suffix(attempt.path, "-result", ""))
@@ -682,7 +682,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   test "withdrawing every source rejects retry without a grant or success audit" do
     {claim, response} = retry_with_withdrawn_sources(inputs!())
     assert response.status == 409
-    assert response.resp_body =~ "cannot be retried with its old inputs"
+    assert response.resp_body =~ "can't run again as it was"
     assert Repo.aggregate(Action, :count) == 0
     assert Repo.get!(Batch, claim.batch.id).budget_version == 0
   end
@@ -788,7 +788,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert LearningActivity.project(%{}).state == :paused
     html = render(%{})
     assert html =~ "Learning is paused"
-    assert html =~ "Check the job and worker version"
+    assert html =~ "Check the worker&#39;s version"
     refute html =~ "project_env: false and project_mcp: false"
 
     # A different configured policy is a new digest: nothing holds it.

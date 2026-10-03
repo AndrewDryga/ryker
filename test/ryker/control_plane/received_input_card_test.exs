@@ -177,7 +177,7 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
       LazyHTML.from_document(html) |> LazyHTML.query("#input-raw-#{entry.id}") |> LazyHTML.text()
 
     assert raw =~ "Omitted"
-    assert raw =~ "beyond the 64 KiB bound"
+    assert raw =~ "over the 64 KiB limit"
     refute raw =~ "Not recorded"
   end
 

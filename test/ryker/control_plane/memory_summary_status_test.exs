@@ -89,7 +89,7 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
     assert item.source_at == entry.occurred_at
     assert item.changed_at != item.source_at
     html = render_summary(summary.id)
-    assert html =~ "source history is too large to combine safely"
+    assert html =~ "too many to read together"
     assert html =~ "Retained summary text for inspection."
     # Two dates, two words: when Ryker changed it and when the message was said.
     assert html =~ "Latest message"

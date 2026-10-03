@@ -727,7 +727,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     assert Enum.find(request.sections, &(&1.id == "request")).artifact.state == :expired
 
     html = render_component(&EpisodeRequest.render/1, request: request)
-    assert html =~ "Expired. No reconstructed substitute is shown."
+    assert html =~ "Expired."
     refute html =~ "Host-authored retained instructions"
   end
 

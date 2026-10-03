@@ -114,7 +114,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     assert text(result, "h3") == "Response rejected"
     decision = text(result, ".request-decision")
     assert decision =~ "Nothing saved"
-    assert decision =~ "A possible existing topic was found"
+    assert decision =~ "Ryker found a topic that may already cover this"
     assert decision =~ "Proposed, not saved"
     assert decision =~ "Checkout outage"
     refute text(result, ".request-decision dt") =~ "learning_match_required"

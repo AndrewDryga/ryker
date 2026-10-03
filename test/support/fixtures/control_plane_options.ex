@@ -1317,8 +1317,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
       at: ~U[2026-08-28 12:00:00Z],
       completed_at: ~U[2026-08-28 12:10:00Z],
       next_check: nil,
-      error:
-        "The approved model starts were used. Inspect the attempts before granting one more start.",
+      error: "Ryker used every try it had. Look at the attempts before you give it one more.",
       error_code: "learning_retry_exhausted",
       path: "/memory/learning?batch=#{@stopped_batch}",
       attempts: [],
@@ -1413,7 +1412,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           resume: nil,
           retry_effect: "Starts a fresh logical turn.",
           setup_href: nil,
-          workspace: "Workspace recovery has not been confirmed."
+          workspace: "The working copy isn't confirmed saved yet."
         }
       },
       %{

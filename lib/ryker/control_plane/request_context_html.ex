@@ -14,76 +14,75 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   @sources %{
     "custom_instructions" =>
       {"Custom instructions", "policy", nil,
-       "The global and channel text, scopes and revisions saved with this request, not today's settings. Empty text means no instruction at that scope."},
+       "The global and channel instructions as they were when this request ran. Empty means none was set."},
     "input" => {"Current message", "conversation", nil, nil},
     "previous_answer" =>
       {"Ryker's previous answer", "conversation", nil,
-       "When Ryker last answered here before this message. Routing says how the sender feels about that answer; it is kept as feedback on the request that answered."},
+       "Ryker's last answer here before this message. Routing reads how the sender took it and keeps that as feedback on the request that answered."},
     "slack_addressing" => {"How the message reached Ryker", "conversation", nil, nil},
     "inputs" => {"Conversation messages", "conversation", nil, nil},
     "current_inputs" =>
       {"New messages in this run", "conversation", nil,
-       "Earlier runs remain in the session and are not sent again here."},
+       "Messages from earlier runs are already in the session, so they aren't sent again."},
     "continuity" =>
       {"Conversation continuity", "memory", "Earlier accepted work",
-       "The saved first input, previous delivery and host continuation request. Historical context does not prove current state."},
+       "The first message, Ryker's last answer and what it asked to continue, as saved then."},
     "operator_context" =>
-      {"Remembered context · potentially stale", "memory", "Scoped operator context",
-       "Behavior guidance, retained memories and conversation summaries selected for this request. These do not grant authority."},
+      {"Remembered context", "memory", "Scoped operator context",
+       "Guidance, memories and conversation summaries chosen for this request. They may be out of date."},
     "memory" =>
       {"Facts", "memory", "Scoped memory records",
-       "Remembered facts and guidance supplied with this request; potentially stale, not current observations."},
+       "Facts and guidance Ryker remembered for this request. They may be out of date."},
     "records" =>
       {"Records from this work", "memory", "Request records",
-       "Records selected from this request, with their saved source and identity fields."},
+       "Findings, goals and other records from this request, with where each came from."},
     "related_outcomes" =>
       {"Related outcomes", "memory", "Outcome recall",
-       "Past outcomes selected as related history, not evidence of the current situation."},
+       "How similar past requests ended, for comparison."},
     "prior_outcome" =>
       {"Previous accepted answer", "memory", "Earlier accepted work",
-       "The delivery and submission reference from the previous run."},
+       "What the previous run delivered, and where."},
     "candidates" =>
       {"Candidate selection", "memory", nil,
        "How Ryker filtered earlier work for this routing decision."},
     "controller_tools" =>
       {"Ryker state tools", "tools", "Host tool catalog",
-       "Tools Ryker could use for this request. Listed here does not mean it used them."},
+       "Tools the model could use for this request. The work cards show the ones it used."},
     "source_and_action_tools" =>
       {"Source and action tools", "tools", "Platform adapter",
-       "Source access and platform actions offered for this request. Ryker still enforces what the request may do."},
+       "What the model could read and do in Slack, GitHub and Emisar for this request. Ryker checks each action when it runs."},
     "workspace" =>
       {"Workspace access", "tools", "Bound worker workspace",
-       "The workspace this request was given. It doesn't list the tools the model used."},
+       "The working copy and access this request was given."},
     "repository_ref" =>
       {"Repository scope", "runtime", "Pinned work session",
-       "The repository selected by the host for this session. Incoming text cannot widen it."},
+       "The repository this session works in. A message can't add another."},
     "destination" =>
       {"Reply destination", "runtime", "Authenticated conversation binding",
-       "The transport, conversation and thread bound by the host, not a destination selected by the model."},
+       "Where the answer goes: the conversation and thread Ryker set, which the model can't change."},
     "allowed_actions" =>
       {"Allowed admission actions", "runtime", "Ingress authority",
-       "The admission choices allowed for this input. This is permission scope, not the model's decision."},
+       "What routing was allowed to choose for this message. What it chose is on the routing card."},
     "execution_mode" =>
       {"Live or shadow execution", "runtime", "Host execution mode",
-       "The retained execution mode; shadow suppresses externally visible effects."},
+       "Live or shadow. In shadow, Ryker posts nothing and changes nothing."},
     "mode" =>
       {"Context assembly mode", "runtime", "Work context compiler",
-       "Full context or continuation into an existing session, as recorded when the request was built."},
+       "Whether the model got the full context or continued an existing session."},
     "offer_confirmation_supported" =>
       {"Offer confirmation", "runtime", "Platform capabilities",
-       "Whether the bound platform supports host-confirmed task offers."},
+       "Whether this conversation can show a task offer for a person to confirm."},
     "linked_history_ref" =>
       {"Linked request history", "memory", "Request relationship",
-       "An earlier request this one refers to. It does not reuse that request's permissions or destination."},
+       "An earlier request this one refers to. This request keeps its own access and destination."},
     "parent_submission_ref" =>
-      {"Previous submission", "memory", "Work continuation",
-       "The retained parent submission reference for this continuing run."},
+      {"Previous submission", "memory", "Work continuation", "The request this run continues."},
     "conversation_observations" =>
       {"Conversation notes", "memory", nil,
-       "Notes Ryker kept about earlier messages in this conversation. They are excerpts, not proof of current state."},
+       "Notes Ryker kept about earlier messages in this conversation, as excerpts."},
     "conversation_knowledge" =>
       {"Learned topics", "memory", nil,
-       "Topics Ryker maintained from this conversation. Derived understanding that may be stale."},
+       "Topics Ryker learned from this conversation. They may be out of date."},
     "conversation_feedback" =>
       {"Reactions to replies", "conversation", nil,
        "Emoji reactions people left on Ryker's earlier replies in this work."},
@@ -91,7 +90,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Similar past cases", "memory", nil, "Earlier cases recalled as worked examples."},
     "repository_knowledge" =>
       {"Repository knowledge", "memory", nil,
-       "The saved knowledge document for the pinned repository."},
+       "What Ryker wrote down about the repository this work is in."},
     "connected" =>
       {"Connected services", "tools", nil,
        "What this work was told is connected, and the repositories it can reach."},
@@ -462,7 +461,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         :retained when id == "request" -> PromptDocument.render(artifact, prefix <> "-document")
         :retained -> PromptDocument.formatted(artifact)
         :collapsed -> loading()
-        _absent -> ["<p>", state, ". No reconstructed substitute is shown.</p>"]
+        _absent -> ["<p>", state, ".</p>"]
       end,
       prefix,
       state: state,
@@ -1652,7 +1651,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       text,
       {"System prompt", "policy", nil,
        if(artifact.truncated,
-         do: "Partial display of the retained instruction field.",
+         do: "Only part of the system prompt was kept, so this shows part of it.",
          else: nil
        )},
       ["<pre class=\"model-document-text\">", escape(text), "</pre>"],
@@ -1708,19 +1707,19 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     case key do
       "continuity" ->
         {"Conversation notes", "memory", "Selected notes, topics and earlier work",
-         "Source notes, maintained topics and conversation summaries selected for this request. These describe what was known then, not verified current state."}
+         "Notes, learned topics and conversation summaries chosen for this request, as Ryker knew them then."}
 
       "preferences" ->
         {"Preferences", "memory", "Confirmed behavior settings",
-         "The effective preferences retained for this operator and conversation."}
+         "The preferences in effect for this person and conversation."}
 
       "guidance" ->
         {"Guidance", "memory", "Scoped guidance records",
-         "Operator-confirmed guidance selected for the bound scope; it cannot widen tool authority."}
+         "Guidance a person confirmed for where this request ran. It can't give the model more access."}
 
       "standing_assignments" ->
         {"Rules", "memory", "Confirmed assignment records",
-         "The standing assignment context selected for this request, not a new authorization."}
+         "Standing rules that applied to this request."}
 
       _ ->
         metadata(key, nil)
@@ -1753,7 +1752,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         @sources,
         key,
         {field_label(key), "other", "Additional retained field",
-         "This field was present in the retained request. More specific provenance was not recorded by this viewer."}
+         "Part of the request this page has no section for."}
       )
 
   defp source_metadata(key, parent, value) when key in ["global", "channel"] do
@@ -2888,7 +2887,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp candidate(item, _history, _anchor) do
     [
       "<article class=\"context-candidate context-record context-candidate-malformed\"><p class=\"context-absent\">",
-      "Historical candidate · retained shape unavailable",
+      "An earlier candidate saved in a form this page can't read",
       "</p>",
       retained_raw_candidate(item),
       "</article>"

@@ -386,12 +386,57 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     html = rendered(work.episode)
     card = card(html, work.turn)
     assert card =~ "Blocked"
-    assert card =~ "No eligible worker with available capacity was found."
+    assert card =~ "No eligible worker with available capacity was found"
     assert card =~ "Failure diagnostics"
     refute card =~ "Policy digest"
     refute card =~ "Authority digest"
     refute card =~ "all workers were busy"
     refute ready?(html, work.turn)
+  end
+
+  # Andrew, 2026-10-03, of a blitz task's timeline: "I don't see error reason, it's super hard
+  # to tell what went wrong for a human". Its setup card said "Preparation stopped: Work
+  # execution blocked." while the saved detail named the step that failed.
+  test "a run that stopped before it started says why in words, where it stopped" do
+    work = claimed!("source")
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^work.turn.id),
+      set: [
+        status: :blocked,
+        last_error_code: "work_execution_blocked",
+        last_error_detail:
+          "work_retry_exhausted: {:work_retry_exhausted, :coop_worker_source_unavailable}",
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil
+      ]
+    )
+
+    card = card(rendered(work.episode), work.turn)
+    assert card =~ "Ryker couldn't get the repository's code from GitHub"
+    refute card =~ "Work execution blocked"
+    assert card =~ "Not created · no worker started a session for this run"
+  end
+
+  # The same task's first run, replaced by the retry: the transfer overwrote its saved error,
+  # and its card said "Preparation outcome not recorded" over a run that had stopped.
+  test "a run a newer one replaced before it started says so" do
+    work = claimed!("replaced")
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^work.turn.id),
+      set: [
+        status: :superseded,
+        last_error_code: "owner_transferred",
+        last_error_detail: "The bound Coop turn stopped before episode ownership changed.",
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil
+      ]
+    )
+
+    card = card(rendered(work.episode), work.turn)
+    assert card =~ "A newer run took its place before a worker started this one."
+    refute card =~ "Preparation outcome not recorded"
   end
 
   defp ready?(html, %{id: id}) do

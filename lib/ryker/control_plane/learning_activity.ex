@@ -609,19 +609,17 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   def error("source_capacity"),
     do:
-      "The source history is too large to combine safely. Existing conversation context remains saved; other conversation groups can still progress."
+      "The messages behind this are too many to read together. What Ryker already learned stays, and other conversations still learn."
 
   def error("scope_capacity"),
     do:
-      "The combined conversation context would span too many source scopes. The original context remains saved."
+      "These messages come from too many places to learn from together. What Ryker already learned stays."
 
   def error("learning_judgment_deferred"),
-    do:
-      "The model found no safe, useful topic change to make from these messages. Its explanation is saved in the attempt."
+    do: "The model found nothing safe and useful to change. Its reason is saved in the attempt."
 
   def error("learning_retry_exhausted"),
-    do:
-      "The approved model starts were used. Inspect the attempts before granting one more start."
+    do: "Ryker used every try it had. Look at the attempts before you give it one more."
 
   def error("learning_remote_unresolved"),
     do:
@@ -637,29 +635,30 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   def error("learning_session_not_isolated"),
     do:
-      "The worker reported broader access than the learning job allows, so Ryker sent it nothing. Check the job and worker version before starting a new attempt."
+      "The worker reported more access than learning allows, so Ryker sent it nothing. Check the worker's version before trying again."
 
   def error("learning_policy_changed"),
     do: "The learning settings changed before this attempt started, so it never ran."
 
   def error("learning_remote_outstanding"),
-    do: "An earlier model execution has not been confirmed stopped. Wait for reconciliation."
+    do:
+      "Ryker hasn't confirmed that an earlier model run stopped. It starts this one once it has."
 
   def error("learning_scope_busy"),
     do: "Another batch in this conversation is queued or running. Try after it finishes."
 
   def error("learning_retry_conflict"),
-    do: "This batch changed after the form was opened. Refresh it before retrying."
+    do: "This batch changed after you opened it. Reload the page, then try again."
 
   def error("learning_disabled"),
-    do: "Learning is disabled. Enable Learning in Settings before retrying."
+    do: "Learning is off. Turn it on, then try again."
 
   def error("learning_configuration_invalid"),
-    do: "The current learning configuration is invalid. Correct it before retrying."
+    do: "Learning's settings aren't valid. Fix them in Settings, then try again."
 
   def error("learning_source_stale"),
     do:
-      "A source changed, was removed, or expired. This batch cannot be retried with its old inputs."
+      "A message it read was changed, deleted or expired, so this batch can't run again as it was."
 
   def error("knowledge_anchor_not_sourced"),
     do:
@@ -671,36 +670,40 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   def error("knowledge_target_unavailable"),
     do:
-      "A topic's source history is no longer valid. This attempt cannot safely update that topic."
+      "The messages behind a topic it would update changed or are gone, so Ryker didn't update it."
 
   def error("learning_capacity_exceeded"),
     do:
-      "The selected input and source history exceed the learning budget. A retry alone may not resolve this."
+      "These messages and the topic history they add to are more than one learning request can hold, so trying again won't help on its own."
 
   def error("knowledge_source_capacity_exceeded"),
     do:
-      "This topic reached its source-history limit. Its existing history was preserved; another identical attempt will not add capacity."
+      "This topic holds as many source messages as it can. What it has is kept, and trying again won't make room."
 
   def error("invalid_learning_result"),
     do:
-      "The model response did not match the learning contract. Inspect the saved response and validation details."
+      "The model's answer wasn't in the form Ryker needs. The answer and what was wrong with it are saved in the attempt."
 
   def error("learning_match_required"),
     do:
-      "A possible existing topic was found. The next bounded attempt must compare it before creating a duplicate."
+      "Ryker found a topic that may already cover this. The next try compares the two before making a new one."
 
   def error("nothing_to_learn"),
     do:
       "Only greetings, thanks or short replies like \"ok\", so Ryker did not ask a model to learn from them."
 
+  def error("source_unavailable"),
+    do:
+      "The messages were deleted or changed before Ryker learned from them, so there was nothing left to read."
+
   def error("learning_result_pruned"),
-    do: "The saved model response expired. Its outcome remains recorded."
+    do: "The model's saved answer has expired. What it led to is still recorded."
 
   def error(code) when is_atom(code), do: error(Atom.to_string(code))
 
   def error(_),
     do:
-      "Learning could not finish. Inspect the frozen attempt and its diagnostic code before retrying."
+      "Learning stopped for a reason Ryker doesn't recognize. The attempt and its error are saved."
 
   defp safe_code(nil, _secrets), do: nil
   defp safe_code(value, secrets), do: InspectionRedactor.artifact(value, secrets: secrets).text

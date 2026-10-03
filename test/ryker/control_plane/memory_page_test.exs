@@ -162,8 +162,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
     at: @at,
     completed_at: nil,
     next_check: nil,
-    error:
-      "The approved model starts were used. Inspect the attempts before granting one more start.",
+    error: "Ryker used every try it had. Look at the attempts before you give it one more.",
     error_code: "learning_retry_exhausted",
     path: "/memory/learning?batch=#{@batch_id}"
   }
@@ -682,7 +681,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       row = LazyHTML.query(attention, "article#batch-#{@batch_id}")
 
       assert LazyHTML.query(row, ".entity-text") |> LazyHTML.text() =~
-               "approved model starts were used"
+               "used every try it had"
 
       assert LazyHTML.query(row, ".entity-meta") |> LazyHTML.text() =~ "3 model starts used"
       refute LazyHTML.query(row, ".entity-meta") |> LazyHTML.text() =~ "of 3"
@@ -816,7 +815,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
         status: :rejected,
         label: "Response rejected",
         at: @at,
-        error: "The model response did not match the learning contract.",
+        error: "The model's answer wasn't in the form Ryker needs.",
         error_code: "invalid_learning_result",
         pruned_at: nil,
         path:
@@ -862,7 +861,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert LazyHTML.query(batch, ".section-head h2") |> LazyHTML.text() == "What happened"
 
       assert LazyHTML.query(batch, ".memory-prose") |> LazyHTML.text() =~
-               "approved model starts were used"
+               "used every try it had"
 
       options = LazyHTML.query(document, "section#what-you-can-do")
       retry = LazyHTML.query(options, "article#retry")

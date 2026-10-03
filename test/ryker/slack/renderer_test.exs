@@ -200,7 +200,7 @@ defmodule Ryker.Slack.RendererTest do
     # With no environments yet, the step still asks, and offers No environment.
     empty = put_in(document, ["channel_setup", "draft", "environment_options"], [])
     assert {:ok, %{"blocks" => [explanation, controls]}} = Renderer.render(empty)
-    assert explanation["text"]["text"] =~ "*No environment* — I'll still answer here"
+    assert explanation["text"]["text"] =~ "*No environment*: I'll still answer here"
 
     assert Enum.map(controls["elements"], &{&1["action_id"], &1["text"]["text"]}) == [
              {"ryker_setup_environment_none", "No environment"}
@@ -399,7 +399,7 @@ defmodule Ryker.Slack.RendererTest do
                "*Conversations*\nReply when mentioned",
                "*Alerts*\nInvestigate in the existing thread",
                "*Environment*\nProduction",
-               "*Repositories*\n<https://github.com/acme/backend|backend> — default\n`infrastructure` — available",
+               "*Repositories*\n<https://github.com/acme/backend|backend> · default\n`infrastructure` · available",
                "*Incident invitations*\nNo one automatically; you can add people yourself",
                "*Observation mode*\nOff"
              ]
@@ -515,9 +515,9 @@ defmodule Ryker.Slack.RendererTest do
     assert [explanation, actions] = rendered["blocks"]
     text = explanation["text"]["text"]
     assert text =~ "*1 · Conversations*"
-    assert text =~ "*Mentions only* — I'll read along"
-    assert text =~ "*Be proactive* — I'll read the messages in this channel and join in"
-    assert text =~ "*Observe only* — I'll keep reading and learning, but I won't reply"
+    assert text =~ "*Mentions only*: I'll read along"
+    assert text =~ "*Be proactive*: I'll read the messages in this channel and join in"
+    assert text =~ "*Observe only*: I'll keep reading and learning, but I won't reply"
     assert text =~ "<@UBOT>"
     refute text =~ "expires"
 
@@ -534,10 +534,10 @@ defmodule Ryker.Slack.RendererTest do
     [explanation, actions] = rendered["blocks"]
 
     assert explanation["text"]["text"] =~
-             "*Investigate here* — I'll look into it in the alert's own thread"
+             "*Investigate here*: I'll look into it in the alert's own thread"
 
-    assert explanation["text"]["text"] =~ "*Offer a room* — I'll start in the thread"
-    assert explanation["text"]["text"] =~ "*Always open a room* — every alert I investigate"
+    assert explanation["text"]["text"] =~ "*Offer a room*: I'll start in the thread"
+    assert explanation["text"]["text"] =~ "*Always open a room*: every alert I investigate"
 
     assert Enum.map(actions["elements"], & &1["text"]["text"]) == [
              "Investigate here",
@@ -569,10 +569,10 @@ defmodule Ryker.Slack.RendererTest do
     [explanation, actions] = rendered["blocks"]
 
     assert explanation["text"]["text"] =~
-             "*Production* — I'll work on `ryker` and `docs`, changing only ones with read/write access, and use Emisar."
+             "*Production*: I'll work on `ryker` and `docs`, changing only ones with read/write access, and use Emisar."
 
     assert explanation["text"]["text"] =~
-             "*No environment* — I'll still answer here, but without any repos or Emisar."
+             "*No environment*: I'll still answer here, but without any repos or Emisar."
 
     assert Enum.map(actions["elements"], &{&1["action_id"], &1["text"]["text"]}) == [
              {"ryker_setup_environment_0", "Production"},
@@ -611,7 +611,7 @@ defmodule Ryker.Slack.RendererTest do
     assert summary["text"]["text"] =~ "I'll invite <@U123>."
 
     assert summary["text"]["text"] =~
-             "*Save settings* — I'll start using these choices and update my welcome message"
+             "*Save settings*: I'll start using these choices and update my welcome message"
 
     assert Enum.map(actions["elements"], & &1["text"]["text"]) == [
              "Save settings",

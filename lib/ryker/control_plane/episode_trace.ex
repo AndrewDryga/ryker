@@ -428,11 +428,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   defp stopped(_episode, %Turn{status: :blocked, delivery_ref: ref}) when is_binary(ref) do
     %{
       action:
-        "Inspect the delivery failure and check the conversation before retrying the saved reply.",
+        "Check why delivery failed and look at the conversation before sending the saved reply again.",
       attempted: [],
       headline: "The reply could not be delivered",
       href: Paths.failure("delivery", ref),
-      reason: "The answer is already saved. Delivery recovery does not run the model again."
+      reason: "The answer is already saved, so sending it again doesn't run the model."
     }
   end
 

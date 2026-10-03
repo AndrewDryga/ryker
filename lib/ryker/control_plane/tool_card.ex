@@ -26,10 +26,10 @@ defmodule Ryker.ControlPlane.ToolCard do
        "Prepares the situation, decisions and open questions. Ryker saves this draft when it accepts the result."},
     "request_input" =>
       {"Prepare a question", "Question prepared",
-       "The question can be included in the response after validation."},
+       "Ryker checks the question, then includes it in the answer."},
     "wait_for" =>
       {"Prepare an event wait", "Event wait prepared",
-       "Defines which event or deadline can resume this work."},
+       "Sets the event or deadline that resumes this work."},
     "search_memory" =>
       {"Search saved knowledge", "Saved knowledge searched",
        "Looks up relevant memories, guidance and conversation context."},

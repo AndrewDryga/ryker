@@ -178,10 +178,10 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert text =~ "*2 · Environment*"
 
     assert text =~
-             "*Production* — I'll work on `payments` and `ledger`, changing only ones with read/write access."
+             "*Production*: I'll work on `payments` and `ledger`, changing only ones with read/write access."
 
-    assert text =~ "*Staging* — It has no repos or Emisar, so I'll answer without them."
-    assert text =~ "*No environment* — I'll still answer here, but without any repos or Emisar."
+    assert text =~ "*Staging*: It has no repos or Emisar, so I'll answer without them."
+    assert text =~ "*No environment*: I'll still answer here, but without any repos or Emisar."
 
     assert Enum.flat_map(controls, & &1["elements"])
            |> Enum.map(&{&1["action_id"], &1["text"]["text"], &1["value"]}) == [
