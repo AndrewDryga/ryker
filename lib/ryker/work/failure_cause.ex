@@ -59,6 +59,18 @@ defmodule Ryker.Work.FailureCause do
            "again. If it stops the same way, check the repository's page and that the GitHub " <>
            "App can still reach it."
      }},
+    # A task keeps the settings it was admitted with. The tenant task stopped on
+    # tenantcorp/tenant-core could not run again once tenant-core was taken out
+    # of its environment (2026-10-03), and its page named no cause.
+    {"coop_worker_job_settings_unavailable",
+     %{
+       cause:
+         "Ryker's settings for this work changed after the task began, for example the " <>
+           "repositories in its environment, so it can't run again as it was set up.",
+       next_step:
+         "Close it as no longer needed and ask again. The new request uses the settings as " <>
+           "they are now."
+     }},
     {"coop_worker_command_timeout",
      %{
        cause: "The worker did not take or finish one of this task's commands in time.",

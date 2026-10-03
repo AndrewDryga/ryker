@@ -246,7 +246,7 @@ defmodule Ryker.Slack.AppHome do
   defp collection_row(row) do
     title = bounded(Map.get(row, :title) || Map.get(row, :ref, "Saved item"))
     detail = bounded_part(Map.get(row, :detail) || "Saved", 60)
-    section("#{title} — #{detail}", open_button(row))
+    section("#{title} · #{detail}", open_button(row))
   end
 
   defp collection_page_controls(collection) do
@@ -398,13 +398,13 @@ defmodule Ryker.Slack.AppHome do
     title = bounded(Map.get(row, :title, Map.get(row, :ref, "Work")))
     state = row |> Map.get(:state, :working) |> label()
     next_action = row |> Map.get(:next_action, "continue_work") |> label()
-    section("#{title} — #{state}; next: #{next_action}", open_button(row))
+    section("#{title} · #{state}; next: #{next_action}", open_button(row))
   end
 
   defp incident_block(row) do
     title = bounded(Map.get(row, :title, Map.get(row, :ref, "Incident")))
     status = row |> Map.get(:status, :open) |> label()
-    section("#{title} — #{status}", open_button(row))
+    section("#{title} · #{status}", open_button(row))
   end
 
   defp memory_blocks(row) do
@@ -412,7 +412,7 @@ defmodule Ryker.Slack.AppHome do
     kind = row |> Map.get(:kind, :memory) |> label()
 
     [
-      section("#{subject} — #{kind}", open_button(row)),
+      section("#{subject} · #{kind}", open_button(row)),
       actions([
         button(
           "ryker_home_forget_memory",
@@ -468,7 +468,7 @@ defmodule Ryker.Slack.AppHome do
 
     summary =
       section(
-        "#{kind} — #{entry_count} affected #{if(entry_count == 1, do: "entry", else: "entries")}\n#{Map.get(row, "reason", "Review this memory.")}"
+        "#{kind} · #{entry_count} affected #{if(entry_count == 1, do: "entry", else: "entries")}\n#{Map.get(row, "reason", "Review this memory.")}"
       )
 
     entry_blocks =
@@ -488,7 +488,7 @@ defmodule Ryker.Slack.AppHome do
     scope_ref = bounded_part(Map.get(entry, "scope_ref", "unknown"), 48)
     visibility = bounded_part(Map.get(entry, "visibility", "unknown"), 12)
 
-    "#{index}/#{count} #{subject} — scope: #{scope} (#{scope_ref}); visibility: #{visibility}; value: #{value}"
+    "#{index}/#{count} #{subject} · scope: #{scope} (#{scope_ref}); visibility: #{visibility}; value: #{value}"
   end
 
   defp editable_memory_review?(%{
@@ -525,7 +525,7 @@ defmodule Ryker.Slack.AppHome do
       end
 
     [
-      section("#{subject} — #{kind}; #{label(status)}", open_button(row)),
+      section("#{subject} · #{kind}; #{label(status)}", open_button(row)),
       actions([
         status_button,
         button(
@@ -561,7 +561,7 @@ defmodule Ryker.Slack.AppHome do
       end
 
     [
-      section("#{title} — #{label(status)}; #{next}"),
+      section("#{title} · #{label(status)}; #{next}"),
       actions(
         [
           button("ryker_home_run_schedule", "Run now", Map.get(row, :ref)),

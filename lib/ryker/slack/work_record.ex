@@ -188,7 +188,7 @@ defmodule Ryker.Slack.WorkRecord do
 
     gaps =
       for %{payload: %{"status" => "unknown"} = payload} <- coverage,
-          do: "• Not checked yet: #{payload["layer"]} — #{compact(payload["detail"], 600)}"
+          do: "• Not checked yet: #{payload["layer"]} · #{compact(payload["detail"], 600)}"
 
     unexplained =
       for %{payload: %{"status" => "unexplained"} = payload} <- findings,
@@ -304,10 +304,10 @@ defmodule Ryker.Slack.WorkRecord do
   end
 
   defp heading(view, %{title: title}) when is_binary(title) and title != "",
-    do: "*#{view}* — #{compact(title, 200)}"
+    do: "*#{view}* · #{compact(title, 200)}"
 
-  defp heading(view, %{kind: :incident}), do: "*#{view}* — this incident"
-  defp heading(view, _snapshot), do: "*#{view}* — this task"
+  defp heading(view, %{kind: :incident}), do: "*#{view}* · this incident"
+  defp heading(view, _snapshot), do: "*#{view}* · this task"
 
   # The same words the request's timeline uses for each transition.
   defp event_entry(event) do
@@ -333,7 +333,7 @@ defmodule Ryker.Slack.WorkRecord do
   end
 
   defp record_words("evidence", payload, _goals),
-    do: "Evidence: #{payload["source_name"]} — #{compact(payload["observation"], 300)}"
+    do: "Evidence from #{payload["source_name"]}: #{compact(payload["observation"], 300)}"
 
   defp record_words("progress", payload, _goals),
     do: "Update: #{compact(String.trim(payload["summary"] || ""), 300)}"

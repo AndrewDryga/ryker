@@ -55,11 +55,11 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
         "*#{heading("1 · Conversations")}*",
         text,
         "",
-        "*Mentions only* — I'll read along to learn about your team's work, but I'll only join a conversation when you mention #{mention(presentation.bot_user_ref)}.",
+        "*Mentions only*: I'll read along to learn about your team's work, but I'll only join a conversation when you mention #{mention(presentation.bot_user_ref)}.",
         "",
-        "*Be proactive* — I'll read the messages in this channel and join in when I think you could use my help. You can still mention me whenever you need me.",
+        "*Be proactive*: I'll read the messages in this channel and join in when I think you could use my help. You can still mention me whenever you need me.",
         "",
-        "*Observe only* — I'll keep reading and learning, but I won't reply, even if you mention me. I also won't start alert investigations while this is on."
+        "*Observe only*: I'll keep reading and learning, but I won't reply, even if you mention me. I also won't start alert investigations while this is on."
       ]
       |> Enum.join("\n")
 
@@ -105,11 +105,11 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
         "*#{heading("3 · Alerts")}*",
         text,
         "",
-        "*Investigate here* — I'll look into it in the alert's own thread and share what I find. This is the default.",
+        "*Investigate here*: I'll look into it in the alert's own thread and share what I find. This is the default.",
         "",
-        "*Offer a room* — I'll start in the thread, and offer a room when the alert looks big enough to need one.",
+        "*Offer a room*: I'll start in the thread, and offer a room when the alert looks big enough to need one.",
         "",
-        "*Always open a room* — every alert I investigate gets its own room, and I'll work there."
+        "*Always open a room*: every alert I investigate gets its own room, and I'll work there."
       ]
       |> Enum.join("\n")
 
@@ -208,10 +208,10 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
         ""
       ] ++
         Enum.flat_map(environments, fn environment ->
-          ["*#{escape(environment["name"])}* — #{environment_sentence(environment)}", ""]
+          ["*#{escape(environment["name"])}*: #{environment_sentence(environment)}", ""]
         end) ++
         [
-          "*No environment* — I'll still answer here, but without any repos or Emisar.",
+          "*No environment*: I'll still answer here, but without any repos or Emisar.",
           "",
           "Environments are set up in Ryker's settings. Choosing one only decides which one this channel uses; it doesn't change what's in it."
         ]
@@ -256,11 +256,11 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
         "• " <> draft_environment_sentence(draft),
         "• If I create an incident room, I'll invite #{draft_audience_phrase(draft)}.",
         "",
-        "*Save settings* — I'll start using these choices and update my welcome message to match.",
+        "*Save settings*: I'll start using these choices and update my welcome message to match.",
         "",
-        "*Start over* — Go back to the first question and change your choices before saving.",
+        "*Start over*: I'll go back to the first question so you can change your choices before saving.",
         "",
-        "*Cancel* — I'll leave your current settings as they are."
+        "*Cancel*: I'll leave your current settings as they are."
       ]
       |> Enum.join("\n")
 

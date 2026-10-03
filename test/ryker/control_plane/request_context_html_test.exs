@@ -587,7 +587,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       state = LazyHTML.query(document, "[data-source=#{key}]")
 
       assert LazyHTML.text(state) =~
-               "Tools Ryker could use for this request. Listed here does not mean it used them."
+               "Tools the model could use for this request. The work cards show the ones it used."
 
       refute LazyHTML.text(state) =~ "State operations advertised"
       refute LazyHTML.text(state) =~ "receipt"
@@ -1634,7 +1634,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert truncated =~ "truncated"
 
     malformed = options |> Enum.drop(2) |> Enum.map_join(&LazyHTML.text/1)
-    assert malformed =~ "Historical candidate · retained shape unavailable"
+    assert malformed =~ "An earlier candidate saved in a form this page can't read"
     assert malformed =~ "Retained raw candidate"
     assert String.length(malformed) < 1_000
   end

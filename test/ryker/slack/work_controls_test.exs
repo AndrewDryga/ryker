@@ -99,13 +99,13 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert timeline =~ "Step planned: Verify background-worker health"
     assert timeline =~ "Step blocked: Verify background-worker health"
     assert timeline =~ "Asked: Which deployment should I inspect?"
-    assert timeline =~ "Evidence: Repository test output"
+    assert timeline =~ "Evidence from Repository test output"
 
     assert {:ok, %{"message" => evidence}} = WorkRecord.build(fixture.card.ref, target, :evidence)
     assert evidence =~ "*Evidence*"
     assert evidence =~ "Repository test output"
     assert evidence =~ "Focused tests passed"
-    assert evidence =~ "Not checked yet: application — Background workers were not sampled."
+    assert evidence =~ "Not checked yet: application · Background workers were not sampled."
     assert evidence =~ "Unexplained: Background-worker health was not verified."
 
     assert {:ok, %{"message" => handoff}} = WorkRecord.build(fixture.card.ref, target, :handoff)

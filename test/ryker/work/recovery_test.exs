@@ -55,7 +55,7 @@ defmodule Ryker.Work.RecoveryTest do
     plain = Recovery.project(turn, :ok, true)
     assert plain.action == :retry
     assert plain.action_label == "Run the task again"
-    assert plain.retry_effect =~ "preserve any unfinished changes"
+    assert plain.retry_effect =~ "save any unfinished changes"
 
     resumable = Recovery.project(turn, :ok, true, snapshot())
     assert resumable.action == :retry
@@ -64,7 +64,7 @@ defmodule Ryker.Work.RecoveryTest do
     assert resumable.retry_effect =~ "saved working copy"
     # The confirmation has to say what it does not do, because a snapshot whose
     # checks never ran is exactly what an operator might read it as waiving.
-    assert resumable.retry_effect =~ "does not waive"
+    assert resumable.retry_effect =~ "Every check still runs"
     refute resumable.retry_effect =~ "unfinished changes"
     assert resumable.retry_effect =~ "4.0 KB"
 
@@ -94,7 +94,7 @@ defmodule Ryker.Work.RecoveryTest do
     turn = incident_turn()
     brief = Recovery.project(turn, {:error, :work_completed_workspace_recovery_required})
     assert brief.headline == "The worker finished, but its workspace could not be saved"
-    assert brief.next_step =~ "Preserve the existing working copy"
+    assert brief.next_step =~ "Keep the working copy and task notes"
     assert brief.model_output =~ "lacks Docker"
     assert brief.action == nil
     assert brief.delivery == "This response has not been sent."
@@ -117,7 +117,7 @@ defmodule Ryker.Work.RecoveryTest do
     assert html =~ "The worker's last answer"
     assert html =~ "lacks Docker"
     assert html =~ "What you can do"
-    assert html =~ "Preserve the existing working copy"
+    assert html =~ "Keep the working copy and task notes"
     refute html =~ "Run the task again"
     refute html =~ "No recognized error explanation"
   end
@@ -185,7 +185,7 @@ defmodule Ryker.Work.RecoveryTest do
 
     brief = Recovery.project(turn, :ok)
     assert brief.cause =~ "connection"
-    assert brief.next_step =~ "connection"
+    assert brief.next_step =~ "Reconnect the worker"
     refute brief.next_step =~ "storage"
     refute brief.workspace =~ "snapshot is required"
 
@@ -322,7 +322,7 @@ defmodule Ryker.Work.RecoveryTest do
     assert refusal.cause =~
              ~S|policy "emisar-standard-v1" has no operator-configured remote|
 
-    refute refusal.cause =~ "does not establish a specific cause"
+    refute refusal.cause =~ "doesn't say what went wrong"
     assert refusal.next_step =~ "retry"
     # The enum and the raw tuple are the host's bookkeeping, never the answer.
     refute refusal.cause =~ "coop_operation_failed"
@@ -358,7 +358,7 @@ defmodule Ryker.Work.RecoveryTest do
     assert stalled.cause =~ "worker did not take"
     assert stalled.explained
     assert stalled.next_step =~ "polling"
-    refute stalled.cause =~ "does not establish a specific cause"
+    refute stalled.cause =~ "doesn't say what went wrong"
     refute inspect(stalled) =~ "cd9cfbb8"
     refute stalled.cause =~ "coop_worker_command_timeout"
   end
@@ -373,7 +373,7 @@ defmodule Ryker.Work.RecoveryTest do
     assert unavailable.explained
     assert unavailable.cause =~ "couldn't get the repository's code from GitHub"
     assert unavailable.next_step =~ "Run the task again"
-    refute unavailable.cause =~ "does not establish a specific cause"
+    refute unavailable.cause =~ "doesn't say what went wrong"
     refute unavailable.cause =~ "coop_worker_source_unavailable"
   end
 
@@ -404,6 +404,19 @@ defmodule Ryker.Work.RecoveryTest do
     assert own.next_step =~ "install the GitHub App"
   end
 
+  # Taking tenantcorp/tenant-core out of the environment let new tasks run, but the task
+  # already stopped on it kept the repositories it was admitted with, and its retry stopped
+  # again with a cause its page could not name (2026-10-03).
+  test "a task whose settings changed under it says to ask again" do
+    changed =
+      blocked(~S|coop_worker_job_settings_unavailable: :coop_worker_job_settings_unavailable|)
+
+    assert changed.explained
+    assert changed.cause =~ "settings for this work changed after the task began"
+    assert changed.next_step =~ "ask again"
+    refute changed.cause =~ "coop_worker_job_settings_unavailable"
+  end
+
   test "a refusal the host repeats is bounded, and one that names nothing stays generic" do
     flood =
       blocked(
@@ -415,9 +428,9 @@ defmodule Ryker.Work.RecoveryTest do
     assert byte_size(flood.cause) <= 600
 
     silent = blocked("work_execution_failed: {:work_execution_failed, :unknown}")
-    assert silent.cause =~ "does not establish a specific cause"
+    assert silent.cause =~ "doesn't say what went wrong"
     refute silent.explained
-    assert silent.next_step =~ "Inspect the saved response"
+    assert silent.next_step =~ "Read the saved answer"
   end
 
   defp blocked(detail) do

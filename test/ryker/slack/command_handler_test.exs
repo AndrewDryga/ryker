@@ -52,7 +52,7 @@ defmodule Ryker.Slack.CommandHandlerTest do
              "*Conversations*\nJoin when useful",
              "*Alerts*\nOffer an in-place task or incident room",
              "*Environment*\nProduction, with Emisar",
-             "*Repositories*\n<https://github.com/acme/ryker|ryker> — default\n`docs` — available",
+             "*Repositories*\n<https://github.com/acme/ryker|ryker> · default\n`docs` · available",
              "*Incident invitations*\nNo one automatically; you can add people yourself",
              "*Observation mode*\nOff"
            ]
@@ -137,8 +137,8 @@ defmodule Ryker.Slack.CommandHandlerTest do
     assert {:ok, listed} =
              CommandHandler.handle(command("assignments", "event:list-current"), options)
 
-    assert listed["text"] =~ "`behavior:assignment:current` — Review Terraform plans (active)"
-    assert listed["text"] =~ "`behavior:assignment:older` — review_terraform_plan (disabled)"
+    assert listed["text"] =~ "`behavior:assignment:current`: Review Terraform plans (active)"
+    assert listed["text"] =~ "`behavior:assignment:older`: review_terraform_plan (disabled)"
   end
 
   test "assignment creation is conversational while scoped grants can be listed or withdrawn" do

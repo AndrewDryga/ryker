@@ -740,8 +740,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     # Admission names each run after the input that started it.
     input = Map.get(context.inputs, turn.turn_ref)
     edited? = match?(%Entry{event_kind: :edit}, input)
-    session_state = session_state(session, earlier_turns, edited?)
     outcome = setup_outcome(turn, session, now)
+    session_state = session_state(session, earlier_turns, edited?, outcome.kind)
     repositories = repositories(turn, session)
 
     Map.merge(outcome, %{
@@ -765,21 +765,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # record. Anything else is "selected", with its outcome unrecorded rather
   # than guessed from today's worker health.
   defp setup_outcome(turn, session, now) do
-    {kind, label, summary, tone, current_step} =
-      cond do
-        turn.status == :blocked and is_nil(turn.coop_turn_id) ->
-          {:blocked, "Blocked", setup_failure(turn.last_error_code), :bad, nil}
-
-        is_binary(turn.coop_turn_id) or not is_nil(turn.remote_queued_at) ->
-          {:ready, "Ready", nil, :good, nil}
-
-        turn.status == :pending and is_binary(turn.lease_ref) and
-            live_after?(turn.lease_expires_at, now) ->
-          {:preparing, "Preparing", nil, nil, preparing_step(session, turn)}
-
-        true ->
-          {:selected, "Setup selected", "Preparation outcome not recorded.", nil, nil}
-      end
+    {kind, label, summary, tone, current_step} = outcome_of(turn, session, now)
 
     %{
       kind: kind,
@@ -789,6 +775,34 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       current: kind != :ready,
       current_step: current_step
     }
+  end
+
+  defp outcome_of(%Turn{status: :blocked, coop_turn_id: nil} = turn, _session, _now),
+    do: {:blocked, "Blocked", setup_failure(turn), :bad, nil}
+
+  # A retry or a newer message replaced it, and the hand-over wrote over
+  # whatever error it stopped on, so that is all there is to say.
+  defp outcome_of(
+         %Turn{status: :superseded, coop_turn_id: nil, remote_queued_at: nil},
+         _session,
+         _now
+       ),
+       do:
+         {:replaced, "Replaced", "A newer run took its place before a worker started this one.",
+          nil, nil}
+
+  defp outcome_of(turn, session, now) do
+    cond do
+      is_binary(turn.coop_turn_id) or not is_nil(turn.remote_queued_at) ->
+        {:ready, "Ready", nil, :good, nil}
+
+      turn.status == :pending and is_binary(turn.lease_ref) and
+          live_after?(turn.lease_expires_at, now) ->
+        {:preparing, "Preparing", nil, nil, preparing_step(session, turn)}
+
+      true ->
+        {:selected, "Setup selected", "Preparation outcome not recorded.", nil, nil}
+    end
   end
 
   defp setup_diagnostics(kind, _turn, _session, _placement) when kind != :blocked, do: []
@@ -839,10 +853,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # a run an edited message started was made for the edit, which made the old
   # session's history stale; any other says the reason was not recorded rather
   # than borrowing today's session state.
-  defp session_state(nil, _earlier_turns, _edited?),
+  defp session_state(nil, _earlier_turns, _edited?, _kind),
     do: %{detail: "Not recorded"}
 
-  defp session_state(session, earlier_turns, edited?) do
+  # A run that stopped or was replaced before any worker session existed
+  # continued nothing: the tenant retry of 2026-10-03 said the model "still has
+  # what it saw in the previous round" when no model had seen anything.
+  defp session_state(%Session{coop_session_id: nil}, _earlier_turns, _edited?, kind)
+       when kind in [:blocked, :replaced],
+       do: %{detail: "Not created · no worker started a session for this run"}
+
+  defp session_state(session, earlier_turns, edited?, _kind) do
     cond do
       earlier_turns != [] ->
         %{detail: "Continued · the model still has what it saw in the previous round"}
@@ -858,17 +879,25 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     end
   end
 
-  # What the recorded code means, in one sentence. A missing per-worker
+  # The cause the saved error names, in the words the recovery brief uses for
+  # it, else what its code means in one sentence. A missing per-worker
   # breakdown stays missing: "no eligible capacity" is not "every worker was
   # busy", and the rows cannot say which it was.
-  defp setup_failure("coop_worker_capacity_unavailable"),
+  defp setup_failure(%Turn{last_error_detail: detail, last_error_code: code}) do
+    case FailureCause.explain(detail) do
+      %{cause: cause} -> cause
+      nil -> code_failure(code)
+    end
+  end
+
+  defp code_failure("coop_worker_capacity_unavailable"),
     do: "No eligible worker with available capacity was found."
 
-  defp setup_failure(code) when code in ~w(coop_unavailable coop_transport_error),
+  defp code_failure(code) when code in ~w(coop_unavailable coop_transport_error),
     do: "The worker connection failed before the session was ready."
 
-  defp setup_failure(nil), do: "Preparation stopped; the recorded error has no code."
-  defp setup_failure(code), do: "Preparation stopped: " <> error_label(code) <> "."
+  defp code_failure(nil), do: "Preparation stopped; the recorded error has no code."
+  defp code_failure(code), do: "Preparation stopped: " <> error_label(code) <> "."
 
   # The repository-backed task this session was pinned for, when there is one.
   # A pinned task is a binding, not proof of a Coop task timeline.

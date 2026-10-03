@@ -449,8 +449,7 @@ defmodule Ryker.ControlPlane.LearningPage do
     do: "Ryker read these messages and updated what it knows."
 
   defp happened(:no_change),
-    do:
-      "Ryker read these messages and found nothing to add or change. That is a normal outcome, not missing memory."
+    do: "Ryker read these messages and found nothing to add or change, which is normal."
 
   defp happened(:deferred), do: "Ryker stopped learning from these messages and needs you."
 
@@ -513,7 +512,7 @@ defmodule Ryker.ControlPlane.LearningPage do
 
   defp state_note(:paused),
     do:
-      "The worker reported broader access than the learning job allows, so Ryker sends it nothing. Check the job and worker version; new messages wait until the configuration is repaired."
+      "The worker reported more access than learning allows, so Ryker sends it nothing. Check the worker's version. New messages wait until it's fixed."
 
   defp state_note(_state), do: nil
 
@@ -621,7 +620,8 @@ defmodule Ryker.ControlPlane.LearningPage do
     do: "Learning is done with this session. Cleanup is next."
 
   defp session_detail(%{status: :blocked, summary: "coop_error"}),
-    do: "The worker could not finish this step. Inspect the saved error before retrying."
+    do:
+      "The worker couldn't finish this step. Its error is saved here; check it before you try again."
 
   defp session_detail(%{status: :blocked, summary: "coop_unavailable"}),
     do: "The worker could not be reached. Check its connection, then retry."

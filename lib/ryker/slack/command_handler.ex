@@ -156,7 +156,7 @@ defmodule Ryker.Slack.CommandHandler do
           Enum.map(values, fn assignment ->
             ref = Map.fetch!(assignment, :ref)
             status = Map.fetch!(assignment, :status)
-            "- `#{ref}` — #{assignment_name(Map.fetch!(assignment, :payload))} (#{status})"
+            "- `#{ref}`: #{assignment_name(Map.fetch!(assignment, :payload))} (#{status})"
           end)
       end
 

@@ -305,7 +305,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
       resume_ref,
       "primary",
       "Run this task again?",
-      "Ryker starts the task again as a new run, and the model works on it again. Changes the stopped run did not save may be lost, so preserve any unfinished changes you need first.",
+      "Ryker starts the task again as a new run, and the model works on it again. Changes the stopped run did not save may be lost, so save any unfinished changes you need first.",
       "Run the task again"
     )
   end
