@@ -363,6 +363,47 @@ defmodule Ryker.Work.RecoveryTest do
     refute stalled.cause =~ "coop_worker_command_timeout"
   end
 
+  # The saved detail of the tenant task stopped on 2026-10-03 while its repositories were
+  # being added. Its timeline said only that the saved error did not establish a cause
+  # (Andrew: "I don't see error reason, it's super hard to tell what went wrong for a human").
+  test "a task that could not get its repository's code says so and what to do" do
+    unavailable =
+      blocked(~S|work_retry_exhausted: {:work_retry_exhausted, :coop_worker_source_unavailable}|)
+
+    assert unavailable.explained
+    assert unavailable.cause =~ "couldn't get the repository's code from GitHub"
+    assert unavailable.next_step =~ "Run the task again"
+    refute unavailable.cause =~ "does not establish a specific cause"
+    refute unavailable.cause =~ "coop_worker_source_unavailable"
+  end
+
+  # tenantcorp/tenant-core, read-only in a tenant environment, vendors skypjack/entt, which Ryker
+  # was never given (2026-10-03). The saved term names both; the reader needs the repository
+  # to take out of the environment, not the term.
+  test "a refused submodule names the repository and what to change" do
+    companion =
+      blocked(
+        ~S|coop_worker_companion_refused: {:coop_worker_companion_refused, "tenantcorp/tenant-core", "skypjack/entt"}|
+      )
+
+    assert companion.explained
+    assert companion.cause =~ "tenantcorp/tenant-core is in this task's environment"
+    assert companion.cause =~ "skypjack/entt"
+
+    assert companion.next_step ==
+             "Take tenantcorp/tenant-core out of the environment, then run the task again."
+
+    refute companion.cause =~ "coop_worker_companion_refused"
+
+    own =
+      blocked(
+        ~S|coop_worker_source_refused: {:coop_worker_source_refused, "tenantcorp/tenant-core", "skypjack/entt"}|
+      )
+
+    assert own.cause =~ "tenantcorp/tenant-core has a submodule from skypjack/entt"
+    assert own.next_step =~ "install the GitHub App"
+  end
+
   test "a refusal the host repeats is bounded, and one that names nothing stays generic" do
     flood =
       blocked(

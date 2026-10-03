@@ -514,11 +514,6 @@ defmodule Ryker.IntegrationSetupTest do
              ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci approve merge)
   end
 
-  # Importing used to create a one-repository group per repository and route
-  # nothing to it, so every channel had to be pointed at each group by hand.
-  # An imported repository now joins the default environment, which Chat and
-  # every conversation without its own setting use: it is usable at once, and
-  # the first repository stays the one work changes.
   # Andrew, 2026-10-03, on tenant's Add repositories: "those ar enot all repos, we have more than
   # 100 and also we should order them somehow by activity and hide archived ones?" GitHub lists a
   # hundred repositories a page, and the picker read only the first page, alphabetically, archived
@@ -536,25 +531,13 @@ defmodule Ryker.IntegrationSetupTest do
     refute "acme/retired" in names
   end
 
-  test "importing a repository puts it in the default environment" do
+  # Every repository tenant added joined its default environment, so each task there fetched all
+  # twenty-five of them, and one with a submodule Ryker cannot fetch stopped every task (Andrew,
+  # 2026-10-03: "envs should not include all repos by default"). Where work uses a repository
+  # is the environment's choice.
+  test "importing a repository leaves every environment as it was" do
     connect_github!()
-    assert {:ok, [repository]} = IntegrationSetup.github_repositories(requester: Requester)
 
-    assert {:ok, %{added: ["acme/widget"]}} =
-             IntegrationSetup.import_github_repositories([repository], requester: Requester)
-
-    assert [%Environment{ref: "default", display_name: "Default", is_default: true} = default] =
-             Settings.fetch!().environments
-
-    assert Environment.repository_refs(default) == ["acme-widget"]
-
-    assert {:ok, %{added: ["acme/gadget"]}} =
-             IntegrationSetup.import_github_repositories([github_repository("acme/gadget", 502)])
-
-    assert [default] = Settings.fetch!().environments
-    assert Environment.repository_refs(default) == ["acme-widget", "acme-gadget"]
-
-    # An operator's own default takes later imports.
     {:ok, _snapshot} =
       Settings.put_environment(
         %{ref: "production", display_name: "Production", is_default: true},
@@ -562,23 +545,24 @@ defmodule Ryker.IntegrationSetupTest do
         @actor
       )
 
-    assert {:ok, %{added: ["acme/tool"]}} =
-             IntegrationSetup.import_github_repositories([github_repository("acme/tool", 503)])
+    assert {:ok, [repository]} = IntegrationSetup.github_repositories(requester: Requester)
 
-    assert %Environment{ref: "production"} = production = Environment.default(Settings.fetch!())
-    assert Environment.repository_refs(production) == ["acme-tool"]
+    assert {:ok, %{added: ["acme/widget"]}} =
+             IntegrationSetup.import_github_repositories([repository], requester: Requester)
 
-    assert Settings.fetch!().environments
-           |> Enum.find(&(&1.ref == "default"))
-           |> Environment.repository_refs() == ["acme-widget", "acme-gadget"]
+    assert {:ok, %{added: ["acme/gadget"]}} =
+             IntegrationSetup.import_github_repositories([github_repository("acme/gadget", 502)])
+
+    assert [%Environment{ref: "production"} = production] = Settings.fetch!().environments
+    assert Environment.repository_refs(production) == []
   end
 
   # On 2026-09-26 Andrew added AndrewDryga/AndrewDryga and
   # AndrewDryga/andrewdryga.github.com in one go. Only the first got its
-  # GitHub binding and joined Default; the second was saved half-way and sat
-  # "Waiting to start", and GitHub itself stayed off ("Add a repository to
-  # start") with two repositories added.
-  test "repositories added together are each bound, all in Default, and GitHub is on" do
+  # GitHub binding; the second was saved half-way and sat "Waiting to start",
+  # and GitHub itself stayed off ("Add a repository to start") with two
+  # repositories added.
+  test "repositories added together are each bound, and GitHub is on" do
     connect_github!()
 
     repositories = [
@@ -596,17 +580,12 @@ defmodule Ryker.IntegrationSetupTest do
     assert snapshot.github_bindings |> Enum.map(& &1.repository_ref) |> Enum.sort() ==
              ["andrewdryga-andrewdryga", "andrewdryga-andrewdryga-github-com"]
 
-    assert [%Environment{ref: "default"} = default] = snapshot.environments
-
-    assert Environment.repository_refs(default) ==
-             ["andrewdryga-andrewdryga", "andrewdryga-andrewdryga-github-com"]
-
     assert snapshot.github.enabled
   end
 
   # The live state on 2026-09-26: AndrewDryga/AndrewDryga went in whole,
-  # AndrewDryga/andrewdryga.github.com was saved without its GitHub binding or
-  # a place in Default, and GitHub stayed off ("Add a repository to start")
+  # AndrewDryga/andrewdryga.github.com was saved without its GitHub binding,
+  # and GitHub stayed off ("Add a repository to start")
   # with two repositories added. Both sat "Waiting to start", and the picker
   # listed the half-saved one as already added, so nothing could finish it.
   test "a repository saved half-way is finished by adding it again, and GitHub is switched on" do
@@ -638,8 +617,6 @@ defmodule Ryker.IntegrationSetupTest do
     assert snapshot.github_bindings |> Enum.map(& &1.repository_ref) |> Enum.sort() ==
              ["acme-site", "acme-widget"]
 
-    assert [%Environment{ref: "default"} = default] = snapshot.environments
-    assert Environment.repository_refs(default) == ["acme-widget", "acme-site"]
     assert snapshot.github.enabled
   end
 
@@ -674,8 +651,6 @@ defmodule Ryker.IntegrationSetupTest do
 
     snapshot = Settings.fetch!()
     assert [%{repository_ref: "acme-site", repository_id: 602}] = snapshot.github_bindings
-    assert [default] = snapshot.environments
-    assert Environment.repository_refs(default) == ["acme-site"]
 
     # Its setup, stopped for want of the binding, starts over.
     assert [%{onboarding_state: :pending, onboarding_error: nil}] = snapshot.repositories
@@ -702,6 +677,8 @@ defmodule Ryker.IntegrationSetupTest do
       Settings.put_environment(
         %{
           ref: "default",
+          display_name: "Default",
+          is_default: true,
           repositories: ["acme-widget", "acme-gadget", "acme-tool"],
           access: %{"acme-gadget" => :read_only}
         },
@@ -975,13 +952,6 @@ defmodule Ryker.IntegrationSetupTest do
 
     added = Enum.find(Settings.fetch!().github_bindings, &(&1.repository_id == 502))
     assert added.ryker_actor_id == 4_321
-
-    # A repository the App was just given joins the default environment, as an
-    # imported one does.
-    assert Settings.fetch!() |> Environment.default() |> Environment.repository_refs() == [
-             "acme-widget",
-             "acme-new-repository"
-           ]
   end
 
   test "Emisar and webhook credentials are verified without entering durable settings" do

@@ -16,6 +16,56 @@ defmodule Ryker.GitHub.RouterTest do
 
   @secret String.duplicate("s", 32)
 
+  # Like Bandit, which serves GitHub's real deliveries: a response it has sent
+  # keeps no body. A test connection keeps it, so tests and the delivery
+  # poller's replays never saw what GitHub did.
+  defmodule BodylessAdapter do
+    @moduledoc false
+    alias Plug.Adapters.Test.Conn, as: TestConn
+
+    def send_resp(payload, status, headers, body) do
+      {:ok, _body, payload} = TestConn.send_resp(payload, status, headers, body)
+      {:ok, nil, payload}
+    end
+
+    defdelegate read_req_body(payload, options), to: TestConn
+    defdelegate get_peer_data(payload), to: TestConn
+    defdelegate get_http_protocol(payload), to: TestConn
+    defdelegate get_sock_data(payload), to: TestConn
+    defdelegate get_ssl_data(payload), to: TestConn
+  end
+
+  # Every delivery GitHub made over Tailscale Funnel to tenant answered 500 on
+  # 2026-10-03: the router read each event's outcome from the response body
+  # after sending it, and under Bandit that body is gone.
+  test "a delivery over real HTTP is answered, not crashed on" do
+    body = Jason.encode!(payload())
+
+    conn =
+      conn(:post, "/v1/github", body)
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("x-github-event", "issue_comment")
+      |> put_req_header("x-github-delivery", "delivery-over-real-http")
+      |> put_req_header("x-hub-signature-256", Auth.signature(@secret, body))
+
+    %Plug.Conn{adapter: {_test_adapter, state}} = conn
+    conn = %{conn | adapter: {BodylessAdapter, state}}
+
+    response =
+      Router.call(
+        conn,
+        Router.init(
+          bindings: %{"github-main" => binding!()},
+          bot_login: "ryker-test",
+          repository_access: fn _binding, _payload -> :ok end,
+          secret: @secret
+        )
+      )
+
+    assert response.status == 202
+    assert response.resp_body == nil
+  end
+
   test "authenticates and durably records a GitHub comment through the adapter registry" do
     body = Jason.encode!(payload())
 

@@ -198,8 +198,8 @@ defmodule Ryker.ControlPlane.Pages do
   def page(["repositories", "new"], _params, _options) do
     "Add repositories"
     |> ok(
-      "Import repositories the connected GitHub App can reach. Each one joins the default " <>
-        "environment, where new channels work.",
+      "Import repositories the connected GitHub App can reach. Work uses one once you " <>
+        "choose it in an environment.",
       ""
     )
     |> Map.put(:back, {"All repositories", "/repositories"})

@@ -439,7 +439,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Add and remove repositories",
        [
-         "Connect GitHub first. Add repositories lists what the Ryker GitHub App can reach, and each repository you add joins the default environment right away. You can also have new ones added automatically when the App gets access.",
+         "Connect GitHub first. Add repositories lists what the Ryker GitHub App can reach. Work uses a repository once you choose it in an environment. You can also have new ones added automatically when the App gets access.",
          "Remove repository, at the bottom of a repository's page, takes it out of every environment, stops its setup and deletes Ryker's copy of its code. It asks first, past requests stay, and you can add it again."
        ]},
       {"Knowledge",

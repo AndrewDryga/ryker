@@ -1047,6 +1047,10 @@ defmodule Ryker.Slack.RendererTest do
     assert hd(publication_controls["elements"])["url"] ==
              "https://github.com/acme/ryker/pull/91"
 
+    # Opening the pull request is what a published task is for (Andrew, 2026-10-03, of a
+    # grey Open PR beside the "…" menu: "make open pr button green").
+    assert hd(publication_controls["elements"])["style"] == "primary"
+
     reviewed =
       put_in(task, ["publication"], %{
         "automatic_fix" => nil,
@@ -2754,6 +2758,7 @@ defmodule Ryker.Slack.RendererTest do
     assert open["action_id"] == "ryker_open_publication"
     assert open["url"] == url
     assert open["value"] == "publication:published42"
+    assert open["style"] == "primary"
   end
 
   # The host knows whether remember_answer succeeded; the model was writing

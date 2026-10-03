@@ -405,6 +405,38 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert has_element?(view, "#environment-staging .entity-meta", "1 read only")
   end
 
+  # Andrew, 2026-10-03, on tenant's editor with all 25 repositories ticked: "i need a way to
+  # select/deselect each". Keeping three meant unticking twenty-two one by one.
+  test "every repository is chosen or cleared in one click, and the save keeps what is left" do
+    installation!()
+    environment!("production", "Production", ~w(api docs), default: true)
+
+    {:ok, view, _html} = open("/environments/production/edit")
+    editor = "#environment-editor-production"
+
+    assert has_element?(view, "#{editor} button[phx-click=choose-all][disabled]", "Select all")
+
+    view |> element("#{editor} button[phx-click=choose-none]", "Select none") |> render_click()
+
+    refute has_element?(view, "#{editor}-repository-api[checked]")
+    refute has_element?(view, "#{editor}-repository-docs[checked]")
+    assert has_element?(view, "#{editor} button[phx-click=choose-none][disabled]")
+
+    view
+    |> form("#{editor} form", environment: %{repositories: ["", "docs"]})
+    |> render_submit()
+
+    production = Enum.find(Settings.fetch!().environments, &(&1.ref == "production"))
+    assert Settings.Environment.repository_refs(production) == ["docs"]
+
+    {:ok, view, _html} = open("/environments/production/edit")
+    view |> element("#{editor} button[phx-click=choose-all]", "Select all") |> render_click()
+
+    assert has_element?(view, "#{editor}-repository-api[checked]")
+    assert has_element?(view, "#{editor}-repository-docs[checked]")
+    assert has_element?(view, "#{editor}-default-docs[checked]")
+  end
+
   test "a refused environment keeps the draft and says what to fix in words" do
     installation!()
     environment!("production", "Production", ~w(api), default: true)

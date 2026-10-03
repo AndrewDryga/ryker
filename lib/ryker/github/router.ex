@@ -429,10 +429,12 @@ defmodule Ryker.GitHub.Router do
   defp disposition(%Plug.Conn{status: 202}), do: "routed"
   defp disposition(%Plug.Conn{}), do: "failed"
 
-  defp response_reason(%Plug.Conn{resp_body: body}) when is_binary(body) do
-    case Jason.decode(body) do
-      {:ok, %{"reason" => reason}} when is_binary(reason) -> reason
-      {:ok, %{"error" => reason}} when is_binary(reason) -> reason
+  # From the document sent, never the sent body: under Bandit, which serves
+  # GitHub's real deliveries, a sent response keeps no body.
+  defp response_reason(conn) do
+    case InboundHTTP.response(conn) do
+      %{"reason" => reason} when is_binary(reason) -> reason
+      %{"error" => reason} when is_binary(reason) -> reason
       _other -> nil
     end
   end

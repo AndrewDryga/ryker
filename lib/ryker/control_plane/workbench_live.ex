@@ -741,7 +741,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       {:ok, result} ->
         handled = MapSet.new(result.added ++ result.already_present)
         tone = import_tone(result)
-        message = import_message(result, default_environment())
+        message = import_message(result)
 
         socket =
           assign(socket,
@@ -1005,7 +1005,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     notice =
       with {:ok, discovered} <- actions.github_repositories.(),
            {:ok, result} <- IntegrationSetup.add_github_repository_again(ref, discovered) do
-        {:list, import_tone(result), import_message(result, default_environment())}
+        {:list, import_tone(result), import_message(result)}
       else
         {:error, reason} -> {:list, :error, add_again_error(reason)}
       end
@@ -2005,19 +2005,22 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp import_tone(%{added: [], already_present: []}), do: :error
   defp import_tone(_partial), do: :warning
 
-  defp import_message(%{added: [], already_present: [], failed: []}, _environment),
+  defp import_message(%{added: [], already_present: [], failed: []}),
     do: "No repositories were selected."
 
-  # An added repository joins the default environment, so the message says
-  # where it can be used at once.
-  defp import_message(%{added: added, already_present: present, failed: failed}, environment) do
-    joined = if environment, do: " to the #{environment} environment", else: ""
-
+  # An added repository joins no environment (Andrew, 2026-10-03: "envs should not include all
+  # repos by default"), so the message says where work gets to use it.
+  defp import_message(%{added: added, already_present: present, failed: failed}) do
     [
       case length(added) do
-        0 -> "No repositories were added."
-        1 -> "Added 1 repository#{joined}."
-        count -> "Added #{count} repositories#{joined}."
+        0 ->
+          "No repositories were added."
+
+        1 ->
+          "Added 1 repository. Choose it in an environment so work can use it."
+
+        count ->
+          "Added #{count} repositories. Choose them in an environment so work can use them."
       end,
       case length(present) do
         0 -> nil
@@ -2030,15 +2033,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" ")
-  end
-
-  defp default_environment do
-    with {:ok, snapshot} <- Settings.fetch(),
-         %{display_name: name} <- Settings.Environment.default(snapshot) do
-      name
-    else
-      _none -> nil
-    end
   end
 
   defp retry_error(:github_access_unavailable),

@@ -25,6 +25,55 @@ defmodule Ryker.Work.FailureCause do
   # when. Coop has worded it two ways (recorded 2026-09-09 and 2026-09-26).
   @provider_limit ~r/"provider (?:rate limited the turn|limit prevented the turn): ((?:[^"\\]|\\.)*)"/
 
+  # A repository whose submodule comes from a repository Ryker was never given,
+  # as the saved term names both: the task's own or a read-only one from its
+  # environment (tenantcorp/tenant-core and skypjack/entt, 2026-10-03).
+  @refused_source ~r/\{:coop_worker_(source|companion)_refused, "([A-Za-z0-9._\/-]+)", "([A-Za-z0-9._\/-]+)"\}/
+
+  # The saved error names one of these conditions somewhere in its term, and
+  # each says the same thing wherever it nests.
+  @explained [
+    {"Failed to refresh token",
+     %{
+       cause:
+         "The model provider rejected the worker's sign-in, so the call never reached the model.",
+       next_step: "Sign the worker in to its model account again, then retry."
+     }},
+    {"coop_worker_capacity_unavailable",
+     %{
+       cause:
+         "No eligible worker with available capacity was found, so this task was never placed on one.",
+       next_step:
+         "Make a worker for this repository available again: enrolled, reporting and not " <>
+           "draining. Then retry this task."
+     }},
+    # Andrew, 2026-10-03, of a tenant task that stopped this way: "I don't see
+    # error reason, it's super hard to tell what went wrong for a human".
+    {"coop_worker_source_unavailable",
+     %{
+       cause:
+         "Ryker couldn't get the repository's code from GitHub to give the worker, " <>
+           "and stopped after retrying for about two minutes.",
+       next_step:
+         "This is usually brief, for example right after repositories are added. Run the task " <>
+           "again. If it stops the same way, check the repository's page and that the GitHub " <>
+           "App can still reach it."
+     }},
+    {"coop_worker_command_timeout",
+     %{
+       cause: "The worker did not take or finish one of this task's commands in time.",
+       next_step:
+         "Check that the worker is connected and polling, then retry this task. The command is saved, so the retry picks up the same one."
+     }},
+    {"work_remote_operation_in_flight",
+     %{
+       cause:
+         "The host still treats an earlier worker operation for this session as unresolved, so it will not start another one.",
+       next_step:
+         "Confirm on the worker whether that operation finished and let the host reconcile it before retrying."
+     }}
+  ]
+
   @doc """
   The cause a saved execution error names and the step that answers it.
 
@@ -40,6 +89,9 @@ defmodule Ryker.Work.FailureCause do
           next_step: "Correct the condition the worker named, then retry this task."
         }
 
+      refused = refused_source(detail) ->
+        refused
+
       limit = provider_limit(detail) ->
         %{
           cause: "The model provider limited the worker's account: " <> limit,
@@ -47,38 +99,10 @@ defmodule Ryker.Work.FailureCause do
             "Add credits to the model account the worker signs in with, or sign it in to another account, then retry."
         }
 
-      String.contains?(detail, "Failed to refresh token") ->
-        %{
-          cause:
-            "The model provider rejected the worker's sign-in, so the call never reached the model.",
-          next_step: "Sign the worker in to its model account again, then retry."
-        }
-
-      String.contains?(detail, "coop_worker_capacity_unavailable") ->
-        %{
-          cause:
-            "No eligible worker with available capacity was found, so this task was never placed on one.",
-          next_step:
-            "Make a worker for this repository available again — enrolled, reporting and not draining — then retry this task."
-        }
-
-      String.contains?(detail, "coop_worker_command_timeout") ->
-        %{
-          cause: "The worker did not take or finish one of this task's commands in time.",
-          next_step:
-            "Check that the worker is connected and polling, then retry this task. The command is saved, so the retry picks up the same one."
-        }
-
-      String.contains?(detail, "work_remote_operation_in_flight") ->
-        %{
-          cause:
-            "The host still treats an earlier worker operation for this session as unresolved, so it will not start another one.",
-          next_step:
-            "Confirm on the worker whether that operation finished and let the host reconcile it before retrying."
-        }
-
       true ->
-        nil
+        Enum.find_value(@explained, fn {needle, explanation} ->
+          String.contains?(detail, needle) && explanation
+        end)
     end
   end
 
@@ -117,6 +141,32 @@ defmodule Ryker.Work.FailureCause do
   # untrusted text an operator surface displays.
   defp coop_refusal(detail), do: provider_sentence(@coop_refusal, detail)
   defp provider_limit(detail), do: provider_sentence(@provider_limit, detail)
+
+  defp refused_source(detail) do
+    case Regex.run(@refused_source, detail, capture: :all_but_first) do
+      ["companion", repository, submodule] ->
+        %{
+          cause:
+            "#{repository} is in this task's environment and has a submodule from #{submodule}, " <>
+              "which Ryker can't fetch. So the worker couldn't get #{repository}'s code.",
+          next_step: "Take #{repository} out of the environment, then run the task again."
+        }
+
+      ["source", repository, submodule] ->
+        %{
+          cause:
+            "#{repository} has a submodule from #{submodule}, which Ryker can't fetch. " <>
+              "So the worker couldn't get the code.",
+          next_step:
+            "If #{submodule} belongs to an organization you manage, install the GitHub App " <>
+              "there and add the repository to Ryker, then run the task again. Otherwise Ryker " <>
+              "can't work on #{repository} yet."
+        }
+
+      _other ->
+        nil
+    end
+  end
 
   defp provider_sentence(pattern, detail) do
     case Regex.run(pattern, detail, capture: :all_but_first) do

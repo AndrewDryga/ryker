@@ -299,12 +299,9 @@ defmodule Ryker.Slack.Renderer.Records do
         |> compact_lines()
       ),
       actions(ref, [
-        url_button(
-          "ryker_open_publication",
-          "Open PR",
-          ref,
-          payload["pull_request_url"]
-        )
+        "ryker_open_publication"
+        |> url_button("Open PR", ref, payload["pull_request_url"])
+        |> maybe_button_style("primary")
       ])
     ]
   end

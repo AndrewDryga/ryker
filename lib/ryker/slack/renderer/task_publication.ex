@@ -97,8 +97,12 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
             publish_label(number)
           )
 
+        # Opening the pull request is what a published task is for (Andrew, 2026-10-03:
+        # "make open pr button green").
         "open" ->
-          url_button("ryker_open_publication", "Open PR", publication_ref, url)
+          "ryker_open_publication"
+          |> url_button("Open PR", publication_ref, url)
+          |> maybe_button_style("primary")
 
         "retry" ->
           button(
