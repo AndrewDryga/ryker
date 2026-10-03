@@ -2037,6 +2037,11 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-conflict { padding:14px 16px; border:1px solid color-mix(in srgb, var(--ryker-warning) 45%, transparent); border-radius:8px; background:color-mix(in srgb, var(--ryker-warning) 6%, transparent); }
 .settings-conflict h3 { margin:0 0 6px; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
 .settings-row-details, .settings-disclosure { max-width:720px; margin:8px 0 0; }
+/* The GitHub App card: where GitHub sends events, then, below a rule, the
+   credentials and their form. */
+.github-app-card .copy-block + .settings-lede { margin-top:8px; }
+.github-app-card .settings-disclosure + .settings-lede { margin-top:12px; }
+.ryker-app .github-app-card .github-credentials-lede { max-width:none; margin:24px 0 16px; padding-top:20px; border-top:1px solid var(--ryker-stroke); }
 .settings-row-details > summary, .settings-disclosure > summary { width:fit-content; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); cursor:pointer; }
 .settings-disclosure > summary { font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text); }
 .settings-disclosure[open] > summary { margin-bottom:12px; }
