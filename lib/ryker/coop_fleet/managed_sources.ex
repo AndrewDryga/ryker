@@ -11,7 +11,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.CoopFleet.Protocol
-  alias Ryker.GitHub.InstallationTokens
+  alias Ryker.GitHub.{InstallationTokens, PublicRepositories}
   alias Ryker.Settings
   alias Ryker.Work.RepositorySource
 
@@ -63,7 +63,9 @@ defmodule Ryker.CoopFleet.ManagedSources do
         },
         base_branch,
         requested,
-        &resolve_repository(snapshot, &1)
+        &resolve_repository(snapshot, &1, fn slug ->
+          PublicRepositories.lookup(snapshot.github.api_url, slug, token)
+        end)
       )
       |> log_failure(repository_ref, :fetch)
     else
@@ -374,13 +376,53 @@ defmodule Ryker.CoopFleet.ManagedSources do
   defp merge_base(git, mirror, default_commit, selected_commit),
     do: git_value(git, mirror, ["merge-base", default_commit, selected_commit], @commit)
 
-  defp resolve_repository(snapshot, slug) do
-    repositories =
-      Enum.filter(
-        snapshot.repositories,
-        &(String.downcase(&1.github_repository || "") == String.downcase(slug))
-      )
+  @doc """
+  The repository a submodule comes from: one Ryker was given, read through its
+  GitHub binding; else a public one, which anyone may read, fetched without
+  credentials (tenantcorp/tenant-core vendors skypjack/entt, 2026-10-03).
+  `public_lookup` asks GitHub whether a repository Ryker was never given is
+  public. A repository Ryker was given but cannot reach stays refused: its
+  access is the operator's to fix.
+  """
+  @spec resolve_repository(map(), String.t(), (String.t() -> term())) ::
+          {:ok, map()} | {:error, atom()}
+  def resolve_repository(snapshot, slug, public_lookup) do
+    snapshot.repositories
+    |> Enum.filter(&(String.downcase(&1.github_repository || "") == String.downcase(slug)))
+    |> case do
+      [] -> public_repository(slug, public_lookup)
+      configured -> configured_repository(snapshot, configured)
+    end
+  end
 
+  @doc """
+  The ref a public repository Ryker was never given has in a job. No
+  configured repository's ref has a colon, so the two never meet.
+  """
+  @spec public_ref(String.t()) :: String.t()
+  def public_ref(full_name), do: "public:" <> String.replace(full_name, "/", ":")
+
+  defp public_repository(slug, public_lookup) do
+    case public_lookup.(slug) do
+      {:ok, %{full_name: full_name, id: id}} ->
+        {:ok,
+         %{
+           repository_ref: public_ref(full_name),
+           github_repository: full_name,
+           repository_id: id,
+           remote: "https://github.com/#{full_name}.git",
+           token: nil
+         }}
+
+      {:error, :not_public} ->
+        {:error, :submodule_not_configured}
+
+      _unavailable ->
+        {:error, :submodule_not_authorized}
+    end
+  end
+
+  defp configured_repository(snapshot, repositories) do
     with [%{ref: ref, github_repository: repository, github_access: :available}] <- repositories,
          [%{name: name, repository_id: id}] <-
            Enum.filter(snapshot.github_bindings, &(&1.repository_ref == ref)) do

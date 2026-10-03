@@ -450,11 +450,17 @@ defmodule Ryker.CoopFleet.JobAuthority do
     end
   end
 
-  defp unplaced(%Session{coop_session_id: nil, cleanup_status: :active} = session) do
-    if Repo.exists?(from(placement in Placement, where: placement.session_id == ^session.id)),
-      do: {:error, :coop_worker_job_requires_new_session},
-      else: :ok
+  defp unplaced(session) do
+    if unstarted?(session), do: :ok, else: {:error, :coop_worker_job_requires_new_session}
   end
 
-  defp unplaced(_session), do: {:error, :coop_worker_job_requires_new_session}
+  @doc """
+  Whether no worker ever took the session: it was never placed, so no worker
+  holds its job and nothing ran under its authority.
+  """
+  @spec unstarted?(Session.t()) :: boolean()
+  def unstarted?(%Session{coop_session_id: nil, cleanup_status: :active} = session),
+    do: not Repo.exists?(from(placement in Placement, where: placement.session_id == ^session.id))
+
+  def unstarted?(_session), do: false
 end

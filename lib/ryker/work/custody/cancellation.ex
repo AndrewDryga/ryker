@@ -24,7 +24,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   alias Ryker.Settings
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.Custody
-  alias Ryker.Work.Custody.{Sessions, Turns}
+  alias Ryker.Work.Custody.{CurrentAuthority, Sessions, Turns}
   alias Ryker.Work.{Session, Turn, TurnChangeset}
 
   @doc false
@@ -266,10 +266,12 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   defp retry_blocked_locked(episode_key, expected_recovery) do
     with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
-         {:ok, _session, turn} <- lock_turn_after_episode(episode.id, episode.owner_ref) do
+         {:ok, session, turn} <- lock_turn_after_episode(episode.id, episode.owner_ref) do
       if recovery_fingerprint(turn) != expected_recovery,
         do: Repo.rollback(:work_recovery_changed)
 
+      # A task no worker ever took runs again on settings as they are now.
+      CurrentAuthority.refresh_locked(session)
       retry_blocked_episode(episode, turn)
     else
       {:error, reason} -> Repo.rollback(reason)

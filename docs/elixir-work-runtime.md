@@ -59,6 +59,10 @@ tools own durable records. The generic Delivery module owns external message cus
 - A worker cannot choose episode policy. Admission chooses only the abstract conversational,
   standard, or deep class and maps it through a host-owned profile. Existing episodes retain their
   pinned policy across deploys and later classifications.
+- A task that stopped before any worker took its session runs again on settings as they are now
+  (2026-10-03). "Run the task again" reuses that session and keeps its policy name. It takes the
+  policy's digests, the environment's repositories and its Emisar account from current settings,
+  and pins its job again. A session a worker has taken keeps its authority.
 - Ryker derives each class's model-independent authority digest from its trusted job settings.
   The three classes must share that authority. Workers advertise capabilities and capacity, not
   policy names or digests; the created session must return the exact frozen job identity and digest.
@@ -76,6 +80,16 @@ tools own durable records. The generic Delivery module owns external message cus
 - Exact source selection belongs to the frozen job. Repository work requires
   `repository-freshness:2`; workers do not advertise policies, repositories or a separate
   source-selector capability. Missing freshness support refuses creation before code is used.
+- Submodules are pinned with their source, and Coop stages every gitlink it declares. Each one must
+  come from one of two places:
+  - a repository Ryker was given, read through its GitHub binding;
+  - a public GitHub repository, pinned as `public:<owner>:<name>` and granted to the worker with
+    `"public": true` and no token, so the worker fetches it anonymously. Such a grant is given only
+    for a submodule the job vendors.
+
+  A submodule from any other repository stops the job at once. The error is
+  `coop_worker_source_refused`, or `coop_worker_companion_refused` for a read-only repository of
+  the environment. Either error names the repository and the submodule.
 - Ryker resolves the selector through the authorized GitHub repository. Coop fetches and verifies
   that frozen source and returns the session's
   version-1 `source` binding (`requested`, `remote_identity`, `default_ref`, `default_commit`,
