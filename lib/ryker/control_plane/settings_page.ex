@@ -989,11 +989,25 @@ defmodule Ryker.ControlPlane.SettingsPage do
       />
     </Kit.section_card>
 
+    <.live_component
+      :if={@ready}
+      module={SettingsEditor}
+      id="settings-publication"
+      section={section!(:publication)}
+      view={@view}
+      commands={@commands}
+    />
+
+    <%!-- Once the App works, where GitHub sends its events and the App's
+    credentials are reference, so they share the last card (Andrew,
+    2026-10-03: "why show it here after app is installed and configured?
+    maybe move it below App credentials at least or combine two?"). --%>
     <Kit.section_card
       :if={@ready}
-      class="settings-section"
-      title="Webhook"
-      lede="Paste this callback URL into your GitHub App's webhook settings."
+      class="settings-section github-app-card"
+      anchor="github-app"
+      title="GitHub App"
+      lede="Where GitHub sends the App's events, and its credentials."
     >
       <Components.copy_block label="Copy the callback URL">
         <pre>{@view.github_callback_url}</pre>
@@ -1023,23 +1037,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
           rel="noopener noreferrer"
         >Install the App in another organization</a>
       </p>
-    </Kit.section_card>
-
-    <.live_component
-      :if={@ready}
-      module={SettingsEditor}
-      id="settings-publication"
-      section={section!(:publication)}
-      view={@view}
-      commands={@commands}
-    />
-
-    <Kit.section_card
-      :if={@ready}
-      class="settings-section"
-      title="App credentials"
-      lede="Replace them only when the App ID, private key or webhook secret changed."
-    >
+      <p class="settings-lede github-credentials-lede">
+        Replace the credentials only when the App ID, private key or webhook secret changed.
+      </p>
       <.github_form label="Replace credentials" />
     </Kit.section_card>
     """
