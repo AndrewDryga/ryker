@@ -437,6 +437,8 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     card = card(rendered(work.episode), work.turn)
     assert card =~ "A newer run took its place before a worker started this one."
     refute card =~ "Preparation outcome not recorded"
+    # The run that replaced it is the current one (tenant showed "Replaced · current").
+    refute card =~ "current"
   end
 
   defp ready?(html, %{id: id}) do
