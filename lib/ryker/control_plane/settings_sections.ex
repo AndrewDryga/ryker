@@ -232,14 +232,19 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :enabled,
           kind: :boolean,
           label: "Let Ryker open pull requests",
-          help: "Ryker pushes a branch and opens a pull request when its work changes code."
+          help: "Ryker pushes a branch and opens a pull request when its work changes code.",
+          errors: %{github_required: "Connect the GitHub App first."}
         },
         %{
           name: :branch_prefix,
           kind: :text,
           label: "Branch names start with",
           placeholder: "ryker",
-          help: "Branches that already exist keep their names."
+          help: "Branches that already exist keep their names.",
+          errors: %{
+            required: "Enter how branch names start, such as ryker.",
+            git_ref: "Use a name Git allows, such as ryker or bots/ryker, without spaces."
+          }
         }
       ]
     },

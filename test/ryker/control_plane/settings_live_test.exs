@@ -886,17 +886,58 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   test "the GitHub App credentials section shows its fields under its heading, not behind a fold" do
     # The same fold as the Slack tokens (Andrew, 2026-09-25: "remove
-    # collapsible, just show inputs"): replacing the App's credentials is the
-    # section's only job, and its fields sat in a closed disclosure.
+    # collapsible, just show inputs"): its fields sat in a closed disclosure.
     initialize!()
     connect_github!()
     {:ok, view, _html} = open("/integrations/github")
 
-    section = "section[aria-label='App credentials']"
-    refute has_element?(view, "#{section} > details")
-    assert has_element?(view, "#{section} > .section-head + form[phx-submit=connect-github]")
+    section = "section[aria-label='GitHub App']"
+    refute has_element?(view, "#{section} details form")
+    assert has_element?(view, "#{section} > form[phx-submit=connect-github]")
     assert has_element?(view, "#{section} input[name='connection[app_id]']")
     assert has_element?(view, "#{section} form button[type=submit]", "Replace credentials")
+  end
+
+  # Andrew, 2026-10-03, of the Webhook card between Repositories and Pull
+  # requests on a working App: "why show it here after app is installed and
+  # configured? maybe move it below App credentials at least or combine two?"
+  test "a working App's webhook address and credentials share the last card" do
+    initialize!()
+    connect_github!()
+    {:ok, _view, html} = open("/integrations/github")
+    document = LazyHTML.from_document(html)
+
+    titles =
+      document
+      |> LazyHTML.query("main .section-head h2")
+      |> Enum.map(&String.trim(LazyHTML.text(&1)))
+
+    assert titles == ["Connection", "Repositories", "Pull requests", "GitHub App"]
+
+    app = LazyHTML.query(document, "section[aria-label='GitHub App']")
+    assert app |> LazyHTML.query(".copy-block pre") |> LazyHTML.text() =~ "http"
+    assert Enum.count(LazyHTML.query(app, "#github-events")) == 1
+    assert Enum.count(LazyHTML.query(app, "form[phx-submit=connect-github]")) == 1
+  end
+
+  # Andrew, 2026-10-03, on tenant's GitHub page with the App verified and no
+  # repository added yet: "errors don't make sense". Turning pull requests on
+  # said it "needs a connected GitHub App", which was connected: the check
+  # wanted GitHub switched on, which happens when a repository is added. And
+  # "ryker/" was refused as the start of branch names for its slash.
+  test "pull requests can be turned on once the App is verified, with a prefix written with its slash" do
+    initialize!()
+    connect_github!()
+    refute Settings.fetch!().github.enabled
+    assert Settings.fetch!().repositories == []
+    {:ok, view, _html} = open("/integrations/github")
+
+    view
+    |> form("#settings-publication-form", %{"enabled" => "true", "branch_prefix" => "ryker/"})
+    |> render_submit()
+
+    refute has_element?(view, "#settings-publication .settings-error")
+    assert %{enabled: true, branch_prefix: "ryker"} = Settings.fetch!().publication
   end
 
   test "a connected GitHub App shows where its webhook points and disconnects only when asked" do
