@@ -13,8 +13,9 @@ defmodule Ryker.ControlPlane.RepositoryImport do
 
   An import that adds everything chosen returns to the list, which says what
   was added; one that adds nothing, or not everything, stays here and says
-  why. An added repository joins the default environment, which Ryker
-  creates as Default when there is none; the page's description says so.
+  why. An added repository joins no environment: work uses it once an
+  environment chooses it, and the page's description says so (Andrew,
+  2026-10-03: "envs should not include all repos by default").
   """
   use Phoenix.Component
 

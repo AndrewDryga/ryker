@@ -102,6 +102,24 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   def handle_event("save", %{"environment" => params}, socket),
     do: {:noreply, socket |> put_draft(params) |> save()}
 
+  # Unticking two dozen repositories one by one to keep three (Andrew, 2026-10-03, on blitz:
+  # "i need a way to select/deselect each").
+  def handle_event("choose-all", _params, socket) do
+    refs = Enum.map(socket.assigns.view.snapshot.repositories, & &1.ref)
+    {:noreply, socket |> choose(refs) |> assign(:error, nil)}
+  end
+
+  def handle_event("choose-none", _params, socket),
+    do: {:noreply, socket |> choose([]) |> assign(:error, nil)}
+
+  defp choose(socket, refs) do
+    draft = socket.assigns.draft
+    repositories = Enum.sort(refs)
+    access = access(%{}, draft, repositories)
+
+    assign(socket, draft: with_repositories(draft, repositories, access, nil), dirty: true)
+  end
+
   defp put_draft(socket, params) do
     draft = socket.assigns.draft
 
@@ -116,13 +134,10 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
       |> Enum.sort()
 
     access = access(params, draft, repositories)
-    default = default_repository(params["default_repository"], draft, repositories, access)
 
     draft = %{
-      draft
-      | access: if(default, do: Map.put(access, default, :read_write), else: access),
-        default_repository: default,
-        description: text(params, "description", draft.description),
+      with_repositories(draft, repositories, access, params["default_repository"])
+      | description: text(params, "description", draft.description),
         display_name: text(params, "display_name", draft.display_name),
         emisar_connection_ref:
           case Map.get(params, "emisar_connection_ref", draft.emisar_connection_ref) do
@@ -133,11 +148,21 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
           if(Map.has_key?(params, "is_default"),
             do: params["is_default"] == "true",
             else: draft.is_default
-          ),
-        repositories: repositories
+          )
     }
 
     assign(socket, draft: draft, dirty: true)
+  end
+
+  defp with_repositories(draft, repositories, access, chosen_default) do
+    default = default_repository(chosen_default, draft, repositories, access)
+
+    %{
+      draft
+      | access: if(default, do: Map.put(access, default, :read_write), else: access),
+        default_repository: default,
+        repositories: repositories
+    }
   end
 
   # Each chosen repository's access as the form says it, else as the draft
@@ -339,6 +364,26 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
               write: the default, unless it picks another. The default is always read and write.
             </p>
             <input type="hidden" name="environment[repositories][]" value="" />
+            <div :if={length(@choices) > 1} class="environment-repositories-choose">
+              <button
+                type="button"
+                class="ui-button quiet"
+                phx-click="choose-all"
+                phx-target={@myself}
+                disabled={Enum.all?(@choices, & &1.chosen)}
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                class="ui-button quiet"
+                phx-click="choose-none"
+                phx-target={@myself}
+                disabled={not Enum.any?(@choices, & &1.chosen)}
+              >
+                Select none
+              </button>
+            </div>
             <div :if={@choices != []} class="environment-repositories">
               <div class="environment-repositories-head" aria-hidden="true">
                 <span>Repository</span>

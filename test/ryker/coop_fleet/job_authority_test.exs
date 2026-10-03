@@ -742,6 +742,76 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     end
   end
 
+  # theblitzapp/blitz-core, read-only in a blitz environment, vendors skypjack/entt, which Ryker
+  # was never given. Every task there spent eight tries in two minutes and stopped as "source
+  # unavailable", and nothing said which repository or why (2026-10-03).
+  test "a submodule Ryker cannot fetch stops the job, naming the repository and the submodule",
+       %{session: session} do
+    refused = fn _root, ref, _selector ->
+      {:error, {:coop_worker_source_refused, "example/" <> ref, "skypjack/entt"}}
+    end
+
+    assert {:error, {:coop_worker_source_refused, "example/app", "skypjack/entt"}} =
+             JobAuthority.ensure_pinned(session, "/private/source", refused)
+
+    add_repository!("library", 18)
+    snapshot = add_repository!("tools", 19)
+
+    {:ok, snapshot} =
+      Settings.put_environment(
+        %{
+          ref: "production",
+          display_name: "Production",
+          repositories: ["app", "library", "tools"]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    template =
+      Enum.find(
+        JobTemplates.from_settings(snapshot),
+        &(&1.purpose == :contributor and &1.scope_kind == :environment and
+            &1.repository_ref == "app")
+      )
+
+    session =
+      session
+      |> Ecto.Changeset.change(
+        environment_ref: "production",
+        policy: template.policy_name,
+        policy_digest: template.policy_digest,
+        authority_digest: template.authority_digest,
+        repository_context: %{
+          "context_ref" => "production",
+          "primary_repository" => "app",
+          "read_only_repositories" => ["library", "tools"],
+          "parallel_goal_limit" => 1
+        }
+      )
+      |> Repo.update!()
+
+    prepare = fn
+      _root, "tools", _selector ->
+        {:error, {:coop_worker_source_refused, "example/tools", "skypjack/entt"}}
+
+      _root, ref, _selector ->
+        {:ok,
+         %{
+           source:
+             source()
+             |> Map.put("repository_ref", ref)
+             |> Map.put("github_repository", "example/" <> ref)
+             |> Map.put("github_repository_id", %{"app" => 17, "library" => 18}[ref])
+         }}
+    end
+
+    assert {:error, {:coop_worker_companion_refused, "example/tools", "skypjack/entt"}} =
+             JobAuthority.ensure_pinned(session, nil, prepare)
+
+    assert Repo.get!(Session, session.id).worker_job_document == nil
+  end
+
   test "invalid persisted authority is never silently rebuilt", %{session: session} do
     assert {:ok, pinned} = JobAuthority.ensure_pinned(session, "/private/source", &prepare/3)
 

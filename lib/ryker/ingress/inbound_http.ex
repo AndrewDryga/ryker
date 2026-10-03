@@ -34,14 +34,21 @@ defmodule Ryker.Ingress.InboundHTTP do
   end
 
   @spec respond(Plug.Conn.t(), Plug.Conn.status(), map()) :: Plug.Conn.t()
+  # The document stays on the connection: a server such as Bandit keeps no
+  # body once a response is sent, and the caller may still need what it said.
   def respond(conn, status, document) do
     body = Jason.encode!(document)
 
     conn
+    |> put_private(:inbound_response, document)
     |> put_resp_content_type("application/json")
     |> send_resp(status, body)
     |> halt()
   end
+
+  @doc "What `respond/3` answered on this connection, after it was sent."
+  @spec response(Plug.Conn.t()) :: map() | nil
+  def response(%Plug.Conn{private: private}), do: Map.get(private, :inbound_response)
 
   defp json_media_type?(value) do
     media_type =

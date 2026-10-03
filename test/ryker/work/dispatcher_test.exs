@@ -191,6 +191,20 @@ defmodule Ryker.Work.DispatcherTest do
     end)
   end
 
+  # A blitz task spent all eight of its tries in two minutes on a repository whose submodule
+  # Ryker was never given (2026-10-03). No retry fetches it, so the first refusal stops the
+  # task and its saved error names both repositories.
+  test "a source refused for its submodule stops the task on the first try" do
+    command = create_episode!("refused-companion")
+    reason = {:coop_worker_companion_refused, "theblitzapp/blitz-core", "skypjack/entt"}
+
+    assert {:ok, {:deferred, {:work_stop_pending, ^reason}}} =
+             Dispatcher.run_once(options({:error, reason}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.work_attempt_count == 1
+  end
+
   test "an untyped permanent error is bounded before remote-stop custody" do
     command = create_episode!("plain-block")
     reason = String.duplicate("dangerous detail ", 1_000)

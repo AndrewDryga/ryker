@@ -117,7 +117,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert has_element?(
              view,
              "main .page-description",
-             "Each one joins the default environment, where new channels work."
+             "Work uses one once you choose it in an environment."
            )
 
     refute has_element?(view, "[phx-click=discover-github-repositories]")
@@ -252,7 +252,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert has_element?(
              view,
              "#repository-notice.form-feedback-success",
-             "Added 1 repository to the Default environment."
+             "Added 1 repository. Choose it in an environment so work can use it."
            )
 
     assert has_element?(view, "#repository-acme-api")
@@ -340,6 +340,18 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
         repository("acme/api", 11),
         repository("acme/web", 12)
       ])
+
+    {:ok, _snapshot} =
+      Settings.put_environment(
+        %{
+          ref: "default",
+          display_name: "Default",
+          is_default: true,
+          repositories: ["acme-api", "acme-web"]
+        },
+        Settings.fetch!().installation.revision,
+        @actor
+      )
 
     {:ok, view, _html} = open("/repositories")
     refute has_element?(view, "#repository-acme-api button")
@@ -493,7 +505,13 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
     {:ok, _snapshot} =
       Settings.put_environment(
-        %{ref: "default", access: %{"acme-docs" => :read_only}},
+        %{
+          ref: "default",
+          display_name: "Default",
+          is_default: true,
+          repositories: ["acme-api", "acme-docs"],
+          access: %{"acme-docs" => :read_only}
+        },
         Settings.fetch!().installation.revision,
         @actor
       )
@@ -557,7 +575,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert has_element?(
              view,
              "#repository-notice.form-feedback-success",
-             "Added 1 repository to the Default environment."
+             "Added 1 repository. Choose it in an environment so work can use it."
            )
 
     # Finished, its setup starts over instead of reading as stopped.

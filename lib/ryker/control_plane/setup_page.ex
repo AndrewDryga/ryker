@@ -359,7 +359,7 @@ defmodule Ryker.ControlPlane.SetupPage do
       why:
         "Ryker only works in the repositories you add, and GitHub checks each person's access on every request.",
       note:
-        "Each one joins the Default environment, which Ryker creates for you. Channels choose an environment, so there is nothing else to set up.",
+        "Then choose the ones work should use on the Environments page. Channels work in an environment, so a repository no environment has stays unused.",
       needs: "The GitHub App installed on the repositories Ryker should work in",
       minutes: 2,
       action: %{label: "Add repositories", href: "/repositories/new"},

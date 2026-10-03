@@ -375,6 +375,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
          true <- source["binding"]["requested"] == (requested || RepositorySource.default()) do
       {:ok, source}
     else
+      {:error, {:coop_worker_source_refused, _repository, _submodule}} = refused -> refused
       _unavailable -> {:error, :coop_worker_source_unavailable}
     end
   end
@@ -382,11 +383,19 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp source(_snapshot, _ref, _requested, _root, _prepare),
     do: {:error, :coop_worker_source_unavailable}
 
+  # A read-only repository is refused in its own words: what to change is the
+  # environment that lists it, not the repository the task works on.
   defp companions(snapshot, refs, root, prepare) do
     Enum.reduce_while(refs, {:ok, []}, fn ref, {:ok, sources} ->
       case source(snapshot, ref, nil, root, prepare) do
-        {:ok, source} -> {:cont, {:ok, sources ++ [%{"name" => ref, "source" => source}]}}
-        error -> {:halt, error}
+        {:ok, source} ->
+          {:cont, {:ok, sources ++ [%{"name" => ref, "source" => source}]}}
+
+        {:error, {:coop_worker_source_refused, repository, submodule}} ->
+          {:halt, {:error, {:coop_worker_companion_refused, repository, submodule}}}
+
+        error ->
+          {:halt, error}
       end
     end)
   end

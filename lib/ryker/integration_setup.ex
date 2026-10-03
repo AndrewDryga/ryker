@@ -361,24 +361,6 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  # An imported repository joins the default environment after the ones
-  # already there, so the environment's default repository stays the first.
-  # It joins read and write; the environment is where it is made read only.
-  defp join_default_environment(repository_ref) do
-    with {:ok, snapshot, environment} <- ensure_default_environment(Settings.fetch!()) do
-      refs = Environment.repository_refs(environment)
-
-      if repository_ref in refs,
-        do: {:ok, snapshot},
-        else:
-          Settings.put_environment(
-            %{ref: environment.ref, repositories: refs ++ [repository_ref]},
-            snapshot.installation.revision,
-            @actor
-          )
-    end
-  end
-
   @spec rotate_emisar(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def rotate_emisar(ref, token, options \\ []) when is_binary(ref) and is_binary(token) do
     snapshot = Settings.fetch!()
@@ -1026,7 +1008,7 @@ defmodule Ryker.IntegrationSetup do
                :current,
                @actor
              ),
-           do: join_default_environment(ref)
+           do: {:ok, :added}
     end)
     |> case do
       {:ok, _snapshot} -> :ok

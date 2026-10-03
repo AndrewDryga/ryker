@@ -7,6 +7,8 @@ defmodule Ryker.CoopFleet.ManagedSources do
   has checked this immutable identity.
   """
 
+  require Logger
+
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.CoopFleet.Protocol
   alias Ryker.GitHub.InstallationTokens
@@ -26,23 +28,32 @@ defmodule Ryker.CoopFleet.ManagedSources do
   @mirror_lock_wait_ms :timer.minutes(30)
   @mirror_lock_poll_ms 250
 
+  # Every failure is the same error to the caller, which retries it; the log
+  # says which step failed. On 2026-10-03 a task on blitz gave up on
+  # theblitzapp/blitz-infra and nothing said whether the repository, its
+  # binding, its token or the fetch was missing.
   @spec prepare(String.t(), String.t(), map() | nil) :: {:ok, map()} | {:error, atom()}
   def prepare(storage_root, repository_ref, requested) do
-    with true <- is_binary(storage_root) and Path.type(storage_root) == :absolute,
-         true <- Protocol.reference?(repository_ref),
-         {:ok, requested} <- RepositorySource.parse_optional(requested),
-         {:ok, snapshot} <- Settings.fetch(),
-         %{
-           github_repository: github_repository,
-           base_branch: base_branch,
-           github_access: :available
-         } <-
-           Enum.find(snapshot.repositories, &(&1.ref == repository_ref)),
-         %{name: binding_name, repository_id: repository_id} <-
-           Enum.find(snapshot.github_bindings, &(&1.repository_ref == repository_ref)),
-         {:ok, token} <- InstallationTokens.token(binding_name, :source_read) do
-      prepare_from_remote(
-        storage_root,
+    with {:inputs, true} <-
+           {:inputs,
+            is_binary(storage_root) and Path.type(storage_root) == :absolute and
+              Protocol.reference?(repository_ref)},
+         {:requested, {:ok, requested}} <-
+           {:requested, RepositorySource.parse_optional(requested)},
+         {:settings, {:ok, snapshot}} <- {:settings, Settings.fetch()},
+         {:repository,
+          %{
+            github_repository: github_repository,
+            base_branch: base_branch,
+            github_access: :available
+          }} <-
+           {:repository, Enum.find(snapshot.repositories, &(&1.ref == repository_ref))},
+         {:binding, %{name: binding_name, repository_id: repository_id}} <-
+           {:binding, Enum.find(snapshot.github_bindings, &(&1.repository_ref == repository_ref))},
+         {:token, {:ok, token}} <-
+           {:token, InstallationTokens.token(binding_name, :source_read)} do
+      storage_root
+      |> prepare_from_remote(
         %{
           repository_ref: repository_ref,
           github_repository: github_repository,
@@ -54,10 +65,24 @@ defmodule Ryker.CoopFleet.ManagedSources do
         requested,
         &resolve_repository(snapshot, &1)
       )
+      |> log_failure(repository_ref, :fetch)
     else
-      _unavailable -> {:error, :coop_worker_source_unavailable}
+      {step, failure} ->
+        log_failure({:error, failure}, repository_ref, step)
+        {:error, :coop_worker_source_unavailable}
     end
   end
+
+  defp log_failure({:error, reason} = error, repository_ref, step) do
+    Logger.warning(
+      "repository source for #{repository_ref} unavailable at #{step}: " <>
+        inspect(reason, limit: 8, printable_limit: 200)
+    )
+
+    error
+  end
+
+  defp log_failure(result, _repository_ref, _step), do: result
 
   @doc false
   @spec prepare_from_remote(
@@ -108,9 +133,19 @@ defmodule Ryker.CoopFleet.ManagedSources do
            ) do
       {:ok, put_in(prepared, [:source, "submodules"], modules)}
     else
-      false -> {:error, :invalid_coop_worker_source}
-      {:error, :invalid_coop_worker_source} = invalid -> invalid
-      _unavailable -> {:error, :coop_worker_source_unavailable}
+      false ->
+        {:error, :invalid_coop_worker_source}
+
+      {:error, :invalid_coop_worker_source} = invalid ->
+        invalid
+
+      # No retry fetches a submodule from a repository Ryker was never given:
+      # the caller stops at once and says which one.
+      {:error, {:submodule_not_configured, submodule}} ->
+        {:error, {:coop_worker_source_refused, github_repository, submodule}}
+
+      _unavailable ->
+        {:error, :coop_worker_source_unavailable}
     end
   end
 
@@ -348,18 +383,23 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
     with [%{ref: ref, github_repository: repository, github_access: :available}] <- repositories,
          [%{name: name, repository_id: id}] <-
-           Enum.filter(snapshot.github_bindings, &(&1.repository_ref == ref)),
-         {:ok, token} <- InstallationTokens.token(name, :source_read) do
-      {:ok,
-       %{
-         repository_ref: ref,
-         github_repository: repository,
-         repository_id: id,
-         remote: "https://github.com/#{repository}.git",
-         token: token
-       }}
+           Enum.filter(snapshot.github_bindings, &(&1.repository_ref == ref)) do
+      case InstallationTokens.token(name, :source_read) do
+        {:ok, token} ->
+          {:ok,
+           %{
+             repository_ref: ref,
+             github_repository: repository,
+             repository_id: id,
+             remote: "https://github.com/#{repository}.git",
+             token: token
+           }}
+
+        _unavailable ->
+          {:error, :submodule_not_authorized}
+      end
     else
-      _unavailable -> {:error, :submodule_not_authorized}
+      _not_configured -> {:error, :submodule_not_configured}
     end
   end
 
@@ -375,7 +415,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
        when is_function(resolver, 1) and depth < 16 and length(declarations) <= remaining do
     Enum.reduce_while(declarations, {:ok, [], remaining}, fn declaration, {:ok, modules, left} ->
       with true <- left > 0,
-           {:ok, identity} <- resolver.(declaration.repository),
+           {:ok, identity} <- resolve_module(resolver, declaration),
            false <- {identity.repository_id, declaration.commit} in ancestors,
            {:ok, tree, nested} <- pin_submodule(git, root, identity, declaration.commit),
            {:ok, children, left} <-
@@ -400,6 +440,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
         {:cont, {:ok, [module | modules], left}}
       else
+        {:error, {:submodule_not_configured, _submodule}} = refused -> {:halt, refused}
         _unavailable -> {:halt, {:error, :submodule_not_authorized}}
       end
     end)
@@ -411,6 +452,22 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
   defp resolve_modules(_git, _root, _declarations, _resolver, _ancestors, _depth, _remaining),
     do: {:error, :submodule_manifest_limit}
+
+  # theblitzapp/blitz-core vendors skypjack/entt, which no GitHub App
+  # installation of theirs can reach (2026-10-03). The worker stages every
+  # gitlink a source declares, so that source cannot be staged at all.
+  defp resolve_module(resolver, declaration) do
+    case resolver.(declaration.repository) do
+      {:ok, identity} ->
+        {:ok, identity}
+
+      {:error, :submodule_not_configured} ->
+        {:error, {:submodule_not_configured, declaration.repository}}
+
+      _unavailable ->
+        {:error, :submodule_not_authorized}
+    end
+  end
 
   defp pin_submodule(git, root, identity, commit) do
     with_mirror_lock(

@@ -271,12 +271,16 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
   end
 
   test "unconfigured repositories and ambiguous or external declarations never gain authority" do
-    for url <- [
-          "https://evil.invalid/example/child.git",
-          "https://github.com@example.invalid/a/b",
-          "https://github.com/example/child.git?token=secret",
-          "../../outside.git",
-          "https://github.com/example/unknown.git"
+    for {url, expected} <- [
+          {"https://evil.invalid/example/child.git", :coop_worker_source_unavailable},
+          {"https://github.com@example.invalid/a/b", :coop_worker_source_unavailable},
+          {"https://github.com/example/child.git?token=secret", :coop_worker_source_unavailable},
+          {"../../outside.git", :coop_worker_source_unavailable},
+          # theblitzapp/blitz-core vendors skypjack/entt, which Ryker was never given: every task
+          # in its environment spent eight tries in two minutes on it and then could not say
+          # why (2026-10-03). No retry fetches it, so the refusal names it at once.
+          {"https://github.com/example/unknown.git",
+           {:coop_worker_source_refused, "example/primary", "example/unknown"}}
         ] do
       directory = fixture_root()
       primary = remote!(directory, "primary")
@@ -285,10 +289,10 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
 
       resolver = fn
         "example/child" -> {:ok, identity("child", child, 2)}
-        _unknown -> {:error, :unavailable}
+        _unknown -> {:error, :submodule_not_configured}
       end
 
-      assert {:error, :coop_worker_source_unavailable} =
+      assert {:error, ^expected} =
                ManagedSources.prepare_from_remote(
                  Path.join(directory, "state"),
                  identity("primary", primary, 1),

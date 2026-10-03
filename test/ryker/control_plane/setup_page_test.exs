@@ -181,7 +181,7 @@ defmodule Ryker.ControlPlane.SetupPageTest do
       render_setup(view(done: [:slack, :github])) |> LazyHTML.query("li[aria-current=step]")
 
     assert LazyHTML.query(current, "h3") |> LazyHTML.text() == "Add repositories"
-    assert text(current) =~ "Each one joins the Default environment, which Ryker creates for you."
+    assert text(current) =~ "Then choose the ones work should use on the Environments page."
   end
 
   # Andrew, 2026-10-01: "put emisar as step 4 after Add repositories and before Invite Ryker to a

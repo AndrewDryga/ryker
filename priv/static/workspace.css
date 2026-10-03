@@ -2096,6 +2096,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
    the default; the arrows move one place up or down. */
 /* An environment's repositories: every added repository once, by name, in a
    grid of what it is, what work may do in it and whether it is the default. */
+.environment-repositories-choose { display:flex; gap:4px; margin:4px 0 0 -10px; }
 .environment-repositories { display:grid; grid-template-columns:minmax(0,1fr) 168px 64px; max-width:640px; margin:4px 0 0; }
 .environment-repositories-head, .environment-repository { display:contents; }
 .environment-repositories-head > span { padding:0 0 6px; border-bottom:1px solid var(--ryker-stroke); font-size:12px; line-height:16px; font-weight:600; color:var(--ryker-text-secondary); }
