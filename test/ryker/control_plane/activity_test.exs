@@ -380,35 +380,27 @@ defmodule Ryker.ControlPlane.ActivityTest do
   end
 
   test "Usage drill-downs retain shadow and all execution modes" do
+    measurements = %{attempts: 1, measured: 0, tokens: 0, costed: 0, cost_usd: nil}
+
+    rows = %{
+      "model" => Map.merge(measurements, %{provider: "codex", model: "sol", effort: "medium"}),
+      "channel" => Map.merge(measurements, %{transport: "slack", conversation_ref: "C123"}),
+      "repository" => Map.put(measurements, :repository_ref, "emisar")
+    }
+
     for mode <- ~w(shadow all) do
-      snapshot = UsageProjection.page(%{"mode" => mode})
-      measurements = %{attempts: 1, measured: 0, tokens: 0, costed: 0, cost_usd: nil}
-
-      snapshot = %{
-        snapshot
-        | targets: [
-            Map.merge(measurements, %{
-              target: "sol/medium",
-              provider: "codex",
-              model: "sol",
-              effort: "medium"
-            })
-          ],
-          channels: [Map.merge(measurements, %{transport: "slack", conversation_ref: "C123"})],
-          repositories: [Map.put(measurements, :repository_ref, "emisar")]
-      }
-
-      html =
-        snapshot
-        |> Map.put(:models, snapshot.targets)
-        |> UsagePage.render()
-        |> IO.iodata_to_binary()
-
       links =
-        html
-        |> LazyHTML.from_fragment()
-        |> LazyHTML.query("a[href^='/activity?']")
-        |> LazyHTML.attribute("href")
+        for {by, row} <- rows do
+          %{"mode" => mode, "by" => by}
+          |> UsageProjection.page()
+          |> Map.put(:rows, [row])
+          |> UsagePage.render()
+          |> IO.iodata_to_binary()
+          |> LazyHTML.from_fragment()
+          |> LazyHTML.query("#usage-breakdown a[href^='/activity?']")
+          |> LazyHTML.attribute("href")
+        end
+        |> List.flatten()
 
       assert length(links) == 3
       assert Enum.all?(links, &(URI.decode_query(URI.parse(&1).query)["mode"] == mode))

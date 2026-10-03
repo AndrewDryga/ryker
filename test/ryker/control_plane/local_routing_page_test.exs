@@ -1,16 +1,19 @@
-defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
+defmodule Ryker.ControlPlane.LocalRoutingPageTest do
   @moduledoc """
-  Usage & cost says how the local routing model compares (Andrew,
-  2026-09-27: "with accuracy and cost measured on Usage"): how many routing
-  prompts it answered, how many answers routing's checks took and how many
-  decided what the provider decided, how long it took beside the provider,
-  what the provider spent on those messages, and where it decided
-  differently, each opening its request's timeline.
+  The local routing model's page, beside its setting in Settings › Models,
+  says how it compares (Andrew, 2026-09-27: "with accuracy and cost
+  measured"): how many routing prompts it answered, how many answers
+  routing's checks took and how many decided what the provider decided, how
+  long it took beside the provider, what the provider spent on those
+  messages, and where it decided differently, each opening its request's
+  timeline. It is not on Usage & cost (Andrew, 2026-10-03: "why the fuck you
+  added Local routing model and Where it decided differently to usage and
+  costs?!").
   """
   use Ryker.DataCase, async: false
 
   alias Ryker.Admission.Decision
-  alias Ryker.ControlPlane.{UsagePage, UsageProjection}
+  alias Ryker.ControlPlane.{LocalRoutingPage, Pages, Projection, UsagePage, UsageProjection}
   alias Ryker.Fixtures.LocalRouting, as: Harvested
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.EntryChangeset
@@ -23,11 +26,10 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
   @actor "control-plane:local"
   @model "qwen2.5:3b"
 
-  test "while the local routing model is off, Usage says so in one line and links to its setting" do
+  test "while the local routing model is off, its page says so and links to its setting" do
     {:ok, _snapshot} = Settings.initialize(@actor)
     section = section!()
 
-    assert text(section, "h2") == "Local routing model"
     assert [line] = LazyHTML.query(section, ".kit-status-line") |> Enum.to_list()
     assert LazyHTML.text(line) =~ "Off"
 
@@ -35,11 +37,48 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
              "/settings/models#local-routing"
            ]
 
+    assert text(line, "a") == "Turn it on in Settings › Models"
     assert Enum.empty?(LazyHTML.query(section, ".kit-counts"))
     assert Enum.empty?(LazyHTML.query(section, ".entity-row"))
+    assert text(section, ".kit-empty-title") == "Nothing compared in this period"
   end
 
-  test "Usage shows how often the local model was valid and agreed, what it took, what the provider spent, and where it differed" do
+  test "the page is under Settings › Models, opens on 7 days, and Usage & cost no longer shows it" do
+    shadow!()
+
+    compared!(decided!("Ev-page-agreed", Harvested.hi_quick_reply()), Harvested.hi_quick_reply(),
+      agrees: true,
+      local_ms: 900,
+      cost: "0.028316",
+      provider_ms: 16_770
+    )
+
+    page = Pages.page(["settings", "models", "local-routing"], %{}, options())
+    assert page.status == 200
+    assert page.title == "Local routing model"
+    assert page.back == {"Models", "/settings/models"}
+    assert page.description == LocalRoutingPage.description()
+
+    document = LazyHTML.from_fragment(page.body)
+
+    assert document
+           |> LazyHTML.query(".segmented a[aria-current=page]")
+           |> LazyHTML.attribute("href") == ["/settings/models/local-routing?window=7d"]
+
+    assert text(document, "#local-routing-figures h2") == "How it compares"
+
+    usage =
+      %{"window" => "7d"}
+      |> UsageProjection.page()
+      |> UsagePage.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    assert Enum.empty?(LazyHTML.query(usage, "#local-routing"))
+    refute LazyHTML.text(usage) =~ "Local routing model"
+  end
+
+  test "its page shows how often the local model was valid and agreed, what it took, what the provider spent, and where it differed" do
     {:ok, snapshot} = Settings.initialize(@actor)
 
     {:ok, _saved} =
@@ -141,7 +180,7 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
 
   # The Mac running Ollama went to sleep: comparisons stop coming back, and
   # the section says so where the numbers would otherwise just stop moving.
-  test "when the local model's last answer never came, Usage says so and why" do
+  test "when the local model's last answer never came, its page says so and why" do
     {:ok, snapshot} = Settings.initialize(@actor)
 
     {:ok, _saved} =
@@ -218,8 +257,13 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
                "The provider chose a quick reply."
   end
 
-  test "an open Usage page redraws when a comparison is queued or settles" do
-    assert {LocalRouting, :subscribe_comparisons, []} in UsagePage.subscriptions()
+  test "its open page redraws when a comparison is queued or settles" do
+    assert {LocalRouting, :subscribe_comparisons, []} in LocalRoutingPage.subscriptions()
+
+    assert Pages.subscriptions(["settings", "models", "local-routing"], %{}) ==
+             LocalRoutingPage.subscriptions()
+
+    refute {LocalRouting, :subscribe_comparisons, []} in UsagePage.subscriptions()
   end
 
   defp shadow! do
@@ -238,13 +282,11 @@ defmodule Ryker.ControlPlane.LocalRoutingUsageTest do
   end
 
   defp section! do
-    %{"window" => "7d"}
-    |> UsageProjection.page()
-    |> UsagePage.render()
-    |> IO.iodata_to_binary()
-    |> LazyHTML.from_fragment()
-    |> LazyHTML.query("#local-routing")
+    page = Pages.page(["settings", "models", "local-routing"], %{"window" => "7d"}, options())
+    page.body |> LazyHTML.from_fragment() |> LazyHTML.query("#local-routing")
   end
+
+  defp options, do: %{projection: Projection.callbacks()}
 
   defp text(node, selector),
     do:

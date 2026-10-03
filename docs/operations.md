@@ -213,12 +213,13 @@ exact prompt the provider answered, with routing's response contract as structur
 unreachable model is asked again after 30 s, 2 min and 8 min, then given up. The answer goes through
 routing's own checks, and it agrees when it would make Ryker do the same next: the same action,
 earlier work, relation to that work, kind of work, repository, branch or commit, and emoji. The
-words of a quick reply and the reason are not compared. Usage & cost shows how many comparisons
-ran, how many answers were valid and how many agreed, the median local time beside the provider's,
-what the provider spent on those messages and the part of it on messages the local model agreed on,
-the latest disagreements, and the latest answers routing's checks refused with why, such as earlier
-work that was never offered; each opens its request. Comparisons are operational data and leave
-with their message's bodies.
+words of a quick reply and the reason are not compared. Its page, See how it compares on the Local
+routing model card in Settings › Models (`/settings/models/local-routing`), shows how many
+comparisons ran, how many answers were valid and how many agreed, the median local time beside the
+provider's, what the provider spent on those messages and the part of it on messages the local model
+agreed on, the latest disagreements, and the latest answers routing's checks refused with why, such
+as earlier work that was never offered; each opens its request. Comparisons are operational data and
+leave with their message's bodies.
 
 **Enable it on the Mac that runs Ryker.**
 

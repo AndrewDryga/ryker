@@ -44,8 +44,9 @@ rows share the same rail, checks prompt source labels, and expands retained
 instructions through a server-acknowledged live refresh. It uses the same private
 artifact-directory protections and never submits a message or runs a model.
 
-For the Usage page with real execution data (populated profile, model and people
-tables, the token chart, the rates disclosure and a profile drill-down):
+For the Usage page with real execution data (every breakdown of where the money
+went, ranked by cost and fitting the page, the quiet line under each name, the rates
+disclosure and a drill-down to Activity):
 
 ```sh
 node scripts/usage-visual.cjs http://127.0.0.1:4321 /tmp/ryker-usage-review

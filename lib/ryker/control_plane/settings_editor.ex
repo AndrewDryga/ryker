@@ -618,8 +618,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         title={@section.title}
         lede={@section.description}
       >
-        <:actions :if={@collection?}>
-          <.add_link noun={@noun} paths={@paths} blocked={@add_blocked} />
+        <:actions :if={@collection? or @section[:link] != nil}>
+          <.add_link :if={@collection?} noun={@noun} paths={@paths} blocked={@add_blocked} />
+          <.link :if={@section[:link]} navigate={elem(@section.link, 1)}>{elem(@section.link, 0)}</.link>
         </:actions>
       </Kit.section_head>
       <p :for={notice <- @notices} class="settings-notice">

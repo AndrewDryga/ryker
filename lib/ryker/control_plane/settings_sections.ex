@@ -125,8 +125,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
      "Routing uses only the provider model, and nothing is sent to the local model."},
     {"shadow", "Compare in the background",
      "After the provider model has decided, the local model is asked the same routing prompt. " <>
-       "Usage & cost shows how often it would have decided the same. Routing still uses only " <>
-       "the provider model's decision."}
+       "Its page, See how it compares, shows how often it would have decided the same. Routing " <>
+       "still uses only the provider model's decision."}
   ]
   @weekdays [
     {"1", "Monday"},
@@ -650,9 +650,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
     # model later ... So we can do more on free routing steps more accurately
     # and fallback to large provider models only when needed." Phase 1 only
     # measures (`Ryker.LocalRouting`): in the background the local model is
-    # asked the routing prompt the provider already answered, and Usage &
-    # cost shows how often it agrees. Routing never waits for it or uses it.
-    # Usage links to this card by its anchor.
+    # asked the routing prompt the provider already answered, and its own page
+    # (`Ryker.ControlPlane.LocalRoutingPage`) shows how often it agrees.
+    # Routing never waits for it or uses it. That page links to this card by
+    # its anchor.
     %{
       key: :local_routing,
       domain: :work,
@@ -660,6 +661,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
       schema: Work,
       anchor: "local-routing",
       title: "Local routing model",
+      # How it compares is a page of its own, opened from the card's title.
+      link: {"See how it compares", "/settings/models/local-routing"},
       description:
         "A small model you run yourself, tried on routing beside the provider model to see how " <>
           "often it would decide the same. It never changes what Ryker does.",
