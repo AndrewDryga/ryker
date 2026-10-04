@@ -16,6 +16,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
+  alias Ryker.Slack.ThreadStatuses
   alias Ryker.Work.{ActivityEvent, Turn}
 
   @recent_terminal_seconds 24 * 60 * 60
@@ -256,6 +257,9 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   defp phrase_for(table, name),
     do: Enum.find_value(table, @working, fn {phrase, names} -> if name in names, do: phrase end)
 
+  # One status per thread, at most as many as one reconcile takes. Past that
+  # bound the live ones are kept: a finished thread left out is cleared anyway,
+  # while refusing the whole list stopped every status in the workspace.
   @doc false
   @spec targets([Entry.t()], [Episode.t()], map(), String.t()) :: [map()]
   def targets(entries, episodes, turns, workspace_ref)
@@ -265,6 +269,8 @@ defmodule Ryker.Slack.ThreadStatusProjection do
        Enum.flat_map(episodes, &episode_candidate(&1, turns, workspace_ref)))
     |> Enum.group_by(& &1.key)
     |> Enum.map(fn {_key, candidates} -> Enum.max_by(candidates, & &1.priority) end)
+    |> Enum.sort_by(& &1.priority, :desc)
+    |> Enum.take(ThreadStatuses.maximum_targets())
     |> Enum.map(&Map.drop(&1, [:key, :priority]))
     |> Enum.sort_by(&{&1.channel_ref, &1.thread_ref})
   end

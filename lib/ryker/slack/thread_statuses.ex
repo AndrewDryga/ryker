@@ -18,7 +18,12 @@ defmodule Ryker.Slack.ThreadStatuses do
   alias Ryker.UTCDateTime
 
   @maximum_error_detail_bytes 4_096
+  @maximum_targets 1_000
   @phases ~w(queued admitting admission_retry working delivery waiting_for_input waiting_for_event blocked clear)a
+
+  @doc "The most threads one `reconcile/4` takes."
+  @spec maximum_targets() :: pos_integer()
+  def maximum_targets, do: @maximum_targets
 
   @spec reconcile(String.t(), [map()], pos_integer(), pos_integer()) ::
           {:ok, [ThreadStatus.t()]} | {:error, term()}
@@ -372,7 +377,7 @@ defmodule Ryker.Slack.ThreadStatuses do
     end
   end
 
-  defp targets(values) when is_list(values) and length(values) <= 1_000 do
+  defp targets(values) when is_list(values) and length(values) <= @maximum_targets do
     with true <- Enum.all?(values, &target?/1),
          keys <- Enum.map(values, &{&1.channel_ref, &1.thread_ref}),
          true <- Enum.uniq(keys) == keys do

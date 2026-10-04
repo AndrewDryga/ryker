@@ -6,7 +6,7 @@ defmodule Ryker.Slack.ThreadStatusProjectionTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.Slack.ThreadStatusProjection
+  alias Ryker.Slack.{ThreadStatuses, ThreadStatusProjection}
   alias Ryker.Work.Activity
   alias Ryker.Work.Session
   alias Ryker.Work.Turn
@@ -441,6 +441,27 @@ defmodule Ryker.Slack.ThreadStatusProjectionTest do
     })
 
     episode
+  end
+
+  # The projection reads up to 1,000 inputs and 1,000 episodes from the last day, and
+  # reconcile refuses more than 1,000 targets. A workspace with more threads than that
+  # stopped every thread status, live ones included (2026-10-04 review). The live ones are
+  # kept; a thread left out is cleared, as its finished state asks.
+  test "more threads than one reconcile takes keep every live status" do
+    finished =
+      for n <- 1..1_200 do
+        key = %{conversation: "slack:TF2975945C602:C456", thread: "17878#{n + 10_000}.000100"}
+        entry(key, :decided)
+      end
+
+    live = %{conversation: "slack:TF2975945C602:C789", thread: "1787832000.000200"}
+
+    targets =
+      ThreadStatusProjection.targets([entry(live, :pending) | finished], [], %{}, "TF2975945C602")
+
+    assert length(targets) == 1_000
+    assert Enum.any?(targets, &(&1.thread_ref == live.thread and &1.phase == :queued))
+    assert {:ok, _statuses} = ThreadStatuses.reconcile("TF2975945C602", targets, 1_000, 90_000)
   end
 
   defp entry(destination, status, attributes \\ []) do
