@@ -110,16 +110,18 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
 
   defp indented?(line), do: Regex.match?(~r/^(?: {2,}|\t)\S/u, line)
 
+  @bullet ~r/^\s*[-*•] /u
+  # [0-9], not \d: with the u flag \d matches any script's digits, and
+  # String.to_integer/1 raises on them.
+  @numbered ~r/^\s*[0-9]+\. /u
+
   defp line_kind(line) do
     cond do
-      Regex.match?(~r/^\s*[-*•] /u, line) -> :bullet
-      Regex.match?(~r/^\s*\d+\. /u, line) -> :numbered
+      Regex.match?(@bullet, line) -> :bullet
+      Regex.match?(@numbered, line) -> :numbered
       true -> :text
     end
   end
-
-  @bullet ~r/^\s*[-*•] /u
-  @numbered ~r/^\s*\d+\. /u
 
   defp block(items, :bullet, workspace),
     do: ["<ul>", Enum.map(items, &item(&1, @bullet, workspace)), "</ul>"]
@@ -155,7 +157,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   # starts at the number its first item was written with, so they still count
   # 1, 2, 3 instead of starting over.
   defp ordered_list_open(first_line) do
-    case Regex.run(~r/^\s*(\d+)\. /u, first_line) do
+    case Regex.run(~r/^\s*([0-9]+)\. /u, first_line) do
       [_match, "1"] ->
         "<ol>"
 

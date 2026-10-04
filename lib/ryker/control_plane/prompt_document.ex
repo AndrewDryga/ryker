@@ -262,12 +262,12 @@ defmodule Ryker.ControlPlane.PromptDocument do
 
   defp own_line(line, open) do
     owner =
-      case Regex.run(~r/\x{E000}(\d+)\x{E001}/u, line, capture: :all_but_first) do
+      case Regex.run(~r/\x{E000}([0-9]+)\x{E001}/u, line, capture: :all_but_first) do
         [index] -> String.to_integer(index)
         nil -> open
       end
 
-    text = String.replace(line, ~r/\x{E000}\d+\x{E001}|\x{E002}/u, "")
+    text = String.replace(line, ~r/\x{E000}[0-9]+\x{E001}|\x{E002}/u, "")
     {{owner, text}, if(String.contains?(line, @done), do: nil, else: owner)}
   end
 

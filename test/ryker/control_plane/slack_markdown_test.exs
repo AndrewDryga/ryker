@@ -46,6 +46,20 @@ defmodule Ryker.ControlPlane.SlackMarkdownTest do
     assert html =~ ~s(<ol start="2"><li>Pod events</li><li>Release changes</li></ol>)
   end
 
+  # With the u flag \d matches Arabic-Indic and full-width digits too, and the
+  # list number went through String.to_integer/1, which raised: any view
+  # showing such a message crashed (2026-10-04 review). Only 0-9 numbers a list.
+  test "a list numbered in other scripts' digits is plain text and does not crash the page" do
+    for text <- ["١. أولا\n٢. ثانيا", "１. first\n２. second", "2. two\n٣. three"] do
+      html = text |> SlackMarkdown.preview() |> IO.iodata_to_binary()
+      assert is_binary(html)
+    end
+
+    assert "١. أولا" |> SlackMarkdown.preview() |> IO.iodata_to_binary() =~ "١. أولا"
+
+    refute "１. first" |> SlackMarkdown.render() |> IO.iodata_to_binary() =~ "<ol"
+  end
+
   # Manual test, 2026-09-26: a model's numbered item whose text wrapped onto
   # an indented line, or which carried an indented sub-point, split the list:
   # the item ended, the wrapped words stood alone as a paragraph, and the
