@@ -3,6 +3,8 @@ defmodule Ryker.GitHub.ServerTest do
 
   alias Ryker.GitHub.{Binding, Server}
 
+  @secret Ryker.Secret.new(String.duplicate("s", 32))
+
   test "builds an optional GitHub listener from trusted repository bindings" do
     options =
       Server.options!(%{
@@ -26,7 +28,7 @@ defmodule Ryker.GitHub.ServerTest do
             }
           }
         },
-        secret: String.duplicate("s", 32),
+        secret: @secret,
         port: 4_081
       })
 
@@ -41,7 +43,7 @@ defmodule Ryker.GitHub.ServerTest do
         bindings: options.bindings,
         confirmations: options.confirmations,
         port: 4_081,
-        secret: String.duplicate("s", 32)
+        secret: @secret
       })
 
     assert child.id == Server
@@ -50,14 +52,14 @@ defmodule Ryker.GitHub.ServerTest do
 
   test "refuses empty, mismatched, or unsafe listener configuration" do
     assert_raise ArgumentError, fn ->
-      Server.options!(%{bindings: %{}, port: 4_081, secret: String.duplicate("s", 32)})
+      Server.options!(%{bindings: %{}, port: 4_081, secret: @secret})
     end
 
     assert_raise ArgumentError, fn ->
       Server.options!(%{
         bindings: %{"x" => %{}},
         port: 0,
-        secret: String.duplicate("s", 32)
+        secret: @secret
       })
     end
 
@@ -66,18 +68,27 @@ defmodule Ryker.GitHub.ServerTest do
         extra: true,
         bindings: %{},
         port: 4_081,
-        secret: String.duplicate("s", 32)
+        secret: @secret
       })
     end
 
     assert_raise ArgumentError, fn -> Server.options!(:invalid) end
+
+    assert_raise ArgumentError, ~r/webhook secret/, fn ->
+      Server.options!(%{
+        bindings: %{},
+        bot_login: "ryker-test",
+        port: 4_081,
+        secret: String.duplicate("s", 32)
+      })
+    end
 
     assert_raise ArgumentError, fn ->
       Server.options!(
         port: 4_081,
         port: 4_082,
         bindings: %{},
-        secret: String.duplicate("s", 32)
+        secret: @secret
       )
     end
 
@@ -85,7 +96,7 @@ defmodule Ryker.GitHub.ServerTest do
       Server.options!(%{
         bindings: %{7 => %{}},
         port: 4_081,
-        secret: String.duplicate("s", 32)
+        secret: @secret
       })
     end
 
@@ -93,7 +104,7 @@ defmodule Ryker.GitHub.ServerTest do
       Server.options!(%{
         bindings: %{"x" => :invalid},
         port: 4_081,
-        secret: String.duplicate("s", 32)
+        secret: @secret
       })
     end
 
@@ -101,7 +112,7 @@ defmodule Ryker.GitHub.ServerTest do
       Server.options!(%{
         bindings: %{"x" => %{}},
         port: 4_081,
-        secret: String.duplicate("s", 32)
+        secret: @secret
       })
     end
 
@@ -109,7 +120,7 @@ defmodule Ryker.GitHub.ServerTest do
       Server.options!(%{
         bindings: %{},
         port: 70_000,
-        secret: String.duplicate("s", 32)
+        secret: @secret
       })
     end
 
@@ -118,7 +129,7 @@ defmodule Ryker.GitHub.ServerTest do
         bindings: %{},
         ip: {999, 0, 0, 1},
         port: 4_081,
-        secret: String.duplicate("s", 32)
+        secret: @secret
       })
     end
 
@@ -136,7 +147,7 @@ defmodule Ryker.GitHub.ServerTest do
       Server.options!(%{
         bindings: %{"different" => binding},
         port: 4_081,
-        secret: String.duplicate("s", 32)
+        secret: @secret
       })
     end
   end
@@ -158,7 +169,7 @@ defmodule Ryker.GitHub.ServerTest do
                bot_login: "ryker-test",
                ip: {0, 0, 0, 0, 0, 0, 0, 1},
                port: 4_081,
-               secret: String.duplicate("s", 32)
+               secret: @secret
              )
   end
 end

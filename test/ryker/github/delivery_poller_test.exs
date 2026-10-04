@@ -111,7 +111,7 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
         bindings: %{"github-main" => binding!()},
         bot_login: "ryker-test",
         repository_access: access,
-        secret: @secret
+        secret: Ryker.Secret.new(@secret)
       ]
     })
   end

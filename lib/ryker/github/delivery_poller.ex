@@ -28,6 +28,7 @@ defmodule Ryker.GitHub.DeliveryPoller do
   alias Plug.Adapters.Test.Conn, as: RequestConn
   alias Ryker.Delivery.JSONClient
   alias Ryker.GitHub.{Auth, Events, Router}
+  alias Ryker.Secret
 
   @interval_ms 30_000
   @first_poll_ms 5_000
@@ -145,7 +146,10 @@ defmodule Ryker.GitHub.DeliveryPoller do
       |> Plug.Conn.put_req_header("content-type", "application/json")
       |> Plug.Conn.put_req_header("x-github-event", event_name)
       |> Plug.Conn.put_req_header("x-github-delivery", guid)
-      |> Plug.Conn.put_req_header("x-hub-signature-256", Auth.signature(state.secret, body))
+      |> Plug.Conn.put_req_header(
+        "x-hub-signature-256",
+        Auth.signature(Secret.reveal(state.secret), body)
+      )
       |> Router.call(state.router)
 
     # The in-process request reports its response to its caller as a message

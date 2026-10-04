@@ -15,6 +15,7 @@ defmodule Ryker.GitHub.RouterTest do
   alias Ryker.Work.{Custody, SubmissionBuilder}
 
   @secret String.duplicate("s", 32)
+  @sealed Ryker.Secret.new(@secret)
 
   # Like Bandit, which serves GitHub's real deliveries: a response it has sent
   # keeps no body. A test connection keeps it, so tests and the delivery
@@ -58,7 +59,7 @@ defmodule Ryker.GitHub.RouterTest do
           bindings: %{"github-main" => binding!()},
           bot_login: "ryker-test",
           repository_access: fn _binding, _payload -> :ok end,
-          secret: @secret
+          secret: @sealed
         )
       )
 
@@ -913,7 +914,7 @@ defmodule Ryker.GitHub.RouterTest do
              Router.init(
                bindings: %{"github-main" => binding!()},
                bot_login: "ryker-test",
-               secret: @secret
+               secret: @sealed
              )
            )
            |> Map.fetch!(:status) == 404
@@ -935,7 +936,7 @@ defmodule Ryker.GitHub.RouterTest do
         Router.init(
           bindings: %{"github-main" => binding!()},
           bot_login: "ryker-test",
-          secret: @secret
+          secret: @sealed
         )
       )
 
@@ -981,16 +982,24 @@ defmodule Ryker.GitHub.RouterTest do
   # listens, so GitHub's deliveries during setup do not fail.
   test "takes an empty binding registry and refuses a mismatched one" do
     assert %{binding_index: index} =
-             Router.init(bindings: %{}, bot_login: "ryker-test", secret: @secret)
+             Router.init(bindings: %{}, bot_login: "ryker-test", secret: @sealed)
 
     assert index == %{}
 
     assert_raise ArgumentError, fn ->
-      Router.init(bindings: %{"wrong" => binding!()}, secret: @secret)
+      Router.init(bindings: %{"wrong" => binding!()}, secret: @sealed)
     end
 
-    assert_raise ArgumentError, fn ->
-      Router.init(bindings: %{"github-main" => binding!()}, secret: "short")
+    # A webhook secret travels sealed, so a crash report or a failed child
+    # start never prints it (2026-10-04 review).
+    for secret <- [Ryker.Secret.new("short"), @secret] do
+      assert_raise ArgumentError, ~r/webhook secret/, fn ->
+        Router.init(
+          bindings: %{"github-main" => binding!()},
+          bot_login: "ryker-test",
+          secret: secret
+        )
+      end
     end
 
     assert_raise ArgumentError, fn ->
@@ -999,7 +1008,7 @@ defmodule Ryker.GitHub.RouterTest do
           "github-main" => binding!(),
           "github-alias" => binding!(%{name: "github-alias"})
         },
-        secret: @secret
+        secret: @sealed
       )
     end
   end
@@ -1053,7 +1062,7 @@ defmodule Ryker.GitHub.RouterTest do
       bindings: bindings,
       bot_login: "ryker-test",
       repository_access: repository_access,
-      secret: @secret
+      secret: @sealed
     ]
 
     router_options =

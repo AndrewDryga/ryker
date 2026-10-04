@@ -902,7 +902,7 @@ defmodule Ryker.Runtime.Assembly do
           ip: bootstrap.github_listener.ip,
           port: bootstrap.github_listener.port,
           repository_access: repository_access(prepared),
-          secret: webhook_secret
+          secret: Secret.new(webhook_secret)
         },
         tokens: %{
           app_http: app_http,

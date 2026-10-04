@@ -1252,7 +1252,7 @@ defmodule Ryker.IntegrationSetupTest do
         bindings: bindings,
         bot_login: "ryker-test",
         repository_access: fn _binding, _payload -> :ok end,
-        secret: secret
+        secret: Ryker.Secret.new(secret)
       )
     )
   end

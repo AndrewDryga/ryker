@@ -13,6 +13,7 @@ defmodule Ryker.GitHub.Router do
   alias Ryker.HTTPConnection
   alias Ryker.Ingress.{Adapters, InboundHTTP, Inbox}
   alias Ryker.Publication.Followups
+  alias Ryker.Secret
 
   @lifecycle_events ~w(check_run check_suite pull_request status workflow_job workflow_run)
   @access_events ~w(installation installation_repositories repository)
@@ -55,8 +56,8 @@ defmodule Ryker.GitHub.Router do
     unless is_map(bindings) and Enum.all?(bindings, &valid_binding_entry?/1),
       do: raise(ArgumentError, "GitHub bindings must map names to matching bindings")
 
-    unless is_binary(secret) and byte_size(secret) in 32..1_024,
-      do: raise(ArgumentError, "GitHub webhook secret must contain 32 to 1024 bytes")
+    unless sealed_secret?(secret),
+      do: raise(ArgumentError, "GitHub webhook secret must be sealed and hold 32 to 1024 bytes")
 
     unless is_function(repository_access, 2),
       do: raise(ArgumentError, "GitHub repository access checker is invalid")
@@ -65,6 +66,11 @@ defmodule Ryker.GitHub.Router do
              Regex.match?(~r/\A[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\z/, bot_login),
            do: raise(ArgumentError, "GitHub bot login is invalid")
   end
+
+  defp sealed_secret?(%Secret{value: value}),
+    do: is_binary(value) and byte_size(value) in 32..1_024
+
+  defp sealed_secret?(_unsealed), do: false
 
   defp confirmations(options) do
     case Keyword.get(options, :confirmations) do
@@ -85,7 +91,7 @@ defmodule Ryker.GitHub.Router do
   defp admit(conn, options) do
     with :ok <- InboundHTTP.json_content_type(conn),
          {:ok, body, conn} <- InboundHTTP.read_bounded_body(conn, options.max_body_bytes),
-         :ok <- Auth.authorize(conn, options.secret, body),
+         :ok <- Auth.authorize(conn, Secret.reveal(options.secret), body),
          {:ok, delivery_ref} <-
            InboundHTTP.required_header(conn, "x-github-delivery", :delivery_ref),
          {:ok, event_name} <- InboundHTTP.required_header(conn, "x-github-event", :event_name),

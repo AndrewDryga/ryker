@@ -882,7 +882,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
         bindings: %{"task-e2e" => github_binding!()},
         bot_login: "ryker-test",
         repository_access: fn _binding, _payload -> :ok end,
-        secret: @github_secret
+        secret: Ryker.Secret.new(@github_secret)
       )
     )
   end

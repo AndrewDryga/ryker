@@ -330,7 +330,7 @@ defmodule Ryker.GitHub.EndToEndTest do
         bindings: %{"github-main" => binding!()},
         bot_login: "ryker-test",
         repository_access: fn _binding, _payload -> :ok end,
-        secret: @secret
+        secret: Ryker.Secret.new(@secret)
       )
     )
   end

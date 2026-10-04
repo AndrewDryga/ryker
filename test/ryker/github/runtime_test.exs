@@ -59,7 +59,7 @@ defmodule Ryker.GitHub.RuntimeTest do
           }
         },
         port: 4_081,
-        secret: String.duplicate("s", 32)
+        secret: Ryker.Secret.new(String.duplicate("s", 32))
       },
       tokens: %{
         app_http: :app_http,

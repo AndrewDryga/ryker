@@ -5,6 +5,7 @@ defmodule Ryker.GitHub.Server do
 
   alias Ryker.GitHub.{Binding, Confirmations, Router}
   alias Ryker.Options
+  alias Ryker.Secret
 
   @default_ip {127, 0, 0, 1}
   @fields [:bindings, :bot_login, :confirmations, :ip, :port, :repository_access, :secret]
@@ -48,7 +49,7 @@ defmodule Ryker.GitHub.Server do
           ip: :inet.ip_address(),
           port: pos_integer(),
           repository_access: (Binding.t(), map() -> :ok | {:error, term()}),
-          secret: binary()
+          secret: Secret.t()
         }
   def options!(configuration) do
     configuration = normalize_configuration!(configuration)
@@ -134,7 +135,10 @@ defmodule Ryker.GitHub.Server do
     ip |> Tuple.to_list() |> Enum.all?(&(is_integer(&1) and &1 >= 0 and &1 <= maximum))
   end
 
-  defp valid_secret?(secret), do: is_binary(secret) and byte_size(secret) in 32..1_024
+  defp valid_secret?(%Secret{value: secret}),
+    do: is_binary(secret) and byte_size(secret) in 32..1_024
+
+  defp valid_secret?(_unsealed), do: false
 
   defp valid_bot_login?(login),
     do: is_binary(login) and Regex.match?(~r/\A[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\z/, login)

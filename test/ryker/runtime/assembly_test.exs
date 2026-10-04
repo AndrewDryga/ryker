@@ -599,10 +599,34 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, configuration} = Assembly.build(bootstrap(), kept)
     printed = inspect(configuration, limit: :infinity, printable_limit: :infinity)
 
-    refute printed =~ @alert_secret
-    refute printed =~ @custody_secret
+    for {_kind, _name, value} <- connected_credentials() do
+      refute printed =~ value
+    end
+
     refute printed =~ inspect(Bootstrap.checkpoint_key!(), limit: :infinity)
     refute printed =~ Bootstrap.secret!(:state_tools)
+  end
+
+  # Every lane carried the value of every saved credential to redact with, so saving any
+  # credential changed every lane's configuration and the owner restarted them all, Work
+  # included, mid-turn (2026-10-04 review). Lanes read the values when they redact.
+  test "saving a credential no lane uses changes no lane's configuration" do
+    settings = connected!()
+
+    {:ok, kept} =
+      Settings.save_retention(
+        %{routing_examples_enabled: true, work_examples_enabled: true},
+        settings.installation.revision,
+        @actor
+      )
+
+    assert {:ok, before} = Assembly.build(bootstrap(), kept)
+    assert {:ok, _} = Credentials.put(:webhook, "unused", "a-webhook-secret-nothing-uses", @actor)
+    assert {:ok, after_saving} = Assembly.build(bootstrap(), Settings.fetch!())
+
+    for lane <- [:work, :coop_worker_gateway, :routing_examples, :work_examples, :admission] do
+      assert before[lane] == after_saving[lane], "#{lane} changed"
+    end
   end
 
   test "the worker gateway carries the checkpoint custody the deployment registered" do
@@ -1416,12 +1440,8 @@ defmodule Ryker.Runtime.AssemblyTest do
     settings
   end
 
-  # One installation with every product connection an operator can make, so the
-  # assembled result is the whole boundary rather than one lane at a time.
-  defp connected! do
-    {:ok, _fresh} = Settings.initialize(@actor)
-
-    credentials = [
+  defp connected_credentials do
+    [
       {:slack_app, "primary", "xapp-slack-app-token-long-enough"},
       {:slack_bot, "primary", "xoxb-slack-bot-token-long-enough"},
       {:github_private_key, "primary", Process.get(:github_private_key_fixture)},
@@ -1431,8 +1451,14 @@ defmodule Ryker.Runtime.AssemblyTest do
       {:webhook, "custom", @custody_secret},
       {:webhook, "deploys", @alert_secret}
     ]
+  end
 
-    Enum.each(credentials, fn {kind, name, value} ->
+  # One installation with every product connection an operator can make, so the
+  # assembled result is the whole boundary rather than one lane at a time.
+  defp connected! do
+    {:ok, _fresh} = Settings.initialize(@actor)
+
+    Enum.each(connected_credentials(), fn {kind, name, value} ->
       assert {:ok, _} = Credentials.put(kind, name, value, @actor)
     end)
 
