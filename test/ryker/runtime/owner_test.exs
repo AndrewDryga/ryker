@@ -1,6 +1,6 @@
 defmodule Ryker.Runtime.OwnerTest do
   use Ryker.DataCase, async: false
-  import Ryker.TestHelpers, only: [eventually: 1]
+  import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.{Bootstrap, Credentials, Repo, Settings}
@@ -180,6 +180,51 @@ defmodule Ryker.Runtime.OwnerTest do
     assert :control_plane in Owner.running_keys(owner)
   end
 
+  # A runtime that crashed came back under a pid the owner never saw. The next settings change
+  # stopped the pid it remembered, which no longer existed, and starting the replacement failed
+  # (already started, or its port still taken): the restarted child kept its old configuration
+  # until the container restarted, and the revision stayed unapplied (2026-10-04 review; for
+  # retention that means pruning at a horizon the operator had already lengthened).
+  test "a runtime restarted after a crash is still replaced when its settings change", context do
+    owner = start_owner(context)
+    {:ok, saved} = initialize()
+    assert applied(owner, saved)
+
+    crashed = state_tools_pid(context)
+    Process.exit(crashed, :kill)
+    assert eventually(fn -> state_tools_pid(context) not in [nil, crashed] end)
+    restarted = state_tools_pid(context)
+
+    # Verified Slack tokens give the state tools Slack's tools: a new configuration.
+    slack_tokens!()
+    {:ok, current} = Settings.fetch()
+    assert applied(owner, current)
+
+    assert eventually(fn -> state_tools_pid(context) not in [nil, restarted] end)
+    assert :state_tools in Owner.running_keys(owner)
+  end
+
+  # Every runtime was a permanent child of one dynamic supervisor with the default restart
+  # limit, so one runtime that kept crashing used it up and took every runtime down with it, the
+  # console included, and nothing started them again until a person saved settings.
+  test "a runtime that keeps crashing comes back on its own and takes nothing else down",
+       context do
+    owner = start_owner(Map.put(context, :retry_ms, 20))
+    {:ok, saved} = initialize()
+    assert applied(owner, saved)
+    console = console_pids(context)
+
+    for _crash <- 1..6 do
+      if pid = state_tools_pid(context), do: Process.exit(pid, :kill)
+      Process.sleep(5)
+    end
+
+    assert eventually(fn -> is_pid(state_tools_pid(context)) end, 5_000)
+    assert eventually(fn -> :state_tools in Owner.running_keys(owner) end, 5_000)
+    assert Process.alive?(context.supervisor)
+    assert console_pids(context) == console
+  end
+
   test "a revision that cannot be assembled is recorded failed and keeps the running one",
        context do
     owner = start_owner(context)
@@ -287,7 +332,7 @@ defmodule Ryker.Runtime.OwnerTest do
     assert applied(owner, saved)
 
     companions =
-      DynamicSupervisor.which_children(context.supervisor)
+      runtime_children(context)
       |> Enum.flat_map(fn {_id, _pid, _type, modules} -> List.wrap(modules) end)
 
     assert Ryker.ControlPlane.WorkerLiveness in companions
@@ -296,15 +341,14 @@ defmodule Ryker.Runtime.OwnerTest do
   end
 
   defp start_owner(context) do
-    owner =
-      start_supervised!(
-        {Owner,
-         [
-           name: :"owner-#{System.unique_integer([:positive])}",
-           supervisor: context.supervisor,
-           bootstrap: context.bootstrap
-         ]}
-      )
+    options =
+      [
+        name: :"owner-#{System.unique_integer([:positive])}",
+        supervisor: context.supervisor,
+        bootstrap: context.bootstrap
+      ] ++ if(retry_ms = Map.get(context, :retry_ms), do: [retry_ms: retry_ms], else: [])
+
+    owner = start_supervised!({Owner, options})
 
     Sandbox.allow(Repo, self(), owner)
     owner
@@ -333,14 +377,27 @@ defmodule Ryker.Runtime.OwnerTest do
   end
 
   defp console_pids(context) do
-    for {_id, pid, _type, [Ryker.ControlPlane.Endpoint]} <-
-          DynamicSupervisor.which_children(context.supervisor),
-        do: pid
+    for {_id, pid, _type, [Ryker.ControlPlane.Endpoint]} <- runtime_children(context), do: pid
   end
 
   defp console_running?(context) do
-    DynamicSupervisor.which_children(context.supervisor)
-    |> Enum.any?(fn {_id, pid, _type, _modules} -> is_pid(pid) end)
+    Enum.any?(runtime_children(context), fn {_id, pid, _type, _modules} -> is_pid(pid) end)
+  end
+
+  defp state_tools_pid(context) do
+    Enum.find_value(runtime_children(context), fn
+      {Ryker.StateTools.Server, pid, _type, _modules} when is_pid(pid) -> pid
+      _child -> nil
+    end)
+  end
+
+  # Each runtime key runs under its own supervisor; these are the processes inside them.
+  defp runtime_children(context) do
+    for {_id, key_supervisor, :supervisor, _modules} <-
+          DynamicSupervisor.which_children(context.supervisor),
+        is_pid(key_supervisor),
+        child <- Supervisor.which_children(key_supervisor),
+        do: child
   end
 
   defp initialize do

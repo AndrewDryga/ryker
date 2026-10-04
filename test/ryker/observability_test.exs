@@ -23,7 +23,7 @@ defmodule Ryker.ObservabilityTest do
   alias Ryker.Observability.Progress
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Repo
-  alias Ryker.Runtime.Owner
+  alias Ryker.Runtime.{Child, Owner}
   alias Ryker.Settings
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.Custody
@@ -893,6 +893,49 @@ defmodule Ryker.ObservabilityTest do
     end)
 
     assert Owner.running_keys() == [:control_plane]
+
+    assert {_result, readiness} =
+             Observability.ready(check_runtimes: true, stall_after_seconds: 86_400)
+
+    assert readiness.missing_runtimes == []
+  end
+
+  # Since 2026-10-04 each runtime key runs under a supervisor of its own inside the dynamic one,
+  # so a listener is one level down. Looking only at the dynamic supervisor's own children would
+  # report every listener missing and hold /readyz at 503 on a healthy installation.
+  test "a product child under its runtime key's supervisor is alive, not missing" do
+    keys = ~w(admission coop_worker_gateway control_plane delivery emisar event_waits github
+              learning publication retention schedules slack state_tools webhooks work)a
+
+    previous = Enum.map(keys, &{&1, Application.get_env(:ryker, &1, :missing)})
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, :missing} -> Application.delete_env(:ryker, key)
+        {key, value} -> Application.put_env(:ryker, key, value)
+      end)
+    end)
+
+    Enum.each(keys, &Application.put_env(:ryker, &1, false))
+    Application.put_env(:ryker, :state_tools, %{enabled: true})
+
+    supervisor = Process.whereis(Ryker.Runtime.Supervisor)
+
+    listener = %{
+      id: Ryker.StateTools.Server,
+      start: {Agent, :start_link, [fn -> :serving end]}
+    }
+
+    {:ok, key_supervisor} =
+      DynamicSupervisor.start_child(
+        supervisor,
+        Child.child_spec({:state_tools, [listener]})
+      )
+
+    on_exit(fn ->
+      if Process.alive?(key_supervisor),
+        do: DynamicSupervisor.terminate_child(supervisor, key_supervisor)
+    end)
 
     assert {_result, readiness} =
              Observability.ready(check_runtimes: true, stall_after_seconds: 86_400)

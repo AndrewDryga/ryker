@@ -217,13 +217,21 @@ defmodule Ryker.Observability.Readiness do
     end)
   end
 
+  # Each runtime key runs under a supervisor of its own (`Ryker.Runtime.Child`),
+  # so a listener is found one level down.
   defp child_alive?(supervisor, child_id) do
     supervisor
     |> children_of()
     |> Enum.any?(fn
-      {^child_id, pid, _type, _modules} when is_pid(pid) -> Process.alive?(pid)
-      {:undefined, pid, _type, modules} when is_pid(pid) -> child_id in List.wrap(modules)
-      _other -> false
+      {^child_id, pid, _type, _modules} when is_pid(pid) ->
+        Process.alive?(pid)
+
+      {:undefined, pid, _type, modules} when is_pid(pid) ->
+        child_id in List.wrap(modules) or
+          (Ryker.Runtime.Child in List.wrap(modules) and child_alive?(pid, child_id))
+
+      _other ->
+        false
     end)
   end
 

@@ -12,17 +12,30 @@ defmodule Ryker.Runtime.Owner do
   runs so setup is reachable, and nothing that needs a policy or a credential
   starts. A database that cannot be read is a failure and is retried; it never
   becomes an empty configuration.
+
+  Each key runs under a supervisor of its own (`Ryker.Runtime.Child`), which
+  the owner monitors and stops to stop the key. A child restarted after a crash
+  is therefore still replaced by the next change, and a key that crashes past
+  its own restart limit is started again by the owner, after a pause that
+  doubles while it keeps failing, without taking the other keys down. A start
+  that failed, or a database that could not be read, is retried the same way.
+  An owner that itself restarted stops whatever its predecessor left running
+  and starts from the saved revision.
   """
 
   use GenServer
   require Logger
 
   alias Ryker.{Bootstrap, Credentials, Settings}
-  alias Ryker.Runtime.Assembly
+  alias Ryker.Runtime.{Assembly, Child}
   alias Ryker.Slack.Client.Users, as: SlackUsers
   alias Ryker.Slack.Names
 
   @retry_ms 5_000
+  @retry_max_ms 300_000
+  # A key that went down this recently is still failing, so a start that works
+  # does not reset the pause before the next try.
+  @settled_ms 300_000
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(options) do
@@ -61,13 +74,19 @@ defmodule Ryker.Runtime.Owner do
   def init(options) do
     Settings.subscribe()
     Credentials.subscribe()
+    supervisor = Keyword.get(options, :supervisor, Ryker.Runtime.Supervisor)
+    stop_leftovers(supervisor)
 
     state = %{
       bootstrap: Keyword.get_lazy(options, :bootstrap, &bootstrap/0),
       csrf_secret: :crypto.strong_rand_bytes(32),
       revision: nil,
-      supervisor: Keyword.get(options, :supervisor, Ryker.Runtime.Supervisor),
-      running: %{}
+      supervisor: supervisor,
+      running: %{},
+      retry_ms: Keyword.get(options, :retry_ms, @retry_ms),
+      retries: 0,
+      retry_timer: nil,
+      down_at: nil
     }
 
     {:ok, state, {:continue, :reconcile}}
@@ -88,10 +107,7 @@ defmodule Ryker.Runtime.Owner do
   def handle_call(:applied_revision, _from, state), do: {:reply, state.revision, state}
 
   def handle_call(:running_keys, _from, state) do
-    keys =
-      state.running
-      |> Enum.filter(fn {_key, %{pids: pids}} -> Enum.any?(pids, &Process.alive?/1) end)
-      |> Enum.map(&elem(&1, 0))
+    keys = for {key, %{pid: pid}} <- state.running, running?(pid), do: key
 
     {:reply, keys, state}
   end
@@ -99,9 +115,39 @@ defmodule Ryker.Runtime.Owner do
   # A save the owner hears about and a retry it scheduled itself are the same
   # request: apply whatever is saved now.
   @impl true
-  def handle_info(message, state) when message == :retry or elem(message, 0) == :settings_saved do
+  def handle_info(:retry, state) do
+    {_result, state} = apply_latest(%{state | retry_timer: nil})
+    {:noreply, state}
+  end
+
+  def handle_info(message, state)
+      when is_tuple(message) and elem(message, 0) == :settings_saved do
     {_result, state} = apply_latest(state)
     {:noreply, state}
+  end
+
+  # A key's supervisor ends only when the owner stops it, which demonitors it
+  # first, or when its children crashed past their restart limit. The key is
+  # started again on a retry.
+  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+    case Enum.find(state.running, fn {_key, child} -> child.ref == ref end) do
+      {key, _child} ->
+        Logger.warning(
+          "runtime #{key} stopped and will be started again: #{inspect(reason, limit: 5)}"
+        )
+
+        state = %{
+          state
+          | running: Map.delete(state.running, key),
+            revision: nil,
+            down_at: System.monotonic_time(:millisecond)
+        }
+
+        {:noreply, schedule_retry(state)}
+
+      nil ->
+        {:noreply, state}
+    end
   end
 
   def handle_info({:credentials_changed, _kind, _name}, state) do
@@ -115,12 +161,41 @@ defmodule Ryker.Runtime.Owner do
   def handle_info(_message, state), do: {:noreply, state}
 
   defp apply_latest(state) do
-    case read_settings() do
-      {:ok, :not_initialized} -> apply_fresh_setup(state)
-      {:ok, settings} -> apply_settings(state, settings)
-      {:error, reason} -> retry(state, reason)
-    end
+    {result, state} =
+      case read_settings() do
+        {:ok, :not_initialized} -> apply_fresh_setup(state)
+        {:ok, settings} -> apply_settings(state, settings)
+        {:error, reason} -> unavailable(state, reason)
+      end
+
+    {result, after_apply(result, state)}
   end
+
+  # A start that failed or a database that could not be read is tried again,
+  # each pause twice the last; a revision that cannot be assembled waits for the
+  # next save, since assembling it again gives the same answer.
+  defp after_apply({:ok, _result}, state), do: settled(state)
+  defp after_apply({:error, :settings_unavailable}, state), do: schedule_retry(state)
+
+  defp after_apply({:error, {:runtime_start_failed, _key, _reason}}, state),
+    do: schedule_retry(state)
+
+  defp after_apply({:error, _assembly}, state), do: state
+
+  defp settled(%{down_at: down_at} = state) when is_integer(down_at) do
+    if System.monotonic_time(:millisecond) - down_at < @settled_ms,
+      do: state,
+      else: %{state | retries: 0, down_at: nil}
+  end
+
+  defp settled(state), do: %{state | retries: 0}
+
+  defp schedule_retry(%{retry_timer: nil} = state) do
+    delay = min(state.retry_ms * Integer.pow(2, min(state.retries, 16)), @retry_max_ms)
+    %{state | retry_timer: Process.send_after(self(), :retry, delay), retries: state.retries + 1}
+  end
+
+  defp schedule_retry(state), do: state
 
   # Setup must be reachable before any product configuration exists, so the
   # console runs from bootstrap alone and nothing else starts.
@@ -137,7 +212,7 @@ defmodule Ryker.Runtime.Owner do
   defp apply_settings(state, settings) do
     revision = settings.installation.revision
 
-    case Assembly.build(state.bootstrap, settings) do
+    case build(state.bootstrap, settings) do
       {:ok, configuration} ->
         # Publish before starting anything. A child that reads another
         # runtime's published configuration in `init` — the Slack name cache
@@ -147,6 +222,9 @@ defmodule Ryker.Runtime.Owner do
         Assembly.publish(configuration)
         start_children(state, revision, applied_children(state, configuration))
 
+      {:error, {:settings_unavailable, _detail} = reason} ->
+        unavailable(state, reason)
+
       {:error, reason} ->
         # The saved revision stays saved and visibly unapplied; the running
         # children keep the last configuration that actually assembled.
@@ -154,6 +232,16 @@ defmodule Ryker.Runtime.Owner do
         record(revision, {:error, :assembly_failed})
         {{:error, reason}, state}
     end
+  end
+
+  # Assembling reads credentials and settings rows; a database that cannot
+  # answer is the same outage `read_settings/0` sees, not a revision that is
+  # wrong.
+  defp build(bootstrap, settings) do
+    Assembly.build(bootstrap, settings)
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, {:settings_unavailable, error.__struct__}}
   end
 
   defp start_children(state, revision, desired) do
@@ -253,42 +341,55 @@ defmodule Ryker.Runtime.Owner do
       module.reconfigure(previous, configuration) == :ok
   end
 
+  # The key's processes start in order under their own supervisor. A companion
+  # that declines to run (an unconfigured name cache, say) is not a failed
+  # apply; it has nothing to supervise, and the key does not count as running.
   defp start_child(state, running, key, module, configuration) do
-    specs = child_specs(key, module, configuration)
+    spec = Child.child_spec({key, child_specs(key, module, configuration)})
 
-    started =
-      Enum.reduce_while(specs, [], fn spec, started ->
-        case DynamicSupervisor.start_child(state.supervisor, spec) do
-          {:ok, pid} -> {:cont, [pid | started]}
-          {:ok, pid, _info} -> {:cont, [pid | started]}
-          # A companion that declines to run (an unconfigured name cache, say)
-          # is not a failed apply; it has nothing to supervise.
-          :ignore -> {:cont, started}
-          {:error, reason} -> {:halt, {:error, reason, started}}
-        end
-      end)
+    case DynamicSupervisor.start_child(state.supervisor, spec) do
+      {:ok, pid} ->
+        child = %{configuration: configuration, pid: pid, ref: Process.monitor(pid)}
+        {:ok, Map.put(running, key, child)}
 
-    case started do
-      {:error, reason, started} ->
-        Enum.each(started, &DynamicSupervisor.terminate_child(state.supervisor, &1))
+      {:error, reason} ->
+        reason = start_failure(reason)
         Logger.warning("runtime #{key} did not start: #{inspect(reason)}")
         {:error, running, reason}
-
-      pids ->
-        {:ok, Map.put(running, key, %{configuration: configuration, pids: Enum.reverse(pids)})}
     end
   end
 
+  defp start_failure({:shutdown, {:failed_to_start_child, _id, reason}}), do: reason
+  defp start_failure(reason), do: reason
+
   defp stop_child(state, running, key) do
     case Map.get(running, key) do
-      %{pids: pids} ->
-        pids
-        |> Enum.reverse()
-        |> Enum.each(&DynamicSupervisor.terminate_child(state.supervisor, &1))
+      %{pid: pid, ref: ref} ->
+        Process.demonitor(ref, [:flush])
+        DynamicSupervisor.terminate_child(state.supervisor, pid)
 
       nil ->
         :ok
     end
+  end
+
+  # The owner is the only one that starts children here, so whatever runs when
+  # it starts was left by an owner that crashed and is no longer known to anyone.
+  defp stop_leftovers(supervisor) do
+    for {_id, pid, _type, _modules} <- DynamicSupervisor.which_children(supervisor),
+        is_pid(pid),
+        do: DynamicSupervisor.terminate_child(supervisor, pid)
+
+    :ok
+  end
+
+  defp running?(pid) do
+    Process.alive?(pid) and
+      Enum.any?(Supervisor.which_children(pid), fn {_id, child, _type, _modules} ->
+        is_pid(child)
+      end)
+  catch
+    :exit, _reason -> false
   end
 
   # The console's companion starts before it: the clock that tells open pages
@@ -333,9 +434,8 @@ defmodule Ryker.Runtime.Owner do
       {:error, {:settings_unavailable, error.__struct__}}
   end
 
-  defp retry(state, reason) do
+  defp unavailable(state, reason) do
     Logger.warning("durable settings are unavailable: #{inspect(reason)}")
-    Process.send_after(self(), :retry, @retry_ms)
     {{:error, :settings_unavailable}, state}
   end
 
