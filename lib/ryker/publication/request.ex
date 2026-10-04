@@ -129,7 +129,7 @@ defmodule Ryker.Publication.Request do
     """
     ## Ryker task
 
-    #{safe_text(request.body)}
+    #{safe_body(request.body)}
 
     ## Publication proof
 
@@ -149,6 +149,16 @@ defmodule Ryker.Publication.Request do
     |> String.replace("@", "@\u200B")
     |> String.split()
     |> Enum.join(" ")
+  end
+
+  # The description keeps its lines, so its lists, code blocks and paragraphs
+  # reach the pull request; it was joined into one line (2026-10-04 review).
+  defp safe_body(value) do
+    value
+    |> String.replace("\r\n", "\n")
+    |> String.replace(~r/[\x00-\x08\x0b-\x1f\x7f]/u, " ")
+    |> String.replace("@", "@\u200B")
+    |> String.trim()
   end
 
   defp validate_existing_pull_request(nil), do: :ok
