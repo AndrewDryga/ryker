@@ -913,19 +913,29 @@ defmodule Ryker.Work.SubmissionBuilder do
           current_input?(event, episode),
           do: RecallText.from(event.payload["payload"])
 
-    operator_ref =
-      events
-      |> List.last()
-      |> case do
-        %Event{payload: %{"actor_ref" => actor_ref}} when is_binary(actor_ref) -> actor_ref
-        _missing -> nil
-      end
+    operator_ref = asker(snapshot)
 
     episode
     |> Behaviors.model_context(operator_ref, repository)
     |> Map.put("memory", Memories.model_context(episode, repository))
     |> Map.put("continuity", Continuity.model_context(episode, repository, input_texts))
     |> put_person_asking(operator_ref, episode.destination_conversation_ref)
+  end
+
+  # Whom this turn answers: the sender of its newest input, or, for a turn with
+  # no new input such as one an awaited event resumed, the last person who
+  # spoke. Private rules, preferences and what someone said about themselves
+  # follow this person; reading the earlier inputs last once handed a follow-up
+  # from B everything private of A, who asked first (2026-10-04 review).
+  defp asker(snapshot) do
+    Enum.find_value([snapshot.active, snapshot.historical], fn events ->
+      events
+      |> Enum.reverse()
+      |> Enum.find_value(fn
+        %Event{payload: %{"actor_ref" => actor_ref}} when is_binary(actor_ref) -> actor_ref
+        _other -> nil
+      end)
+    end)
   end
 
   # What the person asking said about themselves (`Ryker.People`), with how to

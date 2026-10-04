@@ -838,6 +838,23 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     refute inspect(submission) =~ "Severance"
   end
 
+  # The asker was read as the newest input of this turn's and the earlier ones together, and
+  # the earlier ones come last: when B followed A in a thread, B's turn carried A's private
+  # rules and what A said about themselves, and none of B's (2026-10-04 review).
+  test "a follow-up from someone else is answered with their personal context, not the first asker's" do
+    first = claim_episode!("two-people", "Review the current Terraform plan.")
+    person_fact!("slack:user:U1", "birthday", "Birthday is 12 March.")
+    person_fact!("slack:user:U2", "favourite-tv-show", "Favourite TV show is Severance.")
+
+    follow_up = next_claim!(first, ["And the staging plan too?"], "slack:user:U2")
+    assert {:ok, submission} = SubmissionBuilder.build(follow_up)
+
+    assert %{"said_about_themselves" => ["Favourite TV show is Severance."]} =
+             submission["context"]["operator_context"]["person_asking"]
+
+    refute inspect(submission["context"]["operator_context"]) =~ "12 March"
+  end
+
   test "only attachments visible to this logical turn enter its frozen artifact manifest" do
     assert {:ok, current_artifact} =
              Artifacts.put(%{
@@ -1663,13 +1680,14 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     claim_episode_payload!(suffix, %{"text" => text})
   end
 
-  defp next_claim!(claim, texts) do
+  defp next_claim!(claim, texts, actor_ref \\ "slack:user:U1") do
     for text <- texts do
       id = Ecto.UUID.generate()
 
       assert {:ok, _} =
                Episodes.apply(
                  EpisodeFixtures.admit_input(%{
+                   actor_ref: actor_ref,
                    destination: destination(claim),
                    episode_id: claim.episode.id,
                    episode_key: claim.episode.key,
