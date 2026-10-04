@@ -27,18 +27,24 @@ defmodule Ryker.Slack.Mentions do
   def typed?(_message), do: false
 
   @spec authority(Episode.t()) :: map() | nil
-  def authority(%Episode{
-        active_input_refs: active_refs,
-        destination_conversation_ref: "slack:" <> _rest = conversation_ref,
-        destination_transport: "slack",
-        id: episode_id
-      }) do
+  def authority(%Episode{active_input_refs: active_refs} = episode),
+    do: authority(episode, active_refs)
+
+  # Whom a message may name, from the inputs it answers.
+  defp authority(
+         %Episode{
+           destination_conversation_ref: "slack:" <> _rest = conversation_ref,
+           destination_transport: "slack",
+           id: episode_id
+         },
+         input_refs
+       ) do
     case conversation(conversation_ref) do
       {:ok, workspace_ref, _channel_ref} ->
         authority_from_events(
           workspace_ref,
           conversation_ref,
-          active_events(episode_id, active_refs)
+          active_events(episode_id, input_refs)
         )
 
       {:error, _reason} ->
@@ -46,7 +52,7 @@ defmodule Ryker.Slack.Mentions do
     end
   end
 
-  def authority(%Episode{}), do: nil
+  defp authority(%Episode{}, _input_refs), do: nil
 
   @doc """
   Resolves the Slack mention authority for one immutable delivery intent: a
@@ -56,17 +62,22 @@ defmodule Ryker.Slack.Mentions do
   The delivery reference is host-owned and unique. Platform publishers use
   this lookup instead of accepting mention authority from model output or a
   transport payload.
+
+  An answer names whom the inputs its turn answered may: accepting it clears
+  the episode's active inputs, and working authority out from those again
+  refused a final reply that named the person who asked (2026-10-04 review).
+  An update posted while the turn works answers the episode's active inputs.
   """
   @spec authority_for_delivery(String.t()) :: {:ok, map()} | {:error, term()}
   def authority_for_delivery(delivery_ref)
       when is_binary(delivery_ref) and byte_size(delivery_ref) in 1..256 do
-    episode =
+    answered =
       Repo.one(
         from(episode in Episode,
           join: turn in Turn,
           on: turn.episode_id == episode.id,
           where: turn.delivery_ref == ^delivery_ref,
-          select: episode
+          select: {episode, turn.selected_input_refs}
         )
       ) ||
         Repo.one(
@@ -74,13 +85,13 @@ defmodule Ryker.Slack.Mentions do
             join: action in PlatformAction,
             on: action.episode_id == episode.id,
             where: action.action_ref == ^delivery_ref and action.tool == :post_slack_update,
-            select: episode
+            select: {episode, episode.active_input_refs}
           )
         )
 
-    case episode do
-      %Episode{} = episode ->
-        case authority(episode) do
+    case answered do
+      {%Episode{} = episode, input_refs} ->
+        case authority(episode, input_refs || []) do
           %{} = authority -> {:ok, authority}
           nil -> {:error, {:slack_mention_authority_unavailable, :episode}}
         end

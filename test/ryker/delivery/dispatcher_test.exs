@@ -369,6 +369,41 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert receipt["message_ref"] == "1787832000.000900"
   end
 
+  # Accepting an answer clears the episode's active inputs, and the publisher worked out whom the
+  # answer may name from those inputs again: a final reply naming the person who asked was refused
+  # as unauthorized when it was posted, and blocked for good (2026-10-04 review).
+  test "a final reply may name the person whose message it answers" do
+    delivery_pending!("names-requester", message: "Done, [@Uno](slack-user:U1).")
+
+    {:ok, slack} =
+      FakeSlackAPI.start_link(render: true, message_ref: fn _n -> "1787832000.000901" end)
+
+    assert {:ok, adapters} =
+             Adapters.new(%{
+               "slack" => %{
+                 binding: %{
+                   mention_authority: &Mentions.authority_for_delivery/1,
+                   workspaces: %{"T123" => %{api: FakeSlackAPI, client: slack}}
+                 },
+                 message_publisher: SlackPublisher,
+                 reaction_publisher: SlackPublisher
+               }
+             })
+
+    options = [
+      adapters: adapters,
+      kind: :message,
+      lease_seconds: 60,
+      retry_base_seconds: 1,
+      retry_max_seconds: 60,
+      worker_ref: "delivery:message:names-requester"
+    ]
+
+    assert {:ok, {:delivered, :message, _delivery_ref}} = Dispatcher.run_once(options)
+    assert [post] = FakeSlackAPI.state(slack).posts
+    assert post.document["text"] == "Done, <@U1>."
+  end
+
   # Andrew, 2026-09-26: the Work model should send "some emojis" too, not
   # only one: a second reaction in a turn was refused as temporarily
   # unavailable. Two reactions in one turn now both reach Slack, each once,
@@ -990,9 +1025,11 @@ defmodule Ryker.Delivery.DispatcherTest do
         turn_ref: "turn:#{suffix}:#{id}"
       })
 
-    assert {:ok, _transition} = Episodes.apply(command)
+    assert {:ok, transition} = Episodes.apply(command)
 
-    selected_input_refs = joined_question_refs(command, options)
+    # Work freezes the inputs its turn answers, as the executor does.
+    selected_input_refs =
+      joined_question_refs(command, options) || transition.episode.active_input_refs
 
     assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
     assert {:ok, claim} = Custody.claim_next("work:prepare:#{suffix}", 60, :work)
@@ -1072,10 +1109,12 @@ defmodule Ryker.Delivery.DispatcherTest do
 
     record_refs = cited_refs(record, reaction)
 
+    message = Keyword.get(options, :message, "Finished from generic delivery.")
+
     delivery_document =
       case {record_refs, artifact_refs} do
         {[], []} ->
-          %{"message" => "Finished from generic delivery."}
+          %{"message" => message}
 
         _with_references ->
           %{
