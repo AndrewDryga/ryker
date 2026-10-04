@@ -331,6 +331,22 @@ defmodule Ryker.GitHub.Router do
 
   defp authorize_repository_actor(_event_name, _binding, _payload, _options), do: :ok
 
+  # Someone asking needs write access to the repository, whatever carried the
+  # ask. Comments and reviews were checked on arrival; an issue or a pull
+  # request is checked here, once Ryker would take it. An edit of the exact item
+  # Ryker already took, and an event an operator's standing rule chose, are not
+  # someone asking.
+  defp authorize_engagement(
+         reason,
+         %{content: %{"event_name" => event_name, "payload" => payload}},
+         binding,
+         options
+       )
+       when reason in [:mention, :continuation] and event_name not in @conversation_events,
+       do: options.repository_access.(binding, payload)
+
+  defp authorize_engagement(_reason, _input, _binding, _options), do: :ok
+
   defp observe_and_record(conn, input, binding, options) do
     case Followups.observe_github_feedback(input) do
       {:ok, subscription} -> record_or_subscribe(conn, input, binding, subscription, options)
@@ -352,25 +368,34 @@ defmodule Ryker.GitHub.Router do
   end
 
   defp record_or_subscribe(conn, input, binding, :unmatched, options) do
-    case Engagement.eligible?(input, binding, options.bot_login) do
-      {:yes, reason} ->
-        case Inbox.record(input,
-               engagement_receipt: %{"reason" => Atom.to_string(reason)},
-               revision_ties: :receipt_order,
-               work_profile: binding.work_profile
-             ) do
-          {:ok, receipt} ->
-            InboundHTTP.respond(conn, 202, %{
-              "input_ref" => Inbox.ref(receipt.entry),
-              "status" => Atom.to_string(receipt.status)
-            })
+    with {:yes, reason} <- Engagement.eligible?(input, binding, options.bot_login),
+         :ok <- authorize_engagement(reason, input, binding, options) do
+      case Inbox.record(input,
+             engagement_receipt: %{"reason" => Atom.to_string(reason)},
+             revision_ties: :receipt_order,
+             work_profile: binding.work_profile
+           ) do
+        {:ok, receipt} ->
+          InboundHTTP.respond(conn, 202, %{
+            "input_ref" => Inbox.ref(receipt.entry),
+            "status" => Atom.to_string(receipt.status)
+          })
 
-          {:error, record_reason} ->
-            route_record_error(conn, record_reason)
-        end
-
+        {:error, record_reason} ->
+          route_record_error(conn, record_reason)
+      end
+    else
       :metadata ->
         InboundHTTP.respond(conn, 200, %{"status" => "ignored", "reason" => "no_request_or_rule"})
+
+      {:error, :actor_not_authorized} ->
+        InboundHTTP.respond(conn, 200, %{
+          "reason" => "repository_write_access_required",
+          "status" => "ignored"
+        })
+
+      {:error, _reason} ->
+        InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
     end
   end
 

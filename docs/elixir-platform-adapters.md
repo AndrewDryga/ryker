@@ -41,9 +41,13 @@ revision, threading, or capabilities.
 
 GitHub App webhook signatures cover the raw body at one App webhook URL. Only after signature
 verification does the host select a binding from the signed installation ID plus repository ID, then
-checks the configured repository name, explicit authorized sender IDs, and Ryker bot sender ID.
-Self-authored and unlisted-actor events are acknowledged without entering the queue. Other configured
-bot actors remain valid inputs. Slack authentication remains at the owning Slack gateway; its adapter
+checks the configured repository name and Ryker's own bot identity. Anyone who asks Ryker for
+something needs `write` or `admin` permission on the repository, whatever carried the ask: a comment
+or review is checked on arrival, an issue or a pull request once Ryker would take it. Only text the
+event wrote can ask (an item opened or edited, a comment or review written); a label or a reopen
+carries old text and is not a request. Self-authored events and senders without write access are
+acknowledged without entering the queue. An edit of the exact item Ryker already took, and an event
+an operator's standing rule chose, need no second check. Slack authentication remains at the owning Slack gateway; its adapter
 receives only the already-authenticated event.
 
 GitHub revisions combine the provider timestamp with a host-owned action rank: create, then edit, then
@@ -187,8 +191,8 @@ do not guess a mapping. Proposals remain inert until their existing confirmation
 checks succeed.
 
 Open engineering-task, schedule, automation, memory, preference, guidance, and standing-assignment
-offers include an exact command such as `/ryker confirm record:task_offer:...`. Only a configured
-GitHub actor may submit it, and the host consumes it before generic model admission. Confirmation
+offers include an exact command such as `/ryker confirm record:task_offer:...`. Only someone with
+write access to the repository may submit it, and the host consumes it before generic model admission. Confirmation
 reloads the referenced record, its settled delivery receipt, and its source episode; the current
 repository discussion must match that original conversation and thread. The webhook body identity is
 the confirmation receipt, so replay is idempotent. Incident-task and publication offers deliberately

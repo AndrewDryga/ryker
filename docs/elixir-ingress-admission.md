@@ -166,10 +166,11 @@ X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw request body>
 ```
 
 The host binding fixes the GitHub App installation, repository numeric ID, repository full name,
-webhook secret, Ryker bot identity, authorized sender IDs, and body limit. Signed payload fields
-can select only an item inside that repository; they cannot redirect the resulting episode or later
-delivery to another repository. Self-authored events and unlisted actors are authenticated and
-acknowledged as ignored before they can spend model or Work authority.
+webhook secret, Ryker bot identity, and body limit. Signed payload fields can select only an item
+inside that repository; they cannot redirect the resulting episode or later delivery to another
+repository. Self-authored events, and requests from senders without `write` or `admin` permission on
+the repository, are authenticated and acknowledged as ignored before they can spend model or Work
+authority.
 
 Supported comment actions normalize into the same `message`, `edit`, and `delete` event kinds used by
 other sources. Issue comments on pull requests stay in the PR conversation. Inline review comments
@@ -189,9 +190,9 @@ cursor, result limit, search text, kind, and state.
 
 An open confirmable offer is rendered with `/ryker confirm <record-ref>`. The Router recognizes
 that exact syntax only on a newly created, authenticated issue comment and consumes it before model
-admission. It rechecks the configured actor, exact current discussion, original settled delivery
-receipt, offer kind, and repository contributor policy, then calls the same durable confirmation
-service used by Slack and direct conversations. Duplicate webhook delivery or a repeated command returns
+admission. The sender's write access was checked on arrival; it rechecks the exact current
+discussion, original settled delivery receipt, offer kind, and repository contributor policy, then
+calls the same durable confirmation service used by Slack and direct conversations. Duplicate webhook delivery or a repeated command returns
 the existing resource. Cross-thread, stale, malformed, incident-task, and publication commands fail
 closed without creating model work. This syntax cannot approve reviews, merge, deploy, or write
 repository content.
@@ -204,9 +205,10 @@ These are durable settings, edited in the control plane rather than a configurat
   (conversational, standard, deep, contributor, schedule). Ryker freezes the complete job and
   source identity before placement; workers do not advertise local policy catalogs.
 - **Integrations › GitHub** holds the App identity, and each added repository keeps one verified
-  GitHub binding: installation ID, repository ID and the Ryker actor ID. For each
-  conversational webhook, Ryker asks GitHub for the sender's effective repository permission;
-  `write` and `admin` may request work, while `read`, `none` and failed checks do not.
+  GitHub binding: installation ID, repository ID and the Ryker actor ID. For every webhook that
+  would start or continue work, a comment, review, issue or pull request, Ryker asks GitHub for the
+  sender's effective repository permission; `write` and `admin` may request work, while `read`,
+  `none` and failed checks do not.
 - GitHub's private key and webhook secret are entered once through guided setup and kept in encrypted
   credential custody. The verified App identity is saved with the connection; runtime assembly never
   consults environment fallbacks. With a missing, unreadable or unusable credential it leaves GitHub
@@ -224,7 +226,8 @@ for the effective assembled values.
 
 As with the universal listener, public exposure belongs behind the normal ingress proxy. A `202`
 means the normalized event is durably queued. `ping` is authenticated and acknowledged without
-creating work. An ignored self/unlisted-actor event returns `200` and creates no inbox row.
+creating work. An ignored self-authored event, or a request from a sender without write access,
+returns `200` and creates no inbox row.
 
 ## Durable queue
 
