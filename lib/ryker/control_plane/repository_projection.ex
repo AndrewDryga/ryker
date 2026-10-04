@@ -82,17 +82,12 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     secrets = Redactor.configured_secrets()
 
     Enum.map(runs, fn run ->
-      call = CallRun.from_background(run, executions[run.id])
-
       %{
         id: run.id,
         at: run.started_at || run.inserted_at,
         status: run.status,
         commit: run.source_commit,
-        target: call.target,
-        tokens: call.tokens,
-        cost: call.cost,
-        total_ms: call.total_ms,
+        call: CallRun.from_background(run, executions[run.id]),
         error_code: run.error_code,
         dropped: run.dropped_count,
         prompt: exact(run.prompt, secrets),

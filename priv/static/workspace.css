@@ -1732,14 +1732,31 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 
 /* Channels, repositories and working copies (2026-09-24 redesign) */
 .channels-page, .repositories-page, .repository-page, .working-copies-page, .channel-page { max-width:1040px; min-width:0; }
-.repository-knowledge-document, .knowledge-run-text { box-sizing:border-box; max-height:60vh; margin:0; padding:12px 48px 12px 14px; overflow:auto; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface-sunken); font:13px/20px var(--ryker-font-mono); color:var(--ryker-text); white-space:pre-wrap; overflow-wrap:anywhere; }
-/* Each model run that wrote a repository's knowledge: its line, a note, and
-   the exact prompt and answer behind the Timeline's source disclosures. */
-.knowledge-run + .knowledge-run { margin-top:14px; padding-top:14px; border-top:1px solid var(--ryker-stroke); }
-.knowledge-run-line { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
-.knowledge-run-line .state-word { margin-right:4px; }
-.knowledge-run-note { margin:4px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.knowledge-run .ui-disclosure { margin-top:8px; }
+/* A repository's Knowledge card (2026-10-04): the document as formatted text,
+   then each model run as a row whose summary says how it went and whose body
+   holds the timeline's call table and what the model was sent and answered. */
+.knowledge-run-text { box-sizing:border-box; max-height:60vh; margin:0; padding:12px 48px 12px 14px; overflow:auto; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface-sunken); font:13px/20px var(--ryker-font-mono); color:var(--ryker-text); white-space:pre-wrap; overflow-wrap:anywhere; }
+.knowledge-document { max-width:760px; font-size:14px; line-height:22px; color:var(--ryker-text); }
+.ryker-app .knowledge-document .knowledge-heading { margin:22px 0 8px; color:var(--ryker-text); font-weight:600; letter-spacing:0; }
+.ryker-app .knowledge-document > .knowledge-heading:first-child { margin-top:0; }
+.ryker-app .knowledge-document h3.knowledge-heading { font-size:16px; line-height:24px; }
+.ryker-app .knowledge-document h4.knowledge-heading { font-size:15px; line-height:22px; }
+.ryker-app .knowledge-document :is(h5, h6).knowledge-heading { font-size:14px; line-height:20px; }
+.knowledge-document :is(p, li) { font-size:14px; line-height:22px; }
+.knowledge-document code { padding:1px 5px; border-radius:4px; background:var(--ryker-surface-sunken); font:12.5px/1.5 var(--ryker-font-mono); overflow-wrap:anywhere; }
+.knowledge-document a { color:var(--ryker-text); }
+.knowledge-copy { margin:16px 0 0; }
+.ryker-app .knowledge-copy-button { display:inline-flex; align-items:center; gap:6px; min-height:32px; padding:5px 12px; border-radius:8px; font-size:13px; line-height:20px; }
+.knowledge-copy-button .ui-icon { width:15px; height:15px; }
+.ryker-app .knowledge-copy-button[data-copy-state=copied] { color:var(--ryker-accent-strong); }
+.knowledge-run-summary { display:inline-flex; flex-wrap:wrap; align-items:baseline; gap:0 10px; }
+.knowledge-run-model { color:var(--ryker-text-secondary); font-size:13px; }
+.knowledge-run-note { margin:0 0 12px; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
+.ryker-app .knowledge-run .call-run { max-width:720px; margin:0; padding:0; border-top:0; }
+.knowledge-run-parts { margin-top:16px; }
+.knowledge-prompt-part + .knowledge-prompt-part { margin-top:16px; }
+.ryker-app .knowledge-prompt-part h4 { margin:0 0 6px; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+.knowledge-prompt-instructions { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--ryker-text); font:14px/1.6 var(--ryker-font-sans); }
 /* One line naming a connection and the way to change it. */
 .connection-line { display:flex; align-items:center; gap:16px; max-width:1040px; box-sizing:border-box; margin:0 0 20px; padding:12px 16px; border:1px solid var(--ryker-stroke); border-radius:10px; }
 /* The name, the dot and word, and the facts centre on one line, and the facts
@@ -2163,6 +2180,8 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .request-decision .routing-candidate-outcomes a { font-size:14px; }
 .call-run { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 20px; max-width:560px; margin:14px 0 0; padding:12px 0 0; border-top:1px solid var(--ryker-stroke); }
 .call-run > div { display:contents; }
+/* The same table wherever it is drawn: a page surface's lists get padded, ruled rows. */
+.ryker-app .call-run :is(dt, dd) { padding:0; border:0; }
 .call-run dt { font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
 .call-run dd { margin:0; font-size:13px; line-height:20px; color:var(--ryker-text); font-variant-numeric:tabular-nums; }
 .episode-request > .case-card-heading + .call-run { margin-top:12px; padding-top:0; border-top:0; }
@@ -2294,6 +2313,18 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .ryker-app .kit-card > .section-head:last-child { margin-bottom:0; }
 .kit-card > :first-child { margin-top:0; }
 .kit-card > :last-child { margin-bottom:0; }
+/* Kit: one part of a card that holds several (Kit.card_part, 2026-10-04): a
+   small label and one sentence over its content, the way the timeline's
+   briefing groups what a model was given. The base stylesheet paints every
+   bare <header> as a sticky banner. Collapsible rows inside stack as one
+   bordered list in a kit-rows block. */
+.ryker-app .kit-card-part { min-width:0; margin:28px 0 0; }
+.ryker-app .kit-card-part > header { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; margin:0 0 10px; padding:0; position:static; top:auto; z-index:auto; border:0; background:none; backdrop-filter:none; }
+.ryker-app .kit-card-part > header h3 { margin:0; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+.ryker-app .kit-card-part > header p { margin:0; color:var(--ryker-text-secondary); font-size:12px; line-height:16px; }
+.ryker-app .kit-rows { min-width:0; }
+.ryker-app .kit-rows > .ui-disclosure-source:first-child { border-top-left-radius:6px; border-top-right-radius:6px; }
+.ryker-app .kit-rows > .ui-disclosure-source:last-child { border-bottom-left-radius:6px; border-bottom-right-radius:6px; }
 /* A list that opens or closes a card sits on the card's padding, not on its rows' own too. */
 .kit-card > .entity-list:first-child { margin-top:-14px; }
 .kit-card > .entity-list:last-child { margin-bottom:-14px; }

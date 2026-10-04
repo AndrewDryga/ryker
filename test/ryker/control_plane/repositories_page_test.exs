@@ -252,17 +252,25 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
   # Andrew, 2026-09-28, of the closed Details under every row: the "ugly
   # collapsible" content belongs on the repository's own page. Each part of it
-  # is a card there, in the order it matters, and removing it comes last.
+  # is a card there, in the order it matters, and removing it comes last. The
+  # knowledge, how it was written and where it is used are parts of one card
+  # (Andrew, 2026-10-04: "we should merge Knowledge How it was written Where it
+  # is used into one section").
   test "a repository's page holds its facts in cards, in the order they matter" do
     page = detail(@repository)
 
     assert outline(page, "div.repository-page > *") == [
              "p.kit-status-line",
              "section.kit-card#repository-knowledge",
-             "section.kit-card#repository-use",
              "section.kit-card#repository-github",
              "section.kit-card#repository-code",
              "section.kit-card#remove-repository"
+           ]
+
+    assert outline(page, "#repository-knowledge > *") == [
+             "header.section-head",
+             "dl.kit-facts",
+             "section.kit-card-part#repository-use"
            ]
 
     assert LazyHTML.query(page, "details") |> Enum.empty?()
@@ -356,12 +364,26 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
   # Andrew, 2026-09-28: every model call shows the exact prompt it was sent,
   # as routing, work and learning do on the Timeline. The runs that write a
-  # repository's knowledge were shown nowhere.
-  test "a repository's page shows each knowledge run with the exact prompt and answer" do
+  # repository's knowledge were shown nowhere. Each run was then one long line
+  # of facts joined by dots, until Andrew asked for cards "like cards we do in
+  # episode timeline, with nice collapsibles and well structured/formatted
+  # text" (2026-10-04): a row per run, the timeline's call table inside, and
+  # the prompt read as instructions and the context it was given.
+  test "each knowledge run is a row with the timeline's call table and what it was sent" do
     prompt =
-      ~s({"instructions":"Write the repository knowledge.","context":{"repository":{"name":"acme/checkout-api"}}})
+      ~s({"instructions":"Write the repository knowledge.\\nRead it; change nothing.","context":{"repository":{"name":"acme/checkout-api","commit":"0123456789abcdef"}}})
 
-    answer = ~s({"purpose":"The checkout service."})
+    answer = ~s({\n  "purpose": "The checkout service."\n})
+
+    call = %{
+      target: "codex:gpt-5.3/medium",
+      tokens: "12,000 in · 800 out",
+      cost: "≈ $0.021",
+      checks: "Passed first time",
+      corrections: [],
+      segments: [%{kind: :model, label: "Model", ms: 40_000}],
+      total_ms: 42_000
+    }
 
     runs = [
       %{
@@ -369,10 +391,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         at: @now,
         status: :applied,
         commit: "0123456789abcdef",
-        target: "codex:gpt-5.3/medium",
-        tokens: "12,000 in · 800 out",
-        cost: "≈ $0.021",
-        total_ms: 42_000,
+        call: call,
         error_code: nil,
         dropped: 2,
         prompt: prompt,
@@ -383,13 +402,18 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         at: DateTime.add(@now, -86_400, :second),
         status: :rejected,
         commit: nil,
-        target: nil,
-        tokens: nil,
-        cost: nil,
-        total_ms: nil,
+        call: %{
+          call
+          | target: nil,
+            tokens: nil,
+            cost: nil,
+            checks: nil,
+            segments: [],
+            total_ms: nil
+        },
         error_code: "repository_knowledge_result_invalid",
         dropped: nil,
-        prompt: prompt,
+        prompt: "An older prompt, not JSON.",
         result: ~s({"purpose":1})
       }
     ]
@@ -398,16 +422,30 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
       @repository
       |> Map.put(:knowledge_runs, runs)
       |> detail()
-      |> LazyHTML.query("#repository-knowledge-runs")
+      |> LazyHTML.query("#repository-knowledge #repository-knowledge-runs")
 
-    lines = card |> LazyHTML.query(".knowledge-run-line") |> Enum.map(&squeeze(LazyHTML.text(&1)))
-    assert [written, refused] = lines
-    assert written =~ "Written"
+    summaries =
+      card
+      |> LazyHTML.query("details.knowledge-run > summary")
+      |> Enum.map(&squeeze(LazyHTML.text(&1)))
 
-    assert written =~
-             "codex:gpt-5.3/medium · 12,000 in · 800 out · ≈ $0.021 · 42.0 s · commit 0123456"
+    assert [written, refused] = summaries
+    assert written =~ ~r/^Written .+ gpt-5\.3 · medium reasoning ≈ \$0\.021 · 42\.0 s$/
+    assert refused =~ ~r/^Not used /
+    refute refused =~ "reasoning"
 
-    assert refused =~ "Not used"
+    # Opened, a run is the call table the timeline draws for every model call.
+    table =
+      card |> LazyHTML.query("#knowledge-run-run-2 dl.call-run") |> LazyHTML.text() |> squeeze()
+
+    assert table ==
+             "Model gpt-5.3 · medium reasoning Tokens 12,000 in · 800 out Cost ≈ $0.021 " <>
+               "Checks Passed first time Code 0123456 Model 40.0 s"
+
+    assert card
+           |> LazyHTML.query("#knowledge-run-run-2 dl.call-run a")
+           |> LazyHTML.attribute("href") ==
+             ["https://github.com/acme/checkout-api/commit/0123456789abcdef"]
 
     notes = card |> LazyHTML.query(".knowledge-run-note") |> Enum.map(&LazyHTML.text/1)
 
@@ -416,7 +454,25 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
              "The answer did not match what Ryker asked for, so Ryker did not use it."
            ]
 
-    assert card |> LazyHTML.query("#knowledge-run-run-2-prompt pre") |> LazyHTML.text() == prompt
+    # The prompt reads as its instructions and the context it was given, in the
+    # order it was sent; the exact prompt is one click away.
+    sent = LazyHTML.query(card, "#knowledge-run-run-2-prompt")
+
+    assert sent |> LazyHTML.query(".knowledge-prompt-instructions") |> LazyHTML.text() ==
+             "Write the repository knowledge.\nRead it; change nothing."
+
+    assert sent |> LazyHTML.query("pre.knowledge-run-text") |> LazyHTML.text() ==
+             ~s({\n  "repository": {\n    "name": "acme/checkout-api",\n    "commit": "0123456789abcdef"\n  }\n})
+
+    assert sent
+           |> LazyHTML.query("button[data-copy-value]")
+           |> LazyHTML.attribute("data-copy-value") ==
+             [prompt]
+
+    # A prompt of any other shape shows as it was sent.
+    assert card |> LazyHTML.query("#knowledge-run-run-1-prompt pre") |> LazyHTML.text() ==
+             "An older prompt, not JSON."
+
     assert card |> LazyHTML.query("#knowledge-run-run-2-answer pre") |> LazyHTML.text() == answer
     refute squeeze(LazyHTML.text(card)) =~ "repository_knowledge_result_invalid"
 
@@ -606,20 +662,32 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
   # Andrew, 2026-09-28: "I don't want to make daily PRs to update those
   # files." Ryker keeps each repository's knowledge itself, so the
-  # repository's page is the place a person reads it, whole and open.
-  test "a repository's knowledge can be read on its page, as Ryker keeps it" do
+  # repository's page is the place a person reads it. It showed as raw
+  # Markdown, "## Purpose" and all, until Andrew asked for "well
+  # structured/formatted text" with collapsibles like the timeline's
+  # (2026-10-04).
+  test "a repository's knowledge reads as formatted text on its page, its Markdown a click away" do
     document =
-      "# RYKER.md\n\nWritten by Ryker from `783fc48` on 2026-08-28.\n\n## Purpose\n\nIt works.\n"
+      "# RYKER.md\n\nWritten by Ryker from `783fc48` on 2026-08-28.\n\n## Purpose\n\n" <>
+        "It works. Start at [the README](README.md).\n"
 
     page = @repository |> put_in([:knowledge, :document], document) |> detail()
+    row = LazyHTML.query(page, "#repository-knowledge details#repository-knowledge-document")
 
-    assert LazyHTML.query(
-             page,
-             "#repository-knowledge .copy-block pre#repository-knowledge-document"
-           )
-           |> LazyHTML.text() == document
+    assert row |> LazyHTML.query("summary .ui-disclosure-label") |> LazyHTML.text() == "RYKER.md"
 
-    assert Enum.empty?(LazyHTML.query(page, "details"))
+    text = LazyHTML.query(row, "#repository-knowledge-text")
+    assert text |> LazyHTML.query("h4.knowledge-heading") |> LazyHTML.text() == "Purpose"
+    refute LazyHTML.text(text) =~ "#"
+    # The title is the row's, so the text does not say it again.
+    refute LazyHTML.text(text) =~ "RYKER.md"
+
+    assert LazyHTML.query(text, "a") |> LazyHTML.attribute("href") == [
+             "https://github.com/acme/checkout-api/blob/783fc48#{String.duplicate("0", 33)}/README.md"
+           ]
+
+    assert LazyHTML.query(row, "button[data-copy-value]") |> LazyHTML.attribute("data-copy-value") ==
+             [document]
   end
 
   test "refreshing knowledge asks what it does before a model reads the repository" do

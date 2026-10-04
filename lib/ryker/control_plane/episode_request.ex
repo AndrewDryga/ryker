@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.RoutingReason
   alias Ryker.Episodes.Words
-  alias Ryker.Work.ExecutionTarget
 
   # Background calls about a request that send no reply: learning from its
   # messages, and the self-analysis of a request a person was unhappy with.
@@ -112,7 +111,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           </dd>
         </div>
       </dl>
-      <.call_run :if={@run} run={@run} />
+      <CallRun.table :if={@run} run={@run} />
       <p :for={wait <- @request[:waits] || []} class="request-wait">{wait_text(wait)}</p>
       <div
         :if={!@result? && !@retention_note && (@input_sections != [] || @contract_section)}
@@ -292,10 +291,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     end
   end
 
-  attr(:run, :map, required: true)
-
-  # What the call cost and where its time went, as recorded when it ended: a
-  # short two-column table a reader scans top to bottom.
   # Drawn from the whole entry rather than its sections alone: the entry
   # carries the names known when it loaded (`Names.revision/0`), so a name
   # Slack gives later draws the briefing again (2026-09-26).
@@ -315,53 +310,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         request.id <> "-submitted",
         prompt_section[:artifact_id]
       )
-
-  defp call_run(assigns) do
-    ~H"""
-    <dl class="call-run" aria-label="How this call ran">
-      <div :if={@run.target}>
-        <dt>Model</dt>
-        <dd>{model_words(@run.target)}</dd>
-      </div>
-      <div :if={@run.tokens}>
-        <dt>Tokens</dt>
-        <dd>{@run.tokens}</dd>
-      </div>
-      <div :if={@run.cost}>
-        <dt>Cost</dt>
-        <dd title={cost_title(@run.cost)}>{@run.cost}</dd>
-      </div>
-      <div :if={@run.checks}>
-        <dt>Checks</dt>
-        <dd>
-          {@run.checks}
-          <span :if={@run.corrections != []} class="call-run-corrections">
-            <a :for={correction <- @run.corrections} href={correction.href}>
-              Attempt {correction.attempt} was sent back to be fixed ↑
-            </a>
-          </span>
-        </dd>
-      </div>
-      <div :for={segment <- @run.segments}>
-        <dt>{segment.label}</dt>
-        <dd>{CallRun.duration(segment.ms)}</dd>
-      </div>
-    </dl>
-    """
-  end
-
-  defp model_words(target) do
-    case ExecutionTarget.parts(target) do
-      %{model: model, effort: effort} when is_binary(effort) -> "#{model} · #{effort} reasoning"
-      %{model: model} -> model
-      nil -> target
-    end
-  end
-
-  defp cost_title("≈" <> _rest),
-    do: "Estimated from the model's price per token; the provider did not report a cost."
-
-  defp cost_title(_cost), do: "Reported by the provider."
 
   defp unavailable_assembly?(%{id: "instructions", artifact: artifact}),
     do: artifact.state != :retained

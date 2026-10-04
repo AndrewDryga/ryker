@@ -509,6 +509,31 @@ defmodule Ryker.ControlPlane.Kit do
     """
   end
 
+  attr(:title, :string, required: true)
+  attr(:id, :string, default: nil)
+  attr(:lede, :string, default: nil)
+  attr(:class, :any, default: nil)
+  slot(:inner_block, required: true)
+
+  @doc """
+  One part of a card that holds several, under a small label and one
+  sentence, the way the timeline's briefing groups what a model was given. A
+  repository's knowledge, how it was written and where it is used were three
+  cards, and are parts of one (Andrew, 2026-10-04). Collapsible rows inside a
+  part stack as one list in a `kit-rows` block.
+  """
+  def card_part(assigns) do
+    ~H"""
+    <section id={@id} class={["kit-card-part", @class]}>
+      <header>
+        <h3>{@title}</h3>
+        <p :if={@lede}>{@lede}</p>
+      </header>
+      {render_slot(@inner_block)}
+    </section>
+    """
+  end
+
   attr(:id, :string, default: nil)
 
   attr(:title, :string,

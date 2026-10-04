@@ -9,9 +9,14 @@ defmodule Ryker.ControlPlane.CallRun do
 
   Everything here was known when the call ended. Nothing reaches forward to
   work that came after it; the timeline's later cards say that.
+
+  `table/1` draws it the one way the timeline's model cards and a
+  repository's knowledge runs both show it.
   """
+  use Phoenix.Component
 
   alias Ryker.Accounting.Pricing
+  alias Ryker.Work.ExecutionTarget
 
   @type segment :: %{kind: :prepare | :model | :save, label: String.t(), ms: non_neg_integer()}
   @typedoc "An answer Ryker sent back, and the card on the timeline that shows it."
@@ -186,6 +191,82 @@ defmodule Ryker.ControlPlane.CallRun do
       _unmeasured -> []
     end)
   end
+
+  attr(:run, :map, required: true)
+
+  slot :fact, doc: "A row the caller adds after the cost and checks, before the time rows" do
+    attr(:label, :string, required: true)
+  end
+
+  @doc """
+  What the call cost and where its time went, as recorded when it ended: a
+  short two-column table a reader scans top to bottom.
+  """
+  def table(assigns) do
+    ~H"""
+    <dl class="call-run" aria-label="How this call ran">
+      <div :if={@run.target}>
+        <dt>Model</dt>
+        <dd>{model_words(@run.target)}</dd>
+      </div>
+      <div :if={@run.tokens}>
+        <dt>Tokens</dt>
+        <dd>{@run.tokens}</dd>
+      </div>
+      <div :if={@run.cost}>
+        <dt>Cost</dt>
+        <dd title={cost_title(@run.cost)}>{@run.cost}</dd>
+      </div>
+      <div :if={@run.checks}>
+        <dt>Checks</dt>
+        <dd>
+          {@run.checks}
+          <span :if={@run.corrections != []} class="call-run-corrections">
+            <a :for={correction <- @run.corrections} href={correction.href}>
+              Attempt {correction.attempt} was sent back to be fixed ↑
+            </a>
+          </span>
+        </dd>
+      </div>
+      <div :for={fact <- @fact}>
+        <dt>{fact.label}</dt>
+        <dd>{render_slot(fact)}</dd>
+      </div>
+      <div :for={segment <- @run.segments}>
+        <dt>{segment.label}</dt>
+        <dd>{duration(segment.ms)}</dd>
+      </div>
+    </dl>
+    """
+  end
+
+  @doc "A model target in words: \"gpt-5.6-sol · medium reasoning\"."
+  @spec model_words(String.t()) :: String.t()
+  def model_words(target) do
+    case ExecutionTarget.parts(target) do
+      %{model: model, effort: effort} when is_binary(effort) -> "#{model} · #{effort} reasoning"
+      %{model: model} -> model
+      nil -> target
+    end
+  end
+
+  defp cost_title("≈" <> _rest),
+    do: "Estimated from the model's price per token; the provider did not report a cost."
+
+  defp cost_title(_cost), do: "Reported by the provider."
+
+  @doc """
+  A text's size in tokens, estimated from its length: "≈ 1,204 tokens". A
+  provider's own counts are measured separately; this is only a reader's
+  sense of how long a part is.
+  """
+  @spec estimated_tokens(String.t() | {:bytes, non_neg_integer()}) :: String.t()
+  def estimated_tokens({:bytes, bytes}) do
+    count = ceil(bytes / 4)
+    "≈ #{delimit(count)} #{if count == 1, do: "token", else: "tokens"}"
+  end
+
+  def estimated_tokens(text) when is_binary(text), do: estimated_tokens({:bytes, byte_size(text)})
 
   @doc "A duration in the words the cards use: 850 ms, 16.5 s, 4 min 10 s, 2 h 5 min."
   @spec duration(non_neg_integer()) :: String.t()

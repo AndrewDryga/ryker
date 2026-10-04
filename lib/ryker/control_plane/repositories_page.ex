@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     Environments,
     Integrations,
     Kit,
+    KnowledgeDocument,
     Paths,
     SettingsView,
     ShortTime
@@ -399,15 +400,87 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   defp run_word(%{status: :stale}), do: "Never started"
   defp run_word(_run), do: "Not used"
 
-  defp run_parts(run) do
-    [
-      run.target,
-      run.tokens,
-      run.cost,
-      run.total_ms && CallRun.duration(run.total_ms),
-      run.commit && "commit " <> String.slice(run.commit, 0, 7)
-    ]
-    |> Enum.reject(&is_nil/1)
+  # What a run cost and how long it took, opposite its summary.
+  defp run_meta(%{call: call}) do
+    case Enum.reject([call.cost, call.total_ms && CallRun.duration(call.total_ms)], &is_nil/1) do
+      [] -> nil
+      parts -> Enum.join(parts, " · ")
+    end
+  end
+
+  defp commit_href(%{github_repository: repository}, commit) when is_binary(repository),
+    do: "https://github.com/#{repository}/commit/#{commit}"
+
+  defp commit_href(_repository, _commit), do: nil
+
+  # The knowledge as formatted text, each link to a path in the repository
+  # opened on GitHub at the commit the knowledge was written from.
+  defp document(%{knowledge: %{document: text} = knowledge} = item) when is_binary(text) do
+    {title, html} =
+      KnowledgeDocument.render(text, %{
+        github_repository: (item.configured || %{})[:github_repository],
+        commit: knowledge[:document_commit]
+      })
+
+    %{title: title || "RYKER.md", html: html, text: text}
+  end
+
+  defp document(_item), do: nil
+
+  attr(:prompt, :string, required: true)
+
+  # What a run was sent, the way the timeline shows a briefing: the
+  # instructions as text, then what the model was given as formatted JSON in
+  # the order it was sent, with the exact prompt one click away. A prompt of
+  # any other shape shows as it was sent.
+  defp prompt_view(assigns) do
+    assigns = assign(assigns, :parts, prompt_parts(assigns.prompt))
+
+    ~H"""
+    <%= case @parts do %>
+      <% {instructions, context} -> %>
+        <section class="knowledge-prompt-part">
+          <h4>Instructions</h4>
+          <p class="knowledge-prompt-instructions">{instructions}</p>
+        </section>
+        <section class="knowledge-prompt-part">
+          <h4>What it was given</h4>
+          <pre class="knowledge-run-text">{context}</pre>
+        </section>
+        <p class="knowledge-copy"><.copy_exact value={@prompt} label="Copy the exact prompt" /></p>
+      <% nil -> %>
+        <Components.copy_block label="Copy the prompt">
+          <pre class="knowledge-run-text">{@prompt}</pre>
+        </Components.copy_block>
+    <% end %>
+    """
+  end
+
+  defp prompt_parts(prompt) do
+    with {:ok, %Jason.OrderedObject{values: values}} <-
+           Jason.decode(prompt, objects: :ordered_objects),
+         %{"instructions" => instructions, "context" => context} = parts
+         when map_size(parts) == 2 and is_binary(instructions) <- Map.new(values) do
+      {instructions, Jason.encode!(context, pretty: true)}
+    else
+      _other -> nil
+    end
+  end
+
+  attr(:value, :string, required: true)
+  attr(:label, :string, required: true)
+
+  # Copies the exact text a part shows formatted.
+  defp copy_exact(assigns) do
+    ~H"""
+    <button type="button" class="ui-button secondary knowledge-copy-button" data-copy-value={@value}>
+      <Components.icon name={:copy} />{@label}<span
+        class="sr-only"
+        data-copy-status
+        aria-live="polite"
+      ></span>
+    </button>
+    """
   end
 
   defp run_note(%{status: :applied, dropped: count}) when is_integer(count) and count > 0,
@@ -465,8 +538,9 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   attr(:now, :any, required: true)
 
   # Its state first, then what needs a person and the buttons that fix it,
-  # the knowledge every task here starts from, where the repository is used,
-  # GitHub's side, the code Ryker last used, and removing it last.
+  # the knowledge every task here starts from with how it was written and
+  # where the repository is used, GitHub's side, the code Ryker last used, and
+  # removing it last.
   defp detail(assigns) do
     item = assigns.item
 
@@ -476,6 +550,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         state: state(item),
         problem: problem(item),
         knowledge: item[:knowledge],
+        document: document(item),
         runs: Map.get(item, :knowledge_runs, [])
       )
 
@@ -505,10 +580,9 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         </:actions>
       </Kit.section_card>
       <Kit.section_card
-        :if={@repository[:onboarding_state]}
         id="repository-knowledge"
         title="Knowledge"
-        lede="What Ryker knows about this repository, written by a model from its code. Every task here starts from it. Nothing is written to the repository."
+        lede="What Ryker knows about this repository, how a model wrote it, and where it is used. Every task here starts from it, and nothing is written to the repository."
       >
         <:actions :if={refreshable?(@item)}>
           <button
@@ -519,7 +593,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
             phx-value-ref={@item.ref}
           >Refresh knowledge</button>
         </:actions>
-        <dl class="kit-facts">
+        <dl :if={@repository[:onboarding_state]} class="kit-facts">
           <.fact label="Written">
             {knowledge(@knowledge)}<ShortTime.time
               :if={@knowledge[:document_at]}
@@ -545,74 +619,114 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
             <Kit.state tone={:warn} word="Failed" /> {knowledge_problem(@item)}
           </.fact>
         </dl>
-        <Components.copy_block :if={@knowledge[:document]} label="Copy the knowledge">
-          <pre id="repository-knowledge-document" class="repository-knowledge-document">{@knowledge.document}</pre>
-        </Components.copy_block>
-      </Kit.section_card>
-      <Kit.section_card
-        :if={@runs != []}
-        id="repository-knowledge-runs"
-        title="How it was written"
-        lede="Each time a model read the repository to write its knowledge: when, which model, what it cost, and exactly what it was sent and answered."
-      >
-        <div :for={run <- @runs} id={"knowledge-run-" <> run.id} class="knowledge-run">
-          <p class="knowledge-run-line">
-            <Kit.state tone={run_tone(run)} word={run_word(run)} />
-            <ShortTime.time at={run.at} now={@now} />
-            <span :for={part <- run_parts(run)}> · {part}</span>
-          </p>
-          <p :if={run_note(run)} class="knowledge-run-note">{run_note(run)}</p>
+        <div :if={@document} class="kit-rows">
           <Components.disclosure
-            :if={run.prompt}
-            id={"knowledge-run-" <> run.id <> "-prompt"}
-            label="Prompt sent"
+            id="repository-knowledge-document"
+            label={@document.title}
             kind={:source}
+            class="knowledge-document-row"
           >
-            <Components.copy_block label="Copy the prompt">
-              <pre class="knowledge-run-text">{run.prompt}</pre>
-            </Components.copy_block>
-          </Components.disclosure>
-          <Components.disclosure
-            :if={run.result}
-            id={"knowledge-run-" <> run.id <> "-answer"}
-            label="The model's answer"
-            kind={:source}
-          >
-            <Components.copy_block label="Copy the answer">
-              <pre class="knowledge-run-text">{run.result}</pre>
-            </Components.copy_block>
+            <:meta>{CallRun.estimated_tokens(@document.text)}</:meta>
+            <div id="repository-knowledge-text" class="markdown-preview knowledge-document">
+              {@document.html}
+            </div>
+            <p class="knowledge-copy">
+              <.copy_exact value={@document.text} label="Copy the Markdown" />
+            </p>
           </Components.disclosure>
         </div>
-      </Kit.section_card>
-      <Kit.section_card
-        id="repository-use"
-        title="Where it is used"
-        lede="Channels choose environments, so work here comes from the channels, schedules and conversations of its environments."
-      >
-        <dl class="kit-facts">
-          <.fact label="Environments">
-            <%= if @item.in_environments == [] do %>
-              None yet, so no channel's work can use it.
-              <a href="/environments">Add it to an environment</a>
-            <% else %>
-              <%!-- Each name but the last carries its comma, so no space
-              ever comes before one. --%>
-              <%= for {environment, comma} <- with_commas(@item.in_environments) do %>
-                <a href={Paths.edit_environment(environment.ref)}>{environment.name}</a>{comma}
+        <Kit.card_part
+          :if={@runs != []}
+          id="repository-knowledge-runs"
+          title="How it was written"
+          lede="Each time a model read the code to write it, newest first."
+        >
+          <div class="kit-rows">
+            <Components.disclosure
+              :for={run <- @runs}
+              id={"knowledge-run-" <> run.id}
+              label={run_word(run)}
+              kind={:source}
+              class="knowledge-run"
+            >
+              <:label_content>
+                <span class="knowledge-run-summary">
+                  <Kit.state tone={run_tone(run)} word={run_word(run)} />
+                  <ShortTime.time at={run.at} now={@now} />
+                  <span :if={run.call.target} class="knowledge-run-model">
+                    {CallRun.model_words(run.call.target)}
+                  </span>
+                </span>
+              </:label_content>
+              <:meta :if={run_meta(run)}>{run_meta(run)}</:meta>
+              <p :if={run_note(run)} class="knowledge-run-note">{run_note(run)}</p>
+              <CallRun.table run={run.call}>
+                <:fact :if={run.commit} label="Code">
+                  <a
+                    :if={commit_href(@repository, run.commit)}
+                    href={commit_href(@repository, run.commit)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{short(run.commit)}</a><span :if={!commit_href(@repository, run.commit)}>{short(
+                    run.commit
+                  )}</span>
+                </:fact>
+              </CallRun.table>
+              <div :if={run.prompt || run.result} class="kit-rows knowledge-run-parts">
+                <Components.disclosure
+                  :if={run.prompt}
+                  id={"knowledge-run-" <> run.id <> "-prompt"}
+                  label="Prompt sent"
+                  kind={:source}
+                >
+                  <:meta>{CallRun.estimated_tokens(run.prompt)}</:meta>
+                  <.prompt_view prompt={run.prompt} />
+                </Components.disclosure>
+                <Components.disclosure
+                  :if={run.result}
+                  id={"knowledge-run-" <> run.id <> "-answer"}
+                  label="The model's answer"
+                  kind={:source}
+                >
+                  <:meta>{CallRun.estimated_tokens(run.result)}</:meta>
+                  <Components.copy_block label="Copy the answer">
+                    <pre class="knowledge-run-text">{run.result}</pre>
+                  </Components.copy_block>
+                </Components.disclosure>
+              </div>
+            </Components.disclosure>
+          </div>
+        </Kit.card_part>
+        <Kit.card_part
+          id="repository-use"
+          title="Where it is used"
+          lede="Channels choose environments, so work here comes from the channels, schedules and conversations of its environments."
+        >
+          <dl class="kit-facts">
+            <.fact label="Environments">
+              <%= if @item.in_environments == [] do %>
+                None yet, so no channel's work can use it.
+                <a href="/environments">Add it to an environment</a>
+              <% else %>
+                <%!-- Each name but the last carries its comma, so no space
+                ever comes before one. --%>
+                <%= for {environment, comma} <- with_commas(@item.in_environments) do %>
+                  <a href={Paths.edit_environment(environment.ref)}>{environment.name}</a>{comma}
+                <% end %>
               <% end %>
-            <% end %>
-          </.fact>
-          <.fact label="Channels">{count(@item.channels, "channel", "channels")}</.fact>
-          <.fact label="Schedules">{count(@item.schedules, "schedule", "schedules")}</.fact>
-          <.fact label="Tasks">
-            {count(@item.sessions, "task", "tasks")}<span> · </span><a href={
-              Paths.query("/activity", %{"repository" => @item.ref})
-            }>See its requests</a>
-          </.fact>
-          <.fact :if={@item.publications > 0} label="Pull requests">
-            {plural(@item.publications, "pull request", "pull requests")} opened by Ryker
-          </.fact>
-        </dl>
+            </.fact>
+            <.fact label="Channels">{count(@item.channels, "channel", "channels")}</.fact>
+            <.fact label="Schedules">{count(@item.schedules, "schedule", "schedules")}</.fact>
+            <.fact label="Tasks">
+              {count(@item.sessions, "task", "tasks")}<span> · </span><a href={
+                Paths.query("/activity", %{"repository" => @item.ref})
+              }>See its requests</a>
+            </.fact>
+            <.fact :if={@item.publications > 0} label="Pull requests">
+              {plural(@item.publications, "pull request", "pull requests")} opened by Ryker
+            </.fact>
+          </dl>
+        </Kit.card_part>
       </Kit.section_card>
       <Kit.section_card
         :if={@repository[:github_repository] || Map.has_key?(@repository, :github_permissions)}

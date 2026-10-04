@@ -2541,15 +2541,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   # Provider totals are measured separately. Component counts are estimates over
   # the displayed, sanitized text, not fabricated provider tokenizer receipts.
-  defp estimated_tokens({:bytes, bytes}) do
-    count = ceil(bytes / 4)
-    "≈ #{CallRun.delimit(count)} #{if count == 1, do: "token", else: "tokens"}"
-  end
-
-  defp estimated_tokens(value) do
-    text = if is_binary(value), do: value, else: Jason.encode!(value)
-    estimated_tokens({:bytes, byte_size(text)})
-  end
+  defp estimated_tokens({:bytes, _bytes} = size), do: CallRun.estimated_tokens(size)
+  defp estimated_tokens(value) when is_binary(value), do: CallRun.estimated_tokens(value)
+  defp estimated_tokens(value), do: value |> Jason.encode!() |> CallRun.estimated_tokens()
 
   defp field_path(root, key) do
     if Regex.match?(~r/^[a-zA-Z_][a-zA-Z_0-9]*$/, key),
