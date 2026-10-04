@@ -34,10 +34,16 @@ defmodule Ryker.ConcurrencyCase do
     :ok
   end
 
-  # `scripts/elixir-test.sh` names an isolated database ryker_test_<pid>_<n>;
-  # the shared ryker_test may hold other runs' committed rows at any moment.
-  defp exclusive_database?,
-    do: Regex.match?(~r/\Aryker_test_\d+_\d+\z/, Repo.config()[:database] || "")
+  defp exclusive_database?, do: exclusive_database?(Repo.config()[:database] || "")
+
+  # `scripts/elixir-test.sh` names an isolated database ryker_test_<pid>_<n>,
+  # and a gate partition's ryker_test_<pid>_<n>_p<k>; the shared ryker_test may
+  # hold other runs' committed rows at any moment. The partition names went
+  # unmatched from 2026-10-02, so no gate checked for left rows (2026-10-04
+  # review), and a claim test later counted a turn some test had left.
+  @doc false
+  def exclusive_database?(name),
+    do: Regex.match?(~r/\Aryker_test_\d+_\d+(_p\d+)?\z/, name)
 
   defp committed_rows do
     Sandbox.unboxed_run(Repo, fn ->
