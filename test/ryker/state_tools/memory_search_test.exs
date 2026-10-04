@@ -4,6 +4,7 @@ defmodule Ryker.StateTools.MemorySearchTest do
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
+  alias Ryker.Episodes.Scope, as: WorkspaceScope
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.{Knowledge, Learning}
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
@@ -17,6 +18,7 @@ defmodule Ryker.StateTools.MemorySearchTest do
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Learning.SourceExposure
+  alias Ryker.Memories.CaseRecord
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemorySearch
   alias Ryker.Records
@@ -421,6 +423,29 @@ defmodule Ryker.StateTools.MemorySearchTest do
 
     assert byte_size(CanonicalJSON.encode!(result["memories"] ++ result["related_memory"])) <=
              65_536
+  end
+
+  # A retained case carries no source, memory or behavior ref. Gathering the page's ids for
+  # the related lookup piped that nil into String.split/2, so every search whose page held a
+  # case beside an observation or a topic raised, and the model got internal_error
+  # (2026-10-04 review). The tool describes exactly that mix of kinds.
+  test "a page holding a retained case beside an observation is answered", %{
+    claim: claim,
+    options: options,
+    entries: entries
+  } do
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
+             end)
+
+    retained_case!(claim.episode, "FIRING alert on the checkout database, fixed by a failover")
+    args = %{@args | "query" => "FIRING", "kinds" => ["continuity", "case"], "limit" => 5}
+
+    assert {:ok, result} = Tools.call("search_memory", args, options)
+    kinds = Enum.map(result["memories"], & &1["kind"])
+    assert "case" in kinds
+    assert "conversation_observation" in kinds
   end
 
   test "an older diagnosis and its later resolution both return with separable dates", %{
@@ -866,6 +891,24 @@ defmodule Ryker.StateTools.MemorySearchTest do
            "a conversation's own summary must stay reachable as related memory"
 
     assert result["coverage"]["basis"] == "direct_source_relationship"
+  end
+
+  defp retained_case!(episode, problem) do
+    now = DateTime.utc_now()
+
+    Repo.insert!(%CaseRecord{
+      case_ref: "case:" <> Ecto.UUID.generate(),
+      closed_at: now,
+      content_fingerprint: String.duplicate("c", 64),
+      conversation_ref: episode.destination_conversation_ref,
+      episode_id: episode.id,
+      episode_key: episode.key,
+      execution_mode: :live,
+      problem: problem,
+      search_text: problem,
+      transport: episode.destination_transport,
+      workspace_ref: WorkspaceScope.workspace_ref(episode)
+    })
   end
 
   defp fact!(claim, index) do

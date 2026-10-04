@@ -151,12 +151,14 @@ defmodule Ryker.Memories.MemorySearch do
     Enum.flat_map(documents, &document_id/1)
   end
 
+  # A retained case has none of these refs, and is never among related results.
   defp document_id(document) do
-    ref = document["source_ref"] || document["memory_ref"] || document["behavior_ref"]
-
-    case ref |> String.split(":") |> List.last() |> Ecto.UUID.cast() do
-      {:ok, id} -> [id]
-      _ -> []
+    with ref when is_binary(ref) <-
+           document["source_ref"] || document["memory_ref"] || document["behavior_ref"],
+         {:ok, id} <- ref |> String.split(":") |> List.last() |> Ecto.UUID.cast() do
+      [id]
+    else
+      _none -> []
     end
   end
 
