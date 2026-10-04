@@ -72,7 +72,9 @@ defmodule Ryker.Slack.WorkspaceAdmins do
   defp lookup(lookup, user_ref) do
     lookup.(user_ref)
   rescue
-    _error -> {:error, :lookup_failed}
+    error ->
+      Ryker.Rescued.log("Slack admin lookup", error, __STACKTRACE__)
+      {:error, :lookup_failed}
   catch
     :exit, _reason -> {:error, :lookup_failed}
   end

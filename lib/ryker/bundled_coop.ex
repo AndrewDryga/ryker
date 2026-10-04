@@ -155,7 +155,9 @@ defmodule Ryker.BundledCoop do
 
     worker_ready?(worker) and snapshot.work.workspace_ref == configured_workspace_ref()
   rescue
-    _error -> false
+    error ->
+      Ryker.Rescued.log("Bundled Coop readiness", error, __STACKTRACE__)
+      false
   end
 
   defp worker_ready?(

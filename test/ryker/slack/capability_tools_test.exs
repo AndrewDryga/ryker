@@ -1,6 +1,8 @@
 defmodule Ryker.Slack.CapabilityToolsTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.Episode
   alias Ryker.Slack.{CapabilityTools, ChannelConfiguration, SourceRef}
@@ -1123,6 +1125,102 @@ defmodule Ryker.Slack.CapabilityToolsTest do
              work_binding(),
              %{options() | api: ThrottledExpansionAPI}
            ) == {:error, "temporarily_unavailable"}
+  end
+
+  defmodule RaisingSearchAPI do
+    defdelegate conversation_info(observer, channel), to: FakeAPI
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel), to: FakeAPI
+    defdelegate file_info(observer, file), to: FakeAPI
+    defdelegate read_messages(observer, channel, thread, document), to: FakeAPI
+    def search_context(_observer, _token, _document), do: raise(ArgumentError, "host bug")
+  end
+
+  defmodule RefusingSearchAPI do
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel), to: FakeAPI
+    defdelegate file_info(observer, file), to: FakeAPI
+    defdelegate read_messages(observer, channel, thread, document), to: FakeAPI
+    defdelegate search_context(observer, token, document), to: FakeAPI
+
+    def conversation_info(_observer, _channel),
+      do: {:error, {:slack_api_error, "channel_not_found"}}
+  end
+
+  defmodule RateLimitedSearchAPI do
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel), to: FakeAPI
+    defdelegate file_info(observer, file), to: FakeAPI
+    defdelegate read_messages(observer, channel, thread, document), to: FakeAPI
+    defdelegate search_context(observer, token, document), to: FakeAPI
+
+    def conversation_info(_observer, _channel), do: {:error, {:slack_api_error, "ratelimited"}}
+  end
+
+  # A raise inside a Slack tool answered "temporarily unavailable" and logged nothing, so a
+  # host bug looked like Slack being down; and a refusal Slack will repeat read the same,
+  # so the model kept retrying (the 27-28 September search outage; 2026-10-04 review).
+  test "a raising Slack tool is logged, and a lasting Slack refusal is not called temporary" do
+    log =
+      capture_log(fn ->
+        assert CapabilityTools.call(
+                 "search_slack",
+                 %{"query" => "deploy"},
+                 work_binding(),
+                 %{options() | api: RaisingSearchAPI}
+               ) == {:error, "temporarily_unavailable"}
+      end)
+
+    assert log =~ "Slack tool search_slack raised"
+    assert log =~ "ArgumentError"
+
+    assert {:error, refusal} =
+             CapabilityTools.call(
+               "search_slack",
+               %{"query" => "deploy"},
+               work_binding(),
+               %{options() | api: RefusingSearchAPI}
+             )
+
+    assert refusal =~ "channel_not_found"
+    refute refusal =~ "temporarily"
+
+    assert CapabilityTools.call(
+             "search_slack",
+             %{"query" => "deploy"},
+             work_binding(),
+             %{options() | api: RateLimitedSearchAPI}
+           ) == {:error, "temporarily_unavailable"}
+  end
+
+  defmodule UnreadableExpansionAPI do
+    defdelegate conversation_info(observer, channel), to: FakeAPI
+    defdelegate list_conversations(observer, document), to: FakeAPI
+    defdelegate list_bookmarks(observer, channel), to: FakeAPI
+    defdelegate file_info(observer, file), to: FakeAPI
+    defdelegate search_context(observer, token, document), to: MissingContextSearchAPI
+
+    def read_messages(_observer, _channel, _thread, _document),
+      do: {:error, {:slack_api_error, "not_in_channel"}}
+  end
+
+  # A hit in a public channel Ryker has not joined cannot have its context read. That
+  # failed the whole search as "temporarily unavailable", so the model retried a search
+  # that could never work (2026-10-04 review). The hit stays, its context marked unread.
+  test "a hit whose context Ryker cannot read keeps the search and says why" do
+    assert {:ok, result} =
+             CapabilityTools.call(
+               "search_slack",
+               %{"query" => "Engineering task"},
+               work_binding(),
+               %{options() | api: UnreadableExpansionAPI}
+             )
+
+    [hit] = result["results"]["messages"]
+    assert hit["context_coverage"]["status"] == "unavailable"
+    assert hit["context_coverage"]["reason"] == "not_in_channel"
+    assert hit["context_messages"] == %{"before" => [], "after" => []}
+    assert hit["source_read"]["tool"] == "read_slack_source"
   end
 
   test "missing provider context triggers a bounded original read with nonmatching neighbors" do

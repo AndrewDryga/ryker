@@ -16,8 +16,8 @@ defmodule Ryker.Slack.CapabilityTools do
   update or an offered post into durable custody.
   """
 
-  alias Ryker.Delivery.PlatformActionCustody
-  alias Ryker.Options
+  alias Ryker.Delivery.{PlatformActionCustody, Retry}
+  alias Ryker.{Options, Rescued}
 
   alias Ryker.Slack.CapabilityTools.{
     Actions,
@@ -228,7 +228,7 @@ defmodule Ryker.Slack.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> Rescued.tool("Slack tool list_slack_channels", error, __STACKTRACE__)
   end
 
   def call("search_slack", arguments, binding, options) do
@@ -262,7 +262,7 @@ defmodule Ryker.Slack.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> Rescued.tool("Slack tool search_slack", error, __STACKTRACE__)
   end
 
   def call("read_slack_source", arguments, binding, options) do
@@ -292,7 +292,7 @@ defmodule Ryker.Slack.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> Rescued.tool("Slack tool read_slack_source", error, __STACKTRACE__)
   end
 
   def call("set_slack_reaction", arguments, binding, options) do
@@ -313,7 +313,7 @@ defmodule Ryker.Slack.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> Rescued.tool("Slack tool set_slack_reaction", error, __STACKTRACE__)
   end
 
   def call("post_slack_message", arguments, binding, options) do
@@ -347,7 +347,7 @@ defmodule Ryker.Slack.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> Rescued.tool("Slack tool post_slack_message", error, __STACKTRACE__)
   end
 
   def call("post_slack_update", arguments, binding, options) do
@@ -364,7 +364,7 @@ defmodule Ryker.Slack.CapabilityTools do
       {:error, reason} -> {:error, error_code(reason)}
     end
   rescue
-    _error -> {:error, "temporarily_unavailable"}
+    error -> Rescued.tool("Slack tool post_slack_update", error, __STACKTRACE__)
   end
 
   def call(_name, _arguments, _binding, _options), do: {:error, "unknown_tool"}
@@ -599,6 +599,17 @@ defmodule Ryker.Slack.CapabilityTools do
       "search_unavailable: Slack lets Ryker search only for a short time after a message that mentions it, and this turn has no such permission. Do not retry. Read the channels and threads you know with read_slack_source, or say in the answer what a search would have checked."
 
   defp error_code(:slack_source_not_found), do: "not_found"
+
+  # Slack refusing what it will refuse again, such as a channel that is gone or
+  # one Ryker is not in, is no outage: "temporarily_unavailable" had the model
+  # retry it.
+  defp error_code({:slack_api_error, code} = reason) when is_binary(code) do
+    if Retry.retryable?(reason) or not Regex.match?(~r/\A[a-z_]{1,64}\z/, code),
+      do: "temporarily_unavailable",
+      else:
+        "slack_refused: Slack answered #{code} and will answer the same again. Do not retry this call."
+  end
+
   defp error_code(_reason), do: "temporarily_unavailable"
 
   @doc """

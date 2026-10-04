@@ -51,7 +51,9 @@ defmodule Ryker.StateTools.CallLog do
 
     :ok
   rescue
-    _refused -> :ok
+    error ->
+      Ryker.Rescued.log("State tool call log", error, __STACKTRACE__)
+      :ok
   end
 
   def record(_binding, _tool, _arguments, _result, _called_at), do: :ok

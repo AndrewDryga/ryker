@@ -8,13 +8,10 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   import Ecto.Query
 
-  require Logger
-
   alias Ryker.Delivery.PlatformActionCustody
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.GitHub.SourceRef
-  alias Ryker.Options
-  alias Ryker.Repo
+  alias Ryker.{Options, Repo, Rescued}
 
   @emoji_names ~w(+1 -1 confused eyes heart hooray laugh rocket)
   @fields ~w(emoji item_ref)
@@ -730,17 +727,8 @@ defmodule Ryker.GitHub.CapabilityTools do
   defp ci_repository_target(_mutation, binding, options, requested),
     do: mutation_repository_target(binding, options, requested)
 
-  # A raise inside a tool still answers the model "temporarily unavailable",
-  # but it is a host bug or an outage, so the log names the tool and the raise.
-  defp raised(tool, error, stacktrace) do
-    Logger.error(
-      "GitHub tool #{tool} raised: " <>
-        Exception.format_banner(:error, error) <>
-        "\n" <> Exception.format_stacktrace(Enum.take(stacktrace, 5))
-    )
-
-    {:error, "temporarily_unavailable"}
-  end
+  defp raised(tool, error, stacktrace),
+    do: Rescued.tool("GitHub tool #{tool}", error, stacktrace)
 
   defp invoke_ci(configured, :read, arguments) do
     if context_api?(configured.api, :read_ci_attempt, 4) do

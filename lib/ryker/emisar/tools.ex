@@ -23,7 +23,7 @@ defmodule Ryker.Emisar.Tools do
 
   import Bitwise
 
-  alias Ryker.Credentials
+  alias Ryker.{Credentials, Rescued}
   alias Ryker.Delivery.JSONClient
   alias Ryker.Emisar.ToolCache
 
@@ -92,7 +92,9 @@ defmodule Ryker.Emisar.Tools do
     with {:ok, catalog} <- read_catalog(client),
          do: withheld_or(catalog, key, {:ok, catalog}, {:error, :unavailable})
   rescue
-    _error -> {:error, :unavailable}
+    error ->
+      Rescued.log("Emisar catalog read", error, __STACKTRACE__)
+      {:error, :unavailable}
   end
 
   defp catalog_budget_ms,

@@ -33,7 +33,9 @@ defmodule Ryker.ControlPlane.ProductReadiness do
       {:error, _reason} -> unavailable()
     end
   rescue
-    _error -> unavailable()
+    error ->
+      Ryker.Rescued.log("Product readiness", error, __STACKTRACE__)
+      unavailable()
   end
 
   @spec current(Settings.snapshot()) :: t()
@@ -50,7 +52,9 @@ defmodule Ryker.ControlPlane.ProductReadiness do
 
     from(snapshot, Observability.fleet(), runtime)
   rescue
-    _error -> unavailable()
+    error ->
+      Ryker.Rescued.log("Product readiness", error, __STACKTRACE__)
+      unavailable()
   end
 
   # Chat can run once the console holds a Work profile for it: the one

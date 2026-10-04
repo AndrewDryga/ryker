@@ -339,7 +339,9 @@ defmodule Ryker.Slack.Names do
   defp fetch(fetch, ref) do
     fetch.(ref)
   rescue
-    _ -> {:error, :directory_unavailable}
+    error ->
+      Ryker.Rescued.log("Slack name lookup", error, __STACKTRACE__)
+      {:error, :directory_unavailable}
   catch
     :exit, _ -> {:error, :directory_unavailable}
   end

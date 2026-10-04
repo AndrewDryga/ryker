@@ -5,6 +5,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
   again through the exact source reader.
   """
 
+  alias Ryker.Delivery.Retry
   alias Ryker.Slack.CapabilityTools.{Arguments, Authority, Resources, SourceReader}
   alias Ryker.Slack.SourceRef
 
@@ -106,9 +107,24 @@ defmodule Ryker.Slack.CapabilityTools.Search do
 
       {:ok, hit, remaining}
     else
-      {:error, :slack_source_not_found} -> {:ok, nil, remaining}
-      {:error, _} = error -> error
+      {:error, :slack_source_not_found} ->
+        {:ok, nil, remaining}
+
+      # Slack refusing this one read, such as a public channel Ryker has not
+      # joined, leaves the hit with its context unread and why; a refusal that
+      # can pass, such as a rate limit, fails the search for a later retry.
+      {:error, {:slack_api_error, code} = reason} = error ->
+        if Retry.retryable?(reason),
+          do: error,
+          else: {:ok, put_in(hit, ["context_coverage", "reason"], unread_reason(code)), remaining}
+
+      {:error, _} = error ->
+        error
     end
+  end
+
+  defp unread_reason(code) when is_binary(code) do
+    if Regex.match?(~r/\A[a-z_]{1,64}\z/, code), do: code, else: "read_failed"
   end
 
   @spec public_search_scopes_authorized([String.t()], map()) :: :ok | {:error, term()}

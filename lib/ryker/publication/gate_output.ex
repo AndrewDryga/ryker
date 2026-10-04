@@ -55,7 +55,9 @@ defmodule Ryker.Publication.GateOutput do
       {:error, _reason} -> nil
     end
   rescue
-    _error -> nil
+    error ->
+      Ryker.Rescued.log("Gate output capture", error, __STACKTRACE__)
+      nil
   catch
     :exit, _reason -> nil
   end
