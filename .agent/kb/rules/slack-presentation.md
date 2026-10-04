@@ -192,6 +192,11 @@ only use retained timestamps and identities, never invented ones.
 
 ## Implementation questions
 
+The reply asks the question, once (Andrew, 2026-10-04: "in the reply"). The card under it adds
+only what the reply cannot: the full answers and their controls. A question answered by typing
+adds nothing under the reply, and an answered question says "Answered" in one line. Chat and
+GitHub follow the same rule.
+
 Keep the full question and every offered answer readable. For up to five choices, use short,
 distinct button labels. When choices are long, show each complete answer above the controls,
 paired with that exact label; never truncate away a condition or replace the durable answer with

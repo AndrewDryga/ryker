@@ -1922,7 +1922,7 @@
       "name": "fabricated-world",
       "tools": [
         {
-          "description": "List the fabricated, time-pinned GCP projects this isolated evaluation can see. Read-only; no Google Cloud account is reachable. A listed project is a routing candidate, never proof of access or health.",
+          "description": "Search the infrastructure actions this workspace may run. Returns matching actions with their ids and what they read.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
@@ -1935,43 +1935,26 @@
             ],
             "type": "object"
           },
-          "name": "gcp.projects.list"
+          "name": "find_actions"
         },
         {
-          "description": "Read the recorded GCP load-balancer backend health observation for one exact project in this isolated evaluation.",
+          "description": "Run one read-only infrastructure action by id with its arguments and return its output.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
-              "project_id": {
+              "action_id": {
                 "type": "string"
               },
-              "service": {
-                "type": "string"
+              "args": {
+                "type": "object"
               }
             },
             "required": [
-              "project_id",
-              "service"
+              "action_id"
             ],
             "type": "object"
           },
-          "name": "gcp.backend_health"
-        },
-        {
-          "description": "Read the recorded Cloud SQL backup schedule and last backup runs for one exact project in this isolated evaluation.",
-          "inputSchema": {
-            "additionalProperties": false,
-            "properties": {
-              "project_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "project_id"
-            ],
-            "type": "object"
-          },
-          "name": "gcp.backup_config"
+          "name": "run_action"
         }
       ]
     }

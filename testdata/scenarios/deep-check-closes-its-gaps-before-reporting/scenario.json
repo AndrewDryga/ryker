@@ -10466,7 +10466,11 @@
     "weight": 1
    },
    {
-    "criterion": "When it asks a question, the question card's context is one sentence on why the answer is needed and does not repeat the reply's findings.",
+    "criterion": "Asks each question once, in the reply.",
+    "weight": 2
+   },
+   {
+    "criterion": "The reply is short: the answer first and a few lines on what needs attention, not an essay.",
     "weight": 2
    }
   ]

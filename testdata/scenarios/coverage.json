@@ -9,6 +9,7 @@
     ],
     "missing_stale_contradictory_evidence": [
       "deep-check-closes-its-gaps-before-reporting",
+      "deep-check-finds-its-sources-through-search",
       "missing-project-discovery-failure-stays-honest",
       "missing-project-empty-discovery-still-asks",
       "missing-project-review-asks-for-context",
@@ -84,6 +85,7 @@
     ],
     "research": [
       "deep-check-closes-its-gaps-before-reporting",
+      "deep-check-finds-its-sources-through-search",
       "va1-health-review-repairs-and-finishes"
     ],
     "terraform": [

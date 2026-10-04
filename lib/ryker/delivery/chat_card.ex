@@ -339,17 +339,21 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
-  # Every question card said "Reply below or choose one of the offered
-  # answers." whether it offered any or not, and went on saying it after the
-  # answer came. An answered question asks for nothing.
+  # The reply asks the question (Andrew, 2026-10-04, of a question asked in the reply and
+  # again on its card: "in the reply"). A question answered by typing gets no card; one with
+  # answers gets a card holding only them. Every question card once said "Reply below or
+  # choose one of the offered answers." whether it offered any or not, and went on saying it
+  # after the answer came. An answered question asks for nothing.
+  defp card(%Record{kind: "input_request"}, %{"choices" => []}), do: nil
+
   defp card(%Record{kind: "input_request"} = record, payload) do
     record
     |> common(
       "Input needed",
-      payload["question"],
+      nil,
       reply_prompt(record.status, payload["choices"]),
       [],
-      if(payload["choices"] == [], do: nil, else: :answer_input),
+      :answer_input,
       payload["choices"]
     )
     |> Map.put(:chosen, chosen(record, payload["choices"]))
@@ -737,7 +741,6 @@ defmodule Ryker.Delivery.ChatCard do
 
   defp chosen(_record, _choices), do: nil
 
-  defp reply_prompt(:open, []), do: "Reply below."
   defp reply_prompt(:open, _choices), do: "Reply below or choose an answer."
   defp reply_prompt(_status, _choices), do: nil
 

@@ -223,11 +223,7 @@ defmodule Ryker.Slack.Renderer.Records do
       if status == "open" do
         {:ok, input_request_blocks(ref, prepared)}
       else
-        {:ok,
-         [
-           %{"type" => "section", "text" => plain_text(prepared["question"])},
-           context(question_status(status))
-         ] ++ remembered_blocks(presentation["memory"])}
+        {:ok, [context(question_status(status))] ++ remembered_blocks(presentation["memory"])}
       end
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
@@ -349,24 +345,14 @@ defmodule Ryker.Slack.Renderer.Records do
 
   defp flagged_file(:unrecognized), do: "• An issue I can't describe."
 
-  defp input_request_blocks(ref, %{"choices" => choices, "question" => question}) do
-    question_block = %{
-      "text" => plain_text(question),
-      "type" => "section"
-    }
+  # The reply asks the question, so the card under it adds only what the reply cannot: the
+  # answer controls (Andrew, 2026-10-04, of a question asked in both: "in the reply"). A
+  # question answered in the thread adds nothing.
+  defp input_request_blocks(_ref, %{"choices" => []}), do: []
 
-    # The question says what it needs; a note that the answer will be remembered said nothing a
-    # person could use (Andrew, 2026-10-01: "that text on the bottom is useless").
-    introduction = [question_block]
-
-    case choices do
-      [] ->
-        introduction
-
-      choices ->
-        {details, options} = question_options(ref, choices)
-        introduction ++ details ++ question_controls(ref, options)
-    end
+  defp input_request_blocks(ref, %{"choices" => choices}) do
+    {details, options} = question_options(ref, choices)
+    details ++ question_controls(ref, options)
   end
 
   defp question_options(ref, choices) do
@@ -435,7 +421,7 @@ defmodule Ryker.Slack.Renderer.Records do
     ]
   end
 
-  defp question_status("answered"), do: "Answered · reply retained separately"
+  defp question_status("answered"), do: "Answered"
   defp question_status("dismissed"), do: "Question closed"
   defp question_status("superseded"), do: "Replaced by a newer question"
 

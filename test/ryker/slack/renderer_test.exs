@@ -2797,10 +2797,59 @@ defmodule Ryker.Slack.RendererTest do
     refute Enum.any?(with_memory["blocks"], &(&1["type"] == "actions"))
   end
 
+  # Andrew, 2026-10-04, of a reply that asked a question and the card under it that asked it
+  # again: "in the reply". The reply asks; the card adds only what the reply cannot, the
+  # answer buttons, and once answered it says so in a line.
+  test "a question is asked once, in the reply, and the card under it adds only its controls" do
+    reply = "Backups need one more fact. Which buckets hold the ClickHouse backups?"
+
+    free = %{
+      "kind" => "input_request",
+      "payload" => %{"choices" => [], "question" => "Which buckets hold the ClickHouse backups?"},
+      "ref" => "record:input_request:free",
+      "status" => "open"
+    }
+
+    assert {:ok, alone} = Renderer.render(%{"message" => reply})
+    assert {:ok, asked} = Renderer.render(%{"message" => reply, "records" => [free]})
+    assert asked["blocks"] == alone["blocks"]
+
+    choice = %{
+      "kind" => "input_request",
+      "payload" => %{
+        "choices" => ["Roll out to 1%", "Stop the rollout"],
+        "question" => "Which rollout action should I take?"
+      },
+      "ref" => "record:input_request:choice",
+      "status" => "open"
+    }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "I need one decision. Which rollout action should I take?",
+               "records" => [choice]
+             })
+
+    assert [_reply, controls] = rendered["blocks"]
+    assert controls["type"] == "actions"
+    refute inspect(controls) =~ "Which rollout action"
+
+    assert {:ok, answered} =
+             Renderer.render(%{
+               "message" => reply,
+               "records" => [%{free | "status" => "answered"}]
+             })
+
+    assert [_reply, status] = answered["blocks"]
+    assert inspect(status) =~ "Answered"
+    refute inspect(status) =~ "Which buckets"
+  end
+
   test "renders durable questions and event waits without accepting model-authored controls" do
     assert {:ok, rendered} =
              Renderer.render(%{
-               "message" => "I need one decision before I continue.",
+               "message" =>
+                 "I need one decision before I continue: which rollout action should I take?",
                "records" => [
                  %{
                    "kind" => "input_request",
@@ -2825,8 +2874,7 @@ defmodule Ryker.Slack.RendererTest do
                ]
              })
 
-    [_, question, choices, wait] = rendered["blocks"]
-    assert question["text"]["text"] == "Which rollout action should I take?"
+    [_, choices, wait] = rendered["blocks"]
 
     assert Enum.map(choices["elements"], &{&1["action_id"], &1["value"]}) == [
              {"ryker_answer_input_0", "record:input_request:abc123|0"},
@@ -2913,7 +2961,8 @@ defmodule Ryker.Slack.RendererTest do
 
     assert {:ok, rendered} =
              Renderer.render(%{
-               "message" => "Reports remain private and size bounded.",
+               "message" =>
+                 "Reports remain private and size bounded. How long should diagnostics be kept?",
                "records" => [record]
              })
 
@@ -2946,11 +2995,14 @@ defmodule Ryker.Slack.RendererTest do
 
     assert {:ok, answered} =
              Renderer.render(%{
-               "message" => "Choose one.",
+               "message" => "How long should diagnostics be kept?",
                "records" => [%{record | "status" => "answered"}]
              })
 
-    assert inspect(answered["blocks"]) =~ record["payload"]["question"]
+    # The question stays where it was asked, in the reply, once.
+    assert [_reply, status] = answered["blocks"]
+    assert inspect(status) =~ "Answered"
+    refute inspect(status) =~ record["payload"]["question"]
     refute Enum.any?(answered["blocks"], &(&1["type"] == "actions"))
     refute inspect(answered["blocks"]) =~ "ryker_question_choice"
   end
@@ -2961,7 +3013,8 @@ defmodule Ryker.Slack.RendererTest do
   test "a reusable question shows the question without a note about remembering the answer" do
     assert {:ok, rendered} =
              Renderer.render(%{
-               "message" => "The plan updates the portal template, fleet and monitors.",
+               "message" =>
+                 "The plan updates the portal template, fleet and monitors. Which GCP project should I use for the health and backup checks?",
                "records" => [
                  %{
                    "kind" => "input_request",

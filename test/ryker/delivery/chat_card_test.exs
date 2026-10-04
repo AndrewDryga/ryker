@@ -241,17 +241,33 @@ defmodule Ryker.Delivery.ChatCardTest do
     assert {"How often", "Every weekday at 09:00 UTC"} in card.details
   end
 
+  # Andrew, 2026-10-04, of a question asked in a reply and again on the card under it: "in the
+  # reply". A question answered by typing gets no card; one with answers gets a card holding
+  # only the answers.
+  test "a question is asked once, in the reply, and its card holds only the answers" do
+    question = "Which timezone should I use for the weekday 9:00 status?"
+
+    assert :ignore =
+             ChatCard.project(record("input_request", %{"choices" => [], "question" => question}))
+
+    assert {:ok, choosing} =
+             ChatCard.project(
+               record("input_request", %{
+                 "choices" => ["UTC", "Europe/Berlin"],
+                 "question" => question
+               })
+             )
+
+    assert choosing.title == nil
+    assert choosing.choices == ["UTC", "Europe/Berlin"]
+    assert choosing.action == :answer_input
+  end
+
   # QA, 2026-09-25: every question card said "Reply below or choose one of the
   # offered answers." whether it offered answers or not, and kept saying it
   # after the question had been answered.
   test "a question card asks for a reply and mentions answers only when it offers some" do
     question = "Which timezone should I use for the weekday 9:00 status?"
-
-    assert {:ok, open} =
-             ChatCard.project(record("input_request", %{"choices" => [], "question" => question}))
-
-    assert open.summary == "Reply below."
-    assert open.action == nil
 
     assert {:ok, choosing} =
              ChatCard.project(
@@ -267,7 +283,11 @@ defmodule Ryker.Delivery.ChatCardTest do
 
     assert {:ok, answered} =
              ChatCard.project(
-               record("input_request", %{"choices" => [], "question" => question}, :answered)
+               record(
+                 "input_request",
+                 %{"choices" => ["UTC", "Europe/Berlin"], "question" => question},
+                 :answered
+               )
              )
 
     assert answered.summary == nil
@@ -275,35 +295,17 @@ defmodule Ryker.Delivery.ChatCardTest do
   end
 
   # QA re-test, 2026-09-26: a question replaced by an edit read "superseded"
-  # (after it had wrongly read "answered"), and a question listing numbered
-  # items ran them into one line: "…details are needed. 1. Can you paste…".
-  test "a question card says what became of it in words and keeps its numbered list" do
-    question = "Two details are needed.\n1. Can you paste the probe error?\n2. Which pods failed?"
+  # (after it had wrongly read "answered"). The question itself is in the reply.
+  test "a question card says what became of it in words" do
+    payload = %{"choices" => ["Paste it", "Skip it"], "question" => "Can you paste the error?"}
 
     words =
       for status <- [:answered, :dismissed, :superseded] do
-        {:ok, card} =
-          ChatCard.project(
-            record("input_request", %{"choices" => [], "question" => question}, status)
-          )
-
+        {:ok, card} = ChatCard.project(record("input_request", payload, status))
         ChatCard.display_status(card)
       end
 
     assert words == ["Answered", "Closed", "Replaced by your edit"]
-
-    {:ok, open} =
-      ChatCard.project(record("input_request", %{"choices" => [], "question" => question}))
-
-    html = HTML.lab_message_extras(%{cards: [open]}) |> IO.iodata_to_binary()
-    document = LazyHTML.from_fragment(html)
-
-    assert document |> LazyHTML.query(".lab-card ol > li") |> Enum.count() == 2
-
-    assert document |> LazyHTML.query(".lab-card p") |> LazyHTML.text() =~
-             "Two details are needed."
-
-    refute html =~ "needed. 1."
   end
 
   # QA, 2026-09-25: chat cards printed "SOURCE admit_input:63c450cc…", a digest
@@ -624,8 +626,6 @@ defmodule Ryker.Delivery.ChatCardTest do
        }, "Additional message", :confirm_post},
       {"input_request", %{"choices" => ["Staging", "Production"], "question" => "Which?"},
        "Input needed", :answer_input},
-      {"input_request", %{"choices" => [], "question" => "What should change?"}, "Input needed",
-       nil},
       {"event_wait",
        %{
          "deadline_at" => "2099-01-01T00:00:00.000000Z",
@@ -699,7 +699,8 @@ defmodule Ryker.Delivery.ChatCardTest do
       assert card.label == label
       assert card.action == action
       assert card.status == :open
-      assert is_binary(card.title)
+      # A question's words are in the reply above its card.
+      assert is_binary(card.title) or kind == "input_request"
     end)
 
     assert cases |> Enum.map(&elem(&1, 0)) |> MapSet.new() ==

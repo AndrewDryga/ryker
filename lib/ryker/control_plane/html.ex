@@ -464,6 +464,7 @@ defmodule Ryker.ControlPlane.HTML do
       else: ["<h3>", escape(title), "</h3>"]
   end
 
+  defp card_title(nil), do: ""
   defp card_title(title), do: ["<h3>", escape(title), "</h3>"]
 
   defp lab_card(card) do

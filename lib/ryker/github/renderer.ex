@@ -120,10 +120,10 @@ defmodule Ryker.GitHub.Renderer do
         _choices -> "Reply in this thread with one of these or your own answer."
       end
 
+    # The reply asks the question; this adds only the answers and how to give one (Andrew,
+    # 2026-10-04, of a question asked twice: "in the reply").
     {:ok,
      [
-       "### Input needed",
-       escape(payload["question"]),
        payload["choices"] |> Enum.map_join("\n", &"- #{escape(&1)}"),
        reply
      ]

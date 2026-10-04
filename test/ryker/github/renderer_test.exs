@@ -67,8 +67,33 @@ defmodule Ryker.GitHub.RendererTest do
     assert rendered =~ "Approval required in Emisar"
     assert rendered =~ "https://emisar.example/app/acme/approvals/apr-1"
     assert rendered =~ "GitHub cannot approve this action"
-    assert rendered =~ "Which rollout should continue?"
+    assert rendered =~ "- One percent"
     assert rendered =~ "Reply in this thread"
+  end
+
+  # Andrew, 2026-10-04, of a question asked in a reply and again under it: "in the reply". The
+  # comment adds only the answers and how to give one.
+  test "a question is asked once, in the reply" do
+    record = fn choices ->
+      %{
+        "kind" => "input_request",
+        "payload" => %{"choices" => choices, "question" => "Which region is primary?"},
+        "ref" => "record:input_request:region",
+        "status" => "open"
+      }
+    end
+
+    for choices <- [[], ["eu-west-1", "us-east-1"]] do
+      assert {:ok, rendered} =
+               Renderer.render(%{
+                 "message" => "One question first: which region is primary?",
+                 "records" => [record.(choices)]
+               })
+
+      refute rendered =~ "Which region is primary?"
+      refute rendered =~ "Input needed"
+      assert rendered =~ "Reply in this thread"
+    end
   end
 
   # The Chat card said "Reply below or choose one of the offered answers." over

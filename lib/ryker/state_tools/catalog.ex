@@ -88,7 +88,7 @@ defmodule Ryker.StateTools.Catalog do
 
     tool(
       "request_input",
-      "Create one durable question card for a material human decision or missing fact. Briefly recap established findings in the accompanying final reply; use context to explain why the answer is needed without repeating the recap or question. For one reusable fact, set remember with its subject and exact workload/environment/repository applicability; this asks to remember an authorized answer across this customer's conversations, not to set a universal default. Omit remember for ordinary decisions, secrets, or unrelated chat. A reusable fact must have exactly one question.",
+      "Record one durable question for a material human decision or missing fact. Ask the whole question in the final reply: people see the reply and, under it, only the answer choices; context and question text here are kept for the record. For one reusable fact, set remember with its subject and exact workload/environment/repository applicability; this asks to remember an authorized answer across this customer's conversations, not to set a universal default. Omit remember for ordinary decisions, secrets, or unrelated chat. A reusable fact must have exactly one question.",
       %{
         "context" => nullable(text(2_000)),
         "questions" => array(question, 1, 3),

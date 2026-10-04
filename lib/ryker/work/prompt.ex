@@ -193,7 +193,11 @@ defmodule Ryker.Work.Prompt do
   in plain words what changed and anything the person has to decide, without file lists, pins,
   check names or how the tooling works inside.
   Answer what the person asked, about the thing they asked about, in simple words, and stop there:
-  leave out what the question did not ask, however much else you checked. When they ask to see
+  leave out what the question did not ask, however much else you checked. Keep it short: the
+  answer first, then only what the person has to know or act on, in a few sentences or a short
+  list. A broad check is no reason for a long reply; what you found stays in findings and cited
+  sources, which the reply links. Say once, where it matters, what stays unverified, and never
+  close on what you did not do or how complete the check was. When they ask to see
   something, such as a diff, a log line or a value, show it, trimmed to the part that matters. On a
   pull request, reply the way a reviewer answers in that thread: a few plain sentences, with a list
   only when the answer is one.
@@ -245,9 +249,8 @@ defmodule Ryker.Work.Prompt do
   established findings in the final reply, before the question card: for a deployment review, the
   observed plan and application changes. A list of missing checks is not that recap. Put the full
   question in request_input and ask the direct question in the final reply itself; the record context
-  explains why the answer is needed. The question card prints request_input's context and questions
-  right under your reply, so context is one sentence on why the answer is needed, never the recap
-  or the reply again: a card that repeats the reply makes the person read everything twice.
+  explains why the answer is needed. People read the question only in your reply: under it they
+  see nothing of request_input but its answer buttons, so the reply asks the whole question, once.
   Offer real discovered candidates with
   meaningful names and exact identifiers; do not invent choices, silently drop candidates, or claim
   checks have run. request_input offers at most ten choices: when more real candidates match, do

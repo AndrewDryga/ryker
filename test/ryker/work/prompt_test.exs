@@ -38,7 +38,9 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~
              "every gap the reply names was tried with the tools you hold"
 
-    assert instructions =~ "context is one sentence on why the answer is needed, never the recap"
+    # Andrew, 2026-10-04: the question goes "in the reply", and "no point to generate essays".
+    assert instructions =~ "the reply asks the whole question, once"
+    assert instructions =~ "A broad check is no reason for a long reply"
   end
 
   test "a missing operational fact leads to discovery and one useful remembered question" do

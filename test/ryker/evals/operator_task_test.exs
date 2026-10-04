@@ -33,6 +33,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
                "creative-request-needs-no-fake-evidence",
                "current-uptime-check-uses-fresh-source",
                "deep-check-closes-its-gaps-before-reporting",
+               "deep-check-finds-its-sources-through-search",
                "explicit-operator-incident-offer",
                "explicit-response-preference-needs-confirmation",
                "github-pr-review-remains-in-thread",
