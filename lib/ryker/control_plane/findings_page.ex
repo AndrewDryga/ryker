@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{FindingsProjection, Kit, MemoryFormat, Paths}
   alias Ryker.Records
+  alias Ryker.Slack.Names
 
   @path "/memory/findings"
   # A conclusion runs to a few hundred characters; a row shows its start.
@@ -40,10 +41,17 @@ defmodule Ryker.ControlPlane.FindingsPage do
   @spec path(String.t()) :: String.t()
   def path(id), do: Paths.query(@path, %{"finding" => id})
 
-  @doc "The heading of one finding's page: the start of its conclusion, and the way back."
+  @doc """
+  The heading of one finding's page: the start of its conclusion as plain text,
+  which the browser shows as the page title too, and the way back.
+  """
   @spec heading(map()) :: map()
   def heading(finding),
-    do: %{title: short(finding.what, 90), description: nil, back: {"All findings", @path}}
+    do: %{
+      title: MemoryFormat.excerpt(finding.what, Names.workspace(), 90),
+      description: nil,
+      back: {"All findings", @path}
+    }
 
   @doc "The Findings body for a `FindingsProjection.list/1` view."
   @spec html(map()) :: iodata()
@@ -244,13 +252,16 @@ defmodule Ryker.ControlPlane.FindingsPage do
 
   defp row_text(what), do: short(what, @row_characters)
 
-  # The start of a conclusion, cut at a word.
-  defp short(text, limit) when is_binary(text) and byte_size(text) > limit do
-    cut = text |> String.slice(0, limit) |> String.replace(~r/\s+\S*$/u, "")
-    MemoryFormat.inline(cut <> "…")
+  # The start of a conclusion, cut at a word. The limit is in characters, as
+  # the cut is; counting bytes cut short multi-byte text that fitted.
+  defp short(text, limit) when is_binary(text) do
+    if String.length(text) > limit do
+      cut = text |> String.slice(0, limit) |> String.replace(~r/\s+\S*$/u, "")
+      MemoryFormat.inline(cut <> "…")
+    else
+      MemoryFormat.inline(text)
+    end
   end
-
-  defp short(text, _limit), do: MemoryFormat.inline(text)
 
   # What a person settled comes first; otherwise how Ryker classified it. Each
   # says what it means on hover and focus.

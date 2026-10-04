@@ -1,9 +1,13 @@
 defmodule Ryker.ControlPlane.FindingsPageTest do
   use Ryker.DataCase, async: false
+  import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
   import Phoenix.LiveViewTest
+
+  @endpoint Ryker.ControlPlane.Endpoint
 
   alias Ryker.ControlPlane.{
     Actions,
+    Endpoint,
     EpisodeProjection,
     FindingsPage,
     FindingsProjection,
@@ -458,6 +462,37 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
     explained = finding!(options, "The probe timeout is shorter than warm-up", "out_of_scope")
     assert Findings.mark_explained(explained.id) == {:error, :finding_not_unexplained}
     assert confirmation("/actions/finding/#{explained.id}/mark-explained").status == 404
+  end
+
+  # The heading's title was the conclusion as safe HTML, a {:safe, iodata} tuple.
+  # LiveView sends the page title to the browser as JSON, Jason cannot encode a
+  # tuple, and so a finding's own page rendered once and never connected
+  # (2026-10-04 review). The title is the conclusion's opening words as text.
+  test "a finding's own page connects, titled with its conclusion as plain text" do
+    {_claim, options} = claim!()
+    finding = finding!(options, "**Checkout** pods restart after `every` deploy", "unexplained")
+
+    start_supervised!(
+      {Endpoint,
+       server: false,
+       secret_key_base: String.duplicate("s", 64),
+       pubsub_server: Ryker.PubSub.Server,
+       live_view: [signing_salt: "findings-page-test"],
+       check_origin: ["//localhost:4321"],
+       url: [host: "localhost", port: 4321],
+       control_plane: %{
+         actions: Actions.callbacks(),
+         projection: Projection.callbacks(),
+         observability: %{},
+         csrf_secret: String.duplicate("s", 32)
+       }}
+    )
+
+    conn = build_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _html} = live(conn, "/memory/findings?finding=#{finding.id}")
+
+    assert page_title(view) == "Checkout pods restart after every deploy · Ryker"
+    assert has_element?(view, ".memory-topic-text strong", "Checkout")
   end
 
   defp finding!(options, what, status) do

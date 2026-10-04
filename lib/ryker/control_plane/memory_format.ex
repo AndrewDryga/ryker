@@ -98,11 +98,14 @@ defmodule Ryker.ControlPlane.MemoryFormat do
   @doc """
   The opening words of a learned text as plain text for a clamped row line:
   mentions become names, Markdown marks and list bullets are dropped, and a
-  long text ends at a word with an ellipsis. The full text is one click away.
+  text longer than `limit` characters ends at a word with an ellipsis. The
+  full text is one click away.
   """
-  def excerpt(nil, _workspace), do: nil
+  def excerpt(text, workspace, limit \\ @excerpt_limit)
 
-  def excerpt(text, workspace) do
+  def excerpt(nil, _workspace, _limit), do: nil
+
+  def excerpt(text, workspace, limit) do
     text
     |> people(workspace)
     |> plain(workspace)
@@ -115,7 +118,7 @@ defmodule Ryker.ControlPlane.MemoryFormat do
     |> Enum.reject(fn {_kind, words} -> words == "" end)
     |> Enum.reduce({"", nil}, &join_line/2)
     |> elem(0)
-    |> clip()
+    |> clip(limit)
     |> case do
       "" -> nil
       excerpt -> excerpt
@@ -156,11 +159,11 @@ defmodule Ryker.ControlPlane.MemoryFormat do
     {text <> separator <> words, kind}
   end
 
-  defp clip(text) do
-    if String.length(text) <= @excerpt_limit do
+  defp clip(text, limit) do
+    if String.length(text) <= limit do
       text
     else
-      clipped = String.slice(text, 0, @excerpt_limit)
+      clipped = String.slice(text, 0, limit)
 
       case Regex.run(~r/\A(.*\S)\s+\S*\z/su, clipped) do
         [_, words] -> words <> "…"
