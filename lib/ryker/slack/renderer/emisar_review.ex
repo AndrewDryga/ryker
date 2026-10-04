@@ -49,9 +49,9 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
 
     rationale = [
       section("*Emisar review*"),
-      rationale("Reason", review_facts["reason"]),
-      rationale("Evidence", review_facts["evidence"]),
-      rationale("Expected outcome", review_facts["expected"])
+      rationale("Reason", cut(review_facts, "reason")),
+      rationale("Evidence", cut(review_facts, "evidence")),
+      rationale("Expected outcome", cut(review_facts, "expected"))
     ]
 
     # The immutable refs stay one authorized link away: this card leads with the
@@ -66,6 +66,14 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
       rationale ++ command_blocks(status, review_facts) ++ identity,
       &is_nil/1
     )
+  end
+
+  # Emisar marks a text it cut to fit; the card says so instead of passing it off as whole.
+  defp cut(facts, key) do
+    case {facts[key], facts[key <> "_truncated"]} do
+      {text, true} when is_binary(text) -> text <> " …"
+      {text, _whole} -> text
+    end
   end
 
   defp rationale(_heading, nil), do: nil

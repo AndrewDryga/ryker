@@ -62,6 +62,42 @@ defmodule Ryker.Emisar.ApprovalStatusTest do
              {:error, {:invalid_emisar_approval_status, :document}}
   end
 
+  # Emisar cuts a long reason, evidence, expected result or decision reason and says so with a
+  # `*_truncated: true` flag it sends only when it cut something (Emisar 5be80c1db). This host's
+  # allowlist did not know the flags, so the receipt was refused as a protocol error, which is
+  # permanent: the watch blocked, the card never repainted, and the task never resumed after
+  # the review (2026-10-04 review).
+  test "a review Emisar had to cut is accepted with its cut marked" do
+    cut =
+      review(%{
+        "reason_truncated" => true,
+        "evidence_truncated" => true,
+        "expected_truncated" => true,
+        "status" => "approved",
+        "approved_count" => 1,
+        "decisions" => [Map.put(approve("Jane Doe"), "reason_truncated", true)],
+        "override" =>
+          Map.put(
+            override("Alex Admin", "A second reviewer is unavailable.", 1),
+            "reason_truncated",
+            true
+          )
+      })
+
+    assert {:ok, document} = ApprovalStatus.prepare(review_document(cut))
+    assert document["review"]["reason_truncated"] == true
+
+    # What was cut is said to be cut, never passed off as the whole reason.
+    assert List.last(ApprovalStatus.review_summary(document).history) ==
+             "⚠ Review granted by Alex Admin · admin override. Reason: A second reviewer is unavailable. …"
+
+    # A flag is Emisar saying it cut something; it never says false, and nothing else passes.
+    for flag <- [false, "true", 1] do
+      assert ApprovalStatus.prepare(review_document(review(%{"reason_truncated" => flag}))) ==
+               {:error, {:invalid_emisar_approval_status, :document}}
+    end
+  end
+
   test "a partial review stays held and reports the real distinct count once" do
     held =
       review(%{

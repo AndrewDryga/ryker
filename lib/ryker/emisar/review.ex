@@ -20,11 +20,14 @@ defmodule Ryker.Emisar.Review do
   @decisions ~w(approve deny)
   @command_kinds ~w(preview executed)
   @required ~w(approved_count decisions request_id required_approvals status)
-  @optional ~w(argument_count command decisions_omitted evidence expected override reason)
+  # Emisar cuts a long reason, evidence or expected result and says so with a
+  # `*_truncated` flag it sends only when true (Emisar 5be80c1db).
+  @optional ~w(argument_count command decisions_omitted evidence evidence_truncated expected
+               expected_truncated override reason reason_truncated)
   @decision_required ~w(decided_at decision)
-  @decision_optional ~w(actor reason)
+  @decision_optional ~w(actor reason reason_truncated)
   @override_required ~w(approved_count decided_at reason required_approvals waived_approvals)
-  @override_optional ~w(actor)
+  @override_optional ~w(actor reason_truncated)
   @command_required ~w(kind text truncated)
   @maximum_decisions 20
   @maximum_actor_bytes 255
@@ -50,6 +53,7 @@ defmodule Ryker.Emisar.Review do
          :ok <- optional_text(review["reason"], @maximum_reason_bytes),
          :ok <- optional_text(review["evidence"], @maximum_evidence_bytes),
          :ok <- optional_text(review["expected"], @maximum_reason_bytes),
+         :ok <- cut(review, ~w(reason_truncated evidence_truncated expected_truncated)),
          :ok <- command(review["command"]),
          :ok <- decisions(review["decisions"]),
          :ok <- override(review["override"]) do
@@ -106,7 +110,7 @@ defmodule Ryker.Emisar.Review do
       history:
         history ++
           [
-            "⚠ Review granted#{attributed(override["actor"])} · admin override.#{reason_clause(override["reason"])}"
+            "⚠ Review granted#{attributed(override["actor"])} · admin override.#{reason_clause(override)}"
           ]
     }
   end
@@ -134,7 +138,7 @@ defmodule Ryker.Emisar.Review do
 
   defp decision_line(decision) do
     verdict = if decision["decision"] == "deny", do: "✕ Review denied", else: "✓ Review granted"
-    "#{verdict}#{attributed(decision["actor"])}.#{reason_clause(decision["reason"])}"
+    "#{verdict}#{attributed(decision["actor"])}.#{reason_clause(decision)}"
   end
 
   # Decisions arrive oldest first, so the terminal one is the last of its kind.
@@ -156,14 +160,16 @@ defmodule Ryker.Emisar.Review do
   defp attributed(nil), do: ""
   defp attributed(actor), do: " by #{actor}"
 
-  defp reason_clause(nil), do: ""
-
-  defp reason_clause(reason) do
-    case String.trim(reason) do
-      "" -> ""
-      trimmed -> " Reason: #{trimmed}"
+  # A reason Emisar cut to fit ends in "…", so it never reads as the whole reason.
+  defp reason_clause(%{"reason" => reason} = entry) when is_binary(reason) do
+    case {String.trim(reason), entry["reason_truncated"]} do
+      {"", _cut} -> ""
+      {trimmed, true} -> " Reason: #{trimmed} …"
+      {trimmed, _whole} -> " Reason: #{trimmed}"
     end
   end
+
+  defp reason_clause(_entry), do: ""
 
   defp decisions(values) when is_list(values) and length(values) <= @maximum_decisions do
     Enum.reduce_while(values, :ok, fn value, :ok ->
@@ -181,7 +187,8 @@ defmodule Ryker.Emisar.Review do
          true <- decision["decision"] in @decisions,
          :ok <- timestamp(decision["decided_at"]),
          :ok <- optional_text(decision["actor"], @maximum_actor_bytes),
-         :ok <- optional_text(decision["reason"], @maximum_reason_bytes) do
+         :ok <- optional_text(decision["reason"], @maximum_reason_bytes),
+         :ok <- cut(decision, ~w(reason_truncated)) do
       :ok
     else
       _invalid -> {:error, :decision}
@@ -200,6 +207,7 @@ defmodule Ryker.Emisar.Review do
          :ok <- count(override["approved_count"], 0),
          :ok <- count(override["waived_approvals"], 0),
          :ok <- optional_text(override["actor"], @maximum_actor_bytes),
+         :ok <- cut(override, ~w(reason_truncated)),
          :ok <- timestamp(override["decided_at"]) do
       :ok
     else
@@ -223,6 +231,11 @@ defmodule Ryker.Emisar.Review do
   end
 
   defp command(_command), do: {:error, :command}
+
+  # A flag says Emisar cut that text; it is present only as `true`.
+  defp cut(document, flags) do
+    if Enum.all?(flags, &(Map.get(document, &1, true) == true)), do: :ok, else: {:error, :cut}
+  end
 
   defp fields(document, required, optional) do
     keys = Map.keys(document)
