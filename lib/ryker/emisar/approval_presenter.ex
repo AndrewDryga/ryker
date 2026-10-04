@@ -7,7 +7,7 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   redirect the update.
   """
 
-  alias Ryker.Delivery.{Adapters, Request}
+  alias Ryker.Delivery.{Adapters, Request, Retry}
   alias Ryker.Emisar.{Approval, ApprovalStatus, Review, RunState}
   alias Ryker.Episodes.Episode
   alias Ryker.Records.Record
@@ -43,13 +43,12 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   def publish(_approval, _state, _adapters),
     do: {:error, {:invalid_emisar_approval_presentation, :arguments}}
 
+  # Whatever delivery retries, the card retries: a network blip, missing
+  # credentials or Slack's own rate limit while repainting were permanent here,
+  # and the task never resumed after its review (2026-10-04 review).
   @spec permanent?(term()) :: boolean()
-  def permanent?({:delivery_rate_limited, _delay, _reason}), do: false
-  def permanent?({:delivery_uncertain, _reason}), do: false
-  def permanent?({:slack_http_error, status, _detail}) when status >= 500, do: false
-  def permanent?({:github_api_error, status, _detail}) when status >= 500, do: false
   def permanent?({:emisar_approval_presentation_unavailable, _reason}), do: false
-  def permanent?(_reason), do: true
+  def permanent?(reason), do: not Retry.retryable?(reason)
 
   # A repaint costs an operator's attention, so it follows a change this card can
   # actually show. The card reports the REVIEW: a second reviewer arriving, a

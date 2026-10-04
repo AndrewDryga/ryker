@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.PublisherTest do
   use ExUnit.Case, async: true
 
   alias Ryker.ControlPlane.Publisher
-  alias Ryker.Delivery.Request
+  alias Ryker.Delivery.{Adapters, Request}
 
   test "local conversations settle through a typed deterministic delivery receipt" do
     assert {:ok, request} =
@@ -24,5 +24,38 @@ defmodule Ryker.ControlPlane.PublisherTest do
     assert receipt["message_ref"] =~ ~r/\Acontrol-plane-message:[0-9a-f]{24}\z/
 
     assert Publisher.publish_message(request, nil) == {:ok, receipt}
+  end
+
+  # An Emisar approval asks to repaint the message that announced it. A Chat card is drawn from
+  # the durable records whenever a page reads it, so there is nothing to repaint, but "update not
+  # supported" counted as a permanent failure: every approval watch started from Chat blocked on
+  # its first poll, and its task never resumed after the review (2026-10-04 review).
+  test "an approval update for a Chat message is taken, since the page redraws from the records" do
+    assert {:ok, request} =
+             Request.new(%{
+               conversation_ref: "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
+               document: %{"message" => "Waiting for review in Emisar."},
+               kind: :message,
+               ref: "delivery:018f3ef7-1f62-7ee0-a83c-0c12f21d83e7",
+               source_item_ref: nil,
+               thread_ref: "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
+               transport: "control_plane"
+             })
+
+    assert {:ok, adapters} =
+             Adapters.new(%{
+               "control_plane" => %{
+                 binding: nil,
+                 message_publisher: Publisher,
+                 reaction_publisher: Publisher
+               }
+             })
+
+    assert Adapters.update_message(
+             request,
+             "control-plane-message:0123456789abcdef01234567",
+             %{"emisar_approval_status" => %{}},
+             adapters
+           ) == :ok
   end
 end

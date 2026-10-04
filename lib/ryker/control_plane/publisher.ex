@@ -20,6 +20,13 @@ defmodule Ryker.ControlPlane.Publisher do
   @impl true
   def publish_message(request, _binding), do: receipt(request)
 
+  # A Chat card is drawn from the durable records whenever a page reads it, so an
+  # update (an Emisar approval's status, say) has no message to repaint here.
+  # Refusing it was permanent and blocked every approval watch started from
+  # Chat on its first poll (2026-10-04 review).
+  @impl true
+  def update_message(_request, _message_ref, _document, _binding), do: :ok
+
   @impl true
   def publish_reaction(request, _binding) do
     DeliveryReceipt.new(

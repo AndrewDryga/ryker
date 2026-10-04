@@ -188,14 +188,21 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert ApprovalPresenter.publish(orphan, terminal_run_state(), adapters) ==
              {:error, :emisar_approval_delivery_not_settled}
 
+    # A network blip, missing credentials or Slack's own rate limit while repainting the card were
+    # permanent: the watch blocked, and the task never resumed after the review until a person
+    # rearmed it (2026-10-04 review). What delivery retries, the card retries.
     for transient <- [
           {:delivery_rate_limited, 10, :provider_backoff},
           {:delivery_uncertain, :response_lost},
           {:slack_http_error, 503, "unavailable"},
           {:github_api_error, 502, "unavailable"},
-          {:emisar_approval_presentation_unavailable, :offline}
+          {:emisar_approval_presentation_unavailable, :offline},
+          {:delivery_transport_unavailable, :closed},
+          {:delivery_credentials_unavailable, :slack},
+          {:slack_api_error, "ratelimited"},
+          {:slack_api_error, "internal_error"}
         ] do
-      refute ApprovalPresenter.permanent?(transient)
+      refute ApprovalPresenter.permanent?(transient), inspect(transient)
     end
 
     assert ApprovalPresenter.permanent?(:invalid_destination)
