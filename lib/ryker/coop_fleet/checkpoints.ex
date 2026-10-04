@@ -6,7 +6,6 @@ defmodule Ryker.CoopFleet.Checkpoints do
   alias Ryker.CoopFleet.{
     Bodies,
     Bridge,
-    CheckpointSecretScan,
     Command,
     ControlPlane,
     Placement,
@@ -15,12 +14,11 @@ defmodule Ryker.CoopFleet.Checkpoints do
     WorkspaceCheckpointTransfer
   }
 
-  alias Ryker.Repo
+  alias Ryker.{Credentials, Repo, Secret}
   alias Ryker.Work.{RepositorySource, Session}
 
   def capture(session_id, key, response, options) do
-    with :ok <- configured_secrets(options),
-         %Command{} = producer <-
+    with %Command{} = producer <-
            Repo.get_by(Command, idempotency_key: key, session_id: session_id),
          %{"checkpoint" => checkpoint, "operation" => %{"id" => operation_id}} <- response,
          :ok <- producer_authority(producer, checkpoint, operation_id),
@@ -89,11 +87,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
          true <- headers["Etag"] == ~s("#{reference["sha256"]}"),
          {:ok, _manifest} <-
            Bodies.with_stream(body, key, fn stream ->
-             WorkspaceCheckpointBundle.validate_stream(
-               checkpoint,
-               stream.(),
-               options[:checkpoint_secrets]
-             )
+             WorkspaceCheckpointBundle.validate_stream(checkpoint, stream.(), credential_values())
            end) do
       prepared = %{
         id: Ecto.UUID.generate(),
@@ -152,8 +146,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
         %Command{kind: "ensure_workspace", payload: %{"checkpoint" => saved}} = command,
         options
       ) do
-    with :ok <- configured_secrets(options),
-         %WorkspaceCheckpointTransfer{} = transfer <-
+    with %WorkspaceCheckpointTransfer{} = transfer <-
            Repo.get(WorkspaceCheckpointTransfer, saved["transfer_id"]),
          :ok <- restore_authority(command, transfer),
          :ok <-
@@ -174,7 +167,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
            WorkspaceCheckpointBundle.validate_stream(
              transfer.descriptor,
              stream.(),
-             options[:checkpoint_secrets]
+             credential_values()
            ) do
       Bodies.put(
         options[:body_root],
@@ -187,12 +180,11 @@ defmodule Ryker.CoopFleet.Checkpoints do
     end
   end
 
-  defp configured_secrets(options) do
-    case CheckpointSecretScan.new(options[:checkpoint_secrets]) do
-      {:ok, _} -> :ok
-      _ -> {:error, :checkpoint_secret_configuration}
-    end
-  end
+  # A checkpoint is scanned for the value of every saved credential, read when
+  # the checkpoint is checked; a value shorter than 8 bytes is too common a
+  # string to scan for.
+  defp credential_values,
+    do: Credentials.redaction_values() |> Enum.filter(&(byte_size(&1) >= 8)) |> Secret.new()
 
   defp restore_authority(command, transfer) do
     source_command = Repo.get(Command, transfer.command_id)

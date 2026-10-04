@@ -70,8 +70,9 @@ defmodule Ryker.WorkExamples do
 
   @doc """
   Copies up to `batch_size` settled Work turns settled within
-  `window_seconds` that have no example yet, redacting `redaction_secrets`
-  beside the values `Ryker.InspectionRedactor.configured_secrets/0` names.
+  `window_seconds` that have no example yet, redacting the value of every
+  saved credential beside the values `Ryker.InspectionRedactor.configured_secrets/0`
+  names.
 
   `copied` counts the examples kept and `forgotten` those taken as identity
   only, because a message their request was asked in, or one its routing
@@ -79,10 +80,10 @@ defmodule Ryker.WorkExamples do
   is off.
   """
   @spec capture(map()) :: {:ok, capture_result()}
-  def capture(%{batch_size: batch_size, window_seconds: window_seconds} = options)
+  def capture(%{batch_size: batch_size, window_seconds: window_seconds})
       when is_integer(batch_size) and batch_size > 0 and is_integer(window_seconds) and
              window_seconds > 0 do
-    secrets = secrets(Map.get(options, :redaction_secrets, Ryker.Secret.new([])))
+    secrets = secrets()
 
     results =
       batch_size
@@ -361,9 +362,11 @@ defmodule Ryker.WorkExamples do
 
   defp redacted_text(_absent, _secrets), do: ""
 
-  # The stored credentials arrive sealed (`Ryker.Secret`) and are opened here.
-  defp secrets(%Ryker.Secret{value: stored}) do
-    (InspectionRedactor.configured_secrets() ++ Enum.filter(stored, &(byte_size(&1) >= 8)))
+  # Every configured secret and the value of every saved credential, read when
+  # a batch is copied.
+  defp secrets do
+    (InspectionRedactor.configured_secrets() ++
+       Enum.filter(Ryker.Credentials.redaction_values(), &(byte_size(&1) >= 8)))
     |> Enum.uniq()
     |> Enum.sort_by(&byte_size/1, :desc)
   end

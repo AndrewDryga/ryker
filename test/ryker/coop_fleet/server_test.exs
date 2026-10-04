@@ -24,7 +24,6 @@ defmodule Ryker.CoopFleet.ServerTest do
         ca_keyfile: paths["ca-key.pem"],
         certfile: paths["server.pem"],
         checkpoint_key: Ryker.Secret.new(:crypto.strong_rand_bytes(32)),
-        checkpoint_secrets: Ryker.Secret.new([]),
         ip: {127, 0, 0, 1},
         keyfile: paths["server-key.pem"],
         port: 8443
@@ -64,7 +63,6 @@ defmodule Ryker.CoopFleet.ServerTest do
       ca_keyfile: paths["ca-key.pem"],
       certfile: paths["server.pem"],
       checkpoint_key: Ryker.Secret.new(:crypto.strong_rand_bytes(32)),
-      checkpoint_secrets: Ryker.Secret.new([]),
       keyfile: paths["server-key.pem"],
       port: 8443
     ]

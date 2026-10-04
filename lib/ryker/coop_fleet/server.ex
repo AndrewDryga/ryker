@@ -13,7 +13,6 @@ defmodule Ryker.CoopFleet.Server do
     :certificate_ttl_seconds,
     :certfile,
     :checkpoint_key,
-    :checkpoint_secrets,
     :ip,
     :keyfile,
     :port,
@@ -102,7 +101,6 @@ defmodule Ryker.CoopFleet.Server do
       :ca_keyfile,
       :certfile,
       :checkpoint_key,
-      :checkpoint_secrets,
       :keyfile,
       :port
     ]
@@ -131,18 +129,13 @@ defmodule Ryker.CoopFleet.Server do
       }
     ]
     |> Keyword.put(:checkpoint_key, options.checkpoint_key)
-    |> Keyword.put(:checkpoint_secrets, options.checkpoint_secrets)
     |> Keyword.put(:body_root, options.body_root)
     |> maybe_put(:state_tools, Map.get(options, :state_tools))
   end
 
-  defp validate_checkpoint_custody!(%{
-         checkpoint_key: %Ryker.Secret{value: key},
-         checkpoint_secrets: %Ryker.Secret{value: secrets}
-       }) do
-    unless is_binary(key) and byte_size(key) == 32 and is_list(secrets) and
-             Enum.all?(secrets, &(is_binary(&1) and byte_size(&1) >= 8)),
-           do: raise(ArgumentError, "Coop worker checkpoint custody configuration is invalid")
+  defp validate_checkpoint_custody!(%{checkpoint_key: %Ryker.Secret{value: key}}) do
+    unless is_binary(key) and byte_size(key) == 32,
+      do: raise(ArgumentError, "Coop worker checkpoint custody configuration is invalid")
   end
 
   defp validate_checkpoint_custody!(_configuration),

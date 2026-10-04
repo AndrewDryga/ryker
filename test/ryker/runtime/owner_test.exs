@@ -190,18 +190,22 @@ defmodule Ryker.Runtime.OwnerTest do
     {:ok, saved} = initialize()
     assert applied(owner, saved)
 
-    crashed = state_tools_pid(context)
+    crashed = retention_pid(context)
     Process.exit(crashed, :kill)
-    assert eventually(fn -> state_tools_pid(context) not in [nil, crashed] end)
-    restarted = state_tools_pid(context)
+    assert eventually(fn -> retention_pid(context) not in [nil, crashed] end)
+    restarted = retention_pid(context)
 
-    # Verified Slack tokens give the state tools Slack's tools: a new configuration.
-    slack_tokens!()
-    {:ok, current} = Settings.fetch()
-    assert applied(owner, current)
+    # A longer audit horizon is a new retention configuration.
+    {:ok, lengthened} =
+      Settings.save_retention(
+        %{audit_data_seconds: 60 * 86_400},
+        saved.installation.revision,
+        @actor
+      )
 
-    assert eventually(fn -> state_tools_pid(context) not in [nil, restarted] end)
-    assert :state_tools in Owner.running_keys(owner)
+    assert applied(owner, lengthened)
+    assert eventually(fn -> retention_pid(context) not in [nil, restarted] end)
+    assert :retention in Owner.running_keys(owner)
   end
 
   # Every runtime was a permanent child of one dynamic supervisor with the default restart
@@ -382,6 +386,13 @@ defmodule Ryker.Runtime.OwnerTest do
 
   defp console_running?(context) do
     Enum.any?(runtime_children(context), fn {_id, pid, _type, _modules} -> is_pid(pid) end)
+  end
+
+  defp retention_pid(context) do
+    Enum.find_value(runtime_children(context), fn
+      {Ryker.Retention.Runtime, pid, _type, _modules} when is_pid(pid) -> pid
+      _child -> nil
+    end)
   end
 
   defp state_tools_pid(context) do

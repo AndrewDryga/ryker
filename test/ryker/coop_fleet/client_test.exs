@@ -646,12 +646,6 @@ defmodule Ryker.CoopFleet.ClientTest do
     client: client,
     session: session
   } do
-    client = %{
-      client
-      | bridge_options:
-          Keyword.put(client.bridge_options, :checkpoint_secrets, Ryker.Secret.new([]))
-    }
-
     session = bind_session!(session, "coop-session-checkpoint")
 
     assert {:error, :checkpoint_not_available} =

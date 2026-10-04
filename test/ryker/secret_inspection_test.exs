@@ -64,17 +64,14 @@ defmodule Ryker.SecretInspectionTest do
     end
   end
 
-  test "the fleet client prints neither its checkpoint key nor the credentials it redacts" do
+  test "the fleet client does not print its checkpoint key" do
     {:ok, client} =
       Client.new(
-        checkpoint_key: String.duplicate("c", 32),
-        checkpoint_secrets: ["slack-bot-token-value"],
+        checkpoint_key: Ryker.Secret.new(String.duplicate("c", 32)),
         workspace_ref: "workspace-main"
       )
 
-    printed = inspect(client, @printed)
-    refute printed =~ String.duplicate("c", 32)
-    refute printed =~ "slack-bot-token-value"
+    refute inspect(client, @printed) =~ String.duplicate("c", 32)
   end
 
   # Every secret field a console form posts, found in the templates themselves,

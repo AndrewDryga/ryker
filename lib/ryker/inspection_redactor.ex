@@ -125,9 +125,11 @@ defmodule Ryker.InspectionRedactor do
     end
   end
 
+  # The configuration's own secrets and the value of every saved credential,
+  # which the configuration no longer carries, as the runtime last read them.
   defp collect_configured_secrets do
-    Application.get_all_env(:ryker)
-    |> secret_values()
+    (secret_values(Application.get_all_env(:ryker)) ++
+       Ryker.Credentials.remembered_redaction_values())
     |> Enum.filter(&(byte_size(&1) >= 8))
     |> Enum.uniq()
     |> Enum.sort_by(&byte_size/1, :desc)

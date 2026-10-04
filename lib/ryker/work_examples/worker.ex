@@ -14,7 +14,7 @@ defmodule Ryker.WorkExamples.Worker do
 
   alias Ryker.{Episodes, Feedback, Options, PollingWorker, WorkExamples}
 
-  @fields [:batch_size, :poll_interval_ms, :redaction_secrets, :window_seconds]
+  @fields [:batch_size, :poll_interval_ms, :window_seconds]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
@@ -57,16 +57,11 @@ defmodule Ryker.WorkExamples.Worker do
       Enum.all?(
         [:batch_size, :poll_interval_ms, :window_seconds],
         &(is_integer(options[&1]) and options[&1] > 0)
-      ) and sealed_strings?(options.redaction_secrets)
+      )
 
     unless valid,
       do: raise(ArgumentError, "work example configuration is outside its safe bounds")
 
     options
   end
-
-  defp sealed_strings?(%Ryker.Secret{value: values}) when is_list(values),
-    do: Enum.all?(values, &is_binary/1)
-
-  defp sealed_strings?(_values), do: false
 end

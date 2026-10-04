@@ -32,7 +32,6 @@ defmodule Ryker.CoopFleet.Client do
   @option_keys [
     :body_root,
     :checkpoint_key,
-    :checkpoint_secrets,
     :bridge,
     :capability_names,
     :capability_versions,

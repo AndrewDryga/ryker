@@ -75,6 +75,49 @@ defmodule Ryker.Credentials do
     |> Enum.map(&metadata/1)
   end
 
+  @doc """
+  The value of every saved credential, for finding and redacting in what Ryker
+  keeps or shows: worker checkpoints, examples, inspection views. Read when it
+  is needed: carried in the runtime configuration, saving any credential
+  changed every lane's configuration and restarted them all (2026-10-04
+  review).
+  """
+  @spec redaction_values() :: [binary()]
+  def redaction_values do
+    statuses()
+    |> Enum.flat_map(fn credential ->
+      case fetch(credential.kind, credential.name) do
+        {:ok, value} -> [value]
+        {:error, _reason} -> []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  @remembered {__MODULE__, :redaction_values}
+
+  @doc """
+  Reads the saved credential values and keeps them for
+  `remembered_redaction_values/0`. The runtime does this each time it applies
+  settings, which saving or removing a credential triggers.
+  """
+  @spec remember_redaction_values() :: [binary()]
+  def remember_redaction_values do
+    values = redaction_values()
+
+    unless :persistent_term.get(@remembered, nil) == values,
+      do: :persistent_term.put(@remembered, values)
+
+    values
+  end
+
+  @doc """
+  The saved credential values the runtime last read, without reading the
+  database: what a page or a log redacts with on every read.
+  """
+  @spec remembered_redaction_values() :: [binary()]
+  def remembered_redaction_values, do: :persistent_term.get(@remembered, [])
+
   @spec verify(kind(), String.t(), :verified | :invalid, String.t()) ::
           {:ok, map()} | {:error, term()}
   def verify(kind, name, verification_status, actor_ref)

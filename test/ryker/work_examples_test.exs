@@ -44,13 +44,9 @@ defmodule Ryker.WorkExamplesTest do
   @workspace "TE5D7C8842D32"
   @channel "C456"
   @conversation "slack:TE5D7C8842D32:C456"
-  # A credential Ryker stores, as the assembly hands every one to the copy.
+  # A credential Ryker stores; the copy reads every one when it redacts.
   @stored_secret "stored-credential-value-0123456789"
-  @options %{
-    batch_size: 5,
-    redaction_secrets: Ryker.Secret.new([@stored_secret]),
-    window_seconds: 365 * @day
-  }
+  @options %{batch_size: 5, window_seconds: 365 * @day}
 
   @start_episode ~s({"action":"start_episode","episode_ref":null,"messages":null,"reactions":null,"relation":"unrelated","reason":"The person asks Ryker to find why the staging api is down.","repository":null,"repository_source":null,"work_class":"standard"})
   @target "codex:gpt-5.6-luna/low@default"
@@ -66,6 +62,7 @@ defmodule Ryker.WorkExamplesTest do
 
   setup do
     assert {:ok, _settings} = Settings.initialize(@actor)
+    assert {:ok, _credential} = Ryker.Credentials.put(:webhook, "stored", @stored_secret, @actor)
     :ok
   end
 
@@ -329,11 +326,7 @@ defmodule Ryker.WorkExamplesTest do
 
       worker =
         start_supervised!(
-          {WorkExamples.Worker,
-           batch_size: 5,
-           poll_interval_ms: 10_000,
-           redaction_secrets: Ryker.Secret.new([]),
-           window_seconds: 60}
+          {WorkExamples.Worker, batch_size: 5, poll_interval_ms: 10_000, window_seconds: 60}
         )
 
       # Its first poll found nothing to copy.

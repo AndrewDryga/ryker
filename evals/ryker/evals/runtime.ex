@@ -55,8 +55,7 @@ defmodule Ryker.Evals.Runtime do
                  Integer.to_string(gateway.port)
                ])
              )
-             |> Map.put(:checkpoint_key, Ryker.Secret.new(Bootstrap.checkpoint_key!()))
-             |> Map.put(:checkpoint_secrets, Ryker.Secret.new([])),
+             |> Map.put(:checkpoint_key, Ryker.Secret.new(Bootstrap.checkpoint_key!())),
            state_tools: state_tools,
            state_tools_endpoint: gateway.public_url <> "/v1/state-tools/mcp",
            state_tools_secret: token

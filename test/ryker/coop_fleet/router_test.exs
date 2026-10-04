@@ -869,7 +869,6 @@ defmodule Ryker.CoopFleet.RouterTest do
     options = [
       body_root: root,
       checkpoint_key: key,
-      checkpoint_secrets: Ryker.Secret.new([]),
       workspace_ref: "workspace-main",
       max_waits: 3,
       poll_interval_ms: 1,

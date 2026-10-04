@@ -533,8 +533,11 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, configuration} = Assembly.build(bootstrap(), kept)
     copy = configuration[:routing_examples]
     assert copy.window_seconds == 180 * 86_400
-    assert @alert_secret in Secret.reveal(copy.redaction_secrets)
-    assert @custody_secret in Secret.reveal(copy.redaction_secrets)
+    # The copy reads every saved credential when it redacts; the configuration
+    # carries none, and the runtime remembers them for pages and logs.
+    refute Map.has_key?(copy, :redaction_secrets)
+    assert @alert_secret in Credentials.remembered_redaction_values()
+    assert @custody_secret in Credentials.remembered_redaction_values()
     assert configuration[:retention].routing_examples_enabled == true
     assert configuration[:retention].routing_examples_seconds == 180 * 86_400
     assert RoutingExampleWorker.options!(copy) == copy
@@ -569,8 +572,11 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, configuration} = Assembly.build(bootstrap(), kept)
     copy = configuration[:work_examples]
     assert copy.window_seconds == 200 * 86_400
-    assert @alert_secret in Secret.reveal(copy.redaction_secrets)
-    assert @custody_secret in Secret.reveal(copy.redaction_secrets)
+    # The copy reads every saved credential when it redacts; the configuration
+    # carries none, and the runtime remembers them for pages and logs.
+    refute Map.has_key?(copy, :redaction_secrets)
+    assert @alert_secret in Credentials.remembered_redaction_values()
+    assert @custody_secret in Credentials.remembered_redaction_values()
     assert configuration[:retention].work_examples_enabled == true
     assert configuration[:retention].work_examples_seconds == 200 * 86_400
     assert WorkExampleWorker.options!(copy) == copy
@@ -605,8 +611,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     gateway = configuration[:coop_worker_gateway]
 
     assert byte_size(Secret.reveal(gateway.checkpoint_key)) == 32
-    assert @alert_secret in Secret.reveal(gateway.checkpoint_secrets)
-    assert @custody_secret in Secret.reveal(gateway.checkpoint_secrets)
+    refute Map.has_key?(gateway, :checkpoint_secrets)
 
     # Work reaches the state tools through the gateway's own public URL, and
     # both sides agree on the same capability list and the same token.

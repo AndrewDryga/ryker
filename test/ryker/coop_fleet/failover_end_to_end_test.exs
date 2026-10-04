@@ -89,7 +89,6 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
     capture_options = [
       body_root: root,
       checkpoint_key: @checkpoint_key,
-      checkpoint_secrets: Ryker.Secret.new([]),
       workspace_ref: "workspace-main",
       max_waits: 3,
       poll_interval_ms: 1,
@@ -178,7 +177,6 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
              Client.new(
                body_root: root,
                checkpoint_key: @checkpoint_key,
-               checkpoint_secrets: Ryker.Secret.new([]),
                capability_names: ["controller-tools"],
                lease_seconds: 60,
                max_waits: 4,

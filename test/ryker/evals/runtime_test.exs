@@ -52,7 +52,7 @@ defmodule Ryker.Evals.RuntimeTest do
 
     # An evaluation checkpoint is never scanned against deployment secrets,
     # because an isolated world holds none of them.
-    assert world.gateway.checkpoint_secrets == Ryker.Secret.new([])
+    refute Map.has_key?(world.gateway, :checkpoint_secrets)
   end
 
   # No eval had run since the v2 worker protocol, which gave the gateway a body

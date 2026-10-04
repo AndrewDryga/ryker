@@ -135,6 +135,9 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp assemble(bootstrap, settings) do
+    # What every page and log redacts with; saving or removing a credential
+    # applies settings again, so this follows each change.
+    _values = Credentials.remember_redaction_values()
     policies = index_policies(JobTemplates.from_settings(settings))
     repositories = repositories(settings, policies)
     outside = outside_profile(policies)
@@ -718,28 +721,23 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   # Routing examples are copied only while a person keeps them on, and only
-  # where routing runs. Every stored credential is redaction material for the
-  # copy, as for worker output.
+  # where routing runs.
   defp routing_examples(%{retention: %{routing_examples_enabled: true} = retention}, admission)
        when is_map(admission) do
-    Defaults.fetch!(:routing_examples)
-    |> Map.merge(%{
-      redaction_secrets: Secret.new(credential_redaction_values()),
-      window_seconds: retention.routing_examples_seconds
-    })
+    Map.put(
+      Defaults.fetch!(:routing_examples),
+      :window_seconds,
+      retention.routing_examples_seconds
+    )
   end
 
   defp routing_examples(_settings, _admission), do: nil
 
   # Work examples are copied only while a person keeps them on, and only where
-  # Work runs, with the same redaction material as routing examples.
+  # Work runs.
   defp work_examples(%{retention: %{work_examples_enabled: true} = retention}, work)
        when is_map(work) do
-    Defaults.fetch!(:work_examples)
-    |> Map.merge(%{
-      redaction_secrets: Secret.new(credential_redaction_values()),
-      window_seconds: retention.work_examples_seconds
-    })
+    Map.put(Defaults.fetch!(:work_examples), :window_seconds, retention.work_examples_seconds)
   end
 
   defp work_examples(_settings, _work), do: nil
@@ -754,7 +752,6 @@ defmodule Ryker.Runtime.Assembly do
     |> Map.merge(Defaults.fetch!(:coop_worker_gateway))
     |> Map.put(:body_root, Path.join(storage_root, "worker-bodies"))
     |> Map.put(:checkpoint_key, Secret.new(Bootstrap.checkpoint_key!()))
-    |> Map.put(:checkpoint_secrets, Secret.new(credential_redaction_values()))
   end
 
   # Integrations ----------------------------------------------------------------
@@ -1692,7 +1689,6 @@ defmodule Ryker.Runtime.Assembly do
         body_root: body_root,
         source_root: Path.dirname(body_root),
         checkpoint_key: Secret.new(Bootstrap.checkpoint_key!()),
-        checkpoint_secrets: Secret.new(credential_redaction_values()),
         capability_names: capabilities,
         capability_versions: Ryker.CoopFleet.Client.capability_versions(),
         max_waits: max_waits,
@@ -1716,20 +1712,6 @@ defmodule Ryker.Runtime.Assembly do
       _invalid ->
         {:error, :address_invalid}
     end
-  end
-
-  # The gateway scans worker output for every integration secret currently in
-  # custody. Only runtime assembly turns status records back into redaction
-  # material; the control plane never receives these values.
-  defp credential_redaction_values do
-    Credentials.statuses()
-    |> Enum.flat_map(fn credential ->
-      case Credentials.fetch(credential.kind, credential.name) do
-        {:ok, value} -> [value]
-        {:error, _reason} -> []
-      end
-    end)
-    |> Enum.uniq()
   end
 
   defp put_optional(map, _key, nil), do: map
