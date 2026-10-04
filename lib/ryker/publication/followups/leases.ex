@@ -2,7 +2,8 @@ defmodule Ryker.Publication.Followups.Leases do
   @moduledoc """
   What runs a follow-up: the worker claims a poll that is due or a lifecycle
   event waiting for delivery, holds it under a lease while it works, renews
-  the lease, and after a failure hands the claim back with a delay.
+  the lease, and after a failed delivery hands the claim back with a delay. A
+  failed poll is handed back by `Followups.Polls`, which owns the deadline.
 
   Every step that writes after a claim first proves the lease is still the
   caller's and still live, so a worker that lost its lease changes nothing.
@@ -82,16 +83,6 @@ defmodule Ryker.Publication.Followups.Leases do
          :ok <- Store.reference(lease_ref, :lease_ref),
          :ok <- Store.positive(lease_seconds, :lease_seconds) do
       Store.transaction(fn -> renew_delivery_locked(event_ref, lease_ref, lease_seconds) end)
-    end
-  end
-
-  def defer_poll(publication_ref, lease_ref, delay_seconds, reason) do
-    with :ok <- Store.reference(publication_ref, :publication_ref),
-         :ok <- Store.reference(lease_ref, :lease_ref),
-         :ok <- Store.positive(delay_seconds, :delay_seconds) do
-      Store.transaction(fn ->
-        defer_poll_locked(publication_ref, lease_ref, delay_seconds, reason)
-      end)
     end
   end
 
@@ -268,27 +259,6 @@ defmodule Ryker.Publication.Followups.Leases do
 
   # --- deferrals ------------------------------------------------------------
 
-  defp defer_poll_locked(publication_ref, lease_ref, delay_seconds, reason) do
-    case lock_poll(publication_ref, lease_ref) do
-      {:ok, followup, _publication, now} ->
-        Store.update_followup!(
-          followup,
-          %{
-            failure_count: followup.failure_count + 1,
-            last_error: bounded_error(reason),
-            lease_expires_at: nil,
-            lease_owner: nil,
-            lease_ref: nil,
-            next_poll_at: DateTime.add(now, delay_seconds, :second)
-          },
-          now
-        )
-
-      {:error, reason} ->
-        Repo.rollback(reason)
-    end
-  end
-
   defp defer_delivery_locked(event_ref, lease_ref, delay_seconds, reason) do
     now = Repo.now!()
 
@@ -307,7 +277,7 @@ defmodule Ryker.Publication.Followups.Leases do
         Store.update_event!(
           event,
           %{
-            last_error: bounded_error(reason),
+            last_error: Store.bounded_error(reason),
             lease_expires_at: nil,
             lease_owner: nil,
             lease_ref: nil,
@@ -319,10 +289,5 @@ defmodule Ryker.Publication.Followups.Leases do
       {:error, reason} ->
         Repo.rollback(reason)
     end
-  end
-
-  defp bounded_error(reason) do
-    value = inspect(reason, limit: 20, printable_limit: 3_500, width: 120)
-    if byte_size(value) <= 4_096, do: value, else: String.byte_slice(value, 0, 4_093) <> "..."
   end
 end

@@ -12,7 +12,8 @@ defmodule Ryker.Publication.Followups.Polls do
   An open pull request is checked again every ten minutes until it merges,
   closes, goes stale or reaches its deadline, so Ryker keeps tracking it when
   no GitHub webhook reaches it. A webhook or a person's check request makes
-  the next check due at once.
+  the next check due at once. A check GitHub does not answer is tried again
+  after a delay, and the deadline ends those too.
 
   After a wakeup other than review feedback, the poll waits for the woken turn
   instead of asking GitHub, until that turn accepts a result, ends another way
@@ -46,6 +47,16 @@ defmodule Ryker.Publication.Followups.Polls do
     end
   end
 
+  def defer_poll(publication_ref, lease_ref, delay_seconds, reason) do
+    with :ok <- Store.reference(publication_ref, :publication_ref),
+         :ok <- Store.reference(lease_ref, :lease_ref),
+         :ok <- Store.positive(delay_seconds, :delay_seconds) do
+      Store.transaction(fn ->
+        defer_poll_locked(publication_ref, lease_ref, delay_seconds, reason)
+      end)
+    end
+  end
+
   def reconcile_verification(publication_ref, lease_ref, interval_seconds) do
     with :ok <- Store.reference(publication_ref, :publication_ref),
          :ok <- Store.reference(lease_ref, :lease_ref),
@@ -62,8 +73,8 @@ defmodule Ryker.Publication.Followups.Polls do
     with {:ok, followup, publication, now} <- Leases.lock_poll(publication_ref, lease_ref),
          :ok <- exact_status(publication, status) do
       cond do
-        DateTime.compare(now, followup.deadline_at) != :lt and followup.pr_state == "open" ->
-          transition_poll(
+        past_deadline?(followup, now) ->
+          expire(
             followup,
             publication,
             status,
@@ -72,11 +83,8 @@ defmodule Ryker.Publication.Followups.Polls do
               checks_total: status["checks_total"],
               checks_passed: status["checks_passed"],
               checks_failed: status["checks_failed"],
-              checks_url: status["checks_url"],
-              pr_state: "expired"
+              checks_url: status["checks_url"]
             },
-            {"deadline", "failed", "Automatic pull-request tracking reached its hard deadline."},
-            @far_future,
             now
           )
 
@@ -100,6 +108,55 @@ defmodule Ryker.Publication.Followups.Polls do
     else
       {:error, reason} -> Repo.rollback(reason)
     end
+  end
+
+  # A poll GitHub did not answer is due again after the delay. The deadline
+  # was checked only after a poll that worked, so a renamed or transferred
+  # repository, a removed App or publication turned off polled every two
+  # minutes forever (2026-10-04 review).
+  defp defer_poll_locked(publication_ref, lease_ref, delay_seconds, reason) do
+    case Leases.lock_poll(publication_ref, lease_ref) do
+      {:ok, followup, publication, now} ->
+        if past_deadline?(followup, now) do
+          observation = %{
+            "error" => Store.bounded_error(reason),
+            "head_sha" => publication.commit_sha
+          }
+
+          expire(followup, publication, observation, %{}, now)
+        else
+          Store.update_followup!(
+            followup,
+            %{
+              failure_count: followup.failure_count + 1,
+              last_error: Store.bounded_error(reason),
+              lease_expires_at: nil,
+              lease_owner: nil,
+              lease_ref: nil,
+              next_poll_at: DateTime.add(now, delay_seconds, :second)
+            },
+            now
+          )
+        end
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  defp past_deadline?(followup, now),
+    do: followup.pr_state == "open" and DateTime.compare(now, followup.deadline_at) != :lt
+
+  defp expire(followup, publication, observation, attributes, now) do
+    transition_poll(
+      followup,
+      publication,
+      observation,
+      Map.put(attributes, :pr_state, "expired"),
+      {"deadline", "failed", "Automatic pull-request tracking reached its hard deadline."},
+      @far_future,
+      now
+    )
   end
 
   defp exact_status(publication, status) do

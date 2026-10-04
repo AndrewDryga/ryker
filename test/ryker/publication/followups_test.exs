@@ -1578,6 +1578,39 @@ defmodule Ryker.Publication.FollowupsTest do
     assert_next_check(tracked, ten_minutes_after: polled_after)
   end
 
+  # The deadline was checked only after a poll GitHub answered. A renamed or
+  # transferred repository, a removed App or publication turned off failed
+  # every poll, two minutes apart, forever, and the weekly report said the pull
+  # request was waiting for review (2026-10-04 review).
+  test "a pull request GitHub stops answering about still ends at its deadline" do
+    %{publication: publication} = PublicationFixture.published!("unanswered-deadline")
+    reach_deadline!(publication)
+
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:unanswered", 60)
+
+    assert {:ok, ended} =
+             Followups.defer_poll(publication.ref, claim.lease_ref, 120, {:github_status, 404})
+
+    assert ended.pr_state == "expired"
+    assert ended.next_poll_at == @never
+
+    assert %LifecycleEvent{state: "failed"} =
+             Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "deadline")
+  end
+
+  test "a poll GitHub does not answer before the deadline is tried again" do
+    %{publication: publication} = PublicationFixture.published!("unanswered-early")
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:unanswered-early", 60)
+    failed_after = Repo.now!()
+
+    assert {:ok, deferred} =
+             Followups.defer_poll(publication.ref, claim.lease_ref, 120, {:github_status, 502})
+
+    assert deferred.pr_state == "open"
+    assert deferred.failure_count == 1
+    assert DateTime.diff(deferred.next_poll_at, failed_after) in 120..121
+  end
+
   defp deliver_pending! do
     case Followups.claim_delivery("publication-followup:delivery", 60) do
       {:ok, nil} ->

@@ -715,9 +715,11 @@ host rejects them for nonoperators before any repository or session mutation:
   control for refreshing it.
   Waiting occupies no model turn.
   Checks that turn to failing on that exact head return the task to in-scope correction, once per
-  failing head, without a click and without widening the task; a
+  failing head, without a click and without widening the task. Each published head is judged by
+  its own checks, so a new head that fails the way the last one did still wakes the task. A
   hard deadline, a head that moved outside the publication, a close and a merge stay history for a
-  person. While the woken turn works, Ryker waits instead of checking GitHub. When that turn
+  person. A pull request a person reopens is tracked again from the GitHub event that reports it
+  open, and checks GitHub stops answering about still end at the deadline. While the woken turn works, Ryker waits instead of checking GitHub. When that turn
   finishes, is taken over, cancelled or blocked, or after an hour at most, it checks at once, so an
   event from the wait is not lost. A correction that completes in scope re-arms the task's own publication for a fresh
   review and updates that same pull request: one task keeps one publication and one draft PR, the
@@ -733,7 +735,7 @@ host rejects them for nonoperators before any repository or session mutation:
   and timing matches are rejected. An exact reference activates this
   correlation path even when ordinary proactive participation is off in the source channel; other
   app messages retain the channel's configured behavior. The 30-day window is fixed (it restarts
-  when the pull request is reviewed again).
+  each time a new head is published).
   These controls cannot merge or deploy.
 - **Stop current run** cancels only the active agent turn. The session, queue, and fork remain.
 - **Close incident**/**Close task** closes the Coop session. Clean zero-change or durably published

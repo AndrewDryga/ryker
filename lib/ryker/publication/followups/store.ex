@@ -47,6 +47,13 @@ defmodule Ryker.Publication.Followups.Store do
   def positive(value, _field) when is_integer(value) and value > 0, do: :ok
   def positive(_value, field), do: {:error, {:invalid_publication_followup, field}}
 
+  @doc "A failure's reason as the bounded text a row keeps."
+  @spec bounded_error(term()) :: String.t()
+  def bounded_error(reason) do
+    value = inspect(reason, limit: 20, printable_limit: 3_500, width: 120)
+    if byte_size(value) <= 4_096, do: value, else: String.byte_slice(value, 0, 4_093) <> "..."
+  end
+
   # --- follow-ups -----------------------------------------------------------
 
   @doc "Locks the follow-up of a publication that must have one."

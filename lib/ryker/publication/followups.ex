@@ -73,8 +73,11 @@ defmodule Ryker.Publication.Followups do
   @doc "Extends the lease of a delivery still in progress."
   defdelegate renew_delivery(event_ref, lease_ref, lease_seconds), to: Leases
 
-  @doc "Hands a failed poll back, due again after `delay_seconds`."
-  defdelegate defer_poll(publication_ref, lease_ref, delay_seconds, reason), to: Leases
+  @doc """
+  Hands a failed poll back, due again after `delay_seconds`; past the
+  deadline it ends the follow-up instead.
+  """
+  defdelegate defer_poll(publication_ref, lease_ref, delay_seconds, reason), to: Polls
 
   @doc "Hands a failed delivery back, due again after `delay_seconds`."
   defdelegate defer_delivery(event_ref, lease_ref, delay_seconds, reason), to: Leases
