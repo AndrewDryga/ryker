@@ -13,6 +13,7 @@ defmodule Ryker.GitHub.InstallationTokens do
   require Logger
 
   alias Ryker.Options
+  alias Ryker.Secret
 
   @headers [
     {"accept", "application/vnd.github+json"},
@@ -178,7 +179,7 @@ defmodule Ryker.GitHub.InstallationTokens do
     cached = Map.get(state.tokens, cache_key)
 
     if fresh?(cached, now, state.refresh_before_seconds) do
-      {:reply, {:ok, cached.token}, state}
+      {:reply, {:ok, Secret.reveal(cached.token)}, state}
     else
       refresh_token(state, cache_key, binding, permissions, cached, now)
     end
@@ -187,11 +188,13 @@ defmodule Ryker.GitHub.InstallationTokens do
   defp refresh_token(state, cache_key, binding, permissions, cached, now) do
     case mint(state, binding, permissions, now) do
       {:ok, token} ->
-        {:reply, {:ok, token.token}, put_in(state, [:tokens, cache_key], token)}
+        # Cached sealed: a crash report prints this process's state.
+        cached = %{token | token: Secret.new(token.token)}
+        {:reply, {:ok, token.token}, put_in(state, [:tokens, cache_key], cached)}
 
       {:error, reason} ->
         if fresh?(cached, now, @minimum_fallback_seconds) do
-          {:reply, {:ok, cached.token}, state}
+          {:reply, {:ok, Secret.reveal(cached.token)}, state}
         else
           {:reply, {:error, reason}, state}
         end

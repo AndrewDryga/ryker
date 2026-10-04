@@ -47,6 +47,22 @@ defmodule Ryker.GitHub.InstallationTokensTest do
     assert log =~ "clock failed at vault"
   end
 
+  # A crash report prints this process's state, and its cache held every
+  # installation token it had minted, each good for an hour (2026-10-04 review).
+  test "the token cache does not print the tokens it holds" do
+    token = "ghs_" <> String.duplicate("t", 36)
+
+    {provider, _requester} =
+      provider_with([token_response(token, DateTime.add(@now, 3_600, :second))])
+
+    assert InstallationTokens.token(provider, "github-main", :delivery) == {:ok, token}
+    # The second answer comes from the cache.
+    assert InstallationTokens.token(provider, "github-main", :delivery) == {:ok, token}
+
+    printed = inspect(:sys.get_state(provider), limit: :infinity, printable_limit: :infinity)
+    refute printed =~ token
+  end
+
   test "mints one repository-scoped installation token and refreshes before expiry" do
     clock = start_supervised!({Agent, fn -> @now end}, id: :installation_token_clock)
 
