@@ -5,6 +5,11 @@ defmodule Ryker.GitHub.Events do
   A delivery recorded, repeated or processed is announced after the outermost
   commit (`subscribe_deliveries/0`), so a page showing a repository's GitHub
   health can say it again.
+
+  A delivery is taken once. One whose processing failed, or that a crash left
+  unprocessed for ten minutes, is taken again when it comes again, from
+  GitHub's "Redeliver" or `Ryker.GitHub.DeliveryPoller`; every other copy is a
+  duplicate.
   """
 
   import Ecto.Query
@@ -14,6 +19,7 @@ defmodule Ryker.GitHub.Events do
   alias Ryker.GitHub.{Binding, Event}
 
   @dispositions ~w(metadata routed continued duplicate failed)
+  @abandoned_seconds 10 * 60
 
   def record(%Binding{} = binding, delivery_ref, event_ref, event_name, payload) do
     now = Repo.now!()
@@ -37,7 +43,7 @@ defmodule Ryker.GitHub.Events do
            returning: true
          ) do
       {0, []} ->
-        duplicate(binding.name, delivery_ref, attributes.payload_digest, now)
+        retry_or_duplicate(binding.name, delivery_ref, attributes.payload_digest, now)
 
       {1, [%Event{} = event]} ->
         broadcast_delivery_updated(event.binding_ref)
@@ -63,6 +69,23 @@ defmodule Ryker.GitHub.Events do
   end
 
   def complete(:duplicate, _disposition, _reason), do: {:ok, :duplicate}
+
+  @doc """
+  The deliveries among `delivery_refs` that were taken and will not be taken
+  again: recorded, and neither failed nor abandoned.
+  """
+  @spec settled([String.t()]) :: MapSet.t(String.t())
+  def settled([]), do: MapSet.new()
+
+  def settled(delivery_refs) when is_list(delivery_refs) do
+    recorded = from(event in Event, where: event.delivery_ref in ^delivery_refs)
+    retryable = where(recorded, ^retryable(Repo.now!()))
+
+    MapSet.difference(
+      MapSet.new(Repo.all(select(recorded, [event], event.delivery_ref))),
+      MapSet.new(Repo.all(select(retryable, [event], event.delivery_ref)))
+    )
+  end
 
   def health(binding_ref) when is_binary(binding_ref) do
     latest =
@@ -116,6 +139,39 @@ defmodule Ryker.GitHub.Events do
       pending: pending,
       processing_lag_seconds: processing_lag(latest, processed)
     }
+  end
+
+  # Only one of two racing copies wins the update, so a retried delivery is
+  # processed once. Its earlier failure is cleared; the copy is not counted as an
+  # ignored duplicate, because it is not ignored.
+  defp retry_or_duplicate(binding_ref, delivery_ref, digest, now) do
+    query =
+      from(event in Event,
+        where:
+          event.binding_ref == ^binding_ref and event.delivery_ref == ^delivery_ref and
+            event.payload_digest == ^digest,
+        where: ^retryable(now),
+        select: event
+      )
+
+    case Repo.update_all(query, set: [disposition: "received", reason: nil, processed_at: nil]) do
+      {1, [event]} ->
+        broadcast_delivery_updated(binding_ref)
+        {:ok, event}
+
+      {0, []} ->
+        duplicate(binding_ref, delivery_ref, digest, now)
+    end
+  end
+
+  defp retryable(now) do
+    abandoned_before = DateTime.add(now, -@abandoned_seconds, :second)
+
+    dynamic(
+      [event],
+      event.disposition == "failed" or
+        (event.disposition == "received" and event.inserted_at < ^abandoned_before)
+    )
   end
 
   defp duplicate(binding_ref, delivery_ref, digest, now) do

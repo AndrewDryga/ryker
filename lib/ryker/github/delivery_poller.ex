@@ -14,7 +14,8 @@ defmodule Ryker.GitHub.DeliveryPoller do
   exactly as GitHub would have: the same event, delivery id and payload,
   signed with the App's webhook secret. The router's checks, deduplication and
   routing apply unchanged, so a delivery that did reach the listener, or was
-  fetched before, is recorded once.
+  fetched before, is taken once. One Ryker could not take is fetched again
+  until it is taken (`Ryker.GitHub.Events.settled/1`).
 
   A delivery older than a day is not replayed: a Ryker that was off for days
   should not answer week-old comments or act on week-old CI results.
@@ -22,14 +23,11 @@ defmodule Ryker.GitHub.DeliveryPoller do
 
   use GenServer
 
-  import Ecto.Query
-
   require Logger
 
   alias Plug.Adapters.Test.Conn, as: RequestConn
   alias Ryker.Delivery.JSONClient
-  alias Ryker.GitHub.{Auth, Event, Router}
-  alias Ryker.Repo
+  alias Ryker.GitHub.{Auth, Events, Router}
 
   @interval_ms 30_000
   @first_poll_ms 5_000
@@ -104,11 +102,11 @@ defmodule Ryker.GitHub.DeliveryPoller do
       |> Enum.uniq_by(& &1["guid"])
       |> Enum.split_with(&recent?(&1, oldest))
 
-    recorded = recorded(Enum.map(fresh, & &1["guid"]))
-    state = remember(state, Enum.map(stale, & &1["guid"]) ++ MapSet.to_list(recorded))
+    settled = Events.settled(Enum.map(fresh, & &1["guid"]))
+    state = remember(state, Enum.map(stale, & &1["guid"]) ++ MapSet.to_list(settled))
 
     fresh
-    |> Enum.reject(&MapSet.member?(recorded, &1["guid"]))
+    |> Enum.reject(&MapSet.member?(settled, &1["guid"]))
     |> Enum.sort_by(& &1["delivered_at"])
     |> Enum.reduce(state, &deliver/2)
   end
@@ -121,16 +119,6 @@ defmodule Ryker.GitHub.DeliveryPoller do
   end
 
   defp recent?(_delivery, _oldest), do: false
-
-  # Deliveries the router has already recorded, whichever way they arrived.
-  defp recorded([]), do: MapSet.new()
-
-  defp recorded(guids),
-    do:
-      Repo.all(
-        from(event in Event, where: event.delivery_ref in ^guids, select: event.delivery_ref)
-      )
-      |> MapSet.new()
 
   defp deliver(%{"id" => id, "guid" => guid, "event" => event_name}, state) do
     case request(state, "/app/hook/deliveries/#{id}") do

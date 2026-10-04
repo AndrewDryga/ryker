@@ -64,6 +64,34 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
     assert Repo.aggregate(Entry, :count) == 1
   end
 
+  # A delivery the router answered 503 for was recorded as failed, and every later
+  # copy of it, from this poller or GitHub's "Redeliver", came back "duplicate":
+  # a comment that met a short outage was lost (2026-10-04 review).
+  test "a delivery Ryker could not take the first time is taken when it comes again" do
+    comment = delivery(1, "delivery-retried", "issue_comment", ~U[2026-09-28 20:50:00Z])
+    attempts = :counters.new(1, [])
+
+    access = fn _binding, _payload ->
+      :counters.add(attempts, 1, 1)
+      if :counters.get(attempts, 1) == 1, do: {:error, :github_unavailable}, else: :ok
+    end
+
+    state = state([comment], %{1 => comment_payload()}, access)
+
+    state = DeliveryPoller.poll(state)
+    assert [%Event{disposition: "failed"}] = Repo.all(Event)
+    assert Repo.aggregate(Entry, :count) == 0
+
+    state = DeliveryPoller.poll(state)
+    assert [%Event{disposition: "routed", reason: nil}] = Repo.all(Event)
+    assert Repo.aggregate(Entry, :count) == 1
+
+    # Once taken, it is not fetched again.
+    DeliveryPoller.poll(%{state | seen: MapSet.new()})
+    assert :counters.get(attempts, 1) == 2
+    assert Repo.aggregate(Entry, :count) == 1
+  end
+
   test "a delivery older than a day and a ping are not replayed" do
     old = delivery(1, "delivery-old", "issue_comment", ~U[2026-09-26 20:00:00Z])
     ping = delivery(2, "delivery-ping", "ping", ~U[2026-09-28 20:55:00Z])
@@ -74,7 +102,7 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
     assert Repo.aggregate(Event, :count) == 0
   end
 
-  defp state(deliveries, payloads) do
+  defp state(deliveries, payloads, access \\ fn _binding, _payload -> :ok end) do
     DeliveryPoller.state(%{
       app_http: %{deliveries: deliveries, payloads: payloads, test: self()},
       requester: GitHub,
@@ -82,7 +110,7 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
       router: [
         bindings: %{"github-main" => binding!()},
         bot_login: "ryker-test",
-        repository_access: fn _binding, _payload -> :ok end,
+        repository_access: access,
         secret: @secret
       ]
     })
