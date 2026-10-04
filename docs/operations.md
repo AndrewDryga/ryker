@@ -17,13 +17,6 @@ worker policy files, generated worker JSON, or Ryker-side repository checkouts. 
 `ryker-coop-config` volume carries only enrollment state and the controller CA; model workspaces
 remain in the worker's private state volume.
 
-New jobs do not use the historical `ryker-workspaces` Docker volume, but existing sessions may
-still refer to workspaces in it. Do not treat a protocol upgrade as proof that those workspaces
-are disposable. Preserve the volume and its mount while those sessions need recovery, and back it
-up separately before a v1-to-v2 worker cutover: `scripts/compose.sh backup` includes Ryker state,
-worker state, enrollment state and keys, but **not** `ryker-workspaces`. Keep the pre-cutover worker
-state backup too; its database schema may advance when the new worker starts.
-
 ## Install
 
 Requirements are Docker, Docker Compose v2, OpenSSL, curl and tar. From a release directory run:
