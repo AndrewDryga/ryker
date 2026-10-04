@@ -479,7 +479,11 @@ sets everything else: no accounts, no roles, no invitations.
 **Published on `127.0.0.1` only** by default, on the port Ryker already serves
 (`RYKER_CONTROL_BIND` and `RYKER_CONTROL_PORT` in `.ryker/compose.env`). Reached in a browser on the same machine, or
 through an SSH tunnel. No authentication, because the loopback interface is the
-authentication.
+authentication. Inside Compose the console listens on its container interface,
+so it admits only its own loopback and the address published traffic arrives
+from, the network gateway (`RYKER_CONTROL_PEER`, 172.30.42.1 by default). Every
+other container on that network is refused, including the boxes the worker runs
+model work in: until 2026-10-04 any of them could open the console.
 
 Ryker never binds to the tailnet itself: the tailnet carries tagged service
 devices, so a bind without an identity check would put production episode

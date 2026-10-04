@@ -115,12 +115,28 @@ defmodule Ryker.Bootstrap do
   # The published Compose port is loopback-only by default, while the process
   # must listen on the container interface for Docker's port forwarding to
   # reach it. Host-native runs retain the stricter loopback-only contract.
+  #
+  # On the container network the console admits one peer besides its own
+  # loopback: the address published traffic arrives from (Docker's gateway for
+  # the network). Every other container on it, such as the boxes the worker's
+  # Docker daemon runs model work in, is refused (2026-10-04 review).
   defp control_listener!(env) do
-    access = if value!(env, "RYKER_CONTAINER", "false") == "true", do: :network, else: :loopback
+    if value!(env, "RYKER_CONTAINER", "false") == "true" do
+      env
+      |> listener!("RYKER_CONTROL", 4321, :network)
+      |> Map.put(:access, {:network, address!(env, "RYKER_CONTROL_PEER")})
+    else
+      env
+      |> listener!("RYKER_CONTROL", 4321, :loopback)
+      |> Map.put(:access, :loopback)
+    end
+  end
 
-    env
-    |> listener!("RYKER_CONTROL", 4321, access)
-    |> Map.put(:access, access)
+  defp address!(env, name) do
+    case :inet.parse_strict_address(String.to_charlist(value!(env, name))) do
+      {:ok, address} -> address
+      {:error, _reason} -> invalid!(name, "must be an IP address")
+    end
   end
 
   # Any RYKER_WORKER_* variable means the operator wants the gateway, and the

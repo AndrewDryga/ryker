@@ -1,9 +1,9 @@
 defmodule Ryker.ControlPlane.BrowserGuard do
   @moduledoc """
   The browser boundary every control-plane response crosses: local hosts and
-  either loopback peers or the explicitly selected private-container network,
-  plus the response headers that keep a page from being framed, cached, or
-  read across origins.
+  either loopback peers or, in a container, its own loopback and the one
+  address published traffic arrives from, plus the response headers that keep
+  a page from being framed, cached, or read across origins.
 
   The endpoint runs it before routing, so live pages, assets and the HTTP
   contracts are guarded alike; `Router` runs it again so a direct call to the
@@ -53,9 +53,16 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   def loopback?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
   def loopback?(_address), do: false
 
-  @doc "Whether a peer is admitted by the listener topology selected at bootstrap."
+  @doc """
+  Whether a peer is admitted by the listener topology selected at bootstrap. In
+  a container that is its own loopback and the one address published traffic
+  arrives from; any other container on the network, such as a box running model
+  work, is not the console's.
+  """
   def peer_allowed?(address, :loopback), do: loopback?(address)
-  def peer_allowed?(address, :network), do: is_tuple(address)
+
+  def peer_allowed?(address, {:network, published}) when is_tuple(published),
+    do: loopback?(address) or address == published
 
   defp signed_in?(%Plug.Conn{host: host} = conn, host, %{} = cloudflare_access),
     do: match?({:ok, _viewer}, CloudflareAccess.viewer(conn, cloudflare_access))
@@ -70,7 +77,7 @@ defmodule Ryker.ControlPlane.BrowserGuard do
         {Map.get(control_plane, :access, :loopback), Map.get(control_plane, :public_host),
          Map.get(control_plane, :cloudflare_access)}
 
-      access when access in [:loopback, :network] ->
+      access when access == :loopback or (is_tuple(access) and elem(access, 0) == :network) ->
         {access, Keyword.get(options, :public_host), Keyword.get(options, :cloudflare_access)}
     end
   end

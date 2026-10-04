@@ -104,15 +104,32 @@ defmodule Ryker.BootstrapTest do
   end
 
   test "container topology binds the control plane to its network interface explicitly" do
-    settings =
-      Bootstrap.load!(
-        environment(%{
-          "RYKER_CONTAINER" => "true",
-          "RYKER_CONTROL_IP" => "0.0.0.0"
-        })
-      )
+    container = %{
+      "RYKER_CONTAINER" => "true",
+      "RYKER_CONTROL_IP" => "0.0.0.0",
+      "RYKER_CONTROL_PEER" => "172.30.42.1"
+    }
 
-    assert settings.control_plane == %{access: :network, ip: {0, 0, 0, 0}, port: 4321}
+    settings = Bootstrap.load!(environment(container))
+
+    assert settings.control_plane == %{
+             access: {:network, {172, 30, 42, 1}},
+             ip: {0, 0, 0, 0},
+             port: 4321
+           }
+
+    # The peer is what keeps every other container on the network out, so a container
+    # without one, or with something that is not an address, does not start.
+    for peer <- [nil, "gateway", "172.30.42"] do
+      env =
+        if peer,
+          do: Map.put(container, "RYKER_CONTROL_PEER", peer),
+          else: Map.delete(container, "RYKER_CONTROL_PEER")
+
+      assert_raise ArgumentError, ~r/RYKER_CONTROL_PEER/, fn ->
+        Bootstrap.load!(environment(env))
+      end
+    end
   end
 
   test "invalid explicit bootstrap inputs identify the variable without echoing its value" do

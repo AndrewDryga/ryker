@@ -117,14 +117,24 @@ defmodule Ryker.ControlPlane.ServerTest do
   test "accepts a container network listener only when bootstrap marks it explicitly" do
     options =
       Server.options!(
-        access: :network,
+        access: {:network, {172, 30, 42, 1}},
         ip: {0, 0, 0, 0},
         port: 4_090,
         fallback_work_profile: @outside
       )
 
-    assert options.access == :network
+    assert options.access == {:network, {172, 30, 42, 1}}
     assert options.ip == {0, 0, 0, 0}
+
+    # A network listener without the one peer it admits would admit every container.
+    assert_raise ArgumentError, ~r/network with its peer/, fn ->
+      Server.options!(
+        access: :network,
+        ip: {0, 0, 0, 0},
+        port: 4_090,
+        fallback_work_profile: @outside
+      )
+    end
   end
 
   # The control-plane configuration Assembly builds for an installation with

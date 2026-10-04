@@ -35,6 +35,12 @@ Change a bind address only when the surrounding network boundary is understood. 
 and webhook senders need an HTTPS reverse proxy to the exact signed ingress paths; do not publish
 the control UI, health, readiness or metrics endpoints.
 
+Inside Compose the console admits only its own loopback and `RYKER_CONTROL_PEER`, the address
+published traffic arrives from: the network's gateway, `172.30.42.1` (measured under OrbStack).
+A Docker runtime that forwards published ports from another address answers every page with
+"Loopback access only"; set `RYKER_CONTROL_PEER` in `.ryker/compose.env` to that
+address and run `scripts/compose.sh start`.
+
 Links Ryker posts into Slack, such as the weekly report's, open the control UI at
 `RYKER_CONTROL_PUBLIC_URL`, which is `http://127.0.0.1:` and `RYKER_CONTROL_PORT` unless
 `.ryker/compose.env` sets it. Set it to the address you open the UI at when that differs, such as

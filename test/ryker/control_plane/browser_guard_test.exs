@@ -35,14 +35,45 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
   end
 
   test "container network access keeps the local-host boundary without pretending the peer is loopback" do
+    access = {:network, {172, 22, 0, 1}}
+
     assert %{status: nil, halted: false} =
-             BrowserGuard.call(conn("/", "127.0.0.1", {172, 22, 0, 1}), access: :network)
+             BrowserGuard.call(conn("/", "127.0.0.1", {172, 22, 0, 1}), access: access)
 
     assert %{status: 421, halted: true} =
-             BrowserGuard.call(conn("/", "ryker.example", {172, 22, 0, 1}), access: :network)
+             BrowserGuard.call(conn("/", "ryker.example", {172, 22, 0, 1}), access: access)
 
     refute BrowserGuard.peer_allowed?({172, 22, 0, 1}, :loopback)
-    assert BrowserGuard.peer_allowed?({172, 22, 0, 1}, :network)
+    assert BrowserGuard.peer_allowed?({172, 22, 0, 1}, access)
+    refute BrowserGuard.peer_allowed?({172, 22, 0, 2}, access)
+  end
+
+  # In Compose the console listens on the container network, and the worker's Docker daemon
+  # sits on that network too, so every Coop box that runs model work could open any console
+  # page, read its confirmation tokens and act as the operator: a probe from a box got 200
+  # for "/" with `Host: localhost` (2026-10-04 review). Published traffic arrives from the
+  # network gateway, so that address and the container's own loopback are the only peers.
+  test "a container on the Compose network other than the published gateway is refused" do
+    environment = %{
+      "DATABASE_URL" => "ecto://ryker:secret@localhost/ryker",
+      "RYKER_CREDENTIAL_KEY" => Base.encode64(:binary.copy(<<7>>, 32)),
+      "RYKER_CONTAINER" => "true",
+      "RYKER_CONTROL_IP" => "0.0.0.0",
+      "RYKER_CONTROL_PEER" => "172.30.42.1"
+    }
+
+    access = Ryker.Bootstrap.load!(&Map.fetch(environment, &1)).control_plane.access
+
+    for box <- [{172, 30, 42, 7}, {172, 30, 42, 2}, {10, 0, 0, 1}] do
+      assert %{status: 403, halted: true} =
+               BrowserGuard.call(conn("/", "localhost", box), access: access),
+             "#{inspect(box)} reached the console"
+    end
+
+    for published <- [{172, 30, 42, 1}, {127, 0, 0, 1}] do
+      assert %{status: nil, halted: false} =
+               BrowserGuard.call(conn("/", "localhost", published), access: access)
+    end
   end
 
   # Andrew, 2026-10-01, of the tenant instance on mac-server: "Maybe setup tailscale service?" A
@@ -50,7 +81,7 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
   # since only the loopback names were the console. The address it is published at is the console
   # too, and every other name is still refused.
   test "the console answers at the address it is published at and at no other name" do
-    published = [access: :network, public_host: "mac-server.example.ts.net"]
+    published = [access: {:network, {172, 22, 0, 1}}, public_host: "mac-server.example.ts.net"]
     peer = {172, 22, 0, 1}
 
     assert %{status: nil, halted: false} =
@@ -60,11 +91,13 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
              BrowserGuard.call(conn("/", "evil.example", peer), published)
 
     assert %{status: 421, halted: true} =
-             BrowserGuard.call(conn("/", "mac-server.example.ts.net", peer), access: :network)
+             BrowserGuard.call(conn("/", "mac-server.example.ts.net", peer),
+               access: {:network, peer}
+             )
 
     options =
       ControlPlaneOptions.options(self())
-      |> Map.merge(%{access: :network, public_host: "mac-server.example.ts.net"})
+      |> Map.merge(%{access: {:network, peer}, public_host: "mac-server.example.ts.net"})
       |> Router.init()
 
     assert Router.call(conn("/healthz", "mac-server.example.ts.net", peer), options).status == 200

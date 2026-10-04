@@ -1,12 +1,11 @@
 defmodule Ryker.ControlPlane.Server do
   @moduledoc """
-  Local control plane. Host-native deployments are loopback-only; the Compose
-  deployment listens on its private container interface and publishes only to
-  the host loopback address.
-
-  Loopback reach is the v1 operator identity. Mutations still require a native
-  two-step confirmation with a process-local CSRF token, and the listener
-  refuses public bind addresses.
+  Local control plane. Host-native deployments listen on loopback only; the
+  Compose deployment listens on its container interface, publishes only to the
+  host loopback address, and admits only its own loopback and the address that
+  published traffic arrives from (`BrowserGuard`). Whoever reaches it that way
+  is the operator; Tailscale Serve and Cloudflare Access add a name. Every form
+  post carries a CSRF token bound to its action.
   """
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
@@ -164,8 +163,8 @@ defmodule Ryker.ControlPlane.Server do
     unless is_integer(port) and port in 1..65_535,
       do: raise(ArgumentError, "control-plane port must be between 1 and 65535")
 
-    unless access in [:loopback, :network],
-      do: raise(ArgumentError, "control-plane access must be loopback or network")
+    unless access == :loopback or match?({:network, peer} when is_tuple(peer), access),
+      do: raise(ArgumentError, "control-plane access must be loopback or network with its peer")
 
     if access == :loopback and ip not in [@loopback_v4, @loopback_v6],
       do: raise(ArgumentError, "control-plane IP must be loopback")

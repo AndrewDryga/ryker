@@ -49,6 +49,10 @@ services:
       RYKER_CONTAINER: "true"
       RYKER_CONTROL_IP: 0.0.0.0
       RYKER_CONTROL_PORT: 4321
+      # The console admits the address published traffic arrives from (this network's
+      # gateway) and nothing else on the network, so a box the worker runs model work in
+      # cannot reach it.
+      RYKER_CONTROL_PEER: ${RYKER_CONTROL_PEER:-172.30.42.1}
       RYKER_CONTROL_PUBLIC_URL: ${RYKER_CONTROL_PUBLIC_URL:-http://127.0.0.1:${RYKER_CONTROL_PORT:-4321}}
       RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN: ${RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN:-}
       RYKER_CLOUDFLARE_ACCESS_AUD: ${RYKER_CLOUDFLARE_ACCESS_AUD:-}
