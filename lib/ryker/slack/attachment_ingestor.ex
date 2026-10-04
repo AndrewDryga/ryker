@@ -14,6 +14,7 @@ defmodule Ryker.Slack.AttachmentIngestor do
   """
 
   alias Ryker.Artifacts
+  alias Ryker.Delivery.Retry
   alias Ryker.Ingress.Input
   alias Ryker.Transcription
 
@@ -114,10 +115,24 @@ defmodule Ryker.Slack.AttachmentIngestor do
       {:error, {:recording_refused, failure}} ->
         {:unavailable, reason(failure)}
 
+      {:error, {:slack_file_unavailable, answer}} = error ->
+        if lasting?(answer), do: {:unavailable, "file_unavailable"}, else: error
+
       {:error, _reason} = error ->
         error
     end
   end
+
+  # A file Slack says is gone or not Ryker's to read stays that way, and failing
+  # the event for it lost the message's text after Slack's retries. A rate limit,
+  # an outage or an unreadable answer is asked again.
+  defp lasting?(code) when is_binary(code),
+    do: not Retry.retryable?({:slack_api_error, code})
+
+  defp lasting?({status, body}) when is_integer(status),
+    do: status in 400..499 and not Retry.retryable?({:slack_http_error, status, body})
+
+  defp lasting?(_answer), do: false
 
   defp existing(store, source_ref) do
     case store.fetch_source("slack", source_ref) do

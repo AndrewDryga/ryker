@@ -117,6 +117,38 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
            }) == {:error, {:slack_file_unavailable, :offline}}
   end
 
+  # Slack answering that a file is gone or not Ryker's to read failed the whole message;
+  # Slack retried it and then dropped it, text included (2026-10-04 review). Such a file is
+  # an omission the message explains, while a rate limit or an outage still retries.
+  test "a file Slack will never give is an omission and the message still arrives" do
+    ingest = fn failure ->
+      AttachmentIngestor.ingest(%{audience: :mention, input: input!([file()])}, %{
+        client: %{observer: self(), result: {:error, failure}},
+        downloader: Downloader,
+        store: Artifacts
+      })
+    end
+
+    for failure <- [
+          {:slack_file_unavailable, "file_not_found"},
+          {:slack_file_unavailable, {404, ""}},
+          {:slack_file_unavailable, {403, "forbidden"}}
+        ] do
+      assert {:ok, enriched} = ingest.(failure)
+
+      assert [%{"reason" => "file_unavailable", "status" => "unavailable"}] =
+               enriched.input.content["files"]
+    end
+
+    for failure <- [
+          {:slack_file_unavailable, "ratelimited"},
+          {:slack_file_unavailable, {429, ""}},
+          {:slack_file_unavailable, {503, ""}}
+        ] do
+      assert ingest.(failure) == {:error, failure}
+    end
+  end
+
   test "file and byte limits are explicit omissions and malformed settings fail closed" do
     files = [
       %{file() | "id" => "F201", "mimetype" => "application/zip"},
