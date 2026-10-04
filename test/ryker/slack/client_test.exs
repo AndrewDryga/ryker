@@ -903,21 +903,21 @@ defmodule Ryker.Slack.ClientTest do
 
     [first_url, second_url, complete, history] = FakeRequester.requests(requester)
 
-    assert first_url ==
-             {:post, "/files.getUploadURLExternal",
-              %{
-                "alt_txt" => "Rendered output for: Done.",
-                "filename" => "chart--delivery-01.png",
-                "length" => 9
-              }, []}
+    # Slack reads files.getUploadURLExternal's arguments from a form or the query string and
+    # ignores a JSON body, answering "invalid_arguments: missing required field: filename": no
+    # image Ryker made ever reached Slack, and the first one asked for there, a cat, left its
+    # request blocked (2026-10-04).
+    assert upload_slot(first_url) == %{
+             "alt_txt" => "Rendered output for: Done.",
+             "filename" => "chart--delivery-01.png",
+             "length" => "9"
+           }
 
-    assert second_url ==
-             {:post, "/files.getUploadURLExternal",
-              %{
-                "alt_txt" => "Rendered output for: Done.",
-                "filename" => "errors--delivery-02.gif",
-                "length" => 9
-              }, []}
+    assert upload_slot(second_url) == %{
+             "alt_txt" => "Rendered output for: Done.",
+             "filename" => "errors--delivery-02.gif",
+             "length" => "9"
+           }
 
     assert {:post, "/files.completeUploadExternal", completion, []} = complete
     assert completion["channel_id"] == "C123"
@@ -1547,4 +1547,10 @@ defmodule Ryker.Slack.ClientTest do
   end
 
   defp slack(body), do: {:ok, %{body: Map.put(body, "ok", true), headers: [], status: 200}}
+
+  # The arguments of a files.getUploadURLExternal request, which carries no body.
+  defp upload_slot({:post, "/files.getUploadURLExternal?" <> query, nil, []}),
+    do: URI.decode_query(query)
+
+  defp upload_slot(request), do: flunk("not a bodiless upload-slot request: #{inspect(request)}")
 end

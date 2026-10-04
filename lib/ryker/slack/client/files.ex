@@ -118,15 +118,18 @@ defmodule Ryker.Slack.Client.Files do
     end)
   end
 
+  # Slack reads this method's arguments from a form or the query string and ignores a JSON
+  # body: every upload failed with "invalid_arguments" until 2026-10-04.
   defp upload_external_file(client, file) do
-    request_document = %{
-      "alt_txt" => file.alt_text,
-      "filename" => file.filename,
-      "length" => byte_size(file.data)
-    }
+    query =
+      URI.encode_query(%{
+        "alt_txt" => file.alt_text,
+        "filename" => file.filename,
+        "length" => byte_size(file.data)
+      })
 
     with {:ok, response} <-
-           Transport.request(client, :post, "/files.getUploadURLExternal", request_document),
+           Transport.request(client, :post, "/files.getUploadURLExternal?" <> query, nil),
          {:ok, body} <- Transport.response(response),
          {:ok, upload_url, file_id} <- upload_target(body),
          :ok <- client.uploader.upload(client.upload_http, upload_url, file.data, file.media_type) do
