@@ -1541,6 +1541,43 @@ defmodule Ryker.Publication.FollowupsTest do
     assert Enum.sort(heads) == Enum.sort([publication.commit_sha, newer_head])
   end
 
+  # A closed pull request was never checked again, so one a person reopened
+  # was never tracked again either (2026-10-04 review).
+  test "a pull request a person reopens is tracked again" do
+    %{publication: publication} =
+      PublicationFixture.published!("reopened", pull_request_number: 93)
+
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:reopened:closed", 60)
+    closed = ended_status(publication, "closed")
+
+    assert {:ok, %{pr_state: "closed"}} =
+             Followups.store_poll(publication.ref, claim.lease_ref, closed)
+
+    reopened = %{
+      "action" => "reopened",
+      "pull_request" => %{
+        "head" => %{"sha" => publication.commit_sha},
+        "number" => 93,
+        "state" => "open"
+      }
+    }
+
+    assert Followups.nudge_github_event(
+             "acme/ryker",
+             "pull_request",
+             "delivery:reopened",
+             reopened
+           ) ==
+             {:ok, :nudged}
+
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:reopened:open", 60)
+    polled_after = Repo.now!()
+    open = lifecycle_status(publication, "pending", false)
+    assert {:ok, tracked} = Followups.store_poll(publication.ref, claim.lease_ref, open)
+    assert tracked.pr_state == "open"
+    assert_next_check(tracked, ten_minutes_after: polled_after)
+  end
+
   defp deliver_pending! do
     case Followups.claim_delivery("publication-followup:delivery", 60) do
       {:ok, nil} ->

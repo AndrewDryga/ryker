@@ -93,9 +93,10 @@ defmodule Ryker.Publication.Followups.Start do
   def nudge_github_event(repository, event_name, delivery_ref, payload)
       when is_binary(repository) and is_binary(event_name) and is_binary(delivery_ref) and
              is_map(payload) do
-    with true <- event_name in ~w(check_run check_suite pull_request status workflow_run),
+    with true <- event_name in ~w(check_run check_suite pull_request workflow_run),
          {:ok, number, head_sha} <- github_event_identity(event_name, payload) do
-      Store.transaction(fn -> nudge_github_locked(repository, number, head_sha) end)
+      states = tracked_states(event_name, payload)
+      Store.transaction(fn -> nudge_github_locked(repository, number, head_sha, states) end)
     else
       false -> {:ok, :ignored}
       {:error, _reason} -> {:ok, :ignored}
@@ -137,7 +138,16 @@ defmodule Ryker.Publication.Followups.Start do
 
   # --- a GitHub webhook -----------------------------------------------------
 
-  defp nudge_github_locked(repository, number, head_sha) do
+  # A closed pull request was checked no more, so one a person reopened was
+  # never tracked again (2026-10-04 review). GitHub announces the reopen with
+  # the pull request open, and that makes its check due; the check finds it
+  # open and resumes the timer.
+  defp tracked_states("pull_request", %{"pull_request" => %{"state" => "open"}}),
+    do: ["open", "closed"]
+
+  defp tracked_states(_event_name, _payload), do: ["open"]
+
+  defp nudge_github_locked(repository, number, head_sha, states) do
     now = Repo.now!()
 
     query =
@@ -146,7 +156,7 @@ defmodule Ryker.Publication.Followups.Start do
         on: publication.id == followup.publication_id,
         where:
           publication.status == :published and publication.github_repository == ^repository and
-            publication.pull_request_number == ^number and followup.pr_state == "open",
+            publication.pull_request_number == ^number and followup.pr_state in ^states,
         lock: "FOR UPDATE"
       )
 
