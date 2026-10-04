@@ -1,6 +1,4 @@
 defmodule Ryker.Slack.ThreadStatusWorker do
-  alias Ryker.Slack.ThreadStatusReceipts
-
   @moduledoc """
   Reconciles durable lifecycle state into generation-fenced Slack status writes.
 
@@ -15,12 +13,13 @@ defmodule Ryker.Slack.ThreadStatusWorker do
 
   require Logger
 
+  alias Ryker.Delivery.Retry
   alias Ryker.Episodes
   alias Ryker.Ingress.Inbox
   alias Ryker.Observability.Progress
   alias Ryker.Options
   alias Ryker.PollingWorker
-  alias Ryker.Slack.ThreadStatuses
+  alias Ryker.Slack.{ThreadStatuses, ThreadStatusReceipts}
 
   @default_interval_ms 1_000
   @default_maximum_writes 10
@@ -152,7 +151,28 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   # status: one was written again every minute for as long as its thread
   # existed after Slack had said the channel was gone. Slack saying the
   # thread or its channel is gone blocks at once.
+  #
+  # Slack asking Ryker to slow down is no failed write: the status waits as
+  # long as Slack asked, 30 seconds when it named no time, and keeps its
+  # attempts.
   defp settle(status, reason, options) do
+    case Retry.rate_limited(reason) do
+      {:ok, seconds} ->
+        ThreadStatuses.defer(
+          status.id,
+          status.lease_ref,
+          status.generation,
+          (seconds || 30) * 1_000,
+          reason,
+          counted: false
+        )
+
+      :error ->
+        retry_or_block(status, reason, options)
+    end
+  end
+
+  defp retry_or_block(status, reason, options) do
     if permanent?(reason) or status.attempt_count >= options.max_attempts do
       ThreadStatuses.block(status.id, status.lease_ref, status.generation, reason)
     else

@@ -23,8 +23,8 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   alias Ryker.Options
   alias Ryker.PollingWorker
 
-  alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
   alias Ryker.Delivery.HostNote
+  alias Ryker.Delivery.Retry
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Repo
@@ -390,7 +390,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
         {:ok, outcome}
 
       {:error, reason} ->
-        if DeliveryDispatcher.retryable?(reason),
+        if Retry.retryable?(reason),
           do: {:error, {:incident_room_note_failed, reason}},
           else: {:ok, {:refused, reason}}
     end
@@ -499,7 +499,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
         close_deleted(room, note, refused_reply)
 
       {:error, reason} ->
-        if DeliveryDispatcher.retryable?(reason),
+        if Retry.retryable?(reason),
           do: handle_error(room, {:incident_room_note_failed, reason}, options),
           else: close_deleted(room, {:refused, reason}, refused_reply)
     end

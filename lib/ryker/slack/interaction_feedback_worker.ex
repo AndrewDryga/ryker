@@ -11,6 +11,7 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
 
   require Logger
 
+  alias Ryker.Delivery.Retry
   alias Ryker.Observability.Progress
   alias Ryker.Options
   alias Ryker.PollingWorker
@@ -68,6 +69,23 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
              do: {:ok, {:repainted, settled.event_ref}}
 
       {:error, reason} ->
+        settle(audit, reason, options)
+    end
+  end
+
+  # Slack asking Ryker to slow down is no failed repaint: the repaint waits as
+  # long as Slack asked, 30 seconds when it named no time, and keeps its
+  # attempts.
+  defp settle(audit, reason, options) do
+    case Retry.rate_limited(reason) do
+      {:ok, seconds} ->
+        with {:ok, deferred} <-
+               InteractionAudits.defer(audit.id, audit.lease_ref, seconds || 30, reason,
+                 counted: false
+               ),
+             do: {:ok, {:deferred, deferred.event_ref}}
+
+      :error ->
         retry_or_block(audit, reason, options)
     end
   end

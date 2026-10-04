@@ -298,9 +298,14 @@ defmodule Ryker.Slack.TaskCards do
     end
   end
 
-  @spec defer(Ecto.UUID.t(), Ecto.UUID.t(), pos_integer(), term()) ::
+  @doc """
+  Refreshes the card again after `retry_seconds`. With `counted: false` the
+  attempt just made is given back, for a wait Slack asked for rather than a
+  failure.
+  """
+  @spec defer(Ecto.UUID.t(), Ecto.UUID.t(), pos_integer(), term(), keyword()) ::
           {:ok, TaskCard.t()} | {:error, term()}
-  def defer(card_id, lease_ref, retry_seconds, reason)
+  def defer(card_id, lease_ref, retry_seconds, reason, options \\ [])
       when is_integer(retry_seconds) and retry_seconds > 0 do
     with {:ok, card_id} <- uuid(card_id, :card_id),
          {:ok, lease_ref} <- uuid(lease_ref, :lease_ref) do
@@ -310,6 +315,7 @@ defmodule Ryker.Slack.TaskCards do
         update!(
           card,
           %{
+            attempt_count: given_back(card.attempt_count, options),
             last_error_code: code,
             last_error_detail: detail,
             lease_expires_at: nil,
@@ -321,6 +327,10 @@ defmodule Ryker.Slack.TaskCards do
         )
       end)
     end
+  end
+
+  defp given_back(attempt_count, options) do
+    if Keyword.get(options, :counted, true), do: attempt_count, else: max(attempt_count - 1, 0)
   end
 
   defp ensure_one_locked do

@@ -94,6 +94,26 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     assert Agent.get(client, & &1.updates) == 3
   end
 
+  # Slack asking Ryker to slow down is its pace, not a failed refresh. Each 429 spent one of
+  # the card's attempts, so a busy workspace blocked cards Slack would have taken a minute
+  # later (2026-10-04 review). The card waits the time Slack names, attempts untouched.
+  test "a rate-limited card waits as long as Slack asks without using an attempt" do
+    card = card!("rate-limited")
+
+    client =
+      client!({:error, {:delivery_rate_limited, 40, {:slack_http_error, 429, "slow down"}}})
+
+    options = options(client, max_attempts: 2)
+
+    for _attempt <- 1..3 do
+      assert {:ok, {:deferred, _ref}} = TaskCardWorker.run_once(options)
+      waiting = Repo.get!(TaskCard, card.id)
+      assert waiting.attempt_count == 0
+      assert DateTime.diff(waiting.next_attempt_at, Repo.now!(), :second) in 35..41
+      make_due!(card.id)
+    end
+  end
+
   # A blocked card is listed on Failures and on its task's Timeline, and a
   # rearm takes it off. Until 2026-09-26 those pages heard of either from a
   # trigger's NOTIFY and a five-second poll; the context now announces the

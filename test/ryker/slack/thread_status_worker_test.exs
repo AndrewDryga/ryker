@@ -165,6 +165,26 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
     assert FailureProjection.fetch("slack_thread_status", blocked.id) == :not_found
   end
 
+  # Slack asking Ryker to slow down is its pace, not a failed write. Each 429 spent one of
+  # the status's attempts, so a busy workspace blocked statuses Slack would have taken a
+  # minute later (2026-10-04 review). It waits the time Slack names, attempts untouched.
+  test "a rate-limited status waits as long as Slack asks without using an attempt" do
+    limited = {:error, {:delivery_rate_limited, 30, {:slack_http_error, 429, "slow down"}}}
+    {:ok, client} = Agent.start_link(fn -> %{result: limited, writes: []} end)
+    {:ok, projection} = Agent.start_link(fn -> [target(:queued, "is queued...")] end)
+    options = options(client, projection, %{max_attempts: 2})
+
+    for _attempt <- 1..3 do
+      assert {:ok, %{failed: 1, written: 0}} = ThreadStatusWorker.run_once(options)
+      assert %ThreadStatus{status: :pending, attempt_count: 0} = status = status!()
+      assert DateTime.diff(status.next_attempt_at, DateTime.utc_now(), :second) in 25..31
+      make_due!(status.id)
+    end
+
+    Agent.update(client, &Map.put(&1, :result, :ok))
+    assert {:ok, %{failed: 0, written: 1}} = ThreadStatusWorker.run_once(options)
+  end
+
   test "a newer durable generation fences confirmation of an older in-flight write" do
     assert {:ok, _statuses} =
              ThreadStatuses.reconcile(

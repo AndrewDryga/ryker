@@ -9,7 +9,7 @@ defmodule Ryker.Delivery.Dispatcher do
   """
 
   alias Ryker.Artifacts.Outputs
-  alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, RoutingResponseCustody}
+  alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, Retry, RoutingResponseCustody}
   alias Ryker.Episodes
   alias Ryker.LeasedCall
   alias Ryker.Slack.ReplyRecords
@@ -288,7 +288,7 @@ defmodule Ryker.Delivery.Dispatcher do
       lease_error?(reason) ->
         {:error, reason}
 
-      retryable_error?(reason) and custody.attempt_count < settings.max_attempts ->
+      Retry.retryable?(reason) and custody.attempt_count < settings.max_attempts ->
         defer(custody, reason, settings)
 
       true ->
@@ -318,42 +318,6 @@ defmodule Ryker.Delivery.Dispatcher do
   defp delivery_error(reason, custody_reason),
     do: {:error, {:delivery_dispatch_failed, reason, custody_reason}}
 
-  @doc """
-  Whether a publisher's failure may pass on a later attempt: the failures
-  every delivery lane retries. Anything else is a refusal a retry cannot change.
-  """
-  @spec retryable?(term()) :: boolean()
-  def retryable?(reason), do: retryable_error?(reason)
-
-  defp retryable_error?({:delivery_credentials_unavailable, _reason}), do: true
-  defp retryable_error?({:delivery_publisher_crashed, _kind, _reason}), do: true
-  defp retryable_error?({:delivery_publisher_exit, _reason}), do: true
-
-  defp retryable_error?({:delivery_rate_limited, delay, _reason})
-       when is_nil(delay) or (is_integer(delay) and delay > 0),
-       do: true
-
-  defp retryable_error?({:delivery_transport_unavailable, _reason}), do: true
-  defp retryable_error?({:delivery_uncertain, _reason}), do: true
-
-  defp retryable_error?({:delivery_reconciliation_failed, reason}),
-    do: retryable_error?(reason)
-
-  defp retryable_error?({:github_api_error, status, _body}),
-    do: retryable_status?(status)
-
-  defp retryable_error?({:slack_http_error, status, _body}),
-    do: retryable_status?(status)
-
-  defp retryable_error?({:slack_api_error, error}) do
-    error in ~w(fatal_error internal_error ratelimited request_timeout service_unavailable)
-  end
-
-  defp retryable_error?(_reason), do: false
-
-  defp retryable_status?(status),
-    do: status in [408, 409, 425, 429] or (is_integer(status) and status >= 500)
-
   defp lease_error?(:work_lease_lost), do: true
   defp lease_error?(:routing_response_lease_lost), do: true
   defp lease_error?(:platform_action_lease_lost), do: true
@@ -363,9 +327,9 @@ defmodule Ryker.Delivery.Dispatcher do
   defp retry_delay(reason, attempt_count, settings) do
     backoff = backoff_delay(attempt_count, settings)
 
-    case provider_retry_delay(reason) do
-      delay when is_integer(delay) and delay > 0 -> max(delay, backoff)
-      nil -> backoff
+    case Retry.rate_limited(reason) do
+      {:ok, delay} when is_integer(delay) -> max(delay, backoff)
+      _none -> backoff
     end
   end
 
@@ -373,16 +337,6 @@ defmodule Ryker.Delivery.Dispatcher do
     exponent = min(max(attempt_count - 1, 0), 20)
     min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
   end
-
-  defp provider_retry_delay({:delivery_rate_limited, delay, _reason})
-       when is_integer(delay) and delay > 0,
-       do: delay
-
-  defp provider_retry_delay({wrapper, reason})
-       when wrapper in [:delivery_reconciliation_failed, :delivery_uncertain],
-       do: provider_retry_delay(reason)
-
-  defp provider_retry_delay(_reason), do: nil
 
   defp describe_error(reason) do
     code = reason |> error_atom() |> Atom.to_string()

@@ -13,6 +13,7 @@ defmodule Ryker.Slack.TaskCardWorker do
 
   require Logger
 
+  alias Ryker.Delivery.Retry
   alias Ryker.Episodes
   alias Ryker.Observability.Progress
   alias Ryker.Options
@@ -107,7 +108,23 @@ defmodule Ryker.Slack.TaskCardWorker do
   # for as long as its task existed, editing a message Slack had already said
   # was gone. Slack saying the message or its channel is gone, or the task's
   # own record being gone, blocks at once.
+  #
+  # Slack asking Ryker to slow down is no failed refresh: the card waits as long
+  # as Slack asked, 30 seconds when it named no time, and keeps its attempts.
   defp settle(card, reason, options) do
+    case Retry.rate_limited(reason) do
+      {:ok, seconds} ->
+        case TaskCards.defer(card.id, card.lease_ref, seconds || 30, reason, counted: false) do
+          {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
+          {:error, _reason} = error -> error
+        end
+
+      :error ->
+        retry_or_block(card, reason, options)
+    end
+  end
+
+  defp retry_or_block(card, reason, options) do
     if permanent?(reason) or card.attempt_count >= options.max_attempts do
       case TaskCards.block(card.id, card.lease_ref, reason) do
         {:ok, blocked} -> {:ok, {:blocked, blocked.ref}}

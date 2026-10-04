@@ -120,14 +120,19 @@ defmodule Ryker.Slack.InteractionAudits do
     end)
   end
 
-  @spec defer(Ecto.UUID.t(), Ecto.UUID.t(), pos_integer(), term()) ::
+  @doc """
+  Repaints again after `retry_seconds`. With `counted: false` the attempt just
+  made is given back, for a wait Slack asked for rather than a failure.
+  """
+  @spec defer(Ecto.UUID.t(), Ecto.UUID.t(), pos_integer(), term(), keyword()) ::
           {:ok, InteractionAudit.t()} | {:error, term()}
-  def defer(id, lease_ref, retry_seconds, reason)
+  def defer(id, lease_ref, retry_seconds, reason, options \\ [])
       when is_integer(retry_seconds) and retry_seconds > 0 do
     mutate_claim(id, lease_ref, fn audit, now ->
       {code, detail} = describe_error(reason)
 
       update!(audit, %{
+        attempt_count: given_back(audit.attempt_count, options),
         last_error_code: code,
         last_error_detail: detail,
         lease_expires_at: nil,
@@ -136,6 +141,10 @@ defmodule Ryker.Slack.InteractionAudits do
         next_attempt_at: DateTime.add(now, retry_seconds, :second)
       })
     end)
+  end
+
+  defp given_back(attempt_count, options) do
+    if Keyword.get(options, :counted, true), do: attempt_count, else: max(attempt_count - 1, 0)
   end
 
   @spec block(Ecto.UUID.t(), Ecto.UUID.t(), term()) ::

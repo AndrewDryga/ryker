@@ -221,6 +221,32 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
              FailureProjection.slack_interaction("interaction:retry-block")
   end
 
+  # Slack asking Ryker to slow down is its pace, not a failed repaint. Each 429 spent one of
+  # the repaint's attempts, so a busy workspace gave up on repaints Slack would have taken a
+  # minute later (2026-10-04 review). The repaint waits the time Slack names.
+  test "a rate-limited repaint waits as long as Slack asks without using an attempt" do
+    assert {:ok, %{audit: audit}} =
+             interaction("interaction:rate-limited")
+             |> InteractionAudits.record(:invalid)
+
+    limited = {:error, {:slack_api_error, "ratelimited"}}
+    options = worker_options(max_attempts: 2, repaint: fn _audit, _options -> limited end)
+
+    for _attempt <- 1..3 do
+      assert {:ok, {:deferred, "interaction:rate-limited"}} =
+               InteractionFeedbackWorker.run_once(options)
+
+      waiting = Repo.get!(InteractionAudit, audit.id)
+      assert waiting.attempt_count == 0
+      assert DateTime.diff(waiting.next_attempt_at, Repo.now!(), :second) in 25..31
+
+      Repo.update_all(
+        from(stored in InteractionAudit, where: stored.id == ^audit.id),
+        set: [next_attempt_at: DateTime.add(Repo.now!(), -1, :second)]
+      )
+    end
+  end
+
   test "a repaint the host gave up on tells the person who pressed the button" do
     # The click acknowledgement is optimistic: it says the press was accepted
     # before the repaint is attempted. When the repaint then failed for good,

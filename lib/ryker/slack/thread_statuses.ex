@@ -174,14 +174,19 @@ defmodule Ryker.Slack.ThreadStatuses do
     end)
   end
 
-  @spec defer(Ecto.UUID.t(), Ecto.UUID.t(), pos_integer(), pos_integer(), term()) ::
+  @doc """
+  Writes the status again after `retry_ms`. With `counted: false` the attempt
+  just made is given back, for a wait Slack asked for rather than a failure.
+  """
+  @spec defer(Ecto.UUID.t(), Ecto.UUID.t(), pos_integer(), pos_integer(), term(), keyword()) ::
           {:ok, ThreadStatus.t()} | {:error, term()}
-  def defer(id, lease_ref, generation, retry_ms, reason) do
+  def defer(id, lease_ref, generation, retry_ms, reason, options \\ []) do
     with :ok <- milliseconds(retry_ms, :retry_ms) do
       mutate_claim(id, lease_ref, generation, fn status, now ->
         {code, detail} = describe_error(reason)
 
         update!(status, %{
+          attempt_count: given_back(status.attempt_count, options),
           last_error_code: code,
           last_error_detail: detail,
           lease_expires_at: nil,
@@ -191,6 +196,10 @@ defmodule Ryker.Slack.ThreadStatuses do
         })
       end)
     end
+  end
+
+  defp given_back(attempt_count, options) do
+    if Keyword.get(options, :counted, true), do: attempt_count, else: max(attempt_count - 1, 0)
   end
 
   @doc """
