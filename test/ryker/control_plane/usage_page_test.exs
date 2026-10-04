@@ -718,7 +718,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
              "Chat is not listed by channel"
 
     assert document |> LazyHTML.query("#usage-users .kit-empty") |> LazyHTML.text() =~
-             "Chat lists a person only when they used it through Tailscale"
+             "Chat lists a person only when they signed in, through Tailscale or Cloudflare Access"
   end
 
   # Chat's one shared operator is nobody in particular, but a person Tailscale Serve named is
@@ -747,6 +747,30 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     assert users =~ "Andrew Example"
     refute users =~ "local-operator"
+  end
+
+  # Two client teams sign in through Cloudflare Access instead (2026-10-04). Usage
+  # counted only `tailscale:` people, so a team's Chat work was listed by nobody.
+  test "a person who used Chat through Cloudflare Access is listed by user" do
+    conversation = "control-plane:lab:" <> Ecto.UUID.generate()
+    :ok = ConsolePeople.seen(%{login: "dev@tenant.example", name: "dev@tenant.example"})
+    entry = chat_entry!(conversation, "cloudflare:dev@tenant.example")
+
+    execution!("admission",
+      transport: "control_plane",
+      conversation_ref: conversation,
+      source_id: entry.id
+    )
+
+    users =
+      UsageProjection.page(%{})
+      |> UsagePage.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#usage-users")
+      |> LazyHTML.text()
+
+    assert users =~ "dev@tenant.example"
   end
 
   test "a chart or table wider than a phone shows that it scrolls" do

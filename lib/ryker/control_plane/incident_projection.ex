@@ -293,7 +293,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp sender(%{actor_kind: :user, source_kind: "slack"} = entry),
     do: {:person, Names.person(entry.source_ref, entry.actor_ref)}
 
-  # Someone in Chat: the person Tailscale named, or the local console's "You".
+  # Someone in Chat: the person who signed in, or the local console's "You".
   defp sender(%{actor_kind: :user, source_kind: "control_plane", actor_ref: actor}) do
     case ConsolePeople.identity(actor) do
       {:person, _login} -> {:person, ConsolePeople.person(actor)}

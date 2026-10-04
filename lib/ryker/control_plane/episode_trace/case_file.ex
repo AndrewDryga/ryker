@@ -349,7 +349,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   defp actor_label(%{actor_kind: :user, source_kind: "slack"}), do: "Slack user"
 
-  # A message sent in Chat names its person, as Tailscale named them.
+  # A message sent in Chat names its person, as their sign-in named them.
   defp actor_label(%{actor_kind: :user, source_kind: "control_plane", actor_ref: actor}) do
     case ConsolePeople.person(actor) do
       %{name: name} -> name

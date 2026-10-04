@@ -265,7 +265,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp empty(:user),
     do:
       {"No work came from a person in this period",
-       "Chat lists a person only when they used it through Tailscale."}
+       "Chat lists a person only when they signed in, through Tailscale or Cloudflare Access."}
 
   defp empty(_kind),
     do: {"No activity in this period", "Choose a longer window to see earlier work."}
@@ -439,7 +439,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp user(%{source: "slack", workspace: workspace, actor: actor}),
     do: Names.name(workspace, actor)
 
-  # Someone in Chat, by the name Tailscale gave them.
+  # Someone in Chat, by the name their sign-in gave them.
   defp user(%{source: "control_plane", actor: actor}),
     do: (ConsolePeople.person(actor) || %{name: actor}).name
 

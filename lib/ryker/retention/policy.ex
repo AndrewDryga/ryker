@@ -170,7 +170,7 @@ defmodule Ryker.Retention.Policy do
       table: "control_plane_people",
       class: :kept,
       why:
-        "each person Tailscale Serve named: their login and the name it last gave, one row per person, so pages name them on what they sent or changed"
+        "each person Tailscale Serve or Cloudflare Access named: their login and the name it last gave, one row per person, so pages name them on what they sent or changed"
     },
     %{
       table: "conversation_learning_inputs",

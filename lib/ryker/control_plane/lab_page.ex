@@ -704,7 +704,7 @@ defmodule Ryker.ControlPlane.LabPage do
     Enum.filter(items, &String.contains?(String.downcase(&1.title || ""), needle))
   end
 
-  # Who wrote a message: a person by the name Tailscale gave them, the local
+  # Who wrote a message: a person by the name their sign-in gave them, the local
   # console "You", an integration or Ryker.
   defp author(%{actor: :operator} = message), do: message[:author] || "You"
   defp author(%{actor: :integration}), do: "Integration"

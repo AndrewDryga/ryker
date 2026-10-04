@@ -125,10 +125,10 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     end)
   end
 
-  # Who sent each of the person's messages, by the name Tailscale gave them,
+  # Who sent each of the person's messages, by the name their sign-in gave them,
   # read once for the window: Chat called everyone "You" (Andrew, 2026-10-04:
   # "now when we have tailscale auth why not to properly track user
-  # everywhere?"). The console reached without Tailscale is still "You".
+  # everywhere?"). The console reached without a sign-in is still "You".
   defp name_authors(messages) do
     logins =
       for %{actor: :operator, author_ref: ref} <- messages,

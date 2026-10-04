@@ -344,7 +344,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   defp place(source, _conversation), do: source
 
   # A Slack person is named from the names cache, someone in Chat by the name
-  # Tailscale gave them, and the console reached without Tailscale is "You".
+  # their sign-in gave them, and the console reached without one is "You".
   defp who(%Signal{source: "slack", actor_ref: actor}, request) do
     case Names.person(Names.workspace_from_destination(request.conversation), actor) do
       %{name: name, href: href} -> %{name: name, href: href}

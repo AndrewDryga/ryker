@@ -106,7 +106,7 @@ defmodule Ryker.ControlPlane.PeopleProjection do
     end
   end
 
-  # Someone in Chat, by the name Tailscale gave them; the local console is "You".
+  # Someone in Chat, by the name their sign-in gave them; the local console is "You".
   defp name("control_plane:user:" <> _id = person_ref, _conversation_ref),
     do: (ConsolePeople.person(person_ref) || %{name: "Someone"}).name
 
