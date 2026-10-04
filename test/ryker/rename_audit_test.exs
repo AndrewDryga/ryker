@@ -53,8 +53,6 @@ defmodule Ryker.RenameAuditTest do
     {~r{^test/support/episodes/replay\.ex$|^test/ryker/(admission|episodes)/replay_test\.exs$},
      ~r/responder\.db/,
      "Go-era SQLite state file: the recorded episode fixtures name it as their harvest provenance (source.database)"},
-    {~r{^docs/control-plane\.md$}, ~r/responder_(state|preferences)(?![A-Za-z0-9_])/,
-     "Go-era SQLite tables named as the data source of the retained design notes"},
     {~r{^test/ryker/control_plane/subscription_presentation_test\.exs$}, ~r/responder_emisar/,
      "harvest provenance: the live database's name on the day the rows were taken"},
     # --- the one manifest assertion about the rename

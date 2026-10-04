@@ -38,9 +38,9 @@ real requests, repositories, goals, observations, tool calls and publication fai
 representative cases; do not copy irrelevant follow-ups or old progress labels into a new design.
 
 When additional evidence is needed, inspect the real store read-only and use an allowlisted
-extraction. The existing harvest-tenant.mjs is a historical SQLite extractor with exact selected
-episode IDs, not a generic current-production database client. Read it before running it; do not
-rehash/reharvest a stable corpus just to change layout. Verify the current schema/location first.
+extraction. The store is PostgreSQL; the harvest-tenant.mjs kept in the 2026-09-09 card-redesign
+task read the retired SQLite store and cannot run against it. Do not reharvest a stable corpus just
+to change layout.
 
 Keep source identity, timestamp/cutoff, provenance and hashes. Preserve full selected source text
 locally with clear included/total counts where sampling occurred. A recorded PR/check snapshot is

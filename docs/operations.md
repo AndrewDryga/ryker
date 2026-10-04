@@ -199,6 +199,12 @@ inspect the failed request and its exact custody phase before retrying a visible
 leases, operation keys, receipts or episode rows by hand; the typed retry and reconcile controls
 preserve the fences that make recovery safe.
 
+On a Mac, `scripts/install-watchdog.sh` installs `scripts/watchdog.sh` as a launch agent. Once a
+minute it checks `/readyz` and the pinned version, the project's containers, blocked work in
+`/metrics` and the helper servers `compose.env` names. A failed check becomes a macOS notification
+and a line in its log. If the watchdog has gone, run the installer again; it reports success only
+once the agent is registered.
+
 ## Local routing model
 
 Ryker can try a small model you run yourself on routing, beside the provider model, to see

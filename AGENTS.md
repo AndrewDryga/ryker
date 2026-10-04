@@ -80,9 +80,11 @@ instead of `"high"`. Reproduce those with a recorded result and a deterministic 
 test in `dev-check` may call a model: `make eval-replay` runs its recorded cases in under a
 second with no credentials, and that is the standard to hold.
 
-Fixtures are harvested, never invented. `agent_runs.result_json` holds hundreds of real model
-answers and `context_manifests.submitted_prompt` the prompts that produced them, so the exact
-result that broke production is already on disk.
+Fixtures are harvested, never invented. `admission_attempts.response` holds hundreds of real
+routing answers and `.submission` the prompts that produced them; a Work turn keeps its prompt in
+`episode_work_turns.submission` and its accepted result in `.continuation` and
+`.delivery_document`. The exact result that broke production is already on disk until retention
+prunes it, about 30 days later.
 
 Harvested behaviour is not harvested identity. This repository is public, so a fixture keeps the
 exact decision, ordering and malformed bytes that broke production, and carries pseudonyms for

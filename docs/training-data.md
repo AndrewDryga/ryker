@@ -23,10 +23,6 @@ Tokens and cost come with it, so a cheaper model can be compared with the one it
 
 ## Where each piece lives today, and when retention deletes it
 
-The table names what the Elixir release keeps. The Go release's `context_manifests` and
-`agent_runs` are gone; their `submitted_prompt` and `result_json` are now the admission attempt's
-`submission` and `response`.
-
 | Piece | Where it lives | When it is deleted (default settings) |
 | --- | --- | --- |
 | Exact prompt and schema | `admission_attempts.submission` | Replaced by `{"retention":"pruned"}` 30 days after the message was routed, once the work it started has let go of its sessions ("Prompts, replies and tool activity") |

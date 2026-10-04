@@ -3,17 +3,14 @@
 A local web dashboard for the operator who runs Ryker, and for whoever has
 to work out why it did something.
 
-The redesign plan this document once pointed at (Phoenix LiveView throughout,
-fast reliable admission, readable model request inspection, complete cost
-accounting, the reviewed learning flywheel, simpler configuration) was retired on
-2026-09-25; [history.md](history.md) records where each part landed. This document
-remains the capability inventory and historical design rationale.
+This document is the console's capability inventory and the reasons behind its
+design. The redesign plan it once pointed at was retired on 2026-09-25;
+[history.md](history.md) records where each part landed.
 
-This document preserves the intended complete control-plane design. The current
-Elixir replacement exposes only projections backed by durable Elixir state.
-Usage is now one of those projections: admission, Work and learning executions
-each retain the effective Coop target, provider usage when present, and remote
-timing boundaries in one execution ledger. Missing provider telemetry stays
+Every page reads durable state; nothing is shown that Ryker does not keep.
+Usage, for example, reads one execution ledger in which admission, Work and
+learning executions each keep the effective Coop target, provider usage when
+present, and remote timing boundaries. Missing provider telemetry stays
 explicitly unmeasured rather than appearing as zero.
 
 ## Route map
@@ -484,12 +481,9 @@ sets everything else: no accounts, no roles, no invitations.
 through an SSH tunnel. No authentication, because the loopback interface is the
 authentication.
 
-This is a deliberate limit rather than a first step. The tailnet was the
-alternative and was rejected for v1: it carries tagged service devices, so
-binding to it without an identity check would put production episode content,
-evidence and prompts in reach of any node on the tailnet. If the dashboard ever
-needs to be reachable from a phone, that is a separate decision requiring
-Tailscale identity headers and an allowlist, not a bind-address change.
+Ryker never binds to the tailnet itself: the tailnet carries tagged service
+devices, so a bind without an identity check would put production episode
+content, evidence and prompts in reach of any node on it.
 
 An install published through Tailscale Serve (`RYKER_CONTROL_PUBLIC_URL`, as on
 mac-server) also answers at that host. Serve sets `Tailscale-User-Login` and
@@ -512,86 +506,13 @@ Consequences to respect:
 
 ## Information architecture
 
-Nine pages. Each answers one question.
+Each page answers one question. The sidebar lists the pages
+(`lib/ryker/control_plane/navigation.ex`) and "What each page shows", below,
+describes every one. The sections here explain the pages whose design needed
+more than a row of that table. There is no Audit page: the audit trail is kept,
+with its own retention limit, but has no list of its own.
 
-This is the original design. The pages that exist today are the ones
-`lib/ryker/control_plane/navigation.ex` lists and the table under "What the
-Elixir replacement currently wires" describes: Overview and Episodes became
-Activity and the Timeline, Settings split into Integrations and Settings,
-and there is no Audit page (the audit trail is kept and has its own retention
-limit, but no list of its own).
-
-### 1. Overview — "what is happening right now?"
-
-The landing page. Live state, not history.
-
-- Health of each deployment: readyz, running binary sha, uptime, Coop supervision
-- Work in flight, by phase (queued, working, verifying, waiting)
-- Needs a decision: the same set the App Home leads with, linked into detail
-- Failure rate and correction rate over the last 24h and 30d, as sparklines
-- Provider state: which target is live, ladder position, last rotation, credential
-  expiry
-- Queues: pending, running and failed pollers per lane. Readyz reports that the
-  process is up; a lane whose pollers are all failed is a process that is up and
-  doing nothing
-
-**Source:** `work_episodes`, `agent_runs`, `responder_state`, readyz probe,
-`coop credentials`. Mostly present.
-
-### 2. Episodes — "what did it do, and why?"
-
-The heart of the dashboard and the reason to build it first. A list, filterable
-by state, channel, repository, provider and outcome; each row opens a detail
-page.
-
-Incident rooms lead the page. A room is a whole conversation of work and an
-episode is one turn of it, so the room is where the ask that opened it, the
-narrative the channel saw, and the pull request that came out of it belong:
-`incidents`, `signals`, `timeline_events`, `publications` with their followups
-and lifecycle events. Three merged pull requests were visible only in GitHub.
-
-Episode detail:
-- **Timeline** from `work_episode_events` — every phase change, evidence record,
-  progress report, destination change, reopen, with actor and timestamp. 11,679
-  of these exist today and none is visible anywhere.
-- **Evidence ledger** from `evidence` and `claim_assessments` — each claim, its
-  verdict, what supported or contradicted it, source, freshness, confidence.
-  This is what makes "why did it say that" answerable. Neither table carries an
-  `episode_id`: both are filed under `source_input`, which is the Slack input id
-  for a watch and the agent run id otherwise.
-- **Coverage** from `coverage` — which layers were assessed, which were unknown.
-  `unknown` is the load-bearing value: it separates "checked and healthy" from
-  "nobody looked".
-- **Context manifest** from `context_manifests` and `context_manifest_refs` —
-  prompt, contract and tool-schema versions, execution policy, and the reference
-  list itself: the Slack message that started the work, the compiled prompt and
-  assembled context by digest, the repository at a revision, and any artifact.
-- **The turn itself** — prompt sent, response received, parse outcome. The
-  response is read with `decision.ParseWatchDecision`, the host's own parser,
-  rather than a display decoder that would be a second implementation of the
-  contract.
-- **Answers the host refused** from `audit_events` — the corrections handed back
-  when a result could not be read. The difference between "it said nothing" and
-  "it said something the contract rejected".
-- **Delivery** from `slack_deliveries` — what was posted, where, whether it landed.
-- **Attempts** from `episode_attempts` — retries, and what changed between them.
-- **What it spent** from the usage columns on `context_manifests` — tokens per
-  manifest and totalled for the episode, with unmeasured attempts named as
-  unmeasured rather than summed as free. One row per manifest, because an
-  attempt whose context was extended froze a second one and the tokens are split
-  across both.
-- **What was left out** from `omissions_json` and the reference rows carrying an
-  `omitted_reason` — the context layers the budget dropped, and any elision the
-  transport had to make. The reference list says what the model read; this says
-  what it did not, which is usually the answer to "why did it say that".
-
-The list is filterable by channel, repository, episode kind, provider and model
-through the query string, which is what makes each Usage breakdown openable.
-
-Every debugging question in this repository's history is answered on this page.
-Today they are answered by running sqlite against a production database.
-
-### 3. Failures — "what stopped, does it matter, and will retrying help?"
+### Failures — "what stopped, does it matter, and will retrying help?"
 
 Work Ryker could not finish on its own, at `/failures`. On 2026-09-24 the page
 showed "Working-copy cleanup stopped" over a big "Resume cleanup" button, and
@@ -666,7 +587,7 @@ publication and retention custody tables, with fleet workers and placements,
 Slack channel membership and credential metadata for whether a retry should
 work.
 
-### 3a. Working copies — "what is still held, and why?"
+### Working copies — "what is still held, and why?"
 
 Every repository checkout a task worked in, at `/working-copies`, with what
 cleanup does next in plain words. The rows that need a person are the ones
@@ -695,7 +616,7 @@ hold no checkout; `/memory/learning` lists them.
 **Source:** `coop_cleanup`, joined to `incidents`, `channel_memories` and
 `conversation_sessions` for what each session belonged to.
 
-### 4. Routing and response checks
+### Routing and response checks
 
 An episode's Routing section shows the saved briefing, activity, decision and
 reason for each incoming message. Response checks appear as individual events
@@ -707,41 +628,7 @@ elapsed model time, and retained response corrections. Provider retries are not
 counted as response corrections. Credentialed evaluation results remain in their
 recorded reports and are not presented as live-traffic quality scores.
 
-There are no standalone Decisions or Calibration pages. The current Elixir
-control plane does not provide fixture-candidate keep/discard controls.
-
-### 5. Audit — "who did what, and what came of it?"
-
-The only place an approval, a saved channel configuration, a remembered
-preference and a refused model answer sit in one sequence.
-
-- Grouped by kind, because 976 events are not 976 different things
-- Each kind opens to its own events, with actor, outcome and detail
-- Rows link into the episode or the incident room they belong to, and episode
-  and room detail link back
-- Identical consecutive actions fold to one row with a count, the same way the
-  episode timeline does
-
-There is no directory that turns a Slack id into a name, so the actor column
-says what kind of thing acted — person, app, the host, this dashboard — beside
-the id. Inventing a name would be worse than the id.
-
-**Source:** `audit_events`, joined to `agent_runs` to resolve an object to its
-episode.
-
-### 6. Memory — "what does it believe, and where did that come from?"
-
-- Operational memory entries with scope, expiry, source, and the episode that
-  proposed them
-- Conversation memory per channel: goal, situation, open loops, topology,
-  knowledge items with status and confidence
-- Channel situations, with the provenance link for each learned fact
-- Forget, with confirmation
-
-**Source:** `memory_entries`, `memory_rollups`, `conversation_memories`,
-`channel_memories`.
-
-### 7. Settings — "how is it set up, and what is that costing me?"
+### Settings — "how is it set up, and what is that costing me?"
 
 - Editors for the product decisions: Slack, GitHub and Emisar connections,
   repositories, environments, GitHub repository bindings, what each kind of work
@@ -814,25 +701,22 @@ episode.
   saved revision could not be applied
 - Which deployment credentials are configured, missing or unusable — presence
   only, never values
-- Effective assembled configuration, read-only, below the editors
 - Channels: participation mode, proactive, shadow, environment, alert
   policy — proactive and shadow are the only two a slash command still sets;
   participation, alerts and the environment are also chosen on the channel's
   page, and the rest are set by the channel setup conversation in that channel
 - Preferences and standing rules with scope and expiry
 - Schedules, with next occurrence and catch-up policy
-- Prompt budget: static instruction size against the Coop turn cap, per prompt
-  variant, with the history of that number
 
 **Source:** `installation_settings` and the typed settings tables beside it,
-`channel_configurations`, `responder_preferences`, `standing_rules`,
-`scheduled_tasks`. There is no application configuration file.
+`slack_channel_configurations`, `operator_behaviors` (preferences, guidance and
+standing rules) and `episode_schedules`. There is no application configuration
+file.
 
-### 8. Usage — "what is it spending?"
+### Usage — "what is it spending?"
 
 Tokens, over a selectable window (24h, 7d, 30d, everything), broken down by:
-- Provider and model, as frozen on the attempt's manifest — so a turn that
-  rotated to a fallback after a rate limit counts against what actually answered
+- Provider and model
 - Channel, repository and episode kind
 - Work type, named for what the execution bought rather than for the router's
   internal taxonomy: Routing (the admission decision), Conversation,
@@ -862,8 +746,8 @@ Cost prefers what the provider reported through Coop. For rows that reported
 tokens but no money, the rates under **Settings › Model prices** supply an
 estimate; the cost figure adds the two, the page lists the saved prices it used
 under "Rates used for estimates" (with the day each began when a model had two
-in the period), and a row with neither says "Not measured". Wall clock reads the migration-49 columns and
-averages only over timed turns; a window with none says "nothing timed" rather
+in the period), and a row with neither says "Not measured". Wall clock reads each turn's queued, provider and
+host spans and averages only over timed turns; a window with none says "nothing timed" rather
 than inventing an instant.
 
 **Source:** `episode_work_turns`, joined once to its exact immutable
@@ -885,47 +769,6 @@ instead of being rendered as zero spend. Coop keeps no counters for a turn that
 fails or is cancelled before it stages a candidate, so such executions appear
 with no token report rather than with the tokens the provider actually
 consumed.
-
-### The compiled prompt — kept as text, on the episode's clock
-
-Two copies, deliberately, because they answer different questions and expire on
-different clocks.
-
-`context_manifests.submitted_prompt` is the exact submitted bytes, and the
-`compiled_prompt` reference records a sha256 over them. It is transport state:
-Prune empties it on the operational horizon (Prompts, replies and tool activity,
-30 days by default), alongside the agent run context it rides with.
-
-`context_manifest_texts.prompt` is the same prompt after the production
-sanitizer, cascading from the manifest and so from the episode — the
-episode-history horizon, thirty days by default, and longer while anything pins
-the episode. It is what record-episode, promote-fixtures and any later export
-read.
-
-Before the second copy existed there was only the first, and the survivorship
-said what that cost: 428 of 1221 manifests on the tenant database still held a
-prompt, and every one of them was from the previous two days. The harvest was
-never limited to a code path, it was limited to yesterday.
-
-The trace page prefers the submitted bytes while they exist, because the digest
-beside them was taken over those. When only the archive copy is left it renders
-that instead and labels it "Redacted archive", saying in as many words that the
-text will not hash to the fingerprint below it. Neither copy is silently
-substituted for the other.
-
-What it costs, measured on both deployments before it shipped: tenant freezes
-~142 manifests a day at ~132 KB of prompt each — ~19 MB a day, ~131 MB a week,
-~560 MB once the thirty-day horizon fills. emisar, ~26 a day, is ~2 MB a day and
-~60 MB filled. Prompts are bounded by `coop.MaxPromptBytes` at 256 KiB, not by
-the 60 KiB `agentprompt` applies to its own; the measured p50 is 139 KB and the
-p90 175 KB.
-
-### Prompt composition — needs a size per reference
-
-The manifest names every reference that went into a prompt and the digest of
-each, and records the size of none of them, so "how much of this turn was
-instructions" cannot be recovered from what is stored. It needs a byte count per
-reference at freeze time.
 
 ### Cost — reported first, estimated only as a fallback
 
@@ -952,9 +795,9 @@ rate leaves turns that reported no money unpriced.
 
 ### Wall-clock — recorded per attempt, except the split inside the provider
 
-`context_manifests` carries `usage_timed_turns`, `usage_queued_ms`,
-`usage_provider_ms` and `usage_host_ms` (migration 49), totalled over the same
-turns as the token columns and written in the same idempotent statement.
+The execution ledger (`execution_usage`) records `usage_queued_ms`,
+`usage_provider_ms` and `usage_host_ms` for each Coop turn, beside its token
+counters.
 
 Three spans, because there are three places a turn waits and they fail
 independently and are fixed differently:
@@ -966,10 +809,10 @@ independently and are fixed differently:
   that gap is real, is nobody else's, and is the one span this repository can fix
   on its own.
 
-`usage_timed_turns` is both the divisor for a per-turn figure and the recorded
-flag, because zero milliseconds is ambiguous between "instant" and "unmeasured".
-A turn that failed while still queued carries no `started_at`, contributes no
-span, and is kept out of the divisor rather than dragging every average toward a
+Averages divide by the turns whose timing was recorded (`timing_recorded`),
+because zero milliseconds is ambiguous between "instant" and "unmeasured". A
+turn that failed while still queued carries no start time, contributes no span,
+and is kept out of the divisor rather than dragging every average toward a
 duration no turn actually took.
 
 **Provider time is not split into inference and tool calls, and cannot be from
@@ -981,38 +824,9 @@ split in a latency report is a guess wearing a measurement's clothes. Closing it
 needs per-tool-call timing on Coop's turn record — a change in that repository,
 the same as the token counts.
 
-### What was left out of a prompt — now recorded
+## What each page shows
 
-`context_manifests.omissions_json` and `context_manifest_refs.omitted_reason`
-were empty on every row of both deployed databases — 351 manifests and 2,825
-references saying nothing had ever been dropped from any prompt, which is not
-what happened. It is what nobody wrote down.
-
-The watch assembler trims context to fit the turn, and now returns what it
-trimmed instead of only telling the model. Each dropped layer is written twice:
-as a reference row with `visibility = 'omitted'` and a reason, so it sits beside
-the references it displaced, and as a line in the manifest's `omissions_json`
-summary. A prompt the transport had to elide is recorded too, with the byte
-count it lost, against the attempt that suffered it rather than in the
-process-local counter that only ever knew how many prompts had been cut and
-never which episode's.
-
-A layer is reported the first time anything is taken from it, not when it
-happens to reach exactly empty. That distinction is the whole value: budgeting
-stops the moment the prompt fits, so a turn that dropped 389 of 400 channel
-messages and then fitted at 11 left the layer non-empty — and under the old
-rule said nothing at all, staying silent for precisely the prompts that lost the
-most.
-
-Omissions do not travel forward when a later attempt extends the manifest. They
-are facts about the attempt that made them, and carried over, a layer trimmed
-once would read as trimmed forever, including on the attempts that carried it in
-full.
-
-## What the Elixir replacement currently wires
-
-Only backed projections appear in navigation. This table describes the current
-replacement, not the older dashboard or the intended final design above.
+Only backed projections appear in navigation.
 
 | Page | Wired |
 |---|---|
@@ -1037,13 +851,13 @@ replacement, not the older dashboard or the intended final design above.
 | Settings | Live: an overview of Models, Data retention, Model prices, Weekly report and Advanced, each with what it sets and what it is set to now (the models in use, how many days data is kept, how many prices, when and where the weekly report posts or Off, where work runs), and each page's live editors for every product decision; Weekly report (`/settings/report`) turns the weekly report on or off and sets its channel, day, time and zone, and Preview this week's report (`?preview=week`) shows under it what a report sent now would say, rendered as Slack shows it, without posting or recording anything, with Send to the channel, which posts it there at once titled as a preview and never as the week's report ([Weekly report](operations.md#weekly-report)); Data retention also turns keeping routing examples and, separately, work examples for training on or off and downloads each as JSON Lines ([Training data](training-data.md)), each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; each kind of work says under its title where Ryker uses its models; Model prices leads with how many prices it holds, each row opening its price's page with Remove price last, and Add price opposite the title; Advanced says in plain words where work runs and what each kind of work may do, then Running now: the Ryker version and each worker's state, Coop version, free work slots and free disk against the line where it stops taking new work, with why when it has stopped; when tasks that change code cannot run, a card above says so and what to check. Secrets, endpoints, callbacks, and raw policy documents are never shown, and credentials appear only as configured, missing or unusable |
 
 Every administrative action is a POST behind a native two-step confirm and
-writes its store transition and audit row in the same act, attributed to
-`control-plane@localhost`. A direct-conversation message is intentionally a
+writes its store transition and audit row in the same act, attributed to the
+person who confirmed it (`control-plane:tailscale:<login>` through Tailscale
+Serve, `control-plane:local` otherwise). A direct-conversation message is intentionally a
 single CSRF-protected POST: it is an ordinary user input, not an administrative
 state mutation or a shortcut to the model.
 
-New instructions go through the existing conversation and confirmed-offer
-workflow. No legacy rules are implicitly imported or activated.
+New instructions go through the conversation and confirmed-offer workflow.
 
 Episode model inputs summarize standing rules, preferences, guidance, and
 memory from the complete sanitized **retained request**, not today's library.
