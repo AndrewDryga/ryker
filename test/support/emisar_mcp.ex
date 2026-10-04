@@ -25,7 +25,7 @@ defmodule Ryker.TestSupport.EmisarMCP do
   process what it was sent. A host named unreachable.example refuses every
   connection, so nothing reaches it; one named silent.example lists its tools
   but never answers a call, which times out after the call was sent; one named
-  hanging.example holds every request for a second before it answers; one
+  hanging.example holds every request for ten seconds before it answers; one
   named limited.example turns every call away with HTTP 429 before Emisar
   sees it.
   """
@@ -49,7 +49,7 @@ defmodule Ryker.TestSupport.EmisarMCP do
       recipient = List.first(Process.get(:"$callers", [])) || self()
       send(recipient, {:emisar_mcp, %{body: body, headers: headers, path: path, token: token}})
 
-      if host == "hanging.example", do: Process.sleep(1_000)
+      if host == "hanging.example", do: Process.sleep(10_000)
 
       cond do
         host == "silent.example" and body["method"] == "tools/call" ->

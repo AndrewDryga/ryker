@@ -66,8 +66,9 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
           git: git,
           # Every git command gets this deadline, the real ones too. At 500 ms
           # a real command ran past it under a loaded gate (2026-09-28) and the
-          # fetch never started, so the test failed without testing anything.
-          git_timeout_ms: 3_000
+          # fetch never started, so the test failed without testing anything;
+          # at 3 s it did again under a full make check (2026-10-04).
+          git_timeout_ms: 10_000
         )
       end)
 

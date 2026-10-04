@@ -40,24 +40,27 @@ defmodule Ryker.Memories.CaseConversationsMigrationTest do
       assert conversations(repo, prefix, joined) == ["slack:T123:CPAGES"]
       assert conversations(repo, prefix, alone) == []
 
-      # The lookup a channel's deletion makes.
-      assert {:ok, plan} =
-               repo.transaction(fn ->
-                 SQL.query!(repo, "SET LOCAL enable_seqscan = off", [])
+      # The lookup a channel's deletion makes, `conversation_refs @> ARRAY[...]`, has a GIN index.
+      # Whether the planner may use it yet depends on every other transaction on the server: the
+      # migration fills the column and builds the index in one transaction, so Postgres holds the
+      # index back (pg_index.indcheckxmin) until each older transaction has ended. Asking the
+      # planner failed every gate run on 2026-10-04, when other partitions always had one open.
+      %{rows: [[definition, valid]]} =
+        SQL.query!(
+          repo,
+          """
+          SELECT pg_get_indexdef(index.indexrelid), index.indisvalid
+          FROM pg_index AS index
+          JOIN pg_class AS class ON class.oid = index.indexrelid
+          JOIN pg_namespace AS namespace ON namespace.oid = class.relnamespace
+          WHERE namespace.nspname = $1
+            AND class.relname = 'episode_case_records_conversation_refs_index'
+          """,
+          [prefix]
+        )
 
-                 SQL.query!(
-                   repo,
-                   """
-                   EXPLAIN SELECT id FROM #{prefix}.episode_case_records
-                   WHERE conversation_refs @> ARRAY[$1]::text[]
-                   """,
-                   ["slack:T123:CPAGES"]
-                 ).rows
-                 |> List.flatten()
-                 |> Enum.join("\n")
-               end)
-
-      assert plan =~ "episode_case_records_conversation_refs_index"
+      assert valid
+      assert definition =~ "USING gin (conversation_refs)"
 
       assert_raise Postgrex.Error, ~r/episode_case_record_conversations_valid/, fn ->
         SQL.query!(

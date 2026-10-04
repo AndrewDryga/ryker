@@ -61,8 +61,9 @@ defmodule Ryker.Emisar.ToolsTest do
 
     {microseconds, answer} = :timer.tc(fn -> Tools.catalog(pin) end)
 
+    # The read gives up at its budget (1.5 s in tests), long before the host answers.
     assert answer == {:error, :unavailable}
-    assert microseconds < 900_000
+    assert microseconds < 5_000_000
 
     # Remembered briefly, so the next read does not wait again.
     {microseconds, answer} = :timer.tc(fn -> Tools.catalog(pin) end)
