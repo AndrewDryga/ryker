@@ -1693,9 +1693,7 @@ defmodule Ryker.Runtime.Assembly do
         checkpoint_key: Bootstrap.checkpoint_key!(),
         checkpoint_secrets: credential_redaction_values(),
         capability_names: capabilities,
-        capability_versions: %{
-          "repository-freshness" => "2"
-        },
+        capability_versions: Ryker.CoopFleet.Client.capability_versions(),
         max_waits: max_waits,
         poll_interval_ms: poll_interval_ms,
         workspace_ref: workspace_ref

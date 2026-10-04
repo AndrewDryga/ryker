@@ -197,8 +197,14 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
 
   defp create_session_state(agent, key, receipt, task, source) do
     Agent.get_and_update(agent, fn state ->
+      # Every create is a session of its own in Coop: a finished one, or one
+      # another generation already holds, is never handed out again.
+      replaced? =
+        state.session["state"] in ~w(exhausted closed discarded) or
+          (is_binary(state.session["external_ref"]) and state.session["external_ref"] != task)
+
       session_id =
-        if state.session["state"] in ~w(exhausted closed discarded),
+        if replaced?,
           do: "#{state.session["id"]}:replacement:#{state.create_count + 1}",
           else: state.session["id"]
 

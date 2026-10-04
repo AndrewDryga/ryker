@@ -2,6 +2,7 @@ defmodule Ryker.CoopFleet.JobTemplates do
   @moduledoc "Controller-owned execution settings, independent of worker advertisements."
 
   alias Ryker.CanonicalJSON
+  alias Ryker.CoopFleet.JobCheck
   alias Ryker.Settings.{Environment, Work}
 
   @installation [
@@ -75,12 +76,24 @@ defmodule Ryker.CoopFleet.JobTemplates do
     installation ++ repository ++ environment
   end
 
+  # Per-container caps every job carries: Coop's job-setup:2 refuses a job
+  # without finite ones. Docker refuses a CPU cap above the host's cores, and
+  # tenant's worker VM has six; 4096 processes is Coop's own default cap.
+  @resources %{"cpu_millis" => 4_000, "memory_bytes" => 8 * 1_073_741_824, "pids" => 4_096}
+
+  @spec resources() :: map()
+  def resources, do: @resources
+
+  # A job names its whole setup (Coop job-setup:2). Work gets no environment
+  # of its own; a working copy's check is the repository's gate, which
+  # `Ryker.CoopFleet.JobAuthority` resolves at the job's base commit.
   def execution(work, purpose, repository?) do
     %{
       "targets" => Map.fetch!(work, model_field(purpose)),
       "mode" => "normal",
-      "project_env" => false,
-      "project_mcp" => false,
+      "environment" => %{},
+      "check" => JobCheck.none(),
+      "resources" => @resources,
       "repository_read_only" => not repository? or purpose != :contributor,
       "egress" => %{"mode" => "open", "rules" => [], "export_destinations" => false},
       "limits" => %{

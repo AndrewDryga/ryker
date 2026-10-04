@@ -44,3 +44,8 @@ config :ryker, :emisar_catalog_budget_ms, 300
 # What the knowledge lane and setup read from GitHub answers from replies each
 # test records: no test reaches GitHub.
 config :ryker, :github_files_requester, Ryker.TestSupport.RecordedGitHub
+
+# The check a working copy's review runs is read from the repository's
+# .agent/project.yaml (Ryker.CoopFleet.JobCheck); tests read none unless they
+# name a reader.
+config :ryker, :job_check_reader, Ryker.TestSupport.NoProjectFile

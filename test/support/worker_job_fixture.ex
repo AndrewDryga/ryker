@@ -84,7 +84,7 @@ defmodule Ryker.Fixtures.WorkerJob do
 
   def build(job_ref \\ "job:one", repository_ref \\ "repo:one") do
     %{
-      "version" => 1,
+      "version" => 2,
       "job_ref" => job_ref,
       "source" => %{
         "repository_ref" => repository_ref,
@@ -108,8 +108,9 @@ defmodule Ryker.Fixtures.WorkerJob do
       "companions" => [],
       "targets" => ["codex:gpt-6&sol@default"],
       "mode" => "normal",
-      "project_env" => false,
-      "project_mcp" => false,
+      "environment" => %{},
+      "check" => %{"argv" => [], "environment" => %{}},
+      "resources" => %{"cpu_millis" => 4_000, "memory_bytes" => 8_589_934_592, "pids" => 4_096},
       "repository_read_only" => false,
       "egress" => %{"mode" => "none", "rules" => [], "export_destinations" => false},
       "limits" => %{

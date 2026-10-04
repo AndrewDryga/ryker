@@ -16,6 +16,18 @@ defmodule Ryker.Work.Executor.Sessions do
   alias Ryker.Work.Executor.Remote
 
   @doc false
+  # Coop's workers refuse every turn on a session created with a version-1 job
+  # since job-setup:2; it stays open and readable. A turn not yet started on
+  # one moves to the next generation, which carries the same grant as version
+  # 2 (`Ryker.CoopFleet.JobSpec.rebind/3`); the old session is never used again.
+  def ensure_session(
+        %{session: %{coop_session_id: id, worker_job_document: %{"version" => 1}}, turn: turn} =
+          claim,
+        settings
+      )
+      when is_binary(id) and is_nil(turn.coop_turn_id),
+      do: rotate_session(claim, settings)
+
   def ensure_session(%{session: %{coop_session_id: id}} = claim, settings)
       when is_binary(id) do
     use_bound_session(claim, id, settings)

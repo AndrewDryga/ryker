@@ -233,8 +233,9 @@ its original receipt even if configuration changes again; it grants no further s
 explains this current-policy selection. Account recovery is not permission to reset execution budgets.
 
 Use Coop sessions with no product checkout, project environment, MCP, or Ryker action tools.
-The Coop job has `source=null`, `repository_read_only=true`, `project_env=false`, and
-`project_mcp=false`; Coop owns the empty execution fork, with no host scratch checkout setup.
+The Coop job has `source=null`, `repository_read_only=true`, no work environment and no check;
+Coop reports the session's `project_env=false` and `project_mcp=false`, and owns the empty
+execution fork, with no host scratch checkout setup.
 Do not describe these fields as disabling provider built-in tools: they
 remove product capabilities and writable repository authority, not the provider's tool vocabulary.
 Check those public authority fields and absence of companion repositories before submitting
@@ -243,7 +244,8 @@ Identity alone binds a session to its run, so cleanup can close a session that f
 the attempt then stops on never-submitted proof. A settings digest fixes that authority, so new
 attempts under a refused digest wait, spending no start, until the configuration changes; the
 Learning page says learning is paused and directs the operator to inspect the job and worker version.
-Ryker freezes `project_env=false` and `project_mcp=false` in every learning job.
+Every learning job is a version-2 JobSpec with no work environment and no check, and Ryker
+checks that Coop reports `project_env=false` and `project_mcp=false` on the session.
 Reject any returned `controller_tools_digest`: the learner intentionally creates an unbound
 session and must not receive Ryker state/action tools through an unexpected binding.
 

@@ -51,6 +51,15 @@ defmodule Ryker.CoopFleet.Client do
 
   @repository_freshness_capability "repository-freshness"
 
+  @doc """
+  The capability versions a worker must advertise to be given a session:
+  version-2 source freshness receipts, and Coop's `job-setup:2`, because every
+  job Ryker freezes is a version-2 JobSpec that an older worker refuses
+  (Coop 33ea84fe).
+  """
+  @spec capability_versions() :: %{String.t() => String.t()}
+  def capability_versions, do: %{"job-setup" => "2", "repository-freshness" => "2"}
+
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
   def new(options) do
     with {:ok, options} <- normalize_options(options),

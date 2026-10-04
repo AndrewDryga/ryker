@@ -4,10 +4,16 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
   alias Ryker.CoopFleet.{Command, JobAuthority, JobSpec, JobTemplates, Placement, Worker}
   alias Ryker.{Episodes, Repo, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.GitHub.RepositoryFiles
+  alias Ryker.TestSupport.RecordedGitHub
   alias Ryker.Work.{Custody, Session}
   alias Ryker.Work.Custody.Sessions
 
   @actor "control-plane:local"
+
+  defmodule GatedReader do
+    def read(_binding, _repository, ".agent/project.yaml", _ref), do: {:ok, "gate: make check\n"}
+  end
 
   setup context do
     {:ok, _} = Settings.initialize(@actor)
@@ -89,8 +95,11 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert job["source"] == source()
     assert job["mode"] == "normal"
     refute job["repository_read_only"]
-    assert job["project_env"] == false
-    assert job["project_mcp"] == false
+    assert job["version"] == 2
+    refute Map.has_key?(job, "project_env")
+    assert job["environment"] == %{}
+    assert job["check"] == %{"argv" => [], "environment" => %{}}
+    assert job["resources"] == JobTemplates.resources()
     assert job["egress"] == %{"mode" => "open", "rules" => [], "export_destinations" => false}
     assert {:ok, digest} = JobSpec.digest(job)
     assert pinned.worker_job_digest == digest
@@ -111,6 +120,82 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
              JobAuthority.ensure_pinned(Repo.get!(Session, session.id), nil, fn _, _, _ ->
                flunk("refetched a frozen job")
              end)
+  end
+
+  # Coop's job-setup:2 runs only the check a job names (Coop 33ea84fe): the parent's `gate:`
+  # stopped applying to remote reviews, so emisar's `./run gate review` must be in the job.
+  test "a working copy's job freezes its repository's gate as the check", %{session: session} do
+    content =
+      Base.encode64("gate: ./run gate review\nreview:\n  compose: dev/review-compose.yml\n")
+
+    RecordedGitHub.reply([
+      {:get, "/repos/example/app/contents/.agent/project.yaml?ref=#{String.duplicate("a", 40)}",
+       {:ok, %{status: 200, body: %{"content" => content, "encoding" => "base64"}, headers: []}}}
+    ])
+
+    assert {:ok, pinned} =
+             JobAuthority.ensure_pinned(
+               session,
+               "/private/source",
+               &prepare/3,
+               RepositoryFiles
+             )
+
+    assert pinned.worker_job_document["check"] == %{
+             "argv" => ["./run", "gate", "review"],
+             "environment" => %{}
+           }
+
+    assert RecordedGitHub.unanswered() == []
+  end
+
+  test "a gate GitHub cannot read now is a wait, never a job frozen without it", %{
+    session: session
+  } do
+    RecordedGitHub.reply([
+      {:get, "/repos/example/app/contents/.agent/project.yaml?ref=#{String.duplicate("a", 40)}",
+       {:error, :timeout}}
+    ])
+
+    assert {:error, :coop_worker_source_unavailable} =
+             JobAuthority.ensure_pinned(
+               session,
+               "/private/source",
+               &prepare/3,
+               RepositoryFiles
+             )
+
+    assert Repo.get!(Session, session.id).worker_job_document == nil
+  end
+
+  # A session pinned before the move but never created would only be refused by a version-2
+  # worker. It moves with its grant intact and gets its check like a fresh pin.
+  test "a version-1 job on a session never created is pinned again as version 2", %{
+    session: session
+  } do
+    assert {:ok, pinned} = JobAuthority.ensure_pinned(session, "/private/source", &prepare/3)
+
+    v1 =
+      pinned.worker_job_document
+      |> Map.drop(~w(environment check resources))
+      |> Map.merge(%{"version" => 1, "project_env" => false, "project_mcp" => false})
+
+    session =
+      pinned
+      |> Ecto.Changeset.change(
+        worker_job_document: v1,
+        worker_job_digest: Ryker.CanonicalJSON.worker_digest(v1)
+      )
+      |> Repo.update!()
+
+    assert {:ok, moved} = JobAuthority.ensure_pinned(session, nil, &prepare/3, GatedReader)
+    job = moved.worker_job_document
+    assert job["version"] == 2
+    refute Map.has_key?(job, "project_env")
+    assert job["check"] == %{"argv" => ["make", "check"], "environment" => %{}}
+    assert job["source"] == v1["source"]
+    assert {:ok, digest} = JobSpec.digest(job)
+    assert Repo.get!(Session, session.id).worker_job_digest == digest
   end
 
   test "workspace task identity does not replace the execution generation identity", %{

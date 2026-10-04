@@ -1,12 +1,12 @@
 defmodule Ryker.CoopFleet.JobSpecTest do
   use ExUnit.Case, async: true
 
-  alias Ryker.CoopFleet.JobSpec
+  alias Ryker.CoopFleet.{JobSpec, JobTemplates}
   alias Ryker.Work.SessionChangeset
 
   defp valid_job do
     %{
-      "version" => 1,
+      "version" => 2,
       "job_ref" => "job:one",
       "source" => %{
         "repository_ref" => "repo:one",
@@ -30,8 +30,6 @@ defmodule Ryker.CoopFleet.JobSpecTest do
       "companions" => [],
       "targets" => ["codex:gpt-6&sol@default"],
       "mode" => "readonly",
-      "project_env" => false,
-      "project_mcp" => false,
       "repository_read_only" => true,
       "egress" => %{"mode" => "none", "rules" => [], "export_destinations" => false},
       "limits" => %{
@@ -41,26 +39,64 @@ defmodule Ryker.CoopFleet.JobSpecTest do
         "turn_timeout_ms" => 3_600_000,
         "warm_idle_timeout_ms" => 0,
         "max_patch_bytes" => 1_048_576
-      }
+      },
+      "environment" => %{"CI" => "1"},
+      "check" => %{
+        "argv" => ["make", "test"],
+        "environment" => %{"DATABASE_URL" => "postgres://test"}
+      },
+      "resources" => %{"cpu_millis" => 2000, "memory_bytes" => 4_294_967_296, "pids" => 512}
     }
   end
 
   test "the immutable job digest matches Coop's sorted and escaped Go JSON" do
     for {timestamp, digest} <- [
           {"2026-09-26T12:00:00Z",
-           "97a91fd4ddff4be68c9965f6cec437e8fe504eaac45db818be0d9fb48782d915"},
+           "e3413eaa0fde8dffc7adb163162ab06a1d6b11ccd8918235cde00735cae49400"},
           {"2026-09-26T12:00:00.12345Z",
-           "44b38704f83bedff2bca113538c0496e0353ec46aa2d3ae9d211276bdba8ca3a"},
+           "97b9bcb9a49b0017e096997e6b3d2faef7f8689c1753e3e3d8d82c92e3ad5bd4"},
           {"2026-09-26T12:00:00.000001Z",
-           "f67dac296a8be0706a1fdb886071747c4dec836613806d858db8ac5718f80e1c"},
+           "857d39e4484647feddef7ed81bf095c213363858bd3b152a9baa1d0ae6d1adc3"},
           {"2026-09-26T12:00:00.123456789Z",
-           "008993e50a1ce995bc4cad96e7793c33ca55355b44c2e9ce3f0e33a7229648e2"}
+           "476e6a487c208a38aee4fc5d10ea082efbbdc72a8e555ececf6680349ad73554"}
         ] do
       assert {:ok, ^digest} =
                JobSpec.digest(
                  put_in(valid_job(), ["source", "binding", "resolved_at"], timestamp)
                )
     end
+  end
+
+  # Coop's workers refuse version-1 jobs since job-setup:2 (Coop 33ea84fe), and a replacement
+  # session copies its predecessor's frozen job. A task begun before the move continues on a
+  # version-2 job with exactly the sources and rights it was granted.
+  test "a version-1 predecessor is rebound as version 2 with the same grant" do
+    v1 =
+      valid_job()
+      |> Map.drop(~w(environment check resources))
+      |> Map.merge(%{"version" => 1, "project_env" => false, "project_mcp" => false})
+
+    v1_digest = Ryker.CanonicalJSON.worker_digest(v1)
+
+    assert {:ok, rebound, digest} = JobSpec.rebind(v1, v1_digest, "job:replacement")
+    assert rebound["version"] == 2
+    assert rebound["job_ref"] == "job:replacement"
+    refute Map.has_key?(rebound, "project_env")
+    refute Map.has_key?(rebound, "project_mcp")
+    assert rebound["environment"] == %{}
+    assert rebound["check"] == %{"argv" => [], "environment" => %{}}
+    assert rebound["resources"] == JobTemplates.resources()
+
+    for field <- ~w(source companions targets mode repository_read_only egress limits),
+        do: assert(rebound[field] == v1[field])
+
+    assert {:ok, ^digest} = JobSpec.digest(rebound)
+
+    assert {:error, :invalid_coop_worker_job} =
+             JobSpec.rebind(v1, String.duplicate("f", 64), "job:replacement")
+
+    assert {:error, :invalid_coop_worker_job} =
+             JobSpec.rebind(%{v1 | "project_env" => true}, v1_digest, "job:replacement")
   end
 
   test "rebinding a replacement changes only job identity and refuses a corrupted predecessor" do
@@ -91,7 +127,17 @@ defmodule Ryker.CoopFleet.JobSpecTest do
     job = valid_job()
 
     invalid = [
-      Map.delete(job, "project_env"),
+      Map.put(job, "version", 1),
+      Map.delete(job, "check"),
+      Map.put(job, "project_env", false),
+      put_in(job, ["environment"], %{"COOP_TOKEN" => "1"}),
+      put_in(job, ["environment"], %{"CI" => "1\nEVIL=1"}),
+      put_in(job, ["environment"], %{"1CI" => "1"}),
+      put_in(job, ["check"], %{"argv" => [], "environment" => %{"CI" => "1"}}),
+      put_in(job, ["check", "argv"], [""]),
+      put_in(job, ["resources", "cpu_millis"], 5),
+      put_in(job, ["resources", "memory_bytes"], 1_024),
+      put_in(job, ["resources", "pids"], 0),
       Map.put(job, "worker_path", "/tmp/repo"),
       put_in(job, ["source", "github_repository_id"], 0),
       put_in(job, ["source", "url"], "https://example.invalid/repo"),
@@ -123,7 +169,9 @@ defmodule Ryker.CoopFleet.JobSpecTest do
     }
 
     assert :ok = JobSpec.validate(bare)
-    assert {:error, :invalid_coop_worker_job} = JobSpec.validate(%{bare | "project_env" => true})
+
+    assert {:error, :invalid_coop_worker_job} =
+             JobSpec.validate(Map.put(bare, "project_env", false))
   end
 
   test "an empty normal workspace can carry independently authorized companions" do

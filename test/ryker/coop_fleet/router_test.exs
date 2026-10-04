@@ -414,7 +414,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     commit = String.duplicate("a", 40)
 
     job = %{
-      "version" => 1,
+      "version" => 2,
       "job_ref" => job_ref,
       "source" => %{
         "repository_ref" => "ryker",
@@ -438,8 +438,9 @@ defmodule Ryker.CoopFleet.RouterTest do
       "companions" => [],
       "targets" => ["codex"],
       "mode" => "normal",
-      "project_env" => false,
-      "project_mcp" => false,
+      "environment" => %{},
+      "check" => %{"argv" => [], "environment" => %{}},
+      "resources" => %{"cpu_millis" => 4_000, "memory_bytes" => 8_589_934_592, "pids" => 4_096},
       "repository_read_only" => false,
       "egress" => %{"mode" => "none", "rules" => [], "export_destinations" => false},
       "limits" => %{

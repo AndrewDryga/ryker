@@ -17,8 +17,22 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
       execution = JobTemplates.execution(%Work{}, purpose, false)
       assert execution["mode"] == "normal"
       assert execution["repository_read_only"]
-      refute execution["project_env"]
-      refute execution["project_mcp"]
+      refute Map.has_key?(execution, "project_env")
+      refute Map.has_key?(execution, "project_mcp")
+      assert execution["environment"] == %{}
+      assert execution["check"] == %{"argv" => [], "environment" => %{}}
+    end
+  end
+
+  # Coop's job-setup:2 refuses a job without finite per-container caps, and
+  # Docker refuses a CPU cap above the host's cores: tenant's worker VM has six.
+  test "every job carries caps the smallest worker can enforce" do
+    for purpose <- [:admission, :contributor, :learning] do
+      assert JobTemplates.execution(%Work{}, purpose, true)["resources"] == %{
+               "cpu_millis" => 4_000,
+               "memory_bytes" => 8 * 1_073_741_824,
+               "pids" => 4_096
+             }
     end
   end
 
@@ -50,7 +64,7 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
 
     job =
       Map.merge(routing, %{
-        "version" => 1,
+        "version" => 2,
         "job_ref" => "ryker-admission-ready:#{Ecto.UUID.generate()}",
         "source" => nil,
         "companions" => []

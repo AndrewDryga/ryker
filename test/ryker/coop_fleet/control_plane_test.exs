@@ -140,6 +140,44 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert Repo.get!(Placement, placement.id).state == :revoking
   end
 
+  # Every job Ryker freezes is a version-2 JobSpec since Coop's job-setup:2 (Coop 33ea84fe),
+  # and a worker without it refuses one: placing work there would only fail on the worker.
+  test "work is placed only on workers that run version-2 jobs" do
+    assert Client.capability_versions() == %{
+             "job-setup" => "2",
+             "repository-freshness" => "2"
+           }
+
+    authorize_and_poll!("worker-job-v1",
+      capabilities: [
+        %{"name" => "controller-tools", "version" => "1"},
+        %{"name" => "repository-freshness", "version" => "2"}
+      ]
+    )
+
+    session = session!("job-setup-placement")
+
+    requirements = %{
+      capability_names: ["controller-tools"],
+      capability_versions: Client.capability_versions(),
+      repository_ref: "ryker",
+      workspace_ref: "workspace-main"
+    }
+
+    refute ControlPlane.worker_available?(session, requirements)
+
+    authorize_and_poll!("worker-job-v2",
+      capabilities: [
+        %{"name" => "controller-tools", "version" => "1"},
+        %{"name" => "job-setup", "version" => "2"},
+        %{"name" => "repository-freshness", "version" => "2"}
+      ]
+    )
+
+    assert {:ok, placement} = ControlPlane.place_session(session.id, requirements, 60)
+    assert placement.worker_id == "worker-job-v2"
+  end
+
   test "admission classification places on the fleet without inventing an episode" do
     authorize_and_poll!("worker-admission")
 

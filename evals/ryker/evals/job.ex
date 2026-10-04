@@ -56,7 +56,7 @@ defmodule Ryker.Evals.Job do
       document =
         %{learning_models: [target]}
         |> JobTemplates.execution(:learning, false)
-        |> Map.merge(%{"version" => 1, "job_ref" => name, "source" => nil, "companions" => []})
+        |> Map.merge(%{"version" => 2, "job_ref" => name, "source" => nil, "companions" => []})
 
       with {:ok, digest} <- JobSpec.digest(document),
            do: {:ok, %{name: name, digest: digest, document: document}}

@@ -80,6 +80,19 @@ tools own durable records. The generic Delivery module owns external message cus
 - Exact source selection belongs to the frozen job. Repository work requires
   `repository-freshness:2`; workers do not advertise policies, repositories or a separate
   source-selector capability. Missing freshness support refuses creation before code is used.
+- The frozen job is a version-2 JobSpec (Coop `job-setup:2`, 2026-10-04): beside its sources it
+  names its whole setup, and the worker applies nothing from the repository's own settings.
+  Work gets an empty environment and the caps every job carries (4 CPUs, 8 GiB, 4096 processes;
+  Docker refuses a CPU cap above the host's cores). A working copy's `check` is the repository's
+  `gate:` from `.agent/project.yaml` at the job's base commit, split into argv the way Coop splits
+  it (`Ryker.CoopFleet.JobCheck`); a read-only job and a repository without a gate get no check,
+  and such a review is not publishable. A gate GitHub cannot read now is a wait
+  (`coop_worker_source_unavailable`), never a job frozen without it. Sessions are placed only on
+  workers advertising `job-setup:2`.
+- A session frozen with a version-1 job moves once, keeping its grant: one never created is pinned
+  again as version 2 and gets its check; a created one, which a version-2 worker refuses to run,
+  moves to its next generation before its next turn, and the replacement's job is the same grant
+  as version 2 (`JobSpec.upgrade/1`, `JobSpec.rebind/3`).
 - Submodules are pinned with their source, and Coop stages every gitlink it declares. Each one must
   come from one of two places:
   - a repository Ryker was given, read through its GitHub binding;
@@ -269,8 +282,9 @@ the episode. Optional history can be omitted while that producer is busy.
 
 Learning uses a controller-authored empty-source job, its configured model ladder, one worker,
 batches of up to 16 inputs, a 10-second quiet delay, and a 60-second maximum coalescing delay.
-The job has `repository_read_only=true`, `project_env=false`, `project_mcp=false`, no companions,
-and no controller state/action tools. No host scratch repository is configured.
+The job has `repository_read_only=true`, no work environment and no check, no companions,
+and no controller state/action tools; Coop reports the session's `project_env=false` and
+`project_mcp=false`, which Ryker checks before it submits anything. No host scratch repository is configured.
 A returned controller binding digest is rejected before source
 submission. Coop still owns an execution fork and exposes provider built-in tools. Read-only
 restricts the repository mount, not writable output/scratch or the provider home; network egress

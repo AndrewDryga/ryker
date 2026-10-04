@@ -2,16 +2,20 @@ defmodule Ryker.CoopFleet.JobSpec do
   @moduledoc """
   One immutable controller-authored execution grant for a Coop worker session.
 
-  Version 1 of this document belongs to worker protocol v2. It names exact
-  frozen GitHub repository and source identities, never a worker path, URL,
-  shell command or secret.
+  Version 2 of this document belongs to worker protocol v2 and Coop's
+  `job-setup:2`. It names exact frozen GitHub repository and source identities,
+  never a worker path, URL or secret, and carries the whole work and review
+  setup Ryker resolved: the work environment, the check a review runs (literal
+  argv and its extra environment), and per-container resource caps. A worker
+  applies nothing from the repository's own settings.
   """
 
-  alias Ryker.{CanonicalJSON, CoopFleet.Protocol}
+  alias Ryker.CanonicalJSON
+  alias Ryker.CoopFleet.{JobCheck, JobTemplates, Protocol}
   alias Ryker.Work.RepositorySource
 
   @maximum_bytes 256 * 1_024
-  @root_fields ~w(version job_ref source companions targets mode project_env project_mcp repository_read_only egress limits)
+  @root_fields ~w(version job_ref source companions targets mode repository_read_only egress limits environment check resources)
   @source_fields ~w(repository_ref github_repository github_repository_id binding submodules)
   @submodule_fields ~w(path repository_ref github_repository github_repository_id commit tree submodules)
   @commit ~r/\A[0-9a-f]{40}\z/
@@ -55,6 +59,17 @@ defmodule Ryker.CoopFleet.JobSpec do
 
   def rebind(nil, nil, _job_ref), do: {:ok, nil, nil}
 
+  def rebind(%{"version" => 1} = job, expected_digest, job_ref) do
+    with true <- CanonicalJSON.worker_digest(job) == expected_digest,
+         {:ok, upgraded} <- upgrade(job),
+         rebound = Map.put(upgraded, "job_ref", job_ref),
+         {:ok, digest} <- digest(rebound) do
+      {:ok, rebound, digest}
+    else
+      _ -> {:error, :invalid_coop_worker_job}
+    end
+  end
+
   def rebind(job, expected_digest, job_ref) do
     with {:ok, ^expected_digest} <- digest(job),
          rebound = Map.put(job, "job_ref", job_ref),
@@ -64,6 +79,31 @@ defmodule Ryker.CoopFleet.JobSpec do
       _ -> {:error, :invalid_coop_worker_job}
     end
   end
+
+  @doc """
+  A frozen version-1 job as version 2. Coop's workers refuse version 1 since
+  `job-setup:2`, so a session carrying one moves once, with exactly the
+  sources, targets, mode, egress and limits it was granted. It had no project
+  environment or MCP and gets no work environment; it gets no check, which
+  `Ryker.CoopFleet.JobAuthority` resolves for a working copy before its session
+  is created; and it gets the caps every job carries.
+  """
+  @spec upgrade(map()) :: {:ok, map()} | {:error, :invalid_coop_worker_job}
+  def upgrade(%{"version" => 1, "project_env" => false, "project_mcp" => false} = job) do
+    upgraded =
+      job
+      |> Map.drop(~w(project_env project_mcp))
+      |> Map.merge(%{
+        "version" => 2,
+        "environment" => %{},
+        "check" => JobCheck.none(),
+        "resources" => JobTemplates.resources()
+      })
+
+    with :ok <- validate(upgraded), do: {:ok, upgraded}
+  end
+
+  def upgrade(_job), do: {:error, :invalid_coop_worker_job}
 
   defp exact?(value, fields) when is_map(value),
     do: Enum.sort(Map.keys(value)) == Enum.sort(fields)
@@ -79,11 +119,9 @@ defmodule Ryker.CoopFleet.JobSpec do
 
   defp identity_and_mode?(job) do
     exact?(job, @root_fields) and
-      job["version"] == 1 and
+      job["version"] == 2 and
       Protocol.reference?(job["job_ref"]) and
       job["mode"] in ~w(normal readonly bare) and
-      job["project_env"] == false and
-      job["project_mcp"] == false and
       is_boolean(job["repository_read_only"])
   end
 
@@ -94,8 +132,49 @@ defmodule Ryker.CoopFleet.JobSpec do
   end
 
   defp execution_bounds?(job) do
-    egress?(job["egress"]) and limits?(job["limits"]) and mode_bounds?(job)
+    egress?(job["egress"]) and limits?(job["limits"]) and mode_bounds?(job) and
+      environment?(job["environment"]) and check?(job["check"]) and
+      resources?(job["resources"])
   end
+
+  # Coop's rules for the setup it refuses to normalize: shell-identifier names
+  # outside its own COOP_ space, and values env-file processing cannot change.
+  defp environment?(values) when is_map(values) and map_size(values) <= 64 do
+    Enum.all?(values, fn {key, value} ->
+      is_binary(key) and Regex.match?(~r/\A[A-Za-z_][A-Za-z0-9_]{0,127}\z/, key) and
+        not String.starts_with?(key, "COOP_") and is_binary(value) and
+        byte_size(value) <= 8_192 and String.valid?(value) and
+        not String.contains?(value, ["\0", "\r", "\n"]) and String.trim(value) == value
+    end)
+  end
+
+  defp environment?(_values), do: false
+
+  # Literal argv, never a shell string; no argv and no environment means no check.
+  defp check?(%{"argv" => argv, "environment" => environment} = check)
+       when map_size(check) == 2 and is_list(argv) and length(argv) <= 64 do
+    environment?(environment) and (argv != [] or environment == %{}) and argv?(argv)
+  end
+
+  defp check?(_check), do: false
+
+  defp argv?(argv) do
+    argv
+    |> Enum.with_index()
+    |> Enum.all?(fn {arg, index} ->
+      is_binary(arg) and byte_size(arg) <= 8_192 and String.valid?(arg) and
+        not String.contains?(arg, "\0") and (index > 0 or arg != "")
+    end)
+  end
+
+  defp resources?(%{} = resources) do
+    exact?(resources, ~w(cpu_millis memory_bytes pids)) and
+      integer_between?(resources["cpu_millis"], 10, 128_000) and
+      integer_between?(resources["memory_bytes"], 6 * 1_048_576, 1_099_511_627_776) and
+      integer_between?(resources["pids"], 1, 65_536)
+  end
+
+  defp resources?(_resources), do: false
 
   defp source_mode?(%{"mode" => "bare", "source" => nil}), do: true
   defp source_mode?(%{"mode" => "bare"}), do: false
@@ -229,8 +308,7 @@ defmodule Ryker.CoopFleet.JobSpec do
     do: is_integer(value) and value >= min and value <= max
 
   defp mode_bounds?(%{"mode" => "bare"} = job) do
-    job["companions"] == [] and not job["project_env"] and not job["project_mcp"] and
-      not job["repository_read_only"] and restricted_bounds?(job)
+    job["companions"] == [] and not job["repository_read_only"] and restricted_bounds?(job)
   end
 
   defp mode_bounds?(%{"mode" => "readonly"} = job),

@@ -2658,7 +2658,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
   defp pin_job!(session) do
     job = %{
-      "version" => 1,
+      "version" => 2,
       "job_ref" => session.external_ref,
       "source" => %{
         "repository_ref" => "ryker",
@@ -2682,8 +2682,9 @@ defmodule Ryker.CoopFleet.ClientTest do
       "companions" => [],
       "targets" => ["codex"],
       "mode" => "normal",
-      "project_env" => false,
-      "project_mcp" => false,
+      "environment" => %{},
+      "check" => %{"argv" => [], "environment" => %{}},
+      "resources" => %{"cpu_millis" => 4_000, "memory_bytes" => 8_589_934_592, "pids" => 4_096},
       "repository_read_only" => false,
       "egress" => %{"mode" => "none", "rules" => [], "export_destinations" => false},
       "limits" => %{
