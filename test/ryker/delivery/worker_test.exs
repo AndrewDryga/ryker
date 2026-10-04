@@ -9,6 +9,7 @@ defmodule Ryker.Delivery.WorkerTest do
 
   alias Ryker.Delivery.{
     Adapters,
+    PlatformAction,
     PlatformActionCustody,
     RoutingResponse,
     RoutingResponseCustody,
@@ -19,7 +20,7 @@ defmodule Ryker.Delivery.WorkerTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
-  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission}
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -145,6 +146,7 @@ defmodule Ryker.Delivery.WorkerTest do
     pending = reaction_pending!()
     assert_receive {:reaction_published, %{ref: ref}}, 500
     assert ref == pending.delivery_ref
+    assert_recorded(RoutingResponse, :delivery_ref, ref)
   end
 
   test "a Work reply accepted while its lane is idle is sent at once, not at the next timer" do
@@ -154,6 +156,7 @@ defmodule Ryker.Delivery.WorkerTest do
     accepted = message_pending!("woken")
     assert_receive {:message_published, %{ref: ref}}, 500
     assert ref == accepted.turn.delivery_ref
+    assert_recorded(Turn, :turn_ref, accepted.turn.turn_ref)
   end
 
   test "an action a turn asked for while its lane is idle is sent at once, not at the next timer" do
@@ -163,6 +166,7 @@ defmodule Ryker.Delivery.WorkerTest do
     action = action_pending!("woken")
     assert_receive {:reaction_published, %{ref: ref}}, 500
     assert ref == action.action_ref
+    assert_recorded(PlatformAction, :action_ref, ref)
   end
 
   # A failed send is retried after a backoff of a second and up, and only the
@@ -179,6 +183,7 @@ defmodule Ryker.Delivery.WorkerTest do
 
     refute_receive {:reaction_published, _request}, 500
     assert_receive {:reaction_published, _request}, 1_500
+    assert_recorded(RoutingResponse, :delivery_ref, pending.delivery_ref)
   end
 
   test "a Work reply whose retry falls due is sent then, not at the safety-net interval" do
@@ -199,6 +204,7 @@ defmodule Ryker.Delivery.WorkerTest do
 
     refute_receive {:message_published, _request}, 500
     assert_receive {:message_published, _request}, 1_500
+    assert_recorded(Turn, :turn_ref, accepted.turn.turn_ref)
   end
 
   test "an action whose retry falls due is sent then, not at the safety-net interval" do
@@ -212,6 +218,16 @@ defmodule Ryker.Delivery.WorkerTest do
 
     refute_receive {:reaction_published, _request}, 500
     assert_receive {:reaction_published, _request}, 1_500
+    assert_recorded(PlatformAction, :action_ref, action.action_ref)
+  end
+
+  # A send is finished when its receipt is saved. These tests ended at the
+  # send, so the worker was stopped in the middle of that write and every run
+  # logged a dropped database connection.
+  defp assert_recorded(schema, field, ref) do
+    assert eventually(fn ->
+             match?(%{delivered_at: %DateTime{}}, Repo.get_by(schema, [{field, ref}]))
+           end)
   end
 
   defp sleeping_options(kind) do

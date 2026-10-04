@@ -6,6 +6,12 @@
 # (2026-09-28); a longer wait costs only a test that is failing anyway.
 ExUnit.start(capture_log: true, exclude: [:simulation], assert_receive_timeout: 1_000)
 
+:ok =
+  :logger.add_primary_filter(
+    :dropped_test_clients,
+    {&Ryker.TestSupport.LogFilters.dropped_client/2, nil}
+  )
+
 if Process.whereis(Ryker.Repo) do
   Ecto.Adapters.SQL.Sandbox.mode(Ryker.Repo, :manual)
 end
