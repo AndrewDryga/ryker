@@ -384,6 +384,20 @@ seed
 out=$(cd "$repo" && sh scripts/compose.sh backup 2>&1; echo "exit=$?")
 check "lifecycle backup succeeds" "exit=0" "$out"
 check "lifecycle backup resumes its writer" "start ryker" "$(cat "$fake/calls")"
+# Ryker waited for the worker's whole archive, Coop's 12 GB of source caches included, and
+# tenant's console answered 502 for seven minutes (2026-10-04).
+calls=$(cat "$fake/calls")
+start_line=$(grep -n ' start ryker' <<<"$calls" | head -n 1 | cut -d: -f1)
+worker_line=$(grep -n 'entrypoint tar ryker-coop' <<<"$calls" | head -n 1 | cut -d: -f1)
+if [[ -n $start_line && -n $worker_line && $start_line -lt $worker_line ]]; then
+  printf 'ok   Ryker runs again before the worker is archived\n'
+else
+  printf 'FAIL Ryker runs again before the worker is archived\n     calls:\n%s\n' "$calls"
+  failures=$((failures + 1))
+fi
+check "the worker archive leaves out Coop's job sources" "--exclude=coop/sessions/job-sources" "$calls"
+check "the worker archive leaves out Coop's repository mirrors" "--exclude=coop/sessions/repositories" "$calls"
+check "the worker archive leaves out earlier copies of its state" "--exclude=coop/sessions.*" "$calls"
 backup=$(find "$state/backups" -name 'ryker-*.tar.gz' | head -n 1)
 check "lifecycle backup includes encrypted state" "ryker-state.tar.gz" "$(tar -tzf "$backup")"
 

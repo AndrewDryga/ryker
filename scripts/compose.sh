@@ -359,8 +359,19 @@ case "$command" in
     compose exec -T database pg_dump -U ryker -d ryker --format=custom --no-owner --no-privileges >"$scratch/database.dump"
     compose run --rm --no-deps -T --entrypoint tar volume-init \
       -czf - -C /var/lib/ryker . >"$scratch/ryker-state.tar.gz"
+    # Ryker's own state is captured, so it runs again while the worker's is archived. The worker
+    # keeps running throughout; holding Ryker for its archive kept tenant's console answering 502
+    # for seven minutes (2026-10-04). Coop downloads its source caches (job-sources,
+    # repositories) again when a job needs them, the lock and control socket belong to the
+    # running daemon, and sessions.* are earlier copies of the worker's state: 12 of tenant's 13 GB.
+    # A start that fails here is tried again on the way out, and fails the backup there.
+    if [ "$restart_controller" = 1 ] && compose start ryker >/dev/null; then
+      restart_controller=0
+    fi
     compose run --rm --no-deps -T --entrypoint tar ryker-coop \
-      -czf - -C /var/lib coop ryker-coop >"$scratch/worker-state.tar.gz"
+      -czf - -C /var/lib --exclude=coop/sessions/job-sources --exclude=coop/sessions/repositories \
+      --exclude=coop/sessions/control.sock --exclude=coop/sessions/lock --exclude='coop/sessions.*' \
+      coop ryker-coop >"$scratch/worker-state.tar.gz"
     cp "$env_file" "$scratch/compose.env"
     chmod 0600 "$scratch/database.dump" "$scratch/ryker-state.tar.gz" "$scratch/worker-state.tar.gz" "$scratch/compose.env"
     backup=$backup_dir/ryker-$(date -u +%Y%m%dT%H%M%SZ).tar.gz

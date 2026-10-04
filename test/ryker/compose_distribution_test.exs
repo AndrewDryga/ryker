@@ -147,7 +147,8 @@ defmodule Ryker.ComposeDistributionTest do
 
   test "the worker backup retains custody but no retired checkout volume" do
     lifecycle = read("scripts/compose.sh")
-    assert lifecycle =~ "-czf - -C /var/lib coop ryker-coop"
+    assert lifecycle =~ "-czf - -C /var/lib --exclude=coop/sessions/job-sources"
+    assert lifecycle =~ "coop ryker-coop >\"$scratch/worker-state.tar.gz\""
     assert lifecycle =~ "-xzf - -C /var/lib coop ryker-coop"
     refute lifecycle =~ "ryker-workspaces"
     refute read("release-assets.txt") =~ "load-policies.sh"
