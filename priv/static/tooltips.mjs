@@ -52,10 +52,25 @@ export function hintFor(target) {
 
   claimTitle(element)
   const text = element.dataset.tooltip
-  if (!text) return null
+  if (!text || repeatsShownText(element, text)) return null
 
   return {element, kind: "hint", lines: text.split("\n").map(line => ["ryker-tooltip-text", line])}
 }
+
+// A hint that only repeats what its element already shows in full adds nothing:
+// a Chat row titled "hi" showed a second "hi" under the pointer (Andrew,
+// 2026-10-04). The hint stays for text an ellipsis cut off.
+export function repeatsShownText(element, text) {
+  const wanted = squeezed(text)
+  const nodes = [element, ...(element.querySelectorAll ? element.querySelectorAll("*") : [])]
+  const shown = nodes.find(node => squeezed(node.textContent || "") === wanted)
+
+  return Boolean(shown) && !cutOff(shown)
+}
+
+const squeezed = value => value.replace(/\s+/g, " ").trim()
+
+const cutOff = node => node.scrollWidth > node.clientWidth || node.scrollHeight > node.clientHeight
 
 export function setupTooltips(root = document) {
   const tooltip = root.createElement("aside")

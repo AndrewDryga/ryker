@@ -2,21 +2,47 @@ import {test} from "node:test"
 import assert from "node:assert/strict"
 import {claimTitle, hintFor, tooltipId, tooltipPosition} from "../../priv/static/tooltips.mjs"
 
-function element({title = null, text = "", attributes = {}, classes = [], dataset = {}} = {}) {
+function element({
+  title = null,
+  text = "",
+  attributes = {},
+  classes = [],
+  dataset = {},
+  children = [],
+  width = 100,
+  fullWidth = width
+} = {}) {
   const attrs = {...attributes}
   if (title !== null) attrs.title = title
   const node = {
     dataset: {...dataset},
-    textContent: text,
+    textContent: children.length ? children.map(child => child.textContent).join("") : text,
     classList: {contains: name => classes.includes(name)},
     getAttribute: name => (name in attrs ? attrs[name] : null),
     hasAttribute: name => name in attrs,
     setAttribute: (name, value) => { attrs[name] = value },
     removeAttribute: name => { delete attrs[name] },
+    querySelectorAll: () => children,
+    clientWidth: width,
+    scrollWidth: fullWidth,
+    clientHeight: 20,
+    scrollHeight: 20,
     attributes: attrs
   }
   node.closest = () => node
   return node
+}
+
+// A Chat conversation row: its title, time and state, the title repeated as the row's hint.
+function chatRow(title, {titleWidth = 180, titleFullWidth = titleWidth} = {}) {
+  return element({
+    title,
+    children: [
+      element({text: title, width: titleWidth, fullWidth: titleFullWidth}),
+      element({text: "10:51 UTC"}),
+      element({text: "Replied · No environment"})
+    ]
+  })
 }
 
 test("the tooltip keeps the stable id prompt fragments describe themselves with", () => {
@@ -60,6 +86,28 @@ test("a prompt fragment names its section, context and path", () => {
       ["ryker-tooltip-path", "$.context.messages"]
     ]
   })
+})
+
+test("a hint that repeats text shown in full is not shown again under the pointer", () => {
+  // A Chat row's title appeared a second time under the pointer, as a box saying "hi" under a
+  // row titled "hi" (Andrew, 2026-10-04: "why i see second hi below?").
+  assert.equal(hintFor(chatRow("hi")), null)
+
+  const choice = element({
+    title: "Andrew Dryga",
+    children: [element({text: "Andrew Dryga"}), element({text: "3"})]
+  })
+  assert.equal(hintFor(choice), null)
+
+  const own = element({title: "Retry", text: "Retry"})
+  assert.equal(hintFor(own), null)
+})
+
+test("a hint that repeats text cut off by an ellipsis still shows it in full", () => {
+  const long = "Why did the checkout deploy stop halfway through the second region"
+  const row = chatRow(long, {titleWidth: 180, titleFullWidth: 460})
+
+  assert.deepEqual(hintFor(row).lines, [["ryker-tooltip-text", long]])
 })
 
 test("an empty title shows nothing", () => {
