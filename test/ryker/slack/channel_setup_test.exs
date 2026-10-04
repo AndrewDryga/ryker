@@ -569,6 +569,54 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert List.last(posts(options)).document =~ "Please choose"
   end
 
+  # For half an hour after someone started setting up a channel, every message an operator sent
+  # anywhere in it went to setup first: a question got "Please choose" in its own thread instead
+  # of an answer, and an answer typed in another thread failed setup's thread check and was
+  # dropped after Slack's retries (2026-10-04 review). Only the setup's own thread is setup.
+  test "an operator's message outside the setup thread is an ordinary message", %{
+    options: options
+  } do
+    assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
+    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+
+    customize =
+      welcome_interaction(configuration, "ryker_welcome_configure", "interaction:customize")
+
+    assert {:ok, %{session_ref: session_ref}} =
+             ChannelSetup.handle_interaction(customize, options)
+
+    {:ok, session} = ChannelConfigurations.fetch_session(session_ref)
+    posted = length(posts(options))
+
+    question = normalized("U123", "<@UBOT> why did the deploy fail?", "8888.000001", :mention)
+    assert ChannelSetup.handle_message(question, options) == :not_setup
+
+    answer_elsewhere = normalized("U123", "proactive", "8888.000002")
+    assert ChannelSetup.handle_message(answer_elsewhere, options) == :not_setup
+
+    {:ok, unchanged} = ChannelConfigurations.fetch_session(session.id)
+    assert unchanged.revision == session.revision
+    assert length(posts(options)) == posted
+  end
+
+  test "beside a setup at the channel's top level, a top-level message that is no answer is ordinary",
+       %{options: options} do
+    assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
+
+    reconfigure = normalized("U123", "<@UBOT> reconfigure this channel", nil, :mention)
+    assert {:ok, %{session_ref: session_ref}} = ChannelSetup.handle_message(reconfigure, options)
+    {:ok, session} = ChannelConfigurations.fetch_session(session_ref)
+    assert session.response_thread_ref == nil
+    posted = length(posts(options))
+
+    question = normalized("U123", "<@UBOT> why did the deploy fail?", nil, :mention)
+    assert ChannelSetup.handle_message(question, options) == :not_setup
+    assert length(posts(options)) == posted
+
+    answer = normalized("U123", "proactive", nil)
+    assert {:ok, %{session_ref: ^session_ref}} = ChannelSetup.handle_message(answer, options)
+  end
+
   test "an addressed reconfiguration request opens a fresh setup in the same thread", %{
     options: options
   } do

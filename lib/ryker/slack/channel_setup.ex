@@ -190,6 +190,7 @@ defmodule Ryker.Slack.ChannelSetup do
              channel_ref,
              options
            ),
+         :ok <- setup_conversation(started?, session, input, platform_thread_ref),
          {:ok, result} <-
            apply_message(
              started?,
@@ -207,6 +208,13 @@ defmodule Ryker.Slack.ChannelSetup do
       {:error, :not_setup} ->
         :not_setup
 
+      # A setup running at the channel's top level shares it with everything else
+      # said there. A message that mentions Ryker and is no answer is a question
+      # for Ryker; a plain one from the person setting up is a mistyped answer.
+      {:error, :configuration_answer_ambiguous}
+      when is_nil(platform_thread_ref) and audience == :mention ->
+        :not_setup
+
       {:error, :configuration_answer_ambiguous} ->
         clarify(input, platform_thread_ref, options)
 
@@ -217,6 +225,29 @@ defmodule Ryker.Slack.ChannelSetup do
         error
     end
   end
+
+  # A setup is answered in its own thread, by whoever started it when someone
+  # did. Every other message in the channel is an ordinary one: for half an hour
+  # after a setup started, an operator's question elsewhere got "Please choose",
+  # and an answer typed in another thread was dropped (2026-10-04 review).
+  defp setup_conversation(true, _session, _input, _thread_ref), do: :ok
+
+  defp setup_conversation(false, session, input, thread_ref) do
+    if setup_thread?(session, thread_ref) and setup_person?(session, input.actor.ref),
+      do: :ok,
+      else: {:error, :not_setup}
+  end
+
+  defp setup_thread?(%ConfigurationSession{response_thread_ref: thread}, thread), do: true
+
+  defp setup_thread?(%ConfigurationSession{root_message_ref: root}, root) when is_binary(root),
+    do: true
+
+  defp setup_thread?(_session, _thread_ref), do: false
+
+  defp setup_person?(%ConfigurationSession{initiator_ref: nil}, _actor_ref), do: true
+  defp setup_person?(%ConfigurationSession{initiator_ref: actor_ref}, actor_ref), do: true
+  defp setup_person?(_session, _actor_ref), do: false
 
   defp apply_message(true, session, _input, _thread_ref, _workspace_ref, _channel_ref, _options),
     do: {:ok, %{session: session, status: :started}}
