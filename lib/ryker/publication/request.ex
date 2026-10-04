@@ -16,6 +16,7 @@ defmodule Ryker.Publication.Request do
     :body,
     :existing_pull_request,
     :publication_ref,
+    :recovery_generation,
     :repository,
     :review,
     :title
@@ -29,6 +30,7 @@ defmodule Ryker.Publication.Request do
           body: String.t(),
           existing_pull_request: nil | map(),
           publication_ref: String.t(),
+          recovery_generation: pos_integer(),
           repository: String.t(),
           review: map(),
           title: String.t()
@@ -43,6 +45,7 @@ defmodule Ryker.Publication.Request do
       body: publication.body,
       existing_pull_request: existing_pull_request(publication),
       publication_ref: publication.ref,
+      recovery_generation: publication.recovery_generation,
       repository: publication.repository,
       review: publication.review_document,
       title: publication.title
@@ -52,6 +55,7 @@ defmodule Ryker.Publication.Request do
          :ok <- reference(request.approval_ref, :approval_ref),
          :ok <- reference(request.approved_by_actor_ref, :approved_by_actor_ref),
          true <- is_struct(request.approved_at, DateTime),
+         true <- is_integer(request.recovery_generation) and request.recovery_generation > 0,
          :ok <- text(request.repository, 256, :repository),
          :ok <- text(request.title, 120, :title),
          :ok <- text(request.body, 8_000, :body),
@@ -77,6 +81,7 @@ defmodule Ryker.Publication.Request do
       "body" => request.body,
       "existing_pull_request" => request.existing_pull_request,
       "publication_ref" => request.publication_ref,
+      "recovery_generation" => request.recovery_generation,
       "repository" => request.repository,
       "review" => request.review,
       "title" => request.title
@@ -111,6 +116,10 @@ defmodule Ryker.Publication.Request do
   defp publication_branch(_request, %{"ref" => ref}, _prefix),
     do: String.replace_prefix(ref, "refs/heads/", "")
 
+  # A new draft takes a branch no pull request has used. GitHub keeps the
+  # branch name on a merged or closed pull request, and Coop refuses to open a
+  # draft from a branch whose pull request ended, so a later generation's new
+  # draft names its generation.
   defp publication_branch(request, nil, prefix) do
     slug =
       request.title
@@ -122,8 +131,11 @@ defmodule Ryker.Publication.Request do
 
     slug = if slug == "", do: "change", else: slug
     suffix = request.publication_ref |> String.split(":") |> List.last() |> String.slice(-10, 10)
-    "#{prefix}/#{slug}-#{suffix}"
+    "#{prefix}/#{slug}-#{suffix}#{generation(request.recovery_generation)}"
   end
+
+  defp generation(1), do: ""
+  defp generation(generation), do: "-#{generation}"
 
   defp pull_request_body(request) do
     """

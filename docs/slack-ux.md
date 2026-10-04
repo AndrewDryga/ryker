@@ -724,7 +724,9 @@ host rejects them for nonoperators before any repository or session mutation:
   event from the wait is not lost. A correction that completes in scope re-arms the task's own publication for a fresh
   review and updates that same pull request: one task keeps one publication and one draft PR, the
   card returns to the reviewing stage with its **Open draft PR** link intact, and each review
-  generation posts its own card rather than overwriting the superseded one. The prior generation's
+  generation posts its own card rather than overwriting the superseded one. After the draft merged
+  or closed, a correction opens a new draft on a branch of its own instead, since GitHub keeps
+  the ended pull request's branch name. The prior generation's
   approval cannot carry a new candidate, so a corrected candidate is authorized again by the same
   task grant or waits for **Create draft PR**. A candidate the operator discarded is never
   resurrected, and a review, approval or publish phase still in flight keeps the publication it

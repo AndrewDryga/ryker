@@ -15,6 +15,7 @@ defmodule Ryker.Publication.CustodyTest do
   alias Ryker.Publication.Changeset, as: PublicationChangeset
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, Publication, Review}
+  alias Ryker.Publication.Request, as: PublicationRequest
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.Renderer
@@ -1345,6 +1346,60 @@ defmodule Ryker.Publication.CustodyTest do
              from(p in Publication, where: p.episode_id == ^claim.episode.id),
              :count
            ) == 1
+  end
+
+  # After a draft merged or closed, the next generation reused its number, Coop
+  # refused it (`publication_existing_pull_request_changed`) and Discard was
+  # the only way out (2026-10-04 review).
+  for ending <- ["merged", "closed"] do
+    test "a corrected candidate after the draft #{ending} opens a new draft" do
+      suffix = "after-#{unquote(ending)}"
+      %{claim: claim} = task_episode!(suffix)
+      %{claim: first} = corrected_candidate!(claim, suffix, "one")
+      published = publish_task_publication!(first, suffix, "one")
+
+      {1, _rows} =
+        Repo.update_all(from(f in Followup, where: f.publication_id == ^published.id),
+          set: [pr_state: unquote(ending), next_poll_at: ~U[9999-01-01 00:00:00.000000Z]]
+        )
+
+      %{claim: second} = corrected_candidate!(first, suffix, "two")
+      rearmed = Repo.get!(Publication, published.id)
+      assert rearmed.status == :review_pending
+      assert is_nil(rearmed.pull_request_number)
+      assert is_nil(rearmed.branch_ref)
+
+      authorized = review_task_publication!(rearmed, second, suffix, "two")
+      assert authorized.status == :publish_pending
+      assert {:ok, request} = PublicationRequest.new(authorized)
+      assert is_nil(request.existing_pull_request)
+
+      repositories = %{"ryker" => %{base_branch: "main", branch_prefix: "ryker"}}
+      assert {:ok, body} = PublicationRequest.worker_body(request, repositories)
+      assert body["pull_request_number"] == 0
+      assert body["expected_head"] == ""
+
+      # GitHub keeps the branch name on the ended pull request, so the new
+      # draft's branch is not the one the first generation would have used.
+      assert {:ok, first_body} =
+               PublicationRequest.worker_body(%{request | recovery_generation: 1}, repositories)
+
+      refute body["branch"] == first_body["branch"]
+    end
+  end
+
+  test "a corrected candidate while the draft is still open updates that draft" do
+    %{claim: claim} = task_episode!("still-open")
+    %{claim: first} = corrected_candidate!(claim, "still-open", "one")
+    published = publish_task_publication!(first, "still-open", "one")
+
+    %{claim: second} = corrected_candidate!(first, "still-open", "two")
+    rearmed = Repo.get!(Publication, published.id)
+    authorized = review_task_publication!(rearmed, second, "still-open", "two")
+
+    assert {:ok, request} = PublicationRequest.new(authorized)
+    assert request.existing_pull_request["number"] == published.pull_request_number
+    assert request.existing_pull_request["ref"] == published.branch_ref
   end
 
   # Manual test, 2026-10-01, AndrewDryga/test#4: answering a question on the

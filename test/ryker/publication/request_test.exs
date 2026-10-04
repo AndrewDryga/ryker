@@ -25,6 +25,34 @@ defmodule Ryker.Publication.RequestTest do
     assert body["title"] == "Fix the retry"
   end
 
+  # GitHub keeps the branch name on a merged or closed pull request, and Coop
+  # will not open a draft from a branch whose pull request ended. A later
+  # generation that opens a new draft takes a branch of its own; one that
+  # updates its open draft keeps that draft's branch.
+  test "a new draft's branch names its generation, and an open draft keeps its own" do
+    first = request(%{title: "Fix the retry", recovery_generation: 1})
+    assert {:ok, %{"branch" => first_branch}} = Request.worker_body(first, @repositories)
+    assert first_branch == "ryker/fix-the-retry-quest-test"
+
+    later = %{first | recovery_generation: 3}
+
+    assert {:ok, %{"branch" => "ryker/fix-the-retry-quest-test-3"}} =
+             Request.worker_body(later, @repositories)
+
+    open = %{
+      later
+      | existing_pull_request: %{
+          "head_commit" => String.duplicate("c", 40),
+          "number" => 7,
+          "ref" => "refs/heads/ryker/fix-the-retry-quest-test",
+          "url" => "https://github.com/acme/ryker/pull/7"
+        }
+    }
+
+    assert {:ok, %{"branch" => "ryker/fix-the-retry-quest-test", "pull_request_number" => 7}} =
+             Request.worker_body(open, @repositories)
+  end
+
   defp request(fields) do
     struct!(
       Request,
@@ -36,6 +64,7 @@ defmodule Ryker.Publication.RequestTest do
           body: "",
           existing_pull_request: nil,
           publication_ref: "publication:request-test",
+          recovery_generation: 1,
           repository: "ryker",
           review: %{
             "candidate_head" => String.duplicate("a", 40),

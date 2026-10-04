@@ -23,6 +23,7 @@ defmodule Ryker.Publication.Custody do
     Changeset,
     ConflictReceipt,
     FixLoop,
+    Followup,
     Followups,
     GateOutput,
     Publication,
@@ -169,7 +170,8 @@ defmodule Ryker.Publication.Custody do
               review_requested_at: attributes.occurred_at,
               review_requested_by_actor_ref: attributes.actor_ref,
               session_id: session.id
-            }),
+            })
+            |> Map.merge(ended_pull_request(publication)),
             now
           )
 
@@ -179,6 +181,36 @@ defmodule Ryker.Publication.Custody do
         :ok
     end
   end
+
+  # A merged or closed pull request cannot take a new candidate: the next
+  # generation reused its number, Coop refused it
+  # (`publication_existing_pull_request_changed`) and Discard was the only way
+  # out (2026-10-04 review). Work after a merge or close opens a new draft; the
+  # ended one stays in the task's lifecycle history.
+  defp ended_pull_request(%Publication{status: :published} = publication) do
+    ended? =
+      Repo.exists?(
+        from(followup in Followup,
+          where:
+            followup.publication_id == ^publication.id and
+              followup.pr_state in ["merged", "closed"]
+        )
+      )
+
+    # The remote identity is whole or absent (`episode_publication_remote_identity_valid`).
+    if ended?,
+      do: %{
+        branch_ref: nil,
+        commit_sha: nil,
+        expected_remote_head_sha: nil,
+        github_repository: nil,
+        pull_request_number: nil,
+        pull_request_url: nil
+      },
+      else: %{}
+  end
+
+  defp ended_pull_request(_publication), do: %{}
 
   # Answering a question on the pull request is a completed task turn too. It
   # re-armed the published draft with nothing changed, and Ryker force-pushed a
