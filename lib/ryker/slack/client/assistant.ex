@@ -72,10 +72,18 @@ defmodule Ryker.Slack.Client.Assistant do
 
   defp search_document(_document), do: {:error, {:invalid_slack_api_request, :search}}
 
+  # Slack puts the continuation in `response_metadata.next_cursor`; the result
+  # carries it as `next_cursor`, "" on the last page, which the search tool hands
+  # to the model and audits completeness by.
   defp search_response(%{"results" => %{} = _results} = body) do
-    result = Map.drop(body, ["ok"])
+    cursor = get_in(body, ["response_metadata", "next_cursor"]) || ""
 
-    if Fields.bounded_result(result, :search) == :ok and search_cursor?(result["next_cursor"]),
+    result =
+      body
+      |> Map.drop(["next_cursor", "ok", "response_metadata"])
+      |> Map.put("next_cursor", cursor)
+
+    if Fields.bounded_result(result, :search) == :ok and search_cursor?(cursor),
       do: {:ok, result},
       else: {:error, {:slack_protocol_error, :search}}
   end
@@ -106,8 +114,6 @@ defmodule Ryker.Slack.Client.Assistant do
 
   defp optional_slack_id(nil), do: true
   defp optional_slack_id(value), do: Fields.slack_id(value) == :ok
-
-  defp search_cursor?(nil), do: true
 
   defp search_cursor?(value),
     do: is_binary(value) and String.valid?(value) and byte_size(value) <= 4_096

@@ -389,22 +389,30 @@ defmodule Ryker.Slack.ClientTest do
              List.duplicate("/reactions.remove", 3)
   end
 
+  # Slack returns a search's continuation in `response_metadata.next_cursor`. Ryker read a
+  # top-level `next_cursor` that only its test fake sent, so every search was audited as
+  # complete and the model was never handed the cursor (2026-10-04 review).
   test "real-time search sends the user event action token without retaining it" do
-    response = %{
-      "next_cursor" => "next-search-page",
-      "results" => %{
-        "messages" => [
-          %{
-            "channel_id" => "C123",
-            "content" => "The deployment completed.",
-            "message_ts" => "1787832001.000200",
-            "permalink" => "https://example.slack.com/archives/C123/p1787832001000200"
-          }
-        ]
-      }
+    results = %{
+      "messages" => [
+        %{
+          "channel_id" => "C123",
+          "content" => "The deployment completed.",
+          "message_ts" => "1787832001.000200",
+          "permalink" => "https://example.slack.com/archives/C123/p1787832001000200"
+        }
+      ]
     }
 
-    {:ok, requester} = FakeRequester.start([slack(response)])
+    {:ok, requester} =
+      FakeRequester.start([
+        slack(%{
+          "results" => results,
+          "response_metadata" => %{"next_cursor" => "next-search-page"}
+        }),
+        slack(%{"results" => results, "response_metadata" => %{"next_cursor" => ""}})
+      ])
+
     client = client(requester)
 
     document = %{
@@ -415,12 +423,17 @@ defmodule Ryker.Slack.ClientTest do
     }
 
     assert Client.search_context(client, "xact-user-turn-secret", document) ==
-             {:ok, response}
+             {:ok, %{"next_cursor" => "next-search-page", "results" => results}}
 
-    assert FakeRequester.requests(requester) == [
-             {:post, "/assistant.search.context",
-              Map.put(document, "action_token", "xact-user-turn-secret"), []}
-           ]
+    assert Client.search_context(client, "xact-user-turn-secret", document) ==
+             {:ok, %{"next_cursor" => "", "results" => results}}
+
+    assert FakeRequester.requests(requester) ==
+             List.duplicate(
+               {:post, "/assistant.search.context",
+                Map.put(document, "action_token", "xact-user-turn-secret"), []},
+               2
+             )
   end
 
   test "real-time search rejects malformed credentials and request fields before transport" do
@@ -1481,7 +1494,7 @@ defmodule Ryker.Slack.ClientTest do
         slack(%{"bookmarks" => [%{"channel_id" => "C123", "id" => 42}]}),
         slack(%{"messages" => "not-a-list"}),
         slack(%{"results" => "not-an-object"}),
-        slack(%{"results" => %{}, "next_cursor" => 42}),
+        slack(%{"results" => %{}, "response_metadata" => %{"next_cursor" => 42}}),
         slack(%{"channel" => %{"id" => "C999", "is_archived" => false}}),
         slack(%{"channel" => "not-an-object"}),
         slack(%{
