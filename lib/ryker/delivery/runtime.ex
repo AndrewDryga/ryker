@@ -9,6 +9,7 @@ defmodule Ryker.Delivery.Runtime do
 
   use Supervisor
 
+  alias Ryker.Defaults
   alias Ryker.Delivery.{Adapters, Worker}
   alias Ryker.Options
 
@@ -59,53 +60,32 @@ defmodule Ryker.Delivery.Runtime do
   @doc false
   @spec options!(keyword() | map()) :: map()
   def options!(configuration) do
-    configuration = normalize_configuration!(configuration)
-    registrations = Map.fetch!(configuration, :adapters)
-    worker_ref = Map.fetch!(configuration, :worker_ref)
-    message_concurrency = Map.get(configuration, :message_concurrency, 2)
-    routing_concurrency = Map.get(configuration, :routing_concurrency, 1)
-    action_concurrency = Map.get(configuration, :action_concurrency, 1)
-    report_concurrency = Map.get(configuration, :report_concurrency, 1)
-    lease_seconds = Map.get(configuration, :lease_seconds, 60)
-    max_attempts = Map.get(configuration, :max_attempts, 8)
-    poll_interval_ms = Map.get(configuration, :poll_interval_ms, 250)
-    retry_base_seconds = Map.get(configuration, :retry_base_seconds, 1)
-    retry_max_seconds = Map.get(configuration, :retry_max_seconds, 60)
+    # What the configuration leaves out is the shipped default.
+    options = Map.merge(Defaults.fetch!(:delivery), normalize_configuration!(configuration))
 
     validate_concurrency!(
-      message_concurrency,
-      routing_concurrency,
-      action_concurrency,
-      report_concurrency
+      options.message_concurrency,
+      options.routing_concurrency,
+      options.action_concurrency,
+      options.report_concurrency
     )
 
-    validate_positive!(lease_seconds, :lease_seconds)
-    validate_positive!(max_attempts, :max_attempts)
-    validate_positive!(poll_interval_ms, :poll_interval_ms)
-    validate_positive!(retry_base_seconds, :retry_base_seconds)
-    validate_positive!(retry_max_seconds, :retry_max_seconds)
-    validate_retry_bounds!(retry_base_seconds, retry_max_seconds)
-    validate_ref!(worker_ref)
+    for field <- [
+          :lease_seconds,
+          :max_attempts,
+          :poll_interval_ms,
+          :retry_base_seconds,
+          :retry_max_seconds
+        ],
+        do: validate_positive!(Map.fetch!(options, field), field)
 
-    adapters =
-      case Adapters.new(registrations) do
-        {:ok, adapters} -> adapters
-        {:error, reason} -> raise ArgumentError, "invalid delivery adapters: #{inspect(reason)}"
-      end
+    validate_retry_bounds!(options.retry_base_seconds, options.retry_max_seconds)
+    validate_ref!(Map.fetch!(options, :worker_ref))
 
-    %{
-      action_concurrency: action_concurrency,
-      adapters: adapters,
-      lease_seconds: lease_seconds,
-      max_attempts: max_attempts,
-      message_concurrency: message_concurrency,
-      poll_interval_ms: poll_interval_ms,
-      report_concurrency: report_concurrency,
-      routing_concurrency: routing_concurrency,
-      retry_base_seconds: retry_base_seconds,
-      retry_max_seconds: retry_max_seconds,
-      worker_ref: worker_ref
-    }
+    case Adapters.new(Map.fetch!(options, :adapters)) do
+      {:ok, adapters} -> %{options | adapters: adapters}
+      {:error, reason} -> raise ArgumentError, "invalid delivery adapters: #{inspect(reason)}"
+    end
   end
 
   defp worker_children(kind, concurrency, options) do

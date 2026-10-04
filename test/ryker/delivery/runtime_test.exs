@@ -68,6 +68,15 @@ defmodule Ryker.Delivery.RuntimeTest do
     assert worker_ref(report_1) == "ryker-delivery:vm-1:report:slot-1"
   end
 
+  # The runtime and the dispatcher each kept fallback numbers of their own,
+  # eight attempts capped at a minute and half the lanes, which stopped
+  # matching the shipped defaults once those changed (2026-10-04 review).
+  test "what a delivery runtime is not given is the shipped default" do
+    options = Runtime.options!(adapters: registrations(), worker_ref: "ryker-delivery:defaults")
+    defaults = Ryker.Defaults.fetch!(:delivery)
+    assert Map.take(options, Map.keys(defaults)) == defaults
+  end
+
   test "rejects unknown, untrusted, and unbounded runtime configuration" do
     invalid = [
       :invalid,

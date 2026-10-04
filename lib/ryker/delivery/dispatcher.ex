@@ -9,6 +9,7 @@ defmodule Ryker.Delivery.Dispatcher do
   """
 
   alias Ryker.Artifacts.Outputs
+  alias Ryker.Defaults
   alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, Retry, RoutingResponseCustody}
   alias Ryker.Episodes
   alias Ryker.LeasedCall
@@ -355,20 +356,15 @@ defmodule Ryker.Delivery.Dispatcher do
   defp error_atom(atom) when is_atom(atom), do: atom
   defp error_atom(_reason), do: :delivery_failed
 
+  # What the options leave out is the shipped default.
   defp settings(options) do
     with true <- Keyword.keyword?(options) and known_unique_keys?(options),
-         {:ok, adapters} <- Keyword.fetch(options, :adapters),
-         {:ok, kind} <- Keyword.fetch(options, :kind),
-         {:ok, worker_ref} <- Keyword.fetch(options, :worker_ref) do
-      validate_settings(%{
-        adapters: adapters,
-        kind: kind,
-        lease_seconds: Keyword.get(options, :lease_seconds, 60),
-        max_attempts: Keyword.get(options, :max_attempts, 8),
-        retry_base_seconds: Keyword.get(options, :retry_base_seconds, 1),
-        retry_max_seconds: Keyword.get(options, :retry_max_seconds, 60),
-        worker_ref: worker_ref
-      })
+         true <- Enum.all?([:adapters, :kind, :worker_ref], &Keyword.has_key?(options, &1)) do
+      :delivery
+      |> Defaults.fetch!()
+      |> Map.take([:lease_seconds, :max_attempts, :retry_base_seconds, :retry_max_seconds])
+      |> Map.merge(Map.new(options))
+      |> validate_settings()
     else
       _invalid -> {:error, {:invalid_delivery_dispatcher, :options}}
     end

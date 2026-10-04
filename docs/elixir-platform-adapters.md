@@ -236,9 +236,10 @@ github_http = configured_repository_scoped_github_app_client
 
 config :ryker, :delivery,
   worker_ref: "ryker-delivery:host-a",
-  max_attempts: 8,
-  message_concurrency: 2,
-  routing_concurrency: 1,
+  max_attempts: 45,
+  retry_max_seconds: 300,
+  message_concurrency: 4,
+  routing_concurrency: 2,
   adapters: %{
     "slack" => %{
       binding: %{

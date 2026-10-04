@@ -40,16 +40,20 @@ defmodule Ryker.Defaults do
   # model reading a whole repository takes minutes, so its turn gets half an
   # hour before it is cancelled.
   @repository_knowledge %{execution_timeout_seconds: 1_800, poll_interval_ms: 1_000}
+  # An outage of Slack, GitHub or the network is waited out for about three
+  # hours, trying again at least every five minutes, before a reply waits for a
+  # person. Eight attempts capped at a minute gave up after about two minutes
+  # (2026-10-04 review).
   @delivery %{
     action_concurrency: 2,
     lease_seconds: 60,
-    max_attempts: 8,
+    max_attempts: 45,
     message_concurrency: 4,
     poll_interval_ms: 250,
     report_concurrency: 1,
     routing_concurrency: 2,
     retry_base_seconds: 1,
-    retry_max_seconds: 60
+    retry_max_seconds: 300
   }
   # Cleanup mechanics only. The history, memory and audit horizons are product
   # settings and live in PostgreSQL, never here.

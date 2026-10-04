@@ -620,6 +620,45 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert deferred.last_error_code == "github_api_error"
   end
 
+  # With 8 attempts from 1 s to a 60 s cap, a reply waited for a person after about two
+  # minutes of any Slack, GitHub or network outage, and so did every routing response and
+  # weekly report queued behind it (2026-10-04 review). An outage is waited out for about
+  # three hours, trying again at least every five minutes, before anyone is asked to click.
+  test "a reply rides out a three-hour outage before it waits for a person" do
+    accepted = delivery_pending!("long-outage")
+    outage = {:error, {:slack_http_error, 503, "service unavailable"}}
+
+    {:ok, publisher} =
+      Agent.start_link(fn -> %{calls: [], responses: List.duplicate(outage, 100)} end)
+
+    # Given no retry settings, the dispatcher uses the shipped ones.
+    options =
+      :message
+      |> dispatcher_options(publisher, Publisher)
+      |> Keyword.drop([:retry_base_seconds, :retry_max_seconds])
+
+    waits =
+      Enum.reduce_while(1..100, [], fn _attempt, waits ->
+        case Dispatcher.run_once(options) do
+          {:ok, {:deferred, :message, _ref, _reason}} ->
+            turn = Repo.get!(Turn, accepted.turn.id)
+            wait = DateTime.diff(turn.next_attempt_at, Repo.now!(), :second)
+
+            Repo.update_all(from(row in Turn, where: row.id == ^turn.id),
+              set: [next_attempt_at: DateTime.add(Repo.now!(), -1, :second)]
+            )
+
+            {:cont, [wait | waits]}
+
+          {:ok, {:blocked, :message, _ref, _reason}} ->
+            {:halt, waits}
+        end
+      end)
+
+    assert Enum.sum(waits) >= 3 * 3_600
+    assert Enum.max(waits) <= 5 * 60
+  end
+
   test "provider rate-limit timing outranks generic retry backoff" do
     accepted = delivery_pending!("provider-rate-limit")
     before = DateTime.utc_now()

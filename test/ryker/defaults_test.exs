@@ -26,7 +26,11 @@ defmodule Ryker.DefaultsTest do
     assert Defaults.fetch!(:retention).poll_interval_ms == 60_000
     assert Defaults.fetch!(:retention).lease_seconds == 300
     assert Defaults.fetch!(:retention).disposable_bytes_limit == 10_737_418_240
-    assert Defaults.fetch!(:delivery).max_attempts == 8
+    # Raised from 8 attempts a minute apart, which gave up on a reply after
+    # about two minutes of outage (2026-10-04 review).
+    assert Map.take(Defaults.fetch!(:delivery), [:max_attempts, :retry_max_seconds]) ==
+             %{max_attempts: 45, retry_max_seconds: 300}
+
     assert Defaults.fetch!(:publication).followup_interval_seconds == 120
     assert Defaults.fetch!(:emisar).poll_seconds == 3
     assert Defaults.fetch!(:schedules).misfire_grace_seconds == 900
