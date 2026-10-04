@@ -56,6 +56,81 @@ defmodule Ryker.Waits.EventWaitsTest do
     assert EventWaits.resume_due() == {:ok, :idle}
   end
 
+  # Episode 0b0c3590 in production, 2026-09-13, asked a question while two event-only watches
+  # stayed open, and the validator learned to accept that. Ensuring the episode's subscription
+  # then read "the" event-only watch with Repo.one, which raises on two: the reply's delivery
+  # confirmation would raise on every retry, with the person's answer queued behind it, and the
+  # event-wait worker would crash on every poll (2026-10-04 review). One subscription per episode
+  # stays the rule; it goes to the oldest watch.
+  test "a question asked beside two event-only watches subscribes the oldest of them" do
+    episode_id = Ecto.UUID.generate()
+    turn_ref = "turn:two-watches:#{episode_id}"
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    assert {:ok, transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode_id,
+                 episode_key: "two-watches:#{episode_id}",
+                 native_input_id: "two-watches-input:#{episode_id}",
+                 occurred_at: DateTime.add(now, -20, :second),
+                 turn_ref: turn_ref
+               })
+             )
+
+    assert {:ok, _session} =
+             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+
+    assert {:ok, claim} = Custody.claim_next("worker:two-watches", 60, :work)
+
+    watch = fn ref, title ->
+      Records.create(Records.token(claim.turn), ref, "event_wait", %{
+        "deadline_at" => nil,
+        "event_matcher" => %{
+          "type" => "source_event",
+          "source_kind" => "slack",
+          "match" => %{"attachments" => [%{"title" => title}]},
+          "poll_after" => nil,
+          "on_timeout" => nil
+        },
+        "kind" => "source_event",
+        "verification" => "Read the run and say whether it finished."
+      })
+    end
+
+    assert {:ok, first} = watch.("watch-first", "Run first")
+    assert {:ok, _second} = watch.("watch-second", "Run second")
+
+    assert {:ok, waiting} =
+             Episodes.apply(
+               EpisodeFixtures.start_wait(%{
+                 episode_key: transition.episode.key,
+                 expected_turn_ref: turn_ref,
+                 kind: :input,
+                 occurred_at: DateTime.add(now, -10, :second),
+                 wait_ref: "question-beside-two-watches"
+               })
+             )
+
+    assert waiting.episode.state == :waiting_for_input
+
+    assert {:ok, %EventSubscription{record_id: record_id, status: :active}} =
+             Repo.transaction(fn ->
+               case EventSubscriptions.ensure_in_transaction(waiting.episode) do
+                 {:ok, value} -> value
+                 {:error, reason} -> Repo.rollback(reason)
+               end
+             end)
+
+    assert record_id == first.id
+    assert {:ok, _count} = EventSubscriptions.reconcile()
+
+    assert Repo.aggregate(
+             from(s in EventSubscription, where: s.episode_id == ^episode_id),
+             :count
+           ) == 1
+  end
+
   # Follow-ups lists what Ryker waits for and a request's page shows its wait.
   # Until 2026-09-26 both heard of a change from a trigger's NOTIFY and a
   # five-second poll; the context now announces each wait it starts or ends.

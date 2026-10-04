@@ -8,9 +8,10 @@ defmodule Ryker.Waits.EventSubscriptions do
   Timers share that indexed wakeup time, anchored to the original record rather
   than each reconciliation.
 
-  One event-only watch may remain open alongside a human question. The question
+  Event-only watches may remain open alongside a human question. The question
   owns continuation; source updates remain queued until the answer resumes Work.
-  Reconciliation preserves that exact matcher during the question and Work turn.
+  Reconciliation preserves the subscribed watch's exact matcher during the
+  question and Work turn; with more than one watch, the oldest is subscribed.
 
   A follow-up started, resolved or cancelled is announced after the outermost
   commit (`subscribe_follow_ups/0`), on its request's topics too.
@@ -268,23 +269,38 @@ defmodule Ryker.Waits.EventSubscriptions do
     end
   end
 
+  # A question may leave event-only watches open beside it; production had two
+  # (episode 0b0c3590, 2026-09-13). An episode keeps one active subscription, so
+  # the watch that already holds it keeps it, and otherwise the oldest gets it.
   defp ensure_locked(%Episode{state: :waiting_for_input, owner_kind: :input} = episode) do
     event_only = event_only_record()
 
-    case Repo.one(
-           from(record in Record,
-             as: :record,
-             where: record.episode_id == ^episode.id and record.status == :open,
-             where: ^event_only,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    records =
+      Repo.all(
+        from(record in Record,
+          as: :record,
+          where: record.episode_id == ^episode.id and record.status == :open,
+          where: ^event_only,
+          order_by: [asc: record.inserted_at, asc: record.id],
+          lock: "FOR UPDATE"
+        )
+      )
+
+    case Enum.find(records, &active_subscription?/1) || List.first(records) do
       %Record{} = record -> ensure_record(episode, record)
       nil -> {:ok, :not_source_event}
     end
   end
 
   defp ensure_locked(%Episode{}), do: {:ok, :not_source_event}
+
+  defp active_subscription?(%Record{id: record_id}) do
+    Repo.exists?(
+      from(subscription in EventSubscription,
+        where: subscription.record_id == ^record_id and subscription.status == :active
+      )
+    )
+  end
 
   defp ensure_record(_episode, %Record{wait_error: error}) when not is_nil(error),
     do: {:ok, :not_source_event}
