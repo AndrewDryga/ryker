@@ -198,6 +198,60 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert Repo.get!(Session, session.id).worker_job_digest == digest
   end
 
+  # Closing and removing a session run nothing under its grant. Checking a version-1 job as one
+  # Ryker would grant today refused every cleanup of a session created before version 2: three
+  # sessions on each install stopped as "the worker's answer didn't match this session" the day
+  # the workers moved, and kept their folders on the worker (2026-10-04).
+  test "a session created under a version-1 job can still be cleaned up, never resumed", %{
+    session: session
+  } do
+    assert {:ok, pinned} = JobAuthority.ensure_pinned(session, "/private/source", &prepare/3)
+
+    v1 =
+      pinned.worker_job_document
+      |> Map.drop(~w(environment check resources))
+      |> Map.merge(%{"version" => 1, "project_env" => false, "project_mcp" => false})
+
+    created =
+      pinned
+      |> Ecto.Changeset.change(
+        worker_job_document: v1,
+        worker_job_digest: Ryker.CanonicalJSON.worker_digest(v1),
+        coop_session_id: "created-under-version-1"
+      )
+      |> Repo.update!()
+
+    receipt = %{
+      "id" => "created-under-version-1",
+      "external_ref" => Session.coop_task_ref(created),
+      "job_ref" => created.external_ref,
+      "job_digest" => created.worker_job_digest
+    }
+
+    assert :ok = JobAuthority.exact_cleanup_receipt(created, receipt)
+
+    assert {:error, {:coop_protocol_error, :session_authority}} =
+             JobAuthority.exact_receipt(created, receipt)
+
+    for {field, value} <- [
+          {"external_ref", "offer:other"},
+          {"job_ref", "job:other"},
+          {"job_digest", String.duplicate("0", 64)}
+        ] do
+      assert {:error, {:coop_protocol_error, :session_authority}} =
+               JobAuthority.exact_cleanup_receipt(created, Map.put(receipt, field, value))
+    end
+
+    tampered = %{created | worker_job_document: Map.put(v1, "mode", "bare")}
+
+    Repo.update!(
+      Ecto.Changeset.change(created, worker_job_document: tampered.worker_job_document)
+    )
+
+    assert {:error, {:coop_protocol_error, :session_authority}} =
+             JobAuthority.exact_cleanup_receipt(tampered, receipt)
+  end
+
   test "workspace task identity does not replace the execution generation identity", %{
     session: session
   } do

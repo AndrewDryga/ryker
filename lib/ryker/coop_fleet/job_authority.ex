@@ -317,26 +317,40 @@ defmodule Ryker.CoopFleet.JobAuthority do
   def exact_receipt(_expected, _remote),
     do: {:error, {:coop_protocol_error, :session_authority}}
 
-  # Old bound sessions can be inspected and destroyed, never resumed under new authority.
+  # Old bound sessions can be inspected and destroyed, never resumed under new
+  # authority. Closing and removing a session run nothing under its grant, so
+  # the worker need only hold this session's exact job, whatever version it was
+  # frozen in. Checking it as a job Ryker would grant today refused every
+  # cleanup of a session created before version 2 (2026-10-04).
   def exact_cleanup_receipt(%Session{id: id} = expected, remote)
       when is_binary(id) and is_map(remote) do
-    case stored_session(expected) do
-      {:ok, %Session{worker_job_document: nil, worker_job_digest: nil} = session} ->
-        if is_binary(session.coop_session_id) and remote["id"] == session.coop_session_id and
-             remote["external_ref"] == Session.coop_task_ref(session),
-           do: :ok,
-           else: {:error, {:coop_protocol_error, :session_authority}}
-
-      {:ok, session} ->
-        exact_receipt(session, remote)
-
-      _mismatch ->
-        {:error, {:coop_protocol_error, :session_authority}}
+    with {:ok, session} <- stored_session(expected),
+         true <- cleanup_receipt?(session, remote) do
+      :ok
+    else
+      _mismatch -> {:error, {:coop_protocol_error, :session_authority}}
     end
   end
 
   def exact_cleanup_receipt(_expected, _remote),
     do: {:error, {:coop_protocol_error, :session_authority}}
+
+  defp cleanup_receipt?(
+         %Session{worker_job_document: nil, worker_job_digest: nil} = session,
+         remote
+       ),
+       do:
+         is_binary(session.coop_session_id) and remote["id"] == session.coop_session_id and
+           remote["external_ref"] == Session.coop_task_ref(session)
+
+  defp cleanup_receipt?(%Session{worker_job_document: %{} = job} = session, remote),
+    do:
+      CanonicalJSON.worker_digest(job) == session.worker_job_digest and
+        remote["external_ref"] == Session.coop_task_ref(session) and
+        remote["job_ref"] == session.external_ref and
+        remote["job_digest"] == session.worker_job_digest
+
+  defp cleanup_receipt?(_session, _remote), do: false
 
   defp stored_session(expected) do
     case Repo.get(Session, expected.id) do
