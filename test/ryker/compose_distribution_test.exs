@@ -124,9 +124,10 @@ defmodule Ryker.ComposeDistributionTest do
     # The recipe builds the newest Coop on GitHub that the live worker is built from. It pinned
     # cb5178eb, worker protocol v1, for days after Ryker spoke only v2 (2026-09-27): rebuilding
     # the worker from the recipe would have produced one that could not talk to Ryker at all.
-    # Coop main 20b36fd6 runs the version-2 jobs Ryker sends since 2026-10-04.
-    assert worker_image =~ "COOP_REVISION=20b36fd6a2d01ca301e569d6d85e985ac1e5e9f3"
-    assert worker_image =~ "COOP_VERSION=v10.1.2-21-g20b36fd6"
+    # Coop main runs the version-2 jobs Ryker sends since 2026-10-04; d019c807 also holds a
+    # command back while a repository's first download runs.
+    assert worker_image =~ "COOP_REVISION=d019c807ea6373b25ec7d145441bd9163f637564"
+    assert worker_image =~ "COOP_VERSION=v10.1.2-24-gd019c807"
     # The Coop pin lives in one place, the worker Dockerfile; compose.yml only
     # passes an operator's COOP_VERSION override through. Two copies of the
     # default once had to be bumped together.

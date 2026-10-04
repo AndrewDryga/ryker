@@ -1,7 +1,7 @@
 FROM golang:1.27.1-bookworm AS build
 
-ARG COOP_VERSION=v10.1.2-21-g20b36fd6
-ARG COOP_REVISION=20b36fd6a2d01ca301e569d6d85e985ac1e5e9f3
+ARG COOP_VERSION=v10.1.2-24-gd019c807
+ARG COOP_REVISION=d019c807ea6373b25ec7d145441bd9163f637564
 
 RUN git clone https://github.com/AndrewDryga/coop.git /build/coop \
  && cd /build/coop \
