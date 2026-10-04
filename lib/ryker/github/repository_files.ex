@@ -203,7 +203,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
       base_url: settings.github.api_url,
       finch: Ryker.CoopFinch,
       receive_timeout: defaults.receive_timeout_ms,
-      token_provider: fn -> InstallationTokens.token(binding_name, :onboarding) end
+      token_provider: fn -> InstallationTokens.token(binding_name, :source_read) end
     })
   end
 

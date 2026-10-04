@@ -41,11 +41,6 @@ defmodule Ryker.GitHub.InstallationTokens do
       "pull_requests" => "read",
       "statuses" => "read"
     },
-    onboarding: %{
-      "contents" => "write",
-      "metadata" => "read",
-      "pull_requests" => "write"
-    },
     source_read: %{"contents" => "read"},
     worker_publication: %{"contents" => "write", "pull_requests" => "write"}
   }
