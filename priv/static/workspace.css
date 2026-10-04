@@ -2180,7 +2180,9 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .request-decision .routing-candidate-outcomes a { font-size:14px; }
 .call-run { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 20px; max-width:560px; margin:14px 0 0; padding:12px 0 0; border-top:1px solid var(--ryker-stroke); }
 .call-run > div { display:contents; }
-/* The same table wherever it is drawn: a page surface's lists get padded, ruled rows. */
+/* The same table wherever it is drawn: a page surface's lists get two equal columns and padded,
+   ruled rows. */
+.ryker-app .call-run { grid-template-columns:max-content minmax(0,1fr); gap:4px 20px; }
 .ryker-app .call-run :is(dt, dd) { padding:0; border:0; }
 .call-run dt { font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
 .call-run dd { margin:0; font-size:13px; line-height:20px; color:var(--ryker-text); font-variant-numeric:tabular-nums; }
