@@ -39,12 +39,18 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
         Enum.each(contenders, &send(&1.pid, :claim))
         results = Enum.map(contenders, &Task.await(&1, 5_000))
 
-        claims = for {:ok, %{turn: claimed}} <- results, do: claimed
+        # This runs on committed rows a serial partition shares with the tests
+        # before it, so only claims of this episode count: a contender that
+        # found nothing, or work some earlier test left claimable, is no
+        # second owner of this turn.
+        id = command.episode_id
+        claims = for {:ok, %{turn: %{episode_id: ^id} = claimed}} <- results, do: claimed
 
         assert length(claims) == 1
-        assert Enum.count(results, &(&1 == {:ok, nil})) == 1
-        assert Repo.aggregate(Turn, :count) == 1
-        assert Repo.aggregate(Session, :count) == 1
+        assert Repo.aggregate(from(turn in Turn, where: turn.episode_id == ^id), :count) == 1
+
+        assert Repo.aggregate(from(session in Session, where: session.episode_id == ^id), :count) ==
+                 1
       after
         stop_tasks(contenders)
         cleanup(command)

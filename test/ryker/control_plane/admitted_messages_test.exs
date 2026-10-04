@@ -83,7 +83,8 @@ defmodule Ryker.ControlPlane.AdmittedMessagesTest do
     assert {:ok, first} =
              Custody.pin_episode(episode.id, "work", String.duplicate("a", 64))
 
-    first =
+    %Session{} =
+      first =
       first
       |> Ecto.Changeset.change(
         coop_session_id: "remote-first",

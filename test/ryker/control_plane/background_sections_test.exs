@@ -403,7 +403,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
 
   # Another session of the same request, as a continuation or a replacement
   # leaves one: the first's row under a new generation.
-  defp copy_session!(session, generation, fields) do
+  defp copy_session!(%Session{} = session, generation, fields) do
     %Session{session | id: Ecto.UUID.generate(), generation: generation}
     |> Ecto.put_meta(state: :built)
     |> Ecto.Changeset.change(Map.new(fields))
