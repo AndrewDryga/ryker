@@ -12,7 +12,17 @@ defmodule Ryker.ControlPlane.LabPage do
   """
   use Phoenix.Component
   import Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.{ConversationLab, Environments, FailureExplanation, HTML, Kit, Paths}
+
+  alias Ryker.ControlPlane.{
+    ConversationLab,
+    Environments,
+    FailureExplanation,
+    HTML,
+    Kit,
+    Paths,
+    TailnetPeople
+  }
+
   alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.{Episodes, Settings}
   alias Ryker.Episodes.Words
@@ -422,11 +432,11 @@ defmodule Ryker.ControlPlane.LabPage do
         :if={@message.actor not in [:operator, :integration]}
         src="/assets/brand/mark-mint.svg"
         alt=""
-      /><span :if={@message.actor in [:operator, :integration]}>{String.first(actor(@message.actor))}</span></span>
+      /><span :if={@message.actor in [:operator, :integration]}>{TailnetPeople.initials(
+        author(@message)
+      )}</span></span>
       <div class="lab-message-byline">
-        <strong>{actor(@message.actor)}</strong><time datetime={
-          DateTime.to_iso8601(@message.occurred_at)
-        }>{directory_time(
+        <strong>{author(@message)}</strong><time datetime={DateTime.to_iso8601(@message.occurred_at)}>{directory_time(
           @message.occurred_at,
           @now
         )}</time><span :if={@state} class="lab-message-state">{@state}</span><span
@@ -694,7 +704,9 @@ defmodule Ryker.ControlPlane.LabPage do
     Enum.filter(items, &String.contains?(String.downcase(&1.title || ""), needle))
   end
 
-  defp actor(:operator), do: "You"
-  defp actor(:integration), do: "Integration"
-  defp actor(_), do: "Ryker"
+  # Who wrote a message: a person by the name Tailscale gave them, the local
+  # console "You", an integration or Ryker.
+  defp author(%{actor: :operator} = message), do: message[:author] || "You"
+  defp author(%{actor: :integration}), do: "Integration"
+  defp author(_message), do: "Ryker"
 end

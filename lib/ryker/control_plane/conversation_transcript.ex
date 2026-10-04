@@ -13,8 +13,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   import Ecto.Query
 
   alias Ryker.Artifacts.OutputArtifact
-  alias Ryker.ControlPlane.Paths
-  alias Ryker.ControlPlane.TranscriptCursor
+  alias Ryker.ControlPlane.{Paths, TailnetPeople, TranscriptCursor}
   alias Ryker.Delivery.{ChatCard, PlatformAction, RoutingResponse}
   alias Ryker.Episodes.{Episode, Event, Reactions}
   alias Ryker.Feedback
@@ -71,6 +70,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
     messages
     |> attach_execution()
+    |> name_authors()
     |> mark_earlier_answers()
     |> Enum.map(&put_cursor(&1, conversation_id))
     |> sort_messages()
@@ -119,6 +119,31 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
             do: execution && Map.delete(execution, :active_input_refs)
           )
         )
+
+      message ->
+        message
+    end)
+  end
+
+  # Who sent each of the person's messages, by the name Tailscale gave them,
+  # read once for the window: Chat called everyone "You" (Andrew, 2026-10-04:
+  # "now when we have tailscale auth why not to properly track user
+  # everywhere?"). The console reached without Tailscale is still "You".
+  defp name_authors(messages) do
+    logins =
+      for %{actor: :operator, author_ref: ref} <- messages,
+          {:tailnet, login} <- [TailnetPeople.identity(ref)],
+          uniq: true,
+          do: login
+
+    names = TailnetPeople.names(logins)
+
+    Enum.map(messages, fn
+      %{actor: :operator, author_ref: ref} = message ->
+        case TailnetPeople.identity(ref) do
+          {:tailnet, login} -> Map.put(message, :author, Map.get(names, login, login))
+          _local -> Map.put(message, :author, "You")
+        end
 
       message ->
         message
@@ -509,6 +534,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   # progress can sit beside the message that caused it.
   defp input_identity(input, message) do
     Map.merge(message, %{
+      author_ref: input.actor_ref,
       decision_action: input.decision_action,
       edited_at: if(input.revision > 1, do: input.edited_at),
       episode_id: input.episode_id,

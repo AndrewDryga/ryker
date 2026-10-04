@@ -26,7 +26,8 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
     PagedRelation,
     Paths,
     Search,
-    SlackMarkdown
+    SlackMarkdown,
+    TailnetPeople
   }
 
   alias Ryker.Episodes.{Episode, RoutingDigest}
@@ -342,8 +343,8 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
 
   defp place(source, _conversation), do: source
 
-  # A Slack person is named from the names cache; the person using this
-  # console is "You".
+  # A Slack person is named from the names cache, someone in Chat by the name
+  # Tailscale gave them, and the console reached without Tailscale is "You".
   defp who(%Signal{source: "slack", actor_ref: actor}, request) do
     case Names.person(Names.workspace_from_destination(request.conversation), actor) do
       %{name: name, href: href} -> %{name: name, href: href}
@@ -351,7 +352,8 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
     end
   end
 
-  defp who(%Signal{}, _request), do: %{name: "You", href: nil}
+  defp who(%Signal{actor_ref: actor}, _request),
+    do: TailnetPeople.person(actor) || %{name: "You", href: nil}
 
   defp message_href("ingress-input:" <> _id = ref), do: Paths.request(ref)
 

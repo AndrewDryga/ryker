@@ -51,6 +51,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     RunningSystem,
     SettingsPage,
     SettingsView,
+    TailnetPeople,
     UsageProjection,
     Viewer
   }
@@ -104,8 +105,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   @impl true
   def mount(_params, session, socket) do
     viewer = Viewer.from_session(session)
+
     # Only the connected process runs actions, and it serves this one page.
-    if connected?(socket), do: Actor.act_for(viewer)
+    # The person's name is kept so every page can name them on what they did.
+    if connected?(socket) do
+      Actor.act_for(viewer)
+      TailnetPeople.seen(viewer)
+    end
 
     {:ok,
      socket
@@ -1319,11 +1325,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     :throw, {:projection_unavailable, source} -> projection_failed(socket, source, [])
   end
 
+  # The console's options with the person this page is for: Chat offers them
+  # Edit and Delete on their own messages and marks their own reactions.
+  defp page_options(socket),
+    do: Map.put(Endpoint.config(:control_plane), :viewer, socket.assigns.viewer)
+
   # A failed read keeps what the page now listens to, so the page still hears
   # the change that lets the read succeed.
   defp read_page(socket, reset) do
     socket
-    |> load_page(Endpoint.config(:control_plane), reset)
+    |> load_page(page_options(socket), reset)
     |> assign(unavailable: false, refresh_failures: 0, observed_at: DateTime.utc_now())
   rescue
     error -> projection_failed(socket, error.__struct__, __STACKTRACE__)
@@ -2387,7 +2398,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp load_older_page(socket) do
     window = socket.assigns.lab_window
-    options = Endpoint.config(:control_plane)
+    options = page_options(socket)
     progress = lab_progress_by_input(socket.assigns.lab)
 
     case LabControls.history(window.conversation_id, window.before, window.page_size, options) do

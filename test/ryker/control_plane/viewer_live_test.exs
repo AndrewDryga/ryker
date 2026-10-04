@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
   import Plug.Conn, only: [put_req_header: 3]
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Actions, Endpoint, Projection, Viewer}
+  alias Ryker.ControlPlane.{Actions, Endpoint, Projection, TailnetPeople, Viewer}
   alias Ryker.{Instructions, Settings}
 
   @endpoint Endpoint
@@ -55,6 +55,24 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
 
     {:ok, view, _html} = served() |> live("/environments")
     refute has_element?(view, ".app-viewer")
+  end
+
+  # Pages name a person on what they sent or changed, so the name Tailscale gives them is kept
+  # when their page connects (2026-10-04).
+  test "a tailnet user's page keeps the name Tailscale gives them" do
+    {:ok, _snapshot} = Settings.initialize("control-plane:local")
+
+    {:ok, _view, _html} = tailnet("andrew@example.com", "Andrew Example") |> live("/environments")
+
+    assert TailnetPeople.names(["andrew@example.com"]) == %{
+             "andrew@example.com" => "Andrew Example"
+           }
+
+    {:ok, _view, _html} = tailnet("andrew@example.com", "Andrew Dryga") |> live("/environments")
+
+    assert TailnetPeople.names(["andrew@example.com"]) == %{
+             "andrew@example.com" => "Andrew Dryga"
+           }
   end
 
   test "what a tailnet user changes is recorded as theirs" do

@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.PeopleProjection do
   and, for one person, what it learned and where they said it.
   """
 
-  alias Ryker.ControlPlane.Paths
+  alias Ryker.ControlPlane.{Paths, TailnetPeople}
   alias Ryker.People
   alias Ryker.Slack.Names
 
@@ -106,7 +106,10 @@ defmodule Ryker.ControlPlane.PeopleProjection do
     end
   end
 
-  defp name("control_plane:user:" <> _id, _conversation_ref), do: "You"
+  # Someone in Chat, by the name Tailscale gave them; the local console is "You".
+  defp name("control_plane:user:" <> _id = person_ref, _conversation_ref),
+    do: (TailnetPeople.person(person_ref) || %{name: "Someone"}).name
+
   defp name("github:user:" <> _id, _conversation_ref), do: "GitHub user"
   defp name(_person_ref, _conversation_ref), do: "Someone"
 end

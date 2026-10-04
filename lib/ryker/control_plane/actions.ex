@@ -42,7 +42,6 @@ defmodule Ryker.ControlPlane.Actions do
 
   alias Ryker.Work.{Custody, Session, Turn}
 
-  @lab_actor_ref "local-operator"
   @current {__MODULE__, :current}
 
   @doc """
@@ -118,7 +117,7 @@ defmodule Ryker.ControlPlane.Actions do
       rearm_slack_interaction: &retry_failure("slack_interaction", &1),
       rearm_slack_task_card: &retry_failure("slack_task_card", &1),
       rearm_slack_thread_status: &retry_failure("slack_thread_status", &1),
-      react_to_lab_message: &ConversationLab.react_to_message/4,
+      react_to_lab_message: &react_to_lab_message/4,
       retry_work: &retry_work/2,
       rate_episode: &EpisodeReviews.review(&1, Actor.ref(), &2),
       run_schedule: run_schedule(schedule_policy_resolver),
@@ -684,7 +683,7 @@ defmodule Ryker.ControlPlane.Actions do
          action_ref
        ) do
     InputRequests.answer(%{
-      actor_ref: @lab_actor_ref,
+      actor_ref: Actor.chat_ref(),
       choice_index: choice_index,
       occurred_at: now(),
       record_ref: record.ref,
@@ -834,8 +833,10 @@ defmodule Ryker.ControlPlane.Actions do
   defp confirm_behavior(record, target, action_ref) do
     actor_ref =
       case record do
+        # The person the preference is for, in the form the turns they start
+        # carry, so it applies to them and only they may confirm it.
         %Record{kind: "preference_offer", payload: %{"scope" => "operator"}} ->
-          ConversationLab.operator_actor_ref()
+          Actor.person_ref()
 
         _other ->
           Actor.ref()
@@ -1031,6 +1032,7 @@ defmodule Ryker.ControlPlane.Actions do
     fn conversation_id, message, attachments ->
       with {:ok, work_profile} <- ConversationLab.work_profile(conversation_id, placements) do
         ConversationLab.send_message(conversation_id, message, work_profile,
+          actor: Actor.chat_ref(),
           attachments: attachments
         )
       end
@@ -1040,7 +1042,9 @@ defmodule Ryker.ControlPlane.Actions do
   defp lab_message_editor(placements) do
     fn conversation_id, item_id, message ->
       with {:ok, work_profile} <- ConversationLab.work_profile(conversation_id, placements) do
-        ConversationLab.edit_message(conversation_id, item_id, message, work_profile)
+        ConversationLab.edit_message(conversation_id, item_id, message, work_profile,
+          actor: Actor.chat_ref()
+        )
       end
     end
   end
@@ -1048,10 +1052,20 @@ defmodule Ryker.ControlPlane.Actions do
   defp lab_message_deleter(placements) do
     fn conversation_id, item_id ->
       with {:ok, work_profile} <- ConversationLab.work_profile(conversation_id, placements) do
-        ConversationLab.delete_message(conversation_id, item_id, work_profile)
+        ConversationLab.delete_message(conversation_id, item_id, work_profile,
+          actor: Actor.chat_ref()
+        )
       end
     end
   end
+
+  # Who sends a Chat message, edits or deletes one, reacts or answers is the
+  # person of the page or request doing it (`Actor.chat_ref/0`).
+  defp react_to_lab_message(conversation_id, message_ref, action, emoji_name),
+    do:
+      ConversationLab.react_to_message(conversation_id, message_ref, action, emoji_name,
+        actor: Actor.chat_ref()
+      )
 
   defp discard_retention(ref) do
     RetentionOperator.discard_unmerged(ref, Actor.ref(), action_ref(:discard_unmerged))

@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
     Environments,
     RepositoryNames,
     Search,
+    TailnetPeople,
     UsageProjection
   }
 
@@ -292,7 +293,15 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp sender(%{actor_kind: :user, source_kind: "slack"} = entry),
     do: {:person, Names.person(entry.source_ref, entry.actor_ref)}
 
-  defp sender(%{actor_kind: :user, actor_ref: "local-operator"}), do: :you
+  # Someone in Chat: the person Tailscale named, or the local console's "You".
+  defp sender(%{actor_kind: :user, source_kind: "control_plane", actor_ref: actor}) do
+    case TailnetPeople.identity(actor) do
+      {:tailnet, _login} -> {:person, TailnetPeople.person(actor)}
+      :local -> :you
+      nil -> :someone
+    end
+  end
+
   defp sender(%{actor_kind: :user}), do: :someone
   defp sender(_entry), do: :app
 

@@ -721,6 +721,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
           desc: entry.id
         ],
         select: %{
+          actor_ref: entry.actor_ref,
           content: entry.content,
           decision_action: entry.decision_action,
           episode_id: entry.episode_id,
@@ -759,6 +760,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
         # exactly this revision's admission, never the original's or the
         # newest episode's.
         select: %{
+          actor_ref: entry.actor_ref,
           content: entry.content,
           decision_action: entry.decision_action,
           edited_at: entry.inserted_at,

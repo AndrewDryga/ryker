@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   """
   alias Phoenix.HTML.Safe
   alias Ryker.{Accounting, Settings}
-  alias Ryker.ControlPlane.{Components, Kit, Paths, SettingsRows, UsageChart}
+  alias Ryker.ControlPlane.{Components, Kit, Paths, SettingsRows, TailnetPeople, UsageChart}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
@@ -264,8 +264,8 @@ defmodule Ryker.ControlPlane.UsagePage do
 
   defp empty(:user),
     do:
-      {"No work came from a person in Slack or GitHub in this period",
-       "Chat is not listed by user."}
+      {"No work came from a person in this period",
+       "Chat lists a person only when they used it through Tailscale."}
 
   defp empty(_kind),
     do: {"No activity in this period", "Choose a longer window to see earlier work."}
@@ -439,10 +439,15 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp user(%{source: "slack", workspace: workspace, actor: actor}),
     do: Names.name(workspace, actor)
 
+  # Someone in Chat, by the name Tailscale gave them.
+  defp user(%{source: "control_plane", actor: actor}),
+    do: (TailnetPeople.person(actor) || %{name: actor}).name
+
   defp user(row), do: row.actor
 
   # Where a user comes from, said quietly under the name.
   defp source_name("slack"), do: "Slack"
+  defp source_name("control_plane"), do: "Chat"
   defp source_name("github"), do: "GitHub"
   defp source_name("webhook"), do: "Webhook"
   defp source_name(source), do: Words.label(source)

@@ -147,12 +147,13 @@ defmodule Ryker.ControlPlane.UsageProjection do
   end
 
   defp people(query) do
-    # The Lab's shared local-operator is not an identifiable person. Apps, bots,
-    # hooks and missing senders still contribute to every overall usage total.
+    # Someone in Chat is a person once Tailscale named them; the console reached
+    # without it has one shared operator, who is nobody in particular. Apps,
+    # bots, hooks and missing senders still count toward every overall total.
     from(e in query,
       where:
-        e.actor_kind == "user" and e.source != "control_plane" and
-          not is_nil(e.actor) and e.actor != ""
+        e.actor_kind == "user" and not is_nil(e.actor) and e.actor != "" and
+          (e.source != "control_plane" or like(e.actor, "tailscale:%"))
     )
   end
 

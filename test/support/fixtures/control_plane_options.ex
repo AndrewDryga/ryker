@@ -592,6 +592,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                  },
                  %{
                    actor: :operator,
+                   author_ref: "local-operator",
                    attachments: [
                      %{
                        bytes: 32,

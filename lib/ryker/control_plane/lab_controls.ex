@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.LabControls do
   one the router will accept, and nothing else is.
   """
 
-  alias Ryker.ControlPlane.{ConversationProjection, CSRF, PathRef, Paths}
+  alias Ryker.ControlPlane.{Actor, ConversationLab, ConversationProjection, CSRF, PathRef, Paths}
 
   @send_action "conversation_lab:send"
   @message_action "conversation_lab:message"
@@ -36,7 +36,7 @@ defmodule Ryker.ControlPlane.LabControls do
          {:ok, page} <- options.projection.lab_history.(conversation_id, cursor, page_size) do
       decorated =
         %{conversation_id: conversation_id, messages: page.messages}
-        |> message_controls(options.csrf_secret)
+        |> message_controls(options)
         |> record_controls(options.csrf_secret)
 
       {:ok, %{page | messages: decorated.messages}}
@@ -53,7 +53,7 @@ defmodule Ryker.ControlPlane.LabControls do
          {:ok, messages} <- options.projection.lab_changes.(conversation_id, since, page_size) do
       decorated =
         %{conversation_id: conversation_id, messages: messages}
-        |> message_controls(options.csrf_secret)
+        |> message_controls(options)
         |> record_controls(options.csrf_secret)
 
       {:ok, decorated.messages}
@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.LabControls do
 
       snapshot =
         snapshot
-        |> message_controls(options.csrf_secret)
+        |> message_controls(options)
         |> record_controls(options.csrf_secret)
 
       {:ok, snapshot, token}
@@ -85,21 +85,26 @@ defmodule Ryker.ControlPlane.LabControls do
     end
   end
 
-  defp message_controls(snapshot, csrf_secret) do
+  # The person the page is for (`options.viewer`) edits and deletes only what
+  # they sent, and their own reactions are the ones marked as theirs.
+  defp message_controls(snapshot, options) do
+    own = Actor.chat_ref(Map.get(options, :viewer))
+
     messages =
       Enum.map(snapshot.messages, fn message ->
         message
-        |> put_message_edit_controls(snapshot.conversation_id, csrf_secret)
-        |> put_reaction_controls(snapshot.conversation_id, csrf_secret)
+        |> put_message_edit_controls(snapshot.conversation_id, options.csrf_secret, own)
+        |> put_reaction_controls(snapshot.conversation_id, options.csrf_secret, own)
       end)
 
     Map.put(snapshot, :messages, messages)
   end
 
   defp put_message_edit_controls(
-         %{actor: :operator, editable: true, item_id: item_id} = message,
+         %{actor: :operator, editable: true, item_id: item_id, author_ref: own} = message,
          conversation_id,
-         csrf_secret
+         csrf_secret,
+         own
        )
        when is_binary(item_id) do
     edit_resource = message_resource(conversation_id, item_id, :edit)
@@ -119,13 +124,14 @@ defmodule Ryker.ControlPlane.LabControls do
     })
   end
 
-  defp put_message_edit_controls(message, _conversation_id, _csrf_secret),
+  defp put_message_edit_controls(message, _conversation_id, _csrf_secret, _own),
     do: Map.put(message, :message_controls, nil)
 
   defp put_reaction_controls(
          %{actor: :ryker, message_ref: message_ref} = message,
          conversation_id,
-         csrf_secret
+         csrf_secret,
+         own
        )
        when is_binary(message_ref) do
     resource = reaction_resource(conversation_id, message_ref)
@@ -133,11 +139,12 @@ defmodule Ryker.ControlPlane.LabControls do
     Map.put(message, :reaction_controls, %{
       conversation_id: conversation_id,
       message_ref: message_ref,
+      mine: ConversationLab.reaction_actor_ref(own),
       token: CSRF.token(csrf_secret, @reaction_action, resource)
     })
   end
 
-  defp put_reaction_controls(message, _conversation_id, _csrf_secret),
+  defp put_reaction_controls(message, _conversation_id, _csrf_secret, _own),
     do: Map.put(message, :reaction_controls, nil)
 
   defp empty_conversation(conversation_id) do

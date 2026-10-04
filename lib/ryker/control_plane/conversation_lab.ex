@@ -44,8 +44,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
   @maximum_message_bytes 20_000
   @maximum_attachments 2
-  @option_keys [:attachments, :id_generator, :now, :transcriber]
-  @operator_actor_ref "control-plane:user:local-operator"
+  @option_keys [:actor, :attachments, :id_generator, :now, :transcriber]
 
   @typedoc """
   What the running console holds for Chat: the Work profile of each
@@ -57,9 +56,12 @@ defmodule Ryker.ControlPlane.ConversationLab do
           fallback_work_profile: WorkProfile.t() | nil
         }
 
-  @doc "The actor every local-operator reaction is recorded under; the page uses it to mark the operator's own."
-  @spec operator_actor_ref() :: String.t()
-  def operator_actor_ref, do: @operator_actor_ref
+  @doc """
+  What a reaction from a Chat actor (`Ryker.ControlPlane.Actor.chat_ref/1`) is
+  recorded under; the page marks the viewer's own reactions with it.
+  """
+  @spec reaction_actor_ref(String.t()) :: String.t()
+  def reaction_actor_ref(actor) when is_binary(actor), do: "control-plane:user:" <> actor
 
   @doc """
   Chooses the environment a conversation's new messages run in; nil is "No
@@ -157,7 +159,8 @@ defmodule Ryker.ControlPlane.ConversationLab do
     do: {:error, {:invalid_conversation_lab, :work_profile}}
 
   @doc """
-  Records an edit of one exact local operator message as a new source revision.
+  Records an edit of one exact message as a new source revision. Only its
+  author edits it: the actor in `options` (`:actor`) must have sent it.
 
   The browser never updates transcript state directly. The revision enters the
   same Inbox and admission path as a Slack `message_changed` event.
@@ -183,7 +186,8 @@ defmodule Ryker.ControlPlane.ConversationLab do
     do: {:error, {:invalid_conversation_lab, :work_profile}}
 
   @doc """
-  Records deletion of one exact local operator message as a new source revision.
+  Records deletion of one exact message as a new source revision, by its
+  author only, as `edit_message/5` does.
   """
   @spec delete_message(String.t(), String.t(), WorkProfile.t(), keyword()) ::
           {:ok, Inbox.receipt()} | {:error, term()}
@@ -199,7 +203,8 @@ defmodule Ryker.ControlPlane.ConversationLab do
     do: {:error, {:invalid_conversation_lab, :work_profile}}
 
   @doc """
-  Records passive local-operator feedback on one exact delivered Lab reply.
+  Records a person's passive feedback on one exact delivered Lab reply, under
+  the actor in `options` (`:actor`).
 
   Like a Slack reaction event, this updates durable conversation context but
   does not create a model turn or grant authority.
@@ -220,7 +225,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
       Reactions.record(%{
         action: action,
-        actor_ref: @operator_actor_ref,
+        actor_ref: reaction_actor_ref(settings.actor),
         emoji_name: emoji_name,
         event_ref: "control-plane-reaction:#{event_id}",
         occurred_at: occurred_at,
@@ -246,7 +251,8 @@ defmodule Ryker.ControlPlane.ConversationLab do
   defp record_message(conversation_id, event_id, occurred_at, message, work_profile, settings) do
     with :ok <- start_conversation(conversation_id),
          {:ok, files} <- store_attachments(conversation_id, event_id, settings.attachments),
-         {:ok, input} <- lab_input(conversation_id, event_id, occurred_at, message, files),
+         {:ok, input} <-
+           lab_input(conversation_id, event_id, occurred_at, message, files, settings.actor),
          {:ok, receipt} <-
            Inbox.record(input, work_profile: work_profile, engagement_receipt: @engagement) do
       receipt
@@ -269,7 +275,8 @@ defmodule Ryker.ControlPlane.ConversationLab do
           occurred_at,
           kind,
           message,
-          work_profile
+          work_profile,
+          settings.actor
         )
       end)
     else
@@ -285,13 +292,14 @@ defmodule Ryker.ControlPlane.ConversationLab do
          occurred_at,
          kind,
          message,
-         work_profile
+         work_profile,
+         actor
        ) do
     source_item_ref = "control-plane-item:#{item_id}"
 
     with :ok <- start_conversation(conversation_id),
          :ok <- lock_source_item(source_item_ref),
-         {:ok, current} <- current_message(conversation_id, source_item_ref),
+         {:ok, current} <- current_message(conversation_id, source_item_ref, actor),
          :ok <- editable_message(current),
          {:ok, input} <- lifecycle_input(current, event_id, occurred_at, kind, message),
          {:ok, receipt} <-
@@ -306,20 +314,21 @@ defmodule Ryker.ControlPlane.ConversationLab do
     end
   end
 
-  defp current_message(conversation_id, source_item_ref) do
-    case Repo.one(current_message_query(conversation_id, source_item_ref)) do
+  # A person edits and deletes only what they sent.
+  defp current_message(conversation_id, source_item_ref, actor) do
+    case Repo.one(current_message_query(conversation_id, source_item_ref, actor)) do
       %Entry{} = entry -> {:ok, entry}
       nil -> {:error, {:invalid_conversation_lab, :message_not_found}}
     end
   end
 
-  defp current_message_query(conversation_id, source_item_ref) do
+  defp current_message_query(conversation_id, source_item_ref, actor) do
     conversation_ref = ref(conversation_id)
 
     from(entry in Entry,
       where:
         entry.source_kind == "control_plane" and entry.source_ref == "local" and
-          entry.actor_kind == :user and entry.actor_ref == "local-operator" and
+          entry.actor_kind == :user and entry.actor_ref == ^actor and
           entry.destination_transport == "control_plane" and
           entry.destination_conversation_ref == ^conversation_ref and
           entry.destination_thread_ref == ^conversation_ref and
@@ -337,7 +346,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
   defp lifecycle_input(current, event_id, occurred_at, kind, message) do
     Input.new(%{
-      actor: %{kind: :user, ref: "local-operator"},
+      actor: %{kind: :user, ref: current.actor_ref},
       content: lifecycle_content(current.content, kind, message),
       destination: %{
         transport: current.destination_transport,
@@ -382,11 +391,11 @@ defmodule Ryker.ControlPlane.ConversationLab do
     end
   end
 
-  defp lab_input(conversation_id, event_id, occurred_at, message, files) do
+  defp lab_input(conversation_id, event_id, occurred_at, message, files, actor) do
     conversation_ref = ref(conversation_id)
 
     Input.new(%{
-      actor: %{kind: :user, ref: "local-operator"},
+      actor: %{kind: :user, ref: actor},
       content: content(message, files),
       destination: destination(conversation_id),
       event_kind: :message,
@@ -509,6 +518,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
     if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options) and
          Keyword.keys(options) -- @option_keys == [] do
       settings = %{
+        actor: Keyword.get(options, :actor, "local-operator"),
         attachments: Keyword.get(options, :attachments, []),
         id_generator: Keyword.get(options, :id_generator, &Ecto.UUID.generate/0),
         now: Keyword.get(options, :now, &DateTime.utc_now/0),
@@ -516,8 +526,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
       }
 
       cond do
-        not is_function(settings.id_generator, 0) or not is_function(settings.now, 0) or
-            not transcriber?(settings.transcriber) ->
+        not usable?(settings) ->
           {:error, {:invalid_conversation_lab, :options}}
 
         not attachments?(settings.attachments) ->
@@ -532,6 +541,20 @@ defmodule Ryker.ControlPlane.ConversationLab do
   end
 
   defp options(_options), do: {:error, {:invalid_conversation_lab, :options}}
+
+  defp usable?(settings) do
+    is_function(settings.id_generator, 0) and is_function(settings.now, 0) and
+      transcriber?(settings.transcriber) and chat_actor?(settings.actor)
+  end
+
+  # The local console's one operator, or a person Tailscale named
+  # (`Ryker.ControlPlane.Actor.chat_ref/1`).
+  defp chat_actor?("local-operator"), do: true
+
+  defp chat_actor?("tailscale:" <> login),
+    do: login != "" and byte_size(login) <= 200 and String.valid?(login)
+
+  defp chat_actor?(_actor), do: false
 
   defp transcriber?(module),
     do:

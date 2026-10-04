@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Artifact
   alias Ryker.Behaviors.Behavior
-  alias Ryker.ControlPlane.{Actions, ConversationLab, ConversationProjection, HTML}
+  alias Ryker.ControlPlane.{Actions, ConversationLab, ConversationProjection, HTML, TailnetPeople}
   alias Ryker.ControlPlane.WorkChanges
   alias Ryker.Episodes
   alias Ryker.Fixtures.ChannelEnvironments
@@ -405,6 +405,64 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              "A deleted message cannot be resurrected.",
              profile()
            ) == {:error, {:invalid_conversation_lab, :message_deleted}}
+  end
+
+  # Andrew, 2026-10-04, of Chat calling him "You" while Tailscale Serve said who he was: "now when
+  # we have tailscale auth why not to properly track user everywhere?" A message sent through
+  # Serve is its person's: recorded under their login, revised only by them, and a revision keeps
+  # them as its author.
+  test "a tailnet person's message is theirs: only they revise it, and a revision keeps them" do
+    andrew = "tailscale:andrew@example.com"
+
+    assert {:ok, %{entry: original}} =
+             ConversationLab.send_message(
+               @conversation_id,
+               "Inspect the old service name.",
+               profile(),
+               actor: andrew,
+               id_generator: fn -> @event_id end,
+               now: fn -> @now end
+             )
+
+    assert {original.actor_kind, original.actor_ref} == {:user, andrew}
+
+    # Someone else, or the console reached without Tailscale, cannot change it.
+    for other <- ["tailscale:zoe@example.com", "local-operator"] do
+      assert ConversationLab.edit_message(
+               @conversation_id,
+               @event_id,
+               "Not theirs to change.",
+               profile(),
+               actor: other
+             ) == {:error, {:invalid_conversation_lab, :message_not_found}}
+
+      assert ConversationLab.delete_message(@conversation_id, @event_id, profile(), actor: other) ==
+               {:error, {:invalid_conversation_lab, :message_not_found}}
+    end
+
+    assert {:ok, %{entry: edited}} =
+             ConversationLab.edit_message(
+               @conversation_id,
+               @event_id,
+               "Inspect the renamed service.",
+               profile(),
+               actor: andrew,
+               id_generator: fn -> "018f3ef7-1f62-7ee0-a83c-0c12f21d83e8" end,
+               now: fn -> DateTime.add(@now, 1, :second) end
+             )
+
+    assert {edited.revision, edited.actor_ref} == {2, andrew}
+
+    # The conversation names them as Tailscale did.
+    :ok = TailnetPeople.seen(%{login: "andrew@example.com", name: "Andrew Example"})
+    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
+
+    assert [%{author_ref: ^andrew, author: "Andrew Example"}] =
+             Enum.filter(conversation.messages, &(&1.actor == :operator))
+
+    # Only a person Tailscale named, or the local console's operator, sends.
+    assert ConversationLab.send_message(@conversation_id, "Hi", profile(), actor: "mallory") ==
+             {:error, {:invalid_conversation_lab, :options}}
   end
 
   test "each projected message carries the exact provenance its inspection link needs" do
@@ -824,7 +882,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert {:ok, transition} =
              Episodes.apply(
                EpisodeFixtures.admit_input(%{
-                 actor_ref: ConversationLab.operator_actor_ref(),
+                 actor_ref: "control_plane:user:local-operator",
                  destination: %{
                    conversation_ref: conversation_ref,
                    thread_ref: conversation_ref,
@@ -1102,6 +1160,25 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              |> Enum.find(&(&1.actor == :ryker))
              |> Map.fetch!(:feedback_reactions)
 
+    # A person Tailscale named reacts as themselves (2026-10-04).
+    assert {:ok, _reaction} =
+             ConversationLab.react_to_message(
+               @conversation_id,
+               "control-plane-message:lab-projection",
+               :add,
+               "eyes",
+               actor: "tailscale:andrew@example.com",
+               id_generator: &Ecto.UUID.generate/0,
+               now: fn -> DateTime.add(@now, 6, :second) end
+             )
+
+    assert {:ok, person_reacted} = ConversationProjection.fetch(@conversation_id)
+
+    assert [%{actor_ref: "control-plane:user:tailscale:andrew@example.com", emoji_name: "eyes"}] =
+             person_reacted.messages
+             |> Enum.find(&(&1.actor == :ryker))
+             |> Map.fetch!(:feedback_reactions)
+
     assert ConversationLab.react_to_message(
              @conversation_id,
              "control-plane-message:missing",
@@ -1246,8 +1323,11 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert preferred.status == :confirmed
     assert %Behavior{} = preferred.behavior
     assert preferred.behavior.scope_kind == :operator
-    assert preferred.behavior.scope_ref == ConversationLab.operator_actor_ref()
-    assert preferred.behavior.confirmed_by_actor_ref == ConversationLab.operator_actor_ref()
+    # Kept for the person who asked, in the form the turns they start carry, so
+    # it applies to their requests and only they could confirm it. It was kept
+    # under the reaction form, which no turn carries, until 2026-10-04.
+    assert preferred.behavior.scope_ref == "control_plane:user:local-operator"
+    assert preferred.behavior.confirmed_by_actor_ref == "control_plane:user:local-operator"
     assert preferred.behavior.payload["value"] == "detailed"
 
     # QA, 2026-09-25: after "Schedule this" or "Remember this" the button went

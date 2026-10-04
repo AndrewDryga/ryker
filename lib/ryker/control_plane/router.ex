@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.Router do
 
   alias Ryker.ControlPlane.{
     ActionRefusal,
+    Actor,
     BehaviorLibrary,
     BehaviorPage,
     BrowserGuard,
@@ -117,7 +118,21 @@ defmodule Ryker.ControlPlane.Router do
            public_host: Map.get(options, :public_host)
          ) do
       %Plug.Conn{halted: true} = refused -> refused
-      conn -> conn |> HTTPConnection.close_after_refusal() |> route(options)
+      conn -> conn |> HTTPConnection.close_after_refusal() |> as_viewer(options)
+    end
+  end
+
+  # What a request does is recorded as the person Tailscale Serve named on it
+  # (`Actor`), and only while it runs: the next request on the same connection
+  # may be someone else's. Chat's composer sends here, so a message sent
+  # through Serve was recorded as the local console's until 2026-10-04.
+  defp as_viewer(conn, options) do
+    Actor.act_for(Viewer.from_conn(conn, Map.get(options, :public_host)))
+
+    try do
+      route(conn, options)
+    after
+      Actor.act_for(nil)
     end
   end
 

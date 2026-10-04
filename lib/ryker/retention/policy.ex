@@ -167,6 +167,12 @@ defmodule Ryker.Retention.Policy do
         "each Chat conversation's chosen environment: a current setting without message content, read for every new message in that conversation"
     },
     %{
+      table: "control_plane_people",
+      class: :kept,
+      why:
+        "each person Tailscale Serve named: their login and the name it last gave, one row per person, so pages name them on what they sent or changed"
+    },
+    %{
       table: "conversation_learning_inputs",
       class: :cascade,
       why:

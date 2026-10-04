@@ -1537,13 +1537,11 @@ defmodule Ryker.Runtime.Assembly do
         not is_nil(slack) and workspace == slack.runtime.identity.workspace_ref and
           Operators.operator?(operators, actor)
 
-      %{
-        source_kind: "control_plane",
-        source_ref: "local",
-        actor_kind: :user,
-        actor_ref: "local-operator"
-      } ->
-        not is_nil(control_plane)
+      # Whoever reaches the console may manage Ryker: the local console's
+      # operator, or a person Tailscale Serve named.
+      %{source_kind: "control_plane", source_ref: "local", actor_kind: :user, actor_ref: actor} ->
+        not is_nil(control_plane) and
+          (actor == "local-operator" or String.starts_with?(actor, "tailscale:"))
 
       _other ->
         false

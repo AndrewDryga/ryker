@@ -1,10 +1,20 @@
 defmodule Ryker.ControlPlane.UsagePageTest do
   use Ryker.DataCase, async: false
   alias Ryker.Accounting.Execution
-  alias Ryker.ControlPlane.{Activity, Assets, SettingsRows, UsagePage, UsageProjection}
+
+  alias Ryker.ControlPlane.{
+    Activity,
+    Assets,
+    SettingsRows,
+    TailnetPeople,
+    UsagePage,
+    UsageProjection
+  }
+
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress.Input, as: ChatInput
   alias Ryker.Settings
   alias Ryker.Slack.Input
 
@@ -708,7 +718,35 @@ defmodule Ryker.ControlPlane.UsagePageTest do
              "Chat is not listed by channel"
 
     assert document |> LazyHTML.query("#usage-users .kit-empty") |> LazyHTML.text() =~
-             "Chat is not listed by user"
+             "Chat lists a person only when they used it through Tailscale"
+  end
+
+  # Chat's one shared operator is nobody in particular, but a person Tailscale Serve named is
+  # somebody, and their work counts toward them like a Slack person's (2026-10-04).
+  test "a person who used Chat through Tailscale is listed by user, by their name" do
+    conversation = "control-plane:lab:" <> Ecto.UUID.generate()
+    :ok = TailnetPeople.seen(%{login: "andrew@example.com", name: "Andrew Example"})
+
+    for actor <- ["tailscale:andrew@example.com", "local-operator"] do
+      entry = chat_entry!(conversation, actor)
+
+      execution!("admission",
+        transport: "control_plane",
+        conversation_ref: conversation,
+        source_id: entry.id
+      )
+    end
+
+    users =
+      UsageProjection.page(%{})
+      |> UsagePage.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#usage-users")
+      |> LazyHTML.text()
+
+    assert users =~ "Andrew Example"
+    refute users =~ "local-operator"
   end
 
   test "a chart or table wider than a phone shows that it scrolls" do
@@ -759,6 +797,37 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     |> Enum.map(fn row ->
       row |> LazyHTML.query("th, td") |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
     end)
+  end
+
+  # A message sent in Chat, as ConversationLab records one.
+  defp chat_entry!(conversation, actor) do
+    id = Ecto.UUID.generate()
+
+    {:ok, input} =
+      ChatInput.new(%{
+        actor: %{kind: :user, ref: actor},
+        content: %{"text" => "Is checkout healthy?"},
+        destination: %{
+          transport: "control_plane",
+          conversation_ref: conversation,
+          thread_ref: conversation
+        },
+        event_kind: :message,
+        event_ref: "control-plane-event:" <> id,
+        native_input_id: "control-plane-message:" <> id,
+        occurred_at: DateTime.utc_now(),
+        occurred_at_source: :ingress,
+        revision: 1,
+        source: %{kind: "control_plane", ref: "local"},
+        source_capabilities: %{
+          "post_slack_message" => %{"destination_refs" => [conversation]},
+          "react" => %{"emoji_names" => nil}
+        },
+        source_item_ref: "control-plane-item:" <> id
+      })
+
+    {:ok, %{entry: entry}} = Inbox.record(input)
+    entry
   end
 
   defp execution!(kind, attributes) do

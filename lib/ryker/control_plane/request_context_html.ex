@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
+  alias Ryker.ControlPlane.TailnetPeople
   alias Ryker.Slack.Names
   @moduledoc "Readable context derived only from an already sanitized inspection artifact."
 
@@ -2788,6 +2789,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp actor_name("ryker", _actor), do: "Ryker"
   defp actor_name("control_plane:user:" <> ref, actor), do: actor_name(ref, actor)
   defp actor_name("local-operator", _actor), do: "You"
+  defp actor_name("tailscale:" <> _login = ref, _actor), do: TailnetPeople.person(ref).name
   defp actor_name(name, _actor) when is_binary(name), do: name
   defp actor_name(_name, actor), do: human(actor["kind"] || "Source")
 

@@ -437,6 +437,22 @@ defmodule Ryker.Runtime.AssemblyTest do
              actor_kind: :user,
              actor_ref: "local-operator"
            })
+
+    # Whoever reaches the console may answer, as Tailscale Serve named them (2026-10-04); a
+    # reference in no console form is nobody's.
+    assert authorize.(%{
+             source_kind: "control_plane",
+             source_ref: "local",
+             actor_kind: :user,
+             actor_ref: "tailscale:andrew@example.com"
+           })
+
+    refute authorize.(%{
+             source_kind: "control_plane",
+             source_ref: "local",
+             actor_kind: :user,
+             actor_ref: "mallory"
+           })
   end
 
   test "a platform tool is dispatched by the episode's own transport and nothing else" do

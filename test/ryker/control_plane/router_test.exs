@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.RouterTest do
   import Phoenix.LiveViewTest
 
   alias Ryker.ControlPlane.{
+    Actor,
     CSRF,
     EpisodePage,
     FailureExplanation,
@@ -339,6 +340,108 @@ defmodule Ryker.ControlPlane.RouterTest do
     # The root of the workspace is a live page; the HTTP router does not keep
     # a static overview behind it.
     assert request(:get, "/").status == 404
+  end
+
+  # Chat's composer posts here, so a message is sent as the person Tailscale Serve named on the
+  # request, and only while that request runs: one connection can carry someone else's next.
+  # Sent through Serve, Andrew's "Hi" was recorded as the local console's and Chat called him
+  # "You" (2026-10-04: "now when we have tailscale auth why not to properly track user
+  # everywhere?").
+  test "a Chat message posted through Serve is sent as its tailnet user, and only that request is" do
+    id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+    token = CSRF.token(@secret, "conversation_lab:send", id)
+    parent = self()
+
+    options =
+      options()
+      |> Map.put(:public_host, "ryker.tailnet.example")
+      |> put_in([:actions, :send_lab_message], fn _id, _message, _attachments ->
+        send(parent, {:sent_as, Actor.chat_ref(), Actor.ref()})
+        {:ok, %{status: :recorded}}
+      end)
+
+    post = fn host ->
+      conn(
+        :post,
+        "/conversations/#{id}/messages",
+        URI.encode_query(%{"_token" => token, "message" => "Hi"})
+      )
+      |> Map.put(:host, host)
+      |> Map.put(:remote_ip, {127, 0, 0, 1})
+      |> put_req_header("content-type", "application/x-www-form-urlencoded")
+      |> put_req_header("tailscale-user-login", "andrew@example.com")
+      |> put_req_header("tailscale-user-name", "Andrew Example")
+      |> Router.call(Router.init(options))
+    end
+
+    assert post.("ryker.tailnet.example").status == 303
+
+    assert_received {:sent_as, "tailscale:andrew@example.com",
+                     "control-plane:tailscale:andrew@example.com"}
+
+    # The request is over, and its person with it.
+    assert Actor.chat_ref() == "local-operator"
+
+    # The same headers sent to a loopback name never passed through Serve.
+    assert post.("localhost").status == 303
+    assert_received {:sent_as, "local-operator", "control-plane:local"}
+  end
+
+  # Chat named the author of every message "You", whoever sent it (Andrew, 2026-10-04). Each
+  # person's message carries the name Tailscale gave them and their initials; only the person
+  # viewing may edit or delete their own, and only their own reactions are pressed for them.
+  test "each Chat message names its person, and only the person viewing edits their own" do
+    id = "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
+    base = options()
+    {:ok, snapshot} = base.projection.lab_conversation.(id)
+
+    messages =
+      Enum.flat_map(snapshot.messages, fn
+        %{actor: :operator} = message ->
+          [
+            Map.merge(message, %{
+              author_ref: "tailscale:andrew@example.com",
+              author: "Andrew Example"
+            }),
+            Map.merge(message, %{
+              author_ref: "tailscale:zoe@example.com",
+              author: "Zoë Smith",
+              item_id: "018f3ef7-1f62-7ee0-a83c-0c12f21d83f1",
+              ref: "lab:event:zoe",
+              text: "Zoë asks too"
+            })
+          ]
+
+        message ->
+          [message]
+      end)
+
+    options =
+      base
+      |> put_in([:projection, :lab_conversation], fn ^id ->
+        {:ok, %{snapshot | messages: messages}}
+      end)
+      |> Map.put(:viewer, %{login: "andrew@example.com", name: "Andrew Example"})
+
+    page = id |> conversation_html(options) |> LazyHTML.from_fragment()
+    andrew = LazyHTML.query(page, "article[id='lab-message-lab:event:one']")
+    zoe = LazyHTML.query(page, "article[id='lab-message-lab:event:zoe']")
+
+    assert andrew |> LazyHTML.query(".lab-message-byline strong") |> LazyHTML.text() ==
+             "Andrew Example"
+
+    assert andrew |> LazyHTML.query(".lab-avatar") |> LazyHTML.text() |> String.trim() == "AE"
+    assert andrew |> LazyHTML.query(".lab-message-actions") |> Enum.count() == 1
+
+    assert zoe |> LazyHTML.query(".lab-message-byline strong") |> LazyHTML.text() == "Zoë Smith"
+    assert zoe |> LazyHTML.query(".lab-avatar") |> LazyHTML.text() |> String.trim() == "ZS"
+    assert zoe |> LazyHTML.query(".lab-message-actions") |> Enum.empty?()
+
+    # The reply's heart is the local console's, not Andrew's.
+    assert page
+           |> LazyHTML.query(".lab-reaction-pill [aria-pressed]")
+           |> LazyHTML.attribute("aria-pressed") ==
+             ["false"]
   end
 
   test "a conversation sends through a CSRF-protected durable action and refreshes locally" do
@@ -2271,8 +2374,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
   # The live conversation page as the shell renders it: the snapshot decorated
   # with the exact edit, reaction and record controls the HTTP router accepts.
-  defp conversation_html(conversation_id) do
-    options = options()
+  defp conversation_html(conversation_id, options \\ options()) do
     {:ok, snapshot, token} = LabControls.snapshot(conversation_id, options)
 
     render_component(&LabPage.render/1,

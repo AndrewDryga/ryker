@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.HTML do
 
   alias Phoenix.HTML.Safe
 
-  alias Ryker.ControlPlane.{ConversationLab, Emoji, Kit, Layouts, SlackMarkdown}
+  alias Ryker.ControlPlane.{Emoji, Kit, Layouts, SlackMarkdown}
   alias Ryker.Delivery.ChatCard
 
   # The title and description are the shell's header, led by the way back
@@ -234,26 +234,25 @@ defmodule Ryker.ControlPlane.HTML do
 
   # Recorded reactions on a reply as small pills: one per emoji with the count
   # the reaction contract provides (its current reactors), pressed when the
-  # local operator is among them. Each pill posts the real add or remove for
+  # person viewing is among them. Each pill posts the real add or remove for
   # that emoji to that exact reply. A reply with none renders nothing here.
   defp lab_reaction_pills(%{
          feedback_reactions: reactions,
          reaction_controls: %{
            conversation_id: conversation_id,
            message_ref: message_ref,
+           mine: own,
            token: token
          }
        })
        when is_list(reactions) and reactions != [] and is_binary(conversation_id) and
               is_binary(message_ref) and is_binary(token) do
-    operator = ConversationLab.operator_actor_ref()
-
     pills =
       reactions
       |> Enum.group_by(& &1.emoji_name)
       |> Enum.sort_by(fn {emoji_name, _reactors} -> emoji_name end)
       |> Enum.map(fn {emoji_name, reactors} ->
-        mine = Enum.any?(reactors, &(&1.actor_ref == operator))
+        mine = Enum.any?(reactors, &(&1.actor_ref == own))
         count = length(reactors)
         glyph = lab_emoji_glyph(emoji_name)
         form_id = "lab-reaction-" <> lab_short_digest(message_ref <> ":" <> emoji_name)
