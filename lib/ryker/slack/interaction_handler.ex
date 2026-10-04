@@ -9,6 +9,7 @@ defmodule Ryker.Slack.InteractionHandler do
 
   alias Ryker.Slack.{Interaction, Operators}
 
+  @task_not_here [:slack_task_outside_environment, :slack_task_policy_not_configured]
   @invalid_offer_errors [
     :input_request_already_answered,
     :input_request_choice_invalid,
@@ -256,15 +257,35 @@ defmodule Ryker.Slack.InteractionHandler do
          {:ok, result} <- dispatch_action(interaction, record_ref, choice_index, options) do
       {:ok, result}
     else
-      {:ok, false} -> {:ok, %{outcome: :denied}}
-      {:error, :operator_required} -> {:ok, %{outcome: :denied}}
-      {:error, reason} when reason in @invalid_offer_errors -> {:ok, %{outcome: :invalid}}
+      {:ok, false} ->
+        {:ok, %{outcome: :denied}}
+
+      {:error, :operator_required} ->
+        {:ok, %{outcome: :denied}}
+
+      {:error, reason} when reason in @invalid_offer_errors ->
+        {:ok, %{outcome: :invalid}}
+
       # Every room slot is in use: the control is fine, the rooms are full.
-      {:error, :incident_room_capacity} -> {:ok, %{outcome: :room_capacity}}
-      {:error, {:automation_revision_conflict, _revision}} -> {:ok, %{outcome: :invalid}}
-      {:error, :slack_action_mismatch} -> {:ok, %{outcome: :invalid}}
-      {:error, :state_record_not_found} -> {:ok, %{outcome: :invalid}}
-      {:error, _reason} = error -> error
+      {:error, :incident_room_capacity} ->
+        {:ok, %{outcome: :room_capacity}}
+
+      # The channel's environment does not let Ryker change the task's repository,
+      # and pressing again changes nothing.
+      {:error, {reason, _repository}} when reason in @task_not_here ->
+        {:ok, %{outcome: :task_not_here}}
+
+      {:error, {:automation_revision_conflict, _revision}} ->
+        {:ok, %{outcome: :invalid}}
+
+      {:error, :slack_action_mismatch} ->
+        {:ok, %{outcome: :invalid}}
+
+      {:error, :state_record_not_found} ->
+        {:ok, %{outcome: :invalid}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

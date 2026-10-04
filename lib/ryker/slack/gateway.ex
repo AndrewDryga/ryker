@@ -46,6 +46,11 @@ defmodule Ryker.Slack.Gateway do
   ]
   @maximum_envelope_bytes 1_048_576
 
+  # Controls whose confirmation repaints the message they sit on from saved
+  # state, so its buttons go. An engineering task's offer is not here: its
+  # message becomes the task card.
+  @repainted_on_confirmation ~w(ryker_confirm_automation ryker_confirm_behavior ryker_confirm_memory ryker_confirm_schedule ryker_confirm_slack_post ryker_investigate_incident ryker_open_incident)
+
   @type outcome ::
           {:ack, term()}
           | {:ack, term(), map()}
@@ -481,12 +486,13 @@ defmodule Ryker.Slack.Gateway do
       {:ok, %{outcome: :selection_required}} ->
         {:ack, {:interaction, :selection_required}, interaction_feedback(:selection_required)}
 
-      {:ok, %{outcome: outcome}} when outcome in [:denied, :invalid, :room_capacity] ->
+      {:ok, %{outcome: outcome}}
+      when outcome in [:denied, :invalid, :room_capacity, :task_not_here] ->
         refuse_interaction(interaction, outcome, settings)
 
       {:ok, %{outcome: outcome}}
-      when outcome in [:confirmed, :duplicate] and
-             interaction.action_id in ~w(ryker_confirm_behavior ryker_confirm_memory ryker_confirm_schedule ryker_confirm_automation) ->
+      when outcome in [:confirmed, :duplicate, :requested] and
+             interaction.action_id in @repainted_on_confirmation ->
         # Normalize duplicate delivery to the original confirmation outcome so
         # a crash between commit and acknowledgement retains one repaint intent.
         acknowledge_interaction(interaction, outcome, :confirmed, settings)
@@ -507,11 +513,13 @@ defmodule Ryker.Slack.Gateway do
   end
 
   # A refused control is audited as denied or invalid; a full set of incident
-  # rooms is audited as invalid, but the person hears that the rooms are full.
-  defp refuse_interaction(interaction, :room_capacity, settings) do
+  # rooms, or a task this channel cannot start, is audited as invalid, but the
+  # person hears which.
+  defp refuse_interaction(interaction, outcome, settings)
+       when outcome in [:room_capacity, :task_not_here] do
     with {:ack, result, _feedback} <-
-           acknowledge_interaction(interaction, :room_capacity, :invalid, settings),
-         do: {:ack, result, interaction_feedback(:room_capacity)}
+           acknowledge_interaction(interaction, outcome, :invalid, settings),
+         do: {:ack, result, interaction_feedback(outcome)}
   end
 
   defp refuse_interaction(interaction, outcome, settings),
@@ -561,6 +569,15 @@ defmodule Ryker.Slack.Gateway do
       "text" =>
         "Ryker already has as many incident rooms open as it keeps. Archive a room " <>
           "whose incident is over, then press again."
+    }
+  end
+
+  defp interaction_feedback(:task_not_here) do
+    %{
+      "response_type" => "ephemeral",
+      "text" =>
+        "Ryker can't start this task in this channel. " <>
+          "Its environment doesn't let Ryker change that repository."
     }
   end
 

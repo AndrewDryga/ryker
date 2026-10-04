@@ -158,17 +158,17 @@ defmodule Ryker.Slack.InteractionHandlerTest do
              repository_ref: "ryker"
            }
 
-    # The offer's repository must be one of the environment's repositories.
+    # The offer's repository must be one of the environment's repositories. Either refusal
+    # is answered: returned as an error, Slack retried the click and the person heard
+    # nothing, with no audit row (2026-10-04 review).
     elsewhere = %{options | conversation_environment: fn _workspace, _channel -> "staging" end}
 
-    assert InteractionHandler.handle(interaction, elsewhere) ==
-             {:error, {:slack_task_outside_environment, "ryker"}}
+    assert InteractionHandler.handle(interaction, elsewhere) == {:ok, %{outcome: :task_not_here}}
 
     # A channel with no environment has no repository a task could change.
     nowhere = %{options | conversation_environment: fn _workspace, _channel -> nil end}
 
-    assert InteractionHandler.handle(interaction, nowhere) ==
-             {:error, {:slack_task_policy_not_configured, "ryker"}}
+    assert InteractionHandler.handle(interaction, nowhere) == {:ok, %{outcome: :task_not_here}}
 
     refute_received {:task_confirmed, _confirmation}
   end
@@ -332,7 +332,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert InteractionHandler.handle(
              interaction("ryker_start_engineering_task", "engineering"),
              options
-           ) == {:error, {:slack_task_policy_not_configured, "ryker"}}
+           ) == {:ok, %{outcome: :task_not_here}}
   end
 
   test "an authenticated question choice becomes host-recorded generic input" do

@@ -703,6 +703,36 @@ defmodule Ryker.Slack.GatewayTest do
     assert_received {:audited_interaction, "interaction:env-rooms-full", :invalid}
   end
 
+  # A task whose repository this channel's environment does not let Ryker change can never
+  # start here. The refusal went back to Slack as a retry: no answer, no audit row, no log.
+  test "a task that cannot start in this channel says why to the person who pressed" do
+    audit = fn interaction, outcome ->
+      send(self(), {:audited_interaction, interaction.event_ref, outcome})
+      {:ok, %{status: :recorded}}
+    end
+
+    elsewhere =
+      settings()
+      |> Map.put(:interaction_handler, InteractionHandler)
+      |> Map.put(:interaction_options, %{
+        observer: self(),
+        result: {:ok, %{outcome: :task_not_here}}
+      })
+      |> Map.put(:interaction_audit, audit)
+
+    assert {:ack, {:interaction, :task_not_here}, payload} =
+             Gateway.handle_envelope(interaction_envelope("env-task-elsewhere"), elsewhere)
+
+    assert payload == %{
+             "response_type" => "ephemeral",
+             "text" =>
+               "Ryker can't start this task in this channel. " <>
+                 "Its environment doesn't let Ryker change that repository."
+           }
+
+    assert_received {:audited_interaction, "interaction:env-task-elsewhere", :invalid}
+  end
+
   test "submit without selection gives private guidance without accepting or repainting a question" do
     options =
       settings()
@@ -751,6 +781,38 @@ defmodule Ryker.Slack.GatewayTest do
         Map.put(settings, :interaction_audit, fn _, _ -> {:error, :database_unavailable} end)
 
       assert {:retry, :database_unavailable} = Gateway.handle_envelope(envelope, unavailable)
+    end
+  end
+
+  # Confirming a Slack post or an incident offer was acknowledged without a repaint, so the
+  # message kept its live buttons after the post went out or the room was asked for
+  # (2026-10-04 review). An engineering task's offer becomes its task card instead.
+  test "a confirmed post or incident offer repaints its message without the buttons" do
+    for {action, outcome} <- [
+          {"ryker_confirm_slack_post", :confirmed},
+          {"ryker_confirm_slack_post", :duplicate},
+          {"ryker_open_incident", :requested},
+          {"ryker_open_incident", :duplicate},
+          {"ryker_investigate_incident", :confirmed}
+        ] do
+      settings =
+        settings()
+        |> Map.put(:interaction_handler, InteractionHandler)
+        |> Map.put(:interaction_options, %{observer: self(), result: {:ok, %{outcome: outcome}}})
+        |> Map.put(:interaction_audit, fn interaction, recorded ->
+          send(self(), {:confirmation_recorded, interaction.action_id, recorded})
+          {:ok, %{status: :recorded}}
+        end)
+
+      envelope =
+        update_in(interaction_envelope(), ["payload", "actions"], fn [button] ->
+          [%{button | "action_id" => action}]
+        end)
+
+      assert {:ack, {:interaction, ^outcome}, %{"text" => _feedback}} =
+               Gateway.handle_envelope(envelope, settings)
+
+      assert_received {:confirmation_recorded, ^action, :confirmed}
     end
   end
 
