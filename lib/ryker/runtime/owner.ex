@@ -194,7 +194,8 @@ defmodule Ryker.Runtime.Owner do
       csrf_secret: state.csrf_secret,
       ip: state.bootstrap.control_plane.ip,
       port: state.bootstrap.control_plane.port,
-      public_url: state.bootstrap.control_public_url
+      public_url: state.bootstrap.control_public_url,
+      cloudflare_access: state.bootstrap.cloudflare_access
     }
   end
 

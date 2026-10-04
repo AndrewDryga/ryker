@@ -5,8 +5,8 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   alias Ryker.ControlPlane.{
     Activity,
     Assets,
+    ConsolePeople,
     SettingsRows,
-    TailnetPeople,
     UsagePage,
     UsageProjection
   }
@@ -725,7 +725,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   # somebody, and their work counts toward them like a Slack person's (2026-10-04).
   test "a person who used Chat through Tailscale is listed by user, by their name" do
     conversation = "control-plane:lab:" <> Ecto.UUID.generate()
-    :ok = TailnetPeople.seen(%{login: "andrew@example.com", name: "Andrew Example"})
+    :ok = ConsolePeople.seen(%{login: "andrew@example.com", name: "Andrew Example"})
 
     for actor <- ["tailscale:andrew@example.com", "local-operator"] do
       entry = chat_entry!(conversation, actor)

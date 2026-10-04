@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.Server do
   @loopback_v6 {0, 0, 0, 0, 0, 0, 0, 1}
   @fields [
     :access,
+    :cloudflare_access,
     :coop_api,
     :coop_client,
     :csrf_secret,
@@ -44,6 +45,7 @@ defmodule Ryker.ControlPlane.Server do
       secret_key_base: Base.encode64(:crypto.hash(:sha512, options.csrf_secret)),
       control_plane: %{
         access: options.access,
+        cloudflare_access: options.cloudflare_access,
         public_host: public_host(options.public_url),
         actions: Actions.live(),
         csrf_secret: options.csrf_secret,
@@ -68,7 +70,9 @@ defmodule Ryker.ControlPlane.Server do
 
   defp listener(configuration),
     do:
-      configuration |> normalize!() |> Map.take([:access, :csrf_secret, :ip, :port, :public_url])
+      configuration
+      |> normalize!()
+      |> Map.take([:access, :cloudflare_access, :csrf_secret, :ip, :port, :public_url])
 
   defp actions(options) do
     Actions.callbacks(
@@ -98,9 +102,11 @@ defmodule Ryker.ControlPlane.Server do
     coop_api = Map.get(configuration, :coop_api)
     coop_client = Map.get(configuration, :coop_client)
     public_url = Map.get(configuration, :public_url)
+    cloudflare_access = Map.get(configuration, :cloudflare_access)
 
     validate_listener!(access, ip, port)
     validate_public_url!(public_url)
+    validate_cloudflare_access!(cloudflare_access)
     validate_csrf_secret!(csrf_secret)
 
     # A fresh installation has no reviewed policy yet. The console still starts
@@ -116,6 +122,7 @@ defmodule Ryker.ControlPlane.Server do
     %{
       access: access,
       chat: chat,
+      cloudflare_access: cloudflare_access,
       coop_api: coop_api,
       coop_client: coop_client,
       csrf_secret: csrf_secret,
@@ -163,6 +170,15 @@ defmodule Ryker.ControlPlane.Server do
     if access == :loopback and ip not in [@loopback_v4, @loopback_v6],
       do: raise(ArgumentError, "control-plane IP must be loopback")
   end
+
+  defp validate_cloudflare_access!(nil), do: :ok
+
+  defp validate_cloudflare_access!(%{team_domain: team, audience: audience} = access)
+       when map_size(access) == 2 and is_binary(team) and is_binary(audience),
+       do: :ok
+
+  defp validate_cloudflare_access!(_access),
+    do: raise(ArgumentError, "control-plane Cloudflare Access is its team domain and audience")
 
   defp validate_public_url!(nil), do: :ok
 

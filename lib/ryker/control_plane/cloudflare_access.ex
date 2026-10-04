@@ -1,0 +1,151 @@
+defmodule Ryker.ControlPlane.CloudflareAccess do
+  @moduledoc """
+  Who Cloudflare Access let in to the console.
+
+  An install published through Cloudflare Access, a tunnel to the console with
+  an Access application in front, gets every request with the signed-in
+  person's token in `Cf-Access-Jwt-Assertion` (Andrew, 2026-10-04: two
+  client teams sign in with Google rather than join his tailnet). Ryker
+  names that person only after checking the token the way Cloudflare asks an
+  origin to: an RS256 signature by a key the team publishes at
+  `https://<team domain>/cdn-cgi/access/certs`, the application's audience tag,
+  the team as its issuer, and a lifetime that includes now.
+
+  The keys are read on first use and kept. Cloudflare publishes its next key
+  before signing with it, so a token naming a key Ryker has not seen reads them
+  again, at most once a minute.
+  """
+
+  alias Ryker.ControlPlane.Viewer
+
+  @certs_path "/cdn-cgi/access/certs"
+  @refresh_seconds 60
+  @leeway_seconds 60
+  @maximum_token_bytes 8_192
+  @maximum_login_bytes 200
+
+  @type config :: %{
+          required(:team_domain) => String.t(),
+          required(:audience) => String.t(),
+          optional(:certs) => (String.t() -> {:ok, map()} | :error)
+        }
+
+  @doc "The person a request's Access token names, or `:error` without a valid one."
+  @spec viewer(Plug.Conn.t(), config()) :: {:ok, Viewer.t()} | :error
+  def viewer(conn, config) do
+    with [token] <- Plug.Conn.get_req_header(conn, "cf-access-jwt-assertion"),
+         {:ok, %{"email" => email}} <- verify(token, config),
+         true <- login?(email) do
+      {:ok, %{login: email, name: email, via: :cloudflare}}
+    else
+      _invalid -> :error
+    end
+  end
+
+  @doc "The claims of a token Access signed for this application, or `:error`."
+  @spec verify(String.t(), config()) :: {:ok, map()} | :error
+  def verify(token, %{team_domain: team, audience: audience} = config)
+      when is_binary(token) and byte_size(token) <= @maximum_token_bytes do
+    with [header, claims, signature] <- String.split(token, "."),
+         {:ok, %{"alg" => "RS256", "kid" => kid}} <- decode(header),
+         {:ok, signature} <- Base.url_decode64(signature, padding: false),
+         {:ok, key} <- key(config, kid),
+         true <- :public_key.verify(header <> "." <> claims, :sha256, signature, key),
+         {:ok, claims} <- decode(claims),
+         true <- current?(claims, team, audience) do
+      {:ok, claims}
+    else
+      _invalid -> :error
+    end
+  end
+
+  def verify(_token, _config), do: :error
+
+  defp current?(claims, team, audience) do
+    now = System.os_time(:second)
+
+    claims["iss"] == "https://" <> team and audience in List.wrap(claims["aud"]) and
+      is_integer(claims["exp"]) and now <= claims["exp"] + @leeway_seconds and
+      (not Map.has_key?(claims, "nbf") or
+         (is_integer(claims["nbf"]) and claims["nbf"] - @leeway_seconds <= now))
+  end
+
+  defp login?(email),
+    do:
+      is_binary(email) and byte_size(email) in 3..@maximum_login_bytes and String.valid?(email) and
+        Regex.match?(~r/\A[^\s@]+@[^\s@]+\z/u, email)
+
+  defp decode(segment) do
+    with {:ok, json} <- Base.url_decode64(segment, padding: false),
+         {:ok, %{} = value} <- Jason.decode(json) do
+      {:ok, value}
+    else
+      _invalid -> :error
+    end
+  end
+
+  # --- the team's keys -------------------------------------------------------
+
+  defp key(%{team_domain: team} = config, kid) do
+    case :persistent_term.get({__MODULE__, team}, nil) do
+      %{keys: %{^kid => key}} -> {:ok, key}
+      cached -> refresh(config, kid, cached)
+    end
+  end
+
+  defp refresh(%{team_domain: team} = config, kid, cached) do
+    now = System.monotonic_time(:second)
+
+    if cached && now - cached.read_at < @refresh_seconds do
+      :error
+    else
+      keys =
+        case read_certs(config) do
+          {:ok, keys} -> keys
+          :error -> (cached && cached.keys) || %{}
+        end
+
+      :persistent_term.put({__MODULE__, team}, %{keys: keys, read_at: now})
+      Map.fetch(keys, kid)
+    end
+  end
+
+  defp read_certs(%{team_domain: team} = config) do
+    certs = Map.get(config, :certs, &fetch_certs/1)
+
+    case certs.(team) do
+      {:ok, %{"keys" => keys}} when is_list(keys) ->
+        {:ok,
+         for(
+           %{"kid" => kid} = jwk <- keys,
+           {:ok, key} <- [rsa_key(jwk)],
+           into: %{},
+           do: {kid, key}
+         )}
+
+      _unreadable ->
+        :error
+    end
+  end
+
+  defp rsa_key(%{"kty" => "RSA", "n" => modulus, "e" => exponent}) do
+    with {:ok, modulus} <- Base.url_decode64(modulus, padding: false),
+         {:ok, exponent} <- Base.url_decode64(exponent, padding: false) do
+      {:ok, {:RSAPublicKey, :binary.decode_unsigned(modulus), :binary.decode_unsigned(exponent)}}
+    end
+  end
+
+  defp rsa_key(_jwk), do: :error
+
+  defp fetch_certs(team) do
+    request = Finch.build(:get, "https://" <> team <> @certs_path)
+
+    with {:ok, %Finch.Response{status: 200, body: body}} <-
+           Finch.request(request, Ryker.CoopFinch, receive_timeout: 5_000),
+         {:ok, %{} = certs} <- Jason.decode(body) do
+      {:ok, certs}
+    else
+      _unavailable -> :error
+    end
+  end
+end

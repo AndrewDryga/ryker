@@ -421,7 +421,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       |> put_in([:projection, :lab_conversation], fn ^id ->
         {:ok, %{snapshot | messages: messages}}
       end)
-      |> Map.put(:viewer, %{login: "andrew@example.com", name: "Andrew Example"})
+      |> Map.put(:viewer, %{login: "andrew@example.com", name: "Andrew Example", via: :tailscale})
 
     page = id |> conversation_html(options) |> LazyHTML.from_fragment()
     andrew = LazyHTML.query(page, "article[id='lab-message-lab:event:one']")

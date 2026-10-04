@@ -12,11 +12,11 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   require Ryker.ControlPlane.CurrentInputs
 
   alias Ryker.ControlPlane.{
+    ConsolePeople,
     CurrentInputs,
     Environments,
     RepositoryNames,
     Search,
-    TailnetPeople,
     UsageProjection
   }
 
@@ -295,8 +295,8 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   # Someone in Chat: the person Tailscale named, or the local console's "You".
   defp sender(%{actor_kind: :user, source_kind: "control_plane", actor_ref: actor}) do
-    case TailnetPeople.identity(actor) do
-      {:tailnet, _login} -> {:person, TailnetPeople.person(actor)}
+    case ConsolePeople.identity(actor) do
+      {:person, _login} -> {:person, ConsolePeople.person(actor)}
       :local -> :you
       nil -> :someone
     end

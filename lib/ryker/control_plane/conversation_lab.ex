@@ -34,6 +34,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
   }
 
   alias Ryker.Artifacts
+  alias Ryker.ControlPlane.Actor
   alias Ryker.Episodes
   alias Ryker.Episodes.Reactions
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
@@ -547,14 +548,10 @@ defmodule Ryker.ControlPlane.ConversationLab do
       transcriber?(settings.transcriber) and chat_actor?(settings.actor)
   end
 
-  # The local console's one operator, or a person Tailscale named
+  # The local console's one operator, or a person Tailscale or Cloudflare named
   # (`Ryker.ControlPlane.Actor.chat_ref/1`).
   defp chat_actor?("local-operator"), do: true
-
-  defp chat_actor?("tailscale:" <> login),
-    do: login != "" and byte_size(login) <= 200 and String.valid?(login)
-
-  defp chat_actor?(_actor), do: false
+  defp chat_actor?(actor), do: Actor.chat_ref?(actor)
 
   defp transcriber?(module),
     do:

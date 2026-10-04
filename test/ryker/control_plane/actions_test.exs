@@ -96,7 +96,7 @@ defmodule Ryker.ControlPlane.ActionsTest do
   # Every console action was recorded as control-plane:local, so on a console
   # several people reach through Tailscale nobody could tell who did what.
   test "an action taken by a tailnet user is recorded as theirs" do
-    :ok = Actor.act_for(%{login: "andrew@example.com", name: "Andrew Example"})
+    :ok = Actor.act_for(%{login: "andrew@example.com", name: "Andrew Example", via: :tailscale})
     complete = start_episode!("tailnet-review")
 
     assert {:ok, _completed} =

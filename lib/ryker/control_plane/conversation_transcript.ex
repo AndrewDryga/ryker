@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   import Ecto.Query
 
   alias Ryker.Artifacts.OutputArtifact
-  alias Ryker.ControlPlane.{Paths, TailnetPeople, TranscriptCursor}
+  alias Ryker.ControlPlane.{ConsolePeople, Paths, TranscriptCursor}
   alias Ryker.Delivery.{ChatCard, PlatformAction, RoutingResponse}
   alias Ryker.Episodes.{Episode, Event, Reactions}
   alias Ryker.Feedback
@@ -132,16 +132,16 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp name_authors(messages) do
     logins =
       for %{actor: :operator, author_ref: ref} <- messages,
-          {:tailnet, login} <- [TailnetPeople.identity(ref)],
+          {:person, login} <- [ConsolePeople.identity(ref)],
           uniq: true,
           do: login
 
-    names = TailnetPeople.names(logins)
+    names = ConsolePeople.names(logins)
 
     Enum.map(messages, fn
       %{actor: :operator, author_ref: ref} = message ->
-        case TailnetPeople.identity(ref) do
-          {:tailnet, login} -> Map.put(message, :author, Map.get(names, login, login))
+        case ConsolePeople.identity(ref) do
+          {:person, login} -> Map.put(message, :author, Map.get(names, login, login))
           _local -> Map.put(message, :author, "You")
         end
 

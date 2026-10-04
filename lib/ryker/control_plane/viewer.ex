@@ -1,17 +1,20 @@
 defmodule Ryker.ControlPlane.Viewer do
   @moduledoc """
-  Who is using the console, as Tailscale Serve says.
+  Who is using the console, as the service it is published through says.
 
   Served through Tailscale Serve, every request carries the tailnet user's
   login and display name in `Tailscale-User-Login` and `Tailscale-User-Name`,
-  and Serve replaces any a client sent itself. The sidebar shows that person
-  (Andrew, 2026-10-03: "console shows who is using it, from Tailscale"), and
-  what they change is recorded as theirs (`Ryker.ControlPlane.Actor`). It grants
-  nothing: what the console may do is still decided by who can reach it.
+  and Serve replaces any a client sent itself (Andrew, 2026-10-03: "console
+  shows who is using it, from Tailscale"). Published through Cloudflare Access
+  instead, every request carries the signed-in person's Access token, and the
+  person is its email once the token checks out (`CloudflareAccess`). The
+  sidebar shows that person, and what they change is recorded as theirs
+  (`Ryker.ControlPlane.Actor`). It grants nothing: what the console may do is
+  still decided by who can reach it.
 
-  Only a request at the published host came through Serve. One at a loopback
-  name came from this machine with whatever headers it chose, so it names
-  nobody.
+  Only a request at the published host came through Serve or Access. One at a
+  loopback name came from this machine with whatever headers it chose, so it
+  names nobody.
 
   A name outside ASCII arrives as RFC 2047 words, the way Serve encodes it.
   """
@@ -20,9 +23,9 @@ defmodule Ryker.ControlPlane.Viewer do
 
   import Plug.Conn
 
-  alias Ryker.ControlPlane.{Actor, Endpoint}
+  alias Ryker.ControlPlane.{Actor, CloudflareAccess, Endpoint}
 
-  @type t :: %{login: String.t(), name: String.t()}
+  @type t :: %{login: String.t(), name: String.t(), via: :tailscale | :cloudflare}
 
   @impl true
   def init(options), do: options
@@ -31,32 +34,43 @@ defmodule Ryker.ControlPlane.Viewer do
   # load sends no new cookie.
   @impl true
   def call(conn, _options) do
-    published_host = Map.get(Endpoint.config(:control_plane), :public_host)
-
-    case {stored(from_conn(conn, published_host)), get_session(conn, "viewer")} do
+    case {stored(from_conn(conn, Endpoint.config(:control_plane))), get_session(conn, "viewer")} do
       {same, same} -> conn
       {nil, _previous} -> delete_session(conn, "viewer")
       {viewer, _previous} -> put_session(conn, "viewer", viewer)
     end
   end
 
-  @doc "Who a request names, when it reached the console at `published_host`."
-  @spec from_conn(Plug.Conn.t(), String.t() | nil) :: t() | nil
-  def from_conn(%Plug.Conn{host: host} = conn, published_host)
-      when is_binary(published_host) and host == published_host,
-      do: from_headers(conn)
+  @doc """
+  Who a request names, when it reached the console at the published host of
+  `control_plane` (the endpoint's console configuration).
+  """
+  @spec from_conn(Plug.Conn.t(), map()) :: t() | nil
+  def from_conn(%Plug.Conn{host: host} = conn, %{public_host: host} = control_plane)
+      when is_binary(host) do
+    case Map.get(control_plane, :cloudflare_access) do
+      nil ->
+        from_headers(conn)
 
-  def from_conn(_conn, _published_host), do: nil
+      access ->
+        case CloudflareAccess.viewer(conn, access) do
+          {:ok, viewer} -> viewer
+          :error -> nil
+        end
+    end
+  end
+
+  def from_conn(_conn, _control_plane), do: nil
 
   @doc "What an action this request takes is recorded as."
-  @spec actor_ref(Plug.Conn.t(), String.t() | nil) :: String.t()
-  def actor_ref(conn, published_host), do: conn |> from_conn(published_host) |> Actor.of()
+  @spec actor_ref(Plug.Conn.t(), map()) :: String.t()
+  def actor_ref(conn, control_plane), do: conn |> from_conn(control_plane) |> Actor.of()
 
   @doc "The viewer a LiveView session carries, or nil."
   @spec from_session(map()) :: t() | nil
-  def from_session(%{"viewer" => %{"login" => login, "name" => name}})
-      when is_binary(login) and is_binary(name),
-      do: %{login: login, name: name}
+  def from_session(%{"viewer" => %{"login" => login, "name" => name, "via" => via}})
+      when is_binary(login) and is_binary(name) and via in ["tailscale", "cloudflare"],
+      do: %{login: login, name: name, via: String.to_existing_atom(via)}
 
   def from_session(_session), do: nil
 
@@ -73,14 +87,16 @@ defmodule Ryker.ControlPlane.Viewer do
           _missing -> login
         end
 
-      %{login: login, name: name}
+      %{login: login, name: name, via: :tailscale}
     else
       _missing -> nil
     end
   end
 
   defp stored(nil), do: nil
-  defp stored(%{login: login, name: name}), do: %{"login" => login, "name" => name}
+
+  defp stored(%{login: login, name: name, via: via}),
+    do: %{"login" => login, "name" => name, "via" => Atom.to_string(via)}
 
   defp text(value, maximum) do
     value = String.trim(value)

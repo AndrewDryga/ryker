@@ -14,6 +14,7 @@ defmodule Ryker.Runtime.Assembly do
   require Logger
 
   alias Ryker.Bootstrap
+  alias Ryker.ControlPlane.Actor, as: ControlPlaneActor
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.ControlPlane.ConversationLab
   alias Ryker.CoopFleet.JobTemplates
@@ -1142,6 +1143,7 @@ defmodule Ryker.Runtime.Assembly do
       ip: bootstrap.control_plane.ip,
       port: bootstrap.control_plane.port,
       public_url: bootstrap.control_public_url,
+      cloudflare_access: bootstrap.cloudflare_access,
       schedule_policies: schedules,
       task_policies:
         for(
@@ -1538,10 +1540,10 @@ defmodule Ryker.Runtime.Assembly do
           Operators.operator?(operators, actor)
 
       # Whoever reaches the console may manage Ryker: the local console's
-      # operator, or a person Tailscale Serve named.
+      # operator, or a person Tailscale Serve or Cloudflare Access named.
       %{source_kind: "control_plane", source_ref: "local", actor_kind: :user, actor_ref: actor} ->
         not is_nil(control_plane) and
-          (actor == "local-operator" or String.starts_with?(actor, "tailscale:"))
+          (actor == "local-operator" or ControlPlaneActor.chat_ref?(actor))
 
       _other ->
         false

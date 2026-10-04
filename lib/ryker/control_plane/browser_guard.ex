@@ -9,10 +9,14 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   contracts are guarded alike; `Router` runs it again so a direct call to the
   HTTP router holds the same line. There is one copy of the host list, the
   loopback test and the header set, here.
+
+  Published through Cloudflare Access, the console answers at its published
+  host only with a token Access signed for it (`CloudflareAccess`): a request
+  there without one did not come through Access.
   """
   import Plug.Conn
 
-  alias Ryker.ControlPlane.Endpoint
+  alias Ryker.ControlPlane.{CloudflareAccess, Endpoint}
 
   @hosts ["localhost", "127.0.0.1", "::1"]
   @content_security_policy "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
@@ -21,12 +25,20 @@ defmodule Ryker.ControlPlane.BrowserGuard do
 
   def call(conn, options) do
     conn = headers(conn)
-    {access, published_host} = boundary(options)
+    {access, published_host, cloudflare_access} = boundary(options)
 
     cond do
-      not local_host?(conn.host, published_host) -> refuse(conn, 421, "Misdirected request")
-      not peer_allowed?(conn.remote_ip, access) -> refuse(conn, 403, "Loopback access only")
-      true -> conn
+      not local_host?(conn.host, published_host) ->
+        refuse(conn, 421, "Misdirected request")
+
+      not peer_allowed?(conn.remote_ip, access) ->
+        refuse(conn, 403, "Loopback access only")
+
+      not signed_in?(conn, published_host, cloudflare_access) ->
+        refuse(conn, 403, "Sign in through Cloudflare Access")
+
+      true ->
+        conn
     end
   end
 
@@ -45,14 +57,21 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   def peer_allowed?(address, :loopback), do: loopback?(address)
   def peer_allowed?(address, :network), do: is_tuple(address)
 
+  defp signed_in?(%Plug.Conn{host: host} = conn, host, %{} = cloudflare_access),
+    do: match?({:ok, _viewer}, CloudflareAccess.viewer(conn, cloudflare_access))
+
+  defp signed_in?(_conn, _published_host, _cloudflare_access), do: true
+
   defp boundary(options) do
     case Keyword.get(options, :access, :loopback) do
       :endpoint ->
         control_plane = Endpoint.config(:control_plane)
-        {Map.get(control_plane, :access, :loopback), Map.get(control_plane, :public_host)}
+
+        {Map.get(control_plane, :access, :loopback), Map.get(control_plane, :public_host),
+         Map.get(control_plane, :cloudflare_access)}
 
       access when access in [:loopback, :network] ->
-        {access, Keyword.get(options, :public_host)}
+        {access, Keyword.get(options, :public_host), Keyword.get(options, :cloudflare_access)}
     end
   end
 

@@ -133,7 +133,7 @@ defmodule Ryker.ControlPlane.Navigation do
           </details>
         <% end %>
       </nav>
-      <p :if={@viewer} class="app-viewer" title={"Signed in to Tailscale as #{@viewer.login}"}>
+      <p :if={@viewer} class="app-viewer" title={signed_in(@viewer)}>
         <strong>{@viewer.name}</strong>
         <small :if={@viewer.name != @viewer.login}>{@viewer.login}</small>
       </p>
@@ -198,6 +198,11 @@ defmodule Ryker.ControlPlane.Navigation do
     do: "#{done} of #{total} steps done"
 
   defp progress(_setup), do: "Continue the setup"
+
+  defp signed_in(%{via: :cloudflare, login: login}),
+    do: "Signed in through Cloudflare Access as #{login}"
+
+  defp signed_in(%{login: login}), do: "Signed in to Tailscale as #{login}"
 
   defp selected?(path, "/"),
     do:

@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
   import Plug.Conn, only: [put_req_header: 3]
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Actions, Endpoint, Projection, TailnetPeople, Viewer}
+  alias Ryker.ControlPlane.{Actions, ConsolePeople, Endpoint, Projection, Viewer}
   alias Ryker.{Instructions, Settings}
 
   @endpoint Endpoint
@@ -64,13 +64,13 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
 
     {:ok, _view, _html} = tailnet("andrew@example.com", "Andrew Example") |> live("/environments")
 
-    assert TailnetPeople.names(["andrew@example.com"]) == %{
+    assert ConsolePeople.names(["andrew@example.com"]) == %{
              "andrew@example.com" => "Andrew Example"
            }
 
     {:ok, _view, _html} = tailnet("andrew@example.com", "Andrew Dryga") |> live("/environments")
 
-    assert TailnetPeople.names(["andrew@example.com"]) == %{
+    assert ConsolePeople.names(["andrew@example.com"]) == %{
              "andrew@example.com" => "Andrew Dryga"
            }
   end
@@ -106,9 +106,11 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
   test "a form posted through Serve is recorded as the tailnet user, and one sent locally is not" do
     request = tailnet("andrew@example.com", "Andrew Example")
 
-    assert Viewer.actor_ref(request, @published) == "control-plane:tailscale:andrew@example.com"
-    assert Viewer.actor_ref(%{request | host: "localhost"}, @published) == "control-plane:local"
-    assert Viewer.actor_ref(request, nil) == "control-plane:local"
+    console = %{public_host: @published}
+
+    assert Viewer.actor_ref(request, console) == "control-plane:tailscale:andrew@example.com"
+    assert Viewer.actor_ref(%{request | host: "localhost"}, console) == "control-plane:local"
+    assert Viewer.actor_ref(request, %{public_host: nil}) == "control-plane:local"
   end
 
   # Every read of a page read the whole settings view twice, about 40 queries each: once for the

@@ -14,13 +14,13 @@ defmodule Ryker.ControlPlane.LabPage do
   import Ryker.ControlPlane.Components
 
   alias Ryker.ControlPlane.{
+    ConsolePeople,
     ConversationLab,
     Environments,
     FailureExplanation,
     HTML,
     Kit,
-    Paths,
-    TailnetPeople
+    Paths
   }
 
   alias Ryker.CoopFleet.ControlPlane.Workers
@@ -432,7 +432,7 @@ defmodule Ryker.ControlPlane.LabPage do
         :if={@message.actor not in [:operator, :integration]}
         src="/assets/brand/mark-mint.svg"
         alt=""
-      /><span :if={@message.actor in [:operator, :integration]}>{TailnetPeople.initials(
+      /><span :if={@message.actor in [:operator, :integration]}>{ConsolePeople.initials(
         author(@message)
       )}</span></span>
       <div class="lab-message-byline">

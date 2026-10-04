@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.RequestContextHTML do
+  alias Ryker.ControlPlane.Actor
   alias Ryker.ControlPlane.CallRun
   alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.ConsolePeople
   alias Ryker.ControlPlane.ConversationMemory
   alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.MemoryFormat
@@ -8,7 +10,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
-  alias Ryker.ControlPlane.TailnetPeople
   alias Ryker.Slack.Names
   @moduledoc "Readable context derived only from an already sanitized inspection artifact."
 
@@ -2789,8 +2790,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp actor_name("ryker", _actor), do: "Ryker"
   defp actor_name("control_plane:user:" <> ref, actor), do: actor_name(ref, actor)
   defp actor_name("local-operator", _actor), do: "You"
-  defp actor_name("tailscale:" <> _login = ref, _actor), do: TailnetPeople.person(ref).name
-  defp actor_name(name, _actor) when is_binary(name), do: name
+
+  defp actor_name(name, _actor) when is_binary(name) do
+    if Actor.chat_ref?(name), do: ConsolePeople.person(name).name, else: name
+  end
+
   defp actor_name(_name, actor), do: human(actor["kind"] || "Source")
 
   defp message_text(%{"body" => text}) when is_binary(text), do: text

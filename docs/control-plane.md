@@ -485,8 +485,16 @@ Ryker never binds to the tailnet itself: the tailnet carries tagged service
 devices, so a bind without an identity check would put production episode
 content, evidence and prompts in reach of any node on it.
 
+An install published through Cloudflare Access (operations.md, "The console
+through Cloudflare Access") answers at its hostname only with a token Access
+signed for the application: Ryker checks the signature against the team's keys,
+the application's audience tag, the team as issuer and the token's lifetime, and
+refuses any other request there. The person is the token's email, and what they
+change is recorded as `control-plane:cloudflare:<email>`. Cloudflare decides who
+may sign in; Ryker never sees a password.
+
 An install published through Tailscale Serve (`RYKER_CONTROL_PUBLIC_URL`, as on
-mac-server) also answers at that host. Serve sets `Tailscale-User-Login` and
+mac-server until two client teams needed in) also answers at that host. Serve sets `Tailscale-User-Login` and
 `Tailscale-User-Name` on each request and replaces any a client sent, so a
 request at the published host names its tailnet user: the sidebar shows them,
 and everything they change is recorded as `control-plane:tailscale:<login>`. A

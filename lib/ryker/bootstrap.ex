@@ -12,6 +12,7 @@ defmodule Ryker.Bootstrap do
     :repo,
     :control_plane,
     :control_public_url,
+    :cloudflare_access,
     :state_tools,
     :worker_gateway,
     :github_listener,
@@ -38,14 +39,17 @@ defmodule Ryker.Bootstrap do
   def load!(env \\ &System.fetch_env/1) do
     control_plane = control_listener!(env)
 
+    control_public_url =
+      public_url!(env, "RYKER_CONTROL_PUBLIC_URL", "http://127.0.0.1:#{control_plane.port}")
+
     %__MODULE__{
       repo: [url: database_url!(env), pool_size: integer!(env, "POOL_SIZE", 10, 1..200)],
       control_plane: control_plane,
       # Where a person opens the console, for the links Ryker posts, such as
       # the weekly report's. Compose publishes the console's port on the host,
       # so the address Ryker listens on is not always the one people use.
-      control_public_url:
-        public_url!(env, "RYKER_CONTROL_PUBLIC_URL", "http://127.0.0.1:#{control_plane.port}"),
+      control_public_url: control_public_url,
+      cloudflare_access: cloudflare_access!(env, control_public_url),
       state_tools: listener!(env, "RYKER_STATE_TOOLS", 4318, :loopback),
       worker_gateway: worker_gateway!(env),
       github_listener: listener!(env, "RYKER_GITHUB", 4319, :network),
@@ -151,6 +155,48 @@ defmodule Ryker.Bootstrap do
            do: invalid!(name, "must be an HTTPS #{kind} without credentials, query or fragment")
 
     String.trim_trailing(value, "/")
+  end
+
+  # Cloudflare Access in front of the console (`Ryker.ControlPlane.CloudflareAccess`): the team
+  # whose keys sign its tokens and the application's audience tag, both or neither. Access serves
+  # the address people open, so that address is HTTPS.
+  defp cloudflare_access!(env, control_public_url) do
+    team = optional!(env, "RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN")
+    audience = optional!(env, "RYKER_CLOUDFLARE_ACCESS_AUD")
+
+    cond do
+      is_nil(team) and is_nil(audience) ->
+        nil
+
+      is_nil(team) or is_nil(audience) ->
+        invalid!(
+          "RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN",
+          "and RYKER_CLOUDFLARE_ACCESS_AUD go together"
+        )
+
+      not Regex.match?(~r/\A[a-z0-9][a-z0-9-]{0,62}\.cloudflareaccess\.com\z/, team) ->
+        invalid!("RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN", "must be <team>.cloudflareaccess.com")
+
+      not Regex.match?(~r/\A[0-9a-f]{64}\z/, audience) ->
+        invalid!("RYKER_CLOUDFLARE_ACCESS_AUD", "must be the application's audience tag")
+
+      not String.starts_with?(control_public_url, "https://") ->
+        invalid!("RYKER_CONTROL_PUBLIC_URL", "must be the HTTPS address Cloudflare Access serves")
+
+      true ->
+        %{team_domain: team, audience: audience}
+    end
+  end
+
+  # An optional value; Compose passes an unset variable as an empty one.
+  defp optional!(env, name) do
+    case env.(name) do
+      {:ok, value} when is_binary(value) ->
+        if String.trim(value) == "", do: nil, else: validate_text!(value, name)
+
+      _unset ->
+        nil
+    end
   end
 
   defp public_url!(env, name, default) do

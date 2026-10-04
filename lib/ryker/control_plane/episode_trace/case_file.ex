@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
-  alias Ryker.ControlPlane.{CurrentInputs, Paths, ProviderMessage, SlackMarkdown, TailnetPeople}
+  alias Ryker.ControlPlane.{ConsolePeople, CurrentInputs, Paths, ProviderMessage, SlackMarkdown}
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.{Episode, RoutingDigests}
@@ -351,7 +351,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   # A message sent in Chat names its person, as Tailscale named them.
   defp actor_label(%{actor_kind: :user, source_kind: "control_plane", actor_ref: actor}) do
-    case TailnetPeople.person(actor) do
+    case ConsolePeople.person(actor) do
       %{name: name} -> name
       nil -> "User"
     end

@@ -66,6 +66,43 @@ defmodule Ryker.BootstrapTest do
     refute Map.has_key?(settings, :slack_enabled)
   end
 
+  # two client teams reach the console through Cloudflare Access (Andrew,
+  # 2026-10-04). Its team and the application's audience tag say whose tokens the console
+  # trusts, so one without the other, or Access in front of a plain-HTTP address, refuses to
+  # start rather than trusting nobody or anybody.
+  test "Cloudflare Access in front of the console is its team and audience, both or neither" do
+    access = %{
+      "RYKER_CONTROL_PUBLIC_URL" => "https://ryker-tenant.example.com",
+      "RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN" => "dryga.cloudflareaccess.com",
+      "RYKER_CLOUDFLARE_ACCESS_AUD" => String.duplicate("a1", 32)
+    }
+
+    assert Bootstrap.load!(environment(access)).cloudflare_access == %{
+             team_domain: "dryga.cloudflareaccess.com",
+             audience: String.duplicate("a1", 32)
+           }
+
+    assert Bootstrap.load!(environment()).cloudflare_access == nil
+
+    # Compose passes an unset variable as an empty one.
+    unset = %{"RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN" => "", "RYKER_CLOUDFLARE_ACCESS_AUD" => ""}
+    assert Bootstrap.load!(environment(unset)).cloudflare_access == nil
+
+    for {name, value} <- [
+          {"RYKER_CLOUDFLARE_ACCESS_AUD", ""},
+          {"RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN", "dryga.example.com"},
+          {"RYKER_CLOUDFLARE_ACCESS_AUD", "not-an-audience-tag"},
+          {"RYKER_CONTROL_PUBLIC_URL", "http://127.0.0.1:4321"}
+        ] do
+      error =
+        assert_raise ArgumentError, fn ->
+          Bootstrap.load!(environment(Map.put(access, name, value)))
+        end
+
+      assert error.message =~ "RYKER_"
+    end
+  end
+
   test "container topology binds the control plane to its network interface explicitly" do
     settings =
       Bootstrap.load!(

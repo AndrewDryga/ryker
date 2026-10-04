@@ -29,6 +29,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     ChannelPage,
     Components,
     ConfigurationGuide,
+    ConsolePeople,
     ConversationLab,
     ConversationProjection,
     Endpoint,
@@ -52,7 +53,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     RunningSystem,
     SettingsPage,
     SettingsView,
-    TailnetPeople,
     UsageProjection,
     Viewer
   }
@@ -111,7 +111,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     # The person's name is kept so every page can name them on what they did.
     if connected?(socket) do
       Actor.act_for(viewer)
-      TailnetPeople.seen(viewer)
+      ConsolePeople.seen(viewer)
     end
 
     {:ok,

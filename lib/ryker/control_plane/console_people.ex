@@ -1,28 +1,30 @@
-defmodule Ryker.ControlPlane.TailnetPeople do
+defmodule Ryker.ControlPlane.ConsolePeople do
   @moduledoc """
-  The people Tailscale Serve named (`Ryker.ControlPlane.Viewer`), by login, with
-  the name it last gave each, so the console names a person on everything they
-  sent or changed. Chat called everyone "You" while Serve said who they were
-  (Andrew, 2026-10-04: "now when we have tailscale auth why not to properly
-  track user everywhere?"). A person is remembered when their page connects
-  (`seen/1`).
+  The people Tailscale Serve or Cloudflare Access named
+  (`Ryker.ControlPlane.Viewer`), by login, with the name it last gave each, so
+  the console names a person on everything they sent or changed. Chat called
+  everyone "You" while Serve said who they were (Andrew, 2026-10-04: "now when
+  we have tailscale auth why not to properly track user everywhere?"). A person
+  is remembered when their page connects (`seen/1`). Access names a person by
+  their email alone.
 
   `person/1` names whoever is behind any reference the console records for a
-  person:
+  person, where `<via>` is `tailscale` or `cloudflare`:
 
-  - a Chat message's author, `tailscale:<login>`;
-  - the person a turn is for, `control_plane:user:tailscale:<login>`;
-  - a Chat reaction's, `control-plane:user:tailscale:<login>`;
-  - a change made on a page, `control-plane:tailscale:<login>`.
+  - a Chat message's author, `<via>:<login>`;
+  - the person a turn is for, `control_plane:user:<via>:<login>`;
+  - a Chat reaction's, `control-plane:user:<via>:<login>`;
+  - a change made on a page, `control-plane:<via>:<login>`.
 
-  The console reached without Tailscale names nobody: its references are the
-  same with `local-operator` (or `control-plane:local`) in place of the
-  person, and a page calls it "You", as before.
+  The console reached any other way names nobody: its references are the same
+  with `local-operator` (or `control-plane:local`) in place of the person, and
+  a page calls it "You", as before.
   """
   use Ecto.Schema
 
   import Ecto.Query
 
+  alias Ryker.ControlPlane.Actor
   alias Ryker.Repo
 
   @primary_key {:login, :string, autogenerate: false}
@@ -33,7 +35,7 @@ defmodule Ryker.ControlPlane.TailnetPeople do
 
   @local %{name: "You", href: nil}
 
-  @doc "Remembers the name Tailscale gives `viewer`'s login; nothing is written while it is the same."
+  @doc "Remembers the name a sign-in gives `viewer`'s login; nothing is written while it is the same."
   @spec seen(Ryker.ControlPlane.Viewer.t() | nil) :: :ok
   def seen(%{login: login, name: name}) do
     now = DateTime.utc_now()
@@ -55,32 +57,37 @@ defmodule Ryker.ControlPlane.TailnetPeople do
   def seen(nil), do: :ok
 
   @doc """
-  Whose `ref` is: `{:tailnet, login}`, `:local` for the console reached
-  without Tailscale, or nil for a reference that is not a console person's.
+  Whose `ref` is: `{:person, login}` for someone Tailscale or Cloudflare
+  named, `:local` for the console reached any other way, or nil for a
+  reference that is not a console person's.
   """
-  @spec identity(term()) :: {:tailnet, String.t()} | :local | nil
+  @spec identity(term()) :: {:person, String.t()} | :local | nil
   def identity("control_plane:user:" <> ref), do: identity(ref)
   def identity("control-plane:user:" <> ref), do: identity(ref)
-  def identity("control-plane:tailscale:" <> login) when login != "", do: {:tailnet, login}
-  def identity("tailscale:" <> login) when login != "", do: {:tailnet, login}
   def identity(local) when local in ["local-operator", "control-plane:local"], do: :local
-  def identity(_ref), do: nil
+
+  def identity(ref) do
+    case Actor.login(ref) do
+      nil -> nil
+      login -> {:person, login}
+    end
+  end
 
   @doc """
-  A console person the way every page names one: the name Tailscale gave
+  A console person the way every page names one: the name their sign-in gave
   them, their login before it gave one, or "You" for the local console; nil
   for a reference that is not a console person's.
   """
   @spec person(term()) :: %{name: String.t(), href: nil} | nil
   def person(ref) do
     case identity(ref) do
-      {:tailnet, login} -> %{name: Map.get(names([login]), login, login), href: nil}
+      {:person, login} -> %{name: Map.get(names([login]), login, login), href: nil}
       :local -> @local
       nil -> nil
     end
   end
 
-  @doc "The name of each login Tailscale named, in one read."
+  @doc "The name of each login a sign-in named, in one read."
   @spec names([String.t()]) :: %{String.t() => String.t()}
   def names([]), do: %{}
 

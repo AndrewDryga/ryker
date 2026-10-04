@@ -179,6 +179,38 @@ This removes the Compose volumes and generated environment. It cannot recover en
 credentials, checkpoints or historical evidence without a backup. The helper says exactly what it
 removed after the operation.
 
+## The console through Cloudflare Access
+
+People who should not join your tailnet, such as another company's team, reach the console through
+Cloudflare Access instead. Cloudflare signs them in with Google (or a one-time code sent to their
+email), and only the people its policy names get through. Ryker checks each request's Access token
+and records what each person changes under their email. Ryker has no roles: everyone the policy
+lets in can see and change everything in this install.
+
+In Cloudflare Zero Trust:
+
+1. Settings › Authentication: add Google as a login method. It needs an OAuth client from Google
+   Cloud whose redirect URI is `https://<team>.cloudflareaccess.com/cdn-cgi/access/callback`.
+   Access's built-in one-time PIN needs no setup.
+2. Networks › Tunnels: create a cloudflared tunnel and run the install command it shows on this
+   host. Give the tunnel a public hostname, such as `ryker.example.com`, whose service is
+   `http://localhost:4321`.
+3. Access › Applications: add a self-hosted application for that hostname, with a policy that
+   allows the people or email domains who may use the console. The application's overview shows
+   its audience (AUD) tag.
+
+Then set, in `.ryker/compose.env`:
+
+```bash
+RYKER_CONTROL_PUBLIC_URL=https://ryker.example.com
+RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
+RYKER_CLOUDFLARE_ACCESS_AUD=<the application's audience tag>
+```
+
+and run `scripts/compose.sh upgrade`. The links Ryker posts now open that address. A request there
+without a token Access signed for the application is refused; the console at `127.0.0.1` works as
+before.
+
 ## Health and recovery
 
 | Endpoint | Meaning |

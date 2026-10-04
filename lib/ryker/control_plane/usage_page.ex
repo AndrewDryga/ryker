@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   """
   alias Phoenix.HTML.Safe
   alias Ryker.{Accounting, Settings}
-  alias Ryker.ControlPlane.{Components, Kit, Paths, SettingsRows, TailnetPeople, UsageChart}
+  alias Ryker.ControlPlane.{Components, ConsolePeople, Kit, Paths, SettingsRows, UsageChart}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
@@ -441,7 +441,7 @@ defmodule Ryker.ControlPlane.UsagePage do
 
   # Someone in Chat, by the name Tailscale gave them.
   defp user(%{source: "control_plane", actor: actor}),
-    do: (TailnetPeople.person(actor) || %{name: actor}).name
+    do: (ConsolePeople.person(actor) || %{name: actor}).name
 
   defp user(row), do: row.actor
 

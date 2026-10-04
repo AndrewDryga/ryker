@@ -115,19 +115,20 @@ defmodule Ryker.ControlPlane.Router do
   def call(conn, options) do
     case BrowserGuard.call(conn,
            access: Map.get(options, :access, :loopback),
-           public_host: Map.get(options, :public_host)
+           public_host: Map.get(options, :public_host),
+           cloudflare_access: Map.get(options, :cloudflare_access)
          ) do
       %Plug.Conn{halted: true} = refused -> refused
       conn -> conn |> HTTPConnection.close_after_refusal() |> as_viewer(options)
     end
   end
 
-  # What a request does is recorded as the person Tailscale Serve named on it
+  # What a request does is recorded as the person Tailscale Serve or Cloudflare Access named on it
   # (`Actor`), and only while it runs: the next request on the same connection
   # may be someone else's. Chat's composer sends here, so a message sent
   # through Serve was recorded as the local console's until 2026-10-04.
   defp as_viewer(conn, options) do
-    Actor.act_for(Viewer.from_conn(conn, Map.get(options, :public_host)))
+    Actor.act_for(Viewer.from_conn(conn, options))
 
     try do
       route(conn, options)
@@ -403,7 +404,7 @@ defmodule Ryker.ControlPlane.Router do
            LearningOperator.retry(
              id,
              form.version,
-             Viewer.actor_ref(conn, Map.get(options, :public_host)),
+             Viewer.actor_ref(conn, options),
              "control-plane:learning-retry:#{id}:#{form.version}"
            ) do
       conn
@@ -437,7 +438,7 @@ defmodule Ryker.ControlPlane.Router do
              form.version,
              form.generation,
              form.sources,
-             Viewer.actor_ref(conn, Map.get(options, :public_host)),
+             Viewer.actor_ref(conn, options),
              "control-plane:knowledge-relearn:#{id}:#{form.version}:#{form.generation}"
            ) do
       learning_redirect(conn, batch_id)
@@ -473,7 +474,7 @@ defmodule Ryker.ControlPlane.Router do
              form.budget_version,
              %{version: form.version, generation: form.generation},
              form.sources,
-             Viewer.actor_ref(conn, Map.get(options, :public_host)),
+             Viewer.actor_ref(conn, options),
              "control-plane:learning-reselect:#{id}:#{form.budget_version}"
            ) do
       learning_redirect(conn, batch_id)

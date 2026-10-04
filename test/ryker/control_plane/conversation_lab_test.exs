@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Artifact
   alias Ryker.Behaviors.Behavior
-  alias Ryker.ControlPlane.{Actions, ConversationLab, ConversationProjection, HTML, TailnetPeople}
+  alias Ryker.ControlPlane.{Actions, ConsolePeople, ConversationLab, ConversationProjection, HTML}
   alias Ryker.ControlPlane.WorkChanges
   alias Ryker.Episodes
   alias Ryker.Fixtures.ChannelEnvironments
@@ -454,7 +454,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert {edited.revision, edited.actor_ref} == {2, andrew}
 
     # The conversation names them as Tailscale did.
-    :ok = TailnetPeople.seen(%{login: "andrew@example.com", name: "Andrew Example"})
+    :ok = ConsolePeople.seen(%{login: "andrew@example.com", name: "Andrew Example"})
     assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
 
     assert [%{author_ref: ^andrew, author: "Andrew Example"}] =

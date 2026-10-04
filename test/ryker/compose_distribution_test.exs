@@ -40,6 +40,11 @@ defmodule Ryker.ComposeDistributionTest do
     assert public =~ "ryker-coop:"
     assert public =~ "RYKER_BUNDLED_COOP_WORKER_ID"
     assert public =~ "RYKER_WORKER_PUBLIC_URL"
+    # The console published through Cloudflare Access (docs/operations.md).
+    assert public =~
+             "RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN: ${RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN:-}"
+
+    assert public =~ "RYKER_CLOUDFLARE_ACCESS_AUD: ${RYKER_CLOUDFLARE_ACCESS_AUD:-}"
     assert public =~ "deploy/compose/coop/Dockerfile"
     assert public =~ "ryker-coop-docker:"
     assert public =~ "DOCKER_HOST"

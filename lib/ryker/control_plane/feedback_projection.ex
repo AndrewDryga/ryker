@@ -20,14 +20,14 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
 
   alias Ryker.ControlPlane.{
     Activity,
+    ConsolePeople,
     CurrentInputs,
     FeedbackChart,
     ImprovementProjection,
     PagedRelation,
     Paths,
     Search,
-    SlackMarkdown,
-    TailnetPeople
+    SlackMarkdown
   }
 
   alias Ryker.Episodes.{Episode, RoutingDigest}
@@ -353,7 +353,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   end
 
   defp who(%Signal{actor_ref: actor}, _request),
-    do: TailnetPeople.person(actor) || %{name: "You", href: nil}
+    do: ConsolePeople.person(actor) || %{name: "You", href: nil}
 
   defp message_href("ingress-input:" <> _id = ref), do: Paths.request(ref)
 
