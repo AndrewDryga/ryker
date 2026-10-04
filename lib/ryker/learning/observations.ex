@@ -10,6 +10,7 @@ defmodule Ryker.Learning.Observations do
 
   alias Ryker.Continuity
   alias Ryker.Continuity.Relevance
+  alias Ryker.Continuity.Scope, as: ContinuityScope
   alias Ryker.Knowledge
   alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
@@ -466,15 +467,7 @@ defmodule Ryker.Learning.Observations do
 
   @doc false
   def visible_conversations(%{transport: "slack", visibility: :public} = scope) do
-    workspace = String.replace_prefix(scope.workspace_ref, "slack:", "")
-
-    public =
-      from(member in ChannelMembership,
-        where:
-          member.workspace_ref == ^workspace and member.status == :joined and
-            member.private == false and member.external_shared == false,
-        select: fragment("'slack:' || ? || ':' || ?", member.workspace_ref, member.channel_ref)
-      )
+    public = ContinuityScope.public_conversations(scope.workspace_ref)
 
     dynamic(
       [note],

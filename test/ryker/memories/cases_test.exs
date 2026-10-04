@@ -76,25 +76,30 @@ defmodule Ryker.Memories.CasesTest do
     old = finished!("case:searchable", @outage)
     assert {:ok, record} = Cases.capture(old.id)
 
-    context = %{
-      conversation_ref: old.destination_conversation_ref,
-      repository: nil,
-      workspace_ref: record.workspace_ref
-    }
-
     for scope <- ~w(workspace global current_channel) do
-      {:ok, found} =
-        Repo.transaction(fn ->
-          MemorySearchPage.read(
-            MemorySearchPage.first("pgsql-prod-01", scope),
-            5,
-            &Cases.search_page(context, &1)
-          )
-        end)
-
-      assert [%{"case_ref" => case_ref}] = found, scope
-      assert case_ref == record.case_ref
+      assert found(old, scope) == [record.case_ref], scope
     end
+  end
+
+  # Recall and search matched cases by workspace alone, so work in a DM or a private channel
+  # reached every public and Slack Connect channel of the workspace, which notes and topics
+  # never do (2026-10-04 review). A case travels from one public channel to another, never
+  # out of a private, shared or direct conversation.
+  test "a case from a private, shared or direct conversation is recalled only where it happened" do
+    channels!(public: ~w(CDEVOPS CPUBLIC), private: ~w(CPRIVATE), shared: ~w(CSHARED))
+
+    public = capture!(finished!("case:public", @outage, channel: "CPUBLIC"))
+    private = capture!(finished!("case:private", @outage, channel: "CPRIVATE"))
+    _shared = capture!(finished!("case:shared", @outage, channel: "CSHARED"))
+    _direct = capture!(finished!("case:direct", @outage, channel: "DALICE"))
+
+    asking = finished!("case:asking", "The #{@outage} again on pgsql-prod-01")
+    assert Enum.map(Cases.recall(asking), & &1["case_ref"]) == [public.case_ref]
+    assert found(asking, "workspace") == [public.case_ref]
+
+    in_private = finished!("case:asking-private", "The #{@outage} again", channel: "CPRIVATE")
+    assert private.case_ref in Enum.map(Cases.recall(in_private), & &1["case_ref"])
+    assert private.case_ref in found(in_private, "workspace")
   end
 
   test "explicit deletion erases the case beyond recall" do
@@ -425,6 +430,33 @@ defmodule Ryker.Memories.CasesTest do
       })
 
     transition.episode
+  end
+
+  defp channels!(kinds) do
+    channels =
+      for {kind, refs} <- kinds, channel_ref <- refs do
+        %{channel_ref: channel_ref, private: kind == :private, external_shared: kind == :shared}
+      end
+
+    {:ok, _joined} =
+      ChannelConfigurations.reconcile_joined("TCASES", channels, %{
+        default_environment: nil,
+        environments: []
+      })
+  end
+
+  # The case refs a workspace-wide `search_memory` page finds for `episode`.
+  defp found(episode, scope) do
+    {:ok, documents} =
+      Repo.transaction(fn ->
+        MemorySearchPage.read(
+          MemorySearchPage.first("pgsql-prod-01", scope),
+          5,
+          &Cases.search_page(episode, nil, &1)
+        )
+      end)
+
+    Enum.map(documents, & &1["case_ref"])
   end
 
   # Slack deletes the channel, as the membership event reports it.

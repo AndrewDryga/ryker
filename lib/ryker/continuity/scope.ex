@@ -109,6 +109,22 @@ defmodule Ryker.Continuity.Scope do
   def public_source_visible?(_non_slack), do: false
 
   @doc """
+  The conversations of a Slack workspace (`slack:<workspace>`) that share what
+  was learned in them with its other public channels: those the host has
+  joined that are neither private nor externally shared, as a query of their
+  conversation refs.
+  """
+  @spec public_conversations(String.t()) :: Ecto.Query.t()
+  def public_conversations("slack:" <> workspace) do
+    from(member in ChannelMembership,
+      where:
+        member.workspace_ref == ^workspace and member.status == :joined and
+          member.private == false and member.external_shared == false,
+      select: fragment("'slack:' || ? || ':' || ?", member.workspace_ref, member.channel_ref)
+    )
+  end
+
+  @doc """
   The visibility of a Slack channel: `:public` for a joined internal channel,
   `:private` for a joined private or externally shared one, and `:conversation`
   when the host has not joined it.

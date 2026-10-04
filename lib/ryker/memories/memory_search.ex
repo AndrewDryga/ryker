@@ -298,7 +298,8 @@ defmodule Ryker.Memories.MemorySearch do
     end)
   end
 
-  defp fetch("case", binding, page), do: Cases.search_page(context(binding), page)
+  defp fetch("case", binding, page),
+    do: Cases.search_page(binding.episode, binding.session.repository_ref, page)
 
   defp fetch("fact", binding, page), do: Recall.search_page(context(binding), page)
 

@@ -25,7 +25,9 @@ defmodule Ryker.Memories.Cases do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Continuity.Scope, as: ContinuityScope
   alias Ryker.Episodes.{CorrelationClaim, Episode, Origin, RoutingDigest, RoutingDigests}
+  alias Ryker.Episodes.Scope, as: WorkspaceScope
   alias Ryker.Memories.CaseRecord
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Records.Record
@@ -82,15 +84,15 @@ defmodule Ryker.Memories.Cases do
   def recall(%Episode{} = episode, limit \\ @recall_limit) do
     terms = RoutingDigests.search_terms(digest_text(episode))
 
-    if terms == "" do
-      []
-    else
+    with false <- terms == "",
+         {:ok, scope} <- ContinuityScope.destination_context(episode, nil) do
       Repo.all(
         from(record in CaseRecord,
           where:
-            record.status == :active and record.workspace_ref == ^workspace_ref(episode) and
+            record.status == :active and record.workspace_ref == ^scope.workspace_ref and
               record.execution_mode == ^episode.execution_mode and
               record.episode_id != ^episode.id,
+          where: ^visible(scope),
           where:
             fragment(
               "to_tsvector('english', ?) @@ to_tsquery('english', ?)",
@@ -110,29 +112,56 @@ defmodule Ryker.Memories.Cases do
         )
       )
       |> Enum.map(&document/1)
+    else
+      _nothing_to_recall -> []
     end
   end
 
-  @doc "One `search_memory` page over retained cases."
-  @spec search_page(map(), map()) :: {:ok, map(), list()} | :done
-  def search_page(context, page) do
-    # A dynamic filter must be its own `where`: inside the boolean above it,
-    # Ecto refused the query and every memory search failed.
-    from(record in CaseRecord,
-      where: record.status == :active and record.workspace_ref == ^context.workspace_ref,
-      where: ^scope_filter(context, page.scope)
-    )
-    |> MemorySearchPage.one(
-      page,
-      dynamic([record], record.search_text),
-      dynamic([record], record.updated_at),
-      dynamic([record], record.closed_at)
-    )
-    |> case do
-      {:ok, record, position} -> {:ok, document(record), position}
-      :done -> :done
+  @doc "One `search_memory` page over the retained cases `episode` may see."
+  @spec search_page(Episode.t(), String.t() | nil, map()) :: {:ok, map(), list()} | :done
+  def search_page(%Episode{} = episode, repository_ref, page) do
+    case ContinuityScope.destination_context(episode, repository_ref) do
+      {:ok, scope} ->
+        # A dynamic filter must be its own `where`: inside the boolean above
+        # it, Ecto refused the query and every memory search failed.
+        from(record in CaseRecord,
+          where:
+            record.status == :active and record.workspace_ref == ^scope.workspace_ref and
+              record.execution_mode == ^episode.execution_mode,
+          where: ^visible(scope),
+          where: ^scope_filter(scope, page.scope)
+        )
+        |> MemorySearchPage.one(
+          page,
+          dynamic([record], record.search_text),
+          dynamic([record], record.updated_at),
+          dynamic([record], record.closed_at)
+        )
+        |> case do
+          {:ok, record, position} -> {:ok, document(record), position}
+          :done -> :done
+        end
+
+      {:error, _reason} ->
+        :done
     end
   end
+
+  # A case is seen where its work happened, and passes from one public channel
+  # to another public channel of its workspace, as notes and topics do. Matching
+  # by workspace alone took work in a DM or a private channel into every public
+  # and Slack Connect channel (2026-10-04 review).
+  defp visible(%{transport: "slack", visibility: :public} = scope) do
+    public = ContinuityScope.public_conversations(scope.workspace_ref)
+
+    dynamic(
+      [record],
+      record.conversation_ref == ^scope.conversation_ref or
+        record.conversation_ref in subquery(public)
+    )
+  end
+
+  defp visible(scope), do: dynamic([record], record.conversation_ref == ^scope.conversation_ref)
 
   @doc """
   Explicitly removes one retained case.
@@ -251,7 +280,7 @@ defmodule Ryker.Memories.Cases do
       status: :deleted,
       transport: episode.destination_transport,
       updated_at: now,
-      workspace_ref: workspace_ref(episode)
+      workspace_ref: WorkspaceScope.workspace_ref(episode)
     }
 
     case Repo.insert_all(CaseRecord, [withdrawn],
@@ -364,7 +393,7 @@ defmodule Ryker.Memories.Cases do
       conversation_refs: conversation_refs(episode.id),
       status: :active,
       transport: episode.destination_transport,
-      workspace_ref: workspace_ref(episode)
+      workspace_ref: WorkspaceScope.workspace_ref(episode)
     })
   end
 
@@ -522,20 +551,13 @@ defmodule Ryker.Memories.Cases do
   defp scope_filter(context, "current_channel"),
     do: dynamic([record], record.conversation_ref == ^context.conversation_ref)
 
-  defp scope_filter(%{repository: repository}, "repository") when is_binary(repository),
+  defp scope_filter(%{repository_ref: repository}, "repository") when is_binary(repository),
     do: dynamic([record], record.repository_ref == ^repository)
 
   defp scope_filter(_context, scope) when scope in ["workspace", "global"],
     do: dynamic([_record], true)
 
   defp scope_filter(_context, _scope), do: dynamic([_record], false)
-
-  defp workspace_ref(%Episode{} = episode) do
-    case String.split(episode.destination_conversation_ref, ":", parts: 3) do
-      [transport, id, _rest] -> "#{transport}:#{id}"
-      _other -> episode.destination_conversation_ref
-    end
-  end
 
   defp bounded(nil, _limit), do: nil
   defp bounded(text, limit), do: String.byte_slice(text, 0, limit)
