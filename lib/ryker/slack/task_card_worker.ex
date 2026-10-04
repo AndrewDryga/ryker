@@ -2,15 +2,18 @@ defmodule Ryker.Slack.TaskCardWorker do
   @moduledoc """
   Repairs and refreshes one Slack engineering-task card at a time.
 
-  A task that is confirmed and a card that is rearmed are announced, and each
-  wakes the worker at once. Otherwise it sleeps until the next card's check,
-  retry or unrenewed lease falls due, or for its safety-net interval.
+  A task that is confirmed, a card that is rearmed and any change to a request
+  are announced, and each wakes the worker at once: a task that starts working
+  again is due then. Otherwise it sleeps until the next card's check
+  (`Ryker.Slack.TaskCards.next_due_at/2`), retry or unrenewed lease falls due,
+  or for its safety-net interval.
   """
 
   use Ryker.PollingWorker, lane: :slack_task_cards, interval: :interval_ms
 
   require Logger
 
+  alias Ryker.Episodes
   alias Ryker.Observability.Progress
   alias Ryker.Options
   alias Ryker.PollingWorker
@@ -27,7 +30,12 @@ defmodule Ryker.Slack.TaskCardWorker do
   end
 
   @impl PollingWorker
-  def wake_on(_options), do: [&Records.subscribe_records/0, &TaskCards.subscribe_task_cards/0]
+  def wake_on(_options),
+    do: [
+      &Records.subscribe_records/0,
+      &TaskCards.subscribe_task_cards/0,
+      &Episodes.subscribe_episodes/0
+    ]
 
   @impl PollingWorker
   def poll(options) do

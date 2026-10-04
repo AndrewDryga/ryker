@@ -21,6 +21,13 @@ defmodule Ryker.Slack.TaskCards do
 
   @maximum_error_detail_bytes 4_096
 
+  # A card shows its task. While the task works its progress moves, so the card
+  # is checked every few seconds (`check_interval_seconds`); otherwise only a
+  # person, an event or GitHub moves it, and the card is checked once a minute.
+  # Every active card was rebuilt every 2 seconds, finished tasks' too: five
+  # cards kept an idle install at about 350 queries a second (2026-10-04).
+  @quiet_check_seconds 60
+
   @spec ensure_one() :: {:ok, TaskCard.t() | nil} | {:error, term()}
   def ensure_one do
     Repo.transaction(&ensure_one_locked/0)
@@ -29,22 +36,27 @@ defmodule Ryker.Slack.TaskCards do
 
   @doc """
   The earliest moment after `since` at which an active card becomes due by the
-  clock alone: its next check `check_interval_seconds` after the last, the end
-  of a retry's backoff, or the end of an unrenewed lease, whichever it waits
-  on last. Nil when no card waits on the clock.
+  clock alone: its next check after the last (`check_interval_seconds` while
+  its task works, a minute otherwise), the end of a retry's backoff, or the
+  end of an unrenewed lease, whichever it waits on last. Nil when no card
+  waits on the clock.
   """
   @spec next_due_at(DateTime.t(), pos_integer()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, check_interval_seconds)
       when is_integer(check_interval_seconds) do
     due =
       from(card in TaskCard,
+        left_join: episode in Episode,
+        on: episode.id == card.episode_id,
         where: card.status == :active,
         select: %{
           due_at:
             type(
               fragment(
-                "GREATEST(?, ?, ?)",
+                "GREATEST(CASE WHEN ? = 'working' THEN ? ELSE ? END, ?, ?)",
+                episode.state,
                 datetime_add(card.card_checked_at, ^check_interval_seconds, "second"),
+                datetime_add(card.card_checked_at, ^@quiet_check_seconds, "second"),
                 card.next_attempt_at,
                 card.lease_expires_at
               ),
@@ -131,12 +143,20 @@ defmodule Ryker.Slack.TaskCards do
   defp claim_next_locked(worker_ref, lease_seconds, check_interval_seconds) do
     now = database_now!()
     due_at = DateTime.add(now, -check_interval_seconds, :second)
+    quiet_due_at = DateTime.add(now, -@quiet_check_seconds, :second)
+
+    working =
+      from(episode in Episode,
+        where: episode.id == parent_as(:card).episode_id and episode.state == :working
+      )
 
     query =
       from(card in TaskCard,
+        as: :card,
         where:
           card.status == :active and
-            (is_nil(card.card_checked_at) or card.card_checked_at <= ^due_at) and
+            (is_nil(card.card_checked_at) or card.card_checked_at <= ^quiet_due_at or
+               (card.card_checked_at <= ^due_at and exists(working))) and
             (is_nil(card.next_attempt_at) or card.next_attempt_at <= ^now) and
             (is_nil(card.lease_expires_at) or card.lease_expires_at <= ^now),
         order_by: [asc_nulls_first: card.card_checked_at, asc: card.updated_at, asc: card.id],
@@ -150,7 +170,7 @@ defmodule Ryker.Slack.TaskCards do
     end
   end
 
-  # A claim only takes the lease, which no page shows. Every active card is
+  # A claim only takes the lease, which no page shows. A working task's card is
   # claimed every few seconds; announcing each claim woke every worker that
   # listens to requests as often.
   defp lease_card(card, worker_ref, lease_seconds, now) do

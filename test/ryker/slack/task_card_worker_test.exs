@@ -6,6 +6,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
 
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
   alias Ryker.{Episodes, Repo}
+  alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Operator.Failures
   alias Ryker.Records
@@ -177,6 +178,55 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
 
     refute_received {:task_card_updated, _card_id}
     refute_received {:episode_updated, ^episode_id}
+  end
+
+  # Every active card was rebuilt every two seconds for as long as its task existed, finished
+  # tasks' too: five cards kept an idle install at about 350 queries a second, each rebuild
+  # reading the task's records, session and memory sources (2026-10-04). A task that is not
+  # working moves only when a person, an event or GitHub moves it, so its card is checked once a
+  # minute; a working task's card is still checked every few seconds.
+  test "a card is checked every few seconds only while its task works" do
+    finished = card!("finished")
+    working = card!("working")
+    finish!(finished.episode.id)
+    checked = DateTime.add(Repo.now!(), -10, :second)
+
+    Repo.update_all(from(stored in TaskCard, where: stored.id in ^[finished.id, working.id]),
+      set: [card_checked_at: checked]
+    )
+
+    assert {:ok, %TaskCard{id: claimed}} = TaskCards.claim_next("task-card-worker-test", 60, 1)
+    assert claimed == working.id
+    assert TaskCards.claim_next("task-card-worker-test", 60, 1) == {:ok, nil}
+
+    # The finished task's card falls due a minute after its last check.
+    assert TaskCards.next_due_at(checked, 1) == DateTime.add(checked, 60, :second)
+  end
+
+  test "a finished task's card is still checked once a minute" do
+    card = card!("minute")
+    finish!(card.episode.id)
+
+    Repo.update_all(from(stored in TaskCard, where: stored.id == ^card.id),
+      set: [card_checked_at: DateTime.add(Repo.now!(), -61, :second)]
+    )
+
+    assert {:ok, %TaskCard{id: claimed}} = TaskCards.claim_next("task-card-worker-test", 60, 1)
+    assert claimed == card.id
+  end
+
+  defp finish!(episode_id) do
+    Repo.update_all(from(episode in Episode, where: episode.id == ^episode_id),
+      set: [
+        state: :complete,
+        owner_kind: nil,
+        owner_ref: nil,
+        owner_deadline_at: nil,
+        active_input_refs: [],
+        queued_input_refs: [],
+        queued_input_order_keys: []
+      ]
+    )
   end
 
   defp sleeping_options(client),
