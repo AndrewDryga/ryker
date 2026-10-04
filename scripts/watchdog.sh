@@ -52,6 +52,11 @@ repository=$(cd "$(dirname "$0")/.." && pwd)
 env_file="${WATCHDOG_ENV_FILE:-${RYKER_INSTALL_STATE:-$repository/.ryker}/compose.env}"
 state_dir="${WATCHDOG_STATE:-$HOME/.local/state/ryker-watchdog}"
 docker_command="${WATCHDOG_DOCKER:-docker}"
+# A Docker that hangs, as a wedged OrbStack does, held this check for good, and
+# launchd starts no new one while the last still runs: no alarm came in exactly
+# the case that had already happened here (2026-10-04 review). Every Docker
+# call gets this many seconds.
+docker_timeout="${WATCHDOG_DOCKER_TIMEOUT:-30}"
 log="$state_dir/watchdog.log"
 # Three consecutive bad checks before saying anything, so a deploy — which
 # replaces the container and drops readiness for a minute — passes in silence.
@@ -114,15 +119,27 @@ readiness() {
   fi
 }
 
+# within_deadline SECONDS COMMAND... runs COMMAND, killed with SIGALRM (status
+# 142) once SECONDS pass. macOS has no timeout(1); perl is always there.
+within_deadline() {
+  /usr/bin/perl -e 'alarm shift @ARGV; exec @ARGV or exit 127' "$@"
+}
+
 # containers prints what is wrong with the project's containers, one reason
 # per line, or nothing. `volume-init` exits by design and is not listed.
 containers() {
-  local listing service line state health
-  listing=$("$docker_command" compose --env-file "$env_file" --file "$repository/compose.yml" \
-    ps --all --format $'{{.Service}}\t{{.State}}\t{{.Health}}' 2>/dev/null) || {
+  local listing service line state health status
+  listing=$(within_deadline "$docker_timeout" "$docker_command" compose --env-file "$env_file" \
+    --file "$repository/compose.yml" \
+    ps --all --format $'{{.Service}}\t{{.State}}\t{{.Health}}' 2>/dev/null)
+  status=$?
+  if ((status == 142)); then
+    echo "Docker is not answering"
+    return
+  elif ((status != 0)); then
     echo "docker compose cannot list the project's containers"
     return
-  }
+  fi
   for service in ryker database ryker-coop ryker-coop-docker; do
     line=$(printf '%s\n' "$listing" | /usr/bin/awk -F '\t' -v service="$service" '$1 == service { print; exit }')
     if [[ -z $line ]]; then

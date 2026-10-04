@@ -127,6 +127,7 @@ cat >"$work/bin/docker" <<'SH'
 #!/bin/bash
 fake=$WATCHDOG_TEST_FAKE
 [[ -f $fake/docker.down ]] && exit 1
+[[ -f $fake/docker.hung ]] && exec sleep 300
 cat "$fake/containers"
 SH
 chmod 0755 "$work/bin/docker"
@@ -153,7 +154,7 @@ run() {
   [[ -f $WATCHDOG_STATE/watchdog.log ]] && tail -n +"$((before + 1))" "$WATCHDOG_STATE/watchdog.log"
   echo "exit=$status"
 }
-reset() { rm -rf "$WATCHDOG_STATE" "$fake/docker.down"; all_healthy; serving 1.2.3; }
+reset() { rm -rf "$WATCHDOG_STATE" "$fake/docker.down" "$fake/docker.hung"; all_healthy; serving 1.2.3; }
 
 # ---------------------------------------------------------------------------
 # A healthy deployment is silent, and the heartbeat proves the check ran.
@@ -241,6 +242,19 @@ run >/dev/null
 nodocker=$(run)
 check "a Docker that cannot list the project alarms" \
   "ALERT Ryker is not working — docker compose cannot list the project's containers" "$nodocker"
+
+# 2026-10-04 review: a Docker that hangs, as a wedged OrbStack does, held the check for
+# good, and launchd starts no new one while the last still runs. No alarm came in exactly
+# the case that had already happened here. Every Docker call has a deadline.
+reset; ready; touch "$fake/docker.hung"
+export WATCHDOG_DOCKER_TIMEOUT=1
+started=$SECONDS
+run >/dev/null
+hung=$(run)
+unset WATCHDOG_DOCKER_TIMEOUT
+check "a Docker that does not answer alarms" "ALERT Ryker is not working — Docker is not answering" "$hung"
+check "a Docker that does not answer does not hold the check" "fast" \
+  "$( ((SECONDS - started < 20)) && echo fast || echo "took $((SECONDS - started))s")"
 
 # ---------------------------------------------------------------------------
 # 2026-09-30: voice moved to whisper on this Mac. When it stops, Ryker falls
