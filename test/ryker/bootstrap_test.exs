@@ -66,7 +66,7 @@ defmodule Ryker.BootstrapTest do
     refute Map.has_key?(settings, :slack_enabled)
   end
 
-  # two client teams reach the console through Cloudflare Access (Andrew,
+  # Two client teams reach the console through Cloudflare Access (Andrew,
   # 2026-10-04). Its team and the application's audience tag say whose tokens the console
   # trusts, so one without the other, or Access in front of a plain-HTTP address, refuses to
   # start rather than trusting nobody or anybody.

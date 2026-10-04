@@ -127,6 +127,41 @@ defmodule Ryker.RedactionAuditTest do
              "leaving a reason that shelters a future paste: #{Enum.join(stale, ", ")}"
   end
 
+  # Free-text identities (an organization, its repositories, a person, a host) have no shape to
+  # allowlist, and listing them here would publish them. The operator keeps them in an ignored
+  # file, one per line, and this fails when any reaches a tracked file. Commits after the
+  # 2026-10-01 substitution put the tenant's organization and repository names back into comments
+  # and tests, and nothing above could see it (2026-10-04). A checkout without the file, such as
+  # CI's, checks nothing here.
+  @private_names Path.expand("../../.ryker/redaction-denylist", __DIR__)
+
+  test "no name the operator keeps private reaches a tracked file" do
+    names =
+      case File.read(@private_names) do
+        {:ok, text} ->
+          text
+          |> String.split("\n")
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "#")))
+
+        {:error, :enoent} ->
+          []
+      end
+
+    if names != [] do
+      {output, status} =
+        System.cmd(
+          "git",
+          ["grep", "-I", "-l", "-i", "-F"] ++ Enum.flat_map(names, &["-e", &1]) ++ ["--", "."],
+          cd: Path.expand("../..", __DIR__)
+        )
+
+      # git grep answers 1 when nothing matched. The names stay out of the message.
+      assert {status, output} == {1, ""},
+             "a privately listed name reached these tracked files:\n" <> output
+    end
+  end
+
   defp scan do
     root = Path.expand("../..", __DIR__)
 

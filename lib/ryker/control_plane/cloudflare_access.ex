@@ -4,8 +4,8 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
 
   An install published through Cloudflare Access, a tunnel to the console with
   an Access application in front, gets every request with the signed-in
-  person's token in `Cf-Access-Jwt-Assertion` (Andrew, 2026-10-04: two
-  client teams sign in with Google rather than join his tailnet). Ryker
+  person's token in `Cf-Access-Jwt-Assertion` (Andrew, 2026-10-04: two client
+  teams sign in with Google rather than join his tailnet). Ryker
   names that person only after checking the token the way Cloudflare asks an
   origin to: an RS256 signature by a key the team publishes at
   `https://<team domain>/cdn-cgi/access/certs`, the application's audience tag,

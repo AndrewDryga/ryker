@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
   @moduledoc """
-  Andrew, 2026-10-04: two client teams sign in to the tenant console
+  Andrew, 2026-10-04: two client teams sign in to the second install's console
   with Google through Cloudflare Access, since joining his tailnet would make
   them switch Tailscale accounts back and forth. Published that way, the console
   names the person Access let in, records what they change as theirs, and turns
@@ -72,7 +72,9 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
     {:ok, view, _html} = key |> signed_in("dev@tenant.example") |> live("/setup")
     view |> element("button[phx-click=initialize-settings]") |> render_click()
 
-    assert Settings.fetch!().installation.saved_by == "control-plane:cloudflare:dev@tenant.example"
+    assert Settings.fetch!().installation.saved_by ==
+             "control-plane:cloudflare:dev@tenant.example"
+
     assert ConsolePeople.person("cloudflare:dev@tenant.example").name == "dev@tenant.example"
 
     request = signed_in(key, "dev@tenant.example")
