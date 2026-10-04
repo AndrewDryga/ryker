@@ -14,7 +14,6 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
   @head "783fc4801d274d5ee05feb3fbc5c70981b1bbd7a"
   @binding %{name: "widget"}
   @repository %{github_repository: "acme/widget", base_branch: "main"}
-  @url "https://github.com/acme/widget/pull/7"
 
   setup do
     {:ok, _snapshot} = Settings.initialize("control-plane:local")

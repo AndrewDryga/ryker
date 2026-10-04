@@ -915,17 +915,6 @@ defmodule Ryker.Slack.TaskEndToEndTest do
            "a Slack post said #{inspect(text)}"
   end
 
-  defp receive_post_containing!(expected) do
-    receive do
-      {:slack_posted, _channel, _thread, document, _delivery_ref, _message_ref} = message ->
-        if Jason.encode!(document) =~ expected,
-          do: message,
-          else: receive_post_containing!(expected)
-    after
-      1_000 -> flunk("did not receive Slack post containing #{inspect(expected)}")
-    end
-  end
-
   defp native_task_binding(session) do
     %{
       "offer_ref" => session.workspace_task["offer_ref"],

@@ -157,6 +157,24 @@ defmodule Ryker.ComposeDistributionTest do
     refute read("lib/ryker/application.ex") =~ "ProblemWatcher"
   end
 
+  # The BEAM writes erl_crash.dump where it runs. Only /crash.dump was ignored, so one crash
+  # left the checkout dirty and deploy.sh refused every deploy until someone deleted it
+  # (2026-10-04 review).
+  test "an Erlang crash dump never dirties the checkout" do
+    assert {_ignored, 0} = System.cmd("git", ["check-ignore", "-q", "erl_crash.dump"])
+  end
+
+  # The gate checked scripts/*.sh only, so the two container entrypoints, which run as
+  # PID 1, and install.sh were never checked (2026-10-04 review).
+  test "ShellCheck reads every shell file in the repository" do
+    {command, 0} = System.cmd("make", ["-n", "shellcheck"])
+    {tracked, 0} = System.cmd("git", ["ls-files", "*.sh"])
+
+    for file <- String.split(tracked, "\n", trim: true) do
+      assert command =~ file, "make shellcheck skips #{file}"
+    end
+  end
+
   test "the production image is an Elixir release without a Node runtime" do
     dockerfile = read("Dockerfile")
 

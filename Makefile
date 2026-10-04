@@ -152,8 +152,9 @@ eval-trend:
 control-plane-js-check:
 	node --test test/js/*_test.mjs
 
+# Every tracked shell file, the container entrypoints and install.sh included.
 shellcheck:
-	shellcheck scripts/*.sh
+	shellcheck $(shell git ls-files '*.sh')
 
 # The script self-tests: each breaks its subject on purpose, against a fake
 # control plane and a fake Docker, and watches it complain.
