@@ -195,8 +195,11 @@ defmodule Ryker.PollingWorkerTest do
     end
 
     polls = received_polls(worker, [], 400)
-    # The first four at once, then one each 250 ms: seven in about 750 ms.
-    assert length(polls) in 5..8
+    # The first four at once, then one each 250 ms however long the stream
+    # lasted. A count fixed for a stream of about 600 ms failed when a loaded
+    # host stretched the stream to seconds (2026-10-05).
+    assert length(polls) >= 5
+    assert length(polls) <= 4 + div(List.last(polls) - hd(polls), 250) + 1
     assert polls |> Enum.take(4) |> Enum.all?(&(&1 - started < 150))
   end
 

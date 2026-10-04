@@ -36,7 +36,10 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   setup do
     observer = self()
-    {:ok, counters} = Agent.start_link(fn -> %{active: 1, chat_readiness: :ready} end)
+    # Supervised, so it outlives the test process: a page still open when the
+    # test ends may reload once more, and it crashed reading a counter that
+    # had died with the test.
+    counters = start_supervised!({Agent, fn -> %{active: 1, chat_readiness: :ready} end})
 
     {:ok, lab_profile} =
       WorkProfile.new(%{
