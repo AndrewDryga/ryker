@@ -57,7 +57,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     Viewer
   }
 
-  alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
+  alias Ryker.{InspectionRedactor, IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.Retention.Data, as: RetentionData
   alias Ryker.Slack.{ChannelConfigurations, Names}
 
@@ -1323,10 +1323,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp setup_progress(%{assigns: %{setup_counted: true, setup_progress: nil}}), do: nil
   defp setup_progress(_socket), do: SettingsView.setup_progress()
 
-  # Every read of a page is measured: its queries and time (`PageCost`).
+  # Every read of a page is measured: its queries and time (`PageCost`). Its
+  # artifacts share one look at the configured secrets.
   defp refresh(socket, reset \\ false) do
     label = "#{socket.assigns.path} (#{if connected?(socket), do: "live", else: "first render"})"
-    PageCost.measure(label, fn -> read_shell_and_page(socket, reset) end)
+
+    PageCost.measure(label, fn ->
+      InspectionRedactor.with_configured_secrets(fn -> read_shell_and_page(socket, reset) end)
+    end)
   end
 
   defp read_shell_and_page(socket, reset) do

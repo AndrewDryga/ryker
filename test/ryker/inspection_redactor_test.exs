@@ -3,6 +3,22 @@ defmodule Ryker.InspectionRedactorTest do
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.InspectionRedactor
 
+  # Each artifact built while a page was read walked the whole application environment for the
+  # configured secrets: 182 times for one timeline, 1.4 of its 1.6 seconds (2026-10-04). A page
+  # read works them out once; the next read works them out again.
+  test "a page read works out the configured secrets once" do
+    secret = "memo-" <> Base.encode16(:crypto.strong_rand_bytes(12))
+    on_exit(fn -> Application.delete_env(:ryker, :memo_test_token) end)
+
+    InspectionRedactor.with_configured_secrets(fn ->
+      Application.put_env(:ryker, :memo_test_token, secret)
+      refute secret in InspectionRedactor.configured_secrets()
+    end)
+
+    assert secret in InspectionRedactor.configured_secrets()
+    assert InspectionRedactor.artifact("it leaked #{secret}").text =~ "[redacted]"
+  end
+
   test "redacting a Slack alert URL preserves its complete readable label" do
     # The retained HAProxy alert lost 'Open' and displayed a long URL instead.
     [source | _] =

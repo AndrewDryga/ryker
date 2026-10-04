@@ -6,6 +6,7 @@ defmodule Ryker.InspectionRedactor do
   @withheld "[partial structured content withheld]"
   @secret_key ~r/(?:^|[_-])(?:authorization|cookie|password|passwd|secret|secrets|token|api[_-]?key|private[_-]?key|signing[_-]?key|userinfo|credential|credentials)(?:$|[_-])/i
   @maximum_source_bytes 2 * 1_024 * 1_024
+  @secrets_memo {__MODULE__, :configured_secrets}
 
   def artifact(value, options \\ [])
 
@@ -94,6 +95,37 @@ defmodule Ryker.InspectionRedactor do
   def redact(value, secrets) when is_list(secrets), do: sanitize(value, secrets, 0)
 
   def configured_secrets do
+    case Process.get(@secrets_memo) do
+      nil -> collect_configured_secrets()
+      secrets -> secrets
+    end
+  end
+
+  @doc """
+  Runs `fun` with the configured secrets worked out once, for every artifact
+  it builds. Each artifact asked again, and each time walked the whole
+  application environment: 182 times for one timeline, 1.4 of its 1.6
+  seconds (2026-10-04). Nothing a page read shows changes the configuration
+  within the read.
+  """
+  @spec with_configured_secrets((-> result)) :: result when result: term()
+  def with_configured_secrets(fun) do
+    case Process.get(@secrets_memo) do
+      nil ->
+        Process.put(@secrets_memo, collect_configured_secrets())
+
+        try do
+          fun.()
+        after
+          Process.delete(@secrets_memo)
+        end
+
+      _secrets ->
+        fun.()
+    end
+  end
+
+  defp collect_configured_secrets do
     Application.get_all_env(:ryker)
     |> secret_values()
     |> Enum.filter(&(byte_size(&1) >= 8))
