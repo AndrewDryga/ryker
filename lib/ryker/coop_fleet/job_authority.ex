@@ -215,41 +215,53 @@ defmodule Ryker.CoopFleet.JobAuthority do
   from Ryker since can grant no source any more: every new session for that
   work asked the worker to fetch it and failed (2026-09-28). A replacement
   may narrow its authority this way; it never widens it, and its primary
-  repository is never dropped.
+  repository is never dropped. Settings that cannot be read say nothing about
+  which repositories went away, so they are an error, never a reason to drop
+  every companion.
   """
-  @spec without_removed_repositories(map()) :: map()
+  @spec without_removed_repositories(map()) :: {:ok, map()} | {:error, term()}
   def without_removed_repositories(
-        %{worker_job_document: %{"companions" => companions} = job} = authority
-      )
-      when is_list(companions) do
-    available = available_repositories()
-    kept = Enum.filter(companions, &MapSet.member?(available, &1["source"]["repository_ref"]))
+        %{worker_job_document: %{"companions" => [_ | _] = companions} = job} = authority
+      ) do
+    with {:ok, available} <- available_repositories() do
+      kept = Enum.filter(companions, &MapSet.member?(available, &1["source"]["repository_ref"]))
 
-    if length(kept) == length(companions) do
-      authority
-    else
-      job = Map.put(job, "companions", kept)
-      {:ok, digest} = JobSpec.digest(job)
-
-      %{authority | worker_job_document: job, worker_job_digest: digest}
-      |> Map.update(:repository_context, nil, &available_context(&1, available))
+      if length(kept) == length(companions),
+        do: {:ok, authority},
+        else: narrow(authority, Map.put(job, "companions", kept), available)
     end
   end
 
-  def without_removed_repositories(authority), do: authority
+  def without_removed_repositories(authority), do: {:ok, authority}
+
+  defp narrow(authority, job, available) do
+    with {:ok, digest} <- JobSpec.digest(job) do
+      {:ok,
+       %{authority | worker_job_document: job, worker_job_digest: digest}
+       |> Map.update(:repository_context, nil, &available_context(&1, available))}
+    end
+  end
 
   defp available_context(%{"read_only_repositories" => refs} = context, available),
     do: %{context | "read_only_repositories" => Enum.filter(refs, &MapSet.member?(available, &1))}
 
   defp available_context(context, _available), do: context
 
-  @doc "Whether the session's frozen job names a companion repository Ryker no longer has."
+  @doc """
+  Whether the session's frozen job names a companion repository Ryker no longer
+  has. Settings that cannot be read leave the session as it is.
+  """
   @spec removed_repositories?(Session.t()) :: boolean()
   def removed_repositories?(%Session{
         worker_job_document: %{"companions" => [_ | _] = companions}
       }) do
-    available = available_repositories()
-    not Enum.all?(companions, &MapSet.member?(available, &1["source"]["repository_ref"]))
+    case available_repositories() do
+      {:ok, available} ->
+        not Enum.all?(companions, &MapSet.member?(available, &1["source"]["repository_ref"]))
+
+      {:error, _reason} ->
+        false
+    end
   end
 
   def removed_repositories?(_session), do: false
@@ -259,13 +271,16 @@ defmodule Ryker.CoopFleet.JobAuthority do
       {:ok, snapshot} ->
         bound = MapSet.new(snapshot.github_bindings, & &1.repository_ref)
 
-        for repository <- snapshot.repositories,
-            repository.github_access == :available and MapSet.member?(bound, repository.ref),
-            into: MapSet.new(),
-            do: repository.ref
+        available =
+          for repository <- snapshot.repositories,
+              repository.github_access == :available and MapSet.member?(bound, repository.ref),
+              into: MapSet.new(),
+              do: repository.ref
 
-      {:error, _reason} ->
-        MapSet.new()
+        {:ok, available}
+
+      {:error, reason} ->
+        {:error, {:settings_unavailable, reason}}
     end
   end
 

@@ -663,57 +663,7 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
   # grants, and Work failed "fetch job source" until its attempts ran out.
   # A replacement may narrow its authority, never widen it.
   test "a replacement's authority drops companions Ryker no longer has", %{session: session} do
-    add_repository!("library", 18)
-    snapshot = add_repository!("tools", 19)
-
-    {:ok, snapshot} =
-      Settings.put_environment(
-        %{
-          ref: "production",
-          display_name: "Production",
-          repositories: ["app", "library", "tools"]
-        },
-        snapshot.installation.revision,
-        @actor
-      )
-
-    template =
-      Enum.find(
-        JobTemplates.from_settings(snapshot),
-        &(&1.purpose == :contributor and &1.scope_kind == :environment and
-            &1.repository_ref == "app")
-      )
-
-    session =
-      session
-      |> Ecto.Changeset.change(
-        environment_ref: "production",
-        policy: template.policy_name,
-        policy_digest: template.policy_digest,
-        authority_digest: template.authority_digest,
-        repository_context: %{
-          "context_ref" => "production",
-          "primary_repository" => "app",
-          "read_only_repositories" => ["library", "tools"],
-          "parallel_goal_limit" => 1
-        }
-      )
-      |> Repo.update!()
-
-    assert {:ok, pinned} =
-             JobAuthority.ensure_pinned(session, nil, fn _, ref, _ ->
-               {:ok,
-                %{
-                  source:
-                    source()
-                    |> Map.put("repository_ref", ref)
-                    |> Map.put("github_repository", "example/" <> ref)
-                    |> Map.put(
-                      "github_repository_id",
-                      %{"app" => 17, "library" => 18, "tools" => 19}[ref]
-                    )
-                }}
-             end)
+    pinned = pinned_with_companions!(session)
 
     {:ok, snapshot} =
       Settings.put_environment(
@@ -728,7 +678,8 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     {:ok, _snapshot} =
       Settings.delete_repository("tools", snapshot.installation.revision, @actor)
 
-    authority = JobAuthority.without_removed_repositories(Sessions.session_authority(pinned))
+    assert {:ok, authority} =
+             JobAuthority.without_removed_repositories(Sessions.session_authority(pinned))
 
     assert Enum.map(authority.worker_job_document["companions"], & &1["name"]) == ["library"]
     assert authority.repository_context["read_only_repositories"] == ["library"]
@@ -743,14 +694,61 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     # The companion goes whether or not the session names a repository
     # context. A replacement that kept it would still be one to replace, so
     # Work would replace it again on every attempt.
-    without_context =
-      JobAuthority.without_removed_repositories(%{
-        Sessions.session_authority(pinned)
-        | repository_context: nil
-      })
+    assert {:ok, without_context} =
+             JobAuthority.without_removed_repositories(%{
+               Sessions.session_authority(pinned)
+               | repository_context: nil
+             })
 
     assert without_context.worker_job_document == authority.worker_job_document
     assert without_context.repository_context == nil
+  end
+
+  # Six active sessions on 2026-10-04 still carried version-1 jobs with three to five companions
+  # each. Replacing one narrowed its companions before upgrading it, and the narrowing computed the
+  # new digest with `{:ok, digest} = JobSpec.digest(job)`, which only takes version 2: a removed
+  # companion made the next generation raise, and every Work slot crashed on that episode.
+  test "a version-1 job with a removed companion moves to version 2 without it", %{
+    session: session
+  } do
+    pinned = pinned_with_companions!(session)
+
+    v1 =
+      pinned.worker_job_document
+      |> Map.drop(~w(environment check resources))
+      |> Map.merge(%{"version" => 1, "project_env" => false, "project_mcp" => false})
+
+    pinned =
+      pinned
+      |> Ecto.Changeset.change(
+        worker_job_document: v1,
+        worker_job_digest: Ryker.CanonicalJSON.worker_digest(v1)
+      )
+      |> Repo.update!()
+
+    {:ok, snapshot} =
+      Settings.put_environment(
+        %{ref: "production", display_name: "Production", repositories: ["app", "library"]},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    {:ok, snapshot} =
+      Settings.delete_github_binding("tools", snapshot.installation.revision, @actor)
+
+    {:ok, _snapshot} = Settings.delete_repository("tools", snapshot.installation.revision, @actor)
+
+    assert {:ok, next} =
+             Sessions.insert_session(
+               pinned.episode_id,
+               pinned.generation + 1,
+               Sessions.session_authority(pinned)
+             )
+
+    assert next.worker_job_document["version"] == 2
+    assert Enum.map(next.worker_job_document["companions"], & &1["name"]) == ["library"]
+    assert {:ok, next.worker_job_digest} == JobSpec.digest(next.worker_job_document)
+    assert next.worker_job_document["job_ref"] == next.external_ref
   end
 
   test "incident work in an environment pins only its configured repository set", %{
@@ -1016,5 +1014,61 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
         "resolved_at" => "2026-09-26T12:00:00Z"
       }
     }
+  end
+
+  defp pinned_with_companions!(session) do
+    add_repository!("library", 18)
+    snapshot = add_repository!("tools", 19)
+
+    {:ok, snapshot} =
+      Settings.put_environment(
+        %{
+          ref: "production",
+          display_name: "Production",
+          repositories: ["app", "library", "tools"]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    template =
+      Enum.find(
+        JobTemplates.from_settings(snapshot),
+        &(&1.purpose == :contributor and &1.scope_kind == :environment and
+            &1.repository_ref == "app")
+      )
+
+    session =
+      session
+      |> Ecto.Changeset.change(
+        environment_ref: "production",
+        policy: template.policy_name,
+        policy_digest: template.policy_digest,
+        authority_digest: template.authority_digest,
+        repository_context: %{
+          "context_ref" => "production",
+          "primary_repository" => "app",
+          "read_only_repositories" => ["library", "tools"],
+          "parallel_goal_limit" => 1
+        }
+      )
+      |> Repo.update!()
+
+    assert {:ok, pinned} =
+             JobAuthority.ensure_pinned(session, nil, fn _, ref, _ ->
+               {:ok,
+                %{
+                  source:
+                    source()
+                    |> Map.put("repository_ref", ref)
+                    |> Map.put("github_repository", "example/" <> ref)
+                    |> Map.put(
+                      "github_repository_id",
+                      %{"app" => 17, "library" => 18, "tools" => 19}[ref]
+                    )
+                }}
+             end)
+
+    pinned
   end
 end

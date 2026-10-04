@@ -788,16 +788,22 @@ defmodule Ryker.Work.Custody.Sessions do
 
     # A replacement gets a new request identity, not newly resolved authority,
     # except that it gives up companion repositories Ryker no longer has: none
-    # could ever be fetched again (2026-09-28). Verify the digest before
-    # rebinding only its job reference.
-    authority = JobAuthority.without_removed_repositories(authority)
-
+    # could ever be fetched again (2026-09-28). Rebinding verifies the frozen
+    # digest and moves a version-1 job to version 2 first; the companions are
+    # narrowed on the job that will run.
     with {:ok, job, job_digest} <-
            JobSpec.rebind(
              Map.get(authority, :worker_job_document),
              Map.get(authority, :worker_job_digest),
              external_ref
-           ) do
+           ),
+         {:ok, authority} <-
+           authority
+           |> Map.merge(%{worker_job_document: job, worker_job_digest: job_digest})
+           |> JobAuthority.without_removed_repositories() do
+      job = authority.worker_job_document
+      job_digest = authority.worker_job_digest
+
       session_id
       |> SessionChangeset.insert_with_authority(
         episode_id,
