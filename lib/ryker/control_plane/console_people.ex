@@ -35,10 +35,15 @@ defmodule Ryker.ControlPlane.ConsolePeople do
 
   @local %{name: "You", href: nil}
 
-  @doc "Remembers the name a sign-in gives `viewer`'s login; nothing is written while it is the same."
+  @doc """
+  Remembers the name a sign-in gives `viewer`'s login; nothing is written while
+  it is the same. A Cloudflare email or a Tailscale login can stand in for a
+  name and run to 200 bytes; the first 120 characters are kept.
+  """
   @spec seen(Ryker.ControlPlane.Viewer.t() | nil) :: :ok
   def seen(%{login: login, name: name}) do
     now = DateTime.utc_now()
+    name = Ryker.Text.characters(name, 120)
 
     Repo.insert_all(
       __MODULE__,

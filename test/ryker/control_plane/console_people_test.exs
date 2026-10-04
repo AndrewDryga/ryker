@@ -61,6 +61,21 @@ defmodule Ryker.ControlPlane.ConsolePeopleTest do
     assert ConsolePeople.seen(nil) == :ok
   end
 
+  # Cloudflare names a person by their email, up to 200 bytes, and Tailscale by their login
+  # when it sends no name; the table keeps 120 characters. Every page a person with a longer
+  # one opened crashed in mount on the check (2026-10-04 review).
+  test "a name longer than the table keeps is shortened, never refused" do
+    login = String.duplicate("a", 150) <> "@example.com"
+    long = String.duplicate("é", 130)
+
+    assert :ok = ConsolePeople.seen(%{login: login, name: login})
+    assert :ok = ConsolePeople.seen(%{login: "tailscale-user", name: long})
+
+    assert %{name: kept} = ConsolePeople.person("tailscale:tailscale-user")
+    assert String.length(kept) == 120
+    assert String.starts_with?(long, kept)
+  end
+
   test "an avatar takes the first letters of a name" do
     assert ConsolePeople.initials("Andrew Example") == "AE"
     assert ConsolePeople.initials("Zoë Smith") == "ZS"
