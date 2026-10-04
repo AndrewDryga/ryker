@@ -521,6 +521,27 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert ChannelConfigurations.configuration(@workspace, "C456").revision == 1
   end
 
+  # Looking for an earlier copy of the welcome or a setup prompt walked the channel's whole history,
+  # inside the one process that handles every Slack event: in a channel with more than 10,000
+  # messages the walk gave up, the welcome never posted, and every other event waited meanwhile
+  # (2026-10-04 review). Neither can be older than Ryker's arrival or the setup's start.
+  test "the welcome and a setup prompt look back only to when they could have been posted", %{
+    options: options
+  } do
+    assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
+    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+
+    customize =
+      welcome_interaction(configuration, "ryker_welcome_configure", "interaction:customize")
+
+    assert {:ok, %{session_ref: _session_ref}} =
+             ChannelSetup.handle_interaction(customize, options)
+
+    searched = FakeSlackAPI.state(options.client).searched_since
+    assert length(searched) >= 2
+    assert Enum.all?(searched, &is_binary/1)
+  end
+
   test "unknown users and unrelated messages remain on the ordinary ingress path", %{
     options: options
   } do

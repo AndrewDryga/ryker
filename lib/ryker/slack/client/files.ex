@@ -16,11 +16,12 @@ defmodule Ryker.Slack.Client.Files do
   @maximum_file_bytes 8 * 1_024 * 1_024
   @media_types ~w(image/gif image/jpeg image/png image/webp)
 
-  def find_files(client, channel, thread, filenames) do
+  def find_files(client, channel, thread, filenames, oldest) do
     with :ok <- Fields.text(channel),
          :ok <- Fields.optional_text(thread),
-         :ok <- filenames(filenames) do
-      Messages.find_in_history(client, channel, thread, &find_delivery(&1, filenames))
+         :ok <- filenames(filenames),
+         :ok <- Fields.optional_message_timestamp(oldest) do
+      Messages.find_in_history(client, channel, thread, &find_delivery(&1, filenames), oldest)
     end
   end
 
@@ -37,7 +38,9 @@ defmodule Ryker.Slack.Client.Files do
          {:ok, response} <-
            Transport.request(client, :post, "/files.completeUploadExternal", document),
          {:ok, _body} <- Transport.response(response) do
-      case find_files(client, channel, thread, Enum.map(files, & &1.filename)) do
+      filenames = Enum.map(files, & &1.filename)
+
+      case find_files(client, channel, thread, filenames, Messages.oldest(DateTime.utc_now())) do
         {:ok, message_ref} -> {:ok, message_ref}
         :not_found -> {:error, {:slack_reconciliation_pending, :file_share}}
         {:error, _reason} = error -> error

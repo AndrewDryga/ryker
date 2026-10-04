@@ -157,10 +157,16 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
   end
 
   @impl true
-  def find_files(agent, channel, thread, filenames) do
+  def find_files(agent, channel, thread, filenames, oldest) do
     Agent.get_and_update(agent, fn state ->
       result = found(Map.fetch(state.files, {channel, thread, filenames}))
-      {result, %{state | file_finds: state.file_finds + 1}}
+
+      {result,
+       %{
+         state
+         | file_finds: state.file_finds + 1,
+           searched_since: state.searched_since ++ [oldest]
+       }}
     end)
   end
 

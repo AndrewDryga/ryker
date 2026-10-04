@@ -14,6 +14,8 @@ defmodule Ryker.Slack.ChannelSetup do
   rechecked for every action or conversational answer.
   """
 
+  alias Ryker.Slack.Client.Messages
+
   alias Ryker.Slack.{
     ChannelConfiguration,
     Collections,
@@ -259,7 +261,8 @@ defmodule Ryker.Slack.ChannelSetup do
            options.client,
            session.channel_ref,
            session.response_thread_ref,
-           delivery_ref
+           delivery_ref,
+           Messages.oldest(session.inserted_at)
          ) do
       {:ok, message_ref} ->
         with :ok <- update_prompt(session, message_ref, options) do
@@ -437,7 +440,13 @@ defmodule Ryker.Slack.ChannelSetup do
        ) do
     delivery_ref = welcome_delivery_ref(configuration, options)
 
-    case options.api.find_message(options.client, configuration.channel_ref, nil, delivery_ref) do
+    case options.api.find_message(
+           options.client,
+           configuration.channel_ref,
+           nil,
+           delivery_ref,
+           welcome_oldest(configuration, options)
+         ) do
       {:ok, message_ref} ->
         with :ok <-
                options.api.update_message(
@@ -483,6 +492,16 @@ defmodule Ryker.Slack.ChannelSetup do
              welcome_delivery_ref(configuration, options)
            ) do
       {:ok, :updated}
+    end
+  end
+
+  # A welcome cannot be older than Ryker's arrival in the channel, so the search
+  # for an earlier copy starts there instead of walking the channel's whole
+  # history, which gave up past 10,000 messages (2026-10-04 review).
+  defp welcome_oldest(configuration, options) do
+    case options.configurations.membership(configuration.workspace_ref, configuration.channel_ref) do
+      %{joined_at: %DateTime{} = joined_at} -> Messages.oldest(joined_at)
+      _unknown -> Messages.oldest(configuration.inserted_at)
     end
   end
 
@@ -992,7 +1011,13 @@ defmodule Ryker.Slack.ChannelSetup do
            options.configurations.active_session(workspace_ref, channel_ref),
          delivery_ref <- "slack-setup-clarification:#{session.id}:#{input.event_ref}",
          :not_found <-
-           options.api.find_message(options.client, channel_ref, thread_ref, delivery_ref),
+           options.api.find_message(
+             options.client,
+             channel_ref,
+             thread_ref,
+             delivery_ref,
+             Messages.oldest(session.inserted_at)
+           ),
          {:ok, _message_ref} <-
            options.api.post_message(
              options.client,

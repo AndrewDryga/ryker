@@ -35,7 +35,8 @@ defmodule Ryker.Slack.API do
 
   # --- files ----------------------------------------------------------------
 
-  @callback find_files(term(), String.t(), String.t() | nil, [String.t()]) ::
+  # `oldest`: a Slack timestamp the share cannot be older than, or nil.
+  @callback find_files(term(), String.t(), String.t() | nil, [String.t()], String.t() | nil) ::
               {:ok, String.t()} | :not_found | {:error, term()}
   @callback upload_files(term(), String.t(), String.t() | nil, map(), String.t(), [map()]) ::
               {:ok, String.t()} | {:error, term()}

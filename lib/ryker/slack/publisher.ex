@@ -12,6 +12,7 @@ defmodule Ryker.Slack.Publisher do
   @behaviour Ryker.Delivery.ReactionPublisher
 
   alias Ryker.Delivery.Request
+  alias Ryker.Slack.Client.Messages
   alias Ryker.Slack.{Mentions, Target}
   alias Ryker.Work.DeliveryReceipt
 
@@ -132,14 +133,12 @@ defmodule Ryker.Slack.Publisher do
   # a margin for Slack's clock, instead of at the channel's first message.
   defp find_message(api, client, %Request{frozen_at: %DateTime{} = frozen_at} = request, target) do
     if function_exported?(api, :find_message, 5) do
-      oldest = frozen_at |> DateTime.add(-3_600) |> DateTime.to_unix()
-
       api.find_message(
         client,
         target.channel_ref,
         target.thread_ref,
         request.ref,
-        "#{oldest}.000000"
+        Messages.oldest(frozen_at)
       )
     else
       api.find_message(client, target.channel_ref, target.thread_ref, request.ref)
@@ -153,7 +152,9 @@ defmodule Ryker.Slack.Publisher do
     files = prepare_files(request)
     filenames = Enum.map(files, & &1.filename)
 
-    case api.find_files(client, target.channel_ref, target.thread_ref, filenames) do
+    oldest = if request.frozen_at, do: Messages.oldest(request.frozen_at)
+
+    case api.find_files(client, target.channel_ref, target.thread_ref, filenames, oldest) do
       {:ok, message_ref} ->
         {:ok, message_ref}
 
@@ -262,7 +263,7 @@ defmodule Ryker.Slack.Publisher do
 
   defp valid_api?(api) do
     is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, :find_message, 4) and
-      function_exported?(api, :post_message, 5) and function_exported?(api, :find_files, 4) and
+      function_exported?(api, :post_message, 5) and function_exported?(api, :find_files, 5) and
       function_exported?(api, :upload_files, 6) and function_exported?(api, :add_reaction, 4) and
       function_exported?(api, :update_message, 5)
   end

@@ -20,6 +20,13 @@ defmodule Ryker.Slack.Client.Messages do
     do: find_message(client, channel, thread, delivery_ref, nil)
 
   @doc """
+  Where a search for a message posted no earlier than `at` starts: its Slack
+  timestamp, an hour early for Slack's clock.
+  """
+  @spec oldest(DateTime.t()) :: String.t()
+  def oldest(%DateTime{} = at), do: "#{at |> DateTime.add(-3_600) |> DateTime.to_unix()}.000000"
+
+  @doc """
   Like `find_message/4`, walking only the messages posted after `oldest`, a
   Slack timestamp: a delivery that cannot have been posted before then need
   not walk a whole channel, which for a busy channel runs past the walk's
@@ -122,10 +129,18 @@ defmodule Ryker.Slack.Client.Messages do
           Client.t(),
           String.t(),
           String.t() | nil,
-          ([map()] -> {:ok, term()} | :not_found | {:error, term()})
+          ([map()] -> {:ok, term()} | :not_found | {:error, term()}),
+          String.t() | nil
         ) :: {:ok, term()} | :not_found | {:error, term()}
-  def find_in_history(client, channel, thread, match),
-    do: Pagination.find(client, &history_path(channel, thread, &1), &history/1, match, @page_size)
+  def find_in_history(client, channel, thread, match, oldest \\ nil),
+    do:
+      Pagination.find(
+        client,
+        &(channel |> history_path(thread, &1) |> since(oldest)),
+        &history/1,
+        match,
+        @page_size
+      )
 
   @doc "A message body as Slack takes it: plain text escaped, a document rendered to blocks."
   @spec render(term()) :: {:ok, map()} | {:error, term()}

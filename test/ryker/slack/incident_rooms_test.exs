@@ -129,7 +129,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     end
 
     # The rest of the surface Slack's publisher checks for; notes never use it.
-    def find_files(_agent, _channel_ref, _thread_ref, _filenames), do: :not_found
+    def find_files(_agent, _channel_ref, _thread_ref, _filenames, _oldest), do: :not_found
 
     def upload_files(_agent, _channel_ref, _thread_ref, _document, _delivery_ref, _files),
       do: {:error, :not_used}

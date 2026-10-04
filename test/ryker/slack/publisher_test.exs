@@ -144,6 +144,11 @@ defmodule Ryker.Slack.PublisherTest do
     assert length(state.uploads) == 1
     assert state.posts == []
 
+    # The share cannot be older than the request it delivers: the search starts there, not at
+    # the channel's first message, which Slack walked 100 pages at a time (2026-10-04 review).
+    frozen = request.frozen_at |> DateTime.add(-3_600) |> DateTime.to_unix()
+    assert state.searched_since == ["#{frozen}.000000", "#{frozen}.000000"]
+
     [
       %{
         channel: "C456",
@@ -326,6 +331,7 @@ defmodule Ryker.Slack.PublisherTest do
                  artifact("output:errors", "error rate.gif", "image/gif", gif())
                ],
                document: %{"message" => "Done with charts."},
+               frozen_at: ~U[2026-10-04 12:00:00.000000Z],
                ref: "delivery:slack:visuals"
              })
              |> Request.new()

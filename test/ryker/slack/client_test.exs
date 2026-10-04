@@ -953,7 +953,7 @@ defmodule Ryker.Slack.ClientTest do
         })
       ])
 
-    assert Client.find_files(client(requester), "C123", nil, ["one.png", "two.gif"]) ==
+    assert Client.find_files(client(requester), "C123", nil, ["one.png", "two.gif"], nil) ==
              {:ok, "1.2"}
   end
 
@@ -1259,7 +1259,7 @@ defmodule Ryker.Slack.ClientTest do
     assert Client.find_message(client, "C123", nil, "delivery:1") ==
              {:error, {:slack_protocol_error, :message}}
 
-    assert Client.find_files(client, "C123", nil, ["one.png"]) ==
+    assert Client.find_files(client, "C123", nil, ["one.png"], nil) ==
              {:error, {:slack_protocol_error, :file}}
 
     file = %{
@@ -1284,7 +1284,7 @@ defmodule Ryker.Slack.ClientTest do
     assert Client.find_message(client, "", nil, "delivery") ==
              {:error, {:invalid_slack_api_request, :text}}
 
-    assert Client.find_files(client, "C123", nil, []) ==
+    assert Client.find_files(client, "C123", nil, [], nil) ==
              {:error, {:invalid_slack_api_request, :files}}
 
     assert Client.post_message(client, "C123", nil, %{}, "delivery") ==
@@ -1424,9 +1424,9 @@ defmodule Ryker.Slack.ClientTest do
 
     assert Client.find_message(client, "C123", 42, "delivery") == invalid_text
     assert Client.find_message(client, "C123", nil, "") == invalid_text
-    assert Client.find_files(client, "C123", 42, ["one.png"]) == invalid_text
+    assert Client.find_files(client, "C123", 42, ["one.png"], nil) == invalid_text
 
-    assert Client.find_files(client, "C123", nil, ["one.png", "one.png"]) ==
+    assert Client.find_files(client, "C123", nil, ["one.png", "one.png"], nil) ==
              {:error, {:invalid_slack_api_request, :files}}
 
     assert Client.post_message(client, "", nil, "Done", "delivery") == invalid_text

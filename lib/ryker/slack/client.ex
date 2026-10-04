@@ -85,7 +85,7 @@ defmodule Ryker.Slack.Client do
   # --- files ----------------------------------------------------------------
 
   @impl true
-  defdelegate find_files(client, channel, thread, filenames), to: Files
+  defdelegate find_files(client, channel, thread, filenames, oldest), to: Files
 
   @impl true
   defdelegate upload_files(client, channel, thread, body, delivery_ref, files), to: Files
