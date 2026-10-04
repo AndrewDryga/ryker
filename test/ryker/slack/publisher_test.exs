@@ -175,6 +175,36 @@ defmodule Ryker.Slack.PublisherTest do
     assert Enum.map(files, & &1.data) == [png(), gif()]
   end
 
+  # Slack takes an image's description up to 1,000 bytes and its title up to 200. They were cut
+  # to 960 and 200 characters, so a long reply with em dashes, curly quotes or Cyrillic made the
+  # upload invalid, and the image never reached Slack (2026-10-04 review).
+  test "an image's description and title fit Slack's byte limits in any language" do
+    {:ok, api} = FakeSlackAPI.start_link(message_ref: fn _n -> "1787832001.000400" end)
+    message = String.duplicate("Готово — графики ниже. ", 80)
+
+    assert {:ok, request} =
+             message_attributes()
+             |> Map.merge(%{
+               artifacts: [
+                 artifact(
+                   "output:chart",
+                   String.duplicate("график", 20) <> ".png",
+                   "image/png",
+                   png()
+                 )
+               ],
+               document: %{"message" => message},
+               ref: "delivery:slack:long-visuals"
+             })
+             |> Request.new()
+
+    assert {:ok, _receipt} = Publisher.publish_message(request, publisher_binding(api))
+    [%{files: [file]}] = FakeSlackAPI.state(api).uploads
+    assert byte_size(file.alt_text) <= 1_000
+    assert byte_size(file.title) <= 200
+    assert String.valid?(file.alt_text) and String.valid?(file.title)
+  end
+
   test "Slack emoji reactions use the exact source message and are safe to replay" do
     {:ok, api} = FakeSlackAPI.start_link()
     request = reaction_request()

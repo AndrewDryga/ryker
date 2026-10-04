@@ -909,11 +909,8 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp maybe_control(controls, true, control), do: controls ++ [control]
   defp maybe_control(controls, false, _control), do: controls
 
-  defp compact(value, maximum) when is_binary(value) do
-    if String.length(value) > maximum,
-      do: String.slice(value, 0, maximum - 1) <> "…",
-      else: value
-  end
+  # The renderer bounds every one of these fields in bytes.
+  defp compact(value, maximum) when is_binary(value), do: Ryker.Text.cut(value, maximum)
 
   defp compact(_value, _maximum), do: nil
 end

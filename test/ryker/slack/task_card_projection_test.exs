@@ -911,6 +911,41 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     assert "view_diff" in task["controls"]
   end
 
+  # A check that could not start says why in Coop's own words, up to 4 KiB. The card cut that
+  # reason to 500 characters and added "…" while the renderer counts 500 bytes, so any longer
+  # reason failed the render, and the card stopped refreshing exactly when its draft was blocked
+  # or published (2026-10-04 review).
+  test "a long reason a check could not start still renders, cut to its byte bound" do
+    gate_error = String.duplicate("docker: command not found — ", 40)
+
+    %{episode: episode} =
+      PublicationFixture.published!("long-gate-error",
+        gate: "startup_error",
+        gate_error: gate_error
+      )
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:long-gate-error",
+      payload: %{
+        "title" => "Bump the hosted runner",
+        "repository" => "ryker",
+        "prompt" => "Bump the internal hosted runner from 0.23.1 to 0.27.0."
+      }
+    }
+
+    assert {:ok, opened} = TaskCardProjection.build(source)
+    unverified = opened.document["task_card"]["publication"]["unverified"]
+    assert byte_size(unverified) <= 500
+    assert String.ends_with?(unverified, "…")
+    assert String.valid?(unverified)
+    assert {:ok, _rendered} = Renderer.render(opened.document)
+  end
+
   # "Keep any existing PR link, clearly identifying its older snapshot." A card
   # that says only "Draft PR created. Open it to review the changes." above a
   # working copy the host could not keep offers an older snapshot as the current

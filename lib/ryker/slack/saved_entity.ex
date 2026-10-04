@@ -4,9 +4,9 @@ defmodule Ryker.Slack.SavedEntity do
   preferences, guidance and memories.
 
   A confirmed offer, an updated automation and a requested collection item all
-  render this same document: a stable title, the full readable purpose, real
-  metadata, a brief event or status notice, and the exact-resource removal
-  control. Raw identifiers and enum values are translated to labels; nothing
+  render this same document: a stable title, the readable purpose (its first
+  2,000 bytes, with "…" when there is more), real metadata, a brief event or
+  status notice, and the exact-resource removal control. Raw identifiers and enum values are translated to labels; nothing
   that the entity does not retain is invented.
   """
 
@@ -14,6 +14,8 @@ defmodule Ryker.Slack.SavedEntity do
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleCadence
+
+  @shown_bytes 2_000
 
   @type event :: :saved | :updated | nil
 
@@ -33,7 +35,7 @@ defmodule Ryker.Slack.SavedEntity do
           {"Access", authority(schedule.authority)},
           {"Repository", schedule.repository || "No fixed binding"}
         ]),
-      "instructions" => schedule.task,
+      "instructions" => shown(schedule.task),
       "kind" => "schedule",
       "notice" => notice("Schedule", status, event),
       "ref" => schedule.ref,
@@ -133,7 +135,7 @@ defmodule Ryker.Slack.SavedEntity do
           {"Expires", expiry(entry.expires_at, "No expiry")},
           {"Source", source(entry)}
         ]),
-      "instructions" => entry.payload["value"],
+      "instructions" => shown(entry.payload["value"]),
       "kind" => "memory",
       "notice" => notice("Memory", status, event),
       "ref" => entry.ref,
@@ -152,7 +154,7 @@ defmodule Ryker.Slack.SavedEntity do
 
     %{
       "facts" => facts(facts),
-      "instructions" => instructions,
+      "instructions" => shown(instructions),
       "kind" => kind,
       "notice" => notice(label, status, event),
       "ref" => behavior.ref,
@@ -244,4 +246,10 @@ defmodule Ryker.Slack.SavedEntity do
   defp expiry(nil, default), do: default
 
   defp time(%DateTime{} = at), do: Calendar.strftime(at, "%d %b %Y, %H:%M UTC")
+
+  # A schedule or rule holds up to 12,000 bytes; its card shows the first 2,000,
+  # its renderer's bound. The whole text stays saved (2026-10-04 review: a
+  # longer one made the card invalid).
+  defp shown(nil), do: nil
+  defp shown(text) when is_binary(text), do: Ryker.Text.cut(text, @shown_bytes)
 end

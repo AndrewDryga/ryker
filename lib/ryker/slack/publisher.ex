@@ -179,8 +179,8 @@ defmodule Ryker.Slack.Publisher do
 
   defp prepare_files(request) do
     suffix = request.ref |> digest() |> binary_part(0, 12)
-    alt_text = request.document["message"] |> String.slice(0, 960)
-    alt_text = "Rendered output for: " <> alt_text
+    # Slack bounds a file's description at 1,000 bytes and its title at 200.
+    alt_text = Ryker.Text.cut("Rendered output for: " <> request.document["message"], 1_000)
 
     request.artifacts
     |> Enum.with_index(1)
@@ -197,7 +197,7 @@ defmodule Ryker.Slack.Publisher do
         data: artifact["data"],
         filename: filename,
         media_type: artifact["media_type"],
-        title: artifact["name"] |> String.slice(0, 200)
+        title: Ryker.Text.cut(artifact["name"], 200)
       }
     end)
   end
