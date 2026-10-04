@@ -597,6 +597,59 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert [read.id] == delivered!("worker-stuck-prepare", "past-a-minute")
   end
 
+  # Coop sends no result for a command whose lease ran out before it ran, and a placement that
+  # ends leaves its delivered commands as they were, so they stayed "delivered" for good and the
+  # worker never counted as idle again: no routing session was ever prepared on it, and every
+  # message waited for its box and agent to start (2026-10-04 review).
+  test "commands nobody will answer do not keep their worker busy" do
+    authorize_and_poll!("worker-forgotten", capacity: capacity(4, 4))
+    placement = place!("forgotten-prepare")
+    session = Repo.get!(Session, placement.session_id)
+    bind!(session, "coop-forgotten-prepare")
+    assert ControlPlane.worker_idle?(session.id)
+
+    # A prepare delivered more than a minute ago is never delivered again.
+    assert {:ok, prepare} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "prepare_session",
+               %{"coop_session_id" => "coop-forgotten-prepare", "expected_revision" => 1},
+               "ryker:test:forgotten-prepare"
+             )
+
+    assert [prepare.id] == delivered!("worker-forgotten", "prepare")
+    refute ControlPlane.worker_idle?(session.id)
+
+    {1, nil} =
+      Repo.update_all(from(command in Command, where: command.id == ^prepare.id),
+        set: [delivered_at: DateTime.add(Repo.now!(), -61, :second)]
+      )
+
+    assert ControlPlane.worker_idle?(session.id)
+
+    # A command delivered on a placement that has since ended is answered by nobody.
+    ended = place!("forgotten-ended")
+    bind!(Repo.get!(Session, ended.session_id), "coop-forgotten-ended")
+
+    assert {:ok, read} =
+             ControlPlane.enqueue_command(
+               ended.id,
+               "get_session",
+               %{"coop_session_id" => "coop-forgotten-ended"},
+               "ryker:test:forgotten-read"
+             )
+
+    assert [read.id] == delivered!("worker-forgotten", "read")
+    refute ControlPlane.worker_idle?(session.id)
+
+    {1, nil} =
+      Repo.update_all(from(placement in Placement, where: placement.id == ^ended.id),
+        set: [state: :replaced]
+      )
+
+    assert ControlPlane.worker_idle?(session.id)
+  end
+
   test "sandbox drift revokes placement renewal before another command is delivered" do
     authorize_and_poll!("worker-a")
     placement = place!("authority-drift")

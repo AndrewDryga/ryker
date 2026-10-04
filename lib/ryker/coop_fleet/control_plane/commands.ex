@@ -316,6 +316,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     end
   end
 
+  @doc "How long a delivered prepare is delivered again before the worker gives it up."
+  @spec prepare_redelivery_seconds() :: pos_integer()
+  def prepare_redelivery_seconds, do: @prepare_redelivery_seconds
+
   @doc false
   def fail_undelivered_commands(placement, now) do
     commands =

@@ -104,7 +104,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
          true <- worker_current?(worker, placement.requirements["workspace_ref"], now),
          true <- every_slot_free?(worker),
          false <- session_being_created?(worker.id, now) do
-      not commands_waiting?(worker.id)
+      not commands_waiting?(worker.id, now)
     else
       _busy_or_unplaced -> false
     end
@@ -145,12 +145,25 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     )
   end
 
-  defp commands_waiting?(worker_id) do
+  # A command waits only while the worker can still act on it: one the next poll
+  # would deliver. Coop answers neither a command whose placement ended nor a
+  # prepare past its minute of redelivery, which it cancels; counting those kept
+  # the worker busy for good, and no routing session was ever prepared on it
+  # again (2026-10-04 review).
+  defp commands_waiting?(worker_id, now) do
+    prepare_cutoff = DateTime.add(now, -Commands.prepare_redelivery_seconds(), :second)
+
     Repo.exists?(
       from(command in Command,
+        join: placement in Placement,
+        on: placement.id == command.placement_id,
         where:
           command.worker_id == ^worker_id and
-            command.status in [:queued, :delivered, :acknowledged]
+            command.status in [:queued, :delivered, :acknowledged] and
+            placement.state == :active and placement.lease_expires_at > ^now,
+        where:
+          command.kind != "prepare_session" or is_nil(command.delivered_at) or
+            command.delivered_at > ^prepare_cutoff
       )
     )
   end
