@@ -267,6 +267,8 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
 
   defp assert_neutral(document) do
     refute document["message"] == @captured["candidate"]["message"]
+    # The allocation the captured answer named. The 2026-10-01 substitution replaced it in the
+    # fixture but not here, so this checked for an id the fixture no longer held until 2026-10-04.
     refute document["message"] =~ "7abc3462"
     assert Map.keys(document) == ["message"]
     assert document["message"] =~ "source context"
