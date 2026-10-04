@@ -864,6 +864,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
+        "pull_request_state" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => 1,
         "status" => "blocked",
@@ -894,6 +895,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
+        "pull_request_state" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => 1,
         "status" => "blocked",
@@ -970,6 +972,7 @@ defmodule Ryker.Slack.RendererTest do
       "discarded_reason" => "review_session_closed",
       "publication_ref" => "publication:def456",
       "pull_request_number" => nil,
+      "pull_request_state" => nil,
       "pull_request_url" => nil,
       "recovery_generation" => 2,
       "status" => "discarded",
@@ -996,6 +999,50 @@ defmodule Ryker.Slack.RendererTest do
              {:error, {:invalid_slack_render, :task_card}}
   end
 
+  # Andrew closed draft PR #90 on GitHub (2026-10-04). The Review and merge row said so within
+  # seconds, but the line under the progress still read "Draft PR created. Open it to review the
+  # changes. · Open draft PR #90", as if nothing had happened.
+  test "a pull request closed or merged on GitHub is said under the progress" do
+    publication = %{
+      "automatic_fix" => nil,
+      "blocked_reason" => nil,
+      "branch" => "refs/heads/ryker/card",
+      "controls" => ["open"],
+      "discarded_reason" => nil,
+      "publication_ref" => "publication:def456",
+      "pull_request_number" => 90,
+      "pull_request_state" => "closed",
+      "pull_request_url" => "https://github.com/acme/ryker/pull/90",
+      "recovery_generation" => 1,
+      "status" => "published",
+      "unverified" => nil
+    }
+
+    rendered = fn publication ->
+      {:ok, blocks} = Renderer.render(%{"task_card" => publication_task_card(publication)})
+      Jason.encode!(blocks)
+    end
+
+    closed = rendered.(publication)
+
+    assert closed =~
+             "The pull request was closed without merging. · <https://github.com/acme/ryker/pull/90|PR #90>"
+
+    refute closed =~ "Open it to review"
+    refute closed =~ "Open draft PR"
+
+    assert rendered.(%{publication | "pull_request_state" => "merged"}) =~
+             "The pull request was merged. · <https://github.com/acme/ryker/pull/90|PR #90>"
+
+    assert rendered.(%{publication | "pull_request_state" => nil}) =~
+             "Draft PR created. Open it to review the changes. · <https://github.com/acme/ryker/pull/90|Open draft PR #90>"
+
+    stale = %{publication | "pull_request_state" => "stale"}
+
+    assert Renderer.render(%{"task_card" => publication_task_card(stale)}) ==
+             {:error, {:invalid_slack_render, :task_card}}
+  end
+
   test "renders only publication actions valid for the durable task state" do
     task = %{
       "action_needed" => nil,
@@ -1011,6 +1058,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
+        "pull_request_state" => nil,
         "pull_request_url" => "https://github.com/acme/ryker/pull/91",
         "recovery_generation" => 1,
         "status" => "published",
@@ -1060,6 +1108,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
+        "pull_request_state" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => 1,
         "status" => "reviewed",
@@ -1081,6 +1130,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
+        "pull_request_state" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => 3,
         "status" => "blocked",
@@ -1110,6 +1160,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
+        "pull_request_state" => nil,
         "pull_request_url" => "https://github.com/acme/ryker/pull/91",
         "recovery_generation" => 4,
         "status" => "published",
@@ -1147,6 +1198,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => 91,
+        "pull_request_state" => nil,
         "pull_request_url" => "https://github.com/acme/ryker/pull/91",
         "recovery_generation" => 1,
         "status" => "published",
@@ -2618,6 +2670,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
+        "pull_request_state" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => 3,
         "status" => "blocked",
@@ -2669,6 +2722,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
+        "pull_request_state" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => 1,
         "status" => "reviewed",
@@ -2700,6 +2754,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => nil,
+        "pull_request_state" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => 1,
         "status" => "publish_pending",
@@ -3246,6 +3301,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:def456",
         "pull_request_number" => 2,
+        "pull_request_state" => nil,
         "pull_request_url" => "https://github.com/acme/ryker/pull/2",
         "recovery_generation" => 3,
         "status" => "blocked",
@@ -3423,6 +3479,7 @@ defmodule Ryker.Slack.RendererTest do
         "discarded_reason" => nil,
         "publication_ref" => "publication:review123",
         "pull_request_number" => nil,
+        "pull_request_state" => nil,
         "pull_request_url" => nil,
         "recovery_generation" => nil,
         "status" => "review_pending",
@@ -3532,6 +3589,7 @@ defmodule Ryker.Slack.RendererTest do
           "discarded_reason" => nil,
           "publication_ref" => "publication:def456",
           "pull_request_number" => nil,
+          "pull_request_state" => nil,
           "pull_request_url" => nil,
           "recovery_generation" => 1,
           "status" => "review_pending",

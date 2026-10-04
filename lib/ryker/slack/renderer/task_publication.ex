@@ -10,6 +10,8 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   @publication_controls ~w(publish open retry update discard)
   # Why Ryker ended a publication itself; a person's discard has none.
   @discarded_reasons [nil, "review_session_closed"]
+  # What a person did to the pull request on GitHub; nil while it is open.
+  @pull_request_states [nil, "closed", "merged"]
 
   @spec validate(map() | nil) :: :ok | {:error, term()}
   def validate(nil), do: :ok
@@ -23,13 +25,15 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
           "discarded_reason" => discarded_reason,
           "publication_ref" => publication_ref,
           "pull_request_number" => number,
+          "pull_request_state" => pull_request_state,
           "pull_request_url" => url,
           "recovery_generation" => recovery_generation,
           "status" => status,
           "unverified" => unverified
         } = publication
       )
-      when map_size(publication) == 11 and discarded_reason in @discarded_reasons do
+      when map_size(publication) == 12 and discarded_reason in @discarded_reasons and
+             pull_request_state in @pull_request_states do
     with :ok <- bounded_text(status, 120),
          :ok <- optional_bounded_text(automatic_fix, 300),
          :ok <- optional_bounded_text(publication["blocked_reason"], 700),
@@ -63,15 +67,18 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
         "discarded_reason" => discarded_reason,
         "publication_ref" => publication_ref,
         "pull_request_number" => number,
+        "pull_request_state" => pull_request_state,
         "pull_request_url" => url,
         "recovery_generation" => recovery_generation,
         "status" => status,
         "unverified" => unverified
       }) do
     detail =
-      if is_binary(url) and is_integer(number),
-        do: " · #{link(url, "Open draft PR ##{number}")}",
-        else: ""
+      cond do
+        not (is_binary(url) and is_integer(number)) -> ""
+        is_nil(pull_request_state) -> " · #{link(url, "Open draft PR ##{number}")}"
+        true -> " · #{link(url, "PR ##{number}")}"
+      end
 
     message =
       publication_message(status, controls, %{
@@ -79,6 +86,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
         blocked_reason: blocked_reason,
         discarded_reason: discarded_reason,
         number: number,
+        pull_request_state: pull_request_state,
         unverified: unverified
       })
 
@@ -145,6 +153,15 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
   # The host's own line for a fix round Ryker is running on the refusal
   # (`Ryker.Publication.FixLoop`) says what the blocked status would not.
+  # A person closed or merged the pull request on GitHub, and that is the news whatever Ryker was
+  # doing with it: Andrew closed draft PR #90 and this line still read "Draft PR created. Open
+  # it to review the changes." (2026-10-04).
+  defp publication_message(_status, _controls, %{pull_request_state: "closed"}),
+    do: "The pull request was closed without merging."
+
+  defp publication_message(_status, _controls, %{pull_request_state: "merged"}),
+    do: "The pull request was merged."
+
   defp publication_message(_status, _controls, %{automatic_fix: fix}) when is_binary(fix),
     do: escape(fix)
 

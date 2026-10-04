@@ -8,7 +8,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{FollowupChangeset, Followups}
+  alias Ryker.Publication.{Followup, FollowupChangeset, Followups, LifecycleEvent}
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Slack.{Renderer, TaskCardProjection}
@@ -744,6 +744,82 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     # The row links to the pull request it merged.
     assert json =~ "✓ <https://github.com/acme/ryker/pull/91|Review and merge> · merged"
     assert json =~ "<https://github.com/acme/ryker|ryker>"
+  end
+
+  # Andrew closed draft PR #90 on GitHub (2026-10-04): the Review and merge row changed within
+  # seconds, but the line under the progress kept "Draft PR created. Open it to review the
+  # changes." and the card still said "Updated 03 Oct". The pull request's state, and when GitHub
+  # last changed it, are the whole card's.
+  test "a pull request closed on GitHub is said under the progress and dates the card" do
+    %{episode: episode, publication: publication} =
+      PublicationFixture.published!("closed-on-github")
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:closed-on-github",
+      payload: %{
+        "title" => "Bump the runner",
+        "repository" => "ryker",
+        "prompt" => "Update the runner to the latest release."
+      }
+    }
+
+    {:ok, _followup} =
+      Repo.transaction(fn ->
+        Followups.ensure_published_in_transaction(publication, DateTime.utc_now())
+      end)
+
+    assert {:ok, open} = TaskCardProjection.build(source)
+    assert open.document["task_card"]["publication"]["pull_request_state"] == nil
+
+    Repo.update_all(from(saved in Followup, where: saved.publication_id == ^publication.id),
+      set: [next_poll_at: DateTime.add(DateTime.utc_now(), -60, :second)]
+    )
+
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:closed-card", 60)
+
+    closed_on_github = %{
+      "base_ref" => "main",
+      "checks_failed" => 0,
+      "checks_passed" => 2,
+      "checks_state" => "passing",
+      "checks_total" => 2,
+      "checks_url" => "#{publication.pull_request_url}/checks",
+      "draft" => true,
+      "head_ref" => String.replace_prefix(publication.branch_ref, "refs/heads/", ""),
+      "head_sha" => publication.commit_sha,
+      "merge_sha" => nil,
+      "merged" => false,
+      "merged_at" => nil,
+      "number" => publication.pull_request_number,
+      "state" => "closed",
+      "url" => publication.pull_request_url
+    }
+
+    assert {:ok, %{pr_state: "closed"}} =
+             Followups.store_poll(publication.ref, claim.lease_ref, closed_on_github)
+
+    closed_at = DateTime.add(DateTime.utc_now(), 3_600, :second)
+
+    Repo.update_all(
+      from(event in LifecycleEvent, where: event.publication_id == ^publication.id),
+      set: [occurred_at: closed_at]
+    )
+
+    assert {:ok, closed} = TaskCardProjection.build(source)
+    task = closed.document["task_card"]
+    assert task["publication"]["pull_request_state"] == "closed"
+    assert task["updated_at"] == DateTime.to_iso8601(closed_at)
+    assert stage(closed, "review_and_merge")["detail"] == "closed without merging"
+
+    assert {:ok, rendered} = Renderer.render(closed.document)
+    json = Jason.encode!(rendered)
+    assert json =~ "The pull request was closed without merging."
+    refute json =~ "Open it to review"
   end
 
   # A gate that could not start is never publishable, but its snapshot is exact,

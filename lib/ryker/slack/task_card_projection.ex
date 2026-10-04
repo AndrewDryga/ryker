@@ -10,7 +10,7 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
-  alias Ryker.Publication.{FixLoop, Followup, Publication, Review}
+  alias Ryker.Publication.{FixLoop, Followup, LifecycleEvent, Publication, Review}
   alias Ryker.Records
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.Record
@@ -128,7 +128,7 @@ defmodule Ryker.Slack.TaskCardProjection do
       "controls" =>
         controls(record, episode, turn, session, publication, snapshot.workspace_hold),
       "episode_state" => Atom.to_string(episode.state),
-      "publication" => publication(publication, publication_offer, fix),
+      "publication" => publication(publication, snapshot.followup, fix),
       "request" => record.payload["prompt"] |> request_text() |> compact(12_000),
       "repository" => repository_name(record.payload["repository"]),
       "repository_url" => repository_url(publication),
@@ -150,7 +150,7 @@ defmodule Ryker.Slack.TaskCardProjection do
       "task_ref" => task_ref,
       "title" => record.payload["title"],
       "ui_revision" => @ui_revision,
-      "updated_at" => DateTime.to_iso8601(updated_at(episode)),
+      "updated_at" => DateTime.to_iso8601(updated_at(episode, publication)),
       "resume_ref" => resume_ref(task_ref, turn, snapshot.workspace_hold),
       "work_state" => turn && Atom.to_string(turn.status)
     }
@@ -430,8 +430,10 @@ defmodule Ryker.Slack.TaskCardProjection do
     %{projection | document: document, fingerprint: CanonicalJSON.digest(document)}
   end
 
-  defp updated_at(episode) do
-    latest =
+  # When the task last moved: its episode, its progress, or GitHub's last word on its pull
+  # request. A draft closed a day after the task finished still read "Updated" the day before.
+  defp updated_at(episode, publication) do
+    progress =
       Repo.one(
         from(record in Record,
           where:
@@ -442,10 +444,21 @@ defmodule Ryker.Slack.TaskCardProjection do
         )
       )
 
-    if latest && DateTime.compare(latest, episode.updated_at) == :gt,
-      do: latest,
-      else: episode.updated_at
+    [episode.updated_at, progress, github_moved_at(publication)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max(DateTime)
   end
+
+  defp github_moved_at(%Publication{id: id}),
+    do:
+      Repo.one(
+        from(event in LifecycleEvent,
+          where: event.publication_id == ^id,
+          select: max(event.occurred_at)
+        )
+      )
+
+  defp github_moved_at(nil), do: nil
 
   defp current_turn(%Episode{owner_kind: :turn, owner_ref: turn_ref} = episode),
     do: Repo.get_by(Turn, episode_id: episode.id, turn_ref: turn_ref)
@@ -677,9 +690,9 @@ defmodule Ryker.Slack.TaskCardProjection do
     end
   end
 
-  defp publication(nil, _offer, _fix), do: nil
+  defp publication(nil, _followup, _fix), do: nil
 
-  defp publication(%Publication{} = publication, _offer, fix) do
+  defp publication(%Publication{} = publication, followup, fix) do
     %{
       "automatic_fix" => fix_line(fix, :fixing),
       "blocked_reason" => nil,
@@ -689,12 +702,17 @@ defmodule Ryker.Slack.TaskCardProjection do
       "discarded_reason" => discarded_reason(publication),
       "publication_ref" => publication.ref,
       "pull_request_number" => publication.pull_request_number,
+      "pull_request_state" => pull_request_state(followup),
       "pull_request_url" => publication.pull_request_url,
       "recovery_generation" => publication.recovery_generation,
       "status" => Atom.to_string(publication.status),
       "unverified" => unverified(publication)
     }
   end
+
+  # Only a person closes or merges a pull request on GitHub; its follow-up records which.
+  defp pull_request_state(%Followup{pr_state: state}) when state in ~w(closed merged), do: state
+  defp pull_request_state(_followup), do: nil
 
   # Andrew, 2026-09-28: a change the trusted review refused for something the
   # task's own work can fix goes back to that work without a person, three
