@@ -61,19 +61,76 @@ defmodule Ryker.ControlPlane.Assets do
     asset = Enum.join(segments, "/")
 
     case @assets[asset] || @brand_assets[asset] do
-      {app, path, type} ->
-        conn
-        |> put_resp_content_type(type, charset(type))
-        |> cache_control(asset)
-        |> send_file(200, Application.app_dir(app, path))
-        |> halt()
-
-      nil ->
-        conn |> send_resp(404, "Not found") |> halt()
+      {app, path, type} -> serve(conn, asset, Application.app_dir(app, path), type)
+      nil -> conn |> send_resp(404, "Not found") |> halt()
     end
   end
 
   def call(conn, _options), do: conn |> send_resp(404, "Not found") |> halt()
+
+  # Every page load downloaded the scripts and stylesheets again, about 650 KB
+  # uncompressed, under the no-store every response leaves BrowserGuard with
+  # (2026-10-04). Each file now carries an ETag of its bytes: the browser keeps
+  # it and asks whether it changed, and an unchanged file costs a 304 with no
+  # body. Text goes gzipped to a browser that accepts it.
+  defp serve(conn, asset, file, type) do
+    %{etag: etag, plain: plain, gzip: gzip} = prepared(file, type)
+
+    conn =
+      conn
+      |> put_resp_content_type(type, charset(type))
+      |> cache_control(asset)
+      |> put_resp_header("etag", etag)
+      |> put_resp_header("vary", "accept-encoding")
+
+    cond do
+      etag in if_none_match(conn) ->
+        conn |> send_resp(304, "") |> halt()
+
+      is_binary(gzip) and accepts_gzip?(conn) ->
+        conn |> put_resp_header("content-encoding", "gzip") |> send_resp(200, gzip) |> halt()
+
+      true ->
+        conn |> send_resp(200, plain) |> halt()
+    end
+  end
+
+  # A release's files never change while it runs, so each is read, tagged and
+  # compressed once.
+  defp prepared(file, type) do
+    key = {__MODULE__, file}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        plain = File.read!(file)
+        digest = :crypto.hash(:sha256, plain) |> Base.encode16(case: :lower) |> binary_part(0, 32)
+
+        prepared = %{
+          etag: ~s("#{digest}"),
+          plain: plain,
+          gzip: if(charset(type), do: :zlib.gzip(plain))
+        }
+
+        :persistent_term.put(key, prepared)
+        prepared
+
+      prepared ->
+        prepared
+    end
+  end
+
+  defp if_none_match(conn) do
+    conn
+    |> get_req_header("if-none-match")
+    |> Enum.flat_map(&String.split(&1, ","))
+    |> Enum.map(&(&1 |> String.trim() |> String.replace_prefix("W/", "")))
+  end
+
+  defp accepts_gzip?(conn) do
+    conn
+    |> get_req_header("accept-encoding")
+    |> Enum.any?(&(&1 |> String.downcase() |> String.contains?("gzip")))
+  end
 
   defp charset("text/" <> _), do: "utf-8"
   defp charset("image/svg+xml"), do: "utf-8"
@@ -82,5 +139,5 @@ defmodule Ryker.ControlPlane.Assets do
   defp cache_control(conn, "brand/" <> _),
     do: put_resp_header(conn, "cache-control", @brand_cache_control)
 
-  defp cache_control(conn, _asset), do: conn
+  defp cache_control(conn, _asset), do: put_resp_header(conn, "cache-control", "no-cache")
 end
