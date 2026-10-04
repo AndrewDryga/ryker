@@ -37,6 +37,7 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.GitHub.CapabilityTools, as: GitHubCapabilityTools
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.GitHubStatus
+  alias Ryker.Secret
   alias Ryker.Settings.Environment
   alias Ryker.Slack.ActionTokens
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
@@ -723,7 +724,7 @@ defmodule Ryker.Runtime.Assembly do
        when is_map(admission) do
     Defaults.fetch!(:routing_examples)
     |> Map.merge(%{
-      redaction_secrets: credential_redaction_values(),
+      redaction_secrets: Secret.new(credential_redaction_values()),
       window_seconds: retention.routing_examples_seconds
     })
   end
@@ -736,7 +737,7 @@ defmodule Ryker.Runtime.Assembly do
        when is_map(work) do
     Defaults.fetch!(:work_examples)
     |> Map.merge(%{
-      redaction_secrets: credential_redaction_values(),
+      redaction_secrets: Secret.new(credential_redaction_values()),
       window_seconds: retention.work_examples_seconds
     })
   end
@@ -752,8 +753,8 @@ defmodule Ryker.Runtime.Assembly do
     |> Map.take([:cacertfile, :ca_keyfile, :certfile, :keyfile, :ip, :port, :public_url])
     |> Map.merge(Defaults.fetch!(:coop_worker_gateway))
     |> Map.put(:body_root, Path.join(storage_root, "worker-bodies"))
-    |> Map.put(:checkpoint_key, Bootstrap.checkpoint_key!())
-    |> Map.put(:checkpoint_secrets, credential_redaction_values())
+    |> Map.put(:checkpoint_key, Secret.new(Bootstrap.checkpoint_key!()))
+    |> Map.put(:checkpoint_secrets, Secret.new(credential_redaction_values()))
   end
 
   # Integrations ----------------------------------------------------------------
@@ -1364,7 +1365,7 @@ defmodule Ryker.Runtime.Assembly do
          :ok <- served_destination(destination, adapters),
          route = %{
            adapter: adapter,
-           auth: {source.auth_kind, secret},
+           auth: {source.auth_kind, Secret.new(secret)},
            destination: destination,
            max_body_bytes: defaults.max_body_bytes,
            max_clock_skew_seconds: defaults.max_clock_skew_seconds,
@@ -1523,7 +1524,7 @@ defmodule Ryker.Runtime.Assembly do
         |> Enum.sort(),
       ip: bootstrap.state_tools.ip,
       port: bootstrap.state_tools.port,
-      token: Bootstrap.secret!(:state_tools)
+      token: Secret.new(Bootstrap.secret!(:state_tools))
     }
     |> Map.put(:answer_authorizer, answer_authorizer(slack, control_plane))
     |> add_platform_capability_tools(slack, github, control_plane)
@@ -1690,8 +1691,8 @@ defmodule Ryker.Runtime.Assembly do
       Ryker.CoopFleet.Client.new(
         body_root: body_root,
         source_root: Path.dirname(body_root),
-        checkpoint_key: Bootstrap.checkpoint_key!(),
-        checkpoint_secrets: credential_redaction_values(),
+        checkpoint_key: Secret.new(Bootstrap.checkpoint_key!()),
+        checkpoint_secrets: Secret.new(credential_redaction_values()),
         capability_names: capabilities,
         capability_versions: Ryker.CoopFleet.Client.capability_versions(),
         max_waits: max_waits,

@@ -217,7 +217,7 @@ defmodule Ryker.Coop.ClientTest do
                %Turn{id: Ecto.UUID.generate()},
                "local:direct-client-regression",
                endpoint,
-               "controller-state-tools-secret"
+               Ryker.Secret.new("controller-state-tools-secret")
              )
 
     binding = StateBinding.document(derived)

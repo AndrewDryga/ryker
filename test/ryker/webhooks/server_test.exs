@@ -9,7 +9,7 @@ defmodule Ryker.Webhooks.ServerTest do
         port: 4_080,
         routes: %{
           "universal" => %{
-            auth: {:bearer, "a-secret-token-long-enough"},
+            auth: {:bearer, Ryker.Secret.new("a-secret-token-long-enough")},
             destination: %{
               conversation_ref: "slack:T123:C456",
               thread_ref: nil,
@@ -53,7 +53,7 @@ defmodule Ryker.Webhooks.ServerTest do
 
     assert {:ok, route} =
              Route.new(%{
-               auth: {:bearer, "a-secret-token-long-enough"},
+               auth: {:bearer, Ryker.Secret.new("a-secret-token-long-enough")},
                destination: %{
                  conversation_ref: "slack:T123:C456",
                  thread_ref: nil,
@@ -78,7 +78,7 @@ defmodule Ryker.Webhooks.ServerTest do
         port: 4_080,
         routes: %{
           "universal" => %{
-            auth: {:bearer, "a-secret-token-long-enough"},
+            auth: {:bearer, Ryker.Secret.new("a-secret-token-long-enough")},
             destination: %{
               conversation_ref: "slack:T123:C456",
               thread_ref: nil,

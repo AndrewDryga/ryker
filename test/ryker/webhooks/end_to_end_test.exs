@@ -278,7 +278,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
   defp post_lifecycle(payload, event_id) do
     assert {:ok, route} =
              Route.new(%{
-               auth: {:bearer, @secret},
+               auth: {:bearer, Ryker.Secret.new(@secret)},
                destination: %{
                  conversation_ref: "slack:T6E06DA3564B2:C456",
                  thread_ref: nil,
@@ -304,7 +304,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
   defp local_router_options(conversation_ref) do
     assert {:ok, route} =
              Route.new(%{
-               auth: {:bearer, @secret},
+               auth: {:bearer, Ryker.Secret.new(@secret)},
                destination: %{
                  conversation_ref: conversation_ref,
                  thread_ref: conversation_ref,
@@ -324,7 +324,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
   defp router_options do
     assert {:ok, route} =
              Route.new(%{
-               auth: {:bearer, @secret},
+               auth: {:bearer, Ryker.Secret.new(@secret)},
                destination: %{
                  conversation_ref: "slack:T6E06DA3564B2:C456",
                  thread_ref: nil,

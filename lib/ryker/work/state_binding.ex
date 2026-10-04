@@ -4,7 +4,7 @@ defmodule Ryker.Work.StateBinding do
   import Ecto.Query
 
   alias Ryker.CoopFleet.Placement
-  alias Ryker.Repo
+  alias Ryker.{Repo, Secret}
   alias Ryker.Work.{Session, Turn}
 
   @context "ryker-state-binding:v1:"
@@ -19,7 +19,9 @@ defmodule Ryker.Work.StateBinding do
 
   @spec derive(Session.t(), Turn.t(), String.t(), String.t(), String.t()) ::
           {:ok, t()} | {:error, term()}
-  def derive(%Session{id: session_id}, %Turn{id: turn_id}, scope, endpoint, secret)
+  # The state-tools root arrives sealed (`Ryker.Secret`) and is opened only to
+  # derive this turn's token.
+  def derive(%Session{id: session_id}, %Turn{id: turn_id}, scope, endpoint, %Secret{value: secret})
       when is_binary(session_id) and is_binary(turn_id) and is_binary(endpoint) and
              is_binary(scope) and is_binary(secret) do
     with :ok <- endpoint(endpoint),

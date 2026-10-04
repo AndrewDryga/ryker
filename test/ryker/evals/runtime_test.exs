@@ -30,10 +30,10 @@ defmodule Ryker.Evals.RuntimeTest do
     assert {:ok, world} = Runtime.world()
 
     assert world.state_tools_endpoint == "https://eval-worker.example/v1/state-tools/mcp"
-    assert world.state_tools_secret == "eval-state-tools-token-long-enough"
+    assert Ryker.Secret.reveal(world.state_tools_secret) == "eval-state-tools-token-long-enough"
     assert world.state_tools.token == world.state_tools_secret
     assert world.state_tools.port == 4418
-    assert byte_size(world.gateway.checkpoint_key) == 32
+    assert byte_size(Ryker.Secret.reveal(world.gateway.checkpoint_key)) == 32
     assert world.gateway.public_url == "https://eval-worker.example"
 
     # The capability set is the shipped one the recorded catalogs were generated
@@ -52,7 +52,7 @@ defmodule Ryker.Evals.RuntimeTest do
 
     # An evaluation checkpoint is never scanned against deployment secrets,
     # because an isolated world holds none of them.
-    assert world.gateway.checkpoint_secrets == []
+    assert world.gateway.checkpoint_secrets == Ryker.Secret.new([])
   end
 
   # No eval had run since the v2 worker protocol, which gave the gateway a body

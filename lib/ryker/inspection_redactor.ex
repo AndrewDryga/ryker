@@ -136,6 +136,8 @@ defmodule Ryker.InspectionRedactor do
   @doc false
   def secret_values(value), do: secret_values(value, false)
 
+  defp secret_values(%Ryker.Secret{value: value}, _inherited), do: secret_values(value, true)
+
   defp secret_values(value, inherited) when is_struct(value),
     do: secret_values(Map.from_struct(value), inherited)
 

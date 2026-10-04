@@ -33,8 +33,8 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
     routes = configuration[:webhooks].routes
 
     assert Map.keys(routes) |> Enum.sort() == ["alerts", "deploys"]
-    assert routes["alerts"].auth == {:hmac_sha256, @alert_secret}
-    assert routes["deploys"].auth == {:bearer, @deploy_secret}
+    assert routes["alerts"].auth == {:hmac_sha256, Ryker.Secret.new(@alert_secret)}
+    assert routes["deploys"].auth == {:bearer, Ryker.Secret.new(@deploy_secret)}
     refute elem(routes["alerts"].auth, 1) == elem(routes["deploys"].auth, 1)
     assert routes["alerts"].max_clock_skew_seconds == 300
     assert routes["alerts"].work_profile

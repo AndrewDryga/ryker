@@ -175,7 +175,10 @@ defmodule Ryker.Work.ExecutorTest do
                    "time_basis" => "source",
                    "cursor" => nil
                  },
-                 %{binding: binding, cursor_secret: "work-executor-search-cursor-test"}
+                 %{
+                   binding: binding,
+                   cursor_secret: Ryker.Secret.new("work-executor-search-cursor-test")
+                 }
                )
 
       assert Enum.any?(memories, &(&1["kind"] == expected_kind))
@@ -1315,7 +1318,7 @@ defmodule Ryker.Work.ExecutorTest do
       options(fake)
       |> Keyword.put(:state_tool_capabilities, [:schedules])
       |> Keyword.put(:state_tools_endpoint, "https://ryker.example/v1/state-tools/mcp")
-      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+      |> Keyword.put(:state_tools_secret, Ryker.Secret.new("controller-state-tools-secret"))
 
     assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
 
@@ -1364,7 +1367,7 @@ defmodule Ryker.Work.ExecutorTest do
     run_options =
       options(fake)
       |> Keyword.put(:state_tools_endpoint, "https://ryker.example/v1/state-tools/mcp")
-      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+      |> Keyword.put(:state_tools_secret, Ryker.Secret.new("controller-state-tools-secret"))
 
     assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
 
@@ -1511,7 +1514,7 @@ defmodule Ryker.Work.ExecutorTest do
     run_options =
       options(fake)
       |> Keyword.put(:state_tools_endpoint, "https://ryker.example/v1/state-tools/mcp")
-      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+      |> Keyword.put(:state_tools_secret, Ryker.Secret.new("controller-state-tools-secret"))
 
     assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, run_options)
     assert Enum.map(FakeAPI.state(fake).validations, & &1.verdict) == [:reject, :accept]
@@ -2074,7 +2077,7 @@ defmodule Ryker.Work.ExecutorTest do
       })
 
     endpoint = "https://ryker.example/v1/state-tools/mcp"
-    secret = "controller-state-tools-secret"
+    secret = Ryker.Secret.new("controller-state-tools-secret")
 
     assert {:ok, binding} =
              StateBinding.derive(
@@ -2690,7 +2693,7 @@ defmodule Ryker.Work.ExecutorTest do
       fake
       |> options()
       |> Keyword.put(:state_tools_endpoint, endpoint)
-      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+      |> Keyword.put(:state_tools_secret, Ryker.Secret.new("controller-state-tools-secret"))
 
     assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
 
@@ -2809,7 +2812,7 @@ defmodule Ryker.Work.ExecutorTest do
       |> options()
       |> Keyword.merge(api: ProtocolAPI, client: client)
       |> Keyword.put(:state_tools_endpoint, "https://ryker.example/v1/state-tools/mcp")
-      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+      |> Keyword.put(:state_tools_secret, Ryker.Secret.new("controller-state-tools-secret"))
 
     assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
 
@@ -2833,7 +2836,7 @@ defmodule Ryker.Work.ExecutorTest do
                persisted_turn,
                StateBinding.local_scope(replacement),
                "https://ryker.example/v1/state-tools/mcp",
-               "controller-state-tools-secret"
+               Ryker.Secret.new("controller-state-tools-secret")
              )
 
     assert [submitted_binding] = FakeAPI.state(fake).bindings
@@ -2845,7 +2848,7 @@ defmodule Ryker.Work.ExecutorTest do
                persisted_turn,
                StateBinding.local_scope(claim.session),
                "https://ryker.example/v1/state-tools/mcp",
-               "controller-state-tools-secret"
+               Ryker.Secret.new("controller-state-tools-secret")
              )
 
     refute stale_binding.token == expected_binding.token
@@ -3140,7 +3143,7 @@ defmodule Ryker.Work.ExecutorTest do
                wrong_binding.turn,
                StateBinding.local_scope(wrong_binding.session),
                "https://ryker.example/v1/state-tools/mcp",
-               "controller-state-tools-secret"
+               Ryker.Secret.new("controller-state-tools-secret")
              )
 
     assert {:ok, bound_binding_turn} =
@@ -3171,7 +3174,7 @@ defmodule Ryker.Work.ExecutorTest do
       wrong_binding_fake
       |> protocol_options(%{get_turn: change_binding_digest})
       |> Keyword.put(:state_tools_endpoint, binding.endpoint)
-      |> Keyword.put(:state_tools_secret, "controller-state-tools-secret")
+      |> Keyword.put(:state_tools_secret, Ryker.Secret.new("controller-state-tools-secret"))
 
     assert Executor.run(wrong_binding, binding_options) ==
              {:error, {:coop_protocol_error, :turn_authority}}

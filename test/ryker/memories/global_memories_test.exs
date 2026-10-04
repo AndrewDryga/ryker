@@ -426,7 +426,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
 
     options =
       Router.init(
-        token: "global-recall-cursor-secret",
+        token: Ryker.Secret.new("global-recall-cursor-secret"),
         binding: Map.put(claim, :state_token, Records.token(claim.turn))
       )
 

@@ -136,7 +136,10 @@ defmodule Ryker.CoopFleet.Server do
     |> maybe_put(:state_tools, Map.get(options, :state_tools))
   end
 
-  defp validate_checkpoint_custody!(%{checkpoint_key: key, checkpoint_secrets: secrets}) do
+  defp validate_checkpoint_custody!(%{
+         checkpoint_key: %Ryker.Secret{value: key},
+         checkpoint_secrets: %Ryker.Secret{value: secrets}
+       }) do
     unless is_binary(key) and byte_size(key) == 32 and is_list(secrets) and
              Enum.all?(secrets, &(is_binary(&1) and byte_size(&1) >= 8)),
            do: raise(ArgumentError, "Coop worker checkpoint custody configuration is invalid")
@@ -162,7 +165,7 @@ defmodule Ryker.CoopFleet.Server do
 
   defp validate_state_tools!(%{capabilities: capabilities} = options) do
     router_options =
-      [token: String.duplicate("t", 32), capabilities: capabilities]
+      [token: Ryker.Secret.new(String.duplicate("t", 32)), capabilities: capabilities]
       |> maybe_put(:additional_tools, Map.get(options, :additional_tools))
       |> maybe_put(:additional_call, Map.get(options, :additional_call))
       |> maybe_put(:answer_authorizer, Map.get(options, :answer_authorizer))

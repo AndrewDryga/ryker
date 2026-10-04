@@ -54,7 +54,7 @@ defmodule Ryker.CoopFleet.RouterTest do
   end
 
   test "generic bodies bind streaming custody to the current command before result acknowledgement" do
-    key = :binary.copy(<<7>>, 32)
+    key = Ryker.Secret.new(:binary.copy(<<7>>, 32))
     certificate = authorize_and_poll!()
     command = command!("api_request", %{"method" => "GET", "path" => "/v1/sessions/s/changes"})
     root = Path.join(System.tmp_dir!(), "coop-route-bodies-#{Ecto.UUID.generate()}")
@@ -241,7 +241,7 @@ defmodule Ryker.CoopFleet.RouterTest do
                claim.turn,
                StateBinding.local_scope(session),
                "https://ryker.example/v1/state-tools/mcp",
-               "controller-state-tools-secret"
+               Ryker.Secret.new("controller-state-tools-secret")
              )
 
     assert {:ok, _turn} =
@@ -835,7 +835,7 @@ defmodule Ryker.CoopFleet.RouterTest do
   defp capture_checkpoint(command, checkpoint, bundle, certificate) do
     root = Path.join(System.tmp_dir!(), "checkpoint-api-#{Ecto.UUID.generate()}")
     on_exit(fn -> File.rm_rf!(root) end)
-    key = :binary.copy(<<7>>, 32)
+    key = Ryker.Secret.new(:binary.copy(<<7>>, 32))
 
     response = %{
       "checkpoint" => checkpoint,
@@ -869,7 +869,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     options = [
       body_root: root,
       checkpoint_key: key,
-      checkpoint_secrets: [],
+      checkpoint_secrets: Ryker.Secret.new([]),
       workspace_ref: "workspace-main",
       max_waits: 3,
       poll_interval_ms: 1,
@@ -969,7 +969,7 @@ defmodule Ryker.CoopFleet.RouterTest do
         |> put_req_header("content-length", length)
         |> put_req_header("x-coop-body-sha256", hash)
         |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-        |> Router.call(body_root: root, checkpoint_key: :binary.copy(<<7>>, 32))
+        |> Router.call(body_root: root, checkpoint_key: Ryker.Secret.new(:binary.copy(<<7>>, 32)))
 
       assert response.status == 400
     end

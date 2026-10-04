@@ -596,7 +596,7 @@ defmodule Ryker.Admission.ExecutorTest do
   test "a schema-valid unknown candidate is rejected and repaired in the same Coop turn" do
     assert {:ok, route} =
              Route.new(%{
-               auth: {:bearer, "a-secret-token-long-enough"},
+               auth: {:bearer, Ryker.Secret.new("a-secret-token-long-enough")},
                destination: %{
                  conversation_ref: "slack:TE5D7C8842D32:C456",
                  thread_ref: nil,

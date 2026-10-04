@@ -9,7 +9,7 @@ defmodule Ryker.Work.StateBindingTest do
     turn = %Turn{id: Ecto.UUID.generate()}
     next_turn = %Turn{id: Ecto.UUID.generate()}
     endpoint = "https://ryker.example/v1/state-tools/mcp"
-    secret = "controller-state-tools-secret"
+    secret = Ryker.Secret.new("controller-state-tools-secret")
     scope = StateBinding.local_scope(session)
 
     assert {:ok, binding} = StateBinding.derive(session, turn, scope, endpoint, secret)
@@ -59,7 +59,7 @@ defmodule Ryker.Work.StateBindingTest do
     end
 
     for invalid_secret <- ["short", String.duplicate("a", 4_097), "valid-secret-value" <> <<0>>] do
-      assert StateBinding.derive(session, turn, scope, endpoint, invalid_secret) ==
+      assert StateBinding.derive(session, turn, scope, endpoint, Ryker.Secret.new(invalid_secret)) ==
                {:error, {:invalid_work_state_tools_binding, :secret}}
     end
 

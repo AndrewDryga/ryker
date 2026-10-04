@@ -57,7 +57,11 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundleTest do
 
       for size <- [1, 7, 64, 512, 4096] do
         assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} =
-                 Bundle.validate_stream(checkpoint, chunks(bytes, size), ["configured-secret"])
+                 Bundle.validate_stream(
+                   checkpoint,
+                   chunks(bytes, size),
+                   Ryker.Secret.new(["configured-secret"])
+                 )
       end
     end
 

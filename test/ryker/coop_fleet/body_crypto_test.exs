@@ -18,7 +18,7 @@ defmodule Ryker.CoopFleet.BodyCryptoTest do
   end
 
   test "arbitrary chunk boundaries authenticate before returning any decryptor" do
-    key = :crypto.strong_rand_bytes(32)
+    key = Ryker.Secret.new(:crypto.strong_rand_bytes(32))
 
     identity = %{
       "command" => "c",
@@ -41,7 +41,7 @@ defmodule Ryker.CoopFleet.BodyCryptoTest do
              :crypto.crypto_final(cipher) == plaintext
 
     for {candidate_key, candidate_identity, candidate_metadata, bytes} <- [
-          {:crypto.strong_rand_bytes(32), identity, metadata, encrypted},
+          {Ryker.Secret.new(:crypto.strong_rand_bytes(32)), identity, metadata, encrypted},
           {key, Map.put(identity, "command", "other"), metadata, encrypted},
           {key, Map.put(identity, "direction", "request"), metadata, encrypted},
           {key, identity, Map.put(metadata, "version", 2), encrypted},

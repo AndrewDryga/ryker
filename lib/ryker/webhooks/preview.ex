@@ -55,7 +55,7 @@ defmodule Ryker.Webhooks.Preview do
   defp route(source) do
     Route.new(%{
       adapter: adapter(source),
-      auth: {source.auth_kind, @preview_secret},
+      auth: {source.auth_kind, Ryker.Secret.new(@preview_secret)},
       destination: %{
         conversation_ref: source.destination_conversation_ref,
         thread_ref: source.destination_thread_ref,

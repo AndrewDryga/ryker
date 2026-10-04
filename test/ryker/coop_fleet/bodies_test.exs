@@ -2,7 +2,7 @@ defmodule Ryker.CoopFleet.BodiesTest do
   use ExUnit.Case, async: true
 
   alias Ryker.CoopFleet.Bodies
-  @key :binary.copy(<<7>>, 32)
+  @key Ryker.Secret.new(:binary.copy(<<7>>, 32))
 
   setup do
     root = Path.join(System.tmp_dir!(), "coop-bodies-#{Ecto.UUID.generate()}")
@@ -126,7 +126,7 @@ defmodule Ryker.CoopFleet.BodiesTest do
     assert {:ok, ^bytes} = Bodies.read(body, @key, byte_size(bytes))
     assert {:error, :body_too_large} = Bodies.read(body, @key, byte_size(bytes) - 1)
     deny = fn _ -> flunk("unauthenticated plaintext reached the consumer") end
-    assert {:error, _} = Bodies.with_stream(body, :binary.copy(<<8>>, 32), deny)
+    assert {:error, _} = Bodies.with_stream(body, Ryker.Secret.new(:binary.copy(<<8>>, 32)), deny)
 
     for target <- [
           %{body | command_id: Ecto.UUID.generate()},

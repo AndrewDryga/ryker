@@ -107,7 +107,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
         descriptor: checkpoint,
         bundle_sha256: reference["sha256"],
         bundle_byte_size: reference["byte_size"],
-        encryption_key_sha256: digest(key)
+        encryption_key_sha256: digest(Ryker.Secret.reveal(key))
       }
 
       persist_transfer(prepared)

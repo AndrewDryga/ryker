@@ -13,7 +13,7 @@ defmodule Ryker.StateTools.Router do
 
   require Logger
 
-  alias Ryker.CanonicalJSON
+  alias Ryker.{CanonicalJSON, Secret}
   alias Ryker.Emisar.Tools, as: EmisarTools
   alias Ryker.HTTPConnection
   alias Ryker.StateTools.{CallLog, LookupContext, Tools, ToolVisibility}
@@ -37,11 +37,12 @@ defmodule Ryker.StateTools.Router do
     unless is_nil(answer_authorizer) or is_function(answer_authorizer, 1),
       do: raise(ArgumentError, "answer authorizer must be a trusted one-argument function")
 
-    unless valid_token?(token),
-      do: raise(ArgumentError, "state-tools token must be at least 16 valid UTF-8 bytes")
+    unless sealed_token?(token),
+      do: raise(ArgumentError, "state-tools token must be at least 16 valid UTF-8 bytes, sealed")
 
-    unless is_nil(cursor_secret) or valid_token?(cursor_secret),
-      do: raise(ArgumentError, "memory cursor secret must be at least 16 valid UTF-8 bytes")
+    unless is_nil(cursor_secret) or sealed_token?(cursor_secret),
+      do:
+        raise(ArgumentError, "memory cursor secret must be at least 16 valid UTF-8 bytes, sealed")
 
     unless valid_capabilities?(capabilities),
       do: raise(ArgumentError, "state-tools capabilities must be unique known atoms")
@@ -59,12 +60,18 @@ defmodule Ryker.StateTools.Router do
     }
   end
 
+  # The token and cursor secret stay sealed (`Ryker.Secret`) in the options a
+  # listener keeps for its life; each is opened where it is used: the bearer
+  # check below, and the cursor secret a tool signs with.
   @impl Plug
   def call(conn, options),
     do: conn |> HTTPConnection.close_after_refusal() |> route(options)
 
+  defp sealed_token?(%Secret{value: value}), do: valid_token?(value)
+  defp sealed_token?(_token), do: false
+
   defp route(%Plug.Conn{method: "POST", path_info: ["mcp"]} = conn, options) do
-    with :ok <- authorize(conn, options.token),
+    with :ok <- authorize(conn, Secret.reveal(options.token)),
          :ok <- json_content_type(conn),
          {:ok, body, conn} <- read_request_body(conn) do
       # A JSON-RPC error is a 200 that keeps the connection open, so it goes
@@ -219,7 +226,7 @@ defmodule Ryker.StateTools.Router do
         # readers receive the same host-owned cursor secret as fixed memory tools.
         binding =
           if is_map(options.binding),
-            do: Map.put(options.binding, :cursor_secret, options.cursor_secret),
+            do: Map.put(options.binding, :cursor_secret, opened(options.cursor_secret)),
             else: options.binding
 
         case call_additional(options.additional_call, name, arguments, binding) do
@@ -500,4 +507,7 @@ defmodule Ryker.StateTools.Router do
   end
 
   defp valid_capabilities?(_capabilities), do: false
+
+  defp opened(nil), do: nil
+  defp opened(%Secret{} = secret), do: Secret.reveal(secret)
 end

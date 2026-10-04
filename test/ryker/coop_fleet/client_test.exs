@@ -648,7 +648,8 @@ defmodule Ryker.CoopFleet.ClientTest do
   } do
     client = %{
       client
-      | bridge_options: Keyword.put(client.bridge_options, :checkpoint_secrets, [])
+      | bridge_options:
+          Keyword.put(client.bridge_options, :checkpoint_secrets, Ryker.Secret.new([]))
     }
 
     session = bind_session!(session, "coop-session-checkpoint")
@@ -1798,7 +1799,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     session: session
   } do
     alias Ryker.CoopFleet.Bodies
-    key = :binary.copy(<<7>>, 32)
+    key = Ryker.Secret.new(:binary.copy(<<7>>, 32))
     client = %{client | bridge_options: Keyword.put(client.bridge_options, :checkpoint_key, key)}
     session = bind_session!(session, "s-binary")
     root = Path.join(System.tmp_dir!(), "coop-client-binary-#{Ecto.UUID.generate()}")

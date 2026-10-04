@@ -118,7 +118,7 @@ defmodule Ryker.Webhooks.InputTest do
   defp route!(publication_lifecycle \\ nil) do
     assert {:ok, route} =
              Route.new(%{
-               auth: {:bearer, "a-secret-token-long-enough"},
+               auth: {:bearer, Ryker.Secret.new("a-secret-token-long-enough")},
                destination: %{
                  conversation_ref: "slack:T123:C456",
                  thread_ref: nil,

@@ -5,8 +5,8 @@ defmodule Ryker.Webhooks.RouteTest do
 
   test "accepts bearer and HMAC routes with a host-owned destination" do
     for auth <- [
-          {:bearer, "a-secret-token-long-enough"},
-          {:hmac_sha256, String.duplicate("h", 32)}
+          {:bearer, Ryker.Secret.new("a-secret-token-long-enough")},
+          {:hmac_sha256, Ryker.Secret.new(String.duplicate("h", 32))}
         ] do
       assert {:ok, route} = Route.new(attributes(auth))
       assert route.name == "universal"
@@ -25,7 +25,7 @@ defmodule Ryker.Webhooks.RouteTest do
     }
 
     assert {:ok, route} =
-             attributes({:bearer, "a-secret-token-long-enough"})
+             attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")})
              |> Map.put(:work_profile, profile)
              |> Route.new()
 
@@ -33,7 +33,7 @@ defmodule Ryker.Webhooks.RouteTest do
     assert route.work_profile.repository_ref == "owner/service"
 
     assert {:error, {:invalid_work_profile, :policy_digest}} =
-             attributes({:bearer, "a-secret-token-long-enough"})
+             attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")})
              |> Map.put(:work_profile, %{profile | policy_digest: "untrusted"})
              |> Route.new()
   end
@@ -47,7 +47,7 @@ defmodule Ryker.Webhooks.RouteTest do
     }
 
     assert {:ok, route} =
-             attributes({:bearer, "a-secret-token-long-enough"})
+             attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")})
              |> Map.put(:publication_lifecycle, scope)
              |> Route.new()
 
@@ -65,7 +65,7 @@ defmodule Ryker.Webhooks.RouteTest do
           Map.put(scope, :extra, ["untrusted"])
         ] do
       assert {:error, {:invalid_webhook_route, :publication_lifecycle}} =
-               attributes({:bearer, "a-secret-token-long-enough"})
+               attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")})
                |> Map.put(:publication_lifecycle, invalid)
                |> Route.new()
     end
@@ -73,15 +73,21 @@ defmodule Ryker.Webhooks.RouteTest do
 
   test "rejects weak credentials, extra fields, and malformed destinations" do
     assert {:error, {:invalid_webhook_route, :auth}} =
-             Route.new(attributes({:bearer, "short"}))
+             Route.new(attributes({:bearer, Ryker.Secret.new("short")}))
 
     assert {:error, {:invalid_webhook_route, :fields}} =
-             Route.new(Map.put(attributes({:bearer, "a-secret-token-long-enough"}), :extra, true))
+             Route.new(
+               Map.put(
+                 attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
+                 :extra,
+                 true
+               )
+             )
 
     assert {:error, {:invalid_webhook_route, :destination}} =
              Route.new(
                put_in(
-                 attributes({:bearer, "a-secret-token-long-enough"}),
+                 attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
                  [:destination, :conversation_ref],
                  ""
                )
@@ -89,13 +95,17 @@ defmodule Ryker.Webhooks.RouteTest do
 
     assert {:error, {:invalid_webhook_route, :max_body_bytes}} =
              Route.new(
-               Map.put(attributes({:bearer, "a-secret-token-long-enough"}), :max_body_bytes, 10)
+               Map.put(
+                 attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
+                 :max_body_bytes,
+                 10
+               )
              )
 
     assert {:error, {:invalid_webhook_route, :max_body_bytes}} =
              Route.new(
                Map.put(
-                 attributes({:bearer, "a-secret-token-long-enough"}),
+                 attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
                  :max_body_bytes,
                  40_001
                )
@@ -104,7 +114,7 @@ defmodule Ryker.Webhooks.RouteTest do
     assert {:error, {:invalid_webhook_route, :max_clock_skew_seconds}} =
              Route.new(
                Map.put(
-                 attributes({:bearer, "a-secret-token-long-enough"}),
+                 attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
                  :max_clock_skew_seconds,
                  3_601
                )
@@ -116,7 +126,7 @@ defmodule Ryker.Webhooks.RouteTest do
   test "accepts unique keyword configuration" do
     assert {:ok, route} =
              Route.new(
-               auth: {:bearer, "a-secret-token-long-enough"},
+               auth: {:bearer, Ryker.Secret.new("a-secret-token-long-enough")},
                destination: %{
                  conversation_ref: "slack:T123:C456",
                  thread_ref: "1787832000.000100",

@@ -937,7 +937,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
                claim.turn,
                StateBinding.placement_scope(placement),
                "https://ryker.example/v1/state-tools/mcp",
-               "state-tools-secret-for-tests"
+               Ryker.Secret.new("state-tools-secret-for-tests")
              )
 
     assert {:ok, _turn} =
@@ -983,7 +983,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
                claim.turn,
                StateBinding.placement_scope(first_placement),
                "https://ryker.example/v1/state-tools/mcp",
-               "state-tools-secret-for-tests"
+               Ryker.Secret.new("state-tools-secret-for-tests")
              )
 
     assert {:ok, _turn} =
@@ -1287,7 +1287,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   end
 
   test "a state bearer exists only in the response for its exact current placement" do
-    secret = "fleet-state-binding-secret"
+    secret = Ryker.Secret.new("fleet-state-binding-secret")
     endpoint = "https://ryker.example/v1/state-tools/mcp"
 
     authorize_and_poll!("worker-a")
@@ -2408,7 +2408,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     bundle = :binary.copy(<<3>>, 4_096)
     sha256 = :crypto.hash(:sha256, bundle) |> Base.encode16(case: :lower)
     reference = %{"sha256" => sha256, "byte_size" => byte_size(bundle)}
-    key = :binary.copy(<<9>>, 32)
+    key = Ryker.Secret.new(:binary.copy(<<9>>, 32))
     assert :ok = Bodies.put(body_root, command.id, :response, reference, [bundle], key)
 
     Repo.insert!(%WorkspaceCheckpointTransfer{
@@ -2419,7 +2419,8 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       checkpoint_ref: checkpoint_ref,
       command_id: command.id,
       descriptor: %{"version" => 2, "checkpoint_ref" => checkpoint_ref},
-      encryption_key_sha256: :crypto.hash(:sha256, key) |> Base.encode16(case: :lower),
+      encryption_key_sha256:
+        :crypto.hash(:sha256, Ryker.Secret.reveal(key)) |> Base.encode16(case: :lower),
       placement_generation: command.placement_generation,
       repository_ref: session.repository_ref,
       session_ref: session.id,

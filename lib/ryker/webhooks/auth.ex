@@ -2,17 +2,18 @@ defmodule Ryker.Webhooks.Auth do
   @moduledoc false
 
   alias Plug.Conn
+  alias Ryker.Secret
   alias Ryker.Webhooks.{Headers, Route}
 
   @spec authorize(Conn.t(), Route.t(), binary(), DateTime.t()) :: :ok | {:error, term()}
-  def authorize(conn, %Route{auth: {:bearer, expected}}, _body, _now) do
+  def authorize(conn, %Route{auth: {:bearer, %Secret{value: expected}}}, _body, _now) do
     case Conn.get_req_header(conn, "authorization") do
       ["Bearer " <> submitted] -> secure_equal(submitted, expected)
       _other -> {:error, :unauthorized}
     end
   end
 
-  def authorize(conn, %Route{auth: {:hmac_sha256, secret}} = route, body, now) do
+  def authorize(conn, %Route{auth: {:hmac_sha256, %Secret{value: secret}}} = route, body, now) do
     with {:ok, timestamp} <- timestamp(conn),
          :ok <- fresh(timestamp, now, route.max_clock_skew_seconds),
          {:ok, submitted} <- signature(conn),

@@ -178,7 +178,7 @@ defmodule Ryker.Webhooks.RouterTest do
 
   test "validates signed requests without trusting a sender-selected route or time" do
     secret = String.duplicate("h", 32)
-    route = route!({:hmac_sha256, secret})
+    route = route!({:hmac_sha256, Ryker.Secret.new(secret)})
     body = ~s(["anything",42])
     timestamp = Integer.to_string(DateTime.to_unix(@now))
     signature = hmac_signature(secret, body, timestamp, "evt-hmac")
@@ -310,7 +310,7 @@ defmodule Ryker.Webhooks.RouterTest do
   end
 
   defp request(body, options) do
-    route = Keyword.get(options, :route, route!({:bearer, @secret}))
+    route = Keyword.get(options, :route, route!({:bearer, Ryker.Secret.new(@secret)}))
     content_type = Keyword.get(options, :content_type, "application/json")
 
     conn =
@@ -331,7 +331,7 @@ defmodule Ryker.Webhooks.RouterTest do
   defp maybe_header(conn, _name, nil), do: conn
   defp maybe_header(conn, name, value), do: put_req_header(conn, name, value)
 
-  defp router_options(route \\ route!({:bearer, @secret}), now \\ @now) do
+  defp router_options(route \\ route!({:bearer, Ryker.Secret.new(@secret)}), now \\ @now) do
     Router.init(now: fn -> now end, routes: %{"universal" => route})
   end
 

@@ -176,7 +176,7 @@ defmodule Ryker.Evals.WorldRunner do
       is_nil(settings.source_and_action_tools) or
         valid_source_and_action_tools?(settings.source_and_action_tools),
       reference(settings.state_tools_endpoint, :state_tools_endpoint) == :ok,
-      reference(settings.state_tools_secret, :state_tools_secret) == :ok,
+      match?(%Ryker.Secret{value: value} when is_binary(value), settings.state_tools_secret),
       is_nil(settings.tool_catalog_sha256) or digest?(settings.tool_catalog_sha256),
       is_nil(settings.tool_names) or valid_tool_names?(settings.tool_names),
       reference(settings.worker_ref, :worker_ref) == :ok

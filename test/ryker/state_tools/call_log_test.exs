@@ -92,7 +92,7 @@ defmodule Ryker.StateTools.CallLogTest do
 
     options =
       Router.init(
-        token: @token,
+        token: Ryker.Secret.new(@token),
         binding: %{
           episode: work.episode,
           session: work.session,
@@ -254,7 +254,7 @@ defmodule Ryker.StateTools.CallLogTest do
   defp call_tool(work, name, arguments) do
     options =
       Router.init(
-        token: @token,
+        token: Ryker.Secret.new(@token),
         binding: %{
           episode: work.episode,
           session: work.session,

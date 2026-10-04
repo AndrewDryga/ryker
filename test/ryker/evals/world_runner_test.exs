@@ -83,7 +83,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-operator-question-watch"
              )
 
@@ -166,7 +166,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-terminal-error"
              )
 
@@ -224,7 +224,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
         policy: "world-eval-read-only",
         policy_digest: @policy_digest,
         state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-        state_tools_secret: "world-eval-state-tools-secret",
+        state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
         worker_ref: "world-eval-authority"
       )
 
@@ -291,7 +291,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-identity-isolation"
              )
 
@@ -368,7 +368,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
         policy: "world-eval-read-only",
         policy_digest: @policy_digest,
         state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-        state_tools_secret: "world-eval-state-tools-secret",
+        state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
         worker_ref: "world-read-only-plan"
       )
 
@@ -459,7 +459,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                  policy: "world-eval-read-only",
                  policy_digest: @policy_digest,
                  state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-                 state_tools_secret: "world-eval-state-tools-secret",
+                 state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                  worker_ref: "world-source-event-denial"
                )
 
@@ -494,7 +494,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-eval-worker:invalid-terraform-wait"
              )
 
@@ -553,7 +553,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-source-matched-reconnect"
              )
 
@@ -632,7 +632,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret"
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
              )
 
     [initial | wakeups] = report.runtime.turns
@@ -693,7 +693,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-harvested-timer"
              )
 
@@ -753,7 +753,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret"
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
              )
 
     assert FakeWorkCoopAPI.state(fake).submit_count == 0
@@ -782,7 +782,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-harvested-completion"
              )
 
@@ -858,7 +858,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret"
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
              )
 
     assert report.failures == required
@@ -910,7 +910,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
           policy: "world-eval-read-only",
           policy_digest: @policy_digest,
           state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-          state_tools_secret: "world-eval-state-tools-secret",
+          state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
           worker_ref: "world-eval-worker:invalid-poll-#{@poll_subscription_label}"
         )
 
@@ -1242,7 +1242,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                  policy: "world-eval-read-only",
                  policy_digest: @policy_digest,
                  state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-                 state_tools_secret: "world-eval-state-tools-secret",
+                 state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                  worker_ref: "world-eval-worker:#{@scenario_id}"
                )
 
@@ -1357,7 +1357,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-eval-worker:explicit-operator-incident"
              )
 
@@ -1433,7 +1433,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy_digest: @policy_digest,
                repository_ref: "tenant-rivals-scraper",
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-eval-worker:task-feedback"
              )
 
@@ -1491,7 +1491,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-corrupt-fixture"
              )
 
@@ -1525,7 +1525,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                  policy: "world-eval-read-only",
                  policy_digest: @policy_digest,
                  state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-                 state_tools_secret: "world-eval-state-tools-secret",
+                 state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                  worker_ref: "world-eval-worker:#{@scenario_id}"
                )
 
@@ -1572,7 +1572,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                  policy: "world-eval-read-only",
                  policy_digest: @policy_digest,
                  state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-                 state_tools_secret: "world-eval-state-tools-secret",
+                 state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                  worker_ref: "world-eval-worker:#{@scenario_id}"
                )
 
@@ -1708,7 +1708,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-eval-worker:exact-source-tools"
              )
 
@@ -1757,7 +1757,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-model-artifact-worker"
              )
 
@@ -1894,7 +1894,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-eval-worker"
              )
 
@@ -1975,7 +1975,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-eval-github"
              )
 
@@ -2010,7 +2010,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-eval-worker"
              )
 
@@ -2048,7 +2048,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                  policy: "world-eval-read-only",
                  policy_digest: @policy_digest,
                  state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-                 state_tools_secret: "world-eval-state-tools-secret",
+                 state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                  worker_ref: "world-eval-worker"
                )
 
@@ -2146,7 +2146,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-eval-worker"
              )
 
@@ -2180,7 +2180,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret"
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
              )
 
     assert {:error, {:invalid_world_runner, :options}} =
@@ -2190,7 +2190,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: "not-a-digest",
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret"
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
              )
 
     assert {:error, :model_world_database_not_disposable} =
@@ -2201,7 +2201,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret"
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
              )
 
     scenario_without_input =
@@ -2214,7 +2214,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret"
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
              )
 
     scenario_with_unknown_actor =
@@ -2232,7 +2232,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret"
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
              )
 
     assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 0
@@ -2266,7 +2266,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret"
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
              )
 
     assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 0
@@ -2300,7 +2300,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-eval-worker:repository-feedback-question"
              )
 
@@ -2360,7 +2360,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-eval-worker:repository-write-offer-evidence"
              )
 
@@ -2403,7 +2403,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                policy: "world-eval-read-only",
                policy_digest: @policy_digest,
                state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: "world-eval-state-tools-secret",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
                worker_ref: "world-eval-worker"
              )
 
@@ -2612,7 +2612,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
         api: FakeWorkCoopAPI,
         client: fake,
         state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-        state_tools_secret: "world-eval-state-tools-secret"
+        state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
       ],
       lease_seconds: 300,
       max_attempts: 4,

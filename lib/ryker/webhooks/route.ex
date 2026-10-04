@@ -7,6 +7,7 @@ defmodule Ryker.Webhooks.Route do
   """
 
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Secret
 
   @default_max_body_bytes 40_000
   @maximum_body_bytes 40_000
@@ -34,11 +35,9 @@ defmodule Ryker.Webhooks.Route do
   ]
 
   @enforce_keys @required_fields ++ @optional_fields
-  # Crash reports print a struct with inspect; `auth` holds the token or secret.
-  @derive {Inspect, except: [:auth]}
   defstruct @required_fields ++ @optional_fields
 
-  @type auth :: {:bearer, binary()} | {:hmac_sha256, binary()}
+  @type auth :: {:bearer, Secret.t()} | {:hmac_sha256, Secret.t()}
   @type adapter ::
           %{kind: :universal}
           | %{kind: :grafana, group_by_labels: [String.t()]}
@@ -230,8 +229,9 @@ defmodule Ryker.Webhooks.Route do
     end)
   end
 
-  defp valid_auth?({:bearer, secret}), do: secret?(secret, 16)
-  defp valid_auth?({:hmac_sha256, secret}), do: secret?(secret, 32)
+  # The token or signing secret arrives sealed (`Ryker.Secret`).
+  defp valid_auth?({:bearer, %Secret{value: secret}}), do: secret?(secret, 16)
+  defp valid_auth?({:hmac_sha256, %Secret{value: secret}}), do: secret?(secret, 32)
   defp valid_auth?(_auth), do: false
 
   defp secret?(secret, minimum) do

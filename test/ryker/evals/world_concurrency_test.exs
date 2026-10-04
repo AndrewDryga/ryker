@@ -260,7 +260,7 @@ defmodule Ryker.Evals.WorldConcurrencyTest do
         api: FakeWorkCoopAPI,
         client: fake,
         state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-        state_tools_secret: "world-eval-state-tools-secret"
+        state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
       ],
       lease_seconds: 300,
       max_attempts: 4,

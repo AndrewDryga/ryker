@@ -143,7 +143,11 @@ defmodule Ryker.Webhooks.AdapterEndToEndTest do
   end
 
   test "a provider-derived identity remains bound to the exact HMAC-authenticated body" do
-    route = route!(%{kind: :grafana, group_by_labels: []}, {:hmac_sha256, @hmac_secret})
+    route =
+      route!(
+        %{kind: :grafana, group_by_labels: []},
+        {:hmac_sha256, Ryker.Secret.new(@hmac_secret)}
+      )
 
     body =
       Jason.encode!(%{
@@ -195,7 +199,7 @@ defmodule Ryker.Webhooks.AdapterEndToEndTest do
     "v1=" <> Base.encode16(digest, case: :lower)
   end
 
-  defp route!(adapter, auth \\ {:bearer, @secret}) do
+  defp route!(adapter, auth \\ {:bearer, Ryker.Secret.new(@secret)}) do
     assert {:ok, route} =
              Route.new(%{
                adapter: adapter,

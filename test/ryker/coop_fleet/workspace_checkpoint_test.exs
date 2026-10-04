@@ -215,7 +215,10 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
 
   test "the central bundle verifier rejects modified headers and credential-bearing members" do
     {checkpoint, bundle} = WorkspaceCheckpointFixture.build(%{session_ref: "session-1"})
-    assert {:ok, _manifest} = WorkspaceCheckpointBundle.validate(checkpoint, bundle, [])
+
+    assert {:ok, _manifest} =
+             WorkspaceCheckpointBundle.validate(checkpoint, bundle, Ryker.Secret.new([]))
+
     assert {:ok, _manifest} = WorkspaceCheckpointBundle.validate(checkpoint, bundle)
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :identity}} =
@@ -237,7 +240,11 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
       |> put_in(["bundle", "byte_size"], byte_size(changed_bundle))
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :header}} =
-             WorkspaceCheckpointBundle.validate(changed_checkpoint, changed_bundle, [])
+             WorkspaceCheckpointBundle.validate(
+               changed_checkpoint,
+               changed_bundle,
+               Ryker.Secret.new([])
+             )
 
     invalid_octal = name <> "zzzzzzz\0" <> rest
 
@@ -245,7 +252,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
              WorkspaceCheckpointBundle.validate(
                rebind_bundle(checkpoint, invalid_octal),
                invalid_octal,
-               []
+               Ryker.Secret.new([])
              )
 
     {secret_checkpoint, secret_bundle} =
@@ -255,13 +262,21 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
       })
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} =
-             WorkspaceCheckpointBundle.validate(secret_checkpoint, secret_bundle, [])
+             WorkspaceCheckpointBundle.validate(
+               secret_checkpoint,
+               secret_bundle,
+               Ryker.Secret.new([])
+             )
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} =
-             WorkspaceCheckpointBundle.validate(checkpoint, bundle, ["Status: in_progress"])
+             WorkspaceCheckpointBundle.validate(
+               checkpoint,
+               bundle,
+               Ryker.Secret.new(["Status: in_progress"])
+             )
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} =
-             WorkspaceCheckpointBundle.validate(checkpoint, bundle, ["short"])
+             WorkspaceCheckpointBundle.validate(checkpoint, bundle, Ryker.Secret.new(["short"]))
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :secret_configuration}} =
              WorkspaceCheckpointBundle.validate(checkpoint, bundle, :not_a_secret_list)
@@ -274,7 +289,11 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
       |> put_in(["bundle", "byte_size"], byte_size(malformed))
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :tar}} =
-             WorkspaceCheckpointBundle.validate(malformed_checkpoint, malformed, [])
+             WorkspaceCheckpointBundle.validate(
+               malformed_checkpoint,
+               malformed,
+               Ryker.Secret.new([])
+             )
 
     changed_member =
       :binary.replace(bundle, "Status: in_progress\n", "Status: in_progresX\n")
@@ -283,7 +302,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
              WorkspaceCheckpointBundle.validate(
                rebind_bundle(checkpoint, changed_member),
                changed_member,
-               []
+               Ryker.Secret.new([])
              )
 
     invalid_terminator = binary_part(bundle, 0, byte_size(bundle) - 1) <> <<1>>
@@ -292,7 +311,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
              WorkspaceCheckpointBundle.validate(
                rebind_bundle(checkpoint, invalid_terminator),
                invalid_terminator,
-               []
+               Ryker.Secret.new([])
              )
 
     truncated_member = binary_part(bundle, 0, byte_size(bundle) - 1_535)
@@ -301,7 +320,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
              WorkspaceCheckpointBundle.validate(
                rebind_bundle(checkpoint, truncated_member),
                truncated_member,
-               []
+               Ryker.Secret.new([])
              )
 
     missing_manifest = rename_first_tar_member(bundle, "missing.json")
@@ -310,7 +329,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
              WorkspaceCheckpointBundle.validate(
                rebind_bundle(checkpoint, missing_manifest),
                missing_manifest,
-               []
+               Ryker.Secret.new([])
              )
   end
 

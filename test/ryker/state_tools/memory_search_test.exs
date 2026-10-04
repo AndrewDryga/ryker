@@ -55,7 +55,10 @@ defmodule Ryker.StateTools.MemorySearchTest do
 
     assert {:ok, claim} = Custody.claim_next("memory-search-test", 300)
     binding = Map.put(claim, :state_token, Records.token(claim.turn))
-    options = Router.init(token: "host-only-search-test-secret", binding: binding)
+
+    options =
+      Router.init(token: Ryker.Secret.new("host-only-search-test-secret"), binding: binding)
+
     %{claim: claim, options: options, entries: entries}
   end
 
@@ -194,7 +197,7 @@ defmodule Ryker.StateTools.MemorySearchTest do
 
     options =
       Router.init(
-        token: "host-only-search-test-secret",
+        token: Ryker.Secret.new("host-only-search-test-secret"),
         binding: claim,
         additional_tools: [tool],
         additional_call: fn _, _, _ -> {:ok, response} end

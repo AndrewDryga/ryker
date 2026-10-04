@@ -51,7 +51,7 @@ defmodule Ryker.RoutingExamplesTest do
   @workspace "TE5D7C8842D32"
   @channel "C456"
   @conversation "slack:TE5D7C8842D32:C456"
-  @options %{batch_size: 25, redaction_secrets: [], window_seconds: 365 * @day}
+  @options %{batch_size: 25, redaction_secrets: Ryker.Secret.new([]), window_seconds: 365 * @day}
 
   @quick_reply ~s({"action":"quick_reply","episode_ref":null,"messages":["Hi!"],"reactions":null,"relation":"unrelated","reason":"The person greeted Ryker and requested a one-word reply.","repository":null,"repository_source":null,"work_class":null})
   @ignore ~s({"action":"ignore","episode_ref":null,"messages":null,"reactions":null,"relation":"unrelated","reason":"The message shares an unavailable file with no text, request to Ryker, or identifiable operational event. The earlier reply and reaction request was already handled.","repository":null,"repository_source":null,"work_class":null})
@@ -197,7 +197,10 @@ defmodule Ryker.RoutingExamplesTest do
       assert prompt =~ token and prompt =~ stored
 
       assert {:ok, %{copied: 1}} =
-               RoutingExamples.capture(%{@options | redaction_secrets: [stored]})
+               RoutingExamples.capture(%{
+                 @options
+                 | redaction_secrets: Ryker.Secret.new([stored])
+               })
 
       example = Repo.one!(Example)
       refute example.prompt =~ token
@@ -765,7 +768,10 @@ defmodule Ryker.RoutingExamplesTest do
       worker =
         start_supervised!(
           {RoutingExamples.Worker,
-           batch_size: 25, poll_interval_ms: 10_000, redaction_secrets: [], window_seconds: 60}
+           batch_size: 25,
+           poll_interval_ms: 10_000,
+           redaction_secrets: Ryker.Secret.new([]),
+           window_seconds: 60}
         )
 
       # Its first poll found nothing to copy.
@@ -784,7 +790,10 @@ defmodule Ryker.RoutingExamplesTest do
       worker =
         start_supervised!(
           {RoutingExamples.Worker,
-           batch_size: 25, poll_interval_ms: 10_000, redaction_secrets: [], window_seconds: 60}
+           batch_size: 25,
+           poll_interval_ms: 10_000,
+           redaction_secrets: Ryker.Secret.new([]),
+           window_seconds: 60}
         )
 
       _state = :sys.get_state(worker)

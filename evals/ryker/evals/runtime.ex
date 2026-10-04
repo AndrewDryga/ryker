@@ -18,7 +18,7 @@ defmodule Ryker.Evals.Runtime do
           gateway: map(),
           state_tools: map(),
           state_tools_endpoint: String.t(),
-          state_tools_secret: String.t()
+          state_tools_secret: Ryker.Secret.t()
         }
 
   @doc "The worker gateway and state tools an isolated world evaluation serves."
@@ -31,7 +31,7 @@ defmodule Ryker.Evals.Runtime do
         {:error, :model_world_gateway_not_configured}
 
       gateway ->
-        token = Bootstrap.secret!(:state_tools)
+        token = Ryker.Secret.new(Bootstrap.secret!(:state_tools))
 
         state_tools = %{
           capabilities: @capabilities,
@@ -55,8 +55,8 @@ defmodule Ryker.Evals.Runtime do
                  Integer.to_string(gateway.port)
                ])
              )
-             |> Map.put(:checkpoint_key, Bootstrap.checkpoint_key!())
-             |> Map.put(:checkpoint_secrets, []),
+             |> Map.put(:checkpoint_key, Ryker.Secret.new(Bootstrap.checkpoint_key!()))
+             |> Map.put(:checkpoint_secrets, Ryker.Secret.new([])),
            state_tools: state_tools,
            state_tools_endpoint: gateway.public_url <> "/v1/state-tools/mcp",
            state_tools_secret: token

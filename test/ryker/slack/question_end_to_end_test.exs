@@ -433,7 +433,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
     options =
       Router.init(
-        token: "question-recall-cursor-secret",
+        token: Ryker.Secret.new("question-recall-cursor-secret"),
         binding: Map.put(claim, :state_token, Records.token(claim.turn))
       )
 

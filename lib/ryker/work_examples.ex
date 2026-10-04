@@ -82,7 +82,7 @@ defmodule Ryker.WorkExamples do
   def capture(%{batch_size: batch_size, window_seconds: window_seconds} = options)
       when is_integer(batch_size) and batch_size > 0 and is_integer(window_seconds) and
              window_seconds > 0 do
-    secrets = secrets(Map.get(options, :redaction_secrets, []))
+    secrets = secrets(Map.get(options, :redaction_secrets, Ryker.Secret.new([])))
 
     results =
       batch_size
@@ -361,7 +361,8 @@ defmodule Ryker.WorkExamples do
 
   defp redacted_text(_absent, _secrets), do: ""
 
-  defp secrets(stored) do
+  # The stored credentials arrive sealed (`Ryker.Secret`) and are opened here.
+  defp secrets(%Ryker.Secret{value: stored}) do
     (InspectionRedactor.configured_secrets() ++ Enum.filter(stored, &(byte_size(&1) >= 8)))
     |> Enum.uniq()
     |> Enum.sort_by(&byte_size/1, :desc)

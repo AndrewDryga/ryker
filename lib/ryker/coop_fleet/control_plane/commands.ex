@@ -595,7 +595,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
          %{"endpoint" => endpoint, "token_sha256" => token_sha256} = descriptor,
          state_tools_secret
        )
-       when map_size(descriptor) == 2 and is_binary(state_tools_secret) do
+       when map_size(descriptor) == 2 and is_struct(state_tools_secret, Ryker.Secret) do
     session = Repo.get(Session, command.session_id)
 
     turn =

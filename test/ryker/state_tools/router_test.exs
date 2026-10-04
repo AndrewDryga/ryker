@@ -27,12 +27,15 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.StateTools.{FixedTools, Router, Tools, ToolVisibility}
   alias Ryker.Work.{Custody, Final, FinalPreflight, Prompt, SubmissionBuilder}
 
-  @options Router.init(token: "trusted-state-tools-token")
+  @options Router.init(token: Ryker.Secret.new("trusted-state-tools-token"))
   @wait_only_options Router.init(
-                       token: "trusted-state-tools-token",
+                       token: Ryker.Secret.new("trusted-state-tools-token"),
                        capabilities: [:event_waits]
                      )
-  @no_owner_options Router.init(token: "trusted-state-tools-token", capabilities: [])
+  @no_owner_options Router.init(
+                      token: Ryker.Secret.new("trusted-state-tools-token"),
+                      capabilities: []
+                    )
   @policy_digest String.duplicate("a", 64)
 
   test "exposes exactly the fixed state tools without model-supplied host credentials" do
@@ -157,7 +160,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     platform_options =
       Router.init(
-        token: "trusted-state-tools-token",
+        token: Ryker.Secret.new("trusted-state-tools-token"),
         binding: %{
           episode: claim.episode,
           session: claim.session,
@@ -2131,7 +2134,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     options =
       Router.init(
-        token: "trusted-state-tools-token",
+        token: Ryker.Secret.new("trusted-state-tools-token"),
         additional_tools: [source_tool],
         additional_call: fn "monitoring.query", %{"query" => "firing"} ->
           {:ok, %{"alerts" => []}}
@@ -2156,7 +2159,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert_raise ArgumentError, ~r/collid/, fn ->
       Router.init(
-        token: "trusted-state-tools-token",
+        token: Ryker.Secret.new("trusted-state-tools-token"),
         additional_tools: [%{source_tool | "name" => "request_input"}],
         additional_call: fn _, _ -> {:error, %{"code" => "unused"}} end
       )
@@ -2166,9 +2169,9 @@ defmodule Ryker.StateTools.RouterTest do
 
     bound_options =
       Router.init(
-        token: "trusted-state-tools-token",
+        token: Ryker.Secret.new("trusted-state-tools-token"),
         binding: bound,
-        cursor_secret: "host-owned-source-cursor-secret",
+        cursor_secret: Ryker.Secret.new("host-owned-source-cursor-secret"),
         additional_tools: [source_tool],
         additional_call: fn "monitoring.query", %{"query" => "firing"}, received ->
           {:ok,
@@ -2233,7 +2236,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     options =
       Router.init(
-        token: "trusted-state-tools-token",
+        token: Ryker.Secret.new("trusted-state-tools-token"),
         binding: %{
           episode: claim.episode,
           session: claim.session,
@@ -2666,7 +2669,7 @@ defmodule Ryker.StateTools.RouterTest do
     server =
       start_supervised!(
         {Bandit,
-         plug: {Router, [token: "trusted-state-tools-token"]},
+         plug: {Router, [token: Ryker.Secret.new("trusted-state-tools-token")]},
          ip: :loopback,
          port: 0,
          startup_log: false}
@@ -2758,14 +2761,14 @@ defmodule Ryker.StateTools.RouterTest do
 
     options =
       Router.init(
-        token: "trusted-state-tools-token",
+        token: Ryker.Secret.new("trusted-state-tools-token"),
         binding: %{
           episode: claim.episode,
           session: claim.session,
           state_token: Records.token(claim.turn),
           turn: claim.turn
         },
-        cursor_secret: "host-owned-source-cursor-secret",
+        cursor_secret: Ryker.Secret.new("host-owned-source-cursor-secret"),
         additional_tools: [reader],
         additional_call: fn "search_slack", _arguments, _binding ->
           send(test_pid, {:provider_transaction, Repo.in_transaction?()})
@@ -2839,7 +2842,7 @@ defmodule Ryker.StateTools.RouterTest do
 
   defp bound_options(claim) do
     Router.init(
-      token: "trusted-state-tools-token",
+      token: Ryker.Secret.new("trusted-state-tools-token"),
       binding: %{
         episode: claim.episode,
         session: claim.session,

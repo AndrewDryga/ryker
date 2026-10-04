@@ -6,7 +6,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
   import Ecto.Query
 
-  alias Ryker.{Bootstrap, Credentials, Settings}
+  alias Ryker.{Bootstrap, Credentials, Secret, Settings}
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.WorkProfile
@@ -533,8 +533,8 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, configuration} = Assembly.build(bootstrap(), kept)
     copy = configuration[:routing_examples]
     assert copy.window_seconds == 180 * 86_400
-    assert @alert_secret in copy.redaction_secrets
-    assert @custody_secret in copy.redaction_secrets
+    assert @alert_secret in Secret.reveal(copy.redaction_secrets)
+    assert @custody_secret in Secret.reveal(copy.redaction_secrets)
     assert configuration[:retention].routing_examples_enabled == true
     assert configuration[:retention].routing_examples_seconds == 180 * 86_400
     assert RoutingExampleWorker.options!(copy) == copy
@@ -569,11 +569,34 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, configuration} = Assembly.build(bootstrap(), kept)
     copy = configuration[:work_examples]
     assert copy.window_seconds == 200 * 86_400
-    assert @alert_secret in copy.redaction_secrets
-    assert @custody_secret in copy.redaction_secrets
+    assert @alert_secret in Secret.reveal(copy.redaction_secrets)
+    assert @custody_secret in Secret.reveal(copy.redaction_secrets)
     assert configuration[:retention].work_examples_enabled == true
     assert configuration[:retention].work_examples_seconds == 200 * 86_400
     assert WorkExampleWorker.options!(copy) == copy
+  end
+
+  # A failed child start prints its child spec, and a crash report prints process state:
+  # both printed the checkpoint key, the state-tools token and every saved credential's
+  # value, which the worker gateway, Work, the fleet client and the example copiers carried
+  # in plain option maps (2026-10-04 review). They travel sealed, revealed where used.
+  test "the assembled configuration prints no saved credential, key or token" do
+    settings = connected!()
+
+    {:ok, kept} =
+      Settings.save_retention(
+        %{routing_examples_enabled: true, work_examples_enabled: true},
+        settings.installation.revision,
+        @actor
+      )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), kept)
+    printed = inspect(configuration, limit: :infinity, printable_limit: :infinity)
+
+    refute printed =~ @alert_secret
+    refute printed =~ @custody_secret
+    refute printed =~ inspect(Bootstrap.checkpoint_key!(), limit: :infinity)
+    refute printed =~ Bootstrap.secret!(:state_tools)
   end
 
   test "the worker gateway carries the checkpoint custody the deployment registered" do
@@ -581,9 +604,9 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
     gateway = configuration[:coop_worker_gateway]
 
-    assert byte_size(gateway.checkpoint_key) == 32
-    assert @alert_secret in gateway.checkpoint_secrets
-    assert @custody_secret in gateway.checkpoint_secrets
+    assert byte_size(Secret.reveal(gateway.checkpoint_key)) == 32
+    assert @alert_secret in Secret.reveal(gateway.checkpoint_secrets)
+    assert @custody_secret in Secret.reveal(gateway.checkpoint_secrets)
 
     # Work reaches the state tools through the gateway's own public URL, and
     # both sides agree on the same capability list and the same token.

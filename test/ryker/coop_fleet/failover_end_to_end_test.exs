@@ -26,7 +26,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
 
   @policy "work-read-only"
   @policy_digest String.duplicate("b", 64)
-  @checkpoint_key :binary.copy(<<7>>, 32)
+  @checkpoint_key Ryker.Secret.new(:binary.copy(<<7>>, 32))
   @worker_a "failover-worker-a"
   @worker_b "failover-worker-b"
 
@@ -89,7 +89,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
     capture_options = [
       body_root: root,
       checkpoint_key: @checkpoint_key,
-      checkpoint_secrets: [],
+      checkpoint_secrets: Ryker.Secret.new([]),
       workspace_ref: "workspace-main",
       max_waits: 3,
       poll_interval_ms: 1,
@@ -178,7 +178,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
              Client.new(
                body_root: root,
                checkpoint_key: @checkpoint_key,
-               checkpoint_secrets: [],
+               checkpoint_secrets: Ryker.Secret.new([]),
                capability_names: ["controller-tools"],
                lease_seconds: 60,
                max_waits: 4,

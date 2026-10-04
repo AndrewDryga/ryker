@@ -331,7 +331,7 @@ defmodule Ryker.StateTools.EmisarToolsTest do
 
   defp bound_options(claim) do
     Router.init(
-      token: @token,
+      token: Ryker.Secret.new(@token),
       binding: %{
         episode: claim.episode,
         session: claim.session,

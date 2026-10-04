@@ -68,7 +68,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
                claim.turn,
                StateBinding.placement_scope(placement),
                "https://ryker.example/v1/state-tools/mcp",
-               "worker-revocation-state-secret"
+               Ryker.Secret.new("worker-revocation-state-secret")
              )
 
     assert {:ok, _turn} =

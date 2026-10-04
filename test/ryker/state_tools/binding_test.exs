@@ -29,7 +29,7 @@ defmodule Ryker.StateTools.BindingTest do
                claim.turn,
                StateBinding.local_scope(claim.session),
                "https://ryker.example/v1/state-tools/mcp",
-               "controller-state-tools-secret"
+               Ryker.Secret.new("controller-state-tools-secret")
              )
 
     assert {:ok, _session} =
@@ -89,7 +89,7 @@ defmodule Ryker.StateTools.BindingTest do
                original.turn,
                StateBinding.local_scope(original.session),
                "https://ryker.example/v1/state-tools/mcp",
-               "controller-state-tools-secret"
+               Ryker.Secret.new("controller-state-tools-secret")
              )
 
     assert {:ok, _turn} =
@@ -137,7 +137,7 @@ defmodule Ryker.StateTools.BindingTest do
                replacement.turn,
                StateBinding.local_scope(replacement.session),
                "https://ryker.example/v1/state-tools/mcp",
-               "controller-state-tools-secret"
+               Ryker.Secret.new("controller-state-tools-secret")
              )
 
     assert {:ok, _turn} =

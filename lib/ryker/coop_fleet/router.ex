@@ -94,7 +94,7 @@ defmodule Ryker.CoopFleet.Router do
          {:ok, binding} <- Binding.resolve(token),
          {:ok, state_tools} <- Keyword.fetch(options, :state_tools) do
       router_options =
-        [token: token, binding: binding, capabilities: state_tools.capabilities]
+        [token: Ryker.Secret.new(token), binding: binding, capabilities: state_tools.capabilities]
         # Never sign history cursors with the caller's active-turn bearer.
         |> Keyword.put(:cursor_secret, Map.get(state_tools, :token_secret))
         |> maybe_put(:additional_tools, Map.get(state_tools, :additional_tools))
@@ -285,7 +285,7 @@ defmodule Ryker.CoopFleet.Router do
     custody = Keyword.take(options, [:body_root, :checkpoint_key])
 
     case Keyword.get(options, :state_tools) do
-      %{token_secret: secret} when is_binary(secret) ->
+      %{token_secret: %Ryker.Secret{} = secret} ->
         Keyword.put(custody, :state_tools_secret, secret)
 
       _unconfigured ->

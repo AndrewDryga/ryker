@@ -15,7 +15,8 @@ defmodule Ryker.CoopFleet.CheckpointSecretScan do
     {~r/\bemk-[A-Za-z0-9_-]{10,}\b/, ~r/\bemk-[A-Za-z0-9_-]*\z/}
   ]
 
-  def new(secrets) when is_list(secrets) do
+  # The values arrive sealed (`Ryker.Secret`) and are opened only here.
+  def new(%Ryker.Secret{value: secrets}) when is_list(secrets) do
     if Enum.all?(secrets, &(is_binary(&1) and byte_size(&1) >= 8)) do
       literals = secrets ++ @markers
 

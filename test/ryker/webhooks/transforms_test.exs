@@ -515,7 +515,7 @@ defmodule Ryker.Webhooks.TransformsTest do
   defp route_attributes(adapter) do
     %{
       adapter: adapter,
-      auth: {:bearer, "a-secret-token-long-enough"},
+      auth: {:bearer, Ryker.Secret.new("a-secret-token-long-enough")},
       destination: %{
         conversation_ref: "slack:T123:C456",
         thread_ref: nil,

@@ -17,7 +17,7 @@ defmodule Ryker.Work.RuntimeTest do
             receive_timeout_ms: 2_000,
             state_tool_capabilities: [:schedules],
             state_tools_endpoint: "https://ryker.example/v1/state-tools/mcp",
-            state_tools_secret: "controller-state-tools-secret",
+            state_tools_secret: Ryker.Secret.new("controller-state-tools-secret"),
             worker_ref: "ryker-work:vm-1"
           ]
       )
@@ -60,7 +60,9 @@ defmodule Ryker.Work.RuntimeTest do
       assert dispatcher[:executor_options][:state_tools_endpoint] ==
                "https://ryker.example/v1/state-tools/mcp"
 
-      assert dispatcher[:executor_options][:state_tools_secret] == "controller-state-tools-secret"
+      assert dispatcher[:executor_options][:state_tools_secret] ==
+               Ryker.Secret.new("controller-state-tools-secret")
+
       assert dispatcher[:executor_options][:state_tool_capabilities] == [:schedules]
       assert dispatcher[:executor_options][:platform_tools] == ["list_runners", "find_actions"]
     end)
@@ -109,7 +111,7 @@ defmodule Ryker.Work.RuntimeTest do
       Map.merge(adapter, %{
         state_tool_capabilities: [:invented],
         state_tools_endpoint: "https://ryker.example/v1/state-tools/mcp",
-        state_tools_secret: "controller-state-tools-secret",
+        state_tools_secret: Ryker.Secret.new("controller-state-tools-secret"),
         worker_ref: "ryker-work:vm-1"
       }),
       Map.merge(adapter, %{

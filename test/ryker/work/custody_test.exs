@@ -1734,7 +1734,7 @@ defmodule Ryker.Work.CustodyTest do
     bundle = :binary.copy(<<3>>, 4_096)
     sha256 = :crypto.hash(:sha256, bundle) |> Base.encode16(case: :lower)
     reference = %{"sha256" => sha256, "byte_size" => byte_size(bundle)}
-    key = :binary.copy(<<9>>, 32)
+    key = Ryker.Secret.new(:binary.copy(<<9>>, 32))
     assert :ok = Bodies.put(body_root, command.id, :response, reference, [bundle], key)
 
     Repo.insert!(%WorkspaceCheckpointTransfer{
@@ -1744,7 +1744,8 @@ defmodule Ryker.Work.CustodyTest do
       checkpoint_ref: "checkpoint:custody",
       command_id: command.id,
       descriptor: %{"version" => 2, "checkpoint_ref" => "checkpoint:custody"},
-      encryption_key_sha256: :crypto.hash(:sha256, key) |> Base.encode16(case: :lower),
+      encryption_key_sha256:
+        :crypto.hash(:sha256, Ryker.Secret.reveal(key)) |> Base.encode16(case: :lower),
       id: Ecto.UUID.generate(),
       placement_generation: command.placement_generation,
       repository_ref: session.repository_ref,

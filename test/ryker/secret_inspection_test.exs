@@ -51,9 +51,11 @@ defmodule Ryker.SecretInspectionTest do
 
   test "a webhook route does not print its token or signing secret" do
     for auth <- [{:bearer, "bearer-token-long-enough"}, {:hmac_sha256, String.duplicate("h", 32)}] do
+      {kind, secret} = auth
+
       {:ok, route} =
         Route.new(%{
-          auth: auth,
+          auth: {kind, Ryker.Secret.new(secret)},
           destination: %{conversation_ref: "slack:T123:C456", thread_ref: nil, transport: "slack"},
           name: "universal"
         })

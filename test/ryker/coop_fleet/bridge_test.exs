@@ -216,7 +216,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
 
   test "stored response bodies resolve as JSON or a binary file without losing their identity" do
     alias Ryker.CoopFleet.Bodies
-    key = :binary.copy(<<7>>, 32)
+    key = Ryker.Secret.new(:binary.copy(<<7>>, 32))
     command = queued_command!()
     root = Path.join(System.tmp_dir!(), "coop-bridge-bodies-#{Ecto.UUID.generate()}")
     on_exit(fn -> File.rm_rf!(root) end)

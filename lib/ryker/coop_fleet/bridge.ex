@@ -283,7 +283,7 @@ defmodule Ryker.CoopFleet.Bridge do
     %{
       body_root: Keyword.get(options, :body_root),
       checkpoint_key: Keyword.get(options, :checkpoint_key),
-      checkpoint_secrets: Keyword.get(options, :checkpoint_secrets, []),
+      checkpoint_secrets: Keyword.get(options, :checkpoint_secrets, Ryker.Secret.new([])),
       capability_names: Keyword.get(options, :capability_names, []),
       capability_versions: Keyword.get(options, :capability_versions, %{}),
       lease_seconds: Keyword.get(options, :lease_seconds, 60),

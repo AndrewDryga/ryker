@@ -4,13 +4,13 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
   alias Ryker.CoopFleet.{CheckpointSecretScan, WorkspaceCheckpoint}
 
   @spec validate(map(), binary(), [binary()]) :: {:ok, map()} | {:error, term()}
-  def validate(checkpoint, bundle, secrets \\ []) do
+  def validate(checkpoint, bundle, secrets \\ Ryker.Secret.new([])) do
     if is_binary(bundle),
       do: validate_stream(checkpoint, [bundle], secrets),
       else: error(:identity)
   end
 
-  def validate_stream(checkpoint, chunks, secrets \\ []) do
+  def validate_stream(checkpoint, chunks, secrets \\ Ryker.Secret.new([])) do
     with {:ok, checkpoint} <- WorkspaceCheckpoint.validate(checkpoint),
          {:ok, scanner} <- new_scanner(secrets) do
       state = %{
