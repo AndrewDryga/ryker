@@ -42,6 +42,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     LabPage,
     Navigation,
     PageHelp,
+    PageCost,
     Pages,
     PathRef,
     Paths,
@@ -147,6 +148,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        setup_reveal: nil,
        settings_confirm: nil,
        setup_progress: nil,
+       setup_counted: false,
        github_repositories: [],
        github_repository_discovery: :idle,
        repository_notice: nil,
@@ -1314,9 +1316,22 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp opened_tool_body(_socket, _id), do: nil
 
+  # Once setup is done a page stops listening for it (`shell_subscriptions/1`),
+  # so it stops counting it too. The count reads the whole settings view,
+  # about 40 queries, and every page read read it first: half of what a
+  # settings page cost (2026-10-04). A new page load counts again.
+  defp setup_progress(%{assigns: %{setup_counted: true, setup_progress: nil}}), do: nil
+  defp setup_progress(_socket), do: SettingsView.setup_progress()
+
+  # Every read of a page is measured: its queries and time (`PageCost`).
   defp refresh(socket, reset \\ false) do
+    label = "#{socket.assigns.path} (#{if connected?(socket), do: "live", else: "first render"})"
+    PageCost.measure(label, fn -> read_shell_and_page(socket, reset) end)
+  end
+
+  defp read_shell_and_page(socket, reset) do
     socket
-    |> assign(:setup_progress, SettingsView.setup_progress())
+    |> assign(setup_progress: setup_progress(socket), setup_counted: true)
     |> listen()
     |> read_page(reset)
   rescue
@@ -2119,10 +2134,21 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       page_state: Map.get(page, :state),
       page_title_href: Map.get(page, :title_href),
       page_back: Map.get(page, :back),
-      settings: options.projection.settings.(),
+      settings: header_settings(socket.assigns.path, options),
       settings_commands: settings_commands(options)
     )
   end
+
+  # A secondary page shows settings only in these headers: Slack's line on
+  # Channels, GitHub's on Repositories and its add form, and the learning
+  # switch. Every secondary page read the whole settings view for them, about
+  # 40 queries a read for nothing anywhere else (2026-10-04).
+  @settings_headers ~w(/channels /repositories /repositories/new /memory/learning)
+
+  defp header_settings(path, options) when path in @settings_headers,
+    do: options.projection.settings.()
+
+  defp header_settings(_path, _options), do: nil
 
   defp load_unassigned_input(%{assigns: %{params: %{"id" => id}}} = socket, options)
        when is_binary(id) do

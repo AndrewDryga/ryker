@@ -13,6 +13,7 @@ defmodule Ryker.Application do
   @impl Application
   def start(_type, _args) do
     Ryker.Defaults.validate!()
+    Ryker.ControlPlane.PageCost.attach()
 
     children =
       [

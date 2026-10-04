@@ -111,6 +111,54 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
     assert Viewer.actor_ref(request, nil) == "control-plane:local"
   end
 
+  # Every read of a page read the whole settings view twice, about 40 queries each: once for the
+  # sidebar's setup count and again for the page, which on most pages shows no settings at all
+  # (2026-10-04).
+  test "a page without settings in its header reads the settings view once a read" do
+    {:ok, _snapshot} = Settings.initialize("control-plane:local")
+    {:ok, view, _html} = served() |> live("/memory/people")
+
+    sources =
+      queries_of(view, fn ->
+        send(view.pid, :reload_page)
+        render(view)
+      end)
+
+    assert Enum.count(sources, &(&1 == "installation_settings")) == 1
+  end
+
+  # The tables a page's own process queries while `fun` runs.
+  defp queries_of(view, fun) do
+    parent = self()
+    pid = view.pid
+    id = {__MODULE__, make_ref()}
+
+    :telemetry.attach(
+      id,
+      [:ryker, :repo, :query],
+      fn _event, _measurements, metadata, _config ->
+        if self() == pid, do: send(parent, {:page_query, metadata[:source]})
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(id)
+    end
+
+    collect_queries([])
+  end
+
+  defp collect_queries(sources) do
+    receive do
+      {:page_query, source} -> collect_queries([source | sources])
+    after
+      0 -> Enum.reverse(sources)
+    end
+  end
+
   defp served, do: build_conn() |> Map.put(:host, @published)
 
   defp tailnet(login, name) do
