@@ -168,7 +168,8 @@ if [[ ${1:-} == "--check" ]]; then
     format --check-formatted + \
     compile --warnings-as-errors + \
     credo --strict
-  test_partitions "$@"
+  # A test file that compiles with a warning fails the gate, as lib does above.
+  test_partitions --warnings-as-errors "$@"
 else
   if [[ $isolate == 1 ]]; then
     databases+=("$PGDATABASE")

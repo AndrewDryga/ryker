@@ -175,6 +175,20 @@ defmodule Ryker.ComposeDistributionTest do
     end
   end
 
+  # Test files compiled with warnings and the gate passed: two type warnings, an unused
+  # helper and an unused attribute stood for weeks (2026-10-04 review). The gate's test runs
+  # refuse a warning as the compile step already does.
+  test "the gate's test runs refuse a compiler warning" do
+    script = File.read!("scripts/elixir-test.sh")
+
+    [check] =
+      Regex.run(~r/if \[\[ \$\{1:-\} == "--check" \]\]; then\n(.*?)\nelse/s, script,
+        capture: :all_but_first
+      )
+
+    assert check =~ "test_partitions --warnings-as-errors"
+  end
+
   test "the production image is an Elixir release without a Node runtime" do
     dockerfile = read("Dockerfile")
 
