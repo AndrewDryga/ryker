@@ -11,7 +11,6 @@ defmodule Ryker.LocalRouting.MigrationTest do
 
   @previous_version 20_260_927_190_000
   @version 20_260_927_191_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @digest String.duplicate("a", 64)
 
   # The local routing model arrives on installations that already chose their
@@ -118,10 +117,20 @@ defmodule Ryker.LocalRouting.MigrationTest do
   end
 
   defp migrate!(repo, prefix, version),
-    do: Ecto.Migrator.run(repo, @migrations_path, :up, to: version, prefix: prefix, log: false)
+    do:
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
+        to: version,
+        prefix: prefix,
+        log: false
+      )
 
   defp rollback!(repo, prefix),
-    do: Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+    do:
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+        step: 1,
+        prefix: prefix,
+        log: false
+      )
 
   defp insert_input!(repo, prefix) do
     id = Ecto.UUID.generate()

@@ -18,7 +18,6 @@ defmodule Ryker.People.LearnWhatPeopleSayMigrationTest do
 
   @previous_version 20_260_929_020_000
   @version 20_260_930_010_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @at ~N[2026-09-30 09:00:00.000000]
 
   test "one fact per person and kind is kept, a forgotten one keeps no words, and rolling back refuses while one exists" do
@@ -93,10 +92,20 @@ defmodule Ryker.People.LearnWhatPeopleSayMigrationTest do
   end
 
   defp migrate!(repo, prefix, version),
-    do: Ecto.Migrator.run(repo, @migrations_path, :up, to: version, prefix: prefix, log: false)
+    do:
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
+        to: version,
+        prefix: prefix,
+        log: false
+      )
 
   defp down!(repo, prefix),
-    do: Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+    do:
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+        step: 1,
+        prefix: prefix,
+        log: false
+      )
 
   defp start_migration_repo! do
     config =

@@ -23,7 +23,6 @@ defmodule Ryker.LocalRouting.QuotesMigrationTest do
 
   @previous_version 20_260_927_220_000
   @version 20_260_928_100_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @topic "0c7c2f2e-5b1d-4d5e-9d44-3c1b58f6a0d1"
 
   # What a routing prompt quotes, as routing froze it: the thread it was in,
@@ -109,10 +108,20 @@ defmodule Ryker.LocalRouting.QuotesMigrationTest do
   end
 
   defp migrate!(repo, prefix, version),
-    do: Ecto.Migrator.run(repo, @migrations_path, :up, to: version, prefix: prefix, log: false)
+    do:
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
+        to: version,
+        prefix: prefix,
+        log: false
+      )
 
   defp rollback!(repo, prefix),
-    do: Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+    do:
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+        step: 1,
+        prefix: prefix,
+        log: false
+      )
 
   defp insert_input!(repo, prefix) do
     id = Ecto.UUID.generate()

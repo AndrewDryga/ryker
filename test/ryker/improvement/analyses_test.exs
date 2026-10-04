@@ -11,15 +11,9 @@ defmodule Ryker.Improvement.AnalysesTest do
   alias Ryker.Improvement
   alias Ryker.Improvement.{Analyses, AnalysisRun, Candidate, Dispatcher, Prompt}
   alias Ryker.Records.Record
-  alias Ryker.Repo.Migrations.AnalyzeTasksFromTheirConversation, as: RequeueMigration
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.TestSupport.FakeCoopAPI
   alias Ryker.Work.{Custody, Session, Turn}
-
-  # The migration that asks refused tasks again is tested by the statement it runs.
-  Code.require_file(
-    "priv/repo/migrations/20260930110000_analyze_tasks_from_their_conversation.exs"
-  )
 
   @workspace "TIMPROVEANALYSES"
   @now ~U[2026-09-27 12:00:00.000000Z]
@@ -504,7 +498,10 @@ defmodule Ryker.Improvement.AnalysesTest do
       set: [analysis: :failed, error_code: "improvement_evidence_automated"]
     )
 
-    Repo.query!(RequeueMigration.requeued_tasks_sql())
+    # The migration that asks refused tasks again is tested by the statement it
+    # runs, loaded once per run with every other migration.
+    {_version, migration} = List.keyfind(Ryker.TestMigrations.all(), 20_260_930_110_000, 0)
+    Repo.query!(migration.requeued_tasks_sql())
     coop = coop!([Jason.encode!(@diagnosis)])
 
     drain(settings(coop))

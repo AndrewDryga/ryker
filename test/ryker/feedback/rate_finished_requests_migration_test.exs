@@ -18,7 +18,6 @@ defmodule Ryker.Feedback.RateFinishedRequestsMigrationTest do
 
   @previous_version 20_260_928_210_000
   @version 20_260_929_000_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @at ~N[2026-09-28 09:00:00.000000]
 
   test "a rating is kept beside the reviews from before it, and rolling back refuses while one exists" do
@@ -153,10 +152,20 @@ defmodule Ryker.Feedback.RateFinishedRequestsMigrationTest do
   end
 
   defp migrate!(repo, prefix, version),
-    do: Ecto.Migrator.run(repo, @migrations_path, :up, to: version, prefix: prefix, log: false)
+    do:
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
+        to: version,
+        prefix: prefix,
+        log: false
+      )
 
   defp down!(repo, prefix),
-    do: Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+    do:
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+        step: 1,
+        prefix: prefix,
+        log: false
+      )
 
   defp start_migration_repo! do
     config =

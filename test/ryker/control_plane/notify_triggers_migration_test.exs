@@ -19,7 +19,6 @@ defmodule Ryker.ControlPlane.NotifyTriggersMigrationTest do
   end
 
   @version 20_260_926_200_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @digest String.duplicate("a", 64)
 
   test "no table announces its writes through a trigger once the schema is migrated" do
@@ -35,7 +34,7 @@ defmodule Ryker.ControlPlane.NotifyTriggersMigrationTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up,
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
         to: version_before(@version),
         prefix: prefix,
         log: false
@@ -47,7 +46,7 @@ defmodule Ryker.ControlPlane.NotifyTriggersMigrationTest do
       assert notify_function?(repo, prefix)
       input_id = insert_input!(repo, prefix)
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @version,
                prefix: prefix,
                log: false
@@ -57,7 +56,11 @@ defmodule Ryker.ControlPlane.NotifyTriggersMigrationTest do
       refute notify_function?(repo, prefix)
       assert input_ids(repo, prefix) == [input_id]
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@version]
 
       assert triggered_tables(repo, prefix) == triggered
@@ -132,13 +135,7 @@ defmodule Ryker.ControlPlane.NotifyTriggersMigrationTest do
 
   # The newest migration before this one, whatever the others are named, so
   # the rollback is compared with the schema this migration found.
-  defp version_before(version) do
-    @migrations_path
-    |> File.ls!()
-    |> Enum.map(&(&1 |> String.split("_", parts: 2) |> hd() |> String.to_integer()))
-    |> Enum.filter(&(&1 < version))
-    |> Enum.max()
-  end
+  defp version_before(version), do: Ryker.TestMigrations.version_before(version)
 
   defp start_migration_repo! do
     config =

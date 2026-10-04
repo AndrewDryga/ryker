@@ -13,7 +13,6 @@ defmodule Ryker.Admission.LiveRepliesMigrationTest do
 
   @before_version 20_260_926_154_500
   @live_replies_version 20_260_927_090_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @at ~N[2026-09-26 16:57:36.000000]
 
   # Routing's decision carried one `message` and one `reaction` until
@@ -29,7 +28,7 @@ defmodule Ryker.Admission.LiveRepliesMigrationTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up,
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
         to: @before_version,
         prefix: prefix,
         log: false
@@ -77,7 +76,7 @@ defmodule Ryker.Admission.LiveRepliesMigrationTest do
       response!(repo, prefix, greeting, "message", %{"message" => "Hi! How can I help?"})
       response!(repo, prefix, reacted, "reaction", %{"emoji_name" => "eyes"})
 
-      assert @live_replies_version in Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert @live_replies_version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @live_replies_version,
                prefix: prefix,
                log: false
@@ -135,7 +134,11 @@ defmodule Ryker.Admission.LiveRepliesMigrationTest do
       # or reaction per decision; rolling back while a message has more
       # would lose what was sent, so it is refused until they are gone.
       assert_raise Postgrex.Error, ~r/nowhere to keep them/, fn ->
-        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
       end
 
       SQL.query!(
@@ -144,7 +147,11 @@ defmodule Ryker.Admission.LiveRepliesMigrationTest do
         []
       )
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@live_replies_version]
 
       assert {previous, fingerprint} = decision(repo, prefix, greeting)

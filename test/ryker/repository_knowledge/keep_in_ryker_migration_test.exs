@@ -20,7 +20,6 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
 
   @previous_version 20_260_928_160_000
   @version 20_260_928_200_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @commit String.duplicate("a", 40)
   @run_id "5f0b8c1e-2d4a-4c6b-9e7f-1a2b3c4d5e6f"
   @proposing ~w(published_at publication sent_sha256s pull_request_url pull_request_number
@@ -138,7 +137,11 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
         )
       end
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@version]
 
       # The previous release finds each document as the one it last proposed.
@@ -294,7 +297,12 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
   defp sha256(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
 
   defp migrate!(repo, prefix, version),
-    do: Ecto.Migrator.run(repo, @migrations_path, :up, to: version, prefix: prefix, log: false)
+    do:
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
+        to: version,
+        prefix: prefix,
+        log: false
+      )
 
   defp start_migration_repo! do
     config =

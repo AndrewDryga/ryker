@@ -20,7 +20,6 @@ defmodule Ryker.Knowledge.ScopeTopicsByConversationMigrationTest do
 
   @previous_version 20_260_929_000_000
   @version 20_260_929_010_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @conversation %{
     "conversation_ref" => "slack:T1:C1",
     "transport" => "slack",
@@ -33,7 +32,7 @@ defmodule Ryker.Knowledge.ScopeTopicsByConversationMigrationTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up,
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
         to: @previous_version,
         prefix: prefix,
         log: false
@@ -43,7 +42,7 @@ defmodule Ryker.Knowledge.ScopeTopicsByConversationMigrationTest do
       newer = topic!(repo, prefix, "emisar-mcp-access", "andrewdryga-emisar", 2)
       other = topic!(repo, prefix, "livebook-status", "andrewdryga-emisar", 3)
 
-      assert @version in Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @version,
                prefix: prefix,
                log: false
@@ -57,7 +56,7 @@ defmodule Ryker.Knowledge.ScopeTopicsByConversationMigrationTest do
                other => {scope, "livebook-status", KnowledgeAnchors.keys(scope, ["emisar"])}
              }
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
                step: 1,
                prefix: prefix,
                log: false

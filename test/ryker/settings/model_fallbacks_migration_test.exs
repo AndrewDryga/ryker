@@ -11,7 +11,6 @@ defmodule Ryker.Settings.ModelFallbacksMigrationTest do
 
   @before_version 20_260_926_121_000
   @fallbacks_version 20_260_926_154_500
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @kinds ~w(routing conversation standard deep contributor schedule incident learning)
 
   # Each kind of work saved one model; it now saves a list, the model first
@@ -26,7 +25,7 @@ defmodule Ryker.Settings.ModelFallbacksMigrationTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up,
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
         to: @before_version,
         prefix: prefix,
         log: false
@@ -62,7 +61,7 @@ defmodule Ryker.Settings.ModelFallbacksMigrationTest do
         Enum.map(@kinds, &saved[&1])
       )
 
-      assert @fallbacks_version in Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert @fallbacks_version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @fallbacks_version,
                prefix: prefix,
                log: false
@@ -136,13 +135,21 @@ defmodule Ryker.Settings.ModelFallbacksMigrationTest do
         SQL.query!(repo, "UPDATE #{prefix}.work_settings SET deep_models = $1", [models])
 
         assert_raise Postgrex.Error, ~r/keep one Codex model/, fn ->
-          Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+          Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+            step: 1,
+            prefix: prefix,
+            log: false
+          )
         end
       end
 
       SQL.query!(repo, "UPDATE #{prefix}.work_settings SET deep_models = $1", [[saved["deep"]]])
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@fallbacks_version]
 
       assert %{rows: [["workers" | singles_back]]} =

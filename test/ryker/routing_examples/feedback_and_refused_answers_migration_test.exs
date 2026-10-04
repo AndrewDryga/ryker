@@ -19,7 +19,6 @@ defmodule Ryker.RoutingExamples.FeedbackAndRefusedAnswersMigrationTest do
 
   @before_version 20_260_930_020_000
   @version 20_260_930_060_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @at ~N[2026-09-30 06:00:00.000000]
 
   test "kept examples gain no refused answers, feedback copies leave with their example, and either blocks rollback" do
@@ -28,7 +27,7 @@ defmodule Ryker.RoutingExamples.FeedbackAndRefusedAnswersMigrationTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up,
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
         to: @before_version,
         prefix: prefix,
         log: false
@@ -37,7 +36,7 @@ defmodule Ryker.RoutingExamples.FeedbackAndRefusedAnswersMigrationTest do
       kept = kept_example!(repo, prefix)
       forgotten = forgotten_example!(repo, prefix)
 
-      assert @version in Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @version,
                prefix: prefix,
                log: false
@@ -68,7 +67,7 @@ defmodule Ryker.RoutingExamples.FeedbackAndRefusedAnswersMigrationTest do
       assert_raise Postgrex.Error,
                    ~r/routing examples keep feedback or refused answers/,
                    fn ->
-                     Ecto.Migrator.run(repo, @migrations_path, :down,
+                     Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
                        step: 1,
                        prefix: prefix,
                        log: false
@@ -79,7 +78,11 @@ defmodule Ryker.RoutingExamples.FeedbackAndRefusedAnswersMigrationTest do
       SQL.query!(repo, "DELETE FROM #{prefix}.routing_examples WHERE id = $1", [kept])
       assert count(repo, prefix, "routing_example_feedback") == 0
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@version]
 
       assert count(repo, prefix, "routing_examples") == 1

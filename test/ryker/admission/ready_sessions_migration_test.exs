@@ -11,7 +11,6 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
 
   @baseline_version 20_260_926_100_000
   @ready_sessions_version 20_260_926_120_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @digest String.duplicate("a", 64)
 
   # Routing sessions kept ready add a setting and a custody state to rows
@@ -25,7 +24,7 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @baseline_version,
                prefix: prefix,
                log: false
@@ -50,7 +49,7 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
       first = insert_admission_session!(repo, prefix, input_id, 1)
       second = insert_admission_session!(repo, prefix, input_id, 2)
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @ready_sessions_version,
                prefix: prefix,
                log: false
@@ -90,7 +89,11 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
       ready = insert_ready_session!(repo, prefix)
 
       assert_raise Postgrex.Error, ~r/routing sessions kept ready are still open/, fn ->
-        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
       end
 
       SQL.query!(
@@ -99,7 +102,11 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
         [ready]
       )
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@ready_sessions_version]
 
       refute column_exists?(repo, prefix, "work_settings", "ready_routing_sessions")

@@ -17,7 +17,6 @@ defmodule Ryker.RoutingExamples.MigrationTest do
 
   @before_version 20_260_927_160_000
   @version 20_260_927_180_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @at ~N[2026-09-27 09:00:00.000000]
   @day 86_400
 
@@ -27,7 +26,7 @@ defmodule Ryker.RoutingExamples.MigrationTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up,
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
         to: @before_version,
         prefix: prefix,
         log: false
@@ -35,7 +34,7 @@ defmodule Ryker.RoutingExamples.MigrationTest do
 
       installation!(repo, prefix)
 
-      assert @version in Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @version,
                prefix: prefix,
                log: false
@@ -52,14 +51,22 @@ defmodule Ryker.RoutingExamples.MigrationTest do
       example!(repo, prefix, "$2", "NULL")
 
       assert_raise Postgrex.Error, ~r/routing examples are kept for training/, fn ->
-        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
       end
 
       assert count(repo, prefix) == 1
 
       SQL.query!(repo, "DELETE FROM #{prefix}.routing_examples", [])
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@version]
 
       %{rows: [[audit, operational]]} =

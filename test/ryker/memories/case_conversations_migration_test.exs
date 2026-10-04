@@ -19,7 +19,6 @@ defmodule Ryker.Memories.CaseConversationsMigrationTest do
 
   @previous_version 20_260_928_140_000
   @version 20_260_928_160_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "a case kept before learns the conversations of the messages still held, found by an index" do
     repo = start_migration_repo!()
@@ -70,7 +69,11 @@ defmodule Ryker.Memories.CaseConversationsMigrationTest do
         )
       end
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@version]
 
       %{rows: [[kept]]} =
@@ -148,7 +151,12 @@ defmodule Ryker.Memories.CaseConversationsMigrationTest do
   end
 
   defp migrate!(repo, prefix, version),
-    do: Ecto.Migrator.run(repo, @migrations_path, :up, to: version, prefix: prefix, log: false)
+    do:
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
+        to: version,
+        prefix: prefix,
+        log: false
+      )
 
   defp start_migration_repo! do
     config =

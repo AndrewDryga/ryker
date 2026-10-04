@@ -11,7 +11,6 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
 
   @before_version 20_260_927_191_000
   @version 20_260_927_192_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @at ~N[2026-09-27 18:00:00.000000]
 
   # A Slack voice message is recorded before its words and routing waits for
@@ -25,7 +24,7 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up,
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
         to: @before_version,
         prefix: prefix,
         log: false
@@ -39,7 +38,7 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
         transition!(repo, prefix, waiting, 2, "transcribed")
       end
 
-      assert @version in Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @version,
                prefix: prefix,
                log: false
@@ -59,7 +58,11 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
 
       # A message still waiting for its words.
       assert_raise Postgrex.Error, ~r/the previous release cannot keep that/, fn ->
-        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
       end
 
       transition!(repo, prefix, waiting, 2, "transcribed")
@@ -73,7 +76,11 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
 
       # A queue history with a transcript step in it.
       assert_raise Postgrex.Error, ~r/the previous release cannot keep that/, fn ->
-        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
       end
 
       SQL.query!(
@@ -82,7 +89,11 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
         []
       )
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@version]
 
       assert rows(repo, "SELECT kind FROM #{prefix}.input_custody_transitions") == [["saved"]]

@@ -16,7 +16,6 @@ defmodule Ryker.Settings.RemovedRepositoryNamesMigrationTest do
 
   @previous_version 20_260_928_200_000
   @version 20_260_928_210_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "a removed repository's name has a table of its own, one per ref, and rolling back drops it" do
     repo = start_migration_repo!()
@@ -38,7 +37,11 @@ defmodule Ryker.Settings.RemovedRepositoryNamesMigrationTest do
       SQL.query!(repo, insert, [])
       assert_raise Postgrex.Error, ~r/unique|duplicate/, fn -> SQL.query!(repo, insert, []) end
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@version]
 
       refute table?(repo, prefix)
@@ -59,7 +62,12 @@ defmodule Ryker.Settings.RemovedRepositoryNamesMigrationTest do
   end
 
   defp migrate!(repo, prefix, version),
-    do: Ecto.Migrator.run(repo, @migrations_path, :up, to: version, prefix: prefix, log: false)
+    do:
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
+        to: version,
+        prefix: prefix,
+        log: false
+      )
 
   defp start_migration_repo! do
     config =

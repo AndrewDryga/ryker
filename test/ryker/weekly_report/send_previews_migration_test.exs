@@ -18,7 +18,6 @@ defmodule Ryker.WeeklyReport.SendPreviewsMigrationTest do
 
   @previous_version 20_260_929_010_000
   @version 20_260_929_020_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
 
   test "a preview is never the week's report, and rolling back waits until none is on record" do
     repo = start_migration_repo!()
@@ -26,7 +25,7 @@ defmodule Ryker.WeeklyReport.SendPreviewsMigrationTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up,
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
         to: @previous_version,
         prefix: prefix,
         log: false
@@ -34,7 +33,7 @@ defmodule Ryker.WeeklyReport.SendPreviewsMigrationTest do
 
       sent = report!(repo, prefix, "weekly-report:2026-10-05", [])
 
-      assert @version in Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @version,
                prefix: prefix,
                log: false
@@ -53,12 +52,16 @@ defmodule Ryker.WeeklyReport.SendPreviewsMigrationTest do
       end
 
       assert_raise Postgrex.Error, ~r/previews are on record/, fn ->
-        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
       end
 
       SQL.query!(repo, "DELETE FROM #{prefix}.weekly_reports WHERE preview", [])
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down,
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
                step: 1,
                prefix: prefix,
                log: false

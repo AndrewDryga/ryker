@@ -11,7 +11,6 @@ defmodule Ryker.Artifacts.KeepVoiceMessagesMigrationTest do
 
   @before_version 20_260_927_110_000
   @version 20_260_927_140_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @at ~N[2026-09-27 09:00:00.000000]
 
   # Andrew's Slack voice message (2026-09-27) was refused before download:
@@ -24,7 +23,7 @@ defmodule Ryker.Artifacts.KeepVoiceMessagesMigrationTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up,
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
         to: @before_version,
         prefix: prefix,
         log: false
@@ -34,7 +33,7 @@ defmodule Ryker.Artifacts.KeepVoiceMessagesMigrationTest do
         artifact!(repo, prefix, "audio/mp4")
       end
 
-      assert @version in Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @version,
                prefix: prefix,
                log: false
@@ -49,7 +48,11 @@ defmodule Ryker.Artifacts.KeepVoiceMessagesMigrationTest do
       end
 
       assert_raise Postgrex.Error, ~r/nowhere to keep them/, fn ->
-        Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false)
+        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+          step: 1,
+          prefix: prefix,
+          log: false
+        )
       end
 
       assert media_types(repo, prefix) == ["audio/mp4", "text/plain", "video/quicktime"]
@@ -60,7 +63,11 @@ defmodule Ryker.Artifacts.KeepVoiceMessagesMigrationTest do
         []
       )
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@version]
 
       assert media_types(repo, prefix) == ["text/plain"]

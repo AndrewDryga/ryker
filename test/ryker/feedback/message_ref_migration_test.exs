@@ -11,7 +11,6 @@ defmodule Ryker.Feedback.MessageRefMigrationTest do
 
   @before_version 20_260_927_192_000
   @version 20_260_927_193_000
-  @migrations_path Path.expand("../../../priv/repo/migrations", __DIR__)
   @at ~N[2026-09-27 09:00:00.000000]
 
   # A reaction's feedback names the message it was on since Chat's quick
@@ -26,7 +25,7 @@ defmodule Ryker.Feedback.MessageRefMigrationTest do
     SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
 
     try do
-      Ecto.Migrator.run(repo, @migrations_path, :up,
+      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
         to: @before_version,
         prefix: prefix,
         log: false
@@ -43,7 +42,7 @@ defmodule Ryker.Feedback.MessageRefMigrationTest do
       # The same event is never a reaction on a signal of another kind.
       edited = feedback!(repo, prefix, episode_id, "message_edited", "slack-reaction:on-reply")
 
-      assert @version in Ecto.Migrator.run(repo, @migrations_path, :up,
+      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
                to: @version,
                prefix: prefix,
                log: false
@@ -63,7 +62,11 @@ defmodule Ryker.Feedback.MessageRefMigrationTest do
         )
       end
 
-      assert Ecto.Migrator.run(repo, @migrations_path, :down, step: 1, prefix: prefix, log: false) ==
+      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+               step: 1,
+               prefix: prefix,
+               log: false
+             ) ==
                [@version]
 
       %{rows: [[kept]]} =
