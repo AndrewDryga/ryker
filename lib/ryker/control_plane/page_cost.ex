@@ -14,8 +14,9 @@ defmodule Ryker.ControlPlane.PageCost do
 
   @key {__MODULE__, :cost}
   @event [:ryker, :repo, :query]
+  # A timeline runs about 150 cheap queries; twice that is a page gone wrong.
   @slow_ms 500
-  @many_queries 100
+  @many_queries 300
 
   @doc "Counts each query of a process that measures; attached once, at start."
   @spec attach() :: :ok | {:error, :already_exists}
