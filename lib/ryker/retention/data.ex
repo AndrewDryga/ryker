@@ -187,12 +187,16 @@ defmodule Ryker.Retention.Data do
     horizon: :operational_data_seconds
   }
 
-  @finished_worker_commands %{
+  # Every command of a session the worker discarded, whatever its state: Coop
+  # never answers one whose lease ran out or whose placement ended, and only
+  # succeeded and failed ones used to go, so a "delivered" or "uncertain" one
+  # kept its session, placement and prompt for good (2026-10-04 review).
+  @discarded_session_commands %{
     table: "coop_worker_commands",
     as: "command",
     join: "JOIN episode_work_sessions AS session ON session.id = command.session_id",
     where: """
-    command.status IN ('succeeded', 'failed') AND session.cleanup_status = 'discarded'
+    session.cleanup_status = 'discarded'
     AND NOT EXISTS (
       SELECT 1 FROM coop_worker_workspace_checkpoints AS checkpoint
       WHERE checkpoint.body_command_id = command.id
@@ -629,7 +633,7 @@ defmodule Ryker.Retention.Data do
 
     _slack_thread_statuses = prune_aged(@delivered_statuses, settings)
     _worker_enrollment_tokens = prune_aged(@spent_enrollment_tokens, settings)
-    worker_commands = prune_aged(@finished_worker_commands, settings)
+    worker_commands = prune_aged(@discarded_session_commands, settings)
     worker_events = prune_aged(@discarded_worker_events, settings)
     _non_work_sessions = execute_count(@prune_non_work_sessions, [cutoff])
     routing_responses = prune_aged(@delivered_routing_responses, settings)

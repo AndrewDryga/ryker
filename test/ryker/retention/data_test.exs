@@ -7,7 +7,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Admission.FleetSession
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Placement, SessionEvidence, Worker}
+  alias Ryker.CoopFleet.{Command, ControlPlane, Placement, SessionEvidence, Worker}
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -487,6 +487,111 @@ defmodule Ryker.Retention.DataTest do
     ])
 
     assert {:ok, _result} = Data.prune(settings())
+    assert Repo.get(Placement, placement.id) == nil
+    assert Repo.get(Session, session.id) == nil
+  end
+
+  # The operational prune deleted only succeeded and failed worker commands, and a routing,
+  # learning or knowledge session is deleted only once no command names it. A command Coop
+  # never answered, or answered too late, stayed "delivered" or "uncertain" for good, so its
+  # session, its placement and the prompt the command carried were never deleted (2026-10-04
+  # review; 9 such commands were waiting on the live install that day).
+  test "a discarded session's commands leave with it whatever their state" do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Route this remotely."},
+               event_kind: :message,
+               event_ref: "Ev-retention-stranded-commands",
+               message_ref: "1787832000.000200",
+               occurred_at: ~U[2026-08-30 12:00:00.000000Z],
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "T123"
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+    assert {:ok, session} =
+             FleetSession.ensure(entry, %{
+               name: "admission-read-only",
+               digest: String.duplicate("a", 64)
+             })
+
+    assert {:ok, _bound} = FleetSession.bind(entry, "coop-stranded-commands")
+    assert {:ok, _settled} = FleetSession.settle(entry, "coop-stranded-commands")
+
+    worker =
+      Repo.insert!(%Worker{
+        certificate_sha256: String.duplicate("c", 64),
+        id: "worker:stranded-commands",
+        workspace_ref: "workspace-main"
+      })
+
+    placement =
+      Repo.insert!(%Placement{
+        generation: 1,
+        id: Ecto.UUID.generate(),
+        last_acked_event_sequence: 0,
+        lease_expires_at: DateTime.add(Repo.now!(), 60, :second),
+        lease_ref: "placement-lease:stranded-commands",
+        requirements: %{},
+        requirements_fingerprint: CanonicalJSON.digest(%{}),
+        session_id: session.id,
+        state: :active,
+        worker_id: worker.id
+      })
+
+    enqueue = fn key ->
+      assert {:ok, command} =
+               ControlPlane.enqueue_command(
+                 placement.id,
+                 "get_session",
+                 %{"coop_session_id" => "coop-stranded-commands"},
+                 key
+               )
+
+      command
+    end
+
+    delivered = enqueue.("ryker:test:stranded:delivered")
+    uncertain = enqueue.("ryker:test:stranded:uncertain")
+
+    Repo.update_all(
+      from(command in Command, where: command.id == ^delivered.id),
+      set: [status: :delivered, delivered_at: @old, updated_at: @old]
+    )
+
+    Repo.update_all(
+      from(command in Command, where: command.id == ^uncertain.id),
+      set: [
+        status: :uncertain,
+        delivered_at: @old,
+        operation_key: uncertain.idempotency_key,
+        error: %{"code" => "placement_not_authorized", "status" => 409},
+        result_fingerprint: String.duplicate("d", 64),
+        completed_at: @old,
+        updated_at: @old
+      ]
+    )
+
+    Repo.update_all(from(p in Placement, where: p.id == ^placement.id), set: [state: :retired])
+    discard_session!(%{session: Repo.get!(Session, session.id)})
+
+    Repo.query!("UPDATE episode_work_sessions SET updated_at = $1 WHERE id = $2", [
+      @old,
+      uuid!(session.id)
+    ])
+
+    assert {:ok, _result} = Data.prune(settings())
+    assert {:ok, _result} = Data.prune(settings())
+
+    assert Repo.aggregate(
+             from(command in Command, where: command.session_id == ^session.id),
+             :count
+           ) == 0
+
     assert Repo.get(Placement, placement.id) == nil
     assert Repo.get(Session, session.id) == nil
   end
