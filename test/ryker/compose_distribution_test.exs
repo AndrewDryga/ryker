@@ -66,6 +66,10 @@ defmodule Ryker.ComposeDistributionTest do
     assert worker =~ "coop sessions connect"
     assert worker =~ ~s(--controller "$controller" --token-file "$token")
     assert worker =~ ~s(--ca-file "$ca" --state "$state/sessions")
+    # Reading the identity runs find, jq and openssl about ten times; done every two seconds it
+    # kept an idle worker at 11 to 17% CPU (2026-10-04). The connector is checked every two
+    # seconds, its identity once a minute.
+    assert worker =~ "if [ $((checks % 30)) -eq 0 ]; then"
     refute worker =~ "ryker-coop-load-policies"
     refute worker =~ "worker.json"
     # A laptop can sleep through the normal client-certificate renewal window.

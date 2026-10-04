@@ -142,23 +142,15 @@ defmodule Ryker.Slack.TaskCards do
 
   defp claim_next_locked(worker_ref, lease_seconds, check_interval_seconds) do
     now = database_now!()
-    due_at = DateTime.add(now, -check_interval_seconds, :second)
-    quiet_due_at = DateTime.add(now, -@quiet_check_seconds, :second)
-
-    working =
-      from(episode in Episode,
-        where: episode.id == parent_as(:card).episode_id and episode.state == :working
-      )
 
     query =
       from(card in TaskCard,
         as: :card,
         where:
           card.status == :active and
-            (is_nil(card.card_checked_at) or card.card_checked_at <= ^quiet_due_at or
-               (card.card_checked_at <= ^due_at and exists(working))) and
             (is_nil(card.next_attempt_at) or card.next_attempt_at <= ^now) and
             (is_nil(card.lease_expires_at) or card.lease_expires_at <= ^now),
+        where: ^checked_due(now, check_interval_seconds),
         order_by: [asc_nulls_first: card.card_checked_at, asc: card.updated_at, asc: card.id],
         limit: 1,
         lock: "FOR UPDATE SKIP LOCKED"
@@ -168,6 +160,24 @@ defmodule Ryker.Slack.TaskCards do
       nil -> nil
       %TaskCard{} = card -> lease_card(card, worker_ref, lease_seconds, now)
     end
+  end
+
+  # A card never checked, one whose task works and was checked longer ago than
+  # the check interval, or any checked longer ago than a minute.
+  defp checked_due(now, check_interval_seconds) do
+    due_at = DateTime.add(now, -check_interval_seconds, :second)
+    quiet_due_at = DateTime.add(now, -@quiet_check_seconds, :second)
+
+    working =
+      from(episode in Episode,
+        where: episode.id == parent_as(:card).episode_id and episode.state == :working
+      )
+
+    dynamic(
+      [card: card],
+      is_nil(card.card_checked_at) or card.card_checked_at <= ^quiet_due_at or
+        (card.card_checked_at <= ^due_at and exists(working))
+    )
   end
 
   # A claim only takes the lease, which no page shows. A working task's card is

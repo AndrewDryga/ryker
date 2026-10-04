@@ -124,15 +124,23 @@ while :; do
     --ca-file "$ca" --state "$state/sessions" &
   connector=$!
 
+  # The connector is checked every two seconds; the identity, a 24-hour
+  # certificate the connector renews itself, once a minute. Reading it runs
+  # find, jq and openssl about ten times, and every two seconds that kept an
+  # idle worker at 11 to 17% CPU (2026-10-04).
+  checks=0
   while kill -0 "$connector" 2>/dev/null; do
-    identity_status=$(identity_state) || {
-      echo "Ryker's worker identity is invalid; leaving it untouched." >&2
-      exit 1
-    }
-    case "$identity_status" in
-      valid) : >"$marker" ;;
-      expired) break ;;
-    esac
+    if [ $((checks % 30)) -eq 0 ]; then
+      identity_status=$(identity_state) || {
+        echo "Ryker's worker identity is invalid; leaving it untouched." >&2
+        exit 1
+      }
+      case "$identity_status" in
+        valid) : >"$marker" ;;
+        expired) break ;;
+      esac
+    fi
+    checks=$((checks + 1))
     sleep 2
   done
 
