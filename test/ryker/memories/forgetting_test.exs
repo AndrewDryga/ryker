@@ -14,6 +14,7 @@ defmodule Ryker.Memories.ForgettingTest do
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
@@ -98,6 +99,68 @@ defmodule Ryker.Memories.ForgettingTest do
     # The mixed topic is no longer used until it is relearned.
     refute mixed.id in available(second)
     assert other.id in available(second)
+  end
+
+  # A forgotten or expired topic kept its key and anchors, matched every later topic on the
+  # same subject, and refused it as unavailable: the batch was set aside and its messages
+  # never learned, so a recurring subject stopped being learned 90 days after it first was
+  # (2026-10-04 review). A topic that is gone gives its subject to the next one.
+  test "a forgotten topic's subject is learned again from a new message", %{
+    first: first,
+    second: second
+  } do
+    forgotten = topic!(first, "checkout-readiness", "Checkout readiness")
+    assert {:ok, _} = Forgetting.forget_topic(forgotten.id)
+
+    relearned = topic!(second, "checkout-readiness", "Checkout readiness, again")
+    assert relearned.id != forgotten.id
+    assert relearned.id in available(second)
+  end
+
+  test "an expired topic's subject is learned again from a new message", %{
+    first: first,
+    second: second
+  } do
+    expired = topic!(first, "probe-history", "Probe history")
+
+    Repo.update_all(from(k in ConversationKnowledge, where: k.id == ^expired.id),
+      set: [state: %{"retention" => "pruned"}]
+    )
+
+    renewed = topic!(second, "probe-history", "Probe history, renewed")
+    assert renewed.id != expired.id
+    assert renewed.id in available(second)
+  end
+
+  # Only the pre-lock filter read `forgotten_at`. The locked recheck Work runs on a topic
+  # before each turn compared its messages' revisions and fingerprints, which forgetting
+  # keeps: an open session kept answering from a topic one of whose messages was forgotten
+  # (2026-10-04 review).
+  test "a topic resting on a forgotten message is refused before Work uses it again",
+       %{first: first, second: second} do
+    target = topic!(first, "checkout-readiness", "Checkout readiness")
+    mixed = topic!(second, "incident-timeline", "Incident timeline")
+    mixed = update!(first, mixed, "Incident timeline, with the earlier alert")
+
+    [document] =
+      Enum.filter(
+        Knowledge.context(second, second.repository_ref),
+        &(&1["source_ref"] == "knowledge:" <> mixed.id)
+      )
+
+    assert :ok =
+             KnowledgeSnapshot.reauthorize(second, second.repository_ref, [
+               document
+             ])
+
+    assert {:ok, _forgotten} = Forgetting.forget_topic(target.id)
+
+    # The message stays a valid input Ryker answers (its own receipt still
+    # holds); only the topic that rests on what learning took from it goes.
+    assert {:error, _stale} =
+             KnowledgeSnapshot.reauthorize(second, second.repository_ref, [
+               document
+             ])
   end
 
   test "forgetting a fact forgets what learning kept from the message it came from", %{

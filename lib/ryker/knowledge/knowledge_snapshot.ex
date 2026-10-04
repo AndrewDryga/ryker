@@ -603,8 +603,12 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   defp source_valid?(_source, nil, _head), do: false
 
+  # Forgetting keeps a message's revision and fingerprint, so the message stays a
+  # valid input Ryker answers; what learning took from it does not. A topic
+  # resting on a forgotten message passed this check and an open session kept
+  # using it (2026-10-04 review).
   defp source_valid?(source, observation, head) do
-    source.source_revision == observation.revision and
+    is_nil(observation.forgotten_at) and source.source_revision == observation.revision and
       source.source_fingerprint == observation.source_fingerprint and
       observation.conversation_ref == head.conversation_ref and
       observation.workspace_ref == head.workspace_ref and

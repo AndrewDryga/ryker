@@ -333,6 +333,7 @@ defmodule Ryker.Knowledge do
           where:
             k.scope_key == ^scope_key(scope) and
               (k.topic_key in ^topic_keys or fragment("? && ?::text[]", k.anchor_keys, ^anchors)),
+          where: ^kept(),
           order_by: [asc: k.id],
           limit: 9,
           select: k.id,
@@ -769,6 +770,7 @@ defmodule Ryker.Knowledge do
           lock: "FOR UPDATE"
         )
       )
+      |> release_if_gone(proposal)
 
     cond do
       existing && is_nil(proposal["target_ref"]) &&
@@ -782,6 +784,34 @@ defmodule Ryker.Knowledge do
         @stale
     end
   end
+
+  # A topic that is forgotten or expired gives its subject to the next topic
+  # learned about it. It kept its key and anchors, matched every later topic on
+  # the same subject and refused it as unavailable, so a recurring subject
+  # stopped being learned once its first topic expired (2026-10-04 review).
+  # The old row stays for its history under a key nothing proposes.
+  defp kept,
+    do:
+      dynamic(
+        [k],
+        is_nil(k.forgotten_at) and
+          fragment(~s(?::jsonb <> '{"retention":"pruned"}'::jsonb), k.state)
+      )
+
+  defp release_if_gone(%ConversationKnowledge{} = head, %{"target_ref" => nil}) do
+    if head.forgotten_at || head.state == %{"retention" => "pruned"} do
+      {1, _released} =
+        Repo.update_all(from(k in ConversationKnowledge, where: k.id == ^head.id),
+          set: [topic_key: "retired:" <> head.id, anchor_keys: []]
+        )
+
+      nil
+    else
+      head
+    end
+  end
+
+  defp release_if_gone(head, _proposal), do: head
 
   # A conversation's topics are the conversation's, whichever repository its
   # work used when each was learned. With the repository in the key, #test's
