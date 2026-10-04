@@ -121,7 +121,14 @@ case " $* " in
   *" compose version "*) echo "Docker Compose version v-fake" ;;
   *" exec -T database pg_isready "*) [[ -f $fake/database.down ]] && exit 1 ;;
   *" exec -T database pg_dump "*) printf 'PGDMP fake dump\n' ;;
-  *" exec -T database pg_restore --list "*) cat >/dev/null ;;
+  *" exec -T database pg_restore --list "*)
+    cat >/dev/null
+    [[ -f $fake/dump.unreadable ]] && exit 1
+    ;;
+  *" exec -T database pg_restore -U ryker -d ryker_restoring "*)
+    cat >/dev/null
+    [[ -f $fake/restore.fail ]] && { echo "fake: pg_restore failed" >&2; exit 1; }
+    ;;
   *" run --rm --no-deps -T --entrypoint tar volume-init "*)
     [[ -f $fake/archive.fail ]] && exit 1
     tar -czf - -T /dev/null
@@ -135,7 +142,8 @@ case " $* " in
     printf 'RYKER_VERSION=%s RYKER_IMAGE=%s\n' "${RYKER_VERSION:-}" "${RYKER_IMAGE:-}" >>"$fake/up.env"
     touch "$fake/controller.running"
     [[ -f $fake/up.fail ]] && { echo "fake: the container did not become healthy" >&2; exit 1; }
-    [[ -f $fake/up.stale ]] || printf '%s\n' "${RYKER_VERSION:-}" >"$fake/version"
+    # deploy.sh names the version it starts; compose.sh starts the pinned one.
+    [[ -f $fake/up.stale || -z ${RYKER_VERSION:-} ]] || printf '%s\n' "${RYKER_VERSION:-}" >"$fake/version"
     ;;
   *" stop ryker "*) rm -f "$fake/controller.running" ;;
   *" start ryker "*) touch "$fake/controller.running" ;;
@@ -401,13 +409,71 @@ check "the worker archive leaves out earlier copies of its state" "--exclude=coo
 backup=$(find "$state/backups" -name 'ryker-*.tar.gz' | head -n 1)
 check "lifecycle backup includes encrypted state" "ryker-state.tar.gz" "$(tar -tzf "$backup")"
 
+# Kept outside the backups directory, which each seed clears.
+cp "$backup" "$work/whole-backup.tar.gz"
+backup="$work/whole-backup.tar.gz"
 legacy="$work/legacy-backup"
 mkdir -p "$legacy"
 tar -xzf "$backup" -C "$legacy" database.dump compose.env
 tar -czf "$work/legacy.tar.gz" -C "$legacy" database.dump compose.env
+
+# 2026-10-04 review: restore stopped Ryker and dropped the live database before it knew
+# the archive could replace it, so a backup without its encrypted files, or a dump that
+# did not read, left an empty or half-restored database and no copy of the old one. Both
+# are refused before anything changes, and the restore goes beside the live database,
+# which is swapped out only once the restore is whole.
+seed
 out=$(cd "$repo" && sh scripts/compose.sh restore "$work/legacy.tar.gz" 2>&1; echo "exit=$?")
-check "restore refuses file-backed rows without their archive" "Ryker remains stopped" "$out"
-check "missing required file custody makes restore fail" "exit=1" "$out"
+check "a backup without its encrypted files is refused" "encrypted files" "$out"
+check "a backup without its encrypted files fails" "exit=1" "$out"
+refute "a refused backup stops nothing" "stop ryker" "$(cat "$fake/calls")"
+refute "a refused backup drops nothing" "dropdb" "$(cat "$fake/calls")"
+
+seed
+touch "$fake/dump.unreadable"
+out=$(cd "$repo" && sh scripts/compose.sh restore "$backup" 2>&1; echo "exit=$?")
+rm "$fake/dump.unreadable"
+check "a dump that does not read is refused" "cannot be read" "$out"
+check "a dump that does not read fails" "exit=1" "$out"
+refute "an unreadable dump stops nothing" "stop ryker" "$(cat "$fake/calls")"
+refute "an unreadable dump drops nothing" "dropdb" "$(cat "$fake/calls")"
+
+seed
+touch "$fake/restore.fail"
+out=$(cd "$repo" && sh scripts/compose.sh restore "$backup" 2>&1; echo "exit=$?")
+rm "$fake/restore.fail"
+check "a restore that fails keeps the previous database" "previous database is unchanged" "$out"
+check "a restore that fails exits 1" "exit=1" "$out"
+refute "a failed restore never renames the live database" "ALTER DATABASE ryker RENAME" "$(cat "$fake/calls")"
+
+seed
+out=$(cd "$repo" && sh scripts/compose.sh restore "$backup" 2>&1; echo "exit=$?")
+check "a whole restore succeeds" "exit=0" "$out"
+check "a whole restore keeps the replaced database" "ALTER DATABASE ryker RENAME TO ryker_before_restore" "$(cat "$fake/calls")"
+check "a whole restore swaps the restored database in" "ALTER DATABASE ryker_restoring RENAME TO ryker" "$(cat "$fake/calls")"
+check "a restore starts the pinned image without building" "up --detach --no-build --wait ryker" "$(cat "$fake/calls")"
+
+# 2026-10-04 review: start, restart and restore built whatever the checkout held when the
+# pinned image was missing, and upgrade built a dirty checkout under the pinned version.
+seed
+out=$(cd "$repo" && sh scripts/compose.sh start 2>&1; echo "exit=$?")
+check "start succeeds" "exit=0" "$out"
+check "start never builds" "up --detach --no-build --wait" "$(cat "$fake/calls")"
+seed
+out=$(cd "$repo" && sh scripts/compose.sh restart 2>&1; echo "exit=$?")
+check "restart never builds" "up --detach --no-build --wait" "$(cat "$fake/calls")"
+
+seed
+touch "$repo/uncommitted-change"
+out=$(cd "$repo" && sh scripts/compose.sh install 2>&1; echo "exit=$?")
+check "install over an installation refuses a dirty checkout" "Commit or discard them first" "$out"
+refute "a refused reinstall builds nothing" " build" "$(cat "$fake/calls" 2>/dev/null)"
+seed
+out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
+rm "$repo/uncommitted-change"
+check "upgrade refuses a dirty checkout" "Commit or discard them first" "$out"
+check "upgrade of a dirty checkout fails" "exit=1" "$out"
+refute "a refused upgrade builds nothing" " build " "$(cat "$fake/calls")"
 
 seed
 touch "$fake/archive.fail"

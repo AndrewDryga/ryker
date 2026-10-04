@@ -112,6 +112,10 @@ scripts/compose.sh backup
 scripts/compose.sh upgrade
 ```
 
+Upgrade, like install, builds the checkout as it is, so it refuses a checkout with uncommitted
+changes. `start`, `restart` and `restore` never build: they run the pinned image, and fail if it
+is missing.
+
 Upgrade pulls the pinned third-party images (such as PostgreSQL and the worker's Docker daemon), rebuilds
 the Ryker image from the checkout, starts the replacements, runs migrations through the container
 entrypoint, and verifies health, readiness and the exact version header. It rebuilds the bundled
@@ -167,10 +171,14 @@ scripts/compose.sh restore .ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz
 ```
 
 Restore refuses an archive whose cryptographic roots differ from an existing installation. With no
-existing installation state it restores the archived roots first, starts only PostgreSQL, replaces
-the database and private state, then starts Ryker and verifies the exact running version. A
-database containing file-backed checkpoints cannot start from an archive missing those files.
-A missing, wrong or damaged root must fail; never generate a replacement key for an existing database.
+existing installation state it restores the archived roots first. It then checks the archive before
+changing anything: it must hold the database dump, the environment and the encrypted files, and the
+dump must read. Only then does it stop Ryker, restore the database beside the live one, and swap
+the restored copy in once it is whole; the database Ryker ran on before stays as
+`ryker_before_restore` until the next restore. A restore that fails leaves the previous database
+as it was and Ryker stopped. It then restores the private state, starts the pinned image without
+building anything, and verifies the exact running version. A missing, wrong or damaged root must
+fail; never generate a replacement key for an existing database.
 
 ## Destruction
 
@@ -213,7 +221,8 @@ RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
 RYKER_CLOUDFLARE_ACCESS_AUD=<the application's audience tag>
 ```
 
-and run `scripts/compose.sh upgrade`. The links Ryker posts now open that address. A request there
+and run `scripts/compose.sh start`, which recreates the container with the new settings. The
+links Ryker posts now open that address. A request there
 without a token Access signed for the application is refused; the console at `127.0.0.1` works as
 before.
 

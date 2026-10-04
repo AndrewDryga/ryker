@@ -32,6 +32,17 @@ compose() {
   docker compose --env-file "$env_file" "$@"
 }
 
+# The commands that build the Ryker image build this checkout and label it with
+# the pinned RYKER_VERSION. A dirty checkout would ship unreviewed files under
+# that label, and the version header could not tell (2026-10-04 review).
+require_clean_checkout() {
+  if git -C "$repository" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+     [ -n "$(git -C "$repository" status --porcelain)" ]; then
+    echo "This checkout has uncommitted changes, and $1 builds the checkout as it is. Commit or discard them first." >&2
+    exit 1
+  fi
+}
+
 # Signs a model account in on the worker volume. Coop refuses a sign-in whose
 # project directory holds its own network records, and the container's working
 # directory "/" holds everything, so it runs from /tmp. It also refuses to record
@@ -67,7 +78,7 @@ wait_ready() {
     if curl --fail --silent --output /dev/null "$origin/healthz" 2>/dev/null &&
        curl --fail --silent --output /dev/null "$origin/readyz" 2>/dev/null &&
        headers=$(curl --fail --silent --dump-header - --output /dev/null "$origin/readyz" 2>/dev/null); then
-      running=$(printf '%s\n' "$headers" | awk 'BEGIN{IGNORECASE=1} /^x-ryker-version:/ {gsub("\r", "", $2); print $2; exit}')
+      running=$(printf '%s\n' "$headers" | awk 'tolower($1) == "x-ryker-version:" {gsub("\r", "", $2); print $2; exit}')
       if [ "$running" = "$expected" ]; then
         echo "Ryker is ready: $origin/setup"
         return 0
@@ -216,6 +227,8 @@ command=${1:-}
 case "$command" in
   install)
     [ "$#" -eq 1 ] || usage
+    # Run again over an installation, install rebuilds it from this checkout.
+    if [ -r "$env_file" ]; then require_clean_checkout install; fi
     install_ryker
     ;;
   restore)
@@ -223,10 +236,12 @@ case "$command" in
     backup=$2
     [ -r "$backup" ] || { echo "Cannot read backup: $backup" >&2; exit 1; }
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-restore.XXXXXX")
-    trap 'rm -rf -- "$scratch"' EXIT HUP INT TERM
+    trap 'rm -rf -- "$scratch"' EXIT
+    trap 'exit 1' HUP INT TERM
     tar -xzf "$backup" -C "$scratch"
-    if [ ! -r "$scratch/database.dump" ] || [ ! -r "$scratch/compose.env" ]; then
-      echo "The backup does not contain Ryker database and key custody." >&2
+    if [ ! -r "$scratch/database.dump" ] || [ ! -r "$scratch/compose.env" ] ||
+       [ ! -r "$scratch/ryker-state.tar.gz" ]; then
+      echo "The backup does not contain Ryker's database, key custody and encrypted files. Nothing was changed." >&2
       exit 1
     fi
 
@@ -244,31 +259,42 @@ case "$command" in
       chmod 0600 "$env_file"
     fi
 
-    compose up --detach --wait database
+    # Everything that can refuse the backup does so before anything changes:
+    # the restore once stopped Ryker and dropped the live database first, and an
+    # archive that would not restore left an empty one (2026-10-04 review).
+    compose up --detach --no-build --wait database
+    compose exec -T database pg_restore --list <"$scratch/database.dump" >/dev/null || {
+      echo "The backup's database dump cannot be read. Nothing was changed." >&2
+      exit 1
+    }
+
     compose stop ryker ryker-coop ryker-coop-docker 2>/dev/null || true
-    compose exec -T database dropdb -U ryker --if-exists ryker
-    compose exec -T database createdb -U ryker ryker
-    compose exec -T database pg_restore -U ryker -d ryker --exit-on-error --no-owner --no-privileges <"$scratch/database.dump"
-    if [ -r "$scratch/ryker-state.tar.gz" ]; then
-      compose run --rm --no-deps -T --entrypoint tar volume-init \
-        -xzf - -C /var/lib/ryker <"$scratch/ryker-state.tar.gz"
-    else
-      file_checkpoints=$(compose exec -T database psql -XAt -U ryker -d ryker -v ON_ERROR_STOP=1 \
-        -c "SELECT count(*) FROM coop_worker_workspace_checkpoints AS checkpoint WHERE to_jsonb(checkpoint)->>'body_command_id' IS NOT NULL")
-      [ "$file_checkpoints" = 0 ] || {
-        echo "This database needs encrypted checkpoint files, but the backup has no Ryker state archive. Ryker remains stopped." >&2
-        exit 1
-      }
-    fi
+    # Restored beside the live database, which is swapped out only once the
+    # restore is whole and kept as ryker_before_restore until the next restore.
+    compose exec -T database dropdb -U ryker --if-exists ryker_restoring
+    compose exec -T database createdb -U ryker ryker_restoring
+    compose exec -T database pg_restore -U ryker -d ryker_restoring --exit-on-error \
+      --no-owner --no-privileges <"$scratch/database.dump" || {
+      compose exec -T database dropdb -U ryker --if-exists ryker_restoring
+      echo "The database did not restore. The previous database is unchanged; Ryker remains stopped. Run: scripts/compose.sh start" >&2
+      exit 1
+    }
+    compose exec -T database psql -X -U ryker -d postgres -v ON_ERROR_STOP=1 \
+      -c 'DROP DATABASE IF EXISTS ryker_before_restore' \
+      -c 'ALTER DATABASE ryker RENAME TO ryker_before_restore' \
+      -c 'ALTER DATABASE ryker_restoring RENAME TO ryker' >/dev/null
+    compose run --rm --no-deps -T --entrypoint tar volume-init \
+      -xzf - -C /var/lib/ryker <"$scratch/ryker-state.tar.gz"
     if [ -r "$scratch/worker-state.tar.gz" ]; then
-      compose up --detach --wait volume-init
+      compose up --detach --no-build --wait volume-init
       compose run --rm --no-deps -T --entrypoint tar ryker-coop \
         -xzf - -C /var/lib coop ryker-coop <"$scratch/worker-state.tar.gz"
     fi
-    compose up --detach --wait ryker
+    compose up --detach --no-build --wait ryker
     compose exec -T ryker /opt/ryker/bin/ryker eval 'Ryker.Release.prepare_bundled_coop(log: false)'
-    compose up --detach --wait ryker-coop
+    compose up --detach --no-build --wait ryker-coop
     wait_ready
+    echo "The database Ryker ran on before is kept as ryker_before_restore."
     ;;
   status)
     require_install
@@ -285,17 +311,18 @@ case "$command" in
     ;;
   start)
     require_install
-    compose up --detach --wait
+    compose up --detach --no-build --wait
     wait_ready
     ;;
   restart)
     require_install
     compose restart
-    compose up --detach --wait
+    compose up --detach --no-build --wait
     wait_ready
     ;;
   upgrade)
     require_install
+    require_clean_checkout upgrade
     compose pull --ignore-buildable
     if supplied_worker_image; then
       compose build --pull ryker
