@@ -30,6 +30,22 @@ defmodule Ryker.Slack.ReactionEventTest do
     assert removed.emoji_name == "eyes"
   end
 
+  # Slack names a skin-toned reaction "+1::skin-tone-2". The name check refused it, the
+  # gateway acknowledged the event as invalid, and that 👍 never became feedback
+  # (2026-10-04 review). The tone is dropped and the reaction kept.
+  test "a skin-toned reaction is the same feedback as its plain emoji" do
+    for tone <- 2..6 do
+      assert {:ok, %{emoji_name: "+1"}} =
+               ReactionEvent.from_socket(
+                 envelope("reaction_added", "+1::skin-tone-#{tone}"),
+                 @identity
+               )
+    end
+
+    assert {:error, {:invalid_slack_reaction_event, :emoji_name}} =
+             ReactionEvent.from_socket(envelope("reaction_added", "+1::skin-tone-9"), @identity)
+  end
+
   test "ignores reactions that are not user feedback on this bot's own message" do
     other_author = put_in(envelope(), ["payload", "event", "item_user"], "U-OTHER")
     assert ReactionEvent.from_socket(other_author, @identity) == :ignore

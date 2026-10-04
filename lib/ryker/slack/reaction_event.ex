@@ -30,14 +30,14 @@ defmodule Ryker.Slack.ReactionEvent do
          :ok <- not_self(event, identity),
          :ok <- reference(event_ref, :event_ref),
          :ok <- reference(event["user"], :actor_ref),
-         :ok <- emoji(event["reaction"]),
+         {:ok, emoji_name} <- emoji(event["reaction"]),
          {:ok, item} <- message_item(event["item"]),
          {:ok, occurred_at} <- timestamp(event["event_ts"]) do
       {:ok,
        %{
          action: if(type == "reaction_added", do: :add, else: :remove),
          actor_ref: event["user"],
-         emoji_name: event["reaction"],
+         emoji_name: emoji_name,
          event_ref: event_ref,
          occurred_at: occurred_at,
          source: %{kind: "slack", ref: workspace_ref},
@@ -101,11 +101,17 @@ defmodule Ryker.Slack.ReactionEvent do
 
   defp identity(_identity), do: {:error, {:invalid_slack_reaction_event, :identity}}
 
-  defp emoji(value) do
-    if is_binary(value) and Regex.match?(@emoji_name, value),
-      do: :ok,
+  # Slack names a skin-toned reaction "+1::skin-tone-2"; it is the same
+  # feedback as its plain emoji.
+  defp emoji(value) when is_binary(value) do
+    name = Regex.replace(~r/::skin-tone-[2-6]\z/, value, "")
+
+    if Regex.match?(@emoji_name, name),
+      do: {:ok, name},
       else: {:error, {:invalid_slack_reaction_event, :emoji_name}}
   end
+
+  defp emoji(_value), do: {:error, {:invalid_slack_reaction_event, :emoji_name}}
 
   defp reference(value, field) do
     if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
