@@ -177,6 +177,21 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
                  "approval-worker-not-found"
                )
              )
+
+    # A request that timed out at Emisar (408) or arrived too early (425) asks to be sent again;
+    # treating every 4xx but 429 as final blocked the watch on one slow answer (2026-10-04 review).
+    for status <- [408, 425] do
+      waiting_approval!("timed-out-#{status}")
+      approval_ref = "apr-timed-out-#{status}"
+
+      assert {:ok, {:deferred, ^approval_ref, {:emisar_http_error, ^status, _detail}}} =
+               ApprovalDispatcher.run_once(
+                 options(
+                   {:error, {:emisar_http_error, status, "try again"}},
+                   "approval-worker-timed-out-#{status}"
+                 )
+               )
+    end
   end
 
   test "configuration accepts exactly one bounded keyword document" do

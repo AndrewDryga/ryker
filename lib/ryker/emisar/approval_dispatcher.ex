@@ -151,8 +151,9 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   defp permanent?({:emisar_protocol_error, _reason}), do: true
   defp permanent?({:invalid_emisar_client, _reason}), do: true
 
+  # 408, 425 and 429 ask for the same request again later; every other 4xx is final.
   defp permanent?({:emisar_http_error, status, _detail})
-       when status in 400..499 and status != 429,
+       when status in 400..499 and status not in [408, 425, 429],
        do: true
 
   defp permanent?(_reason), do: false
