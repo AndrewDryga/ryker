@@ -7,7 +7,9 @@ defmodule Ryker.Bootstrap do
   messages name the input without echoing connection strings or secret values.
   """
 
-  @derive {Inspect, except: [:repo]}
+  # Crash reports print a struct with inspect; the database URL carries its
+  # password and the credential key opens every saved credential.
+  @derive {Inspect, except: [:repo, :credential_key]}
   defstruct [
     :repo,
     :control_plane,

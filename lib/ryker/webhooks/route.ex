@@ -34,6 +34,8 @@ defmodule Ryker.Webhooks.Route do
   ]
 
   @enforce_keys @required_fields ++ @optional_fields
+  # Crash reports print a struct with inspect; `auth` holds the token or secret.
+  @derive {Inspect, except: [:auth]}
   defstruct @required_fields ++ @optional_fields
 
   @type auth :: {:bearer, binary()} | {:hmac_sha256, binary()}

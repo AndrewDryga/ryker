@@ -44,6 +44,9 @@ defmodule Ryker.CoopFleet.Client do
     :workspace_ref
   ]
   @enforce_keys [:bridge, :bridge_options]
+  # Crash reports print a struct with inspect; the bridge options carry the
+  # checkpoint key and the value of every saved credential.
+  @derive {Inspect, except: [:bridge_options]}
   defstruct @fields
 
   @type t :: %__MODULE__{bridge: module(), bridge_options: keyword()}

@@ -31,6 +31,8 @@ defmodule Ryker.GitHub.Binding do
   @repository_regex ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 
   @enforce_keys @fields
+  # Crash reports print a struct with inspect.
+  @derive {Inspect, except: [:secret]}
   defstruct @fields
 
   @type t :: %__MODULE__{
