@@ -137,6 +137,93 @@ defmodule Ryker.Work.DispatcherTest do
     assert turn.next_attempt_at == nil
   end
 
+  # An exception inside the executor had no rescue: the worker crashed, the lease ran out, and
+  # the turn was claimed and crashed again every lease period, with no attempt cap and no error
+  # saved, while the request read as working (2026-10-04 review; executor/validation.ex records
+  # one such turn "retrying every five minutes with no error saved").
+  test "an executor that raises stops its turn with the exception named" do
+    command = create_episode!("raises")
+
+    raising =
+      Keyword.update!(
+        options({:ok, :unreached}),
+        :executor_options,
+        &Keyword.put(&1, :before_return, fn _claim -> raise KeyError, key: :missing, term: %{} end)
+      )
+
+    assert {:ok, {:deferred, {:work_stop_pending, {:work_host_exception, KeyError}}}} =
+             Dispatcher.run_once(raising)
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :cancel_pending
+    assert turn.cancellation_intent["action"] == "block"
+    assert turn.cancellation_intent["reason"] =~ "KeyError"
+  end
+
+  # A claim spends an attempt before the executor runs, so a turn whose executor kept killing
+  # its worker spent attempt after attempt without anything checking the budget.
+  test "a turn that used up its attempts is stopped before it runs again" do
+    command = create_episode!("spent")
+
+    # The first claim creates the turn; the claims after it crashed before saving anything.
+    assert {:ok, {:deferred, _reason}} =
+             Dispatcher.run_once(options({:error, {:coop_unavailable, :first_try}}))
+
+    Ryker.Repo.update_all(from(turn in Turn, where: turn.episode_id == ^command.episode_id),
+      set: [work_attempt_count: 2, next_attempt_at: nil]
+    )
+
+    never =
+      options({:ok, :unreached})
+      |> Keyword.put(:max_attempts, 2)
+      |> Keyword.update!(
+        :executor_options,
+        &Keyword.put(&1, :before_return, fn _claim -> flunk("a spent turn ran again") end)
+      )
+
+    assert {:ok, {:deferred, {:work_stop_pending, {:work_retry_exhausted, :attempts}}}} =
+             Dispatcher.run_once(never)
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :cancel_pending
+    assert turn.cancellation_intent["action"] == "block"
+  end
+
+  # The claim takes the oldest claimable episode and rolled back on any error, so an episode
+  # whose session could not be set up was chosen again on every poll and no other Work ran at
+  # all (2026-10-04 review; the shape of the 2026-09-29 fleet wedge).
+  test "an episode that cannot be claimed is skipped and the next one runs" do
+    stuck = create_episode!("stuck")
+    ready = create_episode!("ready")
+
+    # The stuck one is older, so it is tried first, and its session can never be replaced.
+    Ryker.Repo.update_all(from(e in Ryker.Episodes.Episode, where: e.id == ^stuck.episode_id),
+      set: [updated_at: DateTime.add(@now, -3_600, :second)]
+    )
+
+    Ryker.Repo.update_all(
+      from(s in Ryker.Work.Session, where: s.episode_id == ^stuck.episode_id),
+      set: [
+        cleanup_status: :close_pending,
+        worker_job_document: %{"version" => 2},
+        worker_job_digest: String.duplicate("0", 64)
+      ]
+    )
+
+    test = self()
+
+    ran =
+      Keyword.update!(
+        options({:ok, %{}}),
+        :executor_options,
+        &Keyword.put(&1, :before_return, fn claim -> send(test, {:ran, claim.episode.id}) end)
+      )
+
+    assert {:ok, {:executed, _execution}} = Dispatcher.run_once(ran)
+    assert_received {:ran, episode_id}
+    assert episode_id == ready.episode_id
+  end
+
   test "the model dispatcher never steals a pending Slack delivery" do
     pending = delivery_pending!("delivery-owned")
 

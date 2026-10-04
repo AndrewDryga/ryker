@@ -7,10 +7,16 @@ defmodule Ryker.Work.Custody.Claims do
   opaque lease that it renews while healthy, yields at the end of a polling
   window, or defers after a failed attempt. Leased custody mutations elsewhere
   prove this lease before they write.
+
+  An episode that cannot be claimed (its session cannot be set up, say) is
+  logged, its turn when it has one waits a minute with the error on it, and the
+  claim goes on to the next episode, so one broken episode never stops all Work.
   """
 
   import Ecto.Query
   import Ryker.Work.Custody.Locks
+
+  require Logger
 
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.Publication
@@ -19,6 +25,10 @@ defmodule Ryker.Work.Custody.Claims do
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.Sessions
   alias Ryker.Work.{Session, Turn, TurnChangeset}
+
+  # How many episodes one claim tries past ones that could not be claimed.
+  @claim_candidates 8
+  @claim_failure_retry_seconds 60
 
   @spec claim_next(String.t(), pos_integer()) ::
           {:ok, Custody.claim() | nil} | {:error, term()}
@@ -32,9 +42,52 @@ defmodule Ryker.Work.Custody.Claims do
     with :ok <- reference(worker_ref, :worker_ref),
          :ok <- positive_integer(lease_seconds, :lease_seconds),
          :ok <- claim_phase(phase) do
-      Repo.transaction(fn -> claim_locked(worker_ref, lease_seconds, phase) end)
+      claim_candidate(worker_ref, lease_seconds, phase, [], @claim_candidates)
     end
   end
+
+  defp claim_candidate(_worker_ref, _lease_seconds, _phase, _skipped, 0), do: {:ok, nil}
+
+  defp claim_candidate(worker_ref, lease_seconds, phase, skipped, left) do
+    case Repo.transaction(fn -> claim_locked(worker_ref, lease_seconds, phase, skipped) end) do
+      {:error, {:work_claim_failed, episode_id, reason}} ->
+        claim_failed(episode_id, reason)
+        claim_candidate(worker_ref, lease_seconds, phase, [episode_id | skipped], left - 1)
+
+      result ->
+        result
+    end
+  end
+
+  # Nothing of the failed claim was kept, so this says what happened: the log
+  # always, and the episode's turn, when it has one, waits a minute with the
+  # error on it instead of being tried first again on the next poll.
+  defp claim_failed(episode_id, reason) do
+    Logger.warning(
+      "work episode #{episode_id} could not be claimed: #{inspect(reason, limit: 8)}"
+    )
+
+    now = Repo.now!()
+
+    Repo.update_all(
+      from(turn in Turn,
+        join: episode in Episode,
+        on: episode.id == turn.episode_id and turn.turn_ref == episode.owner_ref,
+        where:
+          turn.episode_id == ^episode_id and turn.status == :pending and is_nil(turn.lease_ref)
+      ),
+      set: [
+        next_attempt_at: DateTime.add(now, @claim_failure_retry_seconds, :second),
+        last_error_code: claim_failure_code(reason),
+        last_error_detail: reason |> inspect(limit: 20) |> String.slice(0, 4_000),
+        updated_at: now
+      ]
+    )
+  end
+
+  defp claim_failure_code({code, _detail}) when is_atom(code), do: Atom.to_string(code)
+  defp claim_failure_code(code) when is_atom(code), do: Atom.to_string(code)
+  defp claim_failure_code(_reason), do: "work_claim_failed"
 
   @doc false
   @spec renew(Ecto.UUID.t(), String.t(), String.t(), pos_integer()) ::
@@ -127,10 +180,10 @@ defmodule Ryker.Work.Custody.Claims do
 
   defp reviews_due(_since, :delivery), do: []
 
-  defp claim_locked(worker_ref, lease_seconds, phase) do
+  defp claim_locked(worker_ref, lease_seconds, phase, skipped) do
     now = Repo.now!()
 
-    case eligible_episode(now, phase) do
+    case eligible_episode(now, phase, skipped) do
       nil ->
         nil
 
@@ -146,15 +199,16 @@ defmodule Ryker.Work.Custody.Claims do
           }
         else
           true -> nil
-          {:error, reason} -> Repo.rollback(reason)
+          {:error, reason} -> Repo.rollback({:work_claim_failed, episode.id, reason})
         end
     end
   end
 
-  defp eligible_episode(now, phase) do
+  defp eligible_episode(now, phase, skipped) do
     Repo.one(
       from(episode in Episode,
         where: episode.id in subquery(claimable_episode_ids_query(now, phase)),
+        where: episode.id not in ^skipped,
         order_by: [asc: episode.updated_at, asc: episode.id],
         limit: 1,
         lock: "FOR UPDATE SKIP LOCKED"

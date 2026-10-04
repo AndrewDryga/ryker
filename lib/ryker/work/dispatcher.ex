@@ -5,8 +5,12 @@ defmodule Ryker.Work.Dispatcher do
   Model execution and external delivery use separate claim phases. A model
   worker never owns a Slack delivery, and a transient remote failure releases
   its lease before a bounded PostgreSQL-timed retry. Outcomes that cannot be
-  retried safely enter explicit blocked custody instead of looping.
+  retried safely enter explicit blocked custody instead of looping, and so does
+  an exception raised by the executor, named by its module, and a turn whose
+  claims already used up its attempts.
   """
+
+  require Logger
 
   alias Ryker.Work.{Custody, Executor}
 
@@ -35,18 +39,46 @@ defmodule Ryker.Work.Dispatcher do
 
   defp execute_claim(nil, _settings), do: {:ok, :idle}
 
+  # A claim spends an attempt before anything runs, so an executor that keeps
+  # killing its worker would otherwise be claimed every lease period forever.
+  defp execute_claim(
+         %{turn: %{status: :pending, work_attempt_count: attempts}} = claim,
+         %{max_attempts: maximum}
+       )
+       when attempts > maximum,
+       do: stop_and_block(claim, {:work_retry_exhausted, :attempts})
+
   defp execute_claim(claim, settings) do
     executor_options =
       settings.executor_options
       |> Keyword.put(:lease_seconds, settings.lease_seconds)
 
-    case settings.executor.run(claim, executor_options) do
+    case run_executor(settings.executor, claim, executor_options) do
       {:ok, execution} ->
         {:ok, {:executed, execution}}
 
       {:error, reason} ->
         execution_failure(claim, reason, settings)
     end
+  end
+
+  # A database that cannot answer is the outage `Ryker.PollingWorker` backs off
+  # from. Anything else raised here is a bug in Ryker: the turn stops with the
+  # exception's module named and the stack in the log, instead of crashing the
+  # worker and being claimed again every lease period with nothing recorded.
+  defp run_executor(executor, claim, options) do
+    executor.run(claim, options)
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      reraise error, __STACKTRACE__
+
+    error ->
+      Logger.error(
+        "work turn #{claim.turn.turn_ref} raised; it is stopped: " <>
+          Exception.format(:error, error, __STACKTRACE__)
+      )
+
+      {:error, {:work_host_exception, error.__struct__}}
   end
 
   defp execution_failure(claim, {:work_completion_blocked, receipt, reason}, _settings),
