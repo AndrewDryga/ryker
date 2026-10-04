@@ -1503,6 +1503,44 @@ defmodule Ryker.Publication.FollowupsTest do
            }) == {:error, :publication_not_found}
   end
 
+  # Each generation publishes a new head, often to the same pull request. The
+  # follow-up kept the previous head's check state, so a new head that failed
+  # the way the old one had recorded nothing and woke nobody (2026-10-04
+  # review).
+  test "a newly published head is judged by its own checks" do
+    %{publication: publication} = PublicationFixture.published!("new-head-checks")
+
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:new-head:first", 60)
+    red = lifecycle_status(publication, "failing", false)
+    assert {:ok, _followup} = Followups.store_poll(publication.ref, claim.lease_ref, red)
+
+    newer_head = String.duplicate("e", 40)
+    republish!(publication, newer_head)
+    republished = Repo.get!(Publication, publication.id)
+
+    assert {:ok, rearmed} =
+             Repo.transaction(fn ->
+               Followups.arm_published_in_transaction(republished, Repo.now!())
+             end)
+
+    assert rearmed.checks_state == "unknown"
+
+    assert {:ok, claim} = Followups.claim_poll("publication-followup:new-head:second", 60)
+    red_again = lifecycle_status(republished, "failing", false)
+    assert {:ok, _followup} = Followups.store_poll(publication.ref, claim.lease_ref, red_again)
+
+    heads =
+      from(event in LifecycleEvent,
+        where:
+          event.publication_id == ^publication.id and event.kind == "checks" and
+            event.state == "failed"
+      )
+      |> Repo.all()
+      |> Enum.map(& &1.observation["head_sha"])
+
+    assert Enum.sort(heads) == Enum.sort([publication.commit_sha, newer_head])
+  end
+
   defp deliver_pending! do
     case Followups.claim_delivery("publication-followup:delivery", 60) do
       {:ok, nil} ->

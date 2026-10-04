@@ -1272,7 +1272,7 @@ defmodule Ryker.Publication.Custody do
         now
       )
 
-    _followup = Followups.ensure_published_in_transaction(published, now)
+    _followup = Followups.arm_published_in_transaction(published, now)
     published
   end
 

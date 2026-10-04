@@ -703,7 +703,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
 
     {:ok, followup} =
       Repo.transaction(fn ->
-        Followups.ensure_published_in_transaction(publication, DateTime.utc_now())
+        Followups.arm_published_in_transaction(publication, DateTime.utc_now())
       end)
 
     followup
@@ -770,7 +770,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
 
     {:ok, _followup} =
       Repo.transaction(fn ->
-        Followups.ensure_published_in_transaction(publication, DateTime.utc_now())
+        Followups.arm_published_in_transaction(publication, DateTime.utc_now())
       end)
 
     assert {:ok, open} = TaskCardProjection.build(source)
@@ -883,7 +883,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
 
     {:ok, followup} =
       Repo.transaction(fn ->
-        Followups.ensure_published_in_transaction(publication, DateTime.utc_now())
+        Followups.arm_published_in_transaction(publication, DateTime.utc_now())
       end)
 
     followup

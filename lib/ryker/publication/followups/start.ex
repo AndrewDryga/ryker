@@ -1,8 +1,9 @@
 defmodule Ryker.Publication.Followups.Start do
   @moduledoc """
-  What starts a follow-up: a publication going out arms one, recovery from a
-  stale head or a conflict rearms it, and a person's check request or a GitHub
-  webhook about its pull request makes the next poll due now.
+  What starts a follow-up: a publication going out arms one, or rearms it for
+  the head it just published, recovery from a stale head or a conflict rearms
+  it, and a person's check request or a GitHub webhook about its pull request
+  makes the next poll due now.
 
   Ryker only checks the pull requests it opened, each on its own ten-minute
   timer while it is open (`Followups.Polls`), and never scans a repository. A
@@ -18,7 +19,7 @@ defmodule Ryker.Publication.Followups.Start do
 
   @default_deadline_seconds 30 * 24 * 60 * 60
 
-  def ensure_published_in_transaction(%Publication{status: :published} = publication, now) do
+  def arm_published_in_transaction(%Publication{status: :published} = publication, now) do
     attributes = %{
       deadline_at: DateTime.add(now, @default_deadline_seconds, :second),
       episode_id: publication.episode_id,
@@ -29,11 +30,12 @@ defmodule Ryker.Publication.Followups.Start do
     }
 
     case Repo.one(from(followup in Followup, where: followup.publication_id == ^publication.id)) do
-      %Followup{pr_state: "stale"} = followup ->
-        reset_followup!(followup, publication, now)
-
+      # Each generation publishes a new head, often to the same pull request,
+      # and its checks are its own. The follow-up kept the previous head's
+      # check state, so a new head failing the way the old one did woke
+      # nothing (2026-10-04 review).
       %Followup{} = followup ->
-        followup
+        reset_followup!(followup, publication, now)
 
       nil ->
         case Repo.insert(FollowupChangeset.insert(attributes)) do
@@ -47,7 +49,7 @@ defmodule Ryker.Publication.Followups.Start do
     end
   end
 
-  def ensure_published_in_transaction(_publication, _now),
+  def arm_published_in_transaction(_publication, _now),
     do: Repo.rollback(:publication_not_delivered)
 
   def rearm_stale_in_transaction(%Publication{} = publication, now) do

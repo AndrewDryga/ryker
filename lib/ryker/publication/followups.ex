@@ -33,7 +33,7 @@ defmodule Ryker.Publication.Followups do
   # --- what starts a follow-up ----------------------------------------------
 
   @doc false
-  defdelegate ensure_published_in_transaction(publication, now), to: Start
+  defdelegate arm_published_in_transaction(publication, now), to: Start
 
   @doc false
   defdelegate rearm_stale_in_transaction(publication, now), to: Start
