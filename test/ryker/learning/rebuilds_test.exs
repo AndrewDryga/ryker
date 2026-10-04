@@ -58,6 +58,23 @@ defmodule Ryker.Learning.RebuildsTest do
     assert input.id == next.id
   end
 
+  # A relearn batch kept a foreign key to its topic with no ON DELETE, the only one of its
+  # kind, so deleting the channel failed on its first topic delete and rolled back: every
+  # topic, note and person fact of a deleted channel stayed recallable (2026-10-04 review).
+  test "a channel whose topic was relearned can still be deleted" do
+    {topic, _old, current} = unavailable_topic!()
+    assert {:ok, _receipt} = rebuild(topic, current, "rebuild:before-delete")
+    ["slack", workspace_ref, channel_ref] = String.split(topic.conversation_ref, ":")
+
+    assert {:ok, :ok} =
+             Repo.transaction(fn ->
+               Ryker.Continuity.delete_slack_channel_in_transaction(workspace_ref, channel_ref)
+             end)
+
+    assert Repo.get(ConversationKnowledge, topic.id) == nil
+    assert {:ok, _claim} = Batches.claim("rebuild-test", @settings)
+  end
+
   test "explicit rebuilding can select a new original after every old support was withdrawn" do
     assert {:ok, _} =
              Ryker.Instructions.save(
