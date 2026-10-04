@@ -148,15 +148,14 @@ defmodule Ryker.Slack.Client.Files do
 
   defp upload_target(_body), do: {:error, {:slack_protocol_error, :upload_target}}
 
-  # The files.completeUploadExternal document that shares the uploads as one message.
-  defp completion_document(channel, rendered, files) do
-    %{
-      "blocks" => Jason.encode!(rendered["blocks"]),
-      "channel_id" => channel,
-      "files" => files,
-      "initial_comment" => rendered["text"]
-    }
-  end
+  # The files.completeUploadExternal document that shares the uploads as one
+  # message. Slack ignores `blocks` when `initial_comment` is present, so a
+  # message that has blocks sends them alone; a plain one sends its text.
+  defp completion_document(channel, %{"blocks" => [_ | _] = blocks}, files),
+    do: %{"blocks" => Jason.encode!(blocks), "channel_id" => channel, "files" => files}
+
+  defp completion_document(channel, rendered, files),
+    do: %{"channel_id" => channel, "files" => files, "initial_comment" => rendered["text"]}
 
   # --- the file share a retry finds -----------------------------------------
 

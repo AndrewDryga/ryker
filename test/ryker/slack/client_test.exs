@@ -922,7 +922,11 @@ defmodule Ryker.Slack.ClientTest do
     assert {:post, "/files.completeUploadExternal", completion, []} = complete
     assert completion["channel_id"] == "C123"
     assert completion["thread_ts"] == "1787832000.000100"
-    assert completion["initial_comment"] == "Done."
+
+    # Slack ignores `blocks` when `initial_comment` is present, so a reply with an image lost its
+    # cards, buttons and formatting and showed only its 3,000-character fallback text
+    # (2026-10-04 review). A reply that has blocks sends them alone.
+    refute Map.has_key?(completion, "initial_comment")
     assert Jason.decode!(completion["blocks"]) |> length() == 1
 
     assert completion["files"] == [
