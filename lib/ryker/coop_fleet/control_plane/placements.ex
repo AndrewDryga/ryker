@@ -20,7 +20,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     JobAuthority,
     Placement,
     Worker,
-    WorkspaceCheckpoint,
     WorkspaceCheckpointTransfer
   }
 
@@ -213,7 +212,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   defp checkpoint_offer({checkpoint, source}, expected_source, root) do
     if RepositorySource.same?(source, expected_source) and
-         WorkspaceCheckpoint.restorable?(checkpoint.descriptor) and
          checkpoint_available?(root, checkpoint),
        do: Map.take(checkpoint, [:byte_size, :checkpoint_ref, :repository_ref])
   end

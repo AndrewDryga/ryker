@@ -83,11 +83,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     |> Enum.group_by(& &1.input_id)
   end
 
-  defp queue_steps(input, [], now) do
-    queue = legacy_queue(input, now)
-    [queue_step(input, queue, "queue-#{input.id}")]
-  end
-
   defp queue_steps(input, transitions, now) do
     transitions = Enum.map(transitions, &normalize_save_time(&1, input.inserted_at))
     runs = queue_runs(transitions)
@@ -380,30 +375,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   defp error_reason(nil), do: ""
   defp error_reason(code), do: " Reason: #{error_label(code)}."
-
-  defp legacy_queue(input, _now) do
-    current = input.status == :pending
-
-    %{
-      kind: if(current, do: :waiting, else: :not_recorded),
-      qualifier: nil,
-      current: current,
-      events: [
-        %{
-          kind: :not_recorded,
-          label: "Queue history unavailable",
-          at: input.inserted_at,
-          reason: "Detailed queue transitions were not recorded for this older input.",
-          href: nil,
-          link_label: nil
-        }
-      ],
-      started_at: input.inserted_at,
-      ended_at: nil,
-      duration_ms: nil,
-      tone: nil
-    }
-  end
 
   # Effective proactive/shadow values at processing time. An explicit
   # submission never consulted channel settings, and history without a receipt

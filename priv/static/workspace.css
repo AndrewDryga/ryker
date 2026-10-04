@@ -114,7 +114,6 @@
 .ryker-app .action-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .ryker-app .confirm { max-width:720px; }
 .ryker-app .confirm .action-controls { gap:20px; }
-.pulse-dot { height:5px; width:5px; border-radius:50%; background:var(--ryker-success); margin-right:3px; }
 /* Activity: search, work mode and filters share one toolbar row. Each applied filter is a chip;
    "+ Filter" comes last and opens a field menu, then that field's values, which apply at once. */
 .filter-live-form, .filter-toolbar-controls { display:contents; }
@@ -1773,11 +1772,11 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 :is(.channel-page, .repositories-page, .working-copies-page) .entity-details > summary { width:max-content; padding:2px 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); cursor:pointer; }
 .ryker-app :is(.channel-page, .repositories-page, .working-copies-page) .entity-details > summary:hover { color:var(--ryker-text); }
 :is(.channel-page, .repositories-page, .working-copies-page) .entity-details[open] > summary { margin-bottom:8px; }
-:is(.repositories-page, .working-copies-page) .entity-facts, .channel-page .channel-facts { display:grid; grid-template-columns:minmax(140px,max-content) minmax(0,1fr); gap:6px 24px; margin:0; }
-:is(.repositories-page, .working-copies-page) .entity-facts > div, .channel-page .channel-facts > div { display:contents; }
-:is(.repositories-page, .working-copies-page) .entity-facts dt, .channel-page .channel-facts dt { padding:0; border:0; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
-:is(.repositories-page, .working-copies-page) .entity-facts dd, .channel-page .channel-facts dd { margin:0; padding:0; border:0; font-size:14px; line-height:20px; color:var(--ryker-text); overflow-wrap:anywhere; }
-:is(.repositories-page, .working-copies-page) .entity-facts code, .channel-page .channel-facts code { font-family:var(--ryker-font-mono); font-size:12px; color:var(--ryker-text-secondary); }
+.channel-page .channel-facts { display:grid; grid-template-columns:minmax(140px,max-content) minmax(0,1fr); gap:6px 24px; margin:0; }
+.channel-page .channel-facts > div { display:contents; }
+.channel-page .channel-facts dt { padding:0; border:0; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
+.channel-page .channel-facts dd { margin:0; padding:0; border:0; font-size:14px; line-height:20px; color:var(--ryker-text); overflow-wrap:anywhere; }
+.channel-page .channel-facts code { font-family:var(--ryker-font-mono); font-size:12px; color:var(--ryker-text-secondary); }
 .working-copies-page .entity-text a { color:var(--ryker-text); text-decoration:underline; text-decoration-color:color-mix(in srgb, var(--ryker-text) 30%, transparent); text-underline-offset:3px; }
 /* The channel page: its state sits under the header's sentence; sections are Kit heads. */
 .channel-lead .channel-facts { margin:4px 0 0; }
@@ -1823,8 +1822,8 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .working-copies-storage .storage-line strong { font-weight:500; color:var(--ryker-text); }
 @media (max-width:800px) {
   .connection-line { flex-direction:column; align-items:flex-start; }
-  :is(.repositories-page, .working-copies-page) .entity-facts, .channel-page .channel-facts { grid-template-columns:minmax(0,1fr); gap:2px; }
-  :is(.repositories-page, .working-copies-page) .entity-facts dd, .channel-page .channel-facts dd { margin-bottom:8px; }
+  .channel-page .channel-facts { grid-template-columns:minmax(0,1fr); gap:2px; }
+  .channel-page .channel-facts dd { margin-bottom:8px; }
   .repository-discovery-error { flex-direction:column; align-items:flex-start; }
 }
 
@@ -2480,15 +2479,10 @@ html:has(.kit-modal) { overflow:hidden; }
 .failure-row .entity-meta time, .failure-page .failure-status time { white-space:nowrap; }
 .ryker-app .failure-page .failure-status { display:flex; flex-wrap:wrap; align-items:center; gap:4px 0; margin:-16px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .failure-page .failure-status > * + *::before { content:"·"; margin:0 8px; color:var(--ryker-text-secondary); }
-.ryker-app .failure-page .failure-prose { max-width:720px; }
-.ryker-app .failure-page .failure-prose p { margin:0 0 8px; font-size:14px; line-height:20px; color:var(--ryker-text); }
-.ryker-app .failure-page .failure-prose p:last-child { margin-bottom:0; }
 .failure-page .failure-report { max-width:720px; margin:8px 0 0; }
 .ryker-app .failure-page .failure-report > summary { width:max-content; padding:2px 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .ryker-app .failure-page .failure-report > summary:hover { color:var(--ryker-text); }
 .ryker-app .failure-page .failure-option .entity-meta { max-width:720px; }
-.failure-page .failure-technical { max-width:720px; margin:32px 0 0; }
-.ryker-app .failure-technical .ui-facts > div { padding:3px 0; border-top:0; }
 .ryker-app .failure-steps { display:grid; gap:4px; margin:12px 0 0; padding:0; list-style:none; font-size:13px; line-height:18px; }
 .failure-steps li { display:grid; grid-template-columns:minmax(200px, 280px) minmax(0,1fr); gap:12px; color:var(--ryker-text-secondary); }
 .failure-steps li strong { font-weight:400; color:var(--ryker-text); }

@@ -3,15 +3,13 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   Portable identity for one streamed remote writable-work checkpoint.
 
   The referenced artifact carries raw Git objects, LFS payloads, selected untracked
-  files, and exact Coop task projection. Historical patch artifacts remain readable.
-  This document deliberately excludes
+  files, and exact Coop task projection. This document deliberately excludes
   worker-local paths, provider state, credentials, and transcript content.
   """
 
   alias Ryker.CoopFleet.Protocol
 
   @version 2
-  @legacy_maximum_bundle_bytes 64 * 1_024 * 1_024
   @maximum_bundle_bytes 9_223_372_036_854_775_806
   @maximum_subtasks 64
   @maximum_manifest_bytes 1_024 * 1_024
@@ -31,18 +29,10 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   @identity ~r/\A[0-9a-f]{32}\z/
   @revision ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
 
-  def bundle_media_type(version \\ @version) when version in [1, 2],
-    do: "application/vnd.coop.workspace-checkpoint.v#{version}+tar"
+  def bundle_media_type, do: "application/vnd.coop.workspace-checkpoint.v#{@version}+tar"
 
   @spec maximum_bundle_bytes() :: pos_integer()
   def maximum_bundle_bytes, do: @maximum_bundle_bytes
-
-  # V1 remains readable history, but lacks complete Git and LFS restore custody.
-  def restorable?(%{"version" => @version}), do: true
-  def restorable?(_checkpoint), do: false
-
-  defp maximum_bundle_bytes(1), do: @legacy_maximum_bundle_bytes
-  defp maximum_bundle_bytes(2), do: @maximum_bundle_bytes
 
   @spec decode(binary()) :: {:ok, map()} | {:error, term()}
   def decode(document) when is_binary(document) and byte_size(document) <= 1_048_576 do
@@ -85,7 +75,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
            task_projection(manifest["task_projection"], entries, total),
          {:ok, gate_receipt, _entries, total} <-
            gate_receipt(manifest["gate_receipt"], entries, total),
-         true <- total <= maximum_bundle_bytes(manifest["version"]) do
+         true <- total <= @maximum_bundle_bytes do
       {:ok,
        manifest
        |> Map.put(content_field, content)
@@ -100,13 +90,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
 
   defp validate_bundle_manifest(_manifest), do: bundle_error(:document)
 
-  defp manifest_content(%{"version" => 1} = manifest) do
-    with :ok <- manifest_exact_fields(manifest, @manifest_fields ++ ["tracked_patch"], :fields),
-         {:ok, content} <- manifest_entry(manifest["tracked_patch"], "workspace.patch", true),
-         do: {:ok, "tracked_patch", content}
-  end
-
-  defp manifest_content(%{"version" => 2} = manifest) do
+  defp manifest_content(%{"version" => @version} = manifest) do
     with :ok <-
            manifest_exact_fields(
              manifest,
@@ -114,7 +98,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
              :fields
            ),
          :ok <- manifest_revision(manifest["tracked_tree"]),
-         {:ok, content} <- manifest_entry(manifest["repository"], "repository.tar", false),
+         {:ok, content} <- manifest_entry(manifest["repository"], "repository.tar"),
          do: {:ok, "repository", content}
   end
 
@@ -154,7 +138,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   @spec validate(term()) :: {:ok, map()} | {:error, term()}
   def validate(%{} = checkpoint) do
     with :ok <- exact_fields(checkpoint, @fields, :fields),
-         true <- checkpoint["version"] in [1, @version],
+         true <- checkpoint["version"] == @version,
          :ok <- reference(checkpoint["checkpoint_ref"], :checkpoint_ref),
          :ok <- reference(checkpoint["session_ref"], :session_ref),
          :ok <- positive(checkpoint["placement_generation"], :placement_generation),
@@ -165,7 +149,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
          :ok <- digest(checkpoint["candidate_tree_sha256"], :candidate_tree_sha256),
          :ok <- task(checkpoint["task"]),
          :ok <- gate(checkpoint["gate"]),
-         :ok <- bundle(checkpoint["bundle"], checkpoint["version"]),
+         :ok <- bundle(checkpoint["bundle"]),
          :ok <- timestamp(checkpoint["created_at"], :created_at) do
       {:ok, checkpoint}
     else
@@ -212,13 +196,12 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
 
   defp gate(_gate), do: {:error, {:invalid_workspace_checkpoint, :gate}}
 
-  defp bundle(%{} = bundle, version) do
+  defp bundle(%{} = bundle) do
     with :ok <- exact_fields(bundle, @bundle_fields, :bundle),
-         true <- bundle["media_type"] == bundle_media_type(version),
+         true <- bundle["media_type"] == bundle_media_type(),
          :ok <- digest(bundle["sha256"], :bundle_sha256),
          true <-
-           is_integer(bundle["byte_size"]) and
-             bundle["byte_size"] in 1..maximum_bundle_bytes(version) do
+           is_integer(bundle["byte_size"]) and bundle["byte_size"] in 1..@maximum_bundle_bytes do
       :ok
     else
       {:error, _reason} = error -> error
@@ -226,7 +209,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
     end
   end
 
-  defp bundle(_bundle, _version), do: {:error, {:invalid_workspace_checkpoint, :bundle}}
+  defp bundle(_bundle), do: {:error, {:invalid_workspace_checkpoint, :bundle}}
 
   defp exact_fields(document, fields, field) do
     if Map.keys(document) |> Enum.sort() == Enum.sort(fields),
@@ -292,7 +275,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   defp gate_receipt(nil, entries, total), do: {:ok, nil, entries, total}
 
   defp gate_receipt(receipt, entries, total) do
-    with {:ok, receipt} <- manifest_entry(receipt, "gate/receipt.json", false),
+    with {:ok, receipt} <- manifest_entry(receipt, "gate/receipt.json"),
          false <- MapSet.member?(entries, receipt["entry"]) do
       {:ok, receipt, MapSet.put(entries, receipt["entry"]), total + receipt["byte_size"]}
     else
@@ -366,13 +349,12 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
 
   defp manifest_file(_file, _expected_entry, _entries, _paths), do: bundle_error(:file)
 
-  defp manifest_entry(%{} = entry, expected_entry, empty_allowed?) do
+  defp manifest_entry(%{} = entry, expected_entry) do
     with :ok <- manifest_exact_fields(entry, @manifest_entry_fields, :entry),
          true <- entry["entry"] == expected_entry,
          :ok <- manifest_digest(entry["sha256"]),
          true <- is_integer(entry["byte_size"]),
-         true <- entry["byte_size"] in 0..@maximum_bundle_bytes,
-         true <- empty_allowed? or entry["byte_size"] > 0 do
+         true <- entry["byte_size"] in 1..@maximum_bundle_bytes do
       {:ok, entry}
     else
       false -> bundle_error(:entry)
@@ -380,7 +362,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
     end
   end
 
-  defp manifest_entry(_entry, _expected_entry, _empty_allowed?), do: bundle_error(:entry)
+  defp manifest_entry(_entry, _expected_entry), do: bundle_error(:entry)
 
   defp manifest_path(value) when is_binary(value) do
     with true <- byte_size(value) <= @maximum_encoded_path_bytes,

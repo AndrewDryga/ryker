@@ -2688,11 +2688,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert {:ok, failure} = FailureProjection.fetch("retention", session.external_ref)
 
-    assert failure.diagnosis == %{
-             http_status: 409,
-             code: "invalid_session_state",
-             reason: :missing_ownership
-           }
+    assert failure.diagnosis == %{http_status: 409, code: "invalid_session_state"}
 
     assert failure.cleanup_phase == :plan_pending
     assert failure.request_state == :complete

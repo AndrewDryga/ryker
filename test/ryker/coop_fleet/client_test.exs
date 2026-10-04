@@ -781,28 +781,6 @@ defmodule Ryker.CoopFleet.ClientTest do
              "transfer_id" => transfer_id
            }
 
-    saved = Repo.get!(WorkspaceCheckpointTransfer, transfer_id)
-
-    legacy =
-      %{saved | id: Ecto.UUID.generate(), checkpoint_ref: "checkpoint:historical-v1"}
-      |> Ecto.Changeset.change(
-        descriptor: Map.put(checkpoint, "version", 1),
-        inserted_at: DateTime.add(saved.inserted_at, 1, :second)
-      )
-      |> Repo.insert!()
-
-    assert {:error, {:coop_workspace_checkpoint_read_only, "checkpoint:historical-v1"}} =
-             Client.create_session(
-               client,
-               key,
-               @policy,
-               workspace_task["offer_ref"],
-               replacement.repository_source
-             )
-
-    refute_receive {:fleet_command, ^replacement, "ensure_workspace", _, _, _}
-    Repo.delete!(legacy)
-
     # A checkpoint taken from another source can never seed this generation.
     # Rotation copies the selector verbatim, so a mismatch is tampering or a
     # bug, and the answer is to refuse rather than start from the wrong tree.

@@ -2018,7 +2018,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert ControlPlane.portable_workspace(session, requirements, body_root) == nil
 
     command = checkpoint_command!(session)
-    transfer = transfer!(command, session, "checkpoint:portable", body_root)
+    transfer!(command, session, "checkpoint:portable", body_root)
 
     assert ControlPlane.portable_workspace(session, requirements, body_root) == %{
              byte_size: 4_096,
@@ -2047,21 +2047,6 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       )
 
     assert ControlPlane.portable_workspace(moved, requirements, body_root) == nil
-
-    # A newer historical snapshot must not quietly roll work back to an older
-    # v2 checkpoint just because the new worker cannot restore its format.
-    %{transfer | id: Ecto.UUID.generate(), checkpoint_ref: "checkpoint:newer-v1"}
-    |> Ecto.Changeset.change(
-      body_command_id: nil,
-      ciphertext: :binary.copy(<<3>>, 4_096),
-      descriptor: %{"version" => 1},
-      encryption_nonce: :binary.copy(<<1>>, 12),
-      encryption_tag: :binary.copy(<<2>>, 16),
-      inserted_at: DateTime.add(transfer.inserted_at, 1, :second)
-    )
-    |> Repo.insert!()
-
-    assert ControlPlane.portable_workspace(session, requirements, body_root) == nil
   end
 
   test "repository-free chat work has no portable workspace" do

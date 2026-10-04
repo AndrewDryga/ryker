@@ -6,32 +6,38 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
   alias Ryker.CoopFleet.WorkspaceCheckpointBundle
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
 
-  @fixture Path.expand("../../../testdata/protocol/workspace-checkpoint-v1.json", __DIR__)
-  @bundle_manifest_fixture Path.expand(
-                             "../../../testdata/protocol/workspace-checkpoint-bundle-v1.manifest.json",
-                             __DIR__
-                           )
+  # Captured by Coop's CheckpointWorkspace (see the file's provenance): the descriptor and the
+  # bundle whose first member is the manifest.
+  @golden Path.expand("../../../testdata/protocol/workspace-checkpoint-v2.golden.json", __DIR__)
 
-  test "the shared checkpoint binds portable task and workspace identity" do
-    assert {:ok, checkpoint} = @fixture |> File.read!() |> WorkspaceCheckpoint.decode()
-    assert checkpoint["session_ref"] == "session-1"
+  test "a real Coop capture binds portable task and workspace identity" do
+    assert {:ok, checkpoint} =
+             golden_checkpoint() |> Jason.encode!() |> WorkspaceCheckpoint.decode()
+
+    assert checkpoint["session_ref"] == "golden-source"
     assert checkpoint["placement_generation"] == 1
-    assert checkpoint["task"]["queue_id"] == String.duplicate("4", 32)
-    assert checkpoint["task"]["task_id"] == String.duplicate("5", 32)
-    assert checkpoint["task"]["subtasks"] == [true, false]
-    assert checkpoint["bundle"]["media_type"] == WorkspaceCheckpoint.bundle_media_type(1)
-    assert checkpoint["bundle"]["byte_size"] == 16_384
+    assert checkpoint["task"]["queue_id"] == "496879b67bebf02daa4122cc972c06dd"
+    assert checkpoint["task"]["task_id"] == "9b5bd23b93474c5c1b97adcc13c6b47c"
+    assert checkpoint["task"]["subtasks"] == [false]
+    assert checkpoint["bundle"]["media_type"] == WorkspaceCheckpoint.bundle_media_type()
+    assert checkpoint["bundle"]["byte_size"] == 22_016
   end
 
   test "unknown, unbounded, and inconsistent checkpoint state fails closed" do
-    fixture = @fixture |> File.read!() |> Jason.decode!()
+    fixture = golden_checkpoint()
+    passed = %{"status" => "passed", "revision" => fixture["committed_revision"]}
 
     invalid = [
       Map.put(fixture, "worker_path", "/private/workspace"),
-      Map.put(fixture, "version", 2),
+      Map.put(fixture, "version", 1),
+      put_in(
+        fixture,
+        ["bundle", "media_type"],
+        "application/vnd.coop.workspace-checkpoint.v1+tar"
+      ),
       put_in(fixture, ["bundle", "byte_size"], WorkspaceCheckpoint.maximum_bundle_bytes() + 1),
       put_in(fixture, ["task", "subtasks"], List.duplicate(false, 65)),
-      update_in(fixture, ["gate"], &Map.delete(&1, "receipt_ref")),
+      Map.put(fixture, "gate", passed),
       Map.put(fixture, "gate", %{"status" => "not_run", "receipt_ref" => "gate:unexpected"})
     ]
 
@@ -39,7 +45,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
   end
 
   test "checkpoint identity accepts ordinary Git branches and rejects unsafe metadata" do
-    fixture = @fixture |> File.read!() |> Jason.decode!()
+    fixture = golden_checkpoint()
 
     for branch <- ["main", "feature/checkpoint-restore", "release/v1.2.3"] do
       assert {:ok, %{"branch_ref" => ^branch}} =
@@ -88,22 +94,19 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
              WorkspaceCheckpoint.validate("not-a-checkpoint")
   end
 
-  test "the shared bundle manifest binds every portable byte" do
-    assert {:ok, manifest} =
-             @bundle_manifest_fixture
-             |> File.read!()
-             |> WorkspaceCheckpoint.decode_bundle_manifest()
+  test "a real Coop bundle manifest binds every portable byte" do
+    assert {:ok, manifest} = WorkspaceCheckpoint.decode_bundle_manifest(golden_manifest())
 
-    assert manifest["checkpoint_ref"] == "checkpoint:session-1:g1:1"
-    assert manifest["tracked_patch"]["entry"] == "workspace.patch"
-    assert [%{"path_bytes" => "notes/plan.md"}] = manifest["untracked_files"]
-    assert manifest["task_projection"]["task_id"] == String.duplicate("5", 32)
-    assert length(manifest["task_projection"]["files"]) == 2
-    assert manifest["gate_receipt"]["entry"] == "gate/receipt.json"
+    assert manifest["checkpoint_ref"] == "checkpoint:392b2bfdb49fc4b488f43537c6989ae9"
+    assert manifest["repository"]["entry"] == "repository.tar"
+    assert [%{"path_bytes" => "notes.txt"}] = manifest["untracked_files"]
+    assert manifest["task_projection"]["task_id"] == "9b5bd23b93474c5c1b97adcc13c6b47c"
+    assert length(manifest["task_projection"]["files"]) == 7
+    assert manifest["gate_receipt"] == nil
   end
 
   test "bundle manifest rejects ambiguous or unsafe entries" do
-    manifest = @bundle_manifest_fixture |> File.read!() |> Jason.decode!()
+    manifest = Jason.decode!(golden_manifest())
 
     invalid = [
       Map.put(manifest, "extra", true),
@@ -128,14 +131,14 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
   end
 
   test "bundle manifest rejects crossed paths, invalid modes, and malformed documents" do
-    manifest = @bundle_manifest_fixture |> File.read!() |> Jason.decode!()
+    manifest = Jason.decode!(golden_manifest())
     first_task_path = get_in(manifest, ["task_projection", "files", Access.at(0), "path_b64"])
 
     invalid = [
       put_in(manifest, ["untracked_files", Access.at(0), "mode"], 0o777),
       put_in(manifest, ["task_projection", "files", Access.at(1), "path_b64"], first_task_path),
       put_in(manifest, ["task_projection", "files"], []),
-      put_in(manifest, ["gate_receipt", "byte_size"], 0),
+      Map.put(manifest, "gate_receipt", Map.put(gate_receipt(), "byte_size", 0)),
       Map.put(manifest, "branch_ref", "refs/../escape"),
       Map.put(manifest, "branch_ref", nil)
     ]
@@ -156,7 +159,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
 
     for value <- [
           Map.put(manifest, "task_projection", nil),
-          Map.put(manifest, "tracked_patch", nil),
+          Map.put(manifest, "repository", nil),
           put_in(manifest, ["untracked_files", Access.at(0), "path_b64"], nil),
           put_in(manifest, ["untracked_files", Access.at(0)], nil)
         ] do
@@ -164,20 +167,16 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
                WorkspaceCheckpoint.decode_bundle_manifest(Jason.encode!(value))
     end
 
-    assert {:ok, %{"gate_receipt" => nil}} =
+    assert {:ok, %{"gate_receipt" => %{"entry" => "gate/receipt.json"}}} =
              manifest
-             |> Map.put("gate_receipt", nil)
+             |> Map.put("gate_receipt", gate_receipt())
              |> Jason.encode!()
              |> WorkspaceCheckpoint.decode_bundle_manifest()
   end
 
   test "descriptor and manifest cannot be crossed" do
-    assert {:ok, checkpoint} = @fixture |> File.read!() |> WorkspaceCheckpoint.decode()
-
-    assert {:ok, manifest} =
-             @bundle_manifest_fixture
-             |> File.read!()
-             |> WorkspaceCheckpoint.decode_bundle_manifest()
+    assert {:ok, checkpoint} = WorkspaceCheckpoint.validate(golden_checkpoint())
+    assert {:ok, manifest} = WorkspaceCheckpoint.decode_bundle_manifest(golden_manifest())
 
     assert :ok = WorkspaceCheckpoint.validate_pair(checkpoint, manifest)
 
@@ -191,13 +190,21 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
     assert {:error, {:invalid_workspace_checkpoint_pair, :task}} =
              WorkspaceCheckpoint.validate_pair(checkpoint, crossed_task)
 
-    assert {:error, {:invalid_workspace_checkpoint_pair, :gate}} =
-             WorkspaceCheckpoint.validate_pair(checkpoint, Map.put(manifest, "gate_receipt", nil))
+    passed =
+      Map.put(checkpoint, "gate", %{
+        "status" => "passed",
+        "revision" => checkpoint["committed_revision"],
+        "receipt_ref" => "gate:golden"
+      })
 
-    not_run = Map.put(checkpoint, "gate", %{"status" => "not_run"})
+    with_receipt = Map.put(manifest, "gate_receipt", gate_receipt())
+    assert :ok = WorkspaceCheckpoint.validate_pair(passed, with_receipt)
 
     assert {:error, {:invalid_workspace_checkpoint_pair, :gate}} =
-             WorkspaceCheckpoint.validate_pair(not_run, manifest)
+             WorkspaceCheckpoint.validate_pair(passed, manifest)
+
+    assert {:error, {:invalid_workspace_checkpoint_pair, :gate}} =
+             WorkspaceCheckpoint.validate_pair(checkpoint, with_receipt)
 
     assert {:error, {:invalid_workspace_checkpoint_pair, :document}} =
              WorkspaceCheckpoint.validate_pair(Map.put(checkpoint, "task", 1), manifest)
@@ -306,6 +313,20 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
                []
              )
   end
+
+  defp golden_checkpoint, do: golden()["checkpoint"]
+
+  defp golden_manifest do
+    <<header::binary-size(512), rest::binary>> = Base.decode64!(golden()["bundle_base64"])
+    "manifest.json" <> _name = header
+    {size, ""} = header |> binary_part(124, 11) |> Integer.parse(8)
+    binary_part(rest, 0, size)
+  end
+
+  defp golden, do: @golden |> File.read!() |> Jason.decode!()
+
+  defp gate_receipt,
+    do: %{"entry" => "gate/receipt.json", "sha256" => digest("receipt"), "byte_size" => 7}
 
   defp rebind_bundle(checkpoint, bundle) do
     checkpoint

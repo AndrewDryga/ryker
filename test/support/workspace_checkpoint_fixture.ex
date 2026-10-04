@@ -5,7 +5,6 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
   alias Ryker.CoopFleet.WorkspaceCheckpoint
 
   def build(attributes \\ %{}) do
-    version = Map.get(attributes, :version, 2)
     patch = Map.get(attributes, :patch, :binary.copy(<<0>>, 1_024))
     task = Map.get(attributes, :task, "Status: in_progress\n")
 
@@ -20,18 +19,19 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
     task_digest = digest(task)
 
     manifest = %{
-      "version" => version,
+      "version" => 2,
       "checkpoint_ref" => checkpoint_ref,
       "repository_ref" => repository_ref,
       "base_revision" => base_revision,
       "branch_ref" => "main",
       "committed_revision" => committed_revision,
       "candidate_tree_sha256" => candidate_tree,
-      "tracked_patch" => %{
-        "entry" => "workspace.patch",
+      "repository" => %{
+        "entry" => "repository.tar",
         "sha256" => digest(patch),
         "byte_size" => byte_size(patch)
       },
+      "tracked_tree" => String.duplicate("3", 40),
       "untracked_files" => [],
       "task_projection" => %{
         "queue_id" => String.duplicate("5", 32),
@@ -52,32 +52,15 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
       "gate_receipt" => nil
     }
 
-    manifest =
-      if version == 2 do
-        manifest
-        |> Map.delete("tracked_patch")
-        |> Map.put("repository", %{
-          "entry" => "repository.tar",
-          "sha256" => digest(patch),
-          "byte_size" => byte_size(patch)
-        })
-        |> Map.put("tracked_tree", String.duplicate("3", 40))
-      else
-        manifest
-      end
-
     bundle =
-      tar(
-        [
-          {"manifest.json", Jason.encode!(manifest)},
-          {if(version == 2, do: "repository.tar", else: "workspace.patch"), patch},
-          {"task/000000", task}
-        ],
-        version
-      )
+      tar([
+        {"manifest.json", Jason.encode!(manifest)},
+        {"repository.tar", patch},
+        {"task/000000", task}
+      ])
 
     checkpoint = %{
-      "version" => version,
+      "version" => 2,
       "checkpoint_ref" => checkpoint_ref,
       "session_ref" => session_ref,
       "placement_generation" => Map.get(attributes, :placement_generation, 1),
@@ -96,7 +79,7 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
       },
       "gate" => %{"status" => "not_run"},
       "bundle" => %{
-        "media_type" => WorkspaceCheckpoint.bundle_media_type(version),
+        "media_type" => WorkspaceCheckpoint.bundle_media_type(),
         "sha256" => digest(bundle),
         "byte_size" => byte_size(bundle)
       },
@@ -106,44 +89,14 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
     {checkpoint, bundle}
   end
 
-  # The columns of a version 1 checkpoint kept in PostgreSQL, the only kind of
-  # row without a body file. Ryker no longer reads or writes them.
-  def seal_historical(key, checkpoint, bundle) do
-    nonce = :crypto.strong_rand_bytes(12)
-
-    aad =
-      [
-        "ryker-workspace-checkpoint-v1",
-        checkpoint["checkpoint_ref"],
-        checkpoint["session_ref"],
-        to_string(checkpoint["placement_generation"]),
-        checkpoint["repository_ref"],
-        checkpoint["bundle"]["sha256"],
-        to_string(checkpoint["bundle"]["byte_size"])
-      ]
-      |> Enum.join(<<0>>)
-
-    {ciphertext, tag} =
-      :crypto.crypto_one_time_aead(:aes_256_gcm, key, nonce, bundle, aad, 16, true)
-
-    %{
-      ciphertext: ciphertext,
-      encryption_nonce: nonce,
-      encryption_tag: tag,
-      encryption_key_sha256: digest(key)
-    }
-  end
-
-  defp tar(members, version) do
+  defp tar(members) do
     members
-    |> Enum.map(fn {name, body} ->
-      [tar_header(name, byte_size(body), version), body, padding(body)]
-    end)
+    |> Enum.map(fn {name, body} -> [tar_header(name, byte_size(body)), body, padding(body)] end)
     |> then(&[&1, :binary.copy(<<0>>, 1_024)])
     |> IO.iodata_to_binary()
   end
 
-  def tar_header(name, size, version \\ 2) do
+  def tar_header(name, size) do
     header =
       IO.iodata_to_binary([
         field(name, 100),
@@ -158,8 +111,8 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
         "        ",
         "0",
         field("", 100),
-        if(version == 1, do: "ustar\0", else: "ustar "),
-        if(version == 1, do: "00", else: " \0"),
+        "ustar ",
+        " \0",
         field("", 32),
         field("", 32),
         octal(0, 8),

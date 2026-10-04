@@ -21,7 +21,6 @@ defmodule Ryker.CoopFleet.Client do
     JobAuthority,
     Placement,
     Worker,
-    WorkspaceCheckpoint,
     WorkspaceCheckpointTransfer
   }
 
@@ -1170,23 +1169,18 @@ defmodule Ryker.CoopFleet.Client do
   # copies the selector verbatim; a mismatch is a custody violation, never a
   # reason to start from a different source.
   defp checkpoint_document(checkpoint, %Session{} = source, %Session{} = session) do
-    cond do
-      not WorkspaceCheckpoint.restorable?(checkpoint.descriptor) ->
-        {:error, {:coop_workspace_checkpoint_read_only, checkpoint.checkpoint_ref}}
-
-      RepositorySource.same?(source.repository_source, session.repository_source) ->
-        {:ok,
-         %{
-           "byte_size" => checkpoint.bundle_byte_size,
-           "checkpoint_ref" => checkpoint.checkpoint_ref,
-           "sha256" => checkpoint.bundle_sha256,
-           "source_placement_generation" => checkpoint.placement_generation,
-           "source_session_ref" => checkpoint.session_ref,
-           "transfer_id" => checkpoint.id
-         }}
-
-      true ->
-        {:error, {:coop_workspace_checkpoint_source_mismatch, session.id, session.generation}}
+    if RepositorySource.same?(source.repository_source, session.repository_source) do
+      {:ok,
+       %{
+         "byte_size" => checkpoint.bundle_byte_size,
+         "checkpoint_ref" => checkpoint.checkpoint_ref,
+         "sha256" => checkpoint.bundle_sha256,
+         "source_placement_generation" => checkpoint.placement_generation,
+         "source_session_ref" => checkpoint.session_ref,
+         "transfer_id" => checkpoint.id
+       }}
+    else
+      {:error, {:coop_workspace_checkpoint_source_mismatch, session.id, session.generation}}
     end
   end
 

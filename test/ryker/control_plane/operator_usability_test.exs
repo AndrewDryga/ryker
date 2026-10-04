@@ -147,9 +147,8 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     refute html =~ "Create finding"
   end
 
-  # The September 2 failure was displayed as coop_error and a hash, and the
-  # page offered a retry that cannot supply the missing ownership proof.
-  test "a cleanup that cannot prove which files are its own is never offered as a retry that works" do
+  # The September 2 failure was displayed as coop_error and a hash.
+  test "a cleanup the worker refused says what the worker answered, never a digest" do
     row = %{
       kind: "retention",
       ref: "session:one",
@@ -166,36 +165,17 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       cleanup_phase: :plan_pending,
       closed_at: ~U[2026-09-02 13:56:40Z],
       discarded_at: nil,
-      diagnosis: %{http_status: 409, code: "invalid_session_state", reason: :missing_ownership},
+      diagnosis: %{http_status: 409, code: "invalid_session_state"},
       detail: "stored diagnostic sha256:abc"
     }
 
     detail = row |> FailuresPage.detail(@now) |> IO.iodata_to_binary()
     document = LazyHTML.from_fragment(detail)
 
-    assert detail =~ "cannot prove"
-    assert detail =~ "Leave the folder in place"
-    assert detail =~ "cleanup fix in Coop"
-
-    assert LazyHTML.query(document, ".failure-status .state-word") |> LazyHTML.text() ==
-             "Retry won't help"
+    assert detail =~ "The worker refused this cleanup step (invalid session state)."
 
     assert LazyHTML.query(document, ".failure-status a[href='/timeline/#{@request_one}']")
            |> LazyHTML.text() == "Hi"
-
-    # The retry stays reachable for an operator who knows better, but only as
-    # a secondary step marked as failing, never as the page's primary button.
-    retry =
-      LazyHTML.query(
-        document,
-        ".failure-option form[action^='/actions/retention/'][action$='/rearm'] button"
-      )
-
-    assert Enum.count(retry) == 1
-    assert LazyHTML.attribute(retry, "class") == ["ui-button secondary"]
-    # Leaving the folder is the step that helps, and its button is the page's primary one.
-    assert LazyHTML.query(document, ".failure-option .ui-button.primary") |> LazyHTML.text() ==
-             "Leave it"
 
     # What the worker answered is part of what happened; the stored diagnostic's digest is on no
     # page.
@@ -203,10 +183,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
              ~r/Worker response:\s+HTTP 409/
 
     refute detail =~ "stored diagnostic sha256"
-
-    list = [row] |> FailuresPage.list(@now) |> IO.iodata_to_binary()
-    assert list |> LazyHTML.from_fragment() |> LazyHTML.text() =~ "Retry won't help"
-    refute list =~ "/actions/retention/"
+    refute [row] |> FailuresPage.list(@now) |> IO.iodata_to_binary() =~ "stored diagnostic"
 
     pending =
       %{row | request_state: :working} |> FailuresPage.detail(@now) |> IO.iodata_to_binary()

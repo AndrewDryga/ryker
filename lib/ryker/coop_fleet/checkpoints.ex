@@ -49,7 +49,6 @@ defmodule Ryker.CoopFleet.Checkpoints do
 
   defp producer_authority(command, checkpoint, operation_id) do
     with {:ok, checkpoint} <- WorkspaceCheckpoint.validate(checkpoint),
-         :ok <- restorable(checkpoint),
          %{
            "status" => status,
            "body" => %{
@@ -71,7 +70,6 @@ defmodule Ryker.CoopFleet.Checkpoints do
              command.payload["session_ref"] == command.session_id do
       :ok
     else
-      {:error, :checkpoint_version_read_only} = error -> error
       _ -> {:error, :checkpoint_not_authorized}
     end
   end
@@ -158,7 +156,6 @@ defmodule Ryker.CoopFleet.Checkpoints do
          %WorkspaceCheckpointTransfer{} = transfer <-
            Repo.get(WorkspaceCheckpointTransfer, saved["transfer_id"]),
          :ok <- restore_authority(command, transfer),
-         :ok <- restorable(transfer.descriptor),
          :ok <-
            with_checkpoint(transfer, options, fn stream ->
              copy_checkpoint_to_request(command, transfer, stream, options)
@@ -171,12 +168,6 @@ defmodule Ryker.CoopFleet.Checkpoints do
   end
 
   def prepare_restore(_command, _options), do: :ok
-
-  defp restorable(checkpoint) do
-    if WorkspaceCheckpoint.restorable?(checkpoint),
-      do: :ok,
-      else: {:error, :checkpoint_version_read_only}
-  end
 
   defp copy_checkpoint_to_request(command, transfer, stream, options) do
     with {:ok, _} <-

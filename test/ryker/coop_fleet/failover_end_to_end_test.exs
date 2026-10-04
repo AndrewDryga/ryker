@@ -145,7 +145,6 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
 
     transfer = Repo.get!(WorkspaceCheckpointTransfer, receipt["transfer_id"])
     assert transfer.body_command_id != nil
-    assert transfer.ciphertext == nil
 
     expire_and_drain!(source_placement, worker_a.id)
 

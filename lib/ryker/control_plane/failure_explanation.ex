@@ -548,15 +548,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     do:
       "Ryker keeps retrying cleanup while a worker is offline, busy or slow to answer. It stops at once when the worker refuses for a reason a retry can't change, and it only removes files it can prove belong to this session."
 
-  defp retention_cause(%{diagnosis: %{reason: :missing_ownership}}) do
-    cause(
-      "Ryker can't prove this older session's files belong to it, so it stopped to avoid deleting another run's files.",
-      "The worker has no record linking this run to its folder. Sessions started before that record existed cannot prove which folder is theirs, and a retry cannot create the record.",
-      :stuck,
-      "It will stop the same way: a retry cannot supply the missing ownership record. Leave the folder in place; freeing this space needs a cleanup fix in Coop, not a change to the request or your settings."
-    )
-  end
-
   # Placement used to refuse cleanup once the worker holding the session ran
   # another version of its policy or setup, and the dispatcher blocked it for
   # a person. Cleanup now goes to that worker whatever it runs, waits while it
@@ -1215,10 +1206,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp stop_words("coop_workspace_checkpoint_required"),
     do: "No saved copy of the working files was available to continue from."
-
-  defp stop_words("coop_workspace_checkpoint_read_only"),
-    do:
-      "The saved working copy uses an older format. It is preserved, but this worker cannot restore it."
 
   defp stop_words(_code), do: "The task stopped before Ryker could confirm why."
 

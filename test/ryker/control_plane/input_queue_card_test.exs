@@ -460,19 +460,6 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
              "Routing stopped waiting for the words and reads that it is a voice message Ryker could not transcribe."
   end
 
-  test "an older input without ledger evidence says its queue history is unavailable" do
-    {entry, _input} = pending!()
-
-    Repo.delete_all(
-      from(transition in InputCustodyTransition, where: transition.input_id == ^entry.id)
-    )
-
-    card = card(standalone(entry), entry)
-    assert card =~ "Queue history unavailable"
-    assert card =~ "Detailed queue transitions were not recorded for this older input."
-    refute card =~ "The input entered the routing queue."
-  end
-
   test "an input a routing worker currently holds says so as current state" do
     {entry, _input} = pending!()
 

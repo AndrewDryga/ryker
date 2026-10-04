@@ -18,9 +18,6 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTransfer do
     field(:bundle_sha256, :string)
     field(:bundle_byte_size, :integer)
     field(:encryption_key_sha256, :string)
-    field(:encryption_nonce, :binary)
-    field(:encryption_tag, :binary)
-    field(:ciphertext, :binary)
 
     timestamps(type: :utc_datetime_usec)
   end

@@ -679,7 +679,6 @@ defmodule Ryker.CoopFleet.RouterTest do
     transfer = Repo.get!(WorkspaceCheckpointTransfer, receipt["transfer_id"])
     assert transfer.command_id == command.id
     assert transfer.body_command_id != command.id
-    assert transfer.ciphertext == nil
     assert transfer.descriptor == checkpoint
     assert_body_retention(options[:body_root], transfer.body_command_id)
 
@@ -790,51 +789,6 @@ defmodule Ryker.CoopFleet.RouterTest do
 
     assert {:error, :checkpoint_not_authorized} =
              Checkpoints.capture(command.session_id, command.idempotency_key, changed, options)
-
-    # A version 1 checkpoint, kept in PostgreSQL before checkpoints became
-    # encrypted files, cannot reconstruct complete Git/LFS history. Refuse it
-    # before copying or offering it for recovery.
-    {legacy, legacy_bundle} =
-      WorkspaceCheckpointFixture.build(%{
-        version: 1,
-        session_ref: command.session_id,
-        placement_generation: command.placement_generation
-      })
-
-    transfer
-    |> Ecto.Changeset.change(
-      WorkspaceCheckpointFixture.seal_historical(
-        options[:checkpoint_key],
-        legacy,
-        legacy_bundle
-      )
-      |> Map.merge(%{
-        descriptor: legacy,
-        body_command_id: nil,
-        bundle_sha256: legacy["bundle"]["sha256"],
-        bundle_byte_size: byte_size(legacy_bundle)
-      })
-    )
-    |> Repo.update!()
-
-    legacy_payload =
-      restore.payload
-      |> put_in(["checkpoint", "sha256"], legacy["bundle"]["sha256"])
-      |> put_in(["checkpoint", "byte_size"], byte_size(legacy_bundle))
-
-    assert {:ok, legacy_restore} =
-             ControlPlane.enqueue_command(
-               placement.id,
-               "ensure_workspace",
-               legacy_payload,
-               "restore:read-only:#{Ecto.UUID.generate()}"
-             )
-
-    assert {:error, :checkpoint_version_read_only} =
-             Checkpoints.prepare_restore(legacy_restore, options)
-
-    assert {:error, _} = Bodies.fetch(options[:body_root], legacy_restore.id, :request)
-    assert ControlPlane.portable_workspace(source, requirements, options[:body_root]) == nil
   end
 
   defp assert_body_retention(root, live_id) do
@@ -875,28 +829,6 @@ defmodule Ryker.CoopFleet.RouterTest do
 
     {result, _options, _response} = capture_checkpoint(command, checkpoint, bundle, certificate)
     assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} = result
-    assert Repo.aggregate(WorkspaceCheckpointTransfer, :count) == 0
-  end
-
-  test "historical v1 checkpoints cannot acquire new portable custody" do
-    certificate = authorize_and_poll!()
-
-    command =
-      command!("checkpoint_workspace", %{
-        "coop_session_id" => "coop-session-1",
-        "expected_revision" => 4,
-        "repository_ref" => "ryker"
-      })
-
-    {checkpoint, bundle} =
-      WorkspaceCheckpointFixture.build(%{
-        version: 1,
-        session_ref: command.session_id,
-        placement_generation: command.placement_generation
-      })
-
-    {result, _options, _response} = capture_checkpoint(command, checkpoint, bundle, certificate)
-    assert {:error, :checkpoint_version_read_only} = result
     assert Repo.aggregate(WorkspaceCheckpointTransfer, :count) == 0
   end
 

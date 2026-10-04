@@ -112,7 +112,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
         do: feed(%{state | phase: {:terminator, 512}}, rest),
         else: error(:members)
     else
-      with {:ok, metadata} <- parse_header(header, state.checkpoint["version"]),
+      with {:ok, metadata} <- parse_header(header),
            {:ok, state} <- start_member(state, metadata) do
         feed(state, rest)
       end
@@ -197,7 +197,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
   end
 
   defp expected_members(manifest) do
-    [entry(manifest["repository"] || manifest["tracked_patch"], 0o644)] ++
+    [entry(manifest["repository"], 0o644)] ++
       Enum.map(manifest["untracked_files"], &entry(&1, &1["mode"])) ++
       Enum.map(manifest["task_projection"]["files"], &entry(&1, &1["mode"])) ++
       if(manifest["gate_receipt"], do: [entry(manifest["gate_receipt"], 0o644)], else: [])
@@ -207,14 +207,14 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
     %{name: value["entry"], mode: mode, size: value["byte_size"], sha256: value["sha256"]}
   end
 
-  defp parse_header(header, checkpoint_version) do
+  defp parse_header(header) do
     with <<name::binary-size(100), mode::binary-size(8), uid::binary-size(8), gid::binary-size(8),
            size::binary-size(12), mtime::binary-size(12), checksum::binary-size(8),
            type::binary-size(1), linkname::binary-size(100), magic::binary-size(6),
            version::binary-size(2), uname::binary-size(32), gname::binary-size(32),
            devmajor::binary-size(8), devminor::binary-size(8), prefix::binary-size(155),
            padding::binary-size(12)>> <- header,
-         {:ok, size} <- tar_size(size, checkpoint_version),
+         {:ok, size} <- tar_size(size),
          {:ok, numbers} <-
            header_numbers([mode, uid, gid, mtime, checksum, devmajor, devminor]),
          [mode, uid, gid, mtime, stored_checksum, devmajor, devminor] <- numbers,
@@ -224,8 +224,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
              stored_checksum,
              {type, magic, version},
              {uid, gid, mtime, devmajor, devminor},
-             [linkname, uname, gname, prefix, padding],
-             checkpoint_version
+             [linkname, uname, gname, prefix, padding]
            ),
          name <- trim_nul(name),
          true <- valid_member_header?(name, mode, size) do
@@ -247,29 +246,21 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
     end
   end
 
-  defp valid_ustar_header?(
-         header,
-         stored_checksum,
-         identity,
-         numeric_identity,
-         text_fields,
-         version
-       ) do
-    format = if version == 1, do: {"0", "ustar\0", "00"}, else: {"0", "ustar ", " \0"}
-
+  # Coop writes GNU headers: a regular file, the "ustar " magic and " \0" version.
+  defp valid_ustar_header?(header, stored_checksum, identity, numeric_identity, text_fields) do
     checksum(header) == stored_checksum and
-      identity == format and
+      identity == {"0", "ustar ", " \0"} and
       numeric_identity == {0, 0, 0, 0, 0} and
       Enum.all?(text_fields, &blank?/1)
   end
 
   # GNU uses base-256 only when eleven octal digits cannot represent the size.
   # Accept the exact positive form Go emits, never signed/overflow/extension data.
-  defp tar_size(<<128, number::unsigned-big-integer-size(88)>>, 2)
+  defp tar_size(<<128, number::unsigned-big-integer-size(88)>>)
        when number >= 8_589_934_592 and number <= 9_223_372_036_854_775_806,
        do: {:ok, number}
 
-  defp tar_size(value, _version), do: octal(value)
+  defp tar_size(value), do: octal(value)
 
   defp valid_member_header?(name, mode, size) do
     name != "" and String.valid?(name) and byte_size(name) <= 100 and
