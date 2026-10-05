@@ -260,7 +260,23 @@ defmodule Ryker.Emisar.ClientTest do
     assert {:ok, client} = Client.new(%{origin_with_port | http: {self(), response}})
 
     assert {:ok, %RunState{run_url: "https://emisar.example/runs/run-1"}} =
-             Client.wait_for_run(client, "run-1")
+             Client.wait_for_run(client, "run-1", 0)
+  end
+
+  # A failed run's message longer than 1,000 bytes made the whole run state a
+  # protocol error, so the watch could never read that the run had ended
+  # (2026-10-04 review). The message is cut instead.
+  test "a failed run's long message is cut, and the run still reads as failed" do
+    long = String.duplicate("stack frame; ", 200)
+
+    assert {:ok, %RunState{status: "failed", error_message: message}} =
+             wait_response(
+               response(run_document(%{"error_message" => long, "status" => "failed"}))
+             )
+
+    assert byte_size(message) <= 1_000
+    assert String.starts_with?(long, String.trim_trailing(message, "…"))
+    assert String.ends_with?(message, "…")
   end
 
   defp response(run) do

@@ -9,6 +9,7 @@ defmodule Ryker.Emisar.Client do
   @behaviour Ryker.Emisar.API
 
   alias Ryker.Emisar.{Review, RunState}
+  alias Ryker.Text
 
   @fields [:http, :requester, :rpc_path, :rpc_origin]
   @headers [
@@ -170,12 +171,18 @@ defmodule Ryker.Emisar.Client do
   defp optional_text(nil, _maximum), do: {:ok, nil}
   defp optional_text("", _maximum), do: {:ok, nil}
 
-  defp optional_text(value, maximum) do
-    case reference(value, maximum, :error_message) do
-      :ok -> {:ok, value}
+  # A long message is cut: refused, it made the whole run state unreadable,
+  # and a watch could never see the run end.
+  defp optional_text(value, maximum) when is_binary(value) do
+    text = Text.cut(value, maximum)
+
+    case reference(text, maximum, :error_message) do
+      :ok -> {:ok, text}
       {:error, _reason} = error -> error
     end
   end
+
+  defp optional_text(_value, _maximum), do: {:error, {:emisar_protocol_error, :error_message}}
 
   defp normalize(attributes) when is_list(attributes) do
     if Keyword.keyword?(attributes) and
