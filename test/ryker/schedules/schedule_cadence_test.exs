@@ -37,8 +37,12 @@ defmodule Ryker.Schedules.ScheduleCadenceTest do
           {interval(1_209_600), "UTC", nil, "Every 2 weeks"},
           {%{"at" => "2026-09-25T07:00:00Z", "kind" => "once"}, "Europe/Berlin",
            ~N[2026-09-25 09:00:00], "Once on 25 Sep at 09:00 Berlin time"},
+          # POSIX names count hours west of Greenwich: Etc/GMT+5 is five hours
+          # behind UTC, and read "GMT+5" it said the opposite (2026-10-04 review).
           {%{"at" => "2027-01-05T08:00:00Z", "kind" => "once"}, "Etc/GMT+5",
-           ~N[2027-01-05 03:00:00], "Once on 5 Jan 2027 at 03:00 GMT+5"},
+           ~N[2027-01-05 03:00:00], "Once on 5 Jan 2027 at 03:00 UTC-5"},
+          {%{"kind" => "daily", "time" => "09:00:00"}, "Etc/GMT-3", nil,
+           "Every day at 09:00 UTC+3"},
           {%{"kind" => "a future kind"}, "UTC", nil, "On a custom timing"}
         ] do
       assert ScheduleCadence.describe(recurrence, zone,

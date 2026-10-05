@@ -123,12 +123,19 @@ defmodule Ryker.Schedules.ScheduleCadence do
   def zone_name(name) when is_binary(name) do
     place = name |> String.split("/") |> List.last()
 
-    if Regex.match?(~r/\A(GMT|UTC)[+-]\d{1,2}\z|\A[A-Z0-9+-]{2,8}\z/, place),
-      do: place,
-      else: String.replace(place, "_", " ") <> " time"
+    cond do
+      Regex.match?(~r/\A(GMT|UTC)[+-]\d{1,2}\z/, place) -> west_of_greenwich(place)
+      Regex.match?(~r/\A[A-Z0-9+-]{2,8}\z/, place) -> place
+      true -> String.replace(place, "_", " ") <> " time"
+    end
   end
 
   def zone_name(_name), do: "UTC"
+
+  # POSIX names count hours west of Greenwich: Etc/GMT+5 is five hours behind
+  # UTC, which people write UTC-5.
+  defp west_of_greenwich(<<_gmt::binary-size(3), sign, hours::binary>>),
+    do: "UTC" <> if(sign == ?+, do: "-", else: "+") <> hours
 
   defp day(%NaiveDateTime{year: year} = local, %NaiveDateTime{year: year}),
     do: Calendar.strftime(local, "%-d %b")
