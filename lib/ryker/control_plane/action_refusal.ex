@@ -18,6 +18,9 @@ defmodule Ryker.ControlPlane.ActionRefusal do
 
   def explain(:schedule_not_found), do: "This schedule no longer exists."
 
+  def explain(:confirmation_stale),
+    do: "This changed after you opened the page. Go back to see it now, then try again."
+
   def explain(:schedule_policy_unavailable),
     do:
       "Scheduled work cannot start because no worker is set up to run it. " <>

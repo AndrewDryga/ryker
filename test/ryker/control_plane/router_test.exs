@@ -1529,7 +1529,8 @@ defmodule Ryker.ControlPlane.RouterTest do
       end)
 
     response = request_with_options(:post, path, URI.encode_query(%{"_token" => token}), current)
-    assert response.status == 403
+    assert response.status == 409
+    assert response.resp_body =~ "changed after you opened the page"
     refute_received {:retried_work, _}
   end
 
@@ -1913,6 +1914,30 @@ defmodule Ryker.ControlPlane.RouterTest do
     end
   end
 
+  # A confirmation is bound to the revision it was asked about. Once the schedule changed, the old
+  # token no longer matched and the person got a bare "Invalid confirmation token" 403, never the
+  # worded page saying what happened (2026-10-04 review).
+  test "confirming something that changed since the page opened says it changed" do
+    path = "/actions/schedule/one/run-now"
+    confirmation = request(:get, path)
+    [_, token] = Regex.run(~r/name="_token" value="([^"]+)"/, confirmation.resp_body)
+
+    {:ok, detail} = options().projection.schedule.("schedule:one")
+    changed = %{detail | schedule: %{detail.schedule | revision: detail.schedule.revision + 1}}
+    options = put_in(options(), [:projection, :schedule], fn _ref -> {:ok, changed} end)
+
+    stale = request_with_options(:post, path, URI.encode_query(%{"_token" => token}), options)
+    assert stale.status == 409
+    assert stale.resp_body =~ "changed after you opened the page"
+    assert stale.resp_body =~ ~s(href="/schedules/one")
+    refute_received {:schedule_run_now, _ref}
+
+    forged =
+      request_with_options(:post, path, URI.encode_query(%{"_token" => "x" <> token}), options)
+
+    assert forged.status == 403
+  end
+
   test "a schedule confirmation says what the change will do, never the raw lifecycle action" do
     # Until 2026-09-24 Pause asked "Change Daily health?" over "The schedule
     # lifecycle will change to paused.": the action's own enum, and nothing
@@ -2144,6 +2169,18 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert unavailable.status == 409
     assert request(:put, "/").status == 405
     assert request(:put, "/healthz").status == 405
+  end
+
+  # A form body the query parser cannot read raised, and the person got a 500 where every other
+  # broken form gets a 400 (2026-10-04 review).
+  test "a form body the parser cannot read is a bad request, never a crash" do
+    for {path, body} <- [
+          {"/actions/memory/one/forget", "_token=%E0%A4%A"},
+          {"/actions/memory/one/forget", "_token[a]=1&_token[b]=%ZZ"},
+          {"/actions/learning/#{Ecto.UUID.generate()}/retry", "_token=%E0%A4%A&budget_version=1"}
+        ] do
+      assert request(:post, path, body).status == 400, "#{path} with #{body}"
+    end
   end
 
   test "native pages have no parallel static routes or secondary bodies" do

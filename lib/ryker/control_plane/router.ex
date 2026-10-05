@@ -579,7 +579,7 @@ defmodule Ryker.ControlPlane.Router do
          {:ok, _title, _explanation, canonical_action, _tone} <-
            confirmation(kind, resource_ref, action, options),
          {:ok, token, conn} <- form_token(conn),
-         true <- CSRF.valid?(options.csrf_secret, canonical_action, resource_ref, token),
+         :ok <- confirmed(options.csrf_secret, canonical_action, resource_ref, token),
          return_path <- back(conn) || action_return_path(kind, resource_ref, action, options),
          {:ok, _resource} <-
            perform(kind, resource_ref, action, options.actions, canonical_action) do
@@ -612,6 +612,31 @@ defmodule Ryker.ControlPlane.Router do
     do: html(conn, 404, "Not found", HTML.not_found("Page"))
 
   defp route(conn, _options), do: text(conn, 405, "Method not allowed")
+
+  # A confirmation names the revision it was asked about: a schedule's, a
+  # learning batch's budget, a stopped request's recovery. Once that changed,
+  # the old token stopped matching and the person got a bare 403, never the
+  # page saying what happened (2026-10-04 review).
+  @revisioned_actions ~w(schedule:run-now: learning:drop: work:retry:)
+
+  defp confirmed(secret, canonical_action, resource_ref, token) do
+    case CSRF.signed_action(secret, resource_ref, token) do
+      {:ok, ^canonical_action} ->
+        :ok
+
+      {:ok, earlier} ->
+        if Enum.any?(
+             @revisioned_actions,
+             &(String.starts_with?(earlier, &1) and
+                 String.starts_with?(canonical_action, &1))
+           ),
+           do: {:error, :confirmation_stale},
+           else: false
+
+      :error ->
+        false
+    end
+  end
 
   # A confirmation posts back to the address it was opened at: a request's
   # kinds are addressed by the request's id, not by the key it resolved to.
@@ -1320,7 +1345,7 @@ defmodule Ryker.ControlPlane.Router do
          true <-
            String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
          {:ok, body, conn} <- read_form(conn),
-         %{"_token" => token} = form <- Query.decode(body),
+         %{"_token" => token} = form <- decode_form(body),
          true <- Map.keys(form) == ["_token"] and is_binary(token) do
       {:ok, token, conn}
     else
@@ -1333,7 +1358,7 @@ defmodule Ryker.ControlPlane.Router do
          true <-
            String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
          {:ok, body, conn} <- read_form(conn),
-         %{"_token" => token, "budget_version" => version} = form <- Query.decode(body),
+         %{"_token" => token, "budget_version" => version} = form <- decode_form(body),
          true <- Enum.sort(Map.keys(form)) == ["_token", "budget_version"],
          true <- is_binary(token) and is_binary(version),
          {number, ""} when number in 0..2_147_483_647 <- Integer.parse(version) do
@@ -1357,7 +1382,7 @@ defmodule Ryker.ControlPlane.Router do
          true <-
            String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
          {:ok, body, conn} <- read_memory_form(conn),
-         %{"_token" => token, "sources" => sources} = form <- Query.decode(body),
+         %{"_token" => token, "sources" => sources} = form <- decode_form(body),
          true <- Enum.sort(Map.keys(form)) == Enum.sort(["_token", "sources" | keys]),
          true <- is_binary(token),
          {:ok, versions} <- learning_source_versions(form, fields),
@@ -1366,8 +1391,6 @@ defmodule Ryker.ControlPlane.Router do
     else
       _ -> {:error, :form}
     end
-  rescue
-    Plug.Conn.InvalidQueryError -> {:error, :form}
   end
 
   defp learning_source_versions(form, fields) do
@@ -1425,7 +1448,7 @@ defmodule Ryker.ControlPlane.Router do
            String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
          {:ok, body, conn} <- read_memory_form(conn),
          %{"_token" => token, "subject" => subject, "value" => value} = form <-
-           Query.decode(body),
+           decode_form(body),
          true <- Enum.sort(Map.keys(form)) == ["_token", "subject", "value"],
          true <- is_binary(token) and is_binary(subject) and is_binary(value) do
       {:ok, token, subject, value, conn}
@@ -1443,7 +1466,7 @@ defmodule Ryker.ControlPlane.Router do
 
   defp lab_form(conn, "application/x-www-form-urlencoded" <> _parameters) do
     with {:ok, body, conn} <- read_lab_form(conn),
-         %{"_token" => token, "message" => message} = form <- Query.decode(body),
+         %{"_token" => token, "message" => message} = form <- decode_form(body),
          true <- Enum.sort(Map.keys(form)) == ["_token", "message"],
          true <- is_binary(token) and is_binary(message) do
       {:ok, token, message, [], conn}
@@ -1525,7 +1548,7 @@ defmodule Ryker.ControlPlane.Router do
          true <-
            String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
          {:ok, body, conn} <- read_form(conn),
-         %{"_token" => token, "choice_index" => choice_index} = form <- Query.decode(body),
+         %{"_token" => token, "choice_index" => choice_index} = form <- decode_form(body),
          true <- Enum.sort(Map.keys(form)) == ["_token", "choice_index"],
          {choice_index, ""} when choice_index in 0..9 <- Integer.parse(choice_index) do
       {:ok, token, choice_index, conn}
@@ -1548,7 +1571,7 @@ defmodule Ryker.ControlPlane.Router do
            "_token" => token,
            "choice_index" => generation,
            "publication_ref" => publication_ref
-         } = form <- Query.decode(body),
+         } = form <- decode_form(body),
          true <- Enum.sort(Map.keys(form)) == ["_token", "choice_index", "publication_ref"],
          {generation, ""} when generation > 0 <- Integer.parse(generation),
          {:ok, publication_ref} <- PathRef.decode(publication_ref) do
@@ -1563,7 +1586,7 @@ defmodule Ryker.ControlPlane.Router do
          true <-
            String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
          {:ok, body, conn} <- read_form(conn),
-         %{"_token" => token, "publication_ref" => publication_ref} = form <- Query.decode(body),
+         %{"_token" => token, "publication_ref" => publication_ref} = form <- decode_form(body),
          true <- Enum.sort(Map.keys(form)) == ["_token", "publication_ref"],
          {:ok, publication_ref} <- PathRef.decode(publication_ref) do
       {:ok, token, %{publication_ref: publication_ref}, conn}
@@ -1576,6 +1599,15 @@ defmodule Ryker.ControlPlane.Router do
     with {:ok, token, conn} <- form_token(conn) do
       {:ok, token, nil, conn}
     end
+  end
+
+  # A body the query parser cannot read, such as broken percent-encoding, is a
+  # bad form like any other; it raised and the person got a 500 (2026-10-04
+  # review). Anything that is not a form decodes to nothing a parser matches.
+  defp decode_form(body) do
+    Query.decode(body)
+  rescue
+    Plug.Conn.InvalidQueryError -> :invalid
   end
 
   defp read_form(conn) do
