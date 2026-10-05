@@ -6,6 +6,8 @@ defmodule Ryker.EpisodesReplayPersistenceTest do
 
   @fixture_paths Path.wildcard(Path.join([__DIR__, "episodes", "fixtures", "*.json"]))
                  |> Enum.reject(&String.ends_with?(&1, ".golden.json"))
+  # A moved fixture directory ran no test here and passed (2026-10-04 review).
+  if @fixture_paths == [], do: raise("episode replay fixtures are missing")
 
   for fixture_path <- @fixture_paths do
     @fixture_path fixture_path

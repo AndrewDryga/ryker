@@ -1,6 +1,7 @@
 defmodule Ryker.Delivery.WorkerTest do
   use Ryker.DataCase, async: false
-  import Ryker.TestHelpers, only: [eventually: 1]
+  import ExUnit.CaptureLog
+  import Ryker.TestHelpers, only: [beats: 1, eventually: 1, settled: 1]
 
   @moduletag isolation: "REPEATABLE READ"
 
@@ -95,22 +96,27 @@ defmodule Ryker.Delivery.WorkerTest do
   end
 
   test "invalid dispatcher settings do not crash the polling process" do
-    worker =
-      start_supervised!(
-        {Worker,
-         [
-           dispatcher_options: [kind: :routing, worker_ref: "delivery-worker:invalid"],
-           name: __MODULE__.InvalidWorker,
-           poll_interval_ms: 10
-         ]}
-      )
+    log =
+      capture_log(fn ->
+        start_supervised!(
+          {Worker,
+           [
+             dispatcher_options: [kind: :routing, worker_ref: "delivery-worker:invalid"],
+             name: __MODULE__.InvalidWorker,
+             poll_interval_ms: 10
+           ]}
+        )
+        |> settled()
+      end)
 
-    Process.sleep(30)
-    assert Process.alive?(worker)
+    assert log =~ "delivery dispatcher failed"
+    assert Process.whereis(__MODULE__.InvalidWorker)
     assert :ok = stop_supervised(Worker)
   end
 
   test "an idle named delivery worker keeps polling" do
+    before = beats(:delivery)
+
     worker =
       start_supervised!(
         {Worker,
@@ -128,8 +134,8 @@ defmodule Ryker.Delivery.WorkerTest do
          ]}
       )
 
-    Process.sleep(30)
-    assert Process.alive?(worker)
+    settled(worker)
+    assert beats(:delivery) > before
     assert Process.whereis(__MODULE__.IdleWorker) == worker
     assert :ok = stop_supervised(Worker)
   end

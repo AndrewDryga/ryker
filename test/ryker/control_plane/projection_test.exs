@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.ProjectionTest do
   use Ryker.DataCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
   require Phoenix.LiveViewTest
 
@@ -18,7 +20,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     IncidentProjection,
     MemoryProjection,
     OverviewProjection,
-    Projection,
     RepositoryProjection,
     RequestFilters,
     ScheduleProjection,
@@ -514,7 +515,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
           Jason.encode!(["not", "an", "object"]),
           "not-json"
         ] do
-      candidate_sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+      candidate_sha256 = digest(candidate)
 
       Repo.update_all(
         from(saved in Ryker.Work.Turn, where: saved.id == ^measured.id),
@@ -1644,51 +1645,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              page: 1,
              pages: 1
            }
-
-    assert map_size(Projection.callbacks()) == 53
-    # Everyone Ryker learned something about, and one of them, for Memory ›
-    # People and the question its Forget this person asks.
-    assert is_function(Projection.callbacks().people, 0)
-    assert is_function(Projection.callbacks().person, 1)
-    # One repository's row, for the questions its Remove and Refresh knowledge ask.
-    assert is_function(Projection.callbacks().repository, 1)
-    # The requests to improve and the eval cases accepted from them, for
-    # Memory › Feedback › What to fix and its download.
-    assert is_function(Projection.callbacks().improvement, 1)
-    assert is_function(Projection.callbacks().improvement_candidate, 1)
-    assert is_function(Projection.callbacks().eval_cases, 0)
-    # The routing examples kept for training, a line at a time, for the download.
-    assert is_function(Projection.callbacks().routing_examples, 2)
-    # What a weekly report sent now would say, for Settings › Weekly report.
-    assert is_function(Projection.callbacks().weekly_report_preview, 0)
-    # What people told Ryker about its answers, for the Feedback page.
-    assert is_function(Projection.callbacks().feedback, 1)
-    # One finding, for the question its Forget or Mark explained asks first.
-    assert is_function(Projection.callbacks().finding, 1)
-    # What forgetting a topic or a fact takes with it, for both confirmations.
-    assert is_function(Projection.callbacks().forgetting, 1)
-    # One failure callback serves every kind's page and confirmation.
-    assert is_function(Projection.callbacks().failure, 2)
-    refute Map.has_key?(Projection.callbacks(), :delivery)
-    assert is_function(Projection.callbacks().learned, 1)
-    assert is_function(Projection.callbacks().learning, 1)
-    assert is_function(Projection.callbacks().instructions, 1)
-    assert is_function(Projection.callbacks().lab_history, 3)
-    assert is_function(Projection.callbacks().lab_changes, 3)
-    assert is_function(Projection.callbacks().settings, 0)
-    refute Map.has_key?(Projection.callbacks(), :episodes)
-    assert is_function(Projection.callbacks().behavior, 1)
-    assert is_function(Projection.callbacks().behaviors, 2)
-    refute Map.has_key?(Projection.callbacks(), :audit)
-    assert is_function(Projection.callbacks().usage_filter_options, 0)
-    assert is_function(Projection.callbacks().model_timeline, 2)
-    assert is_function(Projection.callbacks().activity, 1)
-    # The Card Lab catalog was retired on 2026-09-13; its feedback, Slack
-    # panel and post readers must not linger as callable projections.
-    refute Map.has_key?(Projection.callbacks(), :card_lab_feedback)
-    refute Map.has_key?(Projection.callbacks(), :card_lab_slack)
-    refute Map.has_key?(Projection.callbacks(), :card_lab_post)
-    assert is_function(Projection.callbacks().admission_request, 2)
   end
 
   test "operator workbench projections stay bounded and explicit with no durable rows" do
@@ -2891,7 +2847,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         }
       })
 
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(

@@ -2,6 +2,7 @@ defmodule Ryker.Publication.RuntimeTest do
   use Ryker.DataCase, async: false
 
   import ExUnit.CaptureLog
+  import Ryker.TestHelpers, only: [beats: 1, settled: 1]
 
   alias Ryker.Publication.{FollowupWorker, Runtime, Worker}
 
@@ -52,6 +53,8 @@ defmodule Ryker.Publication.RuntimeTest do
   end
 
   test "standalone workers keep polling an idle queue and surface invalid dispatchers" do
+    before = {beats(:publication), beats(:publication_followup)}
+
     {:ok, publication_worker} =
       start_supervised(
         {Worker,
@@ -66,9 +69,11 @@ defmodule Ryker.Publication.RuntimeTest do
          dispatcher_options: [worker_ref: "publication-followup:test"], poll_interval_ms: 10}
       )
 
-    Process.sleep(5)
-    assert Process.alive?(publication_worker)
-    assert Process.alive?(followup_worker)
+    settled(publication_worker)
+    settled(followup_worker)
+    {publication, followup} = before
+    assert beats(:publication) > publication
+    assert beats(:publication_followup) > followup
 
     assert capture_log(fn ->
              {:ok, invalid_worker} =
@@ -77,8 +82,7 @@ defmodule Ryker.Publication.RuntimeTest do
                  poll_interval_ms: 10
                )
 
-             Process.sleep(5)
-             GenServer.stop(invalid_worker)
+             invalid_worker |> settled() |> GenServer.stop()
            end) =~ "publication dispatcher failed"
 
     assert capture_log(fn ->
@@ -88,8 +92,7 @@ defmodule Ryker.Publication.RuntimeTest do
                  poll_interval_ms: 10
                )
 
-             Process.sleep(5)
-             GenServer.stop(invalid_worker)
+             invalid_worker |> settled() |> GenServer.stop()
            end) =~ "publication followup dispatcher failed"
 
     assert Worker.init(poll_interval_ms: 0, dispatcher_options: []) ==

@@ -1,6 +1,6 @@
 defmodule Ryker.Waits.EventWaitWorkerTest do
   use Ryker.DataCase, async: false
-  import Ryker.TestHelpers, only: [eventually: 2]
+  import Ryker.TestHelpers, only: [beats: 1, eventually: 2, settled: 1]
 
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -10,9 +10,11 @@ defmodule Ryker.Waits.EventWaitWorkerTest do
   alias Ryker.Work.Custody
 
   test "polls the durable due-wait queue without crashing when it is idle" do
+    before = beats(:event_waits)
     worker = start_supervised!({EventWaitWorker, poll_interval_ms: 10})
-    Process.sleep(25)
-    assert Process.alive?(worker)
+    settled(worker)
+
+    assert beats(:event_waits) > before
     assert :ok = stop_supervised(EventWaitWorker)
   end
 

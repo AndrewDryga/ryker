@@ -2,6 +2,7 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
   use Ryker.DataCase, async: true
 
   import ExUnit.CaptureLog
+  import Ryker.TestHelpers, only: [settled: 1]
 
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Repo
@@ -33,6 +34,17 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
     end
 
     def reconcile_absent(_workspace_ref, _channels, _snapshot_started_at), do: {:ok, 0}
+  end
+
+  # Tells the test registered under this name that a sweep reached the configurations.
+  defmodule ObservedConfigurations do
+    def reconcile_joined(workspace_ref, channels, catalog) do
+      send(__MODULE__, {:reconciled, workspace_ref})
+      StaticConfigurations.reconcile_joined(workspace_ref, channels, catalog)
+    end
+
+    defdelegate reconcile_absent(workspace_ref, channels, snapshot_started_at),
+      to: StaticConfigurations
   end
 
   defmodule UnavailableConfigurations do
@@ -112,11 +124,13 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
     agent =
       start_supervised!({FakeSlackAPI, []})
 
+    Process.register(self(), ObservedConfigurations)
+
     valid =
       agent
       |> options()
       |> Map.merge(%{
-        configurations: StaticConfigurations,
+        configurations: ObservedConfigurations,
         interval_ms: 30_000,
         name: :membership_reconciler_test
       })
@@ -124,16 +138,15 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
     assert MembershipReconciler.options!(Map.to_list(valid)).name == :membership_reconciler_test
 
     {:ok, worker} = start_supervised({MembershipReconciler, valid})
-    Process.sleep(5)
-    assert Process.alive?(worker)
+    settled(worker)
+    assert_received {:reconciled, _workspace}
 
     failing = %{valid | api: FailingAPI, name: :membership_reconciler_failure_test}
 
     log =
       capture_log(fn ->
         {:ok, failing_worker} = MembershipReconciler.start_link(failing)
-        Process.sleep(5)
-        GenServer.stop(failing_worker)
+        failing_worker |> settled() |> GenServer.stop()
       end)
 
     assert log =~ "Slack membership reconciliation failed"

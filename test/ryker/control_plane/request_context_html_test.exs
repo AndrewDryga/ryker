@@ -935,18 +935,23 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
            |> Enum.count() == 1
   end
 
+  # The page asserted only that it rendered a binary, which it always does (2026-10-04 review);
+  # each shape's own value has to be on it.
   test "unexpected retained context shapes remain inspectable instead of crashing the page" do
-    for context <- [
-          %{"inputs" => %{"items" => nil}},
-          %{"candidates" => [nil, "legacy value", %{"state" => %{}, "allowed_relations" => 1}]},
-          %{"input" => %{"actor" => %{"kind" => %{}}, "occurred_at" => %{}, "text" => "Hello"}}
+    for {context, shown} <- [
+          {%{"inputs" => %{"items" => nil}}, "Conversation messages"},
+          {%{"candidates" => [nil, "legacy value", %{"state" => %{}, "allowed_relations" => 1}]},
+           "legacy value"},
+          {%{"input" => %{"actor" => %{"kind" => %{}}, "occurred_at" => %{}, "text" => "Hello"}},
+           "Hello"}
         ] do
-      artifact = InspectionRedactor.artifact(context)
+      html =
+        context
+        |> InspectionRedactor.artifact()
+        |> RequestContextHTML.assembly("$.context", "context")
+        |> IO.iodata_to_binary()
 
-      assert artifact
-             |> RequestContextHTML.assembly("$.context", "context")
-             |> IO.iodata_to_binary()
-             |> is_binary()
+      assert html =~ shown, inspect(context)
     end
   end
 

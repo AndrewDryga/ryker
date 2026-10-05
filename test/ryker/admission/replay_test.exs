@@ -20,6 +20,8 @@ defmodule Ryker.Admission.ReplayTest do
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
 
   @fixtures Path.wildcard(Path.expand("fixtures/*.json", __DIR__))
+  # A moved fixture directory ran no test here and passed (2026-10-04 review).
+  if @fixtures == [], do: raise("admission replay fixtures are missing")
 
   for fixture_path <- @fixtures do
     @fixture_path fixture_path

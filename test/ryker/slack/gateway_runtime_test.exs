@@ -265,13 +265,14 @@ defmodule Ryker.Slack.GatewayRuntimeTest do
     assert Process.whereis(:slack_gateway_reconnect_test) == gateway
     assert_receive {:socket_connect_failed, ^gateway, :offline}
     assert_receive {:socket_connected, ^gateway}, 1_000
+    %{connection: connection} = :sys.get_state(gateway)
 
     send(gateway, :connect)
     send(gateway, {:socket_idle, make_ref()})
     send(gateway, :unknown_socket_message)
-    Process.sleep(10)
 
-    assert Process.alive?(gateway)
+    # Handled, and the socket it had is the socket it keeps.
+    assert %{connection: ^connection} = :sys.get_state(gateway)
     refute_receive {:socket_closed, ^gateway}, 20
   end
 
@@ -318,8 +319,7 @@ defmodule Ryker.Slack.GatewayRuntimeTest do
 
     assert_receive {:socket_connect_failed, ^gateway, :offline}
     send(gateway, {:socket_frame, {:text, "[]"}})
-    Process.sleep(10)
-    assert Process.alive?(gateway)
+    assert %{connection: nil} = :sys.get_state(gateway)
     stop_supervised(Gateway)
 
     connected = start_gateway(settings())
