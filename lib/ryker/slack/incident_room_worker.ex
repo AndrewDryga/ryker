@@ -194,10 +194,13 @@ defmodule Ryker.Slack.IncidentRoomWorker do
     ])
   end
 
+  # A full open-room limit is nothing to do until a room closes; as a failure
+  # it was retried and logged every second.
   defp request_automatic(%{automatic_request: callback}) when is_function(callback, 0) do
     case callback.() do
       {:ok, nil} -> {:ok, :idle}
       {:ok, %{room: room}} -> {:ok, {:requested, room.ref}}
+      {:error, :incident_room_capacity} -> {:ok, :idle}
       {:error, _reason} = error -> error
       _invalid -> {:error, :invalid_automatic_incident_request}
     end

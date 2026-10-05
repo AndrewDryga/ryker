@@ -1730,6 +1730,41 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert Repo.get_by!(IncidentRoom, ref: room_ref).status == :ready
   end
 
+  # With the open-room limit full, an automatic offer's request failed every
+  # second, and each failure was logged (2026-10-04 review). A full limit is
+  # nothing to do until a room closes.
+  test "a full room limit leaves an automatic offer waiting, not failing every second" do
+    save_channel_configuration!(:automatic)
+    agent = incident_agent!()
+    _app_offer = delivered_offer!(:app)
+
+    automatic_request = fn ->
+      case IncidentRooms.automatic_candidate("T123") do
+        {:ok, nil} ->
+          {:ok, nil}
+
+        {:ok, candidate} ->
+          IncidentRooms.request(%{automatic_request(candidate) | maximum_open_rooms: 1})
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+
+    # One room is open and checked: the limit is full and the room needs nothing.
+    assert {:ok, %{status: :requested}} = IncidentRooms.request(request(delivered_offer!()))
+    assert {:ok, {:ready, _room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+
+    Repo.update_all(IncidentRoom,
+      set: [channel_checked_at: Repo.now!(), root_card_checked_at: Repo.now!()]
+    )
+
+    options = Map.put(worker_options(agent), :automatic_request, automatic_request)
+
+    log = capture_log(fn -> assert {:ok, :idle} = IncidentRoomWorker.run_once(options) end)
+    refute log =~ "incident_room_capacity"
+  end
+
   test "transient Slack failures resume each exact provisioning phase without duplicating the room" do
     fixture = delivered_offer!()
     save_channel_configuration!()
