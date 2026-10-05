@@ -207,7 +207,10 @@ defmodule Ryker.Improvement.Prompt do
 
   # Older routing prompts give way first: the newest one is the decision the
   # feedback is most likely about. Then long texts are shortened, then the
-  # tool lists and the oldest messages go, until the request fits.
+  # tool lists, the oldest messages, the oldest Work turns and the oldest
+  # feedback go, until the request fits. Turns and feedback were never left
+  # out, so a request of a few hundred turns could never be analyzed
+  # (2026-10-04 review).
   defp fit(instructions, context) do
     [
       &drop_routing_prompt/1,
@@ -215,7 +218,9 @@ defmodule Ryker.Improvement.Prompt do
       &shorten(&1, 1_000),
       &drop_tools/1,
       &drop_oldest_message/1,
-      &shorten(&1, 200)
+      &shorten(&1, 200),
+      &drop_oldest(&1, "work", "The oldest Work turns, left out for length."),
+      &drop_oldest(&1, "feedback", "The oldest feedback, left out for length.")
     ]
     |> Enum.reduce(context, fn step, context -> until_fits(instructions, context, step) end)
   end
@@ -307,6 +312,14 @@ defmodule Ryker.Improvement.Prompt do
   end
 
   defp drop_oldest_message(context), do: context
+
+  # Each keeps its newest item.
+  defp drop_oldest(context, key, text) do
+    case context[key] do
+      [_oldest | rest] when rest != [] -> context |> Map.put(key, rest) |> note(text)
+      _one_or_none -> context
+    end
+  end
 
   defp note(context, text) do
     if text in context["omitted"],

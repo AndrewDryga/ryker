@@ -145,6 +145,39 @@ defmodule Ryker.Improvement.PromptTest do
     assert "Older routing prompts, left out for length." in request["context"]["omitted"]
   end
 
+  # Work turns and feedback were never left out to fit, so a request of a
+  # few hundred turns overflowed the prompt at about 150, and its analysis
+  # stopped for good (2026-10-04 review). The oldest go, and the prompt says so.
+  test "a request with hundreds of Work turns keeps its newest and fits" do
+    fixture = fixture!()
+    base = evidence(fixture)
+    turn = hd(base.work)
+
+    work =
+      for index <- 1..400,
+          do: %{
+            turn
+            | "started_at" => "2026-09-27T#{rem(index, 24)}:00:00Z",
+              "answer" => "Turn #{index}"
+          }
+
+    feedback =
+      for index <- 1..100,
+          do: %{
+            "at" => "2026-09-27T15:00:00Z",
+            "kind" => "reaction",
+            "value" => "-1",
+            "message" => "Bad #{index}",
+            "note" => nil
+          }
+
+    request = Prompt.build(%{base | work: work, feedback: feedback})
+
+    assert byte_size(CanonicalJSON.encode!(request)) <= Prompt.maximum_bytes()
+    assert List.last(request["context"]["work"])["answer"] == "Turn 400"
+    assert "The oldest Work turns, left out for length." in request["context"]["omitted"]
+  end
+
   test "a retry says the last answer did not match the contract" do
     fixture = fixture!()
     refute Prompt.build(evidence(fixture))["instructions"] =~ "did not match the output contract"
