@@ -147,6 +147,31 @@ defmodule Ryker.Slack.Names do
     end
   end
 
+  @doc """
+  The Slack channels whose known name contains `text`, ignoring case and a
+  leading `#`, as the `slack:<workspace>:<channel>` references requests carry,
+  so a search finds a request by the channel name its row shows.
+  """
+  @spec conversations_named(String.t()) :: [String.t()]
+  def conversations_named(text) when is_binary(text) do
+    case text |> String.trim() |> String.trim_leading("#") |> String.downcase() do
+      "" ->
+        []
+
+      needle ->
+        for {{workspace, <<prefix, _::binary>> = ref}, label, _expires} <- names(),
+            prefix in [?C, ?G] and is_binary(label),
+            String.contains?(String.downcase(label), needle),
+            do: "slack:#{workspace}:#{ref}"
+    end
+  end
+
+  defp names do
+    :ets.select(@table, [{{{:_, :_}, :_, :_}, [], [:"$_"]}])
+  rescue
+    ArgumentError -> []
+  end
+
   @doc "The workspace whose names the running cache serves, or nil when none runs."
   @spec workspace() :: String.t() | nil
   def workspace do

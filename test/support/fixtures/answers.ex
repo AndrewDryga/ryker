@@ -144,6 +144,46 @@ defmodule Ryker.Fixtures.Answers do
   `reply_ts` in the message's thread. The message starts that request.
   """
   def work_reply!(%Entry{} = entry, text, reply_ts, %DateTime{} = at) do
+    %{id: id, key: key, claim: claim, accepted: accepted, delivery: delivery} =
+      accepted_reply!(entry, text)
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               accepted.turn.delivery_ref,
+               entry.destination_transport,
+               entry.destination_conversation_ref,
+               entry.destination_thread_ref,
+               reply_ts
+             )
+
+    assert {:ok, _settled} =
+             Custody.confirm_delivery(id, key, claim.turn.turn_ref, delivery.lease_ref, receipt)
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id), set: [delivered_at: at])
+    %{episode: Repo.get!(Ryker.Episodes.Episode, id), turn: Repo.get!(Turn, claim.turn.id)}
+  end
+
+  @doc """
+  The Work reply the message's request could not deliver: Slack refused it with
+  `error_code`, and the request waits for a person.
+  """
+  def blocked_reply!(%Entry{} = entry, text, error_code) do
+    %{id: id, claim: claim, delivery: delivery} = accepted_reply!(entry, text)
+
+    assert {:ok, _blocked} =
+             Custody.block_delivery(
+               id,
+               claim.turn.turn_ref,
+               delivery.lease_ref,
+               error_code,
+               "{:#{error_code}}"
+             )
+
+    %{episode: Repo.get!(Ryker.Episodes.Episode, id), turn: Repo.get!(Turn, claim.turn.id)}
+  end
+
+  # The message's request with its reply accepted and claimed for delivery.
+  defp accepted_reply!(%Entry{} = entry, text) do
     id = Ecto.UUID.generate()
     key = "answers:#{id}"
     owner = "answers-worker:#{id}"
@@ -247,21 +287,7 @@ defmodule Ryker.Fixtures.Answers do
              )
 
     assert {:ok, delivery} = Custody.claim_next(owner, 60, :delivery)
-
-    assert {:ok, receipt} =
-             DeliveryReceipt.new(
-               accepted.turn.delivery_ref,
-               entry.destination_transport,
-               entry.destination_conversation_ref,
-               entry.destination_thread_ref,
-               reply_ts
-             )
-
-    assert {:ok, _settled} =
-             Custody.confirm_delivery(id, key, claim.turn.turn_ref, delivery.lease_ref, receipt)
-
-    Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id), set: [delivered_at: at])
-    %{episode: Repo.get!(Ryker.Episodes.Episode, id), turn: Repo.get!(Turn, claim.turn.id)}
+    %{id: id, key: key, claim: claim, accepted: accepted, delivery: delivery}
   end
 
   @doc "The message joins the request `episode_id`, as routing would add it."

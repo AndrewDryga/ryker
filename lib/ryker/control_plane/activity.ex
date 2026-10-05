@@ -262,9 +262,11 @@ defmodule Ryker.ControlPlane.Activity do
       left_join: scheduled in subquery(scheduled_runs()),
       on: scheduled.episode_id == episode.id,
       left_join: turn in Turn,
+      on: ^holding_turn(),
+      left_join: left in FailureDismissal,
       on:
-        turn.episode_id == episode.id and turn.turn_ref == episode.owner_ref and
-          episode.owner_kind == :turn,
+        left.kind == "delivery" and left.ref == turn.delivery_ref and
+          left.failure_summary == coalesce(turn.last_error_code, "delivery blocked"),
       left_join: digest in RoutingDigest,
       on: digest.episode_id == episode.id,
       left_join: task in subquery(confirmed_tasks()),
@@ -289,9 +291,11 @@ defmodule Ryker.ControlPlane.Activity do
           ),
         bucket:
           fragment(
-            "CASE WHEN ? = 'blocked' OR ? = 'waiting_for_input' THEN 'attention' WHEN ? IN ('complete','cancelled') THEN 'done' ELSE 'running' END",
+            "CASE WHEN (? = 'blocked' AND ? IS NULL) OR ? = 'waiting_for_input' THEN 'attention' WHEN ? = 'blocked' OR ? IN ('complete','cancelled') THEN 'done' ELSE 'running' END",
             turn.status,
+            left.kind,
             episode.state,
+            turn.status,
             episode.state
           ),
         source: episode.destination_transport,
@@ -302,6 +306,18 @@ defmodule Ryker.ControlPlane.Activity do
         started_at: fragment("LEAST(?, ?)", episode.inserted_at, input.inserted_at),
         updated_at: episode.updated_at
       }
+    )
+  end
+
+  # The turn that holds the request, or whose reply it is delivering: a reply
+  # Slack refused read as running, though it waited for a person, and leaving it
+  # on Failures changed nothing here (2026-10-04 review).
+  defp holding_turn do
+    dynamic(
+      [episode, _input, _checkout, _scheduled, turn],
+      turn.episode_id == episode.id and
+        ((episode.owner_kind == :turn and turn.turn_ref == episode.owner_ref) or
+           (episode.owner_kind == :delivery and turn.delivery_ref == episode.owner_ref))
     )
   end
 
@@ -494,25 +510,43 @@ defmodule Ryker.ControlPlane.Activity do
   defp criteria_filter(query, "state", value),
     do: from(row in query, where: row.episode_state == ^value)
 
-  defp criteria_filter(query, "repository", value) do
-    ids =
-      from(session in Ryker.Work.Session,
-        where: session.repository_ref == ^value,
-        select: session.episode_id
-      )
+  # The repository the row shows; the filter matched the one the work checked
+  # out, though the row showed the one its message came with (2026-10-04
+  # review).
+  defp criteria_filter(query, "repository", value),
+    do: from(row in query, where: row.repository == ^value)
 
-    from(row in query, where: row.kind == "episode" and row.id in subquery(ids))
-  end
-
+  # What a row shows, as it shows it: the name Work gave the request, the
+  # repository as owner/repo and the channel by its name. Refs alone missed
+  # all three (2026-10-04 review).
   defp search(query, text) when is_binary(text) and byte_size(text) > 0 do
-    pattern = Search.contains(text)
-
-    from(row in query,
-      where:
-        ilike(row.text, ^pattern) or ilike(row.repository, ^pattern) or ilike(row.ref, ^pattern) or
-          ilike(row.conversation, ^pattern) or ilike(row.schedule_title, ^pattern)
-    )
+    shown = dynamic(^written(text) or ^named(text))
+    from(row in query, where: ^shown)
   end
 
   defp search(query, _), do: query
+
+  defp written(text) do
+    pattern = Search.contains(text)
+
+    dynamic(
+      [row],
+      ilike(row.text, ^pattern) or ilike(row.episode_title, ^pattern) or
+        ilike(row.schedule_title, ^pattern) or ilike(row.ref, ^pattern) or
+        ilike(row.repository, ^pattern) or ilike(row.conversation, ^pattern)
+    )
+  end
+
+  # The names a row shows for its refs: a repository as owner/repo, a channel by its name.
+  defp named(text) do
+    needle = String.downcase(text)
+
+    repositories =
+      for {ref, name} <- RepositoryNames.all(),
+          String.contains?(String.downcase(name), needle),
+          do: ref
+
+    conversations = Names.conversations_named(text)
+    dynamic([row], row.repository in ^repositories or row.conversation in ^conversations)
+  end
 end

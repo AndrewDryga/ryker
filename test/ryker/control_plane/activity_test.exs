@@ -15,10 +15,12 @@ defmodule Ryker.ControlPlane.ActivityTest do
   }
 
   alias Ryker.Episodes
+  alias Ryker.Fixtures.Answers
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Operator.FailureDismissals
   alias Ryker.Repo
   alias Ryker.Schedules.ScheduleOccurrenceChangeset
   alias Ryker.Slack.Input
@@ -530,6 +532,109 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert item.id == episode.id
     assert item.repository == "acme/checkout-api"
     assert Activity.list(%{"q" => "acme/billing-api"}).total == 0
+  end
+
+  # Search and the Repository filter missed what a row shows: the name Work gave the request, the
+  # repository as owner/repo, the channel by its name. The filter also matched the repository the
+  # work checked out while the row showed the one its message came with (2026-10-04 review).
+  test "search and the repository filter find a request by what its row shows" do
+    start_supervised!({Names, workspace: "T123", fetch: fn _ref -> {:ok, "ops-alerts"} end})
+    Names.name("T123", "C777")
+    assert :ok = GenServer.call(Names, :refresh)
+
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: :user, ref: "U2"},
+        channel_ref: "C777",
+        content: %{"text" => "Requests are failing"},
+        event_kind: :message,
+        event_ref: "Ev-what-a-row-shows",
+        message_ref: "1788370104.000100",
+        occurred_at: DateTime.utc_now(),
+        revision: 1,
+        thread_ref: nil,
+        workspace_ref: "T123"
+      })
+
+    {:ok, %{entry: entry}} = Inbox.record(input)
+
+    {:ok, %{episode: episode}} =
+      Episodes.apply(
+        Fixtures.admit_input(%{
+          destination: %{conversation_ref: "slack:T123:C777", thread_ref: nil, transport: "slack"}
+        })
+      )
+
+    Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
+      set: [
+        episode_id: episode.id,
+        repository_ref: "repo:payments",
+        work_policy: "row-shows",
+        work_policy_digest: String.duplicate("b", 64),
+        status: :decided,
+        decision_action: :start_episode,
+        decision_ref: "decision:what-a-row-shows",
+        decision_fingerprint: String.duplicate("a", 64),
+        decision_document: %{"action" => "start_episode", "episode_ref" => episode.key}
+      ]
+    )
+
+    {:ok, session} = Custody.pin_episode(episode.id, "row-shows", String.duplicate("a", 64))
+
+    Repo.update_all(from(s in Session, where: s.id == ^session.id),
+      set: [repository_ref: "repo:ledger"]
+    )
+
+    {1, _} =
+      Repo.update_all(
+        from(digest in Ryker.Episodes.RoutingDigest, where: digest.episode_id == ^episode.id),
+        set: [
+          title: "Investigate the 502s",
+          title_turn_id: Ecto.UUID.generate(),
+          title_updated_at: DateTime.utc_now()
+        ]
+      )
+
+    Repo.insert_all("removed_repository_names", [
+      %{ref: "repo:payments", name: "acme/payments-api", inserted_at: DateTime.utc_now()}
+    ])
+
+    assert %{items: [row]} = Activity.list(%{})
+    assert row.title == "Investigate the 502s"
+    assert row.repository == "acme/payments-api"
+
+    for shown <- ["the 502s", "acme/payments", "#ops-alerts", "ops-alerts"] do
+      assert Activity.list(%{"q" => shown}).total == 1, "search for #{shown} found nothing"
+    end
+
+    assert Activity.list(%{"repository" => "repo:payments"}).total == 1
+    assert Activity.list(%{"repository" => "repo:ledger"}).total == 0
+  end
+
+  # A reply Slack would not take stops its request for a person, but Activity read it as running,
+  # and leaving it as it is on Failures changed nothing there (2026-10-04 review).
+  test "a refused reply needs a person in Activity until they leave it" do
+    entry =
+      Answers.slack_message!(
+        channel: "C778",
+        text: "Is checkout healthy?",
+        ts: "1788370105.000100",
+        workspace: "T123"
+      )
+
+    %{turn: turn} = Answers.blocked_reply!(entry, "Checkout is healthy.", "slack_api_error")
+    assert turn.status == :blocked
+    assert Activity.list(%{}).views["attention"] == 1
+
+    assert {:ok, _left} =
+             FailureDismissals.leave(
+               "delivery",
+               turn.delivery_ref,
+               "slack_api_error",
+               "control-plane:local"
+             )
+
+    assert %{"attention" => 0, "done" => 1} = Activity.list(%{}).views
   end
 
   test "a usage filter chosen without a period covers all of a request's history" do
