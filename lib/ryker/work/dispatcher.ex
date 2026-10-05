@@ -90,6 +90,27 @@ defmodule Ryker.Work.Dispatcher do
   defp execution_failure(_claim, :work_lease_lost = reason, _settings),
     do: {:ok, {:lease_lost, reason}}
 
+  # What the briefing carried was withdrawn after Coop had the turn: the person edited or
+  # deleted their message, or a fact it used was forgotten. The answer cannot be sent, and
+  # finishing it was refused again, so it was stranded (2026-10-04 review); a new turn answers
+  # from what is current.
+  defp execution_failure(
+         claim,
+         {:work_completion_blocked, _receipt, :work_knowledge_context_stale} = reason,
+         _settings
+       ) do
+    case Custody.request_rerun(
+           claim.episode.id,
+           claim.episode.key,
+           claim.turn.turn_ref,
+           claim.turn.id,
+           claim.lease_ref
+         ) do
+      {:ok, _request} -> {:ok, {:deferred, {:work_rerun_pending, reason}}}
+      {:error, rerun_reason} -> custody_failed(reason, rerun_reason)
+    end
+  end
+
   defp execution_failure(claim, {:work_completion_blocked, receipt, reason}, _settings),
     do: block_completion(claim, receipt, reason)
 

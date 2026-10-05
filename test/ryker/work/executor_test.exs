@@ -268,6 +268,64 @@ defmodule Ryker.Work.ExecutorTest do
     refute answered.submission_fingerprint == turn.submission_fingerprint
   end
 
+  # A person edited the message a fact came from after Coop had the turn. Acceptance refused the
+  # finished answer, the turn stopped for a person, and "finish saving" refused it again: the
+  # answer was stranded (2026-10-04 review). The worker hands the turn to a new one, which runs
+  # on what is current and never sees the withdrawn fact.
+  test "an answer whose briefing was withdrawn after Coop had the turn is answered again" do
+    claim = claim_with_bound_empty_session!("withdrawn-after-submit-draft-ai-suggestions")
+    {source, _document} = KnowledgeFixtures.learn!(claim.episode)
+
+    {:ok, fake} =
+      fake_for(claim, [
+        reply("Answered from the withdrawn fact."),
+        reply("Answered from what is current.")
+      ])
+
+    submit_turn = fn fallback ->
+      submitted = fallback.()
+      KnowledgeFixtures.revoke!(source)
+      submitted
+    end
+
+    assert {:ok,
+            {:deferred,
+             {:work_rerun_pending,
+              {:work_completion_blocked, _proof, :work_knowledge_context_stale}}}} =
+             Dispatcher.run_claim(claim,
+               worker_ref: "withdrawn-after-submit",
+               executor_options: protocol_options(fake, %{submit_turn: submit_turn})
+             )
+
+    stopped = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+
+    assert [_fact] =
+             get_in(stopped.submission, ["context", "operator_context", "continuity", "knowledge"])
+
+    assert stopped.status == :cancel_pending
+    assert stopped.result_ref == nil
+    assert stopped.cancellation_intent["new_turn_ref"] == "turn:rerun:#{claim.turn.id}"
+
+    dispatcher_options = [worker_ref: "withdrawn-rerun", executor_options: options(fake)]
+    assert {:ok, {:executed, %{status: :transferred}}} = Dispatcher.run_once(dispatcher_options)
+
+    assert {:ok, {:executed, %{status: :accepted} = rerun}} =
+             Dispatcher.run_once(dispatcher_options)
+
+    assert rerun.turn.turn_ref == "turn:rerun:#{claim.turn.id}"
+    assert length(FakeAPI.state(fake).submissions) == 2
+
+    assert get_in(rerun.turn.submission, [
+             "context",
+             "operator_context",
+             "continuity",
+             "knowledge"
+           ]) in [
+             nil,
+             []
+           ]
+  end
+
   test "withdrawn knowledge is rechecked inside result acceptance before delivery is created" do
     # Provider execution may finish after a source is withdrawn; acceptance is a separate fence.
     claim = accepted_intent_turn!("withdrawn-acceptance")

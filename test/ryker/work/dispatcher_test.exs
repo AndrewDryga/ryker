@@ -5,7 +5,17 @@ defmodule Ryker.Work.DispatcherTest do
 
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Work.{Custody, Dispatcher, Result, Submission, Turn, ValidationIntent}
+
+  alias Ryker.Work.{
+    Cancellation,
+    Custody,
+    Dispatcher,
+    OperationKeys,
+    Result,
+    Submission,
+    Turn,
+    ValidationIntent
+  }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -86,6 +96,44 @@ defmodule Ryker.Work.DispatcherTest do
     turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
     assert turn.status == :pending
     assert turn.completion_receipt == %{"state" => "completed"}
+  end
+
+  # A person edited or deleted the message after Coop had the turn, or a fact the briefing used
+  # was forgotten. Acceptance refused the finished answer, the turn stopped for a person, and
+  # "finish saving" refused it again: the answer was stranded (2026-10-04 review). The answer is
+  # dropped, and a new turn answers from what is current.
+  test "a finished answer whose briefing was withdrawn is answered again from what is current" do
+    command = create_episode!("withdrawn-briefing")
+    reason = {:work_completion_blocked, %{"state" => "completed"}, :work_knowledge_context_stale}
+
+    assert {:ok, {:deferred, {:work_rerun_pending, ^reason}}} =
+             Dispatcher.run_once(options({:error, reason}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :cancel_pending
+    rerun_ref = "turn:rerun:#{turn.id}"
+    assert %{"action" => "transfer", "new_turn_ref" => ^rerun_ref} = turn.cancellation_intent
+
+    assert {:ok, stop} = Custody.claim_next("worker:withdrawn-briefing", 60, :work)
+    assert stop.turn.id == turn.id
+
+    {:ok, receipt} =
+      Cancellation.absent_receipt(OperationKeys.create(stop.session), nil, nil, nil, nil)
+
+    assert {:ok, settled} =
+             Custody.settle_cancellation(
+               command.episode_id,
+               command.episode_key,
+               turn.turn_ref,
+               stop.lease_ref,
+               receipt
+             )
+
+    assert settled.episode.owner_ref == rerun_ref
+    assert settled.turn.status == :superseded
+
+    assert {:ok, rerun} = Custody.claim_next("worker:withdrawn-briefing-rerun", 60, :work)
+    assert rerun.turn.turn_ref == rerun_ref
   end
 
   test "healthy running Coop work crosses many poll windows without spending failure attempts" do

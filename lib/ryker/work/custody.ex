@@ -602,6 +602,16 @@ defmodule Ryker.Work.Custody do
     to: Cancellation
 
   @doc """
+  Hands the turn a worker holds to a new turn built from what is current, by the
+  same exact stop a transfer makes: its finished answer can no longer be
+  accepted because what its briefing carried was withdrawn.
+  """
+  @spec request_rerun(Ecto.UUID.t(), String.t(), String.t(), Ecto.UUID.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate request_rerun(episode_id, episode_key, turn_ref, turn_id, lease_ref),
+    to: Cancellation
+
+  @doc """
   Stops one exact active run while retaining the episode, session lineage, and
   repository workspace for a later human correction.
 

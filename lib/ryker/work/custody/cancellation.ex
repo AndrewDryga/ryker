@@ -52,6 +52,21 @@ defmodule Ryker.Work.Custody.Cancellation do
   end
 
   @doc false
+  @spec request_rerun(Ecto.UUID.t(), String.t(), String.t(), Ecto.UUID.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def request_rerun(episode_id, episode_key, turn_ref, turn_id, lease_ref) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         {:ok, turn_id} <- uuid(turn_id, :turn_id),
+         :ok <- reference(episode_key, :episode_key),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref),
+         {:ok, intent} <-
+           WorkCancellation.new_transfer("turn:rerun:#{turn_id}", "transfer:rerun:#{turn_id}") do
+      request_cancellation(episode_id, episode_key, turn_ref, intent, lease_ref)
+    end
+  end
+
+  @doc false
   @spec request_stop(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def request_stop(episode_id, episode_key, turn_ref, stop_ref, reason) do
