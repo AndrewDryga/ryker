@@ -72,21 +72,31 @@ defmodule Ryker.Retention.Worker do
     error -> Logger.error("retention lease release crashed: #{Exception.message(error)}")
   end
 
+  # A command body is an orphan once its command row is gone, whatever else
+  # the pass pruned, so a pass that failed whole or in part still clears them.
   defp maintain_once(maintenance, options, body_root) do
-    case maintenance.prune(options) do
-      {:ok, _result} ->
-        case Bodies.prune_orphans(body_root) do
-          :ok -> :ok
-          {:error, reason} -> Logger.error("retention body pruning failed: #{inspect(reason)}")
-        end
+    prune_data(maintenance, options)
+    prune_bodies(body_root)
+  end
 
-      {:error, reason} ->
-        Logger.error("retention data pruning failed: #{inspect(reason)}")
+  defp prune_data(maintenance, options) do
+    case maintenance.prune(options) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> Logger.error("retention data pruning failed: #{inspect(reason)}")
     end
   rescue
     error -> Logger.error("retention data pruning crashed: #{Exception.message(error)}")
   catch
     kind, reason -> Logger.error("retention data pruning caught #{kind}: #{inspect(reason)}")
+  end
+
+  defp prune_bodies(body_root) do
+    case Bodies.prune_orphans(body_root) do
+      :ok -> :ok
+      {:error, reason} -> Logger.error("retention body pruning failed: #{inspect(reason)}")
+    end
+  rescue
+    error -> Logger.error("retention body pruning crashed: #{Exception.message(error)}")
   end
 
   defp retire_abandoned_placements(up_since) do

@@ -1,6 +1,7 @@
 defmodule Ryker.Retention.RuntimeTest do
   use ExUnit.Case, async: true
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Retention.{Runtime, Worker}
 
   test "runtime supervises one bounded cleanup worker with exact options" do
@@ -147,6 +148,38 @@ defmodule Ryker.Retention.RuntimeTest do
              )
   end
 
+  # One failing pruning phase makes the whole pass an error, and the worker
+  # then skipped clearing orphaned command bodies on every pass while the phase
+  # kept failing, though those files never depend on it (2026-10-04 review).
+  test "orphaned command bodies are cleared even when a pruning phase failed" do
+    owner = Sandbox.start_owner!(Ryker.Repo)
+    on_exit(fn -> Sandbox.stop_owner(owner) end)
+    root = Path.join(System.tmp_dir!(), "ryker-bodies-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(root) end)
+    orphan = Path.join(root, Ecto.UUID.generate())
+    File.mkdir_p!(orphan)
+    File.touch!(orphan, System.os_time(:second) - 86_401)
+    failed = {:error, {:retention_phases_failed, [:expiring]}}
+
+    assert {:ok, pid} =
+             Worker.start_link(
+               dispatcher: __MODULE__.HeldDispatcher,
+               dispatcher_options: [],
+               maintenance: __MODULE__.Maintenance,
+               maintenance_options: %{response: failed, test_pid: self()},
+               body_root: root,
+               poll_interval_ms: 60_000
+             )
+
+    # The first poll waits for this, so it reads the database as this test.
+    Sandbox.allow(Ryker.Repo, owner, pid)
+    send(pid, :dispatch)
+    assert_receive {:retention_maintenance, ^failed}
+    assert %{poll_interval_ms: 60_000} = :sys.get_state(pid)
+    refute File.exists?(orphan)
+    GenServer.stop(pid)
+  end
+
   defp pass(attempted, overrides) do
     Map.merge(
       %{
@@ -198,6 +231,15 @@ defmodule Ryker.Retention.RuntimeTest do
       response = Keyword.fetch!(options, :response)
       send(Keyword.fetch!(options, :test_pid), {:retention_dispatch, response})
       response
+    end
+  end
+
+  defmodule HeldDispatcher do
+    @moduledoc false
+    def run_pass(_options) do
+      receive do
+        :dispatch -> {:ok, %{attempted: 0}}
+      end
     end
   end
 
