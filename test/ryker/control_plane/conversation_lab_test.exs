@@ -979,6 +979,22 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                }
              )
 
+    assert {:ok, guidance_offer} =
+             Records.create(
+               Records.token(claim.turn),
+               "lab-guidance",
+               "guidance_offer",
+               %{
+                 "expires_in" => "90d",
+                 "repository" => nil,
+                 "scope" => "operator",
+                 "subject" => "status updates",
+                 "summary" => "Lead every status update with the decision.",
+                 "text" => "Lead every status update with the decision, then the evidence.",
+                 "visibility" => "private"
+               }
+             )
+
     early_actions =
       Actions.callbacks(in_environment("production"), %{
         "production" => %{"ryker" => task_policy("production")}
@@ -999,7 +1015,8 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
           task_offer.ref,
           memory_offer.ref,
           schedule_offer.ref,
-          preference_offer.ref
+          preference_offer.ref,
+          guidance_offer.ref
         ],
         "state" => "complete"
       }
@@ -1065,10 +1082,11 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              {"task_offer", task_offer.ref},
              {"memory_offer", memory_offer.ref},
              {"schedule_offer", schedule_offer.ref},
-             {"preference_offer", preference_offer.ref}
+             {"preference_offer", preference_offer.ref},
+             {"guidance_offer", guidance_offer.ref}
            ]
 
-    assert [task_card, memory_card, schedule_card, preference_card] = ryker.cards
+    assert [task_card, memory_card, schedule_card, preference_card, _guidance_card] = ryker.cards
     assert task_card.title == "Finish Lab parity"
     assert task_card.action == :confirm_task
     assert {"Repository", "ryker"} in task_card.details
@@ -1271,7 +1289,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert {:ok, updated_conversation} = ConversationProjection.fetch(@conversation_id)
     updated_ryker = Enum.find(updated_conversation.messages, &(&1.actor == :ryker))
 
-    assert [task_status, _memory_offer, _schedule_offer, _preference_offer] =
+    assert [task_status, _memory_offer, _schedule_offer, _preference_offer, _guidance_offer] =
              updated_ryker.cards
 
     assert task_status.kind == "task"
@@ -1330,12 +1348,32 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert preferred.behavior.confirmed_by_actor_ref == "control_plane:user:local-operator"
     assert preferred.behavior.payload["value"] == "detailed"
 
+    # Chat confirmed a personal ("mine") rule as the console rather than as the
+    # person the turn was for, and since 2026-09-30 only that person may
+    # confirm one: no personal rule could be kept from Chat (2026-10-04
+    # review).
+    assert {:ok, guided} =
+             actions.act_on_lab_record.(
+               @conversation_id,
+               guidance_offer.ref,
+               :confirm_behavior,
+               nil
+             )
+
+    assert guided.status == :confirmed
+    assert guided.behavior.scope_kind == :operator
+    assert guided.behavior.scope_ref == "control_plane:user:local-operator"
+
     # QA, 2026-09-25: after "Schedule this" or "Remember this" the button went
     # away and nothing in the conversation said it had worked. Each confirmed
     # card now says what was saved, from the row its confirmation wrote.
     assert {:ok, saved_conversation} = ConversationProjection.fetch(@conversation_id)
     saved_ryker = Enum.find(saved_conversation.messages, &(&1.actor == :ryker))
-    assert [_task, memory_saved, schedule_saved, preference_saved] = saved_ryker.cards
+
+    assert [_task, memory_saved, schedule_saved, preference_saved, guidance_saved] =
+             saved_ryker.cards
+
+    assert %{tone: :on, word: "Guidance saved"} = guidance_saved.outcome
 
     assert %{tone: :on, word: "Saved to memory", link: "Open facts"} = memory_saved.outcome
 
@@ -1436,7 +1474,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert {:ok, working_conversation} = ConversationProjection.fetch(@conversation_id)
     working_ryker = Enum.find(working_conversation.messages, &(&1.actor == :ryker))
 
-    assert [working_task, _memory_offer, _schedule_offer, _preference_offer] =
+    assert [working_task, _memory_offer, _schedule_offer, _preference_offer, _guidance_offer] =
              working_ryker.cards
 
     assert working_task.actions == [

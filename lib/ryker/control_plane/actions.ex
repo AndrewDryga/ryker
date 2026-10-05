@@ -833,9 +833,11 @@ defmodule Ryker.ControlPlane.Actions do
   defp confirm_behavior(record, target, action_ref) do
     actor_ref =
       case record do
-        # The person the preference is for, in the form the turns they start
-        # carry, so it applies to them and only they may confirm it.
-        %Record{kind: "preference_offer", payload: %{"scope" => "operator"}} ->
+        # The person a personal preference or rule is for, in the form the
+        # turns they start carry, so it applies to them and only they may
+        # confirm it.
+        %Record{kind: kind, payload: %{"scope" => "operator"}}
+        when kind in ["preference_offer", "guidance_offer"] ->
           Actor.person_ref()
 
         _other ->
