@@ -16,25 +16,31 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
 
   defmodule GitHub do
     @moduledoc false
-    # GitHub's delivery API as a test double: the list, then each delivery.
-    def request(
-          %{deliveries: deliveries, payloads: payloads, test: test},
-          :get,
-          path,
-          nil,
-          _headers
-        ) do
+    # GitHub's delivery API as a test double: the list, newest first, a page
+    # at a time with a cursor link to the next, then each delivery.
+    def request(%{pages: pages, payloads: payloads, test: test}, :get, path, nil, _headers) do
       send(test, {:github, path})
 
       case path do
-        "/app/hook/deliveries?per_page=100" ->
-          {:ok, %{status: 200, body: deliveries, headers: []}}
+        "/app/hook/deliveries?per_page=100" <> cursor ->
+          index = page_index(cursor)
+          {:ok, %{status: 200, body: Enum.at(pages, index), headers: link(pages, index)}}
 
         "/app/hook/deliveries/" <> id ->
           payload = Map.fetch!(payloads, String.to_integer(id))
           {:ok, %{status: 200, body: %{"request" => %{"payload" => payload}}, headers: []}}
       end
     end
+
+    defp page_index(""), do: 0
+    defp page_index("&cursor=v1_page" <> index), do: String.to_integer(index)
+
+    defp link(pages, index) when index + 1 < length(pages) do
+      next = "https://api.github.com/app/hook/deliveries?per_page=100&cursor=v1_page#{index + 1}"
+      [{"link", ~s(<#{next}>; rel="next")}]
+    end
+
+    defp link(_pages, _index), do: []
   end
 
   test "a comment GitHub could not deliver is fetched and routed once, as GitHub would have" do
@@ -102,9 +108,40 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
     assert Repo.aggregate(Event, :count) == 0
   end
 
-  defp state(deliveries, payloads, access \\ fn _binding, _payload -> :ok end) do
+  # The poller read GitHub's newest hundred deliveries and never the next
+  # page, so a comment behind a hundred newer ones, after a busy minute or a
+  # restart, was never fetched (2026-10-04 review). It reads back until it
+  # meets a delivery it handled or one older than a day.
+  test "a comment behind a hundred newer deliveries is fetched, and a caught-up poll reads one page" do
+    comment = delivery(1, "delivery-comment", "issue_comment", ~U[2026-09-28 20:50:00Z])
+    old = delivery(0, "delivery-old", "issue_comment", ~U[2026-09-26 20:00:00Z])
+
+    checks =
+      for id <- 101..2//-1,
+          do: delivery(id, "delivery-check-#{id}", "check_run", ~U[2026-09-28 20:55:00Z])
+
+    payloads = Map.new(2..101, &{&1, check_payload(&1)}) |> Map.put(1, comment_payload())
+    # A third page sits behind the delivery older than a day.
+    state = paged_state([checks, [comment, old], [old]], payloads)
+
+    state = DeliveryPoller.poll(state)
+
+    assert [entry] = Repo.all(Entry)
+    assert entry.destination_thread_ref == "github:github-main:pull:42"
+    assert_received {:github, "/app/hook/deliveries?per_page=100&cursor=v1_page1"}
+    refute_received {:github, "/app/hook/deliveries?per_page=100&cursor=v1_page2"}
+
+    DeliveryPoller.poll(state)
+    assert_received {:github, "/app/hook/deliveries?per_page=100"}
+    refute_received {:github, "/app/hook/deliveries?per_page=100&cursor=" <> _cursor}
+  end
+
+  defp state(deliveries, payloads, access \\ fn _binding, _payload -> :ok end),
+    do: paged_state([deliveries], payloads, access)
+
+  defp paged_state(pages, payloads, access \\ fn _binding, _payload -> :ok end) do
     DeliveryPoller.state(%{
-      app_http: %{deliveries: deliveries, payloads: payloads, test: self()},
+      app_http: %{pages: pages, payloads: payloads, test: self()},
       requester: GitHub,
       clock: fn -> @now end,
       router: [
@@ -145,6 +182,24 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
 
     binding
   end
+
+  # A CI run finishing on the repository, as GitHub records it.
+  defp check_payload(id),
+    do: %{
+      "action" => "completed",
+      "check_run" => %{
+        "completed_at" => "2026-09-28T20:55:00Z",
+        "conclusion" => "success",
+        "head_sha" => String.duplicate("b", 40),
+        "id" => 7_000 + id,
+        "name" => "test",
+        "pull_requests" => [],
+        "status" => "completed"
+      },
+      "installation" => %{"id" => 41},
+      "repository" => %{"full_name" => "octo/example", "id" => 99},
+      "sender" => %{"id" => 8, "login" => "github-actions[bot]", "type" => "Bot"}
+    }
 
   # The pull request comment a person left for Ryker, as GitHub records it.
   defp comment_payload,

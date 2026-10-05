@@ -9,16 +9,19 @@ defmodule Ryker.GitHub.DeliveryPoller do
   no GitHub event had ever been recorded on that installation.
 
   GitHub keeps every delivery it attempted, whether it reached the listener
-  or not (`GET /app/hook/deliveries`). Every half minute this process asks for
-  the newest ones and hands each it has not seen to `Ryker.GitHub.Router`
-  exactly as GitHub would have: the same event, delivery id and payload,
-  signed with the App's webhook secret. The router's checks, deduplication and
-  routing apply unchanged, so a delivery that did reach the listener, or was
-  fetched before, is taken once. One Ryker could not take is fetched again
-  until it is taken (`Ryker.GitHub.Events.settled/1`).
+  or not (`GET /app/hook/deliveries`). Every half minute this process reads
+  them, newest first, back to the last one it handled, and hands each it has
+  not seen to `Ryker.GitHub.Router` exactly as GitHub would have: the same
+  event, delivery id and payload, signed with the App's webhook secret. The
+  router's checks, deduplication and routing apply unchanged, so a delivery
+  that did reach the listener, or was fetched before, is taken once. One Ryker
+  could not take is fetched again until it is taken
+  (`Ryker.GitHub.Events.settled/1`).
 
   A delivery older than a day is not replayed: a Ryker that was off for days
-  should not answer week-old comments or act on week-old CI results.
+  should not answer week-old comments or act on week-old CI results. One read
+  goes back at most ten pages, a thousand deliveries; older ones are skipped
+  with a warning.
   """
 
   use GenServer
@@ -32,7 +35,8 @@ defmodule Ryker.GitHub.DeliveryPoller do
 
   @interval_ms 30_000
   @first_poll_ms 5_000
-  @page_size 100
+  @first_page "/app/hook/deliveries?per_page=100"
+  @maximum_pages 10
   @oldest_seconds 24 * 60 * 60
   @remembered 5_000
 
@@ -62,6 +66,8 @@ defmodule Ryker.GitHub.DeliveryPoller do
       interval_ms: Map.get(options, :interval_ms, @interval_ms),
       clock: Map.get(options, :clock, &DateTime.utc_now/0),
       seen: MapSet.new(),
+      # Every delivery up to this id was handled; nil until the first read.
+      through: nil,
       failing: nil
     }
   end
@@ -81,24 +87,67 @@ defmodule Ryker.GitHub.DeliveryPoller do
   """
   @spec poll(map()) :: map()
   def poll(state) do
-    case request(state, "/app/hook/deliveries?per_page=#{@page_size}") do
-      {:ok, deliveries} when is_list(deliveries) ->
-        state |> recovered() |> deliver_new(deliveries)
+    oldest = DateTime.add(state.clock.(), -@oldest_seconds, :second)
 
-      {:ok, _unexpected} ->
-        failing(state, :unexpected_response)
-
-      {:error, reason} ->
-        failing(state, reason)
+    case read(state, oldest, @first_page, [], @maximum_pages) do
+      {:ok, deliveries} -> state |> recovered() |> deliver_new(deliveries, oldest)
+      {:error, reason} -> failing(state, reason)
     end
   end
 
-  defp deliver_new(state, deliveries) do
-    oldest = DateTime.add(state.clock.(), -@oldest_seconds, :second)
+  # GitHub lists deliveries newest first, a hundred to a page, and links the
+  # next older page. Reading stops at a delivery handled before, one older
+  # than a day, the last page, or the page limit.
+  defp read(state, oldest, path, read, pages_left) do
+    case request(state, path) do
+      {:ok, %{body: page, headers: headers}} when is_list(page) ->
+        deliveries = read ++ Enum.filter(page, &(is_binary(&1["guid"]) and is_integer(&1["id"])))
+        next = next_page(headers)
 
+        cond do
+          is_nil(next) or Enum.any?(page, &reached?(&1, state.through, oldest)) ->
+            {:ok, deliveries}
+
+          pages_left == 1 ->
+            Logger.warning(
+              "GitHub has more new deliveries than one read takes; older ones are skipped"
+            )
+
+            {:ok, deliveries}
+
+          true ->
+            read(state, oldest, next, deliveries, pages_left - 1)
+        end
+
+      {:ok, _unexpected} ->
+        {:error, :unexpected_response}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp reached?(%{"id" => id} = delivery, through, oldest),
+    do:
+      (is_integer(through) and is_integer(id) and id <= through) or not recent?(delivery, oldest)
+
+  defp reached?(_delivery, _through, _oldest), do: true
+
+  # Only the cursor is taken from GitHub's link; the path stays this poller's.
+  defp next_page(headers) do
+    with {_name, link} <- List.keyfind(headers, "link", 0),
+         [_link, url] <- Regex.run(~r/<([^>]+)>;\s*rel="next"/, link),
+         %URI{query: query} when is_binary(query) <- URI.parse(url),
+         %{"cursor" => cursor} when cursor != "" <- URI.decode_query(query) do
+      @first_page <> "&cursor=" <> URI.encode_www_form(cursor)
+    else
+      _no_next -> nil
+    end
+  end
+
+  defp deliver_new(state, deliveries, oldest) do
     {fresh, stale} =
       deliveries
-      |> Enum.filter(&(is_binary(&1["guid"]) and is_integer(&1["id"])))
       |> Enum.reject(&(MapSet.member?(state.seen, &1["guid"]) or &1["event"] == "ping"))
       |> Enum.uniq_by(& &1["guid"])
       |> Enum.split_with(&recent?(&1, oldest))
@@ -106,11 +155,20 @@ defmodule Ryker.GitHub.DeliveryPoller do
     settled = Events.settled(Enum.map(fresh, & &1["guid"]))
     state = remember(state, Enum.map(stale, & &1["guid"]) ++ MapSet.to_list(settled))
 
-    fresh
-    |> Enum.reject(&MapSet.member?(settled, &1["guid"]))
-    |> Enum.sort_by(& &1["delivered_at"])
-    |> Enum.reduce(state, &deliver/2)
+    {state, pending} =
+      fresh
+      |> Enum.reject(&MapSet.member?(settled, &1["guid"]))
+      |> Enum.sort_by(& &1["id"])
+      |> Enum.reduce({state, []}, &deliver/2)
+
+    %{state | through: through(state.through, deliveries, pending)}
   end
+
+  # A delivery not taken is read again next time, so the next read reaches
+  # back to just before the oldest of them.
+  defp through(through, [], []), do: through
+  defp through(_through, deliveries, []), do: deliveries |> Enum.map(& &1["id"]) |> Enum.max()
+  defp through(_through, _deliveries, pending), do: Enum.min(pending) - 1
 
   defp recent?(%{"delivered_at" => at}, oldest) when is_binary(at) do
     case DateTime.from_iso8601(at) do
@@ -121,19 +179,21 @@ defmodule Ryker.GitHub.DeliveryPoller do
 
   defp recent?(_delivery, _oldest), do: false
 
-  defp deliver(%{"id" => id, "guid" => guid, "event" => event_name}, state) do
+  defp deliver(%{"id" => id, "guid" => guid, "event" => event_name}, {state, pending}) do
     case request(state, "/app/hook/deliveries/#{id}") do
-      {:ok, %{"request" => %{"payload" => %{} = payload}}} when is_binary(event_name) ->
+      {:ok, %{body: %{"request" => %{"payload" => %{} = payload}}}} when is_binary(event_name) ->
         conn = route(state, guid, event_name, payload)
 
         # The router could not take it now; it is asked again next time.
-        if conn.status == 503, do: state, else: remember(state, [guid])
+        if conn.status == 503,
+          do: {state, [id | pending]},
+          else: {remember(state, [guid]), pending}
 
       {:ok, _without_payload} ->
-        remember(state, [guid])
+        {remember(state, [guid]), pending}
 
       {:error, reason} ->
-        failing(state, reason)
+        {failing(state, reason), [id | pending]}
     end
   end
 
@@ -170,7 +230,7 @@ defmodule Ryker.GitHub.DeliveryPoller do
     case state.requester.request(state.app_http, :get, path, nil, [
            {"accept", "application/vnd.github+json"}
          ]) do
-      {:ok, %{status: 200, body: body}} -> {:ok, body}
+      {:ok, %{status: 200} = response} -> {:ok, response}
       {:ok, %{status: status}} -> {:error, {:github_status, status}}
       {:error, reason} -> {:error, reason}
     end

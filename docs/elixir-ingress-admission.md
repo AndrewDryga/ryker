@@ -222,10 +222,12 @@ installation, installation-repository and repository events keep the bindings' a
 permissions current; deployments, deployment statuses, releases, pushes and review-thread changes
 are recorded as repository events.
 
-GitHub needs no route to Ryker. Every half minute `Ryker.GitHub.DeliveryPoller` asks GitHub for the
-App's newest deliveries and routes each one the listener has not taken, exactly as GitHub would
-have sent it: same event, delivery id and payload, signed with the App's webhook secret, so the
-router's checks and deduplication apply unchanged. Deliveries older than a day are not replayed.
+GitHub needs no route to Ryker. Every half minute `Ryker.GitHub.DeliveryPoller` reads the App's
+deliveries, newest first, back to the last one it handled, and routes each one the listener has
+not taken, exactly as GitHub would have sent it: same event, delivery id and payload, signed with
+the App's webhook secret, so the router's checks and deduplication apply unchanged. Deliveries
+older than a day are not replayed, and one read goes back at most ten pages, a thousand
+deliveries; it warns when it skips older ones.
 
 The supervised runtime contains both `server` and `tokens` components: `server` owns the shared
 webhook listener and trusted bindings, while `tokens` signs short-lived App JWTs and mints the exact
