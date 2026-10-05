@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-unit elixir-test elixir-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck watchdog-check launch-agent-check deploy-check test-db-ready dev-check check release-check clean
+.PHONY: retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck watchdog-check launch-agent-check deploy-check test-db-ready dev-check check release-check clean
 
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
@@ -22,9 +22,6 @@ built_release = version=$$(awk '{print $$2}' _build/prod/rel/ryker/releases/star
 
 $(EVAL_HISTORY):
 	@mkdir -p "$@"
-
-elixir-unit:
-	MIX_ENV=test scripts/elixir-mix.sh test --no-start --exclude database $(ELIXIR_TEST)
 
 elixir-test:
 	scripts/elixir-test.sh $(ELIXIR_TEST)
