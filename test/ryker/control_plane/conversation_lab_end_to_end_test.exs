@@ -519,7 +519,14 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert {:ok, {:delivered, :message, _delivery_ref}} =
              Ryker.Delivery.Dispatcher.run_once(delivery_options("artifact"))
 
-    assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
+    # Every refresh of a Chat read the bytes of every file its turns made, up
+    # to 8 MiB a turn, to show their names and sizes (2026-10-04 review). The
+    # bytes are read when someone opens the file.
+    {{:ok, conversation}, artifact_reads} =
+      artifact_queries(fn -> ConversationProjection.fetch(@conversation_id) end)
+
+    assert artifact_reads != []
+    refute Enum.any?(artifact_reads, &String.contains?(&1, ~s("data")))
 
     assert [%{attachments: [attachment]}] =
              Enum.filter(conversation.messages, &(&1.actor == :ryker))
@@ -1350,6 +1357,38 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     |> LazyHTML.from_fragment()
     |> LazyHTML.query("article.lab-chat-message")
     |> Enum.to_list()
+  end
+
+  defp artifact_queries(fun) do
+    reference = make_ref()
+
+    :ok =
+      :telemetry.attach(
+        reference,
+        [:ryker, :repo, :query],
+        &__MODULE__.capture_artifact_query/4,
+        {self(), reference}
+      )
+
+    try do
+      result = fun.()
+      {result, drain_artifact_queries(reference, [])}
+    after
+      :telemetry.detach(reference)
+    end
+  end
+
+  def capture_artifact_query(_event, _measurements, %{query: query}, {owner, reference}) do
+    if self() == owner and String.contains?(query, "work_output_artifacts"),
+      do: send(owner, {reference, query})
+  end
+
+  defp drain_artifact_queries(reference, queries) do
+    receive do
+      {^reference, query} -> drain_artifact_queries(reference, [query | queries])
+    after
+      0 -> Enum.reverse(queries)
+    end
   end
 
   defp send_message(event_id, now, message, options \\ []) do

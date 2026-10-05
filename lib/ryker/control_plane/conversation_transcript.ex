@@ -422,12 +422,14 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp project_output_artifacts([], _conversation_id), do: %{}
 
+  # Names, types and sizes only: a file's bytes are read when someone opens it.
   defp project_output_artifacts(turn_ids, conversation_id) do
     Repo.all(
       from(artifact in OutputArtifact,
         where: artifact.turn_id in ^turn_ids,
         order_by: [asc: artifact.name, asc: artifact.ref],
-        limit: ^(@page_maximum * 5)
+        limit: ^(@page_maximum * 5),
+        select: struct(artifact, [:turn_id, :ref, :name, :media_type, :byte_size])
       )
     )
     |> Map.new(&{{&1.turn_id, &1.ref}, output_artifact(&1, conversation_id)})
