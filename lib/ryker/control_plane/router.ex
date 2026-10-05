@@ -198,13 +198,15 @@ defmodule Ryker.ControlPlane.Router do
 
         text(conn, 503, "#{label} unavailable\n")
 
-      # Raised again, the file is left unfinished: the server closes the
-      # connection before it ends, so the browser reports a failed download
-      # instead of keeping the lines sent so far as the whole file.
-      {:error, error, stack, :sent} ->
+      # Raised, the file is left unfinished: the server closes the connection
+      # before it ends, so the browser reports a failed download instead of
+      # keeping the lines sent so far as the whole file. What is raised says
+      # only that: raising the original error again handed the server's log
+      # whatever data it carried (2026-10-04 review).
+      {:error, error, _stack, :sent} ->
         Logger.warning("#{label} download stopped part-way category=#{inspect(error.__struct__)}")
 
-        reraise(error, stack)
+        raise "#{label} download stopped part-way"
     end
   end
 

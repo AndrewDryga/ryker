@@ -94,12 +94,17 @@ defmodule Ryker.ControlPlane.RouterTest do
     end
 
     # Raised on, the server closes the connection before the file ends, so
-    # the browser reports a failed download instead of keeping one line.
+    # the browser reports a failed download instead of keeping one line. What
+    # is raised says only that: raising the original error again handed the
+    # server's log whatever data it carried (2026-10-04 review).
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        assert_raise DBConnection.ConnectionError, fn ->
-          request_with_options(:get, path, nil, routing_examples(part_way))
-        end
+        error =
+          assert_raise RuntimeError, fn ->
+            request_with_options(:get, path, nil, routing_examples(part_way))
+          end
+
+        assert Exception.message(error) == "Routing examples download stopped part-way"
       end)
 
     assert log =~
