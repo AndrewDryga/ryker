@@ -138,8 +138,9 @@ defmodule Ryker.StateTools.CallLogTest do
   test "a failure without an error body says why there is none instead of calling it older" do
     # The same QA pass read "not recorded for this older call" under a Read
     # file that had failed a second earlier. Coop never sends a tool's error
-    # output, so that sentence was false for every call it narrated; it stays
-    # only for a state-tool call made before Ryker recorded them.
+    # output, so that sentence was false for every call it narrated. A
+    # state-tool call Ryker has no recording of was called older too, in a turn
+    # that had just started (2026-10-05): Ryker has no record of receiving it.
     work = bound_turn!("unexplained-failures")
     now = DateTime.utc_now()
     later = DateTime.add(now, 40, :second)
@@ -171,12 +172,11 @@ defmodule Ryker.StateTools.CallLogTest do
              "exec-read" =>
                "The tool failed. The worker does not send tool error details to Ryker.",
              "exec-proposal" =>
-               "The tool failed. Its error response was not recorded for this older call."
+               "The tool failed, and Ryker has no record of receiving the call, so there is no error response to show."
            }
 
-    # Once the turn has recordings, a call with none inside its window is one
-    # Ryker never received, not an older one. The recording made now belongs
-    # to a call forty seconds earlier and is not handed to this one.
+    # The recording made now belongs to a call forty seconds earlier and is not
+    # handed to this one.
     listed_at = DateTime.utc_now()
 
     refute call_tool(work, "list_automations", %{"limit" => 20})[

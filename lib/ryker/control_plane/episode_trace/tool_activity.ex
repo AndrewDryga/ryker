@@ -29,8 +29,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   unclaimed recording of the same tool in the same Work turn that Ryker
   received inside the call's window, so a call whose narration was dropped
   cannot hand its recording to the next one. A failed call without a
-  recording says which it is: its turn predates the recording, or Ryker has
-  no record of receiving it.
+  recording says Ryker has no record of receiving it.
   """
   @spec with_state_tool_calls([ActivityEvent.t()], [CallRecord.t()], EpisodeCausality.t()) ::
           [ActivityEvent.t()]
@@ -40,11 +39,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
           into: %{},
           do: {activity_tool_key(event), event}
 
-    recorded_turns = MapSet.new(calls, & &1.turn_id)
-
     {joined, _unclaimed} =
       Enum.reduce(events, {%{}, Enum.group_by(calls, &{&1.turn_id, &1.tool})}, fn event, acc ->
-        join_state_call(event, acc, completions, recorded_turns, causality)
+        join_state_call(event, acc, completions, causality)
       end)
 
     Enum.map(events, &join_call(&1, joined[&1.id]))
@@ -57,7 +54,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
          } = started,
          {joined, pending},
          completions,
-         recorded_turns,
          causality
        )
        when server in @state_servers and is_binary(tool) do
@@ -65,7 +61,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
       {:turn, turn_id} ->
         completed = completions[activity_tool_key(started)]
         {call, unclaimed} = claim_call(Map.get(pending, {turn_id, tool}, []), started, completed)
-        evidence = %{call: call, recorded: MapSet.member?(recorded_turns, turn_id)}
+        evidence = %{call: call}
         joined = Map.put(joined, started.id, evidence)
         joined = if completed, do: Map.put(joined, completed.id, evidence), else: joined
         {joined, Map.put(pending, {turn_id, tool}, unclaimed)}
@@ -75,7 +71,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     end
   end
 
-  defp join_state_call(_event, acc, _completions, _recorded_turns, _causality), do: acc
+  defp join_state_call(_event, acc, _completions, _causality), do: acc
 
   # A recording older than the call's window belongs to a call whose narration
   # Coop dropped; it is passed over rather than handed to this one.
@@ -122,25 +118,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         "Ryker answered the call, but the worker reported it as failed."
       )
 
-  defp failed_call(payload, %{recorded: recorded}) do
-    cond do
-      payload["error"] || payload["output"] || payload["content"] ->
-        payload
-
-      recorded ->
+  # The sentence said "not recorded for this older call" whenever the turn had
+  # no recording at all, which a new turn whose only call never reached Ryker
+  # has too (2026-10-05).
+  defp failed_call(payload, _no_recording) do
+    if payload["error"] || payload["output"] || payload["content"],
+      do: payload,
+      else:
         Map.put(
           payload,
           "ryker_summary",
           "The tool failed, and Ryker has no record of receiving the call, so there is no error response to show."
         )
-
-      true ->
-        Map.put(
-          payload,
-          "ryker_summary",
-          "The tool failed. Its error response was not recorded for this older call."
-        )
-    end
   end
 
   @doc """
