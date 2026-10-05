@@ -14,7 +14,8 @@ defmodule Ryker.Operator.Actions do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Operator.{Action, Reference}
+  alias Ryker.Operator.Action
+  alias Ryker.Reference
   alias Ryker.Repo
 
   @fields [:action, :action_ref, :actor_ref, :kind, :request, :resource_ref]
@@ -31,6 +32,23 @@ defmodule Ryker.Operator.Actions do
   end
 
   def run(_attributes, _operation), do: {:error, {:invalid_operator_action, :arguments}}
+
+  @doc """
+  The actor a Slack operator acts as, checked against the saved operator
+  membership. Membership is a durable setting, so a disconnected Slack
+  integration does not silently revoke it, and a connected one does not grant
+  it.
+  """
+  @spec operator_actor(term()) :: {:ok, String.t()} | {:error, term()}
+  def operator_actor(operator) when is_binary(operator) do
+    with {:ok, settings} <- Ryker.Settings.fetch() do
+      if operator in settings.slack.operators,
+        do: {:ok, "slack:user:#{operator}"},
+        else: {:error, :configured_slack_operator_required}
+    end
+  end
+
+  def operator_actor(_operator), do: {:error, :configured_slack_operator_required}
 
   @spec fetch(String.t()) :: {:ok, Action.t()} | :error
   def fetch(action_ref) do
@@ -68,7 +86,7 @@ defmodule Ryker.Operator.Actions do
     with {:ok, %{outcome: outcome, previous: previous}} <- operation.(),
          :ok <- document(previous, :previous),
          :ok <- document(outcome, :outcome) do
-      now = database_now!()
+      now = Repo.now!()
 
       action =
         %Action{}
@@ -169,11 +187,6 @@ defmodule Ryker.Operator.Actions do
   defp document(_value, field), do: {:error, {:invalid_operator_action, field}}
 
   defp reference(value, field), do: Reference.check(value, field, :invalid_operator_action)
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
 
   defp transaction_result({:ok, value}), do: {:ok, value}
   defp transaction_result({:error, reason}), do: {:error, reason}

@@ -587,7 +587,7 @@ defmodule Ryker.Slack.IncidentRooms do
         room
 
       %IncidentRoom{} = room ->
-        now = database_now!()
+        now = Repo.now!()
         update!(room, close_request_attributes(room, actor_ref, now), now)
     end
   end
@@ -862,7 +862,7 @@ defmodule Ryker.Slack.IncidentRooms do
       }
 
       attributes = deleted_attributes(room, state, attributes)
-      room = update!(room, attributes, database_now!())
+      room = update!(room, attributes, Repo.now!())
       %{room: room, status: :applied}
     else
       %{room: room, status: :stale}
@@ -1197,12 +1197,12 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp claim_next_locked(worker_ref, lease_seconds) do
-    now = database_now!()
+    now = Repo.now!()
     now |> next_claimable_room() |> lease_room(worker_ref, lease_seconds, now)
   end
 
   defp rearm_locked(room_ref) do
-    now = database_now!()
+    now = Repo.now!()
 
     case Repo.one(
            from(room in IncidentRoom,
@@ -1286,7 +1286,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp claim_health_check_locked(worker_ref, lease_seconds, check_interval_seconds) do
-    now = database_now!()
+    now = Repo.now!()
     due_at = DateTime.add(now, -check_interval_seconds, :second)
 
     room =
@@ -1320,7 +1320,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp claim_root_card_locked(worker_ref, lease_seconds, check_interval_seconds) do
-    now = database_now!()
+    now = Repo.now!()
     due_at = DateTime.add(now, -check_interval_seconds, :second)
     due_at |> root_card_claimable_room(now) |> lease_room(worker_ref, lease_seconds, now)
   end
@@ -1444,7 +1444,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp mutate_claim_locked(room_id, lease_ref, callback) do
-    now = database_now!()
+    now = Repo.now!()
     room = Repo.one(from(room in IncidentRoom, where: room.id == ^room_id, lock: "FOR UPDATE"))
 
     cond do
@@ -1466,7 +1466,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp finalize_locked(room_id, lease_ref) do
-    now = database_now!()
+    now = Repo.now!()
 
     room = Repo.one(from(room in IncidentRoom, where: room.id == ^room_id, lock: "FOR UPDATE"))
 
@@ -1556,7 +1556,7 @@ defmodule Ryker.Slack.IncidentRooms do
          {:ok, room} <-
            room
            |> IncidentRoomChangeset.update(%{
-             channel_checked_at: database_now!(),
+             channel_checked_at: Repo.now!(),
              episode_id: transition.episode.id,
              last_error_code: nil,
              last_error_detail: nil,
@@ -1729,11 +1729,6 @@ defmodule Ryker.Slack.IncidentRooms do
     key = "slack-incident-room:#{workspace_ref}"
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
     :ok
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 
   defp describe_error(reason) do

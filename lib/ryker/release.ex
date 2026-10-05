@@ -9,7 +9,7 @@ defmodule Ryker.Release do
 
   alias Ryker.{Bootstrap, Settings}
   alias Ryker.CoopFleet.{Enrollment, WorkerLifecycle}
-  alias Ryker.Operator.Preflight
+  alias Ryker.Operator.{Actions, Preflight, SlackReplay}
   alias Ryker.Runtime.Assembly
 
   @app :ryker
@@ -136,6 +136,53 @@ defmodule Ryker.Release do
 
         report(settings, result)
         {:ok, result}
+      end
+    end)
+  end
+
+  @doc """
+  Replays one retained Slack message privately, as a Slack operator, and
+  prints the result as JSON. The replay runs the normal admission and Work
+  path with every visible Slack effect forbidden; repeating `action_ref`
+  returns the first result. `scripts/compose.sh replay` runs this inside the
+  container, where there is no Mix to run `mix ryker.replay` with.
+  """
+  @spec replay(String.t(), String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def replay(source_input_ref, request_ref, operator, action_ref, options \\ []) do
+    settings = settings!(options)
+
+    with_repo!(settings, fn _repo ->
+      with_settings_pubsub(fn ->
+        enqueue_replay(settings, source_input_ref, request_ref, operator, action_ref)
+      end)
+    end)
+  end
+
+  defp enqueue_replay(settings, source_input_ref, request_ref, operator, action_ref) do
+    with {:ok, actor_ref} <- Actions.operator_actor(operator),
+         {:ok, replay} <-
+           SlackReplay.enqueue(source_input_ref, request_ref,
+             action_ref: action_ref,
+             actor_ref: actor_ref
+           ) do
+      report(settings, replay)
+      {:ok, replay}
+    end
+  end
+
+  @doc """
+  Where a private replay is, and what Ryker would have done, as JSON.
+  `scripts/compose.sh replay-show` runs this inside the container.
+  """
+  @spec replay_status(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def replay_status(replay_input_ref, options \\ []) do
+    settings = settings!(options)
+
+    with_repo!(settings, fn _repo ->
+      with {:ok, replay} <- SlackReplay.fetch(replay_input_ref) do
+        report(settings, replay)
+        {:ok, replay}
       end
     end)
   end

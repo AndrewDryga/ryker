@@ -168,7 +168,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         else: from(membership in query, where: membership.channel_ref not in ^present_refs)
 
     memberships = Repo.all(query)
-    now = database_now!()
+    now = Repo.now!()
 
     Enum.each(memberships, fn membership ->
       cancel_active_sessions!(membership, :cancelled)
@@ -327,7 +327,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
           actor_ref: actor_ref,
           environment_ref: environment_ref,
           revision: configuration.revision + 1,
-          saved_at: database_now!()
+          saved_at: Repo.now!()
         })
         |> Repo.update()
         |> saved_configuration(:environment_not_found)
@@ -497,7 +497,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
           session.workspace_ref == ^workspace_ref and session.channel_ref == ^channel_ref and
             session.status in [:asking, :confirming]
       ),
-      set: [status: :cancelled, updated_at: database_now!()]
+      set: [status: :cancelled, updated_at: Repo.now!()]
     )
 
     :ok
@@ -505,7 +505,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   @spec active_session(String.t(), String.t()) :: ConfigurationSession.t() | nil
   def active_session(workspace_ref, channel_ref) do
-    now = database_now!()
+    now = Repo.now!()
     expire_active_sessions!(workspace_ref, channel_ref, now)
 
     Repo.one(
@@ -552,7 +552,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         )
       )
 
-    now = database_now!()
+    now = Repo.now!()
     expire_active_sessions!(attributes.workspace_ref, attributes.channel_ref, now)
 
     active =
@@ -694,7 +694,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
          catalog
        ) do
     generation = if membership, do: membership.generation + 1, else: 1
-    now = database_now!()
+    now = Repo.now!()
 
     attributes = %{
       actor_ref: nil,
@@ -803,7 +803,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
           # No explicit choice yet: the channel inherits the installation default.
           participation: nil,
           revision: 1,
-          saved_at: database_now!(),
+          saved_at: Repo.now!(),
           welcome_message_ref: nil,
           workspace_ref: membership.workspace_ref
         }
@@ -877,7 +877,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
          start_fingerprint,
          thread_ref
        ) do
-    now = database_now!()
+    now = Repo.now!()
 
     %{
       channel_ref: membership.channel_ref,
@@ -919,7 +919,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
             session.channel_ref == ^membership.channel_ref and
             session.status in [:asking, :confirming]
       ),
-      set: [status: status, updated_at: database_now!()]
+      set: [status: status, updated_at: Repo.now!()]
     )
 
     :ok
@@ -1160,7 +1160,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp setup_message_location?(_session, _attributes), do: false
 
   defp not_expired(session) do
-    if DateTime.compare(session.expires_at, database_now!()) == :gt,
+    if DateTime.compare(session.expires_at, Repo.now!()) == :gt,
       do: :ok,
       else: {:error, :configuration_expired}
   end
@@ -1281,7 +1281,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   defp save_configuration!(session, actor_ref, draft) do
-    now = database_now!()
+    now = Repo.now!()
 
     existing =
       Repo.one(
@@ -1376,7 +1376,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
             field => value,
             actor_ref: attributes.actor_ref,
             revision: configuration.revision + 1,
-            saved_at: database_now!()
+            saved_at: Repo.now!()
           })
           |> Repo.update!()
 
@@ -1736,12 +1736,6 @@ defmodule Ryker.Slack.ChannelConfigurations do
     case ChannelFence.lock_in_transaction(workspace_ref, channel_ref) do
       :ok -> :ok
       {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
-  defp database_now! do
-    case Repo.query!("SELECT clock_timestamp()") do
-      %{rows: [[%DateTime{} = now]]} -> now
     end
   end
 

@@ -18,6 +18,15 @@ defmodule Ryker.Reference do
   def valid?(_value, _maximum_bytes), do: false
 
   @doc """
+  `valid?/2` as a boundary's answer: `:ok`, or `{:error, {boundary, field}}`
+  naming the field and the boundary that refused it, never the value.
+  """
+  @spec check(term(), atom(), atom(), pos_integer()) :: :ok | {:error, {atom(), atom()}}
+  def check(value, field, boundary, maximum_bytes \\ @default_maximum_bytes) do
+    if valid?(value, maximum_bytes), do: :ok, else: {:error, {boundary, field}}
+  end
+
+  @doc """
   The rule for text a person or model wrote: valid UTF-8 with no NUL byte, not
   blank, and at most `maximum` characters, counted as the tool schemas count
   them (code points). Counting bytes refused text in any language but English

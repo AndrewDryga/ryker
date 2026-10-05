@@ -141,7 +141,7 @@ defmodule Ryker.Slack.TaskCards do
   end
 
   defp claim_next_locked(worker_ref, lease_seconds, check_interval_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     query =
       from(card in TaskCard,
@@ -270,7 +270,7 @@ defmodule Ryker.Slack.TaskCards do
   end
 
   defp rearm_locked(ref) do
-    now = database_now!()
+    now = Repo.now!()
 
     case Repo.one(from(card in TaskCard, where: card.ref == ^ref, lock: "FOR UPDATE")) do
       nil ->
@@ -396,7 +396,7 @@ defmodule Ryker.Slack.TaskCards do
 
   defp mutate_claim(card_id, lease_ref, callback) do
     Repo.transaction(fn ->
-      now = database_now!()
+      now = Repo.now!()
       card = Repo.one(from(card in TaskCard, where: card.id == ^card_id, lock: "FOR UPDATE"))
 
       cond do
@@ -455,11 +455,6 @@ defmodule Ryker.Slack.TaskCards do
   end
 
   defp slack_conversation(_value), do: {:error, :task_card_destination_invalid}
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
 
   defp describe_error(reason) do
     code =

@@ -14,6 +14,8 @@ defmodule Ryker.Operator.WorkflowsTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Operator.{Actions, FailureDetail, Failures, Preflight, SlackReplay, Status}
+  alias Ryker.Release
+  alias Ryker.Settings
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Slack.{Interaction, InteractionAudits}
 
@@ -392,6 +394,39 @@ defmodule Ryker.Operator.WorkflowsTest do
              delivery: :none,
              status: :accepted
            }
+  end
+
+  # A private replay ran only through `mix ryker.replay`, which a Compose
+  # install (a release, with no Mix) cannot run, so the only deployment had no
+  # way to replay a message after a fix (2026-10-04 review).
+  test "a Compose install replays a retained Slack message privately through the release" do
+    actor = "control-plane:local"
+    {:ok, saved} = Settings.initialize(actor)
+
+    {:ok, _saved} =
+      Settings.save_slack(
+        %{workspace_ref: "T123", bot_ref: "A123", bot_user_ref: "U999", operators: ["U123"]},
+        saved.installation.revision,
+        actor
+      )
+
+    assert {:ok, input} = slack_input("Ev-release-replay", "1788512400.000300")
+    assert {:ok, %{entry: source}} = Inbox.record(input, work_profile: work_profile!())
+
+    assert Release.replay(Inbox.ref(source), "post-fix-check-1", "U777", "replay-1", log: false) ==
+             {:error, :configured_slack_operator_required}
+
+    assert {:ok, %{outcome: %{"replay_input_ref" => replay_input_ref}}} =
+             Release.replay(Inbox.ref(source), "post-fix-check-1", "U123", "replay-1", log: false)
+
+    assert {:ok, %{execution_mode: :shadow, source_input_ref: source_ref}} =
+             Release.replay_status(replay_input_ref, log: false)
+
+    assert source_ref == Inbox.ref(source)
+
+    compose = File.read!(Path.expand("../../../scripts/compose.sh", __DIR__))
+    assert compose =~ "Ryker.Release.replay("
+    assert compose =~ "Ryker.Release.replay_status("
   end
 
   test "private replay rejects non-Slack and pruned sources before creating custody" do

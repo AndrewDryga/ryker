@@ -236,7 +236,7 @@ defmodule Ryker.Slack.InteractionAudits do
   end
 
   defp claim_next_locked(worker_ref, lease_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     query =
       from(audit in InteractionAudit,
@@ -273,7 +273,7 @@ defmodule Ryker.Slack.InteractionAudits do
   end
 
   defp mutate_claim_locked(id, lease_ref, callback) do
-    now = database_now!()
+    now = Repo.now!()
 
     case Repo.one(from(audit in InteractionAudit, where: audit.id == ^id, lock: "FOR UPDATE")) do
       nil ->
@@ -368,11 +368,6 @@ defmodule Ryker.Slack.InteractionAudits do
     if byte_size(output) + byte_size(grapheme) <= maximum,
       do: take_bytes(rest, maximum, output <> grapheme),
       else: output
-  end
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
   end
 
   defp reference(value, field, maximum) do

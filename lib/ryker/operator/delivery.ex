@@ -15,7 +15,7 @@ defmodule Ryker.Operator.Delivery do
     RoutingResponseCustody
   }
 
-  alias Ryker.Repo
+  alias Ryker.{Reference, Repo}
   alias Ryker.WeeklyReport.Custody, as: ReportCustody
   alias Ryker.WeeklyReport.Report
   alias Ryker.Work.{Custody, Turn}
@@ -181,10 +181,6 @@ defmodule Ryker.Operator.Delivery do
     }
   end
 
-  defp reference(value) do
-    if is_binary(value) and String.valid?(value) and String.trim(value) != "" and
-         :binary.match(value, <<0>>) == :nomatch and byte_size(value) <= 1_024,
-       do: :ok,
-       else: {:error, {:invalid_delivery_operator, :delivery_ref}}
-  end
+  defp reference(value),
+    do: Reference.check(value, :delivery_ref, :invalid_delivery_operator)
 end

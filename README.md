@@ -421,13 +421,17 @@ scripts/compose.sh worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF
 scripts/compose.sh worker-drain WORKER_ID OPERATOR_REF
 scripts/compose.sh worker-resume WORKER_ID OPERATOR_REF
 scripts/compose.sh worker-revoke WORKER_ID OPERATOR_REF
+scripts/compose.sh replay 'ingress-input:...' post-fix-check-1 U123 replay-slack-20260904-1
+scripts/compose.sh replay-show 'ingress-input:...'
 ```
 
 `doctor` checks that the saved settings were applied and the durable queues are ready.
 `worker-token` prints a one-time enrolment token for a Coop worker the installation does not run
 itself. `worker-drain` stops placing new work on a worker and lets what it holds finish,
 `worker-resume` takes a drained worker back, and `worker-revoke` cuts one off at once, with its
-certificates and unused enrolment tokens. Routine recovery on a Compose install is the control plane's Failures page.
+certificates and unused enrolment tokens. `replay` and `replay-show` are `ryker.replay slack` and
+`ryker.replay show`, described below, with the operator and the action reference given in order.
+Routine recovery on a Compose install is the control plane's Failures page.
 
 The Mix tasks below run from a source checkout with Mix. The Docker Compose install publishes
 neither PostgreSQL nor Mix, so they need a database you can reach with the installation's

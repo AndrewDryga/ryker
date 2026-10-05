@@ -9,6 +9,7 @@ defmodule Ryker.Operator.Publication do
 
   alias Ryker.Operator.Actions
   alias Ryker.Publication.{Custody, Publication}
+  alias Ryker.Reference
 
   @actions [:retry, :update, :discard]
 
@@ -72,13 +73,6 @@ defmodule Ryker.Operator.Publication do
 
   defp settings(_options), do: {:error, {:invalid_publication_recovery, :options}}
 
-  defp reference(value, field)
-       when is_binary(value) and byte_size(value) in 1..1_024 do
-    if String.valid?(value) and String.trim(value) != "" and
-         :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_publication_recovery, field}}
-  end
-
-  defp reference(_value, field), do: {:error, {:invalid_publication_recovery, field}}
+  defp reference(value, field),
+    do: Reference.check(value, field, :invalid_publication_recovery)
 end

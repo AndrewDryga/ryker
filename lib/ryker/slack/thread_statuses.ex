@@ -44,7 +44,7 @@ defmodule Ryker.Slack.ThreadStatuses do
       "slack-thread-status:#{workspace_ref}"
     ])
 
-    now = database_now!()
+    now = Repo.now!()
 
     existing =
       Repo.all(
@@ -132,7 +132,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   end
 
   defp claim_next_locked(worker_ref, workspace_ref, lease_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     query =
       from(status in ThreadStatus,
@@ -346,7 +346,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   end
 
   defp mutate_claim_locked(id, lease_ref, generation, callback) do
-    now = database_now!()
+    now = Repo.now!()
     status = Repo.one(from(status in ThreadStatus, where: status.id == ^id, lock: "FOR UPDATE"))
 
     cond do
@@ -398,11 +398,6 @@ defmodule Ryker.Slack.ThreadStatuses do
   end
 
   defp target?(_target), do: false
-
-  defp database_now! do
-    %{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
 
   defp describe_error(reason) do
     code =

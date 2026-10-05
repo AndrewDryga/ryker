@@ -2,6 +2,7 @@ defmodule Mix.Tasks.Ryker.OperatorSupport do
   @moduledoc false
 
   alias Ryker.{Bootstrap, Repo, Settings}
+  alias Ryker.Operator.Actions
   alias Ryker.Runtime.Assembly
 
   def parse(arguments, switches, positional_count) do
@@ -55,21 +56,9 @@ defmodule Mix.Tasks.Ryker.OperatorSupport do
 
   def print(value), do: Mix.shell().info(Jason.encode!(value))
 
-  @doc """
-  Resolves a mutating operator identity against the saved operator membership.
-
-  Membership is a durable setting, so a disconnected Slack integration does not
-  silently revoke it, and a connected one does not grant it.
-  """
-  def authorized_actor(options) when is_list(options) do
-    operator = Keyword.get(options, :operator)
-
-    with {:ok, settings} <- Settings.fetch() do
-      if is_binary(operator) and operator in settings.slack.operators,
-        do: {:ok, "slack:user:#{operator}"},
-        else: {:error, :configured_slack_operator_required}
-    end
-  end
+  @doc "Resolves `--operator` against the saved operator membership (`Actions.operator_actor/1`)."
+  def authorized_actor(options) when is_list(options),
+    do: Actions.operator_actor(Keyword.get(options, :operator))
 
   def authorized_actor(_options), do: {:error, :configured_slack_operator_required}
 

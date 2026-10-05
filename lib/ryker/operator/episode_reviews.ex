@@ -23,7 +23,8 @@ defmodule Ryker.Operator.EpisodeReviews do
 
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback
-  alias Ryker.Operator.{EpisodeReview, Reference}
+  alias Ryker.Operator.EpisodeReview
+  alias Ryker.Reference
   alias Ryker.Repo
 
   @ratings [:good, :needs_work]
@@ -64,7 +65,7 @@ defmodule Ryker.Operator.EpisodeReviews do
           id: Ecto.UUID.generate(),
           note: note,
           rating: rating,
-          reviewed_at: database_now!(),
+          reviewed_at: Repo.now!(),
           semantic_version: episode.semantic_version
         }
 
@@ -138,11 +139,6 @@ defmodule Ryker.Operator.EpisodeReviews do
   end
 
   defp note(_value), do: {:error, {:invalid_episode_review, :note}}
-
-  defp database_now! do
-    %Postgrex.Result{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}

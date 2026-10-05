@@ -148,7 +148,7 @@ defmodule Ryker.Publication.Custody do
         :ok
 
       rearmable?(publication, repository) ->
-        now = database_now!()
+        now = Repo.now!()
 
         _rearmed =
           update!(
@@ -561,7 +561,7 @@ defmodule Ryker.Publication.Custody do
         Repo.rollback(:publication_not_found)
 
       publication ->
-        now = database_now!()
+        now = Repo.now!()
 
         with :ok <- recovery_generation(publication, expected_generation),
              :ok <- no_live_recovery_lease(publication, action, now),
@@ -1142,7 +1142,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp claim_next_locked(worker_ref, lease_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     case Repo.one(next_claimable_query(now)) do
       nil ->
@@ -1229,7 +1229,7 @@ defmodule Ryker.Publication.Custody do
         publication
 
       true ->
-        now = database_now!()
+        now = Repo.now!()
 
         with :ok <- live_lease(publication, lease_ref, now),
              :ok <- exact_delivery_receipt(publication, receipt) do
@@ -1409,7 +1409,7 @@ defmodule Ryker.Publication.Custody do
                 approved_by_actor_ref: attributes.actor_ref,
                 status: :publish_pending
               },
-              database_now!()
+              Repo.now!()
             )
 
           %{publication: approved, status: :approved}
@@ -1460,7 +1460,7 @@ defmodule Ryker.Publication.Custody do
         {:error, :publication_not_found}
 
       publication ->
-        now = database_now!()
+        now = Repo.now!()
 
         case live_lease(publication, lease_ref, now) do
           :ok -> {:ok, publication, now}
@@ -1641,11 +1641,6 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp utc_datetime(_value), do: {:error, {:invalid_publication, :occurred_at}}
-
-  defp database_now! do
-    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
-    now
-  end
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}

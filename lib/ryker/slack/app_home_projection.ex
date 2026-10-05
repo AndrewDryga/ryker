@@ -35,7 +35,7 @@ defmodule Ryker.Slack.AppHomeProjection do
   def snapshot(workspace_ref, actor_ref, %MapSet{} = shared_conversations) do
     if workspace_ref?(workspace_ref) and actor_ref?(actor_ref) and
          shared_conversations?(shared_conversations) do
-      now = database_now!()
+      now = Repo.now!()
 
       destination_refs =
         shared_conversations
@@ -848,11 +848,6 @@ defmodule Ryker.Slack.AppHomeProjection do
   defp next_action(_episode, _turn_status, _coop_turn_id), do: "continue_work"
 
   defp count(query), do: Repo.aggregate(query, :count, :id)
-
-  defp database_now! do
-    {:ok, %{rows: [[%DateTime{} = now]]}} = Repo.query("SELECT clock_timestamp()")
-    now
-  end
 
   defp workspace_ref?(value) do
     is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value) and byte_size(value) <= 256

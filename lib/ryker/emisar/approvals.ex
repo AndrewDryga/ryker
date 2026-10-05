@@ -130,7 +130,7 @@ defmodule Ryker.Emisar.Approvals do
          state,
          lease_seconds
        ) do
-    now = database_now!()
+    now = Repo.now!()
 
     with {:ok, approval} <- live_lease(connection_ref, request_id, lease_ref, now),
          :ok <- exact_run(approval, state) do
@@ -231,7 +231,7 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp close_locked(ids) do
-    now = database_now!()
+    now = Repo.now!()
 
     ids
     |> lock_unleased(now)
@@ -265,7 +265,7 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp token_replaced_locked(connection_ref) do
-    now = database_now!()
+    now = Repo.now!()
 
     (refused_watches(connection_ref) ++ unreadable_watches(connection_ref))
     |> lock_unleased(now)
@@ -427,7 +427,7 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp claim_locked(connection_ref, worker_ref, lease_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     approval =
       Repo.one(
@@ -498,7 +498,7 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp observe_locked(connection_ref, request_id, lease_ref, state, poll_seconds) do
-    now = database_now!()
+    now = Repo.now!()
 
     with {:ok, approval} <- live_lease(connection_ref, request_id, lease_ref, now),
          :ok <- exact_run(approval, state) do
@@ -538,7 +538,7 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp resume_terminal_locked(connection_ref, request_id, lease_ref, state) do
-    now = database_now!()
+    now = Repo.now!()
 
     with %Approval{} = snapshot <-
            Repo.one(
@@ -589,7 +589,7 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp defer_locked(connection_ref, request_id, lease_ref, delay_seconds, reason) do
-    now = database_now!()
+    now = Repo.now!()
 
     case live_lease(connection_ref, request_id, lease_ref, now) do
       {:ok, approval} ->
@@ -608,7 +608,7 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp block_locked(connection_ref, request_id, lease_ref, reason) do
-    now = database_now!()
+    now = Repo.now!()
 
     case live_lease(connection_ref, request_id, lease_ref, now) do
       {:ok, approval} ->
@@ -777,13 +777,6 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp utc_datetime(_value), do: {:error, {:invalid_emisar_approval, :expires_at}}
-
-  defp database_now! do
-    case Repo.query("SELECT clock_timestamp()") do
-      {:ok, %{rows: [[%DateTime{} = now]]}} -> now
-      {:error, reason} -> Repo.rollback({:emisar_approval_clock_failed, reason})
-    end
-  end
 
   defp bounded_error(reason) do
     value = inspect(reason, limit: 50, printable_limit: 4_096)

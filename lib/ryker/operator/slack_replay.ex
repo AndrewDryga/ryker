@@ -12,7 +12,8 @@ defmodule Ryker.Operator.SlackReplay do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Operator.{Actions, Reference}
+  alias Ryker.Operator.Actions
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Work.Turn
 

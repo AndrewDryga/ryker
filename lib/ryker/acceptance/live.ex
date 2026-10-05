@@ -13,7 +13,7 @@ defmodule Ryker.Acceptance.Live do
   alias Ryker.{Bootstrap, Settings}
   alias Ryker.CoopFleet.Placement
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Operator.Reference
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Runtime.Assembly
   alias Ryker.Slack.{Client, Gateway, Runtime}

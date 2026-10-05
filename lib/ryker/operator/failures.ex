@@ -9,10 +9,11 @@ defmodule Ryker.Operator.Failures do
   alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Operator.{Actions, Reference, RetentionAction}
+  alias Ryker.Operator.{Actions, RetentionAction}
   alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Operator.Emisar, as: EmisarOperator
   alias Ryker.Operator.Retention, as: RetentionOperator
+  alias Ryker.Reference
 
   alias Ryker.Slack.{
     IncidentRoom,
