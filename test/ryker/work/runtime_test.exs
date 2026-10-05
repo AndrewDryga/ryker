@@ -26,22 +26,14 @@ defmodule Ryker.Work.RuntimeTest do
     assert {Runtime, :start_link, [configuration]} = child.start
     assert configuration[:concurrency] == 3
 
-    assert {:ok, {_flags, workers}} = Runtime.init(configuration)
-    assert length(workers) == 4
+    assert {:ok, {_flags, work_workers}} = Runtime.init(configuration)
 
-    assert Enum.map(workers, & &1.id) == [
-             Ryker.Work.ActivitySyncWorker,
+    # The fleet client lists no session events, so nothing polls for them.
+    assert Enum.map(work_workers, & &1.id) == [
              {Ryker.Work.Worker, 1},
              {Ryker.Work.Worker, 2},
              {Ryker.Work.Worker, 3}
            ]
-
-    [sync_worker | work_workers] = workers
-
-    assert {Ryker.Work.ActivitySyncWorker, :start_link, [sync_options]} = sync_worker.start
-    assert sync_options[:api] == Ryker.CoopFleet.Client
-    assert sync_options[:client] == @client
-    assert sync_options[:poll_interval_ms] == 500
 
     work_workers
     |> Enum.with_index(1)
@@ -66,6 +58,26 @@ defmodule Ryker.Work.RuntimeTest do
       assert dispatcher[:executor_options][:state_tool_capabilities] == [:schedules]
       assert dispatcher[:executor_options][:platform_tools] == ["list_runners", "find_actions"]
     end)
+  end
+
+  # The sync worker woke four times a second in every release, whose fleet
+  # client cannot list events (2026-10-04 review). A direct Coop client can.
+  test "a Coop client that lists session events gets its activity read after each turn" do
+    configuration =
+      Runtime.options!(
+        api: Ryker.TestSupport.FakeWorkCoopAPI,
+        client: self(),
+        poll_interval_ms: 500,
+        state_tools_endpoint: "https://ryker.example/v1/state-tools/mcp",
+        state_tools_secret: Ryker.Secret.new("controller-state-tools-secret"),
+        worker_ref: "ryker-work:direct"
+      )
+
+    assert {:ok, {_flags, [sync | _workers]}} = Runtime.init(configuration)
+    assert sync.id == Ryker.Work.ActivitySyncWorker
+    assert {Ryker.Work.ActivitySyncWorker, :start_link, [sync_options]} = sync.start
+    assert sync_options[:api] == Ryker.TestSupport.FakeWorkCoopAPI
+    assert sync_options[:poll_interval_ms] == 500
   end
 
   test "work starts only on an explicit Coop adapter, never a local socket" do

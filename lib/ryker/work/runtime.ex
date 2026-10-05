@@ -77,16 +77,24 @@ defmodule Ryker.Work.Runtime do
         Supervisor.child_spec({Worker, worker_options}, id: {Worker, slot})
       end
 
-    children =
+    Supervisor.init(activity_sync(options) ++ workers, strategy: :one_for_one)
+  end
+
+  # Only a direct Coop client lists a session's events; the fleet client a
+  # release runs reads activity from the worker's event batches, and this
+  # worker woke four times a second there to do nothing (2026-10-04 review).
+  defp activity_sync(options) do
+    if Code.ensure_loaded?(options.api) and function_exported?(options.api, :list_events, 4) do
       [
         Supervisor.child_spec(
           {ActivitySyncWorker,
            api: options.api, client: options.client, poll_interval_ms: options.poll_interval_ms},
           id: ActivitySyncWorker
         )
-      ] ++ workers
-
-    Supervisor.init(children, strategy: :one_for_one)
+      ]
+    else
+      []
+    end
   end
 
   @doc false
