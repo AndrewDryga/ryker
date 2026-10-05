@@ -393,8 +393,6 @@ defmodule Ryker.WeeklyReport.Digest do
       "[" -> "("
       "]" -> ")"
     end)
-    |> String.replace("\"", "\"")
-    |> String.replace("\"", "\"")
     |> String.trim()
     |> truncate()
   end
