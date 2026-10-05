@@ -193,24 +193,6 @@ defmodule Ryker.Evals.WorldConcurrencyTest do
     end)
   end
 
-  defp await_blocked_by_any(blocked_backend, possible_blockers, deadline \\ nil) do
-    deadline = deadline || System.monotonic_time(:millisecond) + 5_000
-
-    %{rows: [[blocking_backends]]} =
-      Repo.query!("SELECT pg_blocking_pids($1::integer)", [blocked_backend])
-
-    cond do
-      Enum.any?(blocking_backends, &(&1 in possible_blockers)) ->
-        :ok
-
-      System.monotonic_time(:millisecond) > deadline ->
-        flunk("concurrent feedback writer never reached the serialized input lock chain")
-
-      true ->
-        await_blocked_by_any(blocked_backend, possible_blockers, deadline)
-    end
-  end
-
   defp input_command(event, episode_id, episode_key, index) do
     {:ok, occurred_at, 0} = DateTime.from_iso8601(event["occurred_at"])
 

@@ -132,6 +132,23 @@ defmodule Ryker.ConcurrencyCase do
     end
   end
 
+  @doc "Waits until `blocked_backend` waits on any of `possible_blockers`."
+  def await_blocked_by_any(blocked_backend, possible_blockers, deadline \\ deadline()) do
+    %{rows: [[blocking_backends]]} =
+      Repo.query!("SELECT pg_blocking_pids($1::integer)", [blocked_backend])
+
+    cond do
+      Enum.any?(blocking_backends, &(&1 in possible_blockers)) ->
+        :ok
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk("backend #{blocked_backend} never waited on any of #{inspect(possible_blockers)}")
+
+      true ->
+        await_blocked_by_any(blocked_backend, possible_blockers, deadline)
+    end
+  end
+
   def stop_tasks(tasks) do
     Enum.each(tasks, fn task ->
       if Process.alive?(task.pid), do: Task.shutdown(task, :brutal_kill)

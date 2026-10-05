@@ -205,22 +205,4 @@ defmodule Ryker.EpisodesConcurrencyTest do
       await_blocked_by_any(contender_backend, possible_blockers)
     end)
   end
-
-  defp await_blocked_by_any(blocked_backend, possible_blockers, deadline \\ nil) do
-    deadline = deadline || System.monotonic_time(:millisecond) + 5_000
-
-    %{rows: [[blocking_backends]]} =
-      Repo.query!("SELECT pg_blocking_pids($1::integer)", [blocked_backend])
-
-    cond do
-      Enum.any?(blocking_backends, &(&1 in possible_blockers)) ->
-        :ok
-
-      System.monotonic_time(:millisecond) > deadline ->
-        flunk("backend #{blocked_backend} never reached the serialized input lock chain")
-
-      true ->
-        await_blocked_by_any(blocked_backend, possible_blockers, deadline)
-    end
-  end
 end
