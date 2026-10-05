@@ -104,7 +104,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   # producer emits the old key.
   @sources Map.put(@sources, "responder_state_tools", @sources["controller_tools"])
   @order ~w(custom_instructions input previous_answer slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools responder_state_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
-  @instruction_not_recorded :instruction_not_recorded
   # The evidence a self-analysis was given, under its prompt's `context`: what
   # the request was, what was said, what routing and Work did, what people
   # said about it, and what was left out (`Ryker.Improvement.Evidence`).
@@ -171,7 +170,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "submit_github_review" => "Submits a review on a pull request, with inline comments.",
     "set_github_reaction" => "Adds an emoji reaction to a GitHub issue or comment."
   }
-  @unapplied_instructions ["Not configured", "Not applicable", "Not recorded"]
+  @unapplied_instructions ["Not configured", "Not applicable"]
 
   # Host-bound facts about the run. Each is one line of Run details rather than a
   # section of its own: a reader wants them together, and rarely.
@@ -973,7 +972,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           key,
           path,
           value,
-          source_metadata(key, parent, value),
+          source_metadata(key, parent),
           source_body(key, value, path, prefix, context),
           prefix,
           options
@@ -1083,7 +1082,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp instruction_parts(value, parent) do
     Enum.map(["global", "channel"], fn key ->
-      {key, Map.get(value, key, @instruction_not_recorded), parent}
+      {key, Map.get(value, key), parent}
     end)
   end
 
@@ -1757,28 +1756,13 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
          "Part of the request this page has no section for."}
       )
 
-  defp source_metadata(key, parent, value) when key in ["global", "channel"] do
+  defp source_metadata(key, parent) when key in ["global", "channel"] do
     if instruction_parent?(parent),
-      do: instruction_metadata(key, value),
+      do: {instruction_title(key), "policy", nil, nil},
       else: metadata(key, parent)
   end
 
-  defp source_metadata(key, parent, _value), do: metadata(key, parent)
-
-  defp instruction_metadata("global", @instruction_not_recorded),
-    do: {"Global instructions", "policy", nil, nil}
-
-  defp instruction_metadata("global", _value),
-    do: {"Global instructions", "policy", nil, nil}
-
-  defp instruction_metadata("channel", @instruction_not_recorded),
-    do: {"Channel instructions", "policy", nil, nil}
-
-  defp instruction_metadata("channel", nil),
-    do: {"Channel instructions", "policy", nil, nil}
-
-  defp instruction_metadata("channel", _value),
-    do: {"Channel instructions", "policy", nil, nil}
+  defp source_metadata(key, parent), do: metadata(key, parent)
 
   # One instruction scope: its identity on a line, then the text itself.
   defp instruction_scope(%{} = layer, key) do
@@ -1888,14 +1872,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         "<p class=\"context-absent\">This request did not come through Slack, so channel instructions did not apply.</p>"
       ],
       else: fields(nil, 0)
-  end
-
-  defp body(key, @instruction_not_recorded, path, _prefix) when key in ~w(global channel) do
-    if String.contains?(path, ".custom_instructions."),
-      do: [
-        "<p class=\"context-absent\">Instruction availability was not recorded for this older request.</p>"
-      ],
-      else: fields(@instruction_not_recorded, 0)
   end
 
   defp body("custom_instructions", value, _path, _prefix) when is_map(value),
@@ -2510,9 +2486,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp instruction_options(options, key, parent, value) when key in ["global", "channel"] do
     if instruction_parent?(parent) do
       case {key, value} do
-        {_key, @instruction_not_recorded} ->
-          options |> Keyword.put(:state, "Not recorded") |> Keyword.put(:estimate, nil)
-
         {"channel", nil} ->
           options |> Keyword.put(:state, "Not applicable") |> Keyword.put(:estimate, nil)
 
@@ -2534,9 +2507,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp instruction_hint("channel", "Not configured"),
     do: "No channel instructions were saved for this Slack channel when this request ran."
-
-  defp instruction_hint(_key, "Not recorded"),
-    do: "Instruction availability was not recorded for this older request."
 
   defp instruction_hint(_key, _state),
     do: "No global instructions were saved in Settings when this request ran."
