@@ -14,7 +14,8 @@ defmodule Ryker.Operator.Retention do
   alias Ryker.Operator.{Actions, RetentionAction}
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Retention.Custody
+  alias Ryker.Work.Session
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
 
@@ -125,7 +126,7 @@ defmodule Ryker.Operator.Retention do
     previous_status = session.cleanup_status
 
     updated =
-      persist(session, %{
+      Custody.persist(session, %{
         cleanup_attempt_count: 0,
         cleanup_blocked_from: nil,
         cleanup_last_error_code: nil,
@@ -173,7 +174,7 @@ defmodule Ryker.Operator.Retention do
 
       true ->
         updated =
-          persist(session, %{
+          Custody.persist(session, %{
             cleanup_attempt_count: 0,
             cleanup_blocked_from: nil,
             cleanup_last_error_code: nil,
@@ -257,25 +258,6 @@ defmodule Ryker.Operator.Retention do
     |> Ecto.Changeset.check_constraint(:action_ref, name: :retention_operator_action_valid)
     |> Repo.insert!()
     |> tap(&Actions.broadcast_action_recorded(&1.id))
-  end
-
-  defp persist(session, attributes) do
-    session
-    |> Ecto.Changeset.change(attributes)
-    |> Ecto.Changeset.check_constraint(:cleanup_status,
-      name: :episode_work_session_cleanup_state_valid
-    )
-    |> Ecto.Changeset.check_constraint(:cleanup_lease_ref,
-      name: :episode_work_session_cleanup_lease_valid
-    )
-    |> Ecto.Changeset.check_constraint(:discard_plan,
-      name: :episode_work_session_discard_plan_valid
-    )
-    |> Ecto.Changeset.check_constraint(:cleanup_blocked_from,
-      name: :episode_work_session_cleanup_blocked_valid
-    )
-    |> Repo.update!()
-    |> tap(&Custody.broadcast_session_updated/1)
   end
 
   defp reference(value, _field) when is_binary(value) do

@@ -38,12 +38,6 @@ defmodule Ryker.Retention.Policy do
       why: "current retention horizons; cleanup reads them, never expires them"
     },
     %{
-      table: "settings_import_receipts",
-      class: :audit,
-      why:
-        "fingerprints of the retired one-time configuration import expire at the audit horizon; the imported settings and the installation identity they created are kept"
-    },
-    %{
       table: "slack_settings",
       class: :kept,
       why: "verified Slack identity, desired enabled state, operators and incident invitees"
@@ -401,8 +395,9 @@ defmodule Ryker.Retention.Policy do
     },
     %{
       table: "episode_schedules",
-      class: :kept,
-      why: "operator-confirmed recurring work kept until terminal and expired"
+      class: :episode_history,
+      why:
+        "operator-confirmed recurring work; a finished schedule with no occurrence left goes at the history horizon"
     },
     %{
       table: "episode_state_record_responses",
@@ -423,7 +418,8 @@ defmodule Ryker.Retention.Policy do
     %{
       table: "episode_work_sessions",
       class: :audit,
-      why: "immutable Coop authority binding and cleanup receipt"
+      why:
+        "immutable Coop authority binding and cleanup receipt; a Work session goes with its episode at the audit horizon, and a discarded routing, learning, analysis or knowledge session at the operational horizon"
     },
     %{
       table: "episode_work_state_tool_calls",
@@ -506,9 +502,9 @@ defmodule Ryker.Retention.Policy do
     },
     %{
       table: "failure_dismissals",
-      class: :kept,
+      class: :audit,
       why:
-        "a person's choice to leave a failure as it is: its kind, reference and when it last changed; one tiny row per failure left, kept while it can change again"
+        "a person's choice to leave a failure as it is, kept to the audit horizon; a failure still failing the same way then shows once more"
     },
     %{
       table: "ryker_operator_actions",

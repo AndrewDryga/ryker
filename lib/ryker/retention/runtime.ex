@@ -27,8 +27,6 @@ defmodule Ryker.Retention.Runtime do
     :retry_max_seconds,
     :routing_examples_enabled,
     :routing_examples_seconds,
-    :storage_high_watermark_bytes,
-    :storage_low_watermark_bytes,
     :storage_reserve_bytes,
     :work_examples_enabled,
     :work_examples_seconds,
@@ -139,8 +137,6 @@ defmodule Ryker.Retention.Runtime do
       :retry_base_seconds,
       :retry_max_seconds,
       :routing_examples_seconds,
-      :storage_high_watermark_bytes,
-      :storage_low_watermark_bytes,
       :storage_reserve_bytes,
       :work_examples_seconds
     ]
@@ -152,20 +148,15 @@ defmodule Ryker.Retention.Runtime do
         retention_horizons_valid?(settings) and
         is_boolean(settings.routing_examples_enabled) and
         is_boolean(settings.work_examples_enabled) and
-        storage_budgets_valid?(settings) and
+        batch_bounds_valid?(settings) and
         Reference.valid?(settings.worker_ref)
 
     unless valid, do: raise(ArgumentError, "retention configuration is outside its safe bounds")
   end
 
-  # Watermarks that cross, or a reserve larger than the high watermark, would
-  # either never release pressure or refuse allocation permanently.
-  defp storage_budgets_valid?(settings) do
-    settings.storage_low_watermark_bytes < settings.storage_high_watermark_bytes and
-      settings.storage_reserve_bytes < settings.storage_high_watermark_bytes and
-      settings.disposable_bytes_limit <= settings.storage_high_watermark_bytes and
-      settings.batch_limit <= 1_000 and
-      settings.batch_seconds * 1_000 <= settings.poll_interval_ms
+  # A drain pass must fit inside its own poll.
+  defp batch_bounds_valid?(settings) do
+    settings.batch_limit <= 1_000 and settings.batch_seconds * 1_000 <= settings.poll_interval_ms
   end
 
   defp runtime_dependencies_valid?(settings) do

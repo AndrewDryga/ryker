@@ -286,6 +286,7 @@ defmodule Ryker.SettingsTest do
     assert audit == %{
              "finished requests" => 1,
              "settings and credential changes" => 1,
+             "failures people left" => 0,
              "Slack button presses" => 0,
              "channel joins and leaves" => 0,
              "operator actions" => 0,

@@ -1041,7 +1041,12 @@ defmodule Ryker.Retention.Data do
     %{table: "settings_edits", age: "inserted_at", horizon: :audit_data_seconds},
     %{table: "integration_credential_events", age: "inserted_at", horizon: :audit_data_seconds},
     %{table: "model_instruction_edits", age: "inserted_at", horizon: :audit_data_seconds},
-    %{table: "settings_import_receipts", age: "inserted_at", horizon: :audit_data_seconds},
+    %{
+      table: "failure_dismissals",
+      age: "left_at",
+      horizon: :audit_data_seconds,
+      key: ~w(kind ref)
+    },
     %{table: "slack_channel_setting_audit", age: "inserted_at", horizon: :audit_data_seconds},
     %{
       table: "slack_interaction_audit",
@@ -1219,6 +1224,9 @@ defmodule Ryker.Retention.Data do
     name = Map.get(rule, :as, table)
     source = if name == table, do: table, else: "#{table} AS #{name}"
     older = "#{name}.#{rule.age} < clock_timestamp() - ($1 * interval '1 second')"
+    key = Map.get(rule, :key, ["id"])
+    selected = Enum.map_join(key, ", ", &"#{name}.#{&1}")
+    matched = Enum.map_join(key, " AND ", &"#{name}.#{&1} = candidates.#{&1}")
 
     condition =
       case Map.get(rule, :where) do
@@ -1229,16 +1237,16 @@ defmodule Ryker.Retention.Data do
     execute_count(
       """
       WITH candidates AS (
-        SELECT #{name}.id
+        SELECT #{selected}
         FROM #{source} #{Map.get(rule, :join, "")}
         WHERE #{condition}
-        ORDER BY #{name}.#{rule.age}, #{name}.id
+        ORDER BY #{name}.#{rule.age}, #{selected}
         LIMIT #{Map.get(rule, :limit, 100)}
         FOR UPDATE OF #{name} SKIP LOCKED
       )
       DELETE FROM #{source}
       USING candidates
-      WHERE #{name}.id = candidates.id
+      WHERE #{matched}
       """,
       [Map.fetch!(settings, rule.horizon)]
     )

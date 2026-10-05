@@ -67,8 +67,6 @@ defmodule Ryker.Defaults do
     retained_recheck_seconds: 21_600,
     retry_base_seconds: 5,
     retry_max_seconds: 300,
-    storage_high_watermark_bytes: 64_424_509_440,
-    storage_low_watermark_bytes: 48_318_382_080,
     storage_reserve_bytes: 5_368_709_120
   }
   @publication %{
@@ -185,10 +183,6 @@ defmodule Ryker.Defaults do
     checks = [
       {@retention.batch_seconds * 1_000 <= @retention.poll_interval_ms,
        "a retention drain pass must fit inside its own poll"},
-      {@retention.storage_low_watermark_bytes < @retention.storage_high_watermark_bytes and
-         @retention.storage_reserve_bytes < @retention.storage_high_watermark_bytes and
-         @retention.disposable_bytes_limit <= @retention.storage_high_watermark_bytes,
-       "retention storage watermarks must be ordered below capacity"},
       {@learning.quiet_seconds <= @learning.maximum_delay_seconds,
        "learning quiet_seconds must fit maximum_delay_seconds"},
       {@delivery.action_concurrency + @delivery.message_concurrency +

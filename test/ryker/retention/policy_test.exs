@@ -34,6 +34,29 @@ defmodule Ryker.Retention.PolicyTest do
     assert Enum.all?(policies, &(is_binary(&1.why) and String.trim(&1.why) != ""))
   end
 
+  # The registry said finished schedules were kept for good while retention
+  # deleted them at the history horizon (2026-10-04 review). A table
+  # retention deletes from or clears is never registered as kept.
+  test "no table retention prunes is registered as kept" do
+    source = File.read!(Path.expand("../../../lib/ryker/retention/data.ex", __DIR__))
+
+    pruned =
+      [
+        ~r/table: "([a-z_]+)"/,
+        ~r/DELETE FROM ([a-z_]+)/,
+        ~r/\{"([a-z_]+)", "/,
+        ~r/UPDATE ([a-z_]+)/
+      ]
+      |> Enum.flat_map(&Regex.scan(&1, source, capture: :all_but_first))
+      |> List.flatten()
+      |> Enum.uniq()
+
+    assert pruned != []
+
+    kept = for table <- pruned, {:ok, %{class: :kept}} <- [Policy.fetch(table)], do: table
+    assert kept == [], "retention prunes tables registered as kept: #{Enum.join(kept, ", ")}"
+  end
+
   test "a new table without a retention rule fails the coverage check" do
     # The coverage check above is what stops a new table from quietly keeping
     # its rows forever. It has to see a table created in the migrated schema,

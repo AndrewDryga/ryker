@@ -58,9 +58,7 @@ defmodule Ryker.Retention.RuntimeTest do
           Map.put(configuration(), :routing_examples_seconds, 0),
           Map.put(configuration(), :work_examples_enabled, nil),
           Map.put(configuration(), :work_examples_seconds, 0),
-          Map.put(configuration(), :storage_low_watermark_bytes, 70_000_000_000),
-          Map.put(configuration(), :storage_reserve_bytes, 70_000_000_000),
-          Map.put(configuration(), :disposable_bytes_limit, 70_000_000_000),
+          Map.put(configuration(), :storage_reserve_bytes, 0),
           Map.put(configuration(), :batch_limit, 0),
           Map.put(configuration(), :batch_seconds, 120),
           Map.put(configuration(), :retained_recheck_seconds, 0),
@@ -218,8 +216,6 @@ defmodule Ryker.Retention.RuntimeTest do
       routing_examples_seconds: 31_536_000,
       work_examples_enabled: false,
       work_examples_seconds: 31_536_000,
-      storage_high_watermark_bytes: 64_424_509_440,
-      storage_low_watermark_bytes: 48_318_382_080,
       storage_reserve_bytes: 5_368_709_120,
       worker_ref: "host-a:retention"
     }

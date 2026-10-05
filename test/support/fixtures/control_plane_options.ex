@@ -1161,10 +1161,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           %{
             budget: %{
               disposable_bytes_limit: 10_737_418_240,
-              reclaim_target_seconds: 3_600,
-              storage_high_watermark_bytes: 64_424_509_440,
-              storage_low_watermark_bytes: 48_318_382_080,
-              storage_reserve_bytes: 5_368_709_120
+              reclaim_target_seconds: 3_600
             },
             preview: [
               %{

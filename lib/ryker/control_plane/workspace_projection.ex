@@ -97,8 +97,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
     %{
       budget:
         Map.new(
-          ~w(disposable_bytes_limit reclaim_target_seconds storage_high_watermark_bytes
-             storage_low_watermark_bytes storage_reserve_bytes)a,
+          ~w(disposable_bytes_limit reclaim_target_seconds)a,
           &{&1, safe_setting(settings, &1)}
         ),
       preview:

@@ -35,6 +35,8 @@ defmodule Ryker.Retention.Custody do
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
   @terminal_episode_states [:complete, :cancelled]
   @unfinished_turn_statuses [:pending, :cancel_pending, :delivery_pending]
+  # How many busy candidates one claim passes over before it answers nothing.
+  @passed_over_limit 25
 
   # The durable moment a session became claimable for cleanup, by phase. Ageing
   # from insertion counted conversation time and the intentional grace period as
@@ -515,7 +517,15 @@ defmodule Ryker.Retention.Custody do
       )
   end
 
-  defp claim_locked(worker_ref, lease_seconds, exclude) do
+  # A candidate whose owner another transaction holds, or that stopped being
+  # claimable, is passed over for the next in line. Answering nothing would
+  # read as an idle pass, and everything behind it would wait for the next
+  # poll.
+  defp claim_locked(worker_ref, lease_seconds, exclude, passed_over \\ 0)
+
+  defp claim_locked(_worker_ref, _lease_seconds, _exclude, @passed_over_limit), do: nil
+
+  defp claim_locked(worker_ref, lease_seconds, exclude, passed_over) do
     now = Repo.now!()
 
     case candidate(now, exclude) do
@@ -547,7 +557,9 @@ defmodule Ryker.Retention.Custody do
             worker_id: placed_worker_id
           }
         else
-          _not_claimable -> nil
+          _not_claimable ->
+            exclude = %{exclude | session_ids: [session_id | exclude.session_ids]}
+            claim_locked(worker_ref, lease_seconds, exclude, passed_over + 1)
         end
     end
   end
@@ -1153,10 +1165,15 @@ defmodule Ryker.Retention.Custody do
     end
   end
 
-  # Every cleanup change is stamped by the database clock: a returning
-  # worker's report (`last_seen_at`) is compared with it, and a host clock
-  # running ahead made a report a few milliseconds later look older.
-  defp persist(session, attributes) do
+  @doc """
+  Saves a cleanup change to a session, checked and announced. Every cleanup
+  change is stamped by the database clock: a returning worker's report
+  (`last_seen_at`) is compared with it, and a host clock running ahead made a
+  report a few milliseconds later look older. An operator's rearm or discard
+  (`Ryker.Operator.Retention`) is saved the same way.
+  """
+  @spec persist(Session.t(), map()) :: Session.t()
+  def persist(session, attributes) do
     session
     |> Ecto.Changeset.change(Map.put_new(attributes, :updated_at, Repo.now!()))
     |> Ecto.Changeset.check_constraint(:cleanup_status,

@@ -51,9 +51,9 @@ defmodule Ryker.Settings.RetentionImpact do
          {"settings_edits", "inserted_at", "true"},
          {"integration_credential_events", "inserted_at", "true"},
          {"model_instruction_edits", "inserted_at", "true"},
-         {"settings_import_receipts", "inserted_at", "true"},
          {"slack_channel_setting_audit", "inserted_at", "true"}
        ]},
+      {"failures people left", [{"failure_dismissals", "left_at", "true"}]},
       {"Slack button presses",
        [
          {"slack_interaction_audit", "inserted_at",

@@ -327,6 +327,41 @@ defmodule Ryker.Retention.CustodyTest do
              )
   end
 
+  # Cleanup custody ages a session from its last change by the database clock,
+  # but an operator's rearm stamped that change with the host's clock, so a
+  # host clock behind the database aged the rearmed step from before it was
+  # rearmed (2026-10-04 review).
+  test "an operator's rearm is stamped by the database clock" do
+    session = terminal_session!("operator-clock")
+    assert {:ok, _closed} = grace_and_close!(session, "operator-clock")
+    assert {:ok, claim} = Custody.claim_next("cleanup:plan", 60)
+    assert {:ok, _frozen} = Custody.freeze_plan_revision(session.id, claim.lease_ref, 8, false)
+
+    assert {:ok, _blocked} =
+             Custody.block(session.id, claim.lease_ref, "coop_protocol_error", "x")
+
+    # Structural fixture: the database clock runs a day ahead of the host's.
+    Repo.query!("CREATE SCHEMA ahead_clock")
+
+    Repo.query!("""
+    CREATE FUNCTION ahead_clock.clock_timestamp() RETURNS timestamptz LANGUAGE sql STABLE AS $$
+      SELECT pg_catalog.clock_timestamp() + interval '1 day'
+    $$
+    """)
+
+    Repo.query!("SET search_path TO ahead_clock, pg_catalog, public")
+
+    assert {:ok, %{outcome: :rearmed, session: rearmed}} =
+             RetentionOperator.rearm(
+               session.external_ref,
+               "operator:local",
+               "retention-action:clock"
+             )
+
+    assert DateTime.diff(Repo.now!(), rearmed.updated_at, :second) in 0..60,
+           "the rearm was stamped #{DateTime.diff(Repo.now!(), rearmed.updated_at, :second)} s behind the database clock"
+  end
+
   test "explicit unmerged discard refreshes the exact plan while dirty work stays retained" do
     unmerged = retained_session!("operator-unmerged", false, true)
     dirty = retained_session!("operator-dirty", true, false)
@@ -428,6 +463,65 @@ defmodule Ryker.Retention.CustodyTest do
 
         Repo.delete_all(
           from(episode in Ryker.Episodes.Episode, where: episode.id == ^session.episode_id)
+        )
+      end
+    end)
+  end
+
+  # A claim took only the oldest eligible session. While another transaction
+  # held that session's episode, the claim found nothing, the pass reported
+  # itself idle, and every cleanup behind it waited a whole poll, a minute,
+  # for the next one (2026-10-04 review).
+  test "a session whose owner is busy is passed over for the next in line" do
+    Sandbox.unboxed_run(Repo, fn ->
+      busy = terminal_session!("busy-owner")
+      next = terminal_session!("next-in-line")
+      parent = self()
+
+      # Structural fixture: the busy session's episode ended an hour earlier,
+      # so it is first in line.
+      Repo.update_all(
+        from(episode in Ryker.Episodes.Episode, where: episode.id == ^busy.episode_id),
+        set: [updated_at: DateTime.add(Repo.now!(), -3_600, :second)]
+      )
+
+      holder =
+        Ryker.ConcurrencyCase.unboxed_task(fn ->
+          Repo.transaction(fn ->
+            Repo.one!(
+              from(episode in Ryker.Episodes.Episode,
+                where: episode.id == ^busy.episode_id,
+                lock: "FOR UPDATE"
+              )
+            )
+
+            send(parent, :owner_held)
+
+            receive do
+              :release -> :ok
+            after
+              5_000 -> :ok
+            end
+          end)
+        end)
+
+      try do
+        assert_receive :owner_held, 5_000
+
+        assert {:ok, %{session: claimed}} = Custody.claim_next("cleanup:passed-over", 60)
+        assert claimed.id == next.id
+      after
+        send(holder.pid, :release)
+        Ryker.ConcurrencyCase.stop_tasks([holder])
+        episode_ids = [busy.episode_id, next.episode_id]
+        Repo.delete_all(from(row in Session, where: row.episode_id in ^episode_ids))
+
+        Repo.delete_all(
+          from(event in Ryker.Episodes.Event, where: event.episode_id in ^episode_ids)
+        )
+
+        Repo.delete_all(
+          from(episode in Ryker.Episodes.Episode, where: episode.id in ^episode_ids)
         )
       end
     end)

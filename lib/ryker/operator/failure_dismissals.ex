@@ -8,6 +8,8 @@ defmodule Ryker.Operator.FailureDismissals do
   retries some kinds every minute. Failing some other way is a new failure worth seeing. Nothing
   about the failure itself changes. A failure that ends where it lives is left by ending it there
   instead (a learning batch dropped, an incident room or a request closed), and needs no row here.
+  The choice is audit history, so it is kept to the audit horizon; a failure still failing the
+  same way then shows once more.
   """
 
   import Ecto.Query

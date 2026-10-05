@@ -948,6 +948,30 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get(Turn, eligible.turn.id) == nil
   end
 
+  # A failure someone left was remembered forever, long after the failure
+  # itself was gone, and each one made every later Failures read deeper
+  # (2026-10-04 review). A choice to leave one is audit history: it goes at
+  # the audit horizon, and a failure still failing then shows once more.
+  test "a failure someone left is remembered until the audit horizon" do
+    now = Repo.now!()
+
+    for {ref, left_at} <- [{"old", DateTime.add(now, -7_200, :second)}, {"recent", now}] do
+      Repo.insert!(%Ryker.Operator.FailureDismissal{
+        failure_summary: "the reply could not be delivered",
+        kind: "delivery",
+        left_at: left_at,
+        left_by: "control-plane:local",
+        ref: "delivery:" <> ref
+      })
+    end
+
+    assert {:ok, _result} = Data.prune(settings(audit_data_seconds: 3_600))
+
+    assert Repo.all(from(left in Ryker.Operator.FailureDismissal, select: left.ref)) == [
+             "delivery:recent"
+           ]
+  end
+
   # A button answer goes to the task that asked only while that task waits;
   # otherwise routing gives it to another task, whose input it becomes while
   # the answer row still points at it. Audit pruning of that other task deleted

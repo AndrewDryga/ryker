@@ -34,12 +34,13 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
   @grace_seconds 900
   @retained_recheck_seconds 86_400
 
-  # Scaled byte budget: one disposable fork is 64 MiB and the documented bound
-  # for inactive disposable forks is 10 GiB per worker, so the plateau this
-  # proves is 160 forks, not 160 real gigabytes in a test database.
+  # Scaled byte budget: one disposable fork is 64 MiB and the bound for
+  # inactive disposable forks is 10 GiB per worker, so the plateau this proves
+  # is 160 forks, not 160 real gigabytes in a test database. The bound and the
+  # reclaim target are the ones the Working copies page states.
   @fork_bytes 67_108_864
-  @disposable_bytes_limit 10_737_418_240
-  @reclaim_target_seconds 3_600
+  @disposable_bytes_limit Ryker.Defaults.fetch!(:retention).disposable_bytes_limit
+  @reclaim_target_seconds Ryker.Defaults.fetch!(:retention).reclaim_target_seconds
 
   @backlog 300
   @clean_per_burst 25
