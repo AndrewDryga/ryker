@@ -162,6 +162,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        weekly_preview: nil,
        weekly_sent: nil,
        carried_notice: nil,
+       carried_reveal: nil,
        action_question: nil,
        overview: nil,
        activity: nil,
@@ -201,7 +202,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      socket
      |> assign(
        path: location.path,
-       params: params,
+       params: text_params(params),
        filter_menu: nil,
        disclosed: navigation_disclosures(socket, location.path),
        native: :loading,
@@ -226,6 +227,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
            else: carried_repository_notice(socket.assigns.repository_notice, location.path)
          ),
        setup_failure: nil,
+       # A secret is shown once, on the page it was made on or returned to; it
+       # stayed on every settings page after that (2026-10-04 review).
+       setup_reveal: socket.assigns.carried_reveal,
+       carried_reveal: nil,
        settings_confirm: nil,
        weekly_sent: nil,
        action_question: nil,
@@ -237,6 +242,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      |> reset_repository_discovery(location.path, socket.assigns.path)
      |> refresh(true)}
   end
+
+  # Every page reads its query as text. `q[x]=y` handed the Activity page a map where
+  # its search field needs text, and the page crashed (2026-10-04 review).
+  defp text_params(params), do: Map.filter(params, fn {_key, value} -> is_binary(value) end)
 
   # What an import added is said on the list it returned to; every other
   # outcome on Repositories stays with the page it happened on.
@@ -302,6 +311,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # Each page declares its topics beside what it shows; the native pages are
   # dispatched here as `load_page/3` loads them, every other page by `Pages`.
   # `draft_id` is the identity an empty Chat draft will start.
+
   @doc false
   def page_subscriptions(path, params, draft_id) do
     segments = String.split(path, "/", trim: true)
@@ -433,8 +443,17 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_async(:slack_members, {:ok, {:ok, members}}, socket),
-    do: {:noreply, assign(socket, :slack_people, slack_people(members, socket))}
+  # The people are chosen against the settings the page read; a page that could
+  # not read them crashed taking the read apart (2026-10-04 review).
+  def handle_async(:slack_members, {:ok, {:ok, members}}, socket) do
+    case socket.assigns.settings do
+      {:ok, view} ->
+        {:noreply, assign(socket, :slack_people, slack_people(members, view))}
+
+      _unread ->
+        {:noreply, socket |> assign(:slack_people, nil) |> failed(:settings_unavailable)}
+    end
+  end
 
   def handle_async(:slack_members, {:ok, {:error, reason}}, socket),
     do: {:noreply, socket |> assign(:slack_people, nil) |> failed(reason)}
@@ -679,25 +698,19 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     chosen = chosen_people(people, params)
     operators = for member <- people.members, MapSet.member?(chosen, member.id), do: member.id
 
-    view = elem(socket.assigns.settings, 1)
-
-    case Settings.save_slack(
-           %{enabled: true, operators: operators},
-           view.revision,
-           Actor.ref()
-         ) do
-      {:ok, _snapshot} ->
-        {:noreply,
-         socket
-         |> refresh_settings()
-         |> assign(
-           setup_notice: "Saved who can manage Ryker.",
-           setup_failure: nil,
-           slack_people: nil
-         )}
-
-      {:error, reason} ->
-        {:noreply, failed(socket, reason)}
+    with {:ok, view} <- settings_read(socket),
+         {:ok, _snapshot} <-
+           Settings.save_slack(%{enabled: true, operators: operators}, view.revision, Actor.ref()) do
+      {:noreply,
+       socket
+       |> refresh_settings()
+       |> assign(
+         setup_notice: "Saved who can manage Ryker.",
+         setup_failure: nil,
+         slack_people: nil
+       )}
+    else
+      {:error, reason} -> {:noreply, failed(socket, reason)}
     end
   end
 
@@ -895,7 +908,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          |> refresh_settings()
          |> assign(
            setup_failure: nil,
-           setup_reveal: %{label: "Signing secret", value: result.secret}
+           carried_reveal: %{label: "Signing secret", value: result.secret}
          )
          |> return_with(
            "/integrations/webhooks",
@@ -1782,9 +1795,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  defp slack_people(members, socket) do
+  defp settings_read(%{assigns: %{settings: {:ok, view}}}), do: {:ok, view}
+  defp settings_read(_socket), do: {:error, :settings_unavailable}
+
+  defp slack_people(members, view) do
     ids = MapSet.new(members, & &1.id)
-    operators = elem(socket.assigns.settings, 1).snapshot.slack.operators
+    operators = view.snapshot.slack.operators
 
     %{
       chosen: operators |> MapSet.new() |> MapSet.intersection(ids),

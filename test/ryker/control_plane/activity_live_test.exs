@@ -72,6 +72,17 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
     %{items: items, reachable: reachable}
   end
 
+  # A link carrying `q[x]=y` handed the page a map where the search field needs text, and the page
+  # crashed (2026-10-04 review). A parameter that is not text is no parameter.
+  test "a query parameter that is not text is ignored rather than crashing the page" do
+    for query <- ["q[x]=y", "mode[x]=all", "filter[]=running", "page[x]=2"] do
+      {:ok, view, _html} =
+        live(build_conn() |> Map.put(:host, "localhost"), "/activity?" <> query)
+
+      assert has_element?(view, "#activity-stream")
+    end
+  end
+
   test "activity rows stay a live stream inside the Kit list and its views patch in place", %{
     items: items
   } do

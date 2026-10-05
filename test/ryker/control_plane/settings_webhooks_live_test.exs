@@ -560,6 +560,30 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     refute has_element?(view, "section[aria-label='Signing credentials']")
   end
 
+  # A new signing secret is shown once, on the list it was added to. It stayed on every settings
+  # page the person moved to after that, because nothing cleared it (2026-10-04 review).
+  test "a new signing secret is shown once and gone from the next page" do
+    installation!()
+
+    {:ok, view, _html} =
+      live(build_conn() |> Map.put(:host, "localhost"), "/integrations/webhooks/credentials/new")
+
+    view
+    |> form("form[phx-submit=create-webhook-credential]", %{
+      "credential" => %{"name" => "grafana", "secret" => ""}
+    })
+    |> render_submit()
+
+    assert_patch(view, "/integrations/webhooks")
+    assert has_element?(view, ".secret-reveal", "Signing secret")
+
+    render_patch(view, "/integrations/webhooks/sources/new")
+    refute has_element?(view, ".secret-reveal")
+
+    render_patch(view, "/integrations/webhooks")
+    refute has_element?(view, ".secret-reveal")
+  end
+
   test "a refused signing credential is said in the error tone, not as a success" do
     # Every refusal on the connection pages rendered with the success tone.
     installation!()

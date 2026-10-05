@@ -2293,6 +2293,36 @@ defmodule Ryker.ControlPlane.LiveTest do
     refute_receive :reload_page, 150
   end
 
+  # The people Slack listed arrived on a page whose settings Ryker could not read, and the page
+  # crashed taking `{:ok, view}` apart (2026-10-04 review). It says so instead.
+  test "Slack's people arriving while the settings cannot be read is said, never a crash" do
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        settings: {:error, :settings_unavailable},
+        slack_people: :loading
+      }
+    }
+
+    members = [%{id: "U0123456789", name: "Andrew"}]
+
+    {:noreply, listed} = WorkbenchLive.handle_async(:slack_members, {:ok, {:ok, members}}, socket)
+    assert listed.assigns.slack_people == nil
+    assert listed.assigns.setup_failure =~ "settings"
+
+    {:noreply, saved} =
+      WorkbenchLive.handle_event(
+        "save-slack-choices",
+        %{},
+        %{
+          socket
+          | assigns: %{socket.assigns | slack_people: %{chosen: MapSet.new(), members: members}}
+        }
+      )
+
+    assert saved.assigns.setup_failure =~ "settings"
+  end
+
   test "the removed audit route does not mount a live page" do
     conn = build_conn() |> Map.put(:host, "localhost") |> get("/audit")
     assert conn.status == 404

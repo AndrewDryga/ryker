@@ -173,6 +173,9 @@ defmodule Ryker.ControlPlane.IntegrationErrors do
   def message({:settings_conflict, _current}),
     do: "The settings changed in the meantime. Reload the page and try again."
 
+  def message(:settings_unavailable),
+    do: "Ryker could not read its settings just now. Reload the page and try again."
+
   def message(_reason),
     do: "This did not work. Check the values and try again."
 end
