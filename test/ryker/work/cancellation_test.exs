@@ -584,6 +584,46 @@ defmodule Ryker.Work.CancellationTest do
     assert {:error, :work_recovery_changed} = Custody.retry_blocked(work.episode.key, fingerprint)
   end
 
+  # A "Try again" still showing on a card or the Failures page after the request was closed
+  # raised ArgumentError, Ecto refusing `turn_ref == ^nil` for a finished request's empty owner,
+  # instead of saying the request had changed (2026-10-04 review).
+  test "trying a closed request again is refused as changed" do
+    work = bound_turn!("retry-after-close")
+
+    assert {:ok, _requested} =
+             Custody.request_block(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               work.lease_ref,
+               "The executor needs operator recovery."
+             )
+
+    assert {:ok, stop_claim} = Custody.claim_next("worker:retry-after-close", 60, :work)
+
+    assert {:ok, blocked} =
+             Custody.settle_cancellation(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               stop_claim.lease_ref,
+               terminal_receipt!(work, "closed")
+             )
+
+    fingerprint = Custody.recovery_fingerprint(blocked.turn)
+
+    assert {:ok, %{status: :settled, episode: %{state: :cancelled, owner_ref: nil}}} =
+             Custody.request_cancel(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               "cancel:retry-after-close:#{work.turn.id}",
+               "Closed by the operator."
+             )
+
+    assert {:error, :work_recovery_changed} = Custody.retry_blocked(work.episode.key, fingerprint)
+  end
+
   test "cancellation and close retries retain their first exact session revision" do
     work = bound_turn!("frozen-cancellation-revisions")
 

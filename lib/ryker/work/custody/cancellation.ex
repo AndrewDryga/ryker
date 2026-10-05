@@ -266,7 +266,7 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   defp retry_blocked_locked(episode_key, expected_recovery) do
     with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
-         {:ok, session, turn} <- lock_turn_after_episode(episode.id, episode.owner_ref) do
+         {:ok, session, turn} <- lock_retry_owner(episode) do
       if recovery_fingerprint(turn) != expected_recovery,
         do: Repo.rollback(:work_recovery_changed)
 
@@ -277,6 +277,12 @@ defmodule Ryker.Work.Custody.Cancellation do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  # A request closed or delivered since the person saw it blocked has no turn left to try again.
+  defp lock_retry_owner(%Episode{state: :working, owner_kind: :turn} = episode),
+    do: lock_turn_after_episode(episode.id, episode.owner_ref)
+
+  defp lock_retry_owner(%Episode{}), do: {:error, :work_recovery_changed}
 
   # The turn is the episode's owner, already locked in this transaction.
   defp retry_blocked_episode(
