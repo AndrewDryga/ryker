@@ -32,6 +32,29 @@ defmodule Ryker.Delivery.ChatCardTest do
     refute html =~ "timer_deadline"
   end
 
+  # One wait Ryker kept failing on held up every other, so it is marked and tried again later
+  # (2026-10-04 review); the card says so while the wait is open, and not once it is closed.
+  for {error, phrase} <- [
+        {"schedule_failed", "Ryker could not schedule this wait"},
+        {"resume_failed", "Ryker could not resume this wait"}
+      ] do
+    test "a wait Ryker #{error} on says it tries again, until the wait is closed" do
+      payload = %{
+        "deadline_at" => "2099-09-07T12:00:00Z",
+        "event_matcher" => %{"type" => "after", "delay" => "10m", "on_timeout" => "Report."},
+        "kind" => "after",
+        "verification" => "Check Airflow health."
+      }
+
+      source = record("event_wait", payload) |> Map.put(:wait_error, unquote(error))
+      assert {:ok, card} = ChatCard.project(source)
+      assert card.wait_warning == unquote(phrase) <> ". It tries again every 10 minutes."
+      assert card.summary == nil
+
+      assert ChatCard.wait_warning(%{source | status: :dismissed}) == nil
+    end
+  end
+
   test "a scheduling diagnostic never prints an invalid retained deadline as diagnostic prose" do
     warning =
       ChatCard.wait_warning(%Record{
@@ -94,7 +117,9 @@ defmodule Ryker.Delivery.ChatCardTest do
         {"cursor", "cursor is invalid or exceeds 16 KiB"},
         {"deadline", "deadline is invalid"},
         {"timer_deadline", "cannot run before its deadline"},
-        {"poll_after", "polling time is invalid"}
+        {"poll_after", "polling time is invalid"},
+        {"schedule_failed", "could not schedule this wait"},
+        {"resume_failed", "could not resume this wait"}
       ] do
     test "a retained invalid wait still shows its bounded #{error} diagnostic without raw data" do
       # Revalidating retained payloads hid scheduling failures from Lab entirely.

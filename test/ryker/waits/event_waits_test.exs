@@ -330,6 +330,77 @@ defmodule Ryker.Waits.EventWaitsTest do
     assert Repo.get!(Record, fixture.record.id).status == :open
   end
 
+  # Each poll took the earliest due wait again, so one wait Ryker could not resume held up every
+  # wait due after it (2026-10-04 review). It is marked, passed over, and tried again ten minutes
+  # on.
+  for path <- [:timer, :deadline] do
+    test "a wait whose #{path} wake-up fails holds up no other wait and is tried again later" do
+      %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+      failing = active_timer_wait!("after", now)
+      healthy = active_timer_wait!("after", now)
+      make_due!(failing, unquote(path), DateTime.add(now, -2, :second))
+      make_due!(healthy, unquote(path), DateTime.add(now, -1, :second))
+
+      # The request already holds the wake-up input, so admitting it again is refused.
+      revisions = failing.waiting.episode.input_revisions
+      wakeup = "state-event-wait:#{failing.record.ref}"
+      set_input_revisions!(failing, Map.put(revisions, wakeup, 1))
+
+      assert {:error, {:event_wait_resume_failed, failed_id, _reason}} = EventWaits.resume_due()
+      assert failed_id == failing.record.id
+
+      assert %Record{status: :open, wait_error: "resume_failed"} =
+               Repo.get!(Record, failing.record.id)
+
+      assert {:ok, %{record: resumed}} = EventWaits.resume_due()
+      assert resumed.id == healthy.record.id
+      assert EventWaits.resume_due() == {:ok, :idle}
+
+      set_input_revisions!(failing, revisions)
+
+      Repo.update_all(from(record in Record, where: record.id == ^failing.record.id),
+        set: [updated_at: DateTime.add(now, -601, :second)]
+      )
+
+      assert {:ok, %{record: %Record{status: :answered, wait_error: nil} = retried}} =
+               EventWaits.resume_due()
+
+      assert retried.id == failing.record.id
+    end
+  end
+
+  # One wait whose subscription could not be saved rolled back the whole reconciliation, and
+  # every due wait waited behind it (2026-10-04 review).
+  test "a wait Ryker cannot schedule holds up no other wait and is tried again later" do
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+    unschedulable = active_source_wait!("unschedulable", now)
+    Repo.delete!(unschedulable.subscription)
+    trigger = unschedulable.record.payload["event_matcher"]
+    # The subscription table keeps a match only as an object.
+    set_trigger!(unschedulable, Map.put(trigger, "match", ["not", "an", "object"]))
+
+    healthy = active_timer_wait!("after", now)
+    make_due!(healthy, :timer, DateTime.add(now, -1, :second))
+
+    assert {:ok, %{record: resumed}} = EventWaits.resume_due()
+    assert resumed.id == healthy.record.id
+
+    assert %Record{status: :open, wait_error: "schedule_failed"} =
+             Repo.get!(Record, unschedulable.record.id)
+
+    assert {:ok, 0} = EventSubscriptions.reconcile()
+
+    set_trigger!(unschedulable, trigger)
+
+    Repo.update_all(from(record in Record, where: record.id == ^unschedulable.record.id),
+      set: [updated_at: DateTime.add(now, -601, :second)]
+    )
+
+    assert {:ok, 1} = EventSubscriptions.reconcile()
+    assert Repo.get!(Record, unschedulable.record.id).wait_error == nil
+    assert Repo.get_by!(EventSubscription, record_id: unschedulable.record.id).status == :active
+  end
+
   for timer_type <- ~w(after at) do
     test "a #{timer_type} timer wakes at its scheduled time, not its hard deadline" do
       # The real Airflow world armed after:10m with a 15-minute deadline,
@@ -785,6 +856,29 @@ defmodule Ryker.Waits.EventWaitsTest do
       transition: transition,
       waiting: waiting
     }
+  end
+
+  defp make_due!(fixture, :timer, at) do
+    Repo.update_all(
+      from(subscription in EventSubscription, where: subscription.id == ^fixture.subscription.id),
+      set: [poll_after: at]
+    )
+  end
+
+  defp make_due!(fixture, :deadline, at), do: expire_wait!(fixture, at)
+
+  defp set_input_revisions!(fixture, revisions) do
+    Repo.update_all(from(episode in Episode, where: episode.id == ^fixture.waiting.episode.id),
+      set: [input_revisions: revisions]
+    )
+  end
+
+  defp set_trigger!(fixture, trigger) do
+    payload = Map.put(fixture.record.payload, "event_matcher", trigger)
+
+    Repo.update_all(from(record in Record, where: record.id == ^fixture.record.id),
+      set: [payload: payload, payload_fingerprint: Ryker.CanonicalJSON.digest(payload)]
+    )
   end
 
   defp expire_wait!(fixture, deadline) do

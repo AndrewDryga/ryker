@@ -15,9 +15,15 @@ defmodule Ryker.Waits.EventSubscriptions do
 
   A follow-up started, resolved or cancelled is announced after the outermost
   commit (`subscribe_follow_ups/0`), on its request's topics too.
+
+  A wait Ryker failed to schedule or resume is marked so (`fail/2`) and passed
+  over, then tried again ten minutes on: the earliest wait was taken again on
+  every poll, and one that kept failing held up every other.
   """
 
   import Ecto.Query
+
+  require Logger
 
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
@@ -31,6 +37,10 @@ defmodule Ryker.Waits.EventSubscriptions do
 
   @reconcile_limit 100
 
+  # A `wait_error` naming Ryker's own failure, tried again after this long; every other one
+  # names saved data that trying again cannot change.
+  @failure_retry_seconds 600
+
   @spec ensure_in_transaction(Episode.t()) ::
           {:ok, :not_source_event | EventSubscription.t()} | {:error, term()}
   def ensure_in_transaction(%Episode{} = episode) do
@@ -41,67 +51,110 @@ defmodule Ryker.Waits.EventSubscriptions do
     end
   end
 
+  @doc """
+  Cancels subscriptions their wait no longer needs and subscribes waits that
+  have none, each wait in its own transaction: one wait that cannot be
+  subscribed rolled back every other's, and nothing resumed until it could be
+  (2026-10-04 review).
+  """
   @spec reconcile() :: {:ok, non_neg_integer()} | {:error, term()}
   def reconcile do
-    Repo.transaction(&reconcile_in_transaction/0)
+    with {:ok, cancelled} <- Repo.transaction(&cancel_stale_in_transaction/0) do
+      {:ok, Enum.reduce(unsubscribed_waits(), cancelled, &subscribe/2)}
+    end
   end
 
-  defp reconcile_in_transaction do
-    cancelled = cancel_stale_in_transaction()
+  defp unsubscribed_waits do
     retained = retained_wait([:waiting_for_input])
+    retry_before = failure_retried_before(Repo.now!())
 
-    episodes =
-      Repo.all(
-        from(episode in Episode,
-          as: :episode,
-          join: record in Record,
-          as: :record,
-          on: record.episode_id == episode.id,
-          left_join: subscription in EventSubscription,
-          on: subscription.record_id == record.id,
-          where: ^retained,
-          where: record.kind == "event_wait" and record.status == :open,
-          where: is_nil(record.wait_error),
-          where: is_nil(subscription.id),
-          where:
-            fragment("?::jsonb->'event_matcher'->>'type'", record.payload) in [
-              "after",
-              "at",
-              "source_event"
-            ],
-          order_by: [asc: episode.owner_deadline_at, asc: episode.id],
-          limit: @reconcile_limit,
-          select: %{episode: episode, record_id: record.id}
-        )
+    Repo.all(
+      from(episode in Episode,
+        as: :episode,
+        join: record in Record,
+        as: :record,
+        on: record.episode_id == episode.id,
+        left_join: subscription in EventSubscription,
+        on: subscription.record_id == record.id,
+        where: ^retained,
+        where: record.kind == "event_wait" and record.status == :open,
+        where:
+          is_nil(record.wait_error) or
+            (record.wait_error == "schedule_failed" and record.updated_at <= ^retry_before),
+        where: is_nil(subscription.id),
+        where:
+          fragment("?::jsonb->'event_matcher'->>'type'", record.payload) in [
+            "after",
+            "at",
+            "source_event"
+          ],
+        order_by: [asc: episode.owner_deadline_at, asc: episode.id],
+        limit: @reconcile_limit,
+        select: %{episode: episode, record_id: record.id}
+      )
+    )
+  end
+
+  defp subscribe(%{episode: episode, record_id: record_id}, count) do
+    case Repo.transaction(fn -> subscribe_locked(episode, record_id) end) do
+      {:ok, %EventSubscription{}} ->
+        count + 1
+
+      {:ok, :not_source_event} ->
+        count
+
+      {:error, {:invalid_event_subscription, field}}
+      when field in [:deadline, :poll_after, :timer_deadline, :source_kind, :cursor] ->
+        fail(record_id, Atom.to_string(field))
+        count
+
+      {:error, reason} ->
+        Logger.error("event wait #{record_id} could not be scheduled: #{inspect(reason)}")
+        fail(record_id, "schedule_failed")
+        count
+    end
+  end
+
+  # A wait whose scheduling failed ten minutes ago is tried as if new; the mark comes back if it
+  # fails again.
+  defp subscribe_locked(episode, record_id) do
+    Repo.update_all(
+      from(record in Record,
+        where: record.id == ^record_id and record.wait_error == "schedule_failed"
+      ),
+      set: [wait_error: nil]
+    )
+
+    case ensure_locked(episode) do
+      {:ok, result} -> result
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  @doc """
+  Marks an open wait with why Ryker could not schedule or resume it, so the
+  waits after it go first. `schedule_failed` and `resume_failed` are Ryker's
+  own failures and are tried again (`failure_retried_before/1`); any other
+  code names saved data that cannot be scheduled.
+  """
+  @spec fail(Ecto.UUID.t(), String.t()) :: :ok
+  def fail(record_id, code) when is_binary(record_id) and is_binary(code) do
+    {_count, failed} =
+      Repo.update_all(
+        from(record in Record,
+          where: record.id == ^record_id and record.status == :open,
+          select: record
+        ),
+        set: [wait_error: code, updated_at: Repo.now!()]
       )
 
-    Enum.reduce(episodes, cancelled, fn %{episode: episode, record_id: record_id}, count ->
-      case ensure_locked(episode) do
-        {:ok, :not_source_event} ->
-          count
-
-        {:ok, %EventSubscription{}} ->
-          count + 1
-
-        {:error, {:invalid_event_subscription, field}}
-        when field in [:deadline, :poll_after, :timer_deadline, :source_kind, :cursor] ->
-          {_count, refused} =
-            Repo.update_all(
-              from(record in Record,
-                where: record.id == ^record_id and record.status == :open,
-                select: record
-              ),
-              set: [wait_error: Atom.to_string(field), updated_at: Repo.now!()]
-            )
-
-          Enum.each(refused, &Records.broadcast_record_updated/1)
-          count
-
-        {:error, reason} ->
-          Repo.rollback(reason)
-      end
-    end)
+    Enum.each(failed, &Records.broadcast_record_updated/1)
   end
+
+  @doc "A wait Ryker failed on before this moment is tried again."
+  @spec failure_retried_before(DateTime.t()) :: DateTime.t()
+  def failure_retried_before(%DateTime{} = now),
+    do: DateTime.add(now, -@failure_retry_seconds, :second)
 
   defp cancel_stale_in_transaction do
     retained = retained_wait([:waiting_for_input, :working])
@@ -222,6 +275,8 @@ defmodule Ryker.Waits.EventSubscriptions do
 
   @spec due(DateTime.t()) :: nil | map()
   def due(%DateTime{} = now) do
+    retry_before = failure_retried_before(now)
+
     Repo.one(
       from(subscription in EventSubscription,
         join: episode in Episode,
@@ -233,7 +288,10 @@ defmodule Ryker.Waits.EventSubscriptions do
             subscription.deadline_at > ^now,
         where: episode.state == :waiting_for_event and episode.owner_kind == :event,
         where: episode.owner_ref == record.ref and record.episode_id == episode.id,
-        where: record.status == :open and is_nil(record.wait_error),
+        where: record.status == :open,
+        where:
+          is_nil(record.wait_error) or
+            (record.wait_error == "resume_failed" and record.updated_at <= ^retry_before),
         where: subscription.deadline_at == episode.owner_deadline_at,
         where:
           fragment(

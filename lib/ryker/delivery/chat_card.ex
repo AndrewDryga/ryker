@@ -58,7 +58,8 @@ defmodule Ryker.Delivery.ChatCard do
   end
 
   defp diagnostic_card(%Record{kind: "event_wait", wait_error: error} = record)
-       when error in ~w(deadline poll_after timer_deadline source_kind cursor) do
+       when error in ~w(deadline poll_after timer_deadline source_kind cursor schedule_failed
+                        resume_failed) do
     deadline = diagnostic_deadline(record.payload)
 
     card =
@@ -503,6 +504,14 @@ defmodule Ryker.Delivery.ChatCard do
       deadline -> wait_time_warning(error, deadline)
     end
   end
+
+  # Ryker's own failures, which it tries again (`Ryker.Waits.EventSubscriptions.fail/2`); a
+  # closed wait is no longer tried.
+  def wait_warning(%Record{kind: "event_wait", status: :open, wait_error: "schedule_failed"}),
+    do: "Ryker could not schedule this wait. It tries again every 10 minutes."
+
+  def wait_warning(%Record{kind: "event_wait", status: :open, wait_error: "resume_failed"}),
+    do: "Ryker could not resume this wait. It tries again every 10 minutes."
 
   def wait_warning(_record), do: nil
 

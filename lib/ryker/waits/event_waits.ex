@@ -29,10 +29,18 @@ defmodule Ryker.Waits.EventWaits do
           {:ok, :idle}
 
         %{episode_id: episode_id, record_id: record_id} ->
-          resume_at(record_id, episode_id, now)
+          record_id |> resume_at(episode_id, now) |> passed_over(record_id)
       end
     end
   end
+
+  # The next poll takes the waits due after this one first.
+  defp passed_over({:error, reason}, record_id) do
+    :ok = EventSubscriptions.fail(record_id, "resume_failed")
+    {:error, {:event_wait_resume_failed, record_id, reason}}
+  end
+
+  defp passed_over(result, _record_id), do: result
 
   @doc """
   The earliest moment after `since` at which a wait falls due by the clock
@@ -67,6 +75,8 @@ defmodule Ryker.Waits.EventWaits do
   end
 
   defp due_wait(now) do
+    retry_before = EventSubscriptions.failure_retried_before(now)
+
     Repo.one(
       from(episode in Episode,
         join: record in Record,
@@ -76,6 +86,9 @@ defmodule Ryker.Waits.EventWaits do
         where: episode.state == :waiting_for_event and episode.owner_kind == :event,
         where: episode.owner_deadline_at <= ^now,
         where: record.kind == "event_wait" and record.status == :open,
+        where:
+          is_nil(record.wait_error) or record.wait_error != "resume_failed" or
+            record.updated_at <= ^retry_before,
         where:
           fragment(
             "CASE WHEN pg_input_is_valid(?::jsonb->>'deadline_at', 'timestamptz') THEN (?::jsonb->>'deadline_at')::timestamptz = ? ELSE false END",
@@ -165,7 +178,7 @@ defmodule Ryker.Waits.EventWaits do
            Episodes.apply_batch_in_transaction([admit, resume]),
          %Record{status: :open} = locked_record <-
            Repo.one(from(value in Record, where: value.id == ^record.id, lock: "FOR UPDATE")),
-         {:ok, record} <- locked_record |> RecordChangeset.answer() |> Repo.update(),
+         {:ok, record} <- locked_record |> RecordChangeset.answer_wait() |> Repo.update(),
          :ok <- EventSubscriptions.resolve_wait_in_transaction(record.ref, resolution_kind) do
       Records.broadcast_record_updated(record)
       %{episode: resumed.episode, record: record}
@@ -236,10 +249,17 @@ defmodule Ryker.Waits.EventWaits do
             DateTime.compare(deadline, now) == :gt
 
     cond do
-      not saved_deadline?(record, deadline) -> {:error, :event_wait_already_resumed}
-      kind != :deadline and not is_nil(record.wait_error) -> {:error, :event_wait_not_due}
-      due? -> :ok
-      true -> {:error, :event_wait_not_due}
+      not saved_deadline?(record, deadline) ->
+        {:error, :event_wait_already_resumed}
+
+      kind != :deadline and record.wait_error not in [nil, "resume_failed"] ->
+        {:error, :event_wait_not_due}
+
+      due? ->
+        :ok
+
+      true ->
+        {:error, :event_wait_not_due}
     end
   end
 
