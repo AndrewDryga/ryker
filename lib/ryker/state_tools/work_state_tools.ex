@@ -7,6 +7,7 @@ defmodule Ryker.StateTools.WorkStateTools do
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
   alias Ryker.Records.DerivedContext
+  alias Ryker.Repo
   alias Ryker.Work.{Custody, Final, FinalPreflight, Validator}
 
   # The newest records within the limit: the oldest kept the latest evidence
@@ -60,7 +61,7 @@ defmodule Ryker.StateTools.WorkStateTools do
     # then fetches and digest-checks the bytes before accepting the result or
     # creating delivery custody.
     with {:accept, %{final: final}} <-
-           Validator.validate(candidate_json, validation_context, DateTime.utc_now()),
+           Validator.validate(candidate_json, validation_context, Repo.now!()),
          :ok <- Presentation.validate(binding.episode, binding.turn, final),
          {:ok, _turn} <-
            Custody.record_final_preflight(

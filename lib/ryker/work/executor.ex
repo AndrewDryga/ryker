@@ -256,7 +256,6 @@ defmodule Ryker.Work.Executor do
       :max_block_ms,
       :max_polls,
       :monotonic_ms,
-      :now,
       :poll_interval_ms,
       :platform_tools,
       :require_project_isolation,
@@ -283,7 +282,6 @@ defmodule Ryker.Work.Executor do
           Keyword.get(options, :monotonic_ms, fn ->
             System.monotonic_time(:millisecond)
           end),
-        now: Keyword.get(options, :now, &DateTime.utc_now/0),
         poll_interval_ms: Keyword.get(options, :poll_interval_ms, 250),
         platform_tools: Keyword.get(options, :platform_tools),
         require_project_isolation: Keyword.get(options, :require_project_isolation, false),
@@ -332,7 +330,6 @@ defmodule Ryker.Work.Executor do
          settings.max_block_ms < safe_window, :max_block_ms},
       {is_integer(settings.max_polls) and settings.max_polls > 0, :max_polls},
       {is_function(settings.monotonic_ms, 0), :monotonic_ms},
-      {is_function(settings.now, 0), :now},
       {is_integer(settings.poll_interval_ms) and settings.poll_interval_ms >= 0 and
          settings.poll_interval_ms < safe_window, :poll_interval_ms},
       {valid_platform_tools?(settings.platform_tools), :platform_tools},

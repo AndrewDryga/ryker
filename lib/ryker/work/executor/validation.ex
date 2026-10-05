@@ -13,6 +13,7 @@ defmodule Ryker.Work.Executor.Validation do
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.{PlatformActionCustody, Presentation}
   alias Ryker.Records
+  alias Ryker.Repo
   alias Ryker.Work.{Custody, FinalPreflight, OperationKeys, StateBinding, Validator}
   alias Ryker.Work.Executor.{Remote, Turns}
 
@@ -33,7 +34,10 @@ defmodule Ryker.Work.Executor.Validation do
 
   def ensure_validation_intent(claim, message, sha256, attempt, artifacts, settings) do
     with {:ok, validation_context} <- validation_context(claim, artifacts, settings) do
-      case Validator.validate(message, validation_context, settings.now.()) do
+      # Acceptance checks the result again on PostgreSQL's clock, which every wait's deadline
+      # is kept and resumed by; the host's clock let a deadline pass here and fail there
+      # (2026-10-04 review).
+      case Validator.validate(message, validation_context, Repo.now!()) do
         {:accept, %{final: final, result: result}} ->
           prepare_accepted_validation(
             claim,

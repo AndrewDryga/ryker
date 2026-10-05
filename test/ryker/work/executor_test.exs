@@ -4156,7 +4156,6 @@ defmodule Ryker.Work.ExecutorTest do
       {Keyword.put(valid, :max_block_ms, 20_000), :max_block_ms},
       {Keyword.put(valid, :max_polls, 0), :max_polls},
       {Keyword.put(valid, :monotonic_ms, :clock), :monotonic_ms},
-      {Keyword.put(valid, :now, :clock), :now},
       {Keyword.put(valid, :poll_interval_ms, 20_000), :poll_interval_ms},
       {Keyword.put(valid, :sleep, :sleep), :sleep},
       {Keyword.put(valid, :validation_context, :context), :validation_context}
@@ -4167,6 +4166,12 @@ defmodule Ryker.Work.ExecutorTest do
     end)
 
     assert Executor.run(claim, Keyword.put(valid, :unknown, true)) ==
+             {:error, {:invalid_work_executor, :options}}
+
+    # An answer is checked on PostgreSQL's clock, which acceptance and every wait use; the
+    # executor's own host clock let a deadline pass one check and fail the other (2026-10-04
+    # review).
+    assert Executor.run(claim, Keyword.put(valid, :now, fn -> @now end)) ==
              {:error, {:invalid_work_executor, :options}}
 
     assert Executor.run(claim, :invalid) == {:error, {:invalid_work_executor, :options}}
@@ -4467,7 +4472,6 @@ defmodule Ryker.Work.ExecutorTest do
       max_block_ms: 1_000,
       max_polls: 20,
       monotonic_ms: fn -> 0 end,
-      now: fn -> @now end,
       poll_interval_ms: 0,
       sleep: fn _milliseconds -> :ok end
     ]

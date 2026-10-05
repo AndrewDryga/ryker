@@ -369,7 +369,6 @@ defmodule Ryker.Webhooks.EndToEndTest do
         max_block_ms: 1_000,
         max_polls: 20,
         monotonic_ms: fn -> 0 end,
-        now: fn -> @now end,
         poll_interval_ms: 0,
         sleep: fn _milliseconds -> :ok end
       ],
