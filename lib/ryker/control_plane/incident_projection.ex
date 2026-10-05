@@ -391,11 +391,16 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp channel_created_at(_room), do: nil
 
   # The worker writes this note, in fixed words, when it closes a room, on a
-  # person's request or because Slack deleted its channel, for whoever opens
-  # the room later: whether it said so in Slack and where a reply it still
-  # owed waits.
+  # person's request or because its channel was deleted, or archived or left
+  # before setup finished, for whoever opens the room later: whether it said
+  # so in Slack and where a reply it still owed waits.
   defp closed_note(%IncidentRoom{status: :closed, last_error_code: code} = room)
-       when code in ["incident_room_closed", "incident_room_deleted"],
+       when code in [
+              "incident_room_closed",
+              "incident_room_deleted",
+              "incident_room_archived",
+              "incident_room_left"
+            ],
        do: room.last_error_detail
 
   defp closed_note(_room), do: nil

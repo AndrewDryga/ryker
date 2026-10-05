@@ -808,6 +808,35 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              IncidentRooms.request(%{request(delivered_offer!()) | maximum_open_rooms: 1})
   end
 
+  # A room whose channel was archived, or that Ryker was removed from, before
+  # setup finished was never taken up again: it stayed requested and held a
+  # place in the open-room limit for good (2026-10-04 review). Like a deleted
+  # one, it closes itself.
+  for {kind, code} <- [archived: "incident_room_archived", left: "incident_room_left"] do
+    test "a room whose channel is #{kind} during setup closes itself and frees its place" do
+      fixture = delivered_offer!()
+      save_channel_configuration!()
+      agent = incident_agent!()
+
+      assert {:ok, %{room: requested}} =
+               IncidentRooms.request(%{request(fixture) | maximum_open_rooms: 1})
+
+      Agent.update(agent, &Map.put(&1, :invite_error, :invite_offline))
+      assert {:ok, {:deferred, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+      room = Repo.get!(IncidentRoom, requested.id)
+      changed_at = DateTime.add(room.channel_state_changed_at, 1, :second)
+      event = lifecycle(room, unquote(kind), "Ev-incident-#{unquote(kind)}-in-setup", changed_at)
+
+      assert {:ok, %{status: :applied, room: closed}} = IncidentRooms.observe_lifecycle(event)
+      assert closed.status == :closed
+      assert closed.last_error_code == unquote(code)
+      assert FailureProjection.slack_incident(room_ref) == :not_found
+
+      assert {:ok, %{status: :requested}} =
+               IncidentRooms.request(%{request(delivered_offer!()) | maximum_open_rooms: 1})
+    end
+  end
+
   # A room whose channel was deleted paused its investigation for good: Slack
   # never brings a deleted channel back, so the request stayed open forever,
   # the Failures page promised it would resume "when the room is active

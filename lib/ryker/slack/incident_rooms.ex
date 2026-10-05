@@ -870,23 +870,51 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   # A room without its investigation yet has nothing to close, so it closes on
-  # the event. It used to be blocked for good instead: a retry was refused, and
-  # it held a place in the open-room limit forever. A room that owns an
-  # investigation closes once the worker has closed that and told the alert
-  # thread the room came from (`close_deleted/3`).
-  defp deleted_attributes(%IncidentRoom{episode_id: nil}, :deleted, attributes),
-    do: Map.merge(attributes, channel_deleted_attributes())
+  # the event: its channel deleted, archived or left while Ryker set it up.
+  # Deleted, it used to be blocked for good; archived or left, it was never
+  # taken up again. Either way it held a place in the open-room limit
+  # forever. A room that owns an investigation closes once the worker has
+  # closed that and told the alert thread the room came from
+  # (`close_deleted/3`); archived or left, it is paused until its channel
+  # comes back.
+  defp deleted_attributes(%IncidentRoom{episode_id: nil}, state, attributes)
+       when state in [:deleted, :archived, :unavailable],
+       do: Map.merge(attributes, channel_gone_attributes(state))
 
   defp deleted_attributes(_room, _state, attributes), do: attributes
 
   # Slack deletes a channel for good, so a room whose channel is gone can never
   # be set up or resumed. Closing it releases its place in the open-room limit;
   # its lifecycle events and the investigation's history stay.
-  defp channel_deleted_attributes do
+  defp channel_deleted_attributes, do: channel_gone_attributes(:deleted)
+
+  defp channel_gone_attributes(:deleted) do
     %{
       last_error_code: "incident_room_deleted",
       last_error_detail: "Slack deleted the room's channel, so Ryker closed the room.",
       reconciled_channel_state: :deleted,
+      status: :closed
+    }
+  end
+
+  defp channel_gone_attributes(:archived) do
+    %{
+      last_error_code: "incident_room_archived",
+      last_error_detail:
+        "Someone archived the room's channel before Ryker finished setting it up, " <>
+          "so Ryker closed the room.",
+      reconciled_channel_state: :archived,
+      status: :closed
+    }
+  end
+
+  defp channel_gone_attributes(:unavailable) do
+    %{
+      last_error_code: "incident_room_left",
+      last_error_detail:
+        "Ryker was removed from the room's channel before it finished setting it up, " <>
+          "so Ryker closed the room.",
+      reconciled_channel_state: :unavailable,
       status: :closed
     }
   end
