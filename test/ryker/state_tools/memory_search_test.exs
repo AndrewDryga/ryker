@@ -576,6 +576,46 @@ defmodule Ryker.StateTools.MemorySearchTest do
     assert guidance["kind"] == "guidance"
   end
 
+  # A shadow turn answers nobody, yet its searches counted as uses of live
+  # facts and guidance, which kept stale ones out of the review queue
+  # (2026-10-04 review).
+  test "a shadow turn's search counts no use of live memory", %{claim: claim} do
+    fact!(claim, 1)
+    guidance!(claim, 1)
+    id = Ecto.UUID.generate()
+
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 destination: %{
+                   conversation_ref: claim.episode.destination_conversation_ref,
+                   thread_ref: nil,
+                   transport: claim.episode.destination_transport
+                 },
+                 episode_id: id,
+                 episode_key: "shadow-search:#{id}",
+                 execution_mode: :shadow,
+                 native_input_id: "shadow-search:#{id}",
+                 turn_ref: "shadow-search:#{id}"
+               })
+             )
+
+    assert {:ok, _session} = Custody.pin_episode(id, "read-only", String.duplicate("a", 64))
+    assert {:ok, shadow} = Custody.claim_next("memory-search-shadow", 300)
+    assert shadow.episode.execution_mode == :shadow
+
+    options =
+      Router.init(
+        token: Ryker.Secret.new("host-only-search-test-secret"),
+        binding: Map.put(shadow, :state_token, Records.token(shadow.turn))
+      )
+
+    args = %{@args | "kinds" => ["fact", "guidance"]}
+    assert {:ok, %{"memories" => [_fact, _guidance]}} = Tools.call("search_memory", args, options)
+    assert Repo.all(from(entry in MemoryEntry, select: entry.recall_count)) == [0]
+    assert Repo.all(from(behavior in Behavior, select: behavior.use_count)) == [0]
+  end
+
   test "an unknown source reference cannot be disclosed as dependency-free text", %{claim: claim} do
     assert {:error, :work_knowledge_context_stale} =
              KnowledgeSnapshot.expose(claim, [

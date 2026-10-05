@@ -367,6 +367,7 @@ defmodule Ryker.Behaviors do
       when is_binary(operator_ref) and (is_binary(repository) or is_nil(repository)) do
     context = %{
       conversation_ref: episode.destination_conversation_ref,
+      execution_mode: episode.execution_mode,
       operator_ref: operator_ref,
       repository: repository,
       workspace_ref: Scope.workspace_ref(episode)
@@ -398,14 +399,12 @@ defmodule Ryker.Behaviors do
     active_for_context(:guidance, context)
     |> Enum.sort_by(&{preference_rank(&1), DateTime.to_unix(&1.updated_at, :microsecond) * -1})
     |> Enum.take(limit)
-    |> account_guidance()
+    |> account_guidance(context)
   end
 
-  defp account_guidance([]), do: []
+  defp account_guidance([], _context), do: []
 
-  defp account_guidance(behaviors) do
-    now = Repo.now!()
-
+  defp account_guidance(behaviors, context) do
     unchanged =
       Enum.reduce(behaviors, dynamic(false), fn behavior, condition ->
         dynamic(
@@ -416,22 +415,29 @@ defmodule Ryker.Behaviors do
         )
       end)
 
-    {_count, ids} =
-      Repo.update_all(
-        from(behavior in Behavior,
-          where: ^unchanged,
-          where:
-            behavior.status == :active and
-              (is_nil(behavior.expires_at) or behavior.expires_at > fragment("clock_timestamp()")),
-          select: behavior.id
-        ),
-        inc: [use_count: 1],
-        set: [last_used_at: now]
+    current =
+      from(behavior in Behavior,
+        where: ^unchanged,
+        where:
+          behavior.status == :active and
+            (is_nil(behavior.expires_at) or behavior.expires_at > fragment("clock_timestamp()")),
+        select: behavior.id
       )
 
-    Enum.each(ids, &broadcast_behavior_updated/1)
-    retained = MapSet.new(ids)
+    retained = current |> charge_use(context) |> MapSet.new()
     behaviors |> Enum.filter(&MapSet.member?(retained, &1.id)) |> Enum.map(&guidance_document/1)
+  end
+
+  # A shadow turn reads what a live one would and counts no use: its reads kept
+  # stale guidance out of the review queue (2026-10-04 review).
+  defp charge_use(current, %{execution_mode: :shadow}), do: Repo.all(current)
+
+  defp charge_use(current, _context) do
+    {_count, ids} =
+      Repo.update_all(current, inc: [use_count: 1], set: [last_used_at: Repo.now!()])
+
+    Enum.each(ids, &broadcast_behavior_updated/1)
+    ids
   end
 
   defp guidance_document(behavior) do
@@ -507,7 +513,7 @@ defmodule Ryker.Behaviors do
       changed,
       dynamic([b], b.confirmed_at)
     )
-    |> account_search_result()
+    |> account_search_result(context)
   end
 
   defp search_scope(context, "current_channel"),
@@ -524,14 +530,14 @@ defmodule Ryker.Behaviors do
 
   defp search_scope(_context, _scope), do: dynamic([b], false)
 
-  defp account_search_result({:ok, behavior, position}) do
-    case account_guidance([behavior]) do
+  defp account_search_result({:ok, behavior, position}, context) do
+    case account_guidance([behavior], context) do
       [document] -> {:ok, document, position}
       [] -> {:skip, position}
     end
   end
 
-  defp account_search_result(:done), do: :done
+  defp account_search_result(:done, _context), do: :done
 
   @doc "Returns true only when an active channel assignment matches trusted source identity and event shape."
   @spec standing_match?(Input.t()) :: boolean()
@@ -1421,7 +1427,8 @@ defmodule Ryker.Behaviors do
   defp retrieval_context(context) do
     fields = [:conversation_ref, :operator_ref, :repository, :workspace_ref]
 
-    if Map.keys(context) |> Enum.sort() == Enum.sort(fields) and
+    if Map.get(context, :execution_mode, :live) in [:live, :shadow] and
+         (Map.keys(context) -- [:execution_mode]) |> Enum.sort() == Enum.sort(fields) and
          Enum.all?([:conversation_ref, :workspace_ref], fn field ->
            Reference.valid?(context[field])
          end) and Enum.all?([:operator_ref, :repository], &optional_reference?(context[&1])) do

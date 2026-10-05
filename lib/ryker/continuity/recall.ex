@@ -41,7 +41,7 @@ defmodule Ryker.Continuity.Recall do
     case Scope.destination_context(episode, repository_ref) do
       {:ok, context} ->
         context = LearningSources.with_input_boundary(context, episode)
-        result = recall_context(context, Relevance.request(input_texts))
+        result = recall_context(context, Relevance.request(input_texts), counted?(episode))
         knowledge = Knowledge.context(episode, repository_ref, {:related, input_texts})
         result = if knowledge == [], do: result, else: Map.put(result, "knowledge", knowledge)
 
@@ -57,8 +57,12 @@ defmodule Ryker.Continuity.Recall do
 
   def model_context(_episode, _repository_ref, _input_texts), do: empty_context()
 
-  defp recall_context(context, request) do
-    case Repo.transaction(fn -> recall_locked(context, request) end) do
+  # A shadow turn reads what a live one would and counts no recall
+  # (2026-10-04 review).
+  defp counted?(episode), do: episode.execution_mode != :shadow
+
+  defp recall_context(context, request, counted?) do
+    case Repo.transaction(fn -> recall_locked(context, request, counted?) end) do
       {:ok, result} -> result
       {:error, _reason} -> empty_context()
     end
@@ -73,12 +77,12 @@ defmodule Ryker.Continuity.Recall do
           {:ok, map(), term()} | {:skip, term()} | :done
   def search_page(kind, episode, repository_ref, page) when kind in [:summary, :rollup] do
     case Observations.locked_scope(episode, repository_ref) do
-      {:ok, context} -> search_visible_page(kind, context, page)
+      {:ok, context} -> search_visible_page(kind, context, page, counted?(episode))
       _ -> :done
     end
   end
 
-  defp search_visible_page(kind, context, page) do
+  defp search_visible_page(kind, context, page, counted?) do
     query =
       if kind == :summary,
         do: searchable_summaries_query(context, page.scope),
@@ -97,7 +101,7 @@ defmodule Ryker.Continuity.Recall do
       dynamic([item], item.updated_at),
       search_source_clock()
     )
-    |> account_search_result(kind, context)
+    |> account_search_result(kind, context, counted?)
   end
 
   defp search_source_clock do
@@ -114,11 +118,13 @@ defmodule Ryker.Continuity.Recall do
     )
   end
 
-  defp account_search_result({:ok, item, position}, kind, context) do
+  defp account_search_result({:ok, item, position}, kind, context, counted?) do
     if continuity_search_candidate_visible?({kind, item}, context) do
-      if kind == :summary,
-        do: mark_summaries_recalled([item], Repo.now!()),
-        else: mark_rollups_recalled([item], Repo.now!())
+      cond do
+        not counted? -> :ok
+        kind == :summary -> mark_summaries_recalled([item], Repo.now!())
+        true -> mark_rollups_recalled([item], Repo.now!())
+      end
 
       {:ok, continuity_search_document({kind, item}), position}
     else
@@ -126,9 +132,9 @@ defmodule Ryker.Continuity.Recall do
     end
   end
 
-  defp account_search_result(:done, _kind, _context), do: :done
+  defp account_search_result(:done, _kind, _context, _counted?), do: :done
 
-  defp recall_locked(context, request) do
+  defp recall_locked(context, request, counted?) do
     current =
       Repo.one(
         from(summary in ConversationSummary, where: summary.identity_key == ^context.identity_key)
@@ -139,8 +145,10 @@ defmodule Ryker.Continuity.Recall do
     rollups = related_rollups(context)
     now = Repo.now!()
 
-    mark_summaries_recalled(Enum.reject([current | related], &is_nil/1), now)
-    mark_rollups_recalled(rollups, now)
+    if counted? do
+      mark_summaries_recalled(Enum.reject([current | related], &is_nil/1), now)
+      mark_rollups_recalled(rollups, now)
+    end
 
     %{
       "current" => if(current, do: summary_document(current)),

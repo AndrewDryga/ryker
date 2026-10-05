@@ -37,6 +37,7 @@ defmodule Ryker.Memories.Recall do
       when is_binary(repository) or is_nil(repository) do
     recall(%{
       conversation_ref: episode.destination_conversation_ref,
+      execution_mode: episode.execution_mode,
       repository: repository,
       workspace_ref: Scope.workspace_ref(episode)
     })
@@ -59,7 +60,7 @@ defmodule Ryker.Memories.Recall do
       |> Enum.sort_by(&rank/1)
       |> Enum.take(limit)
 
-    account_memory(entries)
+    account_memory(entries, context)
   end
 
   @doc false
@@ -102,7 +103,7 @@ defmodule Ryker.Memories.Recall do
       dynamic([e], e.source_message_ref)
     )
     |> MemorySearchPage.one(page, text, changed, dynamic([e], e.confirmed_at))
-    |> account_search_result()
+    |> account_search_result(context)
   end
 
   defp search_scope(context, "current_channel"),
@@ -118,14 +119,14 @@ defmodule Ryker.Memories.Recall do
 
   defp search_scope(_context, _scope), do: dynamic([e], false)
 
-  defp account_search_result({:ok, entry, position}) do
-    case account_memory([entry]) do
+  defp account_search_result({:ok, entry, position}, context) do
+    case account_memory([entry], context) do
       [document] -> {:ok, document, position}
       [] -> {:skip, position}
     end
   end
 
-  defp account_search_result(:done), do: :done
+  defp account_search_result(:done, _context), do: :done
 
   # The thousand entries with the newest content this conversation may see. The
   # visibility rule is part of the query: with it applied afterwards, a
@@ -182,9 +183,9 @@ defmodule Ryker.Memories.Recall do
     dynamic([entry], entry.workspace_ref == ^context.workspace_ref and ^kinds)
   end
 
-  defp account_memory(entries) do
-    now = Repo.now!()
+  defp account_memory([], _context), do: []
 
+  defp account_memory(entries, context) do
     unchanged =
       Enum.reduce(entries, dynamic(false), fn entry, condition ->
         dynamic(
@@ -196,25 +197,30 @@ defmodule Ryker.Memories.Recall do
 
     # The operator may revoke or edit a row while this UPDATE waits on its lock.
     # Charge and disclose only the exact still-active content we selected.
-    {_count, ids} =
-      if entries == [],
-        do: {0, []},
-        else:
-          Repo.update_all(
-            from(entry in MemoryEntry,
-              where: ^unchanged,
-              where:
-                entry.status == :active and
-                  (is_nil(entry.expires_at) or entry.expires_at > fragment("clock_timestamp()")),
-              select: entry.id
-            ),
-            inc: [recall_count: 1],
-            set: [last_recalled_at: now]
-          )
+    current =
+      from(entry in MemoryEntry,
+        where: ^unchanged,
+        where:
+          entry.status == :active and
+            (is_nil(entry.expires_at) or entry.expires_at > fragment("clock_timestamp()")),
+        select: entry.id
+      )
 
-    Enum.each(ids, &Ryker.Memories.broadcast_memory_updated/1)
+    ids = charge(current, context)
     retained = MapSet.new(ids)
     entries |> Enum.filter(&MapSet.member?(retained, &1.id)) |> Enum.map(&document/1)
+  end
+
+  # A shadow turn reads what a live one would and counts no use: its reads kept
+  # stale facts out of the review queue (2026-10-04 review).
+  defp charge(current, %{execution_mode: :shadow}), do: Repo.all(current)
+
+  defp charge(current, _context) do
+    {_count, ids} =
+      Repo.update_all(current, inc: [recall_count: 1], set: [last_recalled_at: Repo.now!()])
+
+    Enum.each(ids, &Ryker.Memories.broadcast_memory_updated/1)
+    ids
   end
 
   # When the fact itself was last said: edited, else confirmed, else saved.
@@ -287,7 +293,8 @@ defmodule Ryker.Memories.Recall do
   defp retrieval_context(context) do
     fields = [:conversation_ref, :repository, :workspace_ref]
 
-    if Map.keys(context) |> Enum.sort() == Enum.sort(fields) and
+    if Map.get(context, :execution_mode, :live) in [:live, :shadow] and
+         (Map.keys(context) -- [:execution_mode]) |> Enum.sort() == Enum.sort(fields) and
          Reference.valid?(context.conversation_ref) and
          Reference.valid?(context.workspace_ref) and
          (is_nil(context.repository) or Reference.valid?(context.repository)) do

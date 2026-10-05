@@ -325,6 +325,7 @@ defmodule Ryker.Memories.MemorySearch do
   defp context(binding) do
     %{
       conversation_ref: binding.episode.destination_conversation_ref,
+      execution_mode: binding.episode.execution_mode,
       repository: binding.session.repository_ref,
       workspace_ref: Scope.workspace_ref(binding.episode)
     }
