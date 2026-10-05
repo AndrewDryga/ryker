@@ -692,8 +692,7 @@ defmodule Ryker.Work.Custody.Delivery do
   defp newest_origin(%Episode{} = episode, refs) do
     Repo.one(
       from(origin in Origin,
-        where:
-          origin.episode_id == ^episode.id and origin.input_ref in ^refs and origin.effective,
+        where: origin.episode_id == ^episode.id and origin.input_ref in ^refs,
         order_by: [desc: origin.occurred_at, desc: origin.sequence],
         limit: 1
       )

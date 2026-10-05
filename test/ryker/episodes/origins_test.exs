@@ -40,8 +40,7 @@ defmodule Ryker.Episodes.OriginsTest do
              thread_ref: "1787832000.000100",
              origin_kind: :channel_root,
              root_ref: "1787832000.000100",
-             actor_ref: "slack:app:A123",
-             effective: true
+             actor_ref: "slack:app:A123"
            } = first
 
     assert %{
@@ -50,15 +49,8 @@ defmodule Ryker.Episodes.OriginsTest do
              origin_kind: :thread_reply,
              root_ref: "1787832005.000100",
              source_item_ref: "1787832010.000200",
-             actor_ref: "slack:user:UALICE",
-             effective: true
+             actor_ref: "slack:user:UALICE"
            } = second
-
-    assert Origins.reply_target(second) == %{
-             conversation_ref: "slack:TORIGINS:CALERTS",
-             thread_ref: "1787832005.000100",
-             transport: "slack"
-           }
 
     assert Origins.home(episode) == %{
              conversation_ref: "slack:TORIGINS:CDEVOPS",

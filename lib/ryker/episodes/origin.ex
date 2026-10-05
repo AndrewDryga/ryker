@@ -28,8 +28,6 @@ defmodule Ryker.Episodes.Origin do
     field(:origin_kind, Ecto.Enum, values: [:channel_root, :thread_reply, :conversation])
     field(:root_ref, :string)
     field(:occurred_at, :utc_datetime_usec)
-    field(:effective, :boolean, default: true)
-    field(:correction_ref, :string)
     timestamps(updated_at: false, type: :utc_datetime_usec)
   end
 

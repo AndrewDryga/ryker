@@ -887,8 +887,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       thread_ref: "1788562400.000100",
       origin_kind: :channel_root,
       root_ref: "1788562400.000100",
-      occurred_at: @received,
-      effective: true
+      occurred_at: @received
     })
 
     trace = EpisodeTrace.project(episode, [], [])

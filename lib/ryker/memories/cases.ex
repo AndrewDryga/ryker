@@ -509,7 +509,7 @@ defmodule Ryker.Memories.Cases do
   defp links(episode_id) do
     Repo.all(
       from(origin in Origin,
-        where: origin.episode_id == ^episode_id and origin.effective,
+        where: origin.episode_id == ^episode_id,
         order_by: [asc: origin.occurred_at],
         select: origin.source_item_ref
       )
@@ -538,7 +538,7 @@ defmodule Ryker.Memories.Cases do
   defp source_refs(episode_id) do
     Repo.all(
       from(origin in Origin,
-        where: origin.episode_id == ^episode_id and origin.effective,
+        where: origin.episode_id == ^episode_id,
         order_by: [asc: origin.occurred_at],
         select: origin.native_input_id
       )

@@ -820,7 +820,6 @@ defmodule Ryker.Work.SubmissionBuilder do
       "conversations" =>
         origins
         |> Map.values()
-        |> Enum.filter(& &1.effective)
         |> Enum.map(& &1.conversation_ref)
         |> Enum.uniq()
         |> Enum.sort()

@@ -84,14 +84,12 @@ defmodule Ryker.Episodes.Origins do
       native_input_id: command["native_input_id"],
       revision: command["revision"],
       actor_ref: command["actor_ref"],
-      occurred_at: event.occurred_at,
-      effective: true,
-      correction_ref: nil
+      occurred_at: event.occurred_at
     })
   end
 
   @doc """
-  The episode's effective membership, in source chronology.
+  The episode's inputs, in source chronology.
 
   Ordering by occurrence rather than by this episode's own event sequence
   keeps evidence gathered from several conversations in the order it actually
@@ -101,7 +99,7 @@ defmodule Ryker.Episodes.Origins do
   def for_episode(episode_id) do
     Repo.all(
       from(origin in Origin,
-        where: origin.episode_id == ^episode_id and origin.effective,
+        where: origin.episode_id == ^episode_id,
         order_by: [asc: origin.occurred_at, asc: origin.sequence]
       )
     )
@@ -120,9 +118,7 @@ defmodule Ryker.Episodes.Origins do
   def person_participated?(episode_id) when is_binary(episode_id) do
     Repo.exists?(
       from(origin in Origin,
-        where:
-          origin.episode_id == ^episode_id and origin.effective and
-            like(origin.actor_ref, "%:user:%")
+        where: origin.episode_id == ^episode_id and like(origin.actor_ref, "%:user:%")
       )
     )
   end
@@ -145,17 +141,7 @@ defmodule Ryker.Episodes.Origins do
     }
   end
 
-  @doc "Where a direct answer to this input belongs."
-  @spec reply_target(Origin.t()) :: destination()
-  def reply_target(%Origin{} = origin) do
-    %{
-      conversation_ref: origin.conversation_ref,
-      thread_ref: origin.thread_ref,
-      transport: origin.transport
-    }
-  end
-
-  @doc "The effective owner of one exact source item, by highest admitted revision."
+  @doc "The owner of one exact source item, by highest admitted revision."
   @spec current_owner(String.t(), String.t(), :live | :shadow) ::
           {Episode.t(), pos_integer()} | nil
   def current_owner(native_input_id, transport, execution_mode) do
@@ -165,7 +151,7 @@ defmodule Ryker.Episodes.Origins do
         on: episode.id == origin.episode_id,
         where:
           origin.native_input_id == ^native_input_id and origin.transport == ^transport and
-            origin.effective and episode.execution_mode == ^execution_mode,
+            episode.execution_mode == ^execution_mode,
         order_by: [desc: origin.revision, asc: episode.id],
         limit: 1,
         select: {episode, origin.revision}

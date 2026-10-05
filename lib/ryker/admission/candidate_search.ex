@@ -200,7 +200,7 @@ defmodule Ryker.Admission.CandidateSearch do
     Repo.all(
       from(origin in Origin,
         where:
-          origin.effective and origin.transport == ^request.transport and
+          origin.transport == ^request.transport and
             origin.conversation_ref == ^scope.conversation_ref and
             origin.thread_ref == ^request.thread_ref,
         distinct: true,
