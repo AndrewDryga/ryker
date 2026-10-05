@@ -67,6 +67,11 @@ defmodule Ryker.ControlPlane.FailureProjection do
     # The newest items of every kind that the pages up to this one can hold,
     # and one more: enough to fill this page whatever the mix of kinds.
     fetch = page * @page_size + 1
+    # A failure someone left still comes back from its kind's query and is
+    # dropped below, so each kind reads that many more: a hundred left ones
+    # hid an older open one on every page.
+    left = FailureDismissals.counts()
+    deep = fn kind -> fetch + Map.get(left, kind, 0) end
 
     work =
       Repo.all(
@@ -77,7 +82,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
               episode.owner_kind == :turn and episode.owner_ref == turn.turn_ref,
           where: turn.status == :blocked and is_nil(turn.delivery_ref),
           order_by: [desc: turn.updated_at, desc: turn.id],
-          limit: ^fetch,
+          limit: ^deep.("work"),
           select: {turn, episode}
         )
       )
@@ -88,7 +93,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
         from(entry in Entry,
           where: entry.status == :blocked,
           order_by: [desc: entry.updated_at, desc: entry.id],
-          limit: ^fetch
+          limit: ^deep.("admission")
         )
       )
       |> Enum.map(&admission_item/1)
@@ -102,7 +107,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
           on: episode.id == session.episode_id,
           where: session.cleanup_status == :blocked,
           order_by: [desc: session.updated_at, desc: session.id],
-          limit: ^fetch,
+          limit: ^deep.("retention"),
           select: {session, episode}
         )
       )
@@ -112,7 +117,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     # worker's removal) proves a run stopped. One that never got that answer
     # read "stopping" forever and was listed nowhere.
     stopping =
-      Repo.all(from([turn, episode] in stalled_stops(), limit: ^fetch))
+      Repo.all(from([turn, episode] in stalled_stops(), limit: ^deep.("stopping")))
       |> Enum.map(&stopping_item/1)
 
     interaction_feedback =
@@ -120,7 +125,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
         from(audit in InteractionAudit,
           where: audit.repaint_status == :blocked,
           order_by: [desc: audit.updated_at, desc: audit.id],
-          limit: ^fetch,
+          limit: ^deep.("slack_interaction"),
           select: audit
         )
       )
@@ -131,7 +136,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
         from(room in IncidentRoom,
           where: room.status == :blocked,
           order_by: [desc: room.updated_at, desc: room.id],
-          limit: ^fetch
+          limit: ^deep.("slack_incident")
         )
       )
       |> Enum.map(&incident_item/1)
@@ -144,7 +149,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
         from(card in TaskCard,
           where: card.status == :blocked,
           order_by: [desc: card.updated_at, desc: card.id],
-          limit: ^fetch
+          limit: ^deep.("slack_task_card")
         )
       )
       |> Enum.map(&task_card_item/1)
@@ -154,7 +159,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
         from(status in ThreadStatus,
           where: status.status == :blocked,
           order_by: [desc: status.updated_at, desc: status.id],
-          limit: ^fetch
+          limit: ^deep.("slack_thread_status")
         )
       )
       |> Enum.map(&thread_status_item/1)
@@ -168,7 +173,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
             publication.status in ^@running_publication_statuses and
               not is_nil(publication.last_error_code),
           order_by: [desc: publication.updated_at, desc: publication.id],
-          limit: ^fetch,
+          limit: ^deep.("publication"),
           select: {publication, episode}
         )
       )
@@ -177,11 +182,11 @@ defmodule Ryker.ControlPlane.FailureProjection do
     # Learning that only a person can move was listed only on the Learning
     # page, so nothing here said a conversation had stopped being learned.
     learning =
-      Repo.all(from(batch in stalled_learning(), limit: ^fetch))
+      Repo.all(from(batch in stalled_learning(), limit: ^deep.("learning")))
       |> Enum.map(&learning_item/1)
 
-    with {:ok, delivery_items} <- DeliveryOperator.list_blocked(fetch),
-         {:ok, emisar_items} <- EmisarOperator.failures(fetch) do
+    with {:ok, delivery_items} <- DeliveryOperator.list_blocked(deep.("delivery")),
+         {:ok, emisar_items} <- EmisarOperator.failures(deep.("emisar")) do
       failures =
         work ++
           admission ++

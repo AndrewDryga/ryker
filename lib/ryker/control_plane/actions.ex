@@ -179,11 +179,11 @@ defmodule Ryker.ControlPlane.Actions do
         "control-plane:learning-drop:#{id}:#{budget_version}"
       )
 
-  # The failure as it is now, so a later change lists it again.
+  # How the failure fails now, so failing some other way lists it again.
   defp leave_failure(kind, ref) do
     case FailureProjection.fetch(kind, ref) do
       {:ok, row} ->
-        FailureDismissals.leave(row.kind, row.ref, row.updated_at || Repo.now!(), Actor.ref())
+        FailureDismissals.leave(row.kind, row.ref, row.summary, Actor.ref())
 
       :not_found ->
         {:error, :failure_not_found}

@@ -319,7 +319,7 @@ defmodule Ryker.ControlPlane.Activity do
       on:
         left.kind == "admission" and
           left.ref == fragment("'ingress-input:' || ?::text", entry.id) and
-          left.failure_updated_at >= entry.updated_at,
+          left.failure_summary == coalesce(entry.last_error_code, "admission blocked"),
       where: is_nil(entry.episode_id),
       where: entry.event_kind != :delete,
       select: %{

@@ -659,9 +659,10 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
   # Andrew, 2026-10-03, of a failure page whose other choice was "Leave it": "how do I hide the
   # alert if I want to leave it and not be annoyed by having a failure pending forever?" Leaving
-  # one takes it off Failures, and off every count that reads the list, until it changes again:
-  # a change is news worth seeing.
-  test "a failure left as it is leaves Failures until it changes again" do
+  # one takes it off Failures, and off every count that reads the list, until it fails some other
+  # way. It came back on Ryker's next automatic retry, which only moved its time: stopping runs,
+  # publications and approval watches retry every minute (2026-10-04 review).
+  test "a failure left as it is stays off Failures while it fails the same way" do
     session = blocked_learning_cleanup!("coop_session_replacement_required")
     ref = session.external_ref
 
@@ -678,12 +679,62 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert {:ok, %{left_at: %DateTime{}} = left} = FailureProjection.fetch("retention", ref)
     refute Enum.any?(FailureExplanation.explain(left).options, &(&1.label == "Leave it"))
 
+    # Tried again, it failed the same way.
     Repo.update_all(from(saved in Session, where: saved.id == ^session.id),
       set: [updated_at: DateTime.add(changed_at, 1, :second)]
     )
 
+    refute listed?(ref)
+
+    Repo.update_all(from(saved in Session, where: saved.id == ^session.id),
+      set: [
+        cleanup_last_error_code: "coop_session_unavailable",
+        updated_at: DateTime.add(changed_at, 2, :second)
+      ]
+    )
+
     assert listed?(ref)
     assert {:ok, %{left_at: nil}} = FailureProjection.fetch("retention", ref)
+  end
+
+  # Each kind was read a page deep before the ones people left were dropped, so a hundred and
+  # one left failures of a kind hid an older open one on every page, in the weekly report and in
+  # the status line (2026-10-04 review).
+  test "failures people left never crowd an open one of the same kind off the list" do
+    [open | newer] = Enum.map(1..102, &blocked_admission!/1)
+
+    for entry <- newer do
+      assert {:ok, _left} = Actions.callbacks().leave_failure.("admission", Inbox.ref(entry))
+    end
+
+    assert {:ok, failures} = FailureProjection.list(%{})
+    assert Enum.map(failures, & &1.ref) == [Inbox.ref(open)]
+  end
+
+  defp blocked_admission!(index) do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Message #{index}"},
+               event_kind: :message,
+               event_ref: "Ev-crowded-#{index}",
+               message_ref: "1787833000.#{String.pad_leading("#{index}", 6, "0")}",
+               occurred_at: DateTime.add(@now, index, :second),
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "TCROWDEDFAILURES"
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input, execution_mode: :live)
+    assert {:ok, %{lease_ref: lease}} = Inbox.claim_next("crowded:#{index}", @now, 60)
+    assert {:ok, _blocked} = Inbox.block(Inbox.ref(entry), lease, "blocked", "stopped")
+
+    Repo.update_all(from(saved in Ryker.Ingress.Inbox.Entry, where: saved.id == ^entry.id),
+      set: [updated_at: DateTime.add(@now, index, :second)]
+    )
+
+    entry
   end
 
   defp listed?(ref) do

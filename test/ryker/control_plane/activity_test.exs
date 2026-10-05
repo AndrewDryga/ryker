@@ -790,8 +790,9 @@ defmodule Ryker.ControlPlane.ActivityTest do
 
   # Leaving a stopped message as it is on Failures (Andrew, 2026-10-03: "how do I hide the alert
   # if I want to leave it and not be annoyed by having a failure pending forever?") must also stop
-  # Activity counting it as needing someone, or the count still nags. A change counts it again.
-  test "a stopped message left as it is on Failures no longer needs anyone until it changes" do
+  # Activity counting it as needing someone, or the count still nags. Failing some other way
+  # counts it again; a retry that fails the same way does not.
+  test "a stopped message left as it is on Failures needs nobody while it fails the same way" do
     {:ok, input} =
       Input.new(%{
         actor: %{kind: :user, ref: "U123"},
@@ -818,6 +819,12 @@ defmodule Ryker.ControlPlane.ActivityTest do
 
     Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
       set: [updated_at: DateTime.add(blocked.updated_at, 1, :second)]
+    )
+
+    assert %{views: %{"attention" => 0}} = Activity.list(%{})
+
+    Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
+      set: [last_error_code: "admission_unavailable"]
     )
 
     assert %{views: %{"attention" => 1}} = Activity.list(%{})
