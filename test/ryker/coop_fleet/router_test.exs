@@ -256,25 +256,25 @@ defmodule Ryker.CoopFleet.RouterTest do
     request =
       Jason.encode!(%{"id" => 1, "jsonrpc" => "2.0", "method" => "tools/list", "params" => %{}})
 
-    options = [
-      state_tools: %{
-        additional_call: fn _tool, _arguments -> {:error, :not_available} end,
-        additional_tools: [
-          %{
-            "description" => "Read one fabricated test value.",
-            "inputSchema" => %{
-              "additionalProperties" => false,
-              "properties" => %{},
-              "required" => [],
-              "type" => "object"
-            },
-            "name" => "read_test_value"
-          }
-        ],
-        capabilities: [:event_waits],
-        emisar_rpc_url: nil
-      }
-    ]
+    options =
+      Router.init(
+        state_tools: %{
+          additional_call: fn _tool, _arguments -> {:error, :not_available} end,
+          additional_tools: [
+            %{
+              "description" => "Read one fabricated test value.",
+              "inputSchema" => %{
+                "additionalProperties" => false,
+                "properties" => %{},
+                "required" => [],
+                "type" => "object"
+              },
+              "name" => "read_test_value"
+            }
+          ],
+          capabilities: [:event_waits]
+        }
+      )
 
     accepted =
       :post

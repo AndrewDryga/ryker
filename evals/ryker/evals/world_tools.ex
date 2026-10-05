@@ -61,10 +61,7 @@ defmodule Ryker.Evals.WorldTools do
   def prepare(_configured, _scenario, _cassette),
     do: {:error, :model_world_state_tools_not_configured}
 
-  defp tool_options(configured) do
-    [capabilities: configured.capabilities]
-    |> maybe_put(:emisar_rpc_url, Map.get(configured, :emisar_rpc_url))
-  end
+  defp tool_options(configured), do: [capabilities: configured.capabilities]
 
   defp valid_tool?(%{"description" => description, "inputSchema" => %{}, "name" => name})
        when is_binary(description) and is_binary(name),
@@ -86,7 +83,4 @@ defmodule Ryker.Evals.WorldTools do
       end
     end
   end
-
-  defp maybe_put(values, _key, nil), do: values
-  defp maybe_put(values, key, value), do: Keyword.put(values, key, value)
 end

@@ -65,11 +65,13 @@ defmodule Ryker.StateTools.MemorySearchTest do
     %{claim: claim, options: options, entries: entries}
   end
 
+  # A platform lookup answered the raw `state_tools_binding_not_authorized`
+  # where every other tool says `unauthorized` (2026-10-04 review).
   test "an empty platform lookup still rejects a caller whose lease was lost", %{claim: claim} do
     expired = put_in(claim.turn.lease_ref, Ecto.UUID.generate())
 
     for name <- ~w(search_slack read_github_conversation search_github) do
-      assert {:error, "state_tools_binding_not_authorized"} =
+      assert {:error, "unauthorized"} =
                LookupContext.enrich(
                  name,
                  %{},

@@ -156,19 +156,10 @@ defmodule Ryker.CoopFleet.Server do
 
   defp validate_state_tools!(nil), do: :ok
 
-  defp validate_state_tools!(%{capabilities: capabilities} = options) do
-    router_options =
-      [capabilities: capabilities]
-      |> maybe_put(:additional_tools, Map.get(options, :additional_tools))
-      |> maybe_put(:additional_call, Map.get(options, :additional_call))
-      |> maybe_put(:answer_authorizer, Map.get(options, :answer_authorizer))
-
-    _validated = Ryker.StateTools.Router.init(router_options)
+  defp validate_state_tools!(options) do
+    _prepared = Router.init(state_tools: options)
     :ok
   end
-
-  defp validate_state_tools!(_options),
-    do: raise(ArgumentError, "Coop worker gateway state-tools options are invalid")
 
   defp maybe_put(values, _key, nil), do: values
   defp maybe_put(values, key, value), do: Keyword.put(values, key, value)

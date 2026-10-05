@@ -14,4 +14,18 @@ defmodule Ryker.StateTools.ErrorCodeTest do
     assert code =~ "record_refs"
     refute code == "temporarily_unavailable"
   end
+
+  # The budget is the search's time and lock limit in the database. The
+  # timeline told people the run had used up its searches, which no limit
+  # here counts (2026-10-05).
+  test "a memory search stopped by its time limit says so on the timeline" do
+    assert ErrorCode.explain("memory_search_budget_exceeded") =~ "took too long"
+  end
+
+  # A lookup that reached a message queued for a later turn reads a code of
+  # its own, not a retryable one.
+  test "a lookup refused a queued source keeps its own code" do
+    assert ErrorCode.code(:source_not_available) == "source_not_available"
+    refute ErrorCode.explain("source_not_available") == "Ryker refused the call."
+  end
 end

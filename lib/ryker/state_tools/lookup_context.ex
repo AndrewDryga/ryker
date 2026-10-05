@@ -4,7 +4,7 @@ defmodule Ryker.StateTools.LookupContext do
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Memories.MemorySearch
   alias Ryker.Slack.SourceRef
-  alias Ryker.StateTools.{LookupBoundary, LookupOriginals}
+  alias Ryker.StateTools.{ErrorCode, LookupBoundary, LookupOriginals}
 
   @maximum_bytes 128 * 1_024
 
@@ -73,7 +73,9 @@ defmodule Ryker.StateTools.LookupContext do
     |> LookupOriginals.fit(@maximum_bytes)
   end
 
-  defp public_error({:error, reason}) when is_atom(reason), do: {:error, Atom.to_string(reason)}
+  defp public_error({:error, reason}) when is_atom(reason) or is_tuple(reason),
+    do: {:error, ErrorCode.code(reason)}
+
   defp public_error(answer), do: answer
 
   defp targets(result, %{

@@ -72,6 +72,7 @@ defmodule Ryker.StateTools.ErrorCode do
 
   def code(:not_configured), do: "not_configured"
   def code(:not_found), do: "not_found"
+  def code(:source_not_available), do: "source_not_available"
   def code(:deadline_elapsed), do: "deadline_elapsed"
   def code(:unknown_tool), do: "unknown_tool"
   def code(:automation_change_offer_invalid), do: "invalid_arguments"
@@ -90,6 +91,19 @@ defmodule Ryker.StateTools.ErrorCode do
   def code(:memory_search_budget_exceeded), do: "memory_search_budget_exceeded"
   def code(:memory_search_result_too_large), do: "memory_search_result_too_large"
   def code(:answer_memory_unauthorized), do: "answer_memory_unauthorized"
+
+  def code(:answer_memory_question_not_found),
+    do:
+      "invalid_arguments: question_ref must name a question this conversation asked and a person answered. Nothing was remembered."
+
+  def code(:answer_memory_not_requested),
+    do:
+      "invalid_arguments: this question was asked without remember, so its answer is not saved. Nothing was remembered."
+
+  def code(:answer_memory_revised),
+    do:
+      "answer_memory_revised: the person edited their answer after giving it. Nothing was remembered."
+
   def code(:answer_memory_conflict), do: "answer_memory_conflict"
   def code(:invalid_answer_memory), do: "invalid_answer_memory"
 
@@ -164,7 +178,10 @@ defmodule Ryker.StateTools.ErrorCode do
     do: "Ryker rejected the search because its page or time filter was not valid."
 
   defp explanation("memory_search_budget_exceeded"),
-    do: "The run had already used all of its saved-knowledge searches."
+    do: "Ryker's search of saved knowledge took too long and was stopped."
+
+  defp explanation("source_not_available"),
+    do: "Ryker refused the lookup because the message it reads is queued for a later turn."
 
   defp explanation("memory_search_result_too_large"),
     do: "The search matched more saved knowledge than Ryker returns at once."
@@ -174,6 +191,7 @@ defmodule Ryker.StateTools.ErrorCode do
               "answer_memory_unauthorized",
               "answer_memory_conflict",
               "answer_memory_not_in_answer",
+              "answer_memory_revised",
               "invalid_answer_memory"
             ],
        do: "Ryker refused to remember this answer."

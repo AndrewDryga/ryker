@@ -22,8 +22,19 @@ defmodule Ryker.CoopFleet.Router do
 
   @maximum_document_bytes 1_048_576
 
+  # The state tools' options are built and checked once, when the listener
+  # starts; a request adds only its turn's binding. Each request used to rebuild
+  # the whole tool catalog to check the platform tools against it.
   @impl Plug
-  def init(options), do: options
+  def init(options) do
+    case Keyword.fetch(options, :state_tools) do
+      {:ok, state_tools} ->
+        Keyword.put(options, :state_tools_router, state_tools_router(state_tools))
+
+      :error ->
+        options
+    end
+  end
 
   @impl Plug
   def call(conn, options),
@@ -99,20 +110,11 @@ defmodule Ryker.CoopFleet.Router do
        ) do
     with {:ok, token} <- bearer_token(conn),
          {:ok, binding} <- Binding.resolve(token),
-         {:ok, state_tools} <- Keyword.fetch(options, :state_tools) do
-      router_options =
-        [binding: binding, capabilities: state_tools.capabilities]
-        # Never sign history cursors with the caller's active-turn bearer.
-        |> Keyword.put(:cursor_secret, Map.get(state_tools, :token_secret))
-        |> maybe_put(:additional_tools, Map.get(state_tools, :additional_tools))
-        |> maybe_put(:additional_call, Map.get(state_tools, :additional_call))
-        |> maybe_put(:answer_authorizer, Map.get(state_tools, :answer_authorizer))
-        |> StateToolsRouter.init()
-
+         {:ok, state_tools} <- Keyword.fetch(options, :state_tools_router) do
       conn
       |> Map.put(:path_info, ["mcp"])
       |> Map.put(:request_path, "/mcp")
-      |> StateToolsRouter.call(router_options)
+      |> StateToolsRouter.call(%{state_tools | binding: binding})
     else
       _unauthorized -> json_error(conn, 401, "unauthorized")
     end
@@ -271,6 +273,18 @@ defmodule Ryker.CoopFleet.Router do
         {:error, :authorization}
     end
   end
+
+  defp state_tools_router(%{capabilities: capabilities} = state_tools) do
+    # Never sign history cursors with the caller's active-turn bearer.
+    [capabilities: capabilities, cursor_secret: Map.get(state_tools, :token_secret)]
+    |> maybe_put(:additional_tools, Map.get(state_tools, :additional_tools))
+    |> maybe_put(:additional_call, Map.get(state_tools, :additional_call))
+    |> maybe_put(:answer_authorizer, Map.get(state_tools, :answer_authorizer))
+    |> StateToolsRouter.init()
+  end
+
+  defp state_tools_router(_state_tools),
+    do: raise(ArgumentError, "Coop worker gateway state-tools options are invalid")
 
   defp maybe_put(values, _key, nil), do: values
   defp maybe_put(values, key, value), do: Keyword.put(values, key, value)
