@@ -15,6 +15,7 @@ defmodule Ryker.Slack.WorkRecord do
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoom, TaskCard, TaskCardDetails, WorkTarget}
+  alias Ryker.Slack.Renderer.Blocks
   alias Ryker.Work.Recovery
   alias Ryker.Work.Turn
 
@@ -181,14 +182,15 @@ defmodule Ryker.Slack.WorkRecord do
         payload = record.payload
 
         confidence =
-          if payload["confidence"], do: " (#{payload["confidence"]} confidence)", else: ""
+          if payload["confidence"], do: " (#{text(payload["confidence"])} confidence)", else: ""
 
-        "• *#{payload["source_name"]}*#{confidence}: " <> compact(payload["observation"], 900)
+        "• *#{text(payload["source_name"])}*#{confidence}: " <>
+          compact(payload["observation"], 900)
       end)
 
     gaps =
       for %{payload: %{"status" => "unknown"} = payload} <- coverage,
-          do: "• Not checked yet: #{payload["layer"]} · #{compact(payload["detail"], 600)}"
+          do: "• Not checked yet: #{text(payload["layer"])} · #{compact(payload["detail"], 600)}"
 
     unexplained =
       for %{payload: %{"status" => "unexplained"} = payload} <- findings,
@@ -242,11 +244,11 @@ defmodule Ryker.Slack.WorkRecord do
 
         [
           "Recovery for #{snapshot.work_ref}",
-          brief.headline,
-          brief.cause,
-          "What you need to do:\n#{brief.next_step}",
-          "Workspace: #{brief.workspace}",
-          "Reply: #{brief.delivery}",
+          text(brief.headline),
+          text(brief.cause),
+          "What you need to do:\n#{text(brief.next_step)}",
+          "Workspace: #{text(brief.workspace)}",
+          "Reply: #{text(brief.delivery)}",
           worker_report(brief.model_output)
         ]
         |> Enum.join("\n")
@@ -333,7 +335,7 @@ defmodule Ryker.Slack.WorkRecord do
   end
 
   defp record_words("evidence", payload, _goals),
-    do: "Evidence from #{payload["source_name"]}: #{compact(payload["observation"], 300)}"
+    do: "Evidence from #{text(payload["source_name"])}: #{compact(payload["observation"], 300)}"
 
   defp record_words("progress", payload, _goals),
     do: "Update: #{compact(String.trim(payload["summary"] || ""), 300)}"
@@ -439,7 +441,7 @@ defmodule Ryker.Slack.WorkRecord do
     records
     |> Enum.filter(&(&1.kind == "goal"))
     |> Enum.map(fn goal ->
-      "- #{goal.payload["id"]}: #{compact(goal.payload["requested_outcome"], 700)}"
+      "- #{text(goal.payload["id"])}: #{compact(goal.payload["requested_outcome"], 700)}"
     end)
   end
 
@@ -496,20 +498,22 @@ defmodule Ryker.Slack.WorkRecord do
     do: "Worker's saved response:\nNo retained response is available."
 
   defp worker_report(output),
-    do: "Worker's saved response, which is its own report and not a check result:\n#{output}"
+    do:
+      "Worker's saved response, which is its own report and not a check result:\n#{text(output)}"
 
   defp kind_available(:task, :postmortem), do: {:error, :work_record_not_available}
   defp kind_available(_work_kind, _record_kind), do: :ok
 
-  defp compact(value, maximum) when is_binary(value) do
-    graphemes = String.graphemes(value)
-
-    if length(graphemes) <= maximum,
-      do: value,
-      else: graphemes |> Enum.take(maximum - 1) |> Enum.join() |> Kernel.<>("…")
-  end
+  # Model and source text is shown as text: unescaped, an observation could
+  # mention the whole channel, put a link under any label or add a date token
+  # (2026-10-04 review). Only Ryker's own dates and links are markup here.
+  defp compact(value, maximum) when is_binary(value),
+    do: value |> Blocks.truncate(maximum) |> Blocks.escape()
 
   defp compact(_value, _maximum), do: "not recorded"
 
-  defp compact_message(message), do: compact(message, @maximum_message_characters)
+  defp text(value) when is_binary(value), do: Blocks.escape(value)
+  defp text(_value), do: ""
+
+  defp compact_message(message), do: Blocks.truncate(message, @maximum_message_characters)
 end

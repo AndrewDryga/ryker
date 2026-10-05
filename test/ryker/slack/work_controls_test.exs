@@ -139,6 +139,33 @@ defmodule Ryker.Slack.WorkControlsTest do
              {:error, :work_record_not_available}
   end
 
+  # Model and source text went into these views as live Slack markup, so an
+  # observation could mention the whole channel, put a link under any label or
+  # add a date token (2026-10-04 review). Only Ryker's own dates and links are
+  # markup there.
+  test "model and source text in a task's views is text, never Slack markup" do
+    fixture =
+      task_fixture!("markup",
+        observation: "<!channel> see <https://evil.example|the dashboard> & ask <@U999>",
+        source_name: "<#C1|ops> logs"
+      )
+
+    target = attributes(fixture.card.ref).target
+
+    for kind <- [:timeline, :evidence] do
+      assert {:ok, %{"message" => message}} = WorkRecord.build(fixture.card.ref, target, kind)
+
+      for markup <- ["<!channel>", "<https://evil.example", "<@U999>", "<#C1"],
+          do: refute(message =~ markup, "#{kind} kept #{markup}")
+
+      assert message =~
+               "&lt;!channel&gt; see &lt;https://evil.example|the dashboard&gt; &amp; ask"
+    end
+
+    assert {:ok, %{"message" => timeline}} = WorkRecord.build(fixture.card.ref, target, :timeline)
+    assert timeline =~ "<!date^"
+  end
+
   test "the exact task card approves only its reviewed publication" do
     fixture =
       PublicationFixture.published!("task-card-publish", conversation_ref: "slack:T123:C456")
@@ -485,9 +512,9 @@ defmodule Ryker.Slack.WorkControlsTest do
              Records.create(Records.token(claim.turn), "record-evidence", "evidence", %{
                "claim_id" => "focused-tests",
                "confidence" => "high",
-               "observation" => "Focused tests passed.",
+               "observation" => Keyword.get(options, :observation, "Focused tests passed."),
                "observed_at" => DateTime.to_iso8601(@now),
-               "source_name" => "Repository test output",
+               "source_name" => Keyword.get(options, :source_name, "Repository test output"),
                "source_type" => "repository",
                "target" => "api.production"
              })
