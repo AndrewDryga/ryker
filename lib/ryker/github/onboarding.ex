@@ -87,23 +87,14 @@ defmodule Ryker.GitHub.Onboarding do
          do: RepositoryKnowledge.check_soon(ref)
   end
 
-  # A step writes only a repository that is still added, at the revision it
-  # read it at. Removing a repository while its setup ran would otherwise
-  # save it again, holding nothing but its setup state.
+  # A step writes only a repository that is still added: removing one while
+  # its setup ran would otherwise save it again, holding nothing but its setup
+  # state. It writes at the current revision, so a person's save landing
+  # during setup no longer blocks the repository.
   defp transition(ref, attributes) do
-    snapshot = Settings.fetch!()
-
-    if Enum.any?(snapshot.repositories, &(&1.ref == ref)) do
-      case Settings.put_repository(
-             Map.put(attributes, :ref, ref),
-             snapshot.installation.revision,
-             @actor
-           ) do
-        {:ok, _snapshot} -> :ok
-        {:error, reason} -> {:error, reason}
-      end
-    else
-      {:error, :repository_removed}
+    case Settings.update_repository(ref, attributes, @actor) do
+      {:ok, _snapshot} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

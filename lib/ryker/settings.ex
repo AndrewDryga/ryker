@@ -380,6 +380,27 @@ defmodule Ryker.Settings do
     do: put_item(:repositories, Repository, :ref, attributes, expected_revision, actor_ref)
 
   @doc """
+  Saves a change to a repository that is still added, at whatever revision
+  the settings are at: a step of Ryker's own, such as setup, never conflicts
+  with a person's save. A removed repository stays removed
+  (`{:error, :repository_removed}`).
+  """
+  def update_repository(ref, attributes, actor_ref) when is_binary(ref) do
+    with :ok <- authorize(actor_ref),
+         {:ok, attributes} <-
+           Validation.attributes(Map.put(attributes, :ref, ref), Repository.fields()) do
+      save(:repositories, :current, actor_ref, &update_found_repository(&1, ref, attributes))
+    end
+  end
+
+  defp update_found_repository(snapshot, ref, attributes) do
+    case Repository.find(snapshot, :ref, ref) do
+      nil -> Repo.rollback(:repository_removed)
+      current -> write_changeset(current, Repository.changeset(current, attributes, snapshot))
+    end
+  end
+
+  @doc """
   Removes a repository. Its requests, usage and learned topics keep its ref,
   so the name it was known by is kept (`removed_repository_names`) and they
   still read owner/repo.
