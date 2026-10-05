@@ -194,6 +194,28 @@ defmodule Ryker.Learning.LearningThreadContextTest do
         do: assert(LearningSources.for_entry(entry) == nil)
   end
 
+  # The context is the thread's opening message and its latest replies, but
+  # the query took the latest messages only, so a thread with more than five
+  # earlier replies lost the message the replies were about (2026-10-04
+  # review).
+  test "a long thread is read with its opening message and its latest replies" do
+    [notice, worry, correction] = starfall_thread!()
+
+    replies =
+      for minute <- 1..8 do
+        clone_source!(
+          worry,
+          worry.destination_thread_ref,
+          DateTime.add(worry.occurred_at, minute, :second)
+        )
+      end
+
+    assert {:ok, run} = Learning.prepare([correction.id], @policy)
+    context = Enum.map(Jason.decode!(run.prompt)["thread_context"], & &1["source_input_id"])
+
+    assert context == [notice.id | Enum.map(Enum.take(replies, -5), & &1.id)]
+  end
+
   test "a run whose thread changed before its result is applied is not applied" do
     [_notice, worry, correction] = starfall_thread!()
     assert {:ok, run} = Learning.prepare([correction.id], @policy)

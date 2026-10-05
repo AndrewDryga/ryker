@@ -948,28 +948,54 @@ defmodule Ryker.Learning do
     threads =
       entries |> Enum.map(& &1.destination_thread_ref) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    if threads == [] do
+    room = min(@thread_context, @max_inputs - length(entries))
+
+    if threads == [] or room < 1 do
       []
     else
       ids = Enum.map(entries, & &1.id)
       before = entries |> Enum.map(& &1.occurred_at) |> Enum.min(DateTime)
 
-      from(e in Entry,
-        where:
-          e.destination_transport == ^first.destination_transport and
-            e.destination_conversation_ref == ^first.destination_conversation_ref and
-            (e.destination_thread_ref in ^threads or e.source_item_ref in ^threads) and
-            e.id not in ^ids and e.occurred_at < ^before,
-        order_by: [desc: e.occurred_at, desc: e.id],
-        limit: ^(@thread_context * 3),
-        lock: "FOR SHARE"
-      )
-      |> Repo.all()
-      |> Enum.filter(&(valid_entries?([first, &1]) and is_list(LearningSources.for_entry(&1))))
-      |> Enum.take(min(@thread_context, @max_inputs - length(entries)))
-      |> Enum.reverse()
+      earlier =
+        from(e in Entry,
+          where:
+            e.destination_transport == ^first.destination_transport and
+              e.destination_conversation_ref == ^first.destination_conversation_ref and
+              e.id not in ^ids and e.occurred_at < ^before,
+          order_by: [desc: e.occurred_at, desc: e.id],
+          lock: "FOR SHARE"
+        )
+
+      # The opening message is read on its own: taking the latest messages
+      # alone lost it once a thread had more than five earlier replies
+      # (2026-10-04 review).
+      opening =
+        from(e in earlier, where: e.source_item_ref in ^threads)
+        |> Repo.all()
+        |> usable_context(first)
+        |> Enum.take(1)
+
+      replies =
+        from(e in earlier,
+          where:
+            e.destination_thread_ref in ^threads and
+              (is_nil(e.source_item_ref) or e.source_item_ref not in ^threads),
+          limit: ^(@thread_context * 3)
+        )
+        |> Repo.all()
+        |> usable_context(first)
+        |> Enum.take(room - length(opening))
+
+      Enum.sort_by(opening ++ replies, &{DateTime.to_unix(&1.occurred_at, :microsecond), &1.id})
     end
   end
+
+  defp usable_context(candidates, first),
+    do:
+      Enum.filter(
+        candidates,
+        &(valid_entries?([first, &1]) and is_list(LearningSources.for_entry(&1)))
+      )
 
   # What a thread message says, shortened: who, when and its words.
   defp context_document(entry) do
