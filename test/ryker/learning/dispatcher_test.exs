@@ -5,7 +5,7 @@ defmodule Ryker.Learning.DispatcherTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Learning
-  alias Ryker.Learning.{Batch, Batches, Dispatcher, InputMembership}
+  alias Ryker.Learning.{Batch, Batches, Dispatcher, Executor, FleetSession, InputMembership}
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.Observations
   alias Ryker.TestSupport.FakeCoopAPI
@@ -735,6 +735,32 @@ defmodule Ryker.Learning.DispatcherTest do
     assert stopped != nil
     assert Repo.aggregate(KnowledgeRevision, :count) == 0
     assert FakeCoopAPI.state(fake).submit_count == 1
+  end
+
+  # An attempt that ended after its session row was made but before its Coop
+  # job was pinned never asked Coop for anything. Coop's "no such operation"
+  # was read as unresolved, and the conversation waited about a day for the
+  # attempt to expire (2026-10-04 review). Improvement and repository
+  # knowledge stop on that proof at once.
+  test "an attempt stopped before its session was asked for stops at once" do
+    _entries = inputs!()
+    {:ok, fake} = FakeCoopAPI.start_link([])
+    settings = Map.put(@settings, :client, fake)
+
+    assert {:ok, claim} = Batches.claim("stopped-before-create", settings)
+    assert {:ok, run} = Batches.prepare(claim)
+    assert {:ok, run} = Batches.begin_execution(claim, run.id)
+
+    assert {:ok, %Session{worker_job_document: nil, coop_session_id: nil}} =
+             FleetSession.ensure(run)
+
+    assert {:ok, :stopped} =
+             Executor.stop(claim, run, :learning_session_unconfirmed, settings)
+
+    assert %{remote_stopped_at: %DateTime{}, stop_receipt: %{"kind" => "never_created"}} =
+             Repo.get!(LearningRun, run.id)
+
+    assert FakeCoopAPI.state(fake).submit_count == 0
   end
 
   test "unreachable remote custody stops reconciling after twelve steps without another start" do

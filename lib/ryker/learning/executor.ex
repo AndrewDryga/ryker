@@ -71,11 +71,19 @@ defmodule Ryker.Learning.Executor do
        else: locate_and_bind_session(claim, run, local, settings, mode)
   end
 
-  # Only a succeeded operation at this run's exact key can recover an unbound old
-  # session. A direct fence response is not proof, and this path never starts work.
+  # Only a succeeded operation at this run's exact key can recover an unbound
+  # session. A direct fence response is not proof, and this path never starts
+  # work. No operation at that key means the attempt ended before its session
+  # was asked for, and nothing exists to stop: read as unresolved, it held its
+  # conversation for about a day (2026-10-04 review).
   defp historical_cleanup_session(claim, run, local, settings) do
-    key = Learning.operation_key(run, :create)
+    case call(claim, settings, :operation_by_key, [Learning.operation_key(run, :create)]) do
+      :not_found -> {:error, :learning_session_never_created}
+      operation -> bind_created_session(claim, run, local, operation, settings)
+    end
+  end
 
+  defp bind_created_session(claim, run, local, operation, settings) do
     with {:ok,
           %{
             "method" => "CreateRemoteSession",
@@ -83,8 +91,7 @@ defmodule Ryker.Learning.Executor do
             "resource_type" => "session",
             "resource_id" => id
           }}
-         when is_binary(id) and byte_size(id) in 1..1024 <-
-           call(claim, settings, :operation_by_key, [key]),
+         when is_binary(id) and byte_size(id) in 1..1024 <- operation,
          {:ok, %{"id" => ^id, "state" => state, "revision" => revision} = remote} <-
            call(claim, settings, :get_session, [id]),
          true <- remote["external_ref"] == Session.coop_task_ref(local),
@@ -398,6 +405,9 @@ defmodule Ryker.Learning.Executor do
           claim
         )
         |> stopped()
+
+      {:error, :learning_session_never_created} ->
+        run.id |> Learning.record_uncreated_stop(claim) |> stopped()
 
       {:error, reason} = error ->
         # An unreachable worker proves nothing and keeps reconciling; a session

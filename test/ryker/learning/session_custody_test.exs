@@ -142,7 +142,7 @@ defmodule Ryker.Learning.SessionCustodyTest do
     assert reply_rows() == replies
   end
 
-  for mismatch <- [:operation_resource, :task_reference, :missing_operation] do
+  for mismatch <- [:operation_resource, :task_reference] do
     test "historical cleanup rejects #{mismatch} without binding or running work" do
       stuck = recorded_stuck_attempt!("placement_active")
 
@@ -169,9 +169,6 @@ defmodule Ryker.Learning.SessionCustodyTest do
                 | operation: Map.put(state.recorded.operation, "resource_id", "another-session")
               }
 
-            :missing_operation ->
-              %{state.recorded | create_key: "another-key"}
-
             :task_reference ->
               state.recorded
           end
@@ -186,6 +183,30 @@ defmodule Ryker.Learning.SessionCustodyTest do
       assert FakeCoopAPI.state(fake).submit_count == 0
       assert FakeCoopAPI.state(fake).create_keys == []
     end
+  end
+
+  # No operation at the attempt's own create key means it never asked for a
+  # session: it stops on that proof, binds nothing, runs nothing, and its
+  # messages are learned again. Waiting for proof that cannot come held the
+  # conversation for about a day (2026-10-04 review).
+  test "historical cleanup stops an attempt that never asked for a session" do
+    stuck = recorded_stuck_attempt!("placement_active")
+
+    remote =
+      Map.put(stuck.recorded["remote_session"], "external_ref", FleetSession.external_ref(stuck.run))
+
+    fake = recorded_worker!(stuck, {:ok, remote})
+    Agent.update(fake, &put_in(&1, [:recorded, :create_key], "another-key"))
+
+    assert {:ok, %Batch{status: :queued}} =
+             Dispatcher.run_once(Map.put(@settings, :client, fake))
+
+    assert %{remote_stopped_at: %DateTime{}, stop_receipt: %{"kind" => "never_created"}} =
+             Repo.get!(LearningRun, stuck.run.id)
+
+    assert Repo.get!(Session, stuck.session.id).coop_session_id == nil
+    assert FakeCoopAPI.state(fake).submit_count == 0
+    assert FakeCoopAPI.state(fake).create_keys == []
   end
 
   test "a session the worker made with project access is bound and closed before it hears a message" do

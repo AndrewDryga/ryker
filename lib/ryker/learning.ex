@@ -450,6 +450,22 @@ defmodule Ryker.Learning do
   defp fence_phase_matches?(:submit, session, run),
     do: valid_remote_ref?(session.coop_session_id) and is_integer(run.submit_revision)
 
+  @doc """
+  Stop an attempt that ended before its session was asked for: Coop holds no
+  operation at its create key, so nothing exists to stop.
+  """
+  def record_uncreated_stop(id, claim) do
+    owned_transaction(id, claim, fn run ->
+      session = Repo.get_by(Session, execution_kind: :learning, learning_run_id: id)
+
+      unless run.status in [:stale, :rejected] and is_nil(run.submit_revision) and
+               is_nil(run.coop_turn_id) and is_nil(session && session.coop_session_id),
+             do: Repo.rollback(:learning_absence_unconfirmed)
+
+      store_stop(run, %{"kind" => "never_created"})
+    end)
+  end
+
   def record_unsubmitted_stop(id, session_id, claim) do
     owned_transaction(id, claim, fn run ->
       unless run.status in [:stale, :rejected] and is_nil(run.submit_revision) and
