@@ -19,6 +19,8 @@ defmodule Ryker.Slack.Gateway do
 
   use GenServer
 
+  @member_ttl_ms 5 * 60 * 1_000
+
   require Logger
 
   alias Ryker.Ingress.Inbox
@@ -622,12 +624,27 @@ defmodule Ryker.Slack.Gateway do
     end
   end
 
+  # Whether someone may use Ryker is read from Slack at most once in five
+  # minutes for each person. Read for every event and reaction, a busy channel
+  # ran into users.info's rate limit, which delayed and then dropped the
+  # events behind it. Envelopes are handled in the gateway's own process, so
+  # its dictionary keeps the answers, each for the directory that gave it.
   defp actor_allowed(%{kind: :user, ref: actor_ref}, settings) do
-    settings.directory.user_allowed(
-      settings.client,
-      actor_ref,
-      settings.identity.workspace_ref
-    )
+    workspace_ref = settings.identity.workspace_ref
+    key = {__MODULE__, :member, settings.directory, settings.client, workspace_ref, actor_ref}
+    now = System.monotonic_time(:millisecond)
+
+    case Process.get(key) do
+      {allowed, read_at} when now - read_at < @member_ttl_ms ->
+        {:ok, allowed}
+
+      _unread_or_stale ->
+        with {:ok, allowed} <-
+               settings.directory.user_allowed(settings.client, actor_ref, workspace_ref) do
+          Process.put(key, {allowed, now})
+          {:ok, allowed}
+        end
+    end
   end
 
   defp actor_allowed(%{kind: kind}, _settings) when kind in [:app, :bot], do: {:ok, true}

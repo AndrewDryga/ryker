@@ -16,6 +16,16 @@ defmodule Ryker.Slack.GatewayTest do
       do: {:ok, MapSet.member?(allowed, user_ref)}
   end
 
+  defmodule CountingDirectory do
+    @behaviour Ryker.Slack.MemberDirectory
+
+    @impl true
+    def user_allowed(%{observer: observer}, user_ref, _workspace_ref) do
+      send(observer, {:checked_member, user_ref})
+      {:ok, true}
+    end
+  end
+
   defmodule InteractionHandler do
     def handle(interaction, %{observer: observer, result: result}) do
       send(observer, {:handled_interaction, interaction})
@@ -69,6 +79,25 @@ defmodule Ryker.Slack.GatewayTest do
       send(observer, {:attachments_ingested, normalized.input.content["files"]})
       {:ok, %{normalized | audience: Map.get(options, :audience, normalized.audience)}}
     end
+  end
+
+  # Every event and reaction asked Slack who sent it before anything else, so
+  # a busy channel ran into users.info's rate limit, which delayed and then
+  # dropped the events behind it (2026-10-04 review). A person is looked up
+  # once in five minutes.
+  test "the person behind a run of events is looked up once" do
+    settings =
+      settings()
+      |> Map.put(:client, %{observer: self()})
+      |> Map.put(:directory, CountingDirectory)
+
+    for id <- ["Ev-run-1", "Ev-run-2", "Ev-run-3"] do
+      assert {:ack, _outcome} =
+               Gateway.handle_envelope(message_envelope(id, "app_mention"), settings)
+    end
+
+    assert_received {:checked_member, "U123"}
+    refute_received {:checked_member, "U123"}
   end
 
   test "a Slack event is durably recorded before its envelope becomes acknowledgeable" do
