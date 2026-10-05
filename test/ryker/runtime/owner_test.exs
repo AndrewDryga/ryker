@@ -169,7 +169,7 @@ defmodule Ryker.Runtime.OwnerTest do
     assert {:ok, failed} = Settings.fetch()
     assert Settings.application_status(failed) == {:failed, :runtime_start_failed}
     refute :control_plane in Owner.running_keys(owner)
-    assert :state_tools in Owner.running_keys(owner)
+    assert :event_waits in Owner.running_keys(owner)
 
     :ok = :gen_tcp.close(blocker)
 
@@ -219,12 +219,12 @@ defmodule Ryker.Runtime.OwnerTest do
     console = console_pids(context)
 
     for _crash <- 1..6 do
-      if pid = state_tools_pid(context), do: Process.exit(pid, :kill)
+      if pid = event_waits_pid(context), do: Process.exit(pid, :kill)
       Process.sleep(5)
     end
 
-    assert eventually(fn -> is_pid(state_tools_pid(context)) end, 5_000)
-    assert eventually(fn -> :state_tools in Owner.running_keys(owner) end, 5_000)
+    assert eventually(fn -> is_pid(event_waits_pid(context)) end, 5_000)
+    assert eventually(fn -> :event_waits in Owner.running_keys(owner) end, 5_000)
     assert Process.alive?(context.supervisor)
     assert console_pids(context) == console
   end
@@ -247,7 +247,7 @@ defmodule Ryker.Runtime.OwnerTest do
     assert Settings.application_status(failed) == {:failed, :assembly_failed}
     assert failed.installation.applied_revision == saved.installation.revision
     assert Owner.applied_revision(owner) == saved.installation.revision
-    assert Application.get_env(:ryker, :state_tools)
+    assert Application.get_env(:ryker, :event_waits)
   end
 
   # Production ran for weeks with every Slack user, channel and workspace in the
@@ -395,9 +395,9 @@ defmodule Ryker.Runtime.OwnerTest do
     end)
   end
 
-  defp state_tools_pid(context) do
+  defp event_waits_pid(context) do
     Enum.find_value(runtime_children(context), fn
-      {Ryker.StateTools.Server, pid, _type, _modules} when is_pid(pid) -> pid
+      {Ryker.Waits.EventWaitWorker, pid, _type, _modules} when is_pid(pid) -> pid
       _child -> nil
     end)
   end
@@ -452,7 +452,6 @@ defmodule Ryker.Runtime.OwnerTest do
     %Bootstrap{
       repo: [url: "ecto://ryker@localhost/ryker", pool_size: 2],
       control_plane: %{ip: {127, 0, 0, 1}, port: free_port()},
-      state_tools: %{ip: {127, 0, 0, 1}, port: free_port()},
       worker_gateway: nil,
       github_listener: %{ip: {127, 0, 0, 1}, port: free_port()},
       github_public_url: "http://127.0.0.1:4319/v1/github",

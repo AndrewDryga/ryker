@@ -32,7 +32,7 @@ defmodule Ryker.Evals.RuntimeTest do
     assert world.state_tools_endpoint == "https://eval-worker.example/v1/state-tools/mcp"
     assert Ryker.Secret.reveal(world.state_tools_secret) == "eval-state-tools-token-long-enough"
     assert world.state_tools.token == world.state_tools_secret
-    assert world.state_tools.port == 4418
+    refute Map.has_key?(world.state_tools, :port)
     assert byte_size(Ryker.Secret.reveal(world.gateway.checkpoint_key)) == 32
     assert world.gateway.public_url == "https://eval-worker.example"
 
@@ -96,7 +96,6 @@ defmodule Ryker.Evals.RuntimeTest do
         "RYKER_CHECKPOINT_KEY" => Base.encode64(:crypto.strong_rand_bytes(32)),
         "RYKER_CREDENTIAL_KEY" => Base.encode64(:crypto.strong_rand_bytes(32)),
         "RYKER_STATE_TOOLS_TOKEN" => "eval-state-tools-token-long-enough",
-        "RYKER_STATE_TOOLS_PORT" => "4418",
         "RYKER_WORKER_PUBLIC_URL" => "https://eval-worker.example"
       },
       Map.new(@files, fn {name, file} -> {name, Path.join(@certificates, file)} end)

@@ -96,7 +96,6 @@ defmodule Ryker.Learning.WorkerTest do
         policy_digest: String.duplicate("a", 64),
         poll_interval_ms: 60_000,
         quiet_seconds: 10,
-        receive_timeout_ms: 30_000,
         step_delay_seconds: 2,
         worker_ref: "learning-worker:test"
       },

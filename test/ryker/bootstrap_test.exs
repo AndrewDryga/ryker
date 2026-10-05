@@ -11,7 +11,7 @@ defmodule Ryker.BootstrapTest do
     assert settings.repo == [url: @database, pool_size: 10]
     assert settings.control_plane == %{access: :loopback, ip: {127, 0, 0, 1}, port: 4321}
     assert settings.control_public_url == "http://127.0.0.1:4321"
-    assert settings.state_tools == %{ip: {127, 0, 0, 1}, port: 4318}
+    refute Map.has_key?(settings, :state_tools)
     assert settings.storage_root == "/var/lib/ryker"
     assert settings.worker_gateway == nil
     assert settings.github_public_url == "http://127.0.0.1:4319/v1/github"
@@ -172,7 +172,6 @@ defmodule Ryker.BootstrapTest do
       {"POOL_SIZE", "20junk"},
       {"RYKER_CONTROL_IP", "0.0.0.0"},
       {"RYKER_CONTROL_PORT", "65536"},
-      {"RYKER_STATE_TOOLS_IP", "192.0.2.1"},
       {"RYKER_STATE_DIR", "relative/private-secret"},
       {"RYKER_GITHUB_PUBLIC_URL", "https://private-secret@example.com/hooks"},
       {"RYKER_WEBHOOK_PUBLIC_URL", "http://example.com/private-secret"},

@@ -35,13 +35,12 @@ defmodule Ryker.Evals.WorldEvalScriptTest do
     databases = Enum.map(shards, &field(&1, "db"))
     assert Enum.uniq(databases) == databases
     assert Enum.all?(databases, &(&1 =~ ~r/^ryker_world_eval_\d+_\d+_\d+_s[123]$/))
-    assert Enum.map(shards, &field(&1, "worker")) == ["44636", "44638", "44640"]
-    assert Enum.map(shards, &field(&1, "state")) == ["44637", "44639", "44641"]
+    assert Enum.map(shards, &field(&1, "worker")) == ["44636", "44637", "44638"]
 
     assert Enum.map(shards, &field(&1, "url")) == [
              "https://eval.example:44636",
-             "https://eval.example:44638",
-             "https://eval.example:44640"
+             "https://eval.example:44637",
+             "https://eval.example:44638"
            ]
 
     assert Enum.all?(shards, &(field(&1, "world_eval") == "1"))
@@ -93,7 +92,7 @@ defmodule Ryker.Evals.WorldEvalScriptTest do
 
     assert Enum.map(shards, &field(&1, "url")) == [
              "https://eval.example:44636",
-             "https://eval.example:44638"
+             "https://eval.example:44637"
            ]
   end
 
@@ -147,21 +146,16 @@ defmodule Ryker.Evals.WorldEvalScriptTest do
       assert output =~ "RYKER_WORLD_EVAL_SHARDS must be between 1 and 64"
     end
 
-    # Worker 4322 and state tools 4324 with two shards: shard 2's worker port
-    # is shard 1's state-tools port. Refused before any database is created.
+    # Shards past the last port are refused before any database is created.
     assert {output, 2} =
              System.cmd("bash", [@script, fixture.results | @world_options],
                env:
                  fixture.env ++
-                   [
-                     {"RYKER_WORLD_EVAL_SHARDS", "2"},
-                     {"RYKER_WORKER_PORT", "4322"},
-                     {"RYKER_STATE_TOOLS_PORT", "4324"}
-                   ],
+                   [{"RYKER_WORLD_EVAL_SHARDS", "2"}, {"RYKER_WORKER_PORT", "65535"}],
                stderr_to_stdout: true
              )
 
-    assert output =~ "shard ports overlap"
+    assert output =~ "shard ports exceed 65535"
 
     assert {output, 2} =
              System.cmd("bash", [@script, fixture.results, "--unknown", "value"],
@@ -207,9 +201,9 @@ defmodule Ryker.Evals.WorldEvalScriptTest do
 
     File.write!(mix, """
     #!/bin/sh
-    printf 'world_eval=%s db=%s worker=%s state=%s url=%s :: %s\\n' \\
+    printf 'world_eval=%s db=%s worker=%s url=%s :: %s\\n' \\
       "${RYKER_WORLD_EVAL:-}" "${PGDATABASE:-}" "${RYKER_WORKER_PORT:-}" \\
-      "${RYKER_STATE_TOOLS_PORT:-}" "${RYKER_WORKER_PUBLIC_URL:-}" "$*" >> "$FAKE_MIX_LOG"
+      "${RYKER_WORKER_PUBLIC_URL:-}" "$*" >> "$FAKE_MIX_LOG"
     case "$*" in
       *"ryker.eval world-shards"*)
         i=1
@@ -257,7 +251,6 @@ defmodule Ryker.Evals.WorldEvalScriptTest do
         {"FAKE_ROOT", root},
         {"FAKE_SHARD_COUNT", Integer.to_string(Keyword.fetch!(options, :shards))},
         {"PATH", bin <> ":" <> System.fetch_env!("PATH")},
-        {"RYKER_STATE_TOOLS_PORT", "44637"},
         {"RYKER_WORLD_EVAL_MIX", mix},
         {"RYKER_WORKER_PORT", "44636"},
         {"RYKER_WORKER_PUBLIC_URL",

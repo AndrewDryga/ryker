@@ -33,12 +33,7 @@ defmodule Ryker.Evals.Runtime do
       gateway ->
         token = Ryker.Secret.new(Bootstrap.secret!(:state_tools))
 
-        state_tools = %{
-          capabilities: @capabilities,
-          ip: bootstrap.state_tools.ip,
-          port: bootstrap.state_tools.port,
-          token: token
-        }
+        state_tools = %{capabilities: @capabilities, token: token}
 
         {:ok,
          %{

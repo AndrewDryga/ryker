@@ -152,7 +152,6 @@ defmodule Ryker.Observability.Readiness do
       retention: {:named, Ryker.Retention.Runtime},
       schedules: {:named, Ryker.Schedules.ScheduleWorker},
       slack: {:named, Ryker.Slack.Supervisor},
-      state_tools: {:supervised, Ryker.StateTools.Server},
       webhooks: {:supervised, Ryker.Webhooks.Server},
       weekly_report: {:named, Ryker.WeeklyReport.Worker},
       work: {:named, Ryker.Work.Runtime}

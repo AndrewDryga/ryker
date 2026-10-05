@@ -15,7 +15,6 @@ defmodule Ryker.Bootstrap do
     :control_plane,
     :control_public_url,
     :cloudflare_access,
-    :state_tools,
     :worker_gateway,
     :github_listener,
     :github_public_url,
@@ -50,7 +49,6 @@ defmodule Ryker.Bootstrap do
       # so the address Ryker listens on is not always the one people use.
       control_public_url: control_public_url,
       cloudflare_access: cloudflare_access!(env, control_public_url),
-      state_tools: listener!(env, "RYKER_STATE_TOOLS", 4318, :loopback),
       worker_gateway: worker_gateway!(env),
       github_listener: listener!(env, "RYKER_GITHUB", 4319, :network),
       github_public_url:

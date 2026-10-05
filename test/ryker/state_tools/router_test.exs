@@ -27,13 +27,13 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.StateTools.{FixedTools, Router, Tools, ToolVisibility}
   alias Ryker.Work.{Custody, Final, FinalPreflight, Prompt, SubmissionBuilder}
 
-  @options Router.init(token: Ryker.Secret.new("trusted-state-tools-token"))
+  @options Router.init(cursor_secret: Ryker.Secret.new("trusted-state-tools-token"))
   @wait_only_options Router.init(
-                       token: Ryker.Secret.new("trusted-state-tools-token"),
+                       cursor_secret: Ryker.Secret.new("trusted-state-tools-token"),
                        capabilities: [:event_waits]
                      )
   @no_owner_options Router.init(
-                      token: Ryker.Secret.new("trusted-state-tools-token"),
+                      cursor_secret: Ryker.Secret.new("trusted-state-tools-token"),
                       capabilities: []
                     )
   @policy_digest String.duplicate("a", 64)
@@ -115,6 +115,42 @@ defmodule Ryker.StateTools.RouterTest do
     assert payload["success_checks"] == ["focused tests pass"]
   end
 
+  # A refinement names the open offer it refines and replaces it. One made in
+  # the turn that made the offer replaced nothing, so the person saw two
+  # offers for one task (2026-10-04 review).
+  test "refining a task offer in the turn that made it leaves one offer open" do
+    claim = claim!("same-turn-refinement")
+    options = bound_options(claim)
+
+    task = %{
+      "authority_limits" => ["must not deploy"],
+      "instruction_ref" => "input:trusted:1",
+      "kind" => "engineering",
+      "prompt" => "Implement the exact requested fix and run focused tests.",
+      "repository" => "ryker",
+      "source_refs" => [],
+      "success_checks" => ["focused tests pass"],
+      "title" => "Fix the ryker"
+    }
+
+    assert {:ok, %{"record_ref" => first}} = Tools.call("request_task", task, options)
+
+    refined = %{
+      task
+      | "instruction_ref" => first,
+        "prompt" => "Implement the fix, run focused tests and the gate."
+    }
+
+    assert {:ok, %{"record_ref" => second}} = Tools.call("request_task", refined, options)
+
+    open =
+      for %{"kind" => "task_offer", "status" => "open", "ref" => ref} <-
+            Records.retained_records(claim.episode.id),
+          do: ref
+
+    assert open == [second]
+  end
+
   test "an observe-only binding exposes the shadow schema and refuses hidden effectful tools" do
     claim = claim!("shadow-contract", %{execution_mode: :shadow})
     options = bound_options(claim)
@@ -160,7 +196,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     platform_options =
       Router.init(
-        token: Ryker.Secret.new("trusted-state-tools-token"),
+        cursor_secret: Ryker.Secret.new("trusted-state-tools-token"),
         binding: %{
           episode: claim.episode,
           session: claim.session,
@@ -255,9 +291,7 @@ defmodule Ryker.StateTools.RouterTest do
                  "expires_at" => nil,
                  "kind" => "guidance",
                  "scope" => "current_channel",
-                 "source_refs" => ["source:ukrainian"],
                  "subject" => words.(120),
-                 "supersedes" => [],
                  "value" => words.(4_000)
                },
                options
@@ -269,7 +303,6 @@ defmodule Ryker.StateTools.RouterTest do
                %{
                  "category" => "usefulness",
                  "details" => words.(4_000),
-                 "needs_response" => true,
                  "response_question" => words.(2_000),
                  "sentiment" => "suggestion",
                  "summary" => words.(1_000),
@@ -886,6 +919,100 @@ defmodule Ryker.StateTools.RouterTest do
     assert Records.retained_records(claim.episode.id) == []
   end
 
+  # The list left out deleted automations, while reading one by its id still
+  # found it, and a change to it could still be offered (2026-10-04 review).
+  test "a deleted automation can be neither read nor changed" do
+    claim = claim!("deleted-automation")
+    assert {:ok, initial} = SubmissionBuilder.build(claim)
+
+    assert :ok =
+             KnowledgeSnapshot.expose_submission(%{
+               claim
+               | turn: %{claim.turn | submission: initial}
+             })
+
+    options = bound_options(claim)
+
+    assert {:ok, %{"proposals" => [_offer]}} =
+             Tools.call(
+               "propose_automation",
+               %{
+                 "proposals" => [
+                   %{
+                     "action" => "create",
+                     "automation_id" => nil,
+                     "context_channel" => nil,
+                     "delivery_channel" => nil,
+                     "expires_at" => nil,
+                     "hold" => nil,
+                     "patch" => %{},
+                     "prompt" => "Inspect current service health.",
+                     "repository" => nil,
+                     "revision" => nil,
+                     "title" => "Daily service health",
+                     "trigger" => %{
+                       "recurrence" => "daily",
+                       "time" => "13:00:00",
+                       "timezone" => "Etc/UTC",
+                       "type" => "time"
+                     }
+                   }
+                 ]
+               },
+               options
+             )
+
+    offer = Repo.get_by!(Record, episode_id: claim.episode.id, kind: "schedule_offer")
+    schedule_id = Ecto.UUID.generate()
+    now = ~U[2026-08-29 12:00:00.000000Z]
+
+    schedule =
+      %{
+        authority: :read_only,
+        confirmation_ref: "confirmation:deleted-automation",
+        confirmed_at: now,
+        confirmed_by_actor_ref: "slack:user:U1",
+        destination_conversation_ref: claim.episode.destination_conversation_ref,
+        destination_thread_ref: claim.episode.destination_thread_ref,
+        destination_transport: claim.episode.destination_transport,
+        id: schedule_id,
+        next_occurrence_at: DateTime.add(now, 86_400, :second),
+        offer_record_id: offer.id,
+        recurrence: %{"kind" => "daily", "time" => "13:00:00"},
+        ref: "schedule:#{schedule_id}",
+        repository: nil,
+        source_episode_id: claim.episode.id,
+        status: :deleted,
+        task: "Inspect current service health.",
+        timezone: "Etc/UTC",
+        title: "Daily service health"
+      }
+      |> ScheduleChangeset.insert()
+      |> Repo.insert!()
+
+    read =
+      Tools.call("get_automation", %{"automation_id" => schedule.ref, "run_limit" => 10}, options)
+
+    changed =
+      Tools.call(
+        "propose_automation",
+        %{
+          "proposals" => [
+            %{
+              "action" => "update",
+              "automation_id" => schedule.ref,
+              "patch" => %{"title" => "Weekday service health"},
+              "revision" => 1
+            }
+          ]
+        },
+        options
+      )
+
+    assert read == {:error, "not_found"}
+    assert changed == {:error, "not_found"}
+  end
+
   test "the fixed protocol reads work and creates each durable proposal kind" do
     claim = claim!("fixed-product-surface")
     assert {:ok, initial} = SubmissionBuilder.build(claim)
@@ -898,16 +1025,14 @@ defmodule Ryker.StateTools.RouterTest do
 
     options = bound_options(claim)
 
-    assert {:ok, %{"automations" => [], "cursor" => nil}} =
+    assert {:ok, %{"automations" => [], "complete" => true}} =
              Tools.call(
                "list_automations",
                %{
                  "channel_ref" => nil,
-                 "cursor" => nil,
                  "enabled" => nil,
                  "limit" => 50,
                  "query" => nil,
-                 "relationship" => "either",
                  "trigger_type" => nil
                },
                options
@@ -999,11 +1124,9 @@ defmodule Ryker.StateTools.RouterTest do
                "list_automations",
                %{
                  "channel_ref" => nil,
-                 "cursor" => nil,
                  "enabled" => true,
                  "limit" => 10,
                  "query" => "SERVICE HEALTH",
-                 "relationship" => "either",
                  "trigger_type" => "time"
                },
                options
@@ -1027,13 +1150,27 @@ defmodule Ryker.StateTools.RouterTest do
                  "expires_at" => requested_expiry,
                  "kind" => "fact",
                  "scope" => "current_channel",
-                 "source_refs" => ["source:health"],
                  "subject" => "service_owner",
-                 "supersedes" => [],
                  "value" => "The Payments team owns this service."
                },
                options
              )
+
+    # A time already past was kept for seven days without a word
+    # (2026-10-04 review).
+    past = DateTime.utc_now() |> DateTime.add(-86_400, :second) |> DateTime.to_iso8601()
+
+    assert Tools.call(
+             "propose_memory",
+             %{
+               "expires_at" => past,
+               "kind" => "fact",
+               "scope" => "current_channel",
+               "subject" => "service_owner",
+               "value" => "The Payments team owns this service."
+             },
+             options
+           ) == {:error, "invalid_arguments"}
 
     assert {:ok, %{"kind" => "memory_offer"}} =
              Tools.call(
@@ -1042,9 +1179,7 @@ defmodule Ryker.StateTools.RouterTest do
                  "expires_at" => "2099-08-29T12:00:00.000000Z",
                  "kind" => "guidance",
                  "scope" => "repository",
-                 "source_refs" => ["source:runbook"],
                  "subject" => "Deployment completion reporting",
-                 "supersedes" => [],
                  "value" => "Verify the allocation before reporting completion."
                },
                options
@@ -1056,7 +1191,6 @@ defmodule Ryker.StateTools.RouterTest do
                %{
                  "category" => "usefulness",
                  "details" => "The answer needed a source link.",
-                 "needs_response" => true,
                  "response_question" => "Can you include the source?",
                  "sentiment" => "suggestion",
                  "summary" => "Add a source link.",
@@ -1104,9 +1238,7 @@ defmodule Ryker.StateTools.RouterTest do
                  "expires_at" => nil,
                  "kind" => "fact",
                  "scope" => "mine",
-                 "source_refs" => ["source:mine"],
                  "subject" => "my_service",
-                 "supersedes" => [],
                  "value" => "I own the billing service."
                },
                bound_options(claim)
@@ -1140,9 +1272,7 @@ defmodule Ryker.StateTools.RouterTest do
                      "expires_at" => nil,
                      "kind" => "fact",
                      "scope" => "current_channel",
-                     "source_refs" => ["source:#{index}"],
                      "subject" => "service_#{index}",
-                     "supersedes" => [],
                      "value" => "Team #{index} owns service #{index}."
                    },
                    options
@@ -1761,16 +1891,14 @@ defmodule Ryker.StateTools.RouterTest do
       |> BehaviorChangeset.insert()
       |> Repo.insert!()
 
-    assert {:ok, %{"automations" => [listed], "cursor" => nil}} =
+    assert {:ok, %{"automations" => [listed], "complete" => true}} =
              Tools.call(
                "list_automations",
                %{
                  "channel_ref" => nil,
-                 "cursor" => nil,
                  "enabled" => true,
                  "limit" => 50,
                  "query" => "submitted pull request",
-                 "relationship" => "either",
                  "trigger_type" => "source_event"
                },
                options
@@ -1803,11 +1931,9 @@ defmodule Ryker.StateTools.RouterTest do
              "list_automations",
              %{
                "channel_ref" => "slack:TSTATETOOLS:C999",
-               "cursor" => nil,
                "enabled" => nil,
                "limit" => 50,
                "query" => nil,
-               "relationship" => "either",
                "trigger_type" => nil
              },
              bound_options(claim)
@@ -1841,12 +1967,11 @@ defmodule Ryker.StateTools.RouterTest do
                Tools.call(
                  "propose_memory",
                  %{
-                   "expires_at" => "2026-09-03T12:00:00.000000Z",
+                   "expires_at" =>
+                     DateTime.utc_now() |> DateTime.add(7, :day) |> DateTime.to_iso8601(),
                    "kind" => kind,
                    "scope" => scope,
-                   "source_refs" => ["source:#{subject}"],
                    "subject" => subject,
-                   "supersedes" => [],
                    "value" => "Bounded durable value for #{subject}."
                  },
                  options
@@ -1890,12 +2015,11 @@ defmodule Ryker.StateTools.RouterTest do
                Tools.call(
                  "propose_memory",
                  %{
-                   "expires_at" => "2026-09-10T12:00:00.000000Z",
+                   "expires_at" =>
+                     DateTime.utc_now() |> DateTime.add(7, :day) |> DateTime.to_iso8601(),
                    "kind" => kind,
                    "scope" => scope,
-                   "source_refs" => ["source:#{subject}"],
                    "subject" => subject,
-                   "supersedes" => [],
                    "value" => "Private channel content."
                  },
                  bound_options(private)
@@ -1923,12 +2047,11 @@ defmodule Ryker.StateTools.RouterTest do
              Tools.call(
                "propose_memory",
                %{
-                 "expires_at" => "2026-09-10T12:00:00.000000Z",
+                 "expires_at" =>
+                   DateTime.utc_now() |> DateTime.add(7, :day) |> DateTime.to_iso8601(),
                  "kind" => "guidance",
                  "scope" => "workspace",
-                 "source_refs" => ["source:external-source"],
                  "subject" => "external-source",
-                 "supersedes" => [],
                  "value" => "Slack Connect content."
                },
                bound_options(external)
@@ -1952,12 +2075,11 @@ defmodule Ryker.StateTools.RouterTest do
              Tools.call(
                "propose_memory",
                %{
-                 "expires_at" => "2026-09-10T12:00:00.000000Z",
+                 "expires_at" =>
+                   DateTime.utc_now() |> DateTime.add(7, :day) |> DateTime.to_iso8601(),
                  "kind" => "fact",
                  "scope" => "workspace",
-                 "source_refs" => ["source:unknown-source"],
                  "subject" => "unknown-source",
-                 "supersedes" => [],
                  "value" => "Unknown source content."
                },
                bound_options(unknown)
@@ -1968,7 +2090,7 @@ defmodule Ryker.StateTools.RouterTest do
     assert record["payload"]["visibility"] == "conversation"
   end
 
-  test "implements the stateless MCP handshake and refuses unauthenticated calls" do
+  test "implements the stateless MCP handshake" do
     initialize = rpc("initialize", %{"protocolVersion" => "2025-11-25"})
 
     assert %{
@@ -1978,14 +2100,6 @@ defmodule Ryker.StateTools.RouterTest do
                "serverInfo" => %{"name" => "controller-tools", "version" => "1"}
              }
            } = Jason.decode!(initialize.resp_body)
-
-    unauthorized =
-      conn(:post, "/mcp", Jason.encode!(request("tools/list", %{})))
-      |> put_req_header("content-type", "application/json")
-      |> Router.call(@options)
-
-    assert unauthorized.status == 401
-    assert Jason.decode!(unauthorized.resp_body) == %{"error" => "unauthorized"}
   end
 
   test "keeps all state tools visible while disabled owners reject calls server-side" do
@@ -2082,11 +2196,9 @@ defmodule Ryker.StateTools.RouterTest do
 
     for {key, value, requested_scope, stored_scope, repository} <- cases do
       arguments = %{
-        "explicit_request" => true,
         "expires_at" => nil,
         "key" => key,
         "scope" => requested_scope,
-        "source_refs" => ["input:explicit-preference"],
         "value" => value
       }
 
@@ -2110,15 +2222,14 @@ defmodule Ryker.StateTools.RouterTest do
            "proposing a preference must not make it effective before confirmation"
 
     valid = %{
-      "explicit_request" => true,
       "expires_at" => nil,
       "key" => "response_detail",
       "scope" => "mine",
-      "source_refs" => ["input:explicit-preference"],
       "value" => "concise"
     }
 
-    assert Tools.call("propose_preference", %{valid | "explicit_request" => false}, options) ==
+    # An argument the tool does not take is refused, not ignored.
+    assert Tools.call("propose_preference", Map.put(valid, "explicit_request", true), options) ==
              {:error, "invalid_arguments"}
 
     assert Tools.call("propose_preference", %{valid | "value" => "verbose"}, options) ==
@@ -2309,7 +2420,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     options =
       Router.init(
-        token: Ryker.Secret.new("trusted-state-tools-token"),
+        cursor_secret: Ryker.Secret.new("trusted-state-tools-token"),
         additional_tools: [source_tool],
         additional_call: fn "monitoring.query", %{"query" => "firing"} ->
           {:ok, %{"alerts" => []}}
@@ -2334,7 +2445,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert_raise ArgumentError, ~r/collid/, fn ->
       Router.init(
-        token: Ryker.Secret.new("trusted-state-tools-token"),
+        cursor_secret: Ryker.Secret.new("trusted-state-tools-token"),
         additional_tools: [%{source_tool | "name" => "request_input"}],
         additional_call: fn _, _ -> {:error, %{"code" => "unused"}} end
       )
@@ -2344,7 +2455,6 @@ defmodule Ryker.StateTools.RouterTest do
 
     bound_options =
       Router.init(
-        token: Ryker.Secret.new("trusted-state-tools-token"),
         binding: bound,
         cursor_secret: Ryker.Secret.new("host-owned-source-cursor-secret"),
         additional_tools: [source_tool],
@@ -2387,7 +2497,7 @@ defmodule Ryker.StateTools.RouterTest do
   end
 
   test "a Lab turn sees generic and Slack-compatible local tools but not GitHub authority" do
-    refute ToolVisibility.visible?(nil, "control_plane")
+    refute ToolVisibility.visible?(nil, "control_plane", :live)
 
     conversation_ref = "control-plane:lab:#{Ecto.UUID.generate()}"
 
@@ -2411,7 +2521,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     options =
       Router.init(
-        token: Ryker.Secret.new("trusted-state-tools-token"),
+        cursor_secret: Ryker.Secret.new("trusted-state-tools-token"),
         binding: %{
           episode: claim.episode,
           session: claim.session,
@@ -2821,8 +2931,8 @@ defmodule Ryker.StateTools.RouterTest do
            ) == {:error, "invalid_arguments"}
 
     assert Enum.map(Tools.list(), & &1["name"]) == FixedTools.names()
-    assert FixedTools.known?("validate_final")
-    refute FixedTools.known?("record_emisar_approval")
+    assert "validate_final" in FixedTools.names()
+    refute "record_emisar_approval" in FixedTools.names()
   end
 
   test "obsolete unadvertised investigation tools remain unavailable" do
@@ -2842,13 +2952,7 @@ defmodule Ryker.StateTools.RouterTest do
   # open, so the next tool call on it must still be read from its start.
   test "the call after a malformed JSON-RPC request is read intact" do
     server =
-      start_supervised!(
-        {Bandit,
-         plug: {Router, [token: Ryker.Secret.new("trusted-state-tools-token")]},
-         ip: :loopback,
-         port: 0,
-         startup_log: false}
-      )
+      start_supervised!({Bandit, plug: Router, ip: :loopback, port: 0, startup_log: false})
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
     {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
@@ -2869,6 +2973,27 @@ defmodule Ryker.StateTools.RouterTest do
     assert get_in(Jason.decode!(initialize.resp_body), ["result", "protocolVersion"]) ==
              "2025-11-25"
 
+    # A version the server speaks is answered as asked; any other gets the
+    # server's own, as MCP requires. Any string used to be echoed back
+    # (2026-10-04 review).
+    for {asked, answered} <- [{"2025-06-18", "2025-06-18"}, {"1999-01-01", "2025-11-25"}] do
+      initialize = rpc("initialize", %{"protocolVersion" => asked})
+
+      assert get_in(Jason.decode!(initialize.resp_body), ["result", "protocolVersion"]) ==
+               answered
+    end
+
+    # `params` is optional where a method takes none; leaving it out was
+    # answered "Method not found".
+    for method <- ~w(ping tools/list) do
+      without_params =
+        conn(:post, "/mcp", Jason.encode!(%{"id" => 9, "jsonrpc" => "2.0", "method" => method}))
+        |> put_req_header("content-type", "application/json")
+        |> Router.call(@options)
+
+      assert Jason.decode!(without_params.resp_body)["result"], method
+    end
+
     assert rpc("ping", %{}).status == 200
 
     notification =
@@ -2877,7 +3002,6 @@ defmodule Ryker.StateTools.RouterTest do
         "/mcp",
         Jason.encode!(%{"jsonrpc" => "2.0", "method" => "notifications/initialized"})
       )
-      |> put_req_header("authorization", "Bearer trusted-state-tools-token")
       |> put_req_header("content-type", "application/json")
       |> Router.call(@options)
 
@@ -2888,7 +3012,6 @@ defmodule Ryker.StateTools.RouterTest do
 
     invalid =
       conn(:post, "/mcp", "not-json")
-      |> put_req_header("authorization", "Bearer trusted-state-tools-token")
       |> put_req_header("content-type", "application/json")
       |> Router.call(@options)
 
@@ -2896,7 +3019,6 @@ defmodule Ryker.StateTools.RouterTest do
 
     unsupported =
       conn(:post, "/mcp", "{}")
-      |> put_req_header("authorization", "Bearer trusted-state-tools-token")
       |> put_req_header("content-type", "text/plain")
       |> Router.call(@options)
 
@@ -2936,7 +3058,6 @@ defmodule Ryker.StateTools.RouterTest do
 
     options =
       Router.init(
-        token: Ryker.Secret.new("trusted-state-tools-token"),
         binding: %{
           episode: claim.episode,
           session: claim.session,
@@ -2968,7 +3089,6 @@ defmodule Ryker.StateTools.RouterTest do
   defp socket_call(socket, body) do
     head =
       "POST /mcp HTTP/1.1\r\nhost: localhost\r\n" <>
-        "authorization: Bearer trusted-state-tools-token\r\n" <>
         "content-type: application/json\r\ncontent-length: #{byte_size(body)}\r\n\r\n"
 
     # A client writes a large body after its headers, so the server has read
@@ -2995,7 +3115,6 @@ defmodule Ryker.StateTools.RouterTest do
 
   defp rpc(method, params, options \\ @options) do
     conn(:post, "/mcp", Jason.encode!(request(method, params)))
-    |> put_req_header("authorization", "Bearer trusted-state-tools-token")
     |> put_req_header("content-type", "application/json")
     |> Router.call(options)
   end
@@ -3017,7 +3136,7 @@ defmodule Ryker.StateTools.RouterTest do
 
   defp bound_options(claim) do
     Router.init(
-      token: Ryker.Secret.new("trusted-state-tools-token"),
+      cursor_secret: Ryker.Secret.new("trusted-state-tools-token"),
       binding: %{
         episode: claim.episode,
         session: claim.session,

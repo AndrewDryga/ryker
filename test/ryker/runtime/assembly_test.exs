@@ -156,7 +156,6 @@ defmodule Ryker.Runtime.AssemblyTest do
                :schedules,
                :slack,
                :slack_names,
-               :state_tools,
                :webhooks,
                :work
              ])
@@ -414,7 +413,7 @@ defmodule Ryker.Runtime.AssemblyTest do
   test "a clarification answer is authorized by the saved operator list, not by who asks" do
     settings = connected!()
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
-    authorize = configuration[:state_tools].answer_authorizer
+    authorize = configuration[:coop_worker_gateway].state_tools.answer_authorizer
 
     assert authorize.(answer(%{source_ref: @workspace, actor_ref: "U1111111111"}))
 
@@ -460,8 +459,8 @@ defmodule Ryker.Runtime.AssemblyTest do
     # would let a GitHub episode call a Slack tool against the workspace.
     settings = connected!()
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
-    tools = configuration[:state_tools].additional_tools
-    call = configuration[:state_tools].additional_call
+    tools = configuration[:coop_worker_gateway].state_tools.additional_tools
+    call = configuration[:coop_worker_gateway].state_tools.additional_call
 
     names = Enum.map(tools, & &1["name"])
     assert names == Enum.uniq(names)
@@ -657,7 +656,9 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     assert configuration[:work].state_tool_capabilities == gateway.state_tools.capabilities
     assert configuration[:work].state_tools_secret == gateway.state_tools.token_secret
-    assert configuration[:work].platform_tools == configuration[:state_tools].additional_tools
+
+    assert configuration[:work].platform_tools ==
+             configuration[:coop_worker_gateway].state_tools.additional_tools
   end
 
   # Every session in an environment mounts all of its repositories, the one
@@ -1339,7 +1340,6 @@ defmodule Ryker.Runtime.AssemblyTest do
           :publication,
           :retention,
           :schedules,
-          :state_tools,
           :webhooks,
           :work
         ] do
@@ -1632,7 +1632,6 @@ defmodule Ryker.Runtime.AssemblyTest do
     %Bootstrap{
       repo: [url: "ecto://ryker@localhost/ryker", pool_size: 2],
       control_plane: %{ip: {127, 0, 0, 1}, port: 4321},
-      state_tools: %{ip: {127, 0, 0, 1}, port: 4318},
       worker_gateway:
         Map.merge(Map.new(@certificate_fields, &{&1, certificate(&1)}), %{
           ip: {127, 0, 0, 1},

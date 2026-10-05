@@ -771,7 +771,6 @@ defmodule Ryker.ObservabilityTest do
       :retention,
       :schedules,
       :slack,
-      :state_tools,
       :webhooks,
       :work
     ]
@@ -803,7 +802,6 @@ defmodule Ryker.ObservabilityTest do
                :publication,
                :retention,
                :slack,
-               :state_tools,
                :webhooks,
                :work
              ]
@@ -822,7 +820,6 @@ defmodule Ryker.ObservabilityTest do
       :retention,
       :schedules,
       :slack,
-      :state_tools,
       :webhooks,
       :work
     ]
@@ -857,7 +854,7 @@ defmodule Ryker.ObservabilityTest do
     # and reported all four missing on a healthy installation, holding /readyz
     # at 503 while every lane cycled and every setting was applied.
     keys = ~w(admission coop_worker_gateway control_plane delivery emisar event_waits github
-              learning publication retention schedules slack state_tools webhooks work)a
+              learning publication retention schedules slack webhooks work)a
 
     previous = Enum.map(keys, &{&1, Application.get_env(:ryker, &1, :missing)})
 
@@ -907,7 +904,7 @@ defmodule Ryker.ObservabilityTest do
   # report every listener missing and hold /readyz at 503 on a healthy installation.
   test "a product child under its runtime key's supervisor is alive, not missing" do
     keys = ~w(admission coop_worker_gateway control_plane delivery emisar event_waits github
-              learning publication retention schedules slack state_tools webhooks work)a
+              learning publication retention schedules slack webhooks work)a
 
     previous = Enum.map(keys, &{&1, Application.get_env(:ryker, &1, :missing)})
 
@@ -919,19 +916,19 @@ defmodule Ryker.ObservabilityTest do
     end)
 
     Enum.each(keys, &Application.put_env(:ryker, &1, false))
-    Application.put_env(:ryker, :state_tools, %{enabled: true})
+    Application.put_env(:ryker, :webhooks, %{enabled: true})
 
     supervisor = Process.whereis(Ryker.Runtime.Supervisor)
 
     listener = %{
-      id: Ryker.StateTools.Server,
+      id: Ryker.Webhooks.Server,
       start: {Agent, :start_link, [fn -> :serving end]}
     }
 
     {:ok, key_supervisor} =
       DynamicSupervisor.start_child(
         supervisor,
-        Child.child_spec({:state_tools, [listener]})
+        Child.child_spec({:webhooks, [listener]})
       )
 
     on_exit(fn ->
@@ -951,7 +948,7 @@ defmodule Ryker.ObservabilityTest do
     # supervisor, so a healthy installation reported its listeners missing and
     # /readyz stayed 503 with nothing wrong — seen on the first cutover boot.
     keys = ~w(admission coop_worker_gateway control_plane delivery emisar event_waits github
-              learning publication retention schedules slack state_tools webhooks work)a
+              learning publication retention schedules slack webhooks work)a
 
     previous = Enum.map(keys, &{&1, Application.get_env(:ryker, &1, :missing)})
 
@@ -963,14 +960,14 @@ defmodule Ryker.ObservabilityTest do
     end)
 
     Enum.each(keys, &Application.put_env(:ryker, &1, false))
-    Application.put_env(:ryker, :state_tools, %{enabled: true})
+    Application.put_env(:ryker, :webhooks, %{enabled: true})
 
     supervisor = Process.whereis(Ryker.Runtime.Supervisor)
 
     {:ok, child} =
       DynamicSupervisor.start_child(supervisor, %{
-        id: Ryker.StateTools.Server,
-        modules: [Ryker.StateTools.Server],
+        id: Ryker.Webhooks.Server,
+        modules: [Ryker.Webhooks.Server],
         start: {Agent, :start_link, [fn -> :serving end]}
       })
 
@@ -1428,7 +1425,6 @@ defmodule Ryker.ObservabilityTest do
     %Ryker.Bootstrap{
       repo: [url: "ecto://ryker@localhost/ryker", pool_size: 2],
       control_plane: %{ip: {127, 0, 0, 1}, port: free_port()},
-      state_tools: %{ip: {127, 0, 0, 1}, port: 0},
       worker_gateway: nil,
       github_listener: %{ip: {127, 0, 0, 1}, port: 0},
       github_public_url: "http://127.0.0.1:4319/v1/github",

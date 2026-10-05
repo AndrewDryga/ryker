@@ -5,7 +5,7 @@ defmodule Ryker.Learning.Runtime do
   alias Ryker.{Options, Reference}
 
   @fields ~w(api client policy policy_digest worker_ref concurrency batch_size quiet_seconds
-    maximum_delay_seconds poll_interval_ms receive_timeout_ms execution_timeout_seconds)a
+    maximum_delay_seconds poll_interval_ms execution_timeout_seconds)a
 
   @doc "The current host configuration, used only when explicitly requesting new learning work."
   def configured_options do
@@ -50,7 +50,6 @@ defmodule Ryker.Learning.Runtime do
 
     validate_identity!(config)
 
-    integer!(config, :receive_timeout_ms, 30_000, 1..30_000)
     {api, client} = adapter!(config)
     quiet = integer!(config, :quiet_seconds, 300, 0..300)
     maximum_delay = integer!(config, :maximum_delay_seconds, 1_800, 1..3_600)

@@ -79,31 +79,18 @@ while (($# > 0)); do
   esac
 done
 
-# Each shard binds a worker gateway and a state-tools listener. The two
-# configured ports are commonly adjacent, so a shard advances both by two:
-# shard I listens on base + 2(I - 1), and one shard of one is exactly the
+# Each shard binds its own worker gateway, which also serves the turn's
+# tools: shard I listens on base + I - 1, and one shard of one is exactly the
 # environment. The layout is checked for the configured count before any
 # database exists, because a shard that cannot bind is a shard that ran
 # nothing.
 worker_base=${RYKER_WORKER_PORT:-4322}
-state_base=${RYKER_STATE_TOOLS_PORT:-4318}
-if [[ ! $worker_base =~ ^[0-9]+$ || ! $state_base =~ ^[0-9]+$ ]]; then
-  echo "RYKER_WORKER_PORT and RYKER_STATE_TOOLS_PORT must be port numbers" >&2
+if [[ ! $worker_base =~ ^[0-9]+$ ]]; then
+  echo "RYKER_WORKER_PORT must be a port number" >&2
   exit 2
 fi
-
-ports=()
-for ((index = 1; index <= shards; index++)); do
-  ports+=("$((worker_base + 2 * (index - 1)))" "$((state_base + 2 * (index - 1)))")
-done
-if ((ports[${#ports[@]} - 1] > 65535 || ports[${#ports[@]} - 2] > 65535)); then
-  echo "shard ports exceed 65535; lower RYKER_WORLD_EVAL_SHARDS or the base ports" >&2
-  exit 2
-fi
-if [[ -n $(printf '%s\n' "${ports[@]}" | sort -n | uniq -d) ]]; then
-  echo "shard ports overlap: with $shards shards the worker ports from $worker_base and the" \
-    "state-tools ports from $state_base collide; set RYKER_STATE_TOOLS_PORT an odd" \
-    "distance from RYKER_WORKER_PORT (adjacent works) or at least $((2 * shards)) away" >&2
+if ((worker_base + shards - 1 > 65535)); then
+  echo "shard ports exceed 65535; lower RYKER_WORLD_EVAL_SHARDS or RYKER_WORKER_PORT" >&2
   exit 2
 fi
 
@@ -174,9 +161,7 @@ done
 
 partials=()
 for ((index = 1; index <= launched; index++)); do
-  offset=$((2 * (index - 1)))
-  worker_port=$((worker_base + offset))
-  state_port=$((state_base + offset))
+  worker_port=$((worker_base + index - 1))
   partial="$shards_dir/shard-$index.json"
   log="$shards_dir/shard-$index.log"
   partials+=("$partial")
@@ -187,7 +172,6 @@ for ((index = 1; index <= launched; index++)); do
   PGDATABASE="${databases[index - 1]}" \
     MIX_ENV=test \
     RYKER_WORKER_PORT="$worker_port" \
-    RYKER_STATE_TOOLS_PORT="$state_port" \
     RYKER_WORKER_PUBLIC_URL="$public_origin:$worker_port" \
     "$mix_command" ryker.eval world --results "$partial" --shard "$index/$launched" \
     ${world_args[@]+"${world_args[@]}"} >"$log" 2>&1 &

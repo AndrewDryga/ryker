@@ -41,8 +41,7 @@ defmodule Ryker.StateTools.CallLog do
       called_at: called_at
     }
 
-    # A savepoint when a caller already holds a transaction, so a refused
-    # write cannot abort work that is not this record's.
+    # The timeline hears of the call once its record is committed.
     _kept =
       Repo.transaction(fn ->
         Custody.broadcast_turn_updated(turn_id)

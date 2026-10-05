@@ -56,7 +56,6 @@ defmodule Ryker.Runtime.Assembly do
   # cannot be assembled without being started or started without being checked.
   @runtimes [
     {:coop_worker_gateway, Ryker.CoopFleet.Server},
-    {:state_tools, Ryker.StateTools.Server},
     {:admission, Ryker.Admission.Runtime},
     # Its own key, so changing how many routing sessions are kept ready
     # restarts only the pool, never the routing slots mid-message.
@@ -177,7 +176,7 @@ defmodule Ryker.Runtime.Assembly do
     work_examples = work_examples(settings, work)
 
     state_tools =
-      state_tools(bootstrap, settings, emisar, slack, github, control_plane, %{
+      state_tools(slack, github, control_plane, %{
         emisar_approvals: not is_nil(emisar),
         event_waits: true,
         publication: not is_nil(publication),
@@ -213,7 +212,6 @@ defmodule Ryker.Runtime.Assembly do
     |> put_optional(:schedules, schedules)
     |> put_optional(:slack, slack && slack.runtime)
     |> put_optional(:slack_names, slack_names)
-    |> put_optional(:state_tools, state_tools)
     |> put_optional(:webhooks, webhooks)
     |> put_optional(:weekly_report, weekly_report)
     |> put_optional(
@@ -626,7 +624,6 @@ defmodule Ryker.Runtime.Assembly do
         client: work.client,
         policy: policy.name,
         policy_digest: policy.digest,
-        receive_timeout_ms: min(Defaults.fetch!(:coop).receive_timeout_ms, 30_000),
         worker_ref: "#{settings.installation.host_ref}:learning"
       })
     else
@@ -1513,15 +1510,16 @@ defmodule Ryker.Runtime.Assembly do
 
   defp served_target(%Request{}, _binding), do: {:error, :destination_not_served}
 
-  defp state_tools(bootstrap, _settings, _emisar, slack, github, control_plane, capabilities) do
+  # What a turn's tools are, served by the worker gateway at
+  # `/v1/state-tools/mcp`. The machine secret signs each turn's token and
+  # cursors; nothing listens for it on its own.
+  defp state_tools(slack, github, control_plane, capabilities) do
     %{
       capabilities:
         capabilities
         |> Enum.filter(fn {_capability, enabled} -> enabled end)
         |> Enum.map(fn {capability, true} -> capability end)
         |> Enum.sort(),
-      ip: bootstrap.state_tools.ip,
-      port: bootstrap.state_tools.port,
       token: Secret.new(Bootstrap.secret!(:state_tools))
     }
     |> Map.put(:answer_authorizer, answer_authorizer(slack, control_plane))
@@ -1618,8 +1616,6 @@ defmodule Ryker.Runtime.Assembly do
 
   defp bind_state_tools(work, nil, state_tools),
     do: {bind_platform_tools(work, state_tools), nil}
-
-  defp bind_state_tools(work, gateway, nil), do: {bind_platform_tools(work, nil), gateway}
 
   defp bind_state_tools(work, gateway, state_tools) do
     work = bind_platform_tools(work, state_tools)

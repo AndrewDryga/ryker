@@ -53,7 +53,7 @@ defmodule Ryker.Evals.WorldToolsTest do
     assert is_nil(prepared.state_tools.additional_call)
 
     assert Router.init(
-             [token: Ryker.Secret.new("no-discovery-world-secret")] ++
+             [cursor_secret: Ryker.Secret.new("no-discovery-world-secret")] ++
                Map.to_list(prepared.state_tools)
            )
   end

@@ -188,7 +188,6 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
     %Bootstrap{
       repo: [url: "ecto://ryker@localhost/ryker", pool_size: 2],
       control_plane: %{ip: {127, 0, 0, 1}, port: 4321},
-      state_tools: %{ip: {127, 0, 0, 1}, port: 4318},
       worker_gateway: nil,
       github_listener: %{ip: {127, 0, 0, 1}, port: 4319},
       github_public_url: "http://127.0.0.1:4319/v1/github",

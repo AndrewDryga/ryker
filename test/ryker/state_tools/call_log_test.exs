@@ -15,7 +15,7 @@ defmodule Ryker.StateTools.CallLogTest do
   alias Ryker.StateTools.{CallLog, ErrorCode, Router}
   alias Ryker.Work.{Activity, Custody, Turn}
 
-  @token "trusted-state-tools-token"
+  @cursor_secret "host-owned-memory-cursor-secret"
   @remote_turn "turn_5d45d1dae4a96ff6587d4b28b7de45a0"
 
   test "a refused state tool shows the error Ryker answered and the arguments it was sent" do
@@ -92,7 +92,7 @@ defmodule Ryker.StateTools.CallLogTest do
 
     options =
       Router.init(
-        token: Ryker.Secret.new(@token),
+        cursor_secret: Ryker.Secret.new(@cursor_secret),
         binding: %{
           episode: work.episode,
           session: work.session,
@@ -114,7 +114,6 @@ defmodule Ryker.StateTools.CallLogTest do
       ExUnit.CaptureLog.capture_log(fn ->
         conn =
           conn(:post, "/mcp", Jason.encode!(body))
-          |> put_req_header("authorization", "Bearer " <> @token)
           |> put_req_header("content-type", "application/json")
           |> Router.call(options)
 
@@ -180,7 +179,7 @@ defmodule Ryker.StateTools.CallLogTest do
     # to a call forty seconds earlier and is not handed to this one.
     listed_at = DateTime.utc_now()
 
-    refute call_tool(work, "list_automations", %{"limit" => 20, "relationship" => "either"})[
+    refute call_tool(work, "list_automations", %{"limit" => 20})[
              "isError"
            ]
 
@@ -254,7 +253,7 @@ defmodule Ryker.StateTools.CallLogTest do
   defp call_tool(work, name, arguments) do
     options =
       Router.init(
-        token: Ryker.Secret.new(@token),
+        cursor_secret: Ryker.Secret.new(@cursor_secret),
         binding: %{
           episode: work.episode,
           session: work.session,
@@ -272,7 +271,6 @@ defmodule Ryker.StateTools.CallLogTest do
 
     conn =
       conn(:post, "/mcp", Jason.encode!(body))
-      |> put_req_header("authorization", "Bearer " <> @token)
       |> put_req_header("content-type", "application/json")
       |> Router.call(options)
 

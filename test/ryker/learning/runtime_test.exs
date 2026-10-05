@@ -28,7 +28,6 @@ defmodule Ryker.Learning.RuntimeTest do
           %{concurrency: 9},
           %{batch_size: 17},
           %{maximum_delay_seconds: 1, quiet_seconds: 10},
-          %{receive_timeout_ms: 30_001},
           %{policy_digest: "invented"},
           %{socket: "/tmp/other.sock"},
           %{worker_ref: ""},

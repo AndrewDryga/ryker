@@ -1,10 +1,10 @@
 defmodule Ryker.StateTools.Router do
   @moduledoc """
-  Stateless, authenticated MCP endpoint for inert episode state tools.
+  The MCP endpoint for a Work turn's state tools.
 
-  The transport bearer authenticates the trusted Coop daemon. Every mutating
-  tool additionally requires the opaque active-turn capability carried in the
-  frozen work context.
+  `Ryker.CoopFleet.Router` serves it at `/v1/state-tools/mcp` and has already
+  resolved the request's bearer, the active turn's capability, to the turn's
+  binding, so every call here acts for that one turn.
   """
 
   @behaviour Plug
@@ -20,11 +20,13 @@ defmodule Ryker.StateTools.Router do
 
   @maximum_body_bytes 1_048_576
   @protocol_version "2025-11-25"
+  # The MCP versions whose initialize, tools/list, tools/call and ping this
+  # server answers alike.
+  @protocol_versions ~w(2024-11-05 2025-03-26 2025-06-18 2025-11-25)
 
   @impl Plug
   def init(options) do
-    token = Keyword.fetch!(options, :token)
-    cursor_secret = Keyword.get(options, :cursor_secret, token)
+    cursor_secret = Keyword.get(options, :cursor_secret)
     binding = Keyword.get(options, :binding)
 
     capabilities =
@@ -37,10 +39,7 @@ defmodule Ryker.StateTools.Router do
     unless is_nil(answer_authorizer) or is_function(answer_authorizer, 1),
       do: raise(ArgumentError, "answer authorizer must be a trusted one-argument function")
 
-    unless sealed_token?(token),
-      do: raise(ArgumentError, "state-tools token must be at least 16 valid UTF-8 bytes, sealed")
-
-    unless is_nil(cursor_secret) or sealed_token?(cursor_secret),
+    unless is_nil(cursor_secret) or sealed_secret?(cursor_secret),
       do:
         raise(ArgumentError, "memory cursor secret must be at least 16 valid UTF-8 bytes, sealed")
 
@@ -55,35 +54,29 @@ defmodule Ryker.StateTools.Router do
       answer_authorizer: answer_authorizer,
       binding: binding,
       capabilities: capabilities,
-      cursor_secret: cursor_secret,
-      token: token
+      cursor_secret: cursor_secret
     }
   end
 
-  # The token and cursor secret stay sealed (`Ryker.Secret`) in the options a
-  # listener keeps for its life; each is opened where it is used: the bearer
-  # check below, and the cursor secret a tool signs with.
+  # The cursor secret stays sealed (`Ryker.Secret`) in the options and is
+  # opened only where a tool signs with it.
   @impl Plug
   def call(conn, options),
     do: conn |> HTTPConnection.close_after_refusal() |> route(options)
 
-  defp sealed_token?(%Secret{value: value}), do: valid_token?(value)
-  defp sealed_token?(_token), do: false
+  defp sealed_secret?(%Secret{value: value}), do: valid_secret?(value)
+  defp sealed_secret?(_secret), do: false
 
   defp route(%Plug.Conn{method: "POST", path_info: ["mcp"]} = conn, options) do
-    with :ok <- authorize(conn, Secret.reveal(options.token)),
-         :ok <- json_content_type(conn),
+    with :ok <- json_content_type(conn),
          {:ok, body, conn} <- read_request_body(conn) do
       # A JSON-RPC error is a 200 that keeps the connection open, so it goes
       # out through the conn that read the body (see Ryker.HTTPConnection).
       case decode_request(body) do
-        {:ok, request} -> respond_rpc(conn, request, options)
+        {:ok, request} -> respond_rpc(conn, with_params(request), options)
         {:error, :invalid_request} -> rpc_error(conn, nil, -32_600, "Invalid Request")
       end
     else
-      {:error, :unauthorized} ->
-        respond(conn, 401, %{"error" => "unauthorized"})
-
       {:error, :unsupported_media_type} ->
         respond(conn, 415, %{"error" => "unsupported_media_type"})
 
@@ -107,11 +100,12 @@ defmodule Ryker.StateTools.Router do
          },
          options
        ) do
+    # A version this server speaks is answered as asked; any other gets the
+    # server's own, as MCP requires.
     version =
-      case params["protocolVersion"] do
-        value when is_binary(value) and value != "" -> value
-        _missing -> @protocol_version
-      end
+      if params["protocolVersion"] in @protocol_versions,
+        do: params["protocolVersion"],
+        else: @protocol_version
 
     result = %{
       "capabilities" => %{"tools" => %{"listChanged" => false}},
@@ -191,6 +185,9 @@ defmodule Ryker.StateTools.Router do
 
   defp respond_rpc(conn, _request, _options),
     do: rpc_error(conn, nil, -32_600, "Invalid Request")
+
+  # JSON-RPC leaves `params` out where a method takes none.
+  defp with_params(request), do: Map.put_new(request, "params", %{})
 
   defp tool_result(result, is_error) do
     %{
@@ -378,18 +375,6 @@ defmodule Ryker.StateTools.Router do
     end)
   end
 
-  defp authorize(conn, token) do
-    case get_req_header(conn, "authorization") do
-      ["Bearer " <> supplied] when byte_size(supplied) == byte_size(token) ->
-        if Plug.Crypto.secure_compare(supplied, token),
-          do: :ok,
-          else: {:error, :unauthorized}
-
-      _other ->
-        {:error, :unauthorized}
-    end
-  end
-
   defp json_content_type(conn) do
     case get_req_header(conn, "content-type") do
       [value] ->
@@ -447,9 +432,9 @@ defmodule Ryker.StateTools.Router do
     |> halt()
   end
 
-  defp valid_token?(token) do
-    is_binary(token) and String.valid?(token) and byte_size(token) >= 16 and
-      :binary.match(token, <<0>>) == :nomatch
+  defp valid_secret?(secret) do
+    is_binary(secret) and String.valid?(secret) and byte_size(secret) >= 16 and
+      :binary.match(secret, <<0>>) == :nomatch
   end
 
   defp validate_additional_tools!(tools, callback, capabilities)

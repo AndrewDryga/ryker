@@ -158,7 +158,7 @@ defmodule Ryker.CoopFleet.Server do
 
   defp validate_state_tools!(%{capabilities: capabilities} = options) do
     router_options =
-      [token: Ryker.Secret.new(String.duplicate("t", 32)), capabilities: capabilities]
+      [capabilities: capabilities]
       |> maybe_put(:additional_tools, Map.get(options, :additional_tools))
       |> maybe_put(:additional_call, Map.get(options, :additional_call))
       |> maybe_put(:answer_authorizer, Map.get(options, :answer_authorizer))

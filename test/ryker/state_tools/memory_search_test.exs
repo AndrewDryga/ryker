@@ -57,7 +57,10 @@ defmodule Ryker.StateTools.MemorySearchTest do
     binding = Map.put(claim, :state_token, Records.token(claim.turn))
 
     options =
-      Router.init(token: Ryker.Secret.new("host-only-search-test-secret"), binding: binding)
+      Router.init(
+        cursor_secret: Ryker.Secret.new("host-only-search-test-secret"),
+        binding: binding
+      )
 
     %{claim: claim, options: options, entries: entries}
   end
@@ -197,7 +200,7 @@ defmodule Ryker.StateTools.MemorySearchTest do
 
     options =
       Router.init(
-        token: Ryker.Secret.new("host-only-search-test-secret"),
+        cursor_secret: Ryker.Secret.new("host-only-search-test-secret"),
         binding: claim,
         additional_tools: [tool],
         additional_call: fn _, _, _ -> {:ok, response} end
@@ -215,7 +218,6 @@ defmodule Ryker.StateTools.MemorySearchTest do
 
     connection =
       Plug.Test.conn(:post, "/mcp", Jason.encode!(request))
-      |> Plug.Conn.put_req_header("authorization", "Bearer host-only-search-test-secret")
       |> Plug.Conn.put_req_header("content-type", "application/json")
       |> Router.call(options)
 
@@ -606,7 +608,7 @@ defmodule Ryker.StateTools.MemorySearchTest do
 
     options =
       Router.init(
-        token: Ryker.Secret.new("host-only-search-test-secret"),
+        cursor_secret: Ryker.Secret.new("host-only-search-test-secret"),
         binding: Map.put(shadow, :state_token, Records.token(shadow.turn))
       )
 

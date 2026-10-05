@@ -16,7 +16,7 @@ defmodule Ryker.StateTools.EmisarToolsTest do
   alias Ryker.Work.{Custody, SubmissionBuilder}
 
   @actor "control-plane:local"
-  @token "trusted-state-tools-token"
+  @cursor_secret "host-owned-memory-cursor-secret"
   @policy_digest String.duplicate("a", 64)
   @tools_list "testdata/emisar/tools_list.json" |> File.read!() |> Jason.decode!()
   @emisar_names Enum.map(@tools_list["tools"], & &1["name"])
@@ -56,6 +56,16 @@ defmodule Ryker.StateTools.EmisarToolsTest do
                        },
                        token: ^key
                      }}
+  end
+
+  # An evaluation run only observes. It was offered the approval receipt it
+  # could never record (2026-10-04 review).
+  test "an evaluation run in an environment with Emisar is not offered the approval receipt" do
+    connect!("https://emisar.dev/api/mcp/rpc")
+    options = bound_options(claim!("shadow", "ops", execution_mode: :shadow))
+
+    names = options |> list() |> Enum.map(& &1["name"])
+    refute "record_emisar_approval" in names
   end
 
   test "a session in an environment without Emisar lists no Emisar tool and cannot call one" do
@@ -229,7 +239,6 @@ defmodule Ryker.StateTools.EmisarToolsTest do
       "/mcp",
       Jason.encode!(%{"id" => 1, "jsonrpc" => "2.0", "method" => method, "params" => params})
     )
-    |> put_req_header("authorization", "Bearer " <> @token)
     |> put_req_header("content-type", "application/json")
     |> Router.call(options)
   end
@@ -331,7 +340,7 @@ defmodule Ryker.StateTools.EmisarToolsTest do
 
   defp bound_options(claim) do
     Router.init(
-      token: Ryker.Secret.new(@token),
+      cursor_secret: Ryker.Secret.new(@cursor_secret),
       binding: %{
         episode: claim.episode,
         session: claim.session,

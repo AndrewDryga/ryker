@@ -286,6 +286,23 @@ defmodule Ryker.CoopFleet.RouterTest do
     assert accepted.status == 200
     assert get_in(Jason.decode!(accepted.resp_body), ["result", "tools"]) |> is_list()
 
+    # This route is the state tools' only authentication: the router behind it
+    # trusts the binding it is handed.
+    unauthenticated =
+      :post
+      |> conn("/v1/state-tools/mcp", request)
+      |> put_req_header("content-type", "application/json")
+      |> Router.call(options)
+
+    unknown =
+      :post
+      |> conn("/v1/state-tools/mcp", request)
+      |> put_req_header("authorization", "Bearer " <> String.duplicate("u", 43))
+      |> put_req_header("content-type", "application/json")
+      |> Router.call(options)
+
+    assert {unauthenticated.status, unknown.status} == {401, 401}
+
     assert {:ok, _turn} =
              Custody.defer(
                claim.episode.id,
