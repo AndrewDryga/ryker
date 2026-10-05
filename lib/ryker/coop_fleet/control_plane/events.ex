@@ -12,15 +12,40 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   import Ecto.Changeset
   import Ecto.Query
 
+  require Logger
+
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Command, Event, Placement}
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
   alias Ryker.Repo
   alias Ryker.Work.{Activity, Session}
 
+  # Each batch in a transaction of its own, which locks the worker first, as
+  # each command result does. A refused batch is left unacknowledged, so the
+  # worker sends it again.
   @doc false
-  def apply_event_batches(worker_id, batches, now) do
-    Enum.map(batches, fn batch -> apply_event_batch(worker_id, batch, now) end)
+  def apply_event_batches(worker_id, batches, now),
+    do: Enum.flat_map(batches, &applied_batch(worker_id, &1, now))
+
+  defp applied_batch(worker_id, batch, now) do
+    applied =
+      Repo.transaction(fn ->
+        _worker = Shared.locked_worker(worker_id)
+        apply_event_batch(worker_id, batch, now)
+      end)
+
+    case applied do
+      {:ok, acknowledgement} ->
+        [acknowledgement]
+
+      {:error, reason} ->
+        Logger.warning(
+          "worker #{worker_id} events for session #{batch["session_ref"]} refused: " <>
+            inspect(reason)
+        )
+
+        []
+    end
   end
 
   defp apply_event_batch(worker_id, batch, now) do

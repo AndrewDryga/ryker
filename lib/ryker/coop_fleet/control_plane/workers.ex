@@ -89,18 +89,60 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     with :ok <- Shared.reference(authenticated_worker_id, 256, :worker_id),
          :ok <- Shared.lease_seconds(lease_seconds),
          {:ok, poll} <- Protocol.poll(document),
-         :ok <- poll_identity(authenticated_worker_id, poll) do
-      Repo.transaction(fn ->
-        apply_poll(
+         :ok <- poll_identity(authenticated_worker_id, poll),
+         {:ok, now} <-
+           Repo.transaction(fn ->
+             heartbeat(authenticated_worker_id, poll, lease_seconds, certificate_sha256)
+           end) do
+      body_root = Keyword.get(options, :body_root)
+
+      # Each result and each event batch is applied in a transaction of its
+      # own. The poll was one transaction, so one item Ryker refused refused
+      # the whole poll: the worker sent it again and again, nothing else it
+      # reported counted, and its leases ran out (2026-10-04 review).
+      acknowledged_result_command_ids =
+        Commands.apply_command_results(
           authenticated_worker_id,
-          poll,
-          lease_seconds,
-          certificate_sha256,
-          state_tools_secret,
-          Keyword.get(options, :body_root),
-          Keyword.get(options, :checkpoint_key)
+          poll["command_results"],
+          now,
+          body_root
         )
+
+      event_acknowledgements =
+        Events.apply_event_batches(authenticated_worker_id, poll["event_batches"], now)
+
+      announce_reported_sessions(poll["event_batches"])
+
+      Repo.transaction(fn ->
+        _worker = Shared.locked_worker(authenticated_worker_id)
+
+        commands =
+          Commands.deliver_commands(
+            authenticated_worker_id,
+            now,
+            state_tools_secret,
+            body_root,
+            Keyword.get(options, :checkpoint_key)
+          )
+
+        answer(poll, now, commands, acknowledged_result_command_ids, event_acknowledgements)
       end)
+    end
+  end
+
+  defp answer(poll, now, commands, acknowledged_result_command_ids, event_acknowledgements) do
+    response = %{
+      "acknowledged_result_command_ids" => acknowledged_result_command_ids,
+      "commands" => commands,
+      "event_acknowledgements" => event_acknowledgements,
+      "poll_ref" => poll["poll_ref"],
+      "server_time" => DateTime.to_iso8601(now),
+      "version" => Protocol.version()
+    }
+
+    case Protocol.response(response) do
+      {:ok, prepared} -> prepared
+      {:error, reason} -> Shared.rollback(reason)
     end
   end
 
@@ -138,15 +180,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     worker
   end
 
-  defp apply_poll(
-         worker_id,
-         poll,
-         lease_seconds,
-         certificate_sha256,
-         state_tools_secret,
-         body_root,
-         checkpoint_key
-       ) do
+  # The worker says it is alive: its heartbeat is saved, its placements are
+  # renewed and the commands it acknowledged are marked, before anything it
+  # reported is applied.
+  defp heartbeat(worker_id, poll, lease_seconds, certificate_sha256) do
     now = Repo.now!()
     hello = poll["worker"]
     worker = authenticated_worker!(worker_id, hello["workspace_ref"], certificate_sha256)
@@ -188,29 +225,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     if status_changed?(previous, worker, now), do: broadcast_worker_updated(worker.id)
     Placements.renew_worker_placements(worker, now, lease_seconds)
     Commands.acknowledge_commands(worker_id, poll["acknowledged_command_ids"], now)
-
-    acknowledged_result_command_ids =
-      Commands.apply_command_results(worker_id, poll["command_results"], now, body_root)
-
-    event_acknowledgements = Events.apply_event_batches(worker_id, poll["event_batches"], now)
-    announce_reported_sessions(poll["event_batches"])
-
-    commands =
-      Commands.deliver_commands(worker_id, now, state_tools_secret, body_root, checkpoint_key)
-
-    response = %{
-      "acknowledged_result_command_ids" => acknowledged_result_command_ids,
-      "commands" => commands,
-      "event_acknowledgements" => event_acknowledgements,
-      "poll_ref" => poll["poll_ref"],
-      "server_time" => DateTime.to_iso8601(now),
-      "version" => Protocol.version()
-    }
-
-    case Protocol.response(response) do
-      {:ok, prepared} -> prepared
-      {:error, reason} -> Shared.rollback(reason)
-    end
+    now
   end
 
   defp authenticated_worker!(worker_id, workspace_ref, certificate_sha256) do

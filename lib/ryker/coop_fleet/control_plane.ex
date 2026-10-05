@@ -42,6 +42,9 @@ defmodule Ryker.CoopFleet.ControlPlane do
   @spec retire_session_placements(Ecto.UUID.t(), DateTime.t()) :: :ok
   defdelegate retire_session_placements(session_id, now), to: Placements
 
+  @doc "Retires the placements no worker will renew."
+  defdelegate retire_abandoned_placements(now, up_since), to: Placements
+
   @doc """
   Whether any current worker could take this session's next placement.
 

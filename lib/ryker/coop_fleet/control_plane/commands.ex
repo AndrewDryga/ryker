@@ -11,6 +11,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   import Ecto.Changeset
   import Ecto.Query
 
+  require Logger
+
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Bodies, Command, Placement, Protocol, Requests}
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
@@ -385,9 +387,32 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     end)
   end
 
+  # Each result in a transaction of its own, which locks the worker first as
+  # every path to its placements does. A refused result is left
+  # unacknowledged, so the worker keeps it and sends it again.
   @doc false
-  def apply_command_results(worker_id, results, now, body_root) do
-    Enum.map(results, &apply_command_result(worker_id, &1, now, body_root))
+  def apply_command_results(worker_id, results, now, body_root),
+    do: Enum.flat_map(results, &applied_result(worker_id, &1, now, body_root))
+
+  defp applied_result(worker_id, result, now, body_root) do
+    applied =
+      Repo.transaction(fn ->
+        _worker = Shared.locked_worker(worker_id)
+        apply_command_result(worker_id, result, now, body_root)
+      end)
+
+    case applied do
+      {:ok, command_id} ->
+        [command_id]
+
+      {:error, reason} ->
+        Logger.warning(
+          "worker #{worker_id} result for command #{result["command_id"]} refused: " <>
+            inspect(reason)
+        )
+
+        []
+    end
   end
 
   defp apply_command_result(worker_id, result, now, body_root) do

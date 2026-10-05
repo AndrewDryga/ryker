@@ -554,6 +554,57 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     end)
   end
 
+  @abandoned_seconds 10 * 60
+
+  @doc """
+  Retires the placements no worker will renew: a revoked worker's, and those
+  of a worker that has not polled for ten minutes and whose lease ran out ten
+  minutes ago. Only a poll by its own worker retired a placement, so a
+  revoked or vanished worker's stayed current until each session was placed
+  again, and readiness stayed red (2026-10-04 review).
+
+  A worker cannot poll a Ryker that is down, so a vanished worker is judged
+  only once this Ryker has been up (`up_since`) for those ten minutes.
+  """
+  @spec retire_abandoned_placements(DateTime.t(), DateTime.t()) :: {:ok, non_neg_integer()}
+  def retire_abandoned_placements(now, up_since) do
+    cutoff = DateTime.add(now, -@abandoned_seconds, :second)
+    judge_vanished? = DateTime.compare(up_since, cutoff) != :gt
+    query = abandoned_query(cutoff, judge_vanished?)
+    workers = Repo.all(from(placement in query, distinct: true, select: placement.worker_id))
+
+    Repo.transaction(fn ->
+      Enum.each(Enum.sort(workers), &Shared.locked_worker/1)
+
+      from(placement in query, lock: "FOR UPDATE")
+      |> Repo.all()
+      |> Enum.map(fn placement ->
+        retired = placement |> change(%{state: :replaced}) |> Repo.update!()
+        Commands.fail_undelivered_commands(retired, now)
+      end)
+      |> length()
+    end)
+  end
+
+  defp abandoned_query(cutoff, judge_vanished?) do
+    abandoned =
+      if judge_vanished?,
+        do:
+          dynamic(
+            [placement, worker],
+            worker.state == :revoked or
+              (placement.lease_expires_at <= ^cutoff and worker.last_seen_at <= ^cutoff)
+          ),
+        else: dynamic([_placement, worker], worker.state == :revoked)
+
+    from(placement in Placement,
+      join: worker in Worker,
+      on: worker.id == placement.worker_id,
+      where: placement.state in ^Placement.current_states(),
+      where: ^abandoned
+    )
+  end
+
   @doc false
   def renew_worker_placements(worker, now, lease_seconds) do
     expires_at = DateTime.add(now, lease_seconds, :second)
@@ -567,18 +618,16 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         )
       )
 
+    # A lease that ran out with nothing placed in its stead is the worker's
+    # still: this poll shows the worker holds it. Replacing it here disrupted
+    # all work in flight whenever Ryker itself was down for more than a lease,
+    # for a deploy or a stalled Docker VM (2026-10-04 review). A placement
+    # another worker took over is no longer active and is not renewed.
     Enum.each(placements, fn placement ->
       attributes =
-        cond do
-          DateTime.compare(placement.lease_expires_at, now) != :gt ->
-            %{state: :replaced}
-
-          placement_authority_current?(placement.requirements, worker) ->
-            %{lease_expires_at: expires_at}
-
-          true ->
-            %{state: :revoking}
-        end
+        if placement_authority_current?(placement.requirements, worker),
+          do: %{lease_expires_at: expires_at},
+          else: %{state: :revoking}
 
       updated =
         placement

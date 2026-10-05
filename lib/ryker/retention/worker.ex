@@ -5,8 +5,9 @@ defmodule Ryker.Retention.Worker do
 
   require Logger
 
-  alias Ryker.CoopFleet.Bodies
+  alias Ryker.CoopFleet.{Bodies, ControlPlane}
   alias Ryker.Observability.Progress
+  alias Ryker.Repo
 
   alias Ryker.Retention.{Custody, Data, Dispatcher}
 
@@ -36,7 +37,8 @@ defmodule Ryker.Retention.Worker do
          maintenance: maintenance,
          maintenance_options: maintenance_options,
          body_root: Keyword.get(options, :body_root),
-         poll_interval_ms: poll_interval_ms
+         poll_interval_ms: poll_interval_ms,
+         up_since: DateTime.utc_now()
        }}
     else
       {:stop, {:invalid_retention_worker, :options}}
@@ -48,6 +50,7 @@ defmodule Ryker.Retention.Worker do
     _result = process_once(state.dispatcher, state.dispatcher_options)
     _ = Progress.beat(:retention)
     _maintenance = maintain_once(state.maintenance, state.maintenance_options, state.body_root)
+    _placements = retire_abandoned_placements(state.up_since)
     state.poll_interval_ms
   end
 
@@ -84,6 +87,16 @@ defmodule Ryker.Retention.Worker do
     error -> Logger.error("retention data pruning crashed: #{Exception.message(error)}")
   catch
     kind, reason -> Logger.error("retention data pruning caught #{kind}: #{inspect(reason)}")
+  end
+
+  defp retire_abandoned_placements(up_since) do
+    case ControlPlane.retire_abandoned_placements(Repo.now!(), up_since) do
+      {:ok, 0} -> :ok
+      {:ok, retired} -> Logger.info("retired #{retired} placements no worker will renew")
+      {:error, reason} -> Logger.error("placement sweep failed: #{inspect(reason)}")
+    end
+  rescue
+    error -> Logger.error("placement sweep crashed: #{Exception.message(error)}")
   end
 
   defp process_once(dispatcher, options) do

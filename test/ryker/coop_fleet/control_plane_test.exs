@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.ControlPlaneTest do
   use Ryker.DataCase, async: true
 
+  import ExUnit.CaptureLog
+
   import Ecto.Query
 
   alias Ryker.Admission.FleetSession
@@ -13,6 +15,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     Event,
     Placement,
     Worker,
+    WorkerLifecycle,
     WorkspaceCheckpointTransfer
   }
 
@@ -839,24 +842,11 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     assert {:ok, placement} = ControlPlane.place_session(session.id, requirements, 60)
 
-    assert {:ok, stranded} =
-             ControlPlane.enqueue_command(
-               placement.id,
-               "get_session",
-               %{"session_ref" => session.id},
-               "ryker:test:bound-placement-stranded-read"
-             )
-
     {1, nil} =
       Repo.update_all(
         from(value in Session, where: value.id == ^session.id),
         set: [coop_session_id: "coop-bound-placement-recovery"]
       )
-
-    Repo.update_all(
-      from(value in Placement, where: value.id == ^placement.id),
-      set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
-    )
 
     busy =
       poll("worker-a", "workspace-main", "poll:worker-a:busy")
@@ -865,7 +855,26 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     assert {:ok, _} = ControlPlane.handle_poll("worker-a", busy)
 
-    # Recovery addresses an existing runtime; a busy holder needs no new slot.
+    assert {:ok, stranded} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "get_session",
+               %{"session_ref" => session.id},
+               "ryker:test:bound-placement-stranded-read"
+             )
+
+    # The worker stopped polling: its lease ran out with nothing delivered.
+    Repo.update_all(
+      from(value in Placement, where: value.id == ^placement.id),
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
+    )
+
+    # The first try retires the lapsed placement and fences what it still had
+    # queued; the next addresses the existing runtime, and a busy holder needs
+    # no new slot for it.
+    assert {:error, {:coop_session_replacement_required, _, 1}} =
+             ControlPlane.place_session(session.id, requirements, 60)
+
     assert {:ok, recovered} = ControlPlane.place_session(session.id, requirements, 60)
     assert recovered.generation == placement.generation + 1
     assert recovered.worker_id == placement.worker_id
@@ -1116,8 +1125,8 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     command_id = command.id
 
-    assert {:error, {:coop_worker_command_result_conflict, ^command_id}} =
-             ControlPlane.handle_poll("worker-a", changed)
+    assert refused(fn -> ControlPlane.handle_poll("worker-a", changed) end) =~
+             "{:coop_worker_command_result_conflict, #{inspect(command_id)}}"
   end
 
   # A result naming a response body Ryker never received rolled back the whole
@@ -1216,7 +1225,9 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert replay["acknowledged_result_command_ids"] == [missing.id, other.id]
   end
 
-  test "a worker result cannot cross its expired placement generation" do
+  # A placement another placement replaced is fenced: its worker's late result
+  # is kept as uncertain, never as the session's answer.
+  test "a worker result cannot cross its replaced placement generation" do
     authorize_and_poll!("worker-a")
     placement = place!("expired-command-result")
 
@@ -1238,7 +1249,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     Repo.update_all(
       from(value in Placement, where: value.id == ^placement.id),
-      set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second), state: :replaced]
     )
 
     result = %{
@@ -1284,6 +1295,152 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              )
 
     assert replay["acknowledged_result_command_ids"] == [command.id]
+  end
+
+  # Every placement's lease ran out whenever Ryker itself was down for more
+  # than one, for a deploy or a stalled Docker VM, and the worker's next poll
+  # replaced them all: all work in flight was disrupted and every result that
+  # came back was kept as uncertain (2026-10-04 review). Nothing took those
+  # placements over, so they are the worker's again.
+  test "a placement whose lease ran out while Ryker was away is the worker's again at its next poll" do
+    authorize_and_poll!("worker-a")
+    placement = place!("away-command-result")
+
+    assert {:ok, command} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "submit_turn",
+               turn_payload("turn-away"),
+               "ryker:work:turn:away:g1"
+             )
+
+    assert {:ok, %{"commands" => [%{"command_id" => command_id}]}} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:away:1")
+             )
+
+    Repo.update_all(
+      from(value in Placement, where: value.id == ^placement.id),
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -120, :second)]
+    )
+
+    result = %{
+      "command_id" => command_id,
+      "error" => nil,
+      "operation_key" => command.idempotency_key,
+      "resource" => %{
+        "status" => 200,
+        "body" => %{"session_id" => "coop-session-away", "turn_id" => "coop-turn-away"}
+      },
+      "state" => "succeeded"
+    }
+
+    assert {:ok, response} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:away:2",
+                 command_results: [result]
+               )
+             )
+
+    assert response["acknowledged_result_command_ids"] == [command_id]
+
+    renewed = Repo.get!(Placement, placement.id)
+    assert renewed.state == :active
+    assert DateTime.compare(renewed.lease_expires_at, Repo.now!()) == :gt
+    refute Repo.get!(Command, command_id).status == :uncertain
+  end
+
+  # Only a poll by its own worker retired a placement, so a revoked worker's
+  # and a vanished worker's stayed current until each session was placed
+  # again, and readiness stayed red (2026-10-04 review).
+  test "placements no worker will renew are retired, and a worker that may still poll keeps its own" do
+    authorize_and_poll!("worker-a")
+    vanished = place!("sweep-vanished")
+    held = place!("sweep-held")
+    now = Repo.now!()
+    long_ago = DateTime.add(now, -20 * 60, :second)
+
+    Repo.update_all(from(p in Placement, where: p.id == ^vanished.id),
+      set: [lease_expires_at: long_ago]
+    )
+
+    Repo.update_all(from(w in Worker, where: w.id == "worker-a"), set: [last_seen_at: long_ago])
+
+    authorize_and_poll!("worker-b")
+    revoked = place!("sweep-revoked")
+    assert revoked.worker_id == "worker-b"
+    assert {:ok, _revoked} = WorkerLifecycle.revoke("worker-b", "operator:test")
+
+    # Ryker itself has just started: a worker could not have polled it yet.
+    assert {:ok, 1} =
+             ControlPlane.retire_abandoned_placements(now, DateTime.add(now, -60, :second))
+
+    assert Repo.get!(Placement, revoked.id).state == :replaced
+    assert Repo.get!(Placement, vanished.id).state == :active
+
+    assert {:ok, 1} =
+             ControlPlane.retire_abandoned_placements(now, DateTime.add(now, -3_600, :second))
+
+    assert Repo.get!(Placement, vanished.id).state == :replaced
+    assert Repo.get!(Placement, held.id).state == :active
+  end
+
+  # The poll was one transaction, so one result Ryker refused refused the
+  # whole poll: the worker sent it again and again, nothing else it reported
+  # counted, and its leases ran out (2026-10-04 review).
+  test "a refused result leaves the rest of the poll standing" do
+    authorize_and_poll!("worker-a")
+    placement = place!("poll-isolation")
+
+    [good, bad] =
+      for name <- ["good", "bad"] do
+        assert {:ok, command} =
+                 ControlPlane.enqueue_command(
+                   placement.id,
+                   "get_session",
+                   %{"coop_session_id" => "coop-isolation"},
+                   "ryker:test:poll-isolation:#{name}"
+                 )
+
+        command
+      end
+
+    assert {:ok, %{"commands" => [_one, _two]}} =
+             ControlPlane.handle_poll(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:isolation:1")
+             )
+
+    result = fn command, key ->
+      %{
+        "command_id" => command.id,
+        "error" => nil,
+        "operation_key" => key,
+        "resource" => %{"status" => 200, "body" => %{"session_id" => "coop-isolation"}},
+        "state" => "succeeded"
+      }
+    end
+
+    results = [result.(bad, "another-commands-key"), result.(good, good.idempotency_key)]
+
+    log =
+      capture_log(fn ->
+        assert {:ok, response} =
+                 ControlPlane.handle_poll(
+                   "worker-a",
+                   poll("worker-a", "workspace-main", "poll:worker-a:isolation:2",
+                     command_results: results
+                   )
+                 )
+
+        assert response["acknowledged_result_command_ids"] == [good.id]
+      end)
+
+    assert log =~ "result for command #{bad.id} refused"
+    assert Repo.get!(Command, good.id).status == :succeeded
+    assert is_nil(Repo.get!(Command, bad.id).operation_key)
   end
 
   test "a state bearer exists only in the response for its exact current placement" do
@@ -1417,8 +1574,8 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         "completed"
       )
 
-    assert {:error, {:coop_worker_event_replay_conflict, 2}} =
-             ControlPlane.handle_poll("worker-a", changed)
+    assert refused(fn -> ControlPlane.handle_poll("worker-a", changed) end) =~
+             "{:coop_worker_event_replay_conflict, 2}"
   end
 
   test "public Coop session events advance activity custody without retaining lifecycle payloads" do
@@ -1762,8 +1919,8 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         ]
       )
 
-    assert {:error, {:coop_activity_session_conflict, ^coop_session_id}} =
-             ControlPlane.handle_poll("worker-a", unproven_event_poll)
+    assert refused(fn -> ControlPlane.handle_poll("worker-a", unproven_event_poll) end) =~
+             "{:coop_activity_session_conflict, #{inspect(coop_session_id)}}"
 
     remote = %{
       "id" => coop_session_id,
@@ -1855,11 +2012,11 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     placement_id = placement.id
 
-    assert {:error, {:coop_worker_event_placement_not_authorized, ^placement_id}} =
-             ControlPlane.handle_poll("worker-a", rejected)
+    assert refused(fn -> ControlPlane.handle_poll("worker-a", rejected) end) =~
+             "{:coop_worker_event_placement_not_authorized, #{inspect(placement_id)}}"
   end
 
-  test "an expired placement can finish publishing its bound public session activity" do
+  test "a replaced placement can finish publishing its bound public session activity" do
     authorize_and_poll!("worker-a")
     placement = place!("late-bound-activity")
     coop_session_id = "coop-late-bound-activity"
@@ -1872,8 +2029,10 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     expired_at = Repo.now!() |> DateTime.add(-5, :second)
 
+    # Its lease ran out and recovery replaced it; the worker still holds the
+    # session and sends what it had.
     placement
-    |> Ecto.Changeset.change(lease_expires_at: expired_at)
+    |> Ecto.Changeset.change(lease_expires_at: expired_at, state: :replaced)
     |> Repo.update!()
 
     event = %{
@@ -1960,8 +2119,8 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         "coop-session-owned-by-someone-else"
       )
 
-    assert {:error, {:coop_worker_event_placement_not_authorized, _placement_id}} =
-             ControlPlane.handle_poll("worker-a", wrong_session)
+    assert refused(fn -> ControlPlane.handle_poll("worker-a", wrong_session) end) =~
+             "coop_worker_event_placement_not_authorized"
 
     # One discarded workspace event blocked every later heartbeat in production,
     # taking the only editing worker and the whole service out of readiness.
@@ -2124,6 +2283,16 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     assert ControlPlane.worker_available?(session, requirements)
     assert ControlPlane.portable_workspace(session, requirements, body_root!()) == nil
+  end
+
+  # A poll applies what it can. An item Ryker refuses is left unacknowledged,
+  # so the worker sends it again, and logged; the poll itself still answers.
+  defp refused(poll) do
+    capture_log(fn ->
+      assert {:ok, response} = poll.()
+      assert response["acknowledged_result_command_ids"] == []
+      assert response["event_acknowledgements"] == []
+    end)
   end
 
   defp authorize_and_poll!(worker_id, options \\ []) do
