@@ -494,6 +494,64 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert has_element?(view, "#{question} .kit-modal-title", "Refresh knowledge of acme/api?")
   end
 
+  # Approving was granted wherever the App could write pull requests and could
+  # not be turned off (2026-10-04 review). It is the repository's own choice,
+  # made on its page after a question that says what an approval can do.
+  test "Allow approvals asks first, then lets Ryker's reviews approve until Stop approvals" do
+    connect_github!()
+
+    {:ok, %{added: ["acme/api"]}} =
+      IntegrationSetup.import_github_repositories([repository("acme/api", 11)])
+
+    {:ok, view, _html} = open("/repositories/acme-api")
+    question = "#confirm-approvals"
+    approvals_allowed? = fn -> hd(Settings.fetch!().github_bindings).approvals_allowed end
+
+    assert has_element?(view, "#repository-github", "do not approve")
+    view |> element("#repository-github button", "Allow approvals") |> render_click()
+
+    assert has_element?(
+             view,
+             "#{question} .kit-modal-title",
+             "Let Ryker approve pull requests in acme/api?"
+           )
+
+    assert has_element?(view, "#{question} .kit-modal-text", "stand in for a person's")
+
+    # Cancel closes it and changes nothing.
+    view |> element("#{question} button", "Cancel") |> render_click()
+    refute has_element?(view, question)
+    refute approvals_allowed?.()
+
+    view |> element("#repository-github button", "Allow approvals") |> render_click()
+    view |> element("#{question} button", "Allow approvals") |> render_click()
+    refute has_element?(view, question)
+    assert approvals_allowed?.()
+
+    assert has_element?(
+             view,
+             "#repository-notice.form-feedback-success",
+             "Ryker's reviews may now approve pull requests in acme/api."
+           )
+
+    assert has_element?(view, "#repository-github", "may approve pull requests here")
+
+    view |> element("#repository-github button", "Stop approvals") |> render_click()
+    view |> element("#{question} button", "Stop approvals") |> render_click()
+    refute approvals_allowed?.()
+
+    # A change never asked about only asks.
+    render_click(view, "allow-approvals", %{"repository" => "acme-api"})
+
+    assert has_element?(
+             view,
+             "#{question} .kit-modal-title",
+             "Let Ryker approve pull requests in acme/api?"
+           )
+
+    refute approvals_allowed?.()
+  end
+
   test "a removal that would leave an environment nothing to change says why in its question" do
     connect_github!()
 

@@ -200,7 +200,10 @@ do not gain this command.
 
 Approving a PR, requesting changes, submitting a review, merging, or changing repository contents is
 not a generic emoji or reply. Each is a separate privileged typed operation with its own authority and
-validation boundary.
+validation boundary. The App's pull request permission lets Ryker review, comment and request
+changes. Approving is each repository's own choice, off until someone allows it on the repository's
+page, because where branch protection counts the App's review an approval can stand in for a
+person's. No tool merges.
 
 ## Trusted runtime configuration
 

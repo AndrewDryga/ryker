@@ -154,6 +154,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        repository_notice: nil,
        repository_question: nil,
        knowledge_question: nil,
+       approvals_question: nil,
        channel_notice: nil,
        welcome_pending: nil,
        slack_people: nil,
@@ -946,6 +947,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       when is_binary(ref),
       do: {:noreply, ask_refresh_knowledge(socket, ref)}
 
+  # Letting Ryker approve pull requests in a repository, or stop, asks over the
+  # repository's page: an approval can stand in for a person's.
+  def handle_event(
+        "confirm-settings-action",
+        %{"action" => action, "ref" => ref},
+        socket
+      )
+      when action in ["allow-approvals", "stop-approvals"] and is_binary(ref),
+      do: {:noreply, ask_approvals(socket, action, ref)}
+
   # Anything on the settings pages that disconnects or deletes asks first. The
   # button that starts it only opens the question; the action runs when the
   # question's own button sends it, so a double click never gets past it.
@@ -956,7 +967,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          assign(socket, settings_confirm: {action, ref}, setup_notice: nil, setup_failure: nil)}
 
   def handle_event("cancel-settings-action", _params, socket),
-    do: {:noreply, assign(socket, settings_confirm: nil, knowledge_question: nil)}
+    do:
+      {:noreply,
+       assign(socket, settings_confirm: nil, knowledge_question: nil, approvals_question: nil)}
 
   def handle_event("disconnect-integration", %{"kind" => kind}, socket)
       when kind in ["slack", "github"] do
@@ -1054,6 +1067,41 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   def handle_event("refresh-knowledge", %{"repository" => ref}, socket) when is_binary(ref),
     do: {:noreply, ask_refresh_knowledge(socket, ref)}
+
+  # Only the question's own button changes it; one never asked about only asks.
+  def handle_event(
+        action,
+        %{"repository" => ref},
+        %{assigns: %{settings_confirm: {action, ref}}} = socket
+      )
+      when action in ["allow-approvals", "stop-approvals"] do
+    allowed? = action == "allow-approvals"
+    name = socket.assigns.approvals_question && socket.assigns.approvals_question.name
+
+    notice =
+      case IntegrationSetup.allow_github_approvals(ref, allowed?) do
+        {:ok, _snapshot} when allowed? ->
+          {:list, :success, "Ryker's reviews may now approve pull requests in #{name || ref}."}
+
+        {:ok, _snapshot} ->
+          {:list, :success, "Ryker's reviews no longer approve pull requests in #{name || ref}."}
+
+        {:error, :repository_not_found} ->
+          {:list, :error, "That repository is no longer added."}
+
+        {:error, _reason} ->
+          {:list, :error, "The change could not be saved. Reload the page and try again."}
+      end
+
+    {:noreply,
+     socket
+     |> assign(settings_confirm: nil, approvals_question: nil, repository_notice: notice)
+     |> refresh(true)}
+  end
+
+  def handle_event(action, %{"repository" => ref}, socket)
+      when action in ["allow-approvals", "stop-approvals"] and is_binary(ref),
+      do: {:noreply, ask_approvals(socket, action, ref)}
 
   # Only the question's own button removes; a removal that was never asked
   # about only asks. One that is refused keeps its question open and says why.
@@ -1804,6 +1852,25 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       _gone ->
         socket
         |> assign(repository_notice: {:list, :error, refresh_error(:repository_not_found)})
+        |> refresh(true)
+    end
+  end
+
+  defp ask_approvals(socket, action, ref) do
+    %{projection: projection} = Endpoint.config(:control_plane)
+
+    case projection.repository.(ref) do
+      {:ok, %{configured: %{}} = item} ->
+        assign(socket,
+          settings_confirm: {action, ref},
+          approvals_question:
+            RepositoriesPage.approvals_question(item, action == "allow-approvals"),
+          repository_notice: nil
+        )
+
+      _gone ->
+        socket
+        |> assign(repository_notice: {:list, :error, "That repository is no longer added."})
         |> refresh(true)
     end
   end
@@ -2676,6 +2743,23 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             tone={:primary}
             cancel="cancel-settings-action"
             phx-click="refresh-knowledge"
+            phx-value-repository={elem(@settings_confirm, 1)}
+          />
+          <Kit.confirm_modal
+            :if={
+              (repository_page?(@path) and @approvals_question) &&
+                match?(
+                  {action, _ref} when action in ["allow-approvals", "stop-approvals"],
+                  @settings_confirm
+                )
+            }
+            id="confirm-approvals"
+            title={@approvals_question.title}
+            text={@approvals_question.text}
+            label={@approvals_question.label}
+            tone={:primary}
+            cancel="cancel-settings-action"
+            phx-click={elem(@settings_confirm, 0)}
             phx-value-repository={elem(@settings_confirm, 1)}
           />
           <Kit.confirm_modal

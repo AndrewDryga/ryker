@@ -5,8 +5,10 @@ defmodule Ryker.Settings.GitHubBinding do
   alias Ryker.Settings.Validation
 
   @primary_key {:name, :string, autogenerate: false}
-  @action_grants ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci issues approve merge)
-  @fields ~w(name repository_ref installation_id repository_id ryker_actor_id action_grants granted_permissions)a
+  # What the App's permissions let Ryker do here. Approving a pull request is
+  # not among them: it is the repository's own choice (`approvals_allowed`).
+  @action_grants ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci issues)
+  @fields ~w(name repository_ref installation_id repository_id ryker_actor_id action_grants granted_permissions approvals_allowed)a
 
   schema "github_binding_settings" do
     field(:repository_ref, :string)
@@ -19,11 +21,23 @@ defmodule Ryker.Settings.GitHubBinding do
     )
 
     field(:granted_permissions, :map, default: %{})
+    field(:approvals_allowed, :boolean, default: false)
     timestamps(type: :utc_datetime_usec)
   end
 
   def fields, do: @fields
   def action_grants, do: @action_grants
+
+  @doc """
+  What Ryker may do in the repository: its App's grants, and approving pull
+  requests when the repository allows it and Ryker can review there.
+  """
+  @spec grants(%__MODULE__{}) :: [String.t()]
+  def grants(%__MODULE__{action_grants: grants, approvals_allowed: true}) do
+    if "review" in grants, do: grants ++ ["approve"], else: grants
+  end
+
+  def grants(%__MODULE__{action_grants: grants}), do: grants
   def new(_snapshot), do: %__MODULE__{}
   def find(snapshot, :name, name), do: Enum.find(snapshot.github_bindings, &(&1.name == name))
 
@@ -34,6 +48,7 @@ defmodule Ryker.Settings.GitHubBinding do
       current
       |> cast(attributes, @fields)
       |> validate_required([
+        :approvals_allowed,
         :name,
         :repository_ref,
         :installation_id,

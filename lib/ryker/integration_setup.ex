@@ -536,6 +536,28 @@ defmodule Ryker.IntegrationSetup do
     end)
   end
 
+  @doc """
+  Whether Ryker's reviews may approve pull requests in repository `ref`. Off
+  until someone turns it on: where branch protection counts the Ryker App's
+  review, one of its approvals can stand in for a person's.
+  """
+  @spec allow_github_approvals(String.t(), boolean()) :: {:ok, map()} | {:error, term()}
+  def allow_github_approvals(ref, allowed?) when is_binary(ref) and is_boolean(allowed?) do
+    snapshot = Settings.fetch!()
+
+    case Enum.find(snapshot.github_bindings, &(&1.repository_ref == ref)) do
+      nil ->
+        {:error, :repository_not_found}
+
+      binding ->
+        Settings.put_github_binding(
+          %{name: binding.name, approvals_allowed: allowed?},
+          snapshot.installation.revision,
+          Actor.ref()
+        )
+    end
+  end
+
   @spec retry_github_onboarding(String.t()) :: {:ok, map()} | {:error, term()}
   def retry_github_onboarding(ref) when is_binary(ref) do
     snapshot = Settings.fetch!()
@@ -1063,11 +1085,6 @@ defmodule Ryker.IntegrationSetup do
     |> maybe_grant(write?(permissions, "actions"), "rerun_ci")
     |> maybe_grant(write?(permissions, "actions"), "cancel_ci")
     |> maybe_grant(write?(permissions, "issues"), "issues")
-    |> maybe_grant(write?(permissions, "pull_requests"), "approve")
-    |> maybe_grant(
-      write?(permissions, "contents") and write?(permissions, "pull_requests"),
-      "merge"
-    )
   end
 
   defp normalize_github_permissions(permissions) when is_map(permissions) do

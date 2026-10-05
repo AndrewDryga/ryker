@@ -8,7 +8,7 @@ defmodule Ryker.IntegrationSetupTest do
   alias Ryker.Emisar.Connections
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.GitHub.{Access, Auth, Binding, Router}
-  alias Ryker.Settings.Environment
+  alias Ryker.Settings.{Environment, GitHubBinding}
   alias Ryker.Slack.Names
   alias Ryker.TestSupport.EmisarMCP
   alias Ryker.Work.Custody
@@ -510,8 +510,70 @@ defmodule Ryker.IntegrationSetupTest do
     binding = hd(Settings.fetch!().github_bindings)
     assert binding.granted_permissions["issues"] == "read"
 
+    # Writing pull requests lets Ryker review and never approve: approving was
+    # derived from that same permission and could not be turned off, and
+    # merging was derived with no tool to use it (2026-10-04 review).
+    # Approving is the repository's own choice, off until someone makes it.
     assert binding.action_grants ==
-             ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci approve merge)
+             ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci)
+
+    refute binding.approvals_allowed
+  end
+
+  # Approving a pull request was granted wherever the App could write pull
+  # requests, derived again on every installation event, with no way to turn
+  # it off; where branch protection counts the App's review, Ryker's approval
+  # could stand in for a person's (2026-10-04 review).
+  test "Ryker approves pull requests only where someone allowed it, and the App's permissions never change that" do
+    connect_github!()
+    assert {:ok, [repository]} = IntegrationSetup.github_repositories(requester: Requester)
+
+    assert {:ok, %{added: ["acme/widget"], failed: []}} =
+             IntegrationSetup.import_github_repositories([repository], requester: Requester)
+
+    binding = hd(Settings.fetch!().github_bindings)
+    refute "approve" in GitHubBinding.grants(binding)
+
+    assert {:ok, _saved} = IntegrationSetup.allow_github_approvals(binding.repository_ref, true)
+    allowed = hd(Settings.fetch!().github_bindings)
+    assert "approve" in GitHubBinding.grants(allowed)
+
+    # The App's permissions come again with every installation event, and they
+    # neither grant nor take back the choice.
+    assert {:ok, trusted} =
+             Binding.new(%{
+               action_grants: GitHubBinding.grants(allowed),
+               installation_id: allowed.installation_id,
+               name: allowed.name,
+               repository_full_name: "acme/widget",
+               repository_id: allowed.repository_id,
+               ryker_actor_id: allowed.ryker_actor_id,
+               secret: String.duplicate("s", 32)
+             })
+
+    assert {:ok, []} =
+             Access.apply(
+               "installation",
+               %{
+                 "action" => "new_permissions_accepted",
+                 "installation" => %{
+                   "id" => binding.installation_id,
+                   "permissions" => %{"contents" => "write", "pull_requests" => "write"}
+                 }
+               },
+               %{binding.name => trusted}
+             )
+
+    refreshed = hd(Settings.fetch!().github_bindings)
+    assert refreshed.approvals_allowed
+    refute "approve" in refreshed.action_grants
+    assert "approve" in GitHubBinding.grants(refreshed)
+
+    assert {:ok, _saved} = IntegrationSetup.allow_github_approvals(binding.repository_ref, false)
+    refute "approve" in GitHubBinding.grants(hd(Settings.fetch!().github_bindings))
+
+    assert IntegrationSetup.allow_github_approvals("not-added", true) ==
+             {:error, :repository_not_found}
   end
 
   # Andrew, 2026-10-03, on tenant's Add repositories: "those ar enot all repos, we have more than

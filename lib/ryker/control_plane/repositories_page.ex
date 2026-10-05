@@ -203,6 +203,33 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     }
   end
 
+  @doc """
+  The question before Ryker's reviews may approve pull requests in a
+  repository, or stop approving them.
+  """
+  @spec approvals_question(map(), boolean()) :: map()
+  def approvals_question(item, true) do
+    %{
+      label: "Allow approvals",
+      name: name(item),
+      text:
+        "Its reviews may then approve pull requests here. Where branch protection counts " <>
+          "the Ryker App's review, one of its approvals can stand in for a person's.",
+      title: "Let Ryker approve pull requests in #{name(item)}?"
+    }
+  end
+
+  def approvals_question(item, false) do
+    %{
+      label: "Stop approvals",
+      name: name(item),
+      text:
+        "Its reviews can still comment and ask for changes. Approvals it already gave stay " <>
+          "on GitHub.",
+      title: "Stop Ryker approving pull requests in #{name(item)}?"
+    }
+  end
+
   @doc "The name people know a repository by: owner/repo when it was added from GitHub."
   @spec name(map()) :: String.t()
   def name(%{configured: %{github_repository: name}}) when is_binary(name), do: name
@@ -734,6 +761,17 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         title="GitHub"
         lede="What the Ryker GitHub App may do in this repository, and the events GitHub sends Ryker from it."
       >
+        <:actions :if={approvals?(@repository)}>
+          <button
+            type="button"
+            class="ui-button secondary"
+            phx-click="confirm-settings-action"
+            phx-value-action={
+              if @repository.approvals_allowed, do: "stop-approvals", else: "allow-approvals"
+            }
+            phx-value-ref={@item.ref}
+          >{if @repository.approvals_allowed, do: "Stop approvals", else: "Allow approvals"}</button>
+        </:actions>
         <dl class="kit-facts">
           <.fact :if={@repository[:github_repository]} label="Repository">
             <a
@@ -748,6 +786,11 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
           </.fact>
           <.fact :if={@repository[:action_grants] not in [nil, []]} label="Allowed actions">
             {Enum.map_join(@repository.action_grants, ", ", &String.replace(&1, "_", " "))}
+          </.fact>
+          <.fact :if={approvals?(@repository)} label="Approvals">
+            {if @repository.approvals_allowed,
+              do: "Ryker's reviews may approve pull requests here.",
+              else: "Ryker's reviews can comment and ask for changes, and do not approve."}
           </.fact>
           <.fact :if={is_map(@repository[:github_health])} label="Events">
             {events(@repository.github_health)}<ShortTime.time
@@ -792,6 +835,14 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     </div>
     """
   end
+
+  # Approving is offered only where the App can review: it is a review that
+  # approves.
+  defp approvals?(%{approvals_allowed: allowed, action_grants: grants})
+       when is_boolean(allowed) and is_list(grants),
+       do: "review" in grants
+
+  defp approvals?(_repository), do: false
 
   # The state's own facts: while the repository is set up, the step and since
   # when. Everything else has its card.

@@ -26,7 +26,7 @@ defmodule Ryker.GitHub.Binding do
     :work_profile
   ]
   @required_fields @fields -- [:action_grants, :max_body_bytes, :work_profile]
-  @action_grants ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci issues approve merge)
+  @action_grants ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci issues approve)
   @name_regex ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @repository_regex ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 

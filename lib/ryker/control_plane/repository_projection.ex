@@ -250,6 +250,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
       {repository.ref,
        %{
          action_grants: binding && binding.action_grants,
+         approvals_allowed: binding && binding.approvals_allowed,
          # Saved without it, a repository is not fully added: nothing
          # can set it up or work in it (`RepositoriesPage`).
          github_bound: not is_nil(binding),

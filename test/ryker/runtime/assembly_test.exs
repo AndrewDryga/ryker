@@ -6,7 +6,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
   import Ecto.Query
 
-  alias Ryker.{Bootstrap, Credentials, Secret, Settings}
+  alias Ryker.{Bootstrap, Credentials, IntegrationSetup, Secret, Settings}
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.WorkProfile
@@ -627,6 +627,19 @@ defmodule Ryker.Runtime.AssemblyTest do
     for lane <- [:work, :coop_worker_gateway, :routing_examples, :work_examples, :admission] do
       assert before[lane] == after_saving[lane], "#{lane} changed"
     end
+  end
+
+  # Approving was granted wherever the App could write pull requests, and no
+  # setting could take it back (2026-10-04 review).
+  test "a repository's reviews may approve only where someone allowed it" do
+    settings = connected!()
+    assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
+    refute "approve" in configuration[:github].server.bindings["ryker-app"].action_grants
+
+    assert {:ok, _saved} = IntegrationSetup.allow_github_approvals("ryker", true)
+    assert {:ok, allowed} = Assembly.build(bootstrap(), Settings.fetch!())
+    assert "approve" in allowed[:github].server.bindings["ryker-app"].action_grants
+    refute "approve" in allowed[:github].server.bindings["docs-app"].action_grants
   end
 
   test "the worker gateway carries the checkpoint custody the deployment registered" do

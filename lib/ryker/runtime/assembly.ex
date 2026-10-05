@@ -38,7 +38,7 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.GitHubStatus
   alias Ryker.Secret
-  alias Ryker.Settings.Environment
+  alias Ryker.Settings.{Environment, GitHubBinding}
   alias Ryker.Slack.ActionTokens
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
   alias Ryker.Slack.Client, as: SlackClient
@@ -986,7 +986,7 @@ defmodule Ryker.Runtime.Assembly do
         installation_id: binding.installation_id,
         max_body_bytes: defaults.max_body_bytes,
         name: binding.name,
-        action_grants: binding.action_grants,
+        action_grants: GitHubBinding.grants(binding),
         repository_full_name: repository.github_repository,
         repository_id: binding.repository_id,
         ryker_actor_id: binding.ryker_actor_id,
