@@ -396,7 +396,11 @@ defmodule Ryker.ProductContractsTest do
     assert Receipt.prepare(receipt, review, "acme/ryker") == {:ok, receipt}
     assert Receipt.fingerprint(receipt) =~ ~r/^[a-f0-9]{64}$/
 
+    # The link a task card and the weekly report open was checked for shape
+    # only, so a receipt could name one pull request and link another
+    # (2026-10-04 review).
     for crossed <- [
+          Map.put(receipt, "pull_request_url", "https://github.com/acme/ryker/pull/92"),
           Map.put(receipt, "repository", "other/repository"),
           Map.put(receipt, "candidate_tree", String.duplicate("d", 40)),
           Map.put(receipt, "branch_ref", "main"),

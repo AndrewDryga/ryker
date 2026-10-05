@@ -17,7 +17,7 @@ defmodule Ryker.Publication.Receipt do
          true <- is_binary(receipt["branch_ref"]) and Regex.match?(@branch, receipt["branch_ref"]),
          true <- git_identity?(receipt["commit_sha"]),
          true <- is_integer(receipt["pull_request_number"]) and receipt["pull_request_number"] > 0,
-         true <- github_pull_url?(receipt["pull_request_url"]),
+         true <- pull_url?(receipt["pull_request_url"], receipt["pull_request_number"]),
          :ok <- CanonicalJSON.validate(receipt, max_bytes: 16 * 1_024) do
       {:ok, receipt}
     else
@@ -33,17 +33,21 @@ defmodule Ryker.Publication.Receipt do
 
   defp git_identity?(value), do: is_binary(value) and Regex.match?(@git_identity, value)
 
-  defp github_pull_url?(value) when is_binary(value) and byte_size(value) <= 2_048 do
+  # The link opens the pull request the receipt names. Its owner and
+  # repository are GitHub's own, and the publication keeps them: a worker can
+  # write only to the repository its grant names, and a renamed repository's
+  # link names it as it is now.
+  defp pull_url?(value, number) when is_binary(value) and byte_size(value) <= 2_048 do
     case URI.new(value) do
-      {:ok, %URI{scheme: "https", host: "github.com", path: path}} ->
-        is_binary(path) and
-          Regex.match?(~r/\A\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*\z/, path)
+      {:ok, %URI{scheme: "https", host: "github.com", path: path, query: nil, fragment: nil}}
+      when is_binary(path) ->
+        Regex.match?(~r/\A\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/#{number}\z/, path)
 
       _invalid ->
         false
     end
   end
 
-  defp github_pull_url?(_value), do: false
+  defp pull_url?(_value, _number), do: false
   defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end
