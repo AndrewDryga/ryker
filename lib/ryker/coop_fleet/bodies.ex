@@ -3,10 +3,16 @@ defmodule Ryker.CoopFleet.Bodies do
 
   import Ecto.Query
 
-  alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.{CanonicalJSON, Defaults, Repo}
   alias Ryker.CoopFleet.{BodyCrypto, Command, ControlPlane, Placement, Protocol}
 
   @chunk_bytes 256 * 1_024
+  # A worker could upload any size it declared, for any command, up to 2^63
+  # bytes (2026-10-04 review). Ryker reads documents and artifacts back with an
+  # 8 MiB limit, so nothing larger is ever used; only a checkpoint bundle, a
+  # repository's objects, is bigger.
+  @document_bytes 8 * 1_024 * 1_024
+  @checkpoint_bytes 10 * 1_024 * 1_024 * 1_024
 
   # One immutable file in each direction per command. No byte arrays in polls,
   # and no acknowledgement until both file contents and directory are durable.
@@ -67,6 +73,47 @@ defmodule Ryker.CoopFleet.Bodies do
   end
 
   defdelegate reference?(reference), to: Protocol, as: :body_reference?
+
+  @doc "The most a worker may upload as the response body of `command`."
+  @spec response_allowance(Command.t()) :: pos_integer()
+  def response_allowance(%Command{kind: "get_checkpoint_bundle"}), do: @checkpoint_bytes
+  def response_allowance(%Command{}), do: @document_bytes
+
+  @doc """
+  Whether the volume under `root` keeps its reserve after `bytes` more. A
+  volume that cannot be measured is not refused for that.
+  """
+  @spec room?(String.t(), non_neg_integer(), non_neg_integer()) :: boolean()
+  def room?(root, bytes, reserve \\ Defaults.fetch!(:retention).storage_reserve_bytes) do
+    case available_bytes(root) do
+      {:ok, available} -> available - bytes >= reserve
+      :unknown -> true
+    end
+  end
+
+  # POSIX `df -P` reports 1024-byte blocks; the fourth column is what is free.
+  defp available_bytes(root) do
+    with {:ok, existing} <- existing_directory(root),
+         {output, 0} <- System.cmd("df", ["-Pk", existing], stderr_to_stdout: true),
+         [_header, line | _rest] <- String.split(output, "\n", trim: true),
+         [_filesystem, _blocks, _used, available | _rest] <- String.split(line),
+         {kilobytes, ""} <- Integer.parse(available) do
+      {:ok, kilobytes * 1_024}
+    else
+      _unknown -> :unknown
+    end
+  rescue
+    _error in ErlangError -> :unknown
+  end
+
+  # The body root is made on first use; until then its parent holds it.
+  defp existing_directory(path) do
+    cond do
+      File.dir?(path) -> {:ok, path}
+      Path.dirname(path) == path -> :error
+      true -> existing_directory(Path.dirname(path))
+    end
+  end
 
   def prune_orphans(nil), do: :ok
 

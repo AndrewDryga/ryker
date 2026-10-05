@@ -61,13 +61,20 @@ defmodule Ryker.CoopFleet.Router do
          options
        ) do
     with {:ok, certificate} <- client_certificate(conn),
-         {:ok, _command} <- Bodies.authorize(certificate, id),
+         {:ok, command} <- Bodies.authorize(certificate, id),
          {:ok, root} <- Keyword.fetch(options, :body_root),
          {:ok, key} <- Keyword.fetch(options, :checkpoint_key),
          {:ok, reference} <- body_reference(conn),
+         :ok <- allowed_size(command, root, reference),
          {:ok, conn} <- Bodies.receive_response(root, id, reference, certificate, conn, key) do
       json_response(conn, 200, reference)
     else
+      {:error, :response_body_too_large} ->
+        json_error(conn, 413, "response_body_too_large")
+
+      {:error, :insufficient_storage} ->
+        json_error(conn, 507, "insufficient_storage")
+
       {:error, :body_not_authorized} ->
         json_error(conn, 404, "not_found")
 
@@ -305,6 +312,16 @@ defmodule Ryker.CoopFleet.Router do
       # Headers have already gone out. End the truncated response; the receiver
       # verifies its declared body reference and retries, never accepts partial data.
       {:ok, conn}
+  end
+
+  # Refused before a byte is read: larger than anything Ryker reads back for
+  # this command, or more than the volume can hold and keep its reserve.
+  defp allowed_size(command, root, %{"byte_size" => size}) do
+    cond do
+      size > Bodies.response_allowance(command) -> {:error, :response_body_too_large}
+      not Bodies.room?(root, size) -> {:error, :insufficient_storage}
+      true -> :ok
+    end
   end
 
   defp body_reference(conn) do

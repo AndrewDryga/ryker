@@ -992,6 +992,53 @@ defmodule Ryker.CoopFleet.RouterTest do
     assert (:put |> conn(path, "bytes") |> Router.call(body_root: root)).status == 401
   end
 
+  # A worker could upload any size it declared, for any command, up to 2^63
+  # bytes, and fill the disk (2026-10-04 review). Ryker reads documents and
+  # artifacts back with an 8 MiB limit; only a checkpoint bundle is larger.
+  test "a worker uploads no more for a command than Ryker reads back" do
+    certificate = authorize_and_poll!()
+    document = command!("api_request", %{"method" => "GET", "path" => "/v1/sessions/s"})
+    {root, refused} = upload_over_document_limit(document, certificate)
+
+    assert refused.status == 413
+    assert Jason.decode!(refused.resp_body)["error"]["code"] == "response_body_too_large"
+    assert {:error, _} = Bodies.fetch(root, document.id, :response)
+  end
+
+  test "a checkpoint bundle may be larger than any document" do
+    certificate = authorize_and_poll!()
+    bundle = command!("get_checkpoint_bundle", %{"operation_id" => "checkpoint-limits"})
+    {root, stored} = upload_over_document_limit(bundle, certificate)
+
+    assert stored.status == 200
+    assert {:ok, _body, _reference} = Bodies.fetch(root, bundle.id, :response)
+  end
+
+  test "a body is stored only while the volume keeps its reserve" do
+    root = System.tmp_dir!()
+    assert Bodies.room?(root, 1, 0)
+    refute Bodies.room?(root, 1, Integer.pow(2, 62))
+  end
+
+  defp upload_over_document_limit(command, certificate) do
+    root = Path.join(System.tmp_dir!(), "coop-body-limits-#{Ecto.UUID.generate()}")
+    on_exit(fn -> File.rm_rf!(root) end)
+    bytes = :binary.copy(<<1>>, 8 * 1_024 * 1_024 + 1)
+
+    response =
+      :put
+      |> conn("/v1/coop-workers/commands/#{command.id}/response-body", bytes)
+      |> put_req_header("content-length", to_string(byte_size(bytes)))
+      |> put_req_header(
+        "x-coop-body-sha256",
+        Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+      )
+      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
+      |> Router.call(body_root: root, checkpoint_key: Ryker.Secret.new(:binary.copy(<<7>>, 32)))
+
+    {root, response}
+  end
+
   defp authorize_and_poll! do
     certificate = "verified-client-certificate-#{Ecto.UUID.generate()}"
     fingerprint = :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)
