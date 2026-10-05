@@ -78,14 +78,17 @@ defmodule Ryker.ControlPlane.Activity do
   def conversation_filter_options do
     secrets = InspectionRedactor.configured_secrets()
 
-    rows =
+    # Each conversation's newest row, then the newest 500 of those: a limit
+    # beside DISTINCT ON kept the alphabetically first 500.
+    latest =
       from(row in subquery(rows()),
         distinct: [row.source, row.conversation],
-        order_by: [row.source, row.conversation, desc: row.updated_at],
-        limit: 500
+        order_by: [row.source, row.conversation, desc: row.updated_at]
       )
+
+    rows =
+      from(row in subquery(latest), order_by: [desc: row.updated_at], limit: 500)
       |> Repo.all()
-      |> Enum.sort_by(&(-DateTime.to_unix(&1.updated_at, :microsecond)))
 
     chats =
       rows

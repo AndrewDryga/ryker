@@ -361,6 +361,38 @@ defmodule Ryker.ControlPlane.ActivityTest do
            ]
   end
 
+  # The filter kept 500 conversations in alphabetical order, so past 500 the
+  # newest could be missing from it while older ones stayed (2026-10-04
+  # review). It keeps the 500 most recently active.
+  test "the conversation filter keeps the most recently active conversations" do
+    for index <- 0..500 do
+      chat =
+        if index == 500, do: "chat-zzz", else: "chat-#{String.pad_leading("#{index}", 3, "0")}"
+
+      id = Ecto.UUID.generate()
+
+      {:ok, _} =
+        Episodes.apply(
+          Fixtures.admit_input(%{
+            episode_id: id,
+            episode_key: "conversation:#{chat}",
+            native_input_id: "conversation:#{chat}",
+            turn_ref: "conversation-turn:#{chat}",
+            destination: %{conversation_ref: chat, thread_ref: nil, transport: "control_plane"}
+          })
+        )
+
+      Repo.update_all(from(e in Ryker.Episodes.Episode, where: e.id == ^id),
+        set: [updated_at: DateTime.add(~U[2026-09-24 09:00:00.000000Z], index, :minute)]
+      )
+    end
+
+    options = Activity.conversation_filter_options()
+    assert length(options) == 500
+    assert hd(options).conversation_ref == "chat-zzz"
+    refute Enum.any?(options, &(&1.conversation_ref == "chat-000"))
+  end
+
   test "activity uses human fallback labels and never passes secrets or shadow traffic as live" do
     {:ok, %{episode: episode}} = Episodes.apply(Fixtures.admit_input())
     assert %{items: [item]} = Activity.list(%{})
