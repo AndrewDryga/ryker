@@ -73,8 +73,7 @@ defmodule Ryker.Fixtures.Answers do
                name: Keyword.get(options, :binding, "github-answers"),
                repository_full_name: "octo/example",
                repository_id: 99,
-               ryker_actor_id: 99,
-               secret: String.duplicate("s", 32)
+               ryker_actor_id: 99
              })
 
     id = System.unique_integer([:positive])

@@ -9,7 +9,6 @@ defmodule Ryker.GitHub.BindingTest do
     repository_full_name: "octo/example",
     repository_id: 99,
     ryker_actor_id: 99,
-    secret: String.duplicate("s", 32),
     work_profile: %{
       policy: "github-read-only",
       policy_digest: String.duplicate("a", 64),
@@ -38,8 +37,7 @@ defmodule Ryker.GitHub.BindingTest do
           name: "Not Valid",
           repository_full_name: "missing-owner",
           repository_id: 0,
-          ryker_actor_id: 0,
-          secret: "short"
+          ryker_actor_id: 0
         ] do
       attributes = @valid |> Map.new() |> Map.put(field, value)
       assert Binding.new(attributes) == {:error, {:invalid_github_binding, field}}

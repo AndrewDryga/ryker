@@ -33,20 +33,20 @@ defmodule Ryker.SecretInspectionTest do
     refute printed =~ key
   end
 
-  test "a GitHub binding does not print its webhook secret" do
-    secret = "webhook-secret-" <> String.duplicate("s", 32)
-
+  # Every binding carried a plaintext copy of the App's webhook secret that
+  # only a dead check read; the router verifies with the App's sealed secret
+  # (2026-10-04 review).
+  test "a GitHub binding holds no webhook secret" do
     {:ok, binding} =
       Binding.new(%{
         installation_id: 41,
         name: "github-main",
         repository_full_name: "octo/example",
         repository_id: 99,
-        ryker_actor_id: 99,
-        secret: secret
+        ryker_actor_id: 99
       })
 
-    refute inspect(binding, @printed) =~ secret
+    refute Map.has_key?(binding, :secret)
   end
 
   test "a webhook route does not print its token or signing secret" do

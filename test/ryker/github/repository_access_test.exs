@@ -80,7 +80,6 @@ defmodule Ryker.GitHub.RepositoryAccessTest do
       repository_full_name: "acme/widget",
       repository_id: 99,
       ryker_actor_id: 4_321,
-      secret: String.duplicate("s", 32),
       work_profile: nil
     }
   end

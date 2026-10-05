@@ -894,8 +894,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
                name: "task-e2e",
                repository_full_name: "acme/ryker",
                repository_id: 99,
-               ryker_actor_id: 99,
-               secret: @github_secret
+               ryker_actor_id: 99
              })
 
     binding

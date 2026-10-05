@@ -54,8 +54,7 @@ defmodule Ryker.GitHub.RuntimeTest do
             installation_id: 41,
             repository_full_name: "octo/example",
             repository_id: 99,
-            ryker_actor_id: 99,
-            secret: String.duplicate("s", 32)
+            ryker_actor_id: 99
           }
         },
         port: 4_081,

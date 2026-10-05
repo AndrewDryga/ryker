@@ -78,7 +78,6 @@ defmodule Ryker.GitHub.EventsTest do
       repository_full_name: "acme/payments",
       repository_id: System.unique_integer([:positive]),
       ryker_actor_id: 99,
-      secret: "webhook-secret",
       work_profile: nil
     }
   end

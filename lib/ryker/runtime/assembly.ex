@@ -840,8 +840,7 @@ defmodule Ryker.Runtime.Assembly do
       Map.new(settings.github_bindings, fn binding ->
         entry = github_entry(binding.repository_ref, settings, repositories, environments)
 
-        {binding.name,
-         github_binding(binding, api_url, defaults, settings.repositories, entry, webhook_secret)}
+        {binding.name, github_binding(binding, api_url, defaults, settings.repositories, entry)}
       end)
 
     confirmations =
@@ -941,7 +940,7 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp github_binding(binding, api_url, defaults, repositories, entry, webhook_secret) do
+  defp github_binding(binding, api_url, defaults, repositories, entry) do
     repository =
       Enum.find(repositories, &(&1.ref == binding.repository_ref)) ||
         raise ArgumentError, "github binding names an unknown repository"
@@ -990,7 +989,6 @@ defmodule Ryker.Runtime.Assembly do
         repository_full_name: repository.github_repository,
         repository_id: binding.repository_id,
         ryker_actor_id: binding.ryker_actor_id,
-        secret: webhook_secret,
         work_profile: entry && entry.work_profile
       })
 

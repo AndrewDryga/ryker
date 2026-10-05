@@ -547,8 +547,7 @@ defmodule Ryker.IntegrationSetupTest do
                name: allowed.name,
                repository_full_name: "acme/widget",
                repository_id: allowed.repository_id,
-               ryker_actor_id: allowed.ryker_actor_id,
-               secret: String.duplicate("s", 32)
+               ryker_actor_id: allowed.ryker_actor_id
              })
 
     assert {:ok, []} =
@@ -893,8 +892,7 @@ defmodule Ryker.IntegrationSetupTest do
                name: binding.name,
                repository_full_name: "acme/widget",
                repository_id: binding.repository_id,
-               ryker_actor_id: binding.ryker_actor_id,
-               secret: String.duplicate("s", 32)
+               ryker_actor_id: binding.ryker_actor_id
              })
 
     conn =
@@ -1016,8 +1014,7 @@ defmodule Ryker.IntegrationSetupTest do
                name: binding.name,
                repository_full_name: repository.full_name,
                repository_id: binding.repository_id,
-               ryker_actor_id: binding.ryker_actor_id,
-               secret: String.duplicate("s", 32)
+               ryker_actor_id: binding.ryker_actor_id
              })
 
     assert {:ok, []} =

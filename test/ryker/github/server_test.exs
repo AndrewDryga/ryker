@@ -14,8 +14,7 @@ defmodule Ryker.GitHub.ServerTest do
             installation_id: 41,
             repository_full_name: "octo/example",
             repository_id: 99,
-            ryker_actor_id: 99,
-            secret: String.duplicate("s", 32)
+            ryker_actor_id: 99
           }
         },
         confirmations: %{
@@ -139,8 +138,7 @@ defmodule Ryker.GitHub.ServerTest do
                name: "configured",
                repository_full_name: "octo/example",
                repository_id: 99,
-               ryker_actor_id: 99,
-               secret: String.duplicate("s", 32)
+               ryker_actor_id: 99
              })
 
     assert_raise ArgumentError, fn ->
@@ -159,8 +157,7 @@ defmodule Ryker.GitHub.ServerTest do
                name: "github-main",
                repository_full_name: "octo/example",
                repository_id: 99,
-               ryker_actor_id: 99,
-               secret: String.duplicate("s", 32)
+               ryker_actor_id: 99
              })
 
     assert %{ip: {0, 0, 0, 0, 0, 0, 0, 1}} =

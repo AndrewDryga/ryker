@@ -4,7 +4,7 @@ defmodule Ryker.GitHub.AuthTest do
   import Plug.Conn
   import Plug.Test
 
-  alias Ryker.GitHub.{Auth, Binding}
+  alias Ryker.GitHub.Auth
 
   test "matches GitHub's published HMAC-SHA256 verification vector" do
     assert Auth.signature("It's a Secret to Everybody", "Hello, World!") ==
@@ -12,38 +12,24 @@ defmodule Ryker.GitHub.AuthTest do
   end
 
   test "requires exactly one constant-time SHA-256 signature over the raw body" do
-    binding = binding!()
+    secret = String.duplicate("s", 32)
     body = ~s({"action":"created"})
-    signature = Auth.signature(binding.secret, body)
+    signature = Auth.signature(secret, body)
 
     authorized = conn(:post, "/") |> put_req_header("x-hub-signature-256", signature)
-    assert Auth.authorize(authorized, binding, body) == :ok
+    assert Auth.authorize(authorized, secret, body) == :ok
 
     missing = conn(:post, "/")
-    assert Auth.authorize(missing, binding, body) == {:error, :unauthorized}
+    assert Auth.authorize(missing, secret, body) == {:error, :unauthorized}
 
     changed = conn(:post, "/") |> put_req_header("x-hub-signature-256", signature)
-    assert Auth.authorize(changed, binding, body <> " ") == {:error, :unauthorized}
+    assert Auth.authorize(changed, secret, body <> " ") == {:error, :unauthorized}
 
     repeated =
       conn(:post, "/")
       |> put_req_header("x-hub-signature-256", signature)
       |> prepend_req_headers([{"x-hub-signature-256", signature}])
 
-    assert Auth.authorize(repeated, binding, body) == {:error, :unauthorized}
-  end
-
-  defp binding! do
-    assert {:ok, binding} =
-             Binding.new(%{
-               installation_id: 41,
-               name: "github-main",
-               repository_full_name: "octo/example",
-               repository_id: 99,
-               ryker_actor_id: 99,
-               secret: String.duplicate("s", 32)
-             })
-
-    binding
+    assert Auth.authorize(repeated, secret, body) == {:error, :unauthorized}
   end
 end

@@ -5,13 +5,6 @@ defmodule Ryker.GitHub.Auth do
 
   import Plug.Conn, only: [get_req_header: 2]
 
-  alias Ryker.GitHub.Binding
-
-  @spec authorize(Plug.Conn.t(), Binding.t(), binary()) :: :ok | {:error, :unauthorized}
-  def authorize(conn, %Binding{} = binding, body) when is_binary(body) do
-    authorize(conn, binding.secret, body)
-  end
-
   @spec authorize(Plug.Conn.t(), binary(), binary()) :: :ok | {:error, :unauthorized}
   def authorize(conn, secret, body) when is_binary(secret) and is_binary(body) do
     expected = signature(secret, body)

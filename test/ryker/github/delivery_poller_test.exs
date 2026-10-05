@@ -172,7 +172,6 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
         repository_full_name: "octo/example",
         repository_id: 99,
         ryker_actor_id: 99,
-        secret: @secret,
         work_profile: %{
           policy: "github-read-only",
           policy_digest: String.duplicate("a", 64),

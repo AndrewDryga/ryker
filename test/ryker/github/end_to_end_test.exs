@@ -343,7 +343,6 @@ defmodule Ryker.GitHub.EndToEndTest do
                repository_full_name: "octo/example",
                repository_id: 99,
                ryker_actor_id: 99,
-               secret: @secret,
                work_profile: %{
                  policy: "github-conversation-read",
                  policy_digest: String.duplicate("a", 64),

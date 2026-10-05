@@ -24,7 +24,6 @@ defmodule Ryker.GitHub.Binding do
     :repository_full_name,
     :repository_id,
     :ryker_actor_id,
-    :secret,
     :work_profile
   ]
   @required_fields @fields -- [:action_grants, :max_body_bytes, :work_profile]
@@ -33,8 +32,6 @@ defmodule Ryker.GitHub.Binding do
   @repository_regex ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 
   @enforce_keys @fields
-  # Crash reports print a struct with inspect.
-  @derive {Inspect, except: [:secret]}
   defstruct @fields
 
   @type t :: %__MODULE__{
@@ -45,7 +42,6 @@ defmodule Ryker.GitHub.Binding do
           repository_full_name: String.t(),
           repository_id: pos_integer(),
           ryker_actor_id: pos_integer(),
-          secret: binary(),
           work_profile: WorkProfile.t() | nil
         }
 
@@ -129,9 +125,7 @@ defmodule Ryker.GitHub.Binding do
       {is_binary(binding.repository_full_name) and
          Regex.match?(@repository_regex, binding.repository_full_name), :repository_full_name},
       {positive_id?(binding.repository_id), :repository_id},
-      {positive_id?(binding.ryker_actor_id), :ryker_actor_id},
-      {is_binary(binding.secret) and byte_size(binding.secret) >= 32 and
-         byte_size(binding.secret) <= 1_024, :secret}
+      {positive_id?(binding.ryker_actor_id), :ryker_actor_id}
     ]
 
     Enum.reduce_while(validations, :ok, fn

@@ -170,8 +170,7 @@ defmodule Ryker.GitHub.AccessTest do
         name: ref,
         repository_full_name: "acme/#{ref}",
         repository_id: repository_id,
-        ryker_actor_id: 30,
-        secret: String.duplicate("s", 32)
+        ryker_actor_id: 30
       })
 
     trusted
