@@ -293,8 +293,7 @@ defmodule Ryker.ObservabilityTest do
   # The split replaced one rescue around the whole snapshot with an answer from
   # each read. A read the database refuses after the clock was read must leave
   # the probes saying so: a crashed request answers a bare 500 that tells the
-  # watchdog nothing. A heartbeat from a lane this release does not know fails
-  # the read the same way instead of being skipped.
+  # watchdog nothing.
   test "a read refused mid-snapshot leaves the probes answering unavailable" do
     for table <- ~w(ryker_runtime_progress coop_workers episode_work_sessions) do
       # Only this table is broken; the sandbox rollback restores it either way.
@@ -310,18 +309,21 @@ defmodule Ryker.ObservabilityTest do
     Repo.query!("ALTER TABLE coop_workers RENAME TO coop_workers_broken")
     assert {:error, {:observability_query_failed, _detail}} = Observability.fleet()
     Repo.query!("ALTER TABLE coop_workers_broken RENAME TO coop_workers")
+  end
 
+  # The heartbeat a release's lane left behind stays when a later release
+  # retires or renames the lane. Every snapshot then failed: /readyz and
+  # /metrics answered unavailable for good, and a deploy waiting on /readyz
+  # rolled back a healthy release (2026-10-04 review).
+  test "a heartbeat from a lane this release does not have is not read" do
     Repo.query!("""
     INSERT INTO ryker_runtime_progress
       (lane, outcome, cycle_count, observed_at, inserted_at, updated_at)
     VALUES ('retired_lane', 'cycle', 1, clock_timestamp(), clock_timestamp(), clock_timestamp())
     """)
 
-    assert Observability.snapshot(900) ==
-             {:error,
-              {:observability_query_failed, ~s(unknown runtime progress lane: "retired_lane")}}
-
-    assert_probes_unavailable()
+    assert {:ok, snapshot} = Observability.snapshot(900)
+    refute Enum.any?(snapshot.progress, &(to_string(&1.lane) == "retired_lane"))
   end
 
   test "health readiness and metrics expose queue facts without payloads or destinations" do
@@ -1083,6 +1085,53 @@ defmodule Ryker.ObservabilityTest do
            "a cleanup is due from its resume or its retry, not from when it first became eligible"
 
     refute :retention in snapshot.stalled_queues
+  end
+
+  # A turn, reply, approval check or schedule that waits out a backoff or a
+  # poll interval falls due again when that wait ends. Readiness aged it from
+  # when it was created, so an approval Ryker had checked every few seconds for
+  # a quarter of an hour read as a stalled queue in the second between two
+  # checks, and /readyz failed (2026-10-04 review).
+  test "work whose retry just came due is not a stalled queue" do
+    episode_id = Ecto.UUID.generate()
+
+    assert {:ok, transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode_id,
+                 episode_key: "observability-retry:#{episode_id}",
+                 native_input_id: "source:observability-retry:#{episode_id}",
+                 occurred_at: @now,
+                 turn_ref: "turn:observability-retry:#{episode_id}"
+               })
+             )
+
+    assert {:ok, _session} =
+             Custody.pin_episode(transition.episode.id, "read-only", String.duplicate("a", 64))
+
+    assert {:ok, claim} = Custody.claim_next("observability-retry-worker", 60, :work)
+    now = Repo.now!()
+
+    # Structural fixture: a turn created an hour ago whose attempt failed and
+    # whose retry came due thirty seconds ago.
+    Repo.update_all(from(turn in Ryker.Work.Turn, where: turn.id == ^claim.turn.id),
+      set: [
+        inserted_at: DateTime.add(now, -3_600, :second),
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil,
+        next_attempt_at: DateTime.add(now, -30, :second)
+      ]
+    )
+
+    assert {:ok, snapshot} = Observability.snapshot(900)
+    work = Enum.find(snapshot.queues, &(&1.name == :work))
+    assert work.claimable == 1
+
+    assert work.oldest_age_seconds <= 120,
+           "a retry is due when its backoff ends, not when the turn was created"
+
+    refute :work in snapshot.stalled_queues
   end
 
   # Production went silent for every Slack message on 2026-09-13: Coop refused

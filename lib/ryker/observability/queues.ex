@@ -222,8 +222,7 @@ defmodule Ryker.Observability.Queues do
   defp runnable(query, _name, _now), do: query
 
   defp projection(claimable, active, name, age_field, now) do
-    with {:ok, oldest_claimable} <-
-           Query.one(from(row in claimable, select: min(field(row, ^age_field)))),
+    with {:ok, oldest_claimable} <- Query.one(oldest_due(claimable, age_field)),
          {:ok, oldest_active} <- Query.one(from(row in active, select: min(row.updated_at))),
          {:ok, active_leases} <- Query.count(active),
          {:ok, claimable_count} <- Query.count(claimable) do
@@ -236,5 +235,16 @@ defmodule Ryker.Observability.Queues do
          oldest_age_seconds: Query.age_seconds(now, oldest_claimable)
        }}
     end
+  end
+
+  # A row that waits out a backoff or a poll interval falls due again when
+  # that wait ends, so it has waited since the later of the two times. A
+  # follow-up's next poll is already its due time.
+  defp oldest_due(query, :next_poll_at), do: from(row in query, select: min(row.next_poll_at))
+
+  defp oldest_due(query, age_field) do
+    from(row in query,
+      select: min(fragment("GREATEST(?, ?)", field(row, ^age_field), row.next_attempt_at))
+    )
   end
 end

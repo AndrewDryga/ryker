@@ -57,15 +57,16 @@ defmodule Ryker.Observability.Query do
   One raw statement. The driver already answers a refused statement or a lost
   connection with its own error; only a pool that is gone has to be caught.
   """
-  @spec sql(String.t()) :: {:ok, Postgrex.Result.t()} | {:error, Exception.t() | failure()}
-  def sql(statement) do
-    with {:ok, answer} <- read(fn -> Repo.query(statement, [], log: false) end), do: answer
+  @spec sql(String.t(), [term()]) ::
+          {:ok, Postgrex.Result.t()} | {:error, Exception.t() | failure()}
+  def sql(statement, params \\ []) do
+    with {:ok, answer} <- read(fn -> Repo.query(statement, params, log: false) end), do: answer
   end
 
   @doc "The rows of one raw statement, with a refusal reported like any other failed read."
-  @spec rows(String.t()) :: {:ok, [[term()]]} | {:error, failure()}
-  def rows(statement) do
-    case sql(statement) do
+  @spec rows(String.t(), [term()]) :: {:ok, [[term()]]} | {:error, failure()}
+  def rows(statement, params \\ []) do
+    case sql(statement, params) do
       {:ok, %Postgrex.Result{rows: rows}} ->
         {:ok, rows}
 
