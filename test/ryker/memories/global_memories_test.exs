@@ -145,6 +145,39 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     end
   end
 
+  # Slack reports a link's preview arriving as an edit with the words
+  # untouched. Every edit revoked an answer-confirmed fact, and any newer
+  # revision kept the answer from being saved, so an answer with a link was
+  # forgotten as soon as Slack previewed it (2026-10-04 review).
+  test "a link preview of an answer neither revokes its saved fact nor blocks saving it" do
+    saved =
+      AnswerMemory.answered!("portal-prod, see https://console.example.com", DateTime.utc_now())
+
+    assert {:ok, %{memory: memory}} = remember(saved, "portal-prod")
+    preview!(saved)
+    assert Repo.get!(MemoryEntry, memory.id).status == :active
+
+    unsaved =
+      AnswerMemory.answered!("portal-prod, see https://console.example.com", DateTime.utc_now())
+
+    preview!(unsaved)
+    assert {:ok, %{memory: _memory}} = remember(unsaved, "portal-prod")
+  end
+
+  defp preview!(answer) do
+    assert {:ok, revision} =
+             answer.input
+             |> Map.merge(%{
+               event_kind: :edit,
+               event_ref: "preview:#{answer.entry.id}",
+               revision: 2,
+               content: Map.put(answer.input.content, "attachments", [%{"title" => "Console"}])
+             })
+             |> SlackInput.new()
+
+    assert {:ok, _receipt} = Inbox.record(revision)
+  end
+
   test "reviewed correction preserves global applicability and records the new actor and value" do
     entry = insert_fact!("Production portal", "portal-old")
     old = DateTime.add(DateTime.utc_now(), -120, :second)

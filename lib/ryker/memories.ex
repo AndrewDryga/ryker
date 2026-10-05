@@ -40,6 +40,7 @@ defmodule Ryker.Memories do
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
   alias Ryker.Records.Response
+  alias Ryker.RoutingExamples
 
   alias Ryker.Memories.Recall
   alias Ryker.Memories.Reviews
@@ -133,14 +134,16 @@ defmodule Ryker.Memories do
     )
   end
 
+  # A newer revision that took the answer's words back; a link preview
+  # arriving as an edit kept the answer from being saved (2026-10-04 review).
   defp answer_revised?(entry) do
-    Repo.exists?(
-      from(newer in Entry,
-        where:
-          newer.source_kind == ^entry.source_kind and newer.source_ref == ^entry.source_ref and
-            newer.native_input_id == ^entry.native_input_id and newer.revision > ^entry.revision
-      )
+    from(newer in Entry,
+      where:
+        newer.source_kind == ^entry.source_kind and newer.source_ref == ^entry.source_ref and
+          newer.native_input_id == ^entry.native_input_id and newer.revision > ^entry.revision
     )
+    |> Repo.all()
+    |> Enum.any?(&RoutingExamples.takes_back_words?/1)
   end
 
   @doc "Explicit source changes revoke answer-confirmed facts; ordinary transcript TTL does not."

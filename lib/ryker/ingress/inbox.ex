@@ -728,8 +728,13 @@ defmodule Ryker.Ingress.Inbox do
 
   defp take_back(_receipt), do: :ok
 
-  defp revoke_answer_memory(%{status: :recorded, entry: entry}),
-    do: Memories.revoke_answer_source_in_transaction(entry)
+  # Only an edit that took the words back revokes an answer saved from them: a
+  # link preview arriving as an edit forgot the answer (2026-10-04 review).
+  defp revoke_answer_memory(%{status: :recorded, entry: entry}) do
+    if RoutingExamples.takes_back_words?(entry),
+      do: Memories.revoke_answer_source_in_transaction(entry),
+      else: :ok
+  end
 
   defp revoke_answer_memory(_receipt), do: :ok
 
