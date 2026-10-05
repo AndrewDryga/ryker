@@ -76,6 +76,23 @@ defmodule Ryker.ControlPlane.WorkChangesTest do
              {:error, :work_diff_invalid}
   end
 
+  # Coop's page metadata was trusted to be numbers: an offset sent as text raised in the
+  # arithmetic and the changes page crashed instead of saying the view is unavailable
+  # (2026-10-04 review).
+  test "page metadata of the wrong type is refused, never a crash" do
+    patch = "diff --git a/lib/ryker.ex b/lib/ryker.ex\n+safe change\n"
+    page = changes_page(patch, digest(patch), 0, 2_400)
+
+    for {field, value} <- [
+          {"patch_offset", "0"},
+          {"patch_next_offset", nil},
+          {"patch_bytes", "53"}
+        ] do
+      assert WorkChanges.render(@work_ref, Map.put(page, field, value)) ==
+               {:error, :work_diff_invalid}
+    end
+  end
+
   defp changes_page(full_patch, patch_digest, offset, limit) do
     size = byte_size(full_patch)
     page = binary_part(full_patch, offset, min(limit, size - offset))

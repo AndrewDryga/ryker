@@ -135,16 +135,11 @@ defmodule Ryker.ControlPlane.WorkChanges do
     next = changes["patch_next_offset"]
     more = changes["patch_has_more"]
 
+    # The types first, so the arithmetic only meets numbers: an offset Coop sent
+    # as text raised and crashed the page (2026-10-04 review).
     valid =
-      Enum.all?([
-        valid_digest?(digest),
-        valid_patch_size?(bytes),
-        valid_offset?(offset, 0, bytes),
-        valid_offset?(next, offset, bytes),
-        is_boolean(more),
-        byte_size(patch) == next - offset,
+      typed?(digest, bytes, offset, next, more) and byte_size(patch) == next - offset and
         more == next < bytes
-      ])
 
     cond do
       not valid ->
@@ -156,6 +151,11 @@ defmodule Ryker.ControlPlane.WorkChanges do
       true ->
         :ok
     end
+  end
+
+  defp typed?(digest, bytes, offset, next, more) do
+    valid_digest?(digest) and valid_patch_size?(bytes) and valid_offset?(offset, 0, bytes) and
+      valid_offset?(next, offset, bytes) and is_boolean(more)
   end
 
   defp valid_digest?(value),
