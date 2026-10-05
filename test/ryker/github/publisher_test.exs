@@ -80,7 +80,7 @@ defmodule Ryker.GitHub.PublisherTest do
 
     defp create(agent, base_key, body, id) do
       Agent.get_and_update(agent, fn state ->
-        [marker] = Regex.run(~r/<!-- responder-delivery:[a-f0-9]{64} -->/, body)
+        [marker] = Regex.run(~r/<!-- ryker-delivery:[a-f0-9]{64} -->/, body)
         key = Tuple.insert_at(base_key, tuple_size(base_key), marker)
         messages = Map.put(state.messages, key, id)
         state = %{state | creates: [{base_key, body} | state.creates], messages: messages}

@@ -384,12 +384,11 @@ times in `Etc/UTC` only.
 
 ## Names that still say responder
 
-The product is Ryker. A few wire names remain `responder-*` because Coop workers, webhook senders,
-or previously delivered GitHub markers own those contracts. They change only with the other party:
+The product is Ryker. A few wire names remain `responder-*` because Coop workers or webhook senders
+own those contracts. They change only with the other party:
 
 - retained tool activity naming `responder-state`, and the immutable state-record identity `responder-state:v1` (new Coop bindings use `controller-tools`);
 - webhook signature and event headers beginning `x-responder-`;
-- the `responder.publication_lifecycle.v1` event type; and
-- the hidden `<!-- responder-delivery:… -->` marker on already delivered GitHub comments.
+- the `responder.publication_lifecycle.v1` event type.
 
 These compatibility contracts are not product branding and must not be renamed independently.

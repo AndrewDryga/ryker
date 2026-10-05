@@ -19,7 +19,7 @@ defmodule Ryker.GitHub.ClientTest do
   end
 
   test "finds an issue comment marker without mistaking pagination for absence" do
-    marker = "<!-- responder-delivery:#{String.duplicate("a", 64)} -->"
+    marker = "<!-- ryker-delivery:#{String.duplicate("a", 64)} -->"
     first_page = Enum.map(1..100, &%{"body" => "old #{&1}", "id" => &1})
 
     {:ok, requester} =
@@ -76,7 +76,7 @@ defmodule Ryker.GitHub.ClientTest do
   end
 
   test "finds a native pull review marker across the bounded review history" do
-    marker = "<!-- responder-delivery:#{String.duplicate("c", 64)} -->"
+    marker = "<!-- ryker-delivery:#{String.duplicate("c", 64)} -->"
     first_page = Enum.map(1..100, &%{"body" => "old #{&1}", "id" => &1})
 
     {:ok, requester} =
@@ -124,7 +124,7 @@ defmodule Ryker.GitHub.ClientTest do
   end
 
   test "finds only a reply belonging to the requested review thread" do
-    marker = "<!-- responder-delivery:#{String.duplicate("b", 64)} -->"
+    marker = "<!-- ryker-delivery:#{String.duplicate("b", 64)} -->"
 
     {:ok, requester} =
       FakeRequester.start([

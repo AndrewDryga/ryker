@@ -47,8 +47,6 @@ defmodule Ryker.RenameAuditTest do
      "inbound webhook contract; configured external senders set these headers"},
     {~r//, ~r/responder\.publication_lifecycle\.v1/,
      "inbound webhook event type set by external senders"},
-    {~r//, ~r/responder-delivery:/,
-     "GitHub comment marker that keeps already-posted comments idempotent; changing it would repost every delivered comment"},
     # --- evidence and history named outside the immutable paths
     {~r{^test/support/episodes/replay\.ex$|^test/ryker/(admission|episodes)/replay_test\.exs$},
      ~r/responder\.db/,

@@ -74,12 +74,15 @@ defmodule Ryker.GitHub.Publisher do
   def publish_reaction(_request, _binding),
     do: {:error, {:invalid_github_delivery, :reaction}}
 
-  # Tests find a delivered comment by the marker its delivery reference produces.
+  # The hidden marker a delivered comment carries, so a delivery tried again
+  # finds the comment it already posted instead of posting it twice. It used
+  # the product's old name until 2026-10-05; only a delivery in flight across
+  # that deploy could miss its comment.
   @doc false
   @spec marker(String.t()) :: String.t()
   def marker(delivery_ref) when is_binary(delivery_ref) do
     digest = :crypto.hash(:sha256, delivery_ref) |> Base.encode16(case: :lower)
-    "<!-- responder-delivery:#{digest} -->"
+    "<!-- ryker-delivery:#{digest} -->"
   end
 
   defp reconcile_message(api, client, repository, request, target) do
