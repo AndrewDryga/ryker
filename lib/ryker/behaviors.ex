@@ -1110,6 +1110,17 @@ defmodule Ryker.Behaviors do
     )
   end
 
+  # A person's private guidance is theirs alone; a turn answering nobody in
+  # particular reads the rest.
+  defp behavior_visibility_filter(:guidance, %{operator_ref: nil} = context) do
+    dynamic(
+      [behavior],
+      fragment("(?::jsonb)->>'visibility'", behavior.payload) == "workspace" or
+        (fragment("(?::jsonb)->>'visibility'", behavior.payload) == "conversation" and
+           behavior.source_conversation_ref == ^context.conversation_ref)
+    )
+  end
+
   defp behavior_visibility_filter(:guidance, context) do
     dynamic(
       [behavior],
@@ -1333,18 +1344,22 @@ defmodule Ryker.Behaviors do
   defp preference_rank(%Behavior{scope_kind: :repository}), do: 2
   defp preference_rank(%Behavior{scope_kind: :workspace}), do: 3
 
+  # A turn with no active message has no operator; it found no guidance at
+  # all, the workspace's included (2026-10-04 review).
   defp retrieval_context(context) do
     fields = [:conversation_ref, :operator_ref, :repository, :workspace_ref]
 
     if Map.keys(context) |> Enum.sort() == Enum.sort(fields) and
-         Enum.all?([:conversation_ref, :operator_ref, :workspace_ref], fn field ->
+         Enum.all?([:conversation_ref, :workspace_ref], fn field ->
            Reference.valid?(context[field])
-         end) and (is_nil(context.repository) or Reference.valid?(context.repository)) do
+         end) and Enum.all?([:operator_ref, :repository], &optional_reference?(context[&1])) do
       {:ok, context}
     else
       {:error, :invalid_behavior_context}
     end
   end
+
+  defp optional_reference?(value), do: is_nil(value) or Reference.valid?(value)
 
   defp assignment_matches?(%{"source_kind" => source_kind, "filter" => filter}, input) do
     source_kind == input.source.kind and SourceEventMatcher.matches?(filter, input.content)

@@ -556,6 +556,26 @@ defmodule Ryker.StateTools.MemorySearchTest do
     assert knowledge["kind"] == "conversation_knowledge"
   end
 
+  # Guidance was read only for the person whose message the turn was
+  # answering, so a turn with no active message, every turn started after a
+  # delivery among them, found no guidance at all, not even the workspace's
+  # (2026-10-04 review). Only a person's private guidance needs that person.
+  test "a turn with no active message still finds the workspace's guidance", %{
+    claim: claim,
+    options: options
+  } do
+    guidance!(claim, 1)
+
+    Repo.update_all(from(e in Ryker.Episodes.Episode, where: e.id == ^claim.episode.id),
+      set: [active_input_refs: []]
+    )
+
+    assert {:ok, %{"memories" => [guidance]}} =
+             Tools.call("search_memory", %{@args | "kinds" => ["guidance"]}, options)
+
+    assert guidance["kind"] == "guidance"
+  end
+
   test "an unknown source reference cannot be disclosed as dependency-free text", %{claim: claim} do
     assert {:error, :work_knowledge_context_stale} =
              KnowledgeSnapshot.expose(claim, [
