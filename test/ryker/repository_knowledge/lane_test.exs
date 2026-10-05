@@ -107,6 +107,12 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
       to: API
   end
 
+  # No worker takes the repository's sessions.
+  defmodule NoWorkerAPI do
+    @moduledoc false
+    def accepts_session?(_client, _session), do: false
+  end
+
   setup do
     {:ok, snapshot} = Settings.initialize(@actor)
 
@@ -252,6 +258,35 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert log =~ "skypjack/entt"
   end
 
+  # With no worker taking the repository's sessions the write waited a minute
+  # at a time for good, the page said only "Writing knowledge" and the log
+  # nothing (2026-10-04 review). It says why, logs it once, and waits longer
+  # while the cause stays the same.
+  test "a write no worker will take says why, once, and waits longer each time" do
+    github!()
+    coop = coop!([answer_json()])
+    ready!()
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn -> drain(settings(coop, api: NoWorkerAPI), 3) end)
+
+    entry = RepositoryKnowledge.entry("emisar")
+    assert {entry.phase, entry.error_code} == {:write, "repository_knowledge_worker_unavailable"}
+    assert entry.error =~ "worker"
+    assert log =~ "repository knowledge for emisar waits"
+    first = DateTime.diff(entry.next_attempt_at, Repo.now!())
+
+    retry_due!()
+
+    again =
+      ExUnit.CaptureLog.capture_log(fn ->
+        Dispatcher.run_once(settings(coop, api: NoWorkerAPI))
+      end)
+
+    refute again =~ "waits"
+    assert DateTime.diff(RepositoryKnowledge.entry("emisar").next_attempt_at, Repo.now!()) > first
+  end
+
   # Andrew, 2026-09-27: "also when those are updated?" Once a day each
   # repository is checked; a push that touches no file a teammate reads to
   # learn it costs no model turn, and each rewrite is the knowledge at once.
@@ -343,6 +378,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   # read as one another try would meet again, so a 502 while a refresh
   # someone asked for read the repository gave the refresh up until the
   # next day's check, with nothing on the page to say it had been dropped.
+  @tag :capture_log
   test "GitHub failing for a moment keeps a requested refresh, and tries it again shortly" do
     github!()
     coop = coop!([answer_json(), answer_json()])
@@ -355,8 +391,12 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     assert {:ok, _yielded} = Dispatcher.run_once(settings(coop, retry_delay_seconds: 60))
 
+    # The refresh is kept, and the entry says why it waits.
     entry = RepositoryKnowledge.entry("emisar")
-    assert {entry.phase, entry.requested_by, entry.error} == {:write, @actor, nil}
+
+    assert {entry.phase, entry.requested_by, entry.error_code} ==
+             {:write, @actor, "repository_knowledge_github_unavailable"}
+
     assert DateTime.diff(entry.next_attempt_at, Repo.now!()) in 55..60
 
     FakeGitHubRepository.update(&%{&1 | errors: %{}})

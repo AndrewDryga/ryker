@@ -406,16 +406,20 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         prefix: prefix
       })
 
-  # A failed step says why on the row, beneath anything that needs a person
-  # more; the repository itself still works.
+  # A failed step, or a write that waits, says why on the row, beneath anything
+  # that needs a person more; the repository itself still works. A waiting
+  # write said only "Writing knowledge" (2026-10-04 review).
   defp knowledge_problem(%{
          configured: %{onboarding_state: :ready},
-         knowledge: %{phase: :idle, error: error}
+         knowledge: %{error: error}
        })
        when is_binary(error),
        do: error
 
   defp knowledge_problem(_item), do: nil
+
+  defp knowledge_problem_word(%{knowledge: %{phase: :write}}), do: "Waiting"
+  defp knowledge_problem_word(_item), do: "Failed"
 
   # A knowledge run's outcome as a dot and a word, the model, what it cost and
   # how long it took.
@@ -645,7 +649,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
             />
           </.fact>
           <.fact :if={knowledge_problem(@item)} label="Last try">
-            <Kit.state tone={:warn} word="Failed" /> {knowledge_problem(@item)}
+            <Kit.state tone={:warn} word={knowledge_problem_word(@item)} /> {knowledge_problem(@item)}
           </.fact>
         </dl>
         <div :if={@document} class="kit-rows">

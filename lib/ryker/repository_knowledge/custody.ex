@@ -20,6 +20,8 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
   import Ecto.Query
 
+  require Logger
+
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
   alias Ryker.Repo
@@ -30,6 +32,8 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
   @terminal ~w(completed failed cancelled interrupted budget_exhausted)
   @day_seconds 86_400
+  @held_codes ~w(repository_knowledge_policy_unavailable repository_knowledge_worker_unavailable
+                 repository_knowledge_github_unavailable)
 
   @type claim :: %{entry: Entry.t(), lease_ref: Ecto.UUID.t()}
 
@@ -235,6 +239,40 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc """
+  Gives the lease back because the step cannot go on yet, and says why on the
+  entry: no policy reads the repository, no worker takes its sessions, or
+  GitHub did not answer. Holding this way said nothing anywhere, and a write
+  could wait a minute at a time for good (2026-10-04 review). A new cause is
+  logged once; the same cause again waits `repeat_delay_seconds`.
+  """
+  def hold(claim, code, delay_seconds, repeat_delay_seconds)
+      when is_binary(code) and is_integer(delay_seconds) and delay_seconds >= 0 and
+             is_integer(repeat_delay_seconds) and repeat_delay_seconds >= delay_seconds do
+    Repo.transaction(fn ->
+      entry = owned!(claim)
+      repeated = entry.error_code == code
+      at = DateTime.add(Repo.now!(), if(repeated, do: repeat_delay_seconds, else: delay_seconds))
+      due = if entry.phase == :idle, do: [next_check_at: at], else: [next_attempt_at: at]
+
+      unless repeated,
+        do:
+          Logger.warning("repository knowledge for #{entry.repository_ref} waits: #{held(code)}")
+
+      save(entry, unleased() ++ due ++ [error_code: code, error: held(code)])
+    end)
+  end
+
+  defp held("repository_knowledge_policy_unavailable"),
+    do: "No model setup reads this repository yet. Ryker waits for its standard policy."
+
+  defp held("repository_knowledge_worker_unavailable"),
+    do:
+      "No Coop worker takes this repository's sessions. Check that a worker is online and offers its policy."
+
+  defp held("repository_knowledge_github_unavailable"),
+    do: "GitHub did not answer for this repository. Ryker tries again."
+
+  @doc """
   Records what the daily check decided, and gives the lease back:
   `{:write, reason}` has a model read the repository now; `:current` waits
   for tomorrow's check; `{:failed, reason}` waits for it too and says why. A
@@ -437,6 +475,9 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
       if entry.start_count >= entry.start_limit,
         do: Repo.rollback(:repository_knowledge_retry_exhausted)
+
+      # A write that starts is no longer held.
+      if entry.error_code in @held_codes, do: save(entry, error_code: nil, error: nil)
 
       Repo.update_all(
         from(run in Run,

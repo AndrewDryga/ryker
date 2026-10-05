@@ -34,6 +34,9 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
 
   @no_policy_hold_seconds 300
   @worker_hold_seconds 60
+  # A cause met again waits this long: a persistent fault cost about 1,440
+  # tries a repository a day (2026-10-04 review).
+  @repeated_hold_seconds 900
   @permanent [
     {:github_onboarding, :permission},
     {:github_onboarding, :not_found},
@@ -166,13 +169,26 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     do: start(claim, policy(snapshot, repository.ref), target, settings)
 
   # No read-only policy yet (the source is not pinned), or no worker would
-  # take the session: the write waits, and no start is spent.
-  defp start(claim, nil, _target, _settings), do: Custody.yield(claim, @no_policy_hold_seconds)
+  # take the session: the write waits, says why, and no start is spent.
+  defp start(claim, nil, _target, _settings),
+    do:
+      Custody.hold(
+        claim,
+        "repository_knowledge_policy_unavailable",
+        @no_policy_hold_seconds,
+        @repeated_hold_seconds
+      )
 
   defp start(claim, policy, {repository, _binding} = target, settings) do
     if FleetSession.placeable?(settings, repository.ref, policy),
       do: begin(claim, target, policy, settings),
-      else: Custody.yield(claim, @worker_hold_seconds)
+      else:
+        Custody.hold(
+          claim,
+          "repository_knowledge_worker_unavailable",
+          @worker_hold_seconds,
+          @repeated_hold_seconds
+        )
   end
 
   # The repository's own read-only policy: the standard models Work uses for
@@ -362,7 +378,13 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   defp failed(claim, reason, settings, record) do
     if reason in @permanent,
       do: record.(claim, reason),
-      else: Custody.yield(claim, settings.retry_delay_seconds)
+      else:
+        Custody.hold(
+          claim,
+          "repository_knowledge_github_unavailable",
+          settings.retry_delay_seconds,
+          max(settings.retry_delay_seconds, @repeated_hold_seconds)
+        )
   end
 
   defp text(:not_found), do: nil

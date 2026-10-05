@@ -639,6 +639,29 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
              "1 h ago · being rewritten now"
   end
 
+  # A write that waits because no worker takes the repository's sessions, or
+  # GitHub does not answer, said only "Writing knowledge" (2026-10-04 review).
+  test "a RYKER.md write that waits says why on the row and the page" do
+    reason =
+      "No Coop worker takes this repository's sessions. Check that a worker is online and offers its policy."
+
+    waiting =
+      @repository
+      |> put_in([:knowledge, :phase], :write)
+      |> put_in([:knowledge, :error], reason)
+
+    row = render_row(waiting)
+    assert state(row) == {"Ready", ["on"]}
+    assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() == reason
+
+    assert waiting
+           |> detail()
+           |> LazyHTML.query("#repository-knowledge")
+           |> LazyHTML.text()
+           |> squeeze() =~
+             "Waiting " <> reason
+  end
+
   test "a failed RYKER.md step says why on the row, and the repository stays ready" do
     error =
       "The repository is archived on GitHub, so Ryker cannot propose its RYKER.md. " <>
