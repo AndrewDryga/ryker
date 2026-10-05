@@ -1379,6 +1379,13 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert list =~ "Conversation summaries"
     assert list =~ "Investigate delivery"
 
+    # Search read a summary as JSON text, so a field's name matched every summary
+    # (2026-10-04 review). It reads what the fields say.
+    assert ConversationMemory.project(%{"kind" => "context", "q" => "open_loops"}).total == 0
+
+    assert ConversationMemory.project(%{"kind" => "context", "q" => "production delivery"}).total ==
+             1
+
     page =
       ConversationMemory.project(%{"kind" => "context", "item" => summary.id})
       |> LearnedPage.html("test-secret")

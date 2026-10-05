@@ -1105,6 +1105,15 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       end
     end
 
+    # A fact's "Applies to" never reached the Channel page: the payload filter shared with the
+    # libraries dropped it (2026-10-04 review).
+    test "a fact the channel would recall says what it applies to" do
+      global_memory!("GCP project", "portal-prod", %{"applicability" => "Production portal only"})
+
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
+      assert [%{applicability: "Production portal only"}] = view.memory.items
+    end
+
     test "operational memory applies through its runtime scope and visibility, labeled and unaccounted",
          %{source: source} do
       channel =
@@ -1985,16 +1994,20 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   defp workspace_of("slack:" <> rest),
     do: "slack:" <> (rest |> String.split(":", parts: 2) |> hd())
 
-  defp global_memory!(subject, value) do
+  defp global_memory!(subject, value, extra \\ %{}) do
     id = Ecto.UUID.generate()
 
-    payload = %{
-      "kind" => "entity_relationship",
-      "scope" => "global",
-      "subject" => subject,
-      "value" => value,
-      "visibility" => "global"
-    }
+    payload =
+      Map.merge(
+        %{
+          "kind" => "entity_relationship",
+          "scope" => "global",
+          "subject" => subject,
+          "value" => value,
+          "visibility" => "global"
+        },
+        extra
+      )
 
     Repo.insert!(%MemoryEntry{
       id: id,

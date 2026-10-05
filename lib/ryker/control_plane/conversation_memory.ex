@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   gone.
   """
   import Ecto.Query
+  require Ryker.ControlPlane.Search
 
   alias Ryker.ControlPlane.{
     Activity,
@@ -14,7 +15,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     LearningRequests,
     PagedRelation,
     Paths,
-    RepositoryNames
+    RepositoryNames,
+    Search
   }
 
   alias Ryker.Episodes.Episode
@@ -358,11 +360,11 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp search(query, _, ""), do: query
 
+  # What a topic or a summary says, not its field names: searching the state as
+  # JSON text matched every row with a field of the name searched for
+  # (2026-10-04 review).
   defp search(query, "knowledge", text),
-    do:
-      from(item in query,
-        where: fragment("position(lower(?) in lower(?)) > 0", ^text, item.state)
-      )
+    do: from(item in query, where: Search.json_text_matches(item.state, ^Search.contains(text)))
 
   defp search(query, "sources", text),
     do:
@@ -373,7 +375,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp search(query, "context", text),
     do:
       from(summary in query,
-        where: fragment("position(lower(?) in lower(?)) > 0", ^text, summary.state)
+        where: Search.json_text_matches(summary.state, ^Search.contains(text))
       )
 
   # The requests rows came from, and the names of the repositories they used.

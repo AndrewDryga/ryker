@@ -232,6 +232,11 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert BehaviorLibrary.list(:standing_assignment, %{"q" => "%"}).items == []
     assert BehaviorLibrary.list(:standing_assignment, %{"q" => "github"}).total == 1
 
+    # Search read the payload as JSON text, so a field's name matched every rule that had the
+    # field (2026-10-04 review). It reads what the fields say.
+    assert BehaviorLibrary.list(:standing_assignment, %{"q" => "expires_at"}).total == 0
+    assert BehaviorLibrary.list(:standing_assignment, %{"q" => "changes_requested"}).total == 1
+
     assert BehaviorLibrary.list(:standing_assignment, %{"status" => "nonsense", "page" => "-20"}).page ==
              1
 

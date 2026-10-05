@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   (on or paused) or Past (expired, deleted or replaced) entries.
   """
   import Ecto.Query
+  require Ryker.ControlPlane.Search
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.ControlPlane.{PagedRelation, Search}
@@ -14,7 +15,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
 
-  @payload_fields ~w(title task source_kind filter repository key value subject summary text visibility context_channel delivery_channel)
+  @payload_fields ~w(title task source_kind filter repository key value subject summary text visibility context_channel delivery_channel applicability)
   @shown %{"preferences" => :preference, "guidance" => :guidance}
 
   @doc "The page that lists entries of `kind`; its rows are anchored `#behavior-<ref>`."
@@ -153,7 +154,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
     pattern = Search.contains(value)
 
     from(b in query,
-      where: ilike(fragment("?::text", b.payload), ^pattern) or ilike(b.scope_ref, ^pattern)
+      where: Search.json_text_matches(b.payload, ^pattern) or ilike(b.scope_ref, ^pattern)
     )
   end
 
