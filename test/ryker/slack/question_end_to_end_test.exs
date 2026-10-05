@@ -356,8 +356,13 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
     assert_recalled_in_new_channel!(remembered.memory, continuation_claim.session.id)
 
-    assert {:error, :answer_memory_conflict} =
+    # A value the answer does not say is refused; one it says that is not the
+    # value saved from it conflicts.
+    assert {:error, :answer_memory_not_in_answer} =
              Memories.confirm_answer(continuation_claim, request.ref, "ten percent", authorize)
+
+    assert {:error, :answer_memory_conflict} =
+             Memories.confirm_answer(continuation_claim, request.ref, "percent", authorize)
 
     assert {:ok, _} = Memories.forget(remembered.memory.ref)
 

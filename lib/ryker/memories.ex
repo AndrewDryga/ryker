@@ -90,11 +90,29 @@ defmodule Ryker.Memories do
          true <- authorize.(entry) == true,
          %{} = intent <- record.payload["remember"],
          false <- answer_revised?(entry) do
-      save_answer(record, response, entry, intent, value)
+      if said?(value, answer_text(response, entry)),
+        do: save_answer(record, response, entry, intent, value),
+        else: Repo.rollback(:answer_memory_not_in_answer)
     else
       _ -> Repo.rollback(:answer_memory_unauthorized)
     end
   end
+
+  # The saved fact is credited to the person who answered, so the value may
+  # trim their answer to the fact and never add to it: every word of it is a
+  # word of their choice or reply. The model's value was saved unchecked
+  # (2026-10-04 review).
+  defp said?(value, answer) do
+    words = words(value)
+    words != [] and MapSet.subset?(MapSet.new(words), MapSet.new(words(answer)))
+  end
+
+  defp answer_text(%Response{choice: choice}, _entry) when is_binary(choice), do: choice
+  defp answer_text(_response, %Entry{content: %{"text" => text}}) when is_binary(text), do: text
+  defp answer_text(_response, _entry), do: ""
+
+  defp words(text),
+    do: ~r/[\p{L}\p{N}]+/u |> Regex.scan(String.downcase(text)) |> List.flatten()
 
   defp answer_confirmation(binding, record_ref) do
     Repo.one(

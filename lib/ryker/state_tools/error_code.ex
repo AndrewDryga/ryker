@@ -88,6 +88,11 @@ defmodule Ryker.StateTools.ErrorCode do
   def code(:answer_memory_unauthorized), do: "answer_memory_unauthorized"
   def code(:answer_memory_conflict), do: "answer_memory_conflict"
   def code(:invalid_answer_memory), do: "invalid_answer_memory"
+
+  def code(:answer_memory_not_in_answer),
+    do:
+      "answer_memory_not_in_answer: value must be words the person's answer says, trimmed to the fact, with nothing added. Nothing was remembered."
+
   def code(:memory_capacity_reached), do: "memory_capacity_reached"
   def code(:work_memory_source_capacity_exceeded), do: "memory_source_capacity_exceeded"
   def code({:invalid_schedule, _field}), do: "invalid_arguments"
@@ -155,6 +160,7 @@ defmodule Ryker.StateTools.ErrorCode do
        when code in [
               "answer_memory_unauthorized",
               "answer_memory_conflict",
+              "answer_memory_not_in_answer",
               "invalid_answer_memory"
             ],
        do: "Ryker refused to remember this answer."

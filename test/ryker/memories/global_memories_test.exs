@@ -217,6 +217,22 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     assert {:error, :answer_memory_conflict} = remember(older, "portal-old")
   end
 
+  # remember_answer saved whatever value the model passed as an
+  # installation-wide fact credited to the person who answered, without
+  # checking that the answer said it (2026-10-04 review). The value may trim
+  # the answer to the fact, never add to it.
+  test "only words the person's answer says can be remembered as their answer" do
+    answer =
+      AnswerMemory.answered!("It is portal-prod, the one in us-central1.", DateTime.utc_now())
+
+    assert {:error, :answer_memory_not_in_answer} = remember(answer, "portal-staging")
+    assert {:error, :answer_memory_not_in_answer} = remember(answer, "portal-prod in europe")
+    assert Repo.aggregate(MemoryEntry, :count) == 0
+
+    assert {:ok, %{memory: memory}} = remember(answer, "Portal-Prod")
+    assert memory.payload["value"] == "Portal-Prod"
+  end
+
   test "an answer revised before saving cannot become a globally remembered fact" do
     answer = AnswerMemory.answered!("portal-old", DateTime.utc_now())
 
