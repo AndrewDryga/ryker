@@ -79,13 +79,6 @@ defmodule Ryker.GitHub.Client do
   # --- pull requests --------------------------------------------------------
 
   @impl true
-  defdelegate find_open_pull_request(client, repository, owner, branch), to: PullRequests
-
-  @impl true
-  defdelegate create_draft_pull_request(client, repository, title, body, head, base),
-    to: PullRequests
-
-  @impl true
   defdelegate get_pull_request(client, repository, number), to: PullRequests
 
   @impl true

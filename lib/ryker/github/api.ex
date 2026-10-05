@@ -39,20 +39,6 @@ defmodule Ryker.GitHub.API do
   @callback add_review_comment_reaction(term(), String.t(), pos_integer(), String.t()) ::
               :ok | {:error, term()}
 
-  @callback find_open_pull_request(
-              term(),
-              String.t(),
-              String.t(),
-              String.t()
-            ) :: {:ok, map()} | :not_found | {:error, term()}
-  @callback create_draft_pull_request(
-              term(),
-              String.t(),
-              String.t(),
-              String.t(),
-              String.t(),
-              String.t()
-            ) :: {:ok, map()} | {:error, term()}
   @callback get_pull_request(term(), String.t(), pos_integer()) ::
               {:ok, map()} | {:error, term()}
   @callback get_publication_status(term(), String.t(), pos_integer()) ::
@@ -60,9 +46,7 @@ defmodule Ryker.GitHub.API do
   @callback read_context(term(), map()) :: {:ok, map()} | {:error, term()}
   @callback search(term(), map()) :: {:ok, map()} | {:error, term()}
 
-  @optional_callbacks find_open_pull_request: 4,
-                      create_draft_pull_request: 6,
-                      get_pull_request: 3,
+  @optional_callbacks get_pull_request: 3,
                       get_publication_status: 3,
                       read_context: 2,
                       search: 2

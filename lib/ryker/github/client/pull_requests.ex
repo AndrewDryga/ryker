@@ -1,8 +1,8 @@
 defmodule Ryker.GitHub.Client.PullRequests do
   @moduledoc """
-  Pull requests: the one open pull request for a branch, a new draft, the
-  exact pull request with its check state, and a review published only while
-  the head it was written against is still current.
+  Pull requests: the exact pull request with its check state, and a review
+  published only while the head it was written against is still current.
+  Coop's worker opens and updates pull requests.
 
   A pull request is handed on only in the shape Ryker records: typed author,
   exact refs and head SHA, a github.com pull URL, and a merge SHA and time
@@ -10,59 +10,6 @@ defmodule Ryker.GitHub.Client.PullRequests do
   """
 
   alias Ryker.GitHub.Client.{Checks, Fields, Transport}
-
-  @page_size 100
-
-  def find_open_pull_request(client, repository, owner, branch) do
-    with :ok <- Fields.repository(repository),
-         :ok <- Fields.ref_component(owner),
-         :ok <- Fields.ref_component(branch),
-         query <-
-           URI.encode_query(%{
-             "head" => "#{owner}:#{branch}",
-             "per_page" => @page_size,
-             "state" => "open"
-           }),
-         {:ok, response} <-
-           Transport.request(client, :get, "/repos/#{repository}/pulls?#{query}", nil) do
-      case response do
-        %{body: [], status: 200} ->
-          :not_found
-
-        %{body: [pull], status: 200} ->
-          pull
-          |> Map.put_new("merged", false)
-          |> pull_request()
-
-        %{body: pulls, status: 200} when is_list(pulls) ->
-          {:error, {:github_protocol_error, {:multiple_pull_requests, length(pulls)}}}
-
-        other ->
-          Transport.error(other)
-      end
-    end
-  end
-
-  def create_draft_pull_request(client, repository, title, body, head, base) do
-    with :ok <- Fields.repository(repository),
-         :ok <- Fields.text(title),
-         :ok <- Fields.text(body),
-         :ok <- Fields.ref_component(head),
-         :ok <- Fields.ref_component(base),
-         {:ok, response} <-
-           Transport.request(client, :post, "/repos/#{repository}/pulls", %{
-             "base" => base,
-             "body" => body,
-             "draft" => true,
-             "head" => head,
-             "title" => title
-           }) do
-      case response do
-        %{body: pull, status: 201} -> pull_request(pull)
-        other -> Transport.error(other)
-      end
-    end
-  end
 
   def get_pull_request(client, repository, number) do
     with :ok <- Fields.target(repository, number),

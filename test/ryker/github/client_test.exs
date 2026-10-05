@@ -497,7 +497,7 @@ defmodule Ryker.GitHub.ClientTest do
              {:error, {:github_protocol_error, :search_repository}}
   end
 
-  test "finds, creates, and verifies exact draft pull requests" do
+  test "reads one exact draft pull request" do
     sha = String.duplicate("a", 40)
 
     pull = %{
@@ -511,72 +511,13 @@ defmodule Ryker.GitHub.ClientTest do
       "user" => %{"id" => 99, "type" => "Bot"}
     }
 
-    {:ok, requester} =
-      FakeRequester.start([
-        response(200, []),
-        response(201, pull),
-        response(200, pull)
-      ])
+    {:ok, requester} = FakeRequester.start([response(200, pull)])
 
-    client = client(requester)
-
-    assert :not_found =
-             Client.find_open_pull_request(
-               client,
-               "octo/example",
-               "octo",
-               "ryker/fix-123"
-             )
-
-    assert {:ok, created} =
-             Client.create_draft_pull_request(
-               client,
-               "octo/example",
-               "Fix retries",
-               "Reviewed exact tree.",
-               "ryker/fix-123",
-               "main"
-             )
-
-    assert created["number"] == 42
-    assert created["head_sha"] == sha
-    assert created["draft"]
-    assert {:ok, ^created} = Client.get_pull_request(client, "octo/example", 42)
-
-    assert [
-             {:get, find_path, nil, _},
-             {:post, "/repos/octo/example/pulls", create_body, _},
-             {:get, "/repos/octo/example/pulls/42", nil, _}
-           ] = FakeRequester.requests(requester)
-
-    assert String.starts_with?(find_path, "/repos/octo/example/pulls?")
-    query = find_path |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
-    assert query == %{"head" => "octo:ryker/fix-123", "per_page" => "100", "state" => "open"}
-    assert create_body["draft"] == true
-    assert create_body["head"] == "ryker/fix-123"
-  end
-
-  test "finds an open pull request when GitHub's list response omits merged" do
-    sha = String.duplicate("a", 40)
-
-    pull =
-      pull_request_document()
-      |> Map.put("head", %{"ref" => "ryker/fix-123", "sha" => sha})
-      |> Map.delete("merged")
-
-    {:ok, requester} = FakeRequester.start([response(200, [pull])])
-
-    assert {:ok, found} =
-             Client.find_open_pull_request(
-               client(requester),
-               "octo/example",
-               "octo",
-               "ryker/fix-123"
-             )
-
-    assert found["number"] == 42
-    assert found["state"] == "open"
-    refute found["merged"]
+    assert {:ok, read} = Client.get_pull_request(client(requester), "octo/example", 42)
+    assert read["number"] == 42
+    assert read["head_sha"] == sha
+    assert read["draft"]
+    assert [{:get, "/repos/octo/example/pulls/42", nil, _}] = FakeRequester.requests(requester)
   end
 
   test "pull request APIs reject crossed and malformed GitHub identities" do
@@ -590,14 +531,10 @@ defmodule Ryker.GitHub.ClientTest do
       "state" => "open"
     }
 
-    {:ok, requester} = FakeRequester.start([response(200, [malformed])])
+    {:ok, requester} = FakeRequester.start([response(200, malformed)])
 
-    assert Client.find_open_pull_request(
-             client(requester),
-             "octo/example",
-             "octo",
-             "ryker/fix"
-           ) == {:error, {:github_protocol_error, :pull_request}}
+    assert Client.get_pull_request(client(requester), "octo/example", 42) ==
+             {:error, {:github_protocol_error, :pull_request}}
   end
 
   test "reports exact pull request, check-run, and commit-status lifecycle" do
@@ -737,8 +674,6 @@ defmodule Ryker.GitHub.ClientTest do
   end
 
   test "comment, review, reaction, and pull reconciliation reject every malformed response" do
-    pull = pull_request_document()
-
     {:ok, requester} =
       FakeRequester.start([
         response(200, [%{}]),
@@ -746,9 +681,6 @@ defmodule Ryker.GitHub.ClientTest do
         response(200, [:invalid]),
         response(201, %{}),
         response(500, %{"message" => "reaction failed"}),
-        response(200, [pull, pull]),
-        response(500, %{"message" => "find failed"}),
-        response(500, %{"message" => "create failed"}),
         response(500, %{"message" => "get failed"})
       ])
 
@@ -767,22 +699,6 @@ defmodule Ryker.GitHub.ClientTest do
 
     assert {:error, {:github_api_error, 500, _}} =
              Client.add_issue_comment_reaction(client, "octo/example", 9_001, "eyes")
-
-    assert Client.find_open_pull_request(client, "octo/example", "octo", "branch") ==
-             {:error, {:github_protocol_error, {:multiple_pull_requests, 2}}}
-
-    assert {:error, {:github_api_error, 500, _}} =
-             Client.find_open_pull_request(client, "octo/example", "octo", "branch")
-
-    assert {:error, {:github_api_error, 500, _}} =
-             Client.create_draft_pull_request(
-               client,
-               "octo/example",
-               "Title",
-               "Body",
-               "branch",
-               "main"
-             )
 
     assert {:error, {:github_api_error, 500, _}} =
              Client.get_pull_request(client, "octo/example", 42)
@@ -893,18 +809,7 @@ defmodule Ryker.GitHub.ClientTest do
           fn -> Client.find_issue_comment(client, "bad repository", 42, "marker") end,
           fn -> Client.find_review_reply(client, "octo/example", 42, 0, "marker") end,
           fn -> Client.create_issue_comment(client, "octo/example", -1, "body") end,
-          fn -> Client.create_issue_comment(client, "octo/example", 42, "") end,
-          fn -> Client.find_open_pull_request(client, "octo/example", "octo", "bad ref ..") end,
-          fn ->
-            Client.create_draft_pull_request(
-              client,
-              "invalid",
-              "title",
-              "body",
-              "head",
-              "main"
-            )
-          end
+          fn -> Client.create_issue_comment(client, "octo/example", 42, "") end
         ] do
       assert {:error, {:invalid_github_api_request, _field}} = call.()
     end
