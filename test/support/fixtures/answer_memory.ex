@@ -12,7 +12,10 @@ defmodule Ryker.Fixtures.AnswerMemory do
   alias Ryker.Slack.Input
   alias Ryker.Work.Custody
 
-  def answered!(value, occurred_at) do
+  @remember %{"subject" => "GCP project", "applicability" => "Production portal"}
+
+  @doc "An answered question in a live Work turn; `remember: nil` asks it without the intent."
+  def answered!(value, occurred_at, options \\ []) do
     id = Ecto.UUID.generate()
     workspace = "TANSWER#{String.replace(id, "-", "")}"
 
@@ -38,12 +41,18 @@ defmodule Ryker.Fixtures.AnswerMemory do
     {:ok, claim} = Custody.claim_next("answer-memory:#{id}", 60, :work)
     true = claim.episode.id == transition.episode.id
 
-    {:ok, record} =
-      Records.create(Records.token(claim.turn), "project", "input_request", %{
+    question =
+      case Keyword.get(options, :remember, @remember) do
+        nil -> %{}
+        remember -> %{"remember" => remember}
+      end
+      |> Map.merge(%{
         "choices" => [],
-        "question" => "Which GCP project hosts the production portal?",
-        "remember" => %{"subject" => "GCP project", "applicability" => "Production portal"}
+        "question" => "Which GCP project hosts the production portal?"
       })
+
+    {:ok, record} =
+      Records.create(Records.token(claim.turn), "project", "input_request", question)
 
     record = Repo.update!(Ecto.Changeset.change(record, status: :answered))
 

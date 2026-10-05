@@ -82,7 +82,7 @@ defmodule Ryker.StateTools.MemoryTools do
 
   @spec propose_preference(map(), map()) :: {:ok, map()} | {:error, term()}
   def propose_preference(arguments, binding) do
-    scope = preference_scope(arguments["scope"])
+    scope = arguments["scope"] |> effective_memory_scope(binding.episode) |> preference_scope()
 
     with {:ok, expires_in} <- expiry(arguments["expires_at"]),
          payload = %{
@@ -180,17 +180,21 @@ defmodule Ryker.StateTools.MemoryTools do
 
   defp expiry(nil), do: {:ok, "90d"}
 
-  # An offer lasts 7, 30, 90 or 365 days: the shortest that reaches the asked
-  # time. A time already past was kept for 7 days without a word (2026-10-04
-  # review), and is refused.
+  # An offer lasts 7, 30, 90 or 365 days: the longest that does not outlast
+  # the asked day, and 7 days for anything sooner. Eight days was kept for
+  # thirty, and a time already past for seven without a word (2026-10-04
+  # review); a past time is refused. The asked time is counted in whole days,
+  # so thirty days asked a moment ago is still thirty.
   defp expiry(value) do
     with {:ok, expires_at, _offset} <- DateTime.from_iso8601(value),
-         days when days >= 0 <- DateTime.diff(expires_at, DateTime.utc_now(), :second) do
+         seconds when seconds >= 0 <- DateTime.diff(expires_at, Repo.now!(), :second) do
+      days = div(seconds + 86_399, 86_400)
+
       cond do
-        days <= 7 * 86_400 -> {:ok, "7d"}
-        days <= 30 * 86_400 -> {:ok, "30d"}
-        days <= 90 * 86_400 -> {:ok, "90d"}
-        true -> {:ok, "365d"}
+        days >= 365 -> {:ok, "365d"}
+        days >= 90 -> {:ok, "90d"}
+        days >= 30 -> {:ok, "30d"}
+        true -> {:ok, "7d"}
       end
     else
       _past_or_invalid -> {:error, :invalid_arguments}

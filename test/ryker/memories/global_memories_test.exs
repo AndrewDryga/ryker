@@ -266,6 +266,28 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     assert memory.payload["value"] == "Portal-Prod"
   end
 
+  # Every refusal read answer_memory_unauthorized, so the model could not tell
+  # a question it named wrongly from an answer it may not save (2026-10-04
+  # review).
+  test "remember_answer says why it refused an answer" do
+    answer = AnswerMemory.answered!("portal-reasons", DateTime.utc_now())
+    allow = fn _entry -> true end
+
+    assert Memories.confirm_answer(answer.claim, "record:missing", "portal-reasons", allow) ==
+             {:error, :answer_memory_question_not_found}
+
+    assert Memories.confirm_answer(answer.claim, answer.record.ref, "portal-reasons", fn _ ->
+             false
+           end) == {:error, :answer_memory_unauthorized}
+
+    plain = AnswerMemory.answered!("portal-plain", DateTime.utc_now(), remember: nil)
+
+    assert Memories.confirm_answer(plain.claim, plain.record.ref, "portal-plain", allow) ==
+             {:error, :answer_memory_not_requested}
+
+    assert Repo.aggregate(MemoryEntry, :count) == 0
+  end
+
   test "an answer revised before saving cannot become a globally remembered fact" do
     answer = AnswerMemory.answered!("portal-old", DateTime.utc_now())
 
@@ -280,7 +302,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
              |> SlackInput.new()
 
     assert {:ok, _} = Inbox.record(revision)
-    assert {:error, :answer_memory_unauthorized} = remember(answer, "portal-old")
+    assert {:error, :answer_memory_revised} = remember(answer, "portal-old")
     assert Repo.aggregate(MemoryEntry, :count) == 0
   end
 

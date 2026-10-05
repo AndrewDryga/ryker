@@ -83,29 +83,46 @@ defmodule Ryker.Memories do
   def confirm_answer(_binding, _record_ref, _value, _authorize),
     do: {:error, :answer_memory_unauthorized}
 
+  # Each refusal names its reason. They all read answer_memory_unauthorized,
+  # so the model could not tell a question it named wrongly from an answer it
+  # may not save (2026-10-04 review).
   defp confirm_answer_locked(binding, record_ref, value, authorize) do
     with {:ok, current} <- Binding.lock_current(binding),
-         :live <- current.episode.execution_mode,
+         :ok <- live(current.episode),
          :ok <- Reviews.lock_review_maintenance!(),
-         {record, response, entry} <- answer_confirmation(current, record_ref),
-         true <- authorize.(entry) == true,
-         %{} = intent <- record.payload["remember"],
-         false <- answer_revised?(entry) do
-      if said?(value, answer_text(response, entry)),
-        do: save_answer(record, response, entry, intent, value),
-        else: Repo.rollback(:answer_memory_not_in_answer)
+         {:ok, record, response, entry} <- answer_confirmation(current, record_ref),
+         :ok <- answerer(authorize, entry),
+         {:ok, intent} <- remember_intent(record),
+         :ok <- unrevised(entry),
+         :ok <- said(value, answer_text(response, entry)) do
+      save_answer(record, response, entry, intent, value)
     else
-      _ -> Repo.rollback(:answer_memory_unauthorized)
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  defp live(%{execution_mode: :live}), do: :ok
+  defp live(_episode), do: {:error, :state_record_shadow_forbidden}
+
+  defp answerer(authorize, entry),
+    do: if(authorize.(entry) == true, do: :ok, else: {:error, :answer_memory_unauthorized})
+
+  defp remember_intent(%Record{payload: %{"remember" => %{} = intent}}), do: {:ok, intent}
+  defp remember_intent(_record), do: {:error, :answer_memory_not_requested}
+
+  defp unrevised(entry),
+    do: if(answer_revised?(entry), do: {:error, :answer_memory_revised}, else: :ok)
 
   # The saved fact is credited to the person who answered, so the value may
   # trim their answer to the fact and never add to it: every word of it is a
   # word of their choice or reply. The model's value was saved unchecked
   # (2026-10-04 review).
-  defp said?(value, answer) do
+  defp said(value, answer) do
     words = words(value)
-    words != [] and MapSet.subset?(MapSet.new(words), MapSet.new(words(answer)))
+
+    if words != [] and MapSet.subset?(MapSet.new(words), MapSet.new(words(answer))),
+      do: :ok,
+      else: {:error, :answer_memory_not_in_answer}
   end
 
   defp answer_text(%Response{choice: choice}, _entry) when is_binary(choice), do: choice
@@ -132,7 +149,11 @@ defmodule Ryker.Memories do
         lock: "FOR UPDATE"
       )
     )
+    |> answered()
   end
+
+  defp answered({record, response, entry}), do: {:ok, record, response, entry}
+  defp answered(nil), do: {:error, :answer_memory_question_not_found}
 
   # A newer revision that took the answer's words back; a link preview
   # arriving as an edit kept the answer from being saved (2026-10-04 review).

@@ -63,7 +63,7 @@ defmodule Ryker.Memories.AnswerMemoryConcurrencyTest do
                    )
                  )
 
-          assert perform(:save, answer) == {:error, :answer_memory_unauthorized}
+          assert perform(:save, answer) == {:error, :answer_memory_revised}
         after
           send(writer.pid, :release)
           stop_tasks([writer, contender])
@@ -74,7 +74,7 @@ defmodule Ryker.Memories.AnswerMemoryConcurrencyTest do
   end
 
   defp assert_contender(:save, result),
-    do: assert(result == {:error, :answer_memory_unauthorized})
+    do: assert(result == {:error, :answer_memory_revised})
 
   defp assert_contender(:revision, result), do: assert({:ok, _} = result)
 

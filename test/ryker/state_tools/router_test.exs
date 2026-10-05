@@ -1156,6 +1156,26 @@ defmodule Ryker.StateTools.RouterTest do
                options
              )
 
+    # Eight days was kept for thirty: an offer never outlives what was asked
+    # beyond its shortest bucket (2026-10-04 review).
+    for {days, bucket} <- [{8, "7d"}, {30, "30d"}, {89, "30d"}, {364, "90d"}, {365, "365d"}] do
+      asked = DateTime.utc_now() |> DateTime.add(days, :day) |> DateTime.to_iso8601()
+
+      assert {:ok, %{"proposal" => %{"expires_in" => ^bucket}}} =
+               Tools.call(
+                 "propose_memory",
+                 %{
+                   "expires_at" => asked,
+                   "kind" => "fact",
+                   "scope" => "current_channel",
+                   "subject" => "service_owner_#{days}",
+                   "value" => "The Payments team owns this service."
+                 },
+                 options
+               ),
+             "#{days} days"
+    end
+
     # A time already past was kept for seven days without a word
     # (2026-10-04 review).
     past = DateTime.utc_now() |> DateTime.add(-86_400, :second) |> DateTime.to_iso8601()
@@ -2032,6 +2052,21 @@ defmodule Ryker.StateTools.RouterTest do
                is_nil(record["payload"]["repository"])
            end)
 
+    # A preference proposed here applied in every channel of the workspace,
+    # where facts and guidance stay in the channel (2026-10-04 review).
+    assert {:ok, %{"proposal" => %{"repository" => nil, "scope" => "conversation"}}} =
+             Tools.call(
+               "propose_preference",
+               %{
+                 "expires_at" =>
+                   DateTime.utc_now() |> DateTime.add(7, :day) |> DateTime.to_iso8601(),
+                 "key" => "response_detail",
+                 "scope" => "workspace",
+                 "value" => "concise"
+               },
+               bound_options(private)
+             )
+
     joined_channel!("TSTATETOOLS", "C789", false, true)
 
     external =
@@ -2179,7 +2214,18 @@ defmodule Ryker.StateTools.RouterTest do
   end
 
   test "explicit preference requests create typed inert offers and reject inference or invalid scope" do
-    claim = claim!("typed-preferences")
+    # Repository and workspace preferences keep their scope only in a public channel.
+    joined_channel!("TSTATETOOLS", "C456", false)
+
+    claim =
+      claim!("typed-preferences", %{
+        destination: %{
+          conversation_ref: "slack:TSTATETOOLS:C456",
+          thread_ref: "1787832000.000100",
+          transport: "slack"
+        }
+      })
+
     options = bound_options(claim)
 
     cases = [
