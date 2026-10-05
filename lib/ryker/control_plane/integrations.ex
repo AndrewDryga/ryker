@@ -41,10 +41,11 @@ defmodule Ryker.ControlPlane.Integrations do
 
   # Every state each integration can be in, in the order a person meets them:
   # its status, its dot and word, what the word means (the pages' help reads
-  # this), the reason shown beside it, and the one next step. A reason of nil
-  # means the word says enough, or that the reason depends on what is saved
-  # and is written where the state is read. Variants that share a meaning are
-  # explained together in the help.
+  # this), the reason shown beside it, and the one next step. A meaning of nil
+  # leaves a word the help need not explain, such as Connected. A reason of
+  # nil means the word says enough, or that the reason depends on what is
+  # saved and is written where the state is read. Variants that share a
+  # meaning are explained together in the help.
   @on_but_not_working "Slack is on but not working yet."
   @no_sender "No other system can send Ryker events yet."
   @source_left_out "an enabled source is not taking events."
@@ -54,7 +55,7 @@ defmodule Ryker.ControlPlane.Integrations do
       not_connected: %{
         status: :not_set_up,
         state: {:off, "Not connected"},
-        means: "Ryker has no working Slack tokens yet.",
+        means: nil,
         reason: "Ryker cannot read or reply in Slack until you connect it.",
         action: {"Connect Slack", "/integrations/slack"}
       },
@@ -69,7 +70,7 @@ defmodule Ryker.ControlPlane.Integrations do
       connected: %{
         status: :on,
         state: {:on, "Connected"},
-        means: "Ryker reads and replies in the channels it is invited to.",
+        means: nil,
         reason: nil,
         action: {"Manage", "/integrations/slack"}
       },
@@ -133,7 +134,7 @@ defmodule Ryker.ControlPlane.Integrations do
       not_connected: %{
         status: :not_set_up,
         state: {:off, "Not connected"},
-        means: "no GitHub App is connected yet.",
+        means: nil,
         reason: "Ryker cannot read your code or open pull requests until you connect it.",
         action: {"Connect GitHub", "/integrations/github"}
       },
@@ -147,21 +148,21 @@ defmodule Ryker.ControlPlane.Integrations do
       no_repository: %{
         status: :off,
         state: {:warn, "Add a repository to start"},
-        means: "the App is verified, and work starts once a repository is added.",
+        means: nil,
         reason: "The App is verified. Add a repository for Ryker to work in.",
         action: {"Add repositories", "/repositories/new"}
       },
       connected: %{
         status: :on,
         state: {:on, "Connected"},
-        means: "Ryker reads code and opens pull requests in the repositories you added.",
+        means: nil,
         reason: nil,
         action: {"Manage", "/integrations/github"}
       },
       not_running: %{
         status: :broken,
         state: {:bad, "Not running"},
-        means: "GitHub is on but did not start.",
+        means: nil,
         reason: nil,
         action: {"Repair GitHub", "/integrations/github"}
       }
@@ -170,7 +171,7 @@ defmodule Ryker.ControlPlane.Integrations do
       not_connected: %{
         status: :not_set_up,
         state: {:off, "Not connected"},
-        means: "no Emisar account is connected, so Ryker can only tell you what to run.",
+        means: nil,
         reason: "Without it, Ryker cannot act on anything that is running.",
         action: {"Connect Emisar", "/integrations/emisar"}
       },
@@ -191,8 +192,7 @@ defmodule Ryker.ControlPlane.Integrations do
       connected: %{
         status: :on,
         state: {:on, "Connected"},
-        means:
-          "work in the environments that use an account sends its actions there for approval.",
+        means: nil,
         reason: nil,
         action: {"Manage", "/integrations/emisar"}
       },
@@ -215,7 +215,7 @@ defmodule Ryker.ControlPlane.Integrations do
       not_set_up: %{
         status: :not_set_up,
         state: {:off, "Not set up"},
-        means: "no webhook source is saved, so no other system can send Ryker events.",
+        means: nil,
         reason: nil,
         action: {"Set up webhooks", "/integrations/webhooks"}
       },
@@ -229,7 +229,7 @@ defmodule Ryker.ControlPlane.Integrations do
       on: %{
         status: :on,
         state: {:on, "On"},
-        means: "senders can deliver events to their sources' addresses.",
+        means: nil,
         reason: nil,
         action: {"Manage", "/integrations/webhooks"}
       },
@@ -646,13 +646,15 @@ defmodule Ryker.ControlPlane.Integrations do
   end
 
   @doc """
-  What each word an integration can show means, for the page's help: one
-  sentence per word, and one for the words that share a meaning.
+  What each word an integration can show means, for the page's help, when
+  the word alone does not say: one sentence per word, and one for the words
+  that share a meaning.
   """
   @spec meanings(key()) :: String.t()
   def meanings(key) do
     @states
     |> Map.fetch!(key)
+    |> Enum.reject(fn {_variant, %{means: means}} -> is_nil(means) end)
     |> Enum.map(fn {_variant, %{state: {_tone, word}, means: means}} -> {word, means} end)
     |> Enum.uniq()
     |> Enum.chunk_by(fn {_word, means} -> means end)

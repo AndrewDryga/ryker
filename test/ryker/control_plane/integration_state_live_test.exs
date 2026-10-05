@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
     Actions,
     ChannelsPage,
     Endpoint,
+    Integrations,
     Projection,
     SettingsPage,
     SettingsView
@@ -354,12 +355,16 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
     end
 
     # The page's help explains the same word, alone or with the words that
-    # share its meaning ("Starting, Not running or Unknown: ...").
-    {:ok, _view, html} = open(page(key))
-    help = html |> LazyHTML.from_document() |> LazyHTML.query("aside.page-help") |> text()
+    # share its meaning ("Starting, Not running or Unknown: ..."), unless the
+    # word says what it means (Andrew, 2026-10-05: help explains nothing
+    # obvious).
+    if Integrations.meanings(key) =~ word do
+      {:ok, _view, html} = open(page(key))
+      help = html |> LazyHTML.from_document() |> LazyHTML.query("aside.page-help") |> text()
 
-    assert help =~ ~r/#{Regex.escape(word)}[^.:]*:/,
-           "The help for #{page(key)} does not explain #{inspect(word)}"
+      assert help =~ ~r/#{Regex.escape(word)}[^.:]*:/,
+             "The help for #{page(key)} does not explain #{inspect(word)}"
+    end
   end
 
   defp surfaces(:slack),

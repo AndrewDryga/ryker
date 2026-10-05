@@ -1660,7 +1660,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(
              view,
              "#page-help",
-             "a Claude model appears once its price is saved there"
+             "Claude model appears once its price is saved"
            )
 
     snapshot = Settings.fetch!()

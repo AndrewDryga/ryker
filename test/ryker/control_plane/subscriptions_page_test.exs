@@ -263,7 +263,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
 
     help = PageHelp.for_path("/follow-ups")
     text = Enum.map_join(help.sections, " ", &Enum.join(&1.paragraphs, " "))
-    assert text =~ "Ryker adds follow-ups by itself when work has to wait."
+    assert text =~ "Ryker adds a follow-up when work has to wait"
     assert text =~ ~s("Check again tomorrow morning.")
   end
 

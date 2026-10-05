@@ -10,14 +10,15 @@ defmodule Ryker.ControlPlane.PageHelpTest do
 
   How to use a page was one line of small print under seven lists and nothing
   at all on the other twenty-seven pages. Every page the route map serves now
-  carries "How this page works", written for someone who has never seen Ryker.
-  These tests hold that shut: a new page without help, help left behind for a
-  removed page, and help that slips into Ryker's own vocabulary all fail here.
+  carries "How this page works", which says what the page itself can't. These
+  tests hold that shut: a new page without help, help left behind for a
+  removed page, help that slips into Ryker's own vocabulary and help that
+  explains a visible control all fail here.
   """
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Assets, Layouts, PageHelp, WebRouter}
+  alias Ryker.ControlPlane.{Assets, Integrations, Layouts, PageHelp, WebRouter}
 
   # Words that name Ryker's machinery rather than anything a reader sees. A
   # reader who meets "episode" or "custody" in help has learned nothing.
@@ -46,7 +47,7 @@ defmodule Ryker.ControlPlane.PageHelpTest do
     for route <- routed do
       assert %{title: title, sections: sections} = PageHelp.for_path(sample(route)), route
       assert title =~ ~r/^How .+ works?$/, "#{route} is titled #{inspect(title)}"
-      assert length(sections) in 2..5, "#{route} has #{length(sections)} sections"
+      assert length(sections) in 1..4, "#{route} has #{length(sections)} sections"
 
       for %{heading: heading, paragraphs: paragraphs} <- sections do
         assert heading =~ ~r/^\S/ and length(String.split(heading)) <= 6, "#{route}: #{heading}"
@@ -69,6 +70,38 @@ defmodule Ryker.ControlPlane.PageHelpTest do
         assert words <= 32, "#{route} has a #{words}-word sentence: #{sentence}"
       end
     end
+  end
+
+  # Andrew, 2026-10-05: "do not explain things that are too obvious like
+  # 'All, Needs you, In progress and Finished narrow the list, and + Filter
+  # adds a filter such as a repository or a model.'" A person sees what a
+  # tab, a search box, a row or a confirmation does by using it.
+  test "help never explains what a visible control does" do
+    obvious = [
+      ~r/narrow the list/i,
+      ~r/\+ Filter/,
+      ~r/\bsearch (matches|finds)\b/i,
+      ~r/\b(click|open) (a|an|the|each) [^.]*\brow\b/i,
+      ~r/\basks? (you )?(first|before)\b/i,
+      ~r/\bupdates by itself\b/i,
+      ~r/\bsaves as soon as\b/i,
+      ~r/\bthe counts at the top\b/i
+    ]
+
+    for route <- PageHelp.routes(),
+        text <- texts(PageHelp.for_path(sample(route))),
+        pattern <- obvious do
+      refute text =~ pattern, "#{route} explains a control: #{text}"
+    end
+  end
+
+  # A word that says what it means, such as Connected, is left out of the
+  # help; a word that doesn't, such as Finish connecting, is explained.
+  test "an integration's help explains only the states whose word does not say it" do
+    slack = Integrations.meanings(:slack)
+    assert slack =~ "Finish connecting:"
+    refute slack =~ ~r/(^|\. )Connected:/
+    refute slack =~ "Not connected"
   end
 
   test "a page is found by its address, with or without a trailing slash or a query" do

@@ -325,11 +325,10 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
 
     line = render([]) |> LazyHTML.query("#storage-worker-a") |> LazyHTML.text() |> squeeze()
 
-    for words <- ["in use", "can be freed", "allowed"] do
-      assert line =~ words
-      assert storage =~ words, "the help does not say #{words}"
-    end
+    for words <- ["in use", "can be freed", "allowed"], do: assert(line =~ words)
 
+    # The help speaks of the limit, and in the line's own word for it.
+    assert storage =~ "allowed"
     refute storage =~ "kept"
   end
 
