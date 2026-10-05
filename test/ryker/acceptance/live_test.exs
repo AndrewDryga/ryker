@@ -77,6 +77,12 @@ defmodule Ryker.Acceptance.LiveTest do
 
     refute get_in(first, ["payload", "event", "ts"]) ==
              get_in(followup, ["payload", "event", "ts"])
+
+    # The first prompt names the environment's repository, as assembly
+    # publishes it: it read a field environments no longer have and always
+    # said the environment had none (2026-10-04 review).
+    assert get_in(first, ["payload", "event", "text"]) =~
+             "identify the environment ryker you work in and its repository ryker"
   end
 
   # The harness asked the configuration for a `runtime_mode` key that assembly
@@ -352,7 +358,7 @@ defmodule Ryker.Acceptance.LiveTest do
       execution_mode: :isolated,
       slack: %{
         default_environment: "ryker",
-        environments: %{"ryker" => %{work_profile: %{repository_ref: "ryker"}}},
+        environments: %{"ryker" => %{work_profile: %{repositories: ["ryker"]}}},
         identity: %{
           bot_ref: "B-RYKER",
           bot_user_ref: "U-RYKER",

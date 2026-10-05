@@ -188,10 +188,13 @@ defmodule Ryker.Acceptance.Live do
 
   defp slack(_configuration), do: {:error, :live_acceptance_slack_not_configured}
 
-  # The repository the default environment changes, when it has one.
+  # The repository the default environment changes by default, its first,
+  # when it has one. An environment's work profile lists its repositories; a
+  # single repository_ref is a shape environments no longer have, and reading
+  # it said every environment had none (2026-10-04 review).
   defp environment_repository(slack) do
     case get_in(slack, [:environments, slack.default_environment]) do
-      %{work_profile: %{repository_ref: repository_ref}} -> repository_ref
+      %{work_profile: %{repositories: [repository_ref | _read_only]}} -> repository_ref
       _none -> nil
     end
   end
