@@ -178,8 +178,22 @@ defmodule Ryker.Memories.Forgetting do
       set: [state: @erased]
     )
 
-    Repo.update_all(from(k in ConversationKnowledge, where: k.id in ^ids),
-      set: [state: @erased, forgotten_at: now]
+    # Its key and anchors named what was forgotten until a later topic took
+    # the subject (2026-10-04 review); they retire with it, as that topic
+    # would retire them (`Ryker.Knowledge`).
+    Repo.update_all(
+      from(k in ConversationKnowledge,
+        where: k.id in ^ids,
+        update: [
+          set: [
+            state: ^@erased,
+            forgotten_at: ^now,
+            topic_key: fragment("'retired:' || ?::text", k.id),
+            anchor_keys: ^[]
+          ]
+        ]
+      ),
+      []
     )
 
     :ok = RoutingExamples.forget_topics_in_transaction(ids)

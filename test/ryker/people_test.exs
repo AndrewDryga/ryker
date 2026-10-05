@@ -8,9 +8,12 @@ defmodule Ryker.PeopleTest do
   # these tests hold the host to what it does with any answer.
   use Ryker.DataCase, async: true
 
+  import Ecto.Query
+
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.People
+  alias Ryker.People.PersonFact
   alias Ryker.Repo
   alias Ryker.Slack.ChannelConfigurations
   alias Ryker.Slack.ChannelMembership
@@ -55,6 +58,7 @@ defmodule Ryker.PeopleTest do
     took_back = said!(workspace, "CPUBLIC", "UCARA", "forget my birthday", at: ago(now, 60))
     learn!([took_back], [item(took_back, "birthday", nil)])
     assert People.about("slack:user:UCARA", public) == []
+    assert kinds("slack:user:UCARA") == [:forgotten]
 
     learn!([told], [item(told, "birthday", "Birthday is 2 May.")])
     assert People.about("slack:user:UCARA", public) == []
@@ -62,6 +66,23 @@ defmodule Ryker.PeopleTest do
     again = said!(workspace, "CPUBLIC", "UCARA", "fine, it's 2 May", at: DateTime.add(now, 60))
     learn!([again], [item(again, "birthday", "Birthday is 2 May.")])
     assert People.about("slack:user:UCARA", public) == ["Birthday is 2 May."]
+    assert kinds("slack:user:UCARA") == ["birthday"]
+  end
+
+  # A forgotten fact kept its kind, such as "medical-leave", which says what
+  # was forgotten (2026-10-04 review). It keeps only a digest of it, which
+  # still stops anything said before from teaching it again.
+  test "a fact an operator forgets keeps no word of what it was about",
+       %{workspace: workspace, public: public, now: now} do
+    told = said!(workspace, "CPUBLIC", "UERIN", "I'm on leave for surgery", at: ago(now, 60))
+    learn!([told], [item(told, "medical-leave", "On leave for surgery.")])
+    [fact] = People.facts("slack:user:UERIN")
+
+    assert {:ok, 1} = People.forget_fact(fact.id)
+    assert kinds("slack:user:UERIN") == [:forgotten]
+
+    learn!([told], [item(told, "medical-leave", "On leave for surgery.")])
+    assert People.about("slack:user:UERIN", public) == []
   end
 
   test "what an operator forgot stays forgotten against anything said before, and is learned again after",
@@ -201,6 +222,41 @@ defmodule Ryker.PeopleTest do
 
     known = People.known_about_authors(authors)
     assert known |> Enum.flat_map(& &1["facts"]) |> length() == 24
+  end
+
+  # A statement in a private repository's pull request was used wherever the
+  # person spoke next, as if said in a public channel (2026-10-04 review).
+  # Only a Slack channel Ryker knows is public lets a fact travel.
+  test "what a person says outside Slack stays in the conversation they said it in" do
+    review = "github:ryker-app:octo/private-review:pull:74"
+
+    comment = %Entry{
+      id: Ecto.UUID.generate(),
+      actor_kind: :user,
+      actor_ref: "octo-dev",
+      destination_conversation_ref: review,
+      native_input_id: "github-comment:people:74",
+      occurred_at: Repo.now!(),
+      source_kind: "github"
+    }
+
+    learn!([comment], [item(comment, "time-zone", "Works on Kyiv time.")])
+
+    assert People.about("github:user:octo-dev", review) == ["Works on Kyiv time."]
+    assert People.about("github:user:octo-dev", "github:ryker-app:octo/public:pull:9") == []
+  end
+
+  # Each of a person's rows by its kind, or `:forgotten` for a forgotten row
+  # whose kind is only a digest.
+  defp kinds(person_ref) do
+    Repo.all(from(f in PersonFact, where: f.person_ref == ^person_ref))
+    |> Enum.map(fn
+      %{status: :forgotten, key: key} ->
+        if key =~ ~r/\Af[0-9a-f]{47}\z/, do: :forgotten, else: key
+
+      %{key: key} ->
+        key
+    end)
   end
 
   defp learn!(entries, items) do

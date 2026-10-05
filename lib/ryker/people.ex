@@ -115,11 +115,19 @@ defmodule Ryker.People do
 
   defp fact(_fact), do: :error
 
+  # One pass at a time per person, taken in the order the items are sorted. A
+  # fact not kept yet has no row to lock, so two passes both inserted it and
+  # the later crashed on the unique index, and both counted the cap before
+  # either wrote (2026-10-04 review).
   defp keep(%{entry: entry, person: person, key: key, fact: fact}, now) do
+    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      "person-facts:" <> person
+    ])
+
     existing =
       Repo.one(
         from(f in PersonFact,
-          where: f.person_ref == ^person and f.key == ^key,
+          where: f.person_ref == ^person and f.key in ^[key, forgotten_key(person, key)],
           lock: "FOR UPDATE"
         )
       )
@@ -127,7 +135,7 @@ defmodule Ryker.People do
     case change(existing, entry, fact, person) do
       :none -> :ok
       :forget -> forget!(existing, entry, now)
-      :say -> said!(existing, entry, fact, now)
+      :say -> said!(existing, entry, fact, key, now)
       :insert -> insert!(person, key, fact, entry)
     end
   end
@@ -182,9 +190,10 @@ defmodule Ryker.People do
     :ok
   end
 
-  defp said!(existing, entry, fact, now) do
+  defp said!(existing, entry, fact, key, now) do
     existing
     |> Ecto.Changeset.change(
+      key: key,
       fact: fact,
       status: :kept,
       forgotten_at: nil,
@@ -203,6 +212,7 @@ defmodule Ryker.People do
   defp forget!(existing, entry, now) do
     existing
     |> Ecto.Changeset.change(
+      key: forgotten_key(existing.person_ref, existing.key),
       fact: nil,
       status: :forgotten,
       forgotten_at: now,
@@ -216,10 +226,10 @@ defmodule Ryker.People do
     :ok
   end
 
-  # Said in a Slack channel anyone in the workspace can read, or elsewhere
-  # than Slack, it may be used wherever that person asks; said in a direct
-  # message, a private channel or a channel shared with another
-  # organisation, only there.
+  # Said in a Slack channel anyone in the workspace can read, a fact may be
+  # used wherever that person asks. Said anywhere else, only there: a direct
+  # message, a private channel, a channel shared with another organisation,
+  # a pull request that may be in a private repository, or Chat.
   defp private?("slack:" <> rest) do
     case String.split(rest, ":", parts: 2) do
       [workspace, channel] ->
@@ -236,7 +246,7 @@ defmodule Ryker.People do
     end
   end
 
-  defp private?(_conversation_ref), do: false
+  defp private?(_conversation_ref), do: true
 
   @doc """
   What `person_ref` said about themselves that may be used in
@@ -402,10 +412,36 @@ defmodule Ryker.People do
 
     {count, _rows} =
       Repo.update_all(
-        from(f in PersonFact, where: f.status == :kept, where: ^condition),
-        set: [status: :forgotten, fact: nil, forgotten_at: now, updated_at: now]
+        from(f in PersonFact,
+          where: f.status == :kept,
+          where: ^condition,
+          update: [
+            set: [
+              key:
+                fragment(
+                  "'f' || left(encode(sha256(convert_to(? || chr(10) || ?, 'UTF8')), 'hex'), 47)",
+                  f.person_ref,
+                  f.key
+                ),
+              status: :forgotten,
+              fact: nil,
+              forgotten_at: ^now,
+              updated_at: ^now
+            ]
+          ]
+        ),
+        []
       )
 
     count
+  end
+
+  # A forgotten fact keeps a digest of its kind in place of the kind:
+  # "medical-leave" said what was forgotten (2026-10-04 review). The digest
+  # still finds the row, so nothing said before the forgetting teaches it
+  # again. `forget_where/1` computes the same digest in SQL.
+  defp forgotten_key(person, key) do
+    digest = :crypto.hash(:sha256, person <> "\n" <> key) |> Base.encode16(case: :lower)
+    "f" <> binary_part(digest, 0, 47)
   end
 end

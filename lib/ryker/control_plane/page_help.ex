@@ -688,7 +688,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"How Ryker uses it",
        [
          "Only when that person is the one asking, to be considerate, like wishing them a happy birthday or using the name they prefer. It isn't evidence or permission, and Ryker doesn't share it with anyone else.",
-         "Something said in a direct message or a private channel is used only there."
+         "Something said in a direct message, a private channel, Chat or GitHub is used only there."
        ]},
       {"Forgetting",
        [

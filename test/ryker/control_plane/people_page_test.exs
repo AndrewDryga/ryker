@@ -35,7 +35,8 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
 
   test "a person's page shows what they said and where, and forgetting them asks first" do
     person = "control_plane:user:local-operator"
-    fact!(person, "birthday", "Birthday is 12 March.", false)
+    # Said in Chat, a fact stays there (2026-10-04 review).
+    fact!(person, "birthday", "Birthday is 12 March.", true)
 
     assert %{status: 200, title: "You", body: body} =
              Pages.page(["memory", "people"], %{"person" => person}, %{
@@ -44,7 +45,7 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
 
     page = LazyHTML.from_fragment(body)
     assert LazyHTML.text(page) =~ "Birthday is 12 March."
-    assert LazyHTML.text(page) =~ "Said in Chat"
+    assert LazyHTML.text(page) =~ "Said in Chat, used only there"
     assert page |> LazyHTML.query("form[method=get] button") |> LazyHTML.text() =~ "Forget"
 
     path = "/actions/person/#{person}/forget"

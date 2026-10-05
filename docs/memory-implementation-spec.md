@@ -339,8 +339,8 @@ message, deleting the Slack channel, or an operator forgetting the person on Mem
 forgets it; a forgotten fact keeps no words and its row, so neither its message nor anything said
 before the forgetting teaches it again. Routing and Work read the asking person's facts as
 `person_asking`, only when there are any, with a note to use them for courtesy only; a fact said
-in a direct message, a private channel or a channel shared with another organisation is used only
-there.
+in a direct message, a private channel, a channel shared with another organisation, Chat or GitHub
+is used only there.
 
 ## 5. Recall contract
 

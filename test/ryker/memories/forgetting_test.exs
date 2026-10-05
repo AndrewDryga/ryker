@@ -33,7 +33,8 @@ defmodule Ryker.Memories.ForgettingTest do
   test "a forgotten topic is erased, listed as forgotten, and never learned again", %{
     first: first
   } do
-    topic = topic!(first, "checkout-readiness", "Checkout readiness")
+    topic = topic!(first, "checkout-readiness", "Checkout readiness", ["nomad-hst01"])
+    assert topic.anchor_keys != []
 
     assert {:ok, %{forgotten: [id], relearn: []}} = Forgetting.forget_topic(topic.id)
     assert id == topic.id
@@ -41,6 +42,11 @@ defmodule Ryker.Memories.ForgettingTest do
     forgotten = Repo.get!(ConversationKnowledge, topic.id)
     assert forgotten.forgotten_at
     assert forgotten.state == %{"retention" => "pruned"}
+
+    # Its key and anchors named what was forgotten until a later topic took
+    # the subject (2026-10-04 review).
+    assert forgotten.topic_key == "retired:" <> topic.id
+    assert forgotten.anchor_keys == []
 
     assert Repo.all(
              from(r in KnowledgeRevision, where: r.knowledge_id == ^topic.id, select: r.state)
@@ -233,13 +239,13 @@ defmodule Ryker.Memories.ForgettingTest do
     assert Repo.get!(ConversationKnowledge, topic.id).forgotten_at
   end
 
-  defp topic!(entry, key, title) do
+  defp topic!(entry, key, title, anchors \\ []) do
     proposal = %{
       "topic_key" => key,
       "title" => title,
       "summary" => "#{title}, as the message reported it.",
       "topics" => [key],
-      "anchors" => [],
+      "anchors" => anchors,
       "target_ref" => nil,
       "expected_version" => 0
     }

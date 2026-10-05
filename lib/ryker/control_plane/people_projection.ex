@@ -94,7 +94,9 @@ defmodule Ryker.ControlPlane.PeopleProjection do
     end
   end
 
-  defp where("control-plane:" <> _rest, _private), do: "Said in Chat"
+  defp where("control-plane:" <> _rest, private),
+    do: "Said in Chat" <> if(private, do: ", used only there", else: "")
+
   defp where(_conversation_ref, true), do: "Used only where it was said"
   defp where(_conversation_ref, false), do: nil
 
