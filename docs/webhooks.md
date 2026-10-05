@@ -44,7 +44,7 @@ configuration file. One saved source carries:
 | Field | Meaning |
 | --- | --- |
 | Source name | The path segment: `/v1/hooks/<name>`. Stable; it is the route's identity. |
-| Payload shape | `universal`, `grafana` or a custom mapping. A preset also fills in the authentication a provider supports and its grouping labels. |
+| Payload shape | `universal`, `grafana` or a custom mapping. The preset names the shape only; authentication and grouping are chosen on the form. |
 | Authentication | Bearer token or HMAC-SHA256. There is no unauthenticated shape and no weaker fallback when verification fails. |
 | Credential | A secret generated or imported for this source in guided setup. Ryker reveals a generated value once, stores it encrypted, and lets an operator rotate it without changing another source. |
 | Destination | Transport plus conversation and thread reference. Validated against the configured outbound adapters when the runtime assembles. |

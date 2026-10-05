@@ -2,11 +2,10 @@ defmodule Ryker.Webhooks.Presets do
   @moduledoc """
   The supported webhook source shapes, with a recorded sample of each.
 
-  A preset is a starting point, not an authority: it fills in the adapter,
-  the authentication method a provider actually supports and the grouping that
-  provider's payloads need. Destination, context and credential reference stay
-  explicit choices, because those are the fields that decide where an event can
-  reach and what it may run as.
+  A preset names a payload shape and nothing else. How a sender proves who
+  it is, the grouping, the destination, the environment and the credential are
+  the operator's choices on the form, because they decide who may send and
+  where an event can reach.
 
   The samples exist so a mapping can be checked against a real payload shape
   before an incident depends on it. They are the payloads the transform tests
@@ -58,8 +57,6 @@ defmodule Ryker.Webhooks.Presets do
     %{
       key: :universal,
       adapter_kind: :universal,
-      auth_kind: :hmac_sha256,
-      group_by_labels: [],
       title: "Ryker's own format",
       description:
         "From a system you control. It names each event in Ryker's headers, so the body can " <>
@@ -69,8 +66,6 @@ defmodule Ryker.Webhooks.Presets do
     %{
       key: :grafana,
       adapter_kind: :grafana,
-      auth_kind: :bearer,
-      group_by_labels: ["cluster", "service"],
       title: "Grafana alerts",
       description:
         "From a Grafana contact point. Each alert in a delivery becomes its own event, and " <>
@@ -80,8 +75,6 @@ defmodule Ryker.Webhooks.Presets do
     %{
       key: :mapped_json,
       adapter_kind: :mapped_json,
-      auth_kind: :hmac_sha256,
-      group_by_labels: [],
       title: "Other JSON",
       description:
         "From any other sender whose format you cannot change. You say where its JSON keeps " <>

@@ -28,32 +28,20 @@ defmodule Ryker.Webhooks.PresetsTest do
     end
   end
 
-  test "the grafana sample carries the whole group its preset promises to correlate" do
-    # The preset says one delivery carries a group of alerts correlated by these
-    # labels. A sample without them would prove nothing about that claim.
-    {:ok, preset} = Presets.fetch(:grafana)
-    assert preset.group_by_labels == ["cluster", "service"]
-
-    payload = Jason.decode!(Presets.sample(:grafana))
-    assert Map.keys(payload["commonLabels"]) -- preset.group_by_labels == ["severity"]
-    assert payload["alerts"] != []
-  end
-
   test "a preset fixes the provider's shape and never where an event may reach" do
-    # Destination, context and credential decide what an inbound event can run
-    # as. Prefilling them from a provider list is how a source ends up pointed
-    # somewhere nobody chose.
+    # How a sender proves who it is, the destination, context and credential
+    # decide who may send and what an event can run as. Prefilling them from a
+    # provider list is how a source ends up pointed somewhere nobody chose. The
+    # presets carried an authentication and a grouping the form never read, and
+    # the review took "Other JSON"'s unread HMAC for the form's default
+    # (2026-10-04).
     for preset <- Presets.all() do
       assert preset.adapter_kind in [:universal, :grafana, :mapped_json]
-      assert preset.auth_kind in [:bearer, :hmac_sha256]
-      assert is_list(preset.group_by_labels)
       assert preset.title != "" and preset.description != ""
 
       assert Map.keys(preset) |> Enum.sort() == [
                :adapter_kind,
-               :auth_kind,
                :description,
-               :group_by_labels,
                :key,
                :sample,
                :title
@@ -87,13 +75,13 @@ defmodule Ryker.Webhooks.PresetsTest do
       name: "alerts",
       enabled: true,
       adapter_kind: preset.adapter_kind,
-      auth_kind: preset.auth_kind,
+      auth_kind: :bearer,
       secret_name: "ALERTMANAGER_WEBHOOK_SECRET",
       destination_transport: "control_plane",
       destination_conversation_ref: "control-plane:lab:6f1a0f38-0b74-4f77-9f20-7a0c1e2d3b44",
       destination_thread_ref: "control-plane:lab:6f1a0f38-0b74-4f77-9f20-7a0c1e2d3b44",
       environment_ref: "ryker",
-      group_by_labels: preset.group_by_labels,
+      group_by_labels: [],
       mapping: mapping(preset.adapter_kind)
     }
   end
