@@ -213,7 +213,7 @@ defmodule Ryker.Learning.Executor do
         local.id,
         turn,
         session,
-        DateTime.utc_now()
+        Repo.now!()
       )
     end)
   end

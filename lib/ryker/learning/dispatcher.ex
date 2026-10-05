@@ -1,5 +1,7 @@
 defmodule Ryker.Learning.Dispatcher do
   @moduledoc "Dispatches exclusively assigned original inputs; replying is a separate decision."
+  require Logger
+
   alias Ryker.Learning.{Batches, EmptyChat, Executor, FleetSession}
 
   @maximum_reconciliations 12
@@ -155,11 +157,13 @@ defmodule Ryker.Learning.Dispatcher do
   defp failed(claim, nil, reason, settings),
     do: Batches.release(claim, error_reason(code(reason)), settings.step_delay_seconds)
 
-  defp failed(claim, outstanding, _reason, settings),
-    do: unresolved(claim, outstanding, settings)
+  defp failed(claim, outstanding, reason, settings),
+    do: unresolved(claim, outstanding, settings, reason)
 
-  defp unresolved(claim, run, settings) do
+  defp unresolved(claim, run, settings, reason \\ nil) do
     with {:ok, run} <- Batches.reconciliation_failed(claim, run.id) do
+      log_unresolved(run, reason || run.error_code)
+
       if run.reconcile_attempt_count >= @maximum_reconciliations do
         stop_unresolved(claim, run, settings)
       else
@@ -226,6 +230,19 @@ defmodule Ryker.Learning.Dispatcher do
 
       true ->
         Batches.finish(claim, :no_change)
+    end
+  end
+
+  # The first tries and then every tenth, as repository knowledge does
+  # (ffac2d7b): learning retried a step in silence (2026-10-04 review).
+  defp log_unresolved(run, reason) do
+    count = run.reconcile_attempt_count
+
+    if count <= 3 or rem(count, 10) == 0 do
+      Logger.warning(
+        "learning could not take its next step for run #{run.id} (try #{count}): " <>
+          inspect(reason, limit: 8, printable_limit: 300)
+      )
     end
   end
 

@@ -245,6 +245,21 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert second["prompt"] =~ "did not match the output contract"
   end
 
+  # Repository knowledge learned to say why a step keeps failing (ffac2d7b);
+  # analyses, run the same way, retried their step in silence (2026-10-04
+  # review).
+  test "an analysis step that keeps failing says why in the log" do
+    unhappy_request!("1790101900.000100")
+    coop = coop!([Jason.encode!(@diagnosis)])
+    assert {:ok, _yielded} = Dispatcher.run_once(settings(coop))
+    Agent.update(coop, &Map.put(&1, :session_answer, {:error, :unreachable}))
+
+    log = ExUnit.CaptureLog.capture_log(fn -> drain(settings(coop), 4) end)
+
+    assert log =~ "analysis could not take its next step"
+    assert log =~ "unreachable"
+  end
+
   test "a model that keeps failing costs at most three starts, then the candidate says so" do
     request = unhappy_request!("1790100400.000100")
     coop = coop!(List.duplicate(Jason.encode!(@diagnosis), 5), every_turn_state: "failed")

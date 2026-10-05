@@ -5,6 +5,8 @@ defmodule Ryker.Improvement.Dispatcher do
   give the lease back with what happened.
   """
 
+  require Logger
+
   alias Ryker.Improvement.{Analyses, Executor, FleetSession}
 
   @refused_policy_hold_seconds 300
@@ -117,16 +119,30 @@ defmodule Ryker.Improvement.Dispatcher do
       {:error, :improvement_lease_lost} = error ->
         error
 
-      {:error, _reason} ->
-        unresolved(claim, run)
+      {:error, reason} ->
+        unresolved(claim, run, reason)
     end
   end
 
   # Coop could not be asked, or its answer did not settle the step: nothing
   # is replaced; the same run is asked again, less often each time.
-  defp unresolved(claim, run) do
+  defp unresolved(claim, run, reason) do
     with {:ok, run} <- Analyses.reconciliation_failed(claim, run.id) do
+      log_unresolved(run, reason)
       Analyses.yield(claim, min(Integer.pow(2, min(run.reconcile_attempt_count, 6)), 60))
+    end
+  end
+
+  # The first tries and then every tenth, as repository knowledge does
+  # (ffac2d7b): an analysis retried its step in silence (2026-10-04 review).
+  defp log_unresolved(run, reason) do
+    count = run.reconcile_attempt_count
+
+    if count <= 3 or rem(count, 10) == 0 do
+      Logger.warning(
+        "analysis could not take its next step for run #{run.id} (try #{count}): " <>
+          inspect(reason, limit: 8, printable_limit: 300)
+      )
     end
   end
 end

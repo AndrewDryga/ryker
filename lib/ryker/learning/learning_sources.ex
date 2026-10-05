@@ -540,7 +540,9 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   defp unexpired_sources(sources) do
-    if is_list(sources) and Enum.all?(sources, &unexpired?(&1["retained_at"])),
+    cutoff = horizon_cutoff()
+
+    if is_list(sources) and Enum.all?(sources, &unexpired?(&1["retained_at"], cutoff)),
       do: sources
   end
 
@@ -692,8 +694,9 @@ defmodule Ryker.Learning.LearningSources do
         )
 
       notes = notes |> Observations.authorized_notes(scope) |> Map.new(&{&1.id, &1})
+      cutoff = horizon_cutoff()
 
-      if Enum.all?(roots, &valid_receipt?(&1, notes[&1["observation_id"]], scope)),
+      if Enum.all?(roots, &valid_receipt?(&1, notes[&1["observation_id"]], scope, cutoff)),
         do: {:ok, roots},
         else: :error
     else
@@ -721,14 +724,15 @@ defmodule Ryker.Learning.LearningSources do
     end)
   end
 
-  defp valid_receipt?(_receipt, nil, _scope), do: false
+  defp valid_receipt?(_receipt, nil, _scope, _cutoff), do: false
 
-  defp valid_receipt?(_receipt, %{source_result_ref: "source-conflict:" <> _}, _scope),
+  defp valid_receipt?(_receipt, %{source_result_ref: "source-conflict:" <> _}, _scope, _cutoff),
     do: false
 
-  defp valid_receipt?(receipt, source, scope) do
+  defp valid_receipt?(receipt, source, scope, cutoff) do
     receipt_matches_source?(receipt, source) and source.workspace_ref == scope.workspace_ref and
-      unexpired?(DateTime.to_iso8601(source.updated_at)) and unexpired?(receipt["retained_at"])
+      unexpired?(DateTime.to_iso8601(source.updated_at), cutoff) and
+      unexpired?(receipt["retained_at"], cutoff)
   end
 
   defp receipt_matches_source?(receipt, source) do
@@ -741,16 +745,20 @@ defmodule Ryker.Learning.LearningSources do
       source.repository_ref == receipt["repository_ref"]
   end
 
-  defp unexpired?(at) do
-    seconds = retention_seconds()
+  # What the conversation-memory horizon still keeps, by the database clock
+  # retention prunes by: judged by the host's, a source the database had
+  # expired stayed valid to learning (2026-10-04 review). Nil keeps all.
+  defp horizon_cutoff do
+    case retention_seconds() do
+      seconds when is_integer(seconds) and seconds > 0 -> DateTime.add(Repo.now!(), -seconds)
+      _unbounded -> nil
+    end
+  end
 
+  defp unexpired?(at, cutoff) do
     case DateTime.from_iso8601(at || "") do
-      {:ok, time, 0} ->
-        not is_integer(seconds) or seconds <= 0 or
-          DateTime.after?(time, DateTime.add(DateTime.utc_now(), -seconds))
-
-      _ ->
-        false
+      {:ok, time, 0} -> is_nil(cutoff) or DateTime.after?(time, cutoff)
+      _ -> false
     end
   end
 

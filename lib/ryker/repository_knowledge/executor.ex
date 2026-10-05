@@ -610,7 +610,7 @@ defmodule Ryker.RepositoryKnowledge.Executor do
         local.id,
         turn,
         session,
-        DateTime.utc_now()
+        Repo.now!()
       )
     end)
   end

@@ -777,6 +777,21 @@ defmodule Ryker.Learning.DispatcherTest do
     assert FakeCoopAPI.state(fake).submit_count == 0
   end
 
+  # Repository knowledge learned to say why a step keeps failing (ffac2d7b);
+  # learning, run the same way, retried its step in silence (2026-10-04
+  # review).
+  test "a learning step that keeps failing says why in the log" do
+    _entries = inputs!()
+    {:ok, fake} = FakeCoopAPI.start_link([])
+    Agent.update(fake, &Map.put(&1, :unreachable, true))
+    settings = Map.put(@settings, :client, fake)
+
+    log = ExUnit.CaptureLog.capture_log(fn -> drive_to_terminal!(settings, 12) end)
+
+    assert log =~ "learning could not take its next step"
+    assert log =~ "unreachable"
+  end
+
   test "an unresolved remote turn blocks later inputs even after the scope pause expires" do
     # Fable found that the hourly pause could expire while the prior remote
     # operation still had no stop proof, allowing duplicate work in a new batch.

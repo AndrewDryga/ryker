@@ -5,10 +5,46 @@ defmodule Ryker.Learning.LearningRetentionTest do
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Learning
-  alias Ryker.Learning.LearningRun
+  alias Ryker.Learning.{LearningRun, LearningSources, Observations}
 
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
   @retention_seconds 3_600
+
+  # Retention prunes a source by the database clock, and learning judged the
+  # same source by the host's. With the clocks apart, a source the database
+  # had expired was still valid to learning (2026-10-04 review).
+  test "a learning source expires by the database clock that retention prunes by" do
+    [first, _second] = Fixtures.inputs!()
+    assert {:ok, run} = Learning.prepare([first.id], @policy)
+
+    previous = Application.get_env(:ryker, :retention)
+    Application.put_env(:ryker, :retention, %{conversation_memory_seconds: @retention_seconds})
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:ryker, :retention, previous),
+        else: Application.delete_env(:ryker, :retention)
+    end)
+
+    # Structural fixture: the database clock runs two hours ahead of the host's.
+    Repo.query!("CREATE SCHEMA ahead_clock")
+
+    Repo.query!("""
+    CREATE FUNCTION ahead_clock.clock_timestamp() RETURNS timestamptz LANGUAGE sql STABLE AS $$
+      SELECT pg_catalog.clock_timestamp() + interval '2 hours'
+    $$
+    """)
+
+    Repo.query!("SET search_path TO ahead_clock, pg_catalog, public")
+
+    assert {:ok, valid?} =
+             Repo.transaction(fn ->
+               {:ok, scope} = Observations.locked_scope(first, first.repository_ref)
+               LearningSources.valid?(run.source_dependencies, scope)
+             end)
+
+    refute valid?, "a source whose retention has expired is still valid to learning"
+  end
 
   test "pruning a topic cannot hide expiry of its copies in a frozen learning request" do
     # Compact references must keep their lifetime after the referenced prose
