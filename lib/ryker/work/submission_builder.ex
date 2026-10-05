@@ -243,24 +243,9 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp maybe_put_workspace(context, nil), do: context
   defp maybe_put_workspace(context, workspace), do: Map.put(context, "workspace", workspace)
 
+  # The platform tools Work was assembled with (`Ryker.Runtime.Assembly`).
   defp platform_tool_names(episode, mode, options) do
-    configured =
-      case Keyword.fetch(options, :platform_tools) do
-        {:ok, tools} ->
-          tools
-
-        :error ->
-          case Application.get_env(:ryker, :state_tools, %{}) do
-            %{additional_tools: tools} ->
-              tools
-
-            configuration when is_list(configuration) ->
-              Keyword.get(configuration, :additional_tools, [])
-
-            _configuration ->
-              []
-          end
-      end
+    configured = Keyword.get(options, :platform_tools, [])
 
     if is_list(configured) do
       configured_names =
@@ -525,7 +510,7 @@ defmodule Ryker.Work.SubmissionBuilder do
         names =
           FixedTools.list(capabilities: capabilities, binding: %{episode: episode})
           |> Enum.map(& &1["name"])
-          |> maybe_add_emisar_approval(capabilities)
+          |> maybe_add_emisar_approval(capabilities, episode)
 
         {:ok, names}
 
@@ -534,10 +519,11 @@ defmodule Ryker.Work.SubmissionBuilder do
     end
   end
 
-  defp maybe_add_emisar_approval(names, capabilities) do
-    if :emisar_approvals in capabilities,
-      do: names ++ ["record_emisar_approval"],
-      else: names
+  defp maybe_add_emisar_approval(names, capabilities, episode) do
+    if :emisar_approvals in capabilities and
+         Contract.fixed_tool_allowed?(episode.execution_mode, "record_emisar_approval"),
+       do: names ++ ["record_emisar_approval"],
+       else: names
   end
 
   defp input_snapshot(episode) do

@@ -38,6 +38,11 @@ defmodule Ryker.Memories.MemorySearch do
     Repo.transaction(fn ->
       Repo.query!("SET LOCAL statement_timeout = '5000ms'")
       binding = lock_binding(binding, %{"cursor" => nil})
+      # The session, then the channel, then any recall accounting, as search
+      # takes them: related memory charged a recall before the channel's lock,
+      # and a lock it then could not take left the transaction aborted under
+      # the next read (2026-10-04 review).
+      lock_scope(binding)
       {:ok, before_at} = date(before_time)
 
       page =
@@ -87,10 +92,7 @@ defmodule Ryker.Memories.MemorySearch do
     # Work acceptance and source exposure lock the session before channel
     # authorization. Take that same subsequence before any recall accounting,
     # irrespective of which result kind resumes first on this cursor page.
-    case Observations.locked_scope(binding.episode, binding.session.repository_ref) do
-      {:ok, _scope} -> :ok
-      {:error, reason} -> Repo.rollback(search_error(reason))
-    end
+    lock_scope(binding)
 
     fetch = fn lane, current -> fetch(lane, binding, current) end
     {documents, state, budget} = collect(page, state, arguments["limit"], fetch)
@@ -159,6 +161,13 @@ defmodule Ryker.Memories.MemorySearch do
       [id]
     else
       _none -> []
+    end
+  end
+
+  defp lock_scope(binding) do
+    case Observations.locked_scope(binding.episode, binding.session.repository_ref) do
+      {:ok, _scope} -> :ok
+      {:error, reason} -> Repo.rollback(search_error(reason))
     end
   end
 

@@ -387,19 +387,6 @@
                   }
                 ]
               },
-              "cursor": {
-                "anyOf": [
-                  {
-                    "maxLength": 256,
-                    "minLength": 1,
-                    "pattern": "^[A-Za-z0-9_.:-]+$",
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
               "enabled": {
                 "anyOf": [
                   {
@@ -427,14 +414,6 @@
                   }
                 ]
               },
-              "relationship": {
-                "enum": [
-                  "context",
-                  "delivery",
-                  "either"
-                ],
-                "type": "string"
-              },
               "trigger_type": {
                 "anyOf": [
                   {
@@ -451,8 +430,7 @@
               }
             },
             "required": [
-              "limit",
-              "relationship"
+              "limit"
             ],
             "type": "object"
           },
@@ -1235,34 +1213,10 @@
                 ],
                 "type": "string"
               },
-              "source_refs": {
-                "items": {
-                  "maxLength": 256,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9_.:-]+$",
-                  "type": "string"
-                },
-                "maxItems": 20,
-                "minItems": 1,
-                "type": "array",
-                "uniqueItems": true
-              },
               "subject": {
                 "maxLength": 120,
                 "minLength": 1,
                 "type": "string"
-              },
-              "supersedes": {
-                "items": {
-                  "maxLength": 256,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9_.:-]+$",
-                  "type": "string"
-                },
-                "maxItems": 20,
-                "minItems": 0,
-                "type": "array",
-                "uniqueItems": true
               },
               "value": {
                 "maxLength": 4000,
@@ -1274,9 +1228,7 @@
               "expires_at",
               "kind",
               "scope",
-              "source_refs",
               "subject",
-              "supersedes",
               "value"
             ],
             "type": "object"
@@ -1301,10 +1253,6 @@
                       }
                     ]
                   },
-                  "explicit_request": {
-                    "const": true,
-                    "type": "boolean"
-                  },
                   "key": {
                     "const": "health_check_depth",
                     "type": "string"
@@ -1318,18 +1266,6 @@
                     ],
                     "type": "string"
                   },
-                  "source_refs": {
-                    "items": {
-                      "maxLength": 256,
-                      "minLength": 1,
-                      "pattern": "^[A-Za-z0-9_.:-]+$",
-                      "type": "string"
-                    },
-                    "maxItems": 20,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
                   "value": {
                     "enum": [
                       "quick",
@@ -1341,10 +1277,8 @@
                 },
                 "required": [
                   "expires_at",
-                  "explicit_request",
                   "key",
                   "scope",
-                  "source_refs",
                   "value"
                 ],
                 "type": "object"
@@ -1362,10 +1296,6 @@
                         "type": "null"
                       }
                     ]
-                  },
-                  "explicit_request": {
-                    "const": true,
-                    "type": "boolean"
                   },
                   "key": {
                     "const": "response_detail",
@@ -1380,18 +1310,6 @@
                     ],
                     "type": "string"
                   },
-                  "source_refs": {
-                    "items": {
-                      "maxLength": 256,
-                      "minLength": 1,
-                      "pattern": "^[A-Za-z0-9_.:-]+$",
-                      "type": "string"
-                    },
-                    "maxItems": 20,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
                   "value": {
                     "enum": [
                       "concise",
@@ -1403,10 +1321,8 @@
                 },
                 "required": [
                   "expires_at",
-                  "explicit_request",
                   "key",
                   "scope",
-                  "source_refs",
                   "value"
                 ],
                 "type": "object"
@@ -1425,10 +1341,6 @@
                       }
                     ]
                   },
-                  "explicit_request": {
-                    "const": true,
-                    "type": "boolean"
-                  },
                   "key": {
                     "const": "response_location",
                     "type": "string"
@@ -1441,18 +1353,6 @@
                     ],
                     "type": "string"
                   },
-                  "source_refs": {
-                    "items": {
-                      "maxLength": 256,
-                      "minLength": 1,
-                      "pattern": "^[A-Za-z0-9_.:-]+$",
-                      "type": "string"
-                    },
-                    "maxItems": 20,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
                   "value": {
                     "enum": [
                       "follow_context",
@@ -1464,10 +1364,8 @@
                 },
                 "required": [
                   "expires_at",
-                  "explicit_request",
                   "key",
                   "scope",
-                  "source_refs",
                   "value"
                 ],
                 "type": "object"
@@ -1674,9 +1572,6 @@
                   }
                 ]
               },
-              "needs_response": {
-                "type": "boolean"
-              },
               "response_question": {
                 "anyOf": [
                   {
@@ -1719,7 +1614,6 @@
             "required": [
               "category",
               "details",
-              "needs_response",
               "response_question",
               "sentiment",
               "summary",

@@ -9,14 +9,6 @@ defmodule Ryker.StateTools.Binding do
   alias Ryker.Repo
   alias Ryker.Work.{Session, StateBinding, Turn}
 
-  @spec authorize(binary()) :: :ok | {:error, :state_tools_binding_not_authorized}
-  def authorize(token) do
-    case resolve(token) do
-      {:ok, _binding} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
   @spec resolve(binary()) ::
           {:ok,
            %{

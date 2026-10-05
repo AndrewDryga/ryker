@@ -20,9 +20,6 @@ defmodule Ryker.StateTools.ToolVisibility do
     "post_slack_update" => MapSet.new(["control_plane", "slack"])
   }
 
-  @spec visible?(String.t(), String.t() | nil) :: boolean()
-  def visible?(name, destination_transport), do: visible?(name, destination_transport, :live)
-
   @spec visible?(String.t(), String.t() | nil, :live | :shadow) :: boolean()
   def visible?(name, destination_transport, mode) when is_binary(name) do
     case allowed_transports(name) do

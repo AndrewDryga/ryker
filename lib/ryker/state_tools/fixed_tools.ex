@@ -44,9 +44,6 @@ defmodule Ryker.StateTools.FixedTools do
   @spec names() :: [String.t()]
   def names, do: @names
 
-  @spec known?(term()) :: boolean()
-  def known?(name), do: name in @names
-
   defdelegate written_by?(record, turn, tool, arguments), to: RecordWriter
 
   @spec list(keyword() | map()) :: [map()]
@@ -166,7 +163,6 @@ defmodule Ryker.StateTools.FixedTools do
        when is_binary(token),
        do: {:ok, %{episode: episode, session: session, state_token: token, turn: turn}}
 
-  defp tool_binding(%{"binding" => binding}), do: tool_binding(%{binding: binding})
   defp tool_binding(_options), do: {:error, :unauthorized}
 
   defp capability_available(name, _arguments, options) when name in @confirmation_tools do
@@ -210,16 +206,6 @@ defmodule Ryker.StateTools.FixedTools do
        }),
        do: transport in ["slack", "control_plane", "github"] and execution_mode == :live
 
-  defp confirmation_surface?(%{
-         "binding" => %{
-           "episode" => %{
-             "destination_transport" => transport,
-             "execution_mode" => execution_mode
-           }
-         }
-       }),
-       do: transport in ["slack", "control_plane", "github"] and execution_mode == "live"
-
   defp confirmation_surface?(_options), do: true
 
   defp capabilities(options) when is_list(options) do
@@ -233,16 +219,15 @@ defmodule Ryker.StateTools.FixedTools do
 
   defp capabilities(_options), do: []
 
-  defp execution_mode(options) when is_list(options) do
+  @doc false
+  # Whether the bound turn is live work or an evaluation run, which only observes.
+  def execution_mode(options) when is_list(options) do
     if Keyword.keyword?(options), do: options |> Map.new() |> execution_mode(), else: :live
   end
 
-  defp execution_mode(%{binding: %{episode: %{execution_mode: mode}}})
-       when mode in [:live, :shadow],
-       do: mode
+  def execution_mode(%{binding: %{episode: %{execution_mode: mode}}})
+      when mode in [:live, :shadow],
+      do: mode
 
-  defp execution_mode(%{"binding" => %{"episode" => %{"execution_mode" => "shadow"}}}),
-    do: :shadow
-
-  defp execution_mode(_options), do: :live
+  def execution_mode(_options), do: :live
 end

@@ -17,7 +17,26 @@ defmodule Ryker.StateTools.LookupContext do
              "search_github",
              "read_github_conversation"
            ] and is_map(binding) do
-    Repo.transaction(fn -> enrich_in_transaction(arguments, binding, result, source_tools) end)
+    with {:ok, {binding, result}} <- current(binding, result) do
+      binding
+      |> enrich_current(arguments, result, source_tools)
+      |> public_error()
+    end
+  end
+
+  def enrich(_name, _arguments, _binding, result, _source_tools), do: {:ok, result}
+
+  # What the lookup may show at all, decided under the turn's own binding.
+  defp current(binding, result) do
+    Repo.transaction(fn ->
+      Repo.query!("SET LOCAL statement_timeout = '5000ms'")
+
+      case LookupBoundary.current(binding, result) do
+        {:ok, binding, result} -> {binding, result}
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> public_error()
   rescue
     error in Postgrex.Error ->
       if Repo.budget_exhausted?(error),
@@ -25,21 +44,11 @@ defmodule Ryker.StateTools.LookupContext do
         else: reraise(error, __STACKTRACE__)
   end
 
-  def enrich(_name, _arguments, _binding, result, _source_tools), do: {:ok, result}
-
-  defp enrich_in_transaction(arguments, binding, result, source_tools) do
-    Repo.query!("SET LOCAL statement_timeout = '5000ms'")
-
-    with {:ok, binding, result} <- LookupBoundary.current(binding, result),
-         {:ok, result} <- enrich_current(arguments, binding, result, source_tools) do
-      result
-    else
-      {:error, reason} when is_atom(reason) -> Repo.rollback(Atom.to_string(reason))
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
-  defp enrich_current(arguments, binding, result, source_tools) do
+  # The memory around the lookup's sources is searched in a transaction of its
+  # own. The lookup itself already succeeded, and spent one of the model's
+  # searches; memory that ran out of time leaves it without memory, never
+  # failed (2026-10-04 review).
+  defp enrich_current(binding, arguments, result, source_tools) do
     targets = targets(result, binding)
 
     if targets == [] do
@@ -49,10 +58,23 @@ defmodule Ryker.StateTools.LookupContext do
 
       case MemorySearch.related(binding, targets, arguments["before"]) do
         {:ok, related} -> attach(result, related)
+        {:error, :memory_search_budget_exceeded} -> without_memory(result)
         {:error, reason} -> {:error, reason}
       end
     end
   end
+
+  defp without_memory(result) do
+    result
+    |> Map.merge(%{
+      "related_memory" => [],
+      "memory_coverage" => %{"basis" => "direct_source_relationship", "status" => "unavailable"}
+    })
+    |> LookupOriginals.fit(@maximum_bytes)
+  end
+
+  defp public_error({:error, reason}) when is_atom(reason), do: {:error, Atom.to_string(reason)}
+  defp public_error(answer), do: answer
 
   defp targets(result, %{
          episode: %{destination_transport: "slack", destination_conversation_ref: conversation}

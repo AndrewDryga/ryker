@@ -2538,9 +2538,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                  "expires_at" => nil,
                  "kind" => "guidance",
                  "scope" => "current_channel",
-                 "source_refs" => ["input:trusted:1"],
                  "subject" => "deployment_completion",
-                 "supersedes" => [],
                  "value" =>
                    "Verify the exact deployed allocation before reporting a deployment complete."
                },
@@ -2555,11 +2553,9 @@ defmodule Ryker.Evals.WorldRunnerTest do
              Tools.call(
                "propose_preference",
                %{
-                 "explicit_request" => true,
                  "expires_at" => nil,
                  "key" => "response_detail",
                  "scope" => "mine",
-                 "source_refs" => ["input:trusted:1"],
                  "value" => "concise"
                },
                binding_options(claim)

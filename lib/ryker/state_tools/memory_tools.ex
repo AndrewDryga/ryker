@@ -38,12 +38,18 @@ defmodule Ryker.StateTools.MemoryTools do
 
   @spec propose_memory(map(), map()) :: {:ok, map()} | {:error, term()}
   def propose_memory(arguments, binding) do
+    with {:ok, expires_in} <- expiry(arguments["expires_at"]) do
+      memory_offer(arguments, binding, expires_in)
+    end
+  end
+
+  defp memory_offer(arguments, binding, expires_in) do
     scope = effective_memory_scope(arguments["scope"], binding.episode)
 
     case arguments["kind"] do
       "guidance" ->
         payload = %{
-          "expires_in" => expiry(arguments["expires_at"]),
+          "expires_in" => expires_in,
           "repository" => memory_repository(scope, binding),
           "scope" => memory_scope(scope),
           "subject" => arguments["subject"],
@@ -61,7 +67,7 @@ defmodule Ryker.StateTools.MemoryTools do
 
       "fact" ->
         payload = %{
-          "expires_in" => expiry(arguments["expires_at"]),
+          "expires_in" => expires_in,
           "kind" => "entity_relationship",
           "repository" => memory_repository(scope, binding),
           "scope" => fact_scope(scope),
@@ -78,15 +84,15 @@ defmodule Ryker.StateTools.MemoryTools do
   def propose_preference(arguments, binding) do
     scope = preference_scope(arguments["scope"])
 
-    payload = %{
-      "expires_in" => expiry(arguments["expires_at"]),
-      "key" => arguments["key"],
-      "repository" => preference_repository(scope, binding),
-      "scope" => scope,
-      "value" => arguments["value"]
-    }
-
-    with {:ok, result} <-
+    with {:ok, expires_in} <- expiry(arguments["expires_at"]),
+         payload = %{
+           "expires_in" => expires_in,
+           "key" => arguments["key"],
+           "repository" => preference_repository(scope, binding),
+           "scope" => scope,
+           "value" => arguments["value"]
+         },
+         {:ok, result} <-
            RecordWriter.create_public_record(
              binding,
              "propose_preference",
@@ -172,23 +178,22 @@ defmodule Ryker.StateTools.MemoryTools do
   defp fact_visibility(scope) when scope in ["mine", "current_channel"], do: "conversation"
   defp fact_visibility(_scope), do: "workspace"
 
-  defp expiry(nil), do: "90d"
+  defp expiry(nil), do: {:ok, "90d"}
 
+  # An offer lasts 7, 30, 90 or 365 days: the shortest that reaches the asked
+  # time. A time already past was kept for 7 days without a word (2026-10-04
+  # review), and is refused.
   defp expiry(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, expires_at, 0} -> expiry_bucket(expires_at)
-      _invalid -> "90d"
-    end
-  end
-
-  defp expiry_bucket(expires_at) do
-    days = max(DateTime.diff(expires_at, DateTime.utc_now(), :day), 0)
-
-    cond do
-      days <= 7 -> "7d"
-      days <= 30 -> "30d"
-      days <= 90 -> "90d"
-      true -> "365d"
+    with {:ok, expires_at, _offset} <- DateTime.from_iso8601(value),
+         days when days >= 0 <- DateTime.diff(expires_at, DateTime.utc_now(), :second) do
+      cond do
+        days <= 7 * 86_400 -> {:ok, "7d"}
+        days <= 30 * 86_400 -> {:ok, "30d"}
+        days <= 90 * 86_400 -> {:ok, "90d"}
+        true -> {:ok, "365d"}
+      end
+    else
+      _past_or_invalid -> {:error, :invalid_arguments}
     end
   end
 end

@@ -177,14 +177,12 @@ defmodule Ryker.StateTools.Catalog do
       "Find visible durable automations before reading or changing one.",
       %{
         "channel_ref" => nullable(reference(256)),
-        "cursor" => nullable(reference(256)),
         "enabled" => nullable(%{"type" => "boolean"}),
         "limit" => integer(1, 50),
         "query" => nullable(text(500)),
-        "relationship" => enum(~w(context delivery either)),
         "trigger_type" => nullable(enum(~w(time source_event)))
       },
-      ~w(limit relationship)
+      ~w(limit)
     )
   end
 
@@ -325,9 +323,7 @@ defmodule Ryker.StateTools.Catalog do
         "expires_at" => nullable(timestamp()),
         "kind" => enum(~w(guidance fact)),
         "scope" => enum(~w(current_channel repository workspace mine)),
-        "source_refs" => array(reference(256), 1, 20),
         "subject" => text(120),
-        "supersedes" => array(reference(256), 0, 20),
         "value" => text(4_000)
       }
     )
@@ -335,10 +331,8 @@ defmodule Ryker.StateTools.Catalog do
 
   defp propose_preference_tool do
     common = %{
-      "explicit_request" => %{"const" => true, "type" => "boolean"},
       "expires_at" => nullable(timestamp()),
-      "scope" => enum(~w(current_channel repository workspace mine)),
-      "source_refs" => array(reference(256), 1, 20)
+      "scope" => enum(~w(current_channel repository workspace mine))
     }
 
     branch = fn key, values, scopes ->
@@ -348,7 +342,7 @@ defmodule Ryker.StateTools.Catalog do
           "scope" => enum(scopes),
           "value" => enum(values)
         }),
-        ~w(explicit_request expires_at key scope source_refs value)
+        ~w(expires_at key scope value)
       )
     end
 
@@ -401,7 +395,6 @@ defmodule Ryker.StateTools.Catalog do
       %{
         "category" => enum(~w(correctness usefulness ux latency routing other)),
         "details" => nullable(text(4_000)),
-        "needs_response" => %{"type" => "boolean"},
         "response_question" => nullable(text(2_000)),
         "sentiment" => enum(~w(negative suggestion positive)),
         "summary" => text(1_000),

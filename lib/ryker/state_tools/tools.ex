@@ -5,6 +5,7 @@ defmodule Ryker.StateTools.Tools do
   alias Ryker.Emisar.ApprovalContract
   alias Ryker.Records
   alias Ryker.StateTools.{ErrorCode, FixedTools}
+  alias Ryker.Work.Contract
 
   @fixed_tool_names FixedTools.names()
 
@@ -12,9 +13,17 @@ defmodule Ryker.StateTools.Tools do
   def list(options \\ %{}) do
     tools = FixedTools.list(options)
 
-    if match?({:ok, _authority}, emisar_authority(options)),
+    if approval_receipts?(options),
       do: tools ++ [emisar_approval_tool()],
       else: tools
+  end
+
+  # A turn records an approval receipt only as live work in an environment
+  # with Emisar: an evaluation run, which only observes, was offered one it
+  # could never record (2026-10-04 review).
+  defp approval_receipts?(options) do
+    Contract.fixed_tool_allowed?(FixedTools.execution_mode(options), "record_emisar_approval") and
+      match?({:ok, _authority}, emisar_authority(options))
   end
 
   @spec call(String.t(), map(), keyword() | map()) :: {:ok, map()} | {:error, String.t()}
@@ -25,7 +34,8 @@ defmodule Ryker.StateTools.Tools do
     payload_fields =
       ~w(action_id approval_url expires_at operation_id pack_ref request_id run_id runner_ref status)
 
-    with {:ok, authority} <- emisar_authority(options),
+    with true <- approval_receipts?(options) || {:error, :not_configured},
+         {:ok, authority} <- emisar_authority(options),
          :ok <- exact_fields(arguments, payload_fields),
          {:ok, payload} <-
            ApprovalContract.authorize(
@@ -127,15 +137,13 @@ defmodule Ryker.StateTools.Tools do
   defp emisar_authority(_options), do: {:error, :not_configured}
 
   defp state_token(options) when is_list(options) do
-    if Keyword.keyword?(options), do: options |> Map.new() |> state_token(), else: nil
+    if Keyword.keyword?(options),
+      do: options |> Map.new() |> state_token(),
+      else: {:error, :unauthorized}
   end
 
   defp state_token(%{binding: %{state_token: state_token}}) when is_binary(state_token),
     do: {:ok, state_token}
-
-  defp state_token(%{"binding" => %{"state_token" => state_token}})
-       when is_binary(state_token),
-       do: {:ok, state_token}
 
   defp state_token(_options), do: {:error, :unauthorized}
 end

@@ -574,7 +574,7 @@ defmodule Ryker.Records do
     with :ok <- validate_temporal(kind, prepared.continuation),
          :ok <- validate_relationships(episode.id, kind, prepared.payload, parallel_goal_limit),
          :ok <- record_capacity(turn.id, operation_id),
-         :ok <- supersede_prior_record(episode.id, turn.id, kind, prepared.payload) do
+         :ok <- supersede_prior_record(episode.id, kind, prepared.payload) do
       %{
         continuation: prepared.continuation,
         episode_id: episode.id,
@@ -662,9 +662,11 @@ defmodule Ryker.Records do
 
   defp validate_temporal(_kind, _continuation), do: :ok
 
+  # A new offer for the same instruction and repository replaces the open one,
+  # whichever turn made it: a refinement in the turn that made the offer left
+  # both open (2026-10-04 review). An identical retry never reaches here.
   defp supersede_prior_record(
          episode_id,
-         turn_id,
          "task_offer",
          %{"instruction_ref" => instruction_ref, "repository" => repository}
        )
@@ -674,8 +676,8 @@ defmodule Ryker.Records do
       Repo.all(
         from(record in Record,
           where:
-            record.episode_id == ^episode_id and record.turn_id != ^turn_id and
-              record.kind == "task_offer" and record.status == :open,
+            record.episode_id == ^episode_id and record.kind == "task_offer" and
+              record.status == :open,
           select: {record.id, record.payload}
         )
       )
@@ -699,7 +701,7 @@ defmodule Ryker.Records do
     :ok
   end
 
-  defp supersede_prior_record(_episode_id, _turn_id, _kind, _payload), do: :ok
+  defp supersede_prior_record(_episode_id, _kind, _payload), do: :ok
 
   defp validate_relationships(episode_id, "evidence", payload, _parallel_goal_limit),
     do: evidence_refs_exist(episode_id, Map.get(payload, "supersedes", []), :supersedes)

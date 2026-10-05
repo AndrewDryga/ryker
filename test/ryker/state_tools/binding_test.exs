@@ -45,7 +45,6 @@ defmodule Ryker.StateTools.BindingTest do
     assert binding.episode.id == claim.episode.id
     assert binding.session.id == claim.session.id
     assert binding.turn.id == claim.turn.id
-    assert Binding.authorize(state_binding.token) == :ok
 
     assert Binding.resolve("wrong-secret-that-is-long-enough-to-check") ==
              {:error, :state_tools_binding_not_authorized}
@@ -62,8 +61,7 @@ defmodule Ryker.StateTools.BindingTest do
                "release the lease"
              )
 
-    assert Binding.authorize(state_binding.token) ==
-             {:error, :state_tools_binding_not_authorized}
+    assert Binding.resolve(state_binding.token) == {:error, :state_tools_binding_not_authorized}
   end
 
   test "a replacement logical turn cannot be reached with the previous turn bearer" do

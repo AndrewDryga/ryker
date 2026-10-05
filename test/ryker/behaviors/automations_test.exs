@@ -248,6 +248,24 @@ defmodule Ryker.Behaviors.AutomationsTest do
            }) == {:error, :invalid_schedule_trigger}
   end
 
+  # An automation lives in the conversation that made it. A change naming its
+  # channels was taken and the channels kept as they were, without a word
+  # (2026-10-04 review); it is refused.
+  test "a change that names an automation's channels is refused" do
+    source = delivered_record!("channel-patch-source", "schedule_offer", schedule_offer())
+    assert {:ok, created} = Schedules.confirm(confirmation(source, "create-channel-patch"))
+    conversation = source.episode.destination_conversation_ref
+
+    for field <- ~w(context_channel delivery_channel) do
+      assert Automations.prepare_change(source.episode, %{
+               "action" => "update",
+               "automation_id" => created.schedule.ref,
+               "patch" => %{field => conversation},
+               "revision" => 1
+             }) == {:error, :invalid_arguments}
+    end
+  end
+
   # QA, 2026-09-25, Chat 878b84df: "every weekday at 9:00" had no recurrence to
   # land in, and the Monday-only fallback was what confirming created. The
   # confirmed schedule runs Monday to Friday and lists back as it was offered.

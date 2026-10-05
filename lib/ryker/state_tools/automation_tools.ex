@@ -11,13 +11,16 @@ defmodule Ryker.StateTools.AutomationTools do
   @spec list_automations(map(), map()) :: {:ok, map()} | {:error, term()}
   def list_automations(arguments, binding) do
     with :ok <- automation_list_channel(arguments["channel_ref"], binding) do
-      automations =
+      matching =
         binding.episode
         |> Automations.list_for_episode()
         |> filter_automations(arguments)
-        |> Enum.take(Map.get(arguments, "limit", 50))
 
-      {:ok, %{"automations" => automations, "cursor" => nil}}
+      limit = Map.get(arguments, "limit", 50)
+
+      # Narrow by query, state or trigger to reach the rest when not complete.
+      {:ok,
+       %{"automations" => Enum.take(matching, limit), "complete" => length(matching) <= limit}}
     end
   end
 

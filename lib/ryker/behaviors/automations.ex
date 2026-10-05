@@ -36,7 +36,9 @@ defmodule Ryker.Behaviors.Automations do
   @actions ~w(update pause resume delete)
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
-  @time_patch_fields ~w(context_channel delivery_channel expires_at prompt repository title trigger)
+  # An automation lives in the conversation that made it, so its channels are
+  # not part of a change: a patch naming them is refused, not silently kept.
+  @time_patch_fields ~w(expires_at prompt repository title trigger)
   @source_patch_fields @time_patch_fields ++ ["hold"]
 
   @spec list_for_episode(Episode.t()) :: [map()]
@@ -609,12 +611,15 @@ defmodule Ryker.Behaviors.Automations do
   defp visible_schedule(episode, automation_id),
     do: Repo.one(visible_schedule_query(episode, automation_id))
 
+  # One automation is found exactly where the list finds it: a deleted one is
+  # gone from both, so it can be neither read nor changed.
   defp visible_schedule_query(episode, automation_id) do
     from(schedule in Schedule,
       where:
         schedule.ref == ^automation_id and
           schedule.destination_transport == ^episode.destination_transport and
-          schedule.destination_conversation_ref == ^episode.destination_conversation_ref
+          schedule.destination_conversation_ref == ^episode.destination_conversation_ref and
+          schedule.status != :deleted
     )
   end
 
@@ -632,7 +637,8 @@ defmodule Ryker.Behaviors.Automations do
       where:
         behavior.ref == ^automation_id and behavior.kind == :standing_assignment and
           behavior.workspace_ref == ^workspace and behavior.scope_kind == :conversation and
-          behavior.scope_ref == ^episode.destination_conversation_ref
+          behavior.scope_ref == ^episode.destination_conversation_ref and
+          behavior.status in [:active, :disabled]
     )
   end
 

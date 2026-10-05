@@ -13,7 +13,8 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
   alias Ryker.Memories.MemorySearch
   alias Ryker.Memories.Recall
   alias Ryker.Records.Record
-  alias Ryker.Slack.ChannelFence
+  alias Ryker.Slack.{ChannelFence, SourceRef}
+  alias Ryker.StateTools.LookupContext
   alias Ryker.Work.{Custody, Session, Turn}
 
   @captured "testdata/learning/retained-draft-ai-suggestions-learning.json"
@@ -90,6 +91,42 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
         after
           stop_tasks([reader])
         end
+      after
+        stop_tasks([blocker])
+        cleanup(fixture)
+      end
+    end)
+  end
+
+  # A Slack or GitHub lookup had already run, and spent one of the model's
+  # three searches, when the memory around its sources ran out of time: the
+  # whole call failed and the model searched again (2026-10-04 review).
+  test "a lookup keeps its result when the memory around it runs out of time" do
+    Sandbox.unboxed_run(Repo, fn ->
+      assert {:ok, fixture} = Repo.transaction(fn -> fixture!(:fact) end)
+      parent = self()
+      "slack:" <> workspace = fixture.context.workspace_ref
+
+      blocker =
+        hold_lock(parent, fn -> :ok = ChannelFence.lock_in_transaction(workspace, "CSOURCE") end)
+
+      try do
+        assert_receive {:lock_held, _backend}, 5_000
+
+        hit = %{
+          "source_ref" => SourceRef.message(workspace, "CSOURCE", "1788628764.248029"),
+          "text" => "The suggestions draft is ready."
+        }
+
+        lookup = %{"complete" => true, "results" => %{"messages" => [hit]}}
+        result = LookupContext.enrich("search_slack", %{}, fixture.binding, lookup, [])
+        send(blocker.pid, :release_lock)
+        assert {:ok, :released} = Task.await(blocker)
+
+        assert {:ok, enriched} = result
+        assert enriched["results"]["messages"] == [hit]
+        assert enriched["related_memory"] == []
+        assert enriched["memory_coverage"]["status"] == "unavailable"
       after
         stop_tasks([blocker])
         cleanup(fixture)

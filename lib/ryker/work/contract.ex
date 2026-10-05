@@ -13,14 +13,16 @@ defmodule Ryker.Work.Contract do
     validate_final
   ))
 
-  @effectful_platform_tools MapSet.new(~w(
-    cancel_github_ci
-    post_slack_message
-    post_slack_update
-    rerun_github_ci
-    set_github_reaction
-    set_slack_reaction
-    submit_github_review
+  # An evaluation run only observes: the platform tools it may use are listed,
+  # so a tool added later stays out of it until someone says it only reads.
+  @shadow_platform_tools MapSet.new(~w(
+    list_slack_channels
+    read_github_ci
+    read_github_conversation
+    read_github_pull_request
+    read_slack_source
+    search_github
+    search_slack
   ))
 
   @type t :: %{
@@ -59,7 +61,7 @@ defmodule Ryker.Work.Contract do
   def platform_tool_allowed?(:live, name) when is_binary(name), do: true
 
   def platform_tool_allowed?(:shadow, name) when is_binary(name),
-    do: not MapSet.member?(@effectful_platform_tools, name)
+    do: MapSet.member?(@shadow_platform_tools, name)
 
   def platform_tool_allowed?(_mode, _name), do: false
 
