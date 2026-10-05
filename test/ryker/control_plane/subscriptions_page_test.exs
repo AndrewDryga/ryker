@@ -21,15 +21,21 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
     %{item: item_fixture()}
   end
 
-  test "a full list says it shows only the first 100 follow-ups" do
+  test "a list cut at 100 says so, and a list of exactly 100 does not" do
     # The list stopped at 100 rows without a word, so a follow-up past the
-    # cut looked as if it did not exist.
+    # cut looked as if it did not exist; then exactly 100 follow-ups read as
+    # cut too (2026-10-04 review). The projection reads one row past the cut.
     options = ControlPlaneOptions.options(self())
     [item] = options.projection.subscriptions.(%{})
-    items = for index <- 1..100, do: %{item | ref: "event-subscription:#{index}"}
-    options = put_in(options, [:projection, :subscriptions], fn _params -> items end)
 
-    assert Pages.page(["follow-ups"], %{}, options).body =~ "Showing the first 100 follow-ups."
+    page = fn count ->
+      items = for index <- 1..count, do: %{item | ref: "event-subscription:#{index}"}
+      options = put_in(options, [:projection, :subscriptions], fn _params -> items end)
+      Pages.page(["follow-ups"], %{}, options).body
+    end
+
+    refute page.(100) =~ "Showing the first 100 follow-ups."
+    assert page.(101) =~ "Showing the first 100 follow-ups."
   end
 
   test "a row says what it waits for, which request it continues, when, and where", %{

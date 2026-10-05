@@ -47,8 +47,8 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   @doc """
   The schedule directory: the current view (running, then paused) or the past
-  one (newest first), filtered by status and search. At most #{@list_limit}
-  rows; the page says so when it shows that many.
+  one (newest first), filtered by status and search. One row past
+  #{@list_limit}, so the page can say when there are more than it shows.
   """
   def list(params) when is_map(params) do
     query =
@@ -68,7 +68,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
           desc: schedule.updated_at,
           desc: schedule.id
         ],
-        limit: @list_limit,
+        limit: @list_limit + 1,
         select: %{
           authority: schedule.authority,
           destination_conversation_ref: schedule.destination_conversation_ref,
@@ -184,7 +184,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
       on: turn.episode_id == occurrence.child_episode_id,
       where: occurrence.schedule_id == ^schedule.id,
       order_by: [desc: occurrence.scheduled_for, desc: occurrence.id],
-      limit: @detail_limit,
+      limit: @detail_limit + 1,
       select: %{
         accepted_at: turn.accepted_at,
         delivered_at: turn.delivered_at,

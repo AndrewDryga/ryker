@@ -160,8 +160,9 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
     assert [current] = SubscriptionProjection.list(%{"view" => "current"})
     assert current.ref == context.subscription.ref
 
+    # The list reads one row past its 100, so the page can say there are more.
     items = SubscriptionProjection.list(%{})
-    assert length(items) == 100
+    assert length(items) == 101
     assert hd(items).ref == context.subscription.ref
     assert hd(items).status == :active
 
@@ -181,9 +182,9 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
       ]
     )
 
-    insert_resolved_history!(context)
+    insert_resolved_history!(context, 101)
     items = SubscriptionProjection.list(%{"view" => "past"})
-    assert length(items) == 100
+    assert length(items) == 101
     refute Enum.any?(items, &(&1.ref == context.subscription.ref))
 
     assert [exact] =
@@ -197,10 +198,10 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
            }) == []
   end
 
-  defp insert_resolved_history!(context) do
+  defp insert_resolved_history!(context, count \\ 100) do
     now = DateTime.utc_now()
 
-    for index <- 1..100 do
+    for index <- 1..count do
       record = %{
         context.record
         | id: Ecto.UUID.generate(),

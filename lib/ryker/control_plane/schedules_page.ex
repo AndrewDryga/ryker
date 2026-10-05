@@ -61,7 +61,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
     %{
       __changed__: nil,
       items: Enum.take(items, @list_limit),
-      full: length(items) >= @list_limit,
+      full: length(items) > @list_limit,
       query: params["q"] || "",
       view: params["view"] || "current"
     }
@@ -211,7 +211,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
       word: word,
       facts: detail_facts(schedule),
       runs: Enum.take(runs, @runs_limit),
-      full: length(runs) >= @runs_limit,
+      full: length(runs) > @runs_limit,
       now: now
     }
     |> detail_view()

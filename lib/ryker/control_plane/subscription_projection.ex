@@ -21,9 +21,10 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
 
   @doc """
   Every follow-up the host holds: the current view (still waiting, soonest
-  first) or the past one (most recently ended first). Search reads the words
-  the page shows, over the #{@list_limit} rows the view holds, or finds one
-  exact reference anywhere in it.
+  first) or the past one (most recently ended first), read one row past
+  #{@list_limit} so the page can say when there are more than it shows.
+  Search reads the words the page shows over those rows, or finds one exact
+  reference anywhere in the view.
   """
   def list(params) when is_map(params) do
     query =
@@ -44,7 +45,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
           desc: subscription.updated_at,
           desc: subscription.id
         ],
-        limit: @list_limit,
+        limit: @list_limit + 1,
         select: %{
           cursor: subscription.cursor,
           deadline_at: subscription.deadline_at,

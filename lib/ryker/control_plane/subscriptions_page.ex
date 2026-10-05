@@ -64,7 +64,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
       |> assign_new(:query, fn -> "" end)
       |> assign_new(:view, fn -> "current" end)
       |> assign_new(:now, &DateTime.utc_now/0)
-      |> assign(:full, length(assigns.items) >= @list_limit)
+      |> assign(:full, length(assigns.items) > @list_limit)
       |> assign(:items, Enum.take(assigns.items, @list_limit))
 
     ~H"""

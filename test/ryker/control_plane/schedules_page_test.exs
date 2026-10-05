@@ -65,18 +65,25 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       refute page.body =~ "Dispatched"
     end
 
-    test "a full list says it shows only the first 100 schedules" do
+    test "a list cut at 100 says so, and a list of exactly 100 does not" do
       # The list stopped at 100 rows without a word, so a schedule past the
-      # cut looked as if it did not exist.
+      # cut looked as if it did not exist; then exactly 100 schedules read as
+      # cut too (2026-10-04 review). The projection reads one row past the cut.
       options = fixture()
       [item] = options.projection.schedules.(%{})
 
-      items =
-        for index <- 1..100, do: %{item | ref: "schedule:#{index}", title: "Schedule #{index}"}
+      page = fn count ->
+        items =
+          for index <- 1..count,
+              do: %{item | ref: "schedule:#{index}", title: "Schedule #{index}"}
 
-      options = put_in(options, [:projection, :schedules], fn _params -> items end)
+        options = put_in(options, [:projection, :schedules], fn _params -> items end)
+        Pages.page(["schedules"], %{}, options).body
+      end
 
-      assert Pages.page(["schedules"], %{}, options).body =~ "Showing the first 100 schedules."
+      refute page.(100) =~ "Showing the first 100 schedules."
+      assert page.(101) =~ "Showing the first 100 schedules."
+      refute page.(101) =~ "Schedule 101"
     end
   end
 
