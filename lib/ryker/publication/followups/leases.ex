@@ -11,6 +11,7 @@ defmodule Ryker.Publication.Followups.Leases do
 
   import Ecto.Query
 
+  alias Ryker.ErrorDetail
   alias Ryker.Publication.{Followup, LifecycleEvent, Publication}
   alias Ryker.Publication.Followups.Store
   alias Ryker.Repo
@@ -277,7 +278,7 @@ defmodule Ryker.Publication.Followups.Leases do
         Store.update_event!(
           event,
           %{
-            last_error: Store.bounded_error(reason),
+            last_error: ErrorDetail.detail(reason),
             lease_expires_at: nil,
             lease_owner: nil,
             lease_ref: nil,

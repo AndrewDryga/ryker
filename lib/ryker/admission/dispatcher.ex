@@ -9,11 +9,11 @@ defmodule Ryker.Admission.Dispatcher do
 
   alias Ryker.Admission.{Executor, LeaseRenewer, UnavailableNote}
   alias Ryker.Delivery.HostNote
+  alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox
 
   require Logger
 
-  @maximum_error_detail_bytes 4_096
   @maximum_attempts 8
 
   @spec run_once(keyword()) ::
@@ -181,29 +181,10 @@ defmodule Ryker.Admission.Dispatcher do
 
   defp describe_error({:coop_turn_failed, _state, code, _detail} = reason)
        when is_binary(code) and byte_size(code) in 1..120 do
-    {code, error_detail(reason)}
+    {code, ErrorDetail.detail(reason)}
   end
 
-  defp describe_error(reason) do
-    code = reason |> error_atom() |> Atom.to_string()
-    {code, error_detail(reason)}
-  end
-
-  defp error_detail(reason),
-    do: reason |> inspect(limit: 20, printable_limit: 3_500, width: 120) |> bound_detail()
-
-  defp bound_detail(detail) when byte_size(detail) <= @maximum_error_detail_bytes, do: detail
-
-  defp bound_detail(detail) do
-    String.byte_slice(detail, 0, @maximum_error_detail_bytes - 3) <> "..."
-  end
-
-  defp error_atom(reason)
-       when is_tuple(reason) and tuple_size(reason) > 0 and is_atom(elem(reason, 0)),
-       do: elem(reason, 0)
-
-  defp error_atom(atom) when is_atom(atom), do: atom
-  defp error_atom(_reason), do: :admission_execution_failed
+  defp describe_error(reason), do: ErrorDetail.describe(reason, :admission_execution_failed)
 
   defp settings(options) when is_list(options) do
     allowed = [

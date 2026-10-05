@@ -4,6 +4,7 @@ defmodule Ryker.Ingress.Inbox.EntryChangeset do
   import Ecto.Changeset
 
   alias Ryker.Admission.Decision
+  alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
   alias Ryker.Ingress.WorkProfile
@@ -198,10 +199,7 @@ defmodule Ryker.Ingress.Inbox.EntryChangeset do
     |> decide(decision, decision_ref, episode_id)
     |> put_change(:status, :superseded)
     |> put_change(:last_error_code, "stale_input_revision")
-    |> put_change(
-      :last_error_detail,
-      inspect(details, limit: 20, printable_limit: 3_500, width: 120)
-    )
+    |> put_change(:last_error_detail, ErrorDetail.detail(details))
     |> validate_required([:last_error_code, :last_error_detail])
     |> validate_length(:last_error_code, max: 128)
     |> validate_length(:last_error_detail, max: 4_096)

@@ -9,9 +9,8 @@ defmodule Ryker.Publication.Dispatcher do
   ends the publication with that reason instead.
   """
 
+  alias Ryker.ErrorDetail
   alias Ryker.Publication.{Custody, Executor}
-
-  @maximum_error_detail_bytes 4_096
 
   @spec run_once(keyword()) ::
           {:ok,
@@ -81,28 +80,11 @@ defmodule Ryker.Publication.Dispatcher do
     min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
   end
 
-  defp describe(reason) do
-    code = reason |> error_atom() |> Atom.to_string()
+  # A conflict is named by what it conflicted on.
+  defp describe({:publication_conflict, atom, _receipt} = reason) when is_atom(atom),
+    do: {Atom.to_string(atom), ErrorDetail.detail(reason)}
 
-    detail =
-      reason
-      |> inspect(limit: 20, printable_limit: 3_500, width: 120)
-      |> bound_detail()
-
-    {code, detail}
-  end
-
-  defp bound_detail(detail) when byte_size(detail) <= @maximum_error_detail_bytes, do: detail
-
-  defp bound_detail(detail),
-    do: String.byte_slice(detail, 0, @maximum_error_detail_bytes - 3) <> "..."
-
-  defp error_atom({:publication_conflict, atom, _receipt}) when is_atom(atom), do: atom
-  defp error_atom({atom, _rest}) when is_atom(atom), do: atom
-  defp error_atom({atom, _second, _rest}) when is_atom(atom), do: atom
-  defp error_atom({atom, _second, _third, _rest}) when is_atom(atom), do: atom
-  defp error_atom(atom) when is_atom(atom), do: atom
-  defp error_atom(_reason), do: :publication_failed
+  defp describe(reason), do: ErrorDetail.describe(reason, :publication_failed)
 
   defp settings(options) when is_list(options) do
     allowed = [

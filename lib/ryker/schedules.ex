@@ -15,6 +15,7 @@ defmodule Ryker.Schedules do
 
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
+  alias Ryker.ErrorDetail
   alias Ryker.Ingress.Input
   alias Ryker.Operator.Actions
   alias Ryker.Reference
@@ -466,7 +467,7 @@ defmodule Ryker.Schedules do
       {:ok, schedule} ->
         update_schedule!(schedule, %{
           failure_count: schedule.failure_count + 1,
-          last_error: bounded_error(reason),
+          last_error: ErrorDetail.detail(reason),
           lease_expires_at: nil,
           lease_owner: nil,
           lease_ref: nil,
@@ -1033,11 +1034,6 @@ defmodule Ryker.Schedules do
 
   defp expired?(%Schedule{expires_at: %DateTime{} = expires_at}, now),
     do: DateTime.compare(expires_at, now) != :gt
-
-  defp bounded_error(reason) do
-    value = inspect(reason, limit: 20, printable_limit: 3_500, width: 120)
-    if byte_size(value) <= 4_096, do: value, else: String.byte_slice(value, 0, 4_093) <> "..."
-  end
 
   # -- PubSub ------------------------------------------------------------------
 

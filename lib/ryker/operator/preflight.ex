@@ -7,6 +7,7 @@ defmodule Ryker.Operator.Preflight do
   cross this boundary.
   """
 
+  alias Ryker.ErrorDetail
   alias Ryker.Observability
   alias Ryker.Repo
 
@@ -136,8 +137,7 @@ defmodule Ryker.Operator.Preflight do
     kind, reason -> {:error, {kind, reason}}
   end
 
-  defp error_detail(reason),
-    do: inspect(reason, limit: 20, printable_limit: 3_500, width: 120)
+  defp error_detail(reason), do: ErrorDetail.detail(reason)
 
   defp optional_configuration(nil), do: :ok
   defp optional_configuration(configuration) when is_map(configuration), do: :ok

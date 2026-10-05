@@ -13,11 +13,11 @@ defmodule Ryker.Slack.ThreadStatuses do
 
   import Ecto.Query
 
+  alias Ryker.ErrorDetail
   alias Ryker.Repo
   alias Ryker.Slack.{ThreadStatus, ThreadStatusChangeset}
   alias Ryker.UTCDateTime
 
-  @maximum_error_detail_bytes 4_096
   @maximum_targets 1_000
   @phases ~w(queued admitting admission_retry working delivery waiting_for_input waiting_for_event blocked clear)a
 
@@ -409,12 +409,7 @@ defmodule Ryker.Slack.ThreadStatuses do
       end
       |> byte_slice(128)
 
-    detail =
-      reason
-      |> inspect(limit: 30, printable_limit: 3_000)
-      |> byte_slice(@maximum_error_detail_bytes)
-
-    {code, detail}
+    {code, ErrorDetail.detail(reason)}
   end
 
   defp byte_slice(value, maximum) do

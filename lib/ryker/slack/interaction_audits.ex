@@ -14,6 +14,7 @@ defmodule Ryker.Slack.InteractionAudits do
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
+  alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -22,7 +23,6 @@ defmodule Ryker.Slack.InteractionAudits do
 
   alias Ryker.Slack.{Interaction, InteractionAudit, InteractionAuditChangeset}
 
-  @maximum_error_detail_bytes 4_096
   @identity_fields ~w(action_id action_value_digest actor_ref channel_ref event_ref message_ref outcome thread_ref workspace_ref)a
 
   @spec record(Interaction.t(), :denied | :invalid | :confirmed) ::
@@ -345,12 +345,7 @@ defmodule Ryker.Slack.InteractionAudits do
       end
       |> byte_slice(120)
 
-    detail =
-      reason
-      |> inspect(limit: 30, printable_limit: 3_000)
-      |> byte_slice(@maximum_error_detail_bytes)
-
-    {code, detail}
+    {code, ErrorDetail.detail(reason)}
   end
 
   defp digest(value),

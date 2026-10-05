@@ -16,6 +16,7 @@ defmodule Ryker.Work.Worker do
   require Logger
 
   alias Ryker.Episodes
+  alias Ryker.ErrorDetail
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
   alias Ryker.Work.{Custody, Dispatcher}
@@ -64,15 +65,15 @@ defmodule Ryker.Work.Worker do
         0
 
       {:ok, {:deferred, reason}} ->
-        Logger.warning("episode work deferred: #{inspect(reason)}")
+        Logger.warning("episode work deferred: #{ErrorDetail.detail(reason)}")
         0
 
       {:ok, {:blocked, reason}} ->
-        Logger.warning("episode work blocked: #{inspect(reason)}")
+        Logger.warning("episode work blocked: #{ErrorDetail.detail(reason)}")
         0
 
       {:error, reason} ->
-        Logger.error("episode work dispatcher failed: #{inspect(reason)}")
+        Logger.error("episode work dispatcher failed: #{ErrorDetail.detail(reason)}")
         state.poll_interval_ms
     end
   end

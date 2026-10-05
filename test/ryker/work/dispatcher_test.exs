@@ -36,6 +36,20 @@ defmodule Ryker.Work.DispatcherTest do
     assert {:ok, :idle} = Dispatcher.run_once(options({:error, reason}))
   end
 
+  # Coop's answer can quote the request it failed, credentials and all, and the turn kept it as
+  # its error detail and the worker logged it as it came (2026-10-04 review).
+  test "a turn keeps what went wrong without the credentials the failure quotes" do
+    command = create_episode!("redacted-detail")
+    reason = {:coop_error, 503, "unavailable", "Authorization: Bearer bearer-secret-value"}
+
+    assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(options({:error, reason}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.last_error_code == "coop_error"
+    assert turn.last_error_detail =~ ~s({:coop_error, 503, "unavailable", "Authorization: Bearer)
+    refute turn.last_error_detail =~ "bearer-secret-value"
+  end
+
   # A finished turn whose saving hit Coop down, a 5xx, a 429 or a command
   # timeout stopped at once and waited for a click, though trying again
   # finishes it (2026-10-04 review).

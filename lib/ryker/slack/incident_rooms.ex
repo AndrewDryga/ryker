@@ -17,6 +17,7 @@ defmodule Ryker.Slack.IncidentRooms do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
+  alias Ryker.ErrorDetail
   alias Ryker.Repo
 
   alias Ryker.Slack.{
@@ -1741,10 +1742,7 @@ defmodule Ryker.Slack.IncidentRooms do
       end
       |> byte_slice(120)
 
-    {code,
-     reason
-     |> inspect(limit: 30, printable_limit: 3_000)
-     |> byte_slice(@maximum_error_detail_bytes)}
+    {code, ErrorDetail.detail(reason)}
   end
 
   defp byte_slice(value, maximum) do

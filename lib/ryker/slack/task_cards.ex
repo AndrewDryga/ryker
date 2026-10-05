@@ -14,12 +14,11 @@ defmodule Ryker.Slack.TaskCards do
 
   alias Ryker.Delivery.Request
   alias Ryker.Episodes.Episode
+  alias Ryker.ErrorDetail
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.{TaskCard, TaskCardChangeset}
   alias Ryker.Work.{DeliveryReceipt, Turn}
-
-  @maximum_error_detail_bytes 4_096
 
   # A card shows its task. While the task works its progress moves, so the card
   # is checked every few seconds (`check_interval_seconds`); otherwise only a
@@ -466,12 +465,7 @@ defmodule Ryker.Slack.TaskCards do
       end
       |> byte_slice(120)
 
-    detail =
-      reason
-      |> inspect(limit: 30, printable_limit: 3_000)
-      |> byte_slice(@maximum_error_detail_bytes)
-
-    {code, detail}
+    {code, ErrorDetail.detail(reason)}
   end
 
   defp byte_slice(value, maximum) do

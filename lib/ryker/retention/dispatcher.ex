@@ -8,10 +8,10 @@ defmodule Ryker.Retention.Dispatcher do
   consume the budget that the healthy ones need.
   """
 
+  alias Ryker.ErrorDetail
   alias Ryker.Reference
   alias Ryker.Retention.{Custody, Executor}
 
-  @maximum_error_detail_bytes 4_096
   # Matches the fleet's heartbeat staleness: a worker seen inside this window
   # is reachable enough to retry the cleanup its outage deferred.
   @worker_reconnect_seconds 60
@@ -225,20 +225,7 @@ defmodule Ryker.Retention.Dispatcher do
     min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
   end
 
-  defp describe(reason) do
-    code = reason |> error_atom() |> Atom.to_string()
-    detail = reason |> inspect(limit: 20, printable_limit: 3_500, width: 120) |> bound()
-    {code, detail}
-  end
-
-  defp bound(value) when byte_size(value) <= @maximum_error_detail_bytes, do: value
-  defp bound(value), do: String.byte_slice(value, 0, @maximum_error_detail_bytes - 3) <> "..."
-
-  defp error_atom({atom, _rest}) when is_atom(atom), do: atom
-  defp error_atom({atom, _second, _rest}) when is_atom(atom), do: atom
-  defp error_atom({atom, _second, _third, _rest}) when is_atom(atom), do: atom
-  defp error_atom(atom) when is_atom(atom), do: atom
-  defp error_atom(_reason), do: :retention_failed
+  defp describe(reason), do: ErrorDetail.describe(reason, :retention_failed)
 
   @doc false
   @spec settings(keyword() | map()) :: {:ok, map()} | {:error, term()}

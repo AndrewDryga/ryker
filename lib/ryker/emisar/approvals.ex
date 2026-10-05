@@ -17,6 +17,7 @@ defmodule Ryker.Emisar.Approvals do
   alias Ryker.Emisar.{Approval, ApprovalChangeset, Review, RunState}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
+  alias Ryker.ErrorDetail
   alias Ryker.Ingress.Input
   alias Ryker.Records
   alias Ryker.Records.Record
@@ -595,7 +596,7 @@ defmodule Ryker.Emisar.Approvals do
       {:ok, approval} ->
         update!(approval, %{
           failure_count: approval.failure_count + 1,
-          last_error: bounded_error(reason),
+          last_error: ErrorDetail.detail(reason),
           lease_expires_at: nil,
           lease_owner: nil,
           lease_ref: nil,
@@ -613,7 +614,7 @@ defmodule Ryker.Emisar.Approvals do
     case live_lease(connection_ref, request_id, lease_ref, now) do
       {:ok, approval} ->
         update!(approval, %{
-          last_error: bounded_error(reason),
+          last_error: ErrorDetail.detail(reason),
           lease_expires_at: nil,
           lease_owner: nil,
           lease_ref: nil,
@@ -777,11 +778,6 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp utc_datetime(_value), do: {:error, {:invalid_emisar_approval, :expires_at}}
-
-  defp bounded_error(reason) do
-    value = inspect(reason, limit: 50, printable_limit: 4_096)
-    if byte_size(value) <= 4_096, do: value, else: String.byte_slice(value, 0, 4_096)
-  end
 
   defp reference(value, maximum, field) do
     if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and

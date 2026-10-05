@@ -12,12 +12,12 @@ defmodule Ryker.Delivery.Dispatcher do
   alias Ryker.Defaults
   alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, Retry, RoutingResponseCustody}
   alias Ryker.Episodes
+  alias Ryker.ErrorDetail
   alias Ryker.LeasedCall
   alias Ryker.Slack.ReplyRecords
   alias Ryker.WeeklyReport.Custody, as: ReportCustody
   alias Ryker.Work.Custody
 
-  @maximum_error_detail_bytes 4_096
   @options ~w(adapters kind lease_seconds max_attempts retry_base_seconds retry_max_seconds worker_ref)a
 
   @type kind :: :message | :routing | :action | :report
@@ -339,22 +339,7 @@ defmodule Ryker.Delivery.Dispatcher do
     min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
   end
 
-  defp describe_error(reason) do
-    code = reason |> error_atom() |> Atom.to_string()
-    detail = reason |> inspect(limit: 20, printable_limit: 3_500, width: 120) |> bound_detail()
-    {code, detail}
-  end
-
-  defp bound_detail(detail) when byte_size(detail) <= @maximum_error_detail_bytes, do: detail
-
-  defp bound_detail(detail) do
-    String.byte_slice(detail, 0, @maximum_error_detail_bytes - 3) <> "..."
-  end
-
-  defp error_atom({atom, _rest}) when is_atom(atom), do: atom
-  defp error_atom({atom, _second, _rest}) when is_atom(atom), do: atom
-  defp error_atom(atom) when is_atom(atom), do: atom
-  defp error_atom(_reason), do: :delivery_failed
+  defp describe_error(reason), do: ErrorDetail.describe(reason, :delivery_failed)
 
   # What the options leave out is the shipped default.
   defp settings(options) do

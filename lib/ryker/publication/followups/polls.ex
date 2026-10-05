@@ -24,6 +24,7 @@ defmodule Ryker.Publication.Followups.Polls do
   import Ecto.Query
 
   alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.ErrorDetail
   alias Ryker.Publication.Changeset, as: PublicationChangeset
   alias Ryker.Publication.Custody
   alias Ryker.Publication.Followups.{Leases, Store}
@@ -119,7 +120,7 @@ defmodule Ryker.Publication.Followups.Polls do
       {:ok, followup, publication, now} ->
         if past_deadline?(followup, now) do
           observation = %{
-            "error" => Store.bounded_error(reason),
+            "error" => ErrorDetail.detail(reason),
             "head_sha" => publication.commit_sha
           }
 
@@ -129,7 +130,7 @@ defmodule Ryker.Publication.Followups.Polls do
             followup,
             %{
               failure_count: followup.failure_count + 1,
-              last_error: Store.bounded_error(reason),
+              last_error: ErrorDetail.detail(reason),
               lease_expires_at: nil,
               lease_owner: nil,
               lease_ref: nil,
