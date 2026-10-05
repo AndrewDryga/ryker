@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Ryker is rebuilt in Elixir. It installs with Docker Compose (`./install.sh`), keeps every queue
+  in PostgreSQL, runs model work on Coop workers enrolled over mutual TLS, and has a local web
+  console. The 0.1.0 notes below describe the earlier Go release, then named Responder.
+
 ## 0.1.0
 
 - **Standing authority stops being something you type.** `/responder assignments create

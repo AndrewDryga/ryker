@@ -246,7 +246,7 @@
 
     <h2 id="releases">Releases</h2>
 
-    <p>Releases are tag-driven GitHub Releases: the Linux amd64 release archive, <code>checksums.txt</code>, and the signature bundle for that checksum file. GitHub records build provenance separately. There is no automatic production deployment; a published release waits for an operator to install it.</p>
+    <p>Releases are tag-driven GitHub Releases: the Linux amd64 release archive, <code>checksums.txt</code>, and the signature bundle for that checksum file. GitHub records build provenance separately. There is no automatic production deployment; a published release waits for an operator to install it. No release of the current code has been published yet, so install from a checkout of <code>main</code>; the one tag, <code>v0.1.0</code>, is the earlier Go release.</p>
 
     <p>Verify before you use one. Put the three files in one directory and run <code>scripts/check-release.sh DIRECTORY vX.Y.Z</code>: it checks the checksum file’s signature with cosign before it trusts any checksum, then the archive. <code>gh attestation verify --repo AndrewDryga/ryker</code> checks the build provenance.</p>
 

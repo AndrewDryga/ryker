@@ -188,7 +188,7 @@ The memory pipeline has separate read, learn, and act decisions:
    that started Work becomes eligible only once that Work has come to rest (answered, waiting for
    a person or an event, blocked, cancelled or closed), and its clocks start then; however long the
    Work runs, neither clock forces it earlier.
-3. `State.Learning` freezes the selected original inputs, eligible existing subjects, prompt,
+3. `Ryker.Learning` freezes the selected original inputs, eligible existing subjects, prompt,
    schema, policy digest, and remote operation identities. It is the sole model writer of topic
    knowledge. The learner can return no change without replying or creating an episode.
 4. Work receives selected authorized knowledge plus recent uncovered source excerpts. Its separate
@@ -234,8 +234,11 @@ waits retain their existing single-owner semantics.
 
 ### One subject, several updates
 
-The learning result is `{updates: [...], reason: "..."}`. Every item selects exact offered
-`source_input_ids` and one action:
+The learning result is `{updates: [...], reason: "...", people: [...]}`; `people` is there only
+when a person's own message is among the inputs. Each `people` item names one such message
+(`source_input_id`), a short `key` and what the author said about themselves (`fact`, or null to
+take back what that key held), which `Ryker.People` keeps; apps, bots and alerts teach nothing
+about a person. Every `updates` item selects exact offered `source_input_ids` and one action:
 
 | Action | Required meaning |
 |---|---|
@@ -281,7 +284,8 @@ the episode. Optional history can be omitted while that producer is busy.
 ### Background execution and recovery
 
 Learning uses a controller-authored empty-source job, its configured model ladder, one worker,
-batches of up to 16 inputs, a 10-second quiet delay, and a 60-second maximum coalescing delay.
+batches of up to 16 inputs, a five-minute quiet delay, and a 30-minute maximum coalescing delay
+(`Ryker.Defaults`): ten quiet seconds made nearly every message a pass of its own.
 The job has `repository_read_only=true`, no work environment and no check, no companions,
 and no controller state/action tools; Coop reports the session's `project_env=false` and
 `project_mcp=false`, which Ryker checks before it submits anything. No host scratch repository is configured.
@@ -292,7 +296,9 @@ is not disabled by these job fields. Instructions prohibit native external actio
 an integration-free read-only sandbox, not enforced no-tools execution. Production learning uses
 the existing outbound fleet adapter, not an extra local Coop runtime.
 
-Batch states are `queued`, `running`, `applied`, `no_change`, `deferred`, and `superseded`. A
+Batch states are `queued`, `running`, `applied`, `no_change`, `deferred`, `superseded`, and
+`dropped`: a person dropped a stopped batch, so Ryker no longer learns from its messages, and its
+attempts and why it stopped stay recorded. A
 PostgreSQL lease fences execution and acceptance. Provider calls occur outside database
 transactions. Lost create, submit, or validation responses reconcile the frozen operation key;
 uncertainty never buys a fresh model execution. Before another judgment starts, the previous remote
@@ -568,10 +574,11 @@ without production environment, credentials, network mutation tools, or project 
 - optional bounded polling and receive timeouts.
 
 The Work profile an adapter freezes at ingress comes from an **environment** and describes all of
-it: `environment_ref`, its `repositories` in order (the first is the default choice), each
-repository's three class policies (`policies`), its `parallel_goal_limit` and its optional
-`emisar_connection_ref`. Which repository a piece of work changes is chosen per task, from the
-environment's repositories: the routing decision names it on `start_episode` (see
+it: `environment_ref`, its `repositories` in order (the first is the default choice), the three
+class policies (`policies`) of each read and write repository, its `parallel_goal_limit` and its
+optional `emisar_connection_ref`. A read-only repository has no policies: every session mounts it
+beside the working copy, and no work can choose to change it. Which repository a piece of work
+changes is chosen per task, from the environment's read and write repositories: the routing decision names it on `start_episode` (see
 [elixir-ingress-admission.md](elixir-ingress-admission.md)), a proposed task names it in
 `request_task.repository`, a schedule keeps the one its confirmed offer named, and `reply` and
 `continue_episode` keep whatever their work already pinned. `WorkProfile.policy_for(profile, class,
@@ -760,10 +767,10 @@ file's descriptor, so the turn is handed the file, and its last 16 KiB inline as
 to run the gate itself. The read is best effort: an error, a reader that never finishes or an
 unreadable page leaves the output unread and never fails the review.
 
-Coop has no endpoint for that read yet; it is designing a paged or streamed read of the review
-gate's output from the job's own logs, with no opt-in and explicit capture and retention failures.
-`Ryker.CoopFleet.Client` does not implement the callback ("Waiting on Coop" marks it in `Ryker.Coop.API`),
-so until Coop ships it no output is read and every fix round tells the agent to run the gate itself.
+Coop serves the output page by page from the job's own logs, with no opt-in, at
+`GET /v1/sessions/{id}/reviews/{operation}/gate-output`, and says when it could not capture or keep
+it. `Ryker.CoopFleet.Client` reads it through the fleet; a worker without that endpoint answers
+with an error, the output stays unread, and the fix round tells the agent to run the gate itself.
 
 ## Retention and cleanup
 

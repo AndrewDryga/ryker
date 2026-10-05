@@ -93,12 +93,13 @@ A person reads the engine's objects in their own words: a Work turn is a
 **request**, and each kernel transition is a plain sentence that says what
 happened to the request ("Message added", "Handed to a new run", "Waiting for
 an answer", "Picked up again after waiting", "Answer accepted", "Request
-stopped"). `EpisodeTrace.Input.lifecycle_title/1` is the one vocabulary, shared
+stopped"). `Ryker.Episodes.Words.lifecycle_title/1` is the one vocabulary, shared
 with the Slack work record; the kernel's names stay in the code and the logs,
 and no heading, badge or label on the page says turn, owner, episode or lease.
 
-Getting ready runs, per input, **Participation settings**, then **Standing
-rules**, then the **Engagement** decision. The first and last read
+Getting ready shows, per input, one **Participation** card, then the input's
+queue. The card holds the participation settings, the standing rules and the
+engagement decision. Settings and decision read
 `ingress_inbox_entries.engagement_receipt`, written by the adapter that admitted
 the input: the entry path, the effective proactive/shadow values with the
 source each one won from, and the outcome of every predicate the gate actually
@@ -108,7 +109,7 @@ shortcut submissions record that they bypassed channel settings instead of
 inventing Slack checks. Inputs without a receipt render "not recorded"; nothing
 is recomputed from today's settings.
 
-Getting ready always carries a **Standing rules** card for each input. It reads
+The card's standing rules read
 `standing_rule_inventories`, written once per accepted input after custody
 commits and outside that transaction: every standing rule in the workspace at
 that moment with the verdict it got (matched, not matched, other channel,
@@ -343,9 +344,10 @@ this page never changes one.
 ## Environments
 
 An **environment** is where Ryker works: the repositories work in it may use and
-at most one Emisar account. Every repository in it is available to its work: a
-task picks the one it changes, the others are mounted read-only beside it, and
-the first is the default. Slack channels and webhook sources choose an
+at most one Emisar account. Each repository in it is read and write or read
+only. Every session mounts all of them: a task picks the read and write one it
+changes, the first by default, and the others are mounted read-only beside it.
+A read-only repository can never be the one a task changes. Slack channels and webhook sources choose an
 environment; Chat and every conversation without its own choice use the default
 one. An added repository joins no environment until one chooses it (Andrew,
 2026-10-03: "envs should not include all repos by default"). There are no
@@ -627,8 +629,9 @@ hold no checkout; `/memory/learning` lists them.
   The Working copies page never invents a publish or generic rerun action
 - A row with no provably safe transition says why and has no dead control
 
-**Source:** `coop_cleanup`, joined to `incidents`, `channel_memories` and
-`conversation_sessions` for what each session belonged to.
+**Source:** `episode_work_sessions` with their retention custody
+(`Ryker.Retention.Custody`), joined to the episode or learning run each session
+belonged to, and the fleet's workers for where each copy lives.
 
 ### Routing and response checks
 
@@ -764,9 +767,10 @@ in the period), and a row with neither says "Not measured". Wall clock reads eac
 host spans and averages only over timed turns; a window with none says "nothing timed" rather
 than inventing an instant.
 
-**Source:** `episode_work_turns`, joined once to its exact immutable
-`episode_work_session` and owning episode. Usage is attached to an accepted
-logical turn, so no episode-level fan-out is required.
+**Source:** `execution_usage` (`Ryker.Accounting`), one compact row per Coop
+turn of routing, Work, learning, self-analysis and repository knowledge, each
+with its kind, the episode and session it belongs to, and what the provider
+measured.
 
 Two figures are counted separately everywhere: how many attempts are in a group,
 and how many of them a provider actually measured. Zero tokens and "nobody

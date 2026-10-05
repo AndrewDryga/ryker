@@ -62,7 +62,8 @@ patterns, pragmatic design decisions, and acceptance criteria. It is research, n
 ## Quick start
 
 Ryker’s supported installation is Docker Compose. Install Docker with Compose v2, check out this
-repository (a release tag, for a release), then run:
+repository's `main`, then run the installer. No release of this code has been tagged yet: the one
+tag, `v0.1.0`, is the earlier Go release, which is not in `main`'s history.
 
 ```bash
 ./install.sh

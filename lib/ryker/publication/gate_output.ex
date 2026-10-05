@@ -3,13 +3,13 @@ defmodule Ryker.Publication.GateOutput do
   The complete output of a failed review gate, for the task's fix round.
 
   Andrew, 2026-09-28: "Ryker should get full access to errors, warnings and all
-  other output to work, like any llm model would, it's a sandbox!!" Coop will
-  serve a review gate's complete stdout and stderr page by page from the job's
-  own logs, with no opt-in, and say plainly when it could not capture or keep
-  them. The Coop API adapter exposes that read as the optional
-  `read_review_gate_output/4` (`Ryker.Coop.API`, where the missing endpoint is
-  noted); an adapter without it leaves the output unread, and the fix round
-  tells the agent to run the gate itself, as before.
+  other output to work, like any llm model would, it's a sandbox!!" Coop serves
+  a review gate's complete stdout and stderr page by page from the job's own
+  logs, with no opt-in, and says plainly when it could not capture or keep
+  them. The Coop API adapter reads it with the optional
+  `read_review_gate_output/4` (`Ryker.Coop.API`); a worker without the
+  endpoint leaves the output unread, and the fix round tells the agent to run
+  the gate itself.
 
   After a failed gate's review, the publication executor reads every page and
   keeps the output as a text input artifact, the file the fix turn is handed,

@@ -19,7 +19,8 @@ remain in the worker's private state volume.
 
 ## Install
 
-Requirements are Docker, Docker Compose v2, OpenSSL, curl and tar. From a release directory run:
+Requirements are Docker, Docker Compose v2, OpenSSL, curl and tar. From a checkout of this
+repository run:
 
 ```bash
 ./install.sh

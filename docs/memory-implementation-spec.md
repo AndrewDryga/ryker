@@ -177,12 +177,13 @@ compaction group cannot permanently occupy the oldest maintenance window.
 ## 4. Durable background learning
 
 Introduce `Ryker.Learning.Runtime`, a bounded worker and a small durable batch owner reusing
-`State.Learning` for frozen prompts/results and application. Configuration is an explicit optional
-`learning` section with trusted policy/digest, concurrency, and spending/retry bounds. Product
+`Ryker.Learning` for frozen prompts/results and application. Learning is a saved setting with a
+trusted policy/digest; concurrency and spending/retry bounds ship in `Ryker.Defaults`. Product
 examples enable it; missing setup is visible as disabled, not silently advertised as learning.
 
-Defaults to evaluate: one worker, 16 inputs per batch, 10-second quiet delay, 60-second maximum
+Defaults to evaluate: one worker, 16 inputs per batch, five-minute quiet delay, 30-minute maximum
 delay, 300-second lease, 30-second heartbeat, and three host execution starts per frozen batch.
+The shipped values are in `Ryker.Defaults`.
 Provider-internal contract attempts are bounded separately by the frozen job's limits;
 three host starts must never be presented as three actual model invocations.
 Coalesce only the same writable scope and execution mode. Use database time. Input revisions
@@ -194,7 +195,7 @@ when that Work comes to rest, and its timers start then, so learning follows Ryk
 instead of the question. Edits invalidate old source custody and become
 new eligible revisions. Deletions revoke derived content and are acknowledged without learning prose.
 
-Batch states: queued, running, applied, no_change, deferred, superseded. A batch table owns scope,
+Batch states: queued, running, applied, no_change, deferred, superseded, dropped. A batch table owns scope,
 execution mode, lease owner/expiry, heartbeat, start count, next attempt time and error. A membership
 table has Inbox entry ID as primary key, an exact batch FK and terminal reason. Claim and input
 assignment are atomic; lease expiry recovers the same batch. A LearningRun gets `started_at` and
@@ -443,14 +444,17 @@ broad database or directory deletion. Report exact deleted counts and backup rec
 
 ## 7. Owning implementation boundaries
 
-- Topic matching/write: `state/knowledge.ex`, `knowledge_update.ex`, `learning.ex`, their schemas,
-  owning tests, and a small `KnowledgeMatching` helper only if it removes actual duplicated logic.
-- Source custody: `learning_sources.ex`, `knowledge_source.ex`, `knowledge_snapshot.ex`,
-  `knowledge_retention.ex`, `observations.ex`, `continuity.ex`, owner schemas and one clean migration.
+- Topic matching/write: `lib/ryker/knowledge.ex`, `knowledge/knowledge_update.ex`,
+  `lib/ryker/learning.ex`, their schemas, owning tests, and a small `KnowledgeMatching` helper only
+  if it removes actual duplicated logic.
+- Source custody: `learning/learning_sources.ex`, `knowledge/knowledge_source.ex`,
+  `knowledge/knowledge_snapshot.ex`, `knowledge/knowledge_retention.ex`, `learning/observations.ex`,
+  `continuity.ex`, owner schemas and one clean migration.
 - Admission cut: `admission/decision.ex`, `admission/prompt.ex`, `admission.ex`, checked contracts,
   recorded evaluation adapters, and all owning tests. Preserve the unrelated routing policy.
-- Worker/fleet: new `learning/` runtime/custody/executor modules; `runtime_configuration.ex`,
-  `application.ex`, `work/session.ex`, fleet ownership/cleanup constraints and tests.
+- Worker/fleet: new `learning/` runtime/custody/executor modules; `runtime/assembly.ex` (the
+  saved settings, which replaced the YAML configuration), `application.ex`, `work/session.ex`,
+  fleet ownership/cleanup constraints and tests.
 - Recall: `state_tools/fixed_tools.ex`, `state_tools/tools.ex`, memories/behaviors/continuity search,
   signed cursor helper and query indexes. Keep active-binding authorization.
 - UI: existing memory page/projector, learning receipts, routes and tests; no duplicate dashboard.

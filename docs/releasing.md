@@ -8,6 +8,9 @@ section. GitHub records build provenance for the archive.
 Pushing a version tag is the release-publication boundary. All release preparation before that
 push is reversible without rewriting a published release.
 
+No release of the Elixir code has been published yet. The only tag, `v0.1.0`, is the earlier Go
+release: it is not in `main`'s history, and its changelog section describes that release.
+
 Local release checks require the Erlang and Elixir versions from `.tool-versions` and ShellCheck.
 Commit first, then prove the exact Elixir artifact without touching the running deployment:
 

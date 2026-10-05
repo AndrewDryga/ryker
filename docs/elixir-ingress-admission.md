@@ -216,7 +216,16 @@ These are durable settings, edited in the control plane rather than a configurat
   state says it is not running and why.
 
 The GitHub App must subscribe to issue comments, pull-request reviews, pull-request review comments,
-issues, and pull requests for the corresponding adapter and lifecycle paths to receive those events.
+issues, and pull requests for the conversation and lifecycle paths. Check runs, check suites,
+statuses, workflow runs and workflow jobs keep a published pull request's follow-up current, and
+installation, installation-repository and repository events keep the bindings' access and
+permissions current; deployments, deployment statuses, releases, pushes and review-thread changes
+are recorded as repository events.
+
+GitHub needs no route to Ryker. Every half minute `Ryker.GitHub.DeliveryPoller` asks GitHub for the
+App's newest deliveries and routes each one the listener has not taken, exactly as GitHub would
+have sent it: same event, delivery id and payload, signed with the App's webhook secret, so the
+router's checks and deduplication apply unchanged. Deliveries older than a day are not replayed.
 
 The supervised runtime contains both `server` and `tokens` components: `server` owns the shared
 webhook listener and trusted bindings, while `tokens` signs short-lived App JWTs and mints the exact
@@ -366,10 +375,11 @@ adapter-owned Work profile:
 | `standard` | `codex:gpt-5.6-sol/medium` | normal investigations and tool-backed work |
 | `deep` | `codex:gpt-5.6-sol/xhigh` | difficult, high-ambiguity, or high-consequence reasoning |
 
-When the route runs in an environment with more than one repository, the context carries
-`repository_choices`, the environment's repositories by ref with the description the operator wrote
-for each, and a `start_episode` decision must set `repository` to one of those refs: the repository
-the new work is about and may change; the others stay mounted read-only beside it. The list is
+When the route runs in an environment with more than one read and write repository, the context
+carries `repository_choices`, those repositories by ref with the description the operator wrote for
+each, and a `start_episode` decision must set `repository` to one of those refs: the repository the
+new work is about and may change. The others, and every read-only repository, which is never a
+choice, stay mounted read-only beside it. The list is
 frozen with the context, so the receipt shows exactly the choices the model had. Every other
 action, and every route with one repository or none, sends `null` (`invalid_decision: repository`
 for another action, `admission_rejected: repository_not_available` for a route without choices); a

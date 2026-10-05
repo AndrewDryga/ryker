@@ -155,7 +155,7 @@ Use an isolated PostgreSQL test database for owning memory tests:
 
 ```console
 RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh test/ryker/learning test/ryker/learning/learning_test.exs test/ryker/learning/learning_failure_test.exs test/ryker/knowledge/knowledge_concurrency_test.exs test/ryker/knowledge/knowledge_sources_test.exs test/ryker/learning/learning_work_boundary_test.exs test/ryker/knowledge/knowledge_snapshot_capacity_test.exs test/ryker/state_tools/memory_search_test.exs
-RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh test/ryker/evals test/ryker/capability_contract_test.exs
+RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh test/ryker/evals test/ryker/product_contracts_test.exs
 ```
 
 These prove durable ownership, exact versions, bounded starts, source revocation and capacity,

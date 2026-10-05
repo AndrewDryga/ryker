@@ -625,8 +625,8 @@ host rejects them for nonoperators before any repository or session mutation:
   conflicts with the latest base branch, or running the checks changed its files): nobody is asked
   to relay the review. The thread gets one line — `The repository's checks failed on the committed
   change. I'm fixing it now, attempt 1 of 3, and I'll check the new change when I'm done.` — and
-  the task's work continues in the same session with the review's causes (and the failed gate's
-  complete output as a file, once Coop can serve it) as a new turn; its next commit is reviewed like
+  the task's work continues in the same session with the review's causes and the failed gate's
+  complete output as a file, as a new turn; its next commit is reviewed like
   any other. While that runs the card says
   `Fixing: the repository's checks failed · attempt 1 of 3`, reads as working rather than action
   required, and offers only **Discard candidate**. Ryker tries three times per publication; after

@@ -42,11 +42,12 @@ capacity tests, plus the control-plane JavaScript tests and ShellCheck. Nothing 
 model. It is the gate for every commit and every deploy; `make check` also runs the slow capacity
 tests.
 
-Most of the suite's time is `async: false` modules, which one VM runs one at a time, so the gate
-splits the test files across parallel partitions (`mix test --partitions`), about one VM per three
-cores; `RYKER_TEST_PARTITIONS` overrides the count. Each partition gets a freshly created database
-of its own, dropped at the end. The output shows each partition in turn and ends with the ones that
-went red.
+Most of the suite's time is `async: false` modules, which one VM runs one at a time. So the gate
+runs every async file together in one VM and deals the serial files across more VMs beside it,
+about one per three cores; `RYKER_TEST_PARTITIONS` overrides that count. Mix's own `--partitions`
+put async files in every VM and overloaded a busy host. Each VM gets a freshly created database of
+its own, dropped at the end. The output shows each partition in turn and ends with the ones that
+went red. A test that compiles with a warning fails the gate.
 
 `make coverage` runs the suite with coverage instrumentation and writes the report under `cover/`.
 It is not part of any gate.
