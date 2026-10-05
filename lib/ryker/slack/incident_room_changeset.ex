@@ -78,6 +78,8 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
                        :lease_ref,
                        :next_attempt_at,
                        :reconciled_channel_state,
+                       # A conversation in no environment has no repository.
+                       :repository_ref,
                        :repository_context,
                        :root_card_checked_at,
                        :root_card_fingerprint,

@@ -576,6 +576,22 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              WorkProfile.policy_for(profile, :standard)
   end
 
+  # A conversation in no environment works without a repository, and asking
+  # for an incident room there failed: a room had to name a repository, so
+  # the request rolled back (2026-10-04 review).
+  test "a conversation with no repository can open an incident room" do
+    fixture = delivered_offer!(:user, repository: nil, environment: nil)
+    save_channel_configuration!()
+    agent = incident_agent!()
+
+    assert {:ok, %{room: requested}} = IncidentRooms.request(request(fixture))
+    assert requested.repository_ref == nil
+
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+    assert %Session{repository_ref: nil} = Repo.get_by!(Session, episode_id: room.episode_id)
+  end
+
   test "an invalid configured audience blocks before creating a Slack room" do
     fixture = delivered_offer!()
     save_channel_configuration!()
@@ -2499,7 +2515,9 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     })
   end
 
-  defp delivered_offer!(actor_kind \\ :user) do
+  defp delivered_offer!(actor_kind \\ :user, options \\ []) do
+    repository = Keyword.get(options, :repository, "ryker")
+    environment = Keyword.get(options, :environment, "production")
     episode_id = Ecto.UUID.generate()
     actor_ref = if actor_kind == :app, do: "slack:app:A123", else: "slack:user:U123"
 
@@ -2545,10 +2563,10 @@ defmodule Ryker.Slack.IncidentRoomsTest do
                "ryker-read",
                String.duplicate("a", 64),
                nil,
-               "ryker",
-               @source_context,
+               repository,
+               if(repository, do: @source_context),
                nil,
-               "production"
+               environment
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:incident-offer", 60, :work)
