@@ -69,6 +69,51 @@ defmodule Ryker.Memories.CasesTest do
     assert recalled["cause"] =~ "WAL volume"
   end
 
+  # Correlation claims gather per GitHub item or deployment run, and a case
+  # kept all of them, past the 64 its row allows: capture raised inside
+  # history retention, which then stopped on the same episode every pass
+  # (2026-10-04 review).
+  test "work with more occurrence claims than a case holds still keeps its case" do
+    {old, _turn} = finished_with_turn!("case:many-claims", @outage)
+
+    for index <- 1..70 do
+      Repo.insert!(%Ryker.Episodes.CorrelationClaim{
+        episode_id: old.id,
+        input_ref: "input:claim-#{index}",
+        scope_ref: "slack:TCASES",
+        namespace: "deployment",
+        occurrence_ref: "deployment:run-#{String.pad_leading("#{index}", 3, "0")}",
+        lifecycle_state: :terminal,
+        status: :retired,
+        established_at: DateTime.add(@now, index, :second)
+      })
+    end
+
+    assert {:ok, record} = Cases.capture(old.id)
+    assert length(record.occurrence_refs) == 64
+    assert "deployment:run-070" in record.occurrence_refs
+  end
+
+  # Thirty-two checked sources of four and a half kilobytes each made one case
+  # larger than a search page may hold, so every search reaching it rolled
+  # back, and three such cases overflowed Work's context (2026-10-04 review).
+  test "a case of long evidence stays within what one search answer holds" do
+    {old, turn} = finished_with_turn!("case:long-evidence", @outage)
+
+    for index <- 1..40 do
+      record!(old, turn, "evidence", %{
+        "claim_id" => "long-#{index}",
+        "observation" => String.duplicate("The replica lag grew again. ", 140),
+        "source_name" => "Node exporter #{index}",
+        "source_type" => "monitoring"
+      })
+    end
+
+    assert {:ok, record} = Cases.capture(old.id)
+    assert byte_size(Ryker.CanonicalJSON.encode!(record.attempted_actions)) <= 16_384
+    assert Enum.all?(record.attempted_actions, &(byte_size(&1) <= 1_024))
+  end
+
   # The gate on 2026-09-26 also found nothing here once: the case was stamped
   # by the host clock and the search's cutoff by the database clock, so a
   # case captured a moment before could fall after the cutoff.

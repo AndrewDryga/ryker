@@ -39,6 +39,13 @@ defmodule Ryker.Memories.Cases do
   @outcome_bytes 4_096
   @search_bytes 16_384
   @maximum_actions 32
+  # One checked source can be four and a half kilobytes, and thirty-two made a
+  # case larger than a search answer may hold (2026-10-04 review).
+  @action_bytes 1_024
+  @actions_bytes 16_384
+  # The row holds 64 (episode_case_record_valid); more raised inside history
+  # retention, which then stopped on the same episode every pass.
+  @maximum_occurrences 64
   @maximum_links 32
   @maximum_anchors 64
   @terminal_states [:complete, :cancelled]
@@ -367,7 +374,7 @@ defmodule Ryker.Memories.Cases do
     checked = Enum.flat_map(records(episode.id, "evidence"), &checked/1)
 
     content = %{
-      attempted_actions: Enum.take(checked, @maximum_actions),
+      attempted_actions: attempted_actions(checked),
       cause: bounded(cause(records(episode.id, "finding")), @cause_bytes),
       occurrence_refs: occurrence_refs(episode.id),
       outcome: bounded(outcome(episode.id), @outcome_bytes),
@@ -469,14 +476,33 @@ defmodule Ryker.Memories.Cases do
 
   defp checked(_evidence), do: []
 
+  # Each bounded, and as many as fit the case's share of a search answer.
+  defp attempted_actions(checked) do
+    checked
+    |> Enum.take(@maximum_actions)
+    |> Enum.map(&bounded(&1, @action_bytes))
+    |> Enum.reduce_while({[], 2}, fn action, {kept, used} ->
+      size = byte_size(CanonicalJSON.encode!(action)) + 1
+
+      if used + size <= @actions_bytes,
+        do: {:cont, {[action | kept], used + size}},
+        else: {:halt, {kept, used}}
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+  end
+
+  # The newest claims, as later work recurs on them.
   defp occurrence_refs(episode_id) do
     Repo.all(
       from(claim in CorrelationClaim,
         where: claim.episode_id == ^episode_id,
-        order_by: [asc: claim.occurrence_ref],
+        order_by: [desc: claim.inserted_at, desc: claim.id],
+        limit: @maximum_occurrences,
         select: claim.occurrence_ref
       )
     )
+    |> Enum.sort()
   end
 
   defp links(episode_id) do
