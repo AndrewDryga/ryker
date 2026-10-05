@@ -28,9 +28,10 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   use, newest change first, and the removed ones a page at a time under
   `params["page"]`, newest first, with how many there are.
 
-  One 100-row list held both and the Learning page's sessions, so once a
-  hundred copies had been removed the page counted only those that fitted
-  beside the current ones (2026-10-04 review: 89 of 853 live).
+  One 100-row list held both and the Learning page's sessions, so the page
+  counted only the removed copies that fitted beside them: 33 of 48 live on
+  2026-10-05, the learning sessions taking the other rows (2026-10-04
+  review).
   """
   @spec copies(map()) :: %{current: [map()], removed: PagedRelation.t()}
   def copies(params) do

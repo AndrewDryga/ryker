@@ -8,9 +8,9 @@ defmodule Ryker.ControlPlane.WorkspaceProjectionTest do
 
   @now ~U[2026-10-05 12:00:00.000000Z]
 
-  # One 100-row list held the copies in use and the removed ones, so once a hundred had been
-  # removed the page counted only those that fitted beside the current ones: it read "89
-  # removed" with 853 removed live (2026-10-04 review).
+  # One 100-row list held the copies in use, the removed ones and the Learning page's sessions,
+  # so the page counted only the removed copies that fitted: "33 removed" with 48 live on
+  # 2026-10-05, the learning sessions taking the other rows (2026-10-04 review).
   test "every copy in use is listed and the removed ones are counted in full, a page at a time" do
     in_use = pinned_session!("in-use")
     removed = for n <- 1..102, do: copy!(in_use, n + 1, :discarded, n)
