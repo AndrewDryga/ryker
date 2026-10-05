@@ -58,10 +58,6 @@ defmodule Ryker.Publication.Card do
           record
       )
       when map_size(record) == 4 do
-    # Old delivered cards remain readable; new cards never carry transferred patch metadata.
-    payload =
-      if is_map(payload), do: Map.drop(payload, ["patch_bytes", "patch_digest"]), else: payload
-
     with true <- reference?(ref),
          true <- is_map(payload) and Map.keys(payload) |> Enum.sort() == @review_fields,
          true <- bounded_text?(payload["title"], 120),
