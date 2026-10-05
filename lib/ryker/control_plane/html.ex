@@ -144,7 +144,7 @@ defmodule Ryker.ControlPlane.HTML do
         text: text
       })
       when is_binary(item_id) do
-    editor_id = "lab-edit-#{item_id}"
+    editor_id = escape("lab-edit-" <> item_id)
 
     [
       "<form class=\"lab-edit-form\" id=\"",
