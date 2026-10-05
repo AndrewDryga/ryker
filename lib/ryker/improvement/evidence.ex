@@ -175,16 +175,19 @@ defmodule Ryker.Improvement.Evidence do
   # the conversation that offered it, so that conversation's messages are the
   # request's too. Without them a task's rating was refused as automated (the
   # PR #2 task, 2026-09-29), and no task could become a case.
+  # The newest of them: the oldest sixty lost, on a long thread, the messages
+  # right before the feedback (2026-10-04 review).
   defp entries({:episode, id}) do
     episode_ids = [id | offering_episodes(id)]
 
     Repo.all(
       from(entry in Entry,
         where: entry.episode_id in ^episode_ids,
-        order_by: [asc: entry.occurred_at, asc: entry.revision, asc: entry.inserted_at],
+        order_by: [desc: entry.occurred_at, desc: entry.revision, desc: entry.inserted_at],
         limit: @message_limit
       )
     )
+    |> Enum.reverse()
   end
 
   defp entries({:input, id}) do
@@ -576,14 +579,17 @@ defmodule Ryker.Improvement.Evidence do
 
     Enum.map(signals, fn signal ->
       source = Map.get(sources, signal.source_ref)
+      text = source && message(source, deleted, edited, secrets)["text"]
 
+      # A note read from a message paraphrases it, so it goes when the person
+      # deleted the message or replaced its words; it stayed (2026-10-04 review).
       %{
         "at" => iso(signal.occurred_at),
         "kind" => Atom.to_string(signal.kind),
         "value" => signal.value,
-        "note" => redact(signal.note, secrets),
+        "note" => if(source && is_nil(text), do: nil, else: redact(signal.note, secrets)),
         "by" => by(signal, asker),
-        "message" => source && message(source, deleted, edited, secrets)["text"],
+        "message" => text,
         key: source && entry_key(source)
       }
     end)
@@ -600,8 +606,15 @@ defmodule Ryker.Improvement.Evidence do
   end
 
   defp by(%{kind: :reviewed}, _asker), do: "operator"
-  defp by(%{actor_ref: actor}, actor), do: "the person who asked"
-  defp by(_signal, _asker), do: "someone else"
+
+  defp by(%{actor_ref: actor}, asker),
+    do: if(person(actor) == person(asker), do: "the person who asked", else: "someone else")
+
+  # A Chat reaction names its person as the console does, with a prefix the
+  # message's sender lacks, so the asker's own thumbs down read as someone
+  # else's (2026-10-04 review).
+  defp person("control-plane:user:" <> chat_ref), do: chat_ref
+  defp person(ref), do: ref
 
   defp feedback_keys(feedback), do: for(%{key: key} when is_binary(key) <- feedback, do: key)
 

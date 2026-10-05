@@ -5,11 +5,14 @@ defmodule Ryker.Improvement.EvidenceTest do
 
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
+  alias Ryker.ControlPlane.ConversationLab
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
   alias Ryker.Improvement
   alias Ryker.Improvement.{Candidate, Evidence, Prompt}
+  alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.WorkProfile
   alias Ryker.RoutingExamples
 
   @workspace "TIMPROVEEVIDENCE"
@@ -119,6 +122,130 @@ defmodule Ryker.Improvement.EvidenceTest do
     assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
     refute CanonicalJSON.encode!(accepted.case_evidence) =~ "Is the staging database healthy?"
     assert CanonicalJSON.encode!(accepted.case_evidence) =~ "Is the staging replica healthy?"
+  end
+
+  # A Chat reaction names its person as the console does, with a prefix the
+  # message's sender lacks, so the asker's own thumbs down read as someone
+  # else's (2026-10-04 review).
+  test "a Chat reaction from the person who asked is theirs" do
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "evidence-chat",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    conversation = Ecto.UUID.generate()
+
+    {:ok, %{entry: question}} =
+      ConversationLab.send_message(
+        conversation,
+        "Summarize the deploy",
+        profile
+      )
+
+    reply =
+      Answers.work_reply!(
+        question,
+        "Nothing was deployed.",
+        "control-plane-reply:#{conversation}",
+        DateTime.add(question.occurred_at, 30, :second)
+      )
+
+    assert {:ok, _recorded} =
+             Feedback.record(%{
+               kind: :reaction_added,
+               value: "-1",
+               actor_ref: ConversationLab.reaction_actor_ref(question.actor_ref),
+               source: "control_plane",
+               source_ref: "control-plane-reaction:#{conversation}",
+               occurred_at: DateTime.add(question.occurred_at, 60, :second),
+               request: {:episode, reply.episode.id}
+             })
+
+    evidence = Evidence.gather(Improvement.for_request({:episode, reply.episode.id}))
+    assert [%{"by" => "the person who asked"}] = evidence.feedback
+  end
+
+  # Routing's note on a person's feeling paraphrases their message, and it
+  # stayed in the analysis after they deleted the message (2026-10-04 review).
+  test "a feeling read from a message the person deleted is left out with it" do
+    %{alice: alice, candidate: candidate} = request_quoting_bob!()
+
+    upset =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: @channel,
+        actor: "UALICE",
+        text: "That is the wrong database, again.",
+        ts: "1790500250.000100",
+        thread: "1790500100.000100",
+        at: DateTime.add(@now, 150, :second)
+      )
+
+    Answers.join!(upset, alice.episode_id)
+
+    assert {:ok, _signal} =
+             Feedback.record(%{
+               kind: :sentiment,
+               value: "frustrated",
+               note: "Alice says it checked the wrong database again.",
+               actor_ref: "UALICE",
+               source: "slack",
+               source_ref: Inbox.ref(upset),
+               occurred_at: upset.occurred_at,
+               request: Candidate.request(candidate)
+             })
+
+    deleted =
+      Answers.slack_message!(
+        workspace: @workspace,
+        channel: @channel,
+        actor: "UALICE",
+        text: "",
+        ts: "1790500250.000100",
+        thread: "1790500100.000100",
+        kind: :delete,
+        revision: 2,
+        at: DateTime.add(@now, 240, :second)
+      )
+
+    Answers.join!(deleted, alice.episode_id)
+
+    evidence = Evidence.gather(Improvement.for_request(Candidate.request(candidate)))
+    assert [sentiment] = for(%{"kind" => "sentiment"} = signal <- evidence.feedback, do: signal)
+    assert sentiment["note"] == nil
+    refute CanonicalJSON.encode!(Prompt.build(evidence)) =~ "wrong database again"
+  end
+
+  # Evidence read a request's oldest sixty messages, so on a long thread the
+  # analysis and the kept case lost the messages right before the feedback
+  # (2026-10-04 review). It reads the newest sixty.
+  test "a long request is read by its newest messages" do
+    %{alice: alice, candidate: candidate} = request_quoting_bob!()
+
+    for index <- 1..65 do
+      ts = "17905004#{String.pad_leading("#{index}", 2, "0")}.000100"
+
+      message =
+        Answers.slack_message!(
+          workspace: @workspace,
+          channel: @channel,
+          actor: "UALICE",
+          text: "Follow-up #{index}",
+          ts: ts,
+          thread: "1790500100.000100",
+          at: DateTime.add(@now, 200 + index, :second)
+        )
+
+      Answers.join!(message, alice.episode_id)
+    end
+
+    evidence = Evidence.gather(Improvement.for_request(Candidate.request(candidate)))
+    said = for %{"from" => "person", "text" => text} <- evidence.conversation, do: text
+
+    assert "Follow-up 65" in said
+    refute "Is the staging database healthy?" in said
   end
 
   # Alice asks in the thread Bob started, Ryker answers wrongly, and she
