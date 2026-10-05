@@ -57,6 +57,7 @@ defmodule Ryker.RoutingExamples do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Learning
   alias Ryker.Learning.{ConversationObservation, Observations}
   alias Ryker.LocalRouting
   alias Ryker.Repo
@@ -772,6 +773,11 @@ defmodule Ryker.RoutingExamples do
   def forget_messages_in_transaction([]), do: :ok
 
   def forget_messages_in_transaction(observations) do
+    :ok =
+      observations
+      |> Enum.map(&{&1.conversation_ref, &1.source_message_ref})
+      |> Learning.forget_messages_in_transaction()
+
     erase_in_transaction(
       Enum.map(observations, & &1.identity_key),
       Enum.map(observations, &message_key(&1.conversation_ref, &1.source_message_ref))
@@ -782,8 +788,10 @@ defmodule Ryker.RoutingExamples do
   @spec forget_topics_in_transaction([Ecto.UUID.t()]) :: :ok
   def forget_topics_in_transaction([]), do: :ok
 
-  def forget_topics_in_transaction(ids),
-    do: erase_in_transaction([], Enum.map(ids, &knowledge_key/1))
+  def forget_topics_in_transaction(ids) do
+    :ok = Learning.forget_topics_in_transaction(ids)
+    erase_in_transaction([], Enum.map(ids, &knowledge_key/1))
+  end
 
   @doc """
   Whether recording `entry` takes back what its message said: a deletion
@@ -808,6 +816,7 @@ defmodule Ryker.RoutingExamples do
   @spec forget_message_in_transaction(Entry.t()) :: :ok
   def forget_message_in_transaction(%Entry{} = entry) do
     {conversation, message} = own_message(entry)
+    :ok = Learning.forget_messages_in_transaction([{conversation, message}])
 
     erase_in_transaction(
       [Observations.source_identity(entry)],
@@ -823,6 +832,7 @@ defmodule Ryker.RoutingExamples do
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
     :ok = lock(:exclusive)
     :ok = Improvement.forget_conversation_in_transaction(conversation_ref)
+    :ok = Learning.forget_conversation_in_transaction(conversation_ref)
     :ok = LocalRouting.forget_conversation_in_transaction(conversation_ref)
     :ok = WorkExamples.forget_conversation_in_transaction(conversation_ref)
 

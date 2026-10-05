@@ -10,7 +10,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
   alias Ryker.Knowledge
   alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeAnchors, KnowledgeSource}
   alias Ryker.Learning
-  alias Ryker.Learning.{ConversationObservation, LearningSources, Observations}
+  alias Ryker.Learning.{ConversationObservation, LearningRun, LearningSources, Observations}
   alias Ryker.Memories.Forgetting
 
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
@@ -198,6 +198,26 @@ defmodule Ryker.Learning.LearningThreadContextTest do
   # the query took the latest messages only, so a thread with more than five
   # earlier replies lost the message the replies were about (2026-10-04
   # review).
+  # A run's prompt quotes the thread around its messages too. Retention erased
+  # a run whose own messages had gone, and kept one whose thread had
+  # (2026-10-04 review).
+  test "a run whose thread has left the retention window keeps none of its words" do
+    [notice, worry, correction] = starfall_thread!()
+    assert {:ok, run} = Learning.prepare([correction.id], @policy)
+
+    Repo.update_all(
+      from(entry in Entry, where: entry.id == ^notice.id),
+      set: [operational_pruned_at: DateTime.utc_now()]
+    )
+
+    assert {:ok, 1} = Repo.transaction(fn -> Learning.prune_in_transaction(86_400 * 365) end)
+
+    erased = Repo.get!(LearningRun, run.id)
+    assert erased.prompt == nil
+    assert erased.pruned_at
+    assert worry.id in Enum.map(run.context_inputs, & &1["source_input_id"])
+  end
+
   test "a long thread is read with its opening message and its latest replies" do
     [notice, worry, correction] = starfall_thread!()
 

@@ -7,6 +7,7 @@ defmodule Ryker.Learning.CandidateCustodyTest do
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.Observations
   alias Ryker.Repo
+  alias Ryker.Slack.ChannelMembership
 
   test "recording and checking a candidate do not apply it before the exact remote receipt" do
     %{run: run, candidate: candidate, completed: completed} = prepared!()
@@ -54,6 +55,38 @@ defmodule Ryker.Learning.CandidateCustodyTest do
     assert {:error, :learning_source_stale} = Learning.apply_result(run.id)
     assert Repo.aggregate(KnowledgeRevision, :count) == 0
     assert Repo.get!(LearningRun, run.id).validation_receipt != nil
+  end
+
+  # Applying a result in a channel deleted after the run started answered the
+  # channel lock's stale-context tuple, which the attempt's end did not accept,
+  # so the learning worker crashed on it instead of closing the attempt
+  # (2026-10-04 review).
+  test "a channel deleted before its result is applied ends the attempt as stale" do
+    %{run: run, candidate: candidate, completed: completed, entry: entry} = prepared!()
+    assert {:ok, _} = Learning.record_candidate(run.id, candidate, %{})
+    assert {:ok, _} = Learning.check_candidate(run.id)
+    assert {:ok, _} = Learning.confirm_candidate(run.id, completed)
+
+    "slack:" <> destination = entry.destination_conversation_ref
+    [workspace, channel] = String.split(destination, ":", parts: 2)
+
+    Repo.insert!(%ChannelMembership{
+      id: Ecto.UUID.generate(),
+      workspace_ref: workspace,
+      channel_ref: channel,
+      private: false,
+      external_shared: false,
+      generation: 1,
+      status: :deleted,
+      joined_at: entry.occurred_at,
+      deleted_at: DateTime.utc_now()
+    })
+
+    result = Learning.apply_result(run.id)
+    assert {:ok, ended} = Learning.end_attempt(run.id, elem(result, 1), nil)
+    assert ended.status == :stale
+    assert result == {:error, :learning_context_stale}
+    assert Repo.aggregate(KnowledgeRevision, :count) == 0
   end
 
   defp prepared! do

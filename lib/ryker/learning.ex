@@ -528,14 +528,13 @@ defmodule Ryker.Learning do
     do: "ryker:learning:#{phase}:#{id}"
 
   @doc "End an unusable judgment without confusing it with successful learning or remote cleanup."
-  def end_attempt(id, reason, claim) when is_atom(reason) do
+  # Any reason ends an attempt: one the lane did not foresee must close it, not
+  # crash the lane that is closing it.
+  def end_attempt(id, reason, claim) do
     owned_transaction(id, claim, fn run ->
       if run.status in [:prepared, :responded] do
         run
-        |> Ecto.Changeset.change(
-          status: failure_status(reason),
-          error_code: Atom.to_string(reason)
-        )
+        |> Ecto.Changeset.change(status: failure_status(reason), error_code: error_code(reason))
         |> Repo.update!()
       else
         run
@@ -547,6 +546,9 @@ defmodule Ryker.Learning do
     do: :stale
 
   defp failure_status(_), do: :rejected
+
+  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp error_code(_reason), do: "learning_failed"
 
   defp store_stop(run, receipt) do
     unless CanonicalJSON.validate(receipt, max_bytes: 4096) == :ok,
@@ -1221,12 +1223,21 @@ defmodule Ryker.Learning do
     first = Repo.get(Entry, hd(run.inputs)["source_input_id"])
     unless first && is_binary(run.result), do: Repo.rollback(:learning_source_stale)
 
-    with :ok <- Knowledge.lock_scope_in_transaction(first, first.repository_ref),
+    with :ok <- lock_scope(first),
          {:ok, entries, thread} <- authorize_run(run),
          readable = entries ++ thread,
          {:ok, updates} <- parse_updates(run.result, readable),
          :ok <- check_targets(run, readable, updates) do
       {:ok, entries, readable, updates}
+    end
+  end
+
+  # A scope that can no longer be locked, such as a channel deleted since the
+  # run started, is the stale context it reads as everywhere else.
+  defp lock_scope(first) do
+    case Knowledge.lock_scope_in_transaction(first, first.repository_ref) do
+      :ok -> :ok
+      {:error, {:admission_rejected, :context_stale}} -> {:error, :learning_context_stale}
     end
   end
 
@@ -1383,8 +1394,7 @@ defmodule Ryker.Learning do
         reason -> {reason, []}
       end
 
-    code = if is_atom(reason), do: Atom.to_string(reason), else: "learning_failed"
-
+    code = error_code(reason)
     status = failure_status(reason)
 
     owned_transaction(id, claim, fn _run ->
@@ -1447,6 +1457,8 @@ defmodule Ryker.Learning do
     # Unknown receipt age is not permission to erase a retained attempt. Guard
     # both JSON shape and the shared UTC clock domain before casting so one
     # malformed row cannot roll back cleanup of unrelated, genuinely due copies.
+    # The thread a run read is quoted in its prompt as much as its own
+    # messages, so either leaving the window erases it (2026-10-04 review).
     Repo.query!(
       """
       WITH candidates AS (
@@ -1459,10 +1471,7 @@ defmodule Ryker.Learning do
             ELSE false END
         ) OR EXISTS (
           SELECT 1 FROM jsonb_array_elements(
-            CASE WHEN pg_input_is_valid(l.inputs, 'jsonb') THEN
-              CASE WHEN jsonb_typeof(l.inputs::jsonb) = 'array'
-                THEN l.inputs::jsonb ELSE '[]'::jsonb END
-              ELSE '[]'::jsonb END
+            #{json_array("l.inputs")} || #{json_array("l.context_inputs")}
           ) source
           LEFT JOIN ingress_inbox_entries i ON i.id =
             CASE WHEN pg_input_is_valid(source->>'source_input_id', 'uuid')
@@ -1481,6 +1490,100 @@ defmodule Ryker.Learning do
       [seconds, LearningSources.utc_timestamp_pattern()]
     ).num_rows
   end
+
+  # -- Forgetting ----------------------------------------------------------------
+
+  @doc """
+  Erases what learning runs keep of the messages a person forgot, deleted or
+  edited (`{conversation_ref, message_ref}`), inside the transaction that
+  forgets them (`Ryker.RoutingExamples`, called from every place that
+  forgets). A run that read any revision of one, to learn from or as the
+  thread around it, keeps no prompt, answer or offered topics, and reads as
+  pruned: the Timeline showed those words for 30 or 90 days after a person
+  forgot them (2026-10-04 review).
+  """
+  @spec forget_messages_in_transaction([{String.t(), String.t()}]) :: :ok
+  def forget_messages_in_transaction([]), do: :ok
+
+  def forget_messages_in_transaction(messages) do
+    matching =
+      Enum.reduce(messages, dynamic(false), fn {conversation, message}, matching ->
+        dynamic(
+          [entry],
+          ^matching or
+            (entry.destination_conversation_ref == ^conversation and
+               (entry.source_item_ref == ^message or
+                  (is_nil(entry.source_item_ref) and entry.native_input_id == ^message)))
+        )
+      end)
+
+    from(entry in Entry, where: ^matching, select: entry.id) |> Repo.all() |> erase_runs_reading()
+  end
+
+  @doc "Erases what learning runs keep of a deleted conversation, inside its transaction."
+  @spec forget_conversation_in_transaction(String.t()) :: :ok
+  def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
+    from(entry in Entry,
+      where: entry.destination_conversation_ref == ^conversation_ref,
+      select: entry.id
+    )
+    |> Repo.all()
+    |> erase_runs_reading()
+  end
+
+  @doc "Erases learning runs that were shown any of these topics, inside the transaction that forgets them."
+  @spec forget_topics_in_transaction([Ecto.UUID.t()]) :: :ok
+  def forget_topics_in_transaction([]), do: :ok
+
+  def forget_topics_in_transaction(ids) do
+    erase_runs(
+      """
+      EXISTS (
+        SELECT 1 FROM jsonb_array_elements(#{json_array("l.knowledge")}) offered
+        WHERE offered->>'source_ref' = ANY($1)
+      ) OR (pg_input_is_valid(l.rebuild, 'jsonb') AND l.rebuild::jsonb->>'topic_id' = ANY($2))
+      """,
+      [Enum.map(ids, &("knowledge:" <> &1)), ids]
+    )
+  end
+
+  defp erase_runs_reading([]), do: :ok
+
+  defp erase_runs_reading(input_ids) do
+    erase_runs(
+      """
+      EXISTS (
+        SELECT 1 FROM jsonb_array_elements(
+          #{json_array("l.inputs")} || #{json_array("l.context_inputs")}
+        ) source
+        WHERE source->>'source_input_id' = ANY($1)
+      )
+      """,
+      [input_ids]
+    )
+  end
+
+  # The same erasure the retention prune makes, for the runs `condition` names.
+  defp erase_runs(condition, parameters) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        UPDATE conversation_learning_runs l
+        SET prompt = NULL, result = NULL, knowledge = '[]', producer = '{}',
+            pruned_at = clock_timestamp(), updated_at = clock_timestamp()
+        WHERE l.pruned_at IS NULL AND (#{condition})
+        RETURNING l.id
+        """,
+        parameters
+      )
+
+    Enum.each(rows, fn [id] -> broadcast_learning_updated(Ecto.UUID.load!(id)) end)
+  end
+
+  defp json_array(column),
+    do:
+      "CASE WHEN pg_input_is_valid(#{column}, 'jsonb') AND " <>
+        "jsonb_typeof(#{column}::jsonb) = 'array' THEN #{column}::jsonb ELSE '[]'::jsonb END"
 
   defp request_schema(entries, thread, nil), do: schema(entries, thread)
 

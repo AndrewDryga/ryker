@@ -15,7 +15,9 @@ defmodule Ryker.Memories.ForgettingTest do
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Memories
@@ -162,6 +164,29 @@ defmodule Ryker.Memories.ForgettingTest do
              KnowledgeSnapshot.reauthorize(second, second.repository_ref, [
                document
              ])
+  end
+
+  # A learning run keeps the prompt it sent, which quotes the messages it
+  # read, and the answer it got. Forgetting a message left both on the
+  # Timeline for 30 or 90 days, against "a forgotten fact keeps no words"
+  # (2026-10-04 review).
+  test "forgetting a topic erases the words learning runs read of its messages", %{
+    first: first,
+    second: second
+  } do
+    settings = %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
+    assert {:ok, read_it} = Learning.prepare([first.id], settings)
+    assert {:ok, other} = Learning.prepare([second.id], settings)
+    assert is_binary(read_it.prompt)
+
+    topic = topic!(first, "checkout-readiness", "Checkout readiness")
+    assert {:ok, _forgotten} = Forgetting.forget_topic(topic.id)
+
+    erased = Repo.get!(LearningRun, read_it.id)
+    assert erased.prompt == nil
+    assert erased.result == nil
+    assert erased.pruned_at
+    assert Repo.get!(LearningRun, other.id).prompt == other.prompt
   end
 
   test "forgetting a fact forgets what learning kept from the message it came from", %{

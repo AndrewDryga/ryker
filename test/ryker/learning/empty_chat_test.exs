@@ -53,5 +53,26 @@ defmodule Ryker.Learning.EmptyChatTest do
     assert EmptyChat.all?([entry("hi"), entry("thanks")])
   end
 
+  # Learning reads a reply with the thread it answers, so a reply's "yes" can
+  # be the answer to a question worth keeping. Threaded yes and no replies
+  # were skipped as empty chat (2026-10-04 review).
+  test "a bare reply in a thread is read with the question it answers" do
+    reply = %Entry{
+      content: %{"text" => "yes"},
+      destination_thread_ref: "1788000000.000100",
+      source_item_ref: "1788000060.000200"
+    }
+
+    refute EmptyChat.message?(reply)
+    refute EmptyChat.message?(%{reply | content: %{"text" => "no thanks"}})
+
+    # Thanks in a thread answers nothing; a harvested "Great thanks" reply
+    # cost a learning call that saved nothing.
+    assert EmptyChat.message?(%{reply | content: %{"text" => "Great thanks"}})
+
+    # The thread's own opening message has no question above it.
+    assert EmptyChat.message?(%{reply | source_item_ref: "1788000000.000100"})
+  end
+
   defp entry(text), do: %Entry{content: %{"text" => text}}
 end

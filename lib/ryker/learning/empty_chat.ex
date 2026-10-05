@@ -8,7 +8,10 @@ defmodule Ryker.Learning.EmptyChat do
   question it answers says nothing. Every "hi" used to start a learning model
   call that saved nothing (2026-09-28). The test is deliberately narrow: a
   message that says anything more, such as "hi, the staging account moved",
-  is learned from as before, and so is any message with a file.
+  is learned from as before, and so is any message with a file. A yes or no
+  in a thread is not empty chat either: learning reads it with the thread it
+  answers, so it can settle a question worth keeping. Thanks in a thread
+  still is.
   """
 
   alias Ryker.Ingress.Inbox.Entry
@@ -22,6 +25,9 @@ defmodule Ryker.Learning.EmptyChat do
             yes yep yeah yup no nope sure np got it sounds all problem
           ))
 
+  # In a thread these answer the question above them.
+  @answers MapSet.new(~w(yes yep yeah yup no nope sure))
+
   @doc "Whether every message is empty chat; an empty list is not."
   @spec all?([Entry.t()]) :: boolean()
   def all?([_ | _] = entries), do: Enum.all?(entries, &message?/1)
@@ -29,12 +35,18 @@ defmodule Ryker.Learning.EmptyChat do
 
   @doc "Whether one message is a greeting, thanks or bare acknowledgement with nothing attached."
   @spec message?(Entry.t()) :: boolean()
-  def message?(%Entry{content: %{"text" => text} = content}) when is_binary(text) do
+  def message?(%Entry{content: %{"text" => text} = content} = entry) when is_binary(text) do
+    words = words(text)
+
     String.trim(text) != "" and plain?(content) and
-      Enum.all?(words(text), &MapSet.member?(@filler, &1))
+      Enum.all?(words, &MapSet.member?(@filler, &1)) and
+      not (reply?(entry) and Enum.any?(words, &MapSet.member?(@answers, &1)))
   end
 
   def message?(_entry), do: false
+
+  defp reply?(%Entry{destination_thread_ref: thread, source_item_ref: message}),
+    do: is_binary(thread) and thread != message
 
   # A person's own words and nothing else. An app's alert often has no text of
   # its own and says everything in attachments or blocks; a file, an
