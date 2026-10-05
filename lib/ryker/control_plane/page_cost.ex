@@ -36,9 +36,14 @@ defmodule Ryker.ControlPlane.PageCost do
   @doc """
   Runs `fun`, counting the queries it runs in this process, and logs what it
   cost when it was slow or ran many queries. Returns what `fun` returns.
+
+  The page at `path` is logged by its kind: the path's words stay and every id
+  in it becomes `:id`. The full path put Slack workspace and channel ids and
+  request ids in the log (2026-10-04 review).
   """
-  @spec measure(String.t(), (-> result)) :: result when result: term()
-  def measure(label, fun) do
+  @spec measure(String.t(), boolean(), (-> result)) :: result when result: term()
+  def measure(path, connected?, fun) do
+    label = "#{route(path)} (#{if connected?, do: "live", else: "first render"})"
     previous = Process.put(@key, {0, 0})
     started = System.monotonic_time()
 
@@ -51,6 +56,14 @@ defmodule Ryker.ControlPlane.PageCost do
       db_ms = System.convert_time_unit(native, :native, :millisecond)
       log(label, queries, db_ms, ms)
     end
+  end
+
+  defp route(path) do
+    segments =
+      for segment <- String.split(path, "/", trim: true),
+          do: if(Regex.match?(~r/\A[a-z]+(?:-[a-z]+)*\z/, segment), do: segment, else: ":id")
+
+    "/" <> Enum.join(segments, "/")
   end
 
   defp restore(nil), do: Process.delete(@key)

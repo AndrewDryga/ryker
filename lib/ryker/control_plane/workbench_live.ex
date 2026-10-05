@@ -1387,9 +1387,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # Every read of a page is measured: its queries and time (`PageCost`). Its
   # artifacts share one look at the configured secrets.
   defp refresh(socket, reset \\ false) do
-    label = "#{socket.assigns.path} (#{if connected?(socket), do: "live", else: "first render"})"
-
-    PageCost.measure(label, fn ->
+    PageCost.measure(socket.assigns.path, connected?(socket), fn ->
       InspectionRedactor.with_configured_secrets(fn -> read_shell_and_page(socket, reset) end)
     end)
   end
