@@ -9,6 +9,7 @@ defmodule Ryker.StateTools.FixedTools do
 
   alias Ryker.StateTools.{
     AutomationTools,
+    Capabilities,
     Catalog,
     ErrorCode,
     EvidenceTools,
@@ -210,12 +211,12 @@ defmodule Ryker.StateTools.FixedTools do
 
   defp capabilities(options) when is_list(options) do
     if Keyword.keyword?(options),
-      do: Keyword.get(options, :capabilities, [:event_waits, :publication, :schedules]),
+      do: Keyword.get(options, :capabilities, Capabilities.default()),
       else: []
   end
 
   defp capabilities(%{} = options),
-    do: Map.get(options, :capabilities, [:event_waits, :publication, :schedules])
+    do: Map.get(options, :capabilities, Capabilities.default())
 
   defp capabilities(_options), do: []
 

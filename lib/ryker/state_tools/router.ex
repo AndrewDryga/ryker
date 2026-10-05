@@ -16,7 +16,7 @@ defmodule Ryker.StateTools.Router do
   alias Ryker.{CanonicalJSON, Secret}
   alias Ryker.Emisar.Tools, as: EmisarTools
   alias Ryker.HTTPConnection
-  alias Ryker.StateTools.{CallLog, LookupContext, Tools, ToolVisibility}
+  alias Ryker.StateTools.{CallLog, Capabilities, LookupContext, Tools, ToolVisibility}
 
   @maximum_body_bytes 1_048_576
   @protocol_version "2025-11-25"
@@ -29,8 +29,7 @@ defmodule Ryker.StateTools.Router do
     cursor_secret = Keyword.get(options, :cursor_secret)
     binding = Keyword.get(options, :binding)
 
-    capabilities =
-      Keyword.get(options, :capabilities, [:event_waits, :publication, :schedules])
+    capabilities = Keyword.get(options, :capabilities, Capabilities.default())
 
     additional_tools = Keyword.get(options, :additional_tools, [])
     additional_call = Keyword.get(options, :additional_call)
@@ -43,7 +42,7 @@ defmodule Ryker.StateTools.Router do
       do:
         raise(ArgumentError, "memory cursor secret must be at least 16 valid UTF-8 bytes, sealed")
 
-    unless valid_capabilities?(capabilities),
+    unless Capabilities.valid?(capabilities),
       do: raise(ArgumentError, "state-tools capabilities must be unique known atoms")
 
     validate_additional_tools!(additional_tools, additional_call, capabilities)
@@ -482,16 +481,6 @@ defmodule Ryker.StateTools.Router do
   end
 
   defp valid_additional_tool?(_tool), do: false
-
-  defp valid_capabilities?(capabilities) when is_list(capabilities) do
-    capabilities == Enum.uniq(capabilities) and
-      Enum.all?(
-        capabilities,
-        &(&1 in [:emisar_approvals, :event_waits, :publication, :schedules])
-      )
-  end
-
-  defp valid_capabilities?(_capabilities), do: false
 
   defp opened(nil), do: nil
   defp opened(%Secret{} = secret), do: Secret.reveal(secret)

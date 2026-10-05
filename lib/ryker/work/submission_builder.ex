@@ -29,16 +29,15 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.Outcomes
 
+  alias Ryker.StateTools.Capabilities
   alias Ryker.StateTools.FixedTools
   alias Ryker.StateTools.ToolVisibility
-  alias Ryker.Work.{Contract, Prompt, Session, Submission, Turn}
+  alias Ryker.Work.{Contract, PlatformTools, Prompt, Session, Submission, Turn}
 
   @maximum_inputs 40
   @retained_cases 3
   @maximum_context_bytes 160 * 1_024
   @input_content_bytes 1_024
-  @default_state_tool_capabilities [:event_waits, :publication, :schedules]
-  @state_tool_capabilities [:emisar_approvals, :event_waits, :publication, :schedules]
 
   @doc """
   The frozen submission for this claim.
@@ -243,28 +242,13 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   # The platform tools Work was assembled with (`Ryker.Runtime.Assembly`).
   defp platform_tool_names(episode, mode, options) do
-    configured = Keyword.get(options, :platform_tools, [])
+    case options |> Keyword.get(:platform_tools) |> PlatformTools.names() do
+      {:ok, names} ->
+        {:ok,
+         Enum.filter(names, &visible_platform_tool?(&1, episode.destination_transport, mode))}
 
-    if is_list(configured) do
-      configured_names =
-        configured
-        |> Enum.map(fn
-          %{"name" => name} when is_binary(name) -> name
-          name when is_binary(name) -> name
-          _invalid -> nil
-        end)
-
-      if Enum.all?(configured_names, &is_binary/1) and
-           configured_names == Enum.uniq(configured_names),
-         do:
-           {:ok,
-            Enum.filter(
-              configured_names,
-              &visible_platform_tool?(&1, episode.destination_transport, mode)
-            )},
-         else: {:error, {:invalid_work_submission_builder, :platform_tools}}
-    else
-      {:error, {:invalid_work_submission_builder, :platform_tools}}
+      :error ->
+        {:error, {:invalid_work_submission_builder, :platform_tools}}
     end
   end
 
@@ -497,14 +481,13 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   defp state_tool_names(episode, options) do
     capabilities =
-      Keyword.get(options, :state_tool_capabilities, @default_state_tool_capabilities)
+      Keyword.get(options, :state_tool_capabilities, Capabilities.default())
 
     cond do
       is_nil(capabilities) ->
         {:ok, []}
 
-      is_list(capabilities) and capabilities == Enum.uniq(capabilities) and
-          Enum.all?(capabilities, &(&1 in @state_tool_capabilities)) ->
+      Capabilities.valid?(capabilities) ->
         names =
           FixedTools.list(capabilities: capabilities, binding: %{episode: episode})
           |> Enum.map(& &1["name"])

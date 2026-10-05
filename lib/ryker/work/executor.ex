@@ -16,11 +16,18 @@ defmodule Ryker.Work.Executor do
   """
 
   alias Ryker.Knowledge.KnowledgeSnapshot
-  alias Ryker.Work.{Custody, StateBinding, SubmissionBuilder}
+  alias Ryker.StateTools.Capabilities
+  alias Ryker.Work.{Custody, PlatformTools, StateBinding, SubmissionBuilder}
   alias Ryker.Work.Executor.{Cancellation, Remote, Sessions, Turns, Validation, Workspace}
 
-  @default_state_tool_capabilities [:event_waits, :publication, :schedules]
-  @state_tool_capabilities [:emisar_approvals, :event_waits, :publication, :schedules]
+  @doc """
+  Checks executor options without running anything, so a runtime refuses a
+  configuration before it starts workers with it.
+  """
+  @spec check_options(keyword()) :: :ok | {:error, {:invalid_work_executor, atom()}}
+  def check_options(options) do
+    with {:ok, _settings} <- settings(options), do: :ok
+  end
 
   @spec run(Custody.claim(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(claim, options) do
@@ -291,7 +298,7 @@ defmodule Ryker.Work.Executor do
           Keyword.get(
             options,
             :state_tool_capabilities,
-            if(state_tools_endpoint, do: @default_state_tool_capabilities, else: nil)
+            if(state_tools_endpoint, do: Capabilities.default(), else: nil)
           ),
         state_tools_endpoint: state_tools_endpoint,
         state_tools_secret: Keyword.get(options, :state_tools_secret),
@@ -381,27 +388,12 @@ defmodule Ryker.Work.Executor do
          state_tool_capabilities: capabilities,
          state_tools_endpoint: endpoint
        })
-       when is_binary(endpoint) and is_list(capabilities) do
-    capabilities == Enum.uniq(capabilities) and
-      Enum.all?(capabilities, &(&1 in @state_tool_capabilities))
-  end
+       when is_binary(endpoint),
+       do: Capabilities.valid?(capabilities)
 
   defp valid_state_tool_capabilities?(_settings), do: false
 
-  defp valid_platform_tools?(nil), do: true
-
-  defp valid_platform_tools?(tools) when is_list(tools) do
-    names =
-      Enum.map(tools, fn
-        %{"name" => name} when is_binary(name) -> name
-        name when is_binary(name) -> name
-        _invalid -> nil
-      end)
-
-    Enum.all?(names, &is_binary/1) and names == Enum.uniq(names)
-  end
-
-  defp valid_platform_tools?(_tools), do: false
+  defp valid_platform_tools?(tools), do: match?({:ok, _names}, PlatformTools.names(tools))
 
   defp valid_workspace_requirements?(requirements)
        when is_list(requirements) and length(requirements) <= 32 do

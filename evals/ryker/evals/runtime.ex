@@ -11,8 +11,7 @@ defmodule Ryker.Evals.Runtime do
   """
 
   alias Ryker.{Bootstrap, Defaults}
-
-  @capabilities [:event_waits, :publication, :schedules]
+  alias Ryker.StateTools.Capabilities
 
   @type world :: %{
           gateway: map(),
@@ -33,7 +32,7 @@ defmodule Ryker.Evals.Runtime do
       gateway ->
         token = Ryker.Secret.new(Bootstrap.secret!(:state_tools))
 
-        state_tools = %{capabilities: @capabilities, token: token}
+        state_tools = %{capabilities: Capabilities.default(), token: token}
 
         {:ok,
          %{

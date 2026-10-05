@@ -11,7 +11,8 @@ defmodule Ryker.Work.Runtime do
   use Supervisor
 
   alias Ryker.Options
-  alias Ryker.Work.{ActivitySyncWorker, Session, StateBinding, Turn, Worker}
+  alias Ryker.StateTools.Capabilities
+  alias Ryker.Work.{ActivitySyncWorker, Executor, Worker}
 
   @fields [
     :api,
@@ -30,8 +31,6 @@ defmodule Ryker.Work.Runtime do
   @default_concurrency 4
   @maximum_concurrency 32
   @maximum_receive_timeout_ms div(@lease_seconds * 1_000, 3)
-  @default_state_tool_capabilities [:event_waits, :publication, :schedules]
-  @state_tool_capabilities [:emisar_approvals, :event_waits, :publication, :schedules]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
@@ -57,17 +56,7 @@ defmodule Ryker.Work.Runtime do
       for slot <- 1..options.concurrency do
         worker_options = [
           dispatcher_options: [
-            executor_options: [
-              client: options.client,
-              api: options.api,
-              connected: options.connected,
-              max_block_ms: options.receive_timeout_ms,
-              platform_tools: options.platform_tools,
-              poll_interval_ms: options.poll_interval_ms,
-              state_tool_capabilities: options.state_tool_capabilities,
-              state_tools_endpoint: options.state_tools_endpoint,
-              state_tools_secret: options.state_tools_secret
-            ],
+            executor_options: executor_options(options),
             lease_seconds: @lease_seconds,
             worker_ref: "#{options.worker_ref}:slot-#{slot}"
           ],
@@ -78,6 +67,20 @@ defmodule Ryker.Work.Runtime do
       end
 
     Supervisor.init(activity_sync(options) ++ workers, strategy: :one_for_one)
+  end
+
+  defp executor_options(options) do
+    [
+      client: options.client,
+      api: options.api,
+      connected: options.connected,
+      max_block_ms: options.receive_timeout_ms,
+      platform_tools: options.platform_tools,
+      poll_interval_ms: options.poll_interval_ms,
+      state_tool_capabilities: options.state_tool_capabilities,
+      state_tools_endpoint: options.state_tools_endpoint,
+      state_tools_secret: options.state_tools_secret
+    ]
   end
 
   # Only a direct Coop client lists a session's events; the fleet client a
@@ -114,21 +117,17 @@ defmodule Ryker.Work.Runtime do
       Map.get(
         configuration,
         :state_tool_capabilities,
-        if(state_tools_endpoint, do: @default_state_tool_capabilities, else: nil)
+        if(state_tools_endpoint, do: Capabilities.default(), else: nil)
       )
 
     validate_concurrency!(concurrency)
-    validate_connected!(connected)
-    validate_platform_tools!(platform_tools)
     validate_positive!(poll_interval_ms, :poll_interval_ms)
     validate_positive!(receive_timeout_ms, :receive_timeout_ms)
     validate_receive_timeout!(receive_timeout_ms)
     validate_ref!(worker_ref, :worker_ref)
-    validate_state_tools!(state_tools_endpoint, state_tools_secret)
-    validate_state_tool_capabilities!(state_tool_capabilities, state_tools_endpoint)
     {api, client} = coop_adapter!(configuration)
 
-    %{
+    options = %{
       api: api,
       client: client,
       concurrency: concurrency,
@@ -141,6 +140,13 @@ defmodule Ryker.Work.Runtime do
       state_tools_secret: state_tools_secret,
       worker_ref: worker_ref
     }
+
+    # The executor's own check of what each worker will run with; a second copy
+    # here disagreed with it on platform tool names (2026-10-04 review).
+    case Executor.check_options([{:lease_seconds, @lease_seconds} | executor_options(options)]) do
+      :ok -> options
+      {:error, {:invalid_work_executor, field}} -> raise ArgumentError, "work #{field} is invalid"
+    end
   end
 
   defp normalize_configuration!(configuration) do
@@ -164,32 +170,6 @@ defmodule Ryker.Work.Runtime do
   defp validate_concurrency!(_value) do
     raise ArgumentError, "work concurrency must be between 1 and #{@maximum_concurrency}"
   end
-
-  defp validate_platform_tools!(nil), do: :ok
-
-  defp validate_platform_tools!(tools) when is_list(tools) and length(tools) <= 256 do
-    names =
-      Enum.map(tools, fn
-        %{"name" => name} when is_binary(name) -> name
-        name when is_binary(name) -> name
-        _invalid -> nil
-      end)
-
-    if Enum.all?(names, &valid_platform_tool_name?/1) and names == Enum.uniq(names),
-      do: :ok,
-      else: raise(ArgumentError, "work platform_tools must name unique bounded tools")
-  end
-
-  defp validate_platform_tools!(_tools) do
-    raise ArgumentError, "work platform_tools must name at most 256 unique bounded tools"
-  end
-
-  defp valid_platform_tool_name?(name) when is_binary(name) do
-    String.valid?(name) and byte_size(name) in 1..256 and
-      Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9_.:-]*\z/, name)
-  end
-
-  defp valid_platform_tool_name?(_name), do: false
 
   defp validate_receive_timeout!(value) when value < @maximum_receive_timeout_ms, do: :ok
 
@@ -217,43 +197,5 @@ defmodule Ryker.Work.Runtime do
 
   defp validate_ref!(_value, field) do
     raise ArgumentError, "work #{field} must be a bounded string"
-  end
-
-  defp validate_state_tools!(nil, nil), do: :ok
-
-  defp validate_state_tools!(endpoint, secret) do
-    case StateBinding.derive(
-           %Session{id: Ecto.UUID.generate()},
-           %Turn{id: Ecto.UUID.generate()},
-           "local:configuration-validation",
-           endpoint,
-           secret
-         ) do
-      {:ok, _binding} -> :ok
-      {:error, _reason} -> raise ArgumentError, "work state-tools binding is invalid"
-    end
-  end
-
-  defp validate_connected!(nil), do: :ok
-
-  defp validate_connected!(%{github: github, slack: slack} = connected)
-       when map_size(connected) == 2 and is_boolean(github) and is_boolean(slack),
-       do: :ok
-
-  defp validate_connected!(_connected),
-    do: raise(ArgumentError, "Work runtime connected integrations are invalid")
-
-  defp validate_state_tool_capabilities!(nil, nil), do: :ok
-
-  defp validate_state_tool_capabilities!(capabilities, endpoint)
-       when is_binary(endpoint) and is_list(capabilities) do
-    if capabilities == Enum.uniq(capabilities) and
-         Enum.all?(capabilities, &(&1 in @state_tool_capabilities)),
-       do: :ok,
-       else: raise(ArgumentError, "work state_tool_capabilities must be unique known atoms")
-  end
-
-  defp validate_state_tool_capabilities!(_capabilities, _endpoint) do
-    raise ArgumentError, "work state_tool_capabilities require a state-tools endpoint"
   end
 end
