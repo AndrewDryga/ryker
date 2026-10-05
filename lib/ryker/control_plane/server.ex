@@ -46,6 +46,7 @@ defmodule Ryker.ControlPlane.Server do
         access: options.access,
         cloudflare_access: options.cloudflare_access,
         public_host: public_host(options.public_url),
+        public_https: public_https?(options.public_url),
         actions: Actions.live(),
         csrf_secret: options.csrf_secret,
         observability: Observability.callbacks(),
@@ -214,6 +215,9 @@ defmodule Ryker.ControlPlane.Server do
 
   defp public_host(nil), do: nil
   defp public_host(url), do: URI.parse(url).host
+
+  defp public_https?(nil), do: false
+  defp public_https?(url), do: URI.parse(url).scheme == "https"
 
   defp loopback_origins(port),
     do: ["//localhost:#{port}", "//127.0.0.1:#{port}", "//[::1]:#{port}"]

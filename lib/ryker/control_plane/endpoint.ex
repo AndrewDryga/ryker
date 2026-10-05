@@ -16,6 +16,22 @@ defmodule Ryker.ControlPlane.Endpoint do
   )
 
   plug(Ryker.ControlPlane.BrowserGuard, access: :endpoint)
-  plug(Plug.Session, @session_options)
+  plug(:session)
   plug(Ryker.ControlPlane.WebRouter)
+
+  # Secure at the published HTTPS address, so a browser never sends the cookie
+  # over plain HTTP there; it had no Secure flag (2026-10-04 review). The
+  # loopback console is plain HTTP and keeps it unflagged.
+  defp session(conn, _options) do
+    options =
+      if secure_session?(conn),
+        do: [{:secure, true} | @session_options],
+        else: @session_options
+
+    Plug.Session.call(conn, Plug.Session.init(options))
+  end
+
+  defp secure_session?(%Plug.Conn{host: host}) do
+    match?(%{public_host: ^host, public_https: true}, config(:control_plane))
+  end
 end
