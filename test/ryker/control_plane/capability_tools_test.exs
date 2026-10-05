@@ -418,6 +418,39 @@ defmodule Ryker.ControlPlane.CapabilityToolsTest do
            ) == {:error, "invalid_source_cursor"}
   end
 
+  # Reading around a message sent outside `after` and `before` returned no messages and said the
+  # window was complete, so the model was told an unread window was empty (2026-10-04 review).
+  test "reading around a message outside the time bounds says so, never that nothing was there" do
+    refs =
+      for index <- 1..3 do
+        {ref, _, _} =
+          admit_lab_input!(
+            "outside-bounds-#{index}",
+            @conversation_ref,
+            "Bounded original #{index}",
+            DateTime.add(@now, index - 10)
+          )
+
+        ref
+      end
+
+    {binding, _, _} = lab_binding!("outside-bounds-reader")
+
+    assert {:error, "invalid_arguments: " <> explanation} =
+             CapabilityTools.call(
+               "read_slack_source",
+               %{
+                 "source_ref" => List.last(refs),
+                 "view" => "surrounding",
+                 "before" => DateTime.to_iso8601(DateTime.add(@now, -8)),
+                 "limit" => 3
+               },
+               binding
+             )
+
+    assert explanation =~ "outside after and before"
+  end
+
   test "a retained Lab source-item receipt expands to its actual admitted original" do
     {binding, input_ref, source_item_ref} = lab_binding!("source-item-navigation")
 
@@ -527,7 +560,7 @@ defmodule Ryker.ControlPlane.CapabilityToolsTest do
                binding
              )
 
-    assert {:ok, %{"messages" => []}} =
+    assert {:error, "invalid_arguments: The message to read around was sent outside" <> _} =
              CapabilityTools.call(
                "read_slack_source",
                %{

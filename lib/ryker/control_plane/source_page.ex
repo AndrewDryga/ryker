@@ -7,7 +7,8 @@ defmodule Ryker.ControlPlane.SourcePage do
     scope = {binding.episode.id, binding.turn.id, Map.delete(arguments, "cursor")}
     secret = Map.get(binding, :cursor_secret)
 
-    with {:ok, previous} <- restore(arguments["cursor"], scope, secret) do
+    with {:ok, previous} <- restore(arguments["cursor"], scope, secret),
+         :ok <- anchored(messages, anchor, previous) do
       selected = select(messages, anchor, previous, limit)
       interval = interval(selected, previous, anchor)
       complete = not Enum.any?(messages, &outside?(&1, interval))
@@ -30,6 +31,18 @@ defmodule Ryker.ControlPlane.SourcePage do
          }}
       end
     end
+  end
+
+  # A first page around a message the time bounds leave out read nothing and
+  # said the window was complete, so the model heard an unread window was
+  # empty (2026-10-04 review).
+  defp anchored(_messages, nil, _previous), do: :ok
+  defp anchored(_messages, _anchor, {_oldest, _latest}), do: :ok
+
+  defp anchored(messages, anchor, nil) do
+    if Enum.any?(messages, &(&1["source_ref"] == anchor["source_ref"])),
+      do: :ok,
+      else: {:error, :source_anchor_outside_bounds}
   end
 
   defp select(messages, nil, nil, limit), do: Enum.take(messages, limit)

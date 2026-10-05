@@ -936,6 +936,12 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp error_code(:unauthorized), do: "unauthorized"
   defp error_code(:invalid_arguments), do: "invalid_arguments"
   defp error_code(:invalid_source_cursor), do: "invalid_source_cursor"
+
+  defp error_code(:source_anchor_outside_bounds),
+    do:
+      "invalid_arguments: The message to read around was sent outside after and before. " <>
+        "Widen them, or leave them out."
+
   defp error_code(:state_record_unauthorized), do: "unauthorized"
   defp error_code(:state_record_confirmation_unsupported), do: "unauthorized"
   defp error_code({:invalid_state_record, _field}), do: "invalid_arguments"
