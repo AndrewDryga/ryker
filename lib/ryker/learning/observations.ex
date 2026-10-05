@@ -18,17 +18,6 @@ defmodule Ryker.Learning.Observations do
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
 
-  defp prepare(nil), do: {:ok, nil}
-
-  defp prepare(%{"summary" => summary, "topics" => topics} = note) when map_size(note) == 2 do
-    if text?(summary, 1_200) and is_list(topics) and length(topics) <= 8 and
-         Enum.all?(topics, &text?(&1, 80)) and length(topics) == length(Enum.uniq(topics)),
-       do: {:ok, note},
-       else: {:error, {:invalid_decision, :observation}}
-  end
-
-  defp prepare(_), do: {:error, {:invalid_decision, :observation}}
-
   @doc "Retain a deterministic excerpt of the original input with only that source's receipt."
   def record_excerpt_in_transaction(%Entry{status: :decided} = entry),
     do: write_source(entry, excerpt(entry), "input:#{entry.id}", :source_only)
@@ -112,7 +101,6 @@ defmodule Ryker.Learning.Observations do
 
   defp write_source(entry, note, result_ref, sources, options \\ []) do
     with true <- Repo.in_transaction?(),
-         {:ok, note} <- prepare(note),
          :ok <-
            ChannelFence.authorize_in_transaction(
              entry.destination_transport,
@@ -524,10 +512,4 @@ defmodule Ryker.Learning.Observations do
       "occurred_at" => DateTime.to_iso8601(note.occurred_at)
     }
   end
-
-  defp text?(value, maximum),
-    do:
-      is_binary(value) and String.valid?(value) and
-        String.length(value) <= maximum and String.trim(value) != "" and
-        not String.contains?(value, <<0>>)
 end

@@ -209,7 +209,6 @@ defmodule Ryker.Learning do
   defp request_identity(identity, nil), do: identity
   defp request_identity(identity, rebuild), do: Map.put(identity, "rebuild", rebuild)
 
-  # A batch without a thread keeps the key it always had.
   defp thread_identity(identity, []), do: identity
 
   defp thread_identity(identity, thread),
@@ -941,7 +940,7 @@ defmodule Ryker.Learning do
       "previous_attempt_error" => feedback
     }
 
-    # Left out when nothing is known, so most prompts are as they were.
+    # An empty list would only lengthen the prompt.
     document =
       if known == [], do: document, else: Map.put(document, "known_about_authors", known)
 
@@ -1292,7 +1291,8 @@ defmodule Ryker.Learning do
   defp valid_action?(_), do: false
 
   # What authors said about themselves is kept beside the topics
-  # (`Ryker.People`); a result from before people were read has none.
+  # (`Ryker.People`). A batch with no one to learn about was asked for no
+  # people, so its result has none.
   defp learn_people(%{rebuild: nil, result: result}, entries) do
     case Jason.decode(result) do
       {:ok, %{"people" => people}} when is_list(people) ->
