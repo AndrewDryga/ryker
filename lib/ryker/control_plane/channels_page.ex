@@ -12,7 +12,17 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Integrations, Kit, Paths, SettingsView, ShortTime}
+
+  alias Ryker.ControlPlane.{
+    Components,
+    Integrations,
+    Kit,
+    PagedRelation,
+    Paths,
+    SettingsView,
+    ShortTime
+  }
+
   alias Ryker.Episodes
   alias Ryker.Slack.{IncidentRooms, Names}
 
@@ -45,16 +55,22 @@ defmodule Ryker.ControlPlane.ChannelsPage do
       else: Names.name(workspace, channel)
   end
 
-  @doc "The search phrase and which channels to show, from the page's query."
-  @spec view(map()) :: %{q: String.t(), show: String.t()}
+  @doc "The search phrase, which channels to show and the page, from the page's query."
+  @spec view(map()) :: %{q: String.t(), show: String.t(), page: pos_integer()}
   def view(params) do
     q = if is_binary(params["q"]), do: String.trim(params["q"]), else: ""
-    %{q: q, show: if(params["show"] == "all", do: "all", else: "in_use")}
+
+    %{
+      q: q,
+      show: if(params["show"] == "all", do: "all", else: "in_use"),
+      page: PagedRelation.requested(params, "page")
+    }
   end
 
   @doc "The query the channel directory reads for `view/1`."
   @spec query(map()) :: map()
-  def query(%{q: q, show: show}), do: %{"q" => q, "show" => show}
+  def query(%{q: q, show: show, page: page}),
+    do: %{"q" => q, "show" => show, "page" => Integer.to_string(page)}
 
   @doc "The page body as HTML, as the route hands it to the shell."
   @spec html(map()) :: binary()
@@ -66,7 +82,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
     |> IO.iodata_to_binary()
   end
 
-  attr(:items, :list, required: true)
+  attr(:channels, :map, required: true, doc: "One page of `ChannelDirectory.list/1`")
   attr(:view, :map, required: true)
   attr(:now, :any, default: nil)
 
@@ -76,6 +92,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
       assigns
       |> assign_new(:now, fn -> nil end)
       |> then(&assign(&1, :now, &1.now || DateTime.utc_now()))
+      |> then(&assign(&1, :items, &1.channels.items))
 
     ~H"""
     <div class="channels-page">
@@ -114,6 +131,13 @@ defmodule Ryker.ControlPlane.ChannelsPage do
           meta={meta(item, @now)}
         />
       </Kit.entity_list>
+      <Components.pager
+        page={@channels.page}
+        pages={@channels.pages}
+        path={&Paths.query("/channels", q: @view.q, show: show_param(@view), page: &1)}
+        label="Channel pages"
+        summary={"#{@channels.total} channels"}
+      />
       <Kit.empty
         :if={@items == []}
         icon={if @view.q != "", do: :search, else: :hash}
@@ -212,6 +236,9 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   defp conversations(0), do: "no conversations yet"
   defp conversations(1), do: "1 conversation"
   defp conversations(count), do: "#{count} conversations"
+
+  defp show_param(%{show: "all"}), do: "all"
+  defp show_param(_view), do: nil
 
   defp href(view, show) do
     query =

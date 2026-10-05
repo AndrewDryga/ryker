@@ -62,15 +62,14 @@ defmodule Ryker.ControlPlane.LearningPage do
 
   @doc """
   The Learning body for a `LearningActivity` projection and the worker
-  sessions the Working copies projection lists; only learning sessions that
-  are still open are shown.
+  sessions learning holds open (`WorkspaceProjection.learning_sessions/0`).
   """
   @spec html(map(), [map()], String.t() | nil) :: iodata()
   def html(activity, sessions, csrf_secret) do
     %{
       __changed__: nil,
       activity: activity,
-      sessions: Enum.filter(sessions, &open_learning_session?/1),
+      sessions: sessions,
       csrf_secret: csrf_secret
     }
     |> render()
@@ -589,9 +588,6 @@ defmodule Ryker.ControlPlane.LearningPage do
 
   # Worker sessions, worded the way the Working copies page used to word them
   # when learning sessions were listed there.
-  defp open_learning_session?(session),
-    do: Map.get(session, :execution_kind) == :learning and session[:status] != :discarded
-
   defp session_state(%{status: :grace}), do: {:off, "Cleanup scheduled"}
 
   defp session_state(%{status: :active, learning_state: :retry_scheduled}),

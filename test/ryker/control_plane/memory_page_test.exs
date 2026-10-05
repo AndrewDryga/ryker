@@ -753,7 +753,8 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
 
     test "learning worker sessions are listed on the learning page, never as working copies" do
       # Until 2026-09-24 these rows sat on the Working copies page as
-      # "Background learning", a checkout nobody had asked for.
+      # "Background learning", a checkout nobody had asked for. The sessions
+      # still open are the ones `WorkspaceProjection.learning_sessions/0` reads.
       retry_at = DateTime.add(DateTime.utc_now(), 1_800)
 
       sessions = [
@@ -776,9 +777,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
           updated_at: @at,
           action: :rearm,
           summary: "coop_unavailable"
-        },
-        %{execution_kind: :learning, status: :discarded, ref: "coop:learning:3", updated_at: @at},
-        %{execution_kind: :work, status: :active, ref: "workspace:one", updated_at: @at}
+        }
       ]
 
       section = learning(@activity, sessions) |> LazyHTML.query("section#worker-sessions")
@@ -978,7 +977,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
           send(parent, {:learning, params})
           @activity
         end,
-        workspaces: fn _params -> [] end,
+        learning_sessions: fn -> [] end,
         findings: fn params ->
           send(parent, {:findings, params})
           %{items: [], total: 0, page: 1, pages: 1}
@@ -1006,8 +1005,8 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert Enum.empty?(LazyHTML.query(document, "details.page-help, details.area-settings, h1"))
     end
 
-    assert_received {:memory, %{"q" => "deploy"} = facts}
-    assert map_size(facts) == 1
+    assert_received {:memory, facts}
+    assert facts == %{"q" => "deploy", "page" => "2"}
     assert_received {:learned, %{"q" => "deploy", "kind" => "context", "page" => "2"} = learned}
     assert map_size(learned) == 3
     assert_received {:learning, %{"page" => "2"} = learning}

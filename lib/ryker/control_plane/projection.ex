@@ -98,7 +98,8 @@ defmodule Ryker.ControlPlane.Projection do
       weekly_report_preview: &WeeklyReport.preview/0,
       workspace: &WorkspaceProjection.fetch/1,
       workspace_storage: &WorkspaceProjection.storage/0,
-      workspaces: &WorkspaceProjection.list/1
+      working_copies: &WorkspaceProjection.copies/1,
+      learning_sessions: &WorkspaceProjection.learning_sessions/0
     }
   end
 end

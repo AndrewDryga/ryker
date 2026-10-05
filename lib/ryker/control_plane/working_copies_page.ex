@@ -45,24 +45,19 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
     |> IO.iodata_to_binary()
   end
 
-  attr(:rows, :list, required: true)
+  attr(:copies, :map,
+    required: true,
+    doc: "`WorkspaceProjection.copies/1`: every copy in use, and one page of removed ones"
+  )
 
   attr(:storage, :map, required: true)
   attr(:now, :any, default: nil)
   attr(:view, :string, default: "current", doc: "current, or removed for removed copies")
 
   def render(assigns) do
-    # Learning sessions share the cleanup custody but hold no checkout; the
-    # Learning page lists them.
-    rows =
-      Enum.filter(
-        assigns.rows,
-        &(Map.get(&1, :execution_kind) != :learning and is_binary(Map.get(&1, :repository)))
-      )
-
-    current = Enum.reject(rows, &(&1.status == :discarded))
-    removed = Enum.filter(rows, &(&1.status == :discarded))
-    ready = Enum.filter(assigns.storage.preview, &(&1.kind == :work and is_binary(&1.repository)))
+    %{current: current, removed: removed} = assigns.copies
+    ready = assigns.storage.preview
+    ready_total = Map.get(assigns.storage, :preview_total, length(ready))
     view = if assigns[:view] == "removed", do: "removed", else: "current"
 
     assigns =
@@ -74,7 +69,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
         current: current,
         removed: removed,
         ready: ready,
-        counts: counts(current, ready, removed)
+        ready_total: ready_total,
+        counts: counts(current, ready_total, removed.total)
       )
 
     ~H"""
@@ -94,7 +90,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
         <section :if={@ready != []} id="ready-for-cleanup" class="working-copies-section">
           <Kit.section_head
             title="Ready for cleanup"
-            lede="Copies Ryker cleans up next, oldest first."
+            lede={ready_lede(length(@ready), @ready_total)}
           />
           <Kit.entity_list label="Ready for cleanup">
             <Kit.entity_row
@@ -117,11 +113,19 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
           text="A copy appears here while a task works in a repository, and stays until cleanup removes it safely."
         />
       <% else %>
-        <Kit.entity_list :if={@removed != []} label="Removed copies">
-          <.copy :for={row <- @removed} row={row} now={@now} />
+        <Kit.entity_list :if={@removed.items != []} label="Removed copies">
+          <.copy :for={row <- @removed.items} row={row} now={@now} />
         </Kit.entity_list>
+        <Components.pager
+          page={@removed.page}
+          pages={@removed.pages}
+          path={&Paths.query("/working-copies", view: "removed", page: &1)}
+          label="Removed copy pages"
+          earlier="Newer"
+          later="Older"
+        />
         <Kit.empty
-          :if={@removed == []}
+          :if={@removed.total == 0}
           icon={:copy}
           title="No removed copies yet"
           text="A copy moves here once cleanup removes it."
@@ -141,16 +145,17 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
         label: if(length(current) == 1, do: "copy in use", else: "copies in use"),
         href: "/working-copies"
       },
-      ready != [] &&
-        %{
-          value: length(ready),
-          label: "ready for cleanup",
-          href: "/working-copies#ready-for-cleanup"
-        },
-      %{value: length(removed), label: "removed", href: "/working-copies?view=removed"}
+      ready > 0 &&
+        %{value: ready, label: "ready for cleanup", href: "/working-copies#ready-for-cleanup"},
+      %{value: removed, label: "removed", href: "/working-copies?view=removed"}
     ]
     |> Enum.filter(& &1)
   end
+
+  defp ready_lede(shown, total) when total > shown,
+    do: "Copies Ryker cleans up next, oldest first: the next #{shown} of #{total}."
+
+  defp ready_lede(_shown, _total), do: "Copies Ryker cleans up next, oldest first."
 
   attr(:row, :map, required: true)
   attr(:now, :any, required: true)

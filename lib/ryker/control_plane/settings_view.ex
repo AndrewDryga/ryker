@@ -122,7 +122,7 @@ defmodule Ryker.ControlPlane.SettingsView do
   @spec view(Settings.snapshot()) :: t()
   def view(%{installation: installation} = snapshot) do
     credentials = Credentials.statuses()
-    joined = Enum.filter(ChannelDirectory.list(%{}), &(&1.membership == :joined))
+    joined = Enum.filter(ChannelDirectory.rows(%{}), &(&1.membership == :joined))
 
     # What an integration's state is read from (`Integrations`), so the setup
     # steps below read the same state every page shows.

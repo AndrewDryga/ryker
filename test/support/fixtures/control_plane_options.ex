@@ -202,21 +202,27 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           %{version: "0.1.0-test", workers: [], supported: true, now: ~U[2026-08-28 12:00:00Z]}
         end,
         channels: fn _params ->
-          [
-            %{
-              channel_ref: "C456",
-              episodes: 2,
-              incident_room: false,
-              last_at: ~U[2026-08-28 12:00:00Z],
-              membership: :joined,
-              participation: :mentions,
-              private: false,
-              environment_ref: "production",
-              environment_name: "Production",
-              environment_source: :channel,
-              workspace_ref: "T123"
-            }
-          ]
+          %{
+            key: "page",
+            items: [
+              %{
+                channel_ref: "C456",
+                episodes: 2,
+                incident_room: false,
+                last_at: ~U[2026-08-28 12:00:00Z],
+                membership: :joined,
+                participation: :mentions,
+                private: false,
+                environment_ref: "production",
+                environment_name: "Production",
+                environment_source: :channel,
+                workspace_ref: "T123"
+              }
+            ],
+            total: 1,
+            page: 1,
+            pages: 1
+          }
         end,
         # An incident room's channel has a page of its own: the room is what
         # mentions it, so the room page's channel link always opens.
@@ -477,24 +483,30 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           }
         end,
         incidents: fn _params ->
-          [
-            %{
-              channel_name: "inc-latency",
-              channel_ref: "CINCIDENT",
-              channel_state: :active,
-              episode_id: @episode_incident_id,
-              private: true,
-              publication_ref: nil,
-              publication_status: nil,
-              ref: "incident-room:one",
-              repository_ref: "ryker",
-              requested_at: ~U[2026-08-28 11:55:00Z],
-              status: :ready,
-              title: "Investigate latency",
-              updated_at: ~U[2026-08-28 12:00:00Z],
-              workspace_ref: "T123"
-            }
-          ]
+          %{
+            items: [
+              %{
+                channel_name: "inc-latency",
+                channel_ref: "CINCIDENT",
+                channel_state: :active,
+                episode_id: @episode_incident_id,
+                private: true,
+                publication_ref: nil,
+                publication_status: nil,
+                ref: "incident-room:one",
+                repository_ref: "ryker",
+                requested_at: ~U[2026-08-28 11:55:00Z],
+                status: :ready,
+                title: "Investigate latency",
+                updated_at: ~U[2026-08-28 12:00:00Z],
+                workspace_ref: "T123"
+              }
+            ],
+            total: 1,
+            page: 1,
+            pages: 1,
+            open: 1
+          }
         end,
         incident: fn
           "incident-room:one" ->
@@ -1196,43 +1208,47 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             ]
           }
         end,
-        workspaces: fn _params ->
-          [
-            %{
-              action: :rearm,
-              execution_kind: :work,
-              kind: "coop_session",
-              repository: "ryker",
-              ref: "workspace:blocked",
-              state: :complete,
-              status: :blocked,
-              summary: "coop_protocol_error",
-              updated_at: ~U[2026-08-28 12:00:00Z]
-            },
-            %{
-              action: :discard_unmerged,
-              execution_kind: :work,
-              kind: "coop_session",
-              repository: "ryker",
-              ref: "workspace:unmerged",
-              state: :complete,
-              status: :retained,
-              summary: "unpublished_unmerged",
-              updated_at: ~U[2026-08-28 12:00:00Z]
-            },
-            %{
-              action: nil,
-              execution_kind: :work,
-              kind: "coop_session",
-              repository: "ryker",
-              ref: "workspace:dirty",
-              state: :complete,
-              status: :retained,
-              summary: "dirty",
-              updated_at: ~U[2026-08-28 12:00:00Z]
-            }
-          ]
-        end
+        working_copies: fn _params ->
+          %{
+            current: [
+              %{
+                action: :rearm,
+                execution_kind: :work,
+                kind: "coop_session",
+                repository: "ryker",
+                ref: "workspace:blocked",
+                state: :complete,
+                status: :blocked,
+                summary: "coop_protocol_error",
+                updated_at: ~U[2026-08-28 12:00:00Z]
+              },
+              %{
+                action: :discard_unmerged,
+                execution_kind: :work,
+                kind: "coop_session",
+                repository: "ryker",
+                ref: "workspace:unmerged",
+                state: :complete,
+                status: :retained,
+                summary: "unpublished_unmerged",
+                updated_at: ~U[2026-08-28 12:00:00Z]
+              },
+              %{
+                action: nil,
+                execution_kind: :work,
+                kind: "coop_session",
+                repository: "ryker",
+                ref: "workspace:dirty",
+                state: :complete,
+                status: :retained,
+                summary: "dirty",
+                updated_at: ~U[2026-08-28 12:00:00Z]
+              }
+            ],
+            removed: %{key: "page", items: [], total: 0, page: 1, pages: 1}
+          }
+        end,
+        learning_sessions: fn -> [] end
       }
     }
   end

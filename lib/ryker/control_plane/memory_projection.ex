@@ -4,38 +4,43 @@ defmodule Ryker.ControlPlane.MemoryProjection do
   pending reviews of it. Expiry is applied at read time; every retained text is
   redacted the way the rest of the control plane redacts it.
 
-  The page lists the newest hundred facts and the first hundred reviews, and
-  search finds the rest; an action finds its fact or review by reference
-  (`fact/1`, `review/1`), wherever it falls.
+  The page lists the facts a page at a time, newest first, and the oldest
+  hundred reviews with how many are pending; an action finds its fact or
+  review by reference (`fact/1`, `review/1`), wherever it falls. The newest
+  hundred facts used to be all the page showed, with nothing saying more
+  existed (2026-10-04 review).
   """
 
   import Ecto.Query
 
+  alias Ryker.ControlPlane.PagedRelation
   alias Ryker.InspectionRedactor
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Repo
 
+  @reviews_shown 100
+
   @doc "The query keys the Facts page reads."
-  def query_keys, do: ["q"]
+  def query_keys, do: ["q", "page"]
 
   @doc "Every collection the Facts page shows, expiry applied at read time."
   def fetch(params \\ %{}) do
     secrets = InspectionRedactor.configured_secrets()
     search = search_text(params["q"])
 
+    facts =
+      fact_rows()
+      |> search(search)
+      |> PagedRelation.read([desc: :updated_at, desc: :id], "page", params)
+
     %{
       q: search,
       memory_total: Repo.aggregate(active(), :count),
-      memories:
-        Repo.all(
-          from(memory in search(fact_rows(), search),
-            order_by: [desc: memory.updated_at, desc: memory.id],
-            limit: 100
-          )
-        )
-        |> Enum.map(&redact(&1, secrets)),
-      reviews: Memories.pending_reviews(100)
+      memories: Enum.map(facts.items, &redact(&1, secrets)),
+      facts_page: Map.take(facts, [:page, :pages, :total]),
+      reviews: Memories.pending_reviews(@reviews_shown),
+      review_total: Memories.pending_review_count()
     }
   end
 

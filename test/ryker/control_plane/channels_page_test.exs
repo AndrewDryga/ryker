@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, Pages, SettingsView}
+  alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, Pages, Projection, SettingsView}
   alias Ryker.Credentials
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Records
@@ -200,19 +200,19 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
         projection: %{
           channels: fn params ->
             send(parent, {:channels, params})
-            [@channel]
+            page([@channel])
           end
         }
       }
 
       page = Pages.page(["channels"], %{"q" => "infra"}, options)
-      assert_received {:channels, %{"q" => "infra", "show" => "in_use"}}
+      assert_received {:channels, %{"q" => "infra", "show" => "in_use", "page" => "1"}}
 
       assert page.title == "Channels"
       assert page.description == "Slack channels Ryker is in, and how it takes part in each one."
 
       Pages.page(["channels"], %{"show" => "all"}, options)
-      assert_received {:channels, %{"q" => "", "show" => "all"}}
+      assert_received {:channels, %{"q" => "", "show" => "all", "page" => "1"}}
     end
   end
 
@@ -236,7 +236,9 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       assert Enum.count(LazyHTML.query(row, "a[href='/integrations/slack#new-channels']")) == 1
 
       page =
-        Pages.page(["channels"], %{}, %{projection: %{channels: fn _params -> [@channel] end}})
+        Pages.page(["channels"], %{}, %{
+          projection: %{channels: fn _params -> page([@channel]) end}
+        })
 
       refute Map.has_key?(page, :action)
     end
@@ -273,10 +275,28 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       assert Names.name("T123", "C456") == "#infra"
 
       for q <- ["#infra", "INFRA", "C456"] do
-        assert [%{channel_ref: "C456"}] = ChannelDirectory.list(%{"q" => q}), q
+        assert [%{channel_ref: "C456"}] = ChannelDirectory.rows(%{"q" => q}), q
       end
 
-      assert [%{channel_ref: "C789"}] = ChannelDirectory.list(%{"q" => "payments"})
+      assert [%{channel_ref: "C789"}] = ChannelDirectory.rows(%{"q" => "payments"})
+    end
+
+    # The directory read 500 channels by name from each table, kept the 100 most recently
+    # active and said nothing of the rest (2026-10-04 review).
+    test "every channel is listed a page at a time, with how many there are" do
+      for n <- 1..26, do: membership!("T123", "C#{1000 + n}", :joined)
+
+      assert length(ChannelDirectory.rows(%{})) == 26
+      assert %{total: 26, page: 1, pages: 2, items: first} = ChannelDirectory.list(%{})
+      assert length(first) == 25
+      assert %{page: 2, items: [last]} = ChannelDirectory.list(%{"page" => "2"})
+      refute last.channel_ref in Enum.map(first, & &1.channel_ref)
+
+      html =
+        Pages.page(["channels"], %{"page" => "2"}, %{projection: Projection.callbacks()}).body
+
+      assert html =~ "Page 2 of 2"
+      assert html =~ "26 channels"
     end
 
     test "In use lists only the channels Ryker is in; All keeps the ones it left" do
@@ -284,17 +304,17 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       membership!("T123", "CLEFT", :left)
       configuration!("T123", "CCONFIGURED", participation: :proactive)
 
-      assert Enum.map(ChannelDirectory.list(%{"show" => "in_use"}), & &1.channel_ref) == [
+      assert Enum.map(ChannelDirectory.rows(%{"show" => "in_use"}), & &1.channel_ref) == [
                "CJOINED"
              ]
 
-      assert ChannelDirectory.list(%{"show" => "all"})
+      assert ChannelDirectory.rows(%{"show" => "all"})
              |> Enum.map(& &1.channel_ref)
              |> Enum.sort() ==
                ["CCONFIGURED", "CJOINED", "CLEFT"]
 
       # Setup counts channels with no view chosen, so no view is "All".
-      assert length(ChannelDirectory.list(%{})) == 3
+      assert length(ChannelDirectory.rows(%{})) == 3
     end
 
     test "each channel says which environment its work runs in" do
@@ -324,7 +344,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       membership!("T123", "CROOM", :joined)
       room!("T123", "CROOM", :requested, :active)
 
-      rows = Map.new(ChannelDirectory.list(%{}), &{&1.channel_ref, &1})
+      rows = Map.new(ChannelDirectory.rows(%{}), &{&1.channel_ref, &1})
 
       assert %{
                environment_ref: "staging",
@@ -352,7 +372,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       refute meta.("CROOM") =~ "environment"
       refute meta.("CROOM") =~ "works in"
 
-      assert [%{channel_ref: "CSTAGE"}] = ChannelDirectory.list(%{"q" => "staging"})
+      assert [%{channel_ref: "CSTAGE"}] = ChannelDirectory.rows(%{"q" => "staging"})
     end
 
     test "a channel that never chose follows the installation default, and says so" do
@@ -361,7 +381,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       membership!("T123", "CINHERITS", :joined)
       configuration!("T123", "CCHOSE", participation: :proactive)
 
-      rows = Map.new(ChannelDirectory.list(%{}), &{&1.channel_ref, &1})
+      rows = Map.new(ChannelDirectory.rows(%{}), &{&1.channel_ref, &1})
       assert %{participation: :shadow, participation_source: :installation} = rows["CINHERITS"]
       assert %{participation: :proactive, participation_source: :channel} = rows["CCHOSE"]
     end
@@ -374,7 +394,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       room!("T123", "CCLOSED", :closed, :active)
       room!("T123", "CARCHIVED", :blocked, :archived)
 
-      rooms = Map.new(ChannelDirectory.list(%{}), &{&1.channel_ref, &1.incident_room})
+      rooms = Map.new(ChannelDirectory.rows(%{}), &{&1.channel_ref, &1.incident_room})
       assert rooms["COPEN"] == %{status: :requested, open: true, channel_name: "ems-copen"}
       assert rooms["CCLOSED"] == %{status: :closed, open: false, channel_name: "ems-cclosed"}
       assert rooms["CARCHIVED"] == %{status: :blocked, open: false, channel_name: "ems-carchived"}
@@ -429,7 +449,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
   end
 
   defp render(items, params \\ %{}) do
-    %{items: items, view: ChannelsPage.view(params), now: @now}
+    %{channels: page(items), view: ChannelsPage.view(params), now: @now}
     |> ChannelsPage.html()
     |> LazyHTML.from_fragment()
   end
@@ -513,4 +533,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
   end
 
   defp squeeze(text), do: text |> String.replace(~r/\s+/, " ") |> String.trim()
+
+  # One page of the directory, as `ChannelDirectory.list/1` reads it.
+  defp page(items), do: %{key: "page", items: items, total: length(items), page: 1, pages: 1}
 end

@@ -8,14 +8,26 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{ChannelsPage, Search}
+  alias Ryker.ControlPlane.{ChannelsPage, PagedRelation, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, IncidentRoom}
   alias Ryker.Slack.Names
 
-  @list_limit 100
+  @doc """
+  One page of `rows/1` under `params["page"]`, with how many channels match.
+
+  The directory read 500 channels by name from each table, then kept the 100
+  most recently active and said nothing of the rest (2026-10-04 review).
+  """
+  @spec list(map()) :: PagedRelation.t()
+  def list(params) when is_map(params) do
+    page = params |> rows() |> PagedRelation.slice("page", params)
+    %{page | items: with_channel_instructions(page.items)}
+  end
+
+  def list(_params), do: list(%{})
 
   @doc """
   Every channel a durable table mentions, most recently active first.
@@ -23,22 +35,10 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   `"q"` narrows to channels whose name, id, workspace or environment contains
   the phrase; `"show" => "in_use"` keeps only the channels Ryker is in.
   """
-  def list(params) when is_map(params) do
-    configurations =
-      Repo.all(
-        from(configuration in ChannelConfiguration,
-          order_by: [asc: configuration.workspace_ref, asc: configuration.channel_ref],
-          limit: 500
-        )
-      )
-
-    memberships =
-      Repo.all(
-        from(membership in ChannelMembership,
-          order_by: [asc: membership.workspace_ref, asc: membership.channel_ref],
-          limit: 500
-        )
-      )
+  @spec rows(map()) :: [map()]
+  def rows(params) when is_map(params) do
+    configurations = Repo.all(ChannelConfiguration)
+    memberships = Repo.all(ChannelMembership)
 
     rooms = incident_rooms()
     episode_counts = slack_episode_counts()
@@ -67,11 +67,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
     |> filter_in_use(params["show"])
     |> filter_channel_search(Search.term(params["q"]))
     |> Enum.sort_by(&{date_sort(&1.last_at), &1.workspace_ref, &1.channel_ref}, :desc)
-    |> Enum.take(@list_limit)
-    |> with_channel_instructions()
   end
-
-  def list(_params), do: list(%{})
 
   defp row({workspace_ref, channel_ref}, configuration, membership, room, counts, default) do
     %{
@@ -133,19 +129,25 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
     Repo.all(
       from(room in IncidentRoom,
         where: not is_nil(room.channel_ref),
-        order_by: [desc: room.updated_at, desc: room.id],
-        limit: 500,
+        distinct: [room.workspace_ref, room.channel_ref],
+        order_by: [
+          asc: room.workspace_ref,
+          asc: room.channel_ref,
+          desc: room.updated_at,
+          desc: room.id
+        ],
         select:
           {{room.workspace_ref, room.channel_ref}, room.status, room.channel_state,
            room.channel_name}
       )
     )
-    |> Enum.reduce(%{}, fn {key, status, channel_state, channel_name}, found ->
-      Map.put_new(found, key, %{
-        channel_name: channel_name,
-        status: status,
-        open: status != :closed and channel_state not in [:archived, :deleted]
-      })
+    |> Map.new(fn {key, status, channel_state, channel_name} ->
+      {key,
+       %{
+         channel_name: channel_name,
+         status: status,
+         open: status != :closed and channel_state not in [:archived, :deleted]
+       }}
     end)
   end
 
@@ -187,8 +189,6 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
           episode.destination_transport == "slack" and
             like(episode.destination_conversation_ref, "slack:%"),
         group_by: episode.destination_conversation_ref,
-        order_by: [desc: max(episode.updated_at)],
-        limit: 500,
         select: %{
           conversation_ref: episode.destination_conversation_ref,
           episodes: count(episode.id),

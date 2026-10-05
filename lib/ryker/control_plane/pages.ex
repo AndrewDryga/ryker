@@ -66,7 +66,7 @@ defmodule Ryker.ControlPlane.Pages do
   """
   @spec page([String.t()], %{optional(String.t()) => term()}, map()) :: page()
   def page(["incident-rooms"], params, options) do
-    snapshot = options.projection.incidents.(Map.take(params, ["q", "status"]))
+    snapshot = options.projection.incidents.(Map.take(params, ["q", "status", "page"]))
 
     ok(
       "Incident rooms",
@@ -129,12 +129,12 @@ defmodule Ryker.ControlPlane.Pages do
 
   def page(["channels"], params, options) do
     view = ChannelsPage.view(params)
-    items = options.projection.channels.(ChannelsPage.query(view))
+    channels = options.projection.channels.(ChannelsPage.query(view))
 
     ok(
       "Channels",
       "Slack channels Ryker is in, and how it takes part in each one.",
-      ChannelsPage.html(%{items: items, view: view, now: nil})
+      ChannelsPage.html(%{channels: channels, view: view, now: nil})
     )
   end
 
@@ -259,7 +259,7 @@ defmodule Ryker.ControlPlane.Pages do
     body =
       LearningPage.html(
         activity,
-        options.projection.workspaces.(%{}),
+        options.projection.learning_sessions.(),
         Map.get(options, :csrf_secret)
       )
 
@@ -309,7 +309,7 @@ defmodule Ryker.ControlPlane.Pages do
     with {:ok, rows} <- options.projection.failures.(params),
          {:ok, older} <- older_failures(rows, page, params, options) do
       ok("Failures", FailuresPage.description(), [
-        FailuresPage.list(rows),
+        FailuresPage.list(rows, DateTime.utc_now(), page_only: page > 1 or older != :none),
         FailuresPage.pager(page, older)
       ])
     else
@@ -340,7 +340,7 @@ defmodule Ryker.ControlPlane.Pages do
       "Working copies",
       "Copies of repositories Ryker checks out while it works, and how it cleans them up.",
       WorkingCopiesPage.html(%{
-        rows: options.projection.workspaces.(params),
+        copies: options.projection.working_copies.(params),
         storage: options.projection.workspace_storage.(),
         now: nil,
         view: params["view"]

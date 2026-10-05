@@ -46,7 +46,10 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   def page_size, do: @page_size
 
   @doc """
-  Lists recent loopback conversations without loading their message bodies.
+  Lists every loopback conversation the inbox keeps, newest first, without
+  loading their message bodies. Retention bounds the list to the operational
+  horizon; a cut at the newest 100 hid the oldest from the list and its
+  filter (9 of 109 live, 2026-10-05).
   """
   def index do
     Repo.all(
@@ -57,7 +60,6 @@ defmodule Ryker.ControlPlane.ConversationProjection do
             entry.destination_thread_ref == entry.destination_conversation_ref,
         group_by: entry.destination_conversation_ref,
         order_by: [desc: max(entry.inserted_at), desc: entry.destination_conversation_ref],
-        limit: 100,
         select: %{
           message_count: count(entry.native_input_id, :distinct),
           ref: entry.destination_conversation_ref,

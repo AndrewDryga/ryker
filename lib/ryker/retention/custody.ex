@@ -171,28 +171,40 @@ defmodule Ryker.Retention.Custody do
     )
   end
 
-  @doc "Oldest-eligible-first sessions with their eligibility time, for read-only preview."
-  @spec eligible_preview(DateTime.t(), pos_integer()) :: [{Session.t(), DateTime.t()}]
-  def eligible_preview(%DateTime{} = now, limit) when is_integer(limit) and limit > 0 do
-    Repo.all(
-      from(
-        [
-          session: session,
-          episode: episode,
-          learning: learning,
-          improvement: improvement,
-          knowledge: knowledge,
-          admission: admission
-        ] in claimable_query(now),
-        select:
-          {session, eligible_at(session, episode, learning, improvement, knowledge, admission)},
-        order_by: [
-          asc: eligible_at(session, episode, learning, improvement, knowledge, admission),
-          asc: session.id
-        ],
-        limit: ^limit
+  @doc """
+  The working copies cleanup claims next, oldest due first, each with when it
+  fell due: at most `limit` of them, and how many are due. Read-only.
+  """
+  @spec eligible_copies(DateTime.t(), pos_integer()) ::
+          {[{Session.t(), DateTime.t()}], non_neg_integer()}
+  def eligible_copies(%DateTime{} = now, limit) when is_integer(limit) and limit > 0 do
+    copies =
+      from([session: session] in claimable_query(now),
+        where: session.execution_kind == :work and not is_nil(session.repository_ref)
       )
-    )
+
+    next =
+      Repo.all(
+        from(
+          [
+            session: session,
+            episode: episode,
+            learning: learning,
+            improvement: improvement,
+            knowledge: knowledge,
+            admission: admission
+          ] in copies,
+          select:
+            {session, eligible_at(session, episode, learning, improvement, knowledge, admission)},
+          order_by: [
+            asc: eligible_at(session, episode, learning, improvement, knowledge, admission),
+            asc: session.id
+          ],
+          limit: ^limit
+        )
+      )
+
+    {next, Repo.aggregate(copies, :count)}
   end
 
   @spec freeze_close_revision(Ecto.UUID.t(), String.t(), pos_integer()) ::

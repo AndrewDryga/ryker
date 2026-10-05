@@ -81,6 +81,21 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert {:ok, ^entry} = Inbox.fetch(Inbox.ref(entry))
   end
 
+  # The list stopped at the 100 newest conversations, and its filter searched only those: 9 of
+  # 109 live conversations could not be reached from it (2026-10-05). Retention bounds the list.
+  test "every conversation the inbox keeps is listed, past the hundred newest" do
+    ids =
+      for n <- 1..101 do
+        id = Ecto.UUID.generate()
+        assert {:ok, _sent} = ConversationLab.send_message(id, "Question #{n}", profile())
+        id
+      end
+
+    listed = ConversationProjection.index()
+    assert length(listed) == 101
+    assert hd(ids) in Enum.map(listed, & &1.id)
+  end
+
   test "the Lab explains admission before an episode exists and links the frozen request" do
     {:ok, %{entry: entry}} =
       ConversationLab.send_message(@conversation_id, "Show admission progress", profile())

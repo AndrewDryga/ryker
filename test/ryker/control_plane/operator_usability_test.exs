@@ -506,6 +506,31 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
   # The old summary led with "4 failures · 2 affected requests" and an eight
   # cell breakdown by internal area, which told an operator nothing about
   # whether anyone was waiting.
+  # Older failures were a page away while the counts above the list read as the whole
+  # list's (2026-10-04 review).
+  test "counts over one page of several say they count this page" do
+    row = %{
+      kind: "retention",
+      ref: "session:one",
+      action: :rearm,
+      status: :blocked,
+      summary: "coop_error",
+      updated_at: ~U[2026-09-23 12:00:00Z]
+    }
+
+    counts = fn options ->
+      [row, %{row | ref: "session:two"}]
+      |> FailuresPage.list(@now, options)
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".kit-count")
+      |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
+    end
+
+    assert ["2 on this page", "2 housekeeping" | _rest] = counts.(page_only: true)
+    refute Enum.any?(counts.([]), &(&1 =~ "on this page"))
+  end
+
   test "the counts say who is affected before how many, and housekeeping comes last" do
     cleanup = %{
       kind: "retention",

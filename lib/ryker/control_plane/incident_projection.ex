@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
     ConsolePeople,
     CurrentInputs,
     Environments,
+    PagedRelation,
     RepositoryNames,
     Search,
     UsageProjection
@@ -31,7 +32,6 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, IncidentRooms, Names}
   alias Ryker.Work.Turn
 
-  @list_limit 100
   @detail_limit 200
   @statuses ~w(requested ready blocked closed)a
 
@@ -54,7 +54,14 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   def subscriptions(_ref), do: []
 
-  @doc "The incident-room directory, filtered by status and search."
+  @doc """
+  One page of the incident-room directory under `params["page"]`, filtered by
+  status and search, newest opened first, with how many rooms match (`total`)
+  and how many of the rooms the search matches are open (`open`).
+
+  The directory stopped at 100 rooms and counted only those (2026-10-04
+  review).
+  """
   def list(params) when is_map(params) do
     latest_publications =
       from(publication in Publication,
@@ -71,15 +78,15 @@ defmodule Ryker.ControlPlane.IncidentProjection do
         }
       )
 
-    query =
-      from(room in IncidentRoom,
+    searched = incident_search(IncidentRoom, Search.term(params["q"]))
+    filtered = incident_status(searched, Search.one_of(params["status"], @statuses))
+
+    page =
+      from(room in filtered,
         left_join: episode in Episode,
         on: episode.id == room.episode_id,
         left_join: publication in subquery(latest_publications),
         on: publication.episode_id == room.episode_id,
-        # Newest opened first: the page heads each day with when rooms opened.
-        order_by: [desc_nulls_last: room.requested_at, desc: room.updated_at, desc: room.id],
-        limit: @list_limit,
         select: %{
           channel_name: room.channel_name,
           channel_ref: room.channel_ref,
@@ -98,15 +105,26 @@ defmodule Ryker.ControlPlane.IncidentProjection do
           workspace_ref: room.workspace_ref
         }
       )
-      |> incident_status(Search.one_of(params["status"], @statuses))
-      |> incident_search(Search.term(params["q"]))
+      # Newest opened first: the page heads each day with when rooms opened.
+      |> PagedRelation.read(
+        [desc_nulls_last: :requested_at, desc: :updated_at, desc: :id],
+        "page",
+        params
+      )
 
-    rooms = Repo.all(query)
-    names = if Enum.any?(rooms, & &1.repository_ref), do: RepositoryNames.all(), else: %{}
+    names = if Enum.any?(page.items, & &1.repository_ref), do: RepositoryNames.all(), else: %{}
 
-    Enum.map(
-      rooms,
-      &Map.put(&1, :repository_name, RepositoryNames.name(names, &1.repository_ref))
+    page
+    |> Map.put(
+      :items,
+      Enum.map(
+        page.items,
+        &Map.put(&1, :repository_name, RepositoryNames.name(names, &1.repository_ref))
+      )
+    )
+    |> Map.put(
+      :open,
+      Repo.aggregate(from(room in searched, where: room.status == :ready), :count)
     )
   end
 
@@ -446,14 +464,14 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp incident_status(query, nil), do: query
 
   defp incident_status(query, status),
-    do: from([room, _, _] in query, where: room.status == ^status)
+    do: from(room in query, where: room.status == ^status)
 
   defp incident_search(query, nil), do: query
 
   defp incident_search(query, search) do
     pattern = Search.contains(search)
 
-    from([room, _, _] in query,
+    from(room in query,
       where:
         ilike(room.ref, ^pattern) or ilike(room.title, ^pattern) or
           ilike(room.repository_ref, ^pattern) or ilike(room.workspace_ref, ^pattern) or

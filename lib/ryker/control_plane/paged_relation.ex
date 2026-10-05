@@ -79,4 +79,29 @@ defmodule Ryker.ControlPlane.PagedRelation do
 
     %{key: key, items: items, total: total, page: page, pages: pages}
   end
+
+  @doc """
+  One page of `items`, a relation already read and ordered in full, the way
+  `read/5` pages a query: for a list merged from several tables.
+  """
+  @spec slice([term()], String.t(), map() | pos_integer(), keyword()) :: t()
+  def slice(items, key, params_or_page, options \\ [])
+
+  def slice(items, key, params, options) when is_map(params),
+    do: slice(items, key, requested(params, key), options)
+
+  def slice(items, key, requested_page, options) when is_integer(requested_page) do
+    page_size = Keyword.get(options, :page_size, @page_size)
+    total = length(items)
+    pages = max(div(total + page_size - 1, page_size), 1)
+    page = min(requested_page, pages)
+
+    %{
+      key: key,
+      items: Enum.slice(items, (page - 1) * page_size, page_size),
+      total: total,
+      page: page,
+      pages: pages
+    }
+  end
 end

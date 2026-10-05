@@ -1354,7 +1354,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     # Repository-less conversation sessions are not repository checkouts and do
     # not belong on the Workspaces page.
-    assert [] = WorkspaceProjection.list(%{})
+    assert [] = WorkspaceProjection.copies(%{}).current
 
     assert {:ok, detail} = EpisodeProjection.fetch(working.episode.key)
     assert Enum.flat_map(detail.trace.chapters, & &1.steps) == detail.trace.steps
@@ -1648,9 +1648,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   end
 
   test "operator workbench projections stay bounded and explicit with no durable rows" do
-    assert IncidentProjection.list(%{}) == []
+    assert %{items: [], total: 0, open: 0} = IncidentProjection.list(%{})
     assert ScheduleProjection.list(%{}) == []
-    assert ChannelDirectory.list(%{}) == []
+    assert %{items: [], total: 0} = ChannelDirectory.list(%{})
     assert RepositoryProjection.list(%{}) == %{items: [], total: 0}
     assert UsageProjection.page(%{"window" => "24h"}).performance == []
 
@@ -1658,9 +1658,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert ScheduleProjection.fetch("missing") == :not_found
     assert ChannelDetail.fetch("T123", "C456", %{}) == :not_found
 
-    assert IncidentProjection.list(:invalid) == []
+    assert %{items: [], total: 0, open: 0} = IncidentProjection.list(:invalid)
     assert ScheduleProjection.list(:invalid) == []
-    assert ChannelDirectory.list(:invalid) == []
+    assert %{items: [], total: 0} = ChannelDirectory.list(:invalid)
     assert RepositoryProjection.list(:invalid) == %{items: [], total: 0}
     assert UsageProjection.page(:invalid).performance == []
     assert IncidentProjection.fetch(nil) == :not_found
@@ -2114,13 +2114,17 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       })
     end
 
-    assert [
-             %{
-               publication_ref: "publication:operator:newer",
-               ref: "incident-room:operator",
-               status: :blocked
-             }
-           ] =
+    assert %{
+             items: [
+               %{
+                 publication_ref: "publication:operator:newer",
+                 ref: "incident-room:operator",
+                 status: :blocked
+               }
+             ],
+             total: 1,
+             open: 0
+           } =
              IncidentProjection.list(%{"q" => "Operator incident", "status" => "blocked"})
 
     assert {:ok, incident} = IncidentProjection.fetch(room.ref)
@@ -2192,7 +2196,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
                ScheduleProjection.fetch(schedule.ref)
     end
 
-    assert [%{membership: :joined, private: true, environment_ref: "production"}] =
+    assert %{items: [%{membership: :joined, private: true, environment_ref: "production"}]} =
              ChannelDirectory.list(%{"q" => "C456"})
 
     assert {:ok, channel} = ChannelDetail.fetch("T123", "C456", %{})
@@ -2489,6 +2493,10 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert {:ok, session} =
              Custody.pin_episode(completed.episode.id, "policy:read", String.duplicate("a", 64))
 
+    # A copy: the session holds a checkout of a repository.
+    session =
+      session |> Ecto.Changeset.change(repository_ref: "acme/checkout-api") |> Repo.update!()
+
     assert {:ok, _complete} =
              Episodes.apply(
                EpisodeFixtures.accept_result(%{
@@ -2563,14 +2571,35 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     # Preview is read-only: nothing about the session changed by looking at it.
     assert Repo.get!(Session, session.id).cleanup_status == :active
 
-    html = WorkingCopiesPage.html(%{rows: [], storage: storage, now: nil})
+    assert storage.preview_total == 1
+
+    html =
+      WorkingCopiesPage.html(%{
+        copies: WorkspaceProjection.copies(%{}),
+        storage: storage,
+        now: nil
+      })
 
     assert html =~ "worker-silent</strong>"
     assert html =~ "has not reported storage yet."
     assert html =~ "not taking new copies (reserve exhausted)"
-    # Nothing ready for cleanup is no section at all (T10, 2026-09-28).
+    assert html =~ ~s(id="ready-for-cleanup")
+    assert html =~ "Keep it briefly for follow-up questions"
+
+    # A session that holds no checkout is not a copy, and cleanup's preview
+    # here lists copies only: nothing ready for cleanup is no section at all
+    # (T10, 2026-09-28).
+    session |> Ecto.Changeset.change(repository_ref: nil) |> Repo.update!()
+    assert %{preview: [], preview_total: 0} = storage = WorkspaceProjection.storage()
+
+    html =
+      WorkingCopiesPage.html(%{
+        copies: WorkspaceProjection.copies(%{}),
+        storage: storage,
+        now: nil
+      })
+
     refute html =~ ~s(id="ready-for-cleanup")
-    refute html =~ "Keep it briefly for follow-up questions"
   end
 
   test "a publication that cannot proceed is visible on the failures page" do
@@ -2659,7 +2688,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     refute Map.has_key?(workspace, :discard_plan_fingerprint)
     # A repository-less Chat cleanup failure remains inspectable from Failures,
     # but it is not presented as a repository checkout on Workspaces.
-    refute workspace in WorkspaceProjection.list(%{})
+    refute workspace in WorkspaceProjection.copies(%{}).current
 
     fixture = File.read!("testdata/control_plane/legacy_cleanup_failure.json") |> Jason.decode!()
 

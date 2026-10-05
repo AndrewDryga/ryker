@@ -35,4 +35,29 @@ defmodule Ryker.ControlPlane.FactsProjectionTest do
     assert html =~ "No facts match &quot;absent&quot;"
     refute html =~ "No facts yet"
   end
+
+  # The page showed the newest 100 facts and said nothing of the rest (2026-10-04 review).
+  test "facts page past the first page, newest first, and a search pages its matches" do
+    source = SavedEntities.source!("slack:T123:C456")
+    for n <- 1..26, do: SavedEntities.memory!(source, "fact-#{n}", "value #{n}")
+
+    Repo.update_all(MemoryEntry, set: [expires_at: DateTime.add(DateTime.utc_now(), 30, :day)])
+
+    for {memory, n} <- Enum.with_index(Repo.all(MemoryEntry), 1),
+        do: memory |> Ecto.Changeset.change(updated_at: minutes_ago(n)) |> Repo.update!()
+
+    first = MemoryProjection.fetch(%{})
+    assert %{page: 1, pages: 2, total: 26} = first.facts_page
+    assert length(first.memories) == 25
+
+    last = MemoryProjection.fetch(%{"page" => "2"})
+    assert [_oldest] = last.memories
+    refute hd(last.memories).ref in Enum.map(first.memories, & &1.ref)
+
+    html = last |> FactsPage.html(%{"page" => "2"}) |> IO.iodata_to_binary()
+    assert html =~ "Page 2 of 2"
+    assert html =~ ~s(href="/memory?page=1")
+  end
+
+  defp minutes_ago(n), do: DateTime.add(DateTime.utc_now(), -n, :minute)
 end

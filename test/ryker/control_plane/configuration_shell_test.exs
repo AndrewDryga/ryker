@@ -203,9 +203,9 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
         end,
         schedules: fn _params -> [] end,
         subscriptions: fn _params -> [] end,
-        channels: fn _params -> [] end,
+        channels: fn _params -> %{key: "page", items: [], total: 0, page: 1, pages: 1} end,
         repositories: fn _params -> %{items: [], total: 0} end,
-        incidents: fn _params -> [] end,
+        incidents: fn _params -> %{items: [], total: 0, page: 1, pages: 1, open: 0} end,
         failures: fn _params -> {:ok, []} end,
         memory: fn _params -> %{memories: [], reviews: []} end,
         learned: fn _params ->
@@ -242,7 +242,7 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
             receipt: nil
           }
         end,
-        workspaces: fn _params -> [] end,
+        learning_sessions: fn -> [] end,
         findings: fn _params -> %{items: [], page: 1, pages: 1, total: 0} end
       }
     }

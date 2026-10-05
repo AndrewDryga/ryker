@@ -2358,7 +2358,10 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert [] |> FailuresPage.list() |> IO.iodata_to_binary() =~ "Nothing needs you"
 
     assert WorkingCopiesPage.html(%{
-             rows: [],
+             copies: %{
+               current: [],
+               removed: %{key: "page", items: [], total: 0, page: 1, pages: 1}
+             },
              storage: %{budget: %{}, preview: [], workers: []},
              now: nil
            }) =~ "No working copies right now"

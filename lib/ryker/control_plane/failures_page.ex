@@ -69,9 +69,14 @@ defmodule Ryker.ControlPlane.FailuresPage do
   def description,
     do: "Work Ryker couldn't finish by itself. Open one to see what happened and what you can do."
 
-  @doc "The Failures list: the counts, then the failures grouped by who they affect."
-  @spec list([map()], DateTime.t()) :: iodata()
-  def list(rows, now \\ DateTime.utc_now()) do
+  @doc """
+  The Failures list: the counts, then the failures grouped by who they affect.
+  `options[:page_only]` says the rows are one page of more, and the counts
+  then say they describe this page: they read as the whole list's while older
+  failures were a page away (2026-10-04 review).
+  """
+  @spec list([map()], DateTime.t(), keyword()) :: iodata()
+  def list(rows, now \\ DateTime.utc_now(), options \\ []) do
     explained = Enum.map(rows, &{&1, FailureExplanation.explain(&1, now)})
     {people, housekeeping} = Enum.split_with(explained, fn {_row, e} -> e.impact == :people end)
 
@@ -79,7 +84,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
       __changed__: nil,
       people: people,
       housekeeping: housekeeping,
-      counts: counts(explained, now),
+      counts: counts(explained, now, Keyword.get(options, :page_only, false)),
       now: now
     }
     |> list_view()
@@ -347,11 +352,12 @@ defmodule Ryker.ControlPlane.FailuresPage do
 
   # "1 affects people · 2 housekeeping · 1 should work if retried · 10 h since
   # the oldest stopped": who is affected first, then what a person can do now.
-  defp counts(explained, now) do
+  defp counts(explained, now, page_only?) do
     {people, housekeeping} = Enum.split_with(explained, fn {_row, e} -> e.impact == :people end)
     ready = Enum.count(explained, fn {_row, e} -> e.outlook == :ready end)
 
     [
+      if(page_only?, do: %{value: length(explained), label: "on this page"}),
       if(people != [],
         do: %{
           value: length(people),

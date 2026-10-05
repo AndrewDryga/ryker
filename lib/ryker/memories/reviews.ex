@@ -159,6 +159,11 @@ defmodule Ryker.Memories.Reviews do
 
   def pending_reviews(_limit), do: []
 
+  @doc "How many reviews are pending."
+  @spec pending_review_count() :: non_neg_integer()
+  def pending_review_count,
+    do: Repo.aggregate(from(review in MemoryReviewItem, where: review.status == :pending), :count)
+
   @doc "One pending review, by reference, or nil."
   @spec pending_review(String.t()) :: map() | nil
   def pending_review(review_ref) when is_binary(review_ref) do

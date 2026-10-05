@@ -230,7 +230,10 @@ defmodule Ryker.ControlPlane.PagesTest do
 
     # An empty page first says which it is: nothing matches, or nothing exists,
     # and what opens a room. How to ask Ryker for one is the page's help.
-    none = put_in(options(), [:projection, :incidents], fn _params -> [] end)
+    none =
+      put_in(options(), [:projection, :incidents], fn _params ->
+        %{items: [], total: 0, page: 1, pages: 1, open: 0}
+      end)
 
     empty = page("/incident-rooms", %{}, none).body |> LazyHTML.from_fragment()
 
@@ -251,13 +254,17 @@ defmodule Ryker.ControlPlane.PagesTest do
   # many match; narrowed by a search, "open" counts the matches and its link
   # keeps the search.
   test "an incident room count never claims more than the list it heads" do
-    [open] = options().projection.incidents.(%{})
+    %{items: [open]} = options().projection.incidents.(%{})
     closed = %{open | ref: "incident:two", status: :closed, title: "Old outage"}
+
+    rooms = fn items, open ->
+      %{items: items, total: length(items), page: 1, pages: 1, open: open}
+    end
 
     options =
       put_in(options(), [:projection, :incidents], fn
-        %{"status" => "closed"} -> [closed]
-        _params -> [open, closed]
+        %{"status" => "closed"} -> rooms.([closed], 0)
+        _params -> rooms.([open, closed], 1)
       end)
 
     counts = fn params ->

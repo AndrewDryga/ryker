@@ -134,16 +134,21 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   def room_state(%{closing: true}), do: {:busy, "Closing"}
   def room_state(room), do: state(room.status)
 
-  @doc "The list body: its counts, the toolbar, one row per room, and what would put one here."
-  @spec list([map()], map(), DateTime.t() | nil) :: iodata()
-  def list(items, params, now \\ nil) do
+  @doc """
+  The list body for one page of rooms (`IncidentProjection.list/1`): its
+  counts, the toolbar, one row per room, the pager, and what would put one
+  here.
+  """
+  @spec list(map(), map(), DateTime.t() | nil) :: iodata()
+  def list(rooms, params, now \\ nil) do
     params = UsageProjection.link_params(params)
     query = String.slice(params["q"] || "", 0, 200)
     status = if params["status"] in @statuses, do: params["status"], else: ""
 
     %{
       __changed__: nil,
-      items: items,
+      rooms: rooms,
+      items: rooms.items,
       query: query,
       status: status,
       filtered: query != "" or status != "",
@@ -156,7 +161,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp list_view(assigns) do
     ~H"""
     <div class="incident-rooms-view">
-      <Kit.counts label="Incident rooms" items={counts(@items, @query, @status)} />
+      <Kit.counts label="Incident rooms" items={counts(@rooms, @query, @status)} />
       <Kit.toolbar>
         <Components.filter_toolbar
           id="operator-search"
@@ -199,6 +204,14 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
           meta={row_facts(room)}
         />
       </Kit.entity_list>
+      <Components.pager
+        page={@rooms.page}
+        pages={@rooms.pages}
+        path={&Paths.query("/incident-rooms", q: @query, status: @status, page: &1)}
+        label="Incident room pages"
+        earlier="Newer"
+        later="Older"
+      />
       <Kit.empty
         :if={@items == [] and @filtered}
         icon={:search}
@@ -865,23 +878,23 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
 
   defp words(_value), do: nil
 
-  # The list leads with how many rooms it holds, then how many of them are
-  # open, which opens the Open view. Both count the rooms listed, so a status
-  # view says only how many match (its open count would be all of them or
-  # none), and a search's open count keeps the search.
-  defp counts(items, query, "" = _status) do
+  # The list leads with how many rooms match, then how many of them are open,
+  # which opens the Open view. A status view says only how many match (its
+  # open count would be all of them or none), and a search's open count keeps
+  # the search. Both count every room, not the page in hand.
+  defp counts(rooms, query, "" = _status) do
     [
-      Kit.list_total(length(items), {"room", "rooms"}, query != ""),
+      Kit.list_total(rooms.total, {"room", "rooms"}, query != ""),
       %{
-        value: Enum.count(items, &(&1.status == :ready)),
+        value: rooms.open,
         label: "open",
         href: Paths.query("/incident-rooms", open_view(query))
       }
     ]
   end
 
-  defp counts(items, _query, _status),
-    do: [Kit.list_total(length(items), {"room", "rooms"}, true)]
+  defp counts(rooms, _query, _status),
+    do: [Kit.list_total(rooms.total, {"room", "rooms"}, true)]
 
   defp open_view(""), do: [status: "ready"]
   defp open_view(query), do: [q: query, status: "ready"]

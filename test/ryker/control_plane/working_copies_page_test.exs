@@ -59,17 +59,9 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
         repository: "acme/checkout-api",
         status: :grace,
         target: "coop-session-1"
-      },
-      %{
-        eligible_age_seconds: 42,
-        kind: :learning,
-        reason: "Close the worker session again",
-        ref: "ryker-learning:one",
-        repository: "Background learning",
-        status: :close_pending,
-        target: "coop-session-2"
       }
     ],
+    preview_total: 1,
     workers: [
       %{
         allocation: "refused",
@@ -208,31 +200,24 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     assert meta(LazyHTML.query(document, "article.entity-row")) =~ "kept until cleanup is safe"
   end
 
-  test "background learning sessions are never listed as working copies" do
-    # They share the cleanup custody but hold no repository checkout; until
-    # 2026-09-24 they sat here under "Background learning". The Learning page
-    # lists them now.
-    learning = %{
-      @blocked
-      | action: nil,
-        episode_id: nil,
-        episode_ref: nil,
-        execution_kind: :learning,
-        ref: "ryker-learning:one",
-        repository: "Background learning",
-        status: :active
-    }
-
-    document = render([learning, @blocked])
-    assert Enum.count(LazyHTML.query(document, "article.entity-row[id^=copy-]")) == 1
-    refute LazyHTML.text(document) =~ "Background learning"
-
+  test "a copy ready for cleanup names its repository, what cleanup does and how long it waited" do
     ready = render([]) |> LazyHTML.query("#ready-for-cleanup article.entity-row")
     assert Enum.count(ready) == 1
     assert LazyHTML.text(ready) =~ "acme/checkout-api"
     assert LazyHTML.text(ready) =~ "The follow-up window ended; close the worker session"
     assert LazyHTML.text(ready) =~ "ready for 7 minutes"
-    refute LazyHTML.text(ready) =~ "Background learning"
+  end
+
+  # The list stopped at the next 25 and the count above it said 25, however many were due
+  # (2026-10-04 review).
+  test "a cut list of copies ready for cleanup says how many are due" do
+    document = render([], %{@storage | preview_total: 40})
+
+    assert document |> LazyHTML.query("#ready-for-cleanup .section-head p") |> LazyHTML.text() =~
+             "the next 1 of 40"
+
+    assert document |> LazyHTML.query(".kit-count") |> Enum.map(&squeeze(LazyHTML.text(&1))) ==
+             ["0 copies in use", "40 ready for cleanup", "0 removed"]
   end
 
   test "removed copies stay out of the current list and have a view of their own" do
@@ -338,7 +323,12 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     page =
       Pages.page(["working-copies"], %{}, %{
         projection: %{
-          workspaces: fn _params -> [@blocked] end,
+          working_copies: fn _params ->
+            %{
+              current: [@blocked],
+              removed: %{key: "page", items: [], total: 0, page: 1, pages: 1}
+            }
+          end,
           workspace_storage: fn -> @storage end
         }
       })
@@ -356,8 +346,13 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
 
   defp meta(row), do: row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze()
 
+  # The page's copies as `WorkspaceProjection.copies/1` reads them: the ones in use, and one
+  # page of the removed ones.
   defp render(rows, storage \\ @storage, view \\ "current") do
-    %{rows: rows, storage: storage, now: @now, view: view}
+    {removed, current} = Enum.split_with(rows, &(&1.status == :discarded))
+    page = %{key: "page", items: removed, total: length(removed), page: 1, pages: 1}
+
+    %{copies: %{current: current, removed: page}, storage: storage, now: @now, view: view}
     |> WorkingCopiesPage.html()
     |> LazyHTML.from_fragment()
   end

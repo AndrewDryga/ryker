@@ -7,19 +7,12 @@ defmodule Ryker.ControlPlane.MemoryActionsTest do
   alias Ryker.Fixtures.{ControlPlaneOptions, SavedEntities}
   alias Ryker.Memories.MemoryReviewItem
 
-  # The Memory page lists the newest hundred facts and the first hundred
-  # reviews, and search finds the rest, but Forget and every review action
-  # looked their item up in that first hundred only and answered 404 for any
-  # other (2026-10-04 review).
-  test "a fact past the newest hundred can still be forgotten" do
-    # A turn holds 64 records, each fact's offer one of them.
-    facts =
-      1..101
-      |> Enum.chunk_every(50)
-      |> Enum.flat_map(fn indexes ->
-        source = SavedEntities.source!("slack:TMEMORYACTIONS:C456")
-        Enum.map(indexes, &SavedEntities.memory!(source, "service #{&1}", "owner #{&1}"))
-      end)
+  # The Memory page lists facts a page at a time and the oldest hundred
+  # reviews, but Forget and every review action looked their item up in what
+  # the page showed and answered 404 for any other (2026-10-04 review).
+  test "a fact on a later page can still be forgotten" do
+    source = SavedEntities.source!("slack:TMEMORYACTIONS:C456")
+    facts = for n <- 1..26, do: SavedEntities.memory!(source, "service #{n}", "owner #{n}")
 
     listed = MapSet.new(MemoryProjection.fetch(%{}).memories, & &1.ref)
     assert [older] = Enum.reject(facts, &MapSet.member?(listed, &1.ref))

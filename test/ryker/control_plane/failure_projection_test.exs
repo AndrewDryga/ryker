@@ -22,7 +22,6 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     FailuresPage,
     Pages,
     Projection,
-    WorkingCopiesPage,
     WorkspaceProjection
   }
 
@@ -237,22 +236,14 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert detail =~ "/actions/retention/"
     refute detail =~ "/timeline/"
 
-    # Every retained worker session is read through the same outer join, so
-    # the Learning page can offer this resume. The Working copies page lists
-    # repository checkouts only, and a learning session holds none.
+    # The Learning page reads learning sessions through an outer join, so it
+    # can offer this resume. The Working copies page lists repository
+    # checkouts only, and a learning session holds none.
     assert %{action: :rearm, execution_kind: :learning} =
-             workspace =
-             Enum.find(WorkspaceProjection.list(%{}), &(&1.ref == session.external_ref))
+             Enum.find(WorkspaceProjection.learning_sessions(), &(&1.ref == session.external_ref))
 
-    page =
-      WorkingCopiesPage.html(%{
-        rows: [workspace],
-        storage: %{budget: %{}, preview: [], workers: []},
-        now: nil
-      })
-
-    refute page =~ "Background learning"
-    refute page =~ "/actions/retention/"
+    copies = WorkspaceProjection.copies(%{})
+    refute Enum.any?(copies.current ++ copies.removed.items, &(&1.ref == session.external_ref))
   end
 
   # Learning that only a person could restart was listed only on the Learning
@@ -452,8 +443,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     |> Repo.update!()
 
     workspace =
-      WorkspaceProjection.list(%{})
-      |> Enum.find(&(&1.ref == session.external_ref))
+      Enum.find(WorkspaceProjection.learning_sessions(), &(&1.ref == session.external_ref))
 
     # The Learning page words this state; see memory_page_test.exs.
     assert workspace.learning_state == :retry_scheduled

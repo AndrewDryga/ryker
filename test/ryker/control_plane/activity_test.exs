@@ -230,7 +230,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     {:ok, _session} = Custody.pin_episode(episode.id, "label-test", String.duplicate("a", 64))
 
     # Direct conversation work has a worker session but no repository checkout.
-    assert WorkspaceProjection.list(%{}) == []
+    assert WorkspaceProjection.copies(%{}).current == []
 
     # The native list shows source text; moving off the metadata-only listing
     # must retain HTML escaping and never surface credentials or raw artifacts.

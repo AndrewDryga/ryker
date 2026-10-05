@@ -4,15 +4,15 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   for it, plus read-only storage accounting and the exact next cleanup
   targets.
 
-  Task sessions are the repository checkouts the Working copies page lists;
-  background learning sessions hold no checkout and are listed on the
-  Learning page. Both share one cleanup custody, so one list and one
-  confirmed action serve both pages, and each page shows only its own.
+  Task sessions are the repository checkouts the Working copies page lists
+  (`copies/1`); background learning sessions hold no checkout and are listed
+  on the Learning page (`learning_sessions/0`). Both share one cleanup
+  custody, so one confirmed action serves both pages.
   """
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{Activity, RepositoryNames}
+  alias Ryker.ControlPlane.{Activity, PagedRelation, RepositoryNames}
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode
   alias Ryker.Learning.Batch, as: LearningBatch
@@ -21,68 +21,95 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Work.Session
 
-  @doc "Current worker sessions followed by recent removed history, with safe actions."
-  def list(_params) do
+  @preview_limit 25
+
+  @doc """
+  The working copies tasks hold, for the Working copies page: every copy in
+  use, newest change first, and the removed ones a page at a time under
+  `params["page"]`, newest first, with how many there are.
+
+  One 100-row list held both and the Learning page's sessions, so once a
+  hundred copies had been removed the page counted only those that fitted
+  beside the current ones (2026-10-04 review: 89 of 853 live).
+  """
+  @spec copies(map()) :: %{current: [map()], removed: PagedRelation.t()}
+  def copies(params) do
     names = RepositoryNames.all()
 
-    # A learning session has no episode; an inner join left every learning
-    # session, and any blocked cleanup of one, off both pages. Admission
-    # sessions are routing, not sessions a task or a learning run keeps.
-    Repo.all(
-      from(session in Session,
-        left_join: episode in Episode,
-        on: episode.id == session.episode_id,
-        left_join: learning_run in LearningRun,
-        on: learning_run.id == session.learning_run_id,
-        left_join: learning_batch in LearningBatch,
-        on: learning_batch.id == learning_run.batch_id,
-        where:
-          session.execution_kind == :learning or
-            (session.execution_kind == :work and not is_nil(session.repository_ref)),
-        order_by: [
-          asc: fragment("? = 'discarded'", session.cleanup_status),
-          desc: session.updated_at,
-          desc: session.id
-        ],
-        limit: 100,
-        select: {session, episode.state, episode.key, learning_run, learning_batch}
+    copies =
+      from([session: session] in sessions(),
+        where: session.execution_kind == :work and not is_nil(session.repository_ref)
       )
-    )
-    |> Enum.map(&workspace_item(&1, names))
-    |> Activity.with_request_titles()
+
+    current =
+      from([session: session] in copies,
+        where: session.cleanup_status != :discarded,
+        order_by: [desc: session.updated_at, desc: session.id]
+      )
+      |> Repo.all()
+      |> items(names)
+
+    removed =
+      from([session: session] in copies, where: session.cleanup_status == :discarded)
+      |> PagedRelation.read([desc: :updated_at, desc: :id], "page", params)
+
+    %{current: current, removed: %{removed | items: items(removed.items, names)}}
   end
+
+  @doc """
+  The worker sessions background learning holds, for the Learning page: every
+  one not removed yet, newest change first. Learning sessions hold no
+  checkout, so the Working copies page does not list them.
+  """
+  @spec learning_sessions() :: [map()]
+  def learning_sessions do
+    from([session: session] in sessions(),
+      where: session.execution_kind == :learning and session.cleanup_status != :discarded,
+      order_by: [desc: session.updated_at, desc: session.id]
+    )
+    |> Repo.all()
+    |> items(RepositoryNames.all())
+  end
+
+  # Every session with what its row names: the request it works for, or the
+  # learning run and batch. A learning session has no episode; an inner join
+  # left every learning session, and any blocked cleanup of one, off both
+  # pages. Admission sessions are routing's, and no page lists them.
+  defp sessions do
+    from(session in Session,
+      as: :session,
+      left_join: episode in Episode,
+      on: episode.id == session.episode_id,
+      left_join: learning_run in LearningRun,
+      on: learning_run.id == session.learning_run_id,
+      left_join: learning_batch in LearningBatch,
+      on: learning_batch.id == learning_run.batch_id,
+      select: {session, episode.state, episode.key, learning_run, learning_batch}
+    )
+  end
+
+  defp items(rows, names),
+    do: rows |> Enum.map(&workspace_item(&1, names)) |> Activity.with_request_titles()
 
   @doc "One worker session by its external reference."
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(
-           from(session in Session,
-             left_join: episode in Episode,
-             on: episode.id == session.episode_id,
-             left_join: learning_run in LearningRun,
-             on: learning_run.id == session.learning_run_id,
-             left_join: learning_batch in LearningBatch,
-             on: learning_batch.id == learning_run.batch_id,
+           from([session: session] in sessions(),
              where: session.external_ref == ^ref,
-             where: session.execution_kind in [:work, :learning],
-             select: {session, episode.state, episode.key, learning_run, learning_batch}
+             where: session.execution_kind in [:work, :learning]
            )
          ) do
-      nil ->
-        :not_found
-
-      row ->
-        {:ok,
-         row
-         |> workspace_item(RepositoryNames.all())
-         |> then(&Activity.with_request_titles([&1]))
-         |> hd()}
+      nil -> :not_found
+      row -> {:ok, hd(items([row], RepositoryNames.all()))}
     end
   end
 
   def fetch(_ref), do: :not_found
 
   @doc """
-  Read-only workspace storage accounting and the exact next cleanup targets.
+  Read-only workspace storage accounting and the exact next cleanup targets:
+  the first #{@preview_limit} copies cleanup claims, and how many are due
+  (`preview_total`).
 
   Preview never mutates anything and never estimates a byte no worker measured:
   a worker that reported nothing is unknown, and a worker whose heartbeat has
@@ -91,6 +118,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   @spec storage() :: map()
   def storage do
     now = Repo.now!()
+    {next, due} = RetentionCustody.eligible_copies(now, @preview_limit)
     settings = Application.get_env(:ryker, :retention, %{})
     names = RepositoryNames.all()
 
@@ -100,8 +128,8 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
           ~w(disposable_bytes_limit reclaim_target_seconds)a,
           &{&1, safe_setting(settings, &1)}
         ),
-      preview:
-        Enum.map(RetentionCustody.eligible_preview(now, 25), &preview_item(&1, now, names)),
+      preview: Enum.map(next, &preview_item(&1, now, names)),
+      preview_total: due,
       workers:
         from(worker in FleetWorker, order_by: [asc: worker.id])
         |> Repo.all()

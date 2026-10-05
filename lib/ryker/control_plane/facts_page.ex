@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.FactsPage do
   """
   use Phoenix.Component
 
-  import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1]
+  import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1, pager: 1]
 
   alias Phoenix.HTML.Safe
   alias Ryker.{Behaviors, Memories, Records}
@@ -73,6 +73,14 @@ defmodule Ryker.ControlPlane.FactsPage do
           <:actions><.action_button path={fact.forget} label="Forget" /></:actions>
         </Kit.entity_row>
       </Kit.entity_list>
+      <.pager
+        page={@view.page.page}
+        pages={@view.page.pages}
+        path={&Paths.query("/memory", q: @view.q, page: &1)}
+        label="Fact pages"
+        earlier="Newer"
+        later="Older"
+      />
       <Kit.empty
         :if={@view.facts == [] and @view.q != ""}
         icon={:search}
@@ -88,7 +96,7 @@ defmodule Ryker.ControlPlane.FactsPage do
       <section :if={@view.reviews != []} id="review" class="memory-section">
         <Kit.section_head
           title="Needs review"
-          lede="Ryker has not used these in a while, or has the same fact saved more than once. Keep, change or forget each one."
+          lede={review_lede(length(@view.reviews), @view.review_total)}
         />
         <Kit.entity_list label="Facts that need review">
           <Kit.entity_row
@@ -177,7 +185,9 @@ defmodule Ryker.ControlPlane.FactsPage do
       q: Map.get(snapshot, :q) || search_text(params["q"]),
       total: Map.get(snapshot, :memory_total, length(facts)),
       facts: Enum.map(facts, &fact/1),
+      page: Map.get(snapshot, :facts_page, %{page: 1, pages: 1, total: length(facts)}),
       reviews: Enum.map(reviews, &review/1),
+      review_total: Map.get(snapshot, :review_total, length(reviews)),
       review_summary: review_summary(reviews)
     }
   end
@@ -277,6 +287,13 @@ defmodule Ryker.ControlPlane.FactsPage do
     {rest, [last]} = Enum.split(Enum.map(entries, & &1.subject), -1)
     Enum.join(rest, ", ") <> " and " <> last
   end
+
+  @review_lede "Ryker has not used these in a while, or has the same fact saved more than once. Keep, change or forget each one."
+
+  defp review_lede(shown, total) when total > shown,
+    do: @review_lede <> " These are the oldest #{shown} of #{total}."
+
+  defp review_lede(_shown, _total), do: @review_lede
 
   # One sentence over every pending review: how many saved things it covers
   # and what may be wrong with them, in the words the rows below use.

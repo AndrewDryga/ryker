@@ -391,7 +391,11 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
       state: :idle
     }
 
-    %{rows: [], storage: %{budget: %{}, preview: [], workers: [worker]}, now: nil}
+    %{
+      copies: %{current: [], removed: %{key: "page", items: [], total: 0, page: 1, pages: 1}},
+      storage: %{budget: %{}, preview: [], workers: [worker]},
+      now: nil
+    }
     |> WorkingCopiesPage.html()
     |> fragment()
   end
