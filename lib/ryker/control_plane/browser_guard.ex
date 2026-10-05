@@ -5,10 +5,12 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   address published traffic arrives from, plus the response headers that keep
   a page from being framed, cached, or read across origins.
 
-  The endpoint runs it before routing, so live pages, assets and the HTTP
-  contracts are guarded alike; `Router` runs it again so a direct call to the
-  HTTP router holds the same line. There is one copy of the host list, the
-  loopback test and the header set, here.
+  The endpoint runs it before routing, so pages, assets and the HTTP contracts
+  are guarded alike; `Router` runs it again so a direct call to the HTTP router
+  holds the same line. Phoenix answers the live socket before the endpoint's
+  plugs, so `LiveSocket` holds it there with `peer_allowed?/2` and
+  `local_host?/2`. There is one copy of the host list, the loopback test and
+  the header set, here.
 
   Published through Cloudflare Access, the console answers at its published
   host only with a token Access signed for it (`CloudflareAccess`): a request

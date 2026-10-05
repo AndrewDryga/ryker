@@ -11,15 +11,18 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
   `https://<team domain>/cdn-cgi/access/certs`, the application's audience tag,
   the team as its issuer, and a lifetime that includes now.
 
-  The keys are read on first use and kept. Cloudflare publishes its next key
-  before signing with it, so a token naming a key Ryker has not seen reads them
-  again, at most once a minute.
+  The keys are read on first use and again once an hour, keeping only the keys
+  the team publishes then: kept until a restart, a key Cloudflare had retired
+  still signed for the console (2026-10-04 review). Cloudflare publishes its
+  next key before signing with it, so a token naming a key Ryker has not seen
+  reads them again, at most once a minute.
   """
 
   alias Ryker.ControlPlane.Viewer
 
   @certs_path "/cdn-cgi/access/certs"
   @refresh_seconds 60
+  @keys_seconds 3_600
   @leeway_seconds 60
   @maximum_token_bytes 8_192
   @maximum_login_bytes 200
@@ -30,13 +33,16 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
           optional(:certs) => (String.t() -> {:ok, map()} | :error)
         }
 
-  @doc "The person a request's Access token names, or `:error` without a valid one."
+  @doc """
+  The person a request's Access token names, until the moment the token stops
+  counting, or `:error` without a valid one.
+  """
   @spec viewer(Plug.Conn.t(), config()) :: {:ok, Viewer.t()} | :error
   def viewer(conn, config) do
     with [token] <- Plug.Conn.get_req_header(conn, "cf-access-jwt-assertion"),
-         {:ok, %{"email" => email}} <- verify(token, config),
+         {:ok, %{"email" => email, "exp" => expires}} <- verify(token, config),
          true <- login?(email) do
-      {:ok, %{login: email, name: email, via: :cloudflare}}
+      {:ok, %{login: email, name: email, via: :cloudflare, until: expires + @leeway_seconds}}
     else
       _invalid -> :error
     end
@@ -87,27 +93,30 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
   # --- the team's keys -------------------------------------------------------
 
   defp key(%{team_domain: team} = config, kid) do
-    case :persistent_term.get({__MODULE__, team}, nil) do
-      %{keys: %{^kid => key}} -> {:ok, key}
-      cached -> refresh(config, kid, cached)
+    cached = :persistent_term.get({__MODULE__, team}, nil)
+    now = System.monotonic_time(:second)
+
+    cond do
+      fresh?(cached, now) and Map.has_key?(cached.keys, kid) -> Map.fetch(cached.keys, kid)
+      fresh?(cached, now) and now - cached.read_at < @refresh_seconds -> :error
+      true -> reread(config, kid, cached, now)
     end
   end
 
-  defp refresh(%{team_domain: team} = config, kid, cached) do
-    now = System.monotonic_time(:second)
+  defp fresh?(nil, _now), do: false
+  defp fresh?(cached, now), do: now - cached.read_at < @keys_seconds
 
-    if cached && now - cached.read_at < @refresh_seconds do
-      :error
-    else
-      keys =
-        case read_certs(config) do
-          {:ok, keys} -> keys
-          :error -> (cached && cached.keys) || %{}
-        end
+  # The keys the team publishes now replace the ones kept, so a retired key is
+  # dropped; while they cannot be read the ones kept still serve.
+  defp reread(%{team_domain: team} = config, kid, cached, now) do
+    keys =
+      case read_certs(config) do
+        {:ok, keys} -> keys
+        :error -> (cached && cached.keys) || %{}
+      end
 
-      :persistent_term.put({__MODULE__, team}, %{keys: keys, read_at: now})
-      Map.fetch(keys, kid)
-    end
+    :persistent_term.put({__MODULE__, team}, %{keys: keys, read_at: now})
+    Map.fetch(keys, kid)
   end
 
   defp read_certs(%{team_domain: team} = config) do

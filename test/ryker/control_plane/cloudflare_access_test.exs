@@ -48,8 +48,15 @@ defmodule Ryker.ControlPlane.CloudflareAccessTest do
 
     conn = Plug.Test.conn(:get, "/") |> put_req_header("cf-access-jwt-assertion", token)
 
+    # The sign-in counts until the token's expiry, with the minute of clock leeway `verify/2` allows.
     assert CloudflareAccess.viewer(conn, context.config) ==
-             {:ok, %{login: "dev@tenant.example", name: "dev@tenant.example", via: :cloudflare}}
+             {:ok,
+              %{
+                login: "dev@tenant.example",
+                name: "dev@tenant.example",
+                via: :cloudflare,
+                until: context.claims["exp"] + 60
+              }}
 
     assert CloudflareAccess.viewer(Plug.Test.conn(:get, "/"), context.config) == :error
   end
@@ -113,6 +120,36 @@ defmodule Ryker.ControlPlane.CloudflareAccessTest do
     assert CloudflareAccess.verify(unknown, context.config) == :error
     assert CloudflareAccess.verify(unknown, context.config) == :error
     assert :counters.get(context.reads, 1) == 1
+  end
+
+  # The keys were kept until a restart, so a key Cloudflare had retired still signed for the
+  # console (2026-10-04 review). They are read again once an hour, and a key the team no longer
+  # publishes is dropped.
+  test "a key the team no longer publishes stops signing once the keys are read again", context do
+    rotated = :public_key.generate_key({:rsa, 2048, 65_537})
+    published = :counters.new(1, [])
+    team = context.config.team_domain
+
+    certs = fn ^team ->
+      if :counters.get(published, 1) == 0,
+        do: {:ok, %{"keys" => [jwk(context.key, "current")]}},
+        else: {:ok, %{"keys" => [jwk(rotated, "next")]}}
+    end
+
+    config = %{context.config | certs: certs}
+    retired = token(context.key, "current", context.claims)
+    assert {:ok, _claims} = CloudflareAccess.verify(retired, config)
+
+    # Cloudflare publishes the next key and retires the old one; an hour on, the keys are read
+    # again.
+    :counters.add(published, 1, 1)
+    cached = :persistent_term.get({CloudflareAccess, team})
+    :persistent_term.put({CloudflareAccess, team}, %{cached | read_at: cached.read_at - 3_601})
+
+    assert CloudflareAccess.verify(retired, config) == :error
+
+    assert {:ok, _claims} =
+             CloudflareAccess.verify(token(rotated, "next", context.claims), config)
   end
 
   defp token(key, kid, claims) do

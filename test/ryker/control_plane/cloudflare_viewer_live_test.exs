@@ -9,10 +9,10 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
   use Ryker.DataCase, async: false
 
   import Phoenix.ConnTest
-  import Plug.Conn, only: [put_req_header: 3]
+  import Plug.Conn, only: [get_session: 1, put_req_header: 3]
   import Phoenix.LiveViewTest
 
-  alias Ryker.ControlPlane.{Actions, ConsolePeople, Endpoint, Projection, Viewer}
+  alias Ryker.ControlPlane.{Actions, ConsolePeople, Endpoint, LiveSocket, Projection, Viewer}
   alias Ryker.Settings
 
   @endpoint Endpoint
@@ -110,6 +110,35 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
     assert local.status == 200
 
     assert signed_in(key, "dev@tenant.example") |> get("/setup") |> Map.get(:status) == 200
+  end
+
+  # Phoenix answers the live socket before the endpoint's plugs, so the check that turns away a
+  # page request at the published address without an Access token never saw the socket: a held
+  # session cookie reconnected there with no current sign-in (2026-10-04 review).
+  test "the live socket at the published address needs a current Access sign-in", %{key: key} do
+    socket = %Phoenix.Socket{}
+
+    at = fn host, session ->
+      %{
+        peer_data: %{address: {127, 0, 0, 1}},
+        uri: URI.parse("https://#{host}/live"),
+        session: session
+      }
+    end
+
+    {:ok, _snapshot} = Settings.initialize("control-plane:local")
+    page = key |> signed_in("dev@tenant.example") |> get("/environments")
+    session = get_session(page)
+    expired = put_in(session, ["viewer", "until"], System.os_time(:second) - 1)
+    tailscale = %{"viewer" => %{"login" => "m@example.com", "name" => "M", "via" => "tailscale"}}
+
+    assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.(@published, session))
+
+    for refused <- [%{}, expired, tailscale],
+        do: assert(:error = LiveSocket.connect(%{}, socket, at.(@published, refused)))
+
+    # The local console needs no sign-in, its socket included.
+    assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.("localhost", %{}))
   end
 
   defp signed_in({key, team}, email) do

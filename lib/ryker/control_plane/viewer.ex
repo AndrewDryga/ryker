@@ -12,9 +12,13 @@ defmodule Ryker.ControlPlane.Viewer do
   (`Ryker.ControlPlane.Actor`). It grants nothing: what the console may do is
   still decided by who can reach it.
 
-  Only a request at the published host came through Serve or Access. One at a
-  loopback name came from this machine with whatever headers it chose, so it
-  names nobody.
+  Only a request at the published host is read for a person; one at a loopback
+  name names nobody. Serve's headers are not signed, so any process that
+  reaches the listener (this machine, or in a container the address published
+  traffic arrives from) can send that host with a login of its choosing, and
+  the console believes it. That is the trust boundary, and why naming someone
+  grants nothing. Access tokens are signed, so under Access only a token
+  Cloudflare issued names anyone.
 
   A name outside ASCII arrives as RFC 2047 words, the way Serve encodes it.
   """
@@ -25,7 +29,13 @@ defmodule Ryker.ControlPlane.Viewer do
 
   alias Ryker.ControlPlane.{Actor, CloudflareAccess, Endpoint}
 
-  @type t :: %{login: String.t(), name: String.t(), via: :tailscale | :cloudflare}
+  # `until`: the Unix second an Access sign-in stops counting.
+  @type t :: %{
+          required(:login) => String.t(),
+          required(:name) => String.t(),
+          required(:via) => :tailscale | :cloudflare,
+          optional(:until) => integer()
+        }
 
   @impl true
   def init(options), do: options
@@ -68,9 +78,15 @@ defmodule Ryker.ControlPlane.Viewer do
 
   @doc "The viewer a LiveView session carries, or nil."
   @spec from_session(map()) :: t() | nil
-  def from_session(%{"viewer" => %{"login" => login, "name" => name, "via" => via}})
-      when is_binary(login) and is_binary(name) and via in ["tailscale", "cloudflare"],
-      do: %{login: login, name: name, via: String.to_existing_atom(via)}
+  def from_session(%{"viewer" => %{"login" => login, "name" => name, "via" => "tailscale"}})
+      when is_binary(login) and is_binary(name),
+      do: %{login: login, name: name, via: :tailscale}
+
+  def from_session(%{
+        "viewer" => %{"login" => login, "name" => name, "via" => "cloudflare", "until" => until}
+      })
+      when is_binary(login) and is_binary(name) and is_integer(until),
+      do: %{login: login, name: name, via: :cloudflare, until: until}
 
   def from_session(_session), do: nil
 
@@ -95,8 +111,11 @@ defmodule Ryker.ControlPlane.Viewer do
 
   defp stored(nil), do: nil
 
-  defp stored(%{login: login, name: name, via: via}),
-    do: %{"login" => login, "name" => name, "via" => Atom.to_string(via)}
+  defp stored(%{login: login, name: name, via: :cloudflare, until: until}),
+    do: %{"login" => login, "name" => name, "via" => "cloudflare", "until" => until}
+
+  defp stored(%{login: login, name: name, via: :tailscale}),
+    do: %{"login" => login, "name" => name, "via" => "tailscale"}
 
   defp text(value, maximum) do
     value = String.trim(value)
