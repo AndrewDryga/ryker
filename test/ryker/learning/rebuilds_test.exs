@@ -11,11 +11,13 @@ defmodule Ryker.Learning.RebuildsTest do
   alias Ryker.Operator.Actions
   alias Ryker.Operator.Learning, as: LearningOperator
 
+  alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Learning
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
+  alias Ryker.Memories.Forgetting
 
   @settings %{
     policy: "recorded-read-only-policy",
@@ -130,6 +132,24 @@ defmodule Ryker.Learning.RebuildsTest do
              LearningSources.expand(after_rebuild.source_dependencies),
              & &1["source_input_id"]
            ) == [current.id]
+  end
+
+  # A rebuild checked the topic's version and generation, which forgetting
+  # leaves alone, so a Relearn queued before a forget wrote the topic back,
+  # Work recalled it again, and nobody could forget it twice (2026-10-04
+  # review).
+  test "a rebuild queued before its topic is forgotten does not bring the topic back" do
+    {topic, _old, current} = unavailable_topic!()
+    assert {:ok, _receipt} = rebuild(topic, current, "rebuild:before-forget")
+    assert {:ok, %{forgotten: [_ | _]}} = Forgetting.forget_topic(topic.id)
+
+    assert {:ok, claim} = Batches.claim("rebuild-forgotten", @settings)
+    assert {:error, :knowledge_rebuild_conflict} = Batches.prepare(claim)
+
+    forgotten = Repo.get!(ConversationKnowledge, topic.id)
+    assert %DateTime{} = forgotten.forgotten_at
+    assert forgotten.version == topic.version
+    refute Enum.any?(Repo.all(Knowledge.valid_query()), &(&1.id == topic.id))
   end
 
   test "source reselection grants one start on the same batch and never reuses an applied no-change attempt" do

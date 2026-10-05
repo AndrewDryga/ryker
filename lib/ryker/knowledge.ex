@@ -245,7 +245,7 @@ defmodule Ryker.Knowledge do
          %ConversationKnowledge{} = head <-
            Repo.one(from(k in ConversationKnowledge, where: k.id == ^id, lock: "FOR UPDATE")),
          true <-
-           head.scope_key == key and head.version == version and
+           is_nil(head.forgotten_at) and head.scope_key == key and head.version == version and
              head.source_generation == generation,
          false <- Repo.exists?(availability_query(scope, [head.id])),
          {:ok, plan} <- bounded_plan(head, key, source, proposal) do
@@ -515,6 +515,7 @@ defmodule Ryker.Knowledge do
 
     from(k in ConversationKnowledge,
       as: :knowledge,
+      where: is_nil(k.forgotten_at),
       where: exists(subquery(any)) and not exists(subquery(invalid)),
       where: fragment(~s(?::jsonb <> '{"retention":"pruned"}'::jsonb), k.state)
     )

@@ -314,7 +314,10 @@ defmodule Ryker.Learning.Rebuilds do
     topic = Repo.one!(from(k in ConversationKnowledge, where: k.id == ^id, lock: "FOR UPDATE"))
     {:ok, scope} = scope(topic)
 
-    unless topic.version == version and topic.source_generation == generation and
+    # Forgetting leaves version and generation alone, so a rebuild queued
+    # before it brought the topic back (2026-10-04 review).
+    unless is_nil(topic.forgotten_at) and topic.version == version and
+             topic.source_generation == generation and
              not Repo.exists?(Knowledge.availability_query(scope, [id])),
            do: Repo.rollback(:knowledge_rebuild_conflict)
 
