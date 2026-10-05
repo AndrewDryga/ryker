@@ -103,7 +103,7 @@
 
     <h2 id="what">What it is</h2>
 
-    <p>The control plane is served by the Ryker service at <code>http://127.0.0.1:4321</code>, and it binds to loopback by default. There are no accounts, no roles and no invitations, because <strong>the loopback interface is the authentication.</strong> Reach it from the same machine or through an SSH tunnel, and do not publish it.</p>
+    <p>The control plane is served by the Ryker service at <code>http://127.0.0.1:4321</code>, and it binds to loopback by default. There are no accounts, roles or invitations: on loopback, <strong>reaching the machine is the check.</strong> Reach it from the same machine or through an SSH tunnel. To let other people in, publish it only through Cloudflare Access or Tailscale Serve, which decide who reaches it; everyone who does can see and change everything in the install.</p>
 
     <ul>
       <li><strong>Changes ask first.</strong> Every action that retries, discards, pauses or deletes something asks you to confirm before it runs, and writes its change and its audit record together.</li>
@@ -210,7 +210,6 @@
       <li>A place to edit prompts or the policies workers run. Those are code and configuration, reviewed in git.</li>
       <li>Anything that changes infrastructure. Emisar remains the only path.</li>
       <li>A replacement for the Slack App Home.</li>
-      <li>Public exposure. The loopback bind is a deliberate limit, not a first step.</li>
     </ul>
 
     <nav class="doc-next" aria-label="Page navigation">

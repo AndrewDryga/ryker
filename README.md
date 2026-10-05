@@ -29,8 +29,9 @@ It runs on one trusted host and:
 - lets active full workspace members start and collaborate on contributor tasks in their channel's
   environment;
 - keeps operator-capability tasks, incident steering, the publication and destructive controls, and
-  saved behavior restricted to configured operators, and leaves every change to running systems to
-  Emisar's own policy and approvals;
+  saved behavior restricted to operators (the people chosen for it and, unless turned off, the
+  workspace's admins and owners), and leaves every change to running systems to Emisar's own policy
+  and approvals;
 - parks between turns, resumes the same agent conversation, and survives process restarts;
 - tracks every accepted investigation or engineering promise as durable work, and exposes it in
   the App Home and the web control plane;
@@ -108,7 +109,9 @@ bindings, [`docs/operations.md`](docs/operations.md) for backup, restore and rec
 ## Webhooks
 
 The service listens on loopback. Publish only `/v1/github` (GitHub App events) and `/v1/hooks/`
-through a TLS reverse proxy (`deploy/nginx/ryker.conf` is an example); keep health and metrics local.
+through a TLS reverse proxy (`deploy/nginx/ryker.conf` is an example). The console, with health
+and metrics, stays local unless it is published through Cloudflare Access or Tailscale Serve,
+which decide who reaches it ([`docs/operations.md`](docs/operations.md)).
 
 Grafana route:
 
@@ -391,8 +394,10 @@ New incident channels use the validated channel prefix set under Integrations â€
 beginning with `sre-`. Changing the setting does
 not rename existing Slack channels.
 
-Only configured operator user IDs who are full members of the configured workspace can steer an
-incident agent, approve an incident offer, save durable behavior, or schedule work in Slack. Any
+Only operators who are full members of the configured workspace can steer an incident agent,
+approve an incident offer, save durable behavior, or schedule work in Slack. Operators are the
+people chosen under Integrations â€º Slack and, unless that page turns it off, the workspace's admins
+and owners. Any
 active full workspace member can start and collaborate on an engineering task in the channel's
 environment. Only a configured operator can press **Create draft PR**, stop or close the task, or
 discard retained work; the confirmed task's own draft grant can publish without a click. Changes to

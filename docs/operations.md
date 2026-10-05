@@ -32,8 +32,18 @@ the `x-ryker-version` header, and prints one setup URL.
 
 The control UI, GitHub listener and universal webhook listener bind to `127.0.0.1` by default.
 Change a bind address only when the surrounding network boundary is understood. External GitHub
-and webhook senders need an HTTPS reverse proxy to the exact signed ingress paths; do not publish
-the control UI, health, readiness or metrics endpoints.
+and webhook senders need an HTTPS reverse proxy to the exact signed ingress paths. Then set the
+addresses they use in `.ryker/compose.env` and run `scripts/compose.sh start`, so the setup
+pages show the URLs to give GitHub and each alert source:
+
+```bash
+RYKER_GITHUB_PUBLIC_URL=https://ryker.example.com/v1/github
+RYKER_WEBHOOK_PUBLIC_URL=https://ryker.example.com
+```
+
+Publish the console only through Cloudflare Access or Tailscale Serve, described below. A plain
+reverse proxy or tunnel to it would hand everyone who reaches it the whole console, with health,
+readiness and metrics.
 
 Inside Compose the console admits only its own loopback and `RYKER_CONTROL_PEER`, the address
 published traffic arrives from: the network's gateway, `172.30.42.1` (measured under OrbStack).
@@ -159,10 +169,12 @@ scripts/compose.sh backup
 
 The helper pauses Ryker while it captures a consistent PostgreSQL dump, private state volume
 (including encrypted checkpoint bodies), and the generated environment containing decryption
-keys. It restarts the previously running controller even if the backup fails. Worker leases use
+keys. Ryker then runs again while the helper archives the bundled worker's state as
+`worker-state.tar.gz`: its model sign-in and its identity key, without the caches Coop downloads
+again. It restarts the previously running controller even if the backup fails. Worker leases use
 their normal expiry rules during this maintenance window; allow time for large bodies to copy.
-Pre-deploy backups use the same database-and-files boundary. Store these owner-only archives as
-sensitive material.
+Pre-deploy backups hold the database, the encrypted files and the environment, and not the
+worker's state. Store these owner-only archives as sensitive material.
 
 Restore with:
 
@@ -176,7 +188,8 @@ changing anything: it must hold the database dump, the environment and the encry
 dump must read. Only then does it stop Ryker, restore the database beside the live one, and swap
 the restored copy in once it is whole; the database Ryker ran on before stays as
 `ryker_before_restore` until the next restore. A restore that fails leaves the previous database
-as it was and Ryker stopped. It then restores the private state, starts the pinned image without
+as it was and Ryker stopped. It then restores the private state and, when the archive holds it,
+the worker's state, starts the pinned image without
 building anything, and verifies the exact running version. A missing, wrong or damaged root must
 fail; never generate a replacement key for an existing database.
 

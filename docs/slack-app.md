@@ -25,6 +25,10 @@ infrastructure product Ryker works through; it is named in the manifest only in 
    starts each channel in the default environment (or none, when no environment is the default);
    choose a channel's environment and participation in the guided setup or on its page in Ryker.
 
+Operators are the people who can manage Ryker from Slack: those chosen under **Integrations →
+Slack** and, unless that page turns it off, the workspace's admins and owners, as Slack reports
+them. Everything below that says "operator" means them (`Ryker.Slack.Operators`).
+
 When updating an existing app, apply the new manifest. On an app created before 2026-09-13 this
 renames the app and bot from `Emisar` to `Ryker`, the slash command from `/responder` to `/ryker`
 and the message shortcut callback to `ryker_investigate_message`; upload

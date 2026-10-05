@@ -15,9 +15,10 @@ and the configured repository policies. Emisar independently authorizes infrastr
 
 In the Docker Compose deployment Ryker and the bundled Coop worker are separate containers. The
 worker reaches Ryker only through the outbound worker gateway over mutual TLS, and its boxes run
-in a private Docker daemon container, never on the host's socket. The volumes the two share
-(worker configuration and workspaces) are a transport boundary between processes of the same
-unprivileged user ID, not malicious-process isolation.
+in a private Docker daemon container, never on the host's socket. That daemon container runs
+privileged, as Docker in Docker requires. The one volume Ryker and the worker share holds the
+worker's configuration; it is a transport boundary between processes of the same unprivileged
+user ID, not malicious-process isolation.
 
 ## Controls
 
@@ -43,20 +44,28 @@ policies that do not need them.
 
 - Keep the installation state owner-only: `.ryker/` at mode `0700`, and `.ryker/compose.env` and
   every backup under `.ryker/backups/` at mode `0600`. They hold the database password and the
-  encryption roots; a backup is as sensitive as the database it restores.
-- The containers run as an unprivileged user and keep mutable state in named volumes. Never mount
-  the host's Docker socket into Ryker or the worker; the worker's boxes belong to the private
-  `ryker-coop-docker` daemon.
+  encryption roots; a backup is as sensitive as the database it restores. A backup from
+  `scripts/compose.sh backup` also holds `worker-state.tar.gz`, the bundled worker's model
+  sign-in and identity key.
+- Ryker and the worker run as an unprivileged user and keep mutable state in named volumes. Two
+  containers do not: `volume-init` runs once as root to give the volumes to that user, and the
+  worker's Docker daemon runs privileged. Never mount the host's Docker socket into Ryker or the
+  worker; the worker's boxes belong to the private `ryker-coop-docker` daemon.
 - Terminate TLS at a maintained reverse proxy and publish only `/v1/github` and `/v1/hooks/`.
-- The control UI, `/healthz`, `/readyz` and `/metrics` bind to loopback by default, and PostgreSQL
-  and the worker socket are not published at all. Keep it that way.
-- Enroll each remote Coop worker with `mix ryker.coop_worker enroll` and keep its enrollment
-  token, identity, and journal owner-private. Workers connect outbound over mutual TLS; never
-  expose the operator control plane to reach a worker.
-- Coop never receives Ryker's Slack, webhook, GitHub, or Emisar secrets: the fleet protocol carries
-  placement identities and the bounded submission only. Work reaches Emisar through Ryker's own
-  tool server, which forwards each call with the environment's Emisar key; the key stays on the
-  Ryker host, and an Emisar answer that carries it is withheld.
+- Compose publishes the console's port, which also serves `/healthz`, `/readyz` and `/metrics`,
+  and the GitHub and webhook listeners on the host's loopback only, and PostgreSQL and the worker
+  socket not at all. Keep it that way, or put the console behind Cloudflare Access or Tailscale
+  Serve as `docs/operations.md` describes.
+- Enroll each remote Coop worker with `scripts/compose.sh worker-token`, and drain, resume or
+  revoke one with `worker-drain`, `worker-resume` and `worker-revoke`. Keep its enrollment token,
+  identity, and journal owner-private. Workers connect outbound over mutual TLS; never expose the
+  operator control plane to reach a worker.
+- Coop never receives Ryker's Slack, webhook or Emisar secrets, or the GitHub App's private key.
+  A worker gets short-lived installation tokens for one repository: one that can only read, to
+  fetch the code it works on, and, for a publication someone approved, one that can push the
+  branch and open the pull request. Work reaches Emisar through Ryker's own tool server, which
+  forwards each call with the environment's Emisar key; the key stays on the Ryker host, and an
+  Emisar answer that carries it is withheld.
 - Use observe-only Emisar credentials when Slack should only investigate. To support explicit
   operator-directed actions, use a narrowly scoped Emisar credential whose server-side policy,
   approval, runner validation, and audit remain authoritative; prompts never grant authority.

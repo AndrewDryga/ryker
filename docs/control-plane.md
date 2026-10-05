@@ -470,16 +470,18 @@ The App Home stays as it is. Nothing here replaces it.
 
 ## Audience
 
-One person, running one or two Ryker deployments, on their own machine.
-Not multi-tenant, not a product surface, not for the wider team. That decision
-sets everything else: no accounts, no roles, no invitations.
+The people who run one Ryker installation: whoever runs it on their own
+machine, and the people it lets in through Cloudflare Access or Tailscale
+Serve, such as a client team. Not multi-tenant: there are no accounts, roles or
+invitations, and everyone who reaches an install's console can see and change
+everything in it.
 
 ## Reach and trust
 
 **Published on `127.0.0.1` only** by default, on the port Ryker already serves
 (`RYKER_CONTROL_BIND` and `RYKER_CONTROL_PORT` in `.ryker/compose.env`). Reached in a browser on the same machine, or
-through an SSH tunnel. No authentication, because the loopback interface is the
-authentication. Inside Compose the console listens on its container interface,
+through an SSH tunnel. On loopback there is no sign-in: reaching the machine is
+the check. Inside Compose the console listens on its container interface,
 so it admits only its own loopback and the address published traffic arrives
 from, the network gateway (`RYKER_CONTROL_PEER`, 172.30.42.1 by default). Every
 other container on that network is refused, including the boxes the worker runs
@@ -507,9 +509,9 @@ ignored and it acts as `control-plane:local`. The name grants nothing; who may
 use the console is still decided by who can reach it.
 
 Consequences to respect:
-- **Read-only by default.** Write paths (retry, discard, publish, keep) are
-  individually opted in, each with a confirmation, because there is no second
-  factor behind them.
+- **Destructive steps ask first.** Settings save from their forms, and anything
+  that removes, disconnects, discards or acts on work asks before it does,
+  because there is no second factor behind any of them.
 - **Secrets never render.** The same redaction the Slack path uses applies
   before anything reaches a template.
 - **No external assets.** No CDN fonts, no analytics, no telemetry. The page

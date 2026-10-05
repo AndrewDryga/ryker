@@ -240,7 +240,7 @@
 
     <p>Ryker runs its work on a Coop worker: a machine with your code checked out that runs the model and its tools. The bundled worker is set up for you, so most installations never change anything here.</p>
 
-    <p>It is a separate container. It reaches Ryker only through an outbound connection over mutual TLS, and the boxes it runs work in live in its private Docker daemon, never on the host’s Docker socket. Coop never receives Ryker’s Slack, webhook, GitHub or Emisar credentials. A deploy never rebuilds or restarts the worker or its daemon.</p>
+    <p>It is a separate container. It reaches Ryker only through an outbound connection over mutual TLS, and the boxes it runs work in live in its private Docker daemon, never on the host’s Docker socket. Coop never receives Ryker’s Slack, webhook or Emisar credentials, or the GitHub App’s private key; a worker gets short-lived tokens for one repository, read-only to fetch its code and, for a publication someone approved, able to push the branch and open the pull request. A deploy never rebuilds or restarts the worker or its daemon.</p>
 
     <p>When requests wait because no worker can take them, start at <strong>Settings › Advanced</strong>, then check <strong>Work › Working copies</strong>, where a full worker stops taking new work.</p>
 
