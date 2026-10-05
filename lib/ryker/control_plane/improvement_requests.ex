@@ -29,7 +29,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
     ]
 
   alias Ryker.Accounting.Execution
-  alias Ryker.ControlPlane.{BackgroundCards, CallRun, ImprovementPage}
+  alias Ryker.ControlPlane.{BackgroundCards, CallRun, ImprovementPage, Paths}
   alias Ryker.Improvement
   alias Ryker.Improvement.{AnalysisRun, Candidate}
   alias Ryker.InspectionRedactor, as: Redactor
@@ -227,7 +227,10 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
 
   defp facts(_run, _document), do: []
 
-  defp finding_path(run), do: ImprovementPage.path() <> "#improvement-" <> run.candidate_id
+  defp finding_path(run),
+    do:
+      Paths.query(ImprovementPage.path(), %{"candidate" => run.candidate_id}) <>
+        "#improvement-" <> run.candidate_id
 
   defp category(%{"category" => value}) when is_binary(value),
     do: Enum.find(Candidate.categories(), &(Atom.to_string(&1) == value))

@@ -3,10 +3,12 @@ defmodule Ryker.Improvement.CandidatesTest do
 
   import Ecto.Query
 
+  alias Ryker.ControlPlane.ImprovementProjection
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
   alias Ryker.Improvement
   alias Ryker.Improvement.Candidate
+  alias Ryker.Repo
 
   @workspace "TIMPROVECANDIDATES"
   @now ~U[2026-09-27 12:00:00.000000Z]
@@ -15,6 +17,24 @@ defmodule Ryker.Improvement.CandidatesTest do
   # eval case "without much of manual human reviews". The loop only starts if
   # every kind of negative feedback reaches it, and it stays cheap only if
   # nothing positive or neutral does: each candidate costs one model call.
+  # "Open the finding" anchored into the first page of To decide, so a finding on a later page,
+  # or one already decided, opened a page that did not show it (2026-10-04 review).
+  test "a finding's own link opens a page that shows it, whatever its decision" do
+    request = work_request!("1790002100.000100")
+    record!(request, :sentiment, "frustrated", nil, "linked")
+    %Candidate{id: id} = Improvement.for_request(request)
+
+    Repo.update_all(from(c in Candidate, where: c.id == ^id),
+      set: [status: :dismissed, decided_at: @now, decided_by: "control-plane:local"]
+    )
+
+    view = ImprovementProjection.page(%{"candidate" => id})
+    assert view.status == :dismissed
+    assert [%{id: ^id}] = view.items
+
+    assert ImprovementProjection.page(%{}).items == []
+  end
+
   test "each kind of negative feedback makes its request a candidate, and nothing else does" do
     negative = [
       {:sentiment, "frustrated", nil, "frustrated"},

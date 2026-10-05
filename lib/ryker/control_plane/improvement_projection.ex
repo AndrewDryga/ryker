@@ -24,7 +24,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   @week_seconds 7 * 86_400
 
   @doc "The query keys the page reads."
-  def query_keys, do: ["status", "category", "page"]
+  def query_keys, do: ["status", "category", "page", "candidate"]
 
   @doc """
   One read of the page for `params`: the counts of each decision and of each
@@ -33,15 +33,27 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   """
   @spec page(map()) :: map()
   def page(params) when is_map(params) do
-    status = pick(params["status"], @statuses) || :open
-    category = pick(params["category"], Candidate.categories())
     visible = from(candidate in Candidate, as: :candidate, where: is_nil(candidate.forgotten_at))
-    in_status = from([candidate: candidate] in visible, where: candidate.status == ^status)
 
-    listed =
-      if category,
-        do: from([candidate: candidate] in in_status, where: candidate.category == ^category),
-        else: in_status
+    {status, category, in_status, listed} =
+      case linked(visible, params["candidate"]) do
+        {id, status} ->
+          {status, nil, in_status(visible, status),
+           from([candidate: candidate] in visible, where: candidate.id == ^id)}
+
+        nil ->
+          status = pick(params["status"], @statuses) || :open
+          category = pick(params["category"], Candidate.categories())
+          in_status = in_status(visible, status)
+
+          listed =
+            if category,
+              do:
+                from([candidate: candidate] in in_status, where: candidate.category == ^category),
+              else: in_status
+
+          {status, category, in_status, listed}
+      end
 
     paged = PagedRelation.read(listed, order(), "page", params, page_size: @page_size)
 
@@ -83,6 +95,27 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
       {:ok, item}
     else
       _missing -> :error
+    end
+  end
+
+  defp in_status(visible, status),
+    do: from([candidate: candidate] in visible, where: candidate.status == ^status)
+
+  # One finding's own link (`?candidate=`) lists just it, under its own decision: an anchor into
+  # the first page of To decide missed one on a later page or already decided (2026-10-04
+  # review).
+  defp linked(visible, value) do
+    with {:ok, id} <- PathRef.uuid(value),
+         status when not is_nil(status) <-
+           Repo.one(
+             from([candidate: candidate] in visible,
+               where: candidate.id == ^id,
+               select: candidate.status
+             )
+           ) do
+      {id, status}
+    else
+      _unlinked -> nil
     end
   end
 
