@@ -78,6 +78,50 @@ defmodule Ryker.GitHub.AccessTest do
     end
   end
 
+  # The delivery poller replays an access event that left no receipt, as a new
+  # installation's does before its repositories have bindings, and the replay
+  # set every repository of the installation back to "pending", so each one
+  # set up again (2026-10-04 review). An event that leaves a repository's
+  # access as it was changes nothing about it.
+  test "an access event that gives a repository the access it has leaves its setup alone",
+       %{trusted: trusted} do
+    {:ok, _snapshot} =
+      Settings.put_repository(
+        %{ref: "widget", onboarding_state: :ready},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    created = installation_payload(%{"action" => "created"})
+    assert {:ok, _changed} = Access.apply("installation", created, trusted)
+
+    added = installation_payload(%{"repositories_added" => [%{"id" => 501}]})
+    assert {:ok, _changed} = Access.apply("installation_repositories", added, trusted)
+
+    assert repository(Settings.fetch!(), "widget").onboarding_state == :ready
+  end
+
+  # Archiving blocks a repository's setup. Unarchiving gave its access back
+  # but left the setup blocked, and nothing takes a blocked one up again.
+  test "an unarchived repository sets up again", %{trusted: trusted} do
+    archived = %{
+      "action" => "archived",
+      "installation" => %{"id" => 41},
+      "repository" => %{"full_name" => "acme/widget", "id" => 501}
+    }
+
+    assert {:ok, _changed} = Access.apply("repository", archived, trusted)
+    assert repository(Settings.fetch!(), "widget").onboarding_state == :blocked
+
+    unarchived = %{archived | "action" => "unarchived"}
+    assert {:ok, _changed} = Access.apply("repository", unarchived, trusted)
+
+    snapshot = Settings.fetch!()
+    assert repository(snapshot, "widget").github_access == :available
+    assert repository(snapshot, "widget").onboarding_state == :pending
+    assert repository(snapshot, "widget").onboarding_error == nil
+  end
+
   defp installation_payload(changes) do
     Map.merge(
       %{

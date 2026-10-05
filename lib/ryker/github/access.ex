@@ -101,7 +101,9 @@ defmodule Ryker.GitHub.Access do
   defp repository_state(action) when action in ["deleted", "archived"],
     do: {:removed, :blocked, "This repository is no longer available to Ryker."}
 
-  defp repository_state(action) when action in ["renamed", "transferred", "unarchived", "edited"],
+  defp repository_state("unarchived"), do: {:available, :pending, nil}
+
+  defp repository_state(action) when action in ["renamed", "transferred", "edited"],
     do: {:available, nil, nil}
 
   defp repository_state(_action), do: nil
@@ -211,13 +213,18 @@ defmodule Ryker.GitHub.Access do
     end)
   end
 
+  # An event that leaves a repository's access as it was changes nothing about
+  # it. The delivery poller replays an access event that left no receipt, and
+  # each replay set the repositories it named back to setting up.
   defp access(%Binding{name: ref}, snapshot, {access, onboarding, error}) do
-    if saved?(snapshot, ref) do
-      %{ref: ref, github_access: access, onboarding_error: error}
-      |> maybe_put(:onboarding_state, onboarding)
-      |> Settings.put_repository(snapshot.installation.revision, @actor)
-    else
-      {:ok, snapshot}
+    case Enum.find(snapshot.repositories, &(&1.ref == ref)) do
+      %{github_access: current} when current != access ->
+        %{ref: ref, github_access: access, onboarding_error: error}
+        |> maybe_put(:onboarding_state, onboarding)
+        |> Settings.put_repository(snapshot.installation.revision, @actor)
+
+      _unchanged_or_removed ->
+        {:ok, snapshot}
     end
   end
 
