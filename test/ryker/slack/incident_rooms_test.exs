@@ -4,6 +4,8 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   import Ecto.Query
   import Ryker.TestHelpers, only: [eventually: 2]
 
+  import ExUnit.CaptureLog
+
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, InstructionSettings}
   alias Ryker.Delivery.{Adapters, Dispatcher, JSONClient}
   alias Ryker.Episodes
@@ -592,7 +594,11 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert %Session{repository_ref: nil} = Repo.get_by!(Session, episode_id: room.episode_id)
   end
 
-  test "an invalid configured audience blocks before creating a Slack room" do
+  # A channel's room audience named one person who had since left the
+  # workspace, and every room from that channel blocked before Slack made it,
+  # during the incidents it was for (2026-10-04 review). People who cannot
+  # join, and groups with nobody in them, are left out; the room is made.
+  test "invitees who cannot join are left out, and the room is still made" do
     fixture = delivered_offer!()
     save_channel_configuration!()
 
@@ -601,7 +607,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
         {Agent,
          fn ->
            %{
-             allowed_users: MapSet.new(["U123", "U300"]),
+             allowed_users: MapSet.new(["U123", "U201", "U300"]),
              channel_ref: nil,
              conversations: [],
              groups: %{"SRE" => ["U201", "U200"]},
@@ -616,20 +622,16 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     assert {:ok, requested} = IncidentRooms.request(request(fixture))
 
-    assert {:ok, {:blocked, room_ref, :incident_audience_member_invalid}} =
-             IncidentRoomWorker.run_once(worker_options(agent))
+    log =
+      capture_log(fn ->
+        assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+        assert room_ref == requested.room.ref
+      end)
 
-    assert room_ref == requested.room.ref
-    assert Repo.get!(IncidentRoom, requested.room.id).status == :blocked
-    assert Agent.get(agent, & &1.conversations) == []
-    assert Repo.get!(Record, fixture.record.id).status == :open
-
-    assert {:ok, rearmed} = IncidentRooms.rearm(room_ref)
-    assert rearmed.status == :requested
-    assert rearmed.attempt_count == 0
-    assert rearmed.last_error_code == nil
-    assert rearmed.lease_ref == nil
-    assert {:error, :incident_room_not_blocked} = IncidentRooms.rearm(room_ref)
+    assert log =~ "left out U200"
+    invited = agent |> Agent.get(& &1.invites) |> Enum.flat_map(&elem(&1, 1))
+    assert "U201" in invited
+    refute "U200" in invited
   end
 
   test "archive and unarchive events durably pause and resume only the managed incident" do
@@ -991,14 +993,14 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     fixture = delivered_offer!()
     save_channel_configuration!()
     agent = incident_agent!()
-    Agent.update(agent, &Map.put(&1, :allowed_users, MapSet.new(["U123", "U300"])))
+    Agent.update(agent, &Map.put(&1, :ensure_error, :conversation_offline))
     publish_through_slack!(agent)
 
     assert {:ok, requested} = IncidentRooms.request(request(fixture))
     room_ref = requested.room.ref
 
-    assert {:ok, {:blocked, ^room_ref, :incident_audience_member_invalid}} =
-             IncidentRoomWorker.run_once(worker_options(agent))
+    assert {:ok, {:blocked, ^room_ref, :conversation_offline}} =
+             IncidentRoomWorker.run_once(%{worker_options(agent) | max_attempts: 1})
 
     assert {:ok, %IncidentRoom{status: :requested, close_requested_at: %DateTime{}}} =
              IncidentRooms.request_close(room_ref, "control-plane:local")

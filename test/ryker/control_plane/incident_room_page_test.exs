@@ -402,7 +402,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
         channel_state_changed_at: nil,
         episode_id: nil,
         handoff_message_ref: nil,
-        last_error_code: "incident_audience_member_invalid",
+        last_error_code: "conversation_offline",
         last_error_detail: "private-invite-failure-detail",
         reconciled_channel_state: :pending,
         root_card_fingerprint: nil,

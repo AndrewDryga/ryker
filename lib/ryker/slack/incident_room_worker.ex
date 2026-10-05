@@ -603,22 +603,35 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
   defp destination_pause_ref(room), do: "#{room.ref}:channel"
 
+  # Who the room invites: its people and its groups' members, less Ryker. A
+  # person who cannot join (deactivated, a guest, from another workspace) and
+  # a group with nobody in it are left out, with a line in the log: one such
+  # name on a channel's list blocked every room from that channel. The
+  # audience is read until its invitations go out, and not again.
+  defp audience(%{audience_prepared_at: %DateTime{}}, _options), do: {:ok, []}
+
   defp audience(room, options) do
-    with {:ok, group_users} <- expand_groups(room, options),
-         users <- (room.invite_user_refs ++ group_users) |> Enum.uniq() |> Enum.sort(),
-         :ok <- validate_users(users, room, options) do
-      {:ok, Enum.reject(users, &(&1 == room.bot_user_ref))}
+    with {:ok, group_users} <- expand_groups(room, options) do
+      (room.invite_user_refs ++ group_users)
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.reject(&(&1 == room.bot_user_ref))
+      |> joinable(room, options)
     end
   end
 
   defp expand_groups(room, options) do
     Enum.reduce_while(room.invite_user_group_refs, {:ok, []}, fn group_ref, {:ok, users} ->
       case options.directory.user_group_members(options.client, group_ref, room.workspace_ref) do
-        {:ok, members} when is_list(members) and members != [] ->
+        {:ok, [_member | _more] = members} ->
           {:cont, {:ok, users ++ members}}
 
-        {:ok, _empty_or_invalid} ->
-          {:halt, {:error, :incident_audience_group_empty}}
+        {:ok, _empty} ->
+          Logger.warning(
+            "incident room #{room.ref} left out user group #{group_ref}: it is empty"
+          )
+
+          {:cont, {:ok, users}}
 
         {:error, _reason} = error ->
           {:halt, error}
@@ -626,12 +639,18 @@ defmodule Ryker.Slack.IncidentRoomWorker do
     end)
   end
 
-  defp validate_users(users, room, options) do
-    Enum.reduce_while(users, :ok, fn user_ref, :ok ->
+  defp joinable(users, room, options) do
+    Enum.reduce_while(users, {:ok, []}, fn user_ref, {:ok, joinable} ->
       case options.directory.user_allowed(options.client, user_ref, room.workspace_ref) do
-        {:ok, true} -> {:cont, :ok}
-        {:ok, false} -> {:halt, {:error, :incident_audience_member_invalid}}
-        {:error, _reason} = error -> {:halt, error}
+        {:ok, true} ->
+          {:cont, {:ok, joinable ++ [user_ref]}}
+
+        {:ok, false} ->
+          Logger.warning("incident room #{room.ref} left out #{user_ref}: they cannot join it")
+          {:cont, {:ok, joinable}}
+
+        {:error, _reason} = error ->
+          {:halt, error}
       end
     end)
   end
@@ -820,8 +839,6 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   defp permanent?(reason),
     do:
       reason in [
-        :incident_audience_group_empty,
-        :incident_audience_member_invalid,
         :incident_offer_delivery_mismatch,
         :incident_offer_not_delivered,
         :incident_offer_not_found,

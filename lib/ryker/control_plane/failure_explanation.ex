@@ -1997,7 +1997,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       ],
       tried: [
         tried(row, now),
-        "Ryker tries up to eight times in all, over about two minutes, and stops at once for problems a retry cannot fix, such as a person who cannot be invited."
+        "Ryker tries up to eight times in all, over about two minutes, and stops at once for problems a retry cannot fix, such as an offer that changed since it was made."
       ],
       if_left:
         "The room stays half set up, no investigation starts, and it keeps counting toward the limit on open rooms. The buttons on the original message do nothing. If its channel is deleted in Slack, Ryker closes the room and frees its place.",
@@ -2022,20 +2022,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp setup_step(:handoff), do: "tell the original thread"
   defp setup_step(:finalize), do: "start the investigation"
   defp setup_step(_step), do: "set it up"
-
-  defp incident_cause(%{summary: code})
-       when code in ["incident_audience_member_invalid", "incident_audience_group_empty"] do
-    cause(
-      if(code == "incident_audience_group_empty",
-        do: "The group of people to invite has no members.",
-        else: "Someone on the invite list cannot be invited."
-      ),
-      "The invite list includes a person Slack will not add to the room: deactivated, a guest, a bot, or from another workspace, or a group with nobody in it. The list was fixed when the room was requested, so changing it now does not change this room.",
-      :stuck,
-      "It will stop the same way unless that person can be invited again. Fix the channel's invite list, then ask for a new room.",
-      nil
-    )
-  end
 
   defp incident_cause(%{summary: code})
        when code in ["incident_offer_not_found", "incident_offer_stale"] do

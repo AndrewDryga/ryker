@@ -1377,7 +1377,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         kind: "slack_incident",
         ref: "incident-room:one",
         status: :blocked,
-        summary: "incident_audience_member_invalid",
+        summary: "incident_offer_stale",
         updated_at: ~U[2026-08-28 11:55:00Z]
       },
       %{
