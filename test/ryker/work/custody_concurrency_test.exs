@@ -8,7 +8,17 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Repo
-  alias Ryker.Work.{Activity, ActivityEvent, Cancellation, Custody, Session, Submission, Turn}
+
+  alias Ryker.Work.{
+    Activity,
+    ActivityEvent,
+    Cancellation,
+    Custody,
+    OperationKeys,
+    Session,
+    Submission,
+    Turn
+  }
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -277,7 +287,7 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
                work.session.coop_session_id,
                work.turn.coop_turn_id,
                "cancelled",
-               Cancellation.operation_key(work.turn.id, 1),
+               OperationKeys.cancel(work.turn.id, 1),
                "closed",
                "ryker:work:cancel-close:#{work.turn.id}:g1"
              )

@@ -14,6 +14,7 @@ defmodule Ryker.Records.OutcomesTest do
     Cancellation,
     Custody,
     DeliveryReceipt,
+    OperationKeys,
     Result,
     Submission,
     SubmissionBuilder
@@ -317,7 +318,7 @@ defmodule Ryker.Records.OutcomesTest do
                claim.session.coop_session_id,
                claim.turn.coop_turn_id,
                "cancelled",
-               Cancellation.operation_key(claim.turn.id, 1),
+               OperationKeys.cancel(claim.turn.id, 1),
                "closed",
                "ryker:work:cancel-close:#{claim.turn.id}:g1"
              )
@@ -353,7 +354,7 @@ defmodule Ryker.Records.OutcomesTest do
                claim.session.coop_session_id,
                claim.turn.coop_turn_id,
                "cancelled",
-               Cancellation.operation_key(claim.turn.id, 1),
+               OperationKeys.cancel(claim.turn.id, 1),
                "closed",
                "ryker:work:cancel-close:#{claim.turn.id}:g1"
              )

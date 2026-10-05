@@ -5,7 +5,7 @@ defmodule Ryker.Work.CancellationTest do
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Repo
-  alias Ryker.Work.{Cancellation, Custody, Submission}
+  alias Ryker.Work.{Cancellation, Custody, OperationKeys, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -47,7 +47,7 @@ defmodule Ryker.Work.CancellationTest do
                work.session.coop_session_id,
                work.turn.coop_turn_id,
                "cancelled",
-               Cancellation.operation_key(work.turn.id, 1),
+               OperationKeys.cancel(work.turn.id, 1),
                "closed",
                "ryker:work:cancel-close:#{work.turn.id}:g1"
              )
@@ -102,7 +102,7 @@ defmodule Ryker.Work.CancellationTest do
                work.session.coop_session_id,
                work.turn.coop_turn_id,
                "cancelled",
-               Cancellation.operation_key(work.turn.id, 1),
+               OperationKeys.cancel(work.turn.id, 1),
                "open",
                nil
              )
@@ -878,7 +878,7 @@ defmodule Ryker.Work.CancellationTest do
                work.session.coop_session_id,
                work.turn.coop_turn_id,
                "cancelled",
-               Cancellation.operation_key(work.turn.id, 1),
+               OperationKeys.cancel(work.turn.id, 1),
                session_state,
                close_ref
              )

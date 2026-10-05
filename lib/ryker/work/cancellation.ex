@@ -87,10 +87,6 @@ defmodule Ryker.Work.Cancellation do
   @spec fingerprint(intent() | receipt()) :: String.t()
   def fingerprint(document), do: CanonicalJSON.digest(document)
 
-  @spec operation_key(Ecto.UUID.t(), pos_integer()) :: String.t()
-  def operation_key(turn_id, generation),
-    do: "ryker:work:cancel:#{turn_id}:g#{generation}"
-
   @spec terminal_receipt(
           String.t(),
           String.t(),

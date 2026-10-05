@@ -25,7 +25,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.{CurrentAuthority, Sessions, Turns}
-  alias Ryker.Work.{Session, Turn, TurnChangeset}
+  alias Ryker.Work.{OperationKeys, Session, Turn, TurnChangeset}
 
   @doc false
   @spec request_cancel(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
@@ -341,8 +341,7 @@ defmodule Ryker.Work.Custody.Cancellation do
       when state in ["closed", "discarded"] do
     session = Repo.get!(Session, turn.session_id)
 
-    key =
-      "ryker:work:checkpoint:#{turn.id}:a#{turn.candidate_attempt}:#{turn.candidate_sha256}"
+    key = OperationKeys.checkpoint(turn)
 
     saved =
       Repo.exists?(
@@ -713,7 +712,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     do: {:error, :work_cancellation_intent_not_frozen}
 
   defp exact_cancellation_proof(%{"kind" => "terminal_turn"} = receipt, session, turn) do
-    expected_cancel_ref = WorkCancellation.operation_key(turn.id, turn.cancel_generation)
+    expected_cancel_ref = OperationKeys.cancel(turn.id, turn.cancel_generation)
 
     with :ok <- exact_bound_remote_identity(receipt, session, turn),
          :ok <- optional_exact_reference(receipt["cancel_operation_ref"], expected_cancel_ref),
@@ -722,12 +721,12 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   defp exact_cancellation_proof(%{"kind" => "absent_turn"} = receipt, session, turn) do
     expected_submit_ref =
-      if turn.submission == nil, do: nil, else: Turns.submit_operation_key(turn)
+      if turn.submission == nil, do: nil, else: OperationKeys.turn(turn)
 
     with :ok <-
            exact_reference(
              receipt["create_operation_ref"],
-             Sessions.create_operation_key(session)
+             OperationKeys.create(session)
            ),
          :ok <- exact_optional_reference(receipt["submit_operation_ref"], expected_submit_ref),
          :ok <- absent_remote_identity(receipt, session, turn),
@@ -817,7 +816,7 @@ defmodule Ryker.Work.Custody.Cancellation do
         exact_optional_reference(close_ref, nil)
 
       {_action, state} when state in ~w(closed discarded) ->
-        optional_exact_reference(close_ref, cancellation_close_key(turn))
+        optional_exact_reference(close_ref, OperationKeys.cancel_close(turn))
 
       _other ->
         {:error, :work_cancellation_receipt_mismatch}
@@ -918,7 +917,4 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   defp cancellation_revision_field(:cancel_turn), do: :cancel_expected_revision
   defp cancellation_revision_field(:close_session), do: :close_expected_revision
-
-  defp cancellation_close_key(turn),
-    do: "ryker:work:cancel-close:#{turn.id}:g#{turn.cancel_generation}"
 end

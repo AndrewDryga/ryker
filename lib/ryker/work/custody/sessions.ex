@@ -20,6 +20,7 @@ defmodule Ryker.Work.Custody.Sessions do
   alias Ryker.Work.Custody.Turns
 
   alias Ryker.Work.{
+    OperationKeys,
     RepositoryContext,
     RepositorySource,
     Session,
@@ -865,7 +866,7 @@ defmodule Ryker.Work.Custody.Sessions do
     {session, turn} = leased!(episode_id, turn_ref, lease_ref)
 
     _turn =
-      Turns.clear_remote_operation!(turn, "create_session", create_operation_key(session))
+      Turns.clear_remote_operation!(turn, "create_session", OperationKeys.create(session))
 
     cond do
       session.generation != generation ->
@@ -900,7 +901,7 @@ defmodule Ryker.Work.Custody.Sessions do
 
       true ->
         _turn =
-          Turns.clear_remote_operation!(turn, "create_session", create_operation_key(session))
+          Turns.clear_remote_operation!(turn, "create_session", OperationKeys.create(session))
 
         session
         |> SessionChangeset.advance_create(session.create_generation + 1)
@@ -962,10 +963,6 @@ defmodule Ryker.Work.Custody.Sessions do
         end
     end
   end
-
-  @doc false
-  def create_operation_key(session),
-    do: "ryker:work:create:#{session.id}:g#{session.create_generation}"
 
   defp session_external_ref(episode_id, generation),
     do: "ryker-work:#{episode_id}:session:#{generation}"

@@ -30,6 +30,7 @@ defmodule Ryker.Work.ExecutorTest do
     Executor,
     Final,
     FinalPreflight,
+    OperationKeys,
     Result,
     Session,
     StateBinding,
@@ -3850,7 +3851,7 @@ defmodule Ryker.Work.ExecutorTest do
 
     FakeAPI.seed_operation(
       failed_fake,
-      Cancellation.operation_key(failed.turn.id, 1),
+      OperationKeys.cancel(failed.turn.id, 1),
       failed_operation("revision_conflict", "CancelTurn")
     )
 
@@ -3870,7 +3871,7 @@ defmodule Ryker.Work.ExecutorTest do
 
     FakeAPI.seed_operation(
       unresolved_fake,
-      Cancellation.operation_key(unresolved.turn.id, 1),
+      OperationKeys.cancel(unresolved.turn.id, 1),
       uncertain_operation("operation_uncertain", "CancelTurn")
     )
 

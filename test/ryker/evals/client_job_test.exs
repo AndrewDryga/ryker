@@ -7,7 +7,7 @@ defmodule Ryker.Evals.ClientJobTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Learning.FleetSession
-  alias Ryker.Work.{Custody, RepositorySource, Session}
+  alias Ryker.Work.{Custody, OperationKeys, RepositorySource, Session}
 
   setup do
     {:ok, job} = Job.new(:world, "codex:fixture/high@eval")
@@ -28,7 +28,7 @@ defmodule Ryker.Evals.ClientJobTest do
     job: job
   } do
     session = work_session(job)
-    key = Custody.Sessions.create_operation_key(session)
+    key = OperationKeys.create(session)
     ref = Session.coop_task_ref(session)
 
     assert :ok = Client.prepare_create_session(client, key, job.name, ref, nil)
@@ -52,7 +52,7 @@ defmodule Ryker.Evals.ClientJobTest do
     job: job
   } do
     session = work_session(job)
-    key = Custody.Sessions.create_operation_key(session)
+    key = OperationKeys.create(session)
     ref = Session.coop_task_ref(session)
 
     for invalid <- [
@@ -94,7 +94,7 @@ defmodule Ryker.Evals.ClientJobTest do
     client = %{client | job: sourced}
 
     session = work_session(sourced, "tenant-rivals-scraper")
-    key = Custody.Sessions.create_operation_key(session)
+    key = OperationKeys.create(session)
     ref = Session.coop_task_ref(session)
     default = RepositorySource.default()
     assert :ok = Client.prepare_create_session(client, key, sourced.name, ref, default)
@@ -107,7 +107,7 @@ defmodule Ryker.Evals.ClientJobTest do
     assert {:error, :model_eval_session_authority_mismatch} =
              Client.prepare_create_session(
                client,
-               Custody.Sessions.create_operation_key(other),
+               OperationKeys.create(other),
                sourced.name,
                Session.coop_task_ref(other),
                default
@@ -118,7 +118,7 @@ defmodule Ryker.Evals.ClientJobTest do
     assert {:error, :model_eval_session_authority_mismatch} =
              Client.prepare_create_session(
                %{client | job: job},
-               Custody.Sessions.create_operation_key(unsourced),
+               OperationKeys.create(unsourced),
                job.name,
                Session.coop_task_ref(unsourced),
                nil

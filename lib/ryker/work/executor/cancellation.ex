@@ -12,7 +12,7 @@ defmodule Ryker.Work.Executor.Cancellation do
   """
 
   alias Ryker.Work.Cancellation, as: WorkCancellation
-  alias Ryker.Work.{Custody, StateBinding}
+  alias Ryker.Work.{Custody, OperationKeys, StateBinding}
   alias Ryker.Work.Custody.Cancellation, as: CancellationCustody
   alias Ryker.Work.Executor.{Remote, Turns}
 
@@ -20,7 +20,7 @@ defmodule Ryker.Work.Executor.Cancellation do
 
   @doc false
   def execute_cancellation(claim, settings) do
-    key = WorkCancellation.operation_key(claim.turn.id, claim.turn.cancel_generation)
+    key = OperationKeys.cancel(claim.turn.id, claim.turn.cancel_generation)
 
     result =
       with {:ok, claim} <- reconcile_cancellation_session(claim, settings),
@@ -125,7 +125,7 @@ defmodule Ryker.Work.Executor.Cancellation do
        do: {:ok, claim}
 
   defp reconcile_cancellation_session(claim, settings) do
-    key = Remote.create_key(claim.session)
+    key = OperationKeys.create(claim.session)
 
     if frozen_remote_operation?(claim.turn, "create_session", key) do
       fence_cancellation_session_create(claim, key, settings)
@@ -219,7 +219,7 @@ defmodule Ryker.Work.Executor.Cancellation do
     do: {:ok, claim, :not_created}
 
   defp reconcile_cancellation_turn(claim, settings) do
-    key = Remote.turn_key(claim.turn)
+    key = OperationKeys.turn(claim.turn)
 
     if frozen_remote_operation?(claim.turn, "submit_turn", key) do
       fence_cancellation_turn_submit(claim, key, settings)
@@ -503,7 +503,7 @@ defmodule Ryker.Work.Executor.Cancellation do
        do: settle_cancellation_proof(claim, proof, remote_session, nil)
 
   defp close_cancellation_session(claim, proof, remote_session, settings) do
-    key = cancellation_close_key(claim.turn)
+    key = OperationKeys.cancel_close(claim.turn)
 
     case Remote.operation_by_key(settings, key) do
       :not_found ->
@@ -732,10 +732,10 @@ defmodule Ryker.Work.Executor.Cancellation do
 
   defp absent_receipt(claim, remote_session_id, session_state, close_operation_ref) do
     submit_operation_ref =
-      if claim.turn.submission == nil, do: nil, else: Remote.turn_key(claim.turn)
+      if claim.turn.submission == nil, do: nil, else: OperationKeys.turn(claim.turn)
 
     WorkCancellation.absent_receipt(
-      Remote.create_key(claim.session),
+      OperationKeys.create(claim.session),
       submit_operation_ref,
       remote_session_id,
       session_state,
@@ -754,7 +754,4 @@ defmodule Ryker.Work.Executor.Cancellation do
       {:error, {:work_generation_spent, :cancellation, reason}}
     end
   end
-
-  defp cancellation_close_key(turn),
-    do: "ryker:work:cancel-close:#{turn.id}:g#{turn.cancel_generation}"
 end

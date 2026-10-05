@@ -12,7 +12,7 @@ defmodule Ryker.Work.Executor.Sessions do
   alias Ryker.Coop.API
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Knowledge.KnowledgeSnapshot
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.{Custody, OperationKeys, Session}
   alias Ryker.Work.Executor.Remote
 
   @doc false
@@ -66,7 +66,7 @@ defmodule Ryker.Work.Executor.Sessions do
   end
 
   defp create_or_bind_current_session(claim, settings) do
-    key = Remote.create_key(claim.session)
+    key = OperationKeys.create(claim.session)
 
     result =
       with :ok <- new_session_repository_capability(claim, settings) do

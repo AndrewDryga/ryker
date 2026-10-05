@@ -13,7 +13,7 @@ defmodule Ryker.Slack.WorkControlsTest do
   alias Ryker.Records
   alias Ryker.Slack.{TaskCardChangeset, WorkControls, WorkRecord, WorkTarget}
   alias Ryker.TestSupport.FakeSlackAPI
-  alias Ryker.Work.{Cancellation, Custody, Submission}
+  alias Ryker.Work.{Cancellation, Custody, OperationKeys, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -52,7 +52,7 @@ defmodule Ryker.Slack.WorkControlsTest do
                bound.session.coop_session_id,
                bound.turn.coop_turn_id,
                "cancelled",
-               Cancellation.operation_key(bound.turn.id, 1),
+               OperationKeys.cancel(bound.turn.id, 1),
                "closed",
                "ryker:work:cancel-close:#{bound.turn.id}:g1"
              )

@@ -15,7 +15,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
-  alias Ryker.Work.{Cancellation, Custody, Dispatcher, Submission, Turn}
+  alias Ryker.Work.{Cancellation, Custody, Dispatcher, OperationKeys, Submission, Turn}
 
   @policy "ryker-chat"
   @started String.duplicate("a", 64)
@@ -182,7 +182,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
                work.session.coop_session_id,
                work.turn.coop_turn_id,
                "cancelled",
-               Cancellation.operation_key(work.turn.id, 1),
+               OperationKeys.cancel(work.turn.id, 1),
                "open",
                nil
              )

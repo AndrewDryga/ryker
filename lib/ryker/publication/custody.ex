@@ -36,8 +36,7 @@ defmodule Ryker.Publication.Custody do
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{DeliveryReceipt, Session, Turn}
-  alias Ryker.Work.Executor.Remote
+  alias Ryker.Work.{DeliveryReceipt, OperationKeys, Session, Turn}
 
   @claimable [:review_pending, :review_ready, :publish_pending, :published_ready]
   @checkpointed_candidate ~w(repository_ref base_revision committed_revision candidate_tree_sha256)
@@ -234,7 +233,7 @@ defmodule Ryker.Publication.Custody do
 
   # Every completed task turn checkpoints its workspace before it is accepted.
   defp checkpointed_candidate(%Turn{} = turn) do
-    key = Remote.checkpoint_key(turn)
+    key = OperationKeys.checkpoint(turn)
 
     from(transfer in WorkspaceCheckpointTransfer,
       join: command in Command,

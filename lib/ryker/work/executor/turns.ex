@@ -13,7 +13,7 @@ defmodule Ryker.Work.Executor.Turns do
   alias Ryker.Artifacts.Outputs
   alias Ryker.CoopFleet.SessionEvidenceCapture
   alias Ryker.Records
-  alias Ryker.Work.{Activity, Custody, Measurement, StateBinding, ValidationIntent}
+  alias Ryker.Work.{Activity, Custody, Measurement, OperationKeys, StateBinding, ValidationIntent}
   alias Ryker.Work.Executor.{Remote, Validation}
 
   @turn_waiting_states Remote.turn_waiting_states()
@@ -28,7 +28,7 @@ defmodule Ryker.Work.Executor.Turns do
   end
 
   def ensure_turn(claim, settings) do
-    key = Remote.turn_key(claim.turn)
+    key = OperationKeys.turn(claim.turn)
 
     case Remote.operation_by_key(settings, key) do
       :not_found -> submit_turn(claim, key, settings)
@@ -335,7 +335,7 @@ defmodule Ryker.Work.Executor.Turns do
              settings.api.checkpoint_workspace(
                settings.client,
                claim.session.coop_session_id,
-               Remote.checkpoint_key(claim.turn),
+               OperationKeys.checkpoint(claim.turn),
                expected_revision
              )
            end) do

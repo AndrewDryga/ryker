@@ -17,7 +17,7 @@ defmodule Ryker.Admission.CommitTest do
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Waits.EventSubscriptions
-  alias Ryker.Work.{Cancellation, Custody, Session, Submission}
+  alias Ryker.Work.{Cancellation, Custody, OperationKeys, Session, Submission}
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 
@@ -564,7 +564,7 @@ defmodule Ryker.Admission.CommitTest do
                session.coop_session_id,
                turn.coop_turn_id,
                "cancelled",
-               Cancellation.operation_key(turn.id, 1),
+               OperationKeys.cancel(turn.id, 1),
                "closed",
                "ryker:work:cancel-close:#{turn.id}:g1"
              )

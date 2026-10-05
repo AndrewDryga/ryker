@@ -13,7 +13,7 @@ defmodule Ryker.Work.Executor.Validation do
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.{PlatformActionCustody, Presentation}
   alias Ryker.Records
-  alias Ryker.Work.{Custody, FinalPreflight, StateBinding, Validator}
+  alias Ryker.Work.{Custody, FinalPreflight, OperationKeys, StateBinding, Validator}
   alias Ryker.Work.Executor.{Remote, Turns}
 
   @terminal_turn_states Remote.terminal_turn_states()
@@ -147,7 +147,7 @@ defmodule Ryker.Work.Executor.Validation do
   def validate_candidate(claim, settings) do
     intent = claim.turn.validation_intent
     verdict = validation_verdict(intent)
-    key = validation_key(claim.turn, verdict)
+    key = OperationKeys.validate(claim.turn, verdict)
 
     case Remote.operation_by_key(settings, key) do
       :not_found -> mutate_validation(claim, key, verdict, settings)
@@ -498,10 +498,4 @@ defmodule Ryker.Work.Executor.Validation do
 
   defp validation_verdict(%{"verdict" => "reject", "violations" => violations}),
     do: {:reject, violations}
-
-  defp validation_key(turn, verdict) do
-    verdict_name = if verdict == :accept, do: "accept", else: "reject"
-
-    "ryker:work:validate:#{turn.id}:a#{turn.candidate_attempt}:g#{turn.validation_generation}:#{turn.candidate_sha256}:#{verdict_name}"
-  end
 end

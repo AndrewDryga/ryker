@@ -20,8 +20,7 @@ defmodule Ryker.Coop.Client do
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Evals.Job
   alias Ryker.Repo
-  alias Ryker.Work.Custody.Sessions
-  alias Ryker.Work.{RepositorySource, Session, SessionChangeset, ValidationIntent}
+  alias Ryker.Work.{OperationKeys, RepositorySource, Session, SessionChangeset, ValidationIntent}
 
   @fields [:finch, :receive_timeout, :socket]
   @max_output_artifact_bytes 8 * 1_024 * 1_024
@@ -411,7 +410,7 @@ defmodule Ryker.Coop.Client do
   end
 
   defp exact_create_key?(%Session{execution_kind: :work} = session, key),
-    do: key == Sessions.create_operation_key(session)
+    do: key == OperationKeys.create(session)
 
   defp exact_create_key?(%Session{execution_kind: :learning, learning_run_id: id}, key),
     do: key == "ryker:learning:create:#{id}"

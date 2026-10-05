@@ -28,6 +28,7 @@ defmodule Ryker.Work.Custody.Turns do
     CandidateResponse,
     FinalPreflight,
     Measurement,
+    OperationKeys,
     Result,
     Submission,
     Turn,
@@ -744,7 +745,7 @@ defmodule Ryker.Work.Custody.Turns do
         Repo.rollback(:work_submission_not_frozen)
 
       turn.coop_turn_id == nil ->
-        turn = clear_remote_operation!(turn, "submit_turn", submit_operation_key(turn))
+        turn = clear_remote_operation!(turn, "submit_turn", OperationKeys.turn(turn))
 
         turn
         |> TurnChangeset.bind_coop_turn(coop_turn_id)
@@ -752,7 +753,7 @@ defmodule Ryker.Work.Custody.Turns do
         |> unwrap_or_rollback(:work_turn_binding)
 
       turn.coop_turn_id == coop_turn_id ->
-        clear_remote_operation!(turn, "submit_turn", submit_operation_key(turn))
+        clear_remote_operation!(turn, "submit_turn", OperationKeys.turn(turn))
 
       true ->
         Repo.rollback({:work_turn_conflict, turn.coop_turn_id})
@@ -776,7 +777,7 @@ defmodule Ryker.Work.Custody.Turns do
         Repo.rollback({:work_turn_submit_generation_conflict, turn.submit_generation})
 
       true ->
-        turn = clear_remote_operation!(turn, "submit_turn", submit_operation_key(turn))
+        turn = clear_remote_operation!(turn, "submit_turn", OperationKeys.turn(turn))
 
         turn
         |> TurnChangeset.advance_submit(turn.submit_generation + 1)
@@ -1229,8 +1230,4 @@ defmodule Ryker.Work.Custody.Turns do
       {:work_remote_operation_conflict, {turn.remote_operation_kind, turn.remote_operation_key}}
     )
   end
-
-  @doc false
-  def submit_operation_key(turn),
-    do: "ryker:work:turn:#{turn.id}:g#{turn.submit_generation}:#{turn.submission_fingerprint}"
 end

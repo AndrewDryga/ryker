@@ -216,18 +216,6 @@ defmodule Ryker.Work.Executor.Remote do
     do: {:error, {:coop_mutation_response_unresolved, phase, reason}}
 
   @doc false
-  def create_key(session),
-    do: "ryker:work:create:#{session.id}:g#{session.create_generation}"
-
-  @doc false
-  def turn_key(turn),
-    do: "ryker:work:turn:#{turn.id}:g#{turn.submit_generation}:#{turn.submission_fingerprint}"
-
-  @doc false
-  def checkpoint_key(turn),
-    do: "ryker:work:checkpoint:#{turn.id}:a#{turn.candidate_attempt}:#{turn.candidate_sha256}"
-
-  @doc false
   def revision(%{"revision" => revision}) when is_integer(revision) and revision > 0,
     do: {:ok, revision}
 

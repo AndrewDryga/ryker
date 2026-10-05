@@ -12,9 +12,8 @@ defmodule Ryker.Work.RetryCurrentSettingsTest do
   alias Ryker.{Episodes, Repo, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Work.Cancellation, as: WorkCancellation
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.{Custody, OperationKeys, Session}
   alias Ryker.Work.Custody.CurrentAuthority
-  alias Ryker.Work.Executor.Remote
 
   @actor "control-plane:local"
 
@@ -117,7 +116,13 @@ defmodule Ryker.Work.RetryCurrentSettingsTest do
     assert {:ok, stop} = Custody.claim_next("worker:#{suffix}:stop", 60)
 
     assert {:ok, receipt} =
-             WorkCancellation.absent_receipt(Remote.create_key(stop.session), nil, nil, nil, nil)
+             WorkCancellation.absent_receipt(
+               OperationKeys.create(stop.session),
+               nil,
+               nil,
+               nil,
+               nil
+             )
 
     assert {:ok, blocked} =
              Custody.settle_cancellation(
