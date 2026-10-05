@@ -42,6 +42,20 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
   # may take to reach its turn, or the message would start it cold again.
   # Every other job starts its agent on its first turn and stops it after
   # each, so none holds one of the worker's runtime slots while it idles.
+  # Routing shared Work's hour-long turn timeout, and a waiting routing turn
+  # gives its attempt back, so one that never finished held its conversation
+  # for up to an hour (2026-10-04 review). Over 14 days to 2026-10-05 routing
+  # attempts took 15 s at the median and 66 s at most.
+  test "a routing turn is ended after five minutes, other work after an hour" do
+    routing = JobTemplates.execution(%Work{}, :admission, false)
+    assert routing["limits"]["turn_timeout_ms"] == 300_000
+
+    for purpose <- [:conversational, :contributor, :deep, :incident, :learning, :standard] do
+      assert JobTemplates.execution(%Work{}, purpose, false)["limits"]["turn_timeout_ms"] ==
+               3_600_000
+    end
+  end
+
   test "only routing keeps a prepared agent running, and past a ready session's age" do
     for purpose <- [
           :conversational,

@@ -37,11 +37,21 @@ defmodule Ryker.CoopFleet.JobTemplates do
   # running when its turn arrives. Coop allows at most an hour.
   @routing_warm_idle_timeout_ms 35 * 60 * 1_000
 
+  # A routing turn that never finished held its conversation for up to the
+  # hour every job shared, since a waiting routing turn gives its attempt
+  # back (2026-10-04 review). Over 14 days to 2026-10-05 routing attempts took
+  # 15 s at the median and 66 s at most.
+  @routing_turn_timeout_ms 5 * 60 * 1_000
+  @turn_timeout_ms 60 * 60 * 1_000
+
   def model_field(purpose), do: Map.get(@models, purpose)
 
   @spec warm_idle_timeout_ms(atom()) :: non_neg_integer()
   def warm_idle_timeout_ms(:admission), do: @routing_warm_idle_timeout_ms
   def warm_idle_timeout_ms(_purpose), do: 0
+
+  defp turn_timeout_ms(:admission), do: @routing_turn_timeout_ms
+  defp turn_timeout_ms(_purpose), do: @turn_timeout_ms
 
   def from_settings(snapshot) do
     repositories =
@@ -100,7 +110,7 @@ defmodule Ryker.CoopFleet.JobTemplates do
         "max_turns" => 100,
         "max_queued_turns" => 20,
         "max_queued_bytes" => 1_048_576,
-        "turn_timeout_ms" => 3_600_000,
+        "turn_timeout_ms" => turn_timeout_ms(purpose),
         "warm_idle_timeout_ms" => warm_idle_timeout_ms(purpose),
         "max_patch_bytes" => 1_048_576
       }
