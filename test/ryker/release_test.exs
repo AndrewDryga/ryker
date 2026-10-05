@@ -3,6 +3,7 @@ defmodule Ryker.ReleaseTest do
 
   import Ecto.Query
 
+  alias Ryker.CoopFleet.ControlPlane
   alias Ryker.Release
 
   @root Path.expand("../..", __DIR__)
@@ -374,6 +375,30 @@ defmodule Ryker.ReleaseTest do
     assert compose =~ "Ryker.Release.issue_worker_token("
     assert compose =~ "doctor)"
     assert compose =~ "Ryker.Release.doctor()"
+  end
+
+  # Drain, resume and revoke were reachable only through `mix ryker.coop_worker`,
+  # which a Compose install cannot run, so a worker it enrolled could never be
+  # revoked there, however compromised (2026-10-04 review).
+  test "a Compose install drains, resumes and revokes its workers through the release" do
+    hash = :crypto.hash(:sha256, "certificate:release-lifecycle") |> Base.encode16(case: :lower)
+    {:ok, _worker} = ControlPlane.authorize_worker("worker-own-2", "workspace-own", hash)
+
+    for {action, status, state} <- [
+          {:drain, "draining", "draining"},
+          {:resume, "resumed", "offline"},
+          {:revoke, "revoked", "revoked"}
+        ] do
+      assert {:ok, %{"status" => ^status, "state" => ^state, "worker_id" => "worker-own-2"}} =
+               Release.worker_lifecycle(action, "worker-own-2", "operator:local", log: false)
+    end
+
+    assert {:error, _reason} =
+             Release.worker_lifecycle(:drain, "worker-own-2", "operator:local", log: false)
+
+    compose = read!("scripts/compose.sh")
+    assert compose =~ "worker-drain | worker-resume | worker-revoke)"
+    assert compose =~ "Ryker.Release.worker_lifecycle(:${1#worker-}"
   end
 
   # A release-shaped archive with nothing trustworthy in it: the checker must

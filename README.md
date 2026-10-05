@@ -407,16 +407,21 @@ frozen job's access settings. Slack guests and external Slack Connect identities
 
 ## Operations
 
-On the Docker Compose install, the release runs the two operator commands a person needs there:
+On the Docker Compose install, the release runs the operator commands a person needs there:
 
 ```bash
 scripts/compose.sh doctor
 scripts/compose.sh worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF
+scripts/compose.sh worker-drain WORKER_ID OPERATOR_REF
+scripts/compose.sh worker-resume WORKER_ID OPERATOR_REF
+scripts/compose.sh worker-revoke WORKER_ID OPERATOR_REF
 ```
 
 `doctor` checks that the saved settings were applied and the durable queues are ready.
 `worker-token` prints a one-time enrolment token for a Coop worker the installation does not run
-itself. Routine recovery on a Compose install is the control plane's Failures page.
+itself. `worker-drain` stops placing new work on a worker and lets what it holds finish,
+`worker-resume` takes a drained worker back, and `worker-revoke` cuts one off at once, with its
+certificates and unused enrolment tokens. Routine recovery on a Compose install is the control plane's Failures page.
 
 The Mix tasks below run from a source checkout with Mix. The Docker Compose install publishes
 neither PostgreSQL nor Mix, so they need a database you can reach with the installation's

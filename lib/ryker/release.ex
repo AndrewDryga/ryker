@@ -8,7 +8,7 @@ defmodule Ryker.Release do
   """
 
   alias Ryker.{Bootstrap, Settings}
-  alias Ryker.CoopFleet.Enrollment
+  alias Ryker.CoopFleet.{Enrollment, WorkerLifecycle}
   alias Ryker.Operator.Preflight
   alias Ryker.Runtime.Assembly
 
@@ -102,6 +102,40 @@ defmodule Ryker.Release do
              Enrollment.issue_token(worker_id, workspace_ref, operator_ref) do
         report(settings, issued)
         {:ok, issued}
+      end
+    end)
+  end
+
+  @doc """
+  Drains a worker (no new work; what it holds finishes), resumes one, or
+  revokes one at once with its certificates and unused enrolment tokens, and
+  prints the result as JSON. `scripts/compose.sh worker-drain`,
+  `worker-resume` and `worker-revoke` run this inside the container, where
+  there is no Mix to run `mix ryker.coop_worker` with.
+  """
+  @spec worker_lifecycle(:drain | :resume | :revoke, String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def worker_lifecycle(action, worker_id, operator_ref, options \\ [])
+      when action in [:drain, :resume, :revoke] do
+    settings = settings!(options)
+
+    with_repo!(settings, fn _repo ->
+      changed =
+        case action do
+          :drain -> WorkerLifecycle.drain(worker_id, operator_ref)
+          :resume -> WorkerLifecycle.resume(worker_id, operator_ref)
+          :revoke -> WorkerLifecycle.revoke(worker_id, operator_ref)
+        end
+
+      with {:ok, %{status: status, worker: worker}} <- changed do
+        result = %{
+          "state" => Atom.to_string(worker.state),
+          "status" => Atom.to_string(status),
+          "worker_id" => worker.id
+        }
+
+        report(settings, result)
+        {:ok, result}
       end
     end)
   end

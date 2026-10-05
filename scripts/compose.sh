@@ -10,7 +10,7 @@ state_dir=${RYKER_INSTALL_STATE:-$repository/.ryker}
 env_file=$state_dir/compose.env
 
 usage() {
-  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|doctor|backup|restore FILE|uninstall|destroy" >&2
+  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke WORKER_ID OPERATOR_REF|doctor|backup|restore FILE|uninstall|destroy" >&2
   exit 2
 }
 
@@ -354,6 +354,23 @@ case "$command" in
     done
     compose exec -T ryker /opt/ryker/bin/ryker eval \
       "Ryker.Release.issue_worker_token(\"$2\", \"$3\", \"$4\")"
+    ;;
+  worker-drain | worker-resume | worker-revoke)
+    # Drain stops new work and lets held work finish, resume takes a drained
+    # worker back, and revoke cuts a worker off at once. Each value is a plain
+    # reference, never Elixir.
+    require_install
+    [ "$#" -eq 3 ] || usage
+    for value in "$2" "$3"; do
+      case $value in
+        '' | *[!A-Za-z0-9._:-]*)
+          echo "Worker and operator references use letters, digits, '.', '_', ':' and '-'." >&2
+          exit 1
+          ;;
+      esac
+    done
+    compose exec -T ryker /opt/ryker/bin/ryker eval \
+      "Ryker.Release.worker_lifecycle(:${1#worker-}, \"$2\", \"$3\")"
     ;;
   doctor)
     require_install
