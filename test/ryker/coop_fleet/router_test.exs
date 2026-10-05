@@ -607,27 +607,27 @@ defmodule Ryker.CoopFleet.RouterTest do
       Sandbox.allow(Repo, self(), task.pid)
       send(task.pid, :begin_source_grant)
 
-      assert_receive {:source_token_request, ^provider, :post,
-                      "/app/installations/41/access_tokens",
+      # Each mint runs in its own process, which the test releases.
+      assert_receive {:source_token_request, minter, :post, "/app/installations/41/access_tokens",
                       %{"permissions" => %{"contents" => "read"}, "repository_ids" => [17]}},
                      5_000
 
-      task
+      {task, minter}
     end
 
-    task = begin_mint.()
-    send(provider, :complete_source_token)
+    {task, minter} = begin_mint.()
+    send(minter, :complete_source_token)
 
     assert {:ok, %{"token" => "host-only-source-token", "github_repository_id" => 17}} =
              Task.await(task)
 
-    task = begin_mint.()
+    {task, minter} = begin_mint.()
 
     Repo.get!(Placement, placement.id)
     |> Ecto.Changeset.change(state: :revoking)
     |> Repo.update!()
 
-    send(provider, :complete_source_token)
+    send(minter, :complete_source_token)
     assert {:error, :coop_worker_source_grant_not_authorized} = Task.await(task)
     Repo.get!(Placement, placement.id) |> Ecto.Changeset.change(state: :active) |> Repo.update!()
 
@@ -635,14 +635,14 @@ defmodule Ryker.CoopFleet.RouterTest do
     # is unavailable for now. Told "not found", tenant's worker failed a create for good when
     # GitHub answered a token request with 503 (2026-10-03).
     for answer <- [{:ok, %{status: 503, body: %{}}}, {:error, :timeout}] do
-      task = begin_mint.()
-      send(provider, {:complete_source_token, answer})
+      {task, minter} = begin_mint.()
+      send(minter, {:complete_source_token, answer})
       assert {:error, :coop_worker_source_grant_unavailable} = Task.await(task)
     end
 
     # A token GitHub refused, it refuses again.
-    task = begin_mint.()
-    send(provider, {:complete_source_token, {:ok, %{status: 403, body: %{}}}})
+    {task, minter} = begin_mint.()
+    send(minter, {:complete_source_token, {:ok, %{status: 403, body: %{}}}})
     assert {:error, :coop_worker_source_grant_not_authorized} = Task.await(task)
 
     Repo.get!(Session, session.id)

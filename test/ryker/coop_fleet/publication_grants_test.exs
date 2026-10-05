@@ -160,8 +160,8 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     for status <- [:delivered, :succeeded] do
       if status == :succeeded, do: complete!(context.command, 202)
 
-      task = begin_mint(context, provider)
-      send(provider, :complete)
+      {task, minter} = begin_mint(context, provider)
+      send(minter, :complete)
       assert {:ok, grant} = Task.await(task)
       assert grant["token"] == "host-only-publication-token"
       assert grant["github_repository_id"] == 17
@@ -274,16 +274,16 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
 
   test "a placement revoked while GitHub mints the token never receives it", context do
     provider = provider!()
-    task = begin_mint(context, provider)
+    {task, minter} = begin_mint(context, provider)
     context.placement |> change(state: :revoking) |> Repo.update!()
-    send(provider, :complete)
+    send(minter, :complete)
     assert {:error, :publication_grant_denied} = Task.await(task)
   end
 
   test "a binding changed during token minting never receives the old repository credential",
        context do
     provider = provider!()
-    task = begin_mint(context, provider)
+    {task, minter} = begin_mint(context, provider)
     {:ok, snapshot} = Settings.fetch()
 
     {:ok, _snapshot} =
@@ -299,7 +299,7 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
         "control-plane:local"
       )
 
-    send(provider, :complete)
+    send(minter, :complete)
     assert {:error, :publication_grant_unavailable} = Task.await(task)
   end
 
@@ -354,14 +354,15 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     Sandbox.allow(Repo, self(), task.pid)
     send(task.pid, :begin)
 
-    assert_receive {:mint, ^provider, :post, "/app/installations/41/access_tokens",
+    # Each mint runs in its own process, which the test releases.
+    assert_receive {:mint, minter, :post, "/app/installations/41/access_tokens",
                     %{
                       "permissions" => %{"contents" => "write", "pull_requests" => "write"},
                       "repository_ids" => [17]
                     }},
                    5_000
 
-    task
+    {task, minter}
   end
 
   defp route(context) do

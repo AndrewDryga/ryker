@@ -6,6 +6,9 @@ defmodule Ryker.GitHub.InstallationTokens do
   token by trusted binding name and fixed host purpose; the provider refreshes
   it before expiry and never accepts an installation, repository identifier,
   or permission set from event content.
+
+  Each mint runs in its own task, so a slow one holds up only the callers
+  waiting for that same token, and they share it.
   """
 
   use GenServer
@@ -135,68 +138,109 @@ defmodule Ryker.GitHub.InstallationTokens do
   end
 
   @impl GenServer
-  def init(options), do: {:ok, Map.put(options, :tokens, %{})}
+  def init(options) do
+    {:ok, tasks} = Task.Supervisor.start_link()
+    {:ok, Map.merge(options, %{mints: %{}, tasks: tasks, tokens: %{}})}
+  end
 
   @impl GenServer
-  def handle_call({:token, binding_name, purpose, permissions}, _from, state) do
-    case Map.fetch(state.bindings, binding_name) do
-      {:ok, binding} -> token_for_binding(state, binding_name, binding, purpose, permissions)
-      :error -> {:reply, {:error, {:github_installation_token_unavailable, :binding}}, state}
+  def handle_call({:token, binding_name, purpose, permissions}, from, state) do
+    with {:ok, binding} <- binding(state, binding_name),
+         {:ok, now} <- current_time(state.clock) do
+      key = {binding_name, purpose, Ryker.CanonicalJSON.digest(permissions)}
+      cached = Map.get(state.tokens, key)
+
+      cond do
+        fresh?(cached, now, state.refresh_before_seconds) ->
+          {:reply, {:ok, Secret.reveal(cached.token)}, state}
+
+        ref = minting(state, key) ->
+          {:noreply, update_in(state, [:mints, ref, :waiters], &[from | &1])}
+
+        true ->
+          mint = %{cached: cached, key: key, now: now, waiters: [from]}
+          {:noreply, start_mint(state, mint, binding, permissions)}
+      end
+    else
+      {:error, _reason} = error -> {:reply, error, state}
     end
   end
 
   @impl GenServer
-  def handle_call({:fresh_worker_token, binding_name, binding, purpose}, _from, state)
+  def handle_call({:fresh_worker_token, binding_name, binding, purpose}, from, state)
       when purpose in [:source_read, :worker_publication] do
-    with {:ok, ^binding} <- Map.fetch(state.bindings, binding_name),
-         {:ok, now} <- current_time(state.clock),
-         {:ok, token} <- mint(state, binding, Map.fetch!(@purpose_permissions, purpose), now) do
-      {:reply, {:ok, token}, state}
+    with {:ok, ^binding} <- binding(state, binding_name),
+         {:ok, now} <- current_time(state.clock) do
+      mint = %{cached: nil, key: nil, now: now, waiters: [from]}
+      {:noreply, start_mint(state, mint, binding, Map.fetch!(@purpose_permissions, purpose))}
     else
-      :error -> {:reply, unavailable(:binding), state}
       {:ok, _changed_binding} -> {:reply, unavailable(:binding), state}
       {:error, _reason} = error -> {:reply, error, state}
     end
   end
 
-  defp token_for_binding(state, binding_name, binding, purpose, permissions) do
-    case current_time(state.clock) do
-      {:ok, now} ->
-        token_for_current_time(state, binding_name, binding, purpose, permissions, now)
+  @impl GenServer
+  def handle_info({ref, result}, %{mints: mints} = state) when is_map_key(mints, ref) do
+    Process.demonitor(ref, [:flush])
+    {:noreply, finish_mint(state, ref, result)}
+  end
 
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{mints: mints} = state)
+      when is_map_key(mints, ref) do
+    Logger.warning("GitHub installation token mint stopped: #{inspect(reason)}")
+    {:noreply, finish_mint(state, ref, unavailable(:mint_stopped))}
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
+
+  defp binding(state, binding_name) do
+    case Map.fetch(state.bindings, binding_name) do
+      {:ok, binding} -> {:ok, binding}
+      :error -> unavailable(:binding)
     end
   end
 
-  defp token_for_current_time(state, binding_name, binding, purpose, permissions, now) do
-    cache_key = {binding_name, purpose, Ryker.CanonicalJSON.digest(permissions)}
-    cached = Map.get(state.tokens, cache_key)
+  defp minting(state, key),
+    do: Enum.find_value(state.mints, fn {ref, mint} -> if mint.key == key, do: ref end)
 
-    if fresh?(cached, now, state.refresh_before_seconds) do
-      {:reply, {:ok, Secret.reveal(cached.token)}, state}
-    else
-      refresh_token(state, cache_key, binding, permissions, cached, now)
-    end
+  # The token comes back sealed: a crash report prints this process's
+  # messages and state.
+  defp start_mint(state, mint, binding, permissions) do
+    client = Map.take(state, [:app_http, :requester])
+
+    %Task{ref: ref} =
+      Task.Supervisor.async_nolink(state.tasks, fn ->
+        with {:ok, token} <- mint(client, binding, permissions, mint.now),
+             do: {:ok, %{token | token: Secret.new(token.token)}}
+      end)
+
+    put_in(state, [:mints, ref], mint)
   end
 
-  defp refresh_token(state, cache_key, binding, permissions, cached, now) do
-    case mint(state, binding, permissions, now) do
-      {:ok, token} ->
-        # Cached sealed: a crash report prints this process's state.
-        cached = %{token | token: Secret.new(token.token)}
-        {:reply, {:ok, token.token}, put_in(state, [:tokens, cache_key], cached)}
+  # A worker's token is its own and is not cached. A cached token that could
+  # not be refreshed is still handed out while it has half a minute left.
+  defp finish_mint(state, ref, result) do
+    {mint, state} = pop_in(state, [:mints, ref])
 
-      {:error, reason} ->
-        if fresh?(cached, now, @minimum_fallback_seconds) do
-          {:reply, {:ok, Secret.reveal(cached.token)}, state}
-        else
-          {:reply, {:error, reason}, state}
-        end
-    end
+    {reply, state} =
+      case {result, mint.key} do
+        {{:ok, token}, nil} ->
+          {{:ok, %{token | token: Secret.reveal(token.token)}}, state}
+
+        {{:ok, token}, key} ->
+          {{:ok, Secret.reveal(token.token)}, put_in(state, [:tokens, key], token)}
+
+        {{:error, _reason} = error, _key} ->
+          if fresh?(mint.cached, mint.now, @minimum_fallback_seconds),
+            do: {{:ok, Secret.reveal(mint.cached.token)}, state},
+            else: {error, state}
+      end
+
+    Enum.each(mint.waiters, &GenServer.reply(&1, reply))
+    state
   end
 
-  defp mint(state, binding, permissions, now) do
+  defp mint(client, binding, permissions, now) do
     path = "/app/installations/#{binding.installation_id}/access_tokens"
 
     document = %{
@@ -204,7 +248,7 @@ defmodule Ryker.GitHub.InstallationTokens do
       "repository_ids" => [binding.repository_id]
     }
 
-    case state.requester.request(state.app_http, :post, path, document, @headers) do
+    case client.requester.request(client.app_http, :post, path, document, @headers) do
       {:ok, %{body: body, status: 201}} -> parse_token(body, now)
       {:ok, %{status: status}} when is_integer(status) -> unavailable({:http_status, status})
       {:ok, _response} -> unavailable(:response)

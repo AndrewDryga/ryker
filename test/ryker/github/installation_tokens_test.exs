@@ -19,7 +19,51 @@ defmodule Ryker.GitHub.InstallationTokensTest do
       do: raise("token endpoint exploded at /app/installations/41/access_tokens")
   end
 
+  # Holds the mint for repository 98 until the test releases it; any other
+  # repository's mint answers at once.
+  defmodule HeldRequester do
+    def request(test, :post, _path, %{"repository_ids" => [98]}, _headers) do
+      send(test, {:minting_held, self()})
+      receive do: (:release -> :ok)
+      {:ok, %{body: token_body("held-token"), headers: [], status: 201}}
+    end
+
+    def request(_test, :post, _path, _document, _headers),
+      do: {:ok, %{body: token_body("quick-token"), headers: [], status: 201}}
+
+    defp token_body(token), do: %{"expires_at" => "2026-08-29T13:00:00Z", "token" => token}
+  end
+
   @now ~U[2026-08-29 12:00:00Z]
+
+  # One process minted every token, so a mint GitHub was slow to answer, for
+  # up to 30 seconds, held every other repository's token behind it
+  # (2026-10-04 review). Mints for different tokens run side by side.
+  test "a slow mint for one repository does not hold up another repository's token" do
+    provider =
+      start_supervised!({
+        InstallationTokens,
+        %{
+          app_http: self(),
+          bindings: %{
+            "held" => %{installation_id: 41, repository_id: 98},
+            "quick" => %{installation_id: 41, repository_id: 99}
+          },
+          clock: fn -> @now end,
+          name: nil,
+          requester: HeldRequester
+        }
+      })
+
+    held = Task.async(fn -> InstallationTokens.token(provider, "held", :context) end)
+    assert_receive {:minting_held, minter}, 1_000
+
+    quick = Task.async(fn -> InstallationTokens.token(provider, "quick", :context) end)
+    assert Task.yield(quick, 1_000) == {:ok, {:ok, "quick-token"}}
+
+    send(minter, :release)
+    assert Task.await(held) == {:ok, "held-token"}
+  end
 
   # A raise inside the token request or the clock was returned as the whole
   # exception, whose message can carry the request that failed, and that
