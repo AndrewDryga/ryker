@@ -1582,9 +1582,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ]
   end
 
-  defp rule_criteria(%{"trigger" => trigger, "source_filter" => from}),
-    do: "#{String.capitalize(trigger_name(trigger, :plural))} from #{listeners(from)}"
-
   defp rule_criteria(%{"source_kind" => source, "filter" => filter}),
     do: "#{source_name(source)} events matching #{Jason.encode!(filter)}"
 
@@ -1592,22 +1589,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp rule_place(_scope), do: ""
 
   defp rule_evidence(_criteria, nil), do: []
-
-  defp rule_evidence(%{"trigger" => trigger, "source_filter" => from}, evidence) do
-    [
-      %{
-        label: "Sender",
-        value:
-          if(evidence["sender_matches"],
-            do:
-              "#{String.capitalize(sender_name(evidence["sender"]))}, which this rule listens to",
-            else:
-              "#{String.capitalize(sender_name(evidence["sender"]))}; this rule only listens to #{listeners(from)}"
-          )
-      },
-      %{label: "Content", value: trigger_evidence(evidence, trigger)}
-    ]
-  end
 
   defp rule_evidence(%{"source_kind" => source}, evidence) do
     [
@@ -1630,38 +1611,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
       }
     ]
   end
-
-  defp trigger_evidence(%{"event_class" => class, "trigger_matches" => true}, trigger)
-       when is_binary(class),
-       do: "Its source marked it as #{trigger_name(trigger, :one)}"
-
-  defp trigger_evidence(%{"event_class" => class}, trigger) when is_binary(class),
-    do: "Its source marked it as #{Words.label(class)}, not #{trigger_name(trigger, :one)}"
-
-  defp trigger_evidence(%{"trigger_text" => text}, _trigger) when is_binary(text),
-    do: "Contains \"#{text}\""
-
-  defp trigger_evidence(_evidence, trigger),
-    do: "Nothing in it reads as #{trigger_name(trigger, :one)}"
-
-  defp trigger_name("terraform_plan", :plural), do: "Terraform plans"
-  defp trigger_name("terraform_plan", :one), do: "a Terraform plan"
-  defp trigger_name("deployment", :plural), do: "deployments"
-  defp trigger_name("deployment", :one), do: "a deployment"
-  defp trigger_name("operational_alert", :plural), do: "operational alerts"
-  defp trigger_name("operational_alert", :one), do: "an operational alert"
-  defp trigger_name(trigger, _number), do: Words.label(trigger)
-
-  defp listeners("human"), do: "people"
-  defp listeners("app"), do: "apps and bots"
-  defp listeners("any"), do: "anyone"
-  defp listeners(filter), do: Words.label(filter)
-
-  defp sender_name("user"), do: "a person"
-  defp sender_name("app"), do: "an app"
-  defp sender_name("bot"), do: "a bot"
-  defp sender_name("system"), do: "a system actor"
-  defp sender_name(kind), do: Words.label(kind)
 
   defp source_name("github"), do: "GitHub"
   defp source_name("slack"), do: "Slack"

@@ -100,12 +100,15 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
       source,
       :standing_assignment,
       %{
-        "action" => "triage_alert",
-        "expires_in" => "30d",
+        "context_channel" => "slack:T123:C456",
+        "delivery_channel" => "slack:T123:C456",
+        "expires_at" => nil,
+        "filter" => %{},
+        "hold" => nil,
         "repository" => nil,
-        "source_filter" => "human",
+        "source_kind" => "slack",
         "task" => task,
-        "trigger" => "operational_alert"
+        "title" => String.slice(task, 0, 120)
       },
       scope_ref: "slack:T123:C456",
       expires_at: nil,

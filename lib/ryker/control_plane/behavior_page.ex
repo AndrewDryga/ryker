@@ -287,12 +287,12 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   end
 
   @doc """
-  The name a person knows an entry by: a rule's title (or what a typed rule
-  does), a preference as "Reply length: Concise", and guidance by its
-  subject. Confirmation pages ask "Pause <name>?" with it.
+  The name a person knows an entry by: a rule's title, a preference as
+  "Reply length: Concise", and guidance by its subject. Confirmation pages
+  ask "Pause <name>?" with it.
   """
   def subject(%{kind: :standing_assignment, payload: payload}),
-    do: payload["title"] || rule_name(payload)
+    do: payload["title"] || "Rule"
 
   def subject(%{kind: :preference, payload: payload}),
     do: preference_key(payload["key"]) <> ": " <> preference_value(payload["value"])
@@ -302,15 +302,6 @@ defmodule Ryker.ControlPlane.BehaviorPage do
 
   def subject(%{payload: payload}),
     do: payload["title"] || payload["subject"] || payload["task"] || "Saved instruction"
-
-  defp rule_name(%{"action" => "review_terraform_plan"}), do: "Review Terraform plans"
-  defp rule_name(%{"action" => "verify_deployment"}), do: "Check deployments"
-  defp rule_name(%{"action" => "triage_alert"}), do: "Triage alerts"
-  defp rule_name(%{"trigger" => "terraform_plan"}), do: "Terraform plans"
-  defp rule_name(%{"trigger" => "deployment"}), do: "Deployments"
-  defp rule_name(%{"trigger" => "operational_alert"}), do: "Alerts"
-  defp rule_name(%{"trigger" => trigger}) when is_binary(trigger), do: Words.label(trigger)
-  defp rule_name(_payload), do: "Rule"
 
   defp preference_key("response_detail"), do: "Reply length"
   defp preference_key("health_check_depth"), do: "Health checks"
@@ -357,13 +348,12 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     String.trim_trailing(cut) <> "…"
   end
 
-  # The one line of facts. A rule says when it acts, who can set it off, the
-  # repository it works in, when it stops and how often it ran; a saved entry
-  # says what it is, where it applies, how often it was used and when it stops.
+  # The one line of facts. A rule says when it acts, the repository it works
+  # in, when it stops and how often it ran; a saved entry says what it is,
+  # where it applies, how often it was used and when it stops.
   defp facts(%{kind: :standing_assignment} = item, now) do
     [
       trigger(item),
-      sender(item.payload["source_filter"]),
       if(item.payload["repository"], do: rich(["uses ", {:strong, item.payload["repository"]}])),
       expiry(item, now),
       usage(item, now)
@@ -378,18 +368,13 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp kind_word(:guidance), do: "Guidance"
   defp kind_word(kind), do: Words.label(kind)
 
-  defp trigger(%{payload: %{"source_kind" => source} = payload} = item) do
+  defp trigger(%{payload: payload} = item) do
     matching = if payload["filter"] in [nil, %{}], do: "a ", else: "a matching "
-    rich(["When " <> matching <> source_event(source) <> " arrives" | place(item)])
+
+    rich([
+      "When " <> matching <> source_event(payload["source_kind"]) <> " arrives" | place(item)
+    ])
   end
-
-  defp trigger(%{payload: payload} = item),
-    do: rich([trigger_event(payload["trigger"]) | place(item)])
-
-  defp trigger_event("terraform_plan"), do: "When someone posts a Terraform plan"
-  defp trigger_event("deployment"), do: "When someone posts about a deployment"
-  defp trigger_event("operational_alert"), do: "When an alert arrives"
-  defp trigger_event(_trigger), do: "When a matching message arrives"
 
   defp source_event("github"), do: "GitHub event"
   defp source_event("slack"), do: "Slack event"
@@ -406,11 +391,6 @@ defmodule Ryker.ControlPlane.BehaviorPage do
 
   defp place(%{scope_kind: :workspace}), do: [" anywhere in the workspace"]
   defp place(_item), do: []
-
-  defp sender("human"), do: "people only"
-  defp sender("app"), do: "apps only"
-  defp sender("any"), do: "people and apps"
-  defp sender(_filter), do: nil
 
   # Where a preference or guidance entry applies.
   defp where(%{scope_kind: :workspace}), do: "everywhere"

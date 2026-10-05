@@ -306,35 +306,6 @@ defmodule Ryker.Records.RecordPayloadTest do
 
     assert guidance.payload["subject"] == "Terraform review style"
 
-    assert {:ok, assignment} =
-             RecordPayload.prepare(
-               "standing_assignment_offer",
-               %{
-                 "action" => "review_terraform_plan",
-                 "expires_in" => "30d",
-                 "repository" => "ryker",
-                 "source_filter" => "app",
-                 "task" => "Review the exact posted Terraform plan and report material risk.",
-                 "trigger" => "terraform_plan"
-               },
-               "record:assignment:1"
-             )
-
-    assert assignment.payload["action"] == "review_terraform_plan"
-
-    assert RecordPayload.prepare(
-             "standing_assignment_offer",
-             %{
-               "action" => "triage_alert",
-               "expires_in" => "30d",
-               "repository" => nil,
-               "source_filter" => "any",
-               "task" => "Do something.",
-               "trigger" => "terraform_plan"
-             },
-             "record:assignment:2"
-           ) == {:error, {:invalid_state_record, :standing_assignment}}
-
     assert {:ok, response_location} =
              RecordPayload.prepare(
                "preference_offer",
@@ -385,24 +356,30 @@ defmodule Ryker.Records.RecordPayloadTest do
              },
              "record:guidance:invalid-visibility"
            ) == {:error, {:invalid_state_record, :visibility}}
+  end
 
+  # A standing rule is a source-event automation (`propose_automation`). The
+  # trigger form the retired importer wrote has had no producer since
+  # 2026-09-10, could not be paused or edited as an automation, and is
+  # refused (2026-10-04 review).
+  test "a standing rule in the retired trigger form is refused" do
     for {trigger, action} <- [
+          {"terraform_plan", "review_terraform_plan"},
           {"deployment", "verify_deployment"},
           {"operational_alert", "triage_alert"}
         ] do
-      assert {:ok, _assignment} =
-               RecordPayload.prepare(
-                 "standing_assignment_offer",
-                 %{
-                   "action" => action,
-                   "expires_in" => "30d",
-                   "repository" => nil,
-                   "source_filter" => "any",
-                   "task" => "Handle only the exact matching event.",
-                   "trigger" => trigger
-                 },
-                 "record:assignment:#{trigger}"
-               )
+      assert RecordPayload.prepare(
+               "standing_assignment_offer",
+               %{
+                 "action" => action,
+                 "expires_in" => "30d",
+                 "repository" => nil,
+                 "source_filter" => "any",
+                 "task" => "Handle only the exact matching event.",
+                 "trigger" => trigger
+               },
+               "record:assignment:#{trigger}"
+             ) == {:error, {:invalid_state_record, :payload}}
     end
   end
 

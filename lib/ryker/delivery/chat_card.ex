@@ -324,10 +324,7 @@ defmodule Ryker.Delivery.ChatCard do
       []
       |> optional_detail("Listens to", OfferWords.listens_to(payload))
       |> optional_detail("Repository", payload["repository"])
-      |> optional_detail(
-        "Expires",
-        OfferWords.stamp(payload["expires_at"]) || OfferWords.duration(payload["expires_in"])
-      )
+      |> optional_detail("Expires", OfferWords.stamp(payload["expires_at"]))
 
     common(
       record,

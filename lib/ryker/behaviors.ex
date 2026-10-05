@@ -668,34 +668,18 @@ defmodule Ryker.Behaviors do
 
   # What the rule looked for, frozen with its verdict so a later edit cannot
   # rewrite what this message was checked against.
-  defp assignment_criteria(%{"source_kind" => source_kind, "filter" => filter}),
-    do: %{"filter" => filter, "source_kind" => source_kind}
-
   defp assignment_criteria(payload),
-    do: %{"source_filter" => payload["source_filter"], "trigger" => payload["trigger"]}
+    do: %{"filter" => payload["filter"], "source_kind" => payload["source_kind"]}
 
   # What the check found in this message, one result per condition, so a
   # reader can see which condition decided the verdict. Every condition is
   # evaluated here even where the matcher itself stops at the first failure.
-  defp assignment_evidence(%{"source_kind" => source_kind, "filter" => filter}, input),
+  defp assignment_evidence(payload, input),
     do: %{
-      "filter_matches" => SourceEventMatcher.matches?(filter, input.content),
+      "filter_matches" => SourceEventMatcher.matches?(payload["filter"], input.content),
       "source_kind" => input.source.kind,
-      "source_matches" => source_kind == input.source.kind
+      "source_matches" => payload["source_kind"] == input.source.kind
     }
-
-  defp assignment_evidence(payload, input) do
-    event_class = explicit_event_class(input)
-
-    %{
-      "event_class" => event_class,
-      "sender" => Atom.to_string(input.actor.kind),
-      "sender_matches" => source_matches?(payload["source_filter"], input.actor.kind),
-      "trigger_matches" => event_matches?(payload["trigger"], input),
-      "trigger_text" =>
-        if(is_nil(event_class), do: trigger_text(payload["trigger"], model_text(input.content)))
-    }
-  end
 
   defp inventory_verdict(%Behavior{status: :disabled}, _input, _now, _considered),
     do: {"disabled", "This rule was paused when the message was processed."}
@@ -735,51 +719,16 @@ defmodule Ryker.Behaviors do
          "Only the first #{@runtime_candidate_limit} applicable rules are evaluated. This rule's trigger was not checked."}
 
       assignment_matches?(behavior.payload, input) ->
-        {"matched", assignment_match_reason(behavior.payload, input)}
+        {"matched", "The recorded source and event filter matched this message."}
 
       true ->
-        {"not_matched", assignment_mismatch_reason(behavior.payload, input)}
+        {"not_matched", "The recorded source and event filter did not match this message."}
     end
   end
 
   defp assignment_title(%{"title" => title}) when is_binary(title), do: title
   defp assignment_title(%{"task" => task}) when is_binary(task), do: task
   defp assignment_title(_payload), do: nil
-
-  defp assignment_match_reason(%{"trigger" => trigger}, input) when is_binary(trigger),
-    do:
-      "A #{trigger |> human() |> String.capitalize()} from #{actor_phrase(input.actor.kind)} in this channel matched this rule."
-
-  defp assignment_match_reason(_payload, _input),
-    do: "The recorded source and event filter matched this message."
-
-  defp assignment_mismatch_reason(payload, input) do
-    cond do
-      not source_matches?(payload["source_filter"], input.actor.kind) ->
-        "This message came from #{actor_phrase(input.actor.kind)}; this rule only applies to messages from #{source_filter_phrase(payload["source_filter"])}."
-
-      is_binary(payload["trigger"]) ->
-        "This event does not match the #{human(payload["trigger"])} trigger."
-
-      true ->
-        "The recorded source and event filter did not match this message."
-    end
-  end
-
-  defp human(value) when is_binary(value), do: String.replace(value, "_", " ")
-  defp human(value), do: to_string(value)
-
-  defp actor_phrase(:user), do: "a person"
-  defp actor_phrase(:app), do: "an app"
-  defp actor_phrase(:bot), do: "a bot"
-  defp actor_phrase(:system), do: "a system actor"
-  defp actor_phrase(kind), do: "a #{human(kind)} sender"
-
-  # The values source_matches?/2 accepts; "app" also admits bots and system actors.
-  defp source_filter_phrase("human"), do: "people"
-  defp source_filter_phrase("app"), do: "apps and bots"
-  defp source_filter_phrase("any"), do: "anyone"
-  defp source_filter_phrase(filter), do: human(to_string(filter))
 
   @doc false
   @spec observe_input(Input.t(), String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
@@ -980,25 +929,6 @@ defmodule Ryker.Behaviors do
          workspace_ref: workspace
        }}
     end
-  end
-
-  defp prepare_behavior(
-         %Record{kind: "standing_assignment_offer", payload: payload},
-         episode,
-         attributes
-       ) do
-    workspace = Scope.workspace_ref(episode)
-
-    {:ok,
-     %{
-       expires_at: expires_at(attributes.occurred_at, payload["expires_in"]),
-       identity_key: payload["trigger"],
-       kind: :standing_assignment,
-       payload: payload,
-       scope_kind: :conversation,
-       scope_ref: episode.destination_conversation_ref,
-       workspace_ref: workspace
-     }}
   end
 
   defp prepare_scoped(kind, identity_key, payload, episode, attributes) do
@@ -1232,18 +1162,16 @@ defmodule Ryker.Behaviors do
     |> Enum.reverse()
     |> Enum.map(fn {_run, behavior} ->
       %{
-        "action" => behavior.payload["action"] || "run_source_event_automation",
+        "action" => "run_source_event_automation",
         "allowed_outputs" => ["ignore", "react", "reply"],
         "assignment_ref" => behavior.ref,
         "authority_ceiling" => "read_only",
         "repository" => behavior.payload["repository"],
         "task" => behavior.payload["task"],
-        "trigger" =>
-          behavior.payload["trigger"] ||
-            %{
-              "filter" => behavior.payload["filter"],
-              "source_kind" => behavior.payload["source_kind"]
-            }
+        "trigger" => %{
+          "filter" => behavior.payload["filter"],
+          "source_kind" => behavior.payload["source_kind"]
+        }
       }
     end)
   end
@@ -1264,14 +1192,12 @@ defmodule Ryker.Behaviors do
     workspace =
       Scope.workspace_ref(input.destination.transport, input.destination.conversation_ref)
 
-    source_ref = input.source.ref
-
+    # Every standing rule is confirmed in a conversation and scoped to it.
     from(behavior in Behavior,
       where:
         behavior.kind == :standing_assignment and behavior.status == :active and
-          ((behavior.workspace_ref == ^workspace and behavior.scope_kind == :conversation and
-              behavior.scope_ref == ^input.destination.conversation_ref) or
-             (behavior.scope_kind == :repository and behavior.scope_ref == ^source_ref)) and
+          behavior.workspace_ref == ^workspace and behavior.scope_kind == :conversation and
+          behavior.scope_ref == ^input.destination.conversation_ref and
           (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
       order_by: [asc: behavior.inserted_at],
       limit: @runtime_candidate_limit
@@ -1442,63 +1368,6 @@ defmodule Ryker.Behaviors do
 
   defp assignment_matches?(%{"source_kind" => source_kind, "filter" => filter}, input) do
     source_kind == input.source.kind and SourceEventMatcher.matches?(filter, input.content)
-  end
-
-  defp assignment_matches?(payload, input) do
-    source_matches?(payload["source_filter"], input.actor.kind) and
-      event_matches?(payload["trigger"], input)
-  end
-
-  defp source_matches?("human", :user), do: true
-  defp source_matches?("app", kind) when kind in [:app, :bot, :system], do: true
-  defp source_matches?("any", kind) when kind in [:user, :app, :bot, :system], do: true
-  defp source_matches?(_filter, _kind), do: false
-
-  defp event_matches?(trigger, %Input{} = input) do
-    explicit = explicit_event_class(input)
-
-    explicit == trigger or
-      (is_nil(explicit) and text_event_matches?(trigger, model_text(input.content)))
-  end
-
-  defp explicit_event_class(%Input{content: %{"event_class" => value}}) when is_binary(value),
-    do: value
-
-  defp explicit_event_class(%Input{
-         source: %{kind: "webhook"},
-         content: %{"event_type" => value}
-       })
-       when is_binary(value),
-       do: value
-
-  defp explicit_event_class(_input), do: nil
-
-  defp text_event_matches?(trigger, text), do: not is_nil(trigger_text(trigger, text))
-
-  # The words that make a message this trigger's event, or nil when none do.
-  defp trigger_text(trigger, text) do
-    with %Regex{} = pattern <- trigger_pattern(trigger),
-         [found | _rest] <- Regex.run(pattern, text) do
-      found
-    else
-      _no_match -> nil
-    end
-  end
-
-  defp trigger_pattern("terraform_plan"),
-    do: ~r/\bterraform(?:\s+\w+){0,3}\s+plan\b|\bplan:\s*\d+\s+to\s+add,/iu
-
-  defp trigger_pattern("deployment"), do: ~r/\b(?:deploy(?:ed|ing|ment)?|rollout|release)\b/iu
-
-  defp trigger_pattern("operational_alert"),
-    do: ~r/\b(?:alert|firing|critical|degraded|unhealthy|incident)\b/iu
-
-  defp trigger_pattern(_trigger), do: nil
-
-  defp model_text(content) do
-    [content["text"], get_in(content, ["payload", "text"]), content["event_type"]]
-    |> Enum.filter(&is_binary/1)
-    |> Enum.join("\n")
   end
 
   defp lock_offer(record_ref) do

@@ -52,33 +52,20 @@ defmodule Ryker.Slack.SavedEntity do
   def document(%Behavior{kind: :standing_assignment} = behavior, event) do
     payload = behavior.payload
 
-    facts =
-      case payload do
-        %{"source_kind" => source_kind} ->
-          [
-            {"Channel", destination(payload["context_channel"])},
-            {"Source", source_kind},
-            {"Event filter", event_filter(source_kind, payload["filter"])},
-            {"Repository", payload["repository"] || "No fixed binding"},
-            {"Expires", expiry(behavior.expires_at, "Until disabled")},
-            {"Access", "Read-only"}
-          ]
-
-        _trigger ->
-          [
-            {"Trigger", "#{payload["trigger"]} → #{payload["action"]}"},
-            {"Source filter", payload["source_filter"]},
-            {"Repository", payload["repository"] || "No fixed binding"},
-            {"Expires", expiry(behavior.expires_at, "Until disabled")},
-            {"Access", "Read-only"}
-          ]
-      end
+    facts = [
+      {"Channel", destination(payload["context_channel"])},
+      {"Source", payload["source_kind"]},
+      {"Event filter", event_filter(payload["source_kind"], payload["filter"])},
+      {"Repository", payload["repository"] || "No fixed binding"},
+      {"Expires", expiry(behavior.expires_at, "Until disabled")},
+      {"Access", "Read-only"}
+    ]
 
     behavior_document(
       behavior,
       "standing_rule",
       "Standing rule",
-      payload["title"] || payload["trigger"] || behavior.identity_key,
+      payload["title"] || behavior.identity_key,
       payload["task"],
       facts,
       event

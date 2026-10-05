@@ -202,12 +202,15 @@ defmodule Ryker.ControlPlane.LiveTest do
       source,
       :standing_assignment,
       %{
-        "action" => "triage_alert",
-        "expires_in" => "30d",
+        "context_channel" => "slack:T123:C456",
+        "delivery_channel" => "slack:T123:C456",
+        "expires_at" => nil,
+        "filter" => %{},
+        "hold" => nil,
         "repository" => nil,
-        "source_filter" => "human",
+        "source_kind" => "slack",
         "task" => "Watch Terraform applies and report readiness.",
-        "trigger" => "operational_alert"
+        "title" => "Triage alerts"
       },
       scope_ref: "slack:T123:C456"
     )
@@ -2427,20 +2430,23 @@ defmodule Ryker.ControlPlane.LiveTest do
     {entry, id}
   end
 
-  # A confirmed trigger rule in #C456 with the given task and lifecycle
-  # status. It never expires, so "current" keeps meaning what it says here
-  # after the fixture's fixed clock has passed.
+  # A confirmed rule in #C456 with the given task and lifecycle status. It
+  # never expires, so "current" keeps meaning what it says here after the
+  # fixture's fixed clock has passed.
   defp rule!(source, task, overrides \\ []) do
     SavedEntities.behavior!(
       source,
       :standing_assignment,
       %{
-        "action" => "triage_alert",
-        "expires_in" => "30d",
+        "context_channel" => "slack:T123:C456",
+        "delivery_channel" => "slack:T123:C456",
+        "expires_at" => nil,
+        "filter" => %{},
+        "hold" => nil,
         "repository" => nil,
-        "source_filter" => "human",
+        "source_kind" => "slack",
         "task" => task,
-        "trigger" => "operational_alert"
+        "title" => String.slice(task, 0, 120)
       },
       Keyword.merge(
         [scope_ref: "slack:T123:C456", expires_at: nil, identity_key: String.slice(task, 0, 120)],

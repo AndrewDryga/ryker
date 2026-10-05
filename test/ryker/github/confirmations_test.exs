@@ -281,12 +281,15 @@ defmodule Ryker.GitHub.ConfirmationsTest do
                "github-assignment",
                "standing_assignment_offer",
                %{
-                 "action" => "review_terraform_plan",
-                 "expires_in" => "30d",
+                 "context_channel" => "github:github-main:repository:99",
+                 "delivery_channel" => "github:github-main:repository:99",
+                 "expires_at" => nil,
+                 "filter" => %{"action" => "submitted"},
+                 "hold" => nil,
                  "repository" => "ryker",
-                 "source_filter" => "app",
-                 "task" => "Review the exact posted Terraform plan and report material risk.",
-                 "trigger" => "terraform_plan"
+                 "source_kind" => "github",
+                 "task" => "Review each submitted pull request review and report material risk.",
+                 "title" => "Review pull request reviews"
                }
              )
 

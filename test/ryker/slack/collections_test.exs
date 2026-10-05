@@ -208,12 +208,15 @@ defmodule Ryker.Slack.CollectionsTest do
         source,
         :standing_assignment,
         %{
-          "action" => "triage_alert",
-          "expires_in" => "30d",
+          "context_channel" => @conversation,
+          "delivery_channel" => @conversation,
+          "expires_at" => nil,
+          "filter" => %{},
+          "hold" => nil,
           "repository" => nil,
-          "source_filter" => "human",
+          "source_kind" => "slack",
           "task" => "Summarise the alert for rule #{index}.",
-          "trigger" => "operational_alert"
+          "title" => "Triage alerts #{index}"
         },
         scope_ref: @conversation
       )
@@ -223,12 +226,15 @@ defmodule Ryker.Slack.CollectionsTest do
       source,
       :standing_assignment,
       %{
-        "action" => "triage_alert",
-        "expires_in" => "30d",
+        "context_channel" => @conversation,
+        "delivery_channel" => @conversation,
+        "expires_at" => nil,
+        "filter" => %{},
+        "hold" => nil,
         "repository" => nil,
-        "source_filter" => "human",
+        "source_kind" => "slack",
         "task" => "Summarise the alert for the paused rule.",
-        "trigger" => "operational_alert"
+        "title" => "Triage alerts, paused"
       },
       scope_ref: @conversation,
       status: :disabled

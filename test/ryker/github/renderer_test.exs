@@ -343,12 +343,15 @@ defmodule Ryker.GitHub.RendererTest do
         "visibility" => "conversation"
       }),
       record("standing_assignment_offer", %{
-        "action" => "review_terraform_plan",
-        "expires_in" => "30d",
+        "context_channel" => "github:github-main:repository:99",
+        "delivery_channel" => "github:github-main:repository:99",
+        "expires_at" => nil,
+        "filter" => %{"action" => "submitted"},
+        "hold" => nil,
         "repository" => "ryker",
-        "source_filter" => "app",
-        "task" => "Review each exact Terraform plan.",
-        "trigger" => "terraform_plan"
+        "source_kind" => "github",
+        "task" => "Review each submitted pull request review.",
+        "title" => "Review pull request reviews"
       })
     ]
 
@@ -368,7 +371,7 @@ defmodule Ryker.GitHub.RendererTest do
     assert rendered =~ "Ryker offer — primary_repository"
     assert rendered =~ "Ryker offer — response_detail"
     assert rendered =~ "Ryker offer — Lead with risk."
-    assert rendered =~ "Ryker offer — Review each exact Terraform plan."
+    assert rendered =~ "Ryker offer — Review each submitted pull request review."
     assert rendered =~ "/ryker confirm record:task_offer:"
     assert rendered =~ "/ryker confirm record:schedule_offer:"
     assert rendered =~ "/ryker confirm record:memory_offer:"

@@ -2258,19 +2258,6 @@ defmodule Ryker.Slack.RendererTest do
       %{
         "kind" => "standing_assignment_offer",
         "payload" => %{
-          "action" => "review_terraform_plan",
-          "expires_in" => "30d",
-          "repository" => "ryker-infra",
-          "source_filter" => "app",
-          "task" => "Review every exact Terraform plan posted here.",
-          "trigger" => "terraform_plan"
-        },
-        "ref" => "record:standing_assignment_offer:ghi789",
-        "status" => "open"
-      },
-      %{
-        "kind" => "standing_assignment_offer",
-        "payload" => %{
           "context_channel" => "slack:T123:C456",
           "delivery_channel" => "slack:T123:C456",
           "expires_at" => nil,
@@ -2304,7 +2291,7 @@ defmodule Ryker.Slack.RendererTest do
            |> Enum.filter(&(&1["type"] == "actions"))
            |> Enum.flat_map(& &1["elements"])
            |> Enum.map(& &1["action_id"]) ==
-             List.duplicate("ryker_confirm_behavior", 4)
+             List.duplicate("ryker_confirm_behavior", 3)
   end
 
   test "renders operational memory as an explicit scoped stale-hint confirmation" do
@@ -2407,14 +2394,6 @@ defmodule Ryker.Slack.RendererTest do
         "visibility" => "conversation"
       }),
       offer("standing_assignment_offer", %{
-        "action" => "review_terraform_plan",
-        "expires_in" => "30d",
-        "repository" => "ryker-infra",
-        "source_filter" => "app",
-        "task" => "Review every Terraform plan posted here.",
-        "trigger" => "terraform_plan"
-      }),
-      offer("standing_assignment_offer", %{
         "context_channel" => "slack:T123:C456",
         "delivery_channel" => "slack:T123:C456",
         "expires_at" => nil,
@@ -2472,7 +2451,11 @@ defmodule Ryker.Slack.RendererTest do
     assert rendered_words(preference) =~ "*Preference · Response location*\nPrefer thread"
 
     # A changed schedule says how often in words, and what it was.
-    {:ok, change} = Renderer.render(%{"message" => "Offer.", "records" => [Enum.at(records, 5)]})
+    {:ok, change} =
+      Renderer.render(%{
+        "message" => "Offer.",
+        "records" => [Enum.find(records, &(&1["kind"] == "automation_change_offer"))]
+      })
 
     assert rendered_words(change) =~
              "Every weekday at 09:00 Berlin time (was every day at 13:00 UTC)"

@@ -435,11 +435,7 @@ defmodule Ryker.Slack.Renderer.Offers do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp behavior_offer(
-         "standing_assignment_offer",
-         ref,
-         %{"source_kind" => _source_kind} = payload
-       ) do
+  defp behavior_offer("standing_assignment_offer", ref, payload) do
     summary =
       [
         "*Automation · #{escape(payload["title"])}*",
@@ -458,29 +454,6 @@ defmodule Ryker.Slack.Renderer.Offers do
         {"Stops", OfferWords.stamp(payload["expires_at"]) || "When you turn it off"}
       ]),
       behavior_actions(ref, "Enable automation")
-    ]
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp behavior_offer("standing_assignment_offer", ref, payload) do
-    summary =
-      [
-        "*Standing assignment*",
-        escape(payload["task"]),
-        "_It only reads and replies here; it cannot approve, publish, deploy or change systems._"
-      ]
-      |> compact_lines()
-
-    [
-      section(summary),
-      facts([
-        {"Listens to", OfferWords.listens_to(payload)},
-        {"When", OfferWords.humanize(payload["trigger"])},
-        {"It will", payload["action"] |> OfferWords.humanize() |> String.downcase()},
-        {"Repository", payload["repository"]},
-        {"Expires", OfferWords.duration(payload["expires_in"])}
-      ]),
-      behavior_actions(ref, "Enable assignment")
     ]
     |> Enum.reject(&is_nil/1)
   end

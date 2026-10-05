@@ -604,8 +604,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           text={clamp(item.task)}
           meta={[
             "Rule for this channel",
-            watches(item.trigger),
-            item.source_filter && sender(item.source_filter),
+            watches(item.source_kind),
             item.repository && uses(item.repository, @view),
             used(item, @now),
             expiry(item.expires_at, @now)
@@ -1027,10 +1026,6 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp watches("slack_message"), do: "watches Slack messages"
   defp watches(nil), do: nil
   defp watches(trigger), do: "watches " <> String.downcase(Words.label(trigger))
-
-  defp sender("human"), do: "from people only"
-  defp sender("app"), do: "from apps only"
-  defp sender(_any), do: "from people and apps"
 
   defp from(%{scope: :conversation}, _view), do: "set for this channel"
 

@@ -113,8 +113,8 @@ defmodule Ryker.Slack.CommandHandlerTest do
   # Rules made since the source-event rewrite store a title and a task, not the
   # old "action", and `/ryker assignments` read the action with Map.fetch!: in
   # any channel holding a current rule the command crashed instead of listing
-  # it (found by the 2026-09-26 docs audit). Older rules keep their action.
-  test "the assignments list names current rules by their title and older ones by their action" do
+  # it (found by the 2026-09-26 docs audit).
+  test "the assignments list names each rule by its title" do
     rules = [
       %{
         payload: %{
@@ -124,11 +124,6 @@ defmodule Ryker.Slack.CommandHandlerTest do
         },
         ref: "behavior:assignment:current",
         status: :active
-      },
-      %{
-        payload: %{"action" => "review_terraform_plan"},
-        ref: "behavior:assignment:older",
-        status: :disabled
       }
     ]
 
@@ -138,7 +133,6 @@ defmodule Ryker.Slack.CommandHandlerTest do
              CommandHandler.handle(command("assignments", "event:list-current"), options)
 
     assert listed["text"] =~ "`behavior:assignment:current`: Review Terraform plans (active)"
-    assert listed["text"] =~ "`behavior:assignment:older`: review_terraform_plan (disabled)"
   end
 
   test "assignment creation is conversational while scoped grants can be listed or withdrawn" do
@@ -146,7 +140,7 @@ defmodule Ryker.Slack.CommandHandlerTest do
 
     assert {:ok, listed} = CommandHandler.handle(command("assignments", "event:list"), options)
     assert listed["text"] =~ "assignment:terraform"
-    assert listed["text"] =~ "review_terraform_plan"
+    assert listed["text"] =~ "Review Terraform plans"
 
     assert {:ok, paused} =
              CommandHandler.handle(
@@ -372,7 +366,7 @@ defmodule Ryker.Slack.CommandHandlerTest do
       list_assignments: fn _workspace_ref, _conversation_ref ->
         [
           %{
-            payload: %{"action" => "review_terraform_plan"},
+            payload: %{"source_kind" => "slack", "title" => "Review Terraform plans"},
             ref: "behavior:assignment:terraform",
             status: :active
           }

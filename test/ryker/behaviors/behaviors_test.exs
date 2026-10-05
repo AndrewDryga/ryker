@@ -558,7 +558,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert Behaviors.guidance(%{source_context | conversation_ref: "slack:T123:C999"}) == []
   end
 
-  test "a confirmed standing assignment admits only its exact source, channel, and event family" do
+  test "a confirmed standing rule admits only its exact source, channel and filter" do
     fixture = delivered_offers!("assignment")
 
     assert {:ok, confirmed} =
@@ -990,7 +990,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              )
 
     assert assignment["assignment_ref"] == confirmed.behavior.ref
-    assert assignment["action"] == "review_terraform_plan"
+    assert assignment["action"] == "run_source_event_automation"
     assert assignment["authority_ceiling"] == "read_only"
     assert assignment["task"] =~ "exact posted Terraform plan"
   end
@@ -1058,8 +1058,8 @@ defmodule Ryker.Behaviors.BehaviorsTest do
            ) == {:error, {:invalid_behavior_run, :decision}}
   end
 
-  test "repository preferences and human or app standing triggers keep exact scope semantics" do
-    fixture = delivered_offers!("repository-and-triggers")
+  test "repository preferences and short guidance keep their exact scope and expiry" do
+    fixture = delivered_offers!("repository-and-expiry")
 
     repository_preference =
       fixture.workspace_preference
@@ -1097,38 +1097,6 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert Behaviors.model_context(fixture.episode, "slack:user:other", "ryker")["preferences"][
              "response_detail"
            ]["scope"] == "repository"
-
-    assert {:ok, assignment} =
-             Behaviors.confirm(confirmation(fixture, fixture.assignment, "trigger-assignment"))
-
-    set_assignment_payload!(assignment.behavior, %{
-      "source_filter" => "human",
-      "trigger" => "deployment"
-    })
-
-    assert Behaviors.standing_match?(
-             input!(:user, "slack:T123:C456", %{"text" => "Release deployment started."})
-           )
-
-    refute Behaviors.standing_match?(deployment_input())
-
-    set_assignment_payload!(assignment.behavior, %{
-      "source_filter" => "any",
-      "trigger" => "operational_alert"
-    })
-
-    assert Behaviors.standing_match?(
-             input!(:bot, "slack:T123:C456", %{"text" => "Critical alert: API is unhealthy"})
-           )
-
-    set_assignment_payload!(assignment.behavior, %{
-      "source_filter" => "any",
-      "trigger" => "pull_request_review"
-    })
-
-    refute Behaviors.standing_match?(
-             input!(:system, "slack:T123:C456", %{"text" => "ordinary message"})
-           )
   end
 
   test "malformed behavior confirmations fail before durable state changes" do
@@ -1295,12 +1263,15 @@ defmodule Ryker.Behaviors.BehaviorsTest do
                "assignment",
                "standing_assignment_offer",
                %{
-                 "action" => "review_terraform_plan",
-                 "expires_in" => "30d",
+                 "context_channel" => "slack:T123:C456",
+                 "delivery_channel" => "slack:T123:C456",
+                 "expires_at" => nil,
+                 "filter" => %{"bot_id" => "B-TERRAFORM"},
+                 "hold" => nil,
                  "repository" => "ryker",
-                 "source_filter" => "app",
+                 "source_kind" => "slack",
                  "task" => "Review the exact posted Terraform plan and report material risk.",
-                 "trigger" => "terraform_plan"
+                 "title" => "Review Terraform plans"
                }
              )
 
@@ -1578,10 +1549,11 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     }
   end
 
+  # The Terraform app posts its plans as itself; a person pasting one does not.
   defp terraform_input(actor_kind, conversation_ref) do
-    input!(actor_kind, conversation_ref, %{
-      "text" => "Terraform plan: 2 to add, 1 to change, 0 to destroy"
-    })
+    content = %{"text" => "Terraform plan: 2 to add, 1 to change, 0 to destroy"}
+    content = if actor_kind == :app, do: Map.put(content, "bot_id", "B-TERRAFORM"), else: content
+    input!(actor_kind, conversation_ref, content)
   end
 
   defp github_review_input(conversation_ref, action, state) do
@@ -1612,7 +1584,10 @@ defmodule Ryker.Behaviors.BehaviorsTest do
   end
 
   defp deployment_input do
-    input!(:app, "slack:T123:C456", %{"text" => "Deployment completed successfully."})
+    input!(:app, "slack:T123:C456", %{
+      "bot_id" => "B-DEPLOY",
+      "text" => "Deployment completed successfully."
+    })
   end
 
   defp input!(actor_kind, conversation_ref, content) do
@@ -1637,11 +1612,5 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       })
 
     input
-  end
-
-  defp set_assignment_payload!(behavior, overrides) do
-    behavior
-    |> Ecto.Changeset.change(%{payload: Map.merge(behavior.payload, overrides)})
-    |> Repo.update!()
   end
 end

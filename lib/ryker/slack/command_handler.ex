@@ -163,10 +163,7 @@ defmodule Ryker.Slack.CommandHandler do
     {:ok, response(Enum.join(["Standing assignments" | lines], "\n"))}
   end
 
-  # A rule made since the source-event rewrite has a title; an older one names
-  # its action.
   defp assignment_name(%{"title" => title}) when is_binary(title), do: title
-  defp assignment_name(%{"action" => action}) when is_binary(action), do: action
   defp assignment_name(_payload), do: "untitled rule"
 
   defp effective(command, options) do

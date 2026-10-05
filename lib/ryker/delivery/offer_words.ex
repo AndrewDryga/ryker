@@ -67,9 +67,6 @@ defmodule Ryker.Delivery.OfferWords do
   def listens_to(%{"source_kind" => "slack"}), do: "Slack messages here"
   def listens_to(%{"source_kind" => "webhook"}), do: "Webhook events"
   def listens_to(%{"source_kind" => kind}) when is_binary(kind), do: humanize(kind) <> " events"
-  def listens_to(%{"source_filter" => "human"}), do: "Messages from people"
-  def listens_to(%{"source_filter" => "app"}), do: "Messages from apps"
-  def listens_to(%{"source_filter" => "any"}), do: "Every message"
   def listens_to(_payload), do: nil
 
   @doc ~s(Which events an automation takes, from its filter: "Only when action is submitted".)

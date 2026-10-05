@@ -59,8 +59,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
         confirmed(behavior, payload)
         |> Map.merge(%{
           title: BehaviorPage.subject(%{kind: :standing_assignment, payload: payload}),
-          trigger: payload["trigger"] || payload["source_kind"],
-          source_filter: payload["source_filter"],
+          source_kind: payload["source_kind"],
           repository: payload["repository"],
           task: payload["task"]
         })

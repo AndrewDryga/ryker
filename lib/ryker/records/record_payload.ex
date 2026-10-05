@@ -244,22 +244,6 @@ defmodule Ryker.Records.RecordPayload do
     end
   end
 
-  defp standing_assignment_offer(%{} = payload) do
-    with :ok <-
-           exact_fields(
-             payload,
-             ~w(action expires_in repository source_filter task trigger)
-           ),
-         :ok <- enum(payload["expires_in"], ~w(7d 30d 90d 365d), :expires_in),
-         :ok <- enum(payload["source_filter"], ~w(human app any), :source_filter),
-         :ok <- standing_pair(payload["trigger"], payload["action"]),
-         :ok <- optional_reference(payload["repository"], :repository),
-         :ok <- text(payload["task"], 4_000, :task),
-         :ok <- canonical(payload) do
-      {:ok, %{continuation: nil, payload: payload, subject_ref: nil}}
-    end
-  end
-
   defp standing_assignment_offer(_payload),
     do: {:error, {:invalid_state_record, :payload}}
 
@@ -551,13 +535,6 @@ defmodule Ryker.Records.RecordPayload do
 
   defp memory_visibility(_scope, _visibility),
     do: {:error, {:invalid_state_record, :visibility}}
-
-  defp standing_pair("terraform_plan", "review_terraform_plan"), do: :ok
-  defp standing_pair("deployment", "verify_deployment"), do: :ok
-  defp standing_pair("operational_alert", "triage_alert"), do: :ok
-
-  defp standing_pair(_trigger, _action),
-    do: {:error, {:invalid_state_record, :standing_assignment}}
 
   defp choices(values) when is_list(values) and length(values) <= 10 do
     if Enum.uniq(values) == values and Enum.all?(values, &(text(&1, 240, :choices) == :ok)),

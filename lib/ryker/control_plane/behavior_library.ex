@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
 
-  @payload_fields ~w(title task trigger source_kind source_filter filter action repository key value subject summary text visibility context_channel delivery_channel)
+  @payload_fields ~w(title task source_kind filter repository key value subject summary text visibility context_channel delivery_channel)
   @shown %{"preferences" => :preference, "guidance" => :guidance}
 
   @doc "The page that lists entries of `kind`; its rows are anchored `#behavior-<ref>`."

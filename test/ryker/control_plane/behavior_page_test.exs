@@ -5,41 +5,6 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
   @now ~U[2026-09-24 12:00:00Z]
 
-  test "a typed rule is named by what it does and says when it acts and who can set it off" do
-    # Trigger-based rules have no title. The row names the job ("Triage
-    # alerts"), says the event in a sentence, and prints the stored task once,
-    # never the trigger enum or the sender filter value.
-    for {source, words} <- [
-          {"human", "people only"},
-          {"app", "apps only"},
-          {"any", "people and apps"}
-        ] do
-      rule = %{
-        item(:standing_assignment)
-        | payload: %{
-            "action" => "triage_alert",
-            "trigger" => "operational_alert",
-            "source_filter" => source,
-            "task" => "Check recent deploys and say whether it looks like a real incident."
-          }
-      }
-
-      document = rules_document(view(:standing_assignment, [rule]))
-      row = LazyHTML.query(document, "article#behavior-behavior\\:one")
-      assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~ "Triage alerts"
-
-      meta = row |> LazyHTML.query(".entity-meta") |> LazyHTML.text()
-      assert meta =~ "When an alert arrives in Slack channel C456"
-      assert meta =~ words
-
-      html = LazyHTML.to_html(document)
-      assert html |> String.split(rule.payload["task"]) |> length() == 2
-      refute html =~ "operational_alert"
-      refute html =~ "triage_alert"
-      refute html =~ ">#{source}<"
-    end
-  end
-
   test "states read as words people use, and only a current rule offers Pause or Resume" do
     # "disabled" and "superseded" are storage words. A past rule keeps its
     # state in words and offers no lifecycle control.
@@ -380,7 +345,12 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
       |> String.pad_trailing(2_000, "x")
 
     assert String.length(long) == 2_000
-    rule = %{item(:standing_assignment) | payload: %{"title" => "Long rule", "task" => long}}
+
+    rule = %{
+      item(:standing_assignment)
+      | payload: %{"source_kind" => "github", "title" => "Long rule", "task" => long}
+    }
+
     document = rules_document(view(:standing_assignment, [rule]))
 
     full = LazyHTML.query(document, "article .entity-body > details.behavior-full")
@@ -395,7 +365,11 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     assert preview =~ "Step 1: compare the posted plan"
     assert String.ends_with?(preview, "…")
 
-    short = %{item(:standing_assignment) | payload: %{"title" => "Short", "task" => "Say hi."}}
+    short = %{
+      item(:standing_assignment)
+      | payload: %{"source_kind" => "github", "title" => "Short", "task" => "Say hi."}
+    }
+
     document = rules_document(view(:standing_assignment, [short]))
     assert Enum.empty?(LazyHTML.query(document, "details.behavior-full"))
     assert LazyHTML.query(document, "article p.entity-text") |> LazyHTML.text() == "Say hi."
@@ -412,7 +386,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
       %{
         item(:standing_assignment)
         | ref: "behavior:a",
-          payload: %{"title" => "A", "task" => long}
+          payload: %{"source_kind" => "github", "title" => "A", "task" => long}
       },
       %{
         item(:standing_assignment)

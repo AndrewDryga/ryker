@@ -607,12 +607,15 @@ defmodule Ryker.Delivery.ChatCardTest do
        }, "Guidance", :confirm_behavior},
       {"standing_assignment_offer",
        %{
-         "action" => "review_terraform_plan",
-         "expires_in" => "30d",
+         "context_channel" => "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
+         "delivery_channel" => "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
+         "expires_at" => nil,
+         "filter" => %{},
+         "hold" => nil,
          "repository" => "ryker",
-         "source_filter" => "app",
-         "task" => "Review an exact Terraform plan.",
-         "trigger" => "terraform_plan"
+         "source_kind" => "webhook",
+         "task" => "Review each alert the webhook sends.",
+         "title" => "Review alerts"
        }, "Standing assignment", :confirm_behavior},
       {"slack_post_offer",
        %{

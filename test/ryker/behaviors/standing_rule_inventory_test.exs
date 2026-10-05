@@ -40,17 +40,13 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
 
   test "every workspace rule is listed with the verdict it actually got, matches first-class" do
     offers = offer_source!("verdicts")
-    matched = rule!(offers, "matched", trigger: "terraform_plan")
-    other_trigger = rule!(offers, "deployment", trigger: "deployment")
-
-    other_channel =
-      rule!(offers, "elsewhere", trigger: "terraform_plan", scope_ref: "slack:T123:C999")
-
-    paused = rule!(offers, "paused", trigger: "terraform_plan", status: :disabled)
+    matched = rule!(offers, "matched")
+    other_filter = rule!(offers, "deployment", filter: %{"bot_id" => "B-DEPLOY"})
+    other_channel = rule!(offers, "elsewhere", scope_ref: "slack:T123:C999")
+    paused = rule!(offers, "paused", status: :disabled)
 
     expired =
       rule!(offers, "expired",
-        trigger: "terraform_plan",
         confirmed_at: DateTime.add(@now, -10, :day),
         expires_at: DateTime.add(@now, -1, :day)
       )
@@ -64,9 +60,9 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
 
     verdicts = Map.new(inventory.entries, &{&1["ref"], {&1["verdict"], &1["reason"]}})
     assert {"matched", reason} = verdicts[matched.ref]
-    assert reason == "A Terraform plan from an app in this channel matched this rule."
-    assert {"not_matched", reason} = verdicts[other_trigger.ref]
-    assert reason =~ "deployment trigger"
+    assert reason == "The recorded source and event filter matched this message."
+    assert {"not_matched", reason} = verdicts[other_filter.ref]
+    assert reason == "The recorded source and event filter did not match this message."
     assert {"out_of_scope", reason} = verdicts[other_channel.ref]
     assert reason == "This rule applies to another channel."
     refute reason =~ "slack:"
@@ -80,13 +76,13 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
 
   test "a verdict keeps what the rule looked for and what the message showed" do
     # The inventory said "matched" or "did not match" and nothing else, so an
-    # operator could not tell whether the sender, the trigger or the channel
+    # operator could not tell whether the source, the filter or the channel
     # decided it. Each condition's result is frozen with the verdict.
     offers = offer_source!("evidence")
-    plan = rule!(offers, "plan", trigger: "terraform_plan")
-    deploy = rule!(offers, "deploy", trigger: "deployment")
-    people = rule!(offers, "people", trigger: "terraform_plan", source_filter: "human")
-    paused = rule!(offers, "paused", trigger: "terraform_plan", status: :disabled)
+    plan = rule!(offers, "plan")
+    deploy = rule!(offers, "deploy", filter: %{"bot_id" => "B-DEPLOY"})
+    github = rule!(offers, "github", source_kind: "github")
+    paused = rule!(offers, "paused", status: :disabled)
 
     assert {:ok, inventory} =
              Behaviors.record_rule_inventory(terraform_input(:app), "input:evidence")
@@ -96,41 +92,35 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     assert entries[plan.ref]["verdict"] == "matched"
 
     assert entries[plan.ref]["criteria"] == %{
-             "source_filter" => "app",
-             "trigger" => "terraform_plan"
+             "filter" => %{"bot_id" => "B-TERRAFORM"},
+             "source_kind" => "slack"
            }
 
     assert entries[plan.ref]["evidence"] == %{
-             "event_class" => nil,
-             "sender" => "app",
-             "sender_matches" => true,
-             "trigger_matches" => true,
-             "trigger_text" => "Terraform plan"
+             "filter_matches" => true,
+             "source_kind" => "slack",
+             "source_matches" => true
            }
 
+    # The filter decided this one; the source decided the next.
     assert entries[deploy.ref]["verdict"] == "not_matched"
-    assert entries[deploy.ref]["evidence"]["sender_matches"]
-    refute entries[deploy.ref]["evidence"]["trigger_matches"]
-    assert entries[deploy.ref]["evidence"]["trigger_text"] == nil
+    assert entries[deploy.ref]["evidence"]["source_matches"]
+    refute entries[deploy.ref]["evidence"]["filter_matches"]
 
-    # The sender decided this one, and the reason says so in plain words.
-    assert entries[people.ref]["verdict"] == "not_matched"
-    refute entries[people.ref]["evidence"]["sender_matches"]
-    assert entries[people.ref]["evidence"]["trigger_matches"]
+    assert entries[github.ref]["verdict"] == "not_matched"
+    refute entries[github.ref]["evidence"]["source_matches"]
+    assert entries[github.ref]["evidence"]["filter_matches"]
 
-    assert entries[people.ref]["reason"] ==
-             "This message came from an app; this rule only applies to messages from people."
-
-    # A rule whose trigger was never checked has criteria but no evidence.
-    assert entries[paused.ref]["criteria"]["trigger"] == "terraform_plan"
+    # A rule that was never checked has criteria but no evidence.
+    assert entries[paused.ref]["criteria"]["source_kind"] == "slack"
     assert entries[paused.ref]["evidence"] == nil
   end
 
   test "recording the inventory changes nothing about which rules fire" do
     offers = offer_source!("scheduling")
-    matched = rule!(offers, "fires", trigger: "terraform_plan")
-    _other = rule!(offers, "elsewhere", trigger: "terraform_plan", scope_ref: "slack:T123:C999")
-    _paused = rule!(offers, "paused", trigger: "terraform_plan", status: :disabled)
+    matched = rule!(offers, "fires")
+    _other = rule!(offers, "elsewhere", scope_ref: "slack:T123:C999")
+    _paused = rule!(offers, "paused", status: :disabled)
 
     input = terraform_input(:app)
     assert Behaviors.standing_match?(input)
@@ -155,10 +145,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
 
     rules =
       for index <- 1..205,
-          do:
-            rule!(offers, "window-#{String.pad_leading("#{index}", 3, "0")}",
-              trigger: "terraform_plan"
-            )
+          do: rule!(offers, "window-#{String.pad_leading("#{index}", 3, "0")}")
 
     input = terraform_input(:app)
     assert {:ok, inventory} = Behaviors.record_rule_inventory(input, "input:window")
@@ -181,7 +168,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
 
   test "an inventory that cannot be written does not fail the input" do
     offers = offer_source!("failure")
-    _rule = rule!(offers, "fires", trigger: "terraform_plan")
+    _rule = rule!(offers, "fires")
 
     # Break only the evidence table; input custody and scheduling are untouched.
     Repo.query!(
@@ -205,7 +192,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
 
   test "accepting an input records its inventory after custody commits" do
     offers = offer_source!("accepted")
-    _rule = rule!(offers, "fires", trigger: "terraform_plan")
+    _rule = rule!(offers, "fires")
 
     assert {:ok, %{entry: entry}} = Inbox.record(terraform_input(:app))
     inventory = Behaviors.rule_inventory("ingress-input:#{entry.id}")
@@ -236,7 +223,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
       SlackInput.new(%{
         actor: %{kind: actor_kind, ref: "B-terraform"},
         channel_ref: "C456",
-        content: %{"text" => "Terraform plan: 2 to add, 1 to change, 0 to destroy"},
+        content: terraform_content(actor_kind),
         event_kind: :message,
         event_ref: "Ev-inventory-#{actor_kind}",
         # A Slack message's ts is the moment it was sent.
@@ -250,6 +237,13 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     %Input{} = input
     input
   end
+
+  # The Terraform app posts its plans as itself; a person pasting one does not.
+  defp terraform_content(:app),
+    do: Map.put(terraform_content(:user), "bot_id", "B-TERRAFORM")
+
+  defp terraform_content(_kind),
+    do: %{"text" => "Terraform plan: 2 to add, 1 to change, 0 to destroy"}
 
   # One episode/turn to own the offer records every rule must point back to.
   defp offer_source!(suffix) do
@@ -272,13 +266,17 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     %{episode_id: episode_id, turn_id: claim.turn.id}
   end
 
-  defp rule!(offers, name, options) do
+  defp rule!(offers, name, options \\ []) do
     payload = %{
-      "action" => "review_#{name}",
-      "source_filter" => Keyword.get(options, :source_filter, "app"),
+      "context_channel" => @conversation,
+      "delivery_channel" => @conversation,
+      "expires_at" => nil,
+      "filter" => Keyword.get(options, :filter, %{"bot_id" => "B-TERRAFORM"}),
+      "hold" => nil,
+      "repository" => nil,
+      "source_kind" => Keyword.get(options, :source_kind, "slack"),
       "task" => "Review #{name}.",
-      "title" => "Review #{name}",
-      "trigger" => Keyword.fetch!(options, :trigger)
+      "title" => "Review #{name}"
     }
 
     record =

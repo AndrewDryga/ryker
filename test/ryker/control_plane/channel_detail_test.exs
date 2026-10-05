@@ -957,7 +957,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       by_ref = Map.new(view.rules.items, &{&1.ref, &1})
       assert by_ref[active.ref].status == "active"
       assert by_ref[active.ref].title == "Review Terraform plans"
-      assert by_ref[active.ref].trigger == "slack_message"
+      assert by_ref[active.ref].source_kind == "slack_message"
       assert by_ref[active.ref].library_path == "/rules#behavior-" <> active.ref
       assert by_ref[paused.ref].status == "disabled"
 

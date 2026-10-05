@@ -82,7 +82,11 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
             %{
               kind: :standing_assignment,
               ref: "behavior:one",
-              payload: %{"title" => "Triage deployment alerts", "task" => "Triage the alert."},
+              payload: %{
+                "source_kind" => "webhook",
+                "task" => "Triage the alert.",
+                "title" => "Triage deployment alerts"
+              },
               status: status,
               scope_kind: :workspace,
               scope_ref: "slack:T123",
