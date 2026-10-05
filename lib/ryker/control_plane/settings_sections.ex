@@ -800,7 +800,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :audit_data_seconds,
           kind: :days,
           label: "Audit trail",
-          help: "Who changed settings, instructions, channels and credentials, and when."
+          help:
+            "Who changed settings, instructions, channels and credentials, and when, and " <>
+              "what is left of each finished request once its history is gone."
         },
         %{
           name: :conversation_memory_seconds,

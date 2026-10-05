@@ -2,49 +2,76 @@ defmodule Ryker.Settings.RetentionImpact do
   @moduledoc """
   Bounded estimates of what a shorter horizon would newly expose to cleanup.
 
-  Counts are read from PostgreSQL time and are an operator preview, not the
-  cleanup decision: pruning still runs through Retention.Data with every
-  custody pin intact.
+  Each count is of rows older than the proposed limit but not the current one:
+  rows the current limit already lets go are deleted whatever the change. The
+  rules are the ones `Ryker.Retention.Data` deletes by, named the way the
+  console shows them, without the custody pins pruning also checks, so a count
+  can include a row something still holds. Ages use PostgreSQL time.
   """
 
   alias Ryker.Repo
 
-  @queries %{
+  # Each label counts one or more sources: {from, age column, condition}.
+  @rules %{
     operational_data_seconds: [
-      {"ingress inputs",
-       "SELECT count(*) FROM ingress_inbox_entries WHERE operational_pruned_at IS NULL AND updated_at < clock_timestamp() - ($1 * interval '1 second')"},
-      {"work turns",
-       "SELECT count(*) FROM episode_work_turns WHERE operational_pruned_at IS NULL AND updated_at < clock_timestamp() - ($1 * interval '1 second')"}
+      {"received messages",
+       [{"ingress_inbox_entries", "updated_at", "operational_pruned_at IS NULL"}]},
+      {"model and tool steps",
+       [{"episode_work_turns", "updated_at", "operational_pruned_at IS NULL"}]}
     ],
     conversation_memory_seconds: [
       {"memory entries",
-       "SELECT count(*) FROM operational_memory_entries WHERE scope_kind <> 'global' AND updated_at < clock_timestamp() - ($1 * interval '1 second')"},
-      {"knowledge topics",
-       "SELECT count(*) FROM conversation_knowledge WHERE updated_at < clock_timestamp() - ($1 * interval '1 second')"}
+       [
+         {"operational_memory_entries", "updated_at",
+          "scope_kind <> 'global' OR status <> 'active'"}
+       ]},
+      {"conversation topics", [{"conversation_knowledge", "updated_at", "true"}]}
     ],
     closed_work_seconds: [
-      {"closed work sessions",
-       "SELECT count(*) FROM episode_work_sessions WHERE cleanup_status = 'discarded' AND updated_at < clock_timestamp() - ($1 * interval '1 second')"}
+      {"closed incident rooms", [{"slack_incident_rooms", "updated_at", "status = 'closed'"}]},
+      {"task cards",
+       [
+         {"slack_task_cards AS card JOIN episode_kernel_episodes AS episode " <>
+            "ON episode.id = card.episode_id", "card.updated_at",
+          "episode.state IN ('complete', 'cancelled')"}
+       ]}
     ],
     episode_history_seconds: [
-      {"terminal episodes",
-       "SELECT count(*) FROM episode_kernel_episodes WHERE state IN ('complete', 'cancelled') AND history_pruned_at IS NULL AND updated_at < clock_timestamp() - ($1 * interval '1 second')"}
+      {"finished requests",
+       [
+         {"episode_kernel_episodes", "updated_at",
+          "state IN ('complete', 'cancelled') AND history_pruned_at IS NULL"}
+       ]}
     ],
     audit_data_seconds: [
-      {"settings edits",
-       "SELECT count(*) FROM settings_edits WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')"},
-      {"instruction edits",
-       "SELECT count(*) FROM model_instruction_edits WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')"},
-      {"channel setting audit",
-       "SELECT count(*) FROM slack_channel_setting_audit WHERE inserted_at < clock_timestamp() - ($1 * interval '1 second')"}
+      {"finished requests",
+       [{"episode_kernel_episodes", "updated_at", "history_pruned_at IS NOT NULL"}]},
+      {"settings and credential changes",
+       [
+         {"settings_edits", "inserted_at", "true"},
+         {"integration_credential_events", "inserted_at", "true"},
+         {"model_instruction_edits", "inserted_at", "true"},
+         {"settings_import_receipts", "inserted_at", "true"},
+         {"slack_channel_setting_audit", "inserted_at", "true"}
+       ]},
+      {"Slack button presses",
+       [
+         {"slack_interaction_audit", "inserted_at",
+          "repaint_status IN ('none', 'settled', 'blocked')"}
+       ]},
+      {"channel joins and leaves", [{"slack_channel_membership_events", "inserted_at", "true"}]},
+      {"operator actions",
+       [
+         {"ryker_operator_actions", "inserted_at", "true"},
+         {"retention_operator_actions", "inserted_at", "true"}
+       ]},
+      {"settled memory reviews", [{"memory_review_items", "updated_at", "status <> 'pending'"}]}
     ],
     routing_examples_seconds: [
-      {"routing examples",
-       "SELECT count(*) FROM routing_examples WHERE forgotten_at IS NULL AND decided_at < clock_timestamp() - ($1 * interval '1 second')"}
+      {"routing examples", [{"routing_examples", "decided_at", "forgotten_at IS NULL"}]}
     ],
     work_examples_seconds: [
-      {"work examples",
-       "SELECT count(*) FROM work_examples WHERE forgotten_at IS NULL AND settled_at < clock_timestamp() - ($1 * interval '1 second')"}
+      {"work examples", [{"work_examples", "settled_at", "forgotten_at IS NULL"}]}
     ]
   }
 
@@ -57,21 +84,32 @@ defmodule Ryker.Settings.RetentionImpact do
   @spec estimate(map(), map()) :: %{atom() => [%{label: String.t(), count: non_neg_integer()}]}
   def estimate(current, proposed) do
     shorter =
-      @queries
-      |> Enum.filter(fn {field, _queries} ->
+      @rules
+      |> Enum.filter(fn {field, _rules} ->
         Map.fetch!(proposed, field) < Map.fetch!(current, field)
       end)
-      |> Map.new(fn {field, queries} ->
-        {field,
-         Enum.map(queries, fn {label, sql} ->
-           %{rows: [[count]]} = Repo.query!(sql, [Map.fetch!(proposed, field)], log: false)
-           %{label: label, count: count}
-         end)}
+      |> Map.new(fn {field, rules} ->
+        window = [Map.fetch!(proposed, field), Map.fetch!(current, field)]
+        {field, Enum.map(rules, fn {label, sources} -> count(label, sources, window) end)}
       end)
 
     shorter
     |> turned_off(current, proposed, :routing_examples, "routing examples")
     |> turned_off(current, proposed, :work_examples, "work examples")
+  end
+
+  # Table names and conditions come from the literals above, never from data.
+  defp count(label, sources, window) do
+    sql =
+      "SELECT " <>
+        Enum.map_join(sources, " + ", fn {from, age, condition} ->
+          "(SELECT count(*) FROM #{from} WHERE (#{condition}) " <>
+            "AND #{age} < clock_timestamp() - ($1 * interval '1 second') " <>
+            "AND #{age} >= clock_timestamp() - ($2 * interval '1 second'))"
+        end)
+
+    %{rows: [[count]]} = Repo.query!(sql, window, log: false)
+    %{label: label, count: count}
   end
 
   defp turned_off(shorter, current, proposed, kind, label) do

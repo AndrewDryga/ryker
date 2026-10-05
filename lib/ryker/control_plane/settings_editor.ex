@@ -43,18 +43,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
 
-  @impact_words %{
-    "ingress inputs" => "received messages",
-    "work turns" => "model and tool steps",
-    "memory entries" => "memory entries",
-    "knowledge topics" => "conversation topics",
-    "closed work sessions" => "finished work sessions",
-    "terminal episodes" => "finished requests",
-    "settings edits" => "settings changes",
-    "instruction edits" => "instruction changes",
-    "channel setting audit" => "channel setting changes"
-  }
-
   @impl true
   def update(assigns, socket) do
     # The list and a row's form are one component on two pages: moving from
@@ -1567,7 +1555,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           {horizon_label(section, field),
            rows
            |> Enum.filter(&(&1.count > 0))
-           |> Enum.map_join(" · ", &"#{&1.count} #{Map.get(@impact_words, &1.label, &1.label)}")}
+           |> Enum.map_join(" · ", &"#{&1.count} #{&1.label}")}
   end
 
   # What the other writer saved, rendered the same way the rows are: a mapping

@@ -243,6 +243,56 @@ defmodule Ryker.SettingsTest do
     assert Repo.aggregate(Edit, :count) == 2
   end
 
+  # The question before a shorter limit counted every row older than the new
+  # limit, the ones the current limit had already let go included, and named
+  # the wrong data: "closed work sessions" for incident rooms and task cards,
+  # and three of the audit trail's ten ledgers, without the finished requests
+  # it deletes (2026-10-04 review).
+  test "a shorter limit counts what it newly lets go, named as what is deleted" do
+    assert {:ok, _snapshot} = Settings.initialize(@actor)
+
+    longer = %{
+      closed_work_seconds: 60 * @day,
+      episode_history_seconds: 60 * @day,
+      audit_data_seconds: 90 * @day
+    }
+
+    assert {:ok, _snapshot} = Settings.save_retention(longer, 1, @actor)
+
+    for days <- [100, 75] do
+      Repo.insert!(%Edit{
+        id: Ecto.UUID.generate(),
+        domain: :retention,
+        revision: 1_000 + days,
+        actor_ref: @actor,
+        fingerprint: String.duplicate("a", 64),
+        inserted_at: DateTime.add(DateTime.utc_now(), -days * @day, :second)
+      })
+    end
+
+    finished_request!(75)
+    finished_request!(100)
+
+    shorter = %{closed_work_seconds: 45 * @day, audit_data_seconds: 60 * @day}
+    assert {:ok, preview} = Settings.preview_retention(shorter, 2)
+
+    assert Enum.map(preview.impact.closed_work_seconds, & &1.label) == [
+             "closed incident rooms",
+             "task cards"
+           ]
+
+    audit = Map.new(preview.impact.audit_data_seconds, &{&1.label, &1.count})
+
+    assert audit == %{
+             "finished requests" => 1,
+             "settings and credential changes" => 1,
+             "Slack button presses" => 0,
+             "channel joins and leaves" => 0,
+             "operator actions" => 0,
+             "settled memory reviews" => 0
+           }
+  end
+
   test "a late apply result cannot mark a newer save applied or overwrite its failure" do
     assert {:ok, _} = Settings.initialize(@actor)
     assert :ok = Settings.record_application(1, :ok)
@@ -300,5 +350,29 @@ defmodule Ryker.SettingsTest do
     assert Repo.aggregate(Edit, :count) == 0
     assert {:ok, ^saved} = Settings.fetch()
     assert Repo.aggregate(Retention, :count) == 1
+  end
+
+  # A request whose history retention already deleted, last changed `days` ago.
+  defp finished_request!(days) do
+    episode_id = Ecto.UUID.generate()
+
+    assert {:ok, _transition} =
+             Ryker.Episodes.apply(
+               Ryker.Fixtures.Episodes.admit_input(%{
+                 episode_id: episode_id,
+                 episode_key: "settings-preview:#{episode_id}",
+                 native_input_id: "source:settings-preview:#{episode_id}"
+               })
+             )
+
+    Repo.query!(
+      """
+      UPDATE episode_kernel_episodes
+      SET history_pruned_at = clock_timestamp(),
+          updated_at = clock_timestamp() - ($1 * interval '1 day')
+      WHERE id = $2
+      """,
+      [days, Ecto.UUID.dump!(episode_id)]
+    )
   end
 end
