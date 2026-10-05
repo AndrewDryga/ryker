@@ -747,9 +747,7 @@ defmodule Ryker.ControlPlane.Router do
   # deletes, drops or forgets what it names is asked in the danger tone; any
   # other in the primary one.
   defp confirmation("memory", resource_ref, "forget", options) do
-    snapshot = options.projection.memory.(%{})
-
-    case Enum.find(snapshot.memories, &(&1.ref == resource_ref and &1.status == :active)) do
+    case options.projection.memory_fact.(resource_ref) do
       nil ->
         {:error, :not_found}
 
@@ -848,9 +846,7 @@ defmodule Ryker.ControlPlane.Router do
 
   defp confirmation("memory-review", resource_ref, action, options)
        when action in ["keep", "merge", "forget"] do
-    snapshot = options.projection.memory.(%{})
-
-    case Enum.find(snapshot.reviews, &(&1["review_ref"] == resource_ref)) do
+    case options.projection.memory_review.(resource_ref) do
       %{"kind" => kind, "status" => "pending"} = review
       when action != "merge" or kind == "duplicate" ->
         subjects = Enum.map_join(review["entries"], ", ", & &1["subject"])
@@ -1632,7 +1628,7 @@ defmodule Ryker.ControlPlane.Router do
   defp object(name), do: name
 
   defp editable_memory_review(resource_ref, options) do
-    case Enum.find(options.projection.memory.(%{}).reviews, &(&1["review_ref"] == resource_ref)) do
+    case options.projection.memory_review.(resource_ref) do
       %{"entries" => [_entry], "kind" => "stale", "status" => "pending"} = review ->
         {:ok, review}
 

@@ -158,6 +158,19 @@ defmodule Ryker.Memories.Reviews do
 
   def pending_reviews(_limit), do: []
 
+  @doc "One pending review, by reference, or nil."
+  @spec pending_review(String.t()) :: map() | nil
+  def pending_review(review_ref) when is_binary(review_ref) do
+    case Repo.one(
+           from(review in MemoryReviewItem,
+             where: review.ref == ^review_ref and review.status == :pending
+           )
+         ) do
+      nil -> nil
+      review -> review_document(review)
+    end
+  end
+
   @doc "Fetches one pending review only when every entry is safe for this App Home actor."
   @spec fetch_home_review(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, :memory_review_not_found}

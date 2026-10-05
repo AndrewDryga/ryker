@@ -331,6 +331,7 @@ defmodule Ryker.Memories do
 
   @doc "Returns the oldest pending reviews across every workspace."
   defdelegate pending_reviews(limit \\ 20), to: Reviews
+  defdelegate pending_review(review_ref), to: Reviews
 
   @doc "Fetches one pending review only when every entry is safe for this App Home actor."
   defdelegate fetch_home_review(review_ref, workspace_ref, actor_ref), to: Reviews

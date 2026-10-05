@@ -915,69 +915,9 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           {:memory, _ref} ->
             {:ok, %{forgotten: ["Staging account"], relearn: []}}
         end,
-        memory: fn _params ->
-          %{
-            memories: [
-              %{
-                kind: :repository_binding,
-                ref: "memory:one",
-                scope: :workspace,
-                value: "ryker",
-                applicability: nil,
-                status: :active,
-                subject: "checkout-api"
-              }
-            ],
-            reviews: [
-              %{
-                "entries" => [
-                  %{
-                    "kind" => "entity_relationship",
-                    "memory_ref" => "memory:one",
-                    "scope" => "workspace",
-                    "scope_ref" => "slack:T123",
-                    "status" => "active",
-                    "subject" => "checkout-api",
-                    "value" => "payments",
-                    "visibility" => "workspace"
-                  },
-                  %{
-                    "kind" => "entity_relationship",
-                    "memory_ref" => "memory:duplicate",
-                    "scope" => "workspace",
-                    "scope_ref" => "slack:T123",
-                    "status" => "active",
-                    "subject" => "payments-api",
-                    "value" => "payments",
-                    "visibility" => "workspace"
-                  }
-                ],
-                "kind" => "duplicate",
-                "reason" => "Same value",
-                "review_ref" => "memory-review:one",
-                "status" => "pending"
-              },
-              %{
-                "entries" => [
-                  %{
-                    "kind" => "repository_binding",
-                    "memory_ref" => "memory:two",
-                    "scope" => "repository",
-                    "scope_ref" => "ryker",
-                    "status" => "active",
-                    "subject" => "primary_repository",
-                    "value" => "ryker",
-                    "visibility" => "workspace"
-                  }
-                ],
-                "kind" => "stale",
-                "reason" => "Not recently used",
-                "review_ref" => "memory-review:two",
-                "status" => "pending"
-              }
-            ]
-          }
-        end,
+        memory: fn _params -> memory_snapshot() end,
+        memory_fact: &memory_fact/1,
+        memory_review: &memory_review/1,
         overview: fn ->
           %{
             counts: %{active: 3, blocked: 1, delivery_pending: 1, waiting: 1},
@@ -1529,6 +1469,76 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           revision: "commit:abc123",
           state: :eligible,
           worker_ref: "coop-worker-one"
+        }
+      ]
+    }
+  end
+
+  defp memory_fact(ref),
+    do: Enum.find(memory_snapshot().memories, &(&1.ref == ref and &1.status == :active))
+
+  defp memory_review(ref), do: Enum.find(memory_snapshot().reviews, &(&1["review_ref"] == ref))
+
+  # The Facts page's one fact and two reviews, as the projection hands them on.
+  defp memory_snapshot do
+    %{
+      memories: [
+        %{
+          kind: :repository_binding,
+          ref: "memory:one",
+          scope: :workspace,
+          value: "ryker",
+          applicability: nil,
+          status: :active,
+          subject: "checkout-api"
+        }
+      ],
+      reviews: [
+        %{
+          "entries" => [
+            %{
+              "kind" => "entity_relationship",
+              "memory_ref" => "memory:one",
+              "scope" => "workspace",
+              "scope_ref" => "slack:T123",
+              "status" => "active",
+              "subject" => "checkout-api",
+              "value" => "payments",
+              "visibility" => "workspace"
+            },
+            %{
+              "kind" => "entity_relationship",
+              "memory_ref" => "memory:duplicate",
+              "scope" => "workspace",
+              "scope_ref" => "slack:T123",
+              "status" => "active",
+              "subject" => "payments-api",
+              "value" => "payments",
+              "visibility" => "workspace"
+            }
+          ],
+          "kind" => "duplicate",
+          "reason" => "Same value",
+          "review_ref" => "memory-review:one",
+          "status" => "pending"
+        },
+        %{
+          "entries" => [
+            %{
+              "kind" => "repository_binding",
+              "memory_ref" => "memory:two",
+              "scope" => "repository",
+              "scope_ref" => "ryker",
+              "status" => "active",
+              "subject" => "primary_repository",
+              "value" => "ryker",
+              "visibility" => "workspace"
+            }
+          ],
+          "kind" => "stale",
+          "reason" => "Not recently used",
+          "review_ref" => "memory-review:two",
+          "status" => "pending"
         }
       ]
     }

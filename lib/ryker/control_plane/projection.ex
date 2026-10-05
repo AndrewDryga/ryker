@@ -78,6 +78,8 @@ defmodule Ryker.ControlPlane.Projection do
       learned: &ConversationMemory.project/1,
       learning: &LearningActivity.project/1,
       memory: &MemoryProjection.fetch/1,
+      memory_fact: &MemoryProjection.fact/1,
+      memory_review: &MemoryProjection.review/1,
       model_timeline: &ModelRequests.timeline/2,
       running_system: &RunningSystem.fetch/0,
       overview: &OverviewProjection.overview/0,
