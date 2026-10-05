@@ -219,7 +219,7 @@ defmodule Ryker.Runtime.OwnerTest do
     console = console_pids(context)
 
     for _crash <- 1..6 do
-      if pid = event_waits_pid(context), do: Process.exit(pid, :kill)
+      if pid = event_waits_pid(context), do: kill_between_messages(pid)
       Process.sleep(5)
     end
 
@@ -393,6 +393,17 @@ defmodule Ryker.Runtime.OwnerTest do
       {Ryker.Retention.Runtime, pid, _type, _modules} when is_pid(pid) -> pid
       _child -> nil
     end)
+  end
+
+  # A process killed while it holds the case's shared connection takes the connection with it
+  # (DBConnection's proxy shuts down when its holder dies), and every query after that fails as
+  # unowned: the owner crash-looped 7077 times and the gate went red on 2026-10-05, twice.
+  # Suspended, the worker is between messages and holds nothing.
+  defp kill_between_messages(pid) do
+    :sys.suspend(pid)
+    Process.exit(pid, :kill)
+  catch
+    :exit, _gone -> :ok
   end
 
   defp event_waits_pid(context) do
