@@ -573,7 +573,7 @@ defmodule Ryker.Records do
        ) do
     with :ok <- validate_temporal(kind, prepared.continuation),
          :ok <- validate_relationships(episode.id, kind, prepared.payload, parallel_goal_limit),
-         :ok <- record_capacity(turn.id),
+         :ok <- record_capacity(turn.id, operation_id),
          :ok <- supersede_prior_record(episode.id, turn.id, kind, prepared.payload) do
       %{
         continuation: prepared.continuation,
@@ -625,8 +625,21 @@ defmodule Ryker.Records do
     "record:#{kind}:#{digest}"
   end
 
-  defp record_capacity(turn_id) do
-    count = Repo.aggregate(from(record in Record, where: record.turn_id == ^turn_id), :count)
+  # The host makes the publication offer when the work completes, so it is
+  # not one of the records the model may write in a turn: a large task that
+  # had written its 64 could not complete (2026-10-04 review).
+  @publication_offer "host:publication:ready"
+
+  defp record_capacity(_turn_id, @publication_offer), do: :ok
+
+  defp record_capacity(turn_id, _operation_id) do
+    count =
+      Repo.aggregate(
+        from(record in Record,
+          where: record.turn_id == ^turn_id and record.operation_id != @publication_offer
+        ),
+        :count
+      )
 
     if count < @maximum_records_per_turn,
       do: :ok,

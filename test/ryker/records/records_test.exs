@@ -359,6 +359,39 @@ defmodule Ryker.Records.RecordsTest do
              Records.create(Records.token(claim.turn), "task", "task_offer", task)
   end
 
+  # The host's publication offer counted against the 64 records the model may
+  # write in a turn, so a large task that had written them all could not
+  # complete (2026-10-04 review).
+  test "the host's publication offer is made even after the model wrote every record of its turn" do
+    claim = claim!("record-budget")
+    token = Records.token(claim.turn)
+
+    for index <- 1..64 do
+      assert {:ok, _evidence} =
+               Records.create(token, "evidence-#{index}", "evidence", %{
+                 "claim_id" => "service.health.#{index}",
+                 "observation" => "Probe #{index} returned 200.",
+                 "source_name" => "service probe",
+                 "source_type" => "monitoring",
+                 "target" => "service.production"
+               })
+    end
+
+    assert Records.create(token, "evidence-65", "evidence", %{
+             "claim_id" => "service.health.65",
+             "observation" => "Probe 65 returned 200.",
+             "source_name" => "service probe",
+             "source_type" => "monitoring",
+             "target" => "service.production"
+           }) == {:error, {:invalid_state_record, :record_limit}}
+
+    assert {:ok, %{kind: "publication_offer"}} =
+             Records.create(token, "host:publication:ready", "publication_offer", %{
+               "body" => "The parser change is ready.",
+               "title" => "Change the parser"
+             })
+  end
+
   test "shadow turns can retain evidence but cannot create offers, waits, or authority" do
     claim = claim!("shadow-records", :shadow)
     token = Records.token(claim.turn)
