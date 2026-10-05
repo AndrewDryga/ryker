@@ -1080,7 +1080,10 @@ defmodule Ryker.Retention.Data do
     horizon: :audit_data_seconds
   }
 
-  # Written out because it chooses whole episodes, not rows.
+  # Written out because it chooses whole episodes, not rows. A button answer
+  # routed away from the task that asked is this episode's input while the
+  # answer row still points at it, so the episode waits for that answer to go
+  # with the asking task's history.
   @audit_candidates """
   SELECT episode.id::text
   FROM episode_kernel_episodes AS episode
@@ -1088,6 +1091,11 @@ defmodule Ryker.Retention.Data do
     AND episode.updated_at < clock_timestamp() - ($1 * interval '1 second')
     AND NOT EXISTS (
       SELECT 1 FROM episode_kernel_episodes child WHERE child.linked_episode_id = episode.id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM ingress_inbox_entries input
+      JOIN episode_state_record_responses response ON response.inbox_entry_id = input.id
+      WHERE input.episode_id = episode.id
     )
     AND NOT EXISTS (
       SELECT 1 FROM episode_state_records record WHERE record.confirmed_episode_id = episode.id

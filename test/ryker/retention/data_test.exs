@@ -948,6 +948,40 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get(Turn, eligible.turn.id) == nil
   end
 
+  # A button answer goes to the task that asked only while that task waits;
+  # otherwise routing gives it to another task, whose input it becomes while
+  # the answer row still points at it. Audit pruning of that other task deleted
+  # the input under the answer's foreign key, failing the whole audit phase,
+  # and the same oldest episode led every later pass (2026-10-04 review).
+  test "an input another task's answer points at keeps its episode until the answer goes" do
+    answered = settled_work!("answer-elsewhere") |> discard_session!()
+    asking = settled_work!("answer-asking") |> discard_session!()
+    neighbour = settled_work!("answer-neighbour") |> discard_session!()
+    insert_open_record!(asking)
+    entry = record_input_for!(answered.episode.id, "answer-elsewhere")
+
+    Repo.query!(
+      """
+      INSERT INTO episode_state_record_responses
+        (id, record_id, inbox_entry_id, response_ref, actor_ref, occurred_at,
+         inserted_at, updated_at)
+      SELECT $1, record.id, $2, 'response:answer-elsewhere', 'slack:user:U123', $3, $3, $3
+      FROM episode_state_records record
+      WHERE record.episode_id = $4
+      """,
+      [uuid!(Ecto.UUID.generate()), uuid!(entry.id), @old, uuid!(asking.episode.id)]
+    )
+
+    mark_history_pruned!(answered)
+    mark_history_pruned!(neighbour)
+
+    assert {:ok, result} = Data.prune(settings())
+    assert result.audit_episodes == 1
+    assert Repo.get(Ryker.Episodes.Episode, neighbour.episode.id) == nil
+    assert Repo.get(Ryker.Episodes.Episode, answered.episode.id)
+    assert Repo.get(Ryker.Ingress.Inbox.Entry, entry.id)
+  end
+
   test "a closed approval watch lets its task's history expire, a live one pins it" do
     # Ryker closes an approval watch nothing waits for any more (its task was
     # closed, or its wait was answered). The history guard treated every status
