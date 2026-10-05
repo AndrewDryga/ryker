@@ -369,6 +369,28 @@ defmodule Ryker.Evals.WorldSuiteTest do
     assert summary.failures == []
   end
 
+  # A baseline that never ran passed nothing, so the paired comparison found
+  # no regression and passed vacuously (2026-10-04 review). Its execution and
+  # cleanup errors and unrun cases fail the comparison; its model failures
+  # stay evidence only.
+  test "a baseline lane the harness could not run fails the paired comparison" do
+    reports = [
+      report("case-a", 1, :unrun, [], :baseline) |> Map.put(:execution_error, :coop_down),
+      report("case-a", 1, :passed)
+    ]
+
+    assert {:ok, summary} =
+             WorldSuite.summarize(reports,
+               paired_baseline: true,
+               min_overall_pass_rate: 1.0,
+               min_case_pass_rate: 1.0
+             )
+
+    refute summary.passed?
+    assert %{kind: :baseline_execution_error, actual: 1, required: 0} in summary.failures
+    assert %{kind: :baseline_unrun, actual: 1, required: 0} in summary.failures
+  end
+
   defp report(scenario_id, repeat_index, status, failures \\ [], lane \\ :candidate) do
     %{
       failures: failures,

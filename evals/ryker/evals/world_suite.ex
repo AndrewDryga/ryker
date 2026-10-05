@@ -90,6 +90,7 @@ defmodule Ryker.Evals.WorldSuite do
 
       failures =
         invariant_failures(lanes.candidate) ++
+          baseline_failures(lanes.baseline) ++
           threshold_failures(candidate, settings) ++ paired_failures(paired, settings)
 
       {:ok,
@@ -322,6 +323,16 @@ defmodule Ryker.Evals.WorldSuite do
     |> maybe_failure(hard > 0, %{actual: hard, kind: :hard_invariant, required: 0})
     |> maybe_failure(execution > 0, %{actual: execution, kind: :execution_error, required: 0})
     |> maybe_failure(cleanup > 0, %{actual: cleanup, kind: :cleanup_error, required: 0})
+  end
+
+  # A baseline the harness could not run passed nothing, so the comparison
+  # found no regression and passed vacuously (2026-10-04 review). Its own model
+  # failures stay comparison evidence.
+  defp baseline_failures(reports) do
+    reports
+    |> invariant_failures()
+    |> Enum.reject(&(&1.kind == :hard_invariant))
+    |> Enum.map(&%{&1 | kind: :"baseline_#{&1.kind}"})
   end
 
   defp threshold_failures(candidate, settings) do
