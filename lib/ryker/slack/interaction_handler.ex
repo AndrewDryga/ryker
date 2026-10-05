@@ -199,7 +199,7 @@ defmodule Ryker.Slack.InteractionHandler do
              ref,
              revision,
              interaction.actor_ref,
-             interaction.workspace_ref,
+             conversation_ref(interaction),
              interaction.event_ref
            ) do
       {:ok, :resumed}
@@ -213,7 +213,7 @@ defmodule Ryker.Slack.InteractionHandler do
              ref,
              revision,
              interaction.actor_ref,
-             interaction.workspace_ref,
+             conversation_ref(interaction),
              interaction.event_ref
            ) do
       {:ok, :deleted}
@@ -225,11 +225,17 @@ defmodule Ryker.Slack.InteractionHandler do
            options.forget_memory.(
              interaction.action_value,
              interaction.actor_ref,
-             interaction.workspace_ref
+             conversation_ref(interaction)
            ) do
       {:ok, :forgotten}
     end
   end
+
+  # The conversation a control was pressed in: a rule or fact kept to it can be
+  # changed there. Passing the workspace alone ran every one through the App
+  # Home gate, which refuses a channel's own (2026-10-04 review).
+  defp conversation_ref(interaction),
+    do: "slack:#{interaction.workspace_ref}:#{interaction.channel_ref}"
 
   defp versioned_resource(value, kind) do
     prefix = "#{kind}-control:"

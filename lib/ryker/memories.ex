@@ -310,7 +310,25 @@ defmodule Ryker.Memories do
     end
   end
 
-  defp forget_home_locked(ref, actor_ref, workspace_ref) do
+  @doc """
+  Forgets a fact from a control in the conversation `conversation_ref`: one
+  App Home could forget, or one kept to that conversation. Channel controls
+  ran through the App Home gate alone, which refuses a channel's own facts
+  (2026-10-04 review).
+  """
+  def forget_in_conversation(ref, actor_ref, workspace_ref, conversation_ref) do
+    with :ok <- reference(ref, :memory_ref),
+         :ok <- reference(actor_ref, :actor_ref),
+         :ok <- reference(workspace_ref, :workspace_ref),
+         :ok <- reference(conversation_ref, :conversation_ref) do
+      Repo.transaction(fn ->
+        Reviews.lock_review_maintenance!()
+        forget_home_locked(ref, actor_ref, workspace_ref, conversation_ref)
+      end)
+    end
+  end
+
+  defp forget_home_locked(ref, actor_ref, workspace_ref, conversation_ref \\ nil) do
     case Repo.one(from(entry in MemoryEntry, where: entry.ref == ^ref, lock: "FOR UPDATE")) do
       nil ->
         Repo.rollback(:memory_not_found)
@@ -319,12 +337,13 @@ defmodule Ryker.Memories do
         Repo.rollback(:memory_workspace_mismatch)
 
       %MemoryEntry{} = entry ->
-        forget_home_visible(entry, actor_ref, workspace_ref)
+        forget_home_visible(entry, actor_ref, workspace_ref, conversation_ref)
     end
   end
 
-  defp forget_home_visible(entry, actor_ref, workspace_ref) do
-    if Reviews.home_source_visible?(Reviews.review_source_record(:memory, entry), actor_ref) do
+  defp forget_home_visible(entry, actor_ref, workspace_ref, conversation_ref) do
+    if Reviews.home_source_visible?(Reviews.review_source_record(:memory, entry), actor_ref) or
+         (entry.scope_kind == :conversation and entry.scope_ref == conversation_ref) do
       forgotten = forget_locked(entry.ref, workspace_ref)
       Reviews.dismiss_orphan_reviews("system:memory-forget", workspace_ref)
       forgotten

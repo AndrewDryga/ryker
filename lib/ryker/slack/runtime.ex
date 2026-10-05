@@ -16,6 +16,7 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Artifacts
   alias Ryker.Delivery.{BinaryClient, JSONClient}
   alias Ryker.Episodes.Reactions
+  alias Ryker.Episodes.Scope, as: WorkspaceScope
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Options
@@ -408,23 +409,25 @@ defmodule Ryker.Slack.Runtime do
         confirm_schedule: &Schedules.confirm/1,
         confirm_slack_post: &SlackPostOffers.confirm/1,
         confirm_task_offer: &TaskOffers.confirm/1,
-        delete_behavior: fn ref, revision, actor_ref, workspace_ref, action_ref ->
-          Behaviors.set_home_status(
+        delete_behavior: fn ref, revision, actor_ref, conversation_ref, action_ref ->
+          Behaviors.set_conversation_status(
             ref,
             :deleted,
             revision,
             "slack:user:#{actor_ref}",
-            "slack:#{workspace_ref}",
+            WorkspaceScope.workspace_ref("slack", conversation_ref),
+            conversation_ref,
             action_ref
           )
         end,
-        resume_behavior: fn ref, revision, actor_ref, workspace_ref, action_ref ->
-          Behaviors.set_home_status(
+        resume_behavior: fn ref, revision, actor_ref, conversation_ref, action_ref ->
+          Behaviors.set_conversation_status(
             ref,
             :active,
             revision,
             "slack:user:#{actor_ref}",
-            "slack:#{workspace_ref}",
+            WorkspaceScope.workspace_ref("slack", conversation_ref),
+            conversation_ref,
             action_ref
           )
         end,
@@ -439,8 +442,13 @@ defmodule Ryker.Slack.Runtime do
           )
         end,
         directory: Client,
-        forget_memory: fn ref, actor_ref, workspace_ref ->
-          Memories.forget_home(ref, "slack:user:#{actor_ref}", "slack:#{workspace_ref}")
+        forget_memory: fn ref, actor_ref, conversation_ref ->
+          Memories.forget_in_conversation(
+            ref,
+            "slack:user:#{actor_ref}",
+            WorkspaceScope.workspace_ref("slack", conversation_ref),
+            conversation_ref
+          )
         end,
         incident_policy: incident_policy,
         investigate_incident: &IncidentRooms.investigate/1,

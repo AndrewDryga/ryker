@@ -320,6 +320,34 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert Repo.aggregate(Behavior, :count, :id) == 3
   end
 
+  # A rule's Delete and Resume in a channel ran through the App Home gate,
+  # which refuses anything kept to one channel, so they failed for every such
+  # rule (2026-10-04 review).
+  test "a channel's rule is deleted and resumed from that channel, and from no other" do
+    fixture = delivered_offers!("channel-behavior")
+
+    assert {:ok, %{behavior: behavior}} =
+             Behaviors.confirm(confirmation(fixture, fixture.guidance, "channel-behavior"))
+
+    change = fn status, revision, conversation_ref, action ->
+      Behaviors.set_conversation_status(
+        behavior.ref,
+        status,
+        revision,
+        "slack:user:U123",
+        "slack:T123",
+        conversation_ref,
+        "action:channel-behavior:#{action}"
+      )
+    end
+
+    assert change.(:deleted, behavior.revision, "slack:T123:C999", "elsewhere") ==
+             {:error, :behavior_unauthorized}
+
+    assert {:ok, deleted} = change.(:deleted, behavior.revision, behavior.scope_ref, "delete")
+    assert deleted.outcome["status"] == "deleted"
+  end
+
   test "App Home behavior controls cannot cross channel or operator scope" do
     fixture = delivered_offers!("home-behavior-privacy")
 

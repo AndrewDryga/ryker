@@ -710,6 +710,33 @@ defmodule Ryker.Memories.MemoriesTest do
     assert Repo.get!(MemoryEntry, confirmed.memory.id).status == :active
   end
 
+  # A fact's Forget in a channel ran through the App Home gate, which refuses
+  # anything kept to one channel, so it failed for every such fact and they
+  # could only be forgotten from the console (2026-10-04 review).
+  test "a channel's fact is forgotten from that channel, and from no other" do
+    fixture = delivered_offers!("channel-forget")
+
+    assert {:ok, conversation} =
+             Memories.confirm(confirmation(fixture, fixture.first, "channel-forget"))
+
+    assert Memories.forget_in_conversation(
+             conversation.memory.ref,
+             "slack:user:U123",
+             "slack:T123",
+             "slack:T123:C999"
+           ) == {:error, :memory_unauthorized}
+
+    assert {:ok, _forgotten} =
+             Memories.forget_in_conversation(
+               conversation.memory.ref,
+               "slack:user:U123",
+               "slack:T123",
+               conversation.memory.scope_ref
+             )
+
+    refute Repo.get!(MemoryEntry, conversation.memory.id).status == :active
+  end
+
   test "Slack App Home omits and cannot resolve channel-only reviews" do
     fixture = delivered_offers!("home-privacy")
 

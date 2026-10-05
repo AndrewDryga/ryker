@@ -161,12 +161,83 @@ defmodule Ryker.Behaviors do
     end
   end
 
+  @doc """
+  Changes a rule from a control in the conversation `conversation_ref`: one
+  App Home could change, or one kept to that conversation. Channel controls
+  ran through the App Home gate alone, which refuses a channel's own rules
+  (2026-10-04 review).
+  """
+  @spec set_conversation_status(
+          String.t(),
+          :active | :disabled | :deleted,
+          pos_integer(),
+          String.t(),
+          String.t(),
+          String.t(),
+          String.t()
+        ) :: {:ok, map()} | {:error, term()}
+  def set_conversation_status(
+        ref,
+        status,
+        expected_revision,
+        actor_ref,
+        workspace_ref,
+        conversation_ref,
+        action_ref
+      )
+      when status in [:active, :disabled, :deleted] and is_integer(expected_revision) and
+             expected_revision > 0 do
+    with :ok <- reference(ref, :behavior_ref),
+         :ok <- reference(actor_ref, :actor_ref),
+         :ok <- reference(workspace_ref, :workspace_ref),
+         :ok <- reference(conversation_ref, :conversation_ref),
+         :ok <- reference(action_ref, :action_ref) do
+      Actions.run(
+        %{
+          action: :update,
+          action_ref: action_ref,
+          actor_ref: actor_ref,
+          kind: "behavior",
+          request: %{
+            "conversation_ref" => conversation_ref,
+            "expected_revision" => expected_revision,
+            "status" => Atom.to_string(status),
+            "workspace_ref" => workspace_ref
+          },
+          resource_ref: ref
+        },
+        fn ->
+          set_home_status_audited_locked(
+            ref,
+            status,
+            expected_revision,
+            actor_ref,
+            workspace_ref,
+            conversation_ref
+          )
+        end
+      )
+    end
+  end
+
+  def set_conversation_status(
+        _ref,
+        _status,
+        _revision,
+        _actor,
+        _workspace,
+        _conversation,
+        _action
+      ),
+      do: {:error, {:invalid_behavior, :status}}
+
   defp set_home_status_audited_locked(
          ref,
          status,
          expected_revision,
          actor_ref,
-         workspace_ref
+         workspace_ref,
+         conversation_ref \\ nil
        ) do
     case Repo.one(from(behavior in Behavior, where: behavior.ref == ^ref, lock: "FOR UPDATE")) do
       nil ->
@@ -179,7 +250,8 @@ defmodule Ryker.Behaviors do
         {:error, :behavior_revision_stale}
 
       %Behavior{} = behavior ->
-        if home_behavior_visible?(behavior, actor_ref) do
+        if home_behavior_visible?(behavior, actor_ref) or
+             (behavior.scope_kind == :conversation and behavior.scope_ref == conversation_ref) do
           updated = set_status_locked(ref, status, workspace_ref)
 
           {:ok,

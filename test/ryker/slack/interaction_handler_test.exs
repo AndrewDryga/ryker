@@ -584,8 +584,12 @@ defmodule Ryker.Slack.InteractionHandlerTest do
 
     options =
       Map.merge(options(["U123", "U456"]), %{
-        delete_behavior: fn ref, revision, actor_ref, workspace_ref, action_ref ->
-          send(observer, {:behavior_deleted, ref, revision, actor_ref, workspace_ref, action_ref})
+        delete_behavior: fn ref, revision, actor_ref, conversation_ref, action_ref ->
+          send(
+            observer,
+            {:behavior_deleted, ref, revision, actor_ref, conversation_ref, action_ref}
+          )
+
           {:ok, %{outcome: %{"status" => "deleted"}}}
         end,
         delete_schedule: fn ref, revision, _actor_ref, _workspace_ref, _action_ref ->
@@ -595,8 +599,8 @@ defmodule Ryker.Slack.InteractionHandlerTest do
             do: {:ok, %{outcome: %{"status" => "deleted"}}},
             else: {:error, :schedule_revision_stale}
         end,
-        forget_memory: fn ref, actor_ref, workspace_ref ->
-          send(observer, {:memory_forgotten, ref, actor_ref, workspace_ref})
+        forget_memory: fn ref, actor_ref, conversation_ref ->
+          send(observer, {:memory_forgotten, ref, actor_ref, conversation_ref})
           {:ok, %{ref: ref}}
         end,
         operators: chosen_operators(["U123"])
@@ -638,7 +642,9 @@ defmodule Ryker.Slack.InteractionHandlerTest do
 
     assert {:ok, %{outcome: :deleted}} = InteractionHandler.handle(behavior, options)
 
-    assert_received {:behavior_deleted, "behavior:" <> ^schedule_id, 3, "U123", "T123",
+    # The control names the channel it was pressed in, so a rule kept to that
+    # channel can be changed there (2026-10-04 review).
+    assert_received {:behavior_deleted, "behavior:" <> ^schedule_id, 3, "U123", "slack:T123:C456",
                      "interaction:delete-behavior"}
 
     forget = %{
@@ -648,7 +654,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     }
 
     assert {:ok, %{outcome: :forgotten}} = InteractionHandler.handle(forget, options)
-    assert_received {:memory_forgotten, "memory:" <> ^schedule_id, "U123", "T123"}
+    assert_received {:memory_forgotten, "memory:" <> ^schedule_id, "U123", "slack:T123:C456"}
 
     offline =
       Map.put(options, :forget_memory, fn _ref, _actor_ref, _workspace_ref ->
@@ -732,8 +738,8 @@ defmodule Ryker.Slack.InteractionHandlerTest do
       Map.put(
         %{options(["U123"]) | operators: chosen_operators(["U123"])},
         :resume_behavior,
-        fn ref, revision, actor_ref, workspace_ref, action_ref ->
-          send(parent, {:resumed, ref, revision, actor_ref, workspace_ref, action_ref})
+        fn ref, revision, actor_ref, conversation_ref, action_ref ->
+          send(parent, {:resumed, ref, revision, actor_ref, conversation_ref, action_ref})
           {:ok, %{status: :active}}
         end
       )
@@ -752,7 +758,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
 
     assert {:ok, %{outcome: :resumed}} = InteractionHandler.handle(interaction, options)
 
-    assert_received {:resumed, "behavior:abc123", 7, "U123", "T0BHXKZJVDX",
+    assert_received {:resumed, "behavior:abc123", 7, "U123", "slack:T0BHXKZJVDX:C0BLU1GACKC",
                      "interaction:resume-1"}
   end
 
