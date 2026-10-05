@@ -291,7 +291,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
   test "an approval a task waits for is a failure while its account has no token, until one is saved" do
     approval_wait!("tokenless")
-    assert {:ok, :ok} = Credentials.delete(:emisar, @connection_ref, @actor)
+    assert :ok = Credentials.delete(:emisar, @connection_ref, @actor)
 
     row = failure("production/apr-tokenless")
     assert %{stall: :token_unavailable, action: nil} = row

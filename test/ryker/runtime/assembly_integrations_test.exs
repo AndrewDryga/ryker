@@ -56,7 +56,7 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
     # with why instead, for the webhooks page and Advanced to show.
     settings = installation!()
 
-    assert {:ok, :ok} = Credentials.delete(:webhook, "alerts", @actor)
+    assert :ok = Credentials.delete(:webhook, "alerts", @actor)
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
     assert configuration.integrations_left_out == %{webhooks: %{"alerts" => :credential_missing}}

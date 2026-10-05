@@ -38,7 +38,7 @@ defmodule Ryker.CredentialsTest do
     refute inspect(Repo.all(Event)) =~ @secret
     refute inspect(Repo.all(Event)) =~ replacement
 
-    assert {:ok, :ok} = Credentials.delete(:slack_bot, "primary", @actor)
+    assert :ok = Credentials.delete(:slack_bot, "primary", @actor)
     assert {:error, :credential_missing} = Credentials.fetch(:slack_bot, "primary")
     assert %{status: :missing} = Credentials.status(:slack_bot, "primary")
   end
@@ -89,13 +89,26 @@ defmodule Ryker.CredentialsTest do
     refute inspect(status) =~ @secret
   end
 
+  # Removing a credential that was never saved changed nothing, yet announced
+  # a change, and the runtime reassembled every lane for it (2026-10-04
+  # review).
+  test "removing a credential that is not saved changes nothing and announces nothing" do
+    assert :ok = Credentials.subscribe()
+
+    result = Credentials.delete(:webhook, "never-saved", @actor)
+
+    refute_receive {:credentials_changed, :webhook, "never-saved"}, 100
+    assert Repo.all(Event) == []
+    assert result == :ok
+  end
+
   test "a committed credential change tells the runtime to reassemble" do
     assert :ok = Credentials.subscribe()
 
     assert {:ok, _metadata} = Credentials.put(:slack_bot, "primary", @secret, @actor)
     assert_receive {:credentials_changed, :slack_bot, "primary"}
 
-    assert {:ok, :ok} = Credentials.delete(:slack_bot, "primary", @actor)
+    assert :ok = Credentials.delete(:slack_bot, "primary", @actor)
     assert_receive {:credentials_changed, :slack_bot, "primary"}
 
     assert {:error, :credential_identity_invalid} =

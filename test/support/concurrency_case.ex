@@ -132,6 +132,28 @@ defmodule Ryker.ConcurrencyCase do
     end
   end
 
+  @doc """
+  Waits until `task` has finished or its backend waits on `blocking_backend`,
+  without taking the task's reply: release the blocker, then await the task.
+  """
+  def await_finished_or_blocked(task, backend, blocking_backend, deadline \\ deadline()) do
+    query = "SELECT $2::integer = ANY(pg_blocking_pids($1::integer))"
+
+    cond do
+      not Process.alive?(task.pid) ->
+        :finished
+
+      Repo.query!(query, [backend, blocking_backend]).rows == [[true]] ->
+        :waiting
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk("backend #{backend} neither finished nor waited on #{blocking_backend}")
+
+      true ->
+        await_finished_or_blocked(task, backend, blocking_backend, deadline)
+    end
+  end
+
   @doc "Waits until `blocked_backend` waits on any of `possible_blockers`."
   def await_blocked_by_any(blocked_backend, possible_blockers, deadline \\ deadline()) do
     %{rows: [[blocking_backends]]} =

@@ -109,42 +109,14 @@ defmodule Ryker.Improvement.AnalysesConcurrencyTest do
     assert_receive {:deleter_ready, deleter_backend}, 5_000
 
     try do
-      deletion = committed_or_waiting(deleter, deleter_backend, freezer_backend)
+      await_finished_or_blocked(deleter, deleter_backend, freezer_backend)
       send(freezer.pid, :save)
       assert {:ok, _frozen} = Task.await(freezer, 5_000)
-
-      assert {:ok, %{status: :recorded}} =
-               if(deletion == :waiting, do: Task.await(deleter, 5_000), else: deletion)
+      assert {:ok, %{status: :recorded}} = Task.await(deleter, 5_000)
     after
       stop_tasks([freezer, deleter])
     end
   end
-
-  # Whether the deletion committed at once, or waits on the transaction that
-  # is freezing the evidence.
-  defp committed_or_waiting(deleter, deleter_backend, freezer_backend, deadline \\ deadline()) do
-    case Task.yield(deleter, 10) do
-      {:ok, recorded} ->
-        recorded
-
-      nil ->
-        cond do
-          Repo.query!("SELECT $2::integer = ANY(pg_blocking_pids($1::integer))", [
-            deleter_backend,
-            freezer_backend
-          ]).rows == [[true]] ->
-            :waiting
-
-          System.monotonic_time(:millisecond) > deadline ->
-            flunk("the deletion neither committed nor waited on the freezing")
-
-          true ->
-            committed_or_waiting(deleter, deleter_backend, freezer_backend, deadline)
-        end
-    end
-  end
-
-  defp deadline, do: System.monotonic_time(:millisecond) + 5_000
 
   defp pause_before_saving!(parent) do
     :ok =

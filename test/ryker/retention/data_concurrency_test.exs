@@ -129,7 +129,7 @@ defmodule Ryker.Retention.DataConcurrencyTest do
         Process.put({__MODULE__, :pruner}, pruner)
         pruner_pid = pruner.pid
         assert_receive {:pruner_started, ^pruner_pid, pruner_backend}, 5_000
-        prune_state = await_finished_or_blocked(pruner, pruner_backend, blocker_backend)
+        prune_state = await_pruned_or_blocked(pruner, pruner_backend, blocker_backend)
 
         reopen =
           EpisodeFixtures.admit_input(%{
@@ -251,7 +251,7 @@ defmodule Ryker.Retention.DataConcurrencyTest do
     input
   end
 
-  defp await_finished_or_blocked(task, backend, blocker, deadline \\ nil) do
+  defp await_pruned_or_blocked(task, backend, blocker, deadline \\ nil) do
     deadline = deadline || System.monotonic_time(:millisecond) + 5_000
 
     receive do
@@ -272,7 +272,7 @@ defmodule Ryker.Retention.DataConcurrencyTest do
           true ->
             receive do
             after
-              10 -> await_finished_or_blocked(task, backend, blocker, deadline)
+              10 -> await_pruned_or_blocked(task, backend, blocker, deadline)
             end
         end
     end

@@ -113,7 +113,7 @@ defmodule Ryker.LocalRoutingConcurrencyTest do
         assert_receive {:lane_ready, lane_backend}, 5_000
 
         try do
-          finished_or_waiting(lane, lane_backend, deleter_backend)
+          await_finished_or_blocked(lane, lane_backend, deleter_backend)
           send(deleter.pid, :commit)
           assert {:ok, :ok} = Task.await(deleter, 5_000)
           assert {:ran, _comparison} = Task.await(lane, 5_000)
@@ -131,29 +131,6 @@ defmodule Ryker.LocalRoutingConcurrencyTest do
       end
     end)
   end
-
-  # Whether the lane already finished with the comparison, or waits on the
-  # deletion that is committing.
-  defp finished_or_waiting(lane, lane_backend, deleter_backend, deadline \\ deadline()) do
-    cond do
-      not Process.alive?(lane.pid) ->
-        :finished
-
-      Repo.query!("SELECT $2::integer = ANY(pg_blocking_pids($1::integer))", [
-        lane_backend,
-        deleter_backend
-      ]).rows == [[true]] ->
-        :waiting
-
-      System.monotonic_time(:millisecond) > deadline ->
-        flunk("the lane neither finished nor waited on the deletion")
-
-      true ->
-        finished_or_waiting(lane, lane_backend, deleter_backend, deadline)
-    end
-  end
-
-  defp deadline, do: System.monotonic_time(:millisecond) + 5_000
 
   # A person's greeting, routed as routing commits a decision: the context
   # frozen beside it, the prompt and contract the provider was sent, and the

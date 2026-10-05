@@ -26,16 +26,12 @@ defmodule Ryker.Credentials do
   @spec put(kind(), String.t(), binary(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def put(kind, name, plaintext, actor_ref) do
-    result =
-      with :ok <- validate_identity(kind, name),
-           :ok <- validate_plaintext(plaintext),
-           :ok <- validate_actor(actor_ref),
-           {:ok, sealed} <- seal(root_key(), kind, name, plaintext) do
-        Repo.transaction(fn -> put_locked(kind, name, actor_ref, sealed) end)
-        |> unwrap_transaction()
-      end
-
-    notify(result, kind, name)
+    with :ok <- validate_identity(kind, name),
+         :ok <- validate_plaintext(plaintext),
+         :ok <- validate_actor(actor_ref),
+         {:ok, sealed} <- seal(root_key(), kind, name, plaintext) do
+      Repo.transaction(fn -> put_locked(kind, name, actor_ref, sealed) end)
+    end
   end
 
   @spec fetch(kind(), String.t()) :: {:ok, binary()} | {:error, term()}
@@ -122,32 +118,26 @@ defmodule Ryker.Credentials do
           {:ok, map()} | {:error, term()}
   def verify(kind, name, verification_status, actor_ref)
       when verification_status in [:verified, :invalid] do
-    result =
-      with :ok <- validate_identity(kind, name),
-           :ok <- validate_actor(actor_ref) do
-        Repo.transaction(fn -> verify_locked(kind, name, verification_status, actor_ref) end)
-        |> unwrap_transaction()
-      end
-
-    notify(result, kind, name)
+    with :ok <- validate_identity(kind, name),
+         :ok <- validate_actor(actor_ref) do
+      Repo.transaction(fn -> verify_locked(kind, name, verification_status, actor_ref) end)
+    end
   end
 
   def verify(_kind, _name, _verification_status, _actor_ref),
     do: {:error, :credential_verification_status_invalid}
 
+  @doc "Removes a credential. Removing one that is not saved changes and announces nothing."
   @spec delete(kind(), String.t(), String.t()) :: :ok | {:error, term()}
   def delete(kind, name, actor_ref) do
-    result =
-      with :ok <- validate_identity(kind, name),
-           :ok <- validate_actor(actor_ref) do
-        Repo.transaction(fn -> delete_locked(kind, name, actor_ref) end)
-        |> unwrap_transaction()
-      end
-
-    notify(result, kind, name)
+    with :ok <- validate_identity(kind, name),
+         :ok <- validate_actor(actor_ref),
+         {:ok, :ok} <- Repo.transaction(fn -> delete_locked(kind, name, actor_ref) end),
+         do: :ok
   end
 
   defp put_locked(kind, name, actor_ref, sealed) do
+    lock!(kind, name)
     now = Repo.now!()
 
     case Repo.get_by(Credential, kind: kind, name: name) do
@@ -169,6 +159,7 @@ defmodule Ryker.Credentials do
           |> Repo.insert!()
 
         event!(credential, :created, actor_ref, now)
+        broadcast_credentials_changed(kind, name)
         metadata(credential)
 
       %Credential{} = credential ->
@@ -184,11 +175,14 @@ defmodule Ryker.Credentials do
           |> Repo.update!()
 
         event!(credential, :replaced, actor_ref, now)
+        broadcast_credentials_changed(kind, name)
         metadata(credential)
     end
   end
 
   defp verify_locked(kind, name, verification_status, actor_ref) do
+    lock!(kind, name)
+
     case Repo.get_by(Credential, kind: kind, name: name) do
       nil ->
         Repo.rollback(:credential_missing)
@@ -207,11 +201,14 @@ defmodule Ryker.Credentials do
 
         action = if verification_status == :verified, do: :verified, else: :invalidated
         event!(credential, action, actor_ref, now)
+        broadcast_credentials_changed(kind, name)
         metadata(credential)
     end
   end
 
   defp delete_locked(kind, name, actor_ref) do
+    lock!(kind, name)
+
     case Repo.get_by(Credential, kind: kind, name: name) do
       nil ->
         :ok
@@ -220,8 +217,17 @@ defmodule Ryker.Credentials do
         now = Repo.now!()
         event!(credential, :deleted, actor_ref, now)
         Repo.delete!(credential)
+        broadcast_credentials_changed(kind, name)
         :ok
     end
+  end
+
+  # One credential's saves, checks and removals take turns, so two first saves
+  # of the same credential cannot both insert it.
+  defp lock!(kind, name) do
+    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      "ryker-credential:#{kind}:#{name}"
+    ])
   end
 
   defp event!(credential, action, actor_ref, now) do
@@ -334,13 +340,6 @@ defmodule Ryker.Credentials do
 
   defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
-  defp notify({:ok, _value} = result, kind, name) do
-    broadcast_credentials_changed(kind, name)
-    result
-  end
-
-  defp notify(result, _kind, _name), do: result
-
   # -- PubSub ------------------------------------------------------------------
 
   @doc """
@@ -360,7 +359,4 @@ defmodule Ryker.Credentials do
       Repo.after_commit(fn ->
         Ryker.PubSub.broadcast(topic(), {:credentials_changed, kind, name})
       end)
-
-  defp unwrap_transaction({:ok, value}), do: {:ok, value}
-  defp unwrap_transaction({:error, reason}), do: {:error, reason}
 end

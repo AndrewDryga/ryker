@@ -49,11 +49,7 @@ defmodule Ryker.IntegrationSetup do
          {:ok, auth_response} <- request(bot_http, :post, "/auth.test", %{}, [], options),
          {:ok, identity} <- slack_identity(auth_response, bot_http, options),
          :ok <- required_slack_scopes(auth_response.headers),
-         {:ok, _app} <- Credentials.put(:slack_app, "primary", app_token, Actor.ref()),
-         {:ok, _bot} <- Credentials.put(:slack_bot, "primary", bot_token, Actor.ref()),
-         {:ok, snapshot} <- save_slack_identity(identity),
-         {:ok, _app} <- Credentials.verify(:slack_app, "primary", :verified, Actor.ref()),
-         {:ok, _bot} <- Credentials.verify(:slack_bot, "primary", :verified, Actor.ref()) do
+         {:ok, snapshot} <- store_slack(app_token, bot_token, identity) do
       {:ok,
        %{
          enabled: snapshot.slack.enabled,
@@ -68,6 +64,20 @@ defmodule Ryker.IntegrationSetup do
       {:error, _reason} = error -> error
       _invalid -> {:error, {:slack_verification_failed, :response}}
     end
+  end
+
+  # The tokens, the workspace they belong to and their verification are one
+  # change: saved one by one, tokens whose workspace could not be saved stayed
+  # next to the old one (2026-10-04 review).
+  defp store_slack(app_token, bot_token, identity) do
+    Settings.atomically(fn ->
+      with {:ok, _app} <- Credentials.put(:slack_app, "primary", app_token, Actor.ref()),
+           {:ok, _bot} <- Credentials.put(:slack_bot, "primary", bot_token, Actor.ref()),
+           {:ok, snapshot} <- save_slack_identity(identity),
+           {:ok, _app} <- Credentials.verify(:slack_app, "primary", :verified, Actor.ref()),
+           {:ok, _bot} <- Credentials.verify(:slack_bot, "primary", :verified, Actor.ref()),
+           do: {:ok, snapshot}
+    end)
   end
 
   @doc """
@@ -109,14 +119,7 @@ defmodule Ryker.IntegrationSetup do
          {:ok, %{body: app, status: 200}} <- request(app_http, :get, "/app", nil, [], options),
          :ok <- exact_app(app, app_id),
          {:ok, actor} <- github_actor(app_http, api_url, app["slug"], options),
-         {:ok, _key} <-
-           Credentials.put(:github_private_key, "primary", private_key, Actor.ref()),
-         {:ok, _secret} <-
-           Credentials.put(:github_webhook, "primary", webhook_secret, Actor.ref()),
-         {:ok, snapshot} <- save_github_identity(app, actor, api_url),
-         {:ok, _key} <-
-           Credentials.verify(:github_private_key, "primary", :verified, Actor.ref()),
-         {:ok, _secret} <- Credentials.verify(:github_webhook, "primary", :verified, Actor.ref()) do
+         {:ok, snapshot} <- store_github(private_key, webhook_secret, app, actor, api_url) do
       {:ok,
        %{
          app_id: app["id"],
@@ -131,6 +134,21 @@ defmodule Ryker.IntegrationSetup do
       {:error, _reason} = error -> error
       _invalid -> {:error, {:github_verification_failed, :response}}
     end
+  end
+
+  defp store_github(private_key, webhook_secret, app, actor, api_url) do
+    Settings.atomically(fn ->
+      with {:ok, _key} <-
+             Credentials.put(:github_private_key, "primary", private_key, Actor.ref()),
+           {:ok, _secret} <-
+             Credentials.put(:github_webhook, "primary", webhook_secret, Actor.ref()),
+           {:ok, snapshot} <- save_github_identity(app, actor, api_url),
+           {:ok, _key} <-
+             Credentials.verify(:github_private_key, "primary", :verified, Actor.ref()),
+           {:ok, _secret} <-
+             Credentials.verify(:github_webhook, "primary", :verified, Actor.ref()),
+           do: {:ok, snapshot}
+    end)
   end
 
   @spec github_repositories(keyword()) :: {:ok, [map()]} | {:error, term()}
@@ -270,25 +288,17 @@ defmodule Ryker.IntegrationSetup do
          display_name <- optional_text(params, "display_name", identity.account_label),
          :ok <- connection_ref(ref),
          :ok <- bounded_text(display_name, 1, 120, :display_name),
-         {:ok, _credential} <- Credentials.put(:emisar, ref, token, Actor.ref()),
-         {:ok, _snapshot} <-
-           Settings.put_emisar_connection(
-             %{
-               ref: ref,
-               display_name: display_name,
-               rpc_url: rpc_url,
-               account_ref: identity.account_ref,
-               account_label: identity.account_label,
-               enabled_for_new_work: true,
-               monitoring_enabled: true,
-               verified_at: DateTime.utc_now()
-             },
-             Settings.fetch!().installation.revision,
-             Actor.ref()
-           ),
-         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, Actor.ref()),
-         {:ok, _watched_again} <- Approvals.token_replaced(ref),
-         {:ok, snapshot} <- serve_environments(ref) do
+         {:ok, snapshot} <-
+           store_emisar(token, %{
+             ref: ref,
+             display_name: display_name,
+             rpc_url: rpc_url,
+             account_ref: identity.account_ref,
+             account_label: identity.account_label,
+             enabled_for_new_work: true,
+             monitoring_enabled: true,
+             verified_at: DateTime.utc_now()
+           }) do
       {:ok,
        %{
          ref: ref,
@@ -308,6 +318,22 @@ defmodule Ryker.IntegrationSetup do
       {:error, _reason} = error -> error
       _invalid -> {:error, {:emisar_verification_failed, :response}}
     end
+  end
+
+  defp store_emisar(token, connection) do
+    Settings.atomically(fn ->
+      with {:ok, _credential} <- Credentials.put(:emisar, connection.ref, token, Actor.ref()),
+           {:ok, _snapshot} <-
+             Settings.put_emisar_connection(
+               connection,
+               Settings.fetch!().installation.revision,
+               Actor.ref()
+             ),
+           {:ok, _credential} <-
+             Credentials.verify(:emisar, connection.ref, :verified, Actor.ref()),
+           {:ok, _watched_again} <- Approvals.token_replaced(connection.ref),
+           do: serve_environments(connection.ref)
+    end)
   end
 
   # The account work may use belongs to its environment
@@ -370,9 +396,7 @@ defmodule Ryker.IntegrationSetup do
     with connection when not is_nil(connection) <-
            Enum.find(snapshot.emisar_connections, &(&1.ref == ref)),
          {:ok, _identity} <- verify_emisar(token, connection.rpc_url, options),
-         {:ok, _credential} <- Credentials.put(:emisar, ref, token, Actor.ref()),
-         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, Actor.ref()),
-         {:ok, _watched_again} <- Approvals.token_replaced(ref) do
+         {:ok, _watched_again} <- Settings.atomically(fn -> replace_emisar(ref, token) end) do
       {:ok, %{ref: ref, status: :rotated}}
     else
       nil -> {:error, :connection_not_found}
@@ -380,14 +404,24 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
+  defp replace_emisar(ref, token) do
+    with {:ok, _credential} <- Credentials.put(:emisar, ref, token, Actor.ref()),
+         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, Actor.ref()),
+         do: Approvals.token_replaced(ref)
+  end
+
   @spec create_webhook_credential(String.t(), String.t() | nil) ::
           {:ok, %{name: String.t(), secret: String.t()}} | {:error, term()}
   def create_webhook_credential(name, supplied \\ nil) do
     with {:ok, secret} <- signing_secret(supplied),
-         {:ok, _metadata} <- Credentials.put(:webhook, name, secret, Actor.ref()),
-         {:ok, _metadata} <- Credentials.verify(:webhook, name, :verified, Actor.ref()) do
+         {:ok, _metadata} <- Settings.atomically(fn -> store_webhook_secret(name, secret) end) do
       {:ok, %{name: name, secret: secret}}
     end
+  end
+
+  defp store_webhook_secret(name, secret) do
+    with {:ok, _metadata} <- Credentials.put(:webhook, name, secret, Actor.ref()),
+         do: Credentials.verify(:webhook, name, :verified, Actor.ref())
   end
 
   # A signed route needs at least this much secret, so a shorter one could
@@ -407,10 +441,16 @@ defmodule Ryker.IntegrationSetup do
   def disconnect(kind) when kind in [:slack, :github] do
     snapshot = Settings.fetch!()
 
-    with {:ok, _snapshot} <- disable(kind, snapshot),
-         :ok <- delete_connection_credentials(kind) do
+    with {:ok, _snapshot} <- Settings.atomically(fn -> remove_connection(kind, snapshot) end) do
       {:ok, %{status: :disconnected, kind: kind}}
     end
+  end
+
+  # Switched off and its credentials gone, in one change.
+  defp remove_connection(kind, snapshot) do
+    with {:ok, snapshot} <- disable(kind, snapshot),
+         :ok <- delete_connection_credentials(kind),
+         do: {:ok, snapshot}
   end
 
   def disable_emisar(ref) when is_binary(ref) do
@@ -712,7 +752,7 @@ defmodule Ryker.IntegrationSetup do
     if Enum.any?(Settings.fetch!().webhook_sources, &(&1.secret_name == name)) do
       {:error, :credential_in_use}
     else
-      with {:ok, :ok} <- Credentials.delete(:webhook, name, Actor.ref()) do
+      with :ok <- Credentials.delete(:webhook, name, Actor.ref()) do
         {:ok, %{name: name, status: :deleted}}
       end
     end
@@ -839,15 +879,13 @@ defmodule Ryker.IntegrationSetup do
     do: Settings.save_github(%{enabled: false}, snapshot.installation.revision, Actor.ref())
 
   defp delete_connection_credentials(:slack) do
-    with {:ok, :ok} <- Credentials.delete(:slack_app, "primary", Actor.ref()),
-         {:ok, :ok} <- Credentials.delete(:slack_bot, "primary", Actor.ref()),
-         do: :ok
+    with :ok <- Credentials.delete(:slack_app, "primary", Actor.ref()),
+         do: Credentials.delete(:slack_bot, "primary", Actor.ref())
   end
 
   defp delete_connection_credentials(:github) do
-    with {:ok, :ok} <- Credentials.delete(:github_private_key, "primary", Actor.ref()),
-         {:ok, :ok} <- Credentials.delete(:github_webhook, "primary", Actor.ref()),
-         do: :ok
+    with :ok <- Credentials.delete(:github_private_key, "primary", Actor.ref()),
+         do: Credentials.delete(:github_webhook, "primary", Actor.ref())
   end
 
   # Emisar's handshake names the server, never the account behind a key, and

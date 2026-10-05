@@ -1219,13 +1219,26 @@ defmodule Ryker.Runtime.AssemblyTest do
     settings = connected!()
     key = Process.get(:github_private_key_fixture)
 
-    for {break, reason} <- [
-          {&Credentials.put(:github_private_key, "primary", "not-an-app-key-but-long-enough", &1),
-           :private_key_unusable},
-          {&Credentials.delete(:github_private_key, "primary", &1), :private_key_missing},
-          {&Credentials.delete(:github_webhook, "primary", &1), :webhook_secret_missing}
-        ] do
-      {:ok, _} = break.(@actor)
+    breaks = [
+      private_key_unusable: fn ->
+        {:ok, _} =
+          Credentials.put(
+            :github_private_key,
+            "primary",
+            "not-an-app-key-but-long-enough",
+            @actor
+          )
+      end,
+      private_key_missing: fn ->
+        :ok = Credentials.delete(:github_private_key, "primary", @actor)
+      end,
+      webhook_secret_missing: fn ->
+        :ok = Credentials.delete(:github_webhook, "primary", @actor)
+      end
+    ]
+
+    for {reason, break} <- breaks do
+      break.()
 
       assert {:ok, configuration} = Assembly.build(bootstrap(), settings),
              "#{reason} refused the whole configuration"

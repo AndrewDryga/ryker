@@ -266,6 +266,16 @@ defmodule Ryker.IntegrationSetupTest do
       do: Requester.request(client, method, path, body, headers)
   end
 
+  defmodule UnsavableWorkspaceRequester do
+    def request(client, :post, "/auth.test", body, headers) do
+      {:ok, response} = Requester.request(client, :post, "/auth.test", body, headers)
+      {:ok, %{response | body: %{response.body | "team_id" => "not a workspace id"}}}
+    end
+
+    def request(client, method, path, body, headers),
+      do: Requester.request(client, method, path, body, headers)
+  end
+
   setup do
     {:ok, _snapshot} = Settings.initialize(@actor)
     :ok
@@ -412,6 +422,27 @@ defmodule Ryker.IntegrationSetupTest do
     # Slack that was never switched on stays off when its tokens are replaced.
     {:ok, _result} = IntegrationSetup.connect_slack(replaced, requester: OtherWorkspaceRequester)
     refute Settings.fetch!().slack.enabled
+  end
+
+  # The tokens were stored, then the identity they belong to saved, then both
+  # marked verified, each in its own transaction. Tokens whose identity could
+  # not be saved stayed stored, unverified, next to the old identity
+  # (2026-10-04 review).
+  test "tokens whose workspace cannot be saved leave the earlier tokens in place" do
+    tokens = %{
+      "app_token" => "xapp-this-is-a-long-app-token",
+      "bot_token" => "xoxb-this-is-a-long-bot-token"
+    }
+
+    {:ok, _result} = IntegrationSetup.connect_slack(tokens, requester: Requester)
+    replaced = %{tokens | "bot_token" => "xoxb-this-is-a-replaced-bot-token"}
+
+    result = IntegrationSetup.connect_slack(replaced, requester: UnsavableWorkspaceRequester)
+
+    assert Credentials.fetch(:slack_bot, "primary") == {:ok, tokens["bot_token"]}
+    assert Credentials.status(:slack_bot, "primary").verification_status == :verified
+    assert Settings.fetch!().slack.workspace_ref == "T0123456789"
+    assert {:error, {:invalid_settings, _errors}} = result
   end
 
   test "Choose people offers the people in the workspace, never Slackbot or an app" do

@@ -507,18 +507,12 @@ defmodule Ryker.Settings do
       )
 
   def delete_emisar_connection(ref, expected_revision, actor_ref) do
-    with {:ok, snapshot} <-
-           delete_item(
-             :emisar,
-             EmisarConnection,
-             :ref,
-             ref,
-             expected_revision,
-             actor_ref
-           ),
-         {:ok, :ok} <- Ryker.Credentials.delete(:emisar, ref, actor_ref) do
-      {:ok, snapshot}
-    end
+    atomically(fn ->
+      with {:ok, snapshot} <-
+             delete_item(:emisar, EmisarConnection, :ref, ref, expected_revision, actor_ref),
+           :ok <- Ryker.Credentials.delete(:emisar, ref, actor_ref),
+           do: {:ok, snapshot}
+    end)
   end
 
   def put_github_binding(attributes, expected_revision, actor_ref),

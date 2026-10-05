@@ -160,7 +160,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   # pressed now and says why on hover.
   test "with no signing credential, Add webhook source is disabled and says why on hover" do
     installation!()
-    assert {:ok, :ok} = Credentials.delete(:webhook, @registered, @actor)
+    assert :ok = Credentials.delete(:webhook, @registered, @actor)
     {:ok, view, _html} = open()
 
     blocked =
