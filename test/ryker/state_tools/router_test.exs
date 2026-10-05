@@ -225,6 +225,69 @@ defmodule Ryker.StateTools.RouterTest do
     assert payload["source_id"] == "admit_input:current-message"
   end
 
+  # The tool schemas count characters and the records counted bytes, so text
+  # within a tool's limits in any language but English was refused as
+  # invalid_arguments, and the model repeated the call; a question or
+  # feedback item composed from several limited parts did not fit its record
+  # in any language (2026-10-04 review).
+  test "arguments within a tool's limits are kept in any language" do
+    claim = claim!("character-limits")
+    options = bound_options(claim)
+    words = fn count -> String.duplicate("ї", count) end
+
+    assert {:ok, %{"kind" => "citation"}} =
+             Tools.call(
+               "cite_source",
+               %{
+                 "observation" => words.(4_000),
+                 "relation" => "supports",
+                 "source_ref" => "source:ukrainian",
+                 "subject" => words.(120),
+                 "supersedes" => []
+               },
+               options
+             )
+
+    assert {:ok, %{"kind" => "memory_offer"}} =
+             Tools.call(
+               "propose_memory",
+               %{
+                 "expires_at" => nil,
+                 "kind" => "guidance",
+                 "scope" => "current_channel",
+                 "source_refs" => ["source:ukrainian"],
+                 "subject" => words.(120),
+                 "supersedes" => [],
+                 "value" => words.(4_000)
+               },
+               options
+             )
+
+    assert {:ok, %{"kind" => "feedback"}} =
+             Tools.call(
+               "record_feedback",
+               %{
+                 "category" => "usefulness",
+                 "details" => words.(4_000),
+                 "needs_response" => true,
+                 "response_question" => words.(2_000),
+                 "sentiment" => "suggestion",
+                 "summary" => words.(1_000),
+                 "target_message_ref" => nil
+               },
+               options
+             )
+
+    questions = for index <- 1..3, do: %{"choices" => [], "text" => "#{index}" <> words.(1_999)}
+
+    assert {:ok, %{"kind" => "input_request"}} =
+             Tools.call(
+               "request_input",
+               %{"context" => words.(2_000), "questions" => questions, "remember" => nil},
+               bound_options(claim!("character-limits-question"))
+             )
+  end
+
   test "an investigation can save a source-linked finding without sending a reply" do
     # The replay retained hundreds of observations but exposed no way for the
     # model to save an actual conclusion in the Findings page.
@@ -264,17 +327,17 @@ defmodule Ryker.StateTools.RouterTest do
     assert Repo.get!(Ryker.Work.Turn, claim.turn.id).delivery_document == nil
     assert Repo.get!(Ryker.Episodes.Episode, claim.episode.id).owner_kind == :turn
 
-    assert {:error, "invalid_arguments"} =
+    assert {:error, "invalid_arguments: reason " <> _} =
              Tools.call("record_finding", %{args | "reason" => nil}, options)
 
-    assert {:error, "invalid_arguments"} =
+    assert {:error, "invalid_arguments: " <> _} =
              Tools.call(
                "record_finding",
                %{args | "status" => "explained", "cause_evidence" => []},
                options
              )
 
-    assert {:error, "invalid_arguments"} =
+    assert {:error, "invalid_arguments: cause_evidence " <> _} =
              Tools.call(
                "record_finding",
                %{args | "cause_evidence" => ["record:evidence:not-offered"]},
@@ -329,7 +392,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     second = claim!("finding-other-episode")
 
-    assert {:error, "invalid_arguments"} =
+    assert {:error, "invalid_arguments: cause_evidence " <> _} =
              Tools.call(
                "record_finding",
                %{
@@ -1378,21 +1441,22 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert Records.retained_records(claim.episode.id) == []
 
-    assert Tools.call(
-             "wait_for",
-             %{
-               "deadline" => "2099-01-01T00:00:00.000000Z",
-               "on_timeout" => "Report that verification could not complete.",
-               "trigger" => %{
-                 "match" => %{"deployment" => "ryker"},
-                 "poll_after" => "2099-01-01T00:05:00.000000Z",
-                 "source_kind" => "deployment",
-                 "type" => "source_event"
+    assert {:error, "invalid_arguments" <> _} =
+             Tools.call(
+               "wait_for",
+               %{
+                 "deadline" => "2099-01-01T00:00:00.000000Z",
+                 "on_timeout" => "Report that verification could not complete.",
+                 "trigger" => %{
+                   "match" => %{"deployment" => "ryker"},
+                   "poll_after" => "2099-01-01T00:05:00.000000Z",
+                   "source_kind" => "deployment",
+                   "type" => "source_event"
+                 },
+                 "verification" => "Verify the allocation is healthy."
                },
-               "verification" => "Verify the allocation is healthy."
-             },
-             options
-           ) == {:error, "invalid_arguments"}
+               options
+             )
   end
 
   test "automation mutations are inert, revision-fenced, scoped, and atomic as one proposal set" do

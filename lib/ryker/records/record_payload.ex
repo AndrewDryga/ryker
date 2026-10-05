@@ -50,7 +50,9 @@ defmodule Ryker.Records.RecordPayload do
     with :ok <- task_offer_fields(payload),
          :ok <- enum(payload["kind"], ~w(engineering incident), :kind),
          :ok <- text(payload["title"], 120, :title),
-         :ok <- text(payload["prompt"], 12_000, :prompt),
+         # The brief with its checks, limits and sources appended; the whole
+         # record's own byte bound is what holds it in.
+         :ok <- text(payload["prompt"], 32_000, :prompt),
          :ok <- task_repository(payload["kind"], payload["repository"]),
          :ok <- task_repository_source(payload["repository"], payload["repository_source"]),
          :ok <- task_offer_authority(payload),
@@ -344,7 +346,9 @@ defmodule Ryker.Records.RecordPayload do
 
   defp input_request(%{} = payload, ref) do
     with :ok <- exact_fields(Map.delete(payload, "remember"), ~w(choices question)),
-         :ok <- text(payload["question"], 2_000, :question),
+         # Its context and up to three numbered questions, each as long as
+         # request_input allows.
+         :ok <- text(payload["question"], 8_100, :question),
          :ok <- choices(payload["choices"]),
          :ok <- remembered_fact(payload["remember"]),
          :ok <- canonical(payload) do
@@ -597,7 +601,7 @@ defmodule Ryker.Records.RecordPayload do
   end
 
   defp text(value, maximum, field) do
-    if Reference.valid?(value, maximum),
+    if Reference.text?(value, maximum),
       do: :ok,
       else: {:error, {:invalid_state_record, field}}
   end

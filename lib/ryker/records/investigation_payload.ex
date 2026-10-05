@@ -95,12 +95,12 @@ defmodule Ryker.Records.InvestigationPayload do
 
   defp finding(%{} = payload) do
     with :ok <- fields(payload, ~w(status what), ~w(alternatives cause_evidence reason scope)),
-         :ok <- finding_text(payload["what"], 4_000, :what),
-         :ok <- optional_finding_text(payload, "scope", 2_000, :scope),
+         :ok <- text(payload["what"], 4_000, :what),
+         :ok <- optional_text(payload, "scope", 2_000, :scope),
          :ok <- enum(payload["status"], ~w(unexplained explained expected out_of_scope), :status),
          :ok <- optional_references(payload, "cause_evidence", 10, :cause_evidence),
          :ok <- alternatives(Map.get(payload, "alternatives", [])),
-         :ok <- optional_finding_text(payload, "reason", 2_000, :reason),
+         :ok <- optional_text(payload, "reason", 2_000, :reason),
          :ok <- finding_claim(payload),
          :ok <- canonical(payload, 64 * 1_024) do
       {:ok, payload}
@@ -112,7 +112,8 @@ defmodule Ryker.Records.InvestigationPayload do
   defp progress(%{} = payload) do
     with :ok <- fields(payload, ~w(phase summary), ~w(next_due_at)),
          :ok <- text(payload["phase"], 120, :phase),
-         :ok <- text(payload["summary"], 2_000, :summary),
+         # A feedback item keeps its summary, details and question together.
+         :ok <- text(payload["summary"], 7_100, :summary),
          {:ok, prepared} <- optional_datetime(payload, "next_due_at", :next_due_at),
          :ok <- canonical(prepared) do
       {:ok, prepared}
@@ -215,28 +216,12 @@ defmodule Ryker.Records.InvestigationPayload do
   defp finding_claim(%{"status" => "explained"}), do: invalid(:cause_evidence)
 
   defp finding_claim(%{"status" => status} = payload) when status in ~w(expected out_of_scope),
-    do: finding_text(payload["reason"], 2_000, :reason)
+    do: text(payload["reason"], 2_000, :reason)
 
   defp finding_claim(_payload), do: :ok
 
   # JSON Schema maxLength counts Unicode codepoints, not UTF-8 bytes. Keep a
   # byte bound before counting so these human conclusions remain bounded.
-  defp finding_text(value, maximum, field) do
-    with :ok <- text(value, maximum * 4, field),
-         true <- length(String.codepoints(value)) <= maximum do
-      :ok
-    else
-      _ -> invalid(field)
-    end
-  end
-
-  defp optional_finding_text(payload, key, maximum, field) do
-    case Map.get(payload, key) do
-      nil -> :ok
-      value -> finding_text(value, maximum, field)
-    end
-  end
-
   defp alternatives(values) when is_list(values) and length(values) <= 5 do
     if Enum.all?(values, &(alternative(&1) == :ok)), do: :ok, else: invalid(:alternatives)
   end
@@ -372,7 +357,7 @@ defmodule Ryker.Records.InvestigationPayload do
   defp boolean(value, field), do: if(is_boolean(value), do: :ok, else: invalid(field))
 
   defp text(value, maximum, field) do
-    if Reference.valid?(value, maximum),
+    if Reference.text?(value, maximum),
       do: :ok,
       else: invalid(field)
   end

@@ -16,4 +16,18 @@ defmodule Ryker.Reference do
   end
 
   def valid?(_value, _maximum_bytes), do: false
+
+  @doc """
+  The rule for text a person or model wrote: valid UTF-8 with no NUL byte, not
+  blank, and at most `maximum` characters, counted as the tool schemas count
+  them (code points). Counting bytes refused text in any language but English
+  that the schema had allowed (2026-10-04 review).
+  """
+  @spec text?(term(), pos_integer()) :: boolean()
+  def text?(value, maximum) when is_binary(value) do
+    String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
+      String.trim(value) != "" and length(String.codepoints(value)) <= maximum
+  end
+
+  def text?(_value, _maximum), do: false
 end
