@@ -229,7 +229,7 @@
 
     <ul>
       <li><strong>Shapes.</strong> Any authenticated JSON, Grafana alerts, or a custom mapping of dotted paths. There is no jq, CEL, template or script of any kind.</li>
-      <li><strong>Authentication.</strong> A bearer token, or an HMAC-SHA256 signature over a timestamp and the request. There is no unauthenticated option, and bodies are capped at 40,000 bytes.</li>
+      <li><strong>Authentication.</strong> A bearer token, or an HMAC-SHA256 signature over a timestamp and the request. There is no unauthenticated option, and bodies are capped at 1 MiB.</li>
       <li><strong>Receipts.</strong> <code>202</code> means the whole batch is safely queued, not that the work is done. An exact retry returns the original receipt; the same event ID with different content returns <code>409</code>. A Grafana request of up to 500 alerts is recorded all or nothing.</li>
       <li><strong>Check a payload.</strong> Paste one delivery and see exactly what it would record, without saving or sending anything.</li>
     </ul>

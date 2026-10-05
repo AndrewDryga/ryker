@@ -11,7 +11,7 @@ defmodule Ryker.Webhooks.RouteTest do
       assert {:ok, route} = Route.new(attributes(auth))
       assert route.name == "universal"
       assert route.destination.conversation_ref == "slack:T123:C456"
-      assert route.max_body_bytes == 40_000
+      assert route.max_body_bytes == 1_048_576
       assert route.max_clock_skew_seconds == 300
       assert route.work_profile == nil
     end
@@ -107,7 +107,7 @@ defmodule Ryker.Webhooks.RouteTest do
                Map.put(
                  attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
                  :max_body_bytes,
-                 40_001
+                 1_048_577
                )
              )
 

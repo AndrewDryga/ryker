@@ -8,7 +8,9 @@ defmodule Ryker.GitHub.Binding do
 
   alias Ryker.Ingress.WorkProfile
 
-  @default_max_body_bytes 40_000
+  # GitHub's own payloads, a pull request's description included, before
+  # `Ryker.GitHub.Payload` cuts them to the input.
+  @default_max_body_bytes 1_048_576
 
   @doc "The body limit a binding takes when it names none."
   @spec default_max_body_bytes() :: pos_integer()

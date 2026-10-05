@@ -79,7 +79,7 @@ defmodule Ryker.ControlPlane.WebhookPreview do
   defp message(:invalid_json, _shape), do: "That is not valid JSON. Nothing was sent or recorded."
 
   defp message(:sample_too_large, _shape),
-    do: "A sample must be under 40 KB, the same bound a real request has."
+    do: "A sample must be under 40 KB. Paste one delivery, cut down if it is longer."
 
   defp message(:invalid_sample, _shape), do: "Paste the JSON body of one delivery."
   defp message(:unknown_webhook_source, _shape), do: "That source is no longer saved."

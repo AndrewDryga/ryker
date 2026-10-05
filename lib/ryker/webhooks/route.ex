@@ -9,8 +9,11 @@ defmodule Ryker.Webhooks.Route do
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Secret
 
-  @default_max_body_bytes 40_000
-  @maximum_body_bytes 40_000
+  # A Grafana group of five hundred alerts, the most one delivery may carry.
+  # Each alert becomes its own bounded input; a whole body kept as one input,
+  # as the universal shape does, still has to fit that input.
+  @default_max_body_bytes 1_048_576
+  @maximum_body_bytes 1_048_576
   @default_max_clock_skew_seconds 300
   @required_fields [:auth, :destination, :name]
   @optional_fields [

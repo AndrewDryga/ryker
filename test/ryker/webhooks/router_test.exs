@@ -170,7 +170,7 @@ defmodule Ryker.Webhooks.RouterTest do
              event_id: "evt-text"
            ).status == 415
 
-    assert request(Jason.encode!(%{"value" => String.duplicate("x", 40_001)}),
+    assert request(Jason.encode!(%{"value" => String.duplicate("x", 1_048_577)}),
              authorization: "Bearer #{@secret}",
              event_id: "evt-large"
            ).status == 413
@@ -362,7 +362,7 @@ defmodule Ryker.Webhooks.RouterTest do
                  thread_ref: nil,
                  transport: "slack"
                },
-               max_body_bytes: 40_000,
+               max_body_bytes: 1_048_576,
                max_clock_skew_seconds: 300,
                name: "universal",
                work_profile: %{

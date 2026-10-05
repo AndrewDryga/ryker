@@ -131,8 +131,8 @@ defmodule Ryker.Defaults do
   @routing_examples %{batch_size: 25, poll_interval_ms: 10_000}
   # A work example's briefing is about fifty times a routing prompt, so a pass copies fewer.
   @work_examples %{batch_size: 5, poll_interval_ms: 10_000}
-  @github %{max_body_bytes: 40_000, receive_timeout_ms: 30_000}
-  @webhooks %{max_body_bytes: 40_000, max_clock_skew_seconds: 300}
+  @github %{max_body_bytes: 1_048_576, receive_timeout_ms: 30_000}
+  @webhooks %{max_body_bytes: 1_048_576, max_clock_skew_seconds: 300}
   @coop_worker_gateway %{certificate_ttl_seconds: 86_400}
   @owners %{
     admission: @admission,

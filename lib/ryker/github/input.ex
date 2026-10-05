@@ -9,10 +9,13 @@ defmodule Ryker.GitHub.Input do
   @behaviour Ryker.Ingress.Adapter
 
   alias Ryker.CanonicalJSON
-  alias Ryker.GitHub.Binding
+  alias Ryker.GitHub.{Binding, Payload}
   alias Ryker.Ingress.Input
 
   @event_fields [:delivery_ref, :event_name, :event_ref, :payload]
+  # The input's content holds 48 KiB; the delivery reference, up to 1 KiB, and
+  # the event name take the rest.
+  @payload_budget 48_000
   @reaction_names ~w(+1 -1 confused eyes heart hooray laugh rocket)
   @revision_tie_slots 1_000
   @revision_action_ranks %{message: 0, edit: 1, delete: 2}
@@ -130,6 +133,13 @@ defmodule Ryker.GitHub.Input do
   defp item_body(_item), do: nil
 
   defp build_input(event, binding, details, actor, occurred_at) do
+    case Payload.fit(event.payload, @payload_budget) do
+      {:ok, payload} -> input(%{event | payload: payload}, binding, details, actor, occurred_at)
+      {:error, :too_large} -> {:error, {:invalid_github_input, :payload_too_large}}
+    end
+  end
+
+  defp input(event, binding, details, actor, occurred_at) do
     Input.new(%{
       actor: actor,
       content: %{

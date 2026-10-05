@@ -19,7 +19,7 @@ defmodule Ryker.GitHub.BindingTest do
 
   test "normalizes unique keyword attributes and applies the bounded body default" do
     assert {:ok, binding} = Binding.new(@valid)
-    assert binding.max_body_bytes == 40_000
+    assert binding.max_body_bytes == 1_048_576
     assert binding.work_profile.repository_ref == "octo/example"
   end
 

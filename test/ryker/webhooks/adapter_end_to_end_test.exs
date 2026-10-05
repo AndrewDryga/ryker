@@ -50,6 +50,56 @@ defmodule Ryker.Webhooks.AdapterEndToEndTest do
     assert Jason.decode!(retry.resp_body)["status"] == "duplicate"
   end
 
+  # Past 40,000 bytes a delivery was refused for good, and a Grafana group of
+  # about sixty alerts is that big: the alerts of the incident that mattered
+  # most never arrived (2026-10-04 review).
+  test "a Grafana burst of a hundred alerts is taken whole" do
+    route = route!(%{kind: :grafana, group_by_labels: ["cluster"]})
+
+    # Each alert as Grafana sends it, with its links and value.
+    alerts =
+      for index <- 1..100 do
+        node = "node-#{index}.va1.internal:9100"
+
+        "NodeDown"
+        |> alert("node-#{index}", "2026-09-04T07:55:00Z")
+        |> Map.merge(%{
+          "dashboardURL" => "https://grafana.example/d/nodes?var-instance=#{node}",
+          "endsAt" => "0001-01-01T00:00:00Z",
+          "generatorURL" => "https://grafana.example/alerting/grafana/node-down/view",
+          "panelURL" => "https://grafana.example/d/nodes?viewPanel=4&var-instance=#{node}",
+          "silenceURL" =>
+            "https://grafana.example/alerting/silence/new?matcher=instance%3D#{node}",
+          "valueString" => "[ var='A' labels={instance=#{node}} value=0 ]"
+        })
+        |> update_in(
+          ["labels"],
+          &Map.merge(&1, %{"instance" => node, "job" => "node", "severity" => "critical"})
+        )
+        |> update_in(
+          ["annotations"],
+          &Map.merge(&1, %{
+            "description" => "#{node} has not answered its scrape for five minutes.",
+            "runbook_url" => "https://runbooks.example/node-down"
+          })
+        )
+      end
+
+    body =
+      Jason.encode!(%{
+        "status" => "firing",
+        "groupKey" => "group:va1",
+        "commonLabels" => %{"cluster" => "va1"},
+        "alerts" => alerts
+      })
+
+    assert byte_size(body) > 40_000
+
+    conn = request("grafana", route, body)
+    assert conn.status == 202, conn.resp_body
+    assert Jason.decode!(conn.resp_body)["count"] == 100
+  end
+
   test "Grafana firing and resolved deliveries retain one stable item with ordered revisions" do
     route = route!(%{kind: :grafana, group_by_labels: []})
 

@@ -91,6 +91,58 @@ defmodule Ryker.GitHub.RouterTest do
     assert entry.repository_ref == "octo/example"
   end
 
+  # GitHub sends a comment with the pull request it was left on, description
+  # and all, and with every repository and user object's API links. Past
+  # 40,000 bytes the router refused it for good, so a comment on a pull
+  # request with a long description never reached Ryker (2026-10-04 review).
+  # The API links, which no reader follows, are dropped, then the longest
+  # text is cut until the input fits.
+  test "a comment on a pull request with a long description reaches Ryker" do
+    api = "https://api.github.com/repos/octo/example"
+
+    links =
+      ~w(archive branches collaborators comments commits compare contents events forks hooks
+         issues keys labels languages merges milestones notifications pulls releases tags trees)
+      |> Map.new(&{"#{&1}_url", "#{api}/#{&1}{/name}"})
+      |> Map.put("url", api)
+
+    # A description with release notes pasted in.
+    description = String.duplicate("A paragraph of the pull request's description. ", 2_000)
+
+    payload =
+      payload()
+      |> Map.put("issue", %{
+        "body" => description,
+        "html_url" => "https://github.com/octo/example/pull/42",
+        "number" => 42,
+        "pull_request" => %{
+          "html_url" => "https://github.com/octo/example/pull/42",
+          "url" => "#{api}/pulls/42"
+        },
+        "url" => "#{api}/issues/42"
+      })
+      |> update_in(["repository"], &Map.merge(&1, links))
+
+    body = Jason.encode!(payload)
+    assert byte_size(body) > 40_000
+
+    conn = request(body, delivery_ref: "delivery-long-description")
+    assert conn.status == 202, conn.resp_body
+
+    assert {:ok, entry} = Inbox.fetch(Jason.decode!(conn.resp_body)["input_ref"])
+    kept = entry.content["payload"]
+    assert kept["comment"]["body"] == payload["comment"]["body"]
+    assert kept["issue"]["html_url"] == "https://github.com/octo/example/pull/42"
+
+    assert kept["issue"]["pull_request"] == %{
+             "html_url" => "https://github.com/octo/example/pull/42"
+           }
+
+    refute Map.has_key?(kept["repository"], "issues_url")
+    assert String.ends_with?(kept["issue"]["body"], "…")
+    assert String.starts_with?(description, String.trim_trailing(kept["issue"]["body"], "…"))
+  end
+
   test "repository access is checked before a GitHub conversation request is admitted" do
     body = Jason.encode!(payload())
 
@@ -924,7 +976,7 @@ defmodule Ryker.GitHub.RouterTest do
              delivery_ref: "delivery-media"
            ).status == 415
 
-    oversized = Jason.encode!(%{"body" => String.duplicate("x", 40_001)})
+    oversized = Jason.encode!(%{"body" => String.duplicate("x", 1_048_577)})
     assert request(oversized, delivery_ref: "delivery-large").status == 413
 
     missing_event =

@@ -16,7 +16,7 @@ Every request must:
 
 - use `POST`;
 - use `Content-Type: application/json` or `application/*+json`;
-- fit the route's `max_body_bytes` limit, which cannot exceed 40,000 bytes;
+- fit the route's `max_body_bytes` limit, which cannot exceed 1 MiB (1,048,576 bytes);
 - authenticate with the route's configured mode; and
 - contain exactly one JSON value.
 
@@ -53,7 +53,7 @@ configuration file. One saved source carries:
 | Custom field mapping | Dotted paths, for a custom shape only. Event ID, status and title are required. |
 | Deployment lifecycle filter | Optional deployment environments, kinds, repositories and targets. |
 
-The listener address and port, the 40 KB body limit and the 300-second clock-skew limit are
+The listener address and port, the 1 MiB body limit and the 300-second clock-skew limit are
 deployment and code defaults, not per-source settings. The Work profile comes from the
 environment's reviewed policy bindings, so no form ever names a policy digest. An environment a
 source uses cannot be removed until the source chooses another one.

@@ -22,7 +22,10 @@ defmodule Ryker.DefaultsTest do
     assert Defaults.fetch!(:coop) == %{receive_timeout_ms: 30_000}
     assert Defaults.fetch!(:event_waits) == %{poll_interval_ms: 1_000}
     assert Defaults.fetch!(:coop_worker_gateway) == %{certificate_ttl_seconds: 86_400}
-    assert Defaults.fetch!(:webhooks) == %{max_body_bytes: 40_000, max_clock_skew_seconds: 300}
+    # Raised from 40,000, which refused a Grafana group of about sixty alerts
+    # and a comment on a pull request with a long description for good
+    # (2026-10-04 review).
+    assert Defaults.fetch!(:webhooks) == %{max_body_bytes: 1_048_576, max_clock_skew_seconds: 300}
     assert Defaults.fetch!(:retention).poll_interval_ms == 60_000
     assert Defaults.fetch!(:retention).lease_seconds == 300
     assert Defaults.fetch!(:retention).disposable_bytes_limit == 10_737_418_240
@@ -36,7 +39,7 @@ defmodule Ryker.DefaultsTest do
     assert Defaults.fetch!(:schedules).misfire_grace_seconds == 900
     assert Defaults.fetch!(:learning).batch_size == 16
     assert Defaults.fetch!(:slack).maximum_open_incidents == 25
-    assert Defaults.fetch!(:github).max_body_bytes == 40_000
+    assert Defaults.fetch!(:github).max_body_bytes == 1_048_576
   end
 
   test "retention horizons are never an operational default" do
