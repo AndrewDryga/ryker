@@ -5,7 +5,7 @@ defmodule Ryker.Work.DispatcherTest do
 
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Work.{Custody, Dispatcher, Result, Submission, Turn}
+  alias Ryker.Work.{Custody, Dispatcher, Result, Submission, Turn, ValidationIntent}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -34,6 +34,44 @@ defmodule Ryker.Work.DispatcherTest do
     assert turn.last_error_code == "coop_unavailable"
 
     assert {:ok, :idle} = Dispatcher.run_once(options({:error, reason}))
+  end
+
+  # A finished turn whose saving hit Coop down, a 5xx, a 429 or a command
+  # timeout stopped at once and waited for a click, though trying again
+  # finishes it (2026-10-04 review).
+  test "a finished turn whose saving hits a passing failure is tried again before it stops" do
+    command = create_episode!("completion-transient")
+    assert {:ok, _claim} = Custody.claim_next("worker:completion-transient", 60, :work)
+    {:ok, rejected} = ValidationIntent.new({:reject, ["Answer the question."]}, nil)
+
+    {1, _rows} =
+      Ryker.Repo.update_all(from(saved in Turn, where: saved.episode_id == ^command.episode_id),
+        set: [
+          candidate: ~s({"delivery":"reply","message":"Done."}),
+          candidate_attempt: 1,
+          candidate_sha256: String.duplicate("c", 64),
+          completion_receipt: %{"state" => "completed"},
+          coop_turn_id: "coop-turn-completion-transient",
+          lease_expires_at: nil,
+          lease_owner: nil,
+          lease_ref: nil,
+          validation_intent: rejected
+        ]
+      )
+
+    reason = {:coop_error, 503, "unavailable", "try later"}
+
+    options =
+      Keyword.merge(options({:error, reason}),
+        retry_base_seconds: 3_600,
+        retry_max_seconds: 3_600
+      )
+
+    assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(options)
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :pending
+    assert turn.completion_receipt == %{"state" => "completed"}
   end
 
   test "healthy running Coop work crosses many poll windows without spending failure attempts" do

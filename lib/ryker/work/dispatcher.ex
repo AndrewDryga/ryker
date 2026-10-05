@@ -84,13 +84,20 @@ defmodule Ryker.Work.Dispatcher do
   defp execution_failure(claim, {:work_completion_blocked, receipt, reason}, _settings),
     do: block_completion(claim, receipt, reason)
 
+  # A finished turn whose saving hit Coop down, a 5xx, a 429 or a command
+  # timeout stopped at once and waited for a click, though trying again
+  # finishes it (2026-10-04 review). Such a failure is tried again until the
+  # turn's attempts run out.
   defp execution_failure(
          %{turn: %{status: :pending, completion_receipt: receipt}} = claim,
          reason,
-         _settings
+         settings
        )
-       when is_map(receipt),
-       do: block_completion(claim, receipt, reason)
+       when is_map(receipt) do
+    if retry_class(reason) == :transient and claim.turn.work_attempt_count < settings.max_attempts,
+      do: defer(claim, reported_reason(reason), settings),
+      else: block_completion(claim, receipt, reason)
+  end
 
   defp execution_failure(claim, {:work_execution_blocked, reason}, settings),
     do: stop_or_defer(claim, reason, settings)
