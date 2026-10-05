@@ -90,11 +90,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
       else: String.slice(value, 0, maximum) <> "…"
   end
 
-  def join_ref(nil, nil), do: nil
-
-  def join_ref(kind, ref),
-    do: [kind, ref] |> Enum.reject(&is_nil/1) |> Enum.map_join(":", &to_string/1)
-
   def elapsed(%DateTime{} = left, %DateTime{} = right),
     do: format_ms(max(DateTime.diff(right, left, :millisecond), 0))
 
@@ -141,8 +136,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
   def human(nil), do: "unrecorded"
   def human(value) when is_atom(value), do: value |> Atom.to_string() |> human()
   def human(value) when is_binary(value), do: String.replace(value, "_", " ")
-  # Retained payloads carry whatever an older worker wrote. A structured value
-  # where a label was expected is unreadable, not a reason to lose the page.
+  # A payload is what a worker wrote. A structured value where a label was
+  # expected is unreadable, not a reason to lose the page.
   def human(value) when is_map(value) or is_list(value), do: "unreadable"
   def human(value), do: to_string(value)
 

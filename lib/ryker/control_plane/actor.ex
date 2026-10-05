@@ -26,10 +26,6 @@ defmodule Ryker.ControlPlane.Actor do
   @maximum_login_bytes 200
   @key {__MODULE__, :viewer}
 
-  @doc "The local console: a console reached without Tailscale Serve or Cloudflare Access."
-  @spec local() :: String.t()
-  def local, do: @local
-
   @doc "What `viewer`'s actions are recorded as."
   @spec of(Viewer.t() | nil) :: String.t()
   def of(%{login: login, via: via}), do: "control-plane:#{via}:" <> login

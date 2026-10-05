@@ -178,8 +178,6 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       # The investigation starts in the same transaction that makes the room
       # ready, so its request's creation is when it did.
       ready_at: episode && episode.inserted_at,
-      record_ref:
-        Repo.one(from(record in Record, where: record.id == ^room.record_id, select: record.ref)),
       ref: room.ref,
       repository_name: RepositoryNames.name(names, room.repository_ref),
       repository_ref: room.repository_ref,
