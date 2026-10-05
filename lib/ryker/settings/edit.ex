@@ -2,8 +2,6 @@ defmodule Ryker.Settings.Edit do
   @moduledoc false
   use Ecto.Schema
 
-  # Retired policy settings and one-time imports remain readable in audit history.
-  # Nothing writes new :policies or :import edits.
   @domains [
     :installation,
     :retention,
@@ -15,11 +13,9 @@ defmodule Ryker.Settings.Edit do
     :learning,
     :repositories,
     :environments,
-    :policies,
     :webhooks,
     :pricing,
-    :work,
-    :import
+    :work
   ]
   @primary_key {:id, :binary_id, autogenerate: false}
 

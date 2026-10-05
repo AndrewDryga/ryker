@@ -132,16 +132,25 @@ defmodule Ryker.Settings.Validation do
     end)
   end
 
+  # Git's own rule for a branch name (`git check-ref-format --branch`): a
+  # name it refuses saved here and then failed every push made with it.
   def validate_git_ref(changeset, field) do
     validate_change(changeset, field, fn ^field, value ->
-      invalid =
-        byte_size(value) > 240 or String.starts_with?(value, ["-", "/"]) or
-          String.ends_with?(value, ["/", "."]) or
-          String.contains?(value, ["..", "@{", " ", "~", "^", ":", "?", "*", "[", "\\"]) or
-          String.trim(value) == ""
-
-      if invalid, do: [{field, {"must be a safe Git ref", validation: :git_ref}}], else: []
+      if git_ref?(value),
+        do: [],
+        else: [{field, {"must be a safe Git ref", validation: :git_ref}}]
     end)
+  end
+
+  defp git_ref?(value) do
+    byte_size(value) in 1..240 and value != "@" and
+      not String.starts_with?(value, ["-", "/"]) and
+      not String.ends_with?(value, ["/", "."]) and
+      not String.contains?(value, ["..", "//", "@{", " ", "~", "^", ":", "?", "*", "[", "\\"]) and
+      not Regex.match?(~r/[\x00-\x1f\x7f]/, value) and
+      value
+      |> String.split("/")
+      |> Enum.all?(&(not String.starts_with?(&1, ".") and not String.ends_with?(&1, ".lock")))
   end
 
   def validate_known(changeset, field, known, reason) do

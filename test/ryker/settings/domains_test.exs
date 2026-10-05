@@ -260,6 +260,34 @@ defmodule Ryker.Settings.DomainsTest do
            ]
   end
 
+  # The base branch and the branch prefix go into the ref names Coop's worker
+  # pushes. The check let through names Git refuses (a part starting with a
+  # dot or ending in .lock, "//", a control character), so the setting saved
+  # and every publication on it then failed at the push (2026-10-04 review).
+  test "a branch Git would refuse is refused when it is saved" do
+    {:ok, _saved} = Settings.put_repository(%{ref: "ryker"}, 1, @actor)
+
+    for branch <- [
+          ".hidden",
+          "release/.next",
+          "main.lock",
+          "team/x.lock",
+          "a//b",
+          "tab\tname",
+          "@"
+        ] do
+      result = Settings.put_repository(%{ref: "ryker", base_branch: branch}, :current, @actor)
+
+      assert match?({:error, {:invalid_settings, [{:base_branch, :git_ref}]}}, result),
+             "#{inspect(branch)} was saved"
+    end
+
+    for branch <- ["release/2026.10", "main", "feature/x-1"] do
+      assert {:ok, _saved} =
+               Settings.put_repository(%{ref: "ryker", base_branch: branch}, :current, @actor)
+    end
+  end
+
   test "an identical collection save is a no-op and an unknown field is refused everywhere", %{
     snapshot: snapshot
   } do
@@ -338,10 +366,10 @@ defmodule Ryker.Settings.DomainsTest do
     assert Enum.map(saved.repositories, & &1.ref) == ["ryker"]
   end
 
-  test "retired policy edit receipts stay readable without a settings registry" do
-    edit = Repo.get_by!(Edit, revision: 1)
+  # The retired policy and import domains have no settings and no command.
+  # Their old edits stay in the audit until its horizon, as rows nothing reads.
+  test "retired policy edits stay in the audit without a settings registry" do
     Repo.query!("UPDATE settings_edits SET domain = 'policies' WHERE revision = 1")
-    assert Repo.get!(Edit, edit.id).domain == :policies
     assert {:ok, snapshot} = Settings.fetch()
     refute Map.has_key?(snapshot, :policy_bindings)
     refute function_exported?(Settings, :put_policy_binding, 3)
@@ -474,9 +502,7 @@ defmodule Ryker.Settings.DomainsTest do
 
     assert revision == length(saves()) + 1
     assert recorded -- Edit.domains() == []
-
-    # Retired domains remain decodable, but no current settings command writes them.
-    assert Edit.domains() -- recorded == [:policies, :import]
+    assert Edit.domains() -- recorded == []
   end
 
   defp saves do

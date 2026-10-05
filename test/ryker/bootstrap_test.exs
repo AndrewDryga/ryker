@@ -190,6 +190,38 @@ defmodule Ryker.BootstrapTest do
     assert_raise ArgumentError, ~r/DATABASE_URL/, fn -> Bootstrap.load!(&Map.fetch(%{}, &1)) end
   end
 
+  # Optional services were read only where they are used, and a value that
+  # could not work turned the service off without a word: an embeddings
+  # address without its scheme left routing searching by words alone
+  # (2026-10-04 review). Compose passes an unset one as empty.
+  test "an optional service set to a value that cannot work refuses the boot" do
+    invalid = [
+      {"RYKER_EMBEDDINGS_URL", "host.docker.internal:8180/private-secret"},
+      {"RYKER_WHISPER_URL", "ftp://example.com/private-secret"},
+      {"RYKER_WHISPER_DETECT_URL", "http:///private-secret"},
+      {"RYKER_BUNDLED_COOP_WORKER_ID", "a worker private-secret"},
+      {"RYKER_BUNDLED_COOP_WORKSPACE", "a/b private-secret"},
+      {"RYKER_BUNDLED_COOP_SHARED", "relative/private-secret"},
+      {"RYKER_VOICE_LANGUAGES", "Ukrainian,private-secret"}
+    ]
+
+    for {name, value} <- invalid do
+      error = assert_raise ArgumentError, fn -> Bootstrap.load!(environment(%{name => value})) end
+      assert error.message =~ name
+      refute error.message =~ "private-secret"
+    end
+
+    valid = %{
+      "RYKER_EMBEDDINGS_URL" => "http://host.docker.internal:8180",
+      "RYKER_WHISPER_URL" => "",
+      "RYKER_BUNDLED_COOP_WORKER_ID" => "ryker-compose",
+      "RYKER_BUNDLED_COOP_SHARED" => "/var/lib/ryker-coop",
+      "RYKER_VOICE_LANGUAGES" => "uk, en"
+    }
+
+    assert %Bootstrap{} = Bootstrap.load!(environment(valid))
+  end
+
   test "worker TLS configuration is explicit and cannot partially enable a listener" do
     transport = %{
       "RYKER_WORKER_PUBLIC_URL" => "https://ryker.example:4322",

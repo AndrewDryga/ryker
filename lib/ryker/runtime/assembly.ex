@@ -4,8 +4,11 @@ defmodule Ryker.Runtime.Assembly do
   durable settings.
 
   This is the only place product settings become runtime bindings. It performs
-  no database writes and no network calls: credentials stay behind lazy
-  providers, execution templates come from the controller's saved settings,
+  no database writes and no network calls. It reads the saved credentials it
+  must check before it starts what uses them (the GitHub App key and webhook
+  secret, each webhook source's secret) and, once per build, the values every
+  page and log redacts with; the Slack and Emisar tokens stay behind lazy
+  providers. Execution templates come from the controller's saved settings,
   and a domain whose required settings are absent is simply not started. An
   integration is enabled by its saved connection, never by the presence of a
   credential in the environment.
@@ -38,7 +41,7 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.GitHubStatus
   alias Ryker.Secret
-  alias Ryker.Settings.{Environment, GitHubBinding}
+  alias Ryker.Settings.{EmisarConnection, Environment, GitHubBinding}
   alias Ryker.Slack.ActionTokens
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
   alias Ryker.Slack.Client, as: SlackClient
@@ -1694,18 +1697,10 @@ defmodule Ryker.Runtime.Assembly do
     {Ryker.CoopFleet.Client, client}
   end
 
-  # The exact HTTPS RPC endpoint, never an origin to guess a path from.
   defp rpc_endpoint(url) do
-    case URI.parse(url) do
-      %URI{scheme: "https", host: host, path: path} = uri
-      when is_binary(host) and host != "" and is_binary(path) and path != "" ->
-        origin =
-          uri |> Map.merge(%{path: nil, query: nil, fragment: nil}) |> URI.to_string()
-
-        {:ok, %{origin: String.trim_trailing(origin, "/"), path: path, url: URI.to_string(uri)}}
-
-      _invalid ->
-        {:error, :address_invalid}
+    case EmisarConnection.endpoint(url) do
+      {:ok, endpoint} -> {:ok, endpoint}
+      :error -> {:error, :address_invalid}
     end
   end
 

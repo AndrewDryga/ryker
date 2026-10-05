@@ -76,15 +76,34 @@ defmodule Ryker.Settings.EmisarConnection do
     end
   end
 
+  @doc """
+  The parts of an Emisar RPC address: the exact HTTPS endpoint, never an
+  origin to guess a path from, with no credentials, query or fragment.
+  """
+  @spec endpoint(term()) ::
+          {:ok, %{origin: String.t(), path: String.t(), url: String.t()}} | :error
+  def endpoint(url) when is_binary(url) and byte_size(url) <= 2_048 do
+    case URI.parse(url) do
+      %URI{scheme: "https", host: host, path: path, userinfo: nil, query: nil, fragment: nil} =
+          uri
+      when is_binary(host) and host != "" and is_binary(path) and path != "" ->
+        origin = uri |> Map.put(:path, nil) |> URI.to_string() |> String.trim_trailing("/")
+        {:ok, %{origin: origin, path: path, url: URI.to_string(uri)}}
+
+      _invalid ->
+        :error
+    end
+  end
+
+  def endpoint(_url), do: :error
+
   defp validate_rpc_url(changeset) do
     validate_change(changeset, :rpc_url, fn :rpc_url, value ->
-      case URI.parse(value) do
-        %URI{scheme: "https", host: host, path: path, userinfo: nil, query: nil, fragment: nil}
-        when is_binary(host) and host != "" and is_binary(path) and path != "" and
-               byte_size(value) <= 2_048 ->
+      case endpoint(value) do
+        {:ok, _endpoint} ->
           []
 
-        _invalid ->
+        :error ->
           [
             rpc_url:
               {"must be an HTTPS endpoint without credentials, query or fragment",

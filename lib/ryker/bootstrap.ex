@@ -36,6 +36,7 @@ defmodule Ryker.Bootstrap do
   ]
 
   def load!(env \\ &System.fetch_env/1) do
+    :ok = optional_services!(env)
     control_plane = control_listener!(env)
 
     control_public_url =
@@ -247,6 +248,53 @@ defmodule Ryker.Bootstrap do
   defp path!(value, name) do
     if Path.type(value) != :absolute, do: invalid!(name, "must be an absolute path")
     value
+  end
+
+  # Optional services are read where they are used (`Ryker.Embeddings`,
+  # `Ryker.Transcription`, `Ryker.BundledCoop`). A value that cannot work
+  # refuses the boot here, instead of turning its service off without a word.
+  # Compose passes an unset one as empty.
+  defp optional_services!(env) do
+    for name <- ~w(RYKER_EMBEDDINGS_URL RYKER_WHISPER_URL RYKER_WHISPER_DETECT_URL),
+        value = optional(env, name),
+        do: service_url!(value, name)
+
+    for name <- ~w(RYKER_BUNDLED_COOP_WORKER_ID RYKER_BUNDLED_COOP_WORKSPACE),
+        value = optional(env, name),
+        not Regex.match?(~r/\A[A-Za-z0-9._:-]{1,128}\z/, value),
+        do: invalid!(name, "must be letters, digits, '.', '_', ':' and '-'")
+
+    if shared = optional(env, "RYKER_BUNDLED_COOP_SHARED"),
+      do: path!(shared, "RYKER_BUNDLED_COOP_SHARED")
+
+    if languages = optional(env, "RYKER_VOICE_LANGUAGES") do
+      unless languages
+             |> String.split([",", " "], trim: true)
+             |> Enum.all?(&Regex.match?(~r/\A[a-z]{2,3}\z/i, &1)),
+             do:
+               invalid!("RYKER_VOICE_LANGUAGES", "must list two- or three-letter language codes")
+    end
+
+    :ok
+  end
+
+  defp optional(env, name) do
+    case env.(name) do
+      {:ok, ""} -> nil
+      {:ok, value} -> validate_text!(value, name)
+      :error -> nil
+    end
+  end
+
+  defp service_url!(value, name) do
+    case URI.parse(value) do
+      %URI{scheme: scheme, host: host, userinfo: nil, fragment: nil}
+      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+        value
+
+      _invalid ->
+        invalid!(name, "must be an HTTP or HTTPS address without credentials")
+    end
   end
 
   defp log_level!(env) do
