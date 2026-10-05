@@ -100,6 +100,69 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
     assert Repo.aggregate(Certificate, :count) == 2
   end
 
+  # Enrolling again left every earlier certificate valid until it expired, up
+  # to a week, and any of them could renew itself meanwhile (2026-10-04 review).
+  test "enrolling a worker again cuts off every certificate it had" do
+    authority = authority()
+    first = enroll!("worker-reenrolled", authority)
+
+    assert {:ok, renewed} =
+             Enrollment.renew(
+               certificate_der(first["certificate_pem"]),
+               %{"public_key_pem" => public_key_pem(private_key())},
+               authority
+             )
+
+    again = enroll!("worker-reenrolled", authority)
+
+    for earlier <- [first, renewed] do
+      assert {:error, :coop_worker_certificate_not_authorized} =
+               earlier["certificate_pem"]
+               |> certificate_der()
+               |> ControlPlane.authenticate_certificate()
+    end
+
+    assert {:ok, "worker-reenrolled"} =
+             again["certificate_pem"]
+             |> certificate_der()
+             |> ControlPlane.authenticate_certificate()
+  end
+
+  test "a renewal leaves valid only the certificate that asked and the new one" do
+    authority = authority()
+    enrolled = enroll!("worker-renewals", authority)
+    first = certificate_der(enrolled["certificate_pem"])
+
+    renew = fn der ->
+      Enrollment.renew(der, %{"public_key_pem" => public_key_pem(private_key())}, authority)
+    end
+
+    assert {:ok, lost} = renew.(first)
+    # The answer was lost, so the worker asks again with the certificate it has.
+    assert {:ok, second} = renew.(first)
+    second = certificate_der(second["certificate_pem"])
+
+    assert {:error, :coop_worker_certificate_not_authorized} =
+             lost["certificate_pem"]
+             |> certificate_der()
+             |> ControlPlane.authenticate_certificate()
+
+    assert {:ok, third} = renew.(second)
+
+    assert {:error, :coop_worker_certificate_not_authorized} =
+             ControlPlane.authenticate_certificate(first)
+
+    assert {:ok, "worker-renewals"} = ControlPlane.authenticate_certificate(second)
+
+    assert {:ok, "worker-renewals"} =
+             third["certificate_pem"]
+             |> certificate_der()
+             |> ControlPlane.authenticate_certificate()
+
+    # A certificate cut off this way cannot renew either.
+    assert {:error, :coop_worker_certificate_not_authorized} = renew.(first)
+  end
+
   test "a token cannot be redirected to another worker or workspace" do
     authority = authority()
 
@@ -170,6 +233,19 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
                %{"public_key_pem" => public_key_pem(private_key())},
                authority
              )
+  end
+
+  defp enroll!(worker_id, authority) do
+    assert {:ok, issued} =
+             Enrollment.issue_token(worker_id, "workspace-main", "operator:andrew", 300)
+
+    assert {:ok, enrolled} =
+             Enrollment.enroll(
+               %{"public_key_pem" => public_key_pem(private_key()), "token" => issued.token},
+               authority
+             )
+
+    enrolled
   end
 
   defp authority do

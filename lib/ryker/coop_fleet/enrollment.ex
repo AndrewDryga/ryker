@@ -109,6 +109,10 @@ defmodule Ryker.CoopFleet.Enrollment do
     issued = issue_certificate!(request.public_key_pem, token.worker_id, signer, now)
     worker = upsert_enrolled_worker!(token.worker_id, token.workspace_ref, issued.sha256)
     insert_certificate!(worker.id, token.id, issued, :enrollment, token.operator_ref)
+    # Enrolling again replaces the worker's identity, so the certificates it
+    # had stop working now; they stayed valid until they expired, up to a week
+    # (2026-10-04 review).
+    revoke_others!(worker.id, [issued.sha256], now, token.operator_ref)
 
     token
     |> change(%{certificate_sha256: issued.sha256, consumed_at: now})
@@ -141,6 +145,11 @@ defmodule Ryker.CoopFleet.Enrollment do
 
     issued = issue_certificate!(request.public_key_pem, worker.id, signer, now)
     insert_certificate!(worker.id, nil, issued, :renewal, "worker:#{worker.id}")
+    # The certificate that asked stays valid beside the new one, so a lost
+    # answer cannot strand the worker. Every other one stops: each copy of an
+    # older key could otherwise renew itself for as long as it lived
+    # (2026-10-04 review).
+    revoke_others!(worker.id, [issued.sha256, certificate.sha256], now, "worker:#{worker.id}")
 
     worker =
       worker
@@ -150,6 +159,19 @@ defmodule Ryker.CoopFleet.Enrollment do
       |> unwrap_write()
 
     response(worker, issued, signer.ca_certificate_pem)
+  end
+
+  defp revoke_others!(worker_id, kept, now, revoked_by) do
+    Repo.update_all(
+      from(certificate in Certificate,
+        where:
+          certificate.worker_id == ^worker_id and is_nil(certificate.revoked_at) and
+            certificate.sha256 not in ^kept
+      ),
+      set: [revoked_at: now, revoked_by: revoked_by]
+    )
+
+    :ok
   end
 
   defp ensure_token_usable!(token, now) do
