@@ -728,7 +728,10 @@ defmodule Ryker.Slack.GatewayTest do
 
     assert payload["response_type"] == "ephemeral"
     assert payload["text"] =~ "as many incident rooms open as it keeps"
-    assert payload["text"] =~ "Archive a room"
+    # It said to archive a room, but an archived room keeps its place, since
+    # it can come back; only Close frees one (2026-10-04 review).
+    assert payload["text"] =~ "Close one whose incident is over"
+    refute payload["text"] =~ "Archive"
     assert_received {:audited_interaction, "interaction:env-rooms-full", :invalid}
   end
 

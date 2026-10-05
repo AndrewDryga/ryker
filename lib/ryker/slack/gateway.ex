@@ -569,8 +569,9 @@ defmodule Ryker.Slack.Gateway do
     %{
       "response_type" => "ephemeral",
       "text" =>
-        "Ryker already has as many incident rooms open as it keeps. Archive a room " <>
-          "whose incident is over, then press again."
+        "Ryker already has as many incident rooms open as it keeps. Close one whose " <>
+          "incident is over on Ryker's Incident rooms page, then press again. An " <>
+          "archived room keeps its place, since it can come back."
     }
   end
 
