@@ -17,15 +17,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   alias Ryker.Schedules.Schedule
   alias Ryker.Slack.IncidentRoom
 
-  @doc "The episode's platform actions, oldest first, bounded."
+  @doc "The episode's newest 200 platform actions, oldest first."
   def platform_actions(episode_id) do
     Repo.all(
       from(action in PlatformAction,
         where: action.episode_id == ^episode_id,
-        order_by: [asc: action.inserted_at, asc: action.id],
+        order_by: [desc: action.inserted_at, desc: action.id],
         limit: 200
       )
     )
+    |> Enum.reverse()
   end
 
   @doc """
@@ -37,7 +38,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   """
   def platform_action_steps(actions) do
     Enum.flat_map(actions, fn action ->
-      platform = capitalize(action.transport)
+      platform = platform(action.transport)
 
       asked =
         step(
@@ -45,7 +46,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
           :outcome,
           action.inserted_at,
           %{
-            actor: action.transport,
+            actor: platform,
             details:
               compact_details([
                 {"Action", action.action_ref, identifier: true},
@@ -65,7 +66,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
         [
           asked,
           step("platform-action-#{action.id}-confirmed", :outcome, action.delivered_at, %{
-            actor: action.transport,
+            actor: platform,
             delivery_ref: action.action_ref,
             details: [],
             stage: "Platform action",
@@ -90,6 +91,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
 
   defp platform_action_request(_action), do: "post the message"
 
+  # Where an action went, as people call it: "Asked Control_plane to post the
+  # message." (2026-10-04 review).
+  defp platform("control_plane"), do: "Chat"
+  defp platform("github"), do: "GitHub"
+  defp platform(transport), do: capitalize(transport)
+
   defp platform_action_done(%PlatformAction{kind: :reaction, document: document}) do
     case reaction(document) do
       {"remove", emoji} -> "removed #{emoji} from the message"
@@ -109,10 +116,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
     Repo.all(
       from(room in IncidentRoom,
         where: room.episode_id == ^episode_id or room.source_episode_id == ^episode_id,
-        order_by: [asc: room.requested_at, asc: room.id],
+        order_by: [desc: room.requested_at, desc: room.id],
         limit: 50
       )
     )
+    |> Enum.reverse()
     |> Enum.map(fn room ->
       step(
         "incident-#{room.id}",
@@ -136,15 +144,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
     end)
   end
 
-  @doc "The episode's publications, oldest first, bounded."
+  @doc "The episode's newest 50 publications, oldest first."
   def publications(episode_id) do
     Repo.all(
       from(publication in Publication,
         where: publication.episode_id == ^episode_id,
-        order_by: [asc: publication.inserted_at, asc: publication.id],
+        order_by: [desc: publication.inserted_at, desc: publication.id],
         limit: 50
       )
     )
+    |> Enum.reverse()
   end
 
   @doc "Each publication as requested, and as published when it was."
@@ -215,8 +224,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
         }
       end
 
+    # A discarded draft ended; nothing more will happen to it (2026-10-04 review).
     publication_status =
-      for publication <- publications, publication.status != :published do
+      for publication <- publications, publication.status not in [:published, :discarded] do
         %{
           id: "publication-#{publication.id}",
           title: InspectionRedactor.artifact(publication.title).text,
@@ -235,10 +245,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
     Repo.all(
       from(schedule in Schedule,
         where: schedule.source_episode_id == ^episode_id,
-        order_by: [asc: schedule.confirmed_at, asc: schedule.id],
+        order_by: [desc: schedule.confirmed_at, desc: schedule.id],
         limit: 50
       )
     )
+    |> Enum.reverse()
     |> Enum.map(fn schedule ->
       step(
         "schedule-#{schedule.id}",

@@ -180,11 +180,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
       Repo.all(
         from(e in Entry,
           where: e.episode_id == ^episode.id,
-          order_by: [asc: e.occurred_at, asc: e.id],
+          order_by: [desc: e.occurred_at, desc: e.id],
           limit: 200,
           select: e.id
         )
       )
+      |> Enum.reverse()
       |> LearningRequests.entries(
         secrets: options[:secrets],
         disclosed: disclosed,

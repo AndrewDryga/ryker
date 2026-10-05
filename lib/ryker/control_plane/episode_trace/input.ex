@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
+  alias Ryker.ControlPlane.ConsolePeople
   alias Ryker.Episodes.{Episode, Origins}
   alias Ryker.Episodes.Words
   alias Ryker.GitHub.Input, as: GitHubInput
@@ -17,16 +18,28 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   alias Ryker.Slack.Names
   alias Ryker.StateTools.TaskTools
 
-  @doc "The episode's admitted inputs, oldest first, bounded."
+  @doc """
+  The episode's admitted inputs, oldest first: the one that started it and the
+  newest 200. The oldest 200 left a long request's timeline stopping long
+  before the request did (2026-10-04 review).
+  """
   @spec rows(Ecto.UUID.t()) :: [Entry.t()]
   def rows(episode_id) do
-    Repo.all(
-      from(entry in Entry,
-        where: entry.episode_id == ^episode_id,
-        order_by: [asc: entry.occurred_at, asc: entry.id],
-        limit: 200
+    in_episode = from(entry in Entry, where: entry.episode_id == ^episode_id)
+
+    first =
+      Repo.one(
+        from(entry in in_episode, order_by: [asc: entry.occurred_at, asc: entry.id], limit: 1)
       )
-    )
+
+    newest =
+      from(entry in in_episode, order_by: [desc: entry.occurred_at, desc: entry.id], limit: 200)
+      |> Repo.all()
+      |> Enum.reverse()
+
+    if is_nil(first) or Enum.any?(newest, &(&1.id == first.id)),
+      do: newest,
+      else: [first | newest]
   end
 
   @doc """
@@ -127,11 +140,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
     do: for(%{boundary: true} = input <- admitted, into: %{}, do: {input.dedupe_key, input.id})
 
   defp admitted_message(%{payload: %{"payload" => %{"task" => %{} = task} = payload} = envelope}) do
+    {actor, person} = approver(envelope, payload["confirmed_by"])
+
     %{
       boundary: false,
       title: "Task approved",
-      actor: "Slack user",
-      person: slack_person(envelope, payload["confirmed_by"]),
+      actor: actor,
+      person: person,
       text:
         [
           present_text(task["title"]) && "**#{task["title"]}**",
@@ -240,6 +255,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
     if is_binary(url) and String.starts_with?(url, "https://github.com/"),
       do: %{href: url, label: "Open in GitHub"}
+  end
+
+  # Who approved a task, named the way the page names them where they approved
+  # it: every approval read "Slack user", one given in Chat too (2026-10-04
+  # review).
+  defp approver(envelope, confirmed_by) do
+    case ConsolePeople.person(confirmed_by) do
+      %{name: name} -> {name, nil}
+      nil -> {"Slack user", slack_person(envelope, confirmed_by)}
+    end
   end
 
   defp slack_person(%{"destination" => %{"conversation_ref" => "slack:" <> rest}}, actor)

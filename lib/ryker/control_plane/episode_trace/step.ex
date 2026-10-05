@@ -82,8 +82,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
 
   def bounded_strings(_values), do: []
 
-  def bounded(value, maximum) when byte_size(value) <= maximum, do: value
-  def bounded(value, maximum), do: String.slice(value, 0, maximum) <> "…"
+  # In characters, as the cut is: counting bytes put an ellipsis on accented
+  # text that fitted (2026-10-04 review).
+  def bounded(value, maximum) do
+    if String.length(value) <= maximum,
+      do: value,
+      else: String.slice(value, 0, maximum) <> "…"
+  end
 
   def join_ref(nil, nil), do: nil
 

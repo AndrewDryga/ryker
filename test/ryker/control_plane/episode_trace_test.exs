@@ -1,4 +1,5 @@
 defmodule Ryker.ControlPlane.EpisodeTraceTest do
+  alias Ryker.ControlPlane.ConsolePeople
   alias Ryker.ControlPlane.EpisodeTrace
   alias Ryker.ControlPlane.ModelRequests
   alias Ryker.Slack.Names
@@ -156,6 +157,75 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   # cards stay as they were at their time, so the first one says what Ryker
   # asked for rather than a state that goes stale, both name the emoji, and
   # the request card is what a supporting record links to.
+  # A request past 200 messages showed its oldest 200 and none of what came after, so the
+  # timeline stopped long before the request did (2026-10-04 review). It keeps the message that
+  # started the request and the newest after it.
+  test "a long request's timeline keeps its first message and its newest ones" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    for index <- 1..205 do
+      {:ok, input} =
+        Input.new(%{
+          actor: %{kind: :user, ref: "U123"},
+          channel_ref: "C456",
+          content: %{"text" => "Timeline message #{index}"},
+          event_kind: :message,
+          event_ref: "Ev-long-timeline-#{index}",
+          message_ref: "1787832099.#{String.pad_leading(to_string(index), 6, "0")}",
+          occurred_at: DateTime.add(~U[2026-08-28 12:00:00.000000Z], index),
+          revision: 1,
+          thread_ref: nil,
+          workspace_ref: "T123"
+        })
+
+      {:ok, %{entry: entry}} = Inbox.record(input)
+
+      Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
+        set: [
+          episode_id: episode.id,
+          status: :decided,
+          decision_action: :continue_episode,
+          decision_ref: "decision:long-timeline:#{index}",
+          decision_fingerprint: String.duplicate("a", 64),
+          decision_document: %{"action" => "continue_episode", "episode_ref" => episode.key}
+        ]
+      )
+    end
+
+    texts = Enum.map(EpisodeTrace.Input.rows(episode.id), & &1.content["text"])
+
+    assert hd(texts) == "Timeline message 1"
+    assert List.last(texts) == "Timeline message 205"
+    refute "Timeline message 2" in texts
+    assert length(texts) == 201
+  end
+
+  # "Follow-up status · Current" listed a discarded draft as outstanding, though nothing more
+  # will happen to it (2026-10-04 review).
+  # The bound counted bytes but cut characters, so text with an accent that fitted got an
+  # ellipsis it did not need (2026-10-04 review).
+  test "a timeline text bound counts characters, as its cut does" do
+    fits = "é" <> String.duplicate("a", 99)
+    assert EpisodeTrace.Step.bounded(fits, 100) == fits
+
+    long = String.duplicate("é", 101)
+    assert EpisodeTrace.Step.bounded(long, 100) == String.duplicate("é", 100) <> "…"
+  end
+
+  test "a discarded draft is not listed as outstanding" do
+    publication = %Ryker.Publication.Publication{
+      id: Ecto.UUID.generate(),
+      title: "Fix parser retries",
+      status: :discarded,
+      last_error_code: nil
+    }
+
+    assert EpisodeTrace.Outcome.follow_through([], [publication], nil) == []
+
+    assert [%{state: "Blocked"}] =
+             EpisodeTrace.Outcome.follow_through([], [%{publication | status: :blocked}], nil)
+  end
+
   test "a reaction reads as what Ryker asked and what Slack confirmed, never a stale state" do
     queued_at = ~U[2026-09-26 17:18:00.100000Z]
 
@@ -191,6 +261,49 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
     assert only.summary == "Asked Slack to add 👍 to the message."
     assert is_nil(only.state)
+  end
+
+  # A task approved in Chat was credited to "Slack user", and a Chat action card read "Asked
+  # Control_plane to post the message." (2026-10-04 review).
+  test "work done in Chat is credited to Chat and its person, never to Slack" do
+    approval = %Ryker.Episodes.Event{
+      kind: :input_admitted,
+      dedupe_key: "admit_input:chat-approval",
+      occurred_at: ~U[2026-09-26 17:18:00.000000Z],
+      payload: %{
+        "destination" => %{
+          "conversation_ref" => "control_plane:chat-1",
+          "transport" => "control_plane"
+        },
+        "payload" => %{
+          "confirmed_by" => "control-plane:local",
+          "task" => %{"title" => "Fix parser retries", "prompt" => "Fix the parser."}
+        }
+      }
+    }
+
+    assert [%{message: approved}] = EpisodeTrace.Input.admitted([approval], %{})
+    refute approved.actor == "Slack user"
+    assert approved.actor == ConsolePeople.person("control-plane:local").name
+
+    action = %Ryker.Delivery.PlatformAction{
+      id: Ecto.UUID.generate(),
+      action_ref: "platform-action:" <> String.duplicate("b", 64),
+      conversation_ref: "control_plane:chat-1",
+      document: %{"text" => "Here is the update."},
+      kind: :message,
+      tool: :post_slack_message,
+      transport: "control_plane",
+      status: :delivered,
+      inserted_at: ~U[2026-09-26 17:19:00.000000Z],
+      delivered_at: ~U[2026-09-26 17:19:01.000000Z]
+    }
+
+    assert [asked, confirmed] = EpisodeTrace.Outcome.platform_action_steps([action])
+    assert asked.summary == "Asked Chat to post the message."
+    assert confirmed.summary == "Chat posted the message."
+    assert asked.actor == "Chat"
+    assert confirmed.actor == "Chat"
   end
 
   test "the timeline keeps the reference a citation was made from" do
