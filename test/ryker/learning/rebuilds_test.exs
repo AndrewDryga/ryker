@@ -4,6 +4,7 @@ defmodule Ryker.Learning.RebuildsTest do
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Ingress.RecallText
 
   alias Ryker.Learning.{Batch, Batches, Dispatcher, FleetSession, InputMembership, Rebuilds}
 
@@ -105,7 +106,11 @@ defmodule Ryker.Learning.RebuildsTest do
     prompt = Jason.decode!(run.prompt)
     assert prompt["custom_instructions"]["global"]["text"] == "Keep original attribution."
     assert prompt["knowledge"] == []
-    assert Enum.map(prompt["inputs"], & &1["content"]) == [current.content]
+
+    assert Enum.map(prompt["inputs"], & &1["content"]) == [
+             %{"text" => RecallText.prose(current.content)}
+           ]
+
     refute run.prompt =~ topic.state["summary"]
     refute run.prompt =~ topic.topic_key
     assert prompt["rebuild_target"]["topic_id"] == topic.id

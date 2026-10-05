@@ -96,7 +96,8 @@ defmodule Ryker.Learning.LearningTest do
     assert input["native_input_id"] == raw["native_input_id"]
     assert input["source_item_ref"] == raw["source_item_ref"]
     assert input["source_input_id"] == raw["id"]
-    assert input["content"] == raw["content"]
+    # The message's own words, once: not its blocks and attachments again.
+    assert input["content"] == %{"text" => RecallText.prose(raw["content"])}
     assert input["source"] == %{"kind" => raw["source_kind"], "ref" => raw["source_ref"]}
     assert input["actor"] == %{"kind" => raw["actor_kind"], "ref" => raw["actor_ref"]}
     assert input["revision"] == raw["revision"]
@@ -133,7 +134,10 @@ defmodule Ryker.Learning.LearningTest do
     assert run.status == :prepared
     prompt = Jason.decode!(run.prompt)
     assert Enum.map(prompt["inputs"], & &1["source_input_id"]) == Enum.map(entries, & &1.id)
-    assert Enum.map(prompt["inputs"], & &1["content"]) == Enum.map(entries, & &1.content)
+
+    assert Enum.map(prompt["inputs"], & &1["content"]) ==
+             Enum.map(entries, &%{"text" => RecallText.prose(&1.content)})
+
     assert prompt["knowledge"] == []
     assert {:ok, ^run} = Learning.authorize(run.id)
     candidate = result(entries)

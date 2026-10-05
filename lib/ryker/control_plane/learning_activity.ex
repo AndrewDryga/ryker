@@ -692,6 +692,10 @@ defmodule Ryker.ControlPlane.LearningActivity do
     do:
       "Only greetings, thanks or short replies like \"ok\", so Ryker did not ask a model to learn from them."
 
+  def error("learning_input_too_large"),
+    do:
+      "This message is more than one learning request can hold, so Ryker learned from the others without it."
+
   def error("source_unavailable"),
     do:
       "The messages were deleted or changed before Ryker learned from them, so there was nothing left to read."

@@ -79,7 +79,12 @@ defmodule Ryker.Learning.LearningContextPackingTest do
 
     Repo.update!(
       Ecto.Changeset.change(first,
-        content: Map.put(first.content, "padding", String.duplicate("x", 65_536 - raw_bytes - 64))
+        content:
+          Map.update!(
+            first.content,
+            "text",
+            &(&1 <> String.duplicate("x", 65_536 - raw_bytes - 64))
+          )
       )
     )
 
@@ -226,7 +231,9 @@ defmodule Ryker.Learning.LearningContextPackingTest do
     assert byte_size(run.prompt) <= 65_536
     assert prompt["knowledge"] == run.knowledge
     assert Enum.map(prompt["inputs"], & &1["source_input_id"]) == Enum.map(entries, & &1.id)
-    assert Enum.map(prompt["inputs"], & &1["content"]) == Enum.map(entries, & &1.content)
+    # A message reads as its own words once (`RecallText.prose/1`).
+    assert Enum.map(prompt["inputs"], & &1["content"]) ==
+             Enum.map(entries, &%{"text" => RecallText.prose(&1.content)})
 
     assert run.source_dependencies ==
              LearningSources.merge([

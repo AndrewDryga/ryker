@@ -76,8 +76,29 @@ defmodule Ryker.Learning.Dispatcher do
       {:error, :learning_source_stale} ->
         unavailable_sources(claim, settings)
 
+      {:error, :learning_capacity_exceeded} ->
+        too_large(claim, settings)
+
       {:error, reason} ->
         Batches.finish(claim, :deferred, code(reason))
+    end
+  end
+
+  # The largest message is left out and the rest are learned; a batch whose
+  # every message was too large has nothing left to learn from.
+  defp too_large(claim, settings) do
+    case Batches.retire_largest(claim) do
+      {:ok, %{inputs: []}} ->
+        Batches.finish(claim, :superseded, "learning_input_too_large")
+
+      {:ok, _claim} ->
+        Batches.release(claim, :learning_input_too_large, settings.step_delay_seconds)
+
+      {:error, :learning_capacity_exceeded} ->
+        Batches.finish(claim, :deferred, "learning_capacity_exceeded")
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

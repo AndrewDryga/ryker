@@ -2,6 +2,7 @@ defmodule Ryker.Evals.LearningRunnerTest do
   use Ryker.DataCase, async: false
   alias Mix.Tasks.Ryker.LearningEval
   alias Ryker.Evals.{Job, LearningRunner}
+  alias Ryker.Ingress.RecallText
   alias Ryker.TestSupport.FakeCoopAPI, as: Fake
 
   defmodule HostAPI do
@@ -466,7 +467,9 @@ defmodule Ryker.Evals.LearningRunnerTest do
 
       inputs = Enum.flat_map(report.runs, &Jason.decode!(&1["prompt"])["inputs"])
       assert Enum.map(inputs, & &1["source_input_id"]) == Enum.map(sequence, & &1.input["id"])
-      assert Enum.map(inputs, & &1["content"]) == Enum.map(sequence, & &1.input["content"])
+      # Each message as its own words, once (`RecallText.prose/1`).
+      assert Enum.map(inputs, & &1["content"]) ==
+               Enum.map(sequence, &%{"text" => RecallText.prose(&1.input["content"])})
 
       assert Enum.map(inputs, & &1["actor"]) == [
                %{"kind" => "app", "ref" => "A0TENANTAP1"},
@@ -536,7 +539,10 @@ defmodule Ryker.Evals.LearningRunnerTest do
       inputs = Enum.flat_map(report.runs, &Jason.decode!(&1["prompt"])["inputs"])
 
       assert Enum.map(inputs, & &1["content"]) ==
-               Enum.map([firing, resolved, recurrence], & &1.input["content"])
+               Enum.map(
+                 [firing, resolved, recurrence],
+                 &%{"text" => RecallText.prose(&1.input["content"])}
+               )
 
       assert Enum.all?(report.steps, &(&1.cleanup == :discarded))
       assert Enum.map(report.steps, & &1.batch["start_count"]) == [1, 1, 1]

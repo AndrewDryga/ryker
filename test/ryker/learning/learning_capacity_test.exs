@@ -5,6 +5,7 @@ defmodule Ryker.Learning.LearningCapacityTest do
   alias Ryker.{CanonicalJSON, Episodes}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.RecallText
 
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
@@ -48,7 +49,7 @@ defmodule Ryker.Learning.LearningCapacityTest do
     assert prompt["knowledge"] == [offered]
     assert [input] = prompt["inputs"]
     assert input["source_input_id"] == entry.id
-    assert input["content"] == entry.content
+    assert input["content"] == %{"text" => RecallText.prose(entry.content)}
     assert run.prompt =~ before.state["summary"]
     assert {:ok, ^run} = Learning.authorize(run.id)
 

@@ -334,6 +334,38 @@ defmodule Ryker.Learning.Batches do
     end)
   end
 
+  @doc """
+  Leaves out the batch's largest message once the batch is too large to
+  learn from at once, so the rest are learned. Deferring the whole batch left
+  up to sixteen messages unlearned for good (2026-10-04 review). A rebuild
+  relearns one topic from exactly its sources and keeps them all.
+  """
+  def retire_largest(claim) do
+    with_lease(claim, fn ->
+      batch = owned!(claim)
+      if batch.rebuild_target_id, do: Repo.rollback(:learning_capacity_exceeded)
+
+      batch.id
+      |> assigned_inputs()
+      |> Enum.max_by(&Learning.input_bytes/1, fn -> nil end)
+      |> retire_too_large(batch)
+
+      Learning.broadcast_learning_updated(batch.id)
+      {:ok, %{claim | batch: batch, inputs: inputs(batch.id)}}
+    end)
+  end
+
+  defp retire_too_large(nil, _batch), do: :ok
+
+  defp retire_too_large(largest, batch) do
+    Repo.update_all(
+      from(m in InputMembership,
+        where: m.batch_id == ^batch.id and m.input_id == ^largest.id and is_nil(m.terminal_reason)
+      ),
+      set: [terminal_reason: "learning_input_too_large", updated_at: Repo.now!()]
+    )
+  end
+
   defp current_members!(%{rebuild_target_id: nil} = batch, members),
     do: retire_unavailable_members!(batch, members)
 

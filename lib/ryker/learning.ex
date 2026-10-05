@@ -9,6 +9,7 @@ defmodule Ryker.Learning do
   import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.RecallText
   alias Ryker.Learning.{Batches, Rebuilds}
   alias Ryker.Reference
   alias Ryker.Repo
@@ -1080,6 +1081,13 @@ defmodule Ryker.Learning do
     }
   end
 
+  @doc false
+  @spec input_bytes(Entry.t()) :: non_neg_integer()
+  def input_bytes(entry), do: entry |> input_document() |> CanonicalJSON.encode!() |> byte_size()
+
+  # A message as the model reads it among others: its own words once. Slack
+  # sends a message's text again as blocks, and the raw content made one
+  # message too large for a learning prompt (2026-10-04 review).
   defp input_document(entry) do
     %{
       "source_input_id" => entry.id,
@@ -1090,7 +1098,7 @@ defmodule Ryker.Learning do
         "conversation_ref" => entry.destination_conversation_ref,
         "thread_ref" => entry.destination_thread_ref
       },
-      "content" => entry.content,
+      "content" => %{"text" => RecallText.prose(entry.content)},
       "revision" => entry.revision,
       "actor" => %{"kind" => Atom.to_string(entry.actor_kind), "ref" => entry.actor_ref},
       "source" => %{"kind" => entry.source_kind, "ref" => entry.source_ref},

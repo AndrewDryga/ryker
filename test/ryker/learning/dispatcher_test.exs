@@ -500,6 +500,22 @@ defmodule Ryker.Learning.DispatcherTest do
     assert Repo.aggregate(LearningRun, :count) == 2
   end
 
+  # One message too large for a learning prompt failed its whole batch's
+  # preparation, and the batch was deferred for good: up to sixteen messages
+  # never learned from (2026-10-04 review). The largest is left out and the
+  # rest are learned.
+  test "a message too large to learn from is left out, and the rest of its batch learned" do
+    [large, survivor] = inputs!()
+    say!([large.id], String.duplicate("é", 40_000))
+    {:ok, fake} = FakeCoopAPI.start_link([result([survivor])])
+
+    assert %{status: :applied} = drive_to_applied!(Map.put(@settings, :client, fake), 6)
+    assert Repo.get!(InputMembership, large.id).terminal_reason == "learning_input_too_large"
+    assert Repo.get!(InputMembership, survivor.id).terminal_reason == "applied"
+    assert [run] = Repo.all(LearningRun)
+    assert Enum.map(run.inputs, & &1["source_input_id"]) == [survivor.id]
+  end
+
   test "an empty valid-input set is terminal without a model session" do
     ids = inputs!() |> Enum.map(& &1.id)
     %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
