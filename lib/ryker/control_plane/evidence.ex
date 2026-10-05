@@ -17,31 +17,22 @@ defmodule Ryker.ControlPlane.Evidence do
   badges per card.
   """
 
-  @applicability_states ~w(applies not_applicable skipped not_reached)a
-  @availability_states ~w(recorded not_recorded upstream_elided loading unavailable expired redacted)a
+  @applicability_states ~w(not_applicable not_reached)a
+  @availability_states ~w(recorded not_recorded unavailable redacted)a
 
-  @type applicability_state :: :applies | :not_applicable | :skipped | :not_reached
-  @type availability_state ::
-          :recorded
-          | :not_recorded
-          | :upstream_elided
-          | :loading
-          | :unavailable
-          | :expired
-          | :redacted
+  @type applicability_state :: :not_applicable | :not_reached
+  @type availability_state :: :recorded | :not_recorded | :unavailable | :redacted
 
   @doc """
-  Whether this step could apply at all. Not applicable, deliberately skipped
-  and never reached are three different facts and each needs actual evidence;
-  none of them may be inferred from an absent row.
+  Why a step did not apply: it could not apply at all, or it was never
+  reached. They are different facts and each needs actual evidence; neither
+  may be inferred from an absent row.
   """
   @spec applicability(applicability_state(), keyword()) :: map()
   def applicability(state, options \\ []) when state in @applicability_states do
     label =
       case state do
-        :applies -> "Applies"
         :not_applicable -> "Not applicable"
-        :skipped -> "Skipped"
         :not_reached -> "Not reached"
       end
 
@@ -66,10 +57,7 @@ defmodule Ryker.ControlPlane.Evidence do
       case state do
         :recorded -> "Recorded"
         :not_recorded -> "Not recorded"
-        :upstream_elided -> "Elided by the source"
-        :loading -> "Loading"
         :unavailable -> "Unavailable"
-        :expired -> "Expired"
         :redacted -> "Redacted"
       end
 
@@ -78,7 +66,7 @@ defmodule Ryker.ControlPlane.Evidence do
       state: state,
       label: label,
       known?: state == :recorded,
-      tone: if(state in [:unavailable, :expired], do: :warn),
+      tone: if(state == :unavailable, do: :warn),
       detail: detail(options)
     }
   end
@@ -93,13 +81,11 @@ defmodule Ryker.ControlPlane.Evidence do
   def count(value, options \\ [])
 
   def count(nil, options) do
-    availability = Keyword.get(options, :availability, :not_recorded)
-
     %{
       dimension: :count,
       value: nil,
       known?: false,
-      label: availability(availability, options).label,
+      label: availability(:not_recorded).label,
       scope: Keyword.get(options, :scope),
       snapshot: Keyword.get(options, :snapshot, :historical)
     }

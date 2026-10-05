@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.EvidenceTest do
   end
 
   test "every availability except recorded means the reader is looking at an absence" do
-    for state <- [:not_recorded, :upstream_elided, :loading, :unavailable, :expired, :redacted] do
+    for state <- [:not_recorded, :unavailable, :redacted] do
       described = Evidence.availability(state)
       refute described.known?, "#{state} must not read as known evidence"
       refute described.label == "0"
@@ -34,25 +34,22 @@ defmodule Ryker.ControlPlane.EvidenceTest do
     assert Evidence.availability(:recorded).known?
   end
 
-  test "expired, redacted and never-recorded stay distinguishable" do
+  test "unavailable, redacted and never-recorded stay distinguishable" do
     labels =
-      for state <- [:not_recorded, :upstream_elided, :unavailable, :expired, :redacted],
+      for state <- [:not_recorded, :unavailable, :redacted],
           do: Evidence.availability(state).label
 
     assert labels == Enum.uniq(labels)
   end
 
-  test "not applicable, skipped and not reached are three separate facts" do
+  test "not applicable and not reached are separate facts" do
     labels =
-      for state <- [:not_applicable, :skipped, :not_reached],
+      for state <- [:not_applicable, :not_reached],
           do: Evidence.applicability(state).label
 
     assert labels == Enum.uniq(labels)
     # A neutral non-match is ordinary information, not a failure.
-    assert Enum.all?(
-             [:not_applicable, :skipped, :not_reached],
-             &(Evidence.applicability(&1).tone == nil)
-           )
+    assert Enum.all?([:not_applicable, :not_reached], &(Evidence.applicability(&1).tone == nil))
   end
 
   test "live evidence carries when it was observed and historical evidence stays frozen" do
