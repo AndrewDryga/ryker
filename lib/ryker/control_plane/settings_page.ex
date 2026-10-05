@@ -1032,7 +1032,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       </details>
       <p :if={@view.snapshot.github.app_slug} class="settings-lede">
         <a
-          href={"https://github.com/apps/#{@view.snapshot.github.app_slug}/installations/new"}
+          href={app_install_url(@view.snapshot.github.api_url, @view.snapshot.github.app_slug)}
           target="_blank"
           rel="noopener noreferrer"
         >Install the App in another organization</a>
@@ -1043,6 +1043,23 @@ defmodule Ryker.ControlPlane.SettingsPage do
       <.github_form label="Replace credentials" />
     </Kit.section_card>
     """
+  end
+
+  @doc """
+  Where a person installs the App: github.com, or the GitHub Enterprise server
+  its API lives on. The link always led to github.com (2026-10-04 review).
+  """
+  @spec app_install_url(String.t() | nil, String.t()) :: String.t()
+  def app_install_url(api_url, slug) do
+    case URI.parse(api_url || "") do
+      %URI{scheme: "https", host: host, port: port}
+      when is_binary(host) and host != "api.github.com" ->
+        URI.to_string(%URI{scheme: "https", host: host, port: port}) <>
+          "/github-apps/#{slug}/installations/new"
+
+      _github_com ->
+        "https://github.com/apps/#{slug}/installations/new"
+    end
   end
 
   attr(:label, :string, required: true)
