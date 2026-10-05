@@ -515,7 +515,7 @@ defmodule Ryker.IntegrationSetupTest do
     # merging was derived with no tool to use it (2026-10-04 review).
     # Approving is the repository's own choice, off until someone makes it.
     assert binding.action_grants ==
-             ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci)
+             ~w(read review rerun_ci cancel_ci)
 
     refute binding.approvals_allowed
   end
@@ -1036,7 +1036,7 @@ defmodule Ryker.IntegrationSetupTest do
 
     refreshed = hd(Settings.fetch!().github_bindings)
     assert refreshed.granted_permissions["issues"] == "write"
-    assert refreshed.action_grants == ~w(read issues)
+    assert refreshed.action_grants == ~w(read)
 
     assert {:ok, []} =
              Access.apply(

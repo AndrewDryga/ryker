@@ -5,9 +5,11 @@ defmodule Ryker.Settings.GitHubBinding do
   alias Ryker.Settings.Validation
 
   @primary_key {:name, :string, autogenerate: false}
-  # What the App's permissions let Ryker do here. Approving a pull request is
-  # not among them: it is the repository's own choice (`approvals_allowed`).
-  @action_grants ~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci issues)
+  # What the App's permissions let Ryker's tools do here, each one a tool
+  # checks. Approving a pull request is not among them: it is the repository's
+  # own choice (`approvals_allowed`). Coop's worker opens and updates pull
+  # requests under a publication's own approval.
+  @action_grants ~w(read review rerun_ci cancel_ci)
   @fields ~w(name repository_ref installation_id repository_id ryker_actor_id action_grants granted_permissions approvals_allowed)a
 
   schema "github_binding_settings" do
@@ -16,9 +18,7 @@ defmodule Ryker.Settings.GitHubBinding do
     field(:repository_id, :integer)
     field(:ryker_actor_id, :integer)
 
-    field(:action_grants, {:array, :string},
-      default: ~w(read review open_pull_request update_ryker_branch rerun_ci)
-    )
+    field(:action_grants, {:array, :string}, default: ~w(read review rerun_ci))
 
     field(:granted_permissions, :map, default: %{})
     field(:approvals_allowed, :boolean, default: false)

@@ -1074,17 +1074,8 @@ defmodule Ryker.IntegrationSetup do
 
     ["read"]
     |> maybe_grant(write?(permissions, "pull_requests"), "review")
-    |> maybe_grant(
-      write?(permissions, "contents") and write?(permissions, "pull_requests"),
-      "open_pull_request"
-    )
-    |> maybe_grant(
-      write?(permissions, "contents") and write?(permissions, "pull_requests"),
-      "update_ryker_branch"
-    )
     |> maybe_grant(write?(permissions, "actions"), "rerun_ci")
     |> maybe_grant(write?(permissions, "actions"), "cancel_ci")
-    |> maybe_grant(write?(permissions, "issues"), "issues")
   end
 
   defp normalize_github_permissions(permissions) when is_map(permissions) do
