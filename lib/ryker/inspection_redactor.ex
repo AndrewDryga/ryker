@@ -261,16 +261,35 @@ defmodule Ryker.InspectionRedactor do
       @marker
     )
     |> String.replace(~r/(?i)\bBearer\s+[A-Za-z0-9._~+\/-]+/, "Bearer [redacted]")
-    |> String.replace(~r/\b(?:xox[baprs]-|gh[pousr]_|github_pat_|sk-)[A-Za-z0-9_-]+/, @marker)
+    |> scrub_basic()
+    |> String.replace(
+      ~r/\b(?:xox[baprs]-|xapp-|xoxe[.-]|gh[pousr]_|github_pat_|sk-|[sr]k_(?:live|test)_|glpat-)[A-Za-z0-9_-]+/,
+      @marker
+    )
+    |> String.replace(~r/\b(?:AKIA[0-9A-Z]{16}\b|AIza[0-9A-Za-z_-]{35})/, @marker)
     |> String.replace(
       ~r/(?i)\b(password|passwd|(?:access[_-]?)?token|(?:client[_-]?)?secret|api[_-]?key)["']?\s*[:=]\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s,;]+)/,
       "\\1=[redacted]"
     )
   end
 
+  # Basic authorization is base64 of user:password; a word after "Basic"
+  # that does not decode to that is prose.
+  defp scrub_basic(value) do
+    Regex.replace(~r/\bBasic\s+([A-Za-z0-9+\/]{4,}={0,2})/, value, fn match, encoded ->
+      if credential_pair?(Base.decode64(encoded)), do: "Basic " <> @marker, else: match
+    end)
+  end
+
+  defp credential_pair?({:ok, decoded}),
+    do: String.valid?(decoded) and String.printable?(decoded) and String.contains?(decoded, ":")
+
+  defp credential_pair?(:error), do: false
+
+  # Any scheme: a database or cache URL carries its password as userinfo.
   defp scrub_urls(value) do
     Regex.replace(
-      ~r/(?<=<)https?:\/\/[^\s<>"'|]+(?=\|[^<>\r\n]*>)|https?:\/\/[^\s<>"']+/,
+      ~r/(?<=<)https?:\/\/[^\s<>"'|]+(?=\|[^<>\r\n]*>)|\b[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s<>"']+/,
       value,
       fn url ->
         # Prose and Markdown delimiters are not part of a signed URL. Scrub the
@@ -280,10 +299,28 @@ defmodule Ryker.InspectionRedactor do
         uri = URI.parse(resource)
         # Signed links and opaque query parameters are not inspection credentials.
         # Preserve the useful resource path; omit query and fragment wholesale.
-        URI.to_string(%{uri | userinfo: nil, query: nil, fragment: nil}) <> suffix
+        path = secret_path(uri.host, uri.path)
+        URI.to_string(%{uri | userinfo: nil, path: path, query: nil, fragment: nil}) <> suffix
       end
     )
   end
+
+  # Incoming webhooks whose path is itself the credential keep only the part
+  # that says what they are.
+  defp secret_path(host, "/" <> _rest = path) when is_binary(host) do
+    cond do
+      String.downcase(host) == "hooks.slack.com" ->
+        Regex.replace(~r/\A(\/[^\/]+\/).+\z/s, path, "\\1" <> @marker)
+
+      Regex.match?(~r/\A(?:[a-z0-9-]+\.)?discord(?:app)?\.com\z/i, host) ->
+        Regex.replace(~r/\A(\/api\/webhooks\/).+\z/s, path, "\\1" <> @marker)
+
+      true ->
+        path
+    end
+  end
+
+  defp secret_path(_host, path), do: path
 
   defp utf8_prefix(text, maximum), do: text |> binary_part(0, maximum) |> valid_prefix()
 

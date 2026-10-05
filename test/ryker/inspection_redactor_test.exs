@@ -207,4 +207,58 @@ defmodule Ryker.InspectionRedactorTest do
     assert "named-secret" in values
     refute "do-not-hide" in values
   end
+
+  # Redacted text is what the training copies keep for a year, and these
+  # credential shapes passed through it whole: basic authorization, a password
+  # in a database URL, a Slack incoming webhook whose path is the secret,
+  # Slack app-level and refresh tokens, and cloud keys (2026-10-04 review).
+  test "credentials in the shapes logs and configs print them are removed" do
+    basic = Base.encode64("deploy:hunter2-basic")
+
+    text = """
+    curl -H "Authorization: Basic #{basic}" https://ci.example.com/api
+    DATABASE_URL=postgres://ryker:db-password-1@db.internal:5432/ryker
+    redis://:cache-password-1@cache.internal:6379/0
+    posted to https://hooks.slack.com/services/T0001/B0002/webhookpath1secret
+    and https://discord.com/api/webhooks/123456/discordpath1secret
+    xapp-1-A0001-0002-appleveltoken1 xoxe.xoxp-1-refreshtoken1 xoxe-1-refreshtoken2
+    AKIAIOSFODNN7EXAMPLE AIzaSyA-1234567890abcdefghijklmnopqrstu
+    sk_live_stripesecret1 glpat-gitlabtoken12345
+    Basic setup is done; the database is db.internal.
+    """
+
+    redacted = InspectionRedactor.redact(text, [])
+
+    for secret <- [
+          basic,
+          "db-password-1",
+          "cache-password-1",
+          "webhookpath1secret",
+          "discordpath1secret",
+          "appleveltoken1",
+          "refreshtoken1",
+          "refreshtoken2",
+          "AKIAIOSFODNN7EXAMPLE",
+          "AIzaSyA-1234567890abcdefghijklmnopqrstu",
+          "stripesecret1",
+          "gitlabtoken12345"
+        ] do
+      refute redacted =~ secret, "#{secret} was kept"
+    end
+
+    assert redacted =~ "postgres://db.internal:5432/ryker"
+    assert redacted =~ "https://hooks.slack.com/services/[redacted]"
+    assert redacted =~ "Basic setup is done; the database is db.internal."
+  end
+
+  test "a webhook route's sealed secret is among the configured secrets" do
+    values =
+      InspectionRedactor.secret_values(
+        webhook_routes: [
+          %{name: "alerts", auth: {:hmac_sha256, %Ryker.Secret{value: "sealed-hmac-secret"}}}
+        ]
+      )
+
+    assert "sealed-hmac-secret" in values
+  end
 end
