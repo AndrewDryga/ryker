@@ -865,6 +865,40 @@ defmodule Ryker.IntegrationSetupTest do
     end
   end
 
+  # acme/platform-api and acme-platform/api both became the ref
+  # acme-platform-api, so adding the second replaced the first repository and
+  # its binding, and its environments and history then pointed at the other
+  # one (2026-10-04 review). Each keeps its own ref.
+  test "two repositories whose names read alike are both kept" do
+    connect_github!()
+
+    imported =
+      for {name, id} <- [{"acme/platform-api", 801}, {"acme-platform/api", 802}] do
+        %{
+          default_branch: "main",
+          full_name: name,
+          installation_account: "Acme",
+          installation_account_id: 99,
+          installation_id: 41,
+          permissions: %{"contents" => "write", "pull_requests" => "write"},
+          private: true,
+          repository_id: id
+        }
+      end
+
+    assert {:ok, %{added: ["acme/platform-api", "acme-platform/api"], failed: []}} =
+             IntegrationSetup.import_github_repositories(imported, requester: Requester)
+
+    snapshot = Settings.fetch!()
+    names = Map.new(snapshot.repositories, &{&1.github_repository, &1.ref})
+    assert map_size(names) == 2
+    assert names["acme/platform-api"] != names["acme-platform/api"]
+
+    bindings = Map.new(snapshot.github_bindings, &{&1.repository_id, &1.repository_ref})
+    assert bindings[801] == names["acme/platform-api"]
+    assert bindings[802] == names["acme-platform/api"]
+  end
+
   # "Add new repositories automatically" never added anything: GitHub names a
   # repository the App was just given only in an installation_repositories
   # event, and no binding names that repository yet, so the router answered

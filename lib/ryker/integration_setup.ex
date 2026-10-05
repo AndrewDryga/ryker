@@ -1015,7 +1015,7 @@ defmodule Ryker.IntegrationSetup do
   # repository saved half-way before is finished here instead of added again.
   defp persist_repository(repository, ryker_actor_id, existing) do
     full_name = repository_value(repository, :full_name)
-    ref = if existing, do: existing.ref, else: repository_ref(full_name)
+    ref = if existing, do: existing.ref, else: unused_ref(full_name, Settings.fetch!())
 
     Settings.atomically(fn ->
       with {:ok, _snapshot} <- put_imported_repository(existing, ref, repository),
@@ -1347,6 +1347,21 @@ defmodule Ryker.IntegrationSetup do
     Map.get(repository, key) || Map.get(repository, Atom.to_string(key))
   end
 
+  # The ref a newly added repository is saved under. Names that read alike,
+  # acme/platform-api and acme-platform/api, normalize to one ref, and the
+  # second added replaced the first repository and its binding; a ref another
+  # repository holds takes a short suffix of the name's digest instead.
+  defp unused_ref(full_name, snapshot) do
+    ref = repository_ref(full_name)
+
+    if Enum.any?(snapshot.repositories, &(&1.ref == ref and &1.github_repository != full_name)),
+      do: String.slice(ref, 0, 54) <> "-" <> name_digest(full_name),
+      else: ref
+  end
+
+  defp name_digest(full_name),
+    do: :crypto.hash(:sha256, full_name) |> Base.encode16(case: :lower) |> String.slice(0, 8)
+
   defp repository_ref(full_name) do
     normalized =
       full_name
@@ -1357,14 +1372,9 @@ defmodule Ryker.IntegrationSetup do
     normalized =
       if Regex.match?(~r/\A[a-z]/, normalized), do: normalized, else: "repo-" <> normalized
 
-    if byte_size(normalized) <= 63 do
-      normalized
-    else
-      digest =
-        :crypto.hash(:sha256, full_name) |> Base.encode16(case: :lower) |> String.slice(0, 8)
-
-      String.slice(normalized, 0, 54) <> "-" <> digest
-    end
+    if byte_size(normalized) <= 63,
+      do: normalized,
+      else: String.slice(normalized, 0, 54) <> "-" <> name_digest(full_name)
   end
 
   defp generate_secret, do: :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
