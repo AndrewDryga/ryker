@@ -153,14 +153,13 @@ services:
 
   ryker-coop:
     # The Coop version and revision are pinned once, in
-    # deploy/compose/coop/Dockerfile. COOP_VERSION in the environment overrides
-    # that pin for a build; RYKER_COOP_IMAGE names a prebuilt image instead.
+    # deploy/compose/coop/Dockerfile. To run another Coop, build its image and
+    # name it in RYKER_COOP_IMAGE; overriding the version alone only relabeled
+    # the pinned revision (2026-10-04 review).
     image: ${RYKER_COOP_IMAGE:-ryker-coop:local}
     build:
       context: .
       dockerfile: deploy/compose/coop/Dockerfile
-      args:
-        - COOP_VERSION
     restart: unless-stopped
     depends_on:
       ryker:

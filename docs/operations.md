@@ -5,7 +5,13 @@ the immutable Ryker image, stores their data in named volumes, and keeps install
 owner-only `.ryker/compose.env` file. Do not copy Slack, GitHub, Emisar, or webhook credentials
 into that file; configure those integrations in the local setup UI, where Ryker encrypts them in
 PostgreSQL. Sign the Coop worker in to its model account during install or with
-`scripts/compose.sh model-login`; that sign-in stays in the worker's private volume.
+`scripts/compose.sh model-login`; that sign-in stays in the worker's private volume, and a login
+that does not finish puts the previous sign-in back.
+
+One lifecycle command runs at a time. The `compose.sh` commands that start, stop or replace part
+of the project (install, restore, start, stop, restart, upgrade, model-login, backup, uninstall,
+destroy) hold `.ryker/lifecycle.lock` while they run and refuse while another command holds it. A
+lock left by a process that is gone is taken over.
 
 PostgreSQL is the durable authority for ingress, episodes, Work, delivery, waits, schedules,
 approvals, publication, worker placement and retention. Restarting containers recovers that
@@ -162,6 +168,9 @@ The Compose installation in this checkout was re-baselined this way on 2026-09-2
 rows in `schema_migrations` stay, so an earlier image started against it still finds nothing to
 run.
 
+A release refuses to start on a database that a newer release has migrated, and names the newer
+migrations. Restore the backup taken before that release, or upgrade to that release again.
+
 ## Backup and restore
 
 Create a backup while the project is running:
@@ -174,7 +183,8 @@ The helper pauses Ryker while it captures a consistent PostgreSQL dump, private 
 (including encrypted checkpoint bodies), and the generated environment containing decryption
 keys. Ryker then runs again while the helper archives the bundled worker's state as
 `worker-state.tar.gz`: its model sign-in and its identity key, without the caches Coop downloads
-again. It restarts the previously running controller even if the backup fails. Worker leases use
+again or its temporary files. The worker keeps working meanwhile, and a file it changes during the
+archive does not fail the backup. It restarts the previously running controller even if the backup fails. Worker leases use
 their normal expiry rules during this maintenance window; allow time for large bodies to copy.
 Pre-deploy backups hold the database, the encrypted files and the environment, and not the
 worker's state. Store these owner-only archives as sensitive material.
@@ -186,7 +196,10 @@ scripts/compose.sh restore .ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz
 ```
 
 Restore refuses an archive whose cryptographic roots differ from an existing installation. With no
-existing installation state it restores the archived roots first. It then checks the archive before
+existing installation state it restores the archived roots first, unless another checkout's
+installation already owns this host's database volume. It pins the release the backup was taken
+on, so restoring a pre-deploy backup rolls the deploy back; that release's image must be on this
+host, or the restore stops before changing anything. It then checks the archive before
 changing anything: it must hold the database dump, the environment and the encrypted files, and the
 dump must read. Only then does it stop Ryker, restore the database beside the live one, and swap
 the restored copy in once it is whole; the database Ryker ran on before stays as

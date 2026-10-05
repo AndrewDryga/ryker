@@ -20,6 +20,10 @@ defmodule Ryker.Release do
     settings = settings!(options)
 
     with_repo!(settings, fn repo ->
+      repo
+      |> Ecto.Migrator.migrations([settings.migrations_path], migrator_options(settings))
+      |> refuse_newer_schema!()
+
       Ecto.Migrator.run(
         repo,
         settings.migrations_path,
@@ -27,6 +31,40 @@ defmodule Ryker.Release do
         migrator_options(settings, all: true)
       )
     end)
+  end
+
+  @doc """
+  The applied migrations newer than the newest one this release carries.
+
+  Ecto skips an applied version it has no file for, so the release a failed
+  deploy left pinned booted on a schema a newer release had migrated and wrote
+  to it (2026-10-04 review). The baseline replaced the older ladder, whose
+  versions are all older than it, so they never count.
+  """
+  @spec newer_than_release([{:up | :down, integer(), String.t()}]) :: [integer()]
+  def newer_than_release(migrations) do
+    newest =
+      migrations
+      |> Enum.reject(&missing_file?/1)
+      |> Enum.map(&elem(&1, 1))
+      |> Enum.max(fn -> 0 end)
+
+    for {:up, version, _name} = migration <- migrations,
+        missing_file?(migration) and version > newest,
+        do: version
+  end
+
+  defp missing_file?({_state, _version, name}), do: name == "** FILE NOT FOUND **"
+
+  defp refuse_newer_schema!(migrations) do
+    case newer_than_release(migrations) do
+      [] ->
+        :ok
+
+      newer ->
+        raise "the database has migrations newer than this release (#{Enum.join(newer, ", ")}); " <>
+                "restore the backup taken before the newer release, or deploy that release again"
+    end
   end
 
   @spec rollback(pos_integer(), keyword()) :: [integer()]

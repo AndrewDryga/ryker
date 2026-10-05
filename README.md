@@ -71,9 +71,9 @@ tag, `v0.1.0`, is the earlier Go release, which is not in `main`'s history.
 
 The installer creates owner-only state in `.ryker/`, generates the database password and Ryker’s
 cryptographic roots once, builds the Ryker and bundled Coop worker images from the checkout, starts
-them with PostgreSQL and the worker's private Docker daemon, signs the worker in to its model account
-(it reuses an existing Codex sign-in on the host, or asks), verifies health, readiness and the exact
-running version, then prints the local setup URL. Running it again keeps the same
+them with PostgreSQL and the worker's private Docker daemon, signs the worker in to a model account
+of its own (never the host's sign-in, which would share one refresh token), verifies health,
+readiness and the exact running version, then prints the local setup URL. Running it again keeps the same
 keys and volumes.
 
 Slack, GitHub, Emisar and webhook credentials are entered in the setup UI and encrypted in

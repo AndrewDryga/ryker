@@ -317,6 +317,41 @@ defmodule Ryker.ReleaseTest do
                  fn -> Release.rollback(latest - 1, log: false) end
   end
 
+  # Ecto skips an applied version it has no file for, so the release a failed
+  # deploy left pinned booted on a schema it did not know and wrote to it
+  # (2026-10-04 review). A database a newer release migrated is refused.
+  test "migrating refuses a database a newer release has migrated" do
+    older =
+      Path.join(System.tmp_dir!(), "ryker-older-release-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(older)
+    on_exit(fn -> File.rm_rf!(older) end)
+
+    [baseline | _newer] =
+      :ryker
+      |> Application.app_dir("priv/repo/migrations/*.exs")
+      |> Path.wildcard()
+      |> Enum.sort()
+
+    File.cp!(baseline, Path.join(older, Path.basename(baseline)))
+
+    assert_raise RuntimeError, ~r/newer than this release/, fn ->
+      Release.migrate(log: false, migrations_path: older)
+    end
+  end
+
+  test "only an applied version newer than every migration the release carries counts" do
+    migrations = [
+      {:up, 20_260_901_000_000, "** FILE NOT FOUND **"},
+      {:up, 20_260_926_100_000, "baseline"},
+      {:down, 20_261_005_000_000, "pending"},
+      {:up, 20_261_006_000_000, "** FILE NOT FOUND **"}
+    ]
+
+    assert Release.newer_than_release(migrations) == [20_261_006_000_000]
+    assert Release.newer_than_release(Enum.take(migrations, 3)) == []
+  end
+
   test "release migration entrypoints reject unsafe operator arguments" do
     assert_raise ArgumentError, ~r/positive integer/, fn -> Release.rollback(0) end
     assert_raise ArgumentError, ~r/must be a keyword/, fn -> Release.migrations(%{}) end

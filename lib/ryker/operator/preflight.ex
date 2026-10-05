@@ -102,17 +102,14 @@ defmodule Ryker.Operator.Preflight do
   end
 
   defp schema_check do
-    pending =
-      Repo
-      |> Ecto.Migrator.migrations()
-      |> Enum.flat_map(fn
-        {:down, version, name} -> [%{name: name, version: version}]
-        _current -> []
-      end)
+    migrations = Ecto.Migrator.migrations(Repo)
+    pending = for {:down, version, name} <- migrations, do: %{name: name, version: version}
 
-    if pending == [],
-      do: {:ok, %{pending: []}},
-      else: {:error, {:pending_migrations, pending}}
+    case Ryker.Release.newer_than_release(migrations) do
+      [] when pending == [] -> {:ok, %{pending: []}}
+      [] -> {:error, {:pending_migrations, pending}}
+      newer -> {:error, {:database_newer_than_release, newer}}
+    end
   end
 
   defp run_check({name, check}) do

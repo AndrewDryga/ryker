@@ -113,8 +113,9 @@ COPY --from=build --chown=ryker:ryker /build/_build/prod/rel/ryker ./
 COPY --from=ffmpeg /opt/ffmpeg/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=whisper /opt/whisper /opt/whisper
 COPY --chown=ryker:ryker deploy/compose/entrypoint.sh /usr/local/bin/ryker-entrypoint
+COPY --chown=ryker:ryker deploy/compose/gateway-pki.sh /usr/local/bin/ryker-gateway-pki
 
-RUN chmod 0755 /usr/local/bin/ryker-entrypoint \
+RUN chmod 0755 /usr/local/bin/ryker-entrypoint /usr/local/bin/ryker-gateway-pki \
  && mkdir -p /var/lib/ryker \
  && chown ryker:ryker /var/lib/ryker
 

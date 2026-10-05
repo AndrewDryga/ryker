@@ -8,6 +8,15 @@ set -eu
 repository=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 state_dir=${RYKER_INSTALL_STATE:-$repository/.ryker}
 env_file=$state_dir/compose.env
+# shellcheck source=scripts/compose-lifecycle.sh
+. "$repository/scripts/compose-lifecycle.sh"
+
+# The commands that start, stop or replace part of the project hold the
+# lifecycle lock until they exit.
+lock_lifecycle() {
+  take_lifecycle_lock "$1"
+  trap release_lifecycle_lock EXIT
+}
 
 usage() {
   echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke WORKER_ID OPERATOR_REF|replay SOURCE_INPUT_REF REQUEST_REF OPERATOR ACTION_REF|replay-show REPLAY_INPUT_REF|doctor|backup|restore FILE|uninstall|destroy" >&2
@@ -43,16 +52,17 @@ require_clean_checkout() {
   fi
 }
 
-# Signs a model account in on the worker volume. Coop refuses a sign-in whose
-# project directory holds its own network records, and the container's working
-# directory "/" holds everything, so it runs from /tmp. It also refuses to record
-# a process whose id is 1, and `run --entrypoint coop` makes coop process 1, so a
-# shell stays process 1 and runs it as a child (the `exit` keeps sh from
-# replacing itself with coop).
+# Signs a model account in on the worker volume with
+# deploy/compose/coop/model-login.sh, which puts the previous sign-in back when
+# the login does not finish. The script goes to the worker's shell from this
+# checkout, so the worker image, which a deploy never rebuilds, needs no copy.
+# Coop refuses a sign-in whose project directory holds its own network records,
+# and the container's working directory "/" holds everything, so it runs from
+# /tmp. It also refuses to record a process whose id is 1, so the shell stays
+# process 1 and the script runs coop as its child.
 model_login() {
-  # shellcheck disable=SC2016 # $0 is expanded by the container's shell
   compose run --rm --no-deps -w /tmp --entrypoint /bin/sh ryker-coop \
-    -c 'coop login "$0"; exit $?' "$1"
+    -c "$(cat "$repository/deploy/compose/coop/model-login.sh")" ryker-model-login "$1"
 }
 
 value() {
@@ -90,6 +100,19 @@ wait_ready() {
 
   echo "Ryker did not become ready as version $expected." >&2
   return 1
+}
+
+# The project's name is fixed in compose.yml, so an install or restore from a
+# second checkout acted on this host's live project: new keys and a new
+# database password for containers that could then not read their own data,
+# or a restore that skipped the roots check (2026-10-04 review). With no
+# environment file here, an existing database volume means Ryker is installed
+# from another checkout.
+refuse_foreign_installation() {
+  if docker volume inspect ryker_ryker-database >/dev/null 2>&1; then
+    echo "Ryker is already installed on this host from another checkout: its database volume ryker_ryker-database exists, but $env_file does not. Run this from that checkout, or restore its compose.env here first." >&2
+    exit 1
+  fi
 }
 
 same_root() {
@@ -157,7 +180,10 @@ install_ryker() {
 
   mkdir -p "$state_dir"
   chmod 0700 "$state_dir"
-  [ -f "$env_file" ] || generate_env
+  if [ ! -f "$env_file" ]; then
+    refuse_foreign_installation
+    generate_env
+  fi
 
   compose up --detach --build --wait database ryker ryker-coop-docker
   compose exec -T ryker \
@@ -174,22 +200,14 @@ install_ryker() {
   compose run --rm --no-deps -w /tmp --entrypoint /bin/sh ryker-coop \
     -c 'umask 077; mkdir -p "$TMPDIR"; coop build; exit $?'
 
+  # The worker signs in on its own. Install used to copy this machine's Codex
+  # sign-in in without asking, and the two then shared one refresh token, so
+  # whichever refreshed second was signed out (2026-10-04 review).
   if ! compose run --rm --no-deps -T \
     --entrypoint sh ryker-coop -c \
     'find /var/lib/coop/agents/codex/profiles -type f -name auth.json -size +0c 2>/dev/null | grep -q .'; then
-    codex_auth_root=${CODEX_HOME:-$HOME/.codex}
-    codex_auth=$codex_auth_root/auth.json
-
-    if [ -s "$codex_auth" ]; then
-      compose run --rm --no-deps -T \
-        --entrypoint sh ryker-coop -c \
-        'umask 077; mkdir -p /var/lib/coop/agents/codex/profiles/default; cat > /var/lib/coop/agents/codex/profiles/default/auth.json' \
-        <"$codex_auth"
-      echo "Imported the existing Codex sign-in into Ryker's private worker volume."
-    else
-      echo "Connect the model account Ryker will use for work. This is stored only in the private worker volume."
-      model_login codex
-    fi
+    echo "Connect the model account Ryker will use for work. This is stored only in the private worker volume."
+    model_login codex
   fi
 
   if supplied_worker_image; then
@@ -227,6 +245,7 @@ command=${1:-}
 case "$command" in
   install)
     [ "$#" -eq 1 ] || usage
+    lock_lifecycle install
     # Run again over an installation, install rebuilds it from this checkout.
     if [ -r "$env_file" ]; then require_clean_checkout install; fi
     install_ryker
@@ -235,8 +254,9 @@ case "$command" in
     [ "$#" -eq 2 ] || usage
     backup=$2
     [ -r "$backup" ] || { echo "Cannot read backup: $backup" >&2; exit 1; }
+    take_lifecycle_lock restore
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-restore.XXXXXX")
-    trap 'rm -rf -- "$scratch"' EXIT
+    trap 'rm -rf -- "$scratch"; release_lifecycle_lock' EXIT
     trap 'exit 1' HUP INT TERM
     tar -xzf "$backup" -C "$scratch"
     if [ ! -r "$scratch/database.dump" ] || [ ! -r "$scratch/compose.env" ] ||
@@ -245,6 +265,10 @@ case "$command" in
       exit 1
     fi
 
+    archive_version=$(value RYKER_VERSION "$scratch/compose.env")
+    archive_image=$(value RYKER_IMAGE "$scratch/compose.env")
+    repin=0
+
     if [ -r "$env_file" ]; then
       for root in RYKER_CHECKPOINT_KEY RYKER_CREDENTIAL_KEY RYKER_STATE_TOOLS_TOKEN; do
         same_root "$root" "$scratch/compose.env" || {
@@ -252,7 +276,24 @@ case "$command" in
           exit 1
         }
       done
+
+      # The restored rows belong to the release the backup was taken on. The
+      # pinned one kept running and migrated them forward again, so a restore
+      # could not roll back a deploy, or ran old code on a newer schema
+      # (2026-10-04 review).
+      if [ "$archive_image" != "$(value RYKER_IMAGE "$env_file")" ]; then
+        docker image inspect "$archive_image" >/dev/null 2>&1 || {
+          echo "The backup was taken on Ryker $archive_version, and its image $archive_image is not on this host; this installation pins $(value RYKER_VERSION "$env_file"). Nothing was changed." >&2
+          exit 1
+        }
+        repin=1
+      fi
     else
+      refuse_foreign_installation
+      docker image inspect "$archive_image" >/dev/null 2>&1 || {
+        echo "The backup was taken on Ryker $archive_version, and its image $archive_image is not on this host. Nothing was changed." >&2
+        exit 1
+      }
       mkdir -p "$state_dir"
       chmod 0700 "$state_dir"
       cp "$scratch/compose.env" "$env_file"
@@ -290,6 +331,10 @@ case "$command" in
       compose run --rm --no-deps -T --entrypoint tar ryker-coop \
         -xzf - -C /var/lib coop ryker-coop <"$scratch/worker-state.tar.gz"
     fi
+    if [ "$repin" = 1 ]; then
+      pin_release "$archive_version" "$archive_image"
+      echo "Pinned Ryker $archive_version, the release the backup was taken on."
+    fi
     compose up --detach --no-build --wait ryker
     compose exec -T ryker /opt/ryker/bin/ryker eval 'Ryker.Release.prepare_bundled_coop(log: false)'
     compose up --detach --no-build --wait ryker-coop
@@ -307,15 +352,18 @@ case "$command" in
     ;;
   stop)
     require_install
+    lock_lifecycle stop
     compose stop
     ;;
   start)
     require_install
+    lock_lifecycle start
     compose up --detach --no-build --wait
     wait_ready
     ;;
   restart)
     require_install
+    lock_lifecycle restart
     compose restart
     compose up --detach --no-build --wait
     wait_ready
@@ -323,6 +371,7 @@ case "$command" in
   upgrade)
     require_install
     require_clean_checkout upgrade
+    lock_lifecycle upgrade
     compose pull --ignore-buildable
     if supplied_worker_image; then
       compose build --pull ryker
@@ -336,6 +385,7 @@ case "$command" in
     require_install
     provider=${2:-codex}
     [ "$#" -le 2 ] || usage
+    lock_lifecycle model-login
     model_login "$provider"
     compose restart ryker-coop
     ;;
@@ -407,6 +457,7 @@ case "$command" in
     ;;
   backup)
     require_install
+    take_lifecycle_lock backup
     backup_dir=$state_dir/backups
     mkdir -p "$backup_dir"
     chmod 0700 "$backup_dir"
@@ -418,6 +469,7 @@ case "$command" in
         compose start ryker >/dev/null || backup_status=1
       fi
       rm -rf -- "$scratch"
+      release_lifecycle_lock
       exit "$backup_status"
     }
     trap finish_backup EXIT
@@ -440,10 +492,16 @@ case "$command" in
     if [ "$restart_controller" = 1 ] && compose start ryker >/dev/null; then
       restart_controller=0
     fi
+    # The worker keeps working while it is archived, and GNU tar ends with
+    # status 1 when a file changed or went while it read; that failed every
+    # backup taken during work (2026-10-04 review). Status 1 keeps the archive,
+    # status 2 fails the backup, and the worker's temporary files are left out.
+    worker_status=0
     compose run --rm --no-deps -T --entrypoint tar ryker-coop \
       -czf - -C /var/lib --exclude=coop/sessions/job-sources --exclude=coop/sessions/repositories \
       --exclude=coop/sessions/control.sock --exclude=coop/sessions/lock --exclude='coop/sessions.*' \
-      coop ryker-coop >"$scratch/worker-state.tar.gz"
+      --exclude=coop/tmp coop ryker-coop >"$scratch/worker-state.tar.gz" || worker_status=$?
+    [ "$worker_status" -le 1 ] || exit "$worker_status"
     cp "$env_file" "$scratch/compose.env"
     chmod 0600 "$scratch/database.dump" "$scratch/ryker-state.tar.gz" "$scratch/worker-state.tar.gz" "$scratch/compose.env"
     backup=$backup_dir/ryker-$(date -u +%Y%m%dT%H%M%SZ).tar.gz
@@ -453,6 +511,7 @@ case "$command" in
     ;;
   uninstall)
     require_install
+    lock_lifecycle uninstall
     compose down
     echo "Ryker stopped. Data and keys remain in Docker volumes and $env_file."
     ;;
@@ -463,6 +522,7 @@ case "$command" in
       echo "Run again with RYKER_DESTROY_CONFIRM=delete-ryker-data only if that is intended." >&2
       exit 1
     }
+    lock_lifecycle destroy
     compose down --volumes
     rm -f -- "$env_file"
     echo "Ryker containers, volumes, and generated keys were deleted. This cannot be recovered without a backup."

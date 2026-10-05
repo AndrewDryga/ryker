@@ -126,8 +126,8 @@ boots), waits from the host's side for `/healthz`, `/readyz` and the exact `x-ry
 header, and only then pins the new version in `.ryker/compose.env` and keeps the newest ten
 pre-deploy backups. On failure it prints the
 container's log tail, stops the unverified replacement and leaves the previous version pinned.
-Check whether the failed release migrated the database before restarting the previous image;
-restore the pre-deploy backup first if it did. PostgreSQL
+It also says whether the failed release migrated the database; if it did, restore the pre-deploy
+backup before restarting the previous image, which refuses a schema a newer release migrated. PostgreSQL
 custody resumes pending admission, Work, delivery, schedule, and remote-worker state after the
 normal one-writer restart; there is no canary/promote deployment state. The worktree is removed
 whatever happens, and the script ends by saying what is running and how long it took.

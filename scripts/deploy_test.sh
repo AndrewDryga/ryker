@@ -53,7 +53,8 @@ mkdir -p "$repo/scripts"
 git init -q --initial-branch=main "$repo"
 git -C "$repo" config user.email deploy-test@example.invalid
 git -C "$repo" config user.name "deploy test"
-cp "$root/scripts/deploy.sh" "$root/scripts/compose.sh" "$root/scripts/elixir-release-version.sh" "$repo/scripts/"
+cp "$root/scripts/deploy.sh" "$root/scripts/compose.sh" "$root/scripts/compose-lifecycle.sh" \
+  "$root/scripts/elixir-release-version.sh" "$repo/scripts/"
 printf 'name: ryker\n' >"$repo/compose.yml"
 git -C "$repo" add -A
 git -C "$repo" commit -q -m "first"
@@ -133,14 +134,23 @@ case " $* " in
     [[ -f $fake/archive.fail ]] && exit 1
     tar -czf - -T /dev/null
     ;;
-  *" run --rm --no-deps -T --entrypoint tar ryker-coop "*) tar -czf - -T /dev/null ;;
+  *" run --rm --no-deps -T --entrypoint tar ryker-coop "*)
+    tar -czf - -T /dev/null
+    [[ -f $fake/worker.changed ]] && { echo "tar: coop/agents: file changed as we read it" >&2; exit 1; }
+    [[ -f $fake/worker.unreadable ]] && { echo "tar: coop: Cannot open: Permission denied" >&2; exit 2; }
+    ;;
   *" build ryker "*)
     printf 'RYKER_VERSION=%s RYKER_IMAGE=%s\n' "${RYKER_VERSION:-}" "${RYKER_IMAGE:-}" >>"$fake/build.env"
     [[ -f $fake/build.fail ]] && { echo "fake: the image did not build" >&2; exit 1; }
     ;;
   *" up --detach --no-build --wait "*)
-    printf 'RYKER_VERSION=%s RYKER_IMAGE=%s\n' "${RYKER_VERSION:-}" "${RYKER_IMAGE:-}" >>"$fake/up.env"
+    # What the environment says, and what the --env-file compose was given pins.
+    env_file=$(sed -n 's/.*--env-file \([^ ]*\).*/\1/p' <<<"$*")
+    pinned=$(sed -n 's/^RYKER_VERSION=//p' "$env_file" 2>/dev/null | tail -n 1)
+    printf 'RYKER_VERSION=%s RYKER_IMAGE=%s PINNED=%s\n' "${RYKER_VERSION:-}" "${RYKER_IMAGE:-}" "$pinned" >>"$fake/up.env"
     touch "$fake/controller.running"
+    # A release that runs its migrations as it boots, before it fails or not.
+    [[ -f $fake/up.migrates ]] && printf '20261006000000\n' >"$fake/schema"
     [[ -f $fake/up.fail ]] && { echo "fake: the container did not become healthy" >&2; exit 1; }
     # deploy.sh names the version it starts; compose.sh starts the pinned one.
     [[ -f $fake/up.stale || -z ${RYKER_VERSION:-} ]] || printf '%s\n' "${RYKER_VERSION:-}" >"$fake/version"
@@ -149,9 +159,12 @@ case " $* " in
   *" start ryker "*) touch "$fake/controller.running" ;;
   *" logs "*) echo "fake container log line" ;;
   *" ps --status running --services "*) [[ -f $fake/controller.stopped ]] || echo "ryker" ;;
+  *" exec -T database psql "*"schema_migrations"*) cat "$fake/schema" 2>/dev/null || echo 20261005000000 ;;
   *" exec -T database psql "*) echo 1 ;;
   *" ps "*) echo "ryker fake running" ;;
   *" image ls "*) cat "$fake/images" 2>/dev/null ;;
+  *" image inspect "*) [[ -f $fake/image.missing ]] && exit 1 ;;
+  *" volume inspect "*) [[ -f $fake/volume.exists ]] || exit 1 ;;
 esac
 exit 0
 SH
@@ -165,9 +178,10 @@ export RYKER_INSTALL_STATE="$state" RYKER_DEPLOY_READY_TIMEOUT=3 RYKER_DEPLOY_PO
 seed() {
   # The installation as the previous deploy left it, and a fake project that
   # still serves the previous version until the fake Docker "starts" a new one.
-  rm -f "$fake/calls" "$fake/build.env" "$fake/build.fail" "$fake/up.env" "$fake/up.fail" "$fake/up.stale" "$fake/database.down"
+  rm -f "$fake/calls" "$fake/build.env" "$fake/build.fail" "$fake/up.env" "$fake/up.fail" "$fake/up.stale" "$fake/database.down" \
+    "$fake/schema" "$fake/up.migrates" "$fake/image.missing" "$fake/volume.exists"
   touch "$fake/controller.running"
-  rm -rf "$state/backups"
+  rm -rf "$state/backups" "$state/lifecycle.lock"
   printf '%s\n' "$old_version" >"$fake/version"
   printf '200' >"$fake/readyz.code"
   printf 'ready\n' >"$fake/readyz.body"
@@ -345,9 +359,19 @@ check "the failure is named" "FAILED" "$out"
 check "the container's logs are printed" "fake container log line" "$out"
 check "the previous version stays pinned" "RYKER_VERSION=$old_version" "$(cat "$state/compose.env")"
 check "the failure says what is still pinned" "still pins $old_version" "$out"
+check "an unmigrated failure says the previous version can start again" "was not migrated" "$out"
 check "the backup was taken before the failed replacement" "1" "$(backups)"
 check "the worktree is removed after a failed deploy" "1" "$(worktrees)"
 check_controller_stopped "an unhealthy replacement is stopped"
+
+# A release that migrated the database before it failed: starting the
+# previous version on that schema is refused, so the backup comes first.
+seed
+touch "$fake/up.fail" "$fake/up.migrates"
+out=$(run)
+check "a failed release that migrated names the migration" "migrated the database (from 20261005000000 to 20261006000000)" "$out"
+check "a failed release that migrated says to restore first" "scripts/compose.sh restore before starting $old_version" "$out"
+refute "a failed release that migrated does not offer a plain start" "was not migrated" "$out"
 
 # ---------------------------------------------------------------------------
 # A container that is healthy but serves other code than the commit.
@@ -406,6 +430,7 @@ fi
 check "the worker archive leaves out Coop's job sources" "--exclude=coop/sessions/job-sources" "$calls"
 check "the worker archive leaves out Coop's repository mirrors" "--exclude=coop/sessions/repositories" "$calls"
 check "the worker archive leaves out earlier copies of its state" "--exclude=coop/sessions.*" "$calls"
+check "the worker archive leaves out its temporary files" "--exclude=coop/tmp" "$calls"
 backup=$(find "$state/backups" -name 'ryker-*.tar.gz' | head -n 1)
 check "lifecycle backup includes encrypted state" "ryker-state.tar.gz" "$(tar -tzf "$backup")"
 
@@ -453,12 +478,49 @@ check "a whole restore keeps the replaced database" "ALTER DATABASE ryker RENAME
 check "a whole restore swaps the restored database in" "ALTER DATABASE ryker_restoring RENAME TO ryker" "$(cat "$fake/calls")"
 check "a restore starts the pinned image without building" "up --detach --no-build --wait ryker" "$(cat "$fake/calls")"
 
+# 2026-10-04 review: restore kept the current pin, so restoring the backup taken before a
+# deploy started the new release on the old rows, which it migrated forward again. A
+# backup from another release pins that release, and one whose image this host lacks is
+# refused before anything changes.
+seed
+pin_line() { sed -n "s/^RYKER_VERSION=//p" "$state/compose.env"; }
+sed -i.bak "s/^RYKER_VERSION=.*/RYKER_VERSION=$version/; s/^RYKER_IMAGE=.*/RYKER_IMAGE=ryker:$version/" "$state/compose.env"
+touch "$fake/image.missing"
+out=$(cd "$repo" && sh scripts/compose.sh restore "$backup" 2>&1; echo "exit=$?")
+check "a backup whose release this host lacks is refused" "is not on this host" "$out"
+check "a refused restore names the pinned release" "pins $version" "$out"
+refute "a restore refused for its release stops nothing" "stop ryker" "$(cat "$fake/calls")"
+check "a refused restore keeps the pin" "$version" "$(pin_line)"
+rm "$fake/image.missing"
+out=$(cd "$repo" && sh scripts/compose.sh restore "$backup" 2>&1; echo "exit=$?")
+check "a backup from another release restores" "exit=0" "$out"
+check "the backup's release is pinned" "$old_version" "$(pin_line)"
+check "the restore says which release it pinned" "Pinned Ryker $old_version" "$out"
+check "the backup's release starts" "PINNED=$old_version" "$(tail -n 1 "$fake/up.env")"
+
+# 2026-10-04 review: the project's name is fixed, so an install or restore from a second
+# checkout acted on the live project. With no compose.env here, an existing database volume
+# refuses both before anything changes.
+seed
+rm "$state/compose.env"
+touch "$fake/volume.exists"
+out=$(cd "$repo" && sh scripts/compose.sh install 2>&1; echo "exit=$?")
+check "an install beside another checkout's installation is refused" "installed on this host from another checkout" "$out"
+check "a refused install fails" "exit=1" "$out"
+refute "a refused install writes no keys" "RYKER_GENERATED_ENV" "$(cat "$state/compose.env" 2>/dev/null)"
+refute "a refused install starts nothing" "up --detach" "$(cat "$fake/calls" 2>/dev/null)"
+out=$(cd "$repo" && sh scripts/compose.sh restore "$backup" 2>&1; echo "exit=$?")
+check "a restore beside another checkout's installation is refused" "installed on this host from another checkout" "$out"
+refute "a refused restore drops nothing" "dropdb" "$(cat "$fake/calls" 2>/dev/null)"
+refute "a refused restore writes no keys" "RYKER_GENERATED_ENV" "$(cat "$state/compose.env" 2>/dev/null)"
+
 # 2026-10-04 review: start, restart and restore built whatever the checkout held when the
 # pinned image was missing, and upgrade built a dirty checkout under the pinned version.
 seed
 out=$(cd "$repo" && sh scripts/compose.sh start 2>&1; echo "exit=$?")
 check "start succeeds" "exit=0" "$out"
 check "start never builds" "up --detach --no-build --wait" "$(cat "$fake/calls")"
+refute "start lets go of the lifecycle lock" "lifecycle.lock" "$(find "$state" -maxdepth 1 -name lifecycle.lock)"
 seed
 out=$(cd "$repo" && sh scripts/compose.sh restart 2>&1; echo "exit=$?")
 check "restart never builds" "up --detach --no-build --wait" "$(cat "$fake/calls")"
@@ -481,6 +543,20 @@ out=$(cd "$repo" && sh scripts/compose.sh backup 2>&1; echo "exit=$?")
 check "lifecycle archive failure is reported" "exit=1" "$out"
 check "lifecycle archive failure resumes its writer" "start ryker" "$(cat "$fake/calls")"
 rm "$fake/archive.fail"
+
+# A file the running worker changed while it was archived ended every backup
+# taken during work (2026-10-04 review); a worker that cannot be read still fails.
+seed
+touch "$fake/worker.changed"
+out=$(cd "$repo" && sh scripts/compose.sh backup 2>&1; echo "exit=$?")
+rm "$fake/worker.changed"
+check "a backup taken while the worker writes succeeds" "exit=0" "$out"
+seed
+touch "$fake/worker.unreadable"
+out=$(cd "$repo" && sh scripts/compose.sh backup 2>&1; echo "exit=$?")
+rm "$fake/worker.unreadable"
+check "a worker that cannot be archived fails the backup" "exit=2" "$out"
+check "a failed worker archive still resumes Ryker" "start ryker" "$(cat "$fake/calls")"
 
 seed
 touch "$fake/controller.stopped"
@@ -506,6 +582,34 @@ seed
 out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
 check "upgrade without a supplied worker image succeeds" "exit=0" "$out"
 check "upgrade builds the worker from the pin" "build --pull ryker ryker-coop" "$(cat "$fake/calls")"
+
+# ---------------------------------------------------------------------------
+# One lifecycle command at a time (2026-10-04 review): two deploys, or a backup
+# beside a restore, each stopped and started the one project under the other.
+seed
+mkdir -p "$state/lifecycle.lock"
+printf '%s backup\n' "$$" >"$state/lifecycle.lock/owner"
+out=$(run)
+check "a running lifecycle command refuses a deploy" "Another Ryker lifecycle command is running" "$out"
+check "a refused deploy exits 1" "exit=1" "$out"
+refute "a refused deploy builds nothing" " build " "$(cat "$fake/calls" 2>/dev/null)"
+out=$(cd "$repo" && sh scripts/compose.sh start 2>&1; echo "exit=$?")
+check "a running lifecycle command refuses start" "Another Ryker lifecycle command is running" "$out"
+check "a refused command leaves the holder's lock" "backup" "$(cat "$state/lifecycle.lock/owner")"
+
+# A lock whose process is gone is taken over, and a finished deploy lets go.
+sleep 0 &
+dead=$!
+wait "$dead"
+printf '%s deploy\n' "$dead" >"$state/lifecycle.lock/owner"
+out=$(run)
+check "a lock left by a process that is gone is taken over" "exit=0" "$out"
+if [[ -e $state/lifecycle.lock ]]; then
+  printf 'FAIL a finished deploy releases the lock\n'
+  failures=$((failures + 1))
+else
+  printf 'ok   a finished deploy releases the lock\n'
+fi
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures deploy check(s) failed"

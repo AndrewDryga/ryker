@@ -52,6 +52,8 @@ done
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 state_dir=${RYKER_INSTALL_STATE:-$repository/.ryker}
 env_file=$state_dir/compose.env
+# shellcheck source=scripts/compose-lifecycle.sh
+. "$repository/scripts/compose-lifecycle.sh"
 ready_timeout=${RYKER_DEPLOY_READY_TIMEOUT:-180}
 poll_seconds=${RYKER_DEPLOY_POLL_SECONDS:-2}
 keep_images=${RYKER_KEEP_IMAGES:-2}
@@ -111,9 +113,11 @@ cleanup() {
     git -C "$repository" worktree prune >/dev/null 2>&1 || true
   fi
   [[ -n $scratch ]] && rm -rf -- "$scratch"
+  release_lifecycle_lock
   exit "$status"
 }
 trap cleanup EXIT
+take_lifecycle_lock deploy
 
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-deploy-scratch.XXXXXX")
 worktree=$(mktemp -d "${TMPDIR:-/tmp}/ryker-deploy.XXXXXX")
@@ -162,6 +166,16 @@ chmod 0600 "$backup"
 say "database and encrypted state backed up to $backup (scripts/compose.sh restore takes it)"
 
 # --- replace the container ---------------------------------------------------
+# The newest migration the database has run, read before and after the new
+# release boots, so a failure says which way back is safe instead of leaving
+# "did it migrate?" to whoever reads it (2026-10-04 review). The previous
+# release refuses a database a newer one migrated.
+schema_version() {
+  "${compose[@]}" exec -T database psql -X -U ryker -d ryker -Atc \
+    'SELECT max(version) FROM schema_migrations' 2>/dev/null || true
+}
+schema_before=$(schema_version)
+
 report_failure() {
   echo "deploy: FAILED — $1" >&2
   echo "--- docker compose logs --tail 60 ryker ---" >&2
@@ -172,9 +186,16 @@ report_failure() {
   else
     echo "deploy: could not confirm the unverified ryker container is stopped; inspect Docker before restarting" >&2
   fi
-  echo "deploy: $env_file still pins ${previous_version:-nothing}; inspect migrations before restarting that image" >&2
-  echo "deploy: if the new release migrated the database, restore $backup with scripts/compose.sh restore" >&2
-  echo "deploy: otherwise scripts/compose.sh start recreates the previously pinned container" >&2
+  echo "deploy: $env_file still pins ${previous_version:-nothing}" >&2
+  local schema_after
+  schema_after=$(schema_version)
+  if [[ -n $schema_before && $schema_after == "$schema_before" ]]; then
+    echo "deploy: the database was not migrated, so scripts/compose.sh start brings back ${previous_version:-the previous version}" >&2
+  elif [[ -n $schema_before && -n $schema_after ]]; then
+    echo "deploy: the new release migrated the database (from $schema_before to $schema_after); restore $backup with scripts/compose.sh restore before starting ${previous_version:-the previous version}" >&2
+  else
+    echo "deploy: the database's migrations could not be read; if the new release migrated it, restore $backup with scripts/compose.sh restore, otherwise scripts/compose.sh start brings back the previous version" >&2
+  fi
   exit 1
 }
 
@@ -210,17 +231,7 @@ until probe; do
 done
 
 # --- pin, then tidy ----------------------------------------------------------
-pinned=$(mktemp "$state_dir/.compose.env.XXXXXX")
-awk -v version="$version" -v image="$image" '
-  /^RYKER_VERSION=/ { print "RYKER_VERSION=" version; seen_version = 1; next }
-  /^RYKER_IMAGE=/ { print "RYKER_IMAGE=" image; seen_image = 1; next }
-  { print }
-  END {
-    if (!seen_version) print "RYKER_VERSION=" version
-    if (!seen_image) print "RYKER_IMAGE=" image
-  }' "$env_file" >"$pinned"
-chmod 0600 "$pinned"
-mv -f "$pinned" "$env_file"
+pin_release "$version" "$image"
 say "pinned RYKER_VERSION=$version and RYKER_IMAGE=$image in $env_file"
 
 # Every deploy leaves a 240 MB image behind, and a host that filled up once

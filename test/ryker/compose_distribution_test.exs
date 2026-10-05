@@ -66,8 +66,11 @@ defmodule Ryker.ComposeDistributionTest do
     assert lifecycle =~ "prepare_bundled_coop"
     assert lifecycle =~ "docker compose"
     assert lifecycle =~ "0.1.0-source.g"
-    assert lifecycle =~ ~s(codex_auth_root=${CODEX_HOME:-$HOME/.codex})
-    assert lifecycle =~ "Imported the existing Codex sign-in"
+    # The worker signs in on its own, through a login that puts the previous
+    # sign-in back when it does not finish. Install copied the host's Codex
+    # sign-in, and the two then shared one refresh token (2026-10-04 review).
+    refute lifecycle =~ "CODEX_HOME"
+    assert lifecycle =~ ~S'$(cat "$repository/deploy/compose/coop/model-login.sh")'
     assert worker =~ "coop sessions connect"
     assert worker =~ ~s(--controller "$controller" --token-file "$token")
     assert worker =~ ~s(--ca-file "$ca" --state "$state/sessions")
@@ -115,10 +118,14 @@ defmodule Ryker.ComposeDistributionTest do
     assert read("Dockerfile") =~ "useradd --uid 1000 --gid"
     assert worker_image =~ "useradd --uid 1000 --gid"
     assert read("compose.yml") =~ "chown -R 1000:1000 /var/lib/ryker"
-    compose_entrypoint = read("deploy/compose/entrypoint.sh")
-    assert compose_entrypoint =~ ~S(IP:$compose_worker_ip)
-    assert compose_entrypoint =~ ~S(-checkip "$compose_worker_ip")
-    assert compose_entrypoint =~ "grep -q 'does match certificate'"
+
+    assert read("deploy/compose/entrypoint.sh") =~
+             ~S(ryker-gateway-pki "$pki" "${RYKER_COMPOSE_WORKER_IP:-127.0.0.1}")
+
+    gateway_pki = read("deploy/compose/gateway-pki.sh")
+    assert gateway_pki =~ ~S(IP:$worker_ip)
+    assert gateway_pki =~ ~S(-checkip "$worker_ip")
+    assert gateway_pki =~ "grep -q 'does match certificate'"
     refute worker =~ "capabilities:"
     refute worker =~ "slots_free:"
     # The recipe builds the newest Coop on GitHub that the live worker is built from. It pinned
@@ -128,11 +135,12 @@ defmodule Ryker.ComposeDistributionTest do
     # command back while a repository's first download runs.
     assert worker_image =~ "COOP_REVISION=d019c807ea6373b25ec7d145441bd9163f637564"
     assert worker_image =~ "COOP_VERSION=v10.1.2-24-gd019c807"
-    # The Coop pin lives in one place, the worker Dockerfile; compose.yml only
-    # passes an operator's COOP_VERSION override through. Two copies of the
-    # default once had to be bumped together.
+    # The Coop pin lives in one place, the worker Dockerfile. Two copies of the
+    # default once had to be bumped together, and compose.yml's COOP_VERSION
+    # override relabeled the pinned revision as whatever it named (2026-10-04
+    # review); another Coop is a prebuilt image named in RYKER_COOP_IMAGE.
     assert worker_image =~ ~r/^ARG COOP_VERSION=v/m
-    refute read("compose.yml") =~ "COOP_VERSION:-"
+    refute read("compose.yml") =~ "COOP_VERSION"
     assert worker_image =~ "COPY --from=build /out/coop /usr/local/bin/coop"
     refute worker_image =~ "coop help sessions policies"
     assert worker_image =~ "coop help sessions connect"
@@ -274,6 +282,9 @@ defmodule Ryker.ComposeDistributionTest do
     assert manifest =~ "compose.yml"
     assert manifest =~ "install.sh"
     assert manifest =~ "scripts/compose.sh"
+    # compose.sh sources it: a shipped compose.sh without it stops at once.
+    assert manifest =~ "scripts/compose-lifecycle.sh"
+    assert manifest =~ "deploy/compose/gateway-pki.sh"
     assert manifest =~ "deploy/compose/coop/Box.Dockerfile"
     assert manifest =~ "deploy/compose/coop/Dockerfile"
     assert manifest =~ "deploy/compose/coop/entrypoint.sh"
@@ -360,8 +371,10 @@ defmodule Ryker.ComposeDistributionTest do
     File.mkdir_p!(bin)
     log = Path.join(dir, "docker.log")
 
+    # A fresh host: no other checkout's database volume.
     fake!(bin, "docker", """
     printf '%s\\n' "$*" >>"$FAKE_LOG"
+    case "$*" in "volume inspect "*) exit 1 ;; esac
     """)
 
     fake!(bin, "curl", """
