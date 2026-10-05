@@ -89,6 +89,22 @@ defmodule Ryker.Webhooks.TransformsTest do
     assert second.occurred_at == ~U[2026-09-04 08:05:00.000000Z]
   end
 
+  # Grafana sends Go's zero time, 0001-01-01T00:00:00Z, as the end of an alert
+  # still firing. It reached the model as the alert's end and went into the
+  # event's identity (2026-10-04 review). A firing alert has no end.
+  test "a firing Grafana alert's zero end time is read as no end" do
+    route = grafana_route!()
+    zero_time = grafana_payload("firing", "0001-01-01T00:00:00Z")
+
+    assert {:ok, %{inputs: [zero]}} = Transforms.normalize(route, zero_time, metadata())
+
+    assert {:ok, %{inputs: [absent]}} =
+             Transforms.normalize(route, grafana_payload("firing", nil), metadata())
+
+    assert zero.content["payload"]["ends_at"] == nil
+    assert zero.event_ref == absent.event_ref
+  end
+
   test "mapped JSON exposes only bounded configured fields and cannot redirect ingress" do
     route = mapped_route!()
 

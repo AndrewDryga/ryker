@@ -417,8 +417,11 @@ defmodule Ryker.Webhooks.Transforms do
   defp optional_time(nil, _field), do: {:ok, nil}
   defp optional_time("", _field), do: {:ok, nil}
 
+  # Grafana and Alertmanager send Go's zero time for a time they do not have,
+  # such as the end of an alert still firing.
   defp optional_time(value, field) when is_binary(value) do
     case DateTime.from_iso8601(value) do
+      {:ok, ~U[0001-01-01 00:00:00Z], _offset} -> {:ok, nil}
       {:ok, datetime, _offset} -> {:ok, datetime}
       _invalid -> transform_error(field)
     end
