@@ -110,7 +110,7 @@ defmodule Ryker.ControlPlane.LearningPage do
           <.pager
             page={@activity.attention.page}
             pages={@activity.attention.pages}
-            path={&path("attention_page", &1)}
+            path={&path(@activity, %{"attention_page" => &1})}
             label="Pages of learning that needs attention"
           />
         </section>
@@ -120,7 +120,7 @@ defmodule Ryker.ControlPlane.LearningPage do
             lede="Each pass reads new messages from one conversation and updates what Ryker knows. Finding nothing to change is a normal outcome."
           />
           <Kit.toolbar :if={finished_or_running(@activity) > 0}>
-            <Kit.segmented label="Show by outcome" options={outcomes(@activity.recent.outcome)} />
+            <Kit.segmented label="Show by outcome" options={outcomes(@activity)} />
           </Kit.toolbar>
           <Kit.entity_list :if={@activity.recent.items != []} label="Recent learning">
             <Kit.entity_row
@@ -161,7 +161,7 @@ defmodule Ryker.ControlPlane.LearningPage do
           <.pager
             page={@activity.recent.page}
             pages={@activity.recent.pages}
-            path={&path("page", &1, @activity.recent.outcome)}
+            path={&path(@activity, %{"page" => &1})}
             label="Pages of recent learning"
             earlier="← Newer"
             later="Older →"
@@ -192,7 +192,7 @@ defmodule Ryker.ControlPlane.LearningPage do
           <.pager
             page={@activity.handover_failures.page}
             pages={@activity.handover_failures.pages}
-            path={&path("handover_page", &1)}
+            path={&path(@activity, %{"handover_page" => &1})}
             label="Pages of context not saved"
             earlier="← Newer"
             later="Older →"
@@ -550,10 +550,11 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp finished_or_running(activity),
     do: activity.counts |> Map.drop([:deferred]) |> Map.values() |> Enum.sum()
 
-  defp outcomes(current) do
+  defp outcomes(activity) do
     [{"All", ""} | Enum.map(LearningActivity.outcomes(), &{outcome_label(&1), &1})]
     |> Enum.map(fn {label, outcome} ->
-      {label, path("page", 1, outcome), outcome == current}
+      {label, path(activity, %{"outcome" => outcome, "page" => 1}),
+       outcome == activity.recent.outcome}
     end)
   end
 
@@ -562,9 +563,19 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp outcome_label("in_progress"), do: "In progress"
   defp outcome_label("sources_changed"), do: "Sources changed"
 
-  defp path(key, page, outcome \\ "") do
-    query = Enum.reject([{"outcome", outcome}, {key, page}], &(&1 == {"page", 1}))
-    Paths.query("/memory/learning", query)
+  # Each list pages on its own, and the outcome chosen stays: every pager built its
+  # links from nothing, so paging one list sent the others back to their first page
+  # and dropped the outcome (2026-10-04 review).
+  defp path(activity, changes) do
+    %{
+      "attention_page" => activity.attention.page,
+      "page" => activity.recent.page,
+      "handover_page" => activity.handover_failures.page,
+      "outcome" => activity.recent.outcome
+    }
+    |> Map.merge(changes)
+    |> Enum.reject(fn {_key, value} -> value in [1, ""] end)
+    |> then(&Paths.query("/memory/learning", &1))
   end
 
   # What an attempt did to one topic.

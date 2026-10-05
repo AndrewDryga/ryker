@@ -863,6 +863,45 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert Repo.get!(Turn, claim.turn.id) == before
   end
 
+  # Each pager on the Learning page built its links from nothing, so paging one list sent the
+  # others back to their first page and dropped the outcome filter (2026-10-04 review).
+  test "paging one list keeps where the others are and the outcome chosen" do
+    activity =
+      %{"outcome" => "updated"}
+      |> LearningActivity.project()
+      |> put_in([:attention, :page], 2)
+      |> put_in([:attention, :pages], 3)
+      |> put_in([:recent, :page], 2)
+      |> put_in([:recent, :pages], 4)
+      |> put_in([:handover_failures, :page], 2)
+      |> put_in([:handover_failures, :pages], 3)
+      |> put_in([:handover_failures, :total], 51)
+
+    links =
+      activity
+      |> LearningPage.html([], String.duplicate("s", 32))
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("nav.pagination a")
+      |> LazyHTML.attribute("href")
+      |> Enum.map(&(URI.parse(&1).query |> URI.decode_query()))
+
+    # The recent list's next page, and the handover list's, each keep the other two lists.
+    assert %{
+             "attention_page" => "2",
+             "page" => "3",
+             "handover_page" => "2",
+             "outcome" => "updated"
+           } in links
+
+    assert %{
+             "attention_page" => "2",
+             "page" => "2",
+             "handover_page" => "3",
+             "outcome" => "updated"
+           } in links
+  end
+
   defp render(params) do
     params
     |> LearningActivity.project()
