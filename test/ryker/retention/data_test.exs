@@ -842,6 +842,32 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get(ThreadStatusReceipts, receipt.id) == nil
   end
 
+  # A deleted, replaced or expired rule, preference or guidance was never
+  # pruned, and its row kept its source episode's whole history alive with it
+  # (2026-10-04 review). It goes at the history horizon, as a finished
+  # schedule does; one still in force stays.
+  test "an ended behavior goes at the history horizon, and one in force stays" do
+    work = settled_work!("ended-behavior")
+    entry = record_input_for!(work.episode.id, "ended-behavior")
+    insert_open_record!(work)
+    behavior = insert_decided_standing_run!(work.episode.id, entry).assignment_id
+
+    Repo.query!("UPDATE operator_behaviors SET updated_at = $1 WHERE id = $2", [
+      @old,
+      uuid!(behavior)
+    ])
+
+    assert {:ok, _result} = Data.prune(settings(episode_history_seconds: 60))
+    assert Repo.get(Ryker.Behaviors.Behavior, behavior)
+
+    Repo.query!("UPDATE operator_behaviors SET status = 'deleted' WHERE id = $1", [
+      uuid!(behavior)
+    ])
+
+    assert {:ok, _result} = Data.prune(settings(episode_history_seconds: 60))
+    assert Repo.get(Ryker.Behaviors.Behavior, behavior) == nil
+  end
+
   test "an input a learning run is still judging keeps its body past the operational horizon" do
     # The operational prune checked reactions and Work sessions and never the
     # learning batch. Learning requires the exact input bodies at every step, so
@@ -1974,7 +2000,6 @@ defmodule Ryker.Retention.DataTest do
       conversation_ref: "slack:T123:C456",
       rule_count: 0,
       matched_count: 0,
-      truncated: false,
       entries: [],
       recorded_at: recorded_at
     })

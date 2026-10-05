@@ -481,8 +481,9 @@ defmodule Ryker.Retention.Policy do
     },
     %{
       table: "operator_behaviors",
-      class: :kept,
-      why: "operator-confirmed preference, guidance, or standing authority"
+      class: :episode_history,
+      why:
+        "operator-confirmed preference, guidance, or standing authority, kept while in force; one that ended keeps only a digest of its words and goes at the history horizon"
     },
     %{
       table: "person_facts",

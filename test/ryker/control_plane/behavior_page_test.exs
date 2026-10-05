@@ -35,6 +35,27 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     end
   end
 
+  # Deleted or replaced, an entry keeps only a digest of its words
+  # (`Ryker.Behaviors.redact!/3`); past lists name what it was and its state.
+  test "a deleted or replaced entry is listed by what it was, with none of its words" do
+    for {kind, render, name} <- [
+          {:standing_assignment, &rules_document/1, "Rule"},
+          {:preference, &instructions_document([], &1), "Preference"},
+          {:guidance, &instructions_document([], &1), "Guidance"}
+        ],
+        {status, hash} <- [
+          {"deleted", "deleted_payload_sha256"},
+          {"superseded", "replaced_payload_sha256"}
+        ] do
+      ended = %{item(kind) | status: status, payload: %{hash => String.duplicate("a", 64)}}
+      row = view(kind, [ended]) |> render.() |> LazyHTML.query("article")
+
+      assert LazyHTML.query(row, "h3.entity-name") |> LazyHTML.text() =~ name, "#{kind} #{status}"
+      assert Enum.empty?(LazyHTML.query(row, ".entity-text")), "#{kind} #{status}"
+      refute LazyHTML.text(row) =~ String.duplicate("a", 64)
+    end
+  end
+
   test "a row reads name and state, what it does, then one line of facts, with its controls last" do
     # The Kit row: no cards, no definition lists, no raw scope refs. Pause is
     # the one visible control; Delete sits behind a named overflow menu.

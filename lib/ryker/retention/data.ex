@@ -167,6 +167,17 @@ defmodule Ryker.Retention.Data do
     horizon: :episode_history_seconds
   }
 
+  # A rule, preference or guidance that ended keeps only a digest of its words
+  # (`Ryker.Behaviors.redact!/3`) and goes at the history horizon, as a
+  # finished schedule does. None was ever pruned, and each kept its source
+  # episode's whole history alive with it (2026-10-04 review).
+  @ended_behaviors %{
+    table: "operator_behaviors",
+    where: "status IN ('deleted', 'superseded', 'expired')",
+    age: "updated_at",
+    horizon: :episode_history_seconds
+  }
+
   # A note is cleared, not deleted: the observation's revision receipt stays.
   @clear_observation_notes """
   WITH candidates AS (
@@ -195,6 +206,7 @@ defmodule Ryker.Retention.Data do
     rollups = prune_expired("conversation_rollups")
     _drafts = prune_aged(@settled_summary_drafts, settings)
     _behaviors = prune_expired("operator_behaviors")
+    _ended_behaviors = prune_aged(@ended_behaviors, settings)
     :ok = Reviews.dismiss_invalid_reviews_in_transaction()
     _schedules = prune_aged(@finished_schedules, settings)
     observations = execute_count(@clear_observation_notes, [memory_seconds])

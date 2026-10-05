@@ -180,33 +180,6 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert html =~ ~s(data-rules-state="not_recorded")
   end
 
-  test "a truncated inventory says exactly how much was retained" do
-    {entry, episode} = admitted!()
-
-    inventory!(
-      entry,
-      [rule("Review Terraform plans", "matched", "A terraform plan from app.")],
-      rule_count: 4,
-      truncated: true
-    )
-
-    html = rendered(episode)
-    assert html =~ "Only 1 of 4 rules were retained; 3 are missing from this older history."
-    assert html =~ "Review Terraform plans"
-  end
-
-  test "a truncated inventory uses singular grammar for one missing rule" do
-    {entry, episode} = admitted!()
-
-    inventory!(entry, [rule("Review Terraform plans", "matched", "A terraform plan from app.")],
-      rule_count: 2,
-      truncated: true
-    )
-
-    assert rendered(episode) =~
-             "Only 1 of 2 rules were retained; 1 is missing from this older history."
-  end
-
   test "all verdicts and reasons stay visible, with every match first and emphasized in text" do
     {entry, episode} = admitted!()
 
@@ -227,7 +200,11 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
         "not_matched",
         "This message came from an app; this rule only applies to messages from people."
       ),
-      rule("Other channel", "out_of_scope", "This rule applies to another channel."),
+      # Another channel's rule keeps no copy of its words here (2026-10-04
+      # review): it reads as a rule and opens the rule itself.
+      "Other channel"
+      |> rule("out_of_scope", "This rule applies to another channel.")
+      |> Map.take(~w(ref status revision verdict reason)),
       rule("Paused rule", "disabled", "This rule was paused when the message was processed."),
       rule("Expired rule", "expired", "This rule expired before the message arrived."),
       rule(
@@ -250,8 +227,8 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
              "matched",
              "expired",
              "not_considered",
-             "out_of_scope",
              "disabled",
+             "out_of_scope",
              "not_matched",
              "not_matched"
            ]
@@ -262,8 +239,8 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
              "Second match",
              "Expired rule",
              "Late rule",
-             "Other channel",
              "Paused rule",
+             "Standing rule",
              "Wrong event",
              "Wrong sender"
            ]
@@ -273,11 +250,18 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
              "Matched",
              "Expired",
              "Not evaluated",
-             "Other channel",
              "Paused",
+             "Other channel",
              "Did not match",
              "Did not match"
            ]
+
+    elsewhere = LazyHTML.query(card, ".standing-rule[data-verdict='out_of_scope']")
+
+    assert LazyHTML.query(elsewhere, "a.standing-rule-link") |> LazyHTML.attribute("href") ==
+             ["/rules#behavior-behavior:other-channel"]
+
+    assert LazyHTML.query(elsewhere, ".event-facts, dl") |> Enum.empty?()
 
     reasons = LazyHTML.query(rules, ".standing-rule-reason") |> Enum.map(&LazyHTML.text/1)
     assert Enum.any?(reasons, &(&1 =~ "only applies to messages from people"))
@@ -353,16 +337,15 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     }
   end
 
-  defp inventory!(entry, entries, options \\ []) do
+  defp inventory!(entry, entries) do
     Repo.insert!(%StandingRuleInventory{
       id: Ecto.UUID.generate(),
       source_input_ref: "ingress-input:#{entry.id}",
       source_event_ref: entry.event_ref,
       workspace_ref: "slack:TC9F5B40D364C",
       conversation_ref: "slack:TC9F5B40D364C:C456",
-      rule_count: Keyword.get(options, :rule_count, length(entries)),
+      rule_count: length(entries),
       matched_count: Enum.count(entries, &(&1["verdict"] == "matched")),
-      truncated: Keyword.get(options, :truncated, false),
       entries: entries,
       recorded_at: DateTime.add(@now, 1, :second)
     })

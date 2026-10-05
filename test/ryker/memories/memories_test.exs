@@ -902,12 +902,19 @@ defmodule Ryker.Memories.MemoriesTest do
 
     assert Behaviors.confirm(confirmation(fixture, fixture.guidance, "now-external")) ==
              {:error, :slack_channel_not_public}
+
+    # A workspace preference was confirmed from any channel and then applied
+    # in every one of them (2026-10-04 review).
+    assert Behaviors.confirm(confirmation(fixture, fixture.preference, "now-external-preference")) ==
+             {:error, :slack_channel_not_public}
   end
 
   test "Slack channel deletion redacts channel-scoped memory and behavior and closes reviews" do
     fixture = delivered_offers!("channel-deletion")
     assert {:ok, confirmed} = Memories.confirm(confirmation(fixture, fixture.first, "delete"))
     behavior = insert_conversation_behavior!(fixture.guidance)
+    # Replaced before replacing kept no words; channel deletion passed it by.
+    replaced = insert_conversation_behavior!(fixture.guidance_duplicate, :superseded)
 
     old = DateTime.add(DateTime.utc_now(), -3_600, :second)
     Repo.update_all(MemoryEntry, set: [updated_at: old])
@@ -940,6 +947,10 @@ defmodule Ryker.Memories.MemoriesTest do
     deleted_behavior = Repo.get!(Behavior, behavior.id)
     assert deleted_behavior.status == :deleted
     assert Map.has_key?(deleted_behavior.payload, "channel_deleted_payload_sha256")
+
+    replaced = Repo.get!(Behavior, replaced.id)
+    assert replaced.status == :superseded
+    assert Map.keys(replaced.payload) == ["channel_deleted_payload_sha256"]
 
     assert Repo.aggregate(
              from(review in MemoryReviewItem, where: review.status == :pending),
@@ -1005,6 +1016,24 @@ defmodule Ryker.Memories.MemoriesTest do
     assert {:ok, _duplicate} = Memories.confirm(confirmation(fixture, fixture.duplicate, "two"))
 
     assert {:ok, %{created: 0}} = Reviews.refresh_reviews("slack:T123", 86_400)
+    assert Reviews.list_reviews("slack:T123", limit: 10) == []
+  end
+
+  # Deleting guidance never closed the reviews that named it, so App Home kept
+  # offering a review whose every button failed as stale (2026-10-04 review).
+  test "deleting guidance closes the review that named it" do
+    fixture = delivered_offers!("guidance-orphan")
+    assert {:ok, first} = Behaviors.confirm(confirmation(fixture, fixture.guidance, "first"))
+
+    assert {:ok, _second} =
+             Behaviors.confirm(confirmation(fixture, fixture.guidance_duplicate, "second"))
+
+    assert {:ok, %{created: 1}} = Reviews.refresh_reviews("slack:T123", 86_400)
+    assert [_review] = Reviews.list_reviews("slack:T123", limit: 10)
+
+    assert {:ok, %{status: :deleted}} =
+             Behaviors.set_status(first.behavior.ref, :deleted, "slack:T123")
+
     assert Reviews.list_reviews("slack:T123", limit: 10) == []
   end
 
@@ -1172,6 +1201,15 @@ defmodule Ryker.Memories.MemoriesTest do
                }
              )
 
+    assert {:ok, preference} =
+             Records.create(Records.token(claim.turn), "preference", "preference_offer", %{
+               "expires_in" => "30d",
+               "key" => "response_detail",
+               "repository" => nil,
+               "scope" => "workspace",
+               "value" => "concise"
+             })
+
     bind_and_deliver!(
       claim,
       transition.episode,
@@ -1182,7 +1220,8 @@ defmodule Ryker.Memories.MemoriesTest do
         workspace,
         duplicate,
         guidance,
-        guidance_duplicate
+        guidance_duplicate,
+        preference
       ],
       delivery_thread_ref
     )
@@ -1191,6 +1230,7 @@ defmodule Ryker.Memories.MemoriesTest do
       first: first,
       guidance: guidance,
       guidance_duplicate: guidance_duplicate,
+      preference: preference,
       replacement: replacement,
       workspace: workspace
     })
@@ -1334,7 +1374,7 @@ defmodule Ryker.Memories.MemoriesTest do
     |> Repo.insert!()
   end
 
-  defp insert_conversation_behavior!(offer) do
+  defp insert_conversation_behavior!(offer, status \\ :active) do
     id = Ecto.UUID.generate()
 
     %{
@@ -1363,7 +1403,7 @@ defmodule Ryker.Memories.MemoriesTest do
       source_message_ref: "1787832001.000200",
       source_thread_ref: "1787832000.000100",
       source_transport: "slack",
-      status: :active,
+      status: status,
       workspace_ref: "slack:T123"
     }
     |> BehaviorChangeset.insert()

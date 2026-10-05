@@ -1446,9 +1446,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
           </h4>
         </div>
         <p class="case-event-summary">{@step.rules.summary}</p>
-        <p :if={@step.rules.truncated} class="action-error">
-          {truncated_rule_summary(@step.rules)}
-        </p>
         <ul :if={@step.rules.entries != []} class="standing-rule-list">
           <li
             :for={rule <- @step.rules.entries}
@@ -1466,7 +1463,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
               label="Rule details"
               class="standing-rule-definition"
             >
-              <.fact_list facts={rule_facts(rule)} />
+              <.fact_list :if={rule.criteria} facts={rule_facts(rule)} />
               <a class="standing-rule-link" href={"/rules#behavior-" <> rule.ref}>
                 Open in Standing rules →
               </a>
@@ -1485,14 +1482,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp verdict_label("disabled"), do: "Paused"
   defp verdict_label("expired"), do: "Expired"
   defp verdict_label(other), do: Words.label(other)
-
-  defp truncated_rule_summary(rules) do
-    retained = length(rules.entries)
-    missing = max(rules.rule_count - retained, 0)
-    verb = if missing == 1, do: "is", else: "are"
-
-    "Only #{retained} of #{rules.rule_count} rules were retained; #{missing} #{verb} missing from this older history."
-  end
 
   defp message(assigns) do
     ~H"""

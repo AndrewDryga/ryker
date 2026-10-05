@@ -563,7 +563,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     "Ryker evaluated this message without replying because Shadow evaluation was on#{qualifier}."
   end
 
-  defp rule_inventory(nil), do: %{state: :not_recorded, entries: [], truncated: false}
+  defp rule_inventory(nil), do: %{state: :not_recorded, entries: []}
 
   defp rule_inventory(inventory) do
     entries =
@@ -571,7 +571,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       |> Enum.map(fn entry ->
         %{
           ref: entry["ref"],
-          title: entry["title"] || entry["ref"],
+          # Another channel's rule keeps no title here (`Ryker.Behaviors`).
+          title: entry["title"] || "Standing rule",
           status: entry["status"],
           revision: entry["revision"],
           scope_ref: entry["scope_ref"],
@@ -588,7 +589,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       recorded_at: inventory.recorded_at,
       rule_count: inventory.rule_count,
       matched_count: inventory.matched_count,
-      truncated: inventory.truncated,
       entries: entries
     }
   end

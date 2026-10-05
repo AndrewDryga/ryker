@@ -8,7 +8,7 @@ defmodule Ryker.Behaviors.AutomationsTest do
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Repo
-  alias Ryker.Slack.{Renderer, ReplyRecords}
+  alias Ryker.Slack.{ChannelMembership, Renderer, ReplyRecords}
 
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Automations
@@ -41,6 +41,41 @@ defmodule Ryker.Behaviors.AutomationsTest do
            }) == {:error, :invalid_automation_source}
 
     assert Repo.get!(Behavior, created.behavior.id).payload["source_kind"] == "github"
+  end
+
+  # Facts and rules refuse a confirmation from a deleted channel; an
+  # automation change still paused or resumed a schedule there (2026-10-04
+  # review).
+  test "an automation change is not confirmed from a deleted channel" do
+    source = delivered_record!("deleted-channel-source", "schedule_offer", schedule_offer())
+    assert {:ok, created} = Schedules.confirm(confirmation(source, "create-deleted-channel"))
+
+    assert {:ok, payload} =
+             Automations.prepare_change(source.episode, %{
+               "action" => "pause",
+               "automation_id" => created.schedule.ref,
+               "patch" => %{},
+               "revision" => 1
+             })
+
+    change = delivered_record!("deleted-channel-pause", "automation_change_offer", payload)
+
+    Repo.insert!(%ChannelMembership{
+      id: Ecto.UUID.generate(),
+      workspace_ref: "T123",
+      channel_ref: "C456",
+      private: false,
+      external_shared: false,
+      generation: 1,
+      status: :deleted,
+      joined_at: @now,
+      deleted_at: @now
+    })
+
+    assert Automations.confirm(confirmation(change, "deleted-channel-pause")) ==
+             {:error, :slack_channel_deleted}
+
+    assert Repo.get!(Schedule, created.schedule.id).status == :active
   end
 
   test "a delivered operator decision manages the complete time automation lifecycle" do

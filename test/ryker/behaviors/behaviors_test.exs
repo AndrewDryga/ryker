@@ -15,7 +15,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.MemoryPages
   alias Ryker.Ingress.{Inbox, Input}
-  alias Ryker.Slack.{AppHomeProjection, Event, Renderer, ReplyRecords}
+  alias Ryker.Slack.{AppHomeProjection, ChannelMembership, Event, Renderer, ReplyRecords}
 
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
@@ -180,6 +180,24 @@ defmodule Ryker.Behaviors.BehaviorsTest do
 
     assert %{items: items} = BehaviorLibrary.list(:guidance, %{})
     assert [%{status: "active"}] = Enum.filter(items, &(&1.ref == confirmed.behavior.ref))
+  end
+
+  # A preference replaced by a newer one kept every word of the old one,
+  # where a replaced fact keeps a digest (2026-10-04 review).
+  test "a preference replaced by a newer one keeps no words" do
+    first_offers = delivered_offers!("replaced-preference")
+
+    {:ok, first} =
+      Behaviors.confirm(confirmation(first_offers, first_offers.workspace_preference, "first"))
+
+    second_offers = delivered_offers!("replacing-preference")
+
+    {:ok, _second} =
+      Behaviors.confirm(confirmation(second_offers, second_offers.workspace_preference, "second"))
+
+    replaced = Repo.get!(Behavior, first.behavior.id)
+    assert replaced.status == :superseded
+    assert Map.keys(replaced.payload) == ["replaced_payload_sha256"]
   end
 
   test "the instruction library separates kinds expiry scopes and history without mutating them" do
@@ -598,6 +616,10 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert deleted.status == :deleted
     assert deleted.revision == active.revision + 1
 
+    # A deleted rule kept its title, task and filter forever, where a deleted
+    # fact keeps a digest (2026-10-04 review).
+    assert Map.keys(deleted.payload) == ["deleted_payload_sha256"]
+
     assert Behaviors.set_status(confirmed.behavior.ref, :active, "slack:T123") ==
              {:error, :behavior_terminal}
   end
@@ -828,6 +850,10 @@ defmodule Ryker.Behaviors.BehaviorsTest do
 
     refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
     assert inspect(rendered) =~ "Preference deleted"
+
+    # Deleted, it keeps no words, and its card says only what it was.
+    assert Map.keys(Repo.get!(Behavior, behavior.id).payload) == ["deleted_payload_sha256"]
+    refute inspect(rendered) =~ "response_detail"
   end
 
   # Same gap for guidance, whose dialog has to promise something different:
@@ -1181,6 +1207,21 @@ defmodule Ryker.Behaviors.BehaviorsTest do
   end
 
   defp delivered_offers!(suffix, delivery_thread_ref \\ "1787832000.000100") do
+    # Workspace and repository offers are confirmed only in a public channel.
+    Repo.insert!(
+      %ChannelMembership{
+        channel_ref: "C456",
+        external_shared: false,
+        generation: 1,
+        id: Ecto.UUID.generate(),
+        joined_at: @now,
+        private: false,
+        status: :joined,
+        workspace_ref: "T123"
+      },
+      on_conflict: :nothing
+    )
+
     episode_id = Ecto.UUID.generate()
 
     assert {:ok, transition} =

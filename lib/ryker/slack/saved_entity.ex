@@ -10,6 +10,7 @@ defmodule Ryker.Slack.SavedEntity do
   that the entity does not retain is invented.
   """
 
+  alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Schedules.Schedule
@@ -49,65 +50,10 @@ defmodule Ryker.Slack.SavedEntity do
     }
   end
 
-  def document(%Behavior{kind: :standing_assignment} = behavior, event) do
-    payload = behavior.payload
-
-    facts = [
-      {"Channel", destination(payload["context_channel"])},
-      {"Source", payload["source_kind"]},
-      {"Event filter", event_filter(payload["source_kind"], payload["filter"])},
-      {"Repository", payload["repository"] || "No fixed binding"},
-      {"Expires", expiry(behavior.expires_at, "Until disabled")},
-      {"Access", "Read-only"}
-    ]
-
-    behavior_document(
-      behavior,
-      "standing_rule",
-      "Standing rule",
-      payload["title"] || behavior.identity_key,
-      payload["task"],
-      facts,
-      event
-    )
-  end
-
-  def document(%Behavior{kind: :preference} = behavior, event) do
-    payload = behavior.payload
-
-    behavior_document(
-      behavior,
-      "preference",
-      "Preference",
-      payload["key"],
-      "#{payload["key"]} = #{payload["value"]}",
-      [
-        {"Scope", scope(behavior.scope_kind, behavior.scope_ref)},
-        {"Repository", payload["repository"] || "No fixed binding"},
-        {"Expires", expiry(behavior.expires_at, "Until removed")}
-      ],
-      event
-    )
-  end
-
-  def document(%Behavior{kind: :guidance} = behavior, event) do
-    payload = behavior.payload
-
-    behavior_document(
-      behavior,
-      "guidance",
-      "Guidance",
-      payload["subject"],
-      payload["text"],
-      [
-        {"Scope", scope(behavior.scope_kind, behavior.scope_ref)},
-        {"Repository", payload["repository"] || "No fixed binding"},
-        {"Visibility", visibility(payload["visibility"])},
-        {"Expires", expiry(behavior.expires_at, "Until removed")},
-        {"Source", source(behavior)}
-      ],
-      event
-    )
+  def document(%Behavior{} = behavior, event) do
+    if Behaviors.redacted?(behavior.payload),
+      do: ended_document(behavior, event),
+      else: kept_document(behavior, event)
   end
 
   def document(%MemoryEntry{} = entry, event) do
@@ -134,6 +80,81 @@ defmodule Ryker.Slack.SavedEntity do
       "status" => status,
       "title" => entry.subject
     }
+  end
+
+  # Deleted or replaced, a rule, preference or guidance keeps no words
+  # (`Ryker.Behaviors.redact!/3`), so its card names only what it was and that
+  # it is gone.
+  defp ended_document(%Behavior{kind: kind} = behavior, event) do
+    {card, label} =
+      case kind do
+        :standing_assignment -> {"standing_rule", "Standing rule"}
+        :preference -> {"preference", "Preference"}
+        :guidance -> {"guidance", "Guidance"}
+      end
+
+    behavior_document(behavior, card, label, label, nil, [], event)
+  end
+
+  defp kept_document(%Behavior{kind: :standing_assignment} = behavior, event) do
+    payload = behavior.payload
+
+    facts = [
+      {"Channel", destination(payload["context_channel"])},
+      {"Source", payload["source_kind"]},
+      {"Event filter", event_filter(payload["source_kind"], payload["filter"])},
+      {"Repository", payload["repository"] || "No fixed binding"},
+      {"Expires", expiry(behavior.expires_at, "Until disabled")},
+      {"Access", "Read-only"}
+    ]
+
+    behavior_document(
+      behavior,
+      "standing_rule",
+      "Standing rule",
+      payload["title"] || behavior.identity_key,
+      payload["task"],
+      facts,
+      event
+    )
+  end
+
+  defp kept_document(%Behavior{kind: :preference} = behavior, event) do
+    payload = behavior.payload
+
+    behavior_document(
+      behavior,
+      "preference",
+      "Preference",
+      payload["key"],
+      "#{payload["key"]} = #{payload["value"]}",
+      [
+        {"Scope", scope(behavior.scope_kind, behavior.scope_ref)},
+        {"Repository", payload["repository"] || "No fixed binding"},
+        {"Expires", expiry(behavior.expires_at, "Until removed")}
+      ],
+      event
+    )
+  end
+
+  defp kept_document(%Behavior{kind: :guidance} = behavior, event) do
+    payload = behavior.payload
+
+    behavior_document(
+      behavior,
+      "guidance",
+      "Guidance",
+      payload["subject"],
+      payload["text"],
+      [
+        {"Scope", scope(behavior.scope_kind, behavior.scope_ref)},
+        {"Repository", payload["repository"] || "No fixed binding"},
+        {"Visibility", visibility(payload["visibility"])},
+        {"Expires", expiry(behavior.expires_at, "Until removed")},
+        {"Source", source(behavior)}
+      ],
+      event
+    )
   end
 
   defp behavior_document(behavior, kind, label, title, instructions, facts, event) do

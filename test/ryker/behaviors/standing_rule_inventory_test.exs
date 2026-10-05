@@ -56,7 +56,6 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
 
     assert inventory.rule_count == 5
     assert inventory.matched_count == 1
-    refute inventory.truncated
 
     verdicts = Map.new(inventory.entries, &{&1["ref"], {&1["verdict"], &1["reason"]}})
     assert {"matched", reason} = verdicts[matched.ref]
@@ -66,6 +65,12 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     assert {"out_of_scope", reason} = verdicts[other_channel.ref]
     assert reason == "This rule applies to another channel."
     refute reason =~ "slack:"
+
+    # Another channel's rule is a reason, not a copy: its title, channel and
+    # filter stay with the rule, so deleting that channel leaves none of its
+    # words in this message's history (2026-10-04 review).
+    elsewhere = Enum.find(inventory.entries, &(&1["ref"] == other_channel.ref))
+    assert elsewhere |> Map.keys() |> Enum.sort() == ~w(reason ref revision status verdict)
     assert {"disabled", reason} = verdicts[paused.ref]
     assert reason == "This rule was paused when the message was processed."
     assert {"expired", "This rule expired before the message arrived."} = verdicts[expired.ref]
@@ -152,7 +157,6 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
 
     assert inventory.rule_count == 205
     assert inventory.matched_count == 100
-    refute inventory.truncated
     assert length(inventory.entries) == 205
 
     last = List.last(rules)

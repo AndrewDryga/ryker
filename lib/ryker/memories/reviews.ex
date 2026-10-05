@@ -5,9 +5,9 @@ defmodule Ryker.Memories.Reviews do
   Reviews are idempotent candidates keyed by a digest of their sources; an
   operator keeps, merges, edits or forgets them, and any entry change that
   leaves a pending review with nothing to decide dismisses it.
-  Every writer here and in `Ryker.Memories` holds the review
-  maintenance advisory lock first, so a review can never name an entry that
-  a concurrent confirmation, forget, or revocation is replacing.
+  Every writer here, in `Ryker.Memories` and in `Ryker.Behaviors` holds the
+  review maintenance advisory lock first, so a review can never name an entry
+  that a concurrent confirmation, forget, or revocation is replacing.
   """
 
   import Ecto.Query
@@ -243,11 +243,13 @@ defmodule Ryker.Memories.Reviews do
 
       # Conversation-scoped guidance, and repository guidance the deleted
       # channel alone could see: its only surface is gone with the channel.
+      # One already ended keeps its ending but loses its words too; only live
+      # rows were redacted, so a rule replaced or deleted before the channel
+      # went kept its text past it (2026-10-04 review).
       Repo.all(
         from(behavior in Behavior,
           where:
             behavior.workspace_ref == ^scoped_workspace_ref and
-              behavior.status in [:active, :disabled] and
               ((behavior.scope_kind == :conversation and
                   behavior.scope_ref == ^conversation_ref) or
                  (behavior.source_conversation_ref == ^conversation_ref and
@@ -256,13 +258,8 @@ defmodule Ryker.Memories.Reviews do
           lock: "FOR UPDATE"
         )
       )
-      |> Enum.each(fn behavior ->
-        redact_review_source!(
-          review_source_record(:guidance, behavior),
-          :deleted,
-          "channel_deleted_payload_sha256"
-        )
-      end)
+      |> Enum.reject(&Behaviors.redacted?(&1.payload))
+      |> Enum.each(&redact_channel_behavior!/1)
 
       dismiss_orphan_reviews("system:slack-channel-deletion", scoped_workspace_ref)
       dismiss_orphan_reviews("system:slack-channel-deletion", "installation")
@@ -857,18 +854,12 @@ defmodule Ryker.Memories.Reviews do
   defp redact_review_source!(%{type: :memory, record: entry}, status, hash_field),
     do: Memories.redact!(entry, status, hash_field)
 
-  defp redact_review_source!(%{type: :guidance, record: behavior}, status, hash_field) do
-    payload = %{hash_field => CanonicalJSON.digest(behavior.payload)}
+  defp redact_review_source!(%{type: :guidance, record: behavior}, status, hash_field),
+    do: Behaviors.redact!(behavior, status, hash_field)
 
-    Behaviors.broadcast_behavior_updated(behavior.id)
-
-    behavior
-    |> BehaviorChangeset.update(%{
-      payload: payload,
-      revision: behavior.revision + 1,
-      status: status
-    })
-    |> Repo.update!()
+  defp redact_channel_behavior!(%Behavior{status: status} = behavior) do
+    ended = if status in [:active, :disabled], do: :deleted, else: status
+    Behaviors.redact!(behavior, ended, "channel_deleted_payload_sha256")
   end
 
   defp forget_learning(%{type: :memory, record: entry}),

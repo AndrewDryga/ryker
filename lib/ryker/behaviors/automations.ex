@@ -29,6 +29,7 @@ defmodule Ryker.Behaviors.Automations do
   alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Schedules.ScheduleRecurrence
+  alias Ryker.Slack.ChannelFence
 
   alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
@@ -254,6 +255,11 @@ defmodule Ryker.Behaviors.Automations do
 
   defp confirm_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
+         :ok <-
+           ChannelFence.authorize_in_transaction(
+             episode.destination_transport,
+             episode.destination_conversation_ref
+           ),
          :ok <- delivered_from?(episode, turn, attributes.target) do
       case record.status do
         :confirmed -> duplicate_confirmation(record, episode)
@@ -316,11 +322,18 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp persist_change(%Behavior{} = behavior, payload, occurred_at) do
-    with {:ok, attributes} <- behavior_change(behavior, payload, occurred_at) do
-      behavior
-      |> BehaviorChangeset.update(Map.put(attributes, :revision, behavior.revision + 1))
-      |> Repo.update()
-      |> persistence_result(:automation_behavior)
+    case behavior_change(behavior, payload, occurred_at) do
+      {:ok, %{status: :deleted}} ->
+        {:ok, Behaviors.redact!(behavior, :deleted, "deleted_payload_sha256")}
+
+      {:ok, attributes} ->
+        behavior
+        |> BehaviorChangeset.update(Map.put(attributes, :revision, behavior.revision + 1))
+        |> Repo.update()
+        |> persistence_result(:automation_behavior)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

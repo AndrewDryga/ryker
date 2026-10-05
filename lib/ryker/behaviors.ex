@@ -29,6 +29,7 @@ defmodule Ryker.Behaviors do
   alias Ryker.Episodes.Scope
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
+  alias Ryker.Memories.Reviews
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
@@ -54,9 +55,11 @@ defmodule Ryker.Behaviors do
          :ok <- reference(attributes.record_ref, :record_ref),
          {:ok, occurred_at} <- utc_datetime(attributes.occurred_at, :occurred_at),
          {:ok, target} <- target(attributes.target) do
-      Repo.transaction(fn ->
-        confirm_locked(%{attributes | occurred_at: occurred_at, target: target})
-      end)
+      Repo.transaction(
+        reviewed(fn ->
+          confirm_locked(%{attributes | occurred_at: occurred_at, target: target})
+        end)
+      )
     end
   end
 
@@ -64,7 +67,7 @@ defmodule Ryker.Behaviors do
           {:ok, Behavior.t()} | {:error, term()}
   def set_status(ref, status) when status in [:active, :disabled, :deleted] do
     with :ok <- reference(ref, :behavior_ref) do
-      Repo.transaction(fn -> set_status_locked(ref, status, nil) end)
+      Repo.transaction(reviewed(fn -> set_status_locked(ref, status, nil) end))
     end
   end
 
@@ -75,7 +78,7 @@ defmodule Ryker.Behaviors do
   def set_status(ref, status, workspace_ref) when status in [:active, :disabled, :deleted] do
     with :ok <- reference(ref, :behavior_ref),
          :ok <- reference(workspace_ref, :workspace_ref) do
-      Repo.transaction(fn -> set_status_locked(ref, status, workspace_ref) end)
+      Repo.transaction(reviewed(fn -> set_status_locked(ref, status, workspace_ref) end))
     end
   end
 
@@ -89,7 +92,9 @@ defmodule Ryker.Behaviors do
     with :ok <- reference(ref, :behavior_ref),
          :ok <- reference(actor_ref, :actor_ref),
          :ok <- reference(workspace_ref, :workspace_ref) do
-      Repo.transaction(fn -> set_home_status_locked(ref, status, actor_ref, workspace_ref) end)
+      Repo.transaction(
+        reviewed(fn -> set_home_status_locked(ref, status, actor_ref, workspace_ref) end)
+      )
     end
   end
 
@@ -125,15 +130,9 @@ defmodule Ryker.Behaviors do
           },
           resource_ref: ref
         },
-        fn ->
-          set_home_status_audited_locked(
-            ref,
-            status,
-            expected_revision,
-            actor_ref,
-            workspace_ref
-          )
-        end
+        reviewed(fn ->
+          set_home_status_audited_locked(ref, status, expected_revision, actor_ref, workspace_ref)
+        end)
       )
     end
   end
@@ -147,6 +146,21 @@ defmodule Ryker.Behaviors do
         _action_ref
       ),
       do: {:error, {:invalid_behavior, :status}}
+
+  # Guidance is reviewed beside facts (`Ryker.Memories.Reviews`), so every
+  # write here takes the review lock first, as Memories does, and closes the
+  # reviews a change left with nothing to decide. Deleted guidance left App
+  # Home offering a review whose every button failed as stale, and two
+  # confirmations of the same guidance raced into its unique index instead of
+  # one replacing the other (2026-10-04 review).
+  defp reviewed(change) do
+    fn ->
+      Reviews.lock_review_maintenance!()
+      result = change.()
+      Reviews.dismiss_orphan_reviews("system:behavior-change")
+      result
+    end
+  end
 
   defp set_home_status_locked(ref, status, actor_ref, workspace_ref) do
     case Repo.one(from(behavior in Behavior, where: behavior.ref == ^ref, lock: "FOR UPDATE")) do
@@ -206,7 +220,7 @@ defmodule Ryker.Behaviors do
           },
           resource_ref: ref
         },
-        fn ->
+        reviewed(fn ->
           set_home_status_audited_locked(
             ref,
             status,
@@ -215,7 +229,7 @@ defmodule Ryker.Behaviors do
             workspace_ref,
             conversation_ref
           )
-        end
+        end)
       )
     end
   end
@@ -602,7 +616,6 @@ defmodule Ryker.Behaviors do
              conversation_ref: input.destination.conversation_ref,
              rule_count: length(rules),
              matched_count: Enum.count(entries, &(&1["verdict"] == "matched")),
-             truncated: false,
              entries: entries,
              recorded_at: now
            },
@@ -650,20 +663,30 @@ defmodule Ryker.Behaviors do
   defp inventory_entry(behavior, input, now, considered) do
     {verdict, reason} = inventory_verdict(behavior, input, now, considered)
 
-    %{
+    entry = %{
       "ref" => behavior.ref,
-      "title" => assignment_title(behavior.payload),
       "status" => Atom.to_string(behavior.status),
-      "scope_ref" => behavior.scope_ref,
       "revision" => behavior.revision,
       "verdict" => verdict,
-      "reason" => reason,
-      "criteria" => assignment_criteria(behavior.payload),
-      "evidence" =>
-        if(verdict in ["matched", "not_matched"],
-          do: assignment_evidence(behavior.payload, input)
-        )
+      "reason" => reason
     }
+
+    # Another channel's rule is a reason, not a copy: its title, channel and
+    # filter were copied into every message of the workspace, where deleting
+    # that channel could not reach them (2026-10-04 review).
+    if verdict == "out_of_scope" do
+      entry
+    else
+      Map.merge(entry, %{
+        "title" => behavior.payload["title"],
+        "scope_ref" => behavior.scope_ref,
+        "criteria" => assignment_criteria(behavior.payload),
+        "evidence" =>
+          if(verdict in ["matched", "not_matched"],
+            do: assignment_evidence(behavior.payload, input)
+          )
+      })
+    end
   end
 
   # What the rule looked for, frozen with its verdict so a later edit cannot
@@ -725,10 +748,6 @@ defmodule Ryker.Behaviors do
         {"not_matched", "The recorded source and event filter did not match this message."}
     end
   end
-
-  defp assignment_title(%{"title" => title}) when is_binary(title), do: title
-  defp assignment_title(%{"task" => task}) when is_binary(task), do: task
-  defp assignment_title(_payload), do: nil
 
   @doc false
   @spec observe_input(Input.t(), String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
@@ -807,7 +826,7 @@ defmodule Ryker.Behaviors do
              episode.destination_transport,
              episode.destination_conversation_ref
            ),
-         :ok <- authorize_wide_guidance(record, episode),
+         :ok <- authorize_wide_offer(record, episode),
          :ok <- authorize_personal_offer(record, turn, attributes.actor_ref),
          :ok <- delivered_from?(episode, turn, attributes.target) do
       case Repo.one(from(behavior in Behavior, where: behavior.offer_record_id == ^record.id)) do
@@ -825,18 +844,21 @@ defmodule Ryker.Behaviors do
     end
   end
 
-  defp authorize_wide_guidance(
-         %Record{kind: "guidance_offer", payload: %{"scope" => scope}},
+  # Guidance or a preference for a whole repository or workspace applies in
+  # every channel, so it is confirmed only where everyone can see it asked.
+  defp authorize_wide_offer(
+         %Record{kind: kind, payload: %{"scope" => scope}},
          %Episode{destination_transport: "slack"} = episode
        )
-       when scope in ["repository", "workspace"] do
+       when kind in ["guidance_offer", "preference_offer"] and
+              scope in ["repository", "workspace"] do
     ChannelFence.authorize_public_in_transaction(
       episode.destination_transport,
       episode.destination_conversation_ref
     )
   end
 
-  defp authorize_wide_guidance(_record, _episode), do: :ok
+  defp authorize_wide_offer(_record, _episode), do: :ok
 
   # A preference or a rule a person keeps for themselves ("mine") belongs to
   # whoever confirms it, so only the person who asked for it may. Guidance
@@ -1004,21 +1026,17 @@ defmodule Ryker.Behaviors do
   end
 
   defp supersede_existing(prepared) do
-    {_count, superseded} =
-      Repo.update_all(
-        from(behavior in Behavior,
-          where:
-            behavior.kind == ^prepared.kind and behavior.workspace_ref == ^prepared.workspace_ref and
-              behavior.scope_kind == ^prepared.scope_kind and
-              behavior.scope_ref == ^prepared.scope_ref and
-              behavior.identity_key == ^prepared.identity_key and behavior.status == :active,
-          select: behavior.id
-        ),
-        set: [status: :superseded, updated_at: Repo.now!()],
-        inc: [revision: 1]
-      )
-
-    Enum.each(superseded, &broadcast_behavior_updated/1)
+    from(behavior in Behavior,
+      where:
+        behavior.kind == ^prepared.kind and behavior.workspace_ref == ^prepared.workspace_ref and
+          behavior.scope_kind == ^prepared.scope_kind and
+          behavior.scope_ref == ^prepared.scope_ref and
+          behavior.identity_key == ^prepared.identity_key and behavior.status == :active,
+      order_by: [asc: behavior.id],
+      lock: "FOR UPDATE"
+    )
+    |> Repo.all()
+    |> Enum.each(&redact!(&1, :superseded, "replaced_payload_sha256"))
   end
 
   defp insert_behavior(record, episode, attributes, prepared) do
@@ -1068,6 +1086,9 @@ defmodule Ryker.Behaviors do
       %Behavior{status: current} when current in [:deleted, :expired, :superseded] ->
         Repo.rollback(:behavior_terminal)
 
+      %Behavior{} = behavior when status == :deleted ->
+        redact!(behavior, :deleted, "deleted_payload_sha256")
+
       %Behavior{} = behavior ->
         if status == :active, do: supersede_existing(Map.from_struct(behavior))
         broadcast_behavior_updated(behavior.id)
@@ -1077,6 +1098,33 @@ defmodule Ryker.Behaviors do
         |> Repo.update!()
     end
   end
+
+  @doc """
+  Ends `behavior` as `status`, keeping only a digest of what it said under
+  `hash_field`, as a deleted fact does (`Ryker.Memories.redact!/3`). Deleted
+  or replaced rules, guidance and preferences kept every word, and their
+  source episode's history with them (2026-10-04 review).
+  """
+  @spec redact!(Behavior.t(), :deleted | :superseded | :expired, String.t()) :: Behavior.t()
+  def redact!(%Behavior{} = behavior, status, hash_field)
+      when status in [:deleted, :superseded, :expired] do
+    broadcast_behavior_updated(behavior.id)
+
+    behavior
+    |> BehaviorChangeset.update(%{
+      payload: %{hash_field => CanonicalJSON.digest(behavior.payload)},
+      revision: behavior.revision + 1,
+      status: status
+    })
+    |> Repo.update!()
+  end
+
+  @doc "Whether a behavior's payload is only the digest `redact!/3` left."
+  @spec redacted?(map()) :: boolean()
+  def redacted?(%{} = payload) when map_size(payload) == 1,
+    do: payload |> Map.keys() |> hd() |> String.ends_with?("_payload_sha256")
+
+  def redacted?(_payload), do: false
 
   defp active_for_context(kind, context) do
     now = Repo.now!()

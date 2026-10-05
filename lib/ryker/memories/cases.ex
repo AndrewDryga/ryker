@@ -5,8 +5,9 @@ defmodule Ryker.Memories.Cases do
   Everything Ryker learned from an incident used to expire with the raw
   transcript that produced it, so a matching outage a year later started from
   nothing. A case is captured from the episode's own retained evidence before
-  that evidence is eligible for cleanup, keeps no raw payload, and is bounded
-  by its own explicit lifetime rather than the transcript's.
+  that evidence is eligible for cleanup, keeps no raw payload, and outlives
+  the transcript: it goes only when a message it was built from is taken
+  back or its channel is deleted.
 
   Capture is idempotent by content: repeated close, reopen, cleanup and
   restart events update one case per intended revision instead of appending a

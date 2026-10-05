@@ -291,29 +291,25 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   "Reply length: Concise", and guidance by its subject. Confirmation pages
   ask "Pause <name>?" with it.
   """
-  def subject(%{kind: :standing_assignment, payload: payload}),
-    do: payload["title"] || "Rule"
+  def subject(%{kind: :standing_assignment, payload: %{"title" => title}}), do: title
 
-  def subject(%{kind: :preference, payload: payload}),
-    do: preference_key(payload["key"]) <> ": " <> preference_value(payload["value"])
+  def subject(%{kind: :preference, payload: %{"key" => key, "value" => value}}),
+    do: preference_key(key) <> ": " <> preference_value(value)
 
-  def subject(%{kind: :guidance, payload: payload}),
-    do: payload["subject"] || payload["summary"] || "Guidance"
+  def subject(%{kind: :guidance, payload: %{"subject" => subject}}), do: subject
 
-  def subject(%{payload: payload}),
-    do: payload["title"] || payload["subject"] || payload["task"] || "Saved instruction"
+  # Deleted or replaced, an entry keeps no words (`Ryker.Behaviors.redact!/3`).
+  def subject(%{kind: kind}), do: kind_word(kind)
 
   defp preference_key("response_detail"), do: "Reply length"
   defp preference_key("health_check_depth"), do: "Health checks"
   defp preference_key("response_location"), do: "Where to reply"
-  defp preference_key(key) when is_binary(key), do: Words.label(key)
-  defp preference_key(_key), do: "Preference"
+  defp preference_key(key), do: Words.label(key)
 
   defp preference_value("follow_context"), do: "Where the conversation is"
   defp preference_value("prefer_thread"), do: "In the thread"
   defp preference_value("prefer_channel"), do: "In the channel"
-  defp preference_value(value) when is_binary(value), do: Words.label(value)
-  defp preference_value(_value), do: "Not recorded"
+  defp preference_value(value), do: Words.label(value)
 
   # What the entry tells Ryker to do, in its own stored words. A preference
   # is its name alone.
@@ -364,17 +360,18 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     [kind_word(item.kind), where(item), usage(item, now), expiry(item, now)]
   end
 
+  defp kind_word(:standing_assignment), do: "Rule"
   defp kind_word(:preference), do: "Preference"
   defp kind_word(:guidance), do: "Guidance"
-  defp kind_word(kind), do: Words.label(kind)
 
-  defp trigger(%{payload: payload} = item) do
+  defp trigger(%{payload: %{"source_kind" => source} = payload} = item) do
     matching = if payload["filter"] in [nil, %{}], do: "a ", else: "a matching "
 
-    rich([
-      "When " <> matching <> source_event(payload["source_kind"]) <> " arrives" | place(item)
-    ])
+    rich(["When " <> matching <> source_event(source) <> " arrives" | place(item)])
   end
+
+  # A deleted or replaced rule keeps no trigger to describe.
+  defp trigger(_item), do: nil
 
   defp source_event("github"), do: "GitHub event"
   defp source_event("slack"), do: "Slack event"

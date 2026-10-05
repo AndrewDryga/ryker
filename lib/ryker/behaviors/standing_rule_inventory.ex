@@ -23,7 +23,6 @@ defmodule Ryker.Behaviors.StandingRuleInventory do
     field(:conversation_ref, :string)
     field(:rule_count, :integer)
     field(:matched_count, :integer)
-    field(:truncated, :boolean, default: false)
     field(:entries, Ryker.CanonicalJSON.Type)
     field(:recorded_at, :utc_datetime_usec)
   end
