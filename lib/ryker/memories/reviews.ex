@@ -19,6 +19,7 @@ defmodule Ryker.Memories.Reviews do
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Memories
+  alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Memories.MemoryReviewItem
@@ -575,8 +576,15 @@ defmodule Ryker.Memories.Reviews do
     :ok
   end
 
+  # What learning took from a forgotten fact's message goes with it, as when
+  # the fact is forgotten directly; this path only redacted the fact
+  # (2026-10-04 review).
   defp apply_review_action(_review, entries, :forget, _replacement, _actor_ref) do
-    Enum.each(entries, &redact_review_source!(&1, :deleted, "forgotten_payload_sha256"))
+    Enum.each(entries, fn source ->
+      redact_review_source!(source, :deleted, "forgotten_payload_sha256")
+      forget_learning(source)
+    end)
+
     :ok
   end
 
@@ -862,6 +870,11 @@ defmodule Ryker.Memories.Reviews do
     })
     |> Repo.update!()
   end
+
+  defp forget_learning(%{type: :memory, record: entry}),
+    do: Forgetting.forget_fact_in_transaction(entry)
+
+  defp forget_learning(_guidance), do: :ok
 
   defp edit_review_source(%{type: :memory, record: entry}, review, replacement, actor_ref) do
     payload =

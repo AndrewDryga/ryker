@@ -21,6 +21,7 @@ defmodule Ryker.Memories.ForgettingTest do
   alias Ryker.Memories
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
+  alias Ryker.Memories.Reviews
 
   setup do
     [first, second] = LearningFixtures.inputs!(isolate: true)
@@ -175,6 +176,36 @@ defmodule Ryker.Memories.ForgettingTest do
     assert {:ok, %MemoryEntry{status: :deleted}} = Memories.forget(fact.ref)
     assert Repo.get!(ConversationKnowledge, topic.id).forgotten_at
     assert observation!(first).forgotten_at
+  end
+
+  # Forget from the review queue, App Home's Forget all and the console's
+  # review Forget among them, only redacted the fact, and learning kept what it
+  # took from the fact's message (2026-10-04 review).
+  test "forgetting a fact from the review queue forgets what learning kept too", %{first: first} do
+    topic = topic!(first, "staging-account", "Staging account")
+    fact = answer_fact!(first, "Staging account", "The staging account is acme-staging.")
+
+    Repo.update_all(from(m in MemoryEntry, where: m.id == ^fact.id),
+      set: [updated_at: DateTime.add(DateTime.utc_now(), -3_600, :second)]
+    )
+
+    assert {:ok, _created} = Reviews.refresh_reviews(fact.workspace_ref, 60)
+
+    assert [review] =
+             fact.workspace_ref
+             |> Reviews.list_reviews(limit: 5)
+             |> Enum.filter(&(get_in(&1, ["entries", Access.at(0), "memory_ref"]) == fact.ref))
+
+    assert {:ok, _resolved} =
+             Memories.resolve_review(
+               review["review_ref"],
+               :forget,
+               "slack:user:U123",
+               fact.workspace_ref
+             )
+
+    assert Repo.get!(MemoryEntry, fact.id).status == :deleted
+    assert Repo.get!(ConversationKnowledge, topic.id).forgotten_at
   end
 
   defp topic!(entry, key, title) do
