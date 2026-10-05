@@ -4,7 +4,7 @@ defmodule Ryker.Settings.ConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Settings.{Edit, Installation}
+  alias Ryker.Settings.{Edit, GitHubBinding, Installation, Repository}
 
   @actor "control-plane:local"
 
@@ -57,7 +57,89 @@ defmodule Ryker.Settings.ConcurrencyTest do
     end)
   end
 
+  # The snapshot is fourteen reads, and outside a transaction each saw what
+  # had committed before it: a fetch while a repository and its binding were
+  # imported could return the binding without its repository, and the runtime
+  # built from it ran without GitHub (2026-10-04 review). The import here
+  # commits right after the fetch has read the repositories.
+  test "a snapshot read during an import holds the whole import or none of it" do
+    Sandbox.unboxed_run(Repo, fn ->
+      clear!()
+      handler = "settings-snapshot-#{System.unique_integer([:positive])}"
+
+      try do
+        {:ok, _snapshot} = Settings.initialize(@actor)
+        reader = self()
+
+        :ok =
+          :telemetry.attach(
+            handler,
+            [:ryker, :repo, :query],
+            fn _event, _measurements, metadata, _config ->
+              if self() == reader and metadata.source == "repository_settings" and
+                   is_nil(Process.get(:importer)) do
+                importer = unboxed_task(&import!/0)
+                Process.put(:importer, {importer, Task.yield(importer, 1_000)})
+              end
+            end,
+            nil
+          )
+
+        snapshot = Settings.fetch!()
+        :telemetry.detach(handler)
+
+        assert {:ok, _imported} =
+                 (case Process.get(:importer) do
+                    {_importer, {:ok, imported}} -> imported
+                    {importer, nil} -> Task.await(importer, 5_000)
+                  end)
+
+        repositories = MapSet.new(snapshot.repositories, & &1.ref)
+
+        assert Enum.all?(
+                 snapshot.github_bindings,
+                 &MapSet.member?(repositories, &1.repository_ref)
+               )
+
+        assert Enum.map(Settings.fetch!().github_bindings, & &1.name) == ["imported"]
+      after
+        :telemetry.detach(handler)
+        clear!()
+      end
+    end)
+  end
+
+  defp import! do
+    Settings.atomically(fn ->
+      with {:ok, _snapshot} <-
+             Settings.put_repository(
+               %{
+                 ref: "imported",
+                 display_name: "acme/imported",
+                 github_repository: "acme/imported",
+                 base_branch: "main"
+               },
+               :current,
+               @actor
+             ) do
+        Settings.put_github_binding(
+          %{
+            name: "imported",
+            repository_ref: "imported",
+            installation_id: 10,
+            repository_id: 20,
+            ryker_actor_id: 30
+          },
+          :current,
+          @actor
+        )
+      end
+    end)
+  end
+
   defp clear! do
+    Repo.delete_all(GitHubBinding)
+    Repo.delete_all(Repository)
     Repo.delete_all(Installation)
     Repo.delete_all(Edit)
   end

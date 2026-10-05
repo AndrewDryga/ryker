@@ -126,7 +126,9 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
         render(view)
       end)
 
-    assert Enum.count(sources, &(&1 == "installation_settings")) == 1
+    # Each read of the view reads the retention limits once; the installation
+    # row is read again to check no save landed during the read.
+    assert Enum.count(sources, &(&1 == "retention_settings")) == 1
   end
 
   # The tables a page's own process queries while `fun` runs.

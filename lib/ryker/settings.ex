@@ -95,13 +95,46 @@ defmodule Ryker.Settings do
     end)
   end
 
-  @doc "The current consistent snapshot, or an explicit not-initialized error."
+  @doc """
+  The current consistent snapshot, or an explicit not-initialized error.
+
+  The snapshot is fourteen reads, each seeing whatever had committed before
+  it: a fetch during an import could return the binding without its
+  repository, and the runtime built from it ran without GitHub (2026-10-04
+  review). Every write moves the revision, so a read that finds it unchanged
+  at the end saw no write land in between. One that finds it moved reads again
+  under the settings lock, shared, which waits for a write in flight and lets
+  none start until it is done.
+  """
   @spec fetch() :: {:ok, snapshot()} | {:error, :settings_not_initialized}
   def fetch do
+    case read() do
+      {:ok, snapshot} ->
+        if moved?(snapshot.installation), do: read_locked(), else: {:ok, snapshot}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp read do
     case Repo.one(Installation) do
       nil -> {:error, :settings_not_initialized}
       %Installation{} = installation -> {:ok, load(installation)}
     end
+  end
+
+  defp moved?(%Installation{revision: revision}),
+    do: Repo.one(from(installation in Installation, select: installation.revision)) != revision
+
+  defp read_locked do
+    {:ok, fetched} =
+      Repo.transaction(fn ->
+        Repo.query!("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))", [@lock_tag])
+        read()
+      end)
+
+    fetched
   end
 
   def fetch! do
