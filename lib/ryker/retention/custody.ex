@@ -633,10 +633,24 @@ defmodule Ryker.Retention.Custody do
           ^knowledge_finished() or ^admission_finished() or ^ready_retired()
       )
 
+  # A Work session is finished when its episode is, or once a newer generation
+  # replaced it. A replaced session stayed open on its worker, holding its
+  # workspace, until the episode ended, however long the episode then waited
+  # (2026-10-04 review).
   defp work_finished do
     dynamic(
       [session: session, episode: episode],
-      session.execution_kind == :work and episode.state in ^@terminal_episode_states
+      session.execution_kind == :work and
+        (episode.state in ^@terminal_episode_states or
+           exists(
+             from(newer in Session,
+               where:
+                 newer.episode_id == parent_as(:session).episode_id and
+                   newer.execution_kind == :work and
+                   newer.generation > parent_as(:session).generation,
+               select: 1
+             )
+           ))
     )
   end
 
@@ -763,7 +777,9 @@ defmodule Ryker.Retention.Custody do
       claimable_status?(session, now)
   end
 
-  defp owner_finished?(%Episode{state: state}, _session), do: state in @terminal_episode_states
+  defp owner_finished?(%Episode{state: state}, session),
+    do: state in @terminal_episode_states or replaced_work_session?(session)
+
   defp owner_finished?(%LearningRun{remote_stopped_at: %DateTime{}}, _session), do: true
   defp owner_finished?(%AnalysisRun{remote_stopped_at: %DateTime{}}, _session), do: true
   defp owner_finished?(%KnowledgeRun{remote_stopped_at: %DateTime{}}, _session), do: true
@@ -779,6 +795,18 @@ defmodule Ryker.Retention.Custody do
     do: true
 
   defp owner_finished?(_owner, _session), do: false
+
+  defp replaced_work_session?(%Session{execution_kind: :work} = session) do
+    Repo.exists?(
+      from(newer in Session,
+        where:
+          newer.episode_id == ^session.episode_id and newer.execution_kind == :work and
+            newer.generation > ^session.generation
+      )
+    )
+  end
+
+  defp replaced_work_session?(_session), do: false
 
   defp lease_free?(%Session{cleanup_lease_ref: nil}, _now), do: true
 

@@ -28,6 +28,29 @@ defmodule Ryker.Retention.CustodyTest do
     assert Repo.get!(Session, active.id).cleanup_status == :active
   end
 
+  # A replaced Work session stayed open on its worker, holding its workspace,
+  # until the episode ended, however long the episode then waited
+  # (2026-10-04 review).
+  test "a replaced Work session is cleaned up while its episode keeps working" do
+    replaced = session!("replaced-generation")
+    assert {:ok, claim} = Ryker.Work.Custody.claim_next("work:replaced-generation", 60, :work)
+
+    assert {:ok, %{session: current}} =
+             Ryker.Work.Custody.rotate_session(
+               replaced.episode_id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               replaced.generation
+             )
+
+    assert current.generation == replaced.generation + 1
+
+    assert {:ok, cleanup} = Ryker.Retention.Custody.claim_next("cleanup:replaced", 60)
+    assert cleanup.session.id == replaced.id
+    assert {:ok, nil} = Ryker.Retention.Custody.claim_next("cleanup:current", 60)
+    assert Repo.get!(Session, current.id).cleanup_status == :active
+  end
+
   test "a restarted cleanup host releases the leases it can no longer own" do
     # After a restart the host still appeared to hold its own cleanup leases, so
     # every claimed item waited out the full lease clock before anyone retried it.
