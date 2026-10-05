@@ -2023,11 +2023,17 @@ defmodule Ryker.Evals.WorldRunnerTest do
            }
   end
 
+  # The judge runner reports a session it could not run as failed with no
+  # decision, and that read as the model failing the rubric: no
+  # execution_error, and a judge outage kept spending every remaining case
+  # (2026-10-04 review).
   for {name, judge_result, expected} <- [
         {"typed judge failure", {:error, :judge_unavailable},
          {:error, {:world_eval_judge, :judge_unavailable}}},
         {"malformed judge result", :malformed,
-         {:error, {:world_eval_judge, {:invalid_result, :malformed}}}}
+         {:error, {:world_eval_judge, {:invalid_result, :malformed}}}},
+        {"judge that never decided", {:ok, %{decision: nil, reason: :coop_down, status: :failed}},
+         {:error, {:world_eval_judge, :coop_down}}}
       ] do
     @judge_result judge_result
     @expected_judge_result expected

@@ -88,6 +88,12 @@ defmodule Ryker.Evals.WorldEvidence do
   judge could not produce one.
   """
   @spec apply_judgment(term(), map()) :: {:ok, map()} | {:error, term()}
+  # A judge session that never decided failed for the harness, not the model:
+  # read as a rubric failure, it set no execution_error and a judge outage
+  # kept spending every remaining case (2026-10-04 review).
+  def apply_judgment({:ok, %{decision: nil} = judgment}, report),
+    do: execution_failure(report, {:world_eval_judge, Map.get(judgment, :reason)})
+
   def apply_judgment({:ok, %{decision: decision, status: status} = judgment}, report)
       when status in [:passed, :failed] do
     {:ok,
