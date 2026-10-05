@@ -92,10 +92,13 @@ export function createComposer({pushEvent, active, storage, location: loc}) {
     showFeedback(status, "Saving message…", "info")
     try {
       await sendDraft(form.action, body)
-      if (!active() || !form.isConnected) return
+      // A confirmed send clears its stored draft even when the page was left
+      // while it saved; the draft came back on the next visit, and Send posted
+      // the message twice (2026-10-04 review).
       let store
-      try { store = storage() } catch (_) { store = {removeItem() {}} }
+      try { store = storage() } catch (_) { store = {getItem() { return null }, removeItem() {}} }
       acceptDrafts(drafts, store)
+      if (!active() || !form.isConnected) return
       if (files) files.value = ""
       showFeedback(status, "", "info")
       pushEvent("refresh", {})

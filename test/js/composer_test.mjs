@@ -154,3 +154,44 @@ test("sending files over the limit is refused in place with the same reason and 
   assert.equal(c.status.hidden, true)
   assert.equal(c.textarea.reported, 0, "the file problem is not reported on the message field")
 })
+
+// A message sent with files takes a moment to save. Opening another
+// conversation meanwhile detached the form, the confirmed send then cleared
+// nothing, and coming back restored the sent message as a draft that Send
+// posted a second time (2026-10-04 review).
+test("a send confirmed after the page was left clears its stored draft", async () => {
+  const stored = new Map()
+  const store = {
+    getItem: key => stored.get(key) ?? null,
+    setItem: (key, value) => stored.set(key, value),
+    removeItem: key => stored.delete(key)
+  }
+  const c = composer({storage: () => store})
+  c.textarea.name = "message"
+  c.textarea.tagName = "TEXTAREA"
+  c.textarea.value = "Deploy the fix"
+  c.form.elements = [c.textarea]
+  c.form.getAttribute = () => c.form.action
+  const key = `ryker:draft:/conversations:${c.form.action}:message`
+  stored.set(key, "Deploy the fix")
+
+  const OriginalFormData = globalThis.FormData
+  const originalFetch = globalThis.fetch
+  let answer
+  globalThis.FormData = class FormData {}
+  globalThis.fetch = () => new Promise(resolve => { answer = resolve })
+
+  try {
+    c.controls.submit({target: c.form, defaultPrevented: false, preventDefault() {}})
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // The person opens another conversation while it saves.
+    c.form.isConnected = false
+    c.textarea.isConnected = false
+    answer({status: 202, json: async () => ({accepted: true})})
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(stored.has(key), false)
+  } finally {
+    globalThis.FormData = OriginalFormData
+    globalThis.fetch = originalFetch
+  }
+})

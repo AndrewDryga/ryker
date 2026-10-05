@@ -20,8 +20,10 @@ export const captureDrafts = (form, path) => Array.from(form.elements).flatMap(e
 export const acceptDrafts = (drafts, storage) => {
   for (const draft of drafts) {
     // The operator may already be typing their next message during delivery.
-    if (!draft.element.isConnected || draft.element.value !== draft.value) continue
-    draft.element.value = ""
+    if (draft.element.isConnected && draft.element.value !== draft.value) continue
+    if (draft.element.isConnected) draft.element.value = ""
+    // A field no longer on the page still had its sent text stored; storage
+    // holding exactly that text is the sent draft (2026-10-04 review).
     try {
       if (storage.getItem(draft.key) === draft.value) storage.removeItem(draft.key)
     } catch (_) { /* Storage may be unavailable. */ }
