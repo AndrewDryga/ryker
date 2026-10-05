@@ -22,13 +22,16 @@ defmodule Ryker.Publication.FollowupsConcurrencyTest do
       suffix = "github-feedback-race-#{Ecto.UUID.generate()}"
       baseline = database_row_counts()
 
-      %{episode: episode, publication: publication} =
-        PublicationFixture.published!(suffix,
-          github_repository: "octo/feedback-equivalence",
-          pull_request_number: 74
-        )
-
+      # Built inside the try: a fixture that fails half-way committed rows the
+      # cleanup never saw, and every later run in the shared database claimed
+      # them (2026-10-05).
       try do
+        %{episode: episode, publication: publication} =
+          PublicationFixture.published!(suffix,
+            github_repository: "octo/feedback-equivalence",
+            pull_request_number: 74
+          )
+
         input = feedback_input(suffix)
         results = contend_on_publication(publication, input)
         assert Enum.count(results, &match?({:ok, %{status: :recorded}}, &1)) == 1
@@ -65,7 +68,7 @@ defmodule Ryker.Publication.FollowupsConcurrencyTest do
         assert [receipt] = LearningSources.for_work_input(wake.payload["payload"])
         assert receipt["source_input_id"] == first.id
       after
-        delete_fixture(episode.id)
+        delete_fixtures(suffix)
 
         remaining =
           Map.reject(database_row_counts(), fn {table, count} ->
@@ -204,6 +207,15 @@ defmodule Ryker.Publication.FollowupsConcurrencyTest do
       %{rows: [[count]]} = Repo.query!("SELECT COUNT(*) FROM #{quoted}")
       {table, count}
     end)
+  end
+
+  defp delete_fixtures(suffix) do
+    from(episode in Episode,
+      where: like(episode.key, ^"publication:#{suffix}:%"),
+      select: episode.id
+    )
+    |> Repo.all()
+    |> Enum.each(&delete_fixture/1)
   end
 
   defp delete_fixture(episode_id) do
