@@ -122,8 +122,20 @@ defmodule Ryker.Bootstrap do
   # loopback: the address published traffic arrives from (Docker's gateway for
   # the network). Every other container on it, such as the boxes the worker's
   # Docker daemon runs model work in, is refused (2026-10-04 review).
+  #
+  # Published traffic all arrives from that gateway, so the console cannot tell
+  # who sent it, and it has no sign-in of its own: the host address it is
+  # published on (RYKER_CONTROL_BIND) is loopback, or anyone who could reach
+  # the host, a box included, could open it (2026-10-04 review).
   defp control_listener!(env) do
     if value!(env, "RYKER_CONTAINER", "false") == "true" do
+      unless address!(env, "RYKER_CONTROL_BIND") in @loopback,
+        do:
+          invalid!(
+            "RYKER_CONTROL_BIND",
+            "must be loopback; publish the console through Tailscale Serve, a Cloudflare tunnel or an SSH tunnel"
+          )
+
       env
       |> listener!("RYKER_CONTROL", 4321, :network)
       |> Map.put(:access, {:network, address!(env, "RYKER_CONTROL_PEER")})

@@ -58,6 +58,7 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
       "DATABASE_URL" => "ecto://ryker:secret@localhost/ryker",
       "RYKER_CREDENTIAL_KEY" => Base.encode64(:binary.copy(<<7>>, 32)),
       "RYKER_CONTAINER" => "true",
+      "RYKER_CONTROL_BIND" => "127.0.0.1",
       "RYKER_CONTROL_IP" => "0.0.0.0",
       "RYKER_CONTROL_PEER" => "172.30.42.1"
     }

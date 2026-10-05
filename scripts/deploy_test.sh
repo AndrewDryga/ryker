@@ -176,7 +176,7 @@ seed() {
 RYKER_VERSION=$old_version
 RYKER_IMAGE=ryker:$old_version
 RYKER_DATABASE_PASSWORD=secret-test-password
-RYKER_CONTROL_BIND=0.0.0.0
+RYKER_CONTROL_BIND=127.0.0.1
 RYKER_CONTROL_PORT=$port
 ENV
   chmod 0600 "$state/compose.env"

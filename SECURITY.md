@@ -26,7 +26,8 @@ user ID, not malicious-process isolation.
 - The console listens on loopback, or in Compose on its container interface, where it admits only
   its own loopback and the address published traffic arrives from (`RYKER_CONTROL_PEER`, the
   network gateway). Other containers on that network, including the boxes the worker runs model
-  work in, are refused. Webhook bodies are bounded before parsing.
+  work in, are refused, and Ryker does not start with the console published beyond host
+  loopback (`RYKER_CONTROL_BIND`). Webhook bodies are bounded before parsing.
 - Webhooks require constant-time bearer verification or timestamped HMAC verification. HMAC
   signatures bind the stable event ID used for deduplication.
 - Slack input is persisted before acknowledgement and accepted only from configured full members.

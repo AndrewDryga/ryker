@@ -93,9 +93,8 @@ previous_image=$(env_value RYKER_IMAGE)
 control_port=$(env_value RYKER_CONTROL_PORT)
 control_port=${control_port:-4321}
 control_bind=$(env_value RYKER_CONTROL_BIND)
-case $control_bind in
-  "" | 0.0.0.0 | "::") control_bind=127.0.0.1 ;;
-esac
+# Ryker does not start with the console published beyond loopback.
+control_bind=${control_bind:-127.0.0.1}
 origin="http://$control_bind:$control_port"
 
 # --- cleanup, whatever happens ---------------------------------------------

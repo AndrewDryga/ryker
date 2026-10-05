@@ -50,7 +50,9 @@ Inside Compose the console admits only its own loopback and `RYKER_CONTROL_PEER`
 published traffic arrives from: the network's gateway, `172.30.42.1` (measured under OrbStack).
 A Docker runtime that forwards published ports from another address answers every page with
 "Loopback access only"; set `RYKER_CONTROL_PEER` in `.ryker/compose.env` to that
-address and run `scripts/compose.sh start`.
+address and run `scripts/compose.sh start`. Every published request arrives from that one
+address, so the console cannot tell who sent it: Ryker refuses to start unless
+`RYKER_CONTROL_BIND` is loopback, since any other bind would admit anyone who can reach the host.
 
 Links Ryker posts into Slack, such as the weekly report's, open the control UI at
 `RYKER_CONTROL_PUBLIC_URL`, which is `http://127.0.0.1:` and `RYKER_CONTROL_PORT` unless

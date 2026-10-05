@@ -118,7 +118,7 @@ cat >"$install/compose.env" <<ENV
 RYKER_VERSION=1.2.3
 RYKER_IMAGE=ryker:1.2.3
 RYKER_DATABASE_PASSWORD=secret-test-password
-RYKER_CONTROL_BIND=0.0.0.0
+RYKER_CONTROL_BIND=127.0.0.1
 RYKER_CONTROL_PORT=$port
 ENV
 export WATCHDOG_ENV_FILE="$install/compose.env"

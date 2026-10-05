@@ -106,6 +106,7 @@ defmodule Ryker.BootstrapTest do
   test "container topology binds the control plane to its network interface explicitly" do
     container = %{
       "RYKER_CONTAINER" => "true",
+      "RYKER_CONTROL_BIND" => "127.0.0.1",
       "RYKER_CONTROL_IP" => "0.0.0.0",
       "RYKER_CONTROL_PEER" => "172.30.42.1"
     }
@@ -129,6 +130,37 @@ defmodule Ryker.BootstrapTest do
       assert_raise ArgumentError, ~r/RYKER_CONTROL_PEER/, fn ->
         Bootstrap.load!(environment(env))
       end
+    end
+  end
+
+  # Published traffic reaches the console from the network gateway, so the
+  # console cannot tell who sent it. Published on every host address, it
+  # admitted anyone who could reach the host, a box the worker runs model work
+  # in included, as long as the request said `Host: localhost`, and the
+  # console has no sign-in of its own (2026-10-04 review). It is published on
+  # loopback only; Tailscale Serve, a Cloudflare tunnel or an SSH tunnel reach
+  # it there.
+  test "a container whose console is published beyond loopback does not start" do
+    container = %{
+      "RYKER_CONTAINER" => "true",
+      "RYKER_CONTROL_IP" => "0.0.0.0",
+      "RYKER_CONTROL_PEER" => "172.30.42.1"
+    }
+
+    for bind <- [nil, "0.0.0.0", "::", "192.168.1.20"] do
+      env =
+        if bind,
+          do: Map.put(container, "RYKER_CONTROL_BIND", bind),
+          else: container
+
+      assert_raise ArgumentError, ~r/RYKER_CONTROL_BIND/, fn ->
+        Bootstrap.load!(environment(env))
+      end
+    end
+
+    for bind <- ["127.0.0.1", "::1"] do
+      assert %{control_plane: %{port: 4321}} =
+               Bootstrap.load!(environment(Map.put(container, "RYKER_CONTROL_BIND", bind)))
     end
   end
 

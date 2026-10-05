@@ -198,9 +198,8 @@ fi
 port=$(env_value RYKER_CONTROL_PORT)
 [[ $port =~ ^[0-9]+$ ]] || port=4321
 address=$(env_value RYKER_CONTROL_BIND)
-case $address in
-  "" | 0.0.0.0 | "::") address=127.0.0.1 ;;
-esac
+# Ryker does not start with the console published beyond loopback.
+address=${address:-127.0.0.1}
 base="http://$address:$port"
 pinned=$(env_value RYKER_VERSION)
 

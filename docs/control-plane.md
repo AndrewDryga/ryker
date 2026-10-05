@@ -480,8 +480,9 @@ everything in it.
 
 ## Reach and trust
 
-**Published on `127.0.0.1` only** by default, on the port Ryker already serves
-(`RYKER_CONTROL_BIND` and `RYKER_CONTROL_PORT` in `.ryker/compose.env`). Reached in a browser on the same machine, or
+**Published on `127.0.0.1` only**, on the port Ryker already serves
+(`RYKER_CONTROL_BIND` and `RYKER_CONTROL_PORT` in `.ryker/compose.env`); Ryker does not
+start with any other bind. Reached in a browser on the same machine, or
 through an SSH tunnel. On loopback there is no sign-in: reaching the machine is
 the check. Inside Compose the console listens on its container interface,
 so it admits only its own loopback and the address published traffic arrives
