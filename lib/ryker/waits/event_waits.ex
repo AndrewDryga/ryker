@@ -10,7 +10,7 @@ defmodule Ryker.Waits.EventWaits do
   import Ecto.Query
 
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode}
+  alias Ryker.Episodes.{Command, ConversationLock, Episode}
   alias Ryker.Ingress.Input
   alias Ryker.Records
   alias Ryker.Records.Record
@@ -100,7 +100,12 @@ defmodule Ryker.Waits.EventWaits do
   def resume_at(record_id, episode_id, %DateTime{} = now)
       when is_binary(record_id) and is_binary(episode_id) do
     Repo.transaction(fn ->
+      # Admission and the fix loop lock the conversation before the episode.
+      # Resuming locked them the other way round, so a resume and a message in
+      # the same conversation could each wait for the other (2026-10-04
+      # review).
       with %Episode{} = initial <- Repo.get(Episode, episode_id),
+           :ok <- ConversationLock.lock(Repo, destination(initial)),
            {:ok, snapshot} <- Episodes.lock_current_in_transaction(initial.key),
            %Record{} = record <-
              Repo.one(from(value in Record, where: value.id == ^record_id, lock: "FOR UPDATE")),
@@ -113,6 +118,12 @@ defmodule Ryker.Waits.EventWaits do
     end)
     |> transaction_result()
   end
+
+  defp destination(episode),
+    do: %{
+      conversation_ref: episode.destination_conversation_ref,
+      transport: episode.destination_transport
+    }
 
   defp resolution(_episode, record, now) do
     subscription =
