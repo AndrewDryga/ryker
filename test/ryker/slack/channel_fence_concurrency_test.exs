@@ -18,7 +18,7 @@ defmodule Ryker.Slack.ChannelFenceConcurrencyTest do
 
   @conversation "slack:TFENCE:CFENCE"
 
-  test "two writes to one channel do not wait on each other, and a channel change waits for both" do
+  test "two writes to one channel do not wait on each other, and a channel change waits for them" do
     Sandbox.unboxed_run(Repo, fn ->
       parent = self()
 
@@ -45,24 +45,31 @@ defmodule Ryker.Slack.ChannelFenceConcurrencyTest do
           end)
         end)
 
-      change =
-        unboxed_task(fn ->
-          send(parent, {:changing, backend_pid()})
-          Repo.transaction(fn -> ChannelFence.lock_in_transaction("TFENCE", "CFENCE") end)
-        end)
-
+      # The change starts only once the write is done: PostgreSQL queues a
+      # shared request behind an exclusive one already waiting, so a change
+      # that got there first made the write wait too (gate, 2026-10-05).
       try do
         assert Task.yield(writer, 2_000) == {:ok, {:ok, :ok}},
                "a second write to the channel waited for the first"
 
-        assert_receive {:changing, change_backend}, 5_000
-        assert :ok = await_blocked_by(change_backend, holder_backend)
+        change =
+          unboxed_task(fn ->
+            send(parent, {:changing, backend_pid()})
+            Repo.transaction(fn -> ChannelFence.lock_in_transaction("TFENCE", "CFENCE") end)
+          end)
 
-        send(holder.pid, :release)
-        assert {:ok, :ok} = Task.await(holder, 5_000)
-        assert {:ok, :ok} = Task.await(change, 5_000)
+        try do
+          assert_receive {:changing, change_backend}, 5_000
+          assert :ok = await_blocked_by(change_backend, holder_backend)
+
+          send(holder.pid, :release)
+          assert {:ok, :ok} = Task.await(holder, 5_000)
+          assert {:ok, :ok} = Task.await(change, 5_000)
+        after
+          stop_tasks([change])
+        end
       after
-        stop_tasks([holder, writer, change])
+        stop_tasks([holder, writer])
       end
     end)
   end

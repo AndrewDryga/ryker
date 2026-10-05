@@ -65,10 +65,12 @@ defmodule Ryker.Emisar.ToolsTest do
     assert answer == {:error, :unavailable}
     assert microseconds < 5_000_000
 
-    # Remembered briefly, so the next read does not wait again.
-    {microseconds, answer} = :timer.tc(fn -> Tools.catalog(pin) end)
-    assert answer == {:error, :unavailable}
-    assert microseconds < 100_000
+    # Remembered briefly, so the next read does not ask, or wait, again. A
+    # 100 ms bound on this read failed on a loaded gate (0.2 s, 2026-10-05);
+    # what it holds is that Emisar is not asked a second time.
+    drain_requests()
+    assert Tools.catalog(pin) == {:error, :unavailable}
+    refute_received {:emisar_mcp, _request}
   end
 
   test "a call reaches Emisar with the environment's key and returns Emisar's answer unchanged" do
@@ -217,6 +219,14 @@ defmodule Ryker.Emisar.ToolsTest do
   # A key of its own for each test: the catalog cache outlives the sandbox.
   defp key!(prefix),
     do: prefix <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
+
+  defp drain_requests do
+    receive do
+      {:emisar_mcp, _request} -> drain_requests()
+    after
+      0 -> :ok
+    end
+  end
 
   defp pin!(key, rpc_url \\ "https://emisar.dev/api/mcp/rpc") do
     assert {:ok, _metadata} = Credentials.put(:emisar, "production", key, @actor)
