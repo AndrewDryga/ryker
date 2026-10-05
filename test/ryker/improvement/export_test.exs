@@ -167,6 +167,38 @@ defmodule Ryker.Improvement.ExportTest do
     assert event["destination"]["conversation_ref"] == question.destination_conversation_ref
   end
 
+  # The case files are meant for the public repository, and only Slack ids
+  # found in the person's messages and routing were renamed. Ryker's answers,
+  # feedback notes, the diagnosis and the expectation went out as written, and
+  # a Chat person kept their sign-in name (2026-10-04 review).
+  test "no real person, workspace or channel leaves in any file of a case" do
+    {candidate, _first} = harvested_request!()
+
+    Repo.update_all(from(c in Candidate, where: c.id == ^candidate.id),
+      set: [
+        what_went_wrong:
+          "Ryker answered <@UEXPORTOTHER1> in CEXPORTPRIV9 instead of UEXPORTPERSON.",
+        expected: "Answers UEXPORTPERSON in the thread, not <#CEXPORTPRIV9|private>."
+      ]
+    )
+
+    assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
+    assert {:ok, _scenario} = exported!(accepted)
+
+    chat = chat_case!("tailscale:alice@example.com")
+    assert {:ok, chat_scenario} = exported!(chat)
+    assert [%{"actor_ref" => "control_plane:user:" <> person}] = chat_scenario.events
+    refute person =~ "alice"
+
+    files = for case <- [accepted, chat], {_path, contents} <- Export.files(case), do: contents
+    contents = IO.iodata_to_binary(files)
+
+    for real <-
+          ~w(UEXPORTPERSON UEXPORTOTHER1 CEXPORTPRIV9 CEXPORTOPS alice@example.com) ++
+            [@workspace],
+        do: refute(contents =~ real, "#{real} left in the files")
+  end
+
   # A request's messages expire at the operational horizon; a case accepted
   # before then keeps the words it was accepted on.
   test "accepting keeps the evidence, so the case outlives the request's messages" do
@@ -537,6 +569,44 @@ defmodule Ryker.Improvement.ExportTest do
     )
 
     {Repo.get!(Candidate, candidate.id), first}
+  end
+
+  # A Chat request from `actor`, answered and disliked, then accepted.
+  defp chat_case!(actor) do
+    {:ok, profile} =
+      WorkProfile.new(%{
+        policy: "export-chat",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil
+      })
+
+    conversation = Ecto.UUID.generate()
+
+    {:ok, %{entry: question}} =
+      ConversationLab.send_message(conversation, "Summarize the deploy", profile, actor: actor)
+
+    reply =
+      Answers.work_reply!(
+        question,
+        "Nothing was deployed.",
+        "control-plane-reply:#{conversation}",
+        DateTime.add(question.occurred_at, 30, :second)
+      )
+
+    assert {:ok, _recorded} =
+             Feedback.record(%{
+               kind: :reaction_added,
+               value: "-1",
+               actor_ref: actor,
+               source: "control_plane",
+               source_ref: "control-plane-reaction:#{conversation}",
+               occurred_at: DateTime.add(question.occurred_at, 60, :second),
+               request: {:episode, reply.episode.id}
+             })
+
+    candidate = Improvement.for_request({:episode, reply.episode.id})
+    assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
+    accepted
   end
 
   # Every accepted case written where the world runner reads them, beside the

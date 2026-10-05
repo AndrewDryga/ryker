@@ -72,14 +72,14 @@ defmodule Ryker.Improvement.Export do
   @spec files(Candidate.t()) :: [{String.t(), iodata()}]
   def files(%Candidate{case_evidence: %{} = snapshot} = candidate) do
     id = case_id(candidate)
-    names = names(snapshot)
+    names = names(snapshot, candidate)
 
     [
       {Path.join(id, "scenario.json"), json(scenario(candidate, snapshot, names))},
       {Path.join(id, "tool-catalog.json"),
        json(%{"version" => 1, "catalog_ref" => @catalog_ref})},
       {Path.join(id, "routing.json"), json(routing(snapshot, names))},
-      {Path.join(id, "PROVENANCE.md"), provenance(candidate, snapshot)}
+      {Path.join(id, "PROVENANCE.md"), provenance(candidate, snapshot, names)}
     ]
   end
 
@@ -139,7 +139,7 @@ defmodule Ryker.Improvement.Export do
         "trajectory" => [],
         "quality_rubric" =>
           if(is_binary(candidate.expected),
-            do: [%{"criterion" => candidate.expected, "weight" => 3}],
+            do: [%{"criterion" => rename_text(candidate.expected, names), "weight" => 3}],
             else: []
           )
       },
@@ -215,14 +215,14 @@ defmodule Ryker.Improvement.Export do
     end
   end
 
-  defp actor(%{"source" => %{"kind" => "control_plane"}} = event, ref, _names) do
+  defp actor(%{"source" => %{"kind" => "control_plane"}} = event, ref, names) do
     conversation = event["destination"]["conversation_ref"]
 
     %{
       "actor_ref" => ref,
       "authority" => "operator",
       "input_profile" => %{
-        "actor" => %{"kind" => "user", "ref" => event["actor"]["ref"]},
+        "actor" => %{"kind" => "user", "ref" => rename(event["actor"]["ref"], names)},
         "event_kind" => "message",
         "occurred_at_source" => "ingress",
         "source" => %{"kind" => "control_plane", "ref" => "local"},
@@ -271,18 +271,24 @@ defmodule Ryker.Improvement.Export do
 
   # Slack people, workspaces, channels and bots as the case names them: the
   # same real reference always becomes the same stand-in, in order of
-  # appearance, wherever it appears (a mention in a message, a routing
-  # prompt quoting the conversation). Ryker's own user is `U-ryker`.
-  @slack_id ~r/\b[UWTCGDB](?=[A-Z0-9]*\d)[A-Z0-9]{8,11}\b/
+  # appearance, wherever it appears in any file (a mention in a message, a
+  # routing prompt quoting the conversation, Ryker's answer, the diagnosis).
+  # Ryker's own user is `U-ryker`. A Chat person signed in by name becomes
+  # `chat-person-<n>`. Only the person's messages and routing were read for
+  # ids before, and Chat people kept their sign-in (2026-10-04 review).
+  @slack_id ~r/\b[UWTCGDB](?=[A-Z0-9]*\d)[A-Z0-9]{8,20}\b/
 
-  defp names(snapshot) do
+  defp names(snapshot, candidate) do
     events = snapshot["events"]
     slack = Enum.filter(events, &(&1["source"]["kind"] == "slack"))
     bots = slack |> Enum.flat_map(&List.wrap(&1["bot_user_ref"])) |> MapSet.new()
 
     texts =
-      Enum.map(slack, & &1["text"]) ++
-        Enum.flat_map(snapshot["routing"] || [], &[&1["prompt"], &1["answer"]])
+      Enum.map(events, & &1["text"]) ++
+        Enum.flat_map(snapshot["routing"] || [], &[&1["prompt"], &1["answer"]]) ++
+        Enum.map(snapshot["conversation"] || [], & &1["text"]) ++
+        Enum.map(snapshot["feedback"] || [], & &1["note"]) ++
+        [candidate.what_went_wrong, candidate.expected]
 
     found =
       texts
@@ -302,6 +308,29 @@ defmodule Ryker.Improvement.Export do
     |> Enum.reduce(%{}, fn ref, names ->
       Map.put(names, ref, stand_in(ref, names, bots, workspaces, channels))
     end)
+    |> Map.merge(chat_names(events))
+  end
+
+  # The anonymous local operator is nobody; anyone signed in through Tailscale
+  # or Cloudflare Access is named by their login, which their messages may
+  # quote without the provider.
+  defp chat_names(events) do
+    for(
+      %{"source" => %{"kind" => "control_plane"}, "actor" => %{"ref" => ref}} <- events,
+      ref != "local-operator",
+      do: ref
+    )
+    |> Enum.uniq()
+    |> Enum.with_index(1)
+    |> Enum.flat_map(fn {ref, index} ->
+      stand_in = "chat-person-#{index}"
+
+      case String.split(ref, ":", parts: 2) do
+        [_provider, login] when login != "" -> [{ref, stand_in}, {login, stand_in}]
+        _bare -> [{ref, stand_in}]
+      end
+    end)
+    |> Map.new()
   end
 
   defp stand_in(ref, names, bots, workspaces, channels) do
@@ -368,15 +397,16 @@ defmodule Ryker.Improvement.Export do
     end
   end
 
-  defp provenance(candidate, snapshot) do
+  defp provenance(candidate, snapshot, names) do
     answers =
       for %{"from" => "ryker", "text" => text} when is_binary(text) <-
             snapshot["conversation"] || [],
-          do: text
+          do: rename_text(text, names)
 
     feedback =
       for signal <- snapshot["feedback"] || [] do
-        words = [signal["kind"], signal["value"], signal["note"] && "\"#{signal["note"]}\""]
+        note = signal["note"] && "\"#{rename_text(signal["note"], names)}\""
+        words = [signal["kind"], signal["value"], note]
         "- #{signal["at"]}: " <> (words |> Enum.reject(&is_nil/1) |> Enum.join(" "))
       end
 
@@ -390,11 +420,11 @@ defmodule Ryker.Improvement.Export do
 
     #{diagnosis_line(candidate)}
 
-    #{candidate.what_went_wrong || "Ryker had not analyzed this request when it was accepted."}
+    #{rename_text(candidate.what_went_wrong, names) || "Ryker had not analyzed this request when it was accepted."}
 
     ## Expected
 
-    #{candidate.expected || "Write the expectation into expect.quality_rubric."}
+    #{rename_text(candidate.expected, names) || "Write the expectation into expect.quality_rubric."}
 
     ## What Ryker answered
 
