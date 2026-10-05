@@ -28,13 +28,11 @@ defmodule Ryker.GitHub.Access do
 
   @doc """
   Whether an event gives the App repositories, which auto-add may add even
-  though no binding names them yet.
+  though no binding names them yet: repositories added to an installation, or
+  a new installation's.
   """
   @spec adds_repositories?(String.t(), map()) :: boolean()
-  def adds_repositories?("installation_repositories", payload),
-    do: repositories_added(payload) != []
-
-  def adds_repositories?(_event, _payload), do: false
+  def adds_repositories?(event, payload), do: repositories_added(event, payload) != []
 
   @events ["installation", "installation_repositories", "repository"]
 
@@ -57,7 +55,7 @@ defmodule Ryker.GitHub.Access do
 
     with {:ok, snapshot} <- refresh_permissions(installed, payload, snapshot),
          {:ok, snapshot} <- update_many(changed, snapshot, &membership(&1, &2, removed)),
-         :ok <- import_new_repositories(payload, snapshot) do
+         :ok <- import_new_repositories("installation_repositories", payload, snapshot) do
       {:ok, changed}
     end
   end
@@ -65,11 +63,10 @@ defmodule Ryker.GitHub.Access do
   defp apply_event("installation", payload, bindings, snapshot) do
     installed = matching(bindings, get_in(payload, ["installation", "id"]))
 
-    with {:ok, snapshot} <- refresh_permissions(installed, payload, snapshot) do
-      case installation_state(payload["action"]) do
-        nil -> {:ok, []}
-        state -> change(installed, snapshot, &access(&1, &2, state))
-      end
+    with {:ok, snapshot} <- refresh_permissions(installed, payload, snapshot),
+         {:ok, changed} <- installation_access(installed, snapshot, payload["action"]),
+         :ok <- import_new_repositories("installation", payload, snapshot) do
+      {:ok, changed}
     end
   end
 
@@ -80,6 +77,13 @@ defmodule Ryker.GitHub.Access do
     case repository_state(payload["action"]) do
       nil -> {:ok, []}
       state -> change(named, snapshot, &update_repository(&1, &2, state, full_name))
+    end
+  end
+
+  defp installation_access(installed, snapshot, action) do
+    case installation_state(action) do
+      nil -> {:ok, []}
+      state -> change(installed, snapshot, &access(&1, &2, state))
     end
   end
 
@@ -121,8 +125,8 @@ defmodule Ryker.GitHub.Access do
     end
   end
 
-  defp import_new_repositories(payload, %{github: %{auto_add_repositories: true} = github}) do
-    case repositories_added(payload) do
+  defp import_new_repositories(event, payload, %{github: %{auto_add_repositories: true} = github}) do
+    case repositories_added(event, payload) do
       [] ->
         :ok
 
@@ -137,14 +141,14 @@ defmodule Ryker.GitHub.Access do
     end
   end
 
-  defp import_new_repositories(_payload, _snapshot), do: :ok
+  defp import_new_repositories(_event, _payload, _snapshot), do: :ok
 
-  defp repositories_added(payload) do
+  defp repositories_added(event, payload) do
     account = get_in(payload, ["installation", "account"]) || %{}
     installation_id = get_in(payload, ["installation", "id"])
     permissions = get_in(payload, ["installation", "permissions"]) || %{}
 
-    for repository <- List.wrap(payload["repositories_added"]),
+    for repository <- List.wrap(new_repositories(event, payload)),
         is_integer(repository["id"]),
         is_binary(repository["full_name"]) do
       %{
@@ -159,6 +163,15 @@ defmodule Ryker.GitHub.Access do
       }
     end
   end
+
+  # A changed permission names the installation's repositories too, but none
+  # is new to the App, and one removed from Ryker stays removed.
+  defp new_repositories("installation_repositories", payload), do: payload["repositories_added"]
+
+  defp new_repositories("installation", %{"action" => "created"} = payload),
+    do: payload["repositories"]
+
+  defp new_repositories(_event, _payload), do: []
 
   defp matching(bindings, installation_id) do
     bindings |> Map.values() |> Enum.filter(&(&1.installation_id == installation_id))

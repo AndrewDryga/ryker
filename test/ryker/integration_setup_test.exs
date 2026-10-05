@@ -925,6 +925,60 @@ defmodule Ryker.IntegrationSetupTest do
     assert Enum.any?(Settings.fetch!().github_bindings, &(&1.repository_id == 777))
   end
 
+  # "Add new repositories automatically" added nothing when the App was
+  # installed on another account: GitHub names a new installation's
+  # repositories only in its installation "created" event, which the router
+  # ignored for want of a binding and Access never read (2026-10-04 review).
+  # A changed permission names the installation's repositories too, but none
+  # is new to the App, and one removed from Ryker stays removed.
+  test "a new installation's repositories are added through GitHub's own event when auto-add is on" do
+    connect_github!()
+
+    {:ok, _snapshot} =
+      Settings.save_github(
+        %{enabled: true, auto_add_repositories: true},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    installation = fn action, repository ->
+      github_event(
+        "installation",
+        %{
+          "action" => action,
+          "installation" => %{
+            "account" => %{"id" => 77, "login" => "Tenant"},
+            "id" => 42,
+            "permissions" => %{"contents" => "write", "pull_requests" => "write"}
+          },
+          "repositories" => [repository]
+        },
+        %{}
+      )
+    end
+
+    conn =
+      installation.("created", %{
+        "full_name" => "tenant/service",
+        "id" => 778,
+        "name" => "service",
+        "private" => true
+      })
+
+    assert conn.status == 202, conn.resp_body
+    bindings = Settings.fetch!().github_bindings
+    assert Enum.any?(bindings, &(&1.repository_id == 778 and &1.installation_id == 42))
+
+    installation.("new_permissions_accepted", %{
+      "full_name" => "tenant/removed",
+      "id" => 779,
+      "name" => "removed",
+      "private" => true
+    })
+
+    refute Enum.any?(Settings.fetch!().github_bindings, &(&1.repository_id == 779))
+  end
+
   test "installation events refresh permissions and auto-add with verified identities" do
     key = :public_key.generate_key({:rsa, 2_048, 65_537})
     pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
