@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.SettingsWorkerJobsLiveTest do
   use Ryker.DataCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
@@ -61,7 +63,7 @@ defmodule Ryker.ControlPlane.SettingsWorkerJobsLiveTest do
   defp enroll!(id, workspace, state) do
     Repo.insert!(%Worker{
       id: id,
-      certificate_sha256: :crypto.hash(:sha256, id) |> Base.encode16(case: :lower),
+      certificate_sha256: digest(id),
       last_seen_at: DateTime.utc_now(),
       revoked_at: if(state == :revoked, do: DateTime.utc_now()),
       revoked_by: if(state == :revoked, do: @actor),

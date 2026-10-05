@@ -5,25 +5,15 @@ defmodule Ryker.RoutingExamples.EditedMessagesMigrationTest do
   kept, as it checks for a deletion. Without an index of its own that check
   reads every message of the conversation, once per copy.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @previous_version 20_260_928_100_000
   @version 20_260_928_140_000
 
   test "the edits of the messages a prompt quotes are found by an index, and rolling back drops only it" do
-    repo = start_migration_repo!()
-    prefix = "edited_messages_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
+    in_scratch_schema("edited_messages", fn repo, prefix ->
       migrate!(repo, prefix, @previous_version)
       refute index?(repo, prefix)
 
@@ -51,17 +41,11 @@ defmodule Ryker.RoutingExamples.EditedMessagesMigrationTest do
       assert {:ok, plan} = plan
       assert plan =~ "ingress_inbox_edited_messages"
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
+      assert rollback!(repo, prefix) ==
                [@version]
 
       refute index?(repo, prefix)
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp index?(repo, prefix) do
@@ -73,23 +57,5 @@ defmodule Ryker.RoutingExamples.EditedMessagesMigrationTest do
       )
 
     rows != []
-  end
-
-  defp migrate!(repo, prefix, version),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: version,
-        prefix: prefix,
-        log: false
-      )
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

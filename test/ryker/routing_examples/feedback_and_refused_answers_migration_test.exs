@@ -7,40 +7,22 @@ defmodule Ryker.RoutingExamples.FeedbackAndRefusedAnswersMigrationTest do
   rolling back must refuse while an example keeps either, rather than drop
   what was kept on purpose.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @before_version 20_260_930_020_000
   @version 20_260_930_060_000
   @at ~N[2026-09-30 06:00:00.000000]
 
   test "kept examples gain no refused answers, feedback copies leave with their example, and either blocks rollback" do
-    repo = start_migration_repo!()
-    prefix = "routing_feedback_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: @before_version,
-        prefix: prefix,
-        log: false
-      )
+    in_scratch_schema("routing_feedback", fn repo, prefix ->
+      migrate!(repo, prefix, @before_version)
 
       kept = kept_example!(repo, prefix)
       forgotten = forgotten_example!(repo, prefix)
 
-      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-               to: @version,
-               prefix: prefix,
-               log: false
-             )
+      assert @version in migrate!(repo, prefix, @version)
 
       assert rejected_answers(repo, prefix, kept) == "[]"
       assert rejected_answers(repo, prefix, forgotten) == nil
@@ -67,28 +49,18 @@ defmodule Ryker.RoutingExamples.FeedbackAndRefusedAnswersMigrationTest do
       assert_raise Postgrex.Error,
                    ~r/routing examples keep feedback or refused answers/,
                    fn ->
-                     Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-                       step: 1,
-                       prefix: prefix,
-                       log: false
-                     )
+                     rollback!(repo, prefix)
                    end
 
       # The copy leaves with its example.
       SQL.query!(repo, "DELETE FROM #{prefix}.routing_examples WHERE id = $1", [kept])
       assert count(repo, prefix, "routing_example_feedback") == 0
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
+      assert rollback!(repo, prefix) ==
                [@version]
 
       assert count(repo, prefix, "routing_examples") == 1
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp kept_example!(repo, prefix) do
@@ -155,15 +127,5 @@ defmodule Ryker.RoutingExamples.FeedbackAndRefusedAnswersMigrationTest do
   defp count(repo, prefix, table) do
     %{rows: [[count]]} = SQL.query!(repo, "SELECT count(*) FROM #{prefix}.#{table}", [])
     count
-  end
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

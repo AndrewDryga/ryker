@@ -1,6 +1,8 @@
 defmodule Ryker.BundledCoopIdentityTest do
   use ExUnit.Case, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ryker.CoopFleet.CertificateAuthority
 
   @controller "https://172.30.42.10:4322"
@@ -131,7 +133,7 @@ defmodule Ryker.BundledCoopIdentityTest do
     File.write!(Path.join(context.root, "Box.Dockerfile"), "FROM ${COOP_BASE_IMAGE}\n")
 
     tag =
-      "ryker-coop-base:" <> Base.encode16(:crypto.hash(:sha256, File.read!(coop)), case: :lower)
+      "ryker-coop-base:" <> digest(File.read!(coop))
 
     assert {"", 0} = run(context, "set -e\nprepare_ryker_box\nprepare_ryker_box")
     assert File.read!(Path.join(context.root, "builds")) == tag <> "\n"

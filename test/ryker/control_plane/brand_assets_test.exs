@@ -1,5 +1,7 @@
 defmodule Ryker.ControlPlane.BrandAssetsTest do
   use ExUnit.Case, async: true
+
+  import Ryker.TestHelpers, only: [digest: 1]
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Assets, BrowserGuard, Layouts, Navigation}
 
@@ -42,11 +44,11 @@ defmodule Ryker.ControlPlane.BrandAssetsTest do
     for {served, source} <- @packaged do
       expected = Map.fetch!(manifest, source)
 
-      assert sha256(File.read!("priv/static/" <> served)) == expected,
+      assert digest(File.read!("priv/static/" <> served)) == expected,
              "priv/static/#{served} no longer matches #{source} in #{@manifest}"
 
       # The source copy is the provenance record; it must not drift either.
-      assert sha256(File.read!(source)) == expected, "#{source} no longer matches #{@manifest}"
+      assert digest(File.read!(source)) == expected, "#{source} no longer matches #{@manifest}"
     end
   end
 
@@ -67,7 +69,7 @@ defmodule Ryker.ControlPlane.BrandAssetsTest do
       # Binary formats must not be labelled with a text charset.
       if expected_type in ["image/png", "font/woff2"], do: refute(content_type =~ "charset")
 
-      assert sha256(conn.resp_body) == Map.fetch!(manifest, source),
+      assert digest(conn.resp_body) == Map.fetch!(manifest, source),
              "the bytes served for #{served} differ from #{source}"
 
       # Pinned bytes can sit in a browser cache for a long time.
@@ -196,6 +198,4 @@ defmodule Ryker.ControlPlane.BrandAssetsTest do
       {path, sha}
     end)
   end
-
-  defp sha256(bytes), do: :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)
 end

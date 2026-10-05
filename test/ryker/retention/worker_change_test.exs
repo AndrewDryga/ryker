@@ -11,6 +11,8 @@ defmodule Ryker.Retention.WorkerChangeTest do
 
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   alias Ryker.CoopFleet.{Client, Command, ControlPlane, Placement, Worker, WorkerLifecycle}
@@ -380,7 +382,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
 
   defp enroll!(suffix) do
     worker = "retention-#{suffix}-#{System.unique_integer([:positive])}"
-    certificate = :crypto.hash(:sha256, worker) |> Base.encode16(case: :lower)
+    certificate = digest(worker)
     assert {:ok, _worker} = ControlPlane.authorize_worker(worker, @workspace, certificate)
     poll!(worker, @started)
     worker

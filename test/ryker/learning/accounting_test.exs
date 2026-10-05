@@ -32,14 +32,7 @@ defmodule Ryker.Learning.AccountingTest do
     end
 
     def fence_frozen_turn(client, sid, key, revision, submission, nil, []) do
-      Fake.fence_submit_turn(
-        client,
-        sid,
-        key,
-        revision,
-        submission["prompt"],
-        submission["output_schema"]
-      )
+      Fake.fence_frozen_turn(client, sid, key, revision, submission, nil, [])
     end
 
     def validate_frozen_candidate(client, sid, tid, key, _attempt, sha, :accept),

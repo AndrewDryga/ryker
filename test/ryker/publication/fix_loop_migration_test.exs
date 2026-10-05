@@ -8,24 +8,19 @@ defmodule Ryker.Publication.FixLoopMigrationTest do
   what was kept of a gate's output belongs to a review.
   """
   # The migrator runs inside this test's sandbox transaction.
-  use Ryker.DataCase, async: false
+  use Ryker.MigrationCase
 
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.Publication
 
   @version 20_260_928_180_000
-  @migration Ryker.Repo.Migrations.AddPublicationFixLoop
-  @file_name "20260928180000_add_publication_fix_loop.exs"
-  # The migrator's own lock holds the one sandboxed connection while its task
-  # waits for that same connection, so it is skipped: nothing else migrates here.
-  @options [log: false, migration_lock: false]
 
   test "every publication keeps what it had and starts with no automatic round spent" do
     %{publication: published} = PublicationFixture.published!("fix-loop-migration")
     %{publication: requested} = PublicationFixture.review_requested!("fix-loop-unreviewed")
 
-    assert :ok = Ecto.Migrator.down(Repo, @version, migration(), @options)
-    assert :ok = Ecto.Migrator.up(Repo, @version, migration(), @options)
+    assert :ok = migrate_down(@version)
+    assert :ok = migrate_up(@version)
 
     migrated = Repo.get!(Publication, published.id)
 
@@ -73,17 +68,5 @@ defmodule Ryker.Publication.FixLoopMigrationTest do
         end)
       end
     end
-  end
-
-  # `ecto.migrate` loads a migration only while it is pending, so a database
-  # migrated by an earlier run leaves it for this test to load.
-  defp migration do
-    unless Code.ensure_loaded?(@migration) do
-      :ryker
-      |> Application.app_dir(Path.join("priv/repo/migrations", @file_name))
-      |> Code.compile_file()
-    end
-
-    @migration
   end
 end

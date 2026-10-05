@@ -8,37 +8,21 @@ defmodule Ryker.ControlPlane.NotifyTriggersMigrationTest do
   triggers must leave no table announcing its writes that way, keep every row,
   and put the triggers back on the way down for a release that listens again.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @version 20_260_926_200_000
   @digest String.duplicate("a", 64)
 
   test "no table announces its writes through a trigger once the schema is migrated" do
-    repo = start_migration_repo!()
-
-    assert triggered_tables(repo, "public") == []
-    refute notify_function?(repo, "public")
+    assert triggered_tables(Repo, "public") == []
+    refute notify_function?(Repo, "public")
   end
 
   test "dropping the triggers keeps every row, and rolling back puts them back" do
-    repo = start_migration_repo!()
-    prefix = "notify_triggers_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: version_before(@version),
-        prefix: prefix,
-        log: false
-      )
+    in_scratch_schema("notify_triggers", fn repo, prefix ->
+      migrate!(repo, prefix, Ryker.TestMigrations.version_before(@version))
 
       triggered = triggered_tables(repo, prefix)
       assert "ingress_inbox_entries" in triggered
@@ -46,29 +30,18 @@ defmodule Ryker.ControlPlane.NotifyTriggersMigrationTest do
       assert notify_function?(repo, prefix)
       input_id = insert_input!(repo, prefix)
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-               to: @version,
-               prefix: prefix,
-               log: false
-             ) == [@version]
+      assert migrate!(repo, prefix, @version) == [@version]
 
       assert triggered_tables(repo, prefix) == []
       refute notify_function?(repo, prefix)
       assert input_ids(repo, prefix) == [input_id]
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
-               [@version]
+      assert rollback!(repo, prefix) == [@version]
 
       assert triggered_tables(repo, prefix) == triggered
       assert notify_function?(repo, prefix)
       assert input_ids(repo, prefix) == [input_id]
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp triggered_tables(repo, schema) do
@@ -131,19 +104,5 @@ defmodule Ryker.ControlPlane.NotifyTriggersMigrationTest do
     )
 
     id
-  end
-
-  # The newest migration before this one, whatever the others are named, so
-  # the rollback is compared with the schema this migration found.
-  defp version_before(version), do: Ryker.TestMigrations.version_before(version)
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

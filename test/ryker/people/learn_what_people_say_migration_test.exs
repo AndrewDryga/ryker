@@ -6,26 +6,16 @@ defmodule Ryker.People.LearnWhatPeopleSayMigrationTest do
   themselves a place: one fact per person and kind, kept or forgotten, and a
   forgotten one keeps no words. Rolling back refuses while anything is kept.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @previous_version 20_260_929_020_000
   @version 20_260_930_010_000
   @at ~N[2026-09-30 09:00:00.000000]
 
   test "one fact per person and kind is kept, a forgotten one keeps no words, and rolling back refuses while one exists" do
-    repo = start_migration_repo!()
-    prefix = "learn_what_people_say_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
+    in_scratch_schema("learn_what_people_say", fn repo, prefix ->
       migrate!(repo, prefix, @previous_version)
       assert @version in migrate!(repo, prefix, @version)
 
@@ -50,7 +40,7 @@ defmodule Ryker.People.LearnWhatPeopleSayMigrationTest do
       forgotten = fact!(repo, prefix, "pets", "forgotten", nil, @at)
 
       assert_raise Postgrex.Error, ~r/what people said about themselves is kept/, fn ->
-        down!(repo, prefix)
+        rollback!(repo, prefix)
       end
 
       for id <- [birthday, forgotten] do
@@ -59,10 +49,8 @@ defmodule Ryker.People.LearnWhatPeopleSayMigrationTest do
         ])
       end
 
-      assert down!(repo, prefix) == [@version]
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+      assert rollback!(repo, prefix) == [@version]
+    end)
   end
 
   defp fact!(repo, prefix, key, status, fact, forgotten_at) do
@@ -89,31 +77,5 @@ defmodule Ryker.People.LearnWhatPeopleSayMigrationTest do
     )
 
     id
-  end
-
-  defp migrate!(repo, prefix, version),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: version,
-        prefix: prefix,
-        log: false
-      )
-
-  defp down!(repo, prefix),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-        step: 1,
-        prefix: prefix,
-        log: false
-      )
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

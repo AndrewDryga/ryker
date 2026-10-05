@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.OperatorUsabilityTest do
   alias Ryker.ControlPlane.UsageChart
   use ExUnit.Case, async: true
+
+  import Ryker.TestHelpers, only: [outline: 2]
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Ryker.ControlPlane.{
@@ -739,21 +741,6 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     assert LazyHTML.query(document, "form.filter-toolbar input#operator-search[name=q]")
            |> LazyHTML.attribute("placeholder") == ["Search repositories"]
-  end
-
-  # "tag.first-class" for each matched element, in document order.
-  defp outline(document, selector) do
-    nodes = LazyHTML.query(document, selector)
-
-    nodes
-    |> LazyHTML.tag()
-    |> Enum.zip(LazyHTML.attributes(nodes))
-    |> Enum.map(fn {tag, attributes} ->
-      case List.keyfind(attributes, "class", 0) do
-        {"class", class} -> tag <> "." <> hd(String.split(class))
-        nil -> tag
-      end
-    end)
   end
 
   test "daily graph keeps calendar spacing and accessible values without an extra table" do

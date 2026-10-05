@@ -1,14 +1,20 @@
 defmodule Ryker.TestSupport.FakeCoopAPI do
   @moduledoc false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   @behaviour Ryker.Coop.API
 
   alias Ryker.Evals.Job
   alias Ryker.Fixtures.WorkerJob
 
+  # Each fake mints its own session and turn ids. One fixed "remote_test" session and
+  # "turn_test" turn for every fake let no test catch two turns sharing an id (2026-10-04
+  # review).
   def start_link(candidates, options \\ []) do
     resume_operations = Keyword.get(options, :resume_operations, false)
-    {turn, candidates} = resumed_turn(candidates, resume_operations)
+    session_id = "remote_#{System.unique_integer([:positive])}"
+    {turn, candidates} = resumed_turn(candidates, session_id, resume_operations)
 
     Agent.start_link(fn ->
       %{
@@ -75,7 +81,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         sessions: %{},
         session: %{
           "external_ref" => nil,
-          "id" => "remote_test",
+          "id" => session_id,
           "project_env" => Keyword.get(options, :project_env, false),
           "project_mcp" => Keyword.get(options, :project_mcp, false),
           "repository_read_only" => Keyword.get(options, :repository_read_only, true),
@@ -327,8 +333,8 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
     end)
   end
 
-  # Not part of `Ryker.Coop.API`; tests fence a prompt-shaped turn directly.
-  def fence_submit_turn(agent, _session_id, key, _revision, _prompt, _schema),
+  @impl true
+  def fence_frozen_turn(agent, _session_id, key, _revision, _submission, _binding, _artifacts),
     do: fence_operation(agent, key, "SubmitTurn")
 
   # Like the fleet: a key already sent is answered from its record, a busy
@@ -395,7 +401,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
     Agent.get_and_update(agent, fn state ->
       cancelled =
         (state.turn ||
-           decorate_turn(%{"id" => "turn_test", "session_id" => state.session["id"]}, state))
+           decorate_turn(%{"id" => turn_id(), "session_id" => state.session["id"]}, state))
         |> Map.put("candidate", nil)
         |> Map.put("state", "cancelled")
 
@@ -439,7 +445,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
 
           current =
             session_id
-            |> awaiting_turn(candidate, attempt)
+            |> awaiting_turn(state.turn["id"], candidate, attempt)
             |> decorate_turn(state)
 
           validation = %{sha256: sha256, verdict: :reject, violations: violations}
@@ -563,23 +569,25 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
       else: %{state | session: update.(state.session)}
   end
 
-  defp awaiting_turn(session_id, message, attempt \\ 1) do
-    sha256 = :crypto.hash(:sha256, message) |> Base.encode16(case: :lower)
+  defp turn_id, do: "turn_#{System.unique_integer([:positive])}"
+
+  defp awaiting_turn(session_id, id, message, attempt \\ 1) do
+    sha256 = digest(message)
 
     %{
       "candidate" => %{"attempt" => attempt, "message" => message, "sha256" => sha256},
-      "id" => "turn_test",
+      "id" => id,
       "session_id" => session_id,
       "state" => "awaiting_validation"
     }
   end
 
-  defp resumed_turn(candidates, true) do
+  defp resumed_turn(candidates, session_id, true) do
     [candidate | remaining] = candidates
-    {awaiting_turn("remote_test", candidate), remaining}
+    {awaiting_turn(session_id, turn_id(), candidate), remaining}
   end
 
-  defp resumed_turn(candidates, false), do: {nil, candidates}
+  defp resumed_turn(candidates, _session_id, false), do: {nil, candidates}
 
   defp operation_for_key(state, key, calls) do
     state = prepare_resumed_resource(state, key)
@@ -617,7 +625,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
          }}
 
       state.resume_operations ->
-        {operation(key, state.operation_mode, calls, state.session["id"]), state}
+        {operation(key, state.operation_mode, calls, state), state}
 
       true ->
         {:not_found, state}
@@ -626,7 +634,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
 
   defp successful_turn_submission(state, session_id, key, schema) do
     [candidate | remaining] = state.candidates
-    current = session_id |> awaiting_turn(candidate) |> decorate_turn(state)
+    current = session_id |> awaiting_turn(turn_id(), candidate) |> decorate_turn(state)
     queued = %{current | "state" => "queued", "candidate" => nil}
     operation = succeeded_operation("SubmitTurn", "turn", current["id"])
 
@@ -652,7 +660,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
   defp accept_candidate(state, key, sha256) do
     message = state.accepted_candidate_override || state.turn["candidate"]["message"]
     attempt = state.turn["candidate"]["attempt"]
-    completed_sha256 = :crypto.hash(:sha256, message) |> Base.encode16(case: :lower)
+    completed_sha256 = digest(message)
 
     completed =
       state.turn
@@ -702,7 +710,7 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
           %{
             "error_code" => "operation_fenced",
             "error_detail" => "operation was fenced before execution",
-            "id" => "op_fenced",
+            "id" => "op_fenced_#{System.unique_integer([:positive])}",
             "method" => method,
             "state" => "failed"
           }
@@ -759,19 +767,19 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
   defp maybe_put(document, _field, nil), do: document
   defp maybe_put(document, field, value), do: Map.put(document, field, value)
 
-  defp operation(key, :pending_once, 1, _session_id) do
+  defp operation(key, :pending_once, 1, _state) do
     {:ok, %{"id" => "op_pending", "method" => operation_method(key), "state" => "reserved"}}
   end
 
-  defp operation(key, :failed, _calls, _session_id) do
+  defp operation(key, :failed, _calls, _state) do
     {:ok, failed_operation(operation_method(key))}
   end
 
-  defp operation(key, _mode, _calls, session_id) do
+  defp operation(key, _mode, _calls, state) do
     {resource_type, resource_id} =
       if String.contains?(key, ":create:"),
-        do: {"session", session_id},
-        else: {"turn", "turn_test"}
+        do: {"session", state.session["id"]},
+        else: {"turn", (state.turn || %{"id" => turn_id()})["id"]}
 
     {:ok, succeeded_operation(operation_method(key), resource_type, resource_id)}
   end

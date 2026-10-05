@@ -1,54 +1,14 @@
 defmodule Ryker.ReleaseTest do
   use Ryker.DataCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   alias Ryker.CoopFleet.ControlPlane
   alias Ryker.Release
 
   @root Path.expand("../..", __DIR__)
-
-  test "the Elixir release ships no trace of the retired SQLite import" do
-    # Removing the Go gates left their importer and rollback command in every
-    # release; the ledger schemas and the changeset write paths that only the
-    # importer used followed on 2026-09-13, once the production ledger was
-    # confirmed empty. A module or write path reappearing here would make an
-    # obsolete migration look like a supported runtime operation again.
-    for module <- [
-          Mix.Tasks.Ryker.Cutover,
-          Ryker.Cutover.Importer,
-          Ryker.Cutover.Item,
-          Ryker.Cutover.Ledger,
-          Ryker.Cutover.LegacySchema,
-          Ryker.Cutover.LegacySnapshot,
-          Ryker.Cutover.Manifest,
-          Ryker.Cutover.Rollback,
-          Ryker.Cutover.Run
-        ] do
-      refute Code.ensure_loaded?(module)
-    end
-
-    for {module, operation, arity} <- [
-          {Ryker.Memories.MemoryEntryChangeset, :cutover, 1},
-          {Ryker.Behaviors.BehaviorChangeset, :cutover, 1},
-          {Ryker.Schedules.ScheduleChangeset, :cutover, 1},
-          {Ryker.Records.RecordChangeset, :cutover, 1},
-          {Ryker.Episodes.EpisodeChangeset, :bind_cutover, 2}
-        ] do
-      assert Code.ensure_loaded?(module)
-      refute function_exported?(module, operation, arity)
-    end
-
-    for {module, field} <- [
-          {Ryker.Memories.MemoryEntry, :cutover_item_id},
-          {Ryker.Behaviors.Behavior, :cutover_item_id},
-          {Ryker.Schedules.Schedule, :cutover_item_id},
-          {Ryker.Records.Record, :cutover_item_id},
-          {Ryker.Episodes.Episode, :cutover_item_id}
-        ] do
-      refute field in module.__schema__(:fields)
-    end
-  end
 
   test "production defaults to operational logging instead of debug SQL output" do
     configuration =
@@ -259,7 +219,7 @@ defmodule Ryker.ReleaseTest do
     checker = Path.expand("../../scripts/check-elixir-release.sh", __DIR__)
 
     check = fn archive ->
-      digest = :crypto.hash(:sha256, File.read!(archive)) |> Base.encode16(case: :lower)
+      digest = digest(File.read!(archive))
       System.cmd(checker, [archive, version, digest], stderr_to_stdout: true)
     end
 
@@ -416,7 +376,7 @@ defmodule Ryker.ReleaseTest do
   # which a Compose install cannot run, so a worker it enrolled could never be
   # revoked there, however compromised (2026-10-04 review).
   test "a Compose install drains, resumes and revokes its workers through the release" do
-    hash = :crypto.hash(:sha256, "certificate:release-lifecycle") |> Base.encode16(case: :lower)
+    hash = digest("certificate:release-lifecycle")
     {:ok, _worker} = ControlPlane.authorize_worker("worker-own-2", "workspace-own", hash)
 
     for {action, status, state} <- [

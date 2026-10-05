@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.ClientTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query, only: [from: 2]
 
   alias Ryker.{Artifacts, CanonicalJSON, Instructions}
@@ -561,7 +563,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     command = command!(session, "freshness-capability")
 
     upgraded_worker_id = "client-worker-upgraded-#{Ecto.UUID.generate()}"
-    certificate_sha256 = :crypto.hash(:sha256, upgraded_worker_id) |> Base.encode16(case: :lower)
+    certificate_sha256 = digest(upgraded_worker_id)
 
     assert {:ok, _worker} =
              ControlPlane.authorize_worker(
@@ -1803,7 +1805,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     reference = %{
       "byte_size" => byte_size(bytes),
-      "sha256" => Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+      "sha256" => digest(bytes)
     }
 
     assert :ok = Bodies.put(root, id, :response, reference, [bytes], key)
@@ -2776,7 +2778,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
   defp command!(session, suffix, options \\ []) do
     worker_id = "client-worker-#{suffix}-#{Ecto.UUID.generate()}"
-    certificate_sha256 = :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower)
+    certificate_sha256 = digest(worker_id)
 
     assert {:ok, _worker} =
              ControlPlane.authorize_worker(worker_id, "workspace-main", certificate_sha256)

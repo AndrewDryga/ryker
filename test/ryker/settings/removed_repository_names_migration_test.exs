@@ -4,25 +4,15 @@ defmodule Ryker.Settings.RemovedRepositoryNamesMigrationTest do
   history kept the ref, so every page named that history by the ref
   (2026-09-28). The migration adds the table the name is kept in on removal.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @previous_version 20_260_928_200_000
   @version 20_260_928_210_000
 
   test "a removed repository's name has a table of its own, one per ref, and rolling back drops it" do
-    repo = start_migration_repo!()
-    prefix = "removed_repository_names_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
+    in_scratch_schema("removed_repository_names", fn repo, prefix ->
       migrate!(repo, prefix, @previous_version)
       refute table?(repo, prefix)
 
@@ -37,17 +27,11 @@ defmodule Ryker.Settings.RemovedRepositoryNamesMigrationTest do
       SQL.query!(repo, insert, [])
       assert_raise Postgrex.Error, ~r/unique|duplicate/, fn -> SQL.query!(repo, insert, []) end
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
+      assert rollback!(repo, prefix) ==
                [@version]
 
       refute table?(repo, prefix)
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp table?(repo, prefix) do
@@ -59,23 +43,5 @@ defmodule Ryker.Settings.RemovedRepositoryNamesMigrationTest do
       )
 
     rows != []
-  end
-
-  defp migrate!(repo, prefix, version),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: version,
-        prefix: prefix,
-        log: false
-      )
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

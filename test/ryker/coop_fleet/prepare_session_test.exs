@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.PrepareSessionTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   alias Ecto.Adapters.SQL.Sandbox
@@ -146,7 +148,7 @@ defmodule Ryker.CoopFleet.PrepareSessionTest do
   end
 
   defp authorize! do
-    certificate = :crypto.hash(:sha256, @worker) |> Base.encode16(case: :lower)
+    certificate = digest(@worker)
 
     assert {:ok, _worker} =
              ControlPlane.authorize_worker(@worker, "workspace-main", certificate)

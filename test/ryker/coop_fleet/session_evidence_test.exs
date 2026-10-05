@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.SessionEvidenceTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ryker.CoopFleet.{ControlPlane, SessionEvidence, SessionEvidenceCapture}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -101,7 +103,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
       ControlPlane.authorize_worker(
         worker_id,
         "workspace-main",
-        :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower)
+        digest(worker_id)
       )
 
     {:ok, _response} =

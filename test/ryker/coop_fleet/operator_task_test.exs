@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.OperatorTaskTest do
   use Ryker.DataCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Mix.Tasks.Ryker.CoopWorker
   alias Ryker.CoopFleet.{ControlPlane, Worker}
 
@@ -43,7 +45,7 @@ defmodule Ryker.CoopFleet.OperatorTaskTest do
 
   test "operator commands drain, resume, and revoke one exact worker" do
     certificate = "operator-worker-certificate"
-    digest = :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)
+    digest = digest(certificate)
 
     assert {:ok, %Worker{}} =
              ControlPlane.authorize_worker("worker-ops", "workspace-main", digest)

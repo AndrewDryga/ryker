@@ -12,6 +12,8 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
   """
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   alias Ecto.Adapters.SQL.Sandbox
@@ -267,5 +269,4 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
   end
 
   defp unique(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

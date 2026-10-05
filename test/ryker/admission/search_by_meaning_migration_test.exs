@@ -6,26 +6,16 @@ defmodule Ryker.Admission.SearchByMeaningMigrationTest do
   made it and when; a vector without its model, or a model without a vector,
   is refused. Rolling back drops only what can be computed again.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @previous_version 20_260_930_010_000
   @version 20_260_930_020_000
   @at ~N[2026-09-30 09:00:00.000000]
 
   test "a digest keeps a vector with its model and time, and rolling back keeps the digest" do
-    repo = start_migration_repo!()
-    prefix = "search_by_meaning_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
+    in_scratch_schema("search_by_meaning", fn repo, prefix ->
       migrate!(repo, prefix, @previous_version)
       episode = episode!(repo, prefix)
       digest!(repo, prefix, episode)
@@ -42,13 +32,11 @@ defmodule Ryker.Admission.SearchByMeaningMigrationTest do
         embed!(repo, prefix, episode, nil, "bge-m3", nil)
       end
 
-      assert down!(repo, prefix) == [@version]
+      assert rollback!(repo, prefix) == [@version]
 
       assert %{num_rows: 1} =
                SQL.query!(repo, "SELECT 1 FROM #{prefix}.episode_routing_digests", [])
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp episode!(repo, prefix) do
@@ -102,31 +90,5 @@ defmodule Ryker.Admission.SearchByMeaningMigrationTest do
       )
 
     {Enum.map(vector, &Float.round(&1, 4)), model}
-  end
-
-  defp migrate!(repo, prefix, version),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: version,
-        prefix: prefix,
-        log: false
-      )
-
-  defp down!(repo, prefix),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-        step: 1,
-        prefix: prefix,
-        log: false
-      )
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

@@ -1,6 +1,8 @@
 defmodule Ryker.Retention.DispatcherTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
@@ -608,7 +610,7 @@ defmodule Ryker.Retention.DispatcherTest do
              ControlPlane.authorize_worker(
                worker_id,
                "workspace-retention",
-               :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower)
+               digest(worker_id)
              )
 
     now = DateTime.utc_now()

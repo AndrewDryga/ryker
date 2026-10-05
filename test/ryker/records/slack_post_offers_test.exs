@@ -1,6 +1,8 @@
 defmodule Ryker.Records.SlackPostOffersTest do
   use Ryker.DataCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -120,7 +122,7 @@ defmodule Ryker.Records.SlackPostOffersTest do
              )
 
     candidate = ~s({"delivery":"reply","message":"Please confirm the exact additional post."})
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(

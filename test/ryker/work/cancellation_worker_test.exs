@@ -9,6 +9,8 @@ defmodule Ryker.Work.CancellationWorkerTest do
 
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   alias Ryker.CoopFleet.{Client, Command, ControlPlane, Placement, WorkerLifecycle}
@@ -222,7 +224,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
 
   defp enroll!(suffix) do
     worker = "stop-#{suffix}-#{System.unique_integer([:positive])}"
-    certificate = :crypto.hash(:sha256, worker) |> Base.encode16(case: :lower)
+    certificate = digest(worker)
     assert {:ok, _worker} = ControlPlane.authorize_worker(worker, @workspace, certificate)
     poll!(worker, @started)
     worker

@@ -19,7 +19,7 @@ defmodule Ryker.RoutingExamplesTest do
 
   import Ecto.Query
   import ExUnit.CaptureLog
-  import Ryker.TestHelpers, only: [digest: 1]
+  import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
 
   # The executor reads routing's context under the isolation it runs with.
   @moduletag isolation: "REPEATABLE READ"
@@ -870,17 +870,6 @@ defmodule Ryker.RoutingExamplesTest do
              end)
 
     Enum.reverse(lines)
-  end
-
-  defp eventually(check, attempts \\ 40) do
-    case check.() do
-      result when result in [nil, false] and attempts > 0 ->
-        Process.sleep(25)
-        eventually(check, attempts - 1)
-
-      result ->
-        result
-    end
   end
 
   defp keep_examples! do

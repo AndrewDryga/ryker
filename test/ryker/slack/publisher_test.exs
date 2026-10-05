@@ -1,6 +1,8 @@
 defmodule Ryker.Slack.PublisherTest do
   use ExUnit.Case, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ryker.Delivery.Request
   alias Ryker.Slack.Publisher
   alias Ryker.TestSupport.FakeSlackAPI
@@ -346,7 +348,7 @@ defmodule Ryker.Slack.PublisherTest do
       "media_type" => media_type,
       "name" => name,
       "ref" => ref,
-      "sha256" => :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+      "sha256" => digest(data)
     }
   end
 

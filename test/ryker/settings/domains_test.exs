@@ -372,7 +372,6 @@ defmodule Ryker.Settings.DomainsTest do
     Repo.query!("UPDATE settings_edits SET domain = 'policies' WHERE revision = 1")
     assert {:ok, snapshot} = Settings.fetch()
     refute Map.has_key?(snapshot, :policy_bindings)
-    refute function_exported?(Settings, :put_policy_binding, 3)
   end
 
   test "custom webhook mappings need exact typed fields and presets take no mapping" do

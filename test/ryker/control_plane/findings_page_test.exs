@@ -1,5 +1,7 @@
 defmodule Ryker.ControlPlane.FindingsPageTest do
   use Ryker.DataCase, async: false
+
+  import Ryker.TestHelpers, only: [outline: 2]
   import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
   import Phoenix.LiveViewTest
 
@@ -566,21 +568,6 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
 
   defp render_stub(view) do
     render_component(&FindingsPage.render/1, view: view) |> LazyHTML.from_fragment()
-  end
-
-  # "tag.first-class" for each matched element, in document order.
-  defp outline(document, selector) do
-    nodes = LazyHTML.query(document, selector)
-
-    nodes
-    |> LazyHTML.tag()
-    |> Enum.zip(LazyHTML.attributes(nodes))
-    |> Enum.map(fn {tag, attributes} ->
-      case List.keyfind(attributes, "class", 0) do
-        {"class", class} -> tag <> "." <> hd(String.split(class))
-        nil -> tag
-      end
-    end)
   end
 
   defp claim! do

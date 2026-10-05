@@ -8,7 +8,7 @@ defmodule Ryker.Publication.RecheckParkedPullRequestsMigrationTest do
   next poll puts it on the ten-minute timer; one that has ended stays parked.
   """
   # The migrator runs inside this test's sandbox transaction.
-  use Ryker.DataCase, async: false
+  use Ryker.MigrationCase
 
   import Ecto.Query
 
@@ -16,11 +16,6 @@ defmodule Ryker.Publication.RecheckParkedPullRequestsMigrationTest do
   alias Ryker.Publication.{Followup, Followups}
 
   @version 20_260_927_172_000
-  @migration Ryker.Repo.Migrations.RecheckParkedOpenPullRequests
-  @file_name "20260927172000_recheck_parked_open_pull_requests.exs"
-  # The migrator's own lock holds the one sandboxed connection while its task
-  # waits for that same connection, so it is skipped: nothing else migrates here.
-  @options [log: false, migration_lock: false]
   @parked ~U[9999-01-01 00:00:00.000000Z]
 
   test "an open pull request an earlier release parked is checked at once, a merged one is not" do
@@ -34,8 +29,8 @@ defmodule Ryker.Publication.RecheckParkedPullRequestsMigrationTest do
     park!(merged, "merged")
     assert {:ok, nil} = Followups.claim_poll("migration:before", 60)
 
-    assert :ok = Ecto.Migrator.down(Repo, @version, migration(), @options)
-    assert :ok = Ecto.Migrator.up(Repo, @version, migration(), @options)
+    assert :ok = migrate_down(@version)
+    assert :ok = migrate_up(@version)
 
     assert {:ok, %{publication: %{id: due}}} = Followups.claim_poll("migration:after", 60)
     assert due == open.id
@@ -48,17 +43,5 @@ defmodule Ryker.Publication.RecheckParkedPullRequestsMigrationTest do
         from(followup in Followup, where: followup.publication_id == ^publication.id),
         set: [next_poll_at: @parked, pr_state: pr_state]
       )
-  end
-
-  # `ecto.migrate` loads a migration only while it is pending, so a database
-  # migrated by an earlier run leaves it for this test to load.
-  defp migration do
-    unless Code.ensure_loaded?(@migration) do
-      :ryker
-      |> Application.app_dir(Path.join("priv/repo/migrations", @file_name))
-      |> Code.compile_file()
-    end
-
-    @migration
   end
 end

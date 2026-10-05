@@ -7,30 +7,25 @@ defmodule Ryker.Learning.DroppedBatchesMigrationTest do
   person again, instead of refusing to go back or losing the batch.
   """
   # The migrator runs inside this test's sandbox transaction.
-  use Ryker.DataCase, async: false
+  use Ryker.MigrationCase
 
   import Ecto.Query
 
   alias Ryker.Learning.Batch
 
   @version 20_260_927_150_000
-  @migration Ryker.Repo.Migrations.AllowDroppedLearningBatches
-  @file_name "20260927150000_allow_dropped_learning_batches.exs"
-  # The migrator's own lock holds the one sandboxed connection while its task
-  # waits for that same connection, so it is skipped: nothing else migrates here.
-  @options [log: false, migration_lock: false]
 
   test "a learning batch can be dropped, and going back makes it the stopped batch it was" do
     dropped = batch!(:dropped)
     stopped = batch!(:deferred)
 
-    assert :ok = Ecto.Migrator.down(Repo, @version, migration(), @options)
+    assert :ok = migrate_down(@version)
 
     assert Repo.get!(Batch, dropped.id).status == :deferred
     assert Repo.get!(Batch, stopped.id).status == :deferred
     assert {:error, %Postgrex.Error{postgres: %{code: :check_violation}}} = drop(stopped)
 
-    assert :ok = Ecto.Migrator.up(Repo, @version, migration(), @options)
+    assert :ok = migrate_up(@version)
 
     assert {:ok, 1} = drop(stopped)
     assert Repo.get!(Batch, stopped.id).status == :dropped
@@ -63,17 +58,5 @@ defmodule Ryker.Learning.DroppedBatchesMigrationTest do
     end)
   rescue
     error in Postgrex.Error -> {:error, error}
-  end
-
-  # `ecto.migrate` loads a migration only while it is pending, so a database
-  # migrated by an earlier run leaves it for this test to load.
-  defp migration do
-    unless Code.ensure_loaded?(@migration) do
-      :ryker
-      |> Application.app_dir(Path.join("priv/repo/migrations", @file_name))
-      |> Code.compile_file()
-    end
-
-    @migration
   end
 end

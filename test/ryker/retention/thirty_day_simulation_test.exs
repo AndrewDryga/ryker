@@ -14,6 +14,8 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
 
   use Ryker.DataCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   @moduletag :simulation
@@ -767,7 +769,7 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
     Repo.insert!(%Worker{
       capabilities: [],
       capacity: %{},
-      certificate_sha256: :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower),
+      certificate_sha256: digest(worker_id),
       id: worker_id,
       last_seen_at: DateTime.utc_now(),
       state: :eligible,

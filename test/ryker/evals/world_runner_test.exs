@@ -1,6 +1,8 @@
 defmodule Ryker.Evals.WorldRunnerTest do
   use Ryker.DataCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
@@ -1723,7 +1725,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
 
     data = <<137, 80, 78, 71, 13, 10, 26, 10, "live-generated-chart">>
-    digest = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+    digest = digest(data)
     ref = "artifact_#{String.slice(digest, 0, 24)}"
     [event] = scenario.host_replay["model_events"]
 

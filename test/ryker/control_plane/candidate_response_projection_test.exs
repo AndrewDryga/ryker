@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Phoenix.LiveViewTest
   import Ecto.Query
 
@@ -70,7 +72,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     archived
     |> Ecto.Changeset.change(
       body: latest,
-      sha256: :crypto.hash(:sha256, latest) |> Base.encode16(case: :lower),
+      sha256: digest(latest),
       byte_size: byte_size(latest)
     )
     |> Repo.update!()
@@ -380,7 +382,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
   # A turn whose only answer was accepted first time, with that answer's
   # retained response.
   defp accept!(turn, body, accepted_at) do
-    sha256 = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
+    sha256 = digest(body)
     Repo.delete_all(from(r in CandidateResponse, where: r.turn_id == ^turn.id))
 
     Repo.insert!(%CandidateResponse{

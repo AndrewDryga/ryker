@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.FailureProjectionTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   # Admission context reads under REPEATABLE READ; the fixture keeps its own
   # workspace so the conversation lock never waits on another suite.
   @moduletag isolation: "REPEATABLE READ"
@@ -794,7 +796,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   # the placement that says so.
   defp place_on_worker!(session) do
     worker_id = "failures-worker-#{System.unique_integer([:positive])}"
-    certificate = :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower)
+    certificate = digest(worker_id)
     assert {:ok, worker} = FleetControlPlane.authorize_worker(worker_id, "failures", certificate)
     now = DateTime.utc_now()
 

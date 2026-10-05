@@ -6,26 +6,16 @@ defmodule Ryker.Feedback.RateFinishedRequestsMigrationTest do
   rating and its feedback signal carry it, and keeps every review recorded
   before ratings as it was.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @previous_version 20_260_928_210_000
   @version 20_260_929_000_000
   @at ~N[2026-09-28 09:00:00.000000]
 
   test "a rating is kept beside the reviews from before it, and rolling back refuses while one exists" do
-    repo = start_migration_repo!()
-    prefix = "rate_finished_requests_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
+    in_scratch_schema("rate_finished_requests", fn repo, prefix ->
       migrate!(repo, prefix, @previous_version)
       episode = episode!(repo, prefix)
       reviewed = review!(repo, prefix, episode, 1, nil)
@@ -53,7 +43,7 @@ defmodule Ryker.Feedback.RateFinishedRequestsMigrationTest do
       assert ratings(repo, prefix) == %{reviewed => nil, rated => "needs_work"}
 
       assert_raise Postgrex.Error, ~r/requests rated good or needs work are kept/, fn ->
-        down!(repo, prefix)
+        rollback!(repo, prefix)
       end
 
       SQL.query!(repo, "DELETE FROM #{prefix}.answer_feedback WHERE id = $1", [
@@ -64,14 +54,12 @@ defmodule Ryker.Feedback.RateFinishedRequestsMigrationTest do
         Ecto.UUID.dump!(rated)
       ])
 
-      assert down!(repo, prefix) == [@version]
+      assert rollback!(repo, prefix) == [@version]
 
       # The reviews from before ratings survive both ways.
       assert ids(repo, prefix, "episode_operator_reviews") == [reviewed]
       assert ids(repo, prefix, "answer_feedback") == [ended]
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp episode!(repo, prefix) do
@@ -149,31 +137,5 @@ defmodule Ryker.Feedback.RateFinishedRequestsMigrationTest do
   defp ids(repo, prefix, table) do
     %{rows: rows} = SQL.query!(repo, "SELECT id FROM #{prefix}.#{table}", [])
     Enum.map(rows, fn [id] -> Ecto.UUID.load!(id) end)
-  end
-
-  defp migrate!(repo, prefix, version),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: version,
-        prefix: prefix,
-        log: false
-      )
-
-  defp down!(repo, prefix),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-        step: 1,
-        prefix: prefix,
-        log: false
-      )
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

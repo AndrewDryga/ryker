@@ -1,15 +1,9 @@
 defmodule Ryker.Admission.LiveRepliesMigrationTest do
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
   alias Ryker.Admission.Decision
   alias Ryker.CanonicalJSON
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @before_version 20_260_926_154_500
   @live_replies_version 20_260_927_090_000
@@ -23,16 +17,8 @@ defmodule Ryker.Admission.LiveRepliesMigrationTest do
   # nothing for, and its stored fingerprint would no longer match it. What was
   # already sent keeps its delivery and becomes the first of its message.
   test "the migration rewrites every stored routing decision and keeps what was sent" do
-    repo = start_migration_repo!()
-    prefix = "live_replies_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: @before_version,
-        prefix: prefix,
-        log: false
-      )
+    in_scratch_schema("live_replies", fn repo, prefix ->
+      migrate!(repo, prefix, @before_version)
 
       # A greeting routing answered, a message it reacted to before `message`
       # and `repository` existed, one it left alone before any selector
@@ -76,11 +62,7 @@ defmodule Ryker.Admission.LiveRepliesMigrationTest do
       response!(repo, prefix, greeting, "message", %{"message" => "Hi! How can I help?"})
       response!(repo, prefix, reacted, "reaction", %{"emoji_name" => "eyes"})
 
-      assert @live_replies_version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-               to: @live_replies_version,
-               prefix: prefix,
-               log: false
-             )
+      assert @live_replies_version in migrate!(repo, prefix, @live_replies_version)
 
       assert {greeting_document, greeting_fingerprint} = decision(repo, prefix, greeting)
       assert greeting_document["messages"] == ["Hi! How can I help?"]
@@ -134,11 +116,7 @@ defmodule Ryker.Admission.LiveRepliesMigrationTest do
       # or reaction per decision; rolling back while a message has more
       # would lose what was sent, so it is refused until they are gone.
       assert_raise Postgrex.Error, ~r/nowhere to keep them/, fn ->
-        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-          step: 1,
-          prefix: prefix,
-          log: false
-        )
+        rollback!(repo, prefix)
       end
 
       SQL.query!(
@@ -147,11 +125,7 @@ defmodule Ryker.Admission.LiveRepliesMigrationTest do
         []
       )
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
+      assert rollback!(repo, prefix) ==
                [@live_replies_version]
 
       assert {previous, fingerprint} = decision(repo, prefix, greeting)
@@ -162,9 +136,7 @@ defmodule Ryker.Admission.LiveRepliesMigrationTest do
 
       assert {%{"reaction" => %{"emoji_name" => "eyes"}}, _fingerprint} =
                decision(repo, prefix, reacted)
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp entry!(repo, prefix, name, action, document) do
@@ -244,15 +216,5 @@ defmodule Ryker.Admission.LiveRepliesMigrationTest do
       )
 
     {Jason.decode!(document), fingerprint}
-  end
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

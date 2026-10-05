@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CoopFleet.{Certificate, Client, Command, ControlPlane, JobSpec, Placement, Worker}
   alias Ryker.CoopFleet.ControlPlane.Commands
@@ -458,7 +460,7 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
 
   defp authorize_and_poll!(worker_id, workspace_ref) do
     certificate = "certificate-#{worker_id}"
-    digest = :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)
+    digest = digest(certificate)
 
     assert {:ok, _worker} = ControlPlane.authorize_worker(worker_id, workspace_ref, digest)
 

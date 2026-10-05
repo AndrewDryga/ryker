@@ -7,6 +7,8 @@ defmodule Ryker.Fixtures.Answers do
   posted.
   """
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
   import ExUnit.Assertions
 
@@ -248,7 +250,7 @@ defmodule Ryker.Fixtures.Answers do
     }
 
     candidate = Jason.encode!(document)
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(

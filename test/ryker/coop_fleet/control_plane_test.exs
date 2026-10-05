@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.ControlPlaneTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import ExUnit.CaptureLog
 
   import Ecto.Query
@@ -1160,7 +1162,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     bytes = String.duplicate("never uploaded ", 100)
 
     reference = %{
-      "sha256" => :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower),
+      "sha256" => digest(bytes),
       "byte_size" => byte_size(bytes)
     }
 
@@ -2311,7 +2313,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   end
 
   defp certificate_digest(value),
-    do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+    do: digest(value)
 
   defp idle_poll!(worker_id, suffix, capacity) do
     assert {:ok, _response} =
@@ -2575,7 +2577,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   # the command that brought it.
   defp transfer!(command, session, checkpoint_ref, body_root) do
     bundle = :binary.copy(<<3>>, 4_096)
-    sha256 = :crypto.hash(:sha256, bundle) |> Base.encode16(case: :lower)
+    sha256 = digest(bundle)
     reference = %{"sha256" => sha256, "byte_size" => byte_size(bundle)}
     key = Ryker.Secret.new(:binary.copy(<<9>>, 32))
     assert :ok = Bodies.put(body_root, command.id, :response, reference, [bundle], key)
@@ -2588,8 +2590,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       checkpoint_ref: checkpoint_ref,
       command_id: command.id,
       descriptor: %{"version" => 2, "checkpoint_ref" => checkpoint_ref},
-      encryption_key_sha256:
-        :crypto.hash(:sha256, Ryker.Secret.reveal(key)) |> Base.encode16(case: :lower),
+      encryption_key_sha256: digest(Ryker.Secret.reveal(key)),
       placement_generation: command.placement_generation,
       repository_ref: session.repository_ref,
       session_ref: session.id,

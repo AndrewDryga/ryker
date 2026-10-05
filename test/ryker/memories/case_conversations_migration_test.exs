@@ -7,25 +7,15 @@ defmodule Ryker.Memories.CaseConversationsMigrationTest do
   the message identities it keeps; rolling back forgets only the
   conversations.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @previous_version 20_260_928_140_000
   @version 20_260_928_160_000
 
   test "a case kept before learns the conversations of the messages still held, found by an index" do
-    repo = start_migration_repo!()
-    prefix = "case_conversations_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
+    in_scratch_schema("case_conversations", fn repo, prefix ->
       migrate!(repo, prefix, @previous_version)
 
       # Work in #ops that a message from #pages joined; the message from
@@ -69,20 +59,14 @@ defmodule Ryker.Memories.CaseConversationsMigrationTest do
         )
       end
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
+      assert rollback!(repo, prefix) ==
                [@version]
 
       %{rows: [[kept]]} =
         SQL.query!(repo, "SELECT count(*) FROM #{prefix}.episode_case_records", [])
 
       assert kept == 2
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp conversations(repo, prefix, id) do
@@ -148,23 +132,5 @@ defmodule Ryker.Memories.CaseConversationsMigrationTest do
     )
 
     id
-  end
-
-  defp migrate!(repo, prefix, version),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: version,
-        prefix: prefix,
-        log: false
-      )
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

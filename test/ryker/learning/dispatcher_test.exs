@@ -1,5 +1,7 @@
 defmodule Ryker.Learning.DispatcherTest do
   use Ryker.DataCase, async: false
+
+  import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
@@ -91,14 +93,7 @@ defmodule Ryker.Learning.DispatcherTest do
       Agent.update(client, &Map.update(&1, :fence_keys, [key], fn keys -> keys ++ [key] end))
 
       lose_after(client, :submit_fence, fn ->
-        Fake.fence_submit_turn(
-          client,
-          sid,
-          key,
-          revision,
-          submission["prompt"],
-          submission["output_schema"]
-        )
+        Fake.fence_frozen_turn(client, sid, key, revision, submission, nil, [])
       end)
     end
 
@@ -400,7 +395,7 @@ defmodule Ryker.Learning.DispatcherTest do
       assert stored.stop_receipt["state"] == "completed"
 
       assert stored.validation_receipt["validation_candidate_sha256"] ==
-               :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
+               digest(body)
 
       refute stored.result_sha256 == stored.validation_receipt["validation_candidate_sha256"]
       remote = FakeCoopAPI.state(fake)

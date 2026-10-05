@@ -16,6 +16,8 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
   # minutes ran out first on CI and cancelled a search mid-query.
   use Ryker.DataCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   @moduletag timeout: 300_000, ownership_timeout: 300_000
 
   import Ecto.Query
@@ -278,7 +280,7 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
     stored
   end
 
-  defp key(text), do: Base.encode16(:crypto.hash(:sha256, text), case: :lower)
+  defp key(text), do: digest(text)
 
   # A message is its words, or the Slack message an alert arrived as, read as admission reads
   # it: its search text and everything it names outside it (`RoutingDigests.input_identifiers/1`).

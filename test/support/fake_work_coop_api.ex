@@ -31,7 +31,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
         create_sources: [],
         fence_create_keys: [],
         fence_create_sources: [],
-        fence_submit_keys: [],
+        fence_frozen_keys: [],
         known_operations: %{},
         lose_first_cancel_response: Keyword.get(options, :lose_first_cancel_response, false),
         lose_first_submit_response: Keyword.get(options, :lose_first_submit_response, false),
@@ -476,11 +476,6 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
     end
   end
 
-  # Not part of `Ryker.Coop.API`; tests fence a prompt-shaped turn directly.
-  def fence_submit_turn(agent, _session_id, key, _expected_revision, _prompt, _schema) do
-    fence_operation(agent, key, "SubmitTurn", :fence_submit_keys)
-  end
-
   @impl true
   def fence_frozen_turn(
         agent,
@@ -495,7 +490,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
       %{state | bindings: if(binding, do: state.bindings ++ [binding], else: state.bindings)}
     end)
 
-    fence_operation(agent, key, "SubmitTurn", :fence_submit_keys)
+    fence_operation(agent, key, "SubmitTurn", :fence_frozen_keys)
   end
 
   @impl true

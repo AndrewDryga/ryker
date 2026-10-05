@@ -1,17 +1,12 @@
 defmodule Ryker.Settings.PullRequestApprovalsMigrationTest do
   # The DDL runs inside this test's sandbox transaction, which takes the table
   # lock, so nothing else may run beside it.
-  use Ryker.DataCase, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
   alias Ryker.Settings
 
   @version 20_261_005_090_000
-  @migration Ryker.Repo.Migrations.MakePullRequestApprovalAChoice
-  @file_name "20261005090000_make_pull_request_approval_a_choice.exs"
-  # The migrator's own lock holds the one sandboxed connection while its task
-  # waits for that same connection, so it is skipped: nothing else migrates here.
-  @options [log: false, migration_lock: false]
   @actor "control-plane:local"
 
   # Every repository whose App could write pull requests was granted approve
@@ -42,7 +37,7 @@ defmodule Ryker.Settings.PullRequestApprovalsMigrationTest do
         @actor
       )
 
-    assert :ok = Ecto.Migrator.down(Repo, @version, migration(), @options)
+    assert :ok = migrate_down(@version)
 
     SQL.query!(
       Repo,
@@ -50,24 +45,12 @@ defmodule Ryker.Settings.PullRequestApprovalsMigrationTest do
       [~w(read review open_pull_request approve merge)]
     )
 
-    assert :ok = Ecto.Migrator.up(Repo, @version, migration(), @options)
+    assert :ok = migrate_up(@version)
 
     assert saved_row() == %{
              "action_grants" => ~w(read review open_pull_request),
              "approvals_allowed" => false
            }
-  end
-
-  # `ecto.migrate` loads a migration only while it is pending, so a database
-  # migrated by an earlier run leaves it for this test to load.
-  defp migration do
-    unless Code.ensure_loaded?(@migration) do
-      :ryker
-      |> Application.app_dir(Path.join("priv/repo/migrations", @file_name))
-      |> Code.compile_file()
-    end
-
-    @migration
   end
 
   defp saved_row do

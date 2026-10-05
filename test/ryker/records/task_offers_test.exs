@@ -1402,7 +1402,7 @@ defmodule Ryker.Records.TaskOffersTest do
              )
 
     candidate = Jason.encode!(harvested["candidate"])
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _staged} =
              Custody.stage_candidate(

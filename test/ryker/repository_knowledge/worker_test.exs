@@ -1,6 +1,8 @@
 defmodule Ryker.RepositoryKnowledge.WorkerTest do
   use Ryker.DataCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
+
   import Ecto.Query
 
   alias Ryker.GitHub.Onboarding
@@ -57,7 +59,7 @@ defmodule Ryker.RepositoryKnowledge.WorkerTest do
     Repo.update_all(from(entry in Entry, where: entry.repository_ref == "emisar"),
       set: [
         document: document,
-        document_sha256: :crypto.hash(:sha256, document) |> Base.encode16(case: :lower),
+        document_sha256: digest(document),
         document_commit: @head,
         document_by: :model,
         document_at: now,
@@ -98,13 +100,5 @@ defmodule Ryker.RepositoryKnowledge.WorkerTest do
 
     assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
     assert eventually(fn -> FakeCoopAPI.state(coop).create_keys != [] end)
-  end
-
-  defp eventually(check, tries \\ 40) do
-    cond do
-      check.() -> true
-      tries == 0 -> false
-      true -> Process.sleep(50) && eventually(check, tries - 1)
-    end
   end
 end

@@ -6,15 +6,9 @@ defmodule Ryker.WorkExamples.MigrationTest do
   examples must start off, and rolling back must refuse while any example is
   kept rather than drop them.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @before_version 20_260_930_110_000
   @version 20_261_002_120_000
@@ -22,24 +16,12 @@ defmodule Ryker.WorkExamples.MigrationTest do
   @day 86_400
 
   test "saved limits survive, keeping work examples starts off, and a kept example blocks rollback" do
-    repo = start_migration_repo!()
-    prefix = "work_examples_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: @before_version,
-        prefix: prefix,
-        log: false
-      )
+    in_scratch_schema("work_examples", fn repo, prefix ->
+      migrate!(repo, prefix, @before_version)
 
       installation!(repo, prefix)
 
-      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-               to: @version,
-               prefix: prefix,
-               log: false
-             )
+      assert @version in migrate!(repo, prefix, @version)
 
       # The saved limits and routing setting are kept; work examples start off, for a year.
       assert retention(repo, prefix) == [60 * @day, true, false, 365 * @day]
@@ -52,20 +34,12 @@ defmodule Ryker.WorkExamples.MigrationTest do
       example!(repo, prefix, "$2", "NULL")
 
       assert_raise Postgrex.Error, ~r/work examples are kept for training/, fn ->
-        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-          step: 1,
-          prefix: prefix,
-          log: false
-        )
+        rollback!(repo, prefix)
       end
 
       SQL.query!(repo, "DELETE FROM #{prefix}.work_examples", [])
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
+      assert rollback!(repo, prefix) ==
                [@version]
 
       %{rows: [[audit, routing]]} =
@@ -76,9 +50,7 @@ defmodule Ryker.WorkExamples.MigrationTest do
         )
 
       assert {audit, routing} == {60 * @day, true}
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp installation!(repo, prefix) do
@@ -132,15 +104,5 @@ defmodule Ryker.WorkExamples.MigrationTest do
       """,
       [Ecto.UUID.dump!(Ecto.UUID.generate()), @at]
     )
-  end
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

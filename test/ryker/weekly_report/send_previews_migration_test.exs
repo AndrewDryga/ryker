@@ -6,38 +6,20 @@ defmodule Ryker.WeeklyReport.SendPreviewsMigrationTest do
   Every report already on record stays the week's report, and rolling back
   refuses while a preview would read as a week already sent.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @previous_version 20_260_929_010_000
   @version 20_260_929_020_000
 
   test "a preview is never the week's report, and rolling back waits until none is on record" do
-    repo = start_migration_repo!()
-    prefix = "report_previews_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: @previous_version,
-        prefix: prefix,
-        log: false
-      )
+    in_scratch_schema("report_previews", fn repo, prefix ->
+      migrate!(repo, prefix, @previous_version)
 
       sent = report!(repo, prefix, "weekly-report:2026-10-05", [])
 
-      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-               to: @version,
-               prefix: prefix,
-               log: false
-             )
+      assert @version in migrate!(repo, prefix, @version)
 
       assert preview?(repo, prefix, sent) == false
 
@@ -52,27 +34,17 @@ defmodule Ryker.WeeklyReport.SendPreviewsMigrationTest do
       end
 
       assert_raise Postgrex.Error, ~r/previews are on record/, fn ->
-        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-          step: 1,
-          prefix: prefix,
-          log: false
-        )
+        rollback!(repo, prefix)
       end
 
       SQL.query!(repo, "DELETE FROM #{prefix}.weekly_reports WHERE preview", [])
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) == [@version]
+      assert rollback!(repo, prefix) == [@version]
 
       assert_raise Postgrex.Error, ~r/weekly_reports_week_index/, fn ->
         report!(repo, prefix, "weekly-report:again", [])
       end
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp report!(repo, prefix, delivery_ref, options) do
@@ -102,15 +74,5 @@ defmodule Ryker.WeeklyReport.SendPreviewsMigrationTest do
       ])
 
     preview
-  end
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

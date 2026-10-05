@@ -67,9 +67,8 @@ defmodule Ryker.RepositoryKnowledge.PromptTest do
     assert positions == Enum.sort(positions)
   end
 
-  # A refresh that rewords everything opens a pull request of noise. The
-  # document already on the default branch is the model's to keep where it
-  # is still true.
+  # A refresh that rewords everything changes the document for nothing. The
+  # document Ryker keeps is the model's to keep where it is still true.
   test "a refresh hands the model the current document to keep what is still true" do
     current =
       "# RYKER.md\n\nWritten by Ryker from `abc1234` on 2026-09-20.\n\n## Purpose\n\nOld words.\n"

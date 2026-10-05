@@ -11,6 +11,8 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   """
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
@@ -734,7 +736,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     }
 
     candidate = Jason.encode!(document)
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(

@@ -7,6 +7,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
   """
   use ExUnit.Case, async: true
 
+  import Ryker.TestHelpers, only: [outline: 2]
+
   alias Ryker.ControlPlane.{PageHelp, Pages, WorkingCopiesPage}
 
   @now ~U[2026-08-28 14:00:00Z]
@@ -361,19 +363,4 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
   end
 
   defp squeeze(text), do: text |> String.replace(~r/\s+/, " ") |> String.trim()
-
-  # "tag.first-class" for each matched element, in document order.
-  defp outline(document, selector) do
-    nodes = LazyHTML.query(document, selector)
-
-    nodes
-    |> LazyHTML.tag()
-    |> Enum.zip(LazyHTML.attributes(nodes))
-    |> Enum.map(fn {tag, attributes} ->
-      case List.keyfind(attributes, "class", 0) do
-        {"class", class} -> tag <> "." <> hd(String.split(class))
-        nil -> tag
-      end
-    end)
-  end
 end

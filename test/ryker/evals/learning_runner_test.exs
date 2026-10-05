@@ -176,15 +176,7 @@ defmodule Ryker.Evals.LearningRunnerTest do
     end
 
     def fence_frozen_turn(client, sid, key, revision, submission, nil, []),
-      do:
-        Fake.fence_submit_turn(
-          client,
-          sid,
-          key,
-          revision,
-          submission["prompt"],
-          submission["output_schema"]
-        )
+      do: Fake.fence_frozen_turn(client, sid, key, revision, submission, nil, [])
 
     def validate_frozen_candidate(client, sid, tid, key, _attempt, sha, :accept),
       do: Fake.validate_candidate(client, sid, tid, key, sha, :accept)

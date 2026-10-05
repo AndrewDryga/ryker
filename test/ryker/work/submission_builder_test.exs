@@ -481,7 +481,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
         "Use `mix test` for focused checks.\n"
 
     commit = String.duplicate("b", 40)
-    sha256 = :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
+    sha256 = digest(content)
     {:ok, settings} = Settings.initialize("control-plane:local")
 
     assert {:ok, _settings} =

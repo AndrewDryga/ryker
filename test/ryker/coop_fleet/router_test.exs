@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.RouterTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import ExUnit.CaptureLog
   import Plug.Conn
   import Plug.Test
@@ -62,7 +64,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     bytes = :binary.copy("test bytes", 40_000)
 
     reference = %{
-      "sha256" => Base.encode16(:crypto.hash(:sha256, bytes), case: :lower),
+      "sha256" => digest(bytes),
       "byte_size" => byte_size(bytes)
     }
 
@@ -176,7 +178,7 @@ defmodule Ryker.CoopFleet.RouterTest do
 
   test "the poll endpoint derives worker identity only from the verified client certificate" do
     certificate = "verified-client-certificate-der"
-    fingerprint = :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)
+    fingerprint = digest(certificate)
 
     assert {:ok, _worker} =
              ControlPlane.authorize_worker("worker-a", "workspace-main", fingerprint)
@@ -1052,7 +1054,7 @@ defmodule Ryker.CoopFleet.RouterTest do
       |> put_req_header("content-length", to_string(byte_size(bytes)))
       |> put_req_header(
         "x-coop-body-sha256",
-        Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+        digest(bytes)
       )
       |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
       |> Router.call(body_root: root, checkpoint_key: Ryker.Secret.new(:binary.copy(<<7>>, 32)))
@@ -1062,7 +1064,7 @@ defmodule Ryker.CoopFleet.RouterTest do
 
   defp authorize_and_poll! do
     certificate = "verified-client-certificate-#{Ecto.UUID.generate()}"
-    fingerprint = :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)
+    fingerprint = digest(certificate)
 
     assert {:ok, _worker} =
              ControlPlane.authorize_worker("worker-a", "workspace-main", fingerprint)

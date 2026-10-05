@@ -3,7 +3,7 @@ defmodule Ryker.Slack.ClientTest do
 
   alias __MODULE__.FakeRequester
   alias Ryker.Slack.Client
-  alias Ryker.Slack.Client.{Messages, Users}
+  alias Ryker.Slack.Client.Users
 
   test "directory labels validate identity and preserve workspace rate limits" do
     {:ok, requester} =
@@ -31,29 +31,19 @@ defmodule Ryker.Slack.ClientTest do
     assert [{:post, "/auth.test", %{}, []}] = FakeRequester.requests(requester)
   end
 
-  test "the client keeps no specimen send path after the Card Lab retirement" do
-    # Retired 2026-09-13. post_card_specimen/update_card_specimen accepted
-    # frozen "Card Lab · …" payloads with card_lab_preview_ control ids, and
-    # find_card_specimen searched channel history for their marker. Production
-    # delivery renders through Renderer.render/1 and must be the only way a
-    # message leaves this client; a leftover specimen path would let any
-    # caller post unrendered Block Kit that bypasses that boundary.
-    for module <- [Client, Messages] do
-      Code.ensure_loaded!(module)
-      refute function_exported?(module, :post_card_specimen, 5)
-      refute function_exported?(module, :update_card_specimen, 5)
-      refute function_exported?(module, :find_card_specimen, 4)
-    end
-
+  # Production delivery renders through Renderer.render/1, and that is the only way a message
+  # leaves this client: the Card Lab's specimen path, retired 2026-09-13, posted frozen Block Kit
+  # around it.
+  test "a message that did not come through the renderer is refused before it is sent" do
     {:ok, requester} = FakeRequester.start([slack(%{"ts" => "1787832001.000200"})])
 
     frozen = %{
-      "text" => "Card Lab · Incident room · Provisioning · Test controls only",
+      "text" => "An unrendered card",
       "blocks" => [%{"type" => "section", "text" => %{"type" => "mrkdwn", "text" => "hi"}}]
     }
 
     assert {:error, {:invalid_slack_render, :document}} =
-             Client.post_message(client(requester), "C123", nil, frozen, "card-lab:post-1")
+             Client.post_message(client(requester), "C123", nil, frozen, "delivery:unrendered")
 
     assert FakeRequester.requests(requester) == []
   end

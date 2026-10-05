@@ -1,5 +1,7 @@
 defmodule Ryker.Fixtures.Learning do
   @moduledoc false
+
+  import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
 
   alias Ryker.Admission.Decision
@@ -34,7 +36,7 @@ defmodule Ryker.Fixtures.Learning do
       {:ok, _} = FleetSession.bind(run, session_id)
     end
 
-    sha = if is_binary(body), do: :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
+    sha = if is_binary(body), do: digest(body)
 
     candidate = %{
       "id" => turn_id,

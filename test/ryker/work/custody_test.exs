@@ -1,6 +1,8 @@
 defmodule Ryker.Work.CustodyTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   alias Ryker.CoopFleet.{Bodies, Worker, WorkspaceCheckpointTransfer}
@@ -641,7 +643,7 @@ defmodule Ryker.Work.CustodyTest do
     create_episode!("candidate-order")
     assert {:ok, claim} = Custody.claim_next("worker:candidate-order", 60)
     candidate = ~s({"message":"candidate"})
-    candidate_sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    candidate_sha256 = digest(candidate)
 
     assert {:error, :work_turn_not_bound} =
              Custody.stage_candidate(
@@ -707,7 +709,7 @@ defmodule Ryker.Work.CustodyTest do
              )
 
     different = ~s({"message":"different"})
-    different_sha256 = :crypto.hash(:sha256, different) |> Base.encode16(case: :lower)
+    different_sha256 = digest(different)
 
     assert {:error, {:work_candidate_attempt_conflict, 1}} =
              Custody.stage_candidate(
@@ -1267,7 +1269,7 @@ defmodule Ryker.Work.CustodyTest do
   test "durable Work phases cannot be applied out of order" do
     command = create_episode!("phase-order")
     assert {:ok, claim} = Custody.claim_next("worker:phase-order", 60)
-    digest = :crypto.hash(:sha256, "{}") |> Base.encode16(case: :lower)
+    digest = digest("{}")
 
     assert Custody.verify_final_preflight(
              claim.episode.id,
@@ -1695,7 +1697,7 @@ defmodule Ryker.Work.CustodyTest do
         "workspace_slots_free" => 2,
         "workspace_slots_total" => 4
       },
-      certificate_sha256: :crypto.hash(:sha256, id) |> Base.encode16(case: :lower),
+      certificate_sha256: digest(id),
       clock_at: DateTime.utc_now(),
       id: id,
       last_seen_at: DateTime.utc_now(),
@@ -1755,7 +1757,7 @@ defmodule Ryker.Work.CustodyTest do
       )
 
     bundle = :binary.copy(<<3>>, 4_096)
-    sha256 = :crypto.hash(:sha256, bundle) |> Base.encode16(case: :lower)
+    sha256 = digest(bundle)
     reference = %{"sha256" => sha256, "byte_size" => byte_size(bundle)}
     key = Ryker.Secret.new(:binary.copy(<<9>>, 32))
     assert :ok = Bodies.put(body_root, command.id, :response, reference, [bundle], key)
@@ -1767,8 +1769,7 @@ defmodule Ryker.Work.CustodyTest do
       checkpoint_ref: "checkpoint:custody",
       command_id: command.id,
       descriptor: %{"version" => 2, "checkpoint_ref" => "checkpoint:custody"},
-      encryption_key_sha256:
-        :crypto.hash(:sha256, Ryker.Secret.reveal(key)) |> Base.encode16(case: :lower),
+      encryption_key_sha256: digest(Ryker.Secret.reveal(key)),
       id: Ecto.UUID.generate(),
       placement_generation: command.placement_generation,
       repository_ref: session.repository_ref,
@@ -1854,7 +1855,7 @@ defmodule Ryker.Work.CustodyTest do
              )
 
     candidate = ~s({"delivery":"reply","message":"Ready."})
-    candidate_sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    candidate_sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(

@@ -31,7 +31,6 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
     )
   end
 
-  def state, do: Agent.get(__MODULE__, & &1)
   def calls, do: Agent.get(__MODULE__, &Enum.reverse(&1.calls))
   def update(fun), do: Agent.update(__MODULE__, fun)
 

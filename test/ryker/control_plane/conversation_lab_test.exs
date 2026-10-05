@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.ConversationLabTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
@@ -236,7 +238,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     }
 
     candidate = Jason.encode!(document)
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(
@@ -1034,7 +1036,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     }
 
     candidate = Jason.encode!(delivery_document)
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(
@@ -2054,7 +2056,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
       },
       "patch" => Base.encode64(patch),
       "patch_bytes" => bytes,
-      "patch_digest" => :crypto.hash(:sha256, patch) |> Base.encode16(case: :lower),
+      "patch_digest" => digest(patch),
       "patch_has_more" => false,
       "patch_next_offset" => bytes,
       "patch_offset" => 0,

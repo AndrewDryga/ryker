@@ -3,20 +3,7 @@ defmodule Ryker.GitHub.ClientTest do
 
   alias Ryker.GitHub.Client
   alias Ryker.Publication.LifecycleStatus
-
-  defmodule FakeRequester do
-    def start(responses), do: Agent.start_link(fn -> %{requests: [], responses: responses} end)
-
-    def request(agent, method, path, document, headers) do
-      Agent.get_and_update(agent, fn state ->
-        [response | remaining] = state.responses
-        request = {method, path, document, headers}
-        {response, %{state | requests: state.requests ++ [request], responses: remaining}}
-      end)
-    end
-
-    def requests(agent), do: Agent.get(agent, & &1.requests)
-  end
+  alias Ryker.TestSupport.GitHubRequester, as: FakeRequester
 
   test "finds an issue comment marker without mistaking pagination for absence" do
     marker = "<!-- ryker-delivery:#{String.duplicate("a", 64)} -->"

@@ -1,13 +1,7 @@
 defmodule Ryker.Settings.ModelFallbacksMigrationTest do
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @before_version 20_260_926_121_000
   @fallbacks_version 20_260_926_154_500
@@ -20,16 +14,8 @@ defmodule Ryker.Settings.ModelFallbacksMigrationTest do
   # the accounts those models already run on. Without them every save of the
   # Models page would refuse the models the worker is running now.
   test "the migration keeps every saved model and lists the accounts they run on" do
-    repo = start_migration_repo!()
-    prefix = "model_fallbacks_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: @before_version,
-        prefix: prefix,
-        log: false
-      )
+    in_scratch_schema("model_fallbacks", fn repo, prefix ->
+      migrate!(repo, prefix, @before_version)
 
       SQL.query!(
         repo,
@@ -61,11 +47,7 @@ defmodule Ryker.Settings.ModelFallbacksMigrationTest do
         Enum.map(@kinds, &saved[&1])
       )
 
-      assert @fallbacks_version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-               to: @fallbacks_version,
-               prefix: prefix,
-               log: false
-             )
+      assert @fallbacks_version in migrate!(repo, prefix, @fallbacks_version)
 
       assert %{rows: [["workers", ["codex@default", "codex@oncall"] | models]]} =
                SQL.query!(
@@ -135,21 +117,13 @@ defmodule Ryker.Settings.ModelFallbacksMigrationTest do
         SQL.query!(repo, "UPDATE #{prefix}.work_settings SET deep_models = $1", [models])
 
         assert_raise Postgrex.Error, ~r/keep one Codex model/, fn ->
-          Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-            step: 1,
-            prefix: prefix,
-            log: false
-          )
+          rollback!(repo, prefix)
         end
       end
 
       SQL.query!(repo, "UPDATE #{prefix}.work_settings SET deep_models = $1", [[saved["deep"]]])
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
+      assert rollback!(repo, prefix) ==
                [@fallbacks_version]
 
       assert %{rows: [["workers" | singles_back]]} =
@@ -169,9 +143,7 @@ defmodule Ryker.Settings.ModelFallbacksMigrationTest do
           []
         )
       end
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp column_exists?(repo, prefix, table, column) do
@@ -188,15 +160,5 @@ defmodule Ryker.Settings.ModelFallbacksMigrationTest do
       )
 
     exists?
-  end
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

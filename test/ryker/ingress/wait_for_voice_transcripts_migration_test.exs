@@ -1,13 +1,7 @@
 defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @before_version 20_260_927_191_000
   @version 20_260_927_192_000
@@ -19,16 +13,8 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
   # not taken can wait; and rolling back refuses rather than route a message
   # without its words or drop a transcript step from its history.
   test "only a message routing has not taken waits for its words, and rolling back loses nothing" do
-    repo = start_migration_repo!()
-    prefix = "voice_transcripts_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: @before_version,
-        prefix: prefix,
-        log: false
-      )
+    in_scratch_schema("voice_transcripts", fn repo, prefix ->
+      migrate!(repo, prefix, @before_version)
 
       waiting = entry!(repo, prefix, "pending")
       stopped = entry!(repo, prefix, "blocked")
@@ -38,11 +24,7 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
         transition!(repo, prefix, waiting, 2, "transcribed")
       end
 
-      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-               to: @version,
-               prefix: prefix,
-               log: false
-             )
+      assert @version in migrate!(repo, prefix, @version)
 
       assert rows(
                repo,
@@ -58,11 +40,7 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
 
       # A message still waiting for its words.
       assert_raise Postgrex.Error, ~r/the previous release cannot keep that/, fn ->
-        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-          step: 1,
-          prefix: prefix,
-          log: false
-        )
+        rollback!(repo, prefix)
       end
 
       transition!(repo, prefix, waiting, 2, "transcribed")
@@ -76,11 +54,7 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
 
       # A queue history with a transcript step in it.
       assert_raise Postgrex.Error, ~r/the previous release cannot keep that/, fn ->
-        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-          step: 1,
-          prefix: prefix,
-          log: false
-        )
+        rollback!(repo, prefix)
       end
 
       SQL.query!(
@@ -89,18 +63,12 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
         []
       )
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
+      assert rollback!(repo, prefix) ==
                [@version]
 
       assert rows(repo, "SELECT kind FROM #{prefix}.input_custody_transitions") == [["saved"]]
       assert rows(repo, "SELECT count(*) FROM #{prefix}.ingress_inbox_entries") == [[2]]
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp entry!(repo, prefix, status) do
@@ -153,14 +121,4 @@ defmodule Ryker.Ingress.WaitForVoiceTranscriptsMigrationTest do
   end
 
   defp rows(repo, sql), do: SQL.query!(repo, sql, []).rows
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
-  end
 end

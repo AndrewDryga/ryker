@@ -1,6 +1,8 @@
 defmodule Ryker.PublicSiteBrandTest do
   use ExUnit.Case, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   # The public site in site/ is hand-written HTML and CSS that must render from
   # file:// or any static host. Until 2026-09-26 it still wore the pre-rename
   # look: Inter and Space Grotesk on a zinc palette, a status dot and the typed
@@ -257,5 +259,5 @@ defmodule Ryker.PublicSiteBrandTest do
   end
 
   defp sha256(path),
-    do: :crypto.hash(:sha256, File.read!(path)) |> Base.encode16(case: :lower)
+    do: digest(File.read!(path))
 end

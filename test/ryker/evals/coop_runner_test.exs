@@ -30,9 +30,6 @@ defmodule Ryker.Evals.CoopRunnerTest do
           FakeCoopAPI.submit_turn(fake, session_id, key, revision, prompt, schema)
         end)
 
-    def fence_submit_turn({fake, _faults}, session_id, key, revision, prompt, schema),
-      do: FakeCoopAPI.fence_submit_turn(fake, session_id, key, revision, prompt, schema)
-
     def get_turn(client, session_id, turn_id),
       do: call(client, :get_turn, fn fake -> FakeCoopAPI.get_turn(fake, session_id, turn_id) end)
 
@@ -126,10 +123,11 @@ defmodule Ryker.Evals.CoopRunnerTest do
         exhaust_after_validation: true
       )
 
-    assert %{status: :passed, session_id: @session_id, turn_id: "turn_test"} =
+    assert %{status: :passed, session_id: @session_id, turn_id: turn_id} =
              CoopRunner.run_case(eval, options(fake))
 
     state = FakeCoopAPI.state(fake)
+    assert turn_id == state.turn["id"]
     assert state.closed
     assert state.submit_count == 1
     assert state.session["state"] == "discarded"

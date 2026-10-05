@@ -1,13 +1,7 @@
 defmodule Ryker.LocalRouting.MigrationTest do
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @previous_version 20_260_927_190_000
   @version 20_260_927_191_000
@@ -19,11 +13,7 @@ defmodule Ryker.LocalRouting.MigrationTest do
   # the comparisons it measured, since the previous release has nowhere to
   # keep either.
   test "the local routing model arrives off, keeps saved models, and a rollback keeps what it holds" do
-    repo = start_migration_repo!()
-    prefix = "local_routing_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
+    in_scratch_schema("local_routing", fn repo, prefix ->
       migrate!(repo, prefix, @previous_version)
 
       SQL.query!(
@@ -111,26 +101,8 @@ defmodule Ryker.LocalRouting.MigrationTest do
                )
 
       assert @version in migrate!(repo, prefix, @version)
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
-
-  defp migrate!(repo, prefix, version),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: version,
-        prefix: prefix,
-        log: false
-      )
-
-  defp rollback!(repo, prefix),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-        step: 1,
-        prefix: prefix,
-        log: false
-      )
 
   defp insert_input!(repo, prefix) do
     id = Ecto.UUID.generate()
@@ -180,15 +152,5 @@ defmodule Ryker.LocalRouting.MigrationTest do
       )
 
     exists?
-  end
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

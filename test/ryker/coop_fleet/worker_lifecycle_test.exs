@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.WorkerLifecycleTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   alias Ryker.CoopFleet.{
@@ -140,7 +142,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
   end
 
   defp enroll_manual!(worker_id, certificate) do
-    digest = :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)
+    digest = digest(certificate)
 
     assert {:ok, %Worker{}} =
              ControlPlane.authorize_worker(worker_id, "workspace-main", digest)

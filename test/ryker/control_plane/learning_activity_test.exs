@@ -1,5 +1,7 @@
 defmodule Ryker.ControlPlane.LearningActivityTest do
   use Ryker.DataCase, async: false
+
+  import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   import Phoenix.LiveViewTest, only: [render_component: 2]
   alias Ryker.CanonicalJSON
@@ -538,7 +540,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     captured =
       "testdata/learning/recorded-no-change-result.json" |> File.read!() |> Jason.decode!()
 
-    assert Base.encode16(:crypto.hash(:sha256, captured["result"]), case: :lower) ==
+    assert digest(captured["result"]) ==
              captured["result_sha256"]
 
     assert CanonicalJSON.digest(captured["result"]) == captured["retained_run_result_sha256"]
@@ -830,8 +832,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
         next_attempt_at: nil,
         candidate: Jason.encode!(document),
         candidate_attempt: 1,
-        candidate_sha256:
-          :crypto.hash(:sha256, Jason.encode!(document)) |> Base.encode16(case: :lower),
+        candidate_sha256: digest(Jason.encode!(document)),
         validation_intent: %{"decision" => "accept"},
         validation_intent_fingerprint: String.duplicate("e", 64),
         continuation: %{"kind" => "complete"},

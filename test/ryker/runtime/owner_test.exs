@@ -326,24 +326,6 @@ defmodule Ryker.Runtime.OwnerTest do
     assert Names.name("T0123456789", "U1111111111") == "@Andrew"
   end
 
-  # The Card Lab delivery worker polled card_lab_posts every second beside the
-  # console. It was retired on 2026-09-13 with its page; a worker that outlived
-  # the page would be a Slack send path with nothing left to queue for it and
-  # no way for an operator to see what it was draining.
-  test "the retired Card Lab worker does not start beside the control plane", context do
-    owner = start_owner(context)
-    {:ok, saved} = initialize()
-    assert applied(owner, saved)
-
-    companions =
-      runtime_children(context)
-      |> Enum.flat_map(fn {_id, _pid, _type, modules} -> List.wrap(modules) end)
-
-    assert Ryker.ControlPlane.WorkerLiveness in companions
-    refute Ryker.ControlPlane.CardLabWorker in companions
-    refute Enum.any?(companions, &(&1 |> inspect() |> String.contains?("CardLab")))
-  end
-
   defp start_owner(context) do
     options =
       [

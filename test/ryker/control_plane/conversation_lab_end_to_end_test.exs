@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
@@ -475,7 +477,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              AdmissionDispatcher.run_once(admission_options(admission, @now))
 
     data = <<137, 80, 78, 71, 13, 10, 26, 10, "lab-chart">>
-    sha256 = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+    sha256 = digest(data)
     artifact_ref = "artifact_#{binary_part(sha256, 0, 24)}"
 
     metadata = %{
@@ -495,7 +497,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
       | "id" => "artifact_generated_but_not_attached",
         "name" => "generated-1.png",
         "bytes" => byte_size(unselected_data),
-        "sha256" => :crypto.hash(:sha256, unselected_data) |> Base.encode16(case: :lower)
+        "sha256" => digest(unselected_data)
     }
 
     candidate =
@@ -661,7 +663,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     }
 
     candidate = Jason.encode!(document)
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(
@@ -1559,7 +1561,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              )
 
     candidate = Jason.encode!(document)
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(

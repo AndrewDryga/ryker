@@ -1,7 +1,7 @@
 defmodule Ryker.BundledCoopTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
-  import Ryker.TestHelpers, only: [eventually: 1]
+  import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
 
   alias Ryker.BundledCoop
   alias Ryker.CoopFleet.{ControlPlane, EnrollmentToken, Worker}
@@ -198,5 +198,5 @@ defmodule Ryker.BundledCoopTest do
         set: attributes
       )
 
-  defp hash(token), do: :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+  defp hash(token), do: digest(token)
 end

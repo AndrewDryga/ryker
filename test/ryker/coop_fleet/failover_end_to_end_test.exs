@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.FailoverEndToEndTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   alias Ecto.Adapters.SQL.Sandbox
@@ -342,7 +344,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
 
   defp authorize_and_poll!(worker_id, free_slots) do
     certificate = "certificate:#{worker_id}:#{Ecto.UUID.generate()}"
-    fingerprint = :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)
+    fingerprint = digest(certificate)
 
     assert {:ok, _worker} =
              ControlPlane.authorize_worker(worker_id, "workspace-main", fingerprint)

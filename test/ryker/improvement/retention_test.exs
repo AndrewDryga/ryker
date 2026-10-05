@@ -7,9 +7,8 @@ defmodule Ryker.Improvement.RetentionTest do
   words at the operational horizon, and a person forgetting a message wins
   at once.
   """
-  # Retention takes one advisory lock for a whole pass, and the migrator runs
-  # inside this test's sandbox transaction.
-  use Ryker.DataCase, async: false
+  # Retention takes one advisory lock for a whole pass.
+  use Ryker.MigrationCase
 
   import Ecto.Query
 
@@ -26,9 +25,6 @@ defmodule Ryker.Improvement.RetentionTest do
   @old ~U[2020-01-01 00:00:00.000000Z]
 
   @version 20_260_927_200_000
-  @migration Ryker.Repo.Migrations.AddImprovementCandidates
-  @file_name "20260927200000_add_improvement_candidates.exs"
-  @options [log: false, migration_lock: false]
 
   test "a candidate expires at the operational horizon, and an accepted case lasts as long as training data" do
     assert {:ok, %{class: :operational}} = Policy.fetch("improvement_candidates")
@@ -162,15 +158,15 @@ defmodule Ryker.Improvement.RetentionTest do
     candidate = candidate!("1790400600.000100")
 
     assert_raise Postgrex.Error, ~r/requests to improve are kept/, fn ->
-      Ecto.Migrator.down(Repo, @version, migration(), @options)
+      migrate_down(@version)
     end
 
     assert Repo.get(Candidate, candidate.id)
     Repo.delete_all(Candidate)
 
-    assert :ok = Ecto.Migrator.down(Repo, @version, migration(), @options)
+    assert :ok = migrate_down(@version)
     refute table?("improvement_candidates")
-    assert :ok = Ecto.Migrator.up(Repo, @version, migration(), @options)
+    assert :ok = migrate_up(@version)
     assert table?("improvement_candidates")
     assert candidate!("1790400700.000100")
   end
@@ -225,18 +221,6 @@ defmodule Ryker.Improvement.RetentionTest do
       inserted_at: at,
       updated_at: at
     })
-  end
-
-  # `ecto.migrate` loads a migration only while it is pending, so a database
-  # migrated by an earlier run leaves it for this test to load.
-  defp migration do
-    unless Code.ensure_loaded?(@migration) do
-      :ryker
-      |> Application.app_dir(Path.join("priv/repo/migrations", @file_name))
-      |> Code.compile_file()
-    end
-
-    @migration
   end
 
   defp table?(name) do

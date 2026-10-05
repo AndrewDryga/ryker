@@ -1,5 +1,7 @@
 defmodule Ryker.Learning.LearningFailureTest do
   use Ryker.DataCase, async: false
+
+  import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
 
   alias Ryker.CanonicalJSON
@@ -109,7 +111,7 @@ defmodule Ryker.Learning.LearningFailureTest do
 
     for response <- fixture["public_responses"] do
       assert byte_size(response["text"]) == response["bytes"]
-      assert sha256(response["text"]) == response["sha256"]
+      assert digest(response["text"]) == response["sha256"]
     end
 
     [first, second, third] = fixture["public_responses"]
@@ -161,7 +163,7 @@ defmodule Ryker.Learning.LearningFailureTest do
     candidate = %{
       "id" => receipt["turn_id"],
       "session_id" => receipt["session_id"],
-      "candidate" => %{"message" => body, "sha256" => sha256(body), "attempt" => 1}
+      "candidate" => %{"message" => body, "sha256" => digest(body), "attempt" => 1}
     }
 
     assert {:ok, saved} = Learning.record_candidate(run.id, candidate, producer)
@@ -545,7 +547,6 @@ defmodule Ryker.Learning.LearningFailureTest do
       )
 
   defp fixture, do: @fixture |> File.read!() |> Jason.decode!()
-  defp sha256(text), do: Base.encode16(:crypto.hash(:sha256, text), case: :lower)
 end
 
 defmodule Ryker.Learning.LearningFailureConcurrencyTest do

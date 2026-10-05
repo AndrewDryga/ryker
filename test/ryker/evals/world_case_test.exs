@@ -1,6 +1,8 @@
 defmodule Ryker.Evals.WorldCaseTest do
   use ExUnit.Case, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ryker.Evals.{WorldCase, WorldCassette}
   alias Ryker.StateTools.Tools
 
@@ -45,7 +47,7 @@ defmodule Ryker.Evals.WorldCaseTest do
 
     source = File.read!(Path.join([@scenario_root, id, "scenario.json"]))
 
-    assert Base.encode16(:crypto.hash(:sha256, source), case: :lower) ==
+    assert digest(source) ==
              "3cd6f0ace1aa08dfa2cae2ee116536e96442708b34a6408d96d42c9e0829b80f"
   end
 
@@ -583,7 +585,7 @@ defmodule Ryker.Evals.WorldCaseTest do
     assert file["path"] == "gate.py"
     assert file["data"] == "def timeout_window():\n    return 300\n"
     assert file["bytes"] == byte_size(file["data"])
-    assert file["sha256"] == Base.encode16(:crypto.hash(:sha256, file["data"]), case: :lower)
+    assert file["sha256"] == digest(file["data"])
 
     File.write!(Path.join(repository_dir, "gate.py"), "def timeout_window():\n    return 600\n")
 
@@ -840,7 +842,7 @@ defmodule Ryker.Evals.WorldCaseTest do
         %{
           "bytes" => byte_size(bytes),
           "path" => name,
-          "sha256" => :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)
+          "sha256" => digest(bytes)
         }
       end)
 

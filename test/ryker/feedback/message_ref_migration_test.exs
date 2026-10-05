@@ -1,13 +1,7 @@
 defmodule Ryker.Feedback.MessageRefMigrationTest do
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @before_version 20_260_927_192_000
   @version 20_260_927_193_000
@@ -20,16 +14,8 @@ defmodule Ryker.Feedback.MessageRefMigrationTest do
   # and a backfill that wrote a message onto any other signal would stop the
   # deploy at its own constraint. Rolling back keeps every signal.
   test "a reaction kept before messages were named gets its request's message, and nothing else does" do
-    repo = start_migration_repo!()
-    prefix = "feedback_message_ref_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: @before_version,
-        prefix: prefix,
-        log: false
-      )
+    in_scratch_schema("feedback_message_ref", fn repo, prefix ->
+      migrate!(repo, prefix, @before_version)
 
       episode_id = episode!(repo, prefix)
       reaction_event!(repo, prefix, episode_id, "slack-reaction:on-reply", "1711.000100")
@@ -42,11 +28,7 @@ defmodule Ryker.Feedback.MessageRefMigrationTest do
       # The same event is never a reaction on a signal of another kind.
       edited = feedback!(repo, prefix, episode_id, "message_edited", "slack-reaction:on-reply")
 
-      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-               to: @version,
-               prefix: prefix,
-               log: false
-             )
+      assert @version in migrate!(repo, prefix, @version)
 
       assert message_refs(repo, prefix) == %{
                on_reply => "1711.000100",
@@ -62,20 +44,14 @@ defmodule Ryker.Feedback.MessageRefMigrationTest do
         )
       end
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
+      assert rollback!(repo, prefix) ==
                [@version]
 
       %{rows: [[kept]]} =
         SQL.query!(repo, "SELECT count(*) FROM #{prefix}.answer_feedback", [])
 
       assert kept == 3
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp episode!(repo, prefix) do
@@ -156,15 +132,5 @@ defmodule Ryker.Feedback.MessageRefMigrationTest do
       SQL.query!(repo, "SELECT id, message_ref FROM #{prefix}.answer_feedback", [])
 
     Map.new(rows, fn [id, message_ref] -> {Ecto.UUID.load!(id), message_ref} end)
-  end
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

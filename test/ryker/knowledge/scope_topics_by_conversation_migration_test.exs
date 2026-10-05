@@ -6,17 +6,11 @@ defmodule Ryker.Knowledge.ScopeTopicsByConversationMigrationTest do
   re-keys every topic by its conversation, keeps every topic when two of one
   conversation shared a key, and rolls back to the repository keys.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
   alias Ryker.CanonicalJSON
   alias Ryker.Knowledge.KnowledgeAnchors
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @previous_version 20_260_929_000_000
   @version 20_260_929_010_000
@@ -27,26 +21,14 @@ defmodule Ryker.Knowledge.ScopeTopicsByConversationMigrationTest do
   }
 
   test "a conversation's topics are keyed by the conversation, and none is lost to a shared key" do
-    repo = start_migration_repo!()
-    prefix = "scope_topics_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: @previous_version,
-        prefix: prefix,
-        log: false
-      )
+    in_scratch_schema("scope_topics", fn repo, prefix ->
+      migrate!(repo, prefix, @previous_version)
 
       older = topic!(repo, prefix, "emisar-mcp-access", "andrewdryga-andrewdryga", 1)
       newer = topic!(repo, prefix, "emisar-mcp-access", "andrewdryga-emisar", 2)
       other = topic!(repo, prefix, "livebook-status", "andrewdryga-emisar", 3)
 
-      assert @version in Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-               to: @version,
-               prefix: prefix,
-               log: false
-             )
+      assert @version in migrate!(repo, prefix, @version)
 
       scope = CanonicalJSON.digest(@conversation)
 
@@ -56,17 +38,11 @@ defmodule Ryker.Knowledge.ScopeTopicsByConversationMigrationTest do
                other => {scope, "livebook-status", KnowledgeAnchors.keys(scope, ["emisar"])}
              }
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) == [@version]
+      assert rollback!(repo, prefix) == [@version]
 
       back = repository_scope("andrewdryga-andrewdryga")
       assert {^back, "emisar-mcp-access-2", _anchors} = rows(repo, prefix)[older]
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp topic!(repo, prefix, topic_key, repository_ref, minute) do
@@ -116,15 +92,5 @@ defmodule Ryker.Knowledge.ScopeTopicsByConversationMigrationTest do
       )
 
     Map.new(rows, fn [id, scope, key, anchors] -> {Ecto.UUID.load!(id), {scope, key, anchors}} end)
-  end
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

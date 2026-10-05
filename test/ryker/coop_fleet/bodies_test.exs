@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.BodiesTest do
   use ExUnit.Case, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ryker.CoopFleet.Bodies
   @key Ryker.Secret.new(:binary.copy(<<7>>, 32))
 
@@ -176,6 +178,6 @@ defmodule Ryker.CoopFleet.BodiesTest do
   defp reference(bytes),
     do: %{
       "byte_size" => byte_size(bytes),
-      "sha256" => Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+      "sha256" => digest(bytes)
     }
 end

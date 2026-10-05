@@ -1,5 +1,7 @@
 defmodule Ryker.ControlPlane.ModelRequestsTest do
   use Ryker.DataCase, async: true
+
+  import Ryker.TestHelpers, only: [digest: 1]
   import Phoenix.LiveViewTest
   alias Ryker.Admission.Attempt
   alias Ryker.ControlPlane.ConversationLab
@@ -20,7 +22,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
              "Host-authored retained instructions for this submission."
 
     raw = Enum.find(request.sections, &(&1.id == "request"))
-    assert raw.artifact.sha256 == :crypto.hash(:sha256, original) |> Base.encode16(case: :lower)
+    assert raw.artifact.sha256 == digest(original)
 
     html = render_component(&EpisodeRequest.render/1, request: request)
     full = html |> LazyHTML.from_fragment() |> LazyHTML.query(".final-prompt")
@@ -179,7 +181,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       |> Map.fetch!("candidate")
       |> Jason.encode!()
 
-    digest = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    digest = digest(candidate)
     {episode, turn, _original} = frozen_turn!()
 
     history =

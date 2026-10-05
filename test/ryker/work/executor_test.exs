@@ -426,12 +426,6 @@ defmodule Ryker.Work.ExecutorTest do
           FakeAPI.submit_turn(client.fake, session_id, key, revision, prompt, schema)
         end)
 
-    def fence_submit_turn(client, session_id, key, revision, prompt, schema),
-      do:
-        dispatch(client, :fence_submit_turn, fn ->
-          FakeAPI.fence_submit_turn(client.fake, session_id, key, revision, prompt, schema)
-        end)
-
     def submit_frozen_turn(
           client,
           session_id,
@@ -464,7 +458,7 @@ defmodule Ryker.Work.ExecutorTest do
           artifacts
         ),
         do:
-          dispatch(client, :fence_submit_turn, fn ->
+          dispatch(client, :fence_frozen_turn, fn ->
             FakeAPI.fence_frozen_turn(
               client.fake,
               session_id,
@@ -2404,7 +2398,7 @@ defmodule Ryker.Work.ExecutorTest do
     state = FakeAPI.state(fake)
     assert state.submit_count == 0
     assert state.submissions == []
-    assert state.fence_submit_keys == [key]
+    assert state.fence_frozen_keys == [key]
     assert state.turn == nil
   end
 
@@ -2533,7 +2527,7 @@ defmodule Ryker.Work.ExecutorTest do
     wrong_operation = succeeded_operation("SubmitTurn", "turn", wrong_turn_id)
 
     overrides = %{
-      fence_submit_turn: {:error, {:coop_unavailable, :simulated_fence_response_loss}},
+      fence_frozen_turn: {:error, {:coop_unavailable, :simulated_fence_response_loss}},
       operation_by_key: first_not_found_then(lookup_count, wrong_operation)
     }
 

@@ -1,5 +1,7 @@
 defmodule Ryker.Learning.CandidateCustodyTest do
   use Ryker.DataCase, async: false
+
+  import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Learning
@@ -120,7 +122,7 @@ defmodule Ryker.Learning.CandidateCustodyTest do
         ]
       })
 
-    sha = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
+    sha = digest(body)
 
     candidate = %{
       "id" => "host-contract-turn",

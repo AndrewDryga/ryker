@@ -1,13 +1,7 @@
 defmodule Ryker.Admission.ReadySessionsMigrationTest do
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @baseline_version 20_260_926_100_000
   @ready_sessions_version 20_260_926_120_000
@@ -19,16 +13,8 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
   # strand a started session that no message claimed, since without its state
   # nothing would ever close it on the worker.
   test "ready routing sessions keep existing settings and sessions and refuse to strand one" do
-    repo = start_migration_repo!()
-    prefix = "ready_sessions_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-               to: @baseline_version,
-               prefix: prefix,
-               log: false
-             ) == [@baseline_version]
+    in_scratch_schema("ready_sessions", fn repo, prefix ->
+      assert migrate!(repo, prefix, @baseline_version) == [@baseline_version]
 
       SQL.query!(
         repo,
@@ -49,11 +35,11 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
       first = insert_admission_session!(repo, prefix, input_id, 1)
       second = insert_admission_session!(repo, prefix, input_id, 2)
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-               to: @ready_sessions_version,
-               prefix: prefix,
-               log: false
-             ) == [20_260_926_101_000, 20_260_926_111_000, @ready_sessions_version]
+      assert migrate!(repo, prefix, @ready_sessions_version) == [
+               20_260_926_101_000,
+               20_260_926_111_000,
+               @ready_sessions_version
+             ]
 
       # The saved settings keep every value and read one ready session.
       assert %{rows: [["workers", "codex:gpt-5.6-sol/medium@default", 1]]} =
@@ -89,11 +75,7 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
       ready = insert_ready_session!(repo, prefix)
 
       assert_raise Postgrex.Error, ~r/routing sessions kept ready are still open/, fn ->
-        Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-          step: 1,
-          prefix: prefix,
-          log: false
-        )
+        rollback!(repo, prefix)
       end
 
       SQL.query!(
@@ -102,11 +84,7 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
         [ready]
       )
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
+      assert rollback!(repo, prefix) ==
                [@ready_sessions_version]
 
       refute column_exists?(repo, prefix, "work_settings", "ready_routing_sessions")
@@ -121,9 +99,7 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
                  "SELECT count(*)::integer FROM #{prefix}.episode_work_sessions",
                  []
                )
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp insert_input!(repo, prefix) do
@@ -207,15 +183,5 @@ defmodule Ryker.Admission.ReadySessionsMigrationTest do
       )
 
     exists?
-  end
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

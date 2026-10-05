@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.LiveTest do
   use Ryker.DataCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1, outline: 2]
+
   import Ecto.Query
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
@@ -2707,7 +2709,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     }
 
     candidate = Jason.encode!(document)
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     {:ok, _turn} =
       Custody.stage_candidate(
@@ -2779,25 +2781,10 @@ defmodule Ryker.ControlPlane.LiveTest do
     profile
   end
 
-  # "tag.first-class" for each matched element, in document order.
   defp current_segments(html) do
     html
     |> LazyHTML.from_document()
     |> LazyHTML.query("main nav.segmented a[aria-current=page]")
     |> Enum.map(&LazyHTML.text/1)
-  end
-
-  defp outline(document, selector) do
-    nodes = LazyHTML.query(document, selector)
-
-    nodes
-    |> LazyHTML.tag()
-    |> Enum.zip(LazyHTML.attributes(nodes))
-    |> Enum.map(fn {tag, attributes} ->
-      case List.keyfind(attributes, "class", 0) do
-        {"class", class} -> tag <> "." <> hd(String.split(class))
-        nil -> tag
-      end
-    end)
   end
 end

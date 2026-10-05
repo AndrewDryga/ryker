@@ -21,6 +21,10 @@ defmodule Ryker.Evals.Job do
     improvement: "RYKER_EVAL_IMPROVEMENT_TARGET"
   }
 
+  @doc "The variables that name an eval's Coop socket and its targets."
+  @spec variables() :: [String.t()]
+  def variables, do: ["RYKER_EVAL_SOCKET" | Map.values(@variables)]
+
   def socket do
     case System.fetch_env("RYKER_EVAL_SOCKET") do
       {:ok, socket} ->

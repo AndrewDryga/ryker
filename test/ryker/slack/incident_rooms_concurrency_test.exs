@@ -1,6 +1,8 @@
 defmodule Ryker.Slack.IncidentRoomsConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Accounting.Execution
   alias Ryker.Episodes
@@ -240,7 +242,7 @@ defmodule Ryker.Slack.IncidentRoomsConcurrencyTest do
              )
 
     candidate = ~s({"delivery":"reply","message":"I can open an incident room."})
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(

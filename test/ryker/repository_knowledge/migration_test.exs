@@ -1,16 +1,9 @@
 defmodule Ryker.RepositoryKnowledge.MigrationTest do
-  # The DDL runs inside this test's sandbox transaction, which takes the table
-  # lock, so nothing else may run beside it.
-  use Ryker.DataCase, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
 
   @version 20_260_927_220_000
-  @migration Ryker.Repo.Migrations.AddRepositoryKnowledge
-  @file_name "20260927220000_add_repository_knowledge.exs"
-  # The migrator's own lock holds the one sandboxed connection while its task
-  # waits for that same connection, so it is skipped: nothing else migrates here.
-  @options [log: false, migration_lock: false]
   @commit String.duplicate("a", 40)
 
   # A knowledge session reads one repository at one commit and nothing else;
@@ -47,7 +40,7 @@ defmodule Ryker.RepositoryKnowledge.MigrationTest do
 
     # Last: the refusal aborts the sandbox transaction.
     assert_raise Postgrex.Error, ~r/repository knowledge sessions are kept/, fn ->
-      Ecto.Migrator.down(Repo, @version, migration(), @options)
+      migrate_down(@version)
     end
   end
 
@@ -69,17 +62,5 @@ defmodule Ryker.RepositoryKnowledge.MigrationTest do
         DateTime.utc_now()
       ]
     )
-  end
-
-  # `ecto.migrate` loads a migration only while it is pending, so a database
-  # migrated by an earlier run leaves it for this test to load.
-  defp migration do
-    unless Code.ensure_loaded?(@migration) do
-      :ryker
-      |> Application.app_dir(Path.join("priv/repo/migrations", @file_name))
-      |> Code.compile_file()
-    end
-
-    @migration
   end
 end

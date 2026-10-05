@@ -2,7 +2,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   use Ryker.DataCase, async: false
 
   import Ecto.Query
-  import Ryker.TestHelpers, only: [eventually: 2]
+  import Ryker.TestHelpers, only: [digest: 1, eventually: 2]
 
   import ExUnit.CaptureLog
 
@@ -2357,7 +2357,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
   defp accept_reply!(running, room, document, continuation) do
     candidate = Jason.encode!(document)
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(
@@ -2682,7 +2682,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              )
 
     candidate = ~s({"delivery":"reply","message":"I can open an incident room."})
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(

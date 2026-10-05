@@ -1,6 +1,8 @@
 defmodule Ryker.Memories.MemoriesConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Accounting.Execution
   alias Ryker.CanonicalJSON
@@ -318,7 +320,7 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
       )
 
     candidate = ~s({"delivery":"reply","message":"I can remember that after confirmation."})
-    sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    sha256 = digest(candidate)
 
     {:ok, _turn} =
       Custody.stage_candidate(

@@ -1,6 +1,8 @@
 defmodule Ryker.Work.DispatcherTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   alias Ryker.Episodes
@@ -593,7 +595,7 @@ defmodule Ryker.Work.DispatcherTest do
              )
 
     candidate = ~s({"delivery":"reply","message":"Ready."})
-    candidate_sha256 = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+    candidate_sha256 = digest(candidate)
 
     assert {:ok, _turn} =
              Custody.stage_candidate(

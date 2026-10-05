@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.JobAuthorityTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ryker.CoopFleet.{Command, JobAuthority, JobSpec, JobTemplates, Placement, Worker}
   alias Ryker.{Episodes, Repo, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -570,7 +572,7 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     Repo.insert!(%Worker{
       capabilities: [],
       capacity: %{},
-      certificate_sha256: :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower),
+      certificate_sha256: digest(worker_id),
       id: worker_id,
       last_seen_at: now,
       state: :eligible,

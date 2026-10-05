@@ -6,7 +6,9 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
   history.
   """
   # The migrator runs inside this test's sandbox transaction.
-  use Ryker.DataCase, async: false
+  use Ryker.MigrationCase
+
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ryker.CoopFleet.ControlPlane
   alias Ryker.Episodes
@@ -15,22 +17,17 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
   alias Ryker.Work.Custody
 
   @version 20_261_004_120_000
-  @migration Ryker.Repo.Migrations.KeepCheckpointBodiesOnlyAsFiles
-  @file_name "20261004120000_keep_checkpoint_bodies_only_as_files.exs"
-  # The migrator's own lock holds the one sandboxed connection while its task
-  # waits for that same connection, so it is skipped: nothing else migrates here.
-  @options [log: false, migration_lock: false]
   @authority_digest String.duplicate("d", 64)
   @policy_digest String.duplicate("b", 64)
   @sandbox_digest String.duplicate("a", 64)
 
   test "a checkpoint body kept in the database stops the migration; without one its columns go" do
     command = command!()
-    assert :ok = Ecto.Migrator.down(Repo, @version, migration(), @options)
+    assert :ok = migrate_down(@version)
     assert column?("ciphertext")
 
     body = :binary.copy(<<3>>, 16)
-    digest = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
+    digest = digest(body)
 
     Repo.query!(
       """
@@ -53,7 +50,7 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
     )
 
     assert_raise Postgrex.Error, ~r/still keeps its body in the database/, fn ->
-      Ecto.Migrator.up(Repo, @version, migration(), @options)
+      migrate_up(@version)
     end
 
     assert Repo.query!("SELECT ciphertext FROM coop_worker_workspace_checkpoints").rows == [
@@ -61,24 +58,12 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
            ]
 
     Repo.query!("DELETE FROM coop_worker_workspace_checkpoints")
-    assert :ok = Ecto.Migrator.up(Repo, @version, migration(), @options)
+    assert :ok = migrate_up(@version)
 
     refute column?("ciphertext")
     refute column?("encryption_nonce")
     refute column?("encryption_tag")
     assert nullable?("body_command_id") == false
-  end
-
-  # `ecto.migrate` loads a migration only while it is pending, so a database
-  # migrated by an earlier run leaves it for this test to load.
-  defp migration do
-    unless Code.ensure_loaded?(@migration) do
-      :ryker
-      |> Application.app_dir(Path.join("priv/repo/migrations", @file_name))
-      |> Code.compile_file()
-    end
-
-    @migration
   end
 
   defp column?(name), do: columns(name) != []
@@ -98,7 +83,7 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
 
   defp command! do
     worker = "migration-worker-#{System.unique_integer([:positive])}"
-    certificate = :crypto.hash(:sha256, worker) |> Base.encode16(case: :lower)
+    certificate = digest(worker)
     assert {:ok, _worker} = ControlPlane.authorize_worker(worker, "workspace-main", certificate)
     assert {:ok, _response} = ControlPlane.handle_poll(worker, poll(worker))
 

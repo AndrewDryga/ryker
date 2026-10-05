@@ -1,6 +1,8 @@
 defmodule Ryker.Delivery.RequestTest do
   use ExUnit.Case, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ryker.Delivery.Request
 
   test "prepares one immutable message or reaction without platform credentials" do
@@ -150,7 +152,7 @@ defmodule Ryker.Delivery.RequestTest do
   end
 
   defp artifact(index, name, media_type, data) do
-    sha256 = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+    sha256 = digest(data)
 
     %{
       "bytes" => byte_size(data),

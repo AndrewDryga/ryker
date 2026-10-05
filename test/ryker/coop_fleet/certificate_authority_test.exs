@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.CertificateAuthorityTest do
   use ExUnit.Case, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   require Record
 
   alias Ryker.CoopFleet.CertificateAuthority
@@ -77,7 +79,7 @@ defmodule Ryker.CoopFleet.CertificateAuthorityTest do
     assert issued.not_before == DateTime.add(certificate_time, -60, :second)
     assert issued.expires_at == DateTime.add(certificate_time, 3_600, :second)
     assert issued.certificate_pem =~ "BEGIN CERTIFICATE"
-    assert issued.sha256 == sha256(issued.certificate_der)
+    assert issued.sha256 == digest(issued.certificate_der)
 
     assert {:ok, _details} =
              :public_key.pkix_path_validation(root.cert, [issued.certificate_der], [])
@@ -176,8 +178,6 @@ defmodule Ryker.CoopFleet.CertificateAuthorityTest do
                3_600
              )
   end
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp private_key, do: :public_key.generate_key({:rsa, 2_048, 65_537})
 

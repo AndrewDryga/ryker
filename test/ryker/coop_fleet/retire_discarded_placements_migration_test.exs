@@ -9,7 +9,9 @@ defmodule Ryker.CoopFleet.RetireDiscardedPlacementsMigrationTest do
   fail, and leaves every live session's placement alone.
   """
   # The migrator runs inside this test's sandbox transaction.
-  use Ryker.DataCase, async: false
+  use Ryker.MigrationCase
+
+  import Ryker.TestHelpers, only: [digest: 1]
 
   import Ecto.Query
 
@@ -21,18 +23,13 @@ defmodule Ryker.CoopFleet.RetireDiscardedPlacementsMigrationTest do
   alias Ryker.Work.{Custody, Session}
 
   @version 20_260_927_110_000
-  @migration Ryker.Repo.Migrations.RetireDiscardedSessionPlacements
-  @file_name "20260927110000_retire_discarded_session_placements.exs"
-  # The migrator's own lock holds the one sandboxed connection while its task
-  # waits for that same connection, so it is skipped: nothing else migrates here.
-  @options [log: false, migration_lock: false]
   @authority_digest String.duplicate("d", 64)
   @policy_digest String.duplicate("b", 64)
   @sandbox_digest String.duplicate("a", 64)
 
   test "a discarded session's leftover placement is retired and its queued command failed, a live one is kept" do
     worker = "migration-worker-#{System.unique_integer([:positive])}"
-    certificate = :crypto.hash(:sha256, worker) |> Base.encode16(case: :lower)
+    certificate = digest(worker)
     assert {:ok, _worker} = ControlPlane.authorize_worker(worker, "workspace-main", certificate)
     assert {:ok, _response} = ControlPlane.handle_poll(worker, poll(worker))
 
@@ -54,8 +51,8 @@ defmodule Ryker.CoopFleet.RetireDiscardedPlacementsMigrationTest do
         set: [cleanup_status: :discarded, discarded_at: Repo.now!()]
       )
 
-    assert :ok = Ecto.Migrator.down(Repo, @version, migration(), @options)
-    assert :ok = Ecto.Migrator.up(Repo, @version, migration(), @options)
+    assert :ok = migrate_down(@version)
+    assert :ok = migrate_up(@version)
 
     assert Repo.get!(Placement, leaked.id).state == :retired
     assert Repo.get!(Placement, live.id).state == :active
@@ -74,18 +71,6 @@ defmodule Ryker.CoopFleet.RetireDiscardedPlacementsMigrationTest do
                "resource" => nil,
                "state" => "failed"
              })
-  end
-
-  # `ecto.migrate` loads a migration only while it is pending, so a database
-  # migrated by an earlier run leaves it for this test to load.
-  defp migration do
-    unless Code.ensure_loaded?(@migration) do
-      :ryker
-      |> Application.app_dir(Path.join("priv/repo/migrations", @file_name))
-      |> Code.compile_file()
-    end
-
-    @migration
   end
 
   defp place!(suffix) do

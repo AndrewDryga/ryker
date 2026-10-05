@@ -1,6 +1,8 @@
 defmodule Ryker.Coop.ClientTest do
   use ExUnit.Case, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ryker.CanonicalJSON
   alias Ryker.Coop.Client
   alias Ryker.Evals.Job
@@ -191,7 +193,7 @@ defmodule Ryker.Coop.ClientTest do
       expected_schema_bytes = CanonicalJSON.encode!(schema)
 
       expected_digest =
-        :crypto.hash(:sha256, expected_schema_bytes) |> Base.encode16(case: :lower)
+        digest(expected_schema_bytes)
 
       assert captured.path == "/v1/sessions/remote_123/turns"
       assert body["expected_revision"] == 4
@@ -283,7 +285,7 @@ defmodule Ryker.Coop.ClientTest do
       "data" => data,
       "media_type" => "image/png",
       "name" => "failure.png",
-      "sha256" => :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+      "sha256" => digest(data)
     }
 
     with_unix_server(response, fn client, request ->
@@ -401,8 +403,7 @@ defmodule Ryker.Coop.ClientTest do
       assert contract["require_semantic_validation"]
 
       assert contract["sha256"] ==
-               :crypto.hash(:sha256, CanonicalJSON.encode!(schema))
-               |> Base.encode16(case: :lower)
+               digest(CanonicalJSON.encode!(schema))
     end)
   end
 
@@ -668,7 +669,7 @@ defmodule Ryker.Coop.ClientTest do
 
   test "streams one exact bounded output artifact from its owning turn" do
     data = <<137, 80, 78, 71, 13, 10, 26, 10, "verified-chart">>
-    digest = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+    digest = digest(data)
 
     with_unix_binary_server(
       data,
@@ -932,7 +933,7 @@ defmodule Ryker.Coop.ClientTest do
              1,
              %{"output_schema" => schema, "prompt" => "prompt"},
              nil,
-             [input_artifact(sha256(first), first), input_artifact(sha256(second), second)]
+             [input_artifact(digest(first), first), input_artifact(digest(second), second)]
            ) == {:error, {:invalid_coop_request, :artifacts}}
 
     assert Client.validate_candidate(
@@ -960,7 +961,7 @@ defmodule Ryker.Coop.ClientTest do
 
   test "fails closed on malformed artifact and review-patch transport metadata" do
     body = "verified bytes"
-    digest = sha256(body)
+    digest = digest(body)
 
     for headers <- [
           [
@@ -1161,6 +1162,4 @@ defmodule Ryker.Coop.ClientTest do
       "sha256" => digest
     }
   end
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

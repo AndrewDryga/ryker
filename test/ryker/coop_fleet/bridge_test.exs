@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.BridgeTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CoopFleet.{Bridge, ControlPlane, Placement}
   alias Ryker.Episodes
@@ -13,7 +15,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
 
   test "one durable command bridges Work to an authenticated outbound worker exactly once" do
     worker_id = "worker-a"
-    certificate_sha256 = :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower)
+    certificate_sha256 = digest(worker_id)
 
     assert {:ok, _worker} =
              ControlPlane.authorize_worker(worker_id, "workspace-main", certificate_sha256)
@@ -228,7 +230,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
         ] do
       reference = %{
         "byte_size" => byte_size(bytes),
-        "sha256" => Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+        "sha256" => digest(bytes)
       }
 
       assert :ok = Bodies.put(root, id, :response, reference, [bytes], key)
@@ -299,7 +301,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
 
   defp queued_command! do
     worker_id = "bridge-worker-#{Ecto.UUID.generate()}"
-    certificate_sha256 = :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower)
+    certificate_sha256 = digest(worker_id)
 
     assert {:ok, _worker} =
              ControlPlane.authorize_worker(worker_id, "workspace-main", certificate_sha256)

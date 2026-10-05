@@ -7,19 +7,13 @@ defmodule Ryker.LocalRouting.QuotesMigrationTest do
   keys routing records now, or forgetting would miss exactly those. Rolling
   back keeps every comparison and only forgets the keys.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
 
   alias Ecto.Adapters.SQL
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.Observations
   alias Ryker.RoutingExamples
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @previous_version 20_260_927_220_000
   @version 20_260_928_100_000
@@ -42,11 +36,7 @@ defmodule Ryker.LocalRouting.QuotesMigrationTest do
   }
 
   test "a comparison kept before its quotes were recorded gets the keys forgetting finds it by" do
-    repo = start_migration_repo!()
-    prefix = "local_routing_quotes_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
+    in_scratch_schema("local_routing_quotes", fn repo, prefix ->
       migrate!(repo, prefix, @previous_version)
       input_id = insert_input!(repo, prefix)
       comparison_id = insert_comparison!(repo, prefix, input_id)
@@ -81,9 +71,7 @@ defmodule Ryker.LocalRouting.QuotesMigrationTest do
       assert rollback!(repo, prefix) == [@version]
       assert count(repo, prefix) == 1
       assert @version in migrate!(repo, prefix, @version)
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp quotes(repo, prefix, id) do
@@ -106,22 +94,6 @@ defmodule Ryker.LocalRouting.QuotesMigrationTest do
 
     count
   end
-
-  defp migrate!(repo, prefix, version),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: version,
-        prefix: prefix,
-        log: false
-      )
-
-  defp rollback!(repo, prefix),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-        step: 1,
-        prefix: prefix,
-        log: false
-      )
 
   defp insert_input!(repo, prefix) do
     id = Ecto.UUID.generate()
@@ -173,15 +145,5 @@ defmodule Ryker.LocalRouting.QuotesMigrationTest do
       {:ok, identity} -> {", source_identity", ", '#{identity}'"}
       :error -> {"", ""}
     end
-  end
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end

@@ -1,6 +1,8 @@
 defmodule Ryker.Work.StateBindingScopeTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Query
 
   alias Ryker.CoopFleet.{ControlPlane, Placement}
@@ -89,7 +91,7 @@ defmodule Ryker.Work.StateBindingScopeTest do
              ControlPlane.authorize_worker(
                worker_id,
                "workspace-main",
-               :crypto.hash(:sha256, worker_id) |> Base.encode16(case: :lower)
+               digest(worker_id)
              )
 
     assert {:ok, _response} =

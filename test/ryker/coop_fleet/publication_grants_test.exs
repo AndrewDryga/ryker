@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.PublicationGrantsTest do
   use Ryker.DataCase, async: true
 
+  import Ryker.TestHelpers, only: [digest: 1]
+
   import Ecto.Changeset, only: [change: 2]
   import Plug.Conn
   import Plug.Test
@@ -65,7 +67,7 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
       )
 
     certificate = "certificate:#{suffix}"
-    hash = :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)
+    hash = digest(certificate)
     # A shared worker ID deadlocked async fixtures that took the settings lock
     # after enrollment; sandbox rollback does not isolate unique-index locks.
     worker_id = "worker:#{suffix}"

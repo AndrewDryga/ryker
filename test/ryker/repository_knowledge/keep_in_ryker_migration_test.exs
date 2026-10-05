@@ -8,15 +8,11 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
   every run stays; rolling back puts the columns back, and Work's copy from
   each document.
   """
-  use ExUnit.Case, async: false
+  use Ryker.MigrationCase
+
+  import Ryker.TestHelpers, only: [digest: 1]
 
   alias Ecto.Adapters.SQL
-
-  defmodule MigrationRepo do
-    use Ecto.Repo,
-      otp_app: :ryker,
-      adapter: Ecto.Adapters.Postgres
-  end
 
   @previous_version 20_260_928_160_000
   @version 20_260_928_200_000
@@ -32,11 +28,7 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
   # would cost a model reading the whole repository again, and Work would be
   # briefed with nothing meanwhile.
   test "every document and run stays, and nothing of a pull request does" do
-    repo = start_migration_repo!()
-    prefix = "knowledge_in_ryker_#{System.unique_integer([:positive])}"
-    SQL.query!(repo, "CREATE SCHEMA #{prefix}", [])
-
-    try do
+    in_scratch_schema("knowledge_in_ryker", fn repo, prefix ->
       migrate!(repo, prefix, @previous_version)
       now = NaiveDateTime.utc_now()
       later = NaiveDateTime.add(now, 20 * 3_600)
@@ -64,7 +56,7 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
           "document_run_id" => Ecto.UUID.dump!(@run_id),
           "published_at" => now,
           "publication" => "updated",
-          "sent_sha256s" => [sha256(document("emisar"))],
+          "sent_sha256s" => [digest(document("emisar"))],
           "pull_request_url" => pull(85),
           "pull_request_number" => 85,
           "pull_request_state" => "open",
@@ -137,11 +129,7 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
         )
       end
 
-      assert Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-               step: 1,
-               prefix: prefix,
-               log: false
-             ) ==
+      assert rollback!(repo, prefix) ==
                [@version]
 
       # The previous release finds each document as the one it last proposed.
@@ -164,9 +152,7 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
 
       assert column?(repo, prefix, "repository_knowledge", "pull_request_state")
       assert documents(repo, prefix)["emisar"] == document("emisar")
-    after
-      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{prefix} CASCADE", [])
-    end
+    end)
   end
 
   defp document(ref),
@@ -190,7 +176,7 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
           "knowledge_content" => copy.content,
           "knowledge_status" => copy.status,
           "knowledge_source_commit" => @commit,
-          "knowledge_sha256" => sha256(copy.content),
+          "knowledge_sha256" => digest(copy.content),
           "knowledge_pull_request_url" => copy.url
         },
         else: %{}
@@ -204,7 +190,7 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
         "repository_ref" => ref,
         "phase" => "idle",
         "document" => document(ref),
-        "document_sha256" => sha256(document(ref)),
+        "document_sha256" => digest(document(ref)),
         "document_commit" => @commit,
         "document_by" => "model",
         "document_at" => now,
@@ -292,25 +278,5 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
       )
 
     exists?
-  end
-
-  defp sha256(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
-
-  defp migrate!(repo, prefix, version),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: version,
-        prefix: prefix,
-        log: false
-      )
-
-  defp start_migration_repo! do
-    config =
-      Ryker.Repo.config()
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-
-    start_supervised!({MigrationRepo, config})
-    MigrationRepo
   end
 end
