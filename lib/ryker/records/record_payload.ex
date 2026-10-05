@@ -303,7 +303,10 @@ defmodule Ryker.Records.RecordPayload do
          true <- payload["destination_ref"] == payload["conversation_ref"],
          true <- payload["thread_ref"] == payload["conversation_ref"],
          :ok <- reference(payload["instruction_ref"], :instruction_ref),
-         true <- payload["requested_by_actor_ref"] == "control-plane:local",
+         # A Chat person: the service that named them and their login, an
+         # email address for both Tailscale and Cloudflare Access.
+         :ok <- text(payload["requested_by_actor_ref"], 256, :requested_by_actor_ref),
+         true <- String.starts_with?(payload["requested_by_actor_ref"], "control_plane:user:"),
          :ok <- text(payload["message"], 20_000, :message),
          :ok <- canonical(payload) do
       {:ok, %{continuation: nil, payload: payload, subject_ref: nil}}

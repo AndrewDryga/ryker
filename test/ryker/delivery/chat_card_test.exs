@@ -407,7 +407,7 @@ defmodule Ryker.Delivery.ChatCardTest do
       "destination_ref" => conversation,
       "instruction_ref" => "admit_input:lab-message",
       "message" => "Post this additional message only after I confirm it.",
-      "requested_by_actor_ref" => "control-plane:local",
+      "requested_by_actor_ref" => "control_plane:user:local-operator",
       "thread_ref" => conversation,
       "transport" => "control_plane"
     }
@@ -620,7 +620,7 @@ defmodule Ryker.Delivery.ChatCardTest do
          "destination_ref" => "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
          "instruction_ref" => "admit_input:lab-message",
          "message" => "Post this additional message only after I confirm it.",
-         "requested_by_actor_ref" => "control-plane:local",
+         "requested_by_actor_ref" => "control_plane:user:local-operator",
          "thread_ref" => "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
          "transport" => "control_plane"
        }, "Additional message", :confirm_post},

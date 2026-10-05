@@ -133,7 +133,7 @@ defmodule Ryker.ControlPlane.CapabilityToolsTest do
                "destination_ref" => @conversation_ref,
                "instruction_ref" => ^input_ref,
                "message" => "This additional Lab message stays local until confirmed.",
-               "requested_by_actor_ref" => "control-plane:local",
+               "requested_by_actor_ref" => "control_plane:user:local-operator",
                "thread_ref" => @conversation_ref,
                "transport" => "control_plane"
              },

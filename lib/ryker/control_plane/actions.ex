@@ -647,7 +647,7 @@ defmodule Ryker.ControlPlane.Actions do
          action_ref
        ) do
     SlackPostOffers.confirm(%{
-      actor_ref: Actor.ref(),
+      actor_ref: Actor.person_ref(),
       confirmation_ref: action_ref,
       occurred_at: now(),
       record_ref: record.ref,

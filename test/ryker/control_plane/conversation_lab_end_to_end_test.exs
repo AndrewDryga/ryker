@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
 
   alias Ryker.ControlPlane.{
     Actions,
+    Actor,
     CapabilityTools,
     ConversationLab,
     ConversationProjection,
@@ -554,12 +555,18 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              :not_found
   end
 
+  # A post offer named its requester as the local console, so behind Tailscale
+  # Serve or Cloudflare Access, where the console names its person, nobody
+  # could confirm one (2026-10-04 review). The person who asked confirms it.
   test "Slack-compatible model actions stay local, render, and require the same host confirmation" do
+    Actor.act_for(%{login: "ada@example.com", name: "Ada", via: :tailscale})
+
     assert {:ok, %{status: :recorded}} =
              send_message(
                @capability_event_id,
                @now,
-               "React to this, then offer a second local message for my confirmation."
+               "React to this, then offer a second local message for my confirmation.",
+               actor: Actor.chat_ref()
              )
 
     {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
@@ -1347,6 +1354,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
 
   defp send_message(event_id, now, message, options \\ []) do
     ConversationLab.send_message(@conversation_id, message, profile(),
+      actor: Keyword.get(options, :actor, "local-operator"),
       attachments: Keyword.get(options, :attachments, []),
       id_generator: fn -> event_id end,
       now: fn -> now end

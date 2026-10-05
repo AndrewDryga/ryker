@@ -802,13 +802,15 @@ defmodule Ryker.ControlPlane.CapabilityTools do
     end
   end
 
+  # The person who asked, in the form a turn carries for them, is the one who
+  # may confirm the post (`Ryker.Records.SlackPostOffers`).
   defp post_offer_payload(context, input, destination_ref, message) do
     %{
       "conversation_ref" => context.conversation_ref,
       "destination_ref" => destination_ref,
       "instruction_ref" => active_input_ref(context, input),
       "message" => message,
-      "requested_by_actor_ref" => "control-plane:local",
+      "requested_by_actor_ref" => "control_plane:user:" <> get_in(input, ["actor", "ref"]),
       "thread_ref" => context.conversation_ref,
       "transport" => "control_plane"
     }
