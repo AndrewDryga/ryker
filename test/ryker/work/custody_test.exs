@@ -620,13 +620,21 @@ defmodule Ryker.Work.CustodyTest do
                submission!(%{"request" => "binding order"})
              )
 
-    assert {:error, :work_session_rotation_requires_unfrozen_submission} =
+    # A session that closed after the briefing was frozen, and before Coop had it, could not be
+    # replaced: rotation refused the frozen briefing and the request stopped for a person
+    # (2026-10-04 review). It is built again for the new session.
+    assert {:ok, %{session: replacement, turn: thawed}} =
              Custody.rotate_session(
                claim.episode.id,
                claim.turn.turn_ref,
                claim.lease_ref,
                session.generation
              )
+
+    assert replacement.generation == session.generation + 1
+    assert thawed.session_id == replacement.id
+    assert thawed.submission == nil
+    assert thawed.submission_fingerprint == nil
   end
 
   test "candidate validation cannot outrun its bound remote turn" do
@@ -1492,13 +1500,6 @@ defmodule Ryker.Work.CustodyTest do
              claim.lease_ref,
              claim.session.create_generation
            ) == {:error, :work_session_already_bound}
-
-    assert Custody.rotate_session(
-             claim.episode.id,
-             claim.turn.turn_ref,
-             claim.lease_ref,
-             claim.session.generation
-           ) == {:error, :work_session_rotation_requires_unfrozen_submission}
 
     assert Custody.bind_turn(
              claim.episode.id,

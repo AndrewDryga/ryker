@@ -937,12 +937,12 @@ defmodule Ryker.Work.Custody.Sessions do
       turn.coop_turn_id != nil ->
         Repo.rollback(:work_turn_already_bound)
 
-      turn.submission != nil ->
-        Repo.rollback(:work_session_rotation_requires_unfrozen_submission)
-
       turn.remote_operation_kind != nil ->
         Repo.rollback(:work_remote_operation_in_flight)
 
+      # A briefing frozen for the old session, which Coop never had, is built
+      # again for the new one; refusing it stopped the request for a person
+      # (2026-10-04 review).
       true ->
         with {:ok, replacement} <-
                insert_session(
@@ -950,6 +950,11 @@ defmodule Ryker.Work.Custody.Sessions do
                  session.generation + 1,
                  session_authority(session)
                ),
+             {:ok, turn} <-
+               turn
+               |> TurnChangeset.thaw()
+               |> Repo.update()
+               |> persistence_result(:work_submission),
              {:ok, turn} <-
                turn
                |> TurnChangeset.rebind_session(replacement.id)
