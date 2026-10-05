@@ -156,6 +156,29 @@ defmodule Ryker.Feedback.MessagesTest do
     assert {edited_ref, deleted_ref} == {Inbox.ref(edited), Inbox.ref(deleted)}
   end
 
+  # Slack reports a link's preview arriving as an edit with the words
+  # untouched, and it counted as the person editing their question after the
+  # answer, which costs an analysis (2026-10-04 review).
+  test "a link preview arriving after the answer is no feedback", %{channel: channel} do
+    question = message!(channel, "Is https://checkout.example.com up?", "1790003000.000100")
+
+    reply =
+      Answers.work_reply!(
+        question,
+        "Checkout is up.",
+        "1790003060.000100",
+        at("1790003060.000100")
+      )
+
+    message!(channel, "Is https://checkout.example.com up?", "1790003000.000100",
+      kind: :edit,
+      revision: 2,
+      at: at("1790003120.000100")
+    )
+
+    assert Feedback.for_request({:episode, reply.episode.id}) == []
+  end
+
   test "editing a message routing answered by itself is feedback on that message",
        %{channel: channel} do
     question = message!(channel, "What's our on-call rota?", "1790003000.000100")

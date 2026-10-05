@@ -43,6 +43,7 @@ defmodule Ryker.Feedback.Messages do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
+  alias Ryker.RoutingExamples
   alias Ryker.Work.Turn
 
   @people_sources ["slack", "control_plane"]
@@ -66,8 +67,12 @@ defmodule Ryker.Feedback.Messages do
 
   def observe(_entry), do: :ok
 
-  defp observe_locked(%Entry{event_kind: kind} = entry) when kind in [:edit, :delete],
-    do: observe_revision(entry)
+  # Only an edit that took the words back says something about the answer: a
+  # link preview arriving as an edit counted as one and cost an analysis
+  # (2026-10-04 review).
+  defp observe_locked(%Entry{event_kind: kind} = entry) when kind in [:edit, :delete] do
+    if RoutingExamples.takes_back_words?(entry), do: observe_revision(entry), else: :none
+  end
 
   defp observe_locked(%Entry{event_kind: :message} = entry), do: observe_reask(entry)
   defp observe_locked(_entry), do: :none
