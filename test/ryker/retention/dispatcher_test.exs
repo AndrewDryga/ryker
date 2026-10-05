@@ -248,6 +248,30 @@ defmodule Ryker.Retention.DispatcherTest do
     assert FakeAPI.calls(unused_api) == []
   end
 
+  # Any exception in a Coop client call read as an outage and was retried
+  # forever, a bug included, while a database error anywhere else in cleanup
+  # blocked the session for good (2026-10-04 review). A database outage waits
+  # like any outage; a client that raises for another reason stops the
+  # cleanup for a person, naming the exception.
+  test "a raising client blocks cleanup, and a database outage only delays it" do
+    buggy = terminal_session!("raising-client")
+
+    assert {:ok, {:blocked, {:coop_client_exception, ArgumentError}}} =
+             run_raising(%ArgumentError{message: "bad response shape"}, "cleanup:raising")
+
+    assert Repo.get!(Session, buggy.id).cleanup_status == :blocked
+
+    offline = terminal_session!("database-offline")
+
+    assert {:ok, {:deferred, {:retention_database_unavailable, DBConnection.ConnectionError}}} =
+             run_raising(
+               %DBConnection.ConnectionError{message: "connection closed"},
+               "cleanup:database-offline"
+             )
+
+    assert Repo.get!(Session, offline.id).cleanup_status == :close_pending
+  end
+
   test "typed transient failures defer while permanent failures block with bounded diagnostics" do
     # A cleanup that raced two fresh placements was permanently blocked even though the next
     # worker poll reported both slots free, leaving terminal session custody stuck.
@@ -607,6 +631,27 @@ defmodule Ryker.Retention.DispatcherTest do
     })
   end
 
+  defp run_raising(exception, worker_ref) do
+    options = [
+      api: __MODULE__.RaisingAPI,
+      client: exception,
+      closed_session_grace_seconds: 0,
+      lease_seconds: 60,
+      max_attempts: 8,
+      retry_base_seconds: 1,
+      retry_max_seconds: 60,
+      worker_ref: worker_ref
+    ]
+
+    case Dispatcher.run_once(options) do
+      {:ok, {:executed, %{phase: :grace}}} ->
+        Dispatcher.run_once(Keyword.put(options, :worker_ref, worker_ref <> ":after-grace"))
+
+      outcome ->
+        outcome
+    end
+  end
+
   defp run_returning(reason, worker_ref) do
     Dispatcher.run_once(
       api: FakeAPI,
@@ -619,6 +664,16 @@ defmodule Ryker.Retention.DispatcherTest do
       retry_max_seconds: 60,
       worker_ref: worker_ref
     )
+  end
+
+  # A Coop client that raises `client`, as a client with a bug, or one whose
+  # database is down, would.
+  defmodule RaisingAPI do
+    @moduledoc false
+    def get_session(exception, _session_id), do: raise(exception)
+    def close_session(exception, _session_id, _key, _revision), do: raise(exception)
+    def plan_discard(exception, _id, _key, _revision, _dirty, _unmerged), do: raise(exception)
+    def discard_session(exception, _session_id, _key, _plan), do: raise(exception)
   end
 
   defmodule ReturningExecutor do

@@ -31,7 +31,11 @@ defmodule Ryker.Retention.Executor do
       end
     end
   rescue
-    error -> {:error, {:retention_executor_exception, Exception.message(error)}}
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, {:retention_database_unavailable, error.__struct__}}
+
+    error ->
+      {:error, {:retention_executor_exception, Exception.message(error)}}
   catch
     kind, reason -> {:error, {:retention_executor_caught, kind, inspect(reason)}}
   end
@@ -384,12 +388,20 @@ defmodule Ryker.Retention.Executor do
 
   defp revision(_remote), do: {:error, {:coop_protocol_error, :session_revision}}
 
+  # A client reports its transport failures as errors. One that raises has a
+  # bug, which no retry fixes, unless its database is down, which is an
+  # outage: read as an outage, a bug was retried forever.
   defp api_call(_settings, callback) do
     callback.()
   rescue
-    error -> {:error, {:coop_transport_error, Exception.message(error)}}
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, {:retention_database_unavailable, error.__struct__}}
+
+    error ->
+      {:error, {:coop_client_exception, error.__struct__}}
   catch
-    kind, reason -> {:error, {:coop_transport_error, {kind, reason}}}
+    :exit, reason -> {:error, {:coop_transport_error, {:exit, reason}}}
+    kind, reason -> {:error, {:coop_client_exception, {kind, reason}}}
   end
 
   defp settings(options) when is_list(options) do
