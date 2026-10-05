@@ -1460,8 +1460,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp noun(section), do: Map.get(section, :item_label, collection_item_label(section.key))
 
-  defp collection_item_label(:repositories), do: "repository"
-  defp collection_item_label(:github_bindings), do: "GitHub repository binding"
   defp collection_item_label(_key), do: "entry"
 
   defp plural(noun) do

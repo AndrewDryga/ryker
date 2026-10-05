@@ -10,13 +10,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
   """
 
   alias Ryker.Settings.{
-    GitHub,
-    GitHubBinding,
     Learning,
     PricingRate,
     Publication,
     Report,
-    Repository,
     Slack,
     WebhookSource,
     Work
@@ -208,18 +205,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
       ]
     },
     %{
-      key: :github,
-      domain: :github,
-      kind: :singleton,
-      schema: GitHub,
-      title: "GitHub",
-      description: "Use the verified GitHub App and choose its API endpoint.",
-      fields: [
-        %{name: :enabled, kind: :boolean, label: "Use this GitHub App"},
-        %{name: :api_url, kind: :text, label: "GitHub API URL"}
-      ]
-    },
-    %{
       key: :publication,
       domain: :publication,
       kind: :singleton,
@@ -287,47 +272,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
         "Ryker learns from conversations in the background with a model. Turning it off " <>
           "pauses new batches and lets the running ones finish.",
       fields: [%{name: :enabled, kind: :boolean, label: "Learn from past conversations"}]
-    },
-    %{
-      key: :repositories,
-      domain: :repositories,
-      kind: :collection,
-      schema: Repository,
-      item_key: :ref,
-      title: "Repositories",
-      description:
-        "The repositories this installation works in. GitHub App access connects each repository; " <>
-          "Ryker selects its exact code for each job, and the worker fetches it into an isolated working copy.",
-      fields: [
-        %{name: :ref, kind: :text, label: "Reference", identity: true},
-        %{name: :display_name, kind: :text, label: "Display name"},
-        %{name: :description, kind: :text, label: "Description"},
-        %{
-          name: :github_repository,
-          kind: :text,
-          label: "GitHub repository",
-          placeholder: "owner/name"
-        },
-        %{name: :base_branch, kind: :text, label: "Base branch"}
-      ]
-    },
-    %{
-      key: :github_bindings,
-      domain: :github,
-      kind: :collection,
-      schema: GitHubBinding,
-      item_key: :name,
-      title: "GitHub repository bindings",
-      description:
-        "The GitHub App installation that reaches one repository. People with write " <>
-          "access to that repository can ask Ryker to work there.",
-      fields: [
-        %{name: :name, kind: :text, label: "Binding name", identity: true},
-        %{name: :repository_ref, kind: :select, label: "Repository", options: :repositories},
-        %{name: :installation_id, kind: :integer, label: "Installation ID"},
-        %{name: :repository_id, kind: :integer, label: "Repository ID"},
-        %{name: :ryker_actor_id, kind: :integer, label: "Ryker actor ID"}
-      ]
     },
     # Every field says what it is for in plain words and, when refused, what
     # to choose (QA, 2026-09-25). A new source starts on what this
@@ -965,9 +909,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   @doc "Option pairs for a select, resolved against the current settings view."
   @spec options(map(), map()) :: [{String.t(), String.t()}]
-  def options(%{options: :repositories}, view),
-    do: Enum.map(view.snapshot.repositories, &{&1.ref, display_name(&1)})
-
   def options(%{options: :environments}, view),
     do: Enum.map(Environments.ordered(view.snapshot.environments), &{&1.ref, &1.display_name})
 
@@ -1359,8 +1300,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
   @doc "The saved rows of a collection section."
   @spec items(map(), map()) :: [struct()]
   def items(%{key: :pricing}, view), do: view.snapshot.pricing_rates
-  def items(%{key: :repositories}, view), do: view.snapshot.repositories
-  def items(%{key: :github_bindings}, view), do: view.snapshot.github_bindings
   def items(%{key: :webhooks}, view), do: view.snapshot.webhook_sources
   def items(_section, _view), do: []
 
@@ -1580,7 +1519,4 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   def form_value(%{kind: :decimal}, %Decimal{} = value), do: Decimal.to_string(value, :normal)
   def form_value(_field, value), do: to_string(value)
-
-  defp display_name(%{ref: ref, display_name: name}) when name in [nil, ""], do: ref
-  defp display_name(%{display_name: name}), do: name
 end

@@ -91,9 +91,6 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   defp write(%{domain: :slack}, attributes, revision, _params),
     do: Settings.save_slack(attributes, revision, actor())
 
-  defp write(%{domain: :github}, attributes, revision, _params),
-    do: Settings.save_github(attributes, revision, actor())
-
   defp write(%{domain: :publication}, attributes, revision, _params),
     do: Settings.save_publication(attributes, revision, actor())
 
@@ -108,12 +105,6 @@ defmodule Ryker.ControlPlane.SettingsCommands do
 
   defp put(%{key: :pricing}, attributes, revision),
     do: Settings.put_pricing_rate(attributes, revision, actor())
-
-  defp put(%{key: :repositories}, attributes, revision),
-    do: Settings.put_repository(attributes, revision, actor())
-
-  defp put(%{key: :github_bindings}, attributes, revision),
-    do: Settings.put_github_binding(attributes, revision, actor())
 
   # A source may reference only a credential this deployment registered. Saving
   # an unregistered name would leave a route that cannot start, and accepting an
@@ -134,12 +125,6 @@ defmodule Ryker.ControlPlane.SettingsCommands do
 
   defp remove(%{key: :pricing}, id, revision),
     do: Settings.delete_pricing_rate(id, revision, actor())
-
-  defp remove(%{key: :repositories}, ref, revision),
-    do: Settings.delete_repository(ref, revision, actor())
-
-  defp remove(%{key: :github_bindings}, name, revision),
-    do: Settings.delete_github_binding(name, revision, actor())
 
   defp remove(%{key: :webhooks}, name, revision),
     do: Settings.delete_webhook_source(name, revision, actor())
