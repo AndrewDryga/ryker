@@ -212,6 +212,46 @@ defmodule Ryker.Schedules.SchedulesTest do
              Repo.get_by!(Session, episode_id: dispatched.episode.id)
   end
 
+  # A schedule runs with write access to the repository its offer names. An
+  # offer whose repository the conversation's environment does not let it
+  # write is refused when someone confirms it, as settings may have changed
+  # since it was made (2026-10-04 review).
+  test "a schedule offer naming a repository its environment cannot write is not confirmed" do
+    {:ok, settings} = Ryker.Settings.initialize("control-plane:local")
+
+    settings =
+      Enum.reduce(~w(ryker elsewhere), settings, fn ref, settings ->
+        {:ok, settings} =
+          Ryker.Settings.put_repository(
+            %{ref: ref, display_name: "acme/#{ref}", github_repository: "acme/#{ref}"},
+            settings.installation.revision,
+            "control-plane:local"
+          )
+
+        settings
+      end)
+
+    {:ok, _settings} =
+      Ryker.Settings.put_environment(
+        %{ref: "production", display_name: "Production", repositories: ["ryker"]},
+        settings.installation.revision,
+        "control-plane:local"
+      )
+
+    foreign =
+      delivered_offer!("foreign-repository",
+        environment_ref: "production",
+        repository: "elsewhere"
+      )
+
+    assert {:error, :schedule_repository_not_writable} =
+             Schedules.confirm(confirmation(foreign, "foreign-repository"))
+
+    own = delivered_offer!("own-repository", environment_ref: "production", repository: "ryker")
+    assert {:ok, %{schedule: schedule}} = Schedules.confirm(confirmation(own, "own-repository"))
+    assert {schedule.repository, schedule.authority} == {"ryker", :repository_write}
+  end
+
   # The confirmed offer message is rebuilt from its records on every repaint;
   # the schedule it created, with its current revision and status, must travel
   # with the record or the message can neither describe nor remove it.
@@ -745,12 +785,14 @@ defmodule Ryker.Schedules.SchedulesTest do
 
     assert {:ok, claim} = Custody.claim_next("worker:schedule-offer:#{suffix}", 60, :work)
 
+    repository = Keyword.get(options, :repository)
+
     payload = %{
-      "authority" => "read_only",
+      "authority" => if(repository, do: "repository_write", else: "read_only"),
       "expires_at" => Keyword.get(options, :expires_at),
       "recurrence" =>
         Keyword.get(options, :recurrence, %{"kind" => "daily", "time" => "13:00:00"}),
-      "repository" => nil,
+      "repository" => repository,
       "task" => "Inspect current service health.",
       "timezone" => "Etc/UTC",
       "title" => "Daily service health"

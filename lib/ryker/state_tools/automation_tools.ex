@@ -4,6 +4,8 @@ defmodule Ryker.StateTools.AutomationTools do
   alias Ryker.Behaviors.Automations
   alias Ryker.Repo
   alias Ryker.Schedules.ScheduleRecurrence
+  alias Ryker.Settings
+  alias Ryker.Settings.Environment
   alias Ryker.StateTools.RecordWriter
 
   @spec list_automations(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -59,6 +61,7 @@ defmodule Ryker.StateTools.AutomationTools do
          %{"action" => "create", "trigger" => %{"type" => "source_event"} = trigger} = proposal
        ) do
     with :ok <- automation_capability("source_event", binding),
+         :ok <- automation_repository(proposal["repository"], binding),
          {:ok, context_channel} <- automation_channel(proposal["context_channel"], binding),
          {:ok, delivery_channel} <- automation_channel(proposal["delivery_channel"], binding),
          :ok <- source_event_hold(proposal["hold"]) do
@@ -87,6 +90,7 @@ defmodule Ryker.StateTools.AutomationTools do
 
   defp automation_record(binding, %{"action" => "create"} = proposal) do
     with :ok <- automation_capability("time", binding),
+         :ok <- automation_repository(proposal["repository"], binding),
          {:ok, recurrence} <- ScheduleRecurrence.from_trigger(proposal["trigger"]) do
       payload = %{
         "authority" => if(proposal["repository"], do: "repository_write", else: "read_only"),
@@ -125,6 +129,24 @@ defmodule Ryker.StateTools.AutomationTools do
   end
 
   defp automation_record(_binding, _proposal), do: {:error, :not_configured}
+
+  # A schedule runs with write access to the repository it names, so an
+  # automation may name only one this work could change. Any configured
+  # repository was copied unchecked (2026-10-04 review).
+  defp automation_repository(nil, _binding), do: :ok
+
+  defp automation_repository(repository, %{session: session}) do
+    writable =
+      case Settings.fetch() do
+        {:ok, snapshot} ->
+          Environment.writable_for(snapshot, session.environment_ref, session.repository_ref)
+
+        {:error, _reason} ->
+          [session.repository_ref]
+      end
+
+    if repository in writable, do: :ok, else: {:error, :automation_repository_not_writable}
+  end
 
   defp automation_capability("source_event", _binding), do: :ok
 

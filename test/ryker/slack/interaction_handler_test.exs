@@ -429,6 +429,26 @@ defmodule Ryker.Slack.InteractionHandlerTest do
            }
   end
 
+  # A schedule whose repository the channel's environment does not let Ryker
+  # change is refused at confirmation; the person who pressed is told why, as
+  # for a task, instead of the press failing with nothing said.
+  test "a schedule its environment cannot write is refused in words" do
+    schedule = %{
+      interaction("ryker_start_engineering_task", "engineering")
+      | action_id: "ryker_confirm_schedule",
+        action_value: "record:schedule_offer:daily",
+        event_ref: "interaction:schedule-refused"
+    }
+
+    options =
+      %{options(["U123"]) | operators: chosen_operators(["U123"])}
+      |> Map.put(:confirm_schedule, fn _attributes ->
+        {:error, :schedule_repository_not_writable}
+      end)
+
+    assert InteractionHandler.handle(schedule, options) == {:ok, %{outcome: :task_not_here}}
+  end
+
   test "only a configured operator can apply an exact delivered automation change" do
     automation = %{
       interaction("ryker_start_engineering_task", "engineering")

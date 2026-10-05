@@ -1507,6 +1507,60 @@ defmodule Ryker.StateTools.RouterTest do
     assert Repo.aggregate(Record, :count, :id) == record_count
   end
 
+  # A schedule runs with write access to the repository it names, and
+  # propose_automation copied any configured repository into the offer,
+  # unchecked against the environment the work ran in (2026-10-04 review).
+  test "an automation may name only a repository this work could change" do
+    {:ok, snapshot} = Settings.initialize("control-plane:local")
+
+    snapshot =
+      Enum.reduce(~w(ryker ledger elsewhere), snapshot, fn ref, snapshot ->
+        {:ok, snapshot} =
+          Settings.put_repository(
+            %{ref: ref, display_name: "acme/#{ref}", github_repository: "acme/#{ref}"},
+            snapshot.installation.revision,
+            "control-plane:local"
+          )
+
+        snapshot
+      end)
+
+    {:ok, _snapshot} =
+      Settings.put_environment(
+        %{
+          ref: "ryker",
+          display_name: "Ryker",
+          repositories: ["ryker", "ledger"],
+          access: %{"ledger" => :read_only}
+        },
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
+
+    claim = claim!("automation-repository-scope")
+    options = bound_options(claim)
+
+    propose = fn repository ->
+      Tools.call(
+        "propose_automation",
+        %{
+          "proposals" => [
+            time_proposal(%{"recurrence" => "daily", "time" => "09:00", "type" => "time"})
+            |> Map.put("repository", repository)
+          ]
+        },
+        options
+      )
+    end
+
+    for repository <- ["elsewhere", "ledger"] do
+      assert {:error, "invalid_arguments: repository must be" <> _} = propose.(repository)
+    end
+
+    assert {:ok, %{"proposals" => [%{"record_ref" => ref}]}} = propose.("ryker")
+    assert Repo.get_by!(Record, ref: ref).payload["authority"] == "repository_write"
+  end
+
   test "source-event automation creation preserves the exact inert assignment" do
     claim = claim!("fixed-source-event-automation")
     options = bound_options(claim)

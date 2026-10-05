@@ -275,6 +275,9 @@ defmodule Ryker.Slack.InteractionHandler do
       {:error, {reason, _repository}} when reason in @task_not_here ->
         {:ok, %{outcome: :task_not_here}}
 
+      {:error, :schedule_repository_not_writable} ->
+        {:ok, %{outcome: :task_not_here}}
+
       {:error, {:automation_revision_conflict, _revision}} ->
         {:ok, %{outcome: :invalid}}
 

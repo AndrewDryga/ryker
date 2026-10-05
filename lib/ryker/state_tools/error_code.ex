@@ -35,6 +35,10 @@ defmodule Ryker.StateTools.ErrorCode do
     do:
       ~s(invalid_arguments: validate_final requires {"candidate":{"decision_reason":null,"delivery":"reply","message":"Your answer","outcome":{"state":"complete","record_refs":[],"artifact_refs":[]}}}. Keep the candidate wrapper and every outcome field. Use the actual host-issued refs. For delivery none, message must be null and decision_reason must explain the silence. Nothing was accepted; correct the call before returning.)
 
+  def code(:automation_repository_not_writable),
+    do:
+      "invalid_arguments: repository must be null or one this work can change: work.repository_ref, or another repository of this environment that is not read-only. Nothing was proposed."
+
   def code(:task_repository_required),
     do:
       "repository_required: engineering tasks require a non-null configured target, any repository of this environment: work.repository_ref or the relevant supplied work.workspace.companions[].name, whichever the task changes. This is an inert proposal, not execution. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."

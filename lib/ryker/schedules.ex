@@ -29,6 +29,8 @@ defmodule Ryker.Schedules do
   alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Schedules.ScheduleOccurrenceChangeset
   alias Ryker.Schedules.ScheduleRecurrence
+  alias Ryker.Settings
+  alias Ryker.Settings.Environment
 
   alias Ryker.UTCDateTime
   alias Ryker.Work.{Custody, Session, Turn}
@@ -279,8 +281,10 @@ defmodule Ryker.Schedules do
 
   defp create_schedule(record, source_episode, source_turn, attributes) do
     payload = record.payload
+    source = source_session(source_turn)
 
-    with {:ok, recurrence} <-
+    with :ok <- schedule_repository(payload["repository"], source),
+         {:ok, recurrence} <-
            ScheduleRecurrence.normalize(
              payload["recurrence"],
              payload["timezone"],
@@ -293,7 +297,7 @@ defmodule Ryker.Schedules do
            insert_schedule(
              record,
              source_episode,
-             source_environment(source_turn),
+             source.environment_ref,
              attributes,
              recurrence,
              next_occurrence_at
@@ -316,10 +320,35 @@ defmodule Ryker.Schedules do
 
   # The work that offered the schedule ran in its conversation's environment;
   # the schedule keeps running there.
-  defp source_environment(%Turn{session_id: session_id}) do
+  defp source_session(%Turn{session_id: session_id}) do
     Repo.one(
-      from(session in Session, where: session.id == ^session_id, select: session.environment_ref)
+      from(session in Session,
+        where: session.id == ^session_id,
+        select: %{
+          environment_ref: session.environment_ref,
+          repository_ref: session.repository_ref
+        }
+      )
     )
+  end
+
+  # A schedule runs with write access to the repository it names, so it may
+  # name only one the offering work could change, as settings are when it is
+  # confirmed. The offer's repository was taken unchecked (2026-10-04 review).
+  defp schedule_repository(nil, _source), do: :ok
+
+  defp schedule_repository(repository, source) do
+    with {:ok, snapshot} <- Settings.fetch(),
+         true <-
+           repository in Environment.writable_for(
+             snapshot,
+             source.environment_ref,
+             source.repository_ref
+           ) do
+      :ok
+    else
+      _not_writable -> {:error, :schedule_repository_not_writable}
+    end
   end
 
   defp insert_schedule(

@@ -85,6 +85,21 @@ defmodule Ryker.Settings.Environment do
   def writable_refs(%__MODULE__{repositories: repositories}),
     do: for(%{access: :read_write} = row <- repositories, do: row.repository_ref)
 
+  @doc """
+  The repositories work pinned to `repository_ref` in the environment `ref`
+  may change: its own, and any other its environment lets it write.
+  """
+  @spec writable_for(map(), String.t() | nil, String.t() | nil) :: [String.t()]
+  def writable_for(snapshot, ref, repository_ref) do
+    writable =
+      case is_binary(ref) && find(snapshot, :ref, ref) do
+        %__MODULE__{} = environment -> writable_refs(environment)
+        _none -> []
+      end
+
+    [repository_ref | writable] |> Enum.reject(&is_nil/1) |> Enum.uniq()
+  end
+
   @doc "The repositories work in the environment only reads."
   @spec read_only_refs(t()) :: [String.t()]
   def read_only_refs(%__MODULE__{repositories: repositories}),
