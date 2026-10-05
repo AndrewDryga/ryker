@@ -92,9 +92,12 @@ defmodule Ryker.ControlPlane.BrowserGuard do
     |> put_resp_header("x-ryker-version", to_string(Application.spec(:ryker, :vsn) || "unknown"))
   end
 
+  # A refusal is answered before any body is read; keeping the connection open
+  # had the server drain whatever the refused client sent (2026-10-04 review).
   defp refuse(conn, status, body) do
     conn
     |> put_resp_content_type("text/plain")
+    |> put_resp_header("connection", "close")
     |> send_resp(status, body)
     |> halt()
   end

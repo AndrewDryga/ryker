@@ -34,6 +34,16 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
     refute BrowserGuard.loopback?(nil)
   end
 
+  # A refused POST answered before its body was read kept the connection open, and the server
+  # then drained whatever body the refused client sent (2026-10-04 review). A refusal closes it.
+  test "a refusal closes the connection rather than read a refused body" do
+    for {host, peer} <- [{"evil.example", {127, 0, 0, 1}}, {"localhost", {10, 0, 0, 2}}] do
+      assert get_resp_header(guard(host, peer), "connection") == ["close"]
+    end
+
+    assert get_resp_header(guard("localhost", {127, 0, 0, 1}), "connection") == []
+  end
+
   test "container network access keeps the local-host boundary without pretending the peer is loopback" do
     access = {:network, {172, 22, 0, 1}}
 
