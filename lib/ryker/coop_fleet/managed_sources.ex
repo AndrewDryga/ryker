@@ -9,6 +9,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
   require Logger
 
+  alias Ryker.ChildEnvironment
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.CoopFleet.Protocol
   alias Ryker.GitHub.{InstallationTokens, PublicRepositories}
@@ -843,7 +844,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
   defp signal(nil, _signal), do: :ok
 
   defp signal(os_pid, signal) when is_integer(os_pid),
-    do: System.cmd("sh", ["-c", "kill -#{signal} #{os_pid} 2>/dev/null"], stderr_to_stdout: true)
+    do: System.cmd("kill", ["-#{signal}", Integer.to_string(os_pid)], stderr_to_stdout: true)
 
   defp flush_git(port) do
     receive do
@@ -861,31 +862,18 @@ defmodule Ryker.CoopFleet.ManagedSources do
     end
   end
 
+  # Git gets no inherited GIT_ or GCM_ setting and none of Ryker's keys
+  # (`Ryker.ChildEnvironment`), only these.
   defp port_environment(token) do
-    Enum.map(git_environment(token), fn
-      {key, nil} -> {String.to_charlist(key), false}
-      {key, value} -> {String.to_charlist(key), String.to_charlist(value)}
-    end)
-  end
-
-  defp git_environment(token) do
-    cleared =
-      for {key, _value} <- System.get_env(),
-          String.starts_with?(key, ["GIT_", "GCM_"]),
-          do: {key, nil}
-
-    (cleared ++
-       [
-         {"GIT_CONFIG_GLOBAL", "/dev/null"},
-         {"GIT_CONFIG_NOSYSTEM", "1"},
-         {"GIT_TEMPLATE_DIR", "/dev/null"},
-         {"GIT_TERMINAL_PROMPT", "0"},
-         {"GIT_CONFIG_COUNT", if(token, do: "1", else: "0")},
-         {"GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader"},
-         {"GIT_CONFIG_VALUE_0", if(token, do: git_authorization(token))}
-       ])
-    |> Map.new()
-    |> Map.to_list()
+    ChildEnvironment.port([
+      {"GIT_CONFIG_GLOBAL", "/dev/null"},
+      {"GIT_CONFIG_NOSYSTEM", "1"},
+      {"GIT_TEMPLATE_DIR", "/dev/null"},
+      {"GIT_TERMINAL_PROMPT", "0"},
+      {"GIT_CONFIG_COUNT", if(token, do: "1", else: "0")},
+      {"GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader"},
+      {"GIT_CONFIG_VALUE_0", if(token, do: git_authorization(token))}
+    ])
   end
 
   @doc """

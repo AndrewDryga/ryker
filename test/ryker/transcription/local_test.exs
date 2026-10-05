@@ -127,6 +127,34 @@ defmodule Ryker.Transcription.LocalTest do
     refute_received {_port, {:exit_status, _status}}
   end
 
+  # ffmpeg reads uploads from anyone in a channel, and it and whisper ran with
+  # Ryker's whole environment: the credential key, the state-tools signing
+  # token and the database URL (2026-10-04 review). They get what a program
+  # needs to run and nothing else.
+  test "the programs that read a recording never see Ryker's keys", %{tmp_dir: dir} do
+    key = "RYKER_TRANSCRIPTION_TEST_KEY_#{System.unique_integer([:positive])}"
+    System.put_env(key, "master-key-value")
+    on_exit(fn -> System.delete_env(key) end)
+    environment = Path.join(dir, "ffmpeg-environment")
+
+    ffmpeg =
+      program(dir, "ffmpeg", """
+      env > '#{environment}'
+      exit 1
+      """)
+
+    options = options(dir, ffmpeg: ffmpeg, whisper: recognizer(dir, "never read"))
+    assert {:error, _reason} = Local.transcribe("m4a bytes", options)
+
+    # Messages only: a failure must not print the environment it read.
+    names =
+      environment |> File.read!() |> String.split("\n") |> Enum.map(&hd(String.split(&1, "=")))
+
+    refute key in names, "ffmpeg saw #{key}"
+    assert Enum.filter(names, &String.starts_with?(&1, "RYKER_")) == []
+    assert "PATH" in names, "ffmpeg ran without PATH"
+  end
+
   test "a missing program or model is a transcription Ryker could not make", %{tmp_dir: dir} do
     options = options(dir, ffmpeg: converter(dir, @second), whisper: Path.join(dir, "missing"))
 

@@ -19,6 +19,7 @@ defmodule Ryker.Transcription.Local do
 
   @behaviour Ryker.Transcription
 
+  alias Ryker.ChildEnvironment
   alias Ryker.Transcription
   alias Ryker.Transcription.Parts
 
@@ -194,7 +195,8 @@ defmodule Ryker.Transcription.Local do
         :exit_status,
         :hide,
         :stderr_to_stdout,
-        args: arguments
+        args: arguments,
+        env: ChildEnvironment.port()
       ])
 
     os_pid =
@@ -239,7 +241,7 @@ defmodule Ryker.Transcription.Local do
   # upload, so nothing the port sent is left in its mailbox.
   defp stop(port, os_pid) do
     if is_integer(os_pid),
-      do: System.cmd("sh", ["-c", "kill -KILL #{os_pid} 2>/dev/null"], stderr_to_stdout: true)
+      do: System.cmd("kill", ["-KILL", Integer.to_string(os_pid)], stderr_to_stdout: true)
 
     try do
       Port.close(port)
