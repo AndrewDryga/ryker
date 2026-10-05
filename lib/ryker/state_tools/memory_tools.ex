@@ -167,7 +167,9 @@ defmodule Ryker.StateTools.MemoryTools do
   defp memory_visibility("current_channel"), do: "conversation"
   defp memory_visibility(_scope), do: "workspace"
 
-  defp fact_visibility("current_channel"), do: "conversation"
+  # A fact has no owner of its own: "mine" keeps it to the conversation it was
+  # said in. Paired with workspace visibility, no fact record accepted it.
+  defp fact_visibility(scope) when scope in ["mine", "current_channel"], do: "conversation"
   defp fact_visibility(_scope), do: "workspace"
 
   defp expiry(nil), do: "90d"

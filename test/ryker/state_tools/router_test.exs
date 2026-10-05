@@ -1091,6 +1091,30 @@ defmodule Ryker.StateTools.RouterTest do
     assert Enum.any?(state["records"], &(&1["kind"] == "progress"))
   end
 
+  # A fact has no owner of its own, so "mine" keeps it to the conversation it
+  # was said in; it was paired with workspace visibility, which no fact
+  # record accepts, and every such proposal failed (2026-10-04 review).
+  test "a fact proposed as mine is kept to its conversation" do
+    claim = claim!("fact-mine")
+
+    assert {:ok, %{"kind" => "memory_offer", "proposal" => proposal}} =
+             Tools.call(
+               "propose_memory",
+               %{
+                 "expires_at" => nil,
+                 "kind" => "fact",
+                 "scope" => "mine",
+                 "source_refs" => ["source:mine"],
+                 "subject" => "my_service",
+                 "supersedes" => [],
+                 "value" => "I own the billing service."
+               },
+               bound_options(claim)
+             )
+
+    assert {proposal["scope"], proposal["visibility"]} == {"conversation", "conversation"}
+  end
+
   # get_work_state advertised types, history and since and read none of them,
   # and its limit kept the oldest records, so the latest evidence and waits of
   # a long episode were out of reach (2026-10-04 review). It takes a limit
