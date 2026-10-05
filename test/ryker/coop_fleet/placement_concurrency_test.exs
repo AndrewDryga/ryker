@@ -334,6 +334,128 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
     end)
   end
 
+  # A poll holds its worker's row while it runs, and placement skipped any
+  # worker locked that way: a task that arrived during a poll found no worker
+  # at all and stopped for a person (2026-10-04 review).
+  test "a placement that arrives during a poll waits for it instead of finding no worker" do
+    Sandbox.unboxed_run(Repo, fn ->
+      suffix = Ecto.UUID.generate()
+      workspace = "workspace-poll-race-#{suffix}"
+      worker = "worker-poll-race-#{suffix}"
+      session = session!("poll-race-#{suffix}") |> pin_job!()
+      authorize_and_poll!(worker, workspace)
+      poller = hold_worker(worker)
+      assert_receive {:holding, poll_backend}, 5_000
+      placer = place(session, workspace)
+
+      try do
+        assert_receive {:placing, place_backend}, 5_000
+        await_blocked_by(place_backend, poll_backend)
+        send(poller.pid, :release)
+
+        assert {:ok, %Placement{worker_id: ^worker}} = Task.await(placer, 5_000)
+      after
+        finish!([poller, placer])
+        cleanup!([session], [worker])
+      end
+    end)
+  end
+
+  # Recovery locked a session's placement and then its worker, while a poll
+  # locks the worker and then its placements: each could wait for the other
+  # (2026-10-04 review). Recovery now waits for the worker before it touches
+  # the placement.
+  test "recovering a placement waits for its worker before it locks the placement" do
+    Sandbox.unboxed_run(Repo, fn ->
+      suffix = Ecto.UUID.generate()
+      workspace = "workspace-lock-order-#{suffix}"
+      worker = "worker-lock-order-#{suffix}"
+      session = session!("lock-order-#{suffix}") |> pin_job!()
+      authorize_and_poll!(worker, workspace)
+
+      {:ok, placement} =
+        ControlPlane.place_session(
+          session.id,
+          %{
+            workspace_ref: workspace,
+            repository_ref: "ryker",
+            capability_names: ["controller-tools"]
+          },
+          60
+        )
+
+      Repo.update_all(from(s in Session, where: s.id == ^session.id),
+        set: [coop_session_id: "coop-lock-order-#{suffix}"]
+      )
+
+      Repo.update_all(from(p in Placement, where: p.id == ^placement.id), set: [state: :replaced])
+      poller = hold_worker(worker)
+      assert_receive {:holding, poll_backend}, 5_000
+      placer = place(session, workspace)
+
+      try do
+        assert_receive {:placing, place_backend}, 5_000
+        await_blocked_by(place_backend, poll_backend)
+
+        # The poll could take the placement now and finish.
+        assert {:ok, _locked} =
+                 Repo.transaction(fn ->
+                   Repo.query!(
+                     "SELECT 1 FROM coop_session_placements WHERE id = $1 FOR UPDATE NOWAIT",
+                     [Ecto.UUID.dump!(placement.id)]
+                   )
+                 end)
+
+        send(poller.pid, :release)
+        Task.await(placer, 5_000)
+      after
+        finish!([poller, placer])
+        cleanup!([session], [worker])
+      end
+    end)
+  end
+
+  # Releases the held worker and lets the placement finish before the rows go.
+  defp finish!([poller | _rest] = tasks) do
+    send(poller.pid, :release)
+    Enum.each(tasks, &Task.yield(&1, 5_000))
+    stop_tasks(tasks)
+  end
+
+  # A poll's hold on its worker row, until told to finish.
+  defp hold_worker(worker_id) do
+    parent = self()
+
+    unboxed_task(fn ->
+      Repo.transaction(fn ->
+        Repo.query!("SELECT 1 FROM coop_workers WHERE id = $1 FOR UPDATE", [worker_id])
+        send(parent, {:holding, backend_pid()})
+
+        receive do
+          :release -> :ok
+        end
+      end)
+    end)
+  end
+
+  defp place(session, workspace) do
+    parent = self()
+
+    unboxed_task(fn ->
+      send(parent, {:placing, backend_pid()})
+
+      ControlPlane.place_session(
+        session.id,
+        %{
+          workspace_ref: workspace,
+          repository_ref: "ryker",
+          capability_names: ["controller-tools"]
+        },
+        60
+      )
+    end)
+  end
+
   defp authorize_and_poll!(worker_id, workspace_ref) do
     certificate = "certificate-#{worker_id}"
     digest = :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)

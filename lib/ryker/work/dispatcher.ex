@@ -205,6 +205,10 @@ defmodule Ryker.Work.Dispatcher do
   # A fetch that stalled past its deadline, or a mirror another fetch holds;
   # one GitHub keeps refusing still blocks once the attempts run out.
   defp retry_class(:coop_worker_source_unavailable), do: :transient
+  # Every worker was busy or not yet reporting. That passes, so the task is
+  # tried again and asks a person only once its attempts run out; it stopped
+  # for a person at once (2026-10-04 review).
+  defp retry_class({:coop_worker_capacity_unavailable, _session_id}), do: :transient
   defp retry_class(_reason), do: :blocked
 
   defp reported_reason({:work_generation_spent, _phase, reason}), do: reason

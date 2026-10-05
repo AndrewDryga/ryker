@@ -248,7 +248,10 @@ defmodule Ryker.Work.DispatcherTest do
       # review); the next attempt fetches again.
       :coop_worker_source_unavailable,
       {:coop_error, 429, "rate_limited", "try later"},
-      {:coop_error, 503, "unavailable", "try later"}
+      {:coop_error, 503, "unavailable", "try later"},
+      # Every worker was busy or not reporting yet, and the task stopped for a
+      # person at once (2026-10-04 review); that passes on its own.
+      {:coop_worker_capacity_unavailable, "1b4d2c9e-1a54-4a52-8d0f-3c1f2a9e7b10"}
     ]
 
     # A one-second retry let the previous reason's turn fall due again while

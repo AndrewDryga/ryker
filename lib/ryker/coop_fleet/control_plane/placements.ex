@@ -240,6 +240,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       )
 
   defp place_session_locked(session_id, requirements, lease_seconds) do
+    lock_holding_workers(session_id)
+
     session =
       Repo.one(
         from(session in Session,
@@ -537,6 +539,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   """
   @spec retire_session_placements(Ecto.UUID.t(), DateTime.t()) :: :ok
   def retire_session_placements(session_id, now) do
+    lock_holding_workers(session_id)
+
     from(placement in Placement,
       where:
         placement.session_id == ^session_id and
@@ -648,37 +652,45 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   defp fork_required?(%Session{repository_ref: repository_ref}), do: is_binary(repository_ref)
 
+  # A worker another placement has locked keeps that placement's choice and
+  # is skipped, since several placements may arrive at once. Only when every
+  # candidate is locked does the choice wait: a poll holds its worker's row
+  # while it runs, and skipping it left a task that arrived mid-poll with no
+  # worker at all, stopped for a person (2026-10-04 review).
   defp worker_candidate(requirements, cutoff, excluded_ids) do
+    query = candidate_query(requirements, cutoff, excluded_ids)
+
+    Repo.one(lock(query, "FOR UPDATE SKIP LOCKED")) || Repo.one(lock(query, "FOR UPDATE"))
+  end
+
+  defp candidate_query(requirements, cutoff, excluded_ids) do
     current_states = Enum.map(Placement.current_states(), &Atom.to_string/1)
 
-    Repo.one(
-      from(worker in Worker,
-        where:
-          worker.workspace_ref == ^requirements.workspace_ref and worker.state == :eligible and
-            is_nil(worker.drain_requested_at) and is_nil(worker.revoked_at) and
-            worker.last_seen_at >= ^cutoff and worker.id not in ^excluded_ids,
-        order_by: [
-          asc:
-            fragment(
-              "(SELECT count(*) FROM coop_session_placements AS placement WHERE placement.worker_id = ? AND placement.state = ANY(?))",
-              worker.id,
-              type(^current_states, {:array, :string})
-            ),
-          desc:
-            fragment(
-              "COALESCE((?::jsonb ->> 'turn_slots_free')::integer, 0)",
-              worker.capacity
-            ),
-          desc:
-            fragment(
-              "COALESCE((?::jsonb ->> 'session_slots_free')::integer, 0)",
-              worker.capacity
-            ),
-          asc: worker.id
-        ],
-        limit: 1,
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
+    from(worker in Worker,
+      where:
+        worker.workspace_ref == ^requirements.workspace_ref and worker.state == :eligible and
+          is_nil(worker.drain_requested_at) and is_nil(worker.revoked_at) and
+          worker.last_seen_at >= ^cutoff and worker.id not in ^excluded_ids,
+      order_by: [
+        asc:
+          fragment(
+            "(SELECT count(*) FROM coop_session_placements AS placement WHERE placement.worker_id = ? AND placement.state = ANY(?))",
+            worker.id,
+            type(^current_states, {:array, :string})
+          ),
+        desc:
+          fragment(
+            "COALESCE((?::jsonb ->> 'turn_slots_free')::integer, 0)",
+            worker.capacity
+          ),
+        desc:
+          fragment(
+            "COALESCE((?::jsonb ->> 'session_slots_free')::integer, 0)",
+            worker.capacity
+          ),
+        asc: worker.id
+      ],
+      limit: 1
     )
   end
 
@@ -790,6 +802,22 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         select: coalesce(max(placement.generation), 0)
       )
     ) + 1
+  end
+
+  # A poll locks its worker and then that worker's commands and placements.
+  # Recovery and retirement locked a placement and then its worker or its
+  # commands, so a poll and either could each wait for the other
+  # (2026-10-04 review). They lock the workers holding the session's
+  # placements first, in one order, as the poll does.
+  defp lock_holding_workers(session_id) do
+    from(placement in Placement,
+      where: placement.session_id == ^session_id,
+      distinct: true,
+      order_by: placement.worker_id,
+      select: placement.worker_id
+    )
+    |> Repo.all()
+    |> Enum.each(&Shared.locked_worker/1)
   end
 
   defp current_placement(session_id) do
