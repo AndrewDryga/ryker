@@ -135,11 +135,7 @@ defmodule Ryker.Slack.TaskCardDetails do
   defp length_of(lines), do: lines |> Enum.join("\n") |> String.length()
 
   defp stages?(stages) when is_list(stages) do
-    Enum.map(stages, & &1["stage"]) in [
-      TaskStages.stages(),
-      TaskStages.stages() ++ ["unassigned"]
-    ] and
-      Enum.all?(stages, &stage?/1)
+    Enum.map(stages, & &1["stage"]) == TaskStages.stages() and Enum.all?(stages, &stage?/1)
   end
 
   defp stages?(_stages), do: false
@@ -200,7 +196,6 @@ defmodule Ryker.Slack.TaskCardDetails do
   def label("draft_pr"), do: "Draft PR"
   def label("ci"), do: "CI"
   def label("review_and_merge"), do: "Review and merge"
-  def label("unassigned"), do: "Other subtasks"
 
   @doc "A stage state's glyph, the same on the Slack card and the task's page."
   @spec glyph(String.t()) :: String.t()

@@ -8,6 +8,7 @@ defmodule Ryker.GitHub.ConfirmationsTest do
   alias Ryker.Behaviors.Behavior
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.GitHub.{Binding, Confirmations, Input}
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Records
@@ -237,12 +238,17 @@ defmodule Ryker.GitHub.ConfirmationsTest do
     assert {:ok, claim} = Custody.claim_next("github-confirmation", 60, :work)
 
     assert {:ok, task} =
-             Records.create(Records.token(claim.turn), "github-task", "task_offer", %{
-               "kind" => "engineering",
-               "prompt" => "Implement the GitHub adapter and run focused tests.",
-               "repository" => "ryker",
-               "title" => "Complete the GitHub adapter"
-             })
+             Records.create(
+               Records.token(claim.turn),
+               "github-task",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "engineering",
+                 "prompt" => "Implement the GitHub adapter and run focused tests.",
+                 "repository" => "ryker",
+                 "title" => "Complete the GitHub adapter"
+               })
+             )
 
     assert {:ok, memory} =
              Records.create(Records.token(claim.turn), "github-memory", "memory_offer", %{

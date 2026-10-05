@@ -1,6 +1,7 @@
 defmodule Ryker.GitHub.RendererTest do
   use ExUnit.Case, async: true
 
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.GitHub.Renderer
 
   test "event-only waits do not crash a visible reply or expose internal instructions" do
@@ -292,18 +293,24 @@ defmodule Ryker.GitHub.RendererTest do
         },
         "confirmed"
       ),
-      record("task_offer", %{
-        "kind" => "engineering",
-        "prompt" => "Implement and verify the bounded retry fix.",
-        "repository" => "ryker",
-        "title" => "Fix retry reconciliation"
-      }),
-      record("task_offer", %{
-        "kind" => "incident",
-        "prompt" => "Investigate the current incident without making changes.",
-        "repository" => nil,
-        "title" => "Investigate the incident"
-      }),
+      record(
+        "task_offer",
+        TaskOffer.payload(%{
+          "kind" => "engineering",
+          "prompt" => "Implement and verify the bounded retry fix.",
+          "repository" => "ryker",
+          "title" => "Fix retry reconciliation"
+        })
+      ),
+      record(
+        "task_offer",
+        TaskOffer.payload(%{
+          "kind" => "incident",
+          "prompt" => "Investigate the current incident without making changes.",
+          "repository" => nil,
+          "title" => "Investigate the incident"
+        })
+      ),
       record("publication_offer", %{
         "body" => "The committed workspace is ready for review.",
         "title" => "Publish the retry fix"
@@ -411,12 +418,12 @@ defmodule Ryker.GitHub.RendererTest do
     invalid_record =
       record(
         "task_offer",
-        %{
+        TaskOffer.payload(%{
           "kind" => "engineering",
           "prompt" => "Do the work.",
           "repository" => "ryker",
           "title" => "Task"
-        },
+        }),
         "settled"
       )
 

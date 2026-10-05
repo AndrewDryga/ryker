@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
@@ -212,13 +213,18 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     assert {:ok, incident_offer} =
-             Records.create(Records.token(claim.turn), "lab-incident", "task_offer", %{
-               "kind" => "incident",
-               "prompt" =>
-                 "Inspect current evidence, contain impact, and report verified status.",
-               "repository" => nil,
-               "title" => "Investigate service health"
-             })
+             Records.create(
+               Records.token(claim.turn),
+               "lab-incident",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "incident",
+                 "prompt" =>
+                   "Inspect current evidence, contain impact, and report verified status.",
+                 "repository" => nil,
+                 "title" => "Investigate service health"
+               })
+             )
 
     document = %{
       "message" => "I prepared a local incident investigation for confirmation.",
@@ -936,12 +942,17 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     assert {:ok, task_offer} =
-             Records.create(Records.token(claim.turn), "lab-task", "task_offer", %{
-               "kind" => "engineering",
-               "prompt" => "Implement the approved Conversation Lab parity slice.",
-               "repository" => "ryker",
-               "title" => "Finish Lab parity"
-             })
+             Records.create(
+               Records.token(claim.turn),
+               "lab-task",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "engineering",
+                 "prompt" => "Implement the approved Conversation Lab parity slice.",
+                 "repository" => "ryker",
+                 "title" => "Finish Lab parity"
+               })
+             )
 
     assert {:ok, memory_offer} =
              Records.create(Records.token(claim.turn), "lab-memory", "memory_offer", %{

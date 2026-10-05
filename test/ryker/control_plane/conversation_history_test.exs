@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
@@ -711,12 +712,17 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
              )
 
     assert {:ok, task_offer} =
-             Records.create(Records.token(claim.turn), "history-task", "task_offer", %{
-               "kind" => "engineering",
-               "prompt" => "Implement bounded conversation paging.",
-               "repository" => "ryker",
-               "title" => "Finish paging"
-             })
+             Records.create(
+               Records.token(claim.turn),
+               "history-task",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "engineering",
+                 "prompt" => "Implement bounded conversation paging.",
+                 "repository" => "ryker",
+                 "title" => "Finish paging"
+               })
+             )
 
     document = %{
       "message" => "Reply 1 carries a card.",

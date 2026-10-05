@@ -1,6 +1,7 @@
 defmodule Ryker.Slack.RendererTest do
   use ExUnit.Case, async: true
 
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Slack.{Interaction, Renderer}
   alias Ryker.Work.{Recovery, TaskStages, Turn}
 
@@ -675,12 +676,13 @@ defmodule Ryker.Slack.RendererTest do
       "records" => [
         %{
           "kind" => "task_offer",
-          "payload" => %{
-            "kind" => "engineering",
-            "prompt" => "Change the parser and run focused tests.",
-            "repository" => "ryker",
-            "title" => "Fix parser retries"
-          },
+          "payload" =>
+            TaskOffer.payload(%{
+              "kind" => "engineering",
+              "prompt" => "Change the parser and run focused tests.",
+              "repository" => "ryker",
+              "title" => "Fix parser retries"
+            }),
           "ref" => "record:task_offer:abc123",
           "status" => "open"
         }
@@ -1426,12 +1428,13 @@ defmodule Ryker.Slack.RendererTest do
                "records" => [
                  %{
                    "kind" => "task_offer",
-                   "payload" => %{
-                     "kind" => "incident",
-                     "prompt" => "Coordinate this incident.",
-                     "repository" => nil,
-                     "title" => "Checkout errors"
-                   },
+                   "payload" =>
+                     TaskOffer.payload(%{
+                       "kind" => "incident",
+                       "prompt" => "Coordinate this incident.",
+                       "repository" => nil,
+                       "title" => "Checkout errors"
+                     }),
                    "ref" => "record:task_offer:def456",
                    "status" => "open"
                  }
@@ -1456,12 +1459,13 @@ defmodule Ryker.Slack.RendererTest do
 
     offer = %{
       "kind" => "task_offer",
-      "payload" => %{
-        "kind" => "incident",
-        "prompt" => "Coordinate this incident.",
-        "repository" => nil,
-        "title" => "Checkout errors"
-      },
+      "payload" =>
+        TaskOffer.payload(%{
+          "kind" => "incident",
+          "prompt" => "Coordinate this incident.",
+          "repository" => nil,
+          "title" => "Checkout errors"
+        }),
       "ref" => "record:task_offer:def456",
       "status" => "confirmed"
     }
@@ -1504,12 +1508,11 @@ defmodule Ryker.Slack.RendererTest do
                "records" => [
                  %{
                    offer
-                   | "payload" => %{
-                       "kind" => "engineering",
-                       "prompt" => "Fix it.",
-                       "repository" => "ryker",
-                       "title" => "Fix parser retries"
-                     }
+                   | "payload" =>
+                       TaskOffer.payload(%{
+                         "prompt" => "Fix it.",
+                         "title" => "Fix parser retries"
+                       })
                  }
                ]
              })
@@ -1581,6 +1584,7 @@ defmodule Ryker.Slack.RendererTest do
           "kind" => "incident",
           "prompt" => "Coordinate this incident.",
           "repository" => nil,
+          "repository_source" => nil,
           "source_refs" => ["record:evidence:dd44"],
           "success_checks" => ["Whether logs are being lost is answered"],
           "title" => "Vector logging errors"

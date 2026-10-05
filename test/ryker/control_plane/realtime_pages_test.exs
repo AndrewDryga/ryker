@@ -24,6 +24,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.SavedEntities
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Ingress.WorkProfile
   alias Ryker.{Memories, Records, Settings}
   alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRoomChangeset, IncidentRooms}
@@ -420,12 +421,17 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     source = SavedEntities.source!("slack:T123:C456")
 
     assert {:ok, offer} =
-             Records.create(Records.token(source.turn), "incident-offer", "task_offer", %{
-               "kind" => "incident",
-               "prompt" => "Investigate checkout errors.",
-               "repository" => nil,
-               "title" => "Checkout errors"
-             })
+             Records.create(
+               Records.token(source.turn),
+               "incident-offer",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "incident",
+                 "prompt" => "Investigate checkout errors.",
+                 "repository" => nil,
+                 "title" => "Checkout errors"
+               })
+             )
 
     room =
       %{

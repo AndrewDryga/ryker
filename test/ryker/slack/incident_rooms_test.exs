@@ -11,6 +11,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Repo
@@ -2637,12 +2638,13 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     assert {:ok, claim} = Custody.claim_next("worker:incident-offer", 60, :work)
 
-    payload = %{
-      "kind" => "incident",
-      "prompt" => "Investigate checkout errors and coordinate responders.",
-      "repository" => nil,
-      "title" => "Checkout errors"
-    }
+    payload =
+      TaskOffer.payload(%{
+        "kind" => "incident",
+        "prompt" => "Investigate checkout errors and coordinate responders.",
+        "repository" => nil,
+        "title" => "Checkout errors"
+      })
 
     assert {:ok, record} =
              Records.create(Records.token(claim.turn), "incident-offer", "task_offer", payload)

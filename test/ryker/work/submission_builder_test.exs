@@ -8,6 +8,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.SavedEntities
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
   alias Ryker.Slack.SourceRef
 
@@ -550,12 +551,17 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              })
 
     assert {:ok, record} =
-             Records.create(Records.token(claim.turn), "task-1", "task_offer", %{
-               "kind" => "engineering",
-               "prompt" => "Implement the requested change and run focused tests.",
-               "repository" => "ryker",
-               "title" => "Implement requested change"
-             })
+             Records.create(
+               Records.token(claim.turn),
+               "task-1",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "engineering",
+                 "prompt" => "Implement the requested change and run focused tests.",
+                 "repository" => "ryker",
+                 "title" => "Implement requested change"
+               })
+             )
 
     assert {:ok, submission} = SubmissionBuilder.build(claim)
 

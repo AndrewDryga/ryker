@@ -279,9 +279,8 @@ defmodule Ryker.Records do
       |> Enum.reject(&MapSet.member?(superseded, &1["id"]))
       |> Enum.map(&Map.put(&1, "leaf", not MapSet.member?(parents, &1["id"])))
 
-    Map.new(@goal_stages ++ ["unassigned"], fn stage ->
-      key = if stage == "unassigned", do: nil, else: stage
-      {stage, stage_bucket(Enum.filter(current, &(&1["stage"] == key)))}
+    Map.new(@goal_stages, fn stage ->
+      {stage, stage_bucket(Enum.filter(current, &(&1["stage"] == stage)))}
     end)
   end
 

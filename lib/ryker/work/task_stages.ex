@@ -51,15 +51,15 @@ defmodule Ryker.Work.TaskStages do
     draft_pr = draft_pr(facts, stale?)
     ci = ci(facts, stale?)
 
-    ([
-       workspace,
-       planning,
-       implementation,
-       self_review,
-       draft_pr,
-       ci,
-       review_and_merge(facts, ci, stale?)
-     ] ++ unassigned(facts))
+    [
+      workspace,
+      planning,
+      implementation,
+      self_review,
+      draft_pr,
+      ci,
+      review_and_merge(facts, ci, stale?)
+    ]
     |> open_stage_at_work(facts)
     |> mark_current()
   end
@@ -377,26 +377,6 @@ defmodule Ryker.Work.TaskStages do
   defp publication_url(%Publication{pull_request_url: url}), do: url
   defp publication_url(_publication), do: nil
 
-  defp unassigned(facts) do
-    bucket = bucket(facts, "unassigned")
-    count = length(bucket["leaves"])
-
-    case bucket["goals"] do
-      [] ->
-        []
-
-      _goals ->
-        [
-          row(
-            "unassigned",
-            "unknown",
-            [detail: "#{count} #{pluralize(count, "subtask")} recorded without a stage"] ++
-              subtasks(bucket)
-          )
-        ]
-    end
-  end
-
   defp model_row(stage, facts, bucket, options \\ []) do
     state = model_state(facts, bucket)
     detail = if options[:count], do: subtask_count(bucket)
@@ -481,7 +461,6 @@ defmodule Ryker.Work.TaskStages do
 
   # Subtasks belong under the stage a reader is acting on. A completed stage
   # keeps its name and its count; its items stay in the episode's full history.
-  # The unassigned row is the exception: its list is the whole point of the row.
   # A stage waiting on a person or stopped needs attention first; otherwise the current stage is
   # the furthest one at work. A model that starts implementing before it closes its planning step
   # left the card reading "Planning" while files were being edited (Andrew, 2026-10-01).
@@ -492,7 +471,6 @@ defmodule Ryker.Work.TaskStages do
 
     Enum.map(rows, fn
       ^current -> current |> Map.put("current", true) |> mark_current_subtask()
-      %{"stage" => "unassigned"} = row -> row
       row -> %{row | "subtasks" => [], "subtasks_total" => nil}
     end)
   end
@@ -539,10 +517,8 @@ defmodule Ryker.Work.TaskStages do
 
   defp bucket(%{plan: plan}, stage), do: Map.fetch!(plan, stage)
 
-  # Goals retained without a stage are not a plan: they cannot say that
-  # planning happened, only that something was recorded before stages existed.
   defp planned?(%{plan: plan}),
-    do: Enum.any?(plan, fn {stage, bucket} -> stage != "unassigned" and bucket["goals"] != [] end)
+    do: Enum.any?(plan, fn {_stage, bucket} -> bucket["goals"] != [] end)
 
   defp unrecorded?(%{episode: %Episode{state: :complete}} = facts), do: not planned?(facts)
   defp unrecorded?(_facts), do: false
@@ -551,9 +527,6 @@ defmodule Ryker.Work.TaskStages do
     do: "#{passed}/#{total}"
 
   defp checks_detail(_followup), do: nil
-
-  defp pluralize(1, word), do: word
-  defp pluralize(_count, word), do: word <> "s"
 
   defp compact_join(values, separator \\ " "),
     do: values |> Enum.reject(&is_nil/1) |> Enum.join(separator) |> presence()

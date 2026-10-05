@@ -3,8 +3,8 @@ defmodule Ryker.Records.RecordsTest do
 
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Records
-  alias Ryker.Records.RecordChangeset
   alias Ryker.Slack.Event
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.{Custody, Validator}
@@ -225,12 +225,11 @@ defmodule Ryker.Records.RecordsTest do
     claim = claim!("typed-records")
     token = Records.token(claim.turn)
 
-    task = %{
-      "kind" => "engineering",
-      "prompt" => "Change the parser and run its focused tests.",
-      "repository" => "ryker",
-      "title" => "Fix parser retries"
-    }
+    task =
+      TaskOffer.payload(%{
+        "prompt" => "Change the parser and run its focused tests.",
+        "title" => "Fix parser retries"
+      })
 
     assert {:ok, task_record} =
              Records.create(token, "task-offer", "task_offer", task)
@@ -826,7 +825,7 @@ defmodule Ryker.Records.RecordsTest do
 
     assert %{"completed" => 0, "total" => 1} = Map.take(plan["planning"], ~w(completed total))
     assert %{"completed" => 0, "total" => 1} = Map.take(plan["self_review"], ~w(completed total))
-    assert plan["unassigned"]["goals"] == []
+    refute Map.has_key?(plan, "unassigned")
 
     # An excluded leaf leaves the denominator and is reported separately; the
     # count must never silently become 1/1.
@@ -1000,46 +999,6 @@ defmodule Ryker.Records.RecordsTest do
     assert goal["evidence_refs"] == [evidence.ref]
   end
 
-  test "historical goals without a stage stay explicitly unrecorded" do
-    # Records persisted before typed membership existed carry no stage. They
-    # must surface as unassigned, never be backfilled into a plausible stage.
-    claim = claim!("legacy-goal")
-
-    legacy = %{
-      "authority" => "read_only",
-      "completion_contract" => "Backend service endpoint health observed.",
-      "id" => "goal-1",
-      "kind" => "check",
-      "requested_outcome" => "Confirm the portal backend actually recovered",
-      "required" => true
-    }
-
-    assert {:ok, _record} =
-             %{
-               continuation: nil,
-               episode_id: claim.episode.id,
-               id: Ecto.UUID.generate(),
-               kind: "goal",
-               operation_id: "legacy-goal",
-               payload: legacy,
-               payload_fingerprint: String.duplicate("0", 64),
-               ref: "record:goal:legacy",
-               status: :open,
-               subject_ref: "goal-1",
-               turn_id: claim.turn.id
-             }
-             |> RecordChangeset.insert()
-             |> Repo.insert()
-
-    assert [%{"id" => "goal-1", "stage" => nil, "state" => "ready"}] =
-             Records.goals(claim.episode.id)
-
-    plan = Records.plan(claim.episode.id)
-    assert Enum.map(plan["unassigned"]["goals"], & &1["id"]) == ["goal-1"]
-    assert plan["implementation"]["goals"] == []
-    assert plan["implementation"]["total"] == 0
-  end
-
   test "investigation relationships cannot cite missing or contradictory host records" do
     claim = claim!("investigation-relationships")
     token = Records.token(claim.turn)
@@ -1138,14 +1097,7 @@ defmodule Ryker.Records.RecordsTest do
     claim
   end
 
-  defp task_payload do
-    %{
-      "kind" => "engineering",
-      "prompt" => "Make the requested repository change.",
-      "repository" => "ryker",
-      "title" => "Implement the change"
-    }
-  end
+  defp task_payload, do: TaskOffer.payload()
 
   defp goal(id, overrides \\ %{}) do
     Map.merge(

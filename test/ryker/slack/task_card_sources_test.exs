@@ -4,6 +4,7 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.TaskOffer
 
   alias Ryker.Slack.{
     InteractionAudit,
@@ -182,12 +183,17 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
     assert :ok = KnowledgeSnapshot.expose(task, if(owner == :progress, do: [document], else: []))
 
     assert {:ok, offered} =
-             Records.create(Records.token(producer.turn), "captured-task", "task_offer", %{
-               "kind" => "engineering",
-               "repository" => "tenant-infra",
-               "title" => @captured["arguments"]["subject"],
-               "prompt" => @captured["arguments"]["observation"]
-             })
+             Records.create(
+               Records.token(producer.turn),
+               "captured-task",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "engineering",
+                 "repository" => "tenant-infra",
+                 "title" => @captured["arguments"]["subject"],
+                 "prompt" => @captured["arguments"]["observation"]
+               })
+             )
 
     offer =
       offered

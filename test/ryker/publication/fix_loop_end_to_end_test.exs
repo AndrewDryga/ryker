@@ -15,6 +15,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
   alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.{Dispatcher, Publication}
@@ -223,16 +224,21 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert :ok = KnowledgeSnapshot.expose(claim, [])
 
     assert {:ok, offer} =
-             Records.create(Records.token(claim.turn), "parser-task", "task_offer", %{
-               "authority_limits" => ["Only change parser-owned files."],
-               "instruction_ref" => "slack-message:fix-loop-e2e",
-               "kind" => "engineering",
-               "prompt" => "Fix parser retry handling and run focused tests.",
-               "repository" => "ryker",
-               "source_refs" => ["slack-message:fix-loop-e2e"],
-               "success_checks" => ["The parser retry regression passes."],
-               "title" => "Fix parser retries"
-             })
+             Records.create(
+               Records.token(claim.turn),
+               "parser-task",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "authority_limits" => ["Only change parser-owned files."],
+                 "instruction_ref" => "slack-message:fix-loop-e2e",
+                 "kind" => "engineering",
+                 "prompt" => "Fix parser retry handling and run focused tests.",
+                 "repository" => "ryker",
+                 "source_refs" => ["slack-message:fix-loop-e2e"],
+                 "success_checks" => ["The parser retry regression passes."],
+                 "title" => "Fix parser retries"
+               })
+             )
 
     {:ok, offer_api} = FakeWorkCoopAPI.start_link([task_offer_reply(offer.ref)])
     assert {:ok, _accepted} = Executor.run(claim, executor_options(offer_api))

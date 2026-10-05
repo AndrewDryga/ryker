@@ -47,7 +47,11 @@ defmodule Ryker.Records.RecordPayload do
   def prepare(_kind, _payload, _ref), do: {:error, {:invalid_state_record, :kind}}
 
   defp task_offer(%{} = payload) do
-    with :ok <- task_offer_fields(payload),
+    with :ok <-
+           exact_fields(
+             payload,
+             ~w(authority_limits instruction_ref kind prompt repository repository_source source_refs success_checks title)
+           ),
          :ok <- enum(payload["kind"], ~w(engineering incident), :kind),
          :ok <- text(payload["title"], 120, :title),
          # The brief with its checks, limits and sources appended; the whole
@@ -63,22 +67,6 @@ defmodule Ryker.Records.RecordPayload do
 
   defp task_offer(_payload), do: {:error, {:invalid_state_record, :payload}}
 
-  # Older offers predate structured authority and source selection; their exact
-  # shapes stay readable. New offers always carry repository_source, null when
-  # the worker chose nothing.
-  defp task_offer_fields(payload) do
-    base = ~w(kind prompt repository title)
-
-    structured =
-      ~w(authority_limits instruction_ref kind prompt repository source_refs success_checks title)
-
-    sourced = ["repository_source" | structured]
-
-    if Enum.sort(Map.keys(payload)) in Enum.map([base, structured, sourced], &Enum.sort/1),
-      do: :ok,
-      else: {:error, {:invalid_state_record, :fields}}
-  end
-
   defp task_repository_source(_repository, nil), do: :ok
 
   defp task_repository_source(nil, _source),
@@ -91,15 +79,13 @@ defmodule Ryker.Records.RecordPayload do
     end
   end
 
-  defp task_offer_authority(%{"success_checks" => checks} = payload) do
-    with :ok <- text_list(checks, 1, 20, 1_000, :success_checks),
+  defp task_offer_authority(payload) do
+    with :ok <- text_list(payload["success_checks"], 1, 20, 1_000, :success_checks),
          :ok <- text_list(payload["authority_limits"], 1, 20, 500, :authority_limits),
          :ok <- reference(payload["instruction_ref"], :instruction_ref) do
       reference_list(payload["source_refs"], 20, :source_refs)
     end
   end
-
-  defp task_offer_authority(_without_authority), do: :ok
 
   defp publication_offer(%{} = payload) do
     with :ok <- exact_fields(payload, ~w(body title)),

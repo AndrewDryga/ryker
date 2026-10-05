@@ -8,6 +8,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
   alias Ryker.{Episodes, Repo}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Operator.Failures
   alias Ryker.Records
   alias Ryker.Slack.{TaskCard, TaskCards, TaskCardWorker}
@@ -285,12 +286,17 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     task = claim!("#{suffix}-task")
 
     assert {:ok, offered} =
-             Records.create(Records.token(producer.turn), "task-#{suffix}", "task_offer", %{
-               "kind" => "engineering",
-               "repository" => "ryker",
-               "title" => "Cap the card retries",
-               "prompt" => "Stop editing a message Slack says is gone."
-             })
+             Records.create(
+               Records.token(producer.turn),
+               "task-#{suffix}",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "engineering",
+                 "repository" => "ryker",
+                 "title" => "Cap the card retries",
+                 "prompt" => "Stop editing a message Slack says is gone."
+               })
+             )
 
     offer =
       offered

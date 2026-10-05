@@ -24,6 +24,7 @@ defmodule Ryker.Delivery.DispatcherTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Input, as: IngressInput
   alias Ryker.Operator.Delivery, as: DeliveryOperator
@@ -193,12 +194,11 @@ defmodule Ryker.Delivery.DispatcherTest do
   end
 
   test "a cited task offer is materialized from the owning episode for platform rendering" do
-    task = %{
-      "kind" => "engineering",
-      "prompt" => "Change the parser and run focused tests.",
-      "repository" => "ryker",
-      "title" => "Fix parser retries"
-    }
+    task =
+      TaskOffer.payload(%{
+        "prompt" => "Change the parser and run focused tests.",
+        "title" => "Fix parser retries"
+      })
 
     accepted = delivery_pending!("task-offer", task_offer: task)
     {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)

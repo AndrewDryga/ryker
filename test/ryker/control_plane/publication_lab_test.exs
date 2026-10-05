@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
   alias Ryker.ControlPlane.{Actions, ConversationProjection, Publisher}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.{Changeset, Publication}
@@ -543,12 +544,17 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     claim = bind_claim!(claim, "task-offer")
 
     assert {:ok, task_offer} =
-             Records.create(Records.token(claim.turn), "task-offer", "task_offer", %{
-               "kind" => "engineering",
-               "prompt" => "Implement the approved Conversation Lab parity change.",
-               "repository" => "ryker",
-               "title" => "Finish Conversation Lab parity"
-             })
+             Records.create(
+               Records.token(claim.turn),
+               "task-offer",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "engineering",
+                 "prompt" => "Implement the approved Conversation Lab parity change.",
+                 "repository" => "ryker",
+                 "title" => "Finish Conversation Lab parity"
+               })
+             )
 
     settle_claim!(
       claim,

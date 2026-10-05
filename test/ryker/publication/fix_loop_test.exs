@@ -17,6 +17,7 @@ defmodule Ryker.Publication.FixLoopTest do
   alias Ryker.Artifacts
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.Custody, as: PublicationCustody
@@ -473,12 +474,17 @@ defmodule Ryker.Publication.FixLoopTest do
     claim = claim_episode!(suffix)
 
     assert {:ok, task} =
-             Records.create(Records.token(claim.turn), "task-#{suffix}", "task_offer", %{
-               "kind" => "engineering",
-               "prompt" => "Implement #{suffix} and run the focused checks.",
-               "repository" => "ryker",
-               "title" => "Implement #{suffix}"
-             })
+             Records.create(
+               Records.token(claim.turn),
+               "task-#{suffix}",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "engineering",
+                 "prompt" => "Implement #{suffix} and run the focused checks.",
+                 "repository" => "ryker",
+                 "title" => "Implement #{suffix}"
+               })
+             )
 
     settle_turn!(claim, suffix, "offer", [task.ref])
 

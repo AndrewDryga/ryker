@@ -728,20 +728,6 @@ defmodule Ryker.Work.TaskStagesTest do
     assert row(TaskStages.build(passed), "self_review")["detail"] == nil
   end
 
-  test "historical goals without a stage are listed as unassigned, never backfilled" do
-    rows =
-      TaskStages.build(
-        facts(plan: plan([goal("goal-1", nil, "completed"), goal("goal-2", nil, "completed")]))
-      )
-
-    assert Enum.map(rows, & &1["stage"]) == @stages ++ ["unassigned"]
-    unassigned = List.last(rows)
-    assert unassigned["state"] == "unknown"
-    assert unassigned["detail"] == "2 subtasks recorded without a stage"
-    assert Enum.map(unassigned["subtasks"], & &1["id"]) == ~w(goal-1 goal-2)
-    assert row(rows, "implementation")["detail"] == nil
-  end
-
   defp row(rows, stage), do: Enum.find(rows, &(&1["stage"] == stage))
 
   # A turn the host blocked before any worker turn was bound: no session id, no

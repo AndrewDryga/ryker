@@ -9,6 +9,7 @@ defmodule Ryker.Records.TaskOffersTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Publication.Changeset
   alias Ryker.Repo
 
@@ -61,13 +62,15 @@ defmodule Ryker.Records.TaskOffersTest do
     assert confirmation.session.policy_digest == @policy_digest
     assert confirmation.session.repository_ref == "ryker"
 
+    offer = fixture.record.payload
+
     assert confirmation.session.workspace_task == %{
-             "authority_limits" => [],
-             "instruction_ref" => "",
+             "authority_limits" => offer["authority_limits"],
+             "instruction_ref" => offer["instruction_ref"],
              "offer_ref" => fixture.record.ref,
              "prompt" => "Change the parser and run focused tests.",
-             "source_refs" => [],
-             "success_checks" => ["Complete the confirmed task and run focused validation."],
+             "source_refs" => offer["source_refs"],
+             "success_checks" => offer["success_checks"],
              "title" => "Fix parser retries"
            }
 
@@ -1137,7 +1140,7 @@ defmodule Ryker.Records.TaskOffersTest do
                    Records.token(claim.turn),
                    "task-offer-#{index}",
                    "task_offer",
-                   payload
+                   TaskOffer.payload(payload)
                  )
 
         record
@@ -1255,12 +1258,10 @@ defmodule Ryker.Records.TaskOffersTest do
   end
 
   defp default_task_offer do
-    %{
-      "kind" => "engineering",
+    TaskOffer.payload(%{
       "prompt" => "Change the parser and run focused tests.",
-      "repository" => "ryker",
       "title" => "Fix parser retries"
-    }
+    })
   end
 
   defp sourced_task_offer(repository, repository_source) do

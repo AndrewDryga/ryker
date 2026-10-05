@@ -6,6 +6,7 @@ defmodule Ryker.Slack.IncidentRoomsConcurrencyTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
@@ -194,12 +195,17 @@ defmodule Ryker.Slack.IncidentRoomsConcurrencyTest do
     assert {:ok, claim} = Custody.claim_next("worker:incident-race:#{episode_id}", 60, :work)
 
     assert {:ok, record} =
-             Records.create(Records.token(claim.turn), "incident-offer", "task_offer", %{
-               "kind" => "incident",
-               "prompt" => "Investigate checkout errors and coordinate responders.",
-               "repository" => nil,
-               "title" => "Checkout errors"
-             })
+             Records.create(
+               Records.token(claim.turn),
+               "incident-offer",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "incident",
+                 "prompt" => "Investigate checkout errors and coordinate responders.",
+                 "repository" => nil,
+                 "title" => "Checkout errors"
+               })
+             )
 
     assert {:ok, submission} = SubmissionBuilder.build(claim)
 

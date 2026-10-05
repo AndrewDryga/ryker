@@ -1,6 +1,7 @@
 defmodule Ryker.Records.RecordPayloadTest do
   use ExUnit.Case, async: true
 
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Records.RecordPayload
 
   test "a reusable question freezes the fact and its applicability, not a global default" do
@@ -148,24 +149,24 @@ defmodule Ryker.Records.RecordPayloadTest do
 
     assert RecordPayload.prepare(
              "task_offer",
-             %{
+             TaskOffer.payload(%{
                "kind" => "incident",
                "prompt" => "Investigate.",
                "repository" => "unsafe/repository",
                "title" => "Incident"
-             },
+             }),
              "record:1"
            ) == {:error, {:invalid_state_record, :repository}}
 
     assert {:ok, _prepared} =
              RecordPayload.prepare(
                "task_offer",
-               %{
+               TaskOffer.payload(%{
                  "kind" => "incident",
                  "prompt" => "Investigate.",
                  "repository" => "ryker",
                  "title" => "Incident"
-               },
+               }),
                "record:1"
              )
 
@@ -199,6 +200,7 @@ defmodule Ryker.Records.RecordPayloadTest do
       "kind" => "engineering",
       "prompt" => "Change the parser without widening its authority.",
       "repository" => "ryker",
+      "repository_source" => nil,
       "source_refs" => ["artifact:incident:1"],
       "success_checks" => ["focused tests pass", "retry remains idempotent"],
       "title" => "Fix parser retries"
@@ -493,12 +495,10 @@ defmodule Ryker.Records.RecordPayloadTest do
     assert {:ok, _prepared} =
              RecordPayload.prepare(
                "task_offer",
-               %{
-                 "kind" => "engineering",
+               TaskOffer.payload(%{
                  "prompt" => String.duplicate("x", 12_000),
-                 "repository" => "ryker",
                  "title" => String.duplicate("t", 120)
-               },
+               }),
                "record:1"
              )
 
@@ -506,13 +506,26 @@ defmodule Ryker.Records.RecordPayloadTest do
 
     assert RecordPayload.prepare(
              "task_offer",
-             %{
-               "kind" => "engineering",
-               "prompt" => invalid_utf8,
-               "repository" => "ryker",
-               "title" => "Invalid"
-             },
+             TaskOffer.payload(%{"prompt" => invalid_utf8, "title" => "Invalid"}),
              "record:1"
            ) == {:error, {:invalid_state_record, :prompt}}
+  end
+
+  # Offers once came in three shapes, and every one was still accepted from a new turn, though
+  # only the task tool writes offers and it always writes the newest (2026-10-04 review; every
+  # live offer has it).
+  test "a task offer in a shape Ryker no longer writes is refused" do
+    current = TaskOffer.payload()
+
+    for older <- [
+          Map.take(current, ~w(kind prompt repository title)),
+          Map.delete(current, "repository_source")
+        ] do
+      assert RecordPayload.prepare("task_offer", older, "record:task_offer:1") ==
+               {:error, {:invalid_state_record, :fields}}
+    end
+
+    assert {:ok, %{payload: ^current}} =
+             RecordPayload.prepare("task_offer", current, "record:task_offer:1")
   end
 end

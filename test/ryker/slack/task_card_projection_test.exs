@@ -7,6 +7,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, FollowupChangeset, Followups, LifecycleEvent}
   alias Ryker.Records
@@ -38,11 +39,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:question-link",
-      payload: %{
-        "title" => "Link the question",
-        "repository" => "ryker",
-        "prompt" => "Ask something answerable."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Link the question",
+          "repository" => "ryker",
+          "prompt" => "Ask something answerable."
+        })
     }
 
     assert {:ok, without} = TaskCardProjection.build(source)
@@ -73,11 +75,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: now,
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:named-repository",
-      payload: %{
-        "title" => "Fix the diagnostic log access",
-        "repository" => "andrewdryga-emisar",
-        "prompt" => "Fix it."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Fix the diagnostic log access",
+          "repository" => "andrewdryga-emisar",
+          "prompt" => "Fix it."
+        })
     }
 
     assert {:ok, projection} = TaskCardProjection.build(source)
@@ -119,7 +122,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:request-only",
-      payload: %{"title" => "Fix log access", "repository" => "acme-api", "prompt" => prompt}
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Fix log access",
+          "repository" => "acme-api",
+          "prompt" => prompt
+        })
     }
 
     assert {:ok, projection} = TaskCardProjection.build(source)
@@ -139,11 +147,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:queued",
-      payload: %{
-        "title" => "Wait for a worker",
-        "repository" => "ryker",
-        "prompt" => "Do the thing once a worker is free."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Wait for a worker",
+          "repository" => "ryker",
+          "prompt" => "Do the thing once a worker is free."
+        })
     }
 
     assert {:ok, projection} = TaskCardProjection.build(source)
@@ -177,11 +186,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:details",
-      payload: %{
-        "title" => "Retained portal investigation",
-        "repository" => "emisar",
-        "prompt" => @records["portal_goals"]["goals"] |> hd() |> Map.fetch!("requested_outcome")
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Retained portal investigation",
+          "repository" => "emisar",
+          "prompt" => @records["portal_goals"]["goals"] |> hd() |> Map.fetch!("requested_outcome")
+        })
     }
 
     {:ok, before} = TaskCardProjection.build(source)
@@ -315,11 +325,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:branch-fact",
-      payload: %{
-        "title" => "Name the blocked branch",
-        "repository" => "ryker",
-        "prompt" => "Name the blocked branch on the card."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Name the blocked branch",
+          "repository" => "ryker",
+          "prompt" => "Name the blocked branch on the card."
+        })
     }
 
     assert {:ok, projection} = TaskCardProjection.build(source)
@@ -350,11 +361,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:closed-session-card",
-      payload: %{
-        "title" => "Implement closed-session-card",
-        "repository" => "ryker",
-        "prompt" => "Implement the change."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Implement closed-session-card",
+          "repository" => "ryker",
+          "prompt" => "Implement the change."
+        })
     }
 
     assert {:ok, projection} = TaskCardProjection.build(source)
@@ -392,11 +404,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:refused-grant-card",
-      payload: %{
-        "title" => "Implement refused-grant-card",
-        "repository" => "ryker",
-        "prompt" => "Implement the change."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Implement refused-grant-card",
+          "repository" => "ryker",
+          "prompt" => "Implement the change."
+        })
     }
 
     assert {:ok, projection} = TaskCardProjection.build(source)
@@ -450,12 +463,13 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:changed-on-github",
-      payload: %{
-        "kind" => "engineering",
-        "title" => "Implement changed-on-github",
-        "repository" => "ryker",
-        "prompt" => "Implement the change."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "kind" => "engineering",
+          "title" => "Implement changed-on-github",
+          "repository" => "ryker",
+          "prompt" => "Implement the change."
+        })
     }
 
     assert {:ok, projection} = TaskCardProjection.build(source)
@@ -496,11 +510,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:no-checks-card",
-      payload: %{
-        "title" => "Implement no-checks-card",
-        "repository" => "ryker",
-        "prompt" => "Implement the change."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Implement no-checks-card",
+          "repository" => "ryker",
+          "prompt" => "Implement the change."
+        })
     }
 
     assert {:ok, projection} = TaskCardProjection.build(source)
@@ -531,11 +546,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:unstarted-checks-card",
-      payload: %{
-        "title" => "Implement unstarted-checks-card",
-        "repository" => "ryker",
-        "prompt" => "Implement the change."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Implement unstarted-checks-card",
+          "repository" => "ryker",
+          "prompt" => "Implement the change."
+        })
     }
 
     assert {:ok, projection} = TaskCardProjection.build(source)
@@ -570,11 +586,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
         confirmed_at: DateTime.utc_now(),
         confirmed_by_actor_ref: "slack:user:U1",
         ref: "task-card:#{suffix}",
-        payload: %{
-          "title" => "Implement in-flight",
-          "repository" => "ryker",
-          "prompt" => "Implement the change."
-        }
+        payload:
+          TaskOffer.payload(%{
+            "title" => "Implement in-flight",
+            "repository" => "ryker",
+            "prompt" => "Implement the change."
+          })
       }
 
       assert {:ok, projection} = TaskCardProjection.build(source)
@@ -607,11 +624,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:discard-while-checking",
-      payload: %{
-        "title" => "Implement discard-while-checking",
-        "repository" => "ryker",
-        "prompt" => "Implement the change."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Implement discard-while-checking",
+          "repository" => "ryker",
+          "prompt" => "Implement the change."
+        })
     }
 
     assert {:ok, projection} = TaskCardProjection.build(source)
@@ -638,11 +656,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:stopped-task",
-      payload: %{
-        "title" => "Fix parser retries",
-        "repository" => "ryker",
-        "prompt" => "Make the parser retry safely."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Fix parser retries",
+          "repository" => "ryker",
+          "prompt" => "Make the parser retry safely."
+        })
     }
 
     {1, _rows} =
@@ -683,11 +702,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:stage-facts",
-      payload: %{
-        "title" => "Implement stage facts",
-        "repository" => "ryker",
-        "prompt" => "Make imports restart-safe."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Implement stage facts",
+          "repository" => "ryker",
+          "prompt" => "Make imports restart-safe."
+        })
     }
 
     assert {:ok, published} = TaskCardProjection.build(source)
@@ -761,11 +781,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:closed-on-github",
-      payload: %{
-        "title" => "Bump the runner",
-        "repository" => "ryker",
-        "prompt" => "Update the runner to the latest release."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Bump the runner",
+          "repository" => "ryker",
+          "prompt" => "Update the runner to the latest release."
+        })
     }
 
     {:ok, _followup} =
@@ -844,11 +865,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:unrun-gate",
-      payload: %{
-        "title" => "Bump the hosted runner",
-        "repository" => "ryker",
-        "prompt" => "Bump the internal hosted runner from 0.23.1 to 0.27.0."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Bump the hosted runner",
+          "repository" => "ryker",
+          "prompt" => "Bump the internal hosted runner from 0.23.1 to 0.27.0."
+        })
     }
 
     assert {:ok, opened} = TaskCardProjection.build(source)
@@ -931,11 +953,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:long-gate-error",
-      payload: %{
-        "title" => "Bump the hosted runner",
-        "repository" => "ryker",
-        "prompt" => "Bump the internal hosted runner from 0.23.1 to 0.27.0."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Bump the hosted runner",
+          "repository" => "ryker",
+          "prompt" => "Bump the internal hosted runner from 0.23.1 to 0.27.0."
+        })
     }
 
     assert {:ok, opened} = TaskCardProjection.build(source)
@@ -975,11 +998,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       confirmed_at: DateTime.utc_now(),
       confirmed_by_actor_ref: "slack:user:U1",
       ref: "task-card:held-draft",
-      payload: %{
-        "title" => "Bump the hosted runner",
-        "repository" => "ryker",
-        "prompt" => "Bump the internal hosted runner from 0.23.1 to 0.27.0."
-      }
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Bump the hosted runner",
+          "repository" => "ryker",
+          "prompt" => "Bump the internal hosted runner from 0.23.1 to 0.27.0."
+        })
     }
 
     assert {:ok, projection} = TaskCardProjection.build(source)

@@ -3,6 +3,7 @@ defmodule Ryker.Delivery.ChatCardTest do
 
   alias Ryker.ControlPlane.HTML
   alias Ryker.Delivery.ChatCard
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Publication.Publication
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
@@ -573,12 +574,12 @@ defmodule Ryker.Delivery.ChatCardTest do
   test "every source-neutral Slack-equivalent record has a typed Lab card" do
     cases = [
       {"task_offer",
-       %{
+       TaskOffer.payload(%{
          "kind" => "incident",
          "prompt" => "Investigate the alert.",
          "repository" => nil,
          "title" => "Investigate API health"
-       }, "Local incident", :open_incident},
+       }), "Local incident", :open_incident},
       {"publication_offer",
        %{"body" => "Publish only after review.", "title" => "Review the patch"},
        "Publication review", :review_publication},
@@ -765,12 +766,12 @@ defmodule Ryker.Delivery.ChatCardTest do
     assert ChatCard.project(
              record(
                "task_offer",
-               %{
+               TaskOffer.payload(%{
                  "kind" => "engineering",
                  "prompt" => "A task whose child episode is unavailable.",
                  "repository" => "ryker",
                  "title" => "Unavailable task"
-               },
+               }),
                :confirmed
              )
            ) == :ignore

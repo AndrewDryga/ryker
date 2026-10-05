@@ -148,15 +148,12 @@ defmodule Ryker.Records.TaskOffers do
     payload = record.payload
 
     %{
-      "authority_limits" => Map.get(payload, "authority_limits", []),
-      "instruction_ref" => Map.get(payload, "instruction_ref", ""),
+      "authority_limits" => payload["authority_limits"],
+      "instruction_ref" => payload["instruction_ref"],
       "offer_ref" => record.ref,
       "prompt" => payload["prompt"],
-      "source_refs" => Map.get(payload, "source_refs", []),
-      "success_checks" =>
-        Map.get(payload, "success_checks", [
-          "Complete the confirmed task and run focused validation."
-        ]),
+      "source_refs" => payload["source_refs"],
+      "success_checks" => payload["success_checks"],
       "title" => payload["title"]
     }
   end

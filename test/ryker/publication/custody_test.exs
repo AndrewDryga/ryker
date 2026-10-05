@@ -9,6 +9,7 @@ defmodule Ryker.Publication.CustodyTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Observability
   alias Ryker.Operator.Publication, as: PublicationOperator
@@ -2246,12 +2247,17 @@ defmodule Ryker.Publication.CustodyTest do
 
   defp task_offer!(claim, suffix, repository) do
     assert {:ok, task} =
-             Records.create(Records.token(claim.turn), "task-#{suffix}", "task_offer", %{
-               "kind" => "engineering",
-               "prompt" => "Implement #{suffix} and run the focused checks.",
-               "repository" => repository,
-               "title" => "Implement #{suffix}"
-             })
+             Records.create(
+               Records.token(claim.turn),
+               "task-#{suffix}",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "engineering",
+                 "prompt" => "Implement #{suffix} and run the focused checks.",
+                 "repository" => repository,
+                 "title" => "Implement #{suffix}"
+               })
+             )
 
     task
   end
