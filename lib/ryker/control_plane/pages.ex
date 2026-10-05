@@ -169,7 +169,7 @@ defmodule Ryker.ControlPlane.Pages do
 
   def page(["repositories"], params, options) do
     view = RepositoriesPage.view(params)
-    items = options.projection.repositories.(%{"q" => view.q})
+    %{items: items, total: total} = options.projection.repositories.(%{"q" => view.q})
     # Adding repositories needs a working GitHub App; until then the status
     # line above the list is the one way forward, not a second prompt.
     connected = match?({:ok, %{github_connection: :ready}}, settings(options))
@@ -178,7 +178,13 @@ defmodule Ryker.ControlPlane.Pages do
       ok(
         "Repositories",
         "Code Ryker can read and work in.",
-        RepositoriesPage.html(%{items: items, view: view, now: nil, connected: connected})
+        RepositoriesPage.html(%{
+          items: items,
+          total: total,
+          view: view,
+          now: nil,
+          connected: connected
+        })
       )
 
     if connected,

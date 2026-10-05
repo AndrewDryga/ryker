@@ -748,7 +748,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     # caption above the field. The shared toolbar groups the icon, label and
     # input in one search-field while retaining the explicit label binding.
     document =
-      %{items: [], view: RepositoriesPage.view(%{}), now: nil}
+      %{items: [], total: 0, view: RepositoriesPage.view(%{}), now: nil}
       |> RepositoriesPage.html()
       |> LazyHTML.from_fragment()
 

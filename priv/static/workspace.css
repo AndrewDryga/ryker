@@ -2144,7 +2144,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
    the page, a search box beside Current and Past, a schedule's state and plain
    facts under its title, and Delete behind a "⋯" menu. */
 .schedules-view, .schedule-view, .follow-ups-view { max-width:1040px; min-width:0; }
-.ryker-app .schedule-note, .ryker-app .follow-up-note { max-width:720px; margin:12px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.ryker-app .schedule-note, .ryker-app .follow-up-note, .ryker-app .kit-list-note { max-width:720px; margin:12px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .schedule-warning { color:var(--ryker-warning); white-space:nowrap; }
 :is(.schedules-view, .schedule-view, .follow-ups-view) .entity-meta time { white-space:nowrap; }
 .ryker-app :is(.schedules-view, .follow-ups-view) .entity-meta a { color:var(--ryker-text); font-weight:500; }

@@ -82,6 +82,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   end
 
   attr(:items, :list, required: true)
+  attr(:total, :integer, required: true, doc: "How many repositories match, listed or not")
   attr(:view, :map, required: true)
   attr(:now, :any, default: nil)
   attr(:connected, :boolean, default: true)
@@ -95,7 +96,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
 
     ~H"""
     <div class="repositories-page">
-      <Kit.counts label="Repositories" items={counts(@items, @view.q)} />
+      <Kit.counts label="Repositories" items={counts(@items, @total, @view.q)} />
       <Kit.toolbar>
         <Components.filter_toolbar
           id="operator-search"
@@ -120,6 +121,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
           meta={meta(item, @now)}
         />
       </Kit.entity_list>
+      <Kit.list_note shown={length(@items)} total={@total} plural="repositories" />
       <Kit.empty
         :if={@items == [] and @view.q != ""}
         icon={:search}
@@ -251,11 +253,11 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   defp state(_observed), do: {:off, "Not added"}
 
   # How many repositories the list holds, then how many need a person.
-  defp counts(items, query) do
+  defp counts(items, total, query) do
     attention = Enum.count(items, &problem/1)
 
     [
-      Kit.list_total(length(items), {"repository", "repositories"}, query != ""),
+      Kit.list_total(total, {"repository", "repositories"}, query != ""),
       attention > 0 &&
         %{
           value: attention,

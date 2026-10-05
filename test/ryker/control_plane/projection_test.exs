@@ -1695,7 +1695,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert IncidentProjection.list(%{}) == []
     assert ScheduleProjection.list(%{}) == []
     assert ChannelDirectory.list(%{}) == []
-    assert RepositoryProjection.list(%{}) == []
+    assert RepositoryProjection.list(%{}) == %{items: [], total: 0}
     assert UsageProjection.page(%{"window" => "24h"}).performance == []
 
     assert IncidentProjection.fetch("missing") == :not_found
@@ -1705,11 +1705,41 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert IncidentProjection.list(:invalid) == []
     assert ScheduleProjection.list(:invalid) == []
     assert ChannelDirectory.list(:invalid) == []
-    assert RepositoryProjection.list(:invalid) == []
+    assert RepositoryProjection.list(:invalid) == %{items: [], total: 0}
     assert UsageProjection.page(:invalid).performance == []
     assert IncidentProjection.fetch(nil) == :not_found
     assert ScheduleProjection.fetch(nil) == :not_found
     assert ChannelDetail.fetch(nil, nil, %{}) == :not_found
+  end
+
+  # The list shows a hundred repositories, and called those a hundred the
+  # total: a hundred and one read "100 repositories" (2026-10-04 review).
+  test "the Repositories list counts every repository, not only the hundred it shows" do
+    snapshot =
+      case Ryker.Settings.fetch() do
+        {:ok, snapshot} ->
+          snapshot
+
+        {:error, :settings_not_initialized} ->
+          elem(Ryker.Settings.initialize("control-plane:local"), 1)
+      end
+
+    Enum.reduce(1..101, snapshot, fn index, snapshot ->
+      name = "repo-#{String.pad_leading("#{index}", 3, "0")}"
+
+      {:ok, snapshot} =
+        Ryker.Settings.put_repository(
+          %{ref: name, display_name: "acme/#{name}", github_repository: "acme/#{name}"},
+          snapshot.installation.revision,
+          "control-plane:local"
+        )
+
+      snapshot
+    end)
+
+    assert %{items: items, total: 101} = RepositoryProjection.list(%{})
+    assert length(items) == 100
+    assert %{items: [_one], total: 1} = RepositoryProjection.list(%{"q" => "repo-101"})
   end
 
   # Andrew, 2026-09-28: "i removed repo and it stayed as not added?" The
@@ -1728,7 +1758,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
              )
 
     assert session.repository_ref == "gone"
-    assert RepositoryProjection.list(%{}) == []
+    assert RepositoryProjection.list(%{}) == %{items: [], total: 0}
     assert RepositoryProjection.fetch("gone") == :error
   end
 
@@ -2222,7 +2252,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert %{source: :incident_room, writable: "ryker"} = incident_channel.channel.environment
     refute inspect(incident_channel) =~ "private-incident-marker"
 
-    assert [%{ref: "ryker", freshness: receipt} = repository] =
+    assert %{items: [%{ref: "ryker", freshness: receipt} = repository]} =
              RepositoryProjection.list(%{"q" => "ryk"})
 
     assert repository.channels == 1

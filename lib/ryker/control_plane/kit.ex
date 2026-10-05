@@ -755,6 +755,22 @@ defmodule Ryker.ControlPlane.Kit do
   def list_total(1, {one, _many}, false), do: %{value: 1, label: one}
   def list_total(count, {_one, many}, false), do: %{value: count, label: many}
 
+  attr(:shown, :integer, required: true)
+  attr(:total, :integer, required: true)
+  attr(:plural, :string, required: true, doc: "What the list holds, such as \"repositories\"")
+
+  @doc """
+  Under a list that shows only its first rows: how many it shows of how
+  many, and how to find the rest. Nothing when the list shows them all.
+  """
+  def list_note(assigns) do
+    ~H"""
+    <p :if={@total > @shown} class="kit-list-note">
+      Showing the first {@shown} of {@total} {@plural}. Search to narrow the list.
+    </p>
+    """
+  end
+
   attr(:id, :string, default: nil)
   slot(:inner_block, required: true, doc: "The page's filter_toolbar and segmented controls")
 

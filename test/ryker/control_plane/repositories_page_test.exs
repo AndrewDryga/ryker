@@ -504,7 +504,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     page =
       Pages.page(["repositories"], %{}, %{
         projection: %{
-          repositories: fn _params -> [] end,
+          repositories: fn _params -> %{items: [], total: 0} end,
           settings: fn -> {:ok, %{github_connection: :invalid}} end
         }
       })
@@ -524,7 +524,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         projection: %{
           repositories: fn params ->
             send(parent, {:repositories, params})
-            [@repository]
+            %{items: [@repository], total: 1}
           end,
           settings: fn -> {:ok, %{github_connection: :ready}} end
         }
@@ -775,8 +775,28 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     {LazyHTML.text(state), LazyHTML.attribute(state, "data-tone")}
   end
 
+  # Past a hundred repositories the list showed a hundred and counted those
+  # as all of them (2026-10-04 review).
+  test "a list past its first hundred says how many it shows of how many" do
+    rows = for index <- 1..100, do: %{@repository | ref: "repo-#{index}"}
+
+    document =
+      %{items: rows, total: 101, view: RepositoriesPage.view(%{}), now: @now}
+      |> RepositoriesPage.html()
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.text(LazyHTML.query(document, ".kit-counts")) =~ "101"
+
+    assert LazyHTML.text(LazyHTML.query(document, ".kit-list-note")) =~
+             "Showing the first 100 of 101 repositories."
+
+    assert render(@repository) |> LazyHTML.query(".kit-list-note") |> Enum.empty?()
+  end
+
   defp render(items, params \\ %{}) do
-    %{items: List.wrap(items), view: RepositoriesPage.view(params), now: @now}
+    items = List.wrap(items)
+
+    %{items: items, total: length(items), view: RepositoriesPage.view(params), now: @now}
     |> RepositoriesPage.html()
     |> LazyHTML.from_fragment()
   end

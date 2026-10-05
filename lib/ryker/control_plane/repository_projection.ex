@@ -23,16 +23,25 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
   @list_limit 100
 
-  @doc "Every repository added to Ryker, with its environments, counts, configured work and freshness."
+  @doc """
+  The first hundred repositories added to Ryker, by name, with their
+  environments, counts, configured work and freshness, and how many there
+  are in all: past a hundred, the list called the hundred it showed the
+  total.
+  """
   def list(params) when is_map(params) do
     parts = parts(:all)
 
-    parts
-    |> refs()
-    |> filter_repository_search(Search.term(params["q"]), parts.configured)
-    |> Enum.sort()
-    |> Enum.take(@list_limit)
-    |> Enum.map(&row(&1, parts))
+    refs =
+      parts
+      |> refs()
+      |> filter_repository_search(Search.term(params["q"]), parts.configured)
+      |> Enum.sort()
+
+    %{
+      items: refs |> Enum.take(@list_limit) |> Enum.map(&row(&1, parts)),
+      total: length(refs)
+    }
   end
 
   def list(_params), do: list(%{})

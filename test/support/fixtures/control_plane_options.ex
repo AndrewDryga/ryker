@@ -945,7 +945,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
              fun
            )}
         end,
-        repositories: fn _params -> [repository_row()] end,
+        repositories: fn _params -> %{items: [repository_row()], total: 1} end,
         repository: fn
           "ryker" -> {:ok, repository_row()}
           _other -> :error

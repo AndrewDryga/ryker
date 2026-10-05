@@ -529,7 +529,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     written!(coop)
 
     assert Repo.exists?(from(session in Session, where: session.execution_kind == :knowledge))
-    assert [%{ref: "emisar", sessions: 0}] = RepositoryProjection.list(%{})
+    assert %{items: [%{ref: "emisar", sessions: 0}]} = RepositoryProjection.list(%{})
   end
 
   # The worker sleeps until the next check falls due, as a UTC DateTime,

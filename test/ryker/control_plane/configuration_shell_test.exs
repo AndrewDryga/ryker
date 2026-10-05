@@ -204,7 +204,7 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
         schedules: fn _params -> [] end,
         subscriptions: fn _params -> [] end,
         channels: fn _params -> [] end,
-        repositories: fn _params -> [] end,
+        repositories: fn _params -> %{items: [], total: 0} end,
         incidents: fn _params -> [] end,
         failures: fn _params -> {:ok, []} end,
         memory: fn _params -> %{memories: [], reviews: []} end,
