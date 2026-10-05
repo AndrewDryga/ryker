@@ -72,6 +72,13 @@ defmodule Ryker.Work.Worker do
         Logger.warning("episode work blocked: #{ErrorDetail.detail(reason)}")
         0
 
+      {:ok, {:lease_lost, reason}} ->
+        Logger.info(
+          "episode work lease ended before its outcome was saved: #{ErrorDetail.detail(reason)}"
+        )
+
+        0
+
       {:error, reason} ->
         Logger.error("episode work dispatcher failed: #{ErrorDetail.detail(reason)}")
         state.poll_interval_ms

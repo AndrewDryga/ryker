@@ -65,23 +65,25 @@ defmodule Ryker.Work.Custody.Locks do
     end
   end
 
+  # A lease that ran out, or that a stop or transfer revoked, read as a turn that was gone, and
+  # the worker's dispatcher tried to stop the turn with the lease it no longer held (2026-10-04
+  # review).
   defp leased_turn(episode_id, turn_ref, lease_ref) do
     case Repo.one(
            from(turn in Turn,
-             where:
-               turn.episode_id == ^episode_id and turn.turn_ref == ^turn_ref and
-                 turn.lease_expires_at > fragment("clock_timestamp()"),
-             lock: "FOR UPDATE"
+             where: turn.episode_id == ^episode_id and turn.turn_ref == ^turn_ref,
+             lock: "FOR UPDATE",
+             select: {turn, turn.lease_expires_at > fragment("clock_timestamp()")}
            )
          ) do
       nil ->
         {:error, :work_turn_not_found}
 
-      %Turn{status: status, lease_ref: ^lease_ref} = turn
+      {%Turn{status: status, lease_ref: ^lease_ref} = turn, true}
       when status in [:pending, :cancel_pending, :delivery_pending] ->
         {:ok, turn}
 
-      %Turn{} ->
+      {%Turn{}, _current} ->
         {:error, :work_lease_lost}
     end
   end

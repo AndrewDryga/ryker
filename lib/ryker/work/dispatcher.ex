@@ -16,7 +16,12 @@ defmodule Ryker.Work.Dispatcher do
   alias Ryker.Work.{Custody, Executor}
 
   @type result ::
-          {:ok, :idle | {:executed, map()} | {:deferred, term()} | {:blocked, term()}}
+          {:ok,
+           :idle
+           | {:executed, map()}
+           | {:deferred, term()}
+           | {:blocked, term()}
+           | {:lease_lost, term()}}
           | {:error, term()}
 
   @spec run_once(keyword()) :: result()
@@ -80,6 +85,11 @@ defmodule Ryker.Work.Dispatcher do
       {:error, {:work_host_exception, error.__struct__}}
   end
 
+  # A person stopped the turn, or its lease ran out and another worker took it. Whoever holds
+  # the turn now records what happens to it; this worker has no lease left to write with.
+  defp execution_failure(_claim, :work_lease_lost = reason, _settings),
+    do: {:ok, {:lease_lost, reason}}
+
   defp execution_failure(claim, {:work_completion_blocked, receipt, reason}, _settings),
     do: block_completion(claim, receipt, reason)
 
@@ -141,7 +151,7 @@ defmodule Ryker.Work.Dispatcher do
            error_detail
          ) do
       {:ok, _turn} -> {:ok, {:deferred, reason}}
-      {:error, defer_reason} -> {:error, {:work_dispatch_failed, reason, defer_reason}}
+      {:error, defer_reason} -> custody_failed(reason, defer_reason)
     end
   end
 
@@ -153,7 +163,7 @@ defmodule Ryker.Work.Dispatcher do
            settings.retry_base_seconds
          ) do
       {:ok, _turn} -> {:ok, {:deferred, reason}}
-      {:error, yield_reason} -> {:error, {:work_dispatch_failed, reason, yield_reason}}
+      {:error, yield_reason} -> custody_failed(reason, yield_reason)
     end
   end
 
@@ -174,7 +184,7 @@ defmodule Ryker.Work.Dispatcher do
            detail
          ) do
       {:ok, _request} -> {:ok, {:deferred, {:work_stop_pending, reason}}}
-      {:error, stop_reason} -> {:error, {:work_dispatch_failed, reason, stop_reason}}
+      {:error, stop_reason} -> custody_failed(reason, stop_reason)
     end
   end
 
@@ -192,9 +202,14 @@ defmodule Ryker.Work.Dispatcher do
            detail
          ) do
       {:ok, _turn} -> {:ok, {:blocked, reason}}
-      {:error, block_reason} -> {:error, {:work_dispatch_failed, reason, block_reason}}
+      {:error, block_reason} -> custody_failed(reason, block_reason)
     end
   end
+
+  defp custody_failed(reason, :work_lease_lost), do: {:ok, {:lease_lost, reason}}
+
+  defp custody_failed(reason, custody_reason),
+    do: {:error, {:work_dispatch_failed, reason, custody_reason}}
 
   defp attempt_count(%{status: :cancel_pending, cancel_attempt_count: count}), do: count
   defp attempt_count(turn), do: turn.work_attempt_count

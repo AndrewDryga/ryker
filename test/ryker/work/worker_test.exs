@@ -145,6 +145,40 @@ defmodule Ryker.Work.WorkerTest do
     assert_receive {:claimed, ^episode_id}, 1_500
   end
 
+  # Every stop of a running turn logged "episode work dispatcher failed" (2026-10-04 review).
+  test "a turn a person stops while it runs is handed on without an error" do
+    episode_id = create_episode!("worker-stopped")
+
+    log =
+      capture_log(fn ->
+        worker =
+          start_supervised!(
+            {Worker,
+             [
+               dispatcher_options: [
+                 executor: __MODULE__.StoppedExecutor,
+                 executor_options: [test_pid: self()],
+                 lease_seconds: 60,
+                 worker_ref: "work-worker:stopped"
+               ],
+               poll_interval_ms: 10
+             ]}
+          )
+
+        assert_receive {:stopped, ^episode_id}, 1_000
+        # Between polls, so the worker holds no connection when it is stopped: one stopped
+        # inside a transaction takes the test's shared connection with it.
+        :ok = :sys.suspend(worker)
+        assert Process.alive?(worker)
+        assert :ok = stop_supervised(Worker)
+      end)
+
+    refute log =~ "dispatcher failed"
+
+    assert %Turn{status: :cancel_pending, cancellation_intent: %{"action" => "cancel"}} =
+             Ryker.Repo.get_by!(Turn, episode_id: episode_id)
+  end
+
   test "an invalid dispatcher configuration is logged without crashing the worker" do
     log =
       capture_log(fn ->
@@ -177,6 +211,30 @@ defmodule Ryker.Work.WorkerTest do
 
       {:ok, %{episode_id: claim.episode.id}}
     end
+  end
+
+  defmodule StoppedExecutor do
+    @moduledoc false
+    alias Ryker.Work.Custody
+
+    # Stopped by a person while it runs, then makes the write a running turn makes each poll.
+    def run(%{turn: %{status: :pending}} = claim, options) do
+      {:ok, _requested} =
+        Custody.request_cancel(
+          claim.episode.id,
+          claim.episode.key,
+          claim.turn.turn_ref,
+          "cancel:worker-stopped:#{claim.turn.id}",
+          "Stopped by the operator."
+        )
+
+      result = Custody.renew(claim.episode.id, claim.turn.turn_ref, claim.lease_ref, 60)
+      send(Keyword.fetch!(options, :test_pid), {:stopped, claim.episode.id})
+      result
+    end
+
+    # The stop itself, claimed on the next poll, waits for Coop.
+    def run(_claim, _options), do: {:error, {:coop_unavailable, :simulated}}
   end
 
   defmodule BlockedExecutor do

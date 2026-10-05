@@ -277,6 +277,28 @@ defmodule Ryker.Work.CustodyTest do
     assert {:ok, nil} = Custody.claim_next("worker:b", 30)
   end
 
+  # A lease that ran out read as a turn that no longer existed, so the worker's dispatcher took
+  # the turn for gone, tried to stop it with the same spent lease and logged "dispatcher failed"
+  # (2026-10-04 review).
+  test "a worker whose lease ran out hears that it lost the lease" do
+    create_episode!("lease-expired")
+    assert {:ok, claim} = Custody.claim_next("worker:a", 30)
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id),
+      set: [lease_expires_at: ~U[2000-01-01 00:00:00.000000Z]]
+    )
+
+    assert {:error, :work_lease_lost} =
+             Custody.defer(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               1,
+               "test",
+               "the lease ran out"
+             )
+  end
+
   test "only a confirmed pre-resource failure spends an operation generation" do
     create_episode!("operation-generations")
     assert {:ok, claim} = Custody.claim_next("worker:a", 60)
@@ -415,7 +437,7 @@ defmodule Ryker.Work.CustodyTest do
     assert requested.turn.status == :cancel_pending
     assert requested.episode.owner_ref == command.turn_ref
 
-    assert {:error, :work_turn_not_found} =
+    assert {:error, :work_lease_lost} =
              Custody.freeze_submission(
                claim.episode.id,
                claim.turn.turn_ref,
@@ -423,7 +445,7 @@ defmodule Ryker.Work.CustodyTest do
                submission!(%{"request" => "stale"})
              )
 
-    assert {:error, :work_turn_not_found} =
+    assert {:error, :work_lease_lost} =
              Custody.bind_session(
                claim.episode.id,
                claim.turn.turn_ref,

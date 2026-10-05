@@ -361,7 +361,39 @@ defmodule Ryker.Work.DispatcherTest do
     assert String.ends_with?(turn.cancellation_intent["reason"], "...")
   end
 
-  test "a lost lease while recording retry is reported instead of hiding the failure" do
+  # Stopping a running turn ended its worker's lease, and every stop logged "episode work
+  # dispatcher failed": the worker's next write read the ended lease as a missing turn, and the
+  # dispatcher tried to stop the turn again with the lease it no longer held (2026-10-04 review).
+  test "a turn a person stops while it runs ends its worker's lease, not in a dispatcher failure" do
+    command = create_episode!("stopped-while-running")
+
+    before_return = fn claim ->
+      assert {:ok, _requested} =
+               Custody.request_cancel(
+                 claim.episode.id,
+                 claim.episode.key,
+                 claim.turn.turn_ref,
+                 "cancel:stopped-while-running:#{claim.turn.id}",
+                 "Stopped by the operator."
+               )
+
+      # The executor's next write with its lease, as a running turn makes one each poll.
+      assert {:error, :work_lease_lost} =
+               Custody.renew(claim.episode.id, claim.turn.turn_ref, claim.lease_ref, 60)
+    end
+
+    dispatcher_options =
+      options({:error, :work_lease_lost})
+      |> Keyword.update!(:executor_options, &Keyword.put(&1, :before_return, before_return))
+
+    assert {:ok, {:lease_lost, :work_lease_lost}} = Dispatcher.run_once(dispatcher_options)
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :cancel_pending
+    assert turn.cancellation_intent["action"] == "cancel"
+  end
+
+  test "a worker whose lease ended before it saved a retry says so instead of claiming the retry" do
     create_episode!("defer-lost-lease")
 
     before_return = fn claim ->
@@ -380,8 +412,7 @@ defmodule Ryker.Work.DispatcherTest do
       options({:error, {:coop_unavailable, :simulated}})
       |> Keyword.update!(:executor_options, &Keyword.put(&1, :before_return, before_return))
 
-    assert {:error,
-            {:work_dispatch_failed, {:coop_unavailable, :simulated}, :work_turn_not_found}} =
+    assert {:ok, {:lease_lost, {:coop_unavailable, :simulated}}} =
              Dispatcher.run_once(dispatcher_options)
   end
 
@@ -416,8 +447,7 @@ defmodule Ryker.Work.DispatcherTest do
       options({:error, reason})
       |> Keyword.update!(:executor_options, &Keyword.put(&1, :before_return, before_return))
 
-    assert {:error, {:work_dispatch_failed, ^reason, :work_lease_lost}} =
-             Dispatcher.run_once(dispatcher_options)
+    assert {:ok, {:lease_lost, ^reason}} = Dispatcher.run_once(dispatcher_options)
 
     replacement_claim = Agent.get(replacement, & &1)
     turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
