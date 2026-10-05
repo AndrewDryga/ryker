@@ -449,12 +449,42 @@ defmodule Ryker.Slack.ClientTest do
     assert FakeRequester.requests(requester) == []
   end
 
+  # Every room creation first walked the whole channel list, up to a hundred
+  # pages of a rate-limited method, starting over after each 429, though a new
+  # room's name is its own (2026-10-04 review). The list is read only when
+  # Slack says the name is taken or the create's reply was lost.
+  test "a new incident room is created without walking the channel list first" do
+    requested_at = ~U[2026-08-28 12:00:00.000000Z]
+    name = "ems-0828-checkout-5678abcd"
+
+    created = %{
+      "created" => DateTime.to_unix(requested_at),
+      "creator" => "U999BOT",
+      "id" => "CNEWROOM",
+      "is_private" => true,
+      "name" => name
+    }
+
+    {:ok, requester} = FakeRequester.start([slack(%{"channel" => created})])
+
+    assert Client.ensure_conversation(
+             client(requester),
+             "T123",
+             name,
+             true,
+             "U999BOT",
+             requested_at
+           ) ==
+             {:ok, "CNEWROOM"}
+
+    assert [{:post, "/conversations.create", _document, []}] = FakeRequester.requests(requester)
+  end
+
   test "a lost conversation-create response reconciles only the exact recent bot-created room" do
     requested_at = ~U[2026-08-28 12:00:00.000000Z]
 
     {:ok, requester} =
       FakeRequester.start([
-        slack(%{"channels" => [], "response_metadata" => %{"next_cursor" => ""}}),
         {:error, :timeout},
         slack(%{
           "channels" => [
@@ -481,8 +511,7 @@ defmodule Ryker.Slack.ClientTest do
              requested_at
            ) == {:ok, "CINCIDENT"}
 
-    assert [first_list, create, second_list] = FakeRequester.requests(requester)
-    assert {:get, "/conversations.list?" <> _, nil, []} = first_list
+    assert [create, second_list] = FakeRequester.requests(requester)
 
     assert create ==
              {:post, "/conversations.create",
@@ -1215,12 +1244,12 @@ defmodule Ryker.Slack.ClientTest do
 
     {:ok, requester} =
       FakeRequester.start([
+        {:ok, %{body: %{"error" => "name_taken", "ok" => false}, headers: [], status: 200}},
         slack(%{"channels" => [existing], "response_metadata" => %{"next_cursor" => ""}}),
-        slack(%{"channels" => [], "response_metadata" => %{"next_cursor" => ""}}),
         slack(%{"channel" => created}),
-        slack(%{"channels" => [], "response_metadata" => %{"next_cursor" => ""}}),
         {:ok, %{body: %{"error" => "name_taken", "ok" => false}, headers: [], status: 200}},
         slack(%{"channels" => [], "response_metadata" => %{"next_cursor" => ""}}),
+        {:ok, %{body: %{"error" => "name_taken", "ok" => false}, headers: [], status: 200}},
         slack(%{"channels" => [42], "response_metadata" => %{"next_cursor" => ""}})
       ])
 

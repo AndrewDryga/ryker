@@ -4,9 +4,10 @@ defmodule Ryker.Slack.Client.Rooms do
   invited into it, its topic and its pinned message; and leaving a channel
   when a person removes Ryker from it.
 
-  Creating is idempotent: the channel an earlier attempt created is found
-  before a new one is asked for, and again when the create's reply is lost or
-  Slack says the name is taken.
+  Creating is idempotent: when Slack says the name is taken, or the create's
+  reply is lost, the channel this exact request created is found instead. The
+  channel list is read only then: walked before every create, it cost up to a
+  hundred pages of a rate-limited method per room.
   Someone already in the room, or a message already pinned, is the state that
   was asked for.
   """
@@ -21,23 +22,7 @@ defmodule Ryker.Slack.Client.Rooms do
          true <- is_boolean(private),
          :ok <- Fields.slack_id(creator_ref),
          :ok <- Fields.utc_datetime(requested_at) do
-      case find_conversation(client, name, private, creator_ref, requested_at) do
-        {:ok, channel_ref} ->
-          {:ok, channel_ref}
-
-        :not_found ->
-          create_conversation(
-            client,
-            workspace_ref,
-            name,
-            private,
-            creator_ref,
-            requested_at
-          )
-
-        {:error, _reason} = error ->
-          error
-      end
+      create_conversation(client, workspace_ref, name, private, creator_ref, requested_at)
     else
       false -> {:error, {:invalid_slack_api_request, :private}}
       {:error, _reason} = error -> error
