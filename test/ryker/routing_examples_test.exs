@@ -681,7 +681,10 @@ defmodule Ryker.RoutingExamplesTest do
       assert preview.shortened_fields == [:routing_examples_enabled]
 
       assert preview.impact == %{
-               routing_examples_enabled: [%{label: "routing examples", count: 1}]
+               routing_examples_enabled: [
+                 %{label: "routing examples", count: 1},
+                 %{label: "accepted eval cases", count: 0}
+               ]
              }
 
       assert Settings.save_retention(off, revision, @actor) ==
@@ -689,6 +692,41 @@ defmodule Ryker.RoutingExamplesTest do
 
       assert {:ok, saved} = Settings.save_retention(off, revision, @actor, preview.confirmation)
       refute saved.retention.routing_examples_enabled
+    end
+
+    # An accepted eval case is kept over the routing examples window only while
+    # they are kept; turning them off returned every case accepted before the
+    # prompts limit to it, and the question counted routing examples alone
+    # (2026-10-04 review).
+    test "turning keeping routing examples off counts the eval cases it deletes" do
+      keep_examples!()
+      day = 86_400
+
+      for days <- [45, 5] do
+        decided = DateTime.add(DateTime.utc_now(), -days * day, :second)
+
+        Repo.insert!(%Ryker.Improvement.Candidate{
+          id: Ecto.UUID.generate(),
+          episode_id: Ecto.UUID.generate(),
+          request_ref: "episode:eval-case-#{days}",
+          transport: "slack",
+          conversation_ref: "slack:TEVAL:CEVAL",
+          first_signal_at: decided,
+          last_signal_at: decided,
+          status: :accepted,
+          decided_at: decided,
+          decided_by: "control-plane:local",
+          inserted_at: decided,
+          updated_at: decided
+        })
+      end
+
+      revision = Settings.fetch!().installation.revision
+
+      assert {:ok, preview} =
+               Settings.preview_retention(%{routing_examples_enabled: false}, revision)
+
+      assert %{label: "accepted eval cases", count: 1} in preview.impact.routing_examples_enabled
     end
 
     test "a routing example window outside one day to ten years is refused" do

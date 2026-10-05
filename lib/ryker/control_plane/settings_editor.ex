@@ -1520,7 +1520,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     do: %{
       title: "Stop keeping routing examples?",
       text:
-        "Turning this off deletes every routing example kept for training. They cannot be brought back.",
+        "Turning this off deletes every routing example kept for training, and every accepted eval case older than the prompts limit. They cannot be brought back.",
       label: "Stop keeping them"
     }
 
@@ -1536,7 +1536,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     do: %{
       title: "Stop keeping routing and work examples?",
       text:
-        "Turning these off deletes every routing and work example kept for training. They cannot be brought back.",
+        "Turning these off deletes every routing and work example kept for training, and every accepted eval case older than the prompts limit. They cannot be brought back.",
       label: "Stop keeping them"
     }
 

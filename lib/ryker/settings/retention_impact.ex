@@ -68,7 +68,8 @@ defmodule Ryker.Settings.RetentionImpact do
       {"settled memory reviews", [{"memory_review_items", "updated_at", "status <> 'pending'"}]}
     ],
     routing_examples_seconds: [
-      {"routing examples", [{"routing_examples", "decided_at", "forgotten_at IS NULL"}]}
+      {"routing examples", [{"routing_examples", "decided_at", "forgotten_at IS NULL"}]},
+      {"accepted eval cases", [{"improvement_candidates", "decided_at", "status = 'accepted'"}]}
     ],
     work_examples_seconds: [
       {"work examples", [{"work_examples", "settled_at", "forgotten_at IS NULL"}]}
@@ -120,9 +121,26 @@ defmodule Ryker.Settings.RetentionImpact do
 
       shorter
       |> Map.delete(:"#{kind}_seconds")
-      |> Map.put(enabled, [%{label: label, count: count}])
+      |> Map.put(enabled, [%{label: label, count: count} | also_deleted(kind, proposed)])
     else
       shorter
     end
   end
+
+  # An accepted eval case is kept over the routing examples window only while
+  # they are kept; with them off it ages at the prompts limit, and the question
+  # counted routing examples alone (2026-10-04 review).
+  defp also_deleted(:routing_examples, proposed) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM improvement_candidates WHERE status = 'accepted' " <>
+          "AND decided_at < clock_timestamp() - ($1 * interval '1 second')",
+        [Map.fetch!(proposed, :operational_data_seconds)],
+        log: false
+      )
+
+    [%{label: "accepted eval cases", count: count}]
+  end
+
+  defp also_deleted(_kind, _proposed), do: []
 end
