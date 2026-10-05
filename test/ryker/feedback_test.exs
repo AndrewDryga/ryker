@@ -48,7 +48,7 @@ defmodule Ryker.FeedbackTest do
 
   test "each signal lands in the category the Feedback page groups it by, frustrated first" do
     assert Signal.categories() ==
-             [:frustrated, :asked_again, :edited, :neutral, :satisfied, :reviewed]
+             [:frustrated, :asked_again, :edited, :neutral, :satisfied]
 
     for {kind, value, category} <- [
           {:sentiment, "angry", :frustrated},
@@ -67,7 +67,8 @@ defmodule Ryker.FeedbackTest do
           {:asked_again, nil, :asked_again},
           {:message_edited, nil, :edited},
           {:message_deleted, nil, :edited},
-          {:reviewed, "complete", :reviewed}
+          {:reviewed, "good", :satisfied},
+          {:reviewed, "needs_work", :frustrated}
         ] do
       assert Feedback.category(kind, value) == category,
              "#{kind} #{inspect(value)} should be #{category}"
@@ -128,6 +129,9 @@ defmodule Ryker.FeedbackTest do
           {%{base | value: "happy"}, :value},
           {%{base | value: nil}, :value},
           {%{base | kind: :reviewed}, :value},
+          # A review is a rating. Reviews of how a request ended stopped when ratings began
+          # (2026-09-29), and the category only they filled went with them (2026-10-04 review).
+          {%{base | kind: :reviewed, value: "complete"}, :value},
           {%{base | kind: :asked_again}, :value},
           {%{base | kind: :reaction_added, value: "Thumbs Up!"}, :value},
           {%{base | kind: :applauded}, :kind},

@@ -269,7 +269,6 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   def label(:edited), do: "Edited or deleted"
   def label(:neutral), do: "Neutral"
   def label(:satisfied), do: "Satisfied"
-  def label(:reviewed), do: "Reviewed"
 
   @doc "What a category holds, in one sentence."
   @spec lede(atom()) :: String.t()
@@ -285,8 +284,6 @@ defmodule Ryker.ControlPlane.FeedbackPage do
 
   def lede(:satisfied),
     do: "People who said or showed that an answer helped, or rated the request as going well."
-
-  def lede(:reviewed), do: "Requests marked reviewed before they could be rated, with the notes."
 
   @doc "A signal's state: a dot and a word, with what it means on hover."
   @spec state(map()) :: {atom(), String.t(), String.t()}
@@ -320,9 +317,6 @@ defmodule Ryker.ControlPlane.FeedbackPage do
       {:bad, "Needs work",
        "Someone rated how this request went; Ryker works out what went wrong under Self-improvement."}
 
-  def state(%{kind: :reviewed, value: ending}),
-    do: {:off, "Reviewed", "Someone marked how this request #{ending_words(ending)} as reviewed."}
-
   @doc "What a signal is, as a card's heading on the request's Timeline."
   @spec title(map()) :: String.t()
   def title(%{kind: :sentiment}), do: "How they felt about the answer"
@@ -333,7 +327,6 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   def title(%{kind: :message_deleted}), do: "Deleted their message after the answer"
   def title(%{kind: :reviewed, value: "good"}), do: "Rated: went well"
   def title(%{kind: :reviewed, value: "needs_work"}), do: "Rated: needs work"
-  def title(%{kind: :reviewed}), do: "Ending reviewed"
 
   @doc "What a signal says, in a sentence: the reason or note, or what the person did."
   @spec text(map()) :: String.t() | nil
@@ -350,18 +343,12 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   def text(%{kind: :reviewed, value: "needs_work"}),
     do: "Rated how this request went: it needs work."
 
-  def text(%{kind: :reviewed, value: ending}),
-    do: "Marked how the request #{ending_words(ending)} as reviewed."
-
   @doc "The icon a signal's tile carries: what kind of thing it is."
   @spec icon(map()) :: atom()
   def icon(%{kind: kind}) when kind in [:reaction_added, :reaction_removed], do: :smile
   def icon(%{kind: kind}) when kind in [:message_edited, :message_deleted], do: :pen
   def icon(%{kind: :reviewed}), do: :check
   def icon(%{kind: _sentiment_or_asked_again}), do: :chat
-
-  defp ending_words("cancelled"), do: "was stopped"
-  defp ending_words(_complete), do: "ended"
 
   defp feeling_tone(feeling) when feeling in ["frustrated", "angry"], do: :bad
   defp feeling_tone("satisfied"), do: :on
@@ -374,7 +361,6 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   defp tile_tone(:frustrated), do: :bad
   defp tile_tone(category) when category in [:asked_again, :edited], do: :warn
   defp tile_tone(:satisfied), do: :accent
-  defp tile_tone(:reviewed), do: :info
   defp tile_tone(_neutral), do: :off
 
   # Who gave it, where, and a way to the message it came from.

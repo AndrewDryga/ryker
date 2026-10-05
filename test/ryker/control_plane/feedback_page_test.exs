@@ -60,11 +60,13 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
     signal!(:asked_again, nil, {:episode, reply.episode.id}, base + 220)
     signal!(:reaction_added, "+1", {:input, greeting.id}, base + 230)
 
-    signal!(:reviewed, "complete", {:episode, reply.episode.id}, base + 240,
+    signal!(:reviewed, "good", {:episode, reply.episode.id}, base + 240,
       note: "Checked the status page.",
       actor: "control-plane:local",
       source: "control_plane"
     )
+
+    signal!(:sentiment, "neutral", {:episode, reply.episode.id}, base + 250)
 
     day = Kit.day_label(DateTime.to_date(at(base + 200)), Date.utc_today())
     %{reply: reply, greeting: greeting, day: day}
@@ -77,16 +79,16 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
     # The feedback first, then what there is to fix: the unhappy request is
     # one candidate, however many negative signals it got.
     assert counts(document) == [
-             {"5 pieces of feedback", nil},
+             {"6 pieces of feedback", nil},
              {"2 frustrated", "/feedback?category=frustrated"},
              {"1 asked again", "/feedback?category=asked_again"},
-             {"1 satisfied", "/feedback?category=satisfied"},
-             {"1 reviewed", "/feedback?category=reviewed"},
+             {"1 neutral", "/feedback?category=neutral"},
+             {"2 satisfied", "/feedback?category=satisfied"},
              {"1 to decide", "/feedback/fix"}
            ]
 
     assert document |> LazyHTML.query(".section-head h2") |> Enum.map(&text/1) ==
-             ["By day", "What to fix", "Frustrated", "Asked again", "Satisfied", "Reviewed"]
+             ["By day", "What to fix", "Frustrated", "Asked again", "Neutral", "Satisfied"]
 
     # Over time is the chart alone; the table that repeated it is gone.
     assert document |> LazyHTML.query(".kit-table") |> Enum.count() == 0
@@ -109,9 +111,10 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
 
     satisfied = LazyHTML.query(document, "#feedback-satisfied .entity-row")
     assert text(satisfied) =~ "Count to three"
+    assert text(satisfied) =~ ~s("Checked the status page.")
 
     assert satisfied |> LazyHTML.query(".entity-name a") |> LazyHTML.attribute("href") ==
-             ["/timeline/" <> greeting.id]
+             ["/timeline/" <> reply.episode.id, "/timeline/" <> greeting.id]
 
     # A state says what it means when pointed at.
     assert document
@@ -175,7 +178,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
     date = Calendar.strftime(Date.utc_today(), "%d %b")
 
     assert negative |> LazyHTML.query("g.feedback-chart-day") |> LazyHTML.attribute("aria-label") ==
-             ["#{date}: 3 negative, 1 neutral, 1 positive"]
+             ["#{date}: 3 negative, 1 neutral, 2 positive"]
 
     assert negative |> LazyHTML.query("nav.segmented a") |> Enum.map(&text/1) ==
              ["All", "Negative", "Positive"]
@@ -194,8 +197,8 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
     positive = page(%{"tone" => "positive"})
 
     assert counts(positive) == [
-             {"1 piece of feedback", nil},
-             {"1 satisfied", "/feedback?category=satisfied"}
+             {"2 pieces of feedback", nil},
+             {"2 satisfied", "/feedback?category=satisfied"}
            ]
 
     assert positive |> LazyHTML.query(".section-head h2") |> Enum.map(&text/1) ==
@@ -220,7 +223,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
 
     [bar] = by_day |> LazyHTML.query("g.feedback-chart-day") |> Enum.to_list()
     date = Calendar.strftime(Date.utc_today(), "%d %b")
-    assert LazyHTML.attribute(bar, "aria-label") == ["#{date}: 3 negative, 1 neutral, 1 positive"]
+    assert LazyHTML.attribute(bar, "aria-label") == ["#{date}: 3 negative, 1 neutral, 2 positive"]
 
     rects = LazyHTML.query(bar, "rect")
 
@@ -250,17 +253,18 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
     assert chapter |> LazyHTML.query("h3") |> Enum.map(&text/1) |> List.first() == "Feedback"
 
     # Every signal is a card here, oldest first; how a person rated the
-    # request is one of them (a review from before ratings, here).
+    # request is one of them.
     assert chapter |> LazyHTML.query(".feedback-card h3") |> Enum.map(&text/1) ==
              [
                "How they felt about the answer",
                "Reacted 👎",
                "Asked the same thing again",
-               "Ending reviewed"
+               "Rated: went well",
+               "How they felt about the answer"
              ]
 
     assert chapter |> LazyHTML.query(".feedback-card .state-word") |> Enum.map(&text/1) ==
-             ["Angry", "Frustrated", "Asked again", "Reviewed"]
+             ["Angry", "Frustrated", "Asked again", "Went well", "Neutral"]
 
     assert text(chapter) =~ ~s("They say checkout is down for them.")
 

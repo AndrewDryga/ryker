@@ -3,8 +3,7 @@ defmodule Ryker.ControlPlane.FeedbackChart do
   Feedback by day as a chart, drawn the way Usage & cost draws its tokens:
   one bar a day, oldest on the left, a day with none keeping its place. Each
   bar is stacked by which way the feedback went: negative (frustrated, asked
-  again, edited or deleted), neutral (neutral, reviewed) and positive
-  (satisfied).
+  again, edited or deleted), neutral and positive (satisfied).
 
   Andrew, 2026-09-28: "By day … should be a graph like in usage and above
   table".
@@ -13,7 +12,7 @@ defmodule Ryker.ControlPlane.FeedbackChart do
 
   @tones [
     negative: [:frustrated, :asked_again, :edited],
-    neutral: [:neutral, :reviewed],
+    neutral: [:neutral],
     positive: [:satisfied]
   ]
 

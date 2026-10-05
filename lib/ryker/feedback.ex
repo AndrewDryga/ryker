@@ -82,10 +82,11 @@ defmodule Ryker.Feedback do
   (`Ryker.Feedback.Signal.categories/0`): an angry or frustrated sentiment,
   or a reaction that says so, is frustrated; asking again and changing the
   message after the answer are their own; a satisfied sentiment or a
-  reaction that says so is satisfied; a review is a review; everything else,
-  including a reaction taken back, is neutral.
+  reaction that says so is satisfied; a rating counts the way it went;
+  everything else, including a reaction taken back, is neutral. A review that
+  is not a rating has none, and is refused when it is recorded.
   """
-  @spec category(atom(), String.t() | nil) :: atom()
+  @spec category(atom(), String.t() | nil) :: atom() | nil
   def category(:sentiment, feeling) when feeling in ["frustrated", "angry"], do: :frustrated
   def category(:sentiment, "satisfied"), do: :satisfied
   def category(:sentiment, _feeling), do: :neutral
@@ -95,7 +96,7 @@ defmodule Ryker.Feedback do
   def category(kind, _value) when kind in [:message_edited, :message_deleted], do: :edited
   def category(:reviewed, "good"), do: :satisfied
   def category(:reviewed, "needs_work"), do: :frustrated
-  def category(:reviewed, _ending), do: :reviewed
+  def category(:reviewed, _not_a_rating), do: nil
 
   # What a reaction says without its context. Most emoji say nothing about how
   # an answer landed (eyes is "I'm looking"), so only these two short lists

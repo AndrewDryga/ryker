@@ -9,9 +9,8 @@ defmodule Ryker.Feedback.Signal do
     routing read the person's next message) or `reviewed` (a person rated
     how a finished request went).
   - `value` is the emoji name of a reaction, the feeling of a sentiment
-    (satisfied, neutral, frustrated or angry), a rating (good or needs_work;
-    a review recorded before ratings holds the ending it covered, complete
-    or cancelled), and nil for the rest.
+    (satisfied, neutral, frustrated or angry), a rating (good or
+    needs_work), and nil for the rest.
   - `note` is a sentiment's reason or a rating's note, when there is one.
   - `category` is how the Feedback page groups it, frustrated first; it is
     written once, when the signal is recorded.
@@ -39,7 +38,7 @@ defmodule Ryker.Feedback.Signal do
     :sentiment,
     :reviewed
   ]
-  @categories [:frustrated, :asked_again, :edited, :neutral, :satisfied, :reviewed]
+  @categories [:frustrated, :asked_again, :edited, :neutral, :satisfied]
 
   @primary_key {:id, :binary_id, autogenerate: false}
   @foreign_key_type :binary_id
@@ -121,8 +120,8 @@ defmodule Ryker.Feedback.Signal do
   end
 
   @sentiments ~w(satisfied neutral frustrated angry)
-  # A rating; or, on a review recorded before ratings, the ending it covered.
-  @reviews ~w(good needs_work complete cancelled)
+  # A review is a rating.
+  @reviews ~w(good needs_work)
   @emoji ~r/\A[a-z0-9_+\-]{1,100}\z/
 
   defp validate_value(changeset) do
