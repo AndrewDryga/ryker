@@ -926,6 +926,27 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp bounded_refs(_values), do: []
 
+  @doc """
+  `publication_position/1` as SQL, for the pages that read publications in the
+  order the cursor places them. The two lived in different modules and
+  disagreed for a published draft without a published time, which then stood
+  at its review on a page and at its update in the cursor (2026-10-04 review).
+  """
+  defmacro publication_position_sql(publication) do
+    quote do
+      fragment(
+        "CASE WHEN ? = 'published' THEN COALESCE(?, ?, ?) ELSE COALESCE(?, ?, ?) END",
+        unquote(publication).status,
+        unquote(publication).published_at,
+        unquote(publication).updated_at,
+        unquote(publication).inserted_at,
+        unquote(publication).reviewed_at,
+        unquote(publication).updated_at,
+        unquote(publication).inserted_at
+      )
+    end
+  end
+
   @doc "The delivery a publication currently shows; the cursor is placed at it."
   def publication_position(publication) do
     if publication.status == :published,

@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   """
 
   import Ecto.Query
+  require Ryker.ControlPlane.ConversationTranscript
   require Ryker.ControlPlane.CurrentInputs
 
   alias Ryker.Artifacts.OutputArtifact
@@ -951,22 +952,6 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     )
   end
 
-  # The delivery a publication currently shows, as SQL. It must agree with
-  # `ConversationTranscript.publication_position/1`, which computes the same
-  # value for the cursor.
-  defmacrop publication_position_sql(publication) do
-    quote do
-      fragment(
-        "COALESCE(CASE WHEN ? = 'published' THEN ? END, ?, ?, ?)",
-        unquote(publication).status,
-        unquote(publication).published_at,
-        unquote(publication).reviewed_at,
-        unquote(publication).updated_at,
-        unquote(publication).inserted_at
-      )
-    end
-  end
-
   # A publication is one logical row that advances from reviewed to
   # published; its position is the delivery it currently shows.
   defp page_publications(ref, filter, limit) do
@@ -983,7 +968,10 @@ defmodule Ryker.ControlPlane.ConversationProjection do
                (publication.status == :published and
                   not is_nil(publication.published_delivery_receipt))),
         where: ^filter,
-        order_by: [desc: publication_position_sql(publication), desc: publication.id],
+        order_by: [
+          desc: ConversationTranscript.publication_position_sql(publication),
+          desc: publication.id
+        ],
         limit: ^limit,
         select: {publication, record.ref}
       )
@@ -993,16 +981,18 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   defp publications_older(:all), do: dynamic(true)
 
   defp publications_older({:before_or_at, at}),
-    do: dynamic([publication], publication_position_sql(publication) <= ^at)
+    do:
+      dynamic([publication], ConversationTranscript.publication_position_sql(publication) <= ^at)
 
   defp publications_older({:before, at}),
-    do: dynamic([publication], publication_position_sql(publication) < ^at)
+    do: dynamic([publication], ConversationTranscript.publication_position_sql(publication) < ^at)
 
   defp publications_older({:before_or_tie, at, publication_id}) do
     dynamic(
       [publication],
-      publication_position_sql(publication) < ^at or
-        (publication_position_sql(publication) == ^at and publication.id < ^publication_id)
+      ConversationTranscript.publication_position_sql(publication) < ^at or
+        (ConversationTranscript.publication_position_sql(publication) == ^at and
+           publication.id < ^publication_id)
     )
   end
 
