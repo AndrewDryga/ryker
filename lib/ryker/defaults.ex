@@ -3,12 +3,10 @@ defmodule Ryker.Defaults do
   Checked-in operational defaults: concurrency, polling, deadlines and retries.
 
   These are implementation tuning, not product decisions, so they ship with the
-  code instead of being typed by an operator. Every value here reproduces the
-  bound the previous YAML loader validated, so an installation that never set
-  the field keeps its exact behavior across the cutover. Related values that
-  must agree (a drain pass inside its poll, retry ceilings above their base,
-  delivery lanes inside the total) are checked together by `validate!/0` rather
-  than being independently settable into an inconsistent combination.
+  code instead of being typed by an operator. Related values that must agree (a
+  drain pass inside its poll, retry ceilings above their base, delivery lanes
+  inside the total) are checked together by `validate!/0` rather than being
+  independently settable into an inconsistent combination.
   """
 
   @coop %{receive_timeout_ms: 30_000}

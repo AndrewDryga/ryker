@@ -14,19 +14,15 @@ defmodule Ryker.Settings.Validation do
   @retention_fields Map.keys(@retention_types)
   @reference ~r/\A[a-z0-9][a-z0-9_-]{0,63}\z/
   @slack_id ~r/\A[A-Z0-9]{1,255}\z/
-  @hex64 ~r/\A[0-9a-f]{64}\z/
   @secret_name ~r/\A[a-z0-9][a-z0-9_.:-]{0,127}\z/
   @adapter_name ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @github_repository ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
-  @email ~r/\A[^\s@]+@[^\s@]+\z/
 
   def reference_pattern, do: @reference
   def slack_id_pattern, do: @slack_id
-  def hex64_pattern, do: @hex64
   def secret_name_pattern, do: @secret_name
   def adapter_name_pattern, do: @adapter_name
   def github_repository_pattern, do: @github_repository
-  def email_pattern, do: @email
 
   @doc "Normalizes atom or string keys onto the allowed fields; unknown keys are refused."
   def attributes(attributes, allowed) when is_map(attributes) do

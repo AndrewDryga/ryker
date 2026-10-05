@@ -32,8 +32,4 @@ defmodule Ryker.Settings.EnvironmentRepository do
     field(:position, :integer)
     field(:access, Ecto.Enum, values: @accesses)
   end
-
-  @doc "The accesses a repository of an environment may have."
-  @spec accesses() :: [access()]
-  def accesses, do: @accesses
 end

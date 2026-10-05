@@ -1677,9 +1677,6 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp fleet_client!(workspace_ref, capabilities, receive_timeout_ms, poll_interval_ms, body_root) do
-    unless is_binary(workspace_ref),
-      do: raise(ArgumentError, "no worker workspace is selected for Work placement")
-
     max_waits = max(div(receive_timeout_ms + poll_interval_ms - 1, poll_interval_ms), 1)
 
     {:ok, client} =

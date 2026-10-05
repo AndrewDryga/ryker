@@ -26,10 +26,7 @@ defmodule Ryker.Bootstrap do
     :log_level
   ]
 
-  @machine_secrets [
-    checkpoint: "RYKER_CHECKPOINT_KEY",
-    state_tools: "RYKER_STATE_TOOLS_TOKEN"
-  ]
+  @machine_secrets [state_tools: "RYKER_STATE_TOOLS_TOKEN"]
   @loopback [{127, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 1}]
   @worker_files [
     cacertfile: "RYKER_WORKER_CA_FILE",
