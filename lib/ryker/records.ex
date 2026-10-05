@@ -2,9 +2,12 @@ defmodule Ryker.Records do
   @moduledoc """
   Durable, episode-scoped state-tool records.
 
-  The opaque turn token is a narrow capability for inert record creation. It
-  remains valid only while that exact Work turn owns the episode and has not
-  entered cancellation or delivery custody.
+  A record is created for one Work turn, named by its state token (`token/1`),
+  and only while that turn owns its episode and has not entered cancellation or
+  delivery custody. The token is the turn's id with a prefix, not a secret, so
+  it authorizes nothing by itself: it is built only from a binding the worker
+  gateway already verified (`Ryker.StateTools.Binding`) or by the executor for
+  the turn it holds, and it never leaves Ryker.
 
   A record created, answered, confirmed, superseded or dismissed is announced
   after the outermost commit (`subscribe_records/0`), on its request's topics
@@ -41,6 +44,7 @@ defmodule Ryker.Records do
   @shadow_record_kinds ~w(evidence coverage finding progress alert_assessment)
   @confirmation_offer_kinds ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
 
+  @doc "The name `create/5` takes for the records of `turn`; see the moduledoc for who may build it."
   @spec token(Turn.t()) :: String.t()
   def token(%Turn{id: id}) when is_binary(id), do: "state:" <> id
 
