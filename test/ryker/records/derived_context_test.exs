@@ -606,7 +606,7 @@ defmodule Ryker.Records.DerivedContextTest do
     do:
       FixedTools.call(
         "get_work_state",
-        %{"history" => "current", "limit" => 64, "types" => ["citation"]},
+        %{"limit" => 64},
         %{binding: tool_binding(claim)}
       )
 

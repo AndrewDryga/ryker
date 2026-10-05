@@ -45,19 +45,9 @@ defmodule Ryker.StateTools.Catalog do
   defp get_work_state_tool do
     tool(
       "get_work_state",
-      "Read bounded durable state for this exact episode.",
-      %{
-        "history" => enum(~w(current include_linked)),
-        "limit" => integer(1, 100),
-        "since" => nullable(reference(256)),
-        "types" =>
-          array(
-            enum(~w(source_revision citation input wait proposal action artifact outcome)),
-            1,
-            8
-          )
-      },
-      ~w(history limit types)
+      "Read this episode's durable state: its newest records, up to limit, oldest first, and its platform actions.",
+      %{"limit" => integer(1, 100)},
+      ~w(limit)
     )
   end
 

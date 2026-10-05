@@ -9,12 +9,13 @@ defmodule Ryker.StateTools.WorkStateTools do
   alias Ryker.Records.DerivedContext
   alias Ryker.Work.{Custody, Final, FinalPreflight, Validator}
 
+  # The newest records within the limit: the oldest kept the latest evidence
+  # and waits of a long episode out of reach (2026-10-04 review).
   @spec get_work_state(map(), map()) :: {:ok, map()} | {:error, term()}
-  def get_work_state(arguments, binding) do
-    limit = Map.get(arguments, "limit", 100)
-
+  def get_work_state(%{"limit" => limit}, binding) do
     records =
-      Records.model_records(binding.episode, binding.session.repository_ref) |> Enum.take(limit)
+      Records.model_records(binding.episode, binding.session.repository_ref)
+      |> Enum.take(-limit)
 
     platform_actions = PlatformActionCustody.model_actions(binding.episode.id)
 

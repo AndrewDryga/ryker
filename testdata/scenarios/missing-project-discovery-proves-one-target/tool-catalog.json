@@ -4,59 +4,18 @@
       "name": "controller-tools",
       "tools": [
         {
-          "description": "Read bounded durable state for this exact episode.",
+          "description": "Read this episode's durable state: its newest records, up to limit, oldest first, and its platform actions.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
-              "history": {
-                "enum": [
-                  "current",
-                  "include_linked"
-                ],
-                "type": "string"
-              },
               "limit": {
                 "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
-              },
-              "since": {
-                "anyOf": [
-                  {
-                    "maxLength": 256,
-                    "minLength": 1,
-                    "pattern": "^[A-Za-z0-9_.:-]+$",
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "types": {
-                "items": {
-                  "enum": [
-                    "source_revision",
-                    "citation",
-                    "input",
-                    "wait",
-                    "proposal",
-                    "action",
-                    "artifact",
-                    "outcome"
-                  ],
-                  "type": "string"
-                },
-                "maxItems": 8,
-                "minItems": 1,
-                "type": "array",
-                "uniqueItems": true
               }
             },
             "required": [
-              "history",
-              "limit",
-              "types"
+              "limit"
             ],
             "type": "object"
           },

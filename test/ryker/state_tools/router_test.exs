@@ -1081,17 +1081,7 @@ defmodule Ryker.StateTools.RouterTest do
                options
              )
 
-    assert {:ok, state} =
-             Tools.call(
-               "get_work_state",
-               %{
-                 "history" => "current",
-                 "limit" => 100,
-                 "since" => nil,
-                 "types" => ["proposal"]
-               },
-               options
-             )
+    assert {:ok, state} = Tools.call("get_work_state", %{"limit" => 100}, options)
 
     assert state["cursor"] =~ "episode:#{claim.episode.id}:v"
     assert state["episode"]["owner"] == "turn"
@@ -1099,6 +1089,49 @@ defmodule Ryker.StateTools.RouterTest do
     assert Enum.any?(state["records"], &(&1["kind"] == "schedule_offer"))
     assert Enum.any?(state["records"], &(&1["kind"] == "memory_offer"))
     assert Enum.any?(state["records"], &(&1["kind"] == "progress"))
+  end
+
+  # get_work_state advertised types, history and since and read none of them,
+  # and its limit kept the oldest records, so the latest evidence and waits of
+  # a long episode were out of reach (2026-10-04 review). It takes a limit
+  # alone and keeps the newest records, oldest first.
+  test "work state within its limit is the newest records" do
+    claim = claim!("work-state-newest")
+    assert {:ok, initial} = SubmissionBuilder.build(claim)
+
+    assert :ok =
+             KnowledgeSnapshot.expose_submission(%{
+               claim
+               | turn: %{claim.turn | submission: initial}
+             })
+
+    options = bound_options(claim)
+
+    refs =
+      for index <- 1..3 do
+        assert {:ok, %{"record_ref" => ref}} =
+                 Tools.call(
+                   "propose_memory",
+                   %{
+                     "expires_at" => nil,
+                     "kind" => "fact",
+                     "scope" => "current_channel",
+                     "source_refs" => ["source:#{index}"],
+                     "subject" => "service_#{index}",
+                     "supersedes" => [],
+                     "value" => "Team #{index} owns service #{index}."
+                   },
+                   options
+                 )
+
+        ref
+      end
+
+    schema = Enum.find(Tools.list(options), &(&1["name"] == "get_work_state"))["inputSchema"]
+    assert Map.keys(schema["properties"]) == ["limit"]
+
+    assert {:ok, state} = Tools.call("get_work_state", %{"limit" => 2}, options)
+    assert Enum.map(state["records"], & &1["ref"]) == Enum.drop(refs, 1)
   end
 
   test "final preflight reports semantic failures and defers output artifact existence to Coop" do
