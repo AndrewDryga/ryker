@@ -724,6 +724,62 @@ defmodule Ryker.Work.ExecutorTest do
     assert get_in(settled.delivery_document, ["outcome", "record_refs"]) == []
   end
 
+  # The offer needed the final message as its description, so writable work
+  # that finished without one (`delivery: none`) could never be finalized, and
+  # the failure read as a Coop protocol error (2026-10-04 review).
+  test "writable work that finishes without a message still offers its change" do
+    # Started by an app, not a person, so the work may finish without a reply.
+    claim = claim_episode!("writable-silent", nil, :live, nil, nil, nil, "slack:app:B0BHPQTBMA7")
+
+    workspace_task = %{
+      "authority_limits" => ["must not deploy"],
+      "offer_ref" => "record:task_offer:writable-silent",
+      "prompt" => "Change the parser without losing the workspace.",
+      "source_refs" => [],
+      "success_checks" => ["focused tests pass"],
+      "title" => "Checkpoint silent work"
+    }
+
+    session =
+      claim.session
+      |> Ecto.Changeset.change(repository_ref: "ryker", workspace_task: workspace_task)
+      |> Repo.update!()
+
+    claim = %{claim | session: session}
+
+    {:ok, fake} =
+      FakeAPI.start_link([silent("The parser change is committed; the thread needs no reply.")],
+        workspace_task: %{
+          "offer_ref" => workspace_task["offer_ref"],
+          "id" => "task:silent",
+          "queue_id" => "queue:silent",
+          "task_id" => "task:silent",
+          "draft_sha256" => String.duplicate("d", 64)
+        },
+        changes: [
+          workspace_changes(
+            committed: [%{"path" => "lib/parser.ex", "status" => "modified"}],
+            fork_head: "silent-commit",
+            fork_tree: "silent-tree"
+          )
+        ]
+      )
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, options(fake))
+
+    offer =
+      Repo.get_by!(Record,
+        episode_id: claim.episode.id,
+        kind: "publication_offer",
+        operation_id: "host:publication:ready"
+      )
+
+    assert offer.payload == %{
+             "body" => "The parser change is committed; the thread needs no reply.",
+             "title" => "Checkpoint silent work"
+           }
+  end
+
   test "unsupported writable execution is rejected before creating a worker or spending a model turn" do
     # The hosted-runner task finished useful work before discovering its adapter
     # could not checkpoint it. Reject the unsupported topology before any write.

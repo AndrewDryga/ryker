@@ -371,7 +371,7 @@ defmodule Ryker.Work.Executor.Turns do
          turn,
          %{continuation: %{"kind" => "complete"}} = result
        ) do
-    with {:ok, body} <- publication_offer_body(result),
+    with {:ok, body} <- publication_offer_body(result, task),
          {:ok, _record} <-
            Records.create(
              Records.token(turn),
@@ -386,17 +386,30 @@ defmodule Ryker.Work.Executor.Turns do
     end
   end
 
-  defp publication_offer_body(%{delivery_document: %{"message" => message}})
-       when is_binary(message) do
-    body = message |> String.trim() |> String.byte_slice(0, 8_000)
+  # The pull request description is the task's final message. A task that
+  # finished without one (`delivery: none`) could never be finalized: the
+  # offer needed a message, and the failure read as a Coop protocol error
+  # (2026-10-04 review). It falls back to the reason the model gave, then to
+  # what the task was asked to do.
+  defp publication_offer_body(result, task) do
+    message = get_in(result.delivery_document || %{}, ["message"])
 
-    if body == "",
-      do: {:error, {:coop_protocol_error, :publication_offer}},
-      else: {:ok, body}
+    [message, result.decision_reason, task["prompt"], task["title"]]
+    |> Enum.find_value(&offer_text/1)
+    |> case do
+      nil -> {:error, {:invalid_work_result, :publication_offer}}
+      body -> {:ok, body}
+    end
   end
 
-  defp publication_offer_body(_result),
-    do: {:error, {:coop_protocol_error, :publication_offer}}
+  defp offer_text(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      text -> Ryker.Text.cut(text, 8_000)
+    end
+  end
+
+  defp offer_text(_value), do: nil
 
   defp accepted_remote_session(claim, settings) do
     with {:ok, remote_session} <-
