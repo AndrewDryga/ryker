@@ -22,7 +22,7 @@ defmodule Ryker.Emisar.ClientTest do
 
     assert {:ok, client} = client_for(run)
 
-    assert {:ok, %RunState{review: review}} = Client.wait_for_run(client, run["run_id"])
+    assert {:ok, %RunState{review: review}} = Client.wait_for_run(client, run["run_id"], 0)
 
     assert review == run["review"]
     assert review["approved_count"] == 1
@@ -50,7 +50,7 @@ defmodule Ryker.Emisar.ClientTest do
     for candidate <- invalid do
       assert {:ok, client} = client_for(candidate)
 
-      assert Client.wait_for_run(client, candidate["run_id"]) ==
+      assert Client.wait_for_run(client, candidate["run_id"], 0) ==
                {:error, {:emisar_protocol_error, :review}}
     end
   end
@@ -116,7 +116,7 @@ defmodule Ryker.Emisar.ClientTest do
              })
 
     assert {:ok, %RunState{run_id: "run-1", status: "running", error_message: nil}} =
-             Client.wait_for_run(client, "run-1")
+             Client.wait_for_run(client, "run-1", 0)
 
     assert_receive {:request, :post, "/api/mcp/rpc", document, headers}
     assert document["method"] == "tools/call"
@@ -127,6 +127,10 @@ defmodule Ryker.Emisar.ClientTest do
            }
 
     assert {"mcp-protocol-version", "2025-11-25"} in headers
+
+    assert {:ok, %RunState{}} = Client.wait_for_run(client, "run-1", 20)
+    assert_receive {:request, :post, "/api/mcp/rpc", waiting, _headers}
+    assert waiting["params"]["arguments"] == %{"run_id" => "run-1", "timeout" => "20s"}
   end
 
   test "rejects foreign URLs, malformed identities, errors, and unsafe client configuration" do
@@ -155,7 +159,7 @@ defmodule Ryker.Emisar.ClientTest do
                     })}
              })
 
-    assert Client.wait_for_run(client, "run-1") ==
+    assert Client.wait_for_run(client, "run-1", 0) ==
              {:error, {:emisar_protocol_error, :run_url}}
 
     assert {:ok, invalid_status} =
@@ -175,14 +179,14 @@ defmodule Ryker.Emisar.ClientTest do
                     })}
              })
 
-    assert Client.wait_for_run(invalid_status, "run-1") ==
+    assert Client.wait_for_run(invalid_status, "run-1", 0) ==
              {:error, {:emisar_protocol_error, :status}}
 
     assert {:ok, http_error} =
              Client.new(%{valid | http: {self(), {:ok, %{body: %{}, status: 503}}}})
 
     assert {:error, {:emisar_http_error, 503, _detail}} =
-             Client.wait_for_run(http_error, "run-1")
+             Client.wait_for_run(http_error, "run-1", 0)
   end
 
   test "contains every malformed MCP envelope and unsafe optional field" do
@@ -196,7 +200,9 @@ defmodule Ryker.Emisar.ClientTest do
              {:error, {:invalid_emisar_client, :fields}}
 
     assert Client.new(:invalid) == {:error, {:invalid_emisar_client, :fields}}
-    assert Client.wait_for_run(:invalid, "run-1") == {:error, {:invalid_emisar_client, :client}}
+
+    assert Client.wait_for_run(:invalid, "run-1", 0) ==
+             {:error, {:invalid_emisar_client, :client}}
 
     rpc_error = %{
       body: %{
@@ -253,7 +259,7 @@ defmodule Ryker.Emisar.ClientTest do
     assert {:ok, client} = Client.new(Map.to_list(attributes))
 
     assert {:ok, %RunState{error_message: nil, run_url: nil}} =
-             Client.wait_for_run(client, "run-1")
+             Client.wait_for_run(client, "run-1", 0)
 
     origin_with_port = %{attributes | rpc_origin: "https://emisar.example:443"}
     response = response(run_document(%{"run_url" => "https://emisar.example/runs/run-1"}))
@@ -324,7 +330,7 @@ defmodule Ryker.Emisar.ClientTest do
 
   defp wait_response(response) do
     {:ok, client} = Client.new(valid_client_attributes(response))
-    Client.wait_for_run(client, "run-1")
+    Client.wait_for_run(client, "run-1", 0)
   end
 
   defp valid_client_attributes(response) do

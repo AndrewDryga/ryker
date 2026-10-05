@@ -28,7 +28,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
     @behaviour Ryker.Emisar.API
 
     @impl true
-    def wait_for_run(_client, _run_id), do: {:error, :not_expected}
+    def wait_for_run(_client, _run_id, _wait_seconds), do: {:error, :not_expected}
   end
 
   defmodule UnusedPresenter do
@@ -491,6 +491,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
       presenter: UnusedPresenter,
       retry_base_seconds: 2,
       retry_max_seconds: 60,
+      wait_seconds: 20,
       worker_ref: worker_ref
     ]
   end

@@ -21,6 +21,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
     :presenter,
     :retry_base_seconds,
     :retry_max_seconds,
+    :wait_seconds,
     :worker_ref
   ]
   @maximum_concurrency 16
@@ -55,6 +56,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
           presenter: options.presenter,
           retry_base_seconds: options.retry_base_seconds,
           retry_max_seconds: options.retry_max_seconds,
+          wait_seconds: options.wait_seconds,
           worker_ref: "#{options.worker_ref}:slot-#{slot}"
         ]
 
@@ -85,6 +87,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
     presenter = Map.get(configuration, :presenter, Ryker.Emisar.ApprovalPresenter)
     retry_base_seconds = Map.get(configuration, :retry_base_seconds, 2)
     retry_max_seconds = Map.get(configuration, :retry_max_seconds, 300)
+    wait_seconds = Map.get(configuration, :wait_seconds, 20)
 
     validate_api!(api)
     validate_presenter!(presenter)
@@ -95,6 +98,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
     validate_integer!(presentation_timeout_ms, 0, 60_000, :presentation_timeout_ms)
     validate_integer!(retry_base_seconds, 1, 86_400, :retry_base_seconds)
     validate_integer!(retry_max_seconds, retry_base_seconds, 86_400, :retry_max_seconds)
+    validate_integer!(wait_seconds, 0, min(60, lease_seconds - 1), :wait_seconds)
     validate_ref!(worker_ref)
     validate_ref!(connection_ref)
 
@@ -114,6 +118,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
       presenter: presenter,
       retry_base_seconds: retry_base_seconds,
       retry_max_seconds: retry_max_seconds,
+      wait_seconds: wait_seconds,
       worker_ref: worker_ref
     }
   end
@@ -137,8 +142,8 @@ defmodule Ryker.Emisar.ApprovalRuntime do
 
   defp validate_api!(api) do
     unless is_atom(api) and Code.ensure_loaded?(api) and
-             function_exported?(api, :wait_for_run, 2),
-           do: raise(ArgumentError, "Emisar approval API must implement wait_for_run/2")
+             function_exported?(api, :wait_for_run, 3),
+           do: raise(ArgumentError, "Emisar approval API must implement wait_for_run/3")
   end
 
   defp validate_presenter!(presenter) do

@@ -66,7 +66,7 @@ defmodule Ryker.Emisar.EndToEndTest do
   end
 
   defmodule EmisarAPI do
-    def wait_for_run({test_pid, state}, run_id) do
+    def wait_for_run({test_pid, state}, run_id, _wait_seconds) do
       send(test_pid, {:wait_for_run, run_id})
       {:ok, state}
     end
@@ -150,6 +150,7 @@ defmodule Ryker.Emisar.EndToEndTest do
                presenter: Ryker.Emisar.ApprovalPresenter,
                retry_base_seconds: 2,
                retry_max_seconds: 60,
+               wait_seconds: 20,
                worker_ref: "emisar-approval-monitor"
              )
 

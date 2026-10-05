@@ -4,11 +4,12 @@ defmodule Ryker.Emisar.API do
 
   Ryker never receives an API here that can approve or repeat the governed
   action. The only capability is reading the exact run named by the durable
-  approval record.
+  approval record, at once (`0`) or once it changes, waiting at most the given
+  seconds.
   """
 
   alias Ryker.Emisar.RunState
 
-  @callback wait_for_run(term(), String.t()) ::
+  @callback wait_for_run(term(), String.t(), 0..60) ::
               {:ok, RunState.t()} | {:error, term()}
 end

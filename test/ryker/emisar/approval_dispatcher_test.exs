@@ -25,8 +25,8 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     @behaviour Ryker.Emisar.API
 
     @impl true
-    def wait_for_run({test_pid, result}, run_id) do
-      send(test_pid, {:wait_for_run, run_id})
+    def wait_for_run({test_pid, result}, run_id, wait_seconds) do
+      send(test_pid, {:wait_for_run, run_id, wait_seconds})
       result
     end
   end
@@ -35,8 +35,8 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     @behaviour Ryker.Emisar.API
 
     @impl true
-    def wait_for_run({test_pid, result, before_return}, run_id) do
-      send(test_pid, {:wait_for_run, run_id})
+    def wait_for_run({test_pid, result, before_return}, run_id, wait_seconds) do
+      send(test_pid, {:wait_for_run, run_id, wait_seconds})
       before_return.()
       result
     end
@@ -58,11 +58,36 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     assert {:ok, {:resumed, "apr-terminal", "success"}} =
              ApprovalDispatcher.run_once(options({:ok, state("terminal", "success")}))
 
-    assert_receive {:wait_for_run, "run-terminal"}
+    assert_receive {:wait_for_run, "run-terminal", 0}
     assert_receive :approval_presented
     assert {:ok, resumed} = Episodes.fetch_by_key(episode.key)
     assert resumed.state == :working
     assert Approvals.get_by_request_id(@connection_ref, "apr-terminal").status == :resumed
+  end
+
+  # Each pending approval was read every three seconds with no wait, and its
+  # row written three times a read, about 86,000 updates a day while a person
+  # took their time (2026-10-04 review). Once its card shows the run, Ryker
+  # waits on Emisar for the run to change; a new approval is read at once, so
+  # its card appears without a wait.
+  test "an approval already shown waits on Emisar for a change instead of asking again at once" do
+    waiting_approval!("long-poll")
+    pending = state("long-poll", "pending_approval")
+
+    assert {:ok, {:monitoring, "apr-long-poll", "pending_approval"}} =
+             ApprovalDispatcher.run_once(options({:ok, pending}))
+
+    assert_receive {:wait_for_run, "run-long-poll", 0}
+
+    Repo.update_all(
+      from(approval in Ryker.Emisar.Approval, where: approval.request_id == "apr-long-poll"),
+      set: [next_attempt_at: nil]
+    )
+
+    assert {:ok, {:monitoring, "apr-long-poll", "pending_approval"}} =
+             ApprovalDispatcher.run_once(options({:ok, pending}))
+
+    assert_receive {:wait_for_run, "run-long-poll", 20}
   end
 
   test "backs off transient reads and blocks a crossed immutable identity" do
@@ -218,6 +243,7 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
       presenter: Presenter,
       retry_base_seconds: 2,
       retry_max_seconds: 60,
+      wait_seconds: 20,
       worker_ref: worker_ref
     ]
   end

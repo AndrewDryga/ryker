@@ -19,6 +19,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
     :presenter,
     :retry_base_seconds,
     :retry_max_seconds,
+    :wait_seconds,
     :worker_ref
   ]
 
@@ -56,7 +57,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   end
 
   defp execute(claim, settings) do
-    case settings.api.wait_for_run(settings.client, claim.approval.run_id) do
+    case settings.api.wait_for_run(settings.client, claim.approval.run_id, wait(claim, settings)) do
       {:ok, state} ->
         observe_presented(claim, state, settings)
 
@@ -67,6 +68,13 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
         handle_error(claim, {:emisar_protocol_error, {:api_result, invalid}}, settings)
     end
   end
+
+  # A new approval is read at once, so its card appears without a wait. Once
+  # the card shows the run, Emisar answers when the run changes or the wait
+  # ends: read every few seconds instead, each approval wrote its row about
+  # 86,000 times a day while a person took their time.
+  defp wait(%{approval: %{last_observed_at: nil}}, _settings), do: 0
+  defp wait(_claim, settings), do: settings.wait_seconds
 
   defp observe_presented(claim, state, settings) do
     request_id = claim.approval.request_id
@@ -176,7 +184,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   defp settings(%{} = options) do
     with true <- Map.keys(options) |> Enum.sort() == Enum.sort(@fields),
          api when is_atom(api) <- options.api,
-         true <- Code.ensure_loaded?(api) and function_exported?(api, :wait_for_run, 2),
+         true <- Code.ensure_loaded?(api) and function_exported?(api, :wait_for_run, 3),
          presenter when is_atom(presenter) <- options.presenter,
          true <- Code.ensure_loaded?(presenter) and function_exported?(presenter, :publish, 3),
          true <- function_exported?(presenter, :permanent?, 1),
@@ -185,7 +193,8 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
          :ok <- positive(options.poll_seconds),
          :ok <- positive(options.retry_base_seconds),
          :ok <- positive(options.retry_max_seconds),
-         true <- options.retry_base_seconds <= options.retry_max_seconds do
+         true <- options.retry_base_seconds <= options.retry_max_seconds,
+         true <- options.wait_seconds in 0..60 and options.wait_seconds < options.lease_seconds do
       {:ok, options}
     else
       _invalid -> {:error, {:invalid_emisar_approval_dispatcher, :options}}

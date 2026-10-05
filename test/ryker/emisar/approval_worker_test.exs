@@ -22,7 +22,7 @@ defmodule Ryker.Emisar.ApprovalWorkerTest do
   end
 
   defmodule API do
-    def wait_for_run({test_pid, result}, run_id) do
+    def wait_for_run({test_pid, result}, run_id, _wait_seconds) do
       send(test_pid, {:worker_wait_for_run, run_id})
       result
     end
@@ -172,6 +172,7 @@ defmodule Ryker.Emisar.ApprovalWorkerTest do
       presenter: Presenter,
       retry_base_seconds: 2,
       retry_max_seconds: 60,
+      wait_seconds: 20,
       worker_ref: worker_ref
     ]
   end

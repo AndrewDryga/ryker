@@ -88,7 +88,11 @@ defmodule Ryker.Defaults do
     poll_seconds: 3,
     receive_timeout_ms: 30_000,
     retry_base_seconds: 2,
-    retry_max_seconds: 300
+    retry_max_seconds: 300,
+    # How long one read of an approval waits on Emisar for its run to change.
+    # Emisar holds a wait for up to 60 s; receive_timeout_ms gives the whole
+    # request 30.
+    wait_seconds: 20
   }
   @schedules %{
     lease_seconds: 60,

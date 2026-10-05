@@ -45,14 +45,15 @@ defmodule Ryker.Emisar.Client do
   end
 
   @impl true
-  def wait_for_run(%__MODULE__{} = client, run_id) do
+  def wait_for_run(%__MODULE__{} = client, run_id, wait_seconds)
+      when wait_seconds in 0..60 do
     with :ok <- reference(run_id, 200, :run_id),
          {:ok, response} <-
            client.requester.request(
              client.http,
              :post,
              client.rpc_path,
-             request_document(run_id),
+             request_document(run_id, wait_seconds),
              @headers
            ),
          {:ok, structured} <- response_document(response) do
@@ -60,9 +61,12 @@ defmodule Ryker.Emisar.Client do
     end
   end
 
-  def wait_for_run(_client, _run_id), do: {:error, {:invalid_emisar_client, :client}}
+  def wait_for_run(_client, _run_id, _wait_seconds),
+    do: {:error, {:invalid_emisar_client, :client}}
 
-  defp request_document(run_id) do
+  # Emisar answers a wait at once for a finished run, or when the run changes,
+  # or after the wait.
+  defp request_document(run_id, wait_seconds) do
     digest = :crypto.hash(:sha256, run_id) |> Base.encode16(case: :lower)
 
     %{
@@ -70,11 +74,14 @@ defmodule Ryker.Emisar.Client do
       "jsonrpc" => "2.0",
       "method" => "tools/call",
       "params" => %{
-        "arguments" => %{"run_id" => run_id, "timeout" => "0"},
+        "arguments" => %{"run_id" => run_id, "timeout" => timeout(wait_seconds)},
         "name" => "wait_for_run"
       }
     }
   end
+
+  defp timeout(0), do: "0"
+  defp timeout(seconds), do: "#{seconds}s"
 
   defp response_document(%{
          body: %{
