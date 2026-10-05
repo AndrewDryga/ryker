@@ -321,7 +321,7 @@ defmodule Ryker.ProductContractsTest do
 
   test "persistence changesets reject malformed repository contexts" do
     session_changeset =
-      SessionChangeset.insert_with_authority(
+      SessionChangeset.insert(
         Ecto.UUID.generate(),
         Ecto.UUID.generate(),
         1,

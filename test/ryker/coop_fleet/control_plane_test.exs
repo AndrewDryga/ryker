@@ -2242,7 +2242,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     # replacement pinned to a different source may never be seeded from it.
     moved =
       Repo.insert!(
-        SessionChangeset.insert_with_authority(
+        SessionChangeset.insert(
           Ecto.UUID.generate(),
           session.episode_id,
           2,

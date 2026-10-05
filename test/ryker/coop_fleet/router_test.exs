@@ -728,9 +728,13 @@ defmodule Ryker.CoopFleet.RouterTest do
         source.policy,
         source.policy_digest,
         source.repository_ref,
-        source.external_ref
+        source.external_ref,
+        %{
+          authority_digest: nil,
+          repository_source: source.repository_source,
+          workspace_task: nil
+        }
       )
-      |> Ecto.Changeset.change(repository_source: source.repository_source)
       |> Repo.insert!()
 
     {:ok, job, digest} =

@@ -552,7 +552,7 @@ defmodule Ryker.Work.Custody.Sessions do
         emisar = emisar_pin(authority.environment_ref)
 
         session_id
-        |> SessionChangeset.insert_with_authority(
+        |> SessionChangeset.insert(
           episode.id,
           1,
           authority.policy,
@@ -561,8 +561,6 @@ defmodule Ryker.Work.Custody.Sessions do
           session_external_ref(episode.id, 1),
           %{
             authority_digest: authority.authority_digest,
-            worker_job_document: Map.get(authority, :worker_job_document),
-            worker_job_digest: Map.get(authority, :worker_job_digest),
             environment_ref: authority.environment_ref,
             repository_context: authority.repository_context,
             repository_source: authority.repository_source,
@@ -806,7 +804,7 @@ defmodule Ryker.Work.Custody.Sessions do
       job_digest = authority.worker_job_digest
 
       session_id
-      |> SessionChangeset.insert_with_authority(
+      |> SessionChangeset.insert(
         episode_id,
         generation,
         authority.policy,

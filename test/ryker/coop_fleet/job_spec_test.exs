@@ -237,7 +237,7 @@ defmodule Ryker.CoopFleet.JobSpecTest do
     base = %{authority_digest: nil, workspace_task: nil}
 
     insert = fn options ->
-      SessionChangeset.insert_with_authority(
+      SessionChangeset.insert(
         Ecto.UUID.generate(),
         Ecto.UUID.generate(),
         1,

@@ -730,7 +730,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     # A replacement generation carries its predecessor's exact repository source,
     # which is what makes the checkpoint's tree the right seed for it.
     replacement =
-      SessionChangeset.insert_with_authority(
+      SessionChangeset.insert(
         Ecto.UUID.generate(),
         source.episode_id,
         2,
@@ -820,7 +820,7 @@ defmodule Ryker.CoopFleet.ClientTest do
       |> Repo.update!()
 
     replacement =
-      SessionChangeset.insert_with_authority(
+      SessionChangeset.insert(
         Ecto.UUID.generate(),
         source.episode_id,
         2,
@@ -897,7 +897,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     })
 
     replacement =
-      SessionChangeset.insert_with_authority(
+      SessionChangeset.insert(
         Ecto.UUID.generate(),
         source.episode_id,
         2,
@@ -974,7 +974,7 @@ defmodule Ryker.CoopFleet.ClientTest do
       )
 
     replacement =
-      SessionChangeset.insert_with_authority(
+      SessionChangeset.insert(
         Ecto.UUID.generate(),
         source.episode_id,
         2,

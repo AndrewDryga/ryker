@@ -14,43 +14,10 @@ defmodule Ryker.Work.SessionChangeset do
           String.t(),
           String.t() | nil,
           String.t(),
-          map() | nil
-        ) ::
-          Ecto.Changeset.t()
-  def insert(
-        id,
-        episode_id,
-        generation,
-        policy,
-        policy_digest,
-        repository_ref,
-        external_ref,
-        workspace_task \\ nil
-      ) do
-    insert_with_authority(
-      id,
-      episode_id,
-      generation,
-      policy,
-      policy_digest,
-      repository_ref,
-      external_ref,
-      %{authority_digest: nil, workspace_task: workspace_task}
-    )
-  end
-
-  @spec insert_with_authority(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          pos_integer(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t(),
           map()
         ) ::
           Ecto.Changeset.t()
-  def insert_with_authority(
+  def insert(
         id,
         episode_id,
         generation,
