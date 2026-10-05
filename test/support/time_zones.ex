@@ -1,7 +1,8 @@
 defmodule Ryker.TestSupport.TimeZones do
   @moduledoc """
-  A time zone database for tests of local times, since the release ships
-  Elixir's UTC-only one. It knows three zones:
+  A time zone database whose clock changes a test chooses, so a test of local
+  times does not move with the IANA data the release reads. It knows three
+  zones:
 
     * `Etc/UTC`;
     * `Test/Plus2`, two hours ahead of UTC all year;

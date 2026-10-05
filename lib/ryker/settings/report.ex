@@ -17,6 +17,9 @@ defmodule Ryker.Settings.Report do
     field(:weekday, :integer, default: 1)
     field(:local_time, :time, default: ~T[09:00:00])
     field(:timezone, :string, default: "Etc/UTC")
+    # When a person last changed any of the above. The report never posts a
+    # send time that passed before then.
+    field(:saved_at, :utc_datetime_usec)
   end
 
   def fields, do: @fields
@@ -29,6 +32,7 @@ defmodule Ryker.Settings.Report do
       |> validate_format(:channel_ref, Validation.slack_id_pattern())
       |> validate_inclusion(:weekday, 1..7)
       |> validate_timezone()
+      |> stamp_saved()
 
     cond do
       not get_field(changeset, :weekly_self_report_enabled) ->
@@ -46,6 +50,9 @@ defmodule Ryker.Settings.Report do
         changeset
     end
   end
+
+  defp stamp_saved(%{changes: changes} = changeset) when changes == %{}, do: changeset
+  defp stamp_saved(changeset), do: put_change(changeset, :saved_at, DateTime.utc_now())
 
   defp validate_timezone(changeset) do
     validate_change(changeset, :timezone, fn :timezone, zone ->

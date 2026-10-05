@@ -27,6 +27,8 @@ config :ryker, Ryker.ControlPlane.Endpoint,
 
 config :phoenix, :json_library, Jason
 
+config :elixir, :time_zone_database, Tz.TimeZoneDatabase
+
 # Logged request and LiveView event parameters: any key containing one of these
 # is replaced, which covers every token, secret and the GitHub App private key a
 # settings form posts (`test/ryker/secret_inspection_test.exs` finds them).

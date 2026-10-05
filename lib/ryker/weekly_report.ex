@@ -44,7 +44,7 @@ defmodule Ryker.WeeklyReport do
   import Ecto.Query
 
   alias Ryker.Repo
-  alias Ryker.Settings.{Edit, Report, Slack}
+  alias Ryker.Settings.{Report, Slack}
   alias Ryker.WeeklyReport.{Custody, Digest, Facts, Schedule}
 
   @week_seconds 7 * 86_400
@@ -165,6 +165,7 @@ defmodule Ryker.WeeklyReport do
        %{
          conversation_ref: "slack:#{workspace}:#{channel}",
          enabled: report.weekly_self_report_enabled,
+         saved_at: report.saved_at,
          schedule: %{
            weekday: report.weekday,
            local_time: report.local_time,
@@ -179,7 +180,7 @@ defmodule Ryker.WeeklyReport do
   defp due(%{schedule: schedule} = configured, now, database, options) do
     with {:ok, latest} <- Schedule.latest(schedule, now, database),
          {:ok, next} <- Schedule.next(schedule, now, database) do
-      if Custody.recorded?(latest.week) or not after_last_save?(latest.at) do
+      if Custody.recorded?(latest.week) or not after_last_save?(latest.at, configured.saved_at) do
         {:ok, {:waiting, next.at}}
       else
         queue(latest, configured, now, database, options, next)
@@ -212,16 +213,9 @@ defmodule Ryker.WeeklyReport do
 
   # A send time that passed before the report settings were last saved
   # belongs to a schedule nobody had chosen yet: turning the report on, or
-  # moving its day, never posts at once. With no save on record (the audit
-  # horizon removed it) every send time counts.
-  defp after_last_save?(at) do
-    case Repo.one(
-           from(edit in Edit, where: edit.domain == :report, select: max(edit.inserted_at))
-         ) do
-      nil -> true
-      saved_at -> DateTime.after?(at, Ryker.UTCDateTime.earliest([saved_at]))
-    end
-  end
+  # moving its day, never posts at once.
+  defp after_last_save?(_at, nil), do: true
+  defp after_last_save?(at, saved_at), do: DateTime.after?(at, saved_at)
 
   @doc "The console's address the report's links start with."
   @spec base_url() :: String.t()

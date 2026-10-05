@@ -119,6 +119,39 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     assert {:ok, {:queued, %{week: ~D[2026-10-12]}, _next}} = run_once(~U[2026-10-12 09:00:01Z])
   end
 
+  # The save the report waits from was read from the settings audit, which the
+  # audit horizon prunes. With a short horizon, a report turned on after
+  # Monday's send time posted that stale week once its save was pruned, days
+  # before the first send time anyone had chosen (2026-10-04 review).
+  test "turning the report on never posts at once, even after the audit has forgotten the save" do
+    connect!(%{weekday: 1, local_time: ~T[09:00:00]})
+    last_saved!(~U[2026-10-05 09:30:00.000000Z])
+    Repo.delete_all(Edit)
+
+    assert {:ok, {:waiting, ~U[2026-10-12 09:00:00.000000Z]}} =
+             run_once(~U[2026-10-07 10:00:00Z])
+
+    assert reports() == []
+  end
+
+  # The release shipped Elixir's UTC-only zone database, so the report could
+  # be sent only on UTC's clock: every other zone was refused as unknown, and
+  # the settings said "This release knows Etc/UTC only" (2026-10-04 review).
+  test "the report is sent at the chosen local time in a real time zone, across a clock change" do
+    connect!(%{weekday: 1, local_time: ~T[09:00:00], timezone: "Europe/Kyiv"})
+    last_saved!(~U[2026-10-05 08:00:00.000000Z])
+
+    # Monday 09:00 in Kyiv is 06:00 UTC on summer time.
+    assert {:ok, {:waiting, ~U[2026-10-12 06:00:00.000000Z]}} =
+             WeeklyReport.run_once(now: ~U[2026-10-06 12:00:00Z])
+
+    # The clocks go back on 25 October, so the next Monday's 09:00 is 07:00 UTC.
+    assert {:ok, {:queued, %{due_at: due_at}, _next}} =
+             WeeklyReport.run_once(now: ~U[2026-10-26 07:00:30Z])
+
+    assert DateTime.compare(due_at, ~U[2026-10-26 07:00:00Z]) == :eq
+  end
+
   test "a four-week outage posts one report, for the latest send time" do
     connect!(%{weekday: 1, local_time: ~T[09:00:00]})
     last_saved!(~U[2026-09-01 00:00:00.000000Z])
@@ -421,8 +454,7 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
   # tests hand the schedule a database that knows others.
   defp zone!(zone), do: Repo.update_all(Settings.Report, set: [timezone: zone])
 
-  defp last_saved!(at),
-    do: Repo.update_all(from(edit in Edit, where: edit.domain == :report), set: [inserted_at: at])
+  defp last_saved!(at), do: Repo.update_all(Ryker.Settings.Report, set: [saved_at: at])
 
   defp assert_eventually(check, attempts \\ 40) do
     cond do

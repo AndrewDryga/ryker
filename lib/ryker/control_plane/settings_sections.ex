@@ -257,8 +257,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :timezone,
           kind: :text,
           label: "Time zone",
-          placeholder: "Etc/UTC",
-          help: "The day and time are read in this zone. This release knows Etc/UTC only."
+          placeholder: "Europe/Kyiv",
+          help: "The day and time are read in this zone, such as Europe/Kyiv or America/New_York."
         }
       ]
     },

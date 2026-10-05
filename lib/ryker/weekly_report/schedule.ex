@@ -13,8 +13,8 @@ defmodule Ryker.WeeklyReport.Schedule do
   change repeats is sent the first time it comes round.
 
   Everything here is arithmetic on its arguments. The time zone database is
-  an argument too: the release ships Elixir's UTC-only database, and tests
-  hand in one that knows other zones.
+  an argument too: the release reads the IANA zones (`Tz`), and tests hand in
+  one whose clock changes they choose.
   """
 
   @type schedule :: %{weekday: 1..7, local_time: Time.t(), timezone: String.t()}
