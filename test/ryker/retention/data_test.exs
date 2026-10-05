@@ -371,6 +371,55 @@ defmodule Ryker.Retention.DataTest do
     assert pruned_attempt.rejections == nil
   end
 
+  # Audit pruning deleted a message whose routing session Ryker was still
+  # closing. The foreign key emptied the session's input, and a session that
+  # names no input can never be closed or pruned, nor rearmed (2026-10-04
+  # review). The message stays until its sessions are discarded.
+  test "a message stays while its routing session is still being closed" do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Route this one."},
+               event_kind: :message,
+               event_ref: "Ev-retention-closing-session",
+               message_ref: "1787832000.000200",
+               occurred_at: ~U[2026-08-30 12:00:00.000000Z],
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "T123"
+             })
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input)
+
+    assert {:ok, session} =
+             FleetSession.ensure(entry, %{
+               name: "admission-read-only",
+               digest: String.duplicate("a", 64)
+             })
+
+    Repo.query!(
+      "UPDATE episode_work_sessions SET cleanup_status = 'discard_pending' WHERE id = $1",
+      [uuid!(session.id)]
+    )
+
+    Repo.query!(
+      "UPDATE ingress_inbox_entries SET operational_pruned_at = $1, updated_at = $1 WHERE id = $2",
+      [@old, uuid!(entry.id)]
+    )
+
+    assert {:ok, _result} = Data.prune(settings())
+    assert Repo.get(Ryker.Ingress.Inbox.Entry, entry.id)
+    assert Repo.get!(Session, session.id).admission_input_id == entry.id
+
+    Repo.query!("UPDATE episode_work_sessions SET cleanup_status = 'discarded' WHERE id = $1", [
+      uuid!(session.id)
+    ])
+
+    assert {:ok, _result} = Data.prune(settings())
+    refute Repo.get(Ryker.Ingress.Inbox.Entry, entry.id)
+  end
+
   test "settled admission fleet identity retires without a fabricated episode" do
     assert {:ok, input} =
              SlackInput.new(%{

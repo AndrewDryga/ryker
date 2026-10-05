@@ -592,6 +592,13 @@ defmodule Ryker.RoutingExamplesTest do
       old = ~U[2020-01-01 00:00:00.000000Z]
       Repo.update_all(from(e in Entry, where: e.id == ^entry.id), set: [updated_at: old])
 
+      # Cleanup has discarded its routing session; until then the message
+      # stays, so the session keeps the input it was opened for.
+      Repo.update_all(
+        from(session in Ryker.Work.Session, where: session.admission_input_id == ^entry.id),
+        set: [cleanup_status: :discarded]
+      )
+
       # One pass redacts the message's bodies and, the audit horizon passed
       # too, removes the message and its routing attempt.
       assert {:ok, pass} = Data.prune(retention(60))

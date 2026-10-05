@@ -1028,6 +1028,9 @@ defmodule Ryker.Retention.Data do
     }
   ]
 
+  # A message no episode took, once its routing is done. It stays while a
+  # routing session for it is still being closed: deleting it emptied the
+  # session's input, and such a session could never be closed or pruned.
   @orphan_inputs %{
     table: "ingress_inbox_entries",
     as: "input",
@@ -1036,6 +1039,10 @@ defmodule Ryker.Retention.Data do
       AND input.operational_pruned_at IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM delivery_routing_responses routed WHERE routed.input_id = input.id)
       AND NOT EXISTS (SELECT 1 FROM episode_state_record_responses response WHERE response.inbox_entry_id = input.id)
+      AND NOT EXISTS (
+        SELECT 1 FROM episode_work_sessions session
+        WHERE session.admission_input_id = input.id AND session.cleanup_status <> 'discarded'
+      )
     """,
     age: "updated_at",
     horizon: :audit_data_seconds
