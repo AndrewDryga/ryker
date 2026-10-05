@@ -66,14 +66,14 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
   test "a channel-fence timeout returns an explicit search budget error without accounting" do
     # ChannelFence uses Repo.query/3, not query!/3. Its nested Postgrex error
     # must not become an empty lane followed by an aborted-transaction crash.
+    # A change to the channel holds its fence alone; other writes share it.
     Sandbox.unboxed_run(Repo, fn ->
       assert {:ok, fixture} = Repo.transaction(fn -> fixture!(:fact) end)
       parent = self()
+      "slack:" <> workspace = fixture.context.workspace_ref
 
       blocker =
-        hold_lock(parent, fn ->
-          :ok = ChannelFence.authorize_in_transaction("slack", fixture.context.conversation_ref)
-        end)
+        hold_lock(parent, fn -> :ok = ChannelFence.lock_in_transaction(workspace, "CSOURCE") end)
 
       try do
         assert_receive {:lock_held, blocker_backend}, 5_000

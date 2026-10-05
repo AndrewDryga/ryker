@@ -1,5 +1,15 @@
 defmodule Ryker.Slack.ChannelFence do
-  @moduledoc false
+  @moduledoc """
+  Whether a write may still name a Slack channel, checked under the channel's
+  lock: a write lands before a channel change commits, and is erased or
+  refused by it, or after, and sees it.
+
+  A write takes the lock shared, so two messages in one channel never take
+  turns; a change to the channel (`lock_in_transaction/2`) takes it alone and
+  waits for every write in flight. Taking it shared for every write is new on
+  2026-10-05: the exclusive lock made a busy channel's messages queue for the
+  whole of each other's transactions.
+  """
 
   import Ecto.Query
 
@@ -40,14 +50,14 @@ defmodule Ryker.Slack.ChannelFence do
   defp authorize_slack_destination(:invalid), do: :ok
 
   defp authorize_slack_destination({:channel, workspace_ref, channel_ref}) do
-    case lock_in_transaction(workspace_ref, channel_ref) do
+    case share_in_transaction(workspace_ref, channel_ref) do
       :ok -> channel_status(workspace_ref, channel_ref)
       {:error, _reason} = error -> error
     end
   end
 
   defp authorize_public_destination({:channel, workspace_ref, channel_ref}) do
-    case lock_in_transaction(workspace_ref, channel_ref) do
+    case share_in_transaction(workspace_ref, channel_ref) do
       :ok -> public_channel_status(workspace_ref, channel_ref)
       {:error, _reason} = error -> error
     end
@@ -96,12 +106,19 @@ defmodule Ryker.Slack.ChannelFence do
     end
   end
 
+  @doc "Holds the channel's lock alone until the transaction ends: a change to the channel."
   @spec lock_in_transaction(String.t(), String.t()) :: :ok | {:error, term()}
-  def lock_in_transaction(workspace_ref, channel_ref) do
+  def lock_in_transaction(workspace_ref, channel_ref),
+    do: take(workspace_ref, channel_ref, "pg_advisory_xact_lock")
+
+  defp share_in_transaction(workspace_ref, channel_ref),
+    do: take(workspace_ref, channel_ref, "pg_advisory_xact_lock_shared")
+
+  defp take(workspace_ref, channel_ref, function) do
     if Repo.in_transaction?() do
       key = "slack-configuration:#{workspace_ref}:#{channel_ref}"
 
-      case Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key]) do
+      case Repo.query("SELECT #{function}(hashtextextended($1, 0))", [key]) do
         {:ok, _result} -> :ok
         {:error, reason} -> {:error, {:store_failed, :configuration_lock, reason}}
       end
