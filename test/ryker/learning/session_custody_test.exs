@@ -193,7 +193,11 @@ defmodule Ryker.Learning.SessionCustodyTest do
     stuck = recorded_stuck_attempt!("placement_active")
 
     remote =
-      Map.put(stuck.recorded["remote_session"], "external_ref", FleetSession.external_ref(stuck.run))
+      Map.put(
+        stuck.recorded["remote_session"],
+        "external_ref",
+        FleetSession.external_ref(stuck.run)
+      )
 
     fake = recorded_worker!(stuck, {:ok, remote})
     Agent.update(fake, &put_in(&1, [:recorded, :create_key], "another-key"))
