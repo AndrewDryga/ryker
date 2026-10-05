@@ -219,15 +219,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
           not is_nil(turn.candidate),
       order_by: [asc: turn.accepted_at, asc: turn.id],
       limit: 500,
-      # An answer accepted before answers were checked as JSON has no title,
-      # and reading it as JSON must not fail the page.
+      # An accepted answer is a JSON object (`Ryker.Work.Validator`), and JSON
+      # may escape a NUL, which Postgres refuses to read in any JSON value: one
+      # anywhere in an answer failed the page (2026-10-05). It is read as a
+      # space instead, which keeps the JSON valid.
       select:
         {turn.id,
-         fragment(
-           "CASE WHEN ? IS JSON OBJECT THEN (?::jsonb) ->> 'title' END",
-           turn.candidate,
-           turn.candidate
-         )}
+         fragment(~S"(replace(?, '\u0000', '\u0020')::jsonb) ->> 'title'", turn.candidate)}
     )
     |> Repo.all()
     |> Enum.reduce({%{}, nil}, fn

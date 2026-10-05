@@ -285,16 +285,23 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     refute LazyHTML.text(document) =~ "Request title"
   end
 
-  # Where an answer changed the title is read from the answers themselves,
-  # and an accepted answer saved before answers were checked as JSON is not
-  # one; it must not take the page down with it.
-  test "an accepted answer that is not JSON changes no title and leaves the timeline readable" do
+  # Where an answer changed the title is read from the answers themselves. An answer is
+  # accepted only as a JSON object, and JSON may escape a NUL anywhere in it, which Postgres
+  # cannot hold as jsonb: read as jsonb, one such answer took its request's timeline down
+  # (2026-10-05, found removing the guard for answers saved before they were checked).
+  test "an accepted answer holding a NUL escape keeps its title and the timeline readable" do
     {episode, turn, _bodies} = recorded_turn!(1)
-    accept!(turn, "not-json", DateTime.utc_now())
+    named = "Checkout restarts after the 08:00 deploy"
+
+    body =
+      named |> titled() |> Jason.decode!() |> Map.put("notes", "a\u0000b") |> Jason.encode!()
+
+    assert body =~ ~S("a\u0000b")
+    accept!(turn, body, DateTime.utc_now())
 
     document = timeline_document(episode)
 
-    assert title_update(document, turn) == nil
+    assert title_update(document, turn) == "Episode title is updated to: #{named}"
     assert document |> LazyHTML.query("#request-#{turn.id}-result") |> Enum.count() == 1
   end
 
