@@ -251,12 +251,13 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       # opens something carries no buttons), where the step is the one
       # primary button.
       assert Enum.empty?(LazyHTML.query(article, "form, .ui-button"))
-      assert next =~ explanation.button.label
+      step = Enum.find(explanation.options, &(&1[:recommended] && &1[:path]))
+      assert next =~ step.label
       [_label, effect] = String.split(next, ":", parts: 2)
       assert String.trim(effect) == hd(Enum.filter(explanation.options, & &1[:path])).effect
 
       button = row |> detail() |> LazyHTML.query("form[method='get'][action='#{path}'] button")
-      assert LazyHTML.text(button) == explanation.button.label
+      assert LazyHTML.text(button) == step.label
       assert LazyHTML.attribute(button, "class") == ["ui-button primary"]
     end
 
@@ -500,32 +501,6 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert html =~ "The task stopped before Ryker could confirm why."
   end
 
-  test "a stalled worker is named as the cause of any stopped operation" do
-    # Three learning cleanups stopped on 2026-09-18 when the only worker quit
-    # polling for ninety seconds, and each read "No recognized error
-    # explanation" here while the saved code said exactly what happened.
-    row = %{
-      kind: "retention",
-      ref: "ryker-learning:one",
-      action: :rearm,
-      attempt_count: 1,
-      execution_kind: :learning,
-      status: :blocked,
-      summary: "coop_worker_command_timeout",
-      updated_at: nil
-    }
-
-    html = [row] |> FailuresPage.list(@now) |> IO.iodata_to_binary()
-    assert html =~ "The worker did not take or finish the cleanup step in time."
-    assert html =~ "Background learning"
-
-    # A learning cleanup from before a policy re-pin could not be placed back
-    # on its worker, and read as unexplained too.
-    unplaceable = %{row | summary: "coop_session_replacement_required"}
-    html = [unplaceable] |> FailuresPage.list(@now) |> IO.iodata_to_binary()
-    assert html =~ "could not take it back then"
-  end
-
   # The old summary led with "4 failures · 2 affected requests" and an eight
   # cell breakdown by internal area, which told an operator nothing about
   # whether anyone was waiting.
@@ -544,13 +519,14 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     rows = [
       cleanup,
       %{cleanup | ref: "session:two"},
-      %{
-        cleanup
-        | kind: "delivery",
-          ref: "delivery:one",
-          episode_ref: "episode:two",
-          episode_id: @request_two
-      },
+      cleanup
+      |> Map.merge(%{
+        kind: "delivery",
+        ref: "delivery:one",
+        delivery_kind: :message,
+        episode_ref: "episode:two",
+        episode_id: @request_two
+      }),
       %{
         cleanup
         | kind: "admission",

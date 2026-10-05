@@ -233,15 +233,6 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp blocked("coop_error"),
     do: "the worker could not finish this step; check the saved error before resuming"
 
-  defp blocked(code) when code in ~w(coop_unavailable coop_transport_error),
-    do: "the worker could not be reached; check its connection, then resume"
-
-  defp blocked("coop_worker_command_timeout"),
-    do: "the worker did not answer in time; resume to try again"
-
-  defp blocked("coop_session_replacement_required"),
-    do: "the worker that held this copy can no longer take it back"
-
   # An unrecognised code is not a sentence; Failures keeps the saved error.
   defp blocked(_unrecognised),
     do: "cleanup stopped before Ryker could confirm it finished; Failures has the saved error"

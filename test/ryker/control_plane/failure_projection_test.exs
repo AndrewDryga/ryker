@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   }
 
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
-  alias Ryker.CoopFleet.{Placement, WorkerLifecycle}
+  alias Ryker.CoopFleet.Placement
 
   alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
@@ -307,7 +307,8 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
     explained = FailureExplanation.explain(row)
     path = "/memory/learning?batch=#{batch.id}"
-    assert explained.button == %{label: "Open its attempts", href: path}
+    assert %{href: ^path} = step = first_step(explained)
+    assert (step[:link] || step.label) == "Open its attempts"
 
     assert "Only learning: replies are unaffected, and newer messages are learned as usual." in explained.affects
 
@@ -406,7 +407,8 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     relearn = ConversationMemory.topic_path(topic.id) <> "#relearn"
 
     assert explained.outlook == :fix_first
-    assert explained.button == %{label: "Relearn the topic", href: relearn}
+    assert %{href: ^relearn} = step = first_step(explained)
+    assert (step[:link] || step.label) == "Relearn the topic"
 
     detail = row |> FailuresPage.detail() |> IO.iodata_to_binary()
     assert detail =~ relearn
@@ -456,63 +458,8 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert workspace.learning_retry_at == retry_at
   end
 
-  # Andrew opened /failures on 2026-09-24 to two "Working-copy cleanup
-  # stopped" cards over a big "Resume cleanup" button. Their worker had been
-  # updated to a newer ryker-chat policy since the sessions started, and
-  # placement refused to clean up a session under any version but its own. The
-  # next day's fix sends cleanup to the worker that holds the session whatever
-  # it runs, so these older blocks are exactly the ones a retry now resolves;
-  # a page still saying "Retry won't help" would hide the one button that works.
-  test "a cleanup its worker could not take back is offered as the retry that now works" do
-    session = blocked_learning_cleanup!("coop_session_replacement_required")
-    worker = place_on_worker!(session)
-
-    worker
-    |> Ecto.Changeset.change(
-      state: :busy,
-      capacity: %{
-        "session_slots_free" => 0,
-        "turn_slots_free" => 0,
-        "workspace_slots_free" => 0,
-        "state" => "busy"
-      }
-    )
-    |> Repo.update!()
-
-    address = session.external_ref
-
-    assert {:ok, failures} = FailureProjection.list(%{})
-
-    assert %{worker: %{reporting: true, job_valid: false, free_slot: false}} =
-             Enum.find(failures, &(&1.ref == session.external_ref))
-
-    row = failure_row("retention", address)
-    assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() == "Retry should work"
-    assert LazyHTML.text(row) =~ "still holds this session"
-
-    # The row opens the failure's page, where the retry is the primary step.
-    detail = page(["failures", "retention", address])
-    assert detail.status == 200
-    assert detail.body =~ "Should work"
-    refute detail.body =~ "Will fail"
-
-    assert detail.body
-           |> IO.iodata_to_binary()
-           |> LazyHTML.from_fragment()
-           |> LazyHTML.query("form[action='/actions/retention/#{address}/rearm'] button")
-           |> LazyHTML.attribute("class") == ["ui-button primary"]
-
-    # A worker removed from Ryker holds nothing Ryker can reach: the retry
-    # records the session as unreachable instead of waiting on it.
-    assert {:ok, %{status: :revoked}} = WorkerLifecycle.revoke(worker.id, "operator:test")
-
-    row = failure_row("retention", address)
-    assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() == "Retry should work"
-    assert LazyHTML.text(row) =~ "was removed from Ryker"
-  end
-
   test "a busy holder can save its existing result without a new runtime slot" do
-    session = blocked_learning_cleanup!("coop_session_replacement_required") |> WorkerJob.pin!()
+    session = blocked_learning_cleanup!("coop_protocol_error") |> WorkerJob.pin!()
     worker = place_on_worker!(session)
 
     worker
@@ -663,7 +610,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   # way. It came back on Ryker's next automatic retry, which only moved its time: stopping runs,
   # publications and approval watches retry every minute (2026-10-04 review).
   test "a failure left as it is stays off Failures while it fails the same way" do
-    session = blocked_learning_cleanup!("coop_session_replacement_required")
+    session = blocked_learning_cleanup!("coop_protocol_error")
     ref = session.external_ref
 
     assert {:ok, %{left_at: nil, updated_at: changed_at}} =
@@ -741,6 +688,9 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert {:ok, failures} = FailureProjection.list(%{})
     Enum.any?(failures, &(&1.ref == ref))
   end
+
+  # The step a failure's page leads with.
+  defp first_step(explained), do: Enum.find(explained.options, & &1[:recommended])
 
   defp blocked_learning_cleanup!(code) do
     assert {:ok, run} =

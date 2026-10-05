@@ -221,20 +221,20 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
       closed_at: @now,
       cleanup_attempt_count: 3,
       cleanup_blocked_from: :discard_pending,
-      cleanup_last_error_code: "coop_unavailable",
-      cleanup_last_error_detail: "{:coop_unavailable, :econnrefused}"
+      cleanup_last_error_code: "coop_error",
+      cleanup_last_error_detail: "{:coop_error, 409, \"workspace_busy\", nil}"
     )
 
     step = maintenance_step(episode, "Cleanup blocked")
     assert step.summary =~ "delivered answer is unaffected"
     # The error in words on the card; its code and the saved detail in Details.
-    assert step.summary =~ "The worker could not be reached"
+    assert step.summary =~ "The worker could not finish this step"
     refute step.summary =~ ~r/coop/i
     details = Map.new(step.details, &{&1.label, &1.value})
     assert details["Stopped while"] == "Removing the working copy"
     assert details["Tries"] == "3"
-    assert details["Error code"] == "coop_unavailable"
-    assert details["Error detail"] =~ "econnrefused"
+    assert details["Error code"] == "coop_error"
+    assert details["Error detail"] =~ "workspace_busy"
     assert step.tone == :warn
   end
 

@@ -72,8 +72,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         ]
         |> Enum.reject(&is_nil/1)
         |> Enum.sort_by(&if(&1[:recommended], do: 0, else: 1)),
-      next: next(level, retry, fix, story),
-      button: button(level, retry, fix)
+      next: next(level, retry, fix, story)
     }
   end
 
@@ -366,17 +365,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp next(_level, _retry, _fix, story),
     do: %{lead: "Nothing to do here.", text: story[:nothing] || story.outlook_note}
 
-  defp button(_level, nil, %{person: true, href: href} = fix) when is_binary(href),
-    do: %{label: fix[:link] || fix.label, href: href}
-
-  defp button(level, %{} = retry, _fix) when level in [:ready, :unknown],
-    do: %{label: retry.label, path: retry.path}
-
-  defp button(:fix_first, _retry, %{href: href} = fix) when is_binary(href),
-    do: %{label: fix[:link] || fix.label, href: href}
-
-  defp button(_level, _retry, _fix), do: nil
-
   defp state(:ready, _story), do: {:warn, "Retry should work"}
   defp state(:unknown, _story), do: {:warn, "Needs you"}
   defp state(:fix_first, _story), do: {:warn, "Fix needed first"}
@@ -548,60 +536,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     do:
       "Ryker keeps retrying cleanup while a worker is offline, busy or slow to answer. It stops at once when the worker refuses for a reason a retry can't change, and it only removes files it can prove belong to this session."
 
-  # Placement used to refuse cleanup once the worker holding the session ran
-  # another version of its policy or setup, and the dispatcher blocked it for
-  # a person. Cleanup now goes to that worker whatever it runs, waits while it
-  # is away and ends with a receipt once it was removed, so a retry resolves
-  # every block of this kind still on the page.
-  defp retention_cause(%{summary: "coop_session_replacement_required"} = row),
-    do: holder_cause(Map.get(row, :worker))
-
-  # An unreachable or slow worker no longer blocks cleanup, but cleanups that
-  # stopped before that change still carry these codes; the worker's state
-  # now decides them.
-  defp retention_cause(%{summary: code} = row)
-       when code in [
-              "coop_unavailable",
-              "coop_transport_error",
-              "coop_worker_command_timeout",
-              "coop_worker_capacity_unavailable"
-            ] do
-    short =
-      if code == "coop_worker_command_timeout",
-        do: "The worker did not take or finish the cleanup step in time.",
-        else: "The worker could not be reached."
-
-    case row[:worker] do
-      %{reporting: true} = worker ->
-        cause(short, short, :ready, "It should work: worker #{worker.id} is reporting again.")
-
-      %{id: id} ->
-        cause(short, short, :fix_first, "It fails until worker #{id} reports again.", %{
-          label: "Bring worker #{id} back",
-          href: @workers,
-          link: "See workers",
-          effect: "Start worker #{id} again and check that it reports, then try again."
-        })
-
-      nil ->
-        cause(
-          short,
-          short,
-          :unknown,
-          "It works once the worker that holds the session reports again."
-        )
-    end
-  end
-
-  defp retention_cause(%{summary: "coop_session_replacement_pending"}) do
-    cause(
-      "A worker was still handing this session over when cleanup ran.",
-      "The session's worker was releasing it to another placement at that moment, so cleanup could not reach it.",
-      :ready,
-      "It should work: a handover ends within a minute, and cleanup now waits for one instead of stopping."
-    )
-  end
-
   defp retention_cause(%{summary: code} = row)
        when code in ["retention_generation_spent", "coop_mutation_response_unresolved"] do
     Map.put(
@@ -649,33 +583,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       "The saved error does not name a cause Ryker recognises." <> saved_error(row[:summary]),
       :unknown,
       "Whether it works depends on the cause, which the saved error does not name."
-    )
-  end
-
-  defp holder_cause(%{enrolled: false} = worker) do
-    cause(
-      "Its worker #{worker.id} was removed from Ryker, so nothing Ryker can reach is left to clean up.",
-      "Only the worker that holds a session can close or remove it, and worker #{worker.id} is no longer enrolled: its certificates and placements were revoked for good.",
-      :ready,
-      "It should work: Ryker records the session as unreachable and stops tracking it. Anything still on worker #{worker.id} is outside Ryker's reach."
-    )
-  end
-
-  defp holder_cause(%{id: id}) do
-    cause(
-      "Its worker #{id} still holds this session, and cleanup no longer needs the policy version it started with.",
-      "When this stopped, Ryker cleaned up a session only under the exact policy version and setup it started with, and worker #{id} had moved on. Closing and removing a session do no policy work, so cleanup now goes to the worker that holds it whatever that worker runs.",
-      :ready,
-      "It should work: Ryker sends the cleanup to worker #{id}, and waits for it if it is away."
-    )
-  end
-
-  defp holder_cause(nil) do
-    cause(
-      "The worker that held this session could not take it back then.",
-      "Ryker has no record of which worker held this session.",
-      :unknown,
-      "It works if the worker that holds this session reports; Ryker waits for it instead of stopping again."
     )
   end
 
@@ -1435,8 +1342,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   # to 60 s) and stops at once when Slack refuses in a way a retry cannot
   # change. A retry sends the same saved content; it searches the thread
   # first, so a reply never appears twice. Nothing expires.
-  defp delivery(row, now) do
-    kind = Map.get(row, :delivery_kind) || delivery_kind(row)
+  defp delivery(%{delivery_kind: kind} = row, now) do
     cause = slack_cause(row, delivery_code_cause(row))
     parts = delivery_parts(kind)
 
@@ -1463,13 +1369,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       }
     }
   end
-
-  defp delivery_kind(%{source: "reaction delivery"}), do: :reaction
-  defp delivery_kind(%{source: "quick_reply delivery"}), do: :quick_reply
-  defp delivery_kind(%{source: "platform_action delivery"}), do: :platform_action
-  defp delivery_kind(%{source: "weekly_report delivery"}), do: :weekly_report
-  defp delivery_kind(%{source: "weekly_report_preview delivery"}), do: :weekly_report_preview
-  defp delivery_kind(_row), do: :message
 
   defp delivery_parts(:reaction),
     do: %{

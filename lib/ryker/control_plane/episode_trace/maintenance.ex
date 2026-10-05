@@ -395,9 +395,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   defp error_words("coop_session_replacement_pending"),
     do: " The worker holding the session was handing it over."
 
-  defp error_words("coop_session_replacement_required"),
-    do: " The worker that held the session can no longer take it back."
-
   defp error_words("retention_worker_unavailable"),
     do: " The worker holding the session was offline."
 

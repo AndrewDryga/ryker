@@ -274,7 +274,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
     explanation = FailureExplanation.explain(row)
     assert explanation.outlook == :fix_first
-    assert explanation.button == %{label: "Open Emisar settings", href: "/integrations/emisar"}
+    assert %{link: "Open Emisar settings"} = settings_step(explanation)
     assert explanation.summary =~ "monitoring is off"
     # The fix is in Emisar's settings; the one thing to press here leaves it as it is.
     assert Enum.flat_map(explanation.options, &List.wrap(&1[:path])) ==
@@ -298,7 +298,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
     explanation = FailureExplanation.explain(row)
     assert explanation.outlook == :fix_first
-    assert explanation.button.href == "/integrations/emisar"
+    assert settings_step(explanation)
     assert explanation.summary =~ "no usable Emisar token"
 
     assert {:ok, %{status: :rotated}} =
@@ -360,7 +360,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
     row = failure("production/apr-refused")
     assert row.summary == "emisar_http_401"
-    assert FailureExplanation.explain(row).button.href == "/integrations/emisar"
+    assert row |> FailureExplanation.explain() |> settings_step()
 
     assert {:ok, %{status: :rotated}} =
              IntegrationSetup.rotate_emisar(
@@ -473,6 +473,10 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert {:ok, failures} = FailureProjection.list(%{})
     Enum.find(failures, &(&1.kind == "emisar" and &1.ref == ref))
   end
+
+  # The step a failure page leads with when Emisar's settings are what to fix.
+  defp settings_step(explanation),
+    do: Enum.find(explanation.options, &(&1[:recommended] && &1[:href] == "/integrations/emisar"))
 
   defp failures_page do
     page = Pages.page(["failures"], %{}, %{projection: Projection.callbacks()})
