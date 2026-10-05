@@ -23,12 +23,6 @@ defmodule Ryker.Work.ValidationIntentTest do
     assert ValidationIntent.result(intent) == {:ok, nil}
     assert ValidationIntent.prepare(intent) == {:ok, intent}
 
-    assert ValidationIntent.new(
-             {:reject, [String.duplicate("a", 3_000), String.duplicate("b", 3_000)]},
-             nil
-           ) ==
-             {:error, {:invalid_work_validation_intent, :violations}}
-
     assert {:ok, boundary} =
              ValidationIntent.new(
                {:reject, ["  " <> String.duplicate("x", 4_095) <> "  "]},
@@ -36,9 +30,34 @@ defmodule Ryker.Work.ValidationIntentTest do
              )
 
     assert boundary["violations"] == [String.duplicate("x", 4_095)]
+    assert {:error, _empty} = ValidationIntent.new({:reject, []}, nil)
+    assert {:error, _blank} = ValidationIntent.new({:reject, ["   "]}, nil)
+  end
 
-    assert ValidationIntent.new({:reject, [String.duplicate("x", 4_096)]}, nil) ==
-             {:error, {:invalid_work_validation_intent, :violations}}
+  # A candidate with more problems than Coop takes back with a rejection,
+  # twenty and 4 KiB in all, was refused outright, and the turn blocked for a
+  # person instead of going back to the model (2026-10-04 review).
+  test "a rejection sends back the first problems that fit, and how many more there were" do
+    many = Enum.map(1..25, &"Violation #{&1}")
+    assert {:ok, %{"violations" => sent}} = ValidationIntent.new({:reject, many}, nil)
+    assert length(sent) == 20
+    assert Enum.take(sent, 19) == Enum.take(many, 19)
+    assert List.last(sent) =~ "6 more problems were found"
+
+    long = [String.duplicate("a", 3_000), String.duplicate("b", 3_000)]
+    assert {:ok, %{"violations" => [first, more]}} = ValidationIntent.new({:reject, long}, nil)
+    assert first == String.duplicate("a", 3_000)
+    assert more =~ "1 more problem was found"
+
+    assert {:ok, %{"violations" => [cut]}} =
+             ValidationIntent.new({:reject, [String.duplicate("x", 5_000)]}, nil)
+
+    assert byte_size(cut) <= 4_095
+    assert String.ends_with?(cut, "…")
+
+    for {:ok, intent} <- [ValidationIntent.new({:reject, many}, nil)] do
+      assert ValidationIntent.prepare(intent) == {:ok, intent}
+    end
   end
 
   test "accept and reject shapes cannot be mixed" do
@@ -82,13 +101,12 @@ defmodule Ryker.Work.ValidationIntentTest do
              {:error, {:invalid_work_validation_intent, :verdict}}
   end
 
-  test "reject violations are trimmed and reject empty, non-text, or oversized sets" do
+  test "reject violations are trimmed and reject empty or non-text sets" do
     assert {:ok, intent} = ValidationIntent.new({:reject, ["  repair this  "]}, nil)
     assert intent["violations"] == ["repair this"]
 
     invalid = [
       [],
-      Enum.map(1..21, &"violation #{&1}"),
       ["   "],
       [<<255>>],
       ["contains\0nul"],

@@ -840,7 +840,7 @@ defmodule Ryker.Coop.ClientTest do
                "turn_123",
                "validation:key",
                String.duplicate("a", 64),
-               {:reject, [String.duplicate("x", 4_096)]}
+               {:reject, [<<255>>]}
              )
   end
 

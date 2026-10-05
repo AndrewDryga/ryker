@@ -7,7 +7,7 @@ defmodule Ryker.Work.ValidationIntent do
   become a delivery intent.
   """
 
-  alias Ryker.CanonicalJSON
+  alias Ryker.{CanonicalJSON, Text}
   alias Ryker.Work.Result
 
   @fields ~w(result verdict violations)
@@ -36,12 +36,11 @@ defmodule Ryker.Work.ValidationIntent do
   def new(:accept, _result), do: {:error, {:invalid_work_validation_intent, :result}}
 
   def new({:reject, violations}, nil) do
-    case normalize_violations(violations) do
-      {:ok, normalized} ->
-        {:ok, %{"result" => nil, "verdict" => "reject", "violations" => normalized}}
-
-      :error ->
-        {:error, {:invalid_work_validation_intent, :violations}}
+    with {:ok, normalized} <- normalize_rejection(violations),
+         {:ok, fitted} <- normalize_violations(fit(normalized)) do
+      {:ok, %{"result" => nil, "verdict" => "reject", "violations" => fitted}}
+    else
+      :error -> {:error, {:invalid_work_validation_intent, :violations}}
     end
   end
 
@@ -98,14 +97,58 @@ defmodule Ryker.Work.ValidationIntent do
 
   defp normalize_violations(_violations), do: :error
 
-  defp normalize_violation(violation) when is_binary(violation) do
+  defp normalize_rejection([_one | _rest] = violations) do
+    normalized = Enum.map(violations, &normalize_violation(&1, :unbounded))
+    if Enum.all?(normalized, &is_binary/1), do: {:ok, normalized}, else: :error
+  end
+
+  defp normalize_rejection(_violations), do: :error
+
+  # A candidate can have more problems than Coop takes back with a rejection:
+  # twenty, 4 KiB in all. A longer list was refused outright, and the turn
+  # blocked for a person instead of going back to the model (2026-10-04
+  # review). The first problems go back in order, with how many more there
+  # were.
+  defp fit([single]), do: [Text.cut(single, @maximum_violation_bytes - 1)]
+
+  defp fit(violations) do
+    if fits?(violations), do: violations, else: shortened(violations, length(violations))
+  end
+
+  defp shortened(violations, total) do
+    (min(total, @maximum_violations) - 1)..1//-1
+    |> Enum.map(&(Enum.take(violations, &1) ++ [more(total - &1)]))
+    |> Enum.find(&fits?/1) || first_and_more(violations, total)
+  end
+
+  defp first_and_more([first | _rest], total) do
+    more = more(total - 1)
+    [Text.cut(first, @maximum_violation_bytes - byte_size(more) - 2), more]
+  end
+
+  defp fits?(violations) do
+    length(violations) <= @maximum_violations and
+      Enum.sum(Enum.map(violations, &(byte_size(&1) + 1))) <= @maximum_violation_bytes
+  end
+
+  defp more(1), do: "1 more problem was found; fix these first and it is checked again."
+
+  defp more(count),
+    do: "#{count} more problems were found; fix these first and they are checked again."
+
+  defp normalize_violation(violation, bound \\ @maximum_violation_bytes)
+
+  defp normalize_violation(violation, bound) when is_binary(violation) do
     normalized = String.trim(violation)
 
-    if String.valid?(normalized) and byte_size(normalized) in 1..@maximum_violation_bytes and
+    if String.valid?(normalized) and normalized != "" and within?(normalized, bound) and
          :binary.match(normalized, <<0>>) == :nomatch,
        do: normalized,
        else: nil
   end
 
-  defp normalize_violation(_violation), do: nil
+  defp normalize_violation(_violation, _bound), do: nil
+
+  defp within?(_text, :unbounded), do: true
+  defp within?(text, bound), do: byte_size(text) <= bound
 end
