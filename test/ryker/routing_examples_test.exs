@@ -625,6 +625,30 @@ defmodule Ryker.RoutingExamplesTest do
       assert kept(fresh)
     end
 
+    # Pruning ran its phases one after another, and a phase that failed ended
+    # the pass, so every later one, deleting the examples a person turned off
+    # included, never ran while that phase kept failing (2026-10-04 review).
+    # Each phase runs on its own, and the pass still reports the failure.
+    test "examples a person turned off are deleted even when an earlier pruning phase fails" do
+      keep_examples!()
+      route!("Ev-examples-phase-failed", "hello there", @ignore)
+      assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
+
+      # The first phase, expiring memory, reads this table, and so does a
+      # later one.
+      Repo.query!("ALTER TABLE operational_memory_entries RENAME TO operational_memory_away")
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:retention_phases_failed, [:expiring | _later]}} =
+                   Data.prune(%{retention(365 * @day) | routing_examples_enabled: false})
+        end)
+
+      Repo.query!("ALTER TABLE operational_memory_away RENAME TO operational_memory_entries")
+      assert log =~ "retention phase expiring failed"
+      assert Repo.aggregate(Example, :count) == 0
+    end
+
     test "turning keeping routing examples off deletes every kept one" do
       keep_examples!()
       route!("Ev-examples-withdrawn", "hello there", @ignore)

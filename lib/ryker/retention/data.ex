@@ -19,6 +19,8 @@ defmodule Ryker.Retention.Data do
   alias Ryker.Repo
   alias Ryker.Work.ActivityRetention
 
+  require Logger
+
   @advisory_lock 7_152_019_552_843_111
   @terminal_episode_states ~w(complete cancelled)
   @terminal_turn_states ~w(settled superseded)
@@ -67,21 +69,51 @@ defmodule Ryker.Retention.Data do
     end
   end
 
+  # Each phase commits on its own, and one that fails is logged and the pass
+  # goes on: chained, one failing phase stopped every later one on every pass,
+  # deleting the examples a person turned off included. The pass still
+  # reports which phases failed.
+  @phases ~w(expiring operational closed_work history audit examples)a
+
   defp prune_in_transactions(settings) do
-    with {:ok, expiring} <-
-           Repo.transaction(fn -> prune_expiring_resources(empty_result(), settings) end),
-         {:ok, operational} <-
-           Repo.transaction(fn -> prune_operational(expiring, settings) end),
-         {:ok, closed_work} <-
-           Repo.transaction(fn -> prune_closed_work(operational, settings) end),
-         {:ok, history} <- Repo.transaction(fn -> prune_history(closed_work, settings) end),
-         {:ok, audit} <- Repo.transaction(fn -> prune_audit(history, settings) end) do
-      Repo.transaction(fn ->
-        audit |> prune_routing_examples(settings) |> prune_work_examples(settings)
+    {result, failed} =
+      Enum.reduce(@phases, {empty_result(), []}, fn phase, {result, failed} ->
+        case run_phase(phase, result, settings) do
+          {:ok, result} -> {result, failed}
+          :error -> {result, [phase | failed]}
+        end
       end)
-      |> tap(&broadcast_history_pruned/1)
+
+    broadcast_history_pruned({:ok, result})
+
+    case failed do
+      [] -> {:ok, result}
+      failed -> {:error, {:retention_phases_failed, Enum.reverse(failed)}}
     end
   end
+
+  defp run_phase(phase, result, settings) do
+    case Repo.transaction(fn -> prune_phase(phase, result, settings) end) do
+      {:ok, result} -> {:ok, result}
+      {:error, reason} -> phase_failed(phase, inspect(reason))
+    end
+  rescue
+    error -> phase_failed(phase, Exception.format_banner(:error, error))
+  end
+
+  defp phase_failed(phase, reason) do
+    Logger.error("retention phase #{phase} failed: #{reason}")
+    :error
+  end
+
+  defp prune_phase(:expiring, result, settings), do: prune_expiring_resources(result, settings)
+  defp prune_phase(:operational, result, settings), do: prune_operational(result, settings)
+  defp prune_phase(:closed_work, result, settings), do: prune_closed_work(result, settings)
+  defp prune_phase(:history, result, settings), do: prune_history(result, settings)
+  defp prune_phase(:audit, result, settings), do: prune_audit(result, settings)
+
+  defp prune_phase(:examples, result, settings),
+    do: result |> prune_routing_examples(settings) |> prune_work_examples(settings)
 
   # Most tables expire in one shape, so their rules are data run by
   # prune_aged/2: a batch of at most `limit` rows (100 unless given) that match
