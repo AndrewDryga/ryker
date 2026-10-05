@@ -37,10 +37,8 @@ defmodule Ryker.Work.SubmissionBuilder do
   @retained_cases 3
   @maximum_context_bytes 160 * 1_024
   @input_content_bytes 1_024
-  @record_payload_bytes 2_048
   @default_state_tool_capabilities [:event_waits, :publication, :schedules]
   @state_tool_capabilities [:emisar_approvals, :event_waits, :publication, :schedules]
-  @truncation_marker "...<truncated>..."
 
   @doc """
   The frozen submission for this claim.
@@ -627,7 +625,7 @@ defmodule Ryker.Work.SubmissionBuilder do
         "content" =>
           if(current,
             do: command["payload"],
-            else: compact_value(command["payload"], @input_content_bytes)
+            else: CanonicalJSON.bounded(command["payload"], @input_content_bytes)
           ),
         "current" => current,
         "occurred_at" => DateTime.to_iso8601(event.occurred_at),
@@ -853,7 +851,7 @@ defmodule Ryker.Work.SubmissionBuilder do
     document =
       %{
         "actor_ref" => event.payload["actor_ref"],
-        "content" => compact_value(event.payload["payload"], @input_content_bytes),
+        "content" => CanonicalJSON.bounded(event.payload["payload"], @input_content_bytes),
         "occurred_at" => DateTime.to_iso8601(event.occurred_at)
       }
       |> put_source_ref(event.payload["payload"])
@@ -977,7 +975,7 @@ defmodule Ryker.Work.SubmissionBuilder do
       %{document: content, document_sha256: sha256, document_commit: commit}
       when is_binary(content) ->
         Map.put(context, "repository_knowledge", %{
-          "content" => compact_value(content, 48 * 1_024),
+          "content" => CanonicalJSON.bounded(content, 48 * 1_024),
           "sha256" => sha256,
           "source_commit" => commit
         })
@@ -992,7 +990,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp record_document(record) do
     %{
       "kind" => record["kind"],
-      "payload" => compact_value(record["payload"], @record_payload_bytes),
+      "payload" => DerivedContext.record_payload(record["payload"]),
       "ref" => record["ref"],
       "status" => record["status"]
     }
@@ -1006,32 +1004,4 @@ defmodule Ryker.Work.SubmissionBuilder do
       [] -> nil
     end
   end
-
-  defp compact_value(nil, _maximum), do: nil
-
-  defp compact_value(value, maximum) do
-    encoded = CanonicalJSON.encode!(value)
-
-    if byte_size(encoded) <= maximum do
-      value
-    else
-      %{
-        "json_preview" => bounded_preview(encoded, maximum),
-        "original_bytes" => byte_size(encoded),
-        "sha256" => digest(encoded),
-        "truncated" => true
-      }
-    end
-  end
-
-  defp bounded_preview(encoded, maximum) do
-    available = maximum - byte_size(@truncation_marker)
-    head_bytes = div(available, 2)
-    tail_bytes = available - head_bytes
-
-    String.byte_slice(encoded, 0, head_bytes) <>
-      @truncation_marker <> String.byte_slice(encoded, -tail_bytes, tail_bytes)
-  end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

@@ -23,7 +23,6 @@ defmodule Ryker.Records.Outcomes do
   @trigger_bytes 2 * 1_024
   @result_bytes 4 * 1_024
   @record_bytes 2 * 1_024
-  @truncation_marker "...<truncated>..."
 
   @spec recall(Episode.t(), String.t() | nil) :: [map()]
   def recall(current, repository \\ nil)
@@ -108,11 +107,11 @@ defmodule Ryker.Records.Outcomes do
       "episode_ref" => turn.episode_id,
       "finished_at" => finished_at(turn),
       "records" => records,
-      "result" => compact_value(turn.delivery_document, @result_bytes),
+      "result" => CanonicalJSON.bounded(turn.delivery_document, @result_bytes),
       "state" => state,
       "source_turn_ref" => turn.id,
       "source_event_ref" => if(event, do: event.id),
-      "trigger" => if(event, do: compact_value(event.payload["payload"], @trigger_bytes)),
+      "trigger" => if(event, do: CanonicalJSON.bounded(event.payload["payload"], @trigger_bytes)),
       "verified" => state == "complete" and explicitly_verified?(records)
     }
   end
@@ -144,7 +143,7 @@ defmodule Ryker.Records.Outcomes do
   defp record_document(record) do
     %{
       "kind" => record.kind,
-      "payload" => compact_value(record.payload, @record_bytes),
+      "payload" => CanonicalJSON.bounded(record.payload, @record_bytes),
       "ref" => record.ref
     }
   end
@@ -172,31 +171,5 @@ defmodule Ryker.Records.Outcomes do
     linked = if outcome["episode_ref"] == current.linked_episode_id, do: 1, else: 0
     finished = outcome["finished_at"] || ""
     {linked, finished, outcome["episode_ref"]}
-  end
-
-  defp compact_value(nil, _maximum), do: nil
-
-  defp compact_value(value, maximum) do
-    encoded = CanonicalJSON.encode!(value)
-
-    if byte_size(encoded) <= maximum do
-      value
-    else
-      %{
-        "json_preview" => bounded_preview(encoded, maximum),
-        "original_bytes" => byte_size(encoded),
-        "sha256" => CanonicalJSON.digest(value),
-        "truncated" => true
-      }
-    end
-  end
-
-  defp bounded_preview(encoded, maximum) do
-    available = maximum - byte_size(@truncation_marker)
-    head_bytes = div(available, 2)
-    tail_bytes = available - head_bytes
-
-    String.byte_slice(encoded, 0, head_bytes) <>
-      @truncation_marker <> String.byte_slice(encoded, -tail_bytes, tail_bytes)
   end
 end

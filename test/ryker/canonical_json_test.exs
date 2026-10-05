@@ -20,6 +20,24 @@ defmodule Ryker.CanonicalJSONTest do
     end
   end
 
+  # A briefing keeps a long record this way and the record's check rebuilds
+  # the preview to compare, so these bytes are pinned: a briefing frozen
+  # before a change to them would read as stale (2026-10-04 review).
+  test "a value too long for its bound keeps its head, tail, size and digest" do
+    long = %{"text" => String.duplicate("a", 60) <> "é" <> String.duplicate("b", 60)}
+
+    assert CanonicalJSON.bounded(long, 64) == %{
+             "json_preview" =>
+               ~s({"text":"aaaaaaaaaaaaaa...<truncated>...bbbbbbbbbbbbbbbbbbbbbb"}),
+             "original_bytes" => 133,
+             "sha256" => CanonicalJSON.digest(long),
+             "truncated" => true
+           }
+
+    assert CanonicalJSON.bounded(%{"x" => 1}, 64) == %{"x" => 1}
+    assert CanonicalJSON.bounded(nil, 64) == nil
+  end
+
   test "rejects object keys that collapse to the same JSON field" do
     assert {:error, {:duplicate_key, "$", "same"}} =
              CanonicalJSON.validate(%{"same" => 1, same: 2})

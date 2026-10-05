@@ -28,6 +28,42 @@ defmodule Ryker.CanonicalJSON do
     |> Base.encode16(case: :lower)
   end
 
+  @truncation_marker "...<truncated>..."
+
+  @doc """
+  `value` itself when its encoding fits in `maximum` bytes, else the head and
+  tail of that encoding around a marker, with its size and digest.
+
+  A briefing keeps a long record this way and the record's check rebuilds the
+  same preview to compare, so both use this one function: the rule was copied
+  three times, and a drift would have marked every briefing with a long record
+  stale (2026-10-04 review). The slices drop a character they would split, so
+  a preview can be a few bytes short; the digest is its identity.
+  """
+  @spec bounded(term(), pos_integer()) :: term()
+  def bounded(nil, _maximum), do: nil
+
+  def bounded(value, maximum) do
+    encoded = encode!(value)
+
+    if byte_size(encoded) <= maximum do
+      value
+    else
+      available = maximum - byte_size(@truncation_marker)
+      head_bytes = div(available, 2)
+      tail_bytes = available - head_bytes
+
+      %{
+        "json_preview" =>
+          String.byte_slice(encoded, 0, head_bytes) <>
+            @truncation_marker <> String.byte_slice(encoded, -tail_bytes, tail_bytes),
+        "original_bytes" => byte_size(encoded),
+        "sha256" => :crypto.hash(:sha256, encoded) |> Base.encode16(case: :lower),
+        "truncated" => true
+      }
+    end
+  end
+
   @spec encode!(Jason.Encoder.t()) :: String.t()
   def encode!(value) do
     case encode(value) do

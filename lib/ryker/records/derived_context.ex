@@ -14,16 +14,21 @@ defmodule Ryker.Records.DerivedContext do
   @stale {:error, :work_knowledge_context_stale}
   @record_bytes 2_048
   @delivery_bytes 2_048
-  @marker "...<truncated>..."
 
   def derived?(document), do: document["kind"] in @kinds
   def record(document), do: %{"kind" => "episode_record", "document" => document}
   def outcome(document), do: %{"kind" => "episode_outcome", "document" => document}
   def delivery(document), do: %{"kind" => "episode_delivery", "document" => document}
 
+  @doc """
+  A record's payload as a briefing keeps it and this module checks it: whole,
+  or bounded (`Ryker.CanonicalJSON.bounded/2`) to one limit both share.
+  """
+  def record_payload(payload), do: CanonicalJSON.bounded(payload, @record_bytes)
+
   def delivery_document(%Turn{} = turn) do
     %{
-      "delivery" => compact(turn.delivery_document, @delivery_bytes),
+      "delivery" => CanonicalJSON.bounded(turn.delivery_document, @delivery_bytes),
       "submission_ref" => turn.submission_fingerprint,
       "source_turn_ref" => turn.id
     }
@@ -218,7 +223,7 @@ defmodule Ryker.Records.DerivedContext do
       document["kind"] == record.kind and
       document["status"] in [nil | ~w(open confirmed answered dismissed superseded)] and
       is_map(record.payload) and
-      document["payload"] in [record.payload, compact(record.payload, @record_bytes)]
+      document["payload"] in [record.payload, record_payload(record.payload)]
   end
 
   defp same_conversation?(left, right),
@@ -230,28 +235,6 @@ defmodule Ryker.Records.DerivedContext do
     case Ecto.UUID.cast(id) do
       {:ok, id} -> Repo.get(schema, id)
       _ -> nil
-    end
-  end
-
-  defp compact(nil, _maximum), do: nil
-
-  defp compact(value, maximum) do
-    encoded = CanonicalJSON.encode!(value)
-
-    if byte_size(encoded) <= maximum do
-      value
-    else
-      head_bytes = div(maximum - byte_size(@marker), 2)
-      tail_bytes = maximum - byte_size(@marker) - head_bytes
-
-      %{
-        "json_preview" =>
-          String.byte_slice(encoded, 0, head_bytes) <>
-            @marker <> String.byte_slice(encoded, -tail_bytes, tail_bytes),
-        "original_bytes" => byte_size(encoded),
-        "sha256" => CanonicalJSON.digest(value),
-        "truncated" => true
-      }
     end
   end
 end
