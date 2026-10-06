@@ -164,7 +164,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        carried_notice: nil,
        carried_reveal: nil,
        action_question: nil,
-       overview: nil,
+       fleet: nil,
        activity: nil,
        filter_menu: nil,
        filter_search: %{},
@@ -1461,7 +1461,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               options.projection.usage_filter_options.(),
           else: socket.assigns.filter_values
         ),
-      overview: options.projection.overview.(),
+      fleet: options.projection.fleet.(),
       schedules: schedules
     )
     |> update_activity(activity.items, reset)
@@ -2578,7 +2578,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             filter_menu={@filter_menu}
             filter_search={@filter_search}
             filter_values={@filter_values}
-            overview={@overview}
+            fleet={@fleet}
             schedules={@schedules}
             stream={@streams.activity}
             new_items={@new_items}

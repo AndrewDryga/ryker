@@ -77,7 +77,7 @@ defmodule Ryker.ControlPlane.ActivityDaysTest do
 
     html =
       render_component(&ActivityPage.render/1,
-        overview: %{},
+        fleet: %{required: false},
         activity: %{total: 1, page: 1, pages: 1, mode: "live", views: %{}},
         params: %{},
         path: "/",

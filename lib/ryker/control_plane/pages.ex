@@ -306,14 +306,15 @@ defmodule Ryker.ControlPlane.Pages do
   def page(["failures"], params, options) do
     page = FailureProjection.page_number(params)
 
-    with {:ok, rows} <- options.projection.failures.(params),
-         {:ok, older} <- older_failures(rows, page, params, options) do
-      ok("Failures", FailuresPage.description(), [
-        FailuresPage.list(rows, DateTime.utc_now(), page_only: page > 1 or older != :none),
-        FailuresPage.pager(page, older)
-      ])
-    else
-      {:error, _reason} -> unavailable("Failures")
+    case options.projection.failures.(params) do
+      {:ok, %{rows: rows, older: older}} ->
+        ok("Failures", FailuresPage.description(), [
+          FailuresPage.list(rows, DateTime.utc_now(), page_only: page > 1 or older != :none),
+          FailuresPage.pager(page, older)
+        ])
+
+      {:error, _reason} ->
+        unavailable("Failures")
     end
   end
 
@@ -454,26 +455,6 @@ defmodule Ryker.ControlPlane.Pages do
 
   defp settings(%{projection: %{settings: settings}}), do: settings.()
   defp settings(_options), do: {:error, :unavailable}
-
-  # Only a full page can have older failures behind it, and asking for the
-  # next page is how to know without counting every kind. The deepest page
-  # says the rest exist rather than linking past what the list reads.
-  defp older_failures(rows, page, params, options) do
-    cond do
-      length(rows) < FailureProjection.page_size() ->
-        {:ok, :none}
-
-      page == FailureProjection.maximum_page() ->
-        {:ok, :unlisted}
-
-      true ->
-        case options.projection.failures.(Map.put(params, "page", Integer.to_string(page + 1))) do
-          {:ok, []} -> {:ok, :none}
-          {:ok, _older} -> {:ok, :next_page}
-          {:error, _reason} = error -> error
-        end
-    end
-  end
 
   defp ok(title, body), do: ok(title, nil, body)
 

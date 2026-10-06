@@ -62,7 +62,21 @@ defmodule Ryker.ControlPlane.FailureProjection do
   past a hundred, the newest were cut before anything saw them, and the page
   said nothing about it. Older failures are now the next page.
   """
+  @spec list(map()) :: {:ok, [map()]} | {:error, :unavailable}
   def list(params) do
+    with {:ok, %{rows: rows}} <- page(params), do: {:ok, rows}
+  end
+
+  @doc """
+  `list/1`'s page with whether older failures are behind it: `:next_page`,
+  `:none`, or `:unlisted` past the deepest page the list reads. The page ran
+  the whole projection a second time to learn this (2026-10-04 review); the
+  one read that fills it fetches a row more than it needs and knows.
+  """
+  @spec page(map()) ::
+          {:ok, %{rows: [map()], older: :next_page | :none | :unlisted}}
+          | {:error, :unavailable}
+  def page(params) do
     page = page_number(params)
     # The newest items of every kind that the pages up to this one can hold,
     # and one more: enough to fill this page whatever the mix of kinds.
@@ -201,13 +215,21 @@ defmodule Ryker.ControlPlane.FailureProjection do
           learning ++
           Enum.map(emisar_items, &emisar_item/1)
 
-      {:ok,
-       failures
-       |> FailureDismissals.reject_left()
-       |> Enum.map(&Map.put(&1, :left_at, nil))
-       |> Enum.sort_by(&DateTime.to_unix(&1.updated_at, :microsecond), :desc)
-       |> Enum.slice((page - 1) * @page_size, @page_size)
-       |> decorate_failures()}
+      open =
+        failures
+        |> FailureDismissals.reject_left()
+        |> Enum.map(&Map.put(&1, :left_at, nil))
+        |> Enum.sort_by(&DateTime.to_unix(&1.updated_at, :microsecond), :desc)
+
+      older =
+        cond do
+          length(open) <= page * @page_size -> :none
+          page == @maximum_page -> :unlisted
+          true -> :next_page
+        end
+
+      rows = open |> Enum.slice((page - 1) * @page_size, @page_size) |> decorate_failures()
+      {:ok, %{rows: rows, older: older}}
     end
   rescue
     _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :unavailable}
@@ -378,7 +400,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def work(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case blocked_work(ref) do
       nil -> :not_found
-      row -> {:ok, work_item(row)}
+      row -> {:ok, row |> work_item() |> List.wrap() |> attach_work_recovery() |> hd()}
     end
   end
 
@@ -495,16 +517,13 @@ defmodule Ryker.ControlPlane.FailureProjection do
     )
   end
 
+  # A row is cheap until the page is cut: its recovery brief (custody reads
+  # and a question to the fleet) and its paused room are read for the rows the
+  # page shows (`attach_work_recovery/1`), not for every row each kind fetched
+  # to fill it (2026-10-04 review).
   defp work_item({%Turn{} = turn, %Episode{} = episode}) do
-    recovery = Recovery.brief(turn)
-    stop_code = stop_code(turn)
-    paused_room = paused_room(stop_code, episode)
-
     %{
-      # A task whose room was deleted is closed by Ryker itself; running it
-      # again would only post into a room that no longer exists.
-      action: if(match?(%{channel_state: :deleted}, paused_room), do: nil, else: recovery.action),
-      work_recovery: recovery,
+      action: nil,
       attempt_count: max(turn.work_attempt_count, turn.cancel_attempt_count),
       detail: FailureDetail.project(turn.last_error_detail),
       diagnosis: FailureDetail.facts(turn.last_error_detail),
@@ -515,12 +534,34 @@ defmodule Ryker.ControlPlane.FailureProjection do
       ref: episode.key,
       session_id: turn.session_id,
       source: turn.execution_target,
-      paused_room: paused_room,
       status: turn.status,
-      stop_code: stop_code,
+      stop_code: stop_code(turn),
       summary: turn.last_error_code || "work blocked",
-      updated_at: turn.updated_at
+      updated_at: turn.updated_at,
+      work: {turn, episode}
     }
+  end
+
+  defp attach_work_recovery(items) do
+    Enum.map(items, fn
+      %{kind: "work", work: {turn, episode}} = item ->
+        recovery = Recovery.brief(turn)
+        paused_room = paused_room(item.stop_code, episode)
+
+        item
+        |> Map.delete(:work)
+        |> Map.merge(%{
+          # A task whose room was deleted is closed by Ryker itself; running it
+          # again would only post into a room that no longer exists.
+          action:
+            if(match?(%{channel_state: :deleted}, paused_room), do: nil, else: recovery.action),
+          paused_room: paused_room,
+          work_recovery: recovery
+        })
+
+      item ->
+        item
+    end)
   end
 
   # The incident room a paused task waits for. An archived room can become
@@ -739,13 +780,14 @@ defmodule Ryker.ControlPlane.FailureProjection do
     %{
       action: nil,
       attempt_count: batch.start_count,
-      attempt_error: last_attempt_error(batch.id),
+      attempt_error: nil,
       destination: batch.conversation_ref,
       execution_kind: :learning,
       input_count: batch.input_count,
       kind: "learning",
       learning_path: LearningActivity.path(batch.id),
-      relearn_path: relearn_path(LearningActivity.relearn_topics(batch)),
+      relearn_path: nil,
+      learning: batch,
       policy: batch.policy,
       ref: batch.id,
       source: batch.repository_ref || "no repository",
@@ -754,6 +796,24 @@ defmodule Ryker.ControlPlane.FailureProjection do
       summary: LearningActivity.cause_code(batch) || "learning_deferred",
       updated_at: batch.updated_at
     }
+  end
+
+  # What a shown batch's last attempt stopped on, so its page can say it in
+  # words, and where to relearn what it stopped on: read for the rows the page
+  # shows, after the cut (2026-10-04 review).
+  defp attach_learning_causes(items) do
+    Enum.map(items, fn
+      %{kind: "learning", learning: batch} = item ->
+        item
+        |> Map.delete(:learning)
+        |> Map.merge(%{
+          attempt_error: last_attempt_error(batch.id),
+          relearn_path: relearn_path(LearningActivity.relearn_topics(batch))
+        })
+
+      item ->
+        item
+    end)
   end
 
   # What the batch's last attempt stopped on, so its page can say it in words.
@@ -776,6 +836,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   defp decorate_failures(items) do
     items
+    |> attach_work_recovery()
+    |> attach_learning_causes()
     |> attach_input_contexts()
     |> attach_deleted_rooms()
     |> attach_episode_contexts()

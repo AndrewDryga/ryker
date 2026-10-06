@@ -252,7 +252,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     html =
       render_component(&ActivityPage.render/1,
         activity: activity,
-        overview: %{},
+        fleet: %{required: false},
         params: %{},
         path: "/activity",
         now: DateTime.utc_now(),
@@ -896,7 +896,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     counts =
       render_component(&ActivityPage.render/1,
         activity: Activity.list(%{}),
-        overview: OverviewProjection.overview(),
+        fleet: OverviewProjection.fleet(),
         params: %{},
         path: "/activity",
         now: DateTime.utc_now(),

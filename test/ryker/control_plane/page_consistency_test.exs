@@ -267,7 +267,7 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
 
   defp activity do
     render_component(&ActivityPage.render/1,
-      overview: %{fleet: %{required: false}},
+      fleet: %{required: false},
       activity: %{
         total: 1,
         page: 1,

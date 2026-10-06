@@ -48,6 +48,30 @@ defmodule Ryker.ControlPlane.FailureListingTest do
     assert {:ok, ^page_one} = FailureProjection.list(%{"page" => "second"})
   end
 
+  # A full page ran the whole projection a second time, every kind and every
+  # row's decoration, only to learn whether a next page existed (2026-10-04
+  # review). The one read that fills the page also says whether more exist.
+  test "a full page of failures is read once, and still knows there are older ones" do
+    turn = work_turn!()
+    base = ~U[2099-01-01 00:00:00.000000Z]
+    for index <- 0..100, do: blocked_reply!(turn, index, DateTime.add(base, index, :second))
+
+    reads = start_supervised!({Agent, fn -> 0 end})
+
+    counting =
+      Map.update!(Projection.callbacks(), :failures, fn read ->
+        fn params ->
+          Agent.update(reads, &(&1 + 1))
+          read.(params)
+        end
+      end)
+
+    page = Pages.page(["failures"], %{}, %{projection: counting})
+    assert page.status == 200
+    assert page.body =~ ~s(href="/failures?page=2")
+    assert Agent.get(reads, & &1) == 1
+  end
+
   test "a page that holds every failure offers no other page" do
     turn = work_turn!()
     blocked_reply!(turn, 0, ~U[2099-01-01 00:00:00.000000Z])

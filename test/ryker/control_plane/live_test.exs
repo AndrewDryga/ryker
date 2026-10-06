@@ -58,7 +58,7 @@ defmodule Ryker.ControlPlane.LiveTest do
       observability: %{},
       projection:
         Map.merge(Projection.callbacks(), %{
-          overview: fn -> %{fleet: %{required: false}} end,
+          fleet: fn -> %{required: false} end,
           lab_index: fn ->
             items = ConversationProjection.index()
             send(observer, {:lab_projected, Enum.sum(Enum.map(items, & &1.message_count))})

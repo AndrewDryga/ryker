@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
   alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.Episodes.Words
   alias Ryker.Ingress.Inbox
-  alias Ryker.Slack.{IncidentRooms, Names, ThreadStatuses}
+  alias Ryker.Slack.Names
 
   @views [
     {"all", "All"},
@@ -46,8 +46,8 @@ defmodule Ryker.ControlPlane.ActivityPage do
   The topics an open Activity page listens to, as the context functions that
   subscribe to them (`Ryker.ControlPlane.WorkbenchLive`): every request and
   message, and the routing usage its filters read; the active schedules it
-  lists; and the workers, incident rooms, thread statuses and settings its
-  overview counts.
+  lists; and the workers and settings its worker line reads. It also woke on
+  incident rooms and thread statuses for an overview it no longer reads.
   """
   def subscriptions do
     [
@@ -56,8 +56,6 @@ defmodule Ryker.ControlPlane.ActivityPage do
       {Accounting, :subscribe_usage, []},
       {Schedules, :subscribe_schedules, []},
       {Workers, :subscribe_workers, []},
-      {IncidentRooms, :subscribe_rooms, []},
-      {ThreadStatuses, :subscribe_thread_statuses, []},
       {Settings, :subscribe, []}
     ]
   end
@@ -74,10 +72,10 @@ defmodule Ryker.ControlPlane.ActivityPage do
 
     assigns =
       assign(assigns,
-        workers: workers(assigns.overview),
+        workers: workers(assigns.fleet),
         counts: [
           Kit.list_total(assigns.activity.total, {"request", "requests"}, filtered)
-          | counts(assigns.activity, assigns.overview, assigns.path, assigns.params)
+          | counts(assigns.activity, assigns.fleet, assigns.path, assigns.params)
         ],
         filtered: filtered,
         back: usage_back(assigns.params)
@@ -242,7 +240,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
   # list: each count opens its own view under the same search and filters and
   # equals what that view shows. A worker problem joins them as a warning that
   # leads to its section.
-  defp counts(activity, overview, path, params) do
+  defp counts(activity, fleet, path, params) do
     views = Map.get(activity, :views, %{})
     running = Map.get(views, "running", 0)
     attention = Map.get(views, "attention", 0)
@@ -255,18 +253,18 @@ defmodule Ryker.ControlPlane.ActivityPage do
         tone: if(attention > 0, do: :warn),
         href: filter_path(path, params, "attention")
       }
-    ] ++ worker_count(overview)
+    ] ++ worker_count(fleet)
   end
 
-  defp worker_count(%{fleet: %{unavailable: true}}),
+  defp worker_count(%{unavailable: true}),
     do: [%{value: "Unknown", label: "worker status", tone: :warn, href: "#workers"}]
 
-  defp worker_count(%{fleet: %{required: true, eligible_workers: 0}}),
+  defp worker_count(%{required: true, eligible_workers: 0}),
     do: [%{value: 0, label: "workers available", tone: :warn, href: "#workers"}]
 
-  defp worker_count(_overview), do: []
+  defp worker_count(_fleet), do: []
 
-  defp workers(%{fleet: %{unavailable: true} = fleet}) do
+  defp workers(%{unavailable: true} = fleet) do
     %{
       name: "Worker status is unknown",
       text:
@@ -275,7 +273,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
     }
   end
 
-  defp workers(%{fleet: %{required: true, eligible_workers: 0} = fleet}) do
+  defp workers(%{required: true, eligible_workers: 0} = fleet) do
     %{
       name: "No worker can take work",
       text: "Requests wait until a connected worker can run them.",
@@ -283,7 +281,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
     }
   end
 
-  defp workers(_overview), do: nil
+  defp workers(_fleet), do: nil
 
   defp seen(%{eligible_workers: 1}), do: "last check: 1 worker available"
 

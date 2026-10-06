@@ -31,7 +31,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
       observability: %{},
       projection:
         Map.merge(Projection.callbacks(), %{
-          overview: fn -> %{fleet: %{required: false}} end,
+          fleet: fn -> %{required: false} end,
           activity: fn params ->
             %{items: [], total: 0, page: 1, pages: 1, mode: params["mode"] || "live"}
           end,

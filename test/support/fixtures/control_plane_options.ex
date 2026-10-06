@@ -465,7 +465,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             :not_found
         end,
         failure: &failure_row/2,
-        failures: fn _params -> {:ok, failure_rows()} end,
+        failures: fn _params -> {:ok, %{rows: failure_rows(), older: :none}} end,
         findings: fn _params -> %{items: [], total: 0, page: 1, pages: 1} end,
         feedback: fn params ->
           %{
@@ -930,12 +930,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         memory: fn _params -> memory_snapshot() end,
         memory_fact: &memory_fact/1,
         memory_review: &memory_review/1,
-        overview: fn ->
-          %{
-            counts: %{active: 3, blocked: 1, delivery_pending: 1, waiting: 1},
-            needs_attention: [%{kind: :blocked_work, ref: "episode:one", title: "Blocked work"}]
-          }
-        end,
+        fleet: fn -> %{required: false} end,
         # Two routing examples, handed on a line at a time as the export does.
         routing_examples: fn acc, fun ->
           {:ok,

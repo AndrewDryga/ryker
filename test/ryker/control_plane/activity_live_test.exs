@@ -32,7 +32,7 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
       observability: %{},
       projection:
         Map.merge(Projection.callbacks(), %{
-          overview: fn -> %{fleet: %{required: false}} end,
+          fleet: fn -> %{required: false} end,
           activity: fn params ->
             unless Agent.get(reachable, & &1),
               do: raise(DBConnection.ConnectionError, "connection not available")

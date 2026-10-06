@@ -40,7 +40,7 @@ defmodule Ryker.ControlPlane.OverviewProjection do
         delivery_pending: count(delivery_query),
         waiting: count(waiting_query)
       },
-      fleet: fleet_overview(),
+      fleet: fleet(),
       needs_attention: needs_attention(),
       progress: %{
         admission: admission_progress(),
@@ -128,7 +128,13 @@ defmodule Ryker.ControlPlane.OverviewProjection do
     )
   end
 
-  defp fleet_overview do
+  @doc """
+  The worker fleet's state, all the Activity page shows of the overview: it
+  read the whole overview, nine queries with whole-table counts, on every
+  refresh (2026-10-04 review).
+  """
+  @spec fleet() :: map()
+  def fleet do
     case Observability.fleet() do
       {:ok, fleet} -> fleet
       {:error, _reason} -> %{required: true, unavailable: true}

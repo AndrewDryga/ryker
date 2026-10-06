@@ -27,7 +27,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
     html =
       render_component(&ActivityPage.render/1,
-        overview: %{fleet: %{eligible_workers: 1, unavailable: true}},
+        fleet: %{eligible_workers: 1, unavailable: true},
         activity: %{total: 90, page: 2, pages: 3, mode: "all"},
         params: %{"q" => "trace", "repository" => "ryker", "mode" => "all"},
         path: "/activity",
@@ -108,7 +108,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   test "a filtered empty activity page does not imply the workspace has no conversations" do
     html =
       render_component(&ActivityPage.render/1,
-        overview: %{fleet: %{required: false}},
+        fleet: %{required: false},
         activity: %{total: 0, page: 1, pages: 1, mode: "shadow", searchable: true},
         params: %{"q" => "absent"},
         path: "/",
@@ -134,7 +134,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   test "activity leads with the counts and toolbar row every list page shares" do
     html =
       render_component(&ActivityPage.render/1,
-        overview: %{fleet: %{required: false}},
+        fleet: %{required: false},
         activity: %{
           total: 0,
           page: 1,
@@ -201,7 +201,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     for fleet <- [%{required: true, eligible_workers: 0}, %{unavailable: true}] do
       html =
         render_component(&ActivityPage.render/1,
-          overview: %{fleet: fleet},
+          fleet: fleet,
           activity: %{total: 0, page: 1, pages: 1, mode: "live", searchable: false},
           params: %{},
           path: "/",
@@ -325,7 +325,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
   defp activity_document(params, total, menu \\ nil) do
     render_component(&ActivityPage.render/1,
-      overview: %{fleet: %{required: false}},
+      fleet: %{required: false},
       activity: %{
         total: total,
         page: 1,
