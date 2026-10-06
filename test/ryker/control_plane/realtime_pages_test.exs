@@ -240,7 +240,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
                kind: :sentiment,
                value: "frustrated",
                note: "They had to ask twice.",
-               actor_ref: "control-plane:user:local-operator",
+               actor_ref: "control_plane:user:local-operator",
                source: "control_plane",
                source_ref: "realtime-feedback",
                occurred_at: DateTime.utc_now(),
@@ -285,7 +285,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
              Ryker.Feedback.record(%{
                kind: :reaction_added,
                value: "-1",
-               actor_ref: "control-plane:user:local-operator",
+               actor_ref: "control_plane:user:local-operator",
                source: "control_plane",
                source_ref: "realtime-improvement",
                occurred_at: DateTime.utc_now(),

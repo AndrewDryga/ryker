@@ -58,13 +58,6 @@ defmodule Ryker.ControlPlane.ConversationLab do
         }
 
   @doc """
-  What a reaction from a Chat actor (`Ryker.ControlPlane.Actor.chat_ref/1`) is
-  recorded under; the page marks the viewer's own reactions with it.
-  """
-  @spec reaction_actor_ref(String.t()) :: String.t()
-  def reaction_actor_ref(actor) when is_binary(actor), do: "control-plane:user:" <> actor
-
-  @doc """
   Chooses the environment a conversation's new messages run in; nil is "No
   environment". Work the conversation already started keeps its placement.
   """
@@ -226,7 +219,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
       Reactions.record(%{
         action: action,
-        actor_ref: reaction_actor_ref(settings.actor),
+        actor_ref: Actor.person_ref(settings.actor),
         emoji_name: emoji_name,
         event_ref: "control-plane-reaction:#{event_id}",
         occurred_at: occurred_at,

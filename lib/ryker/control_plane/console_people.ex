@@ -12,8 +12,9 @@ defmodule Ryker.ControlPlane.ConsolePeople do
   person, where `<via>` is `tailscale` or `cloudflare`:
 
   - a Chat message's author, `<via>:<login>`;
-  - the person a turn is for, `control_plane:user:<via>:<login>`;
-  - a Chat reaction's, `control-plane:user:<via>:<login>`;
+  - the person a turn is for, or a Chat reaction's,
+    `control_plane:user:<via>:<login>` (events recorded before 2026-10-06
+    spell a reaction's `control-plane:user:`);
   - a change made on a page, `control-plane:<via>:<login>`.
 
   The console reached any other way names nobody: its references are the same

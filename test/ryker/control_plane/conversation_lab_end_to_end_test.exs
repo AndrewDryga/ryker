@@ -295,7 +295,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
 
     assert second_turn.submission["context"]["conversation_feedback"]["current"] == [
              %{
-               "actor_refs" => ["control-plane:user:local-operator"],
+               "actor_refs" => ["control_plane:user:local-operator"],
                "count" => 1,
                "emoji_name" => "eyes",
                "target_delivery_ref" => first_delivery_ref,

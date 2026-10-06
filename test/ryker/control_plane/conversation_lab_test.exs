@@ -1183,7 +1183,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     assert {:ok, reacted_conversation} = ConversationProjection.fetch(@conversation_id)
 
-    assert [%{actor_ref: "control-plane:user:local-operator", emoji_name: "heart"}] =
+    assert [%{actor_ref: "control_plane:user:local-operator", emoji_name: "heart"}] =
              reacted_conversation.messages
              |> Enum.find(&(&1.actor == :ryker))
              |> Map.fetch!(:feedback_reactions)
@@ -1220,7 +1220,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     assert {:ok, person_reacted} = ConversationProjection.fetch(@conversation_id)
 
-    assert [%{actor_ref: "control-plane:user:tailscale:andrew@example.com", emoji_name: "eyes"}] =
+    assert [%{actor_ref: "control_plane:user:tailscale:andrew@example.com", emoji_name: "eyes"}] =
              person_reacted.messages
              |> Enum.find(&(&1.actor == :ryker))
              |> Map.fetch!(:feedback_reactions)

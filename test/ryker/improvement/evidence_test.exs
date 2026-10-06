@@ -5,7 +5,7 @@ defmodule Ryker.Improvement.EvidenceTest do
 
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.ConversationLab
+  alias Ryker.ControlPlane.{Actor, ConversationLab}
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
   alias Ryker.Improvement
@@ -156,7 +156,7 @@ defmodule Ryker.Improvement.EvidenceTest do
              Feedback.record(%{
                kind: :reaction_added,
                value: "-1",
-               actor_ref: ConversationLab.reaction_actor_ref(question.actor_ref),
+               actor_ref: Actor.person_ref(question.actor_ref),
                source: "control_plane",
                source_ref: "control-plane-reaction:#{conversation}",
                occurred_at: DateTime.add(question.occurred_at, 60, :second),

@@ -809,7 +809,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                    ],
                    feedback_reactions: [
                      %{
-                       actor_ref: "control-plane:user:local-operator",
+                       actor_ref: "control_plane:user:local-operator",
                        emoji_name: "heart",
                        occurred_at: ~U[2026-08-28 12:00:01Z]
                      }

@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.LabControls do
   one the router will accept, and nothing else is.
   """
 
-  alias Ryker.ControlPlane.{Actor, ConversationLab, ConversationProjection, CSRF, PathRef, Paths}
+  alias Ryker.ControlPlane.{Actor, ConversationProjection, CSRF, PathRef, Paths}
 
   @send_action "conversation_lab:send"
   @message_action "conversation_lab:message"
@@ -139,7 +139,7 @@ defmodule Ryker.ControlPlane.LabControls do
     Map.put(message, :reaction_controls, %{
       conversation_id: conversation_id,
       message_ref: message_ref,
-      mine: ConversationLab.reaction_actor_ref(own),
+      mine: Actor.person_ref(own),
       token: CSRF.token(csrf_secret, @reaction_action, resource)
     })
   end

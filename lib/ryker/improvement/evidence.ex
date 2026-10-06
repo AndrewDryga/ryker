@@ -613,7 +613,7 @@ defmodule Ryker.Improvement.Evidence do
   # A Chat reaction names its person as the console does, with a prefix the
   # message's sender lacks, so the asker's own thumbs down read as someone
   # else's (2026-10-04 review).
-  defp person("control-plane:user:" <> chat_ref), do: chat_ref
+  defp person("control_plane:user:" <> chat_ref), do: chat_ref
   defp person(ref), do: ref
 
   defp feedback_keys(feedback), do: for(%{key: key} when is_binary(key) <- feedback, do: key)
