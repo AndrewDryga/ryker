@@ -12,6 +12,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Operator.Failures
   alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Slack.{TaskCard, TaskCards, TaskCardWorker}
   alias Ryker.Work.Custody
 
@@ -79,6 +80,45 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
 
     assert log =~ "Slack task card could not be created"
     assert Agent.get(client, & &1.updates) == 1
+  end
+
+  # A card whose build raised took the worker down with it; the card's lease ran
+  # out and the next claim raised again, every five minutes for good, and the
+  # card never reached Failures (2026-10-04 review).
+  test "a card whose build raises spends its attempts and blocks, like a refused refresh" do
+    card = card!("raises")
+
+    # Its offer reads as never confirmed, so the card has no confirmation to show
+    # and building it raises.
+    Repo.update_all(from(record in Record, where: record.id == ^card.record_id),
+      set: [
+        status: :open,
+        confirmed_at: nil,
+        confirmed_by_actor_ref: nil,
+        confirmation_ref: nil,
+        confirmed_episode_id: nil
+      ]
+    )
+
+    client = client!(:ok)
+    options = options(client, max_attempts: 2)
+
+    log =
+      capture_log(fn ->
+        assert {:ok, {:deferred, ref}} = TaskCardWorker.run_once(options)
+        assert ref == card.ref
+      end)
+
+    assert log =~ "Slack task card #{card.ref} could not be built"
+
+    make_due!(card.id)
+    capture_log(fn -> assert {:ok, {:blocked, _ref}} = TaskCardWorker.run_once(options) end)
+
+    blocked = Repo.get!(TaskCard, card.id)
+    assert blocked.last_error_code == "task_card_build_failed"
+    assert Agent.get(client, & &1.updates) == 0
+    assert {:ok, %{status: :blocked} = row} = FailureProjection.fetch("slack_task_card", card.ref)
+    assert FailureExplanation.explain(row).summary =~ "an error in its own code"
   end
 
   # Slack answering "try later" for long enough is not a reason to edit the
@@ -184,6 +224,28 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     assert eventually(fn -> Agent.get(client, & &1.updates) == 2 end, 500)
   end
 
+  # A card was checked by the clock alone, so a pull request merged on GitHub
+  # reached its finished task's card up to a minute late, though the merge was
+  # announced at once (2026-10-04 review). An announced change is checked at
+  # the next poll.
+  test "a finished task's card shows an announced change at once, not at its quiet check" do
+    card = card!("announced")
+    finish!(card.episode.id)
+    client = client!(:ok)
+
+    Repo.update_all(from(stored in TaskCard, where: stored.id == ^card.id),
+      set: [card_checked_at: Repo.now!()]
+    )
+
+    worker = start_supervised!({TaskCardWorker, sleeping_options(client)})
+    _state = :sys.get_state(worker)
+    refute eventually(fn -> Agent.get(client, & &1.updates) == 1 end, 300)
+
+    # What a follow-up recording the merge announces, among others.
+    :ok = Episodes.broadcast_episode_updated(card.episode.id)
+    assert eventually(fn -> Agent.get(client, & &1.updates) == 1 end, 1_000)
+  end
+
   # Every active card is checked again every few seconds, and only the clock
   # says when: a worker sleeping its safety-net interval would leave a card
   # showing stale progress for up to ten seconds.
@@ -239,16 +301,27 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     assert claimed == working.id
     assert TaskCards.claim_next("task-card-worker-test", 60, 1) == {:ok, nil}
 
-    # The finished task's card falls due a minute after its last check.
-    assert TaskCards.next_due_at(checked, 1) == DateTime.add(checked, 60, :second)
+    # The finished task's card falls due ten minutes after its last check: an
+    # announced change makes it due before then. Each finished card was rebuilt
+    # every minute, about 140 queries a build, until retention removed it
+    # (2026-10-04 review).
+    # (Asked from past the working card's lease, which ends first.)
+    since = DateTime.add(checked, 100, :second)
+    assert TaskCards.next_due_at(since, 1) == DateTime.add(checked, 600, :second)
   end
 
-  test "a finished task's card is still checked once a minute" do
-    card = card!("minute")
+  test "a finished task's card is still checked every ten minutes" do
+    card = card!("quiet")
     finish!(card.episode.id)
 
     Repo.update_all(from(stored in TaskCard, where: stored.id == ^card.id),
-      set: [card_checked_at: DateTime.add(Repo.now!(), -61, :second)]
+      set: [card_checked_at: DateTime.add(Repo.now!(), -599, :second)]
+    )
+
+    assert TaskCards.claim_next("task-card-worker-test", 60, 1) == {:ok, nil}
+
+    Repo.update_all(from(stored in TaskCard, where: stored.id == ^card.id),
+      set: [card_checked_at: DateTime.add(Repo.now!(), -601, :second)]
     )
 
     assert {:ok, %TaskCard{id: claimed}} = TaskCards.claim_next("task-card-worker-test", 60, 1)

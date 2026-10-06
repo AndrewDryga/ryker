@@ -45,14 +45,14 @@ The root card is the authoritative incident snapshot. It shows:
 The top-level fallback text carries the same essential status for notifications and screen readers.
 Ryker updates this message in place and alternates card writes with thread delivery so a busy
 conversation cannot leave the pinned snapshot stale.
-Ryker also persists the rendered card UI revision. Its card workers keep re-checking active cards
-(task cards every two seconds, incident cards every five minutes) and repaint any card whose
-revision or content changed, so upgraded controls appear without waiting for unrelated incident
-activity; failed Slack updates remain queued for retry.
+Ryker also persists the rendered card UI revision. A card is checked as soon as a change to its
+task or investigation is announced, every few seconds while that work runs, and every ten minutes
+otherwise; any card whose revision or content changed is repainted, so upgraded controls appear
+without waiting for unrelated incident activity. Failed Slack updates remain queued for retry.
 
-Configured operators can converse anywhere in an incident channel without an `@mention`.
+Anyone in an incident channel can converse there without an `@mention`.
 Ryker admits ordinary top-level messages and thread replies, keeps them in the same Coop
-conversation, and follows the operator's current location: a channel message gets a channel
+conversation, and follows the writer's current location: a channel message gets a channel
 response and a thread reply gets a reply in that thread. Mentions and replies to the pinned card are explicitly direct; for ambient room conversation, the
 agent may stay silent when a human teammate would have nothing useful to add. Thread-scoped
 engineering tasks are the deliberate exception: their authorization and working copy remain bound

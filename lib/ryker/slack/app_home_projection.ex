@@ -332,7 +332,10 @@ defmodule Ryker.Slack.AppHomeProjection do
         select: episode
       )
     )
-    |> Enum.map(&episode_attention(&1, workspace_ref, :operator_input, []))
+    |> with_requests()
+    |> Enum.map(fn {episode, title} ->
+      episode_attention(episode, title, workspace_ref, :operator_input, [])
+    end)
   end
 
   defp blocked_work(workspace_ref, destination_refs) do
@@ -351,9 +354,10 @@ defmodule Ryker.Slack.AppHomeProjection do
         select: {episode, turn.updated_at}
       )
     )
-    |> Enum.map(fn {episode, updated_at} ->
+    |> with_requests(&elem(&1, 0))
+    |> Enum.map(fn {{episode, updated_at}, title} ->
       episode
-      |> episode_attention(workspace_ref, :blocked_work, [])
+      |> episode_attention(title, workspace_ref, :blocked_work, [])
       |> Map.put(:updated_at, updated_at)
     end)
   end
@@ -465,13 +469,14 @@ defmodule Ryker.Slack.AppHomeProjection do
       )
     )
     |> Enum.filter(fn {session, _episode} -> safe_unmerged_discard?(session) end)
-    |> Enum.map(fn {session, episode} ->
+    |> with_requests(&elem(&1, 1))
+    |> Enum.map(fn {{session, episode}, request} ->
       %{
         controls: ["discard_workspace"],
         discard_plan_fingerprint: session.discard_plan_fingerprint,
         kind: :retained_workspace,
         ref: session.external_ref,
-        title: workspace_request(session, episode),
+        title: workspace_request(session, request),
         updated_at: session.updated_at,
         url:
           slack_url(
@@ -499,12 +504,13 @@ defmodule Ryker.Slack.AppHomeProjection do
         select: {episode, turn.status, turn.coop_turn_id}
       )
     )
-    |> Enum.map(fn {episode, turn_status, coop_turn_id} ->
+    |> with_requests(&elem(&1, 0))
+    |> Enum.map(fn {{episode, turn_status, coop_turn_id}, title} ->
       %{
         next_action: next_action(episode, turn_status, coop_turn_id),
         ref: episode.key,
         state: episode.state,
-        title: episode_request(episode),
+        title: title,
         url:
           slack_url(
             workspace_ref,
@@ -656,12 +662,12 @@ defmodule Ryker.Slack.AppHomeProjection do
     end)
   end
 
-  defp episode_attention(episode, workspace_ref, kind, controls) do
+  defp episode_attention(episode, title, workspace_ref, kind, controls) do
     %{
       controls: controls,
       kind: kind,
       ref: episode.key,
-      title: episode_request(episode),
+      title: title,
       updated_at: episode.updated_at,
       url:
         slack_url(
@@ -672,42 +678,53 @@ defmodule Ryker.Slack.AppHomeProjection do
     }
   end
 
-  defp episode_request(episode) do
-    case latest_workspace_task(episode.id) do
-      %Session{workspace_task: task} when is_map(task) ->
-        first_text([task["prompt"], task["title"], input_request(episode.id), episode.key])
+  # Each row with what its work was asked: the latest session's task, else the
+  # first message. Read for every row at once; two queries a row ran inside
+  # the gateway every Slack event waits on (2026-10-04 review).
+  defp with_requests(rows, episode_of \\ & &1)
+  defp with_requests([], _episode_of), do: []
 
-      _missing ->
-        first_text([input_request(episode.id), episode.key])
-    end
-  end
+  defp with_requests(rows, episode_of) do
+    ids = rows |> Enum.map(&episode_of.(&1).id) |> Enum.uniq()
 
-  defp workspace_request(%Session{workspace_task: task}, episode) when is_map(task),
-    do: first_text([task["prompt"], task["title"], episode_request(episode)])
-
-  defp workspace_request(_session, episode), do: episode_request(episode)
-
-  defp latest_workspace_task(episode_id) do
-    Repo.one(
-      from(session in Session,
-        where: session.episode_id == ^episode_id,
-        order_by: [desc: session.generation, desc: session.id],
-        limit: 1
+    tasks =
+      Repo.all(
+        from(session in Session,
+          where: session.episode_id in ^ids,
+          distinct: session.episode_id,
+          order_by: [asc: session.episode_id, desc: session.generation, desc: session.id],
+          select: {session.episode_id, session.workspace_task}
+        )
       )
-    )
+      |> Map.new()
+
+    inputs =
+      Repo.all(
+        from(event in Event,
+          where: event.episode_id in ^ids and event.kind == :input_admitted,
+          distinct: event.episode_id,
+          order_by: [asc: event.episode_id, asc: event.sequence],
+          select: {event.episode_id, event.payload}
+        )
+      )
+      |> Map.new()
+
+    Enum.map(rows, fn row ->
+      episode = episode_of.(row)
+      input = request_from_payload(inputs[episode.id])
+      {row, episode_request(tasks[episode.id], input, episode)}
+    end)
   end
 
-  defp input_request(episode_id) do
-    Repo.one(
-      from(event in Event,
-        where: event.episode_id == ^episode_id and event.kind == :input_admitted,
-        order_by: [asc: event.sequence],
-        limit: 1,
-        select: event.payload
-      )
-    )
-    |> request_from_payload()
-  end
+  defp episode_request(task, input, episode) when is_map(task),
+    do: first_text([task["prompt"], task["title"], input, episode.key])
+
+  defp episode_request(_task, input, episode), do: first_text([input, episode.key])
+
+  defp workspace_request(%Session{workspace_task: task}, request) when is_map(task),
+    do: first_text([task["prompt"], task["title"], request])
+
+  defp workspace_request(_session, request), do: request
 
   defp request_from_payload(payload) when is_map(payload) do
     input = payload["payload"] || %{}

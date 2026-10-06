@@ -22,10 +22,31 @@ defmodule Ryker.Slack.TaskCards do
 
   # A card shows its task. While the task works its progress moves, so the card
   # is checked every few seconds (`check_interval_seconds`); otherwise only a
-  # person, an event or GitHub moves it, and the card is checked once a minute.
-  # Every active card was rebuilt every 2 seconds, finished tasks' too: five
-  # cards kept an idle install at about 350 queries a second (2026-10-04).
-  @quiet_check_seconds 60
+  # person, an event or GitHub moves it, each announced (`check_soon/1`), and
+  # the card is checked every ten minutes for anything that was not. Every
+  # active card was rebuilt every 2 seconds, finished tasks' too: five cards
+  # kept an idle install at about 350 queries a second (2026-10-04); then every
+  # minute, about 140 queries a build, until retention removed it.
+  @quiet_check_seconds 600
+
+  @doc """
+  Makes the card of `episode_id` due at the next claim: something it shows was
+  announced as changed. Unannounced itself, as no page shows when a card was
+  last checked.
+  """
+  @spec check_soon(Ecto.UUID.t()) :: :ok
+  def check_soon(episode_id) do
+    Repo.update_all(
+      from(card in TaskCard,
+        where:
+          card.episode_id == ^episode_id and card.status == :active and
+            not is_nil(card.card_checked_at)
+      ),
+      set: [card_checked_at: nil]
+    )
+
+    :ok
+  end
 
   @doc """
   Makes the card of the oldest confirmed engineering task offer that has none,
@@ -42,7 +63,7 @@ defmodule Ryker.Slack.TaskCards do
   @doc """
   The earliest moment after `since` at which an active card becomes due by the
   clock alone: its next check after the last (`check_interval_seconds` while
-  its task works, a minute otherwise), the end of a retry's backoff, or the
+  its task works, ten minutes otherwise), the end of a retry's backoff, or the
   end of an unrenewed lease, whichever it waits on last. Nil when no card
   waits on the clock.
   """
@@ -167,8 +188,9 @@ defmodule Ryker.Slack.TaskCards do
     end
   end
 
-  # A card never checked, one whose task works and was checked longer ago than
-  # the check interval, or any checked longer ago than a minute.
+  # A card never checked (or made due by an announcement), one whose task works
+  # and was checked longer ago than the check interval, or any checked longer
+  # ago than the quiet interval.
   defp checked_due(now, check_interval_seconds) do
     due_at = DateTime.add(now, -check_interval_seconds, :second)
     quiet_due_at = DateTime.add(now, -@quiet_check_seconds, :second)

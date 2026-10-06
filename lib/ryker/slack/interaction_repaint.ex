@@ -130,6 +130,18 @@ defmodule Ryker.Slack.InteractionRepaint do
   end
 
   defp turn_document(audit) do
+    case audit |> delivered_turn() |> Repo.one() do
+      %Turn{} = turn -> public_turn_document(turn, audit)
+      nil -> :not_found
+    end
+  end
+
+  @doc false
+  # The turn whose delivered reply is the audited message, found by the
+  # message's ref (`episode_work_turns_receipt_message`): the lookup read every
+  # delivered turn's receipt as JSON on each repaint (2026-10-04 review).
+  @spec delivered_turn(InteractionAudit.t()) :: Ecto.Query.t()
+  def delivered_turn(audit) do
     conversation_ref = "slack:#{audit.workspace_ref}:#{audit.channel_ref}"
 
     query =
@@ -151,12 +163,7 @@ defmodule Ryker.Slack.InteractionRepaint do
         limit: 1
       )
 
-    turn = query |> maybe_turn_thread(audit.thread_ref) |> Repo.one()
-
-    case turn do
-      %Turn{} = turn -> public_turn_document(turn, audit)
-      nil -> :not_found
-    end
+    maybe_turn_thread(query, audit.thread_ref)
   end
 
   defp public_turn_document(turn, audit) do

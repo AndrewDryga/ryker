@@ -2,6 +2,7 @@ defmodule Ryker.Slack.ClientTest do
   use ExUnit.Case, async: true
 
   alias __MODULE__.FakeRequester
+  alias Ryker.Delivery.JSONClient
   alias Ryker.Slack.Client
   alias Ryker.Slack.Client.Users
 
@@ -34,6 +35,21 @@ defmodule Ryker.Slack.ClientTest do
   # Production delivery renders through Renderer.render/1, and that is the only way a message
   # leaves this client: the Card Lab's specimen path, retired 2026-09-13, posted frozen Block Kit
   # around it.
+  # An upload waited for Slack only as long as an API call, 30 seconds, and two
+  # timed out the day uploads started working (2026-10-04 review).
+  test "an upload waits longer for Slack than an API call does" do
+    {:ok, http} =
+      JSONClient.new(
+        base_url: "https://slack.com/api",
+        finch: Ryker.Finch,
+        receive_timeout: 30_000,
+        token_provider: fn -> {:ok, "test-token"} end
+      )
+
+    assert {:ok, client} = Client.new(http: http, requester: JSONClient)
+    assert client.upload_http.receive_timeout == 120_000
+  end
+
   test "a message that did not come through the renderer is refused before it is sent" do
     {:ok, requester} = FakeRequester.start([slack(%{"ts" => "1787832001.000200"})])
 

@@ -55,6 +55,22 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
     assert length(snapshot.schedules) <= 5
   end
 
+  # Each row's title cost two more queries, the work's latest session and its
+  # first message, inside the gateway that every Slack event waits on
+  # (2026-10-04 review). The titles of every row are read together.
+  test "a Home snapshot reads the same queries whatever number of tasks it lists" do
+    waiting_episode!("T123", "first")
+    one = queries(fn -> AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"])) end)
+
+    for suffix <- ~w(second third fourth), do: waiting_episode!("T123", suffix)
+    snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
+    assert length(snapshot.work) == 4
+    assert Enum.all?(snapshot.work, &(&1.title =~ ~r/\AChoose \w+\.\z/))
+
+    four = queries(fn -> AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"])) end)
+    assert four == one
+  end
+
   test "an identity the projection cannot read is unreadable, never an empty dashboard" do
     # The 2026-09-12 coverage measurement: this returned `empty/0`, so a
     # dashboard the host could not read was indistinguishable from a person who
@@ -237,6 +253,38 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
       "text" => text,
       "visibility" => visibility
     }
+  end
+
+  # How many queries `fun` sends.
+  defp queries(fun) do
+    parent = self()
+    handler = "app-home-queries-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ryker, :repo, :query],
+        fn _event, _measurements, _metadata, _config ->
+          if self() == parent, do: send(parent, :query)
+        end,
+        nil
+      )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler)
+    end
+
+    count_queries(0)
+  end
+
+  defp count_queries(count) do
+    receive do
+      :query -> count_queries(count + 1)
+    after
+      0 -> count
+    end
   end
 
   defp waiting_episode!(workspace_ref, suffix, channel_ref \\ "C456") do

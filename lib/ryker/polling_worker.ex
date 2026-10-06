@@ -25,6 +25,10 @@ defmodule Ryker.PollingWorker do
   are answered at once, the rest a moment later. An idle install then polls
   only when a row falls due by the clock, which `idle_delay/2` sleeps until,
   and on a long safety-net interval for anything no announcement names.
+
+  A worker whose rows fall due by the clock alone, though an announcement says
+  one changed, reads each announcement in `c:woken/2` first and makes what it
+  names due, so the poll it brings finds it.
   """
 
   require Logger
@@ -60,7 +64,14 @@ defmodule Ryker.PollingWorker do
   `&Ryker.Ingress.Inbox.subscribe_inputs/0`.
   """
   @callback wake_on(state :: map()) :: [(-> :ok | {:error, term()})]
-  @optional_callbacks setup: 1, wake_on: 1
+
+  @doc """
+  Reads one announcement before the poll it asks for, to make the rows it
+  names due. A database that refuses is the poll's to back off from; the row
+  then waits for its clock.
+  """
+  @callback woken(message :: term(), state :: map()) :: :ok
+  @optional_callbacks setup: 1, wake_on: 1, woken: 2
 
   defmacro __using__(options) do
     lane = Keyword.fetch!(options, :lane)
@@ -172,14 +183,22 @@ defmodule Ryker.PollingWorker do
     {:noreply, state}
   end
 
-  def handle_info(module, _lane, _interval, message, state) do
+  def handle_info(module, lane, _interval, message, state) do
     if Process.get(@wakes) do
+      woken(module, lane, message, state)
       wake()
     else
       Logger.error("#{inspect(module)} received an unexpected message: #{inspect(message)}")
     end
 
     {:noreply, state}
+  end
+
+  defp woken(module, lane, message, state) do
+    if function_exported?(module, :woken, 2), do: :ok = module.woken(message, state)
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning("database unavailable to read a wake (#{lane}#{refusal(error)})")
   end
 
   # One poll per burst: every announcement already queued, and every one

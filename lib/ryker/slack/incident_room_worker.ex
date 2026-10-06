@@ -49,6 +49,15 @@ defmodule Ryker.Slack.IncidentRoomWorker do
       &ChannelConfigurations.subscribe_channels/0
     ]
 
+  # A room's card is due by the clock, so an investigation announced as changed
+  # waited for the card's next check: one that finished showed as working until
+  # then (2026-10-04 review).
+  @impl PollingWorker
+  def woken({:episode_updated, episode_id}, _options),
+    do: IncidentRooms.check_card_soon(episode_id)
+
+  def woken(_message, _options), do: :ok
+
   @impl PollingWorker
   def poll(options) do
     delay =

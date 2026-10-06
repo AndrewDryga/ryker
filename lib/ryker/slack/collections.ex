@@ -55,20 +55,24 @@ defmodule Ryker.Slack.Collections do
   @doc """
   Reads one bounded page of the same scoped collection query.
 
-  The page is cut from the complete authorized result, so `total` is the exact
-  number of items the reader may see and every item is reachable by asking for
-  its offset. An offset past the end names the last page that still exists.
+  `total` is the exact number of items the reader may see, counted by the
+  database, and every item is reachable by asking for its offset; the page
+  reads only its own items. An offset past the end names the last page that
+  still exists. Expiry is read by the database's clock.
   """
   @spec page(kind(), scope(), non_neg_integer(), pos_integer()) ::
           {:ok, page()} | {:error, term()}
   def page(kind, scope, offset, limit)
       when kind in @kinds and is_integer(offset) and offset >= 0 and is_integer(limit) and
              limit > 0 do
-    with {:ok, entities} <- load(kind, scope) do
-      total = length(entities)
-      offset = bounded_offset(offset, total, limit)
-      {:ok, %{entries: Enum.slice(entities, offset, limit), offset: offset, total: total}}
-    end
+    conversation_refs = Enum.map(scope.channel_refs, &"slack:#{scope.workspace_ref}:#{&1}")
+    now = Repo.now!()
+    total = count(kind, scope.workspace_ref, conversation_refs, now)
+    offset = bounded_offset(offset, total, limit)
+    entries = entries(kind, scope.workspace_ref, conversation_refs, now, offset, limit)
+    {:ok, %{entries: entries, offset: offset, total: total}}
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, error}
   end
 
   def page(_kind, _scope, _offset, _limit), do: {:error, :invalid_collection}
@@ -165,78 +169,118 @@ defmodule Ryker.Slack.Collections do
     end
   end
 
-  defp load(kind, scope) do
-    conversation_refs = Enum.map(scope.channel_refs, &"slack:#{scope.workspace_ref}:#{&1}")
-    {:ok, entities(kind, scope.workspace_ref, conversation_refs, DateTime.utc_now())}
-  rescue
-    error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, error}
-  end
-
-  defp entities(:schedules, _workspace_ref, conversation_refs, now) do
-    Repo.all(
-      from(schedule in Schedule,
-        where:
-          schedule.destination_transport == "slack" and
-            schedule.destination_conversation_ref in ^conversation_refs and
-            schedule.status in [:active, :paused] and
-            (is_nil(schedule.expires_at) or schedule.expires_at > ^now),
-        order_by: [asc: schedule.next_occurrence_at, asc: schedule.inserted_at, asc: schedule.id]
-      )
-    )
-  end
-
-  defp entities(:standing_rules, workspace_ref, conversation_refs, now) do
-    Repo.all(
-      from(behavior in Behavior,
-        where:
-          behavior.kind == :standing_assignment and
-            behavior.workspace_ref == ^"slack:#{workspace_ref}" and
-            behavior.scope_kind == :conversation and
-            behavior.scope_ref in ^conversation_refs and
-            behavior.status in [:active, :disabled] and
-            (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
-        order_by: [desc: behavior.updated_at, desc: behavior.id]
-      )
-    )
-  end
-
-  defp entities(:knowledge, workspace_ref, conversation_refs, now) do
+  # Every page read the whole collection and cut it in memory, by the host's
+  # clock (2026-10-04 review).
+  defp count(:knowledge, workspace_ref, conversation_refs, now) do
     slack_workspace = "slack:#{workspace_ref}"
 
-    behaviors = knowledge_behaviors(slack_workspace, conversation_refs, now)
-    memories = knowledge_memories(slack_workspace, conversation_refs, now)
-    Enum.sort_by(behaviors ++ memories, & &1.updated_at, {:desc, DateTime})
+    Repo.aggregate(knowledge_behaviors(slack_workspace, conversation_refs, now), :count) +
+      Repo.aggregate(knowledge_memories(slack_workspace, conversation_refs, now), :count)
+  end
+
+  defp count(kind, workspace_ref, conversation_refs, now),
+    do: Repo.aggregate(query(kind, workspace_ref, conversation_refs, now), :count)
+
+  defp entries(:knowledge, workspace_ref, conversation_refs, now, offset, limit) do
+    slack_workspace = "slack:#{workspace_ref}"
+
+    memories =
+      from(memory in knowledge_memories(slack_workspace, conversation_refs, now),
+        select: %{kind: "memory", id: memory.id, updated_at: memory.updated_at}
+      )
+
+    newest =
+      from(behavior in knowledge_behaviors(slack_workspace, conversation_refs, now),
+        select: %{kind: "behavior", id: behavior.id, updated_at: behavior.updated_at},
+        union_all: ^memories
+      )
+
+    rows =
+      Repo.all(
+        from(item in subquery(newest),
+          order_by: [desc: item.updated_at, desc: item.id],
+          offset: ^offset,
+          limit: ^limit
+        )
+      )
+
+    loaded =
+      Map.new(
+        Repo.all(from(behavior in Behavior, where: behavior.id in ^ids(rows, "behavior"))) ++
+          Repo.all(from(memory in MemoryEntry, where: memory.id in ^ids(rows, "memory"))),
+        &{&1.id, &1}
+      )
+
+    Enum.map(rows, &Map.fetch!(loaded, &1.id))
+  end
+
+  defp entries(:schedules, workspace_ref, conversation_refs, now, offset, limit) do
+    Repo.all(
+      from(schedule in query(:schedules, workspace_ref, conversation_refs, now),
+        order_by: [asc: schedule.next_occurrence_at, asc: schedule.inserted_at, asc: schedule.id],
+        offset: ^offset,
+        limit: ^limit
+      )
+    )
+  end
+
+  defp entries(:standing_rules, workspace_ref, conversation_refs, now, offset, limit) do
+    Repo.all(
+      from(behavior in query(:standing_rules, workspace_ref, conversation_refs, now),
+        order_by: [desc: behavior.updated_at, desc: behavior.id],
+        offset: ^offset,
+        limit: ^limit
+      )
+    )
+  end
+
+  defp ids(rows, kind), do: for(%{kind: ^kind, id: id} <- rows, do: id)
+
+  defp query(:schedules, _workspace_ref, conversation_refs, now) do
+    from(schedule in Schedule,
+      where:
+        schedule.destination_transport == "slack" and
+          schedule.destination_conversation_ref in ^conversation_refs and
+          schedule.status in [:active, :paused] and
+          (is_nil(schedule.expires_at) or schedule.expires_at > ^now)
+    )
+  end
+
+  defp query(:standing_rules, workspace_ref, conversation_refs, now) do
+    from(behavior in Behavior,
+      where:
+        behavior.kind == :standing_assignment and
+          behavior.workspace_ref == ^"slack:#{workspace_ref}" and
+          behavior.scope_kind == :conversation and
+          behavior.scope_ref in ^conversation_refs and
+          behavior.status in [:active, :disabled] and
+          (is_nil(behavior.expires_at) or behavior.expires_at > ^now)
+    )
   end
 
   # Operator-scoped (private) guidance belongs to one person and is never
   # listed for a channel; conversation items are listed only in their channel.
   defp knowledge_behaviors(slack_workspace, conversation_refs, now) do
-    Repo.all(
-      from(behavior in Behavior,
-        where:
-          behavior.kind in [:preference, :guidance] and
-            behavior.workspace_ref == ^slack_workspace and
-            ((behavior.scope_kind == :conversation and
-                behavior.scope_ref in ^conversation_refs) or
-               behavior.scope_kind in [:workspace, :repository]) and
-            behavior.status in [:active, :disabled] and
-            (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
-        order_by: [desc: behavior.updated_at, desc: behavior.id]
-      )
+    from(behavior in Behavior,
+      where:
+        behavior.kind in [:preference, :guidance] and
+          behavior.workspace_ref == ^slack_workspace and
+          ((behavior.scope_kind == :conversation and
+              behavior.scope_ref in ^conversation_refs) or
+             behavior.scope_kind in [:workspace, :repository]) and
+          behavior.status in [:active, :disabled] and
+          (is_nil(behavior.expires_at) or behavior.expires_at > ^now)
     )
   end
 
   defp knowledge_memories(slack_workspace, conversation_refs, now) do
-    Repo.all(
-      from(memory in MemoryEntry,
-        where:
-          memory.workspace_ref == ^slack_workspace and memory.status == :active and
-            (is_nil(memory.expires_at) or memory.expires_at > ^now) and
-            ((memory.scope_kind == :conversation and memory.scope_ref in ^conversation_refs) or
-               (memory.scope_kind in [:workspace, :repository] and
-                  memory.visibility == :workspace)),
-        order_by: [desc: memory.updated_at, desc: memory.id]
-      )
+    from(memory in MemoryEntry,
+      where:
+        memory.workspace_ref == ^slack_workspace and memory.status == :active and
+          (is_nil(memory.expires_at) or memory.expires_at > ^now) and
+          ((memory.scope_kind == :conversation and memory.scope_ref in ^conversation_refs) or
+             (memory.scope_kind in [:workspace, :repository] and
+                memory.visibility == :workspace))
     )
   end
 

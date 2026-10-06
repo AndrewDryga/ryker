@@ -39,6 +39,15 @@ defmodule Ryker.Slack.TaskCardWorker do
       &Episodes.subscribe_episodes/0
     ]
 
+  # A card is due by the clock, so an announced change to its task waits for
+  # the card's next check unless it is made due now: a pull request merged on
+  # GitHub reached its finished task's card up to a minute late (2026-10-04
+  # review). A card's own change is announced on its task too, and comes back
+  # here once more to find the card unchanged.
+  @impl PollingWorker
+  def woken({:episode_updated, episode_id}, _options), do: TaskCards.check_soon(episode_id)
+  def woken(_message, _options), do: :ok
+
   # Offers whose card this worker could not build: passed over until it restarts.
   @unbuildable {__MODULE__, :unbuildable}
 
@@ -108,7 +117,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   end
 
   defp refresh(card, options) do
-    with {:ok, projection} <- TaskCardProjection.build(card),
+    with {:ok, projection} <- build(card),
          :ok <- maybe_update(card, projection, options),
          {:ok, marked} <-
            TaskCards.mark(
@@ -121,6 +130,25 @@ defmodule Ryker.Slack.TaskCardWorker do
     else
       {:error, reason} -> settle(card, reason, options)
     end
+  end
+
+  # A build that raised took the worker down with it, and the card's next claim
+  # raised again, every lease for good, the card never on Failures (2026-10-04
+  # review). It spends an attempt like a refusal and is logged with its stack.
+  # A database that refused a read is the poller's to back off from.
+  defp build(card) do
+    TaskCardProjection.build(card)
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      reraise error, __STACKTRACE__
+
+    error ->
+      Logger.error(
+        "Slack task card #{card.ref} could not be built: " <>
+          Exception.format(:error, error, __STACKTRACE__)
+      )
+
+      {:error, {:task_card_build_failed, Exception.message(error)}}
   end
 
   # A refresh Slack refused is retried with growing waits until the card has

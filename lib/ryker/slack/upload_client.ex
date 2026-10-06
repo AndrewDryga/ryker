@@ -129,7 +129,7 @@ defmodule Ryker.Slack.UploadClient do
         {:error, {:invalid_slack_upload_client, :finch}}
 
       not is_integer(client.receive_timeout) or client.receive_timeout < 100 or
-          client.receive_timeout > 60_000 ->
+          client.receive_timeout > 300_000 ->
         {:error, {:invalid_slack_upload_client, :receive_timeout}}
 
       true ->

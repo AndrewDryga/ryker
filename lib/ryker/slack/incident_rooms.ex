@@ -64,6 +64,14 @@ defmodule Ryker.Slack.IncidentRooms do
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
   @maximum_error_detail_bytes 4_096
 
+  # A ready room's pinned card shows its investigation. While that works the
+  # card moves, so it is checked every few seconds (`root_card_check_seconds`);
+  # otherwise its changes are announced (`check_card_soon/1`) and it is checked
+  # every ten minutes for anything that was not. Every ready room was checked
+  # every 2 seconds, two writes and a full card build each time (2026-10-04
+  # review).
+  @quiet_root_card_seconds 600
+
   @type request_result :: %{room: IncidentRoom.t(), status: :requested | :duplicate}
 
   @spec request(map() | keyword()) :: {:ok, request_result()} | {:error, term()}
@@ -348,7 +356,13 @@ defmodule Ryker.Slack.IncidentRooms do
                 room.reconciled_channel_state,
                 room.root_message_ref,
                 room.close_requested_at,
-                datetime_add(room.root_card_checked_at, ^root_card_check_seconds, "second"),
+                fragment(
+                  "? + (CASE WHEN EXISTS (SELECT 1 FROM episode_kernel_episodes AS episode WHERE episode.id = ? AND episode.state = 'working') THEN ?::integer ELSE ?::integer END) * interval '1 second'",
+                  room.root_card_checked_at,
+                  room.episode_id,
+                  ^root_card_check_seconds,
+                  ^@quiet_root_card_seconds
+                ),
                 room.lease_expires_at
               ),
               :utc_datetime_usec
@@ -445,6 +459,25 @@ defmodule Ryker.Slack.IncidentRooms do
     end
   end
 
+  @doc """
+  Makes the pinned card of the ready room investigating `episode_id` due at the
+  next claim: its investigation was announced as changed. Unannounced itself,
+  as no page shows when a card was last checked.
+  """
+  @spec check_card_soon(Ecto.UUID.t()) :: :ok
+  def check_card_soon(episode_id) do
+    Repo.update_all(
+      from(room in IncidentRoom,
+        where:
+          room.episode_id == ^episode_id and room.status == :ready and
+            not is_nil(room.root_card_checked_at)
+      ),
+      set: [root_card_checked_at: nil]
+    )
+
+    :ok
+  end
+
   @spec claim_root_card(String.t(), pos_integer(), pos_integer()) ::
           {:ok, IncidentRoom.t() | nil} | {:error, term()}
   def claim_root_card(worker_ref, lease_seconds, check_interval_seconds) do
@@ -471,6 +504,7 @@ defmodule Ryker.Slack.IncidentRooms do
         update!(
           room,
           %{
+            attempt_count: 0,
             last_error_code: nil,
             last_error_detail: nil,
             lease_expires_at: nil,
@@ -1057,6 +1091,9 @@ defmodule Ryker.Slack.IncidentRooms do
     end
   end
 
+  # The offer's row serializes its requests and investigations. The episode,
+  # turn and session are read, not locked: locking them made every write to
+  # that conversation's work wait for the request (2026-10-04 review).
   defp lock_offer(record_ref) do
     query =
       from(record in Record,
@@ -1070,7 +1107,7 @@ defmodule Ryker.Slack.IncidentRooms do
           record.ref == ^record_ref and record.kind == "task_offer" and
             fragment("(?::jsonb ->> 'kind') = 'incident'", record.payload),
         select: {record, episode, turn, session},
-        lock: "FOR UPDATE"
+        lock: fragment("FOR UPDATE OF ?", record)
       )
 
     case Repo.one(query) do
@@ -1356,19 +1393,22 @@ defmodule Ryker.Slack.IncidentRooms do
 
   defp claim_root_card_locked(worker_ref, lease_seconds, check_interval_seconds) do
     now = Repo.now!()
-    due_at = DateTime.add(now, -check_interval_seconds, :second)
-    due_at |> root_card_claimable_room(now) |> lease_room(worker_ref, lease_seconds, now)
+
+    now
+    |> root_card_claimable_room(check_interval_seconds)
+    |> lease_room(worker_ref, lease_seconds, now)
   end
 
-  defp root_card_claimable_room(due_at, now) do
+  defp root_card_claimable_room(now, check_interval_seconds) do
     Repo.one(
       from(room in IncidentRoom,
+        as: :room,
         where:
           room.status == :ready and room.channel_state == :active and
             room.reconciled_channel_state == :active and not is_nil(room.root_message_ref) and
             is_nil(room.close_requested_at) and
-            (is_nil(room.root_card_checked_at) or room.root_card_checked_at <= ^due_at) and
             (is_nil(room.lease_expires_at) or room.lease_expires_at <= ^now),
+        where: ^root_card_due(now, check_interval_seconds),
         order_by: [
           asc_nulls_first: room.root_card_checked_at,
           asc: room.updated_at,
@@ -1377,6 +1417,25 @@ defmodule Ryker.Slack.IncidentRooms do
         limit: 1,
         lock: "FOR UPDATE SKIP LOCKED"
       )
+    )
+  end
+
+  # A card never checked (or made due by an announcement), one whose
+  # investigation works and was checked longer ago than the check interval, or
+  # any checked longer ago than the quiet interval.
+  defp root_card_due(now, check_interval_seconds) do
+    due_at = DateTime.add(now, -check_interval_seconds, :second)
+    quiet_due_at = DateTime.add(now, -@quiet_root_card_seconds, :second)
+
+    working =
+      from(episode in Episode,
+        where: episode.id == parent_as(:room).episode_id and episode.state == :working
+      )
+
+    dynamic(
+      [room: room],
+      is_nil(room.root_card_checked_at) or room.root_card_checked_at <= ^quiet_due_at or
+        (room.root_card_checked_at <= ^due_at and exists(working))
     )
   end
 
@@ -1401,11 +1460,14 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   # A health check that found the channel as it was, with nothing to clear,
-  # changed nothing anyone sees.
+  # changed nothing anyone sees. Like a checked card, it gives the claim's
+  # attempt back: routine checks spent them, so a room open an hour waited
+  # the longest backoff after its first refusal (2026-10-04 review).
   defp release_health_check(room, now) do
     update!(
       room,
       %{
+        attempt_count: 0,
         channel_checked_at: now,
         last_error_code: nil,
         last_error_detail: nil,

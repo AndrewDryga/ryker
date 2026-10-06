@@ -36,6 +36,7 @@ defmodule Ryker.Slack.Client do
   alias Ryker.Slack.UploadClient
 
   @required_fields [:http, :requester]
+  @upload_receive_timeout_ms 120_000
   @fields @required_fields ++ [:upload_http, :uploader]
 
   @enforce_keys @required_fields
@@ -206,13 +207,15 @@ defmodule Ryker.Slack.Client do
       function_exported?(requester, :request, 5)
   end
 
+  # Up to 8 MiB goes to Slack's file host in one request, which an API call's
+  # 30-second wait cut short twice the day uploads began (2026-10-04 review).
   defp prepare_uploader(
          %__MODULE__{http: %JSONClient{} = http, upload_http: nil, uploader: nil} = client
        ) do
     case UploadClient.new(
            base_origin: "https://files.slack.com",
            finch: http.finch,
-           receive_timeout: http.receive_timeout
+           receive_timeout: @upload_receive_timeout_ms
          ) do
       {:ok, upload_http} -> {:ok, %{client | upload_http: upload_http, uploader: UploadClient}}
       {:error, _reason} = error -> error

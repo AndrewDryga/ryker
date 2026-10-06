@@ -1804,6 +1804,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       "delivery_credentials_unavailable" ->
         {"Ryker had no Slack sign-in to update the card with.", :auth, nil}
 
+      "task_card_build_failed" ->
+        {"Ryker hit an error in its own code while building the card.", :stuck,
+         "It fails the same way until that code is fixed. The error is in Ryker's log."}
+
       other ->
         {"Ryker could not rebuild or update the card.", :unknown,
          "Whether it works depends on the cause." <> saved_error(other)}

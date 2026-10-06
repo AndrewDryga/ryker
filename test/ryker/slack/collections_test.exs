@@ -1,6 +1,8 @@
 defmodule Ryker.Slack.CollectionsTest do
   use Ryker.DataCase, async: true
 
+  import Ecto.Query
+
   alias Ryker.Fixtures.SavedEntities, as: Fixtures
   alias Ryker.Repo
   alias Ryker.Slack.Collections
@@ -175,6 +177,55 @@ defmodule Ryker.Slack.CollectionsTest do
     assert Collections.page(:schedules, scope, 0, 0) == {:error, :invalid_collection}
   end
 
+  # A page of a channel's saved items was cut from all of them, every one read
+  # on every page (2026-10-04 review). A page reads its own items and a count.
+  test "a page reads only its own items" do
+    source = source!()
+    for index <- 1..7, do: schedule!(source, "Check #{index}", index)
+    scope = %{channel_refs: [@channel], workspace_ref: @workspace}
+
+    rows =
+      rows_read(fn ->
+        assert {:ok, %{entries: page, offset: 5, total: 7}} =
+                 Collections.page(:schedules, scope, 5, 5)
+
+        assert length(page) == 2
+      end)
+
+    assert Enum.max(rows) == 2
+  end
+
+  test "saved knowledge pages across facts and guidance, newest first" do
+    source = source!()
+    newest = memory!(source, "GCP project", "portal-prod")
+    second = guidance!(source, "Deploy reviews")
+    third = memory!(source, "Pager rotation", "weekly")
+    fourth = guidance!(source, "Release notes")
+    older = [memory!(source, "Escalation", "on-call"), guidance!(source, "Runbooks")]
+
+    now = Repo.now!()
+    ordered = [newest, second, third, fourth | older]
+
+    for {entity, age} <- Enum.with_index(ordered, 1) do
+      Repo.update_all(
+        from(row in entity.__struct__, where: row.id == ^entity.id),
+        set: [updated_at: DateTime.add(now, -age, :minute)]
+      )
+    end
+
+    scope = %{channel_refs: [@channel], workspace_ref: @workspace}
+
+    rows =
+      rows_read(fn ->
+        assert {:ok, %{entries: page, offset: 1, total: 6}} =
+                 Collections.page(:knowledge, scope, 1, 2)
+
+        assert Enum.map(page, & &1.ref) == [second.ref, third.ref]
+      end)
+
+    assert Enum.max(rows) <= 2
+  end
+
   # Every channel the reader shares with Ryker is one scoped query, so the
   # complete list an operator opens is the same rows the thread page came from.
   test "a multi-channel scope lists each channel's items and no one else's" do
@@ -337,4 +388,53 @@ defmodule Ryker.Slack.CollectionsTest do
     do: Fixtures.behavior!(source, kind, payload, overrides)
 
   defp memory!(source, subject, value), do: Fixtures.memory!(source, subject, value)
+
+  defp guidance!(source, subject) do
+    behavior!(
+      source,
+      :guidance,
+      %{
+        "subject" => subject,
+        "summary" => "#{subject} first.",
+        "text" => "#{subject} first.",
+        "scope" => "conversation",
+        "visibility" => "conversation",
+        "expires_in" => "30d",
+        "repository" => nil
+      },
+      scope_ref: @conversation
+    )
+  end
+
+  # The rows each query `fun` sends returns, in order.
+  defp rows_read(fun) do
+    parent = self()
+    handler = "collection-rows-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ryker, :repo, :query],
+        fn _event, _measurements, %{result: {:ok, result}}, _config ->
+          if self() == parent, do: send(parent, {:rows, result.num_rows})
+        end,
+        nil
+      )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler)
+    end
+
+    collect_rows([])
+  end
+
+  defp collect_rows(rows) do
+    receive do
+      {:rows, count} -> collect_rows([count | rows])
+    after
+      0 -> Enum.reverse(rows)
+    end
+  end
 end

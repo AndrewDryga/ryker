@@ -761,6 +761,133 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     refute_received {:episode_updated, _episode_id}
   end
 
+  # Every routine check of a ready room's card took an attempt and gave none
+  # back, so a room open for an hour had spent thousands, and its first refused
+  # card update waited the longest backoff, minutes, where a fresh room waits a
+  # second (2026-10-04 review).
+  test "routine card checks leave a ready room's attempts unspent" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    assert {:ok, %{room: requested}} = IncidentRooms.request(request(fixture))
+    assert {:ok, {:ready, _room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get!(IncidentRoom, requested.id)
+
+    for _check <- 1..3 do
+      card_check_due!(room)
+      assert {:ok, {:ready, _room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    end
+
+    assert Repo.get!(IncidentRoom, room.id).attempt_count == 0
+  end
+
+  # Each ready room's card was checked every 2 seconds for as long as the room
+  # was open, two writes and a full card build each time, whether or not its
+  # investigation was doing anything (2026-10-04 review).
+  test "a ready room's card is checked every few seconds only while its investigation works" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    assert {:ok, %{room: requested}} = IncidentRooms.request(request(fixture))
+    assert {:ok, {:ready, _room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get!(IncidentRoom, requested.id)
+
+    card_checked!(room, 10)
+    assert {:ok, %IncidentRoom{id: claimed}} = IncidentRooms.claim_root_card("card-check", 60, 2)
+    assert claimed == room.id
+
+    finish!(room.episode_id)
+    card_checked!(room, 10)
+    assert IncidentRooms.claim_root_card("card-check", 60, 2) == {:ok, nil}
+
+    # The worker sleeps until then, not until two seconds after the check: an
+    # announced change makes it due before then.
+    checked = Repo.get!(IncidentRoom, room.id).root_card_checked_at
+    assert IncidentRooms.next_due_at(Repo.now!(), 3_600, 2) == DateTime.add(checked, 600, :second)
+
+    # A finished investigation's card is still checked every ten minutes.
+    card_checked!(room, 601)
+    assert {:ok, %IncidentRoom{id: ^claimed}} = IncidentRooms.claim_root_card("card-check", 60, 2)
+  end
+
+  # A room's card was checked by the clock alone, so an investigation that
+  # finished showed as working until the next check (2026-10-04 review). An
+  # announced change to it is checked at the next poll.
+  test "a ready room's card shows an announced change to its investigation at once" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    agent = incident_agent!()
+    assert {:ok, %{room: requested}} = IncidentRooms.request(request(fixture))
+    assert {:ok, {:ready, _room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get!(IncidentRoom, requested.id)
+
+    finish!(room.episode_id)
+    card_checked!(room, 0)
+    Agent.update(agent, &Map.put(&1, :updates, []))
+
+    worker = start_supervised!({IncidentRoomWorker, sleeping_worker_options(agent)})
+    _state = :sys.get_state(worker)
+    refute eventually(fn -> Agent.get(agent, & &1.updates) != [] end, 300)
+
+    :ok = Episodes.broadcast_episode_updated(room.episode_id)
+    assert eventually(fn -> Agent.get(agent, & &1.updates) != [] end, 1_000)
+  end
+
+  # Asking for a room locked the offer's episode, turn and session along with
+  # the offer, so every write to that conversation's work waited for the
+  # request (2026-10-04 review). The offer alone serializes its requests. A
+  # sandboxed test is one transaction that holds those rows already, so the
+  # locks the request asks for are read from the statements it sends.
+  test "asking for a room locks the offer and no row of its conversation's work" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+    parent = self()
+    handler = "incident-room-locks-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ryker, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          if metadata.query =~ "FOR UPDATE", do: send(parent, {:locks, metadata.query})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    assert {:ok, %{status: :requested}} = IncidentRooms.request(request(fixture))
+    :telemetry.detach(handler)
+
+    assert_received {:locks, offer} when is_binary(offer)
+    assert offer =~ ~s(FROM "episode_state_records")
+    assert offer =~ ~r/FOR UPDATE OF e0\z/
+  end
+
+  defp card_checked!(room, seconds_ago) do
+    Repo.update_all(from(stored in IncidentRoom, where: stored.id == ^room.id),
+      set: [
+        root_card_checked_at: DateTime.add(Repo.now!(), -seconds_ago, :second),
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil
+      ]
+    )
+  end
+
+  defp finish!(episode_id) do
+    Repo.update_all(from(episode in Episode, where: episode.id == ^episode_id),
+      set: [
+        state: :complete,
+        owner_kind: nil,
+        owner_ref: nil,
+        owner_deadline_at: nil,
+        active_input_refs: [],
+        queued_input_refs: [],
+        queued_input_order_keys: []
+      ]
+    )
+  end
+
   defp card_check_due!(room) do
     Repo.update_all(from(stored in IncidentRoom, where: stored.id == ^room.id),
       set: [
