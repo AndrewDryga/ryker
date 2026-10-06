@@ -69,7 +69,6 @@ defmodule Ryker.ControlPlane.PeoplePage do
           name={person.name}
           href={path(person.person_ref)}
           link_row
-          navigate
           meta={[things(person.facts), MemoryFormat.time(person.last_said_at, "last said ")]}
         />
       </Kit.entity_list>

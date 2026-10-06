@@ -97,7 +97,6 @@ defmodule Ryker.ControlPlane.FindingsPage do
           name={row_text(item.what)}
           href={path(item.id)}
           link_row
-          navigate
           state={state(item)}
           meta={[item.scope, MemoryFormat.time(item.at)]}
         />

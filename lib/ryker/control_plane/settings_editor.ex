@@ -663,7 +663,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         icon={row.icon}
         name={row.name}
         href={edit_path(@paths, key)}
-        navigate={true}
         link_row={true}
         state={row.state}
         text={row.text}

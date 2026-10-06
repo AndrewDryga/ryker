@@ -61,7 +61,6 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
           icon={:grid}
           name={environment.display_name}
           href={Paths.edit_environment(environment.ref)}
-          navigate={true}
           link_row={true}
           tag={if environment.is_default, do: "Default"}
           text={environment.description}

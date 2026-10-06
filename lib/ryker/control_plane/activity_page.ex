@@ -145,7 +145,6 @@ defmodule Ryker.ControlPlane.ActivityPage do
           id={dom_id}
           name={title(item)}
           href={item.href}
-          navigate
           link_row
           icon={source_icon(item)}
           icon_tone={source_tone(item)}

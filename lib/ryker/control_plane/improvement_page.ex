@@ -130,7 +130,6 @@ defmodule Ryker.ControlPlane.ImprovementPage do
       icon_tone={tone(@item)}
       name={@item.request.title}
       href={@item.request.href}
-      navigate
       state={state(@item)}
       text={text(@item)}
       meta={meta(@item)}

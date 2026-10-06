@@ -249,7 +249,6 @@ defmodule Ryker.ControlPlane.FeedbackPage do
       name={@item.request.title}
       href={@item.request.href}
       link_row
-      navigate
       state={state(@item)}
       text={text(@item)}
       meta={meta(@item)}

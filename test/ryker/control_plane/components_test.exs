@@ -691,6 +691,39 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert text.("#buttons-not-shown .entity-side .state-word") == "Not added"
   end
 
+  # Most rows that open a page asked for nothing, so a click loaded the page
+  # from scratch and mounted the console again, reading everything twice
+  # (2026-10-04 review). A row's page in the console opens in place.
+  test "a row opens a console page in place and anywhere else as a link" do
+    html =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Kit.entity_list label="Rows">
+            <Kit.entity_row
+              id="inside"
+              name="acme/api"
+              href="/repositories/acme-api"
+              link_row
+              icon={:repository}
+            />
+            <Kit.entity_row id="outside" name="acme/api" href="https://github.com/acme/api" />
+          </Kit.entity_list>
+          """
+        end,
+        %{}
+      )
+      |> LazyHTML.from_fragment()
+
+    links = &(html |> LazyHTML.query(&1) |> LazyHTML.attribute("data-phx-link"))
+    assert links.("#inside a") == ["redirect", "redirect"]
+    assert links.("#outside a") == []
+
+    assert html |> LazyHTML.query("#outside a") |> LazyHTML.attribute("href") == [
+             "https://github.com/acme/api"
+           ]
+  end
+
   test "a string-rendered list page uses the same Kit row markup as the component" do
     # The Channels list is prepared as a string by Pages; it must produce the
     # rows the Kit component produces, so one stylesheet rule covers both.

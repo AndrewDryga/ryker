@@ -469,7 +469,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
           id={"integration-#{row.key}"}
           name={row.name}
           href={row.href}
-          navigate={true}
           link_row={true}
           state={row.state}
           tag={row.tag}
@@ -500,7 +499,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
           id={"setting-#{row.key}"}
           name={row.name}
           href={row.href}
-          navigate={true}
           link_row={true}
           text={row.text}
           meta={row.meta}
@@ -1188,7 +1186,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
           id={"emisar-account-" <> account.ref}
           name={account.display_name}
           href={Paths.edit_emisar_account(account.ref)}
-          navigate={true}
           link_row={true}
           state={@account_states[account.ref].state}
           text={@account_states[account.ref].reason}

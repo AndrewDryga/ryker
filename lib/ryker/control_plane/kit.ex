@@ -54,11 +54,10 @@ defmodule Ryker.ControlPlane.Kit do
 
   attr(:id, :string, default: nil)
   attr(:name, :any, required: true, doc: "Text, or a rendered fragment such as a mention")
-  attr(:href, :string, default: nil, doc: "Where the name leads, when the item has its own page")
 
-  attr(:navigate, :boolean,
-    default: false,
-    doc: "Inside a LiveView, open href without reloading the page"
+  attr(:href, :string,
+    default: nil,
+    doc: "Where the name leads, when the item has its own page; a console page opens in place"
   )
 
   attr(:link_row, :boolean,
@@ -135,17 +134,8 @@ defmodule Ryker.ControlPlane.Kit do
     >
       <p :if={@group} class="entity-group" role="heading" aria-level="2">{@group}</p>
       <.link
-        :if={@icon && @href && @navigate}
-        navigate={@href}
-        class="entity-icon"
-        data-tone={@icon_tone}
-        tabindex="-1"
-        aria-hidden="true"
-      >
-        <Components.icon name={@icon} />
-      </.link>
-      <a
-        :if={@icon && @href && !@navigate}
+        :if={@icon && @href}
+        navigate={in_console(@href)}
         href={@href}
         class="entity-icon"
         data-tone={@icon_tone}
@@ -153,16 +143,15 @@ defmodule Ryker.ControlPlane.Kit do
         aria-hidden="true"
       >
         <Components.icon name={@icon} />
-      </a>
+      </.link>
       <span :if={@icon && !@href} class="entity-icon" data-tone={@icon_tone} aria-hidden="true">
         <Components.icon name={@icon} />
       </span>
       <div class="entity-body">
         <h3 class="entity-name">
-          <.link :if={@href && @navigate} navigate={@href}>{@name}</.link><a
-            :if={@href && !@navigate}
-            href={@href}
-          >{@name}</a><span :if={!@href}>{@name}</span>
+          <.link :if={@href} navigate={in_console(@href)} href={@href}>{@name}</.link><span :if={
+            !@href
+          }>{@name}</span>
           <span :if={@tag} class="entity-tag">{@tag}</span>
           <.state
             :if={@name_state}
@@ -197,6 +186,13 @@ defmodule Ryker.ControlPlane.Kit do
     </article>
     """
   end
+
+  # A page in the console opens in place, inside the LiveView; a row that
+  # did not ask to loaded its page from scratch and mounted it again
+  # (2026-10-04 review). Anywhere else loads as a link does.
+  defp in_console("//" <> _elsewhere), do: nil
+  defp in_console("/" <> _path = href), do: href
+  defp in_console(_elsewhere), do: nil
 
   @doc """
   The day headings of a list ordered newest first: the label of each item's

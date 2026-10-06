@@ -159,7 +159,6 @@ defmodule Ryker.ControlPlane.LearnedPage do
         name={item.title}
         href={ConversationMemory.summary_path(item.id)}
         link_row
-        navigate
         state={summary_state(item)}
         text={MemoryFormat.excerpt(item.text, item.workspace)}
         meta={[
