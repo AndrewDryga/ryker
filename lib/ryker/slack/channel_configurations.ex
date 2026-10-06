@@ -94,7 +94,6 @@ defmodule Ryker.Slack.ChannelConfigurations do
   `default_environment` is nil when no environment is the default.
   """
   @type catalog :: %{
-          optional(:on_call_count) => non_neg_integer(),
           default_environment: String.t() | nil,
           environments: [environment_choice()]
         }
@@ -1549,19 +1548,10 @@ defmodule Ryker.Slack.ChannelConfigurations do
   # among the choices: those are the environments that can run work now, and
   # a channel joined while the default cannot is still set to it.
   defp catalog(%{default_environment: default, environments: environments} = catalog)
-       when map_size(catalog) in 2..3 do
-    on_call_count = Map.get(catalog, :on_call_count, 0)
-
-    with true <- Map.keys(catalog) -- [:default_environment, :environments, :on_call_count] == [],
-         true <- is_integer(on_call_count) and on_call_count >= 0,
-         {:ok, environments} <- environment_choices(environments),
+       when map_size(catalog) == 2 do
+    with {:ok, environments} <- environment_choices(environments),
          true <- is_nil(default) or Regex.match?(Environment.ref_pattern(), default) do
-      {:ok,
-       %{
-         default_environment: default,
-         environments: environments,
-         on_call_count: on_call_count
-       }}
+      {:ok, %{default_environment: default, environments: environments}}
     else
       false -> {:error, {:invalid_channel_configuration, :catalog}}
       {:error, _reason} = error -> error

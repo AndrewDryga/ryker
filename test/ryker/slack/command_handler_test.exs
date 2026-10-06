@@ -224,15 +224,21 @@ defmodule Ryker.Slack.CommandHandlerTest do
       assert response["text"] =~ "Ryker emergency kit"
     end
 
-    for text <- ["settings", "config"] do
-      assert {:ok, response} =
-               CommandHandler.handle(command(text, "event:status:#{text}"), options)
+    assert {:ok, status} = CommandHandler.handle(command("status", "event:status"), options)
+    assert status["text"] =~ "Channel settings"
 
-      assert response["text"] =~ "Channel settings"
+    # Second names for subcommands made `/ryker` a list that was not the whole
+    # of it, as the README said it was (2026-10-04 review).
+    for text <- ["settings", "config", "watch off", "assignment"] do
+      assert {:ok, response} =
+               CommandHandler.handle(command(text, "event:alias:#{text}"), options)
+
+      assert response["text"] =~ "Unknown `/ryker` subcommand"
+      refute_receive {:setting_changed, _change}
     end
 
     for {text, setting, scope, value} <- [
-          {"watch off", :proactive, :channel, :off},
+          {"proactive off", :proactive, :channel, :off},
           {"proactive inherit", :proactive, :channel, :inherit},
           {"shadow global on", :shadow, :workspace, :on}
         ] do
@@ -245,7 +251,7 @@ defmodule Ryker.Slack.CommandHandlerTest do
 
     empty_assignments = %{options | list_assignments: fn _, _ -> [] end}
 
-    for text <- ["assignment", "assignments list"] do
+    for text <- ["assignments", "assignments list"] do
       assert {:ok, response} =
                CommandHandler.handle(
                  command(text, "event:assignments:#{text}"),
@@ -261,7 +267,7 @@ defmodule Ryker.Slack.CommandHandlerTest do
         ] do
       assert {:ok, response} =
                CommandHandler.handle(
-                 command("assignment #{verb} behavior:assignment:terraform", "event:#{verb}"),
+                 command("assignments #{verb} behavior:assignment:terraform", "event:#{verb}"),
                  options
                )
 

@@ -277,6 +277,12 @@ defmodule Ryker.Slack.InteractionTest do
     # buttons are inert now that acceptance itself queues the checks.
     assert Interaction.from_socket(readiness, "T123", @now) == :ignore
 
+    # Publish names the publication; the offer form was the readiness click's.
+    offer =
+      put_in(readiness, ["payload", "actions", Access.at(0), "action_id"], "ryker_task_publish")
+
+    assert Interaction.from_socket(offer, "T123", @now) == :ignore
+
     crossed =
       put_in(
         publish,

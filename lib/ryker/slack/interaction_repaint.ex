@@ -76,8 +76,8 @@ defmodule Ryker.Slack.InteractionRepaint do
     end
   end
 
-  defp setup_document(session, %{setup: %{bot_user_ref: _bot} = setup}),
-    do: {:ok, ChannelSetup.document(session, setup), "slack-setup:#{session.id}"}
+  defp setup_document(session, %{bot_user_ref: bot_user_ref}),
+    do: {:ok, ChannelSetup.document(session, bot_user_ref), "slack-setup:#{session.id}"}
 
   defp setup_document(_session, _options), do: {:error, :slack_setup_presentation_unavailable}
 

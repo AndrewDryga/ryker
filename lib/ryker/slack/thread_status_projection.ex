@@ -26,8 +26,9 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   @thinking "is thinking…"
   @working "is working…"
 
-  # Ryker's own tools, which the worker names under this server.
-  @state_servers ["controller-tools", "responder-state"]
+  # Ryker's own tools, which the worker names under this server. Only a live
+  # turn shows a status, and none has used the pre-rename name since 2026-09-26.
+  @state_server "controller-tools"
   @state_tool_phrases [
     {"is searching what it knows…", ~w(search_memory)},
     {"is searching Slack…", ~w(search_slack list_slack_channels)},
@@ -240,7 +241,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   # Only the server, the tool name and the kind are read, and only to choose
   # a phrase; a name no table knows says "is working…".
   defp tool_phrase(%{"input" => %{"server" => server, "tool" => tool}})
-       when server in @state_servers,
+       when server == @state_server,
        do: phrase_for(@state_tool_phrases ++ @emisar_tool_phrases, tool)
 
   defp tool_phrase(%{"input" => %{"server" => @emisar_server, "tool" => tool}}),

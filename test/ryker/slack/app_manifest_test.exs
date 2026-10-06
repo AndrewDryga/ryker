@@ -19,6 +19,17 @@ defmodule Ryker.Slack.AppManifestTest do
     assert "reaction_removed" in events
   end
 
+  # Ryker read the event that says it was removed from a channel, but the app
+  # never subscribed to it, so a removed Ryker still showed as in the channel
+  # and kept posting there until Slack refused (2026-10-04 review).
+  test "the shipped Slack app hears when Ryker joins or leaves a channel" do
+    {:ok, manifest} = @manifest_path |> File.read!() |> YamlElixir.read_from_string()
+    events = get_in(manifest, ["settings", "event_subscriptions", "bot_events"])
+
+    assert "member_joined_channel" in events
+    assert "member_left_channel" in events
+  end
+
   test "the shipped Slack app can prove per-user Home visibility across all conversation kinds" do
     scopes = bot_scopes!()
 

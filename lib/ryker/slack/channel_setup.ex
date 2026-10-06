@@ -306,7 +306,7 @@ defmodule Ryker.Slack.ChannelSetup do
                  options.client,
                  session.channel_ref,
                  session.response_thread_ref,
-                 document(session, presentation(options)),
+                 document(session, options.bot_user_ref),
                  delivery_ref
                ) do
           bind_prompt(session, message_ref, options, :posted)
@@ -427,12 +427,9 @@ defmodule Ryker.Slack.ChannelSetup do
     end
   end
 
-  @doc "The wizard document; `presentation` names the bot and the configured on-call count."
-  @spec document(ConfigurationSession.t(), %{
-          bot_user_ref: String.t(),
-          on_call_count: non_neg_integer()
-        }) :: map()
-  def document(%ConfigurationSession{} = session, %{bot_user_ref: bot_user_ref}) do
+  @doc "The wizard document, naming the bot it sets up."
+  @spec document(ConfigurationSession.t(), String.t()) :: map()
+  def document(%ConfigurationSession{} = session, bot_user_ref) do
     %{
       "channel_setup" => %{
         "bot_user_ref" => bot_user_ref,
@@ -443,15 +440,6 @@ defmodule Ryker.Slack.ChannelSetup do
         "status" => Atom.to_string(session.status),
         "step" => Atom.to_string(session.step)
       }
-    }
-  end
-
-  @doc false
-  @spec presentation(map()) :: %{bot_user_ref: String.t(), on_call_count: non_neg_integer()}
-  def presentation(options) do
-    %{
-      bot_user_ref: options.bot_user_ref,
-      on_call_count: Map.get(options.catalog, :on_call_count, 0)
     }
   end
 
@@ -594,7 +582,7 @@ defmodule Ryker.Slack.ChannelSetup do
       options.client,
       session.channel_ref,
       message_ref,
-      document(session, presentation(options)),
+      document(session, options.bot_user_ref),
       delivery_ref(session)
     )
   end

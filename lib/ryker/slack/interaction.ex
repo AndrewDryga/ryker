@@ -20,7 +20,7 @@ defmodule Ryker.Slack.Interaction do
   @choice_value ~r/\Arecord:input_request:[A-Za-z0-9_.:-]{1,220}\|[0-9]{1,2}\z/
   @work_record_value ~r/\A(?:task-card|incident-room):[A-Za-z0-9_.:-]{1,220}\|(?:timeline|evidence|handoff|recovery|postmortem)\z/
   @resume_work_value ~r/\A(?:task-card|incident-room):[A-Za-z0-9_.:-]{1,220}\|[0-9a-f]{64}\z/
-  @task_publication_value ~r/\Atask-card:[A-Za-z0-9_.:-]{1,220}\|(?:publication|record:publication_offer):[A-Za-z0-9_.:-]{1,220}\z/
+  @task_publication_value ~r/\Atask-card:[A-Za-z0-9_.:-]{1,220}\|publication:[A-Za-z0-9_.:-]{1,220}\z/
   @task_publication_recovery_value ~r/\Atask-card:[A-Za-z0-9_.:-]{1,220}\|publication:[A-Za-z0-9_.:-]{1,220}\|[1-9][0-9]{0,18}\z/
 
   @enforce_keys [

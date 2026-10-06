@@ -285,7 +285,6 @@ defmodule Ryker.Slack.WorkControls do
         is_map(Map.get(attributes, :target)),
         valid_expected_generation?(attributes, fields),
         valid_publication_ref?(attributes, fields),
-        valid_record_ref?(attributes, fields),
         valid_record_kind?(attributes, fields)
       ])
 
@@ -311,14 +310,6 @@ defmodule Ryker.Slack.WorkControls do
       reference?(
         Map.get(attributes, :publication_ref),
         ~r/\Apublication:[A-Za-z0-9_.:-]{1,240}\z/
-      )
-  end
-
-  defp valid_record_ref?(attributes, fields) do
-    :record_ref not in fields or
-      reference?(
-        Map.get(attributes, :record_ref),
-        ~r/\Arecord:publication_offer:[A-Za-z0-9_.:-]{1,220}\z/
       )
   end
 

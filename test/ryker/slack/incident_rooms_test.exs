@@ -404,10 +404,9 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert name == room.channel_name
     assert requested_at == DateTime.add(@now, 2, :second)
     assert state.invites == [{"CINCIDENT", ["U123", "U200", "U201", "U300"]}]
-    assert [{"CINCIDENT", topic}] = state.topics
-
-    assert topic =~
-             "Incident #{room.ref |> String.replace_prefix("incident-room:", "") |> String.slice(0, 8)}"
+    # Topics said "Incident 1a2b3c4d | … | managed by Emisar": Ryker's own id,
+    # and the wrong product (2026-10-04 review).
+    assert state.topics == [{"CINCIDENT", "Checkout errors · incident room opened by Ryker"}]
 
     assert state.pins == [{"CINCIDENT", room.root_message_ref}]
 

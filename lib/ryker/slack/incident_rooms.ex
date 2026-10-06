@@ -1105,7 +1105,7 @@ defmodule Ryker.Slack.IncidentRooms do
     title = record.payload["title"]
     prompt = record.payload["prompt"]
     channel_name = channel_name(attributes.channel_prefix, attributes.occurred_at, title, room_id)
-    topic = topic(room_ref, title)
+    topic = topic(title)
 
     invite_users =
       (attributes.invite_user_refs ++ configuration.invite_user_refs)
@@ -1755,10 +1755,9 @@ defmodule Ryker.Slack.IncidentRooms do
     "#{prefix}-#{date}-#{slug}-#{suffix}"
   end
 
-  defp topic(room_ref, title) do
-    short = room_ref |> String.replace_prefix("incident-room:", "") |> String.slice(0, 8)
-    byte_slice("Incident #{short} | #{title} | managed by Emisar", 250)
-  end
+  # The incident and who keeps the room, in words: the topic once led with
+  # Ryker's own id and named Emisar (2026-10-04 review).
+  defp topic(title), do: byte_slice("#{title} · incident room opened by Ryker", 250)
 
   defp lock_workspace!(workspace_ref) do
     key = "slack-incident-room:#{workspace_ref}"

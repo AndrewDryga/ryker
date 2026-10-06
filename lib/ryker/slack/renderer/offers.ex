@@ -69,9 +69,6 @@ defmodule Ryker.Slack.Renderer.Offers do
     |> Enum.reject(&is_nil/1)
   end
 
-  # Offers saved before tasks carried checks and limits have no brief.
-  defp offer_brief(_offer), do: []
-
   defp offer_list(_label, []), do: nil
 
   defp offer_list(label, values) do

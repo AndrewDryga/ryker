@@ -39,16 +39,16 @@ defmodule Ryker.Slack.CommandHandler do
       ["help"] ->
         {:ok, response(help())}
 
-      [name] when name in ["status", "settings", "config"] ->
+      ["status"] ->
         status(command, options)
 
-      [name | arguments] when name in ["proactive", "watch"] ->
+      ["proactive" | arguments] ->
         change_setting(command, :proactive, arguments, options)
 
       ["shadow" | arguments] ->
         change_setting(command, :shadow, arguments, options)
 
-      [name | _arguments] when name in ["assignments", "assignment"] ->
+      ["assignments" | _arguments] ->
         assignments(command, assignment_arguments(text), options)
 
       [name | _arguments] ->
@@ -156,15 +156,13 @@ defmodule Ryker.Slack.CommandHandler do
           Enum.map(values, fn assignment ->
             ref = Map.fetch!(assignment, :ref)
             status = Map.fetch!(assignment, :status)
-            "- `#{ref}`: #{assignment_name(Map.fetch!(assignment, :payload))} (#{status})"
+            title = assignment |> Map.fetch!(:payload) |> Map.fetch!("title")
+            "- `#{ref}`: #{title} (#{status})"
           end)
       end
 
     {:ok, response(Enum.join(["Standing assignments" | lines], "\n"))}
   end
-
-  defp assignment_name(%{"title" => title}) when is_binary(title), do: title
-  defp assignment_name(_payload), do: "untitled rule"
 
   defp effective(command, options) do
     case options.effective_settings.(command.workspace_ref, conversation_ref(command)) do

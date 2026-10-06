@@ -570,8 +570,6 @@ defmodule Ryker.Slack.Runtime do
         worker_ref: "slack-task-card:#{identity.workspace_ref}"
       })
 
-    setup_presentation = ChannelSetup.presentation(setup_options)
-
     interaction_feedback_worker =
       InteractionFeedbackWorker.options!(%{
         api: Client,
@@ -580,7 +578,8 @@ defmodule Ryker.Slack.Runtime do
         lease_seconds: 300,
         max_attempts: 8,
         name: InteractionFeedbackWorker,
-        repaint: &InteractionRepaint.repaint(&1, Map.put(&2, :setup, setup_presentation)),
+        repaint:
+          &InteractionRepaint.repaint(&1, Map.put(&2, :bot_user_ref, identity.bot_user_ref)),
         retry_base_seconds: 1,
         worker_ref: "slack-interaction-feedback:#{identity.workspace_ref}"
       })
