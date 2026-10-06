@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SettingsPage, SettingsView, SetupPage}
   alias Ryker.{Credentials, IntegrationSetup}
   alias Ryker.Fixtures.Answers
+  alias Ryker.QueryWork
   alias Ryker.Settings
   alias Ryker.Settings.{Installation, PricingRate}
   alias Ryker.Slack.{ChannelConfigurationChangeset, ChannelConfigurations}
@@ -43,6 +44,21 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
      }})
 
     %{unavailable: unavailable}
+  end
+
+  # The shell's setup count, the Repositories page and its header each read
+  # the settings view, about 40 queries, every saved credential twice and a
+  # GitHub key decrypted into a signer each time. An install without GitHub
+  # never finishes setup, so its pages paid that on every read (2026-10-04
+  # review).
+  test "a page read reads the settings view once" do
+    {:ok, _snapshot} = Settings.initialize(@actor)
+    {:ok, view, _html} = open("/repositories")
+
+    {_html, statements} =
+      QueryWork.statements(fn -> render_patch(view, "/repositories?q=api") end, from: view.pid)
+
+    assert QueryWork.count(statements, "integration_credentials") == 1
   end
 
   # The settings events reached for the settings commands on any page, and

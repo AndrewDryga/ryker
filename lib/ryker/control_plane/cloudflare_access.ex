@@ -26,6 +26,7 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
   @leeway_seconds 60
   @maximum_token_bytes 8_192
   @maximum_login_bytes 200
+  @signed_in :ryker_cloudflare_access_viewer
 
   @type config :: %{
           required(:team_domain) => String.t(),
@@ -38,6 +39,8 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
   counting, or `:error` without a valid one.
   """
   @spec viewer(Plug.Conn.t(), config()) :: {:ok, Viewer.t()} | :error
+  def viewer(%Plug.Conn{private: %{@signed_in => viewer}}, _config), do: {:ok, viewer}
+
   def viewer(conn, config) do
     with [token] <- Plug.Conn.get_req_header(conn, "cf-access-jwt-assertion"),
          {:ok, %{"email" => email, "exp" => expires}} <- verify(token, config),
@@ -47,6 +50,13 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
       _invalid -> :error
     end
   end
+
+  @doc """
+  The request, carrying the person its token named once the guard checked it
+  (`Ryker.ControlPlane.BrowserGuard`), so no later step checks it again.
+  """
+  @spec signed_in(Plug.Conn.t(), Viewer.t()) :: Plug.Conn.t()
+  def signed_in(conn, viewer), do: Plug.Conn.put_private(conn, @signed_in, viewer)
 
   @doc "The claims of a token Access signed for this application, or `:error`."
   @spec verify(String.t(), config()) :: {:ok, map()} | :error

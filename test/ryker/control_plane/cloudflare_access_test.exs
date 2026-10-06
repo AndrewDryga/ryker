@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.CloudflareAccessTest do
 
   import Plug.Conn, only: [put_req_header: 3]
 
-  alias Ryker.ControlPlane.CloudflareAccess
+  alias Ryker.ControlPlane.{BrowserGuard, CloudflareAccess, Viewer}
 
   setup do
     key = :public_key.generate_key({:rsa, 2048, 65_537})
@@ -59,6 +59,32 @@ defmodule Ryker.ControlPlane.CloudflareAccessTest do
               }}
 
     assert CloudflareAccess.viewer(Plug.Test.conn(:get, "/"), context.config) == :error
+  end
+
+  # The endpoint's guard, the router's guard, the person a request acts for
+  # and each action's record of who took it each checked the token's
+  # signature again: up to four RSA checks for one click (2026-10-04 review).
+  # The guard checks it, and the request carries the person it named.
+  test "the guard checks a request's token once for every step after it", context do
+    host = "console.tenant.example"
+
+    conn =
+      Plug.Test.conn(:get, "/")
+      |> Map.merge(%{host: host, remote_ip: {127, 0, 0, 1}})
+      |> put_req_header("cf-access-jwt-assertion", token(context.key, "current", context.claims))
+      |> BrowserGuard.call(
+        access: :loopback,
+        public_host: host,
+        cloudflare_access: context.config
+      )
+
+    refute conn.halted
+
+    # The token is gone, and every later step still knows who took it.
+    conn = Plug.Conn.delete_req_header(conn, "cf-access-jwt-assertion")
+    options = %{public_host: host, cloudflare_access: context.config}
+    assert %{login: "dev@tenant.example", via: :cloudflare} = Viewer.from_conn(conn, options)
+    assert Viewer.actor_ref(conn, options) =~ "dev@tenant.example"
   end
 
   test "a token for another application or team, or outside its lifetime, names nobody",

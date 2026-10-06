@@ -44,6 +44,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     Navigation,
     PageCost,
     PageHelp,
+    PageRead,
     Pages,
     PathRef,
     Paths,
@@ -57,7 +58,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     Viewer
   }
 
-  alias Ryker.{InspectionRedactor, IntegrationSetup, RepositoryKnowledge, Settings}
+  alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.Retention.Data, as: RetentionData
   alias Ryker.Slack.{ChannelConfigurations, Names}
 
@@ -1388,10 +1389,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp setup_progress(_socket), do: SettingsView.setup_progress()
 
   # Every read of a page is measured: its queries and time (`PageCost`). Its
-  # artifacts share one look at the configured secrets.
+  # parts share one read of what they all ask for (`PageRead`).
   defp refresh(socket, reset \\ false) do
     PageCost.measure(socket.assigns.path, connected?(socket), fn ->
-      InspectionRedactor.with_configured_secrets(fn -> read_shell_and_page(socket, reset) end)
+      PageRead.run(fn -> read_shell_and_page(socket, reset) end)
     end)
   end
 

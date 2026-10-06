@@ -12,12 +12,19 @@ defmodule Ryker.ControlPlane.RepositoryNames do
 
   import Ecto.Query
 
+  alias Ryker.ControlPlane.PageRead
   alias Ryker.Repo
   alias Ryker.Settings.Repository
 
-  @doc "Every known name, keyed by ref; a repository still added wins over one removed."
+  @doc """
+  Every known name, keyed by ref; a repository still added wins over one
+  removed. A page read reads them once (`Ryker.ControlPlane.PageRead`): each
+  of its lists read them again (2026-10-04 review).
+  """
   @spec all() :: %{String.t() => String.t()}
-  def all do
+  def all, do: PageRead.memo({__MODULE__, :all}, &read/0)
+
+  defp read do
     removed = Repo.all(from(row in "removed_repository_names", select: {row.ref, row.name}))
 
     current =

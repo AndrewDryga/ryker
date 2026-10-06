@@ -36,11 +36,8 @@ defmodule Ryker.ControlPlane.BrowserGuard do
       not peer_allowed?(conn.remote_ip, access) ->
         refuse(conn, 403, "Loopback access only")
 
-      not signed_in?(conn, published_host, cloudflare_access) ->
-        refuse(conn, 403, "Sign in through Cloudflare Access")
-
       true ->
-        conn
+        sign_in(conn, published_host, cloudflare_access)
     end
   end
 
@@ -66,10 +63,19 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   def peer_allowed?(address, {:network, published}) when is_tuple(published),
     do: loopback?(address) or address == published
 
-  defp signed_in?(%Plug.Conn{host: host} = conn, host, %{} = cloudflare_access),
-    do: match?({:ok, _viewer}, CloudflareAccess.viewer(conn, cloudflare_access))
+  # Under Access, a request at the published host needs a token Access signed.
+  # The person it names stays on the request (`CloudflareAccess.viewer/2`), so
+  # no later step checks the signature again: the router's own guard, the
+  # person the request acts for and each action's record of who took it each
+  # did, up to four RSA checks for one click (2026-10-04 review).
+  defp sign_in(%Plug.Conn{host: host} = conn, host, %{} = cloudflare_access) do
+    case CloudflareAccess.viewer(conn, cloudflare_access) do
+      {:ok, viewer} -> CloudflareAccess.signed_in(conn, viewer)
+      :error -> refuse(conn, 403, "Sign in through Cloudflare Access")
+    end
+  end
 
-  defp signed_in?(_conn, _published_host, _cloudflare_access), do: true
+  defp sign_in(conn, _published_host, _cloudflare_access), do: conn
 
   defp boundary(options) do
     case Keyword.get(options, :access, :loopback) do

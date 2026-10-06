@@ -14,7 +14,14 @@ defmodule Ryker.ControlPlane.SettingsView do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, ProductReadiness}
+  alias Ryker.ControlPlane.{
+    ChannelDirectory,
+    Environments,
+    Integrations,
+    PageRead,
+    ProductReadiness
+  }
+
   alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.CoopFleet.Worker
   alias Ryker.Credentials
@@ -103,8 +110,14 @@ defmodule Ryker.ControlPlane.SettingsView do
   def setup_subscriptions,
     do: subscriptions() ++ [{Episodes, :subscribe_conversations, ["slack"]}]
 
+  @doc """
+  The view, read once within a page read (`Ryker.ControlPlane.PageRead`): the
+  shell's setup count, the page and its header each ask for it.
+  """
   @spec fetch() :: {:ok, t()} | {:error, :settings_not_initialized | :settings_unavailable}
-  def fetch do
+  def fetch, do: PageRead.memo({__MODULE__, :view}, &read/0)
+
+  defp read do
     case Settings.fetch() do
       {:ok, snapshot} -> {:ok, view(snapshot)}
       {:error, :settings_not_initialized} -> {:error, :settings_not_initialized}
@@ -152,7 +165,7 @@ defmodule Ryker.ControlPlane.SettingsView do
       github_callback_url: Application.fetch_env!(:ryker, :github_public_url),
       github_events: github_events(),
       webhook_base_url: Application.fetch_env!(:ryker, :webhook_public_url),
-      webhook_secret_names: registered_secret_names(),
+      webhook_secret_names: registered_secret_names(credentials),
       worker_installs: worker_installs(),
       # Channels choose an environment in the Slack tables, so how many use
       # each one is read beside the snapshot rather than from it.
@@ -219,8 +232,8 @@ defmodule Ryker.ControlPlane.SettingsView do
     )
   end
 
-  defp registered_secret_names do
-    Credentials.statuses()
+  defp registered_secret_names(credentials) do
+    credentials
     |> Enum.filter(&(&1.kind == :webhook))
     |> Enum.map(& &1.name)
   end

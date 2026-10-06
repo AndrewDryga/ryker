@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.ConsolePeople do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.Actor
+  alias Ryker.ControlPlane.{Actor, PageRead}
   alias Ryker.Repo
 
   @primary_key {:login, :string, autogenerate: false}
@@ -87,10 +87,19 @@ defmodule Ryker.ControlPlane.ConsolePeople do
   @spec person(term()) :: %{name: String.t(), href: nil} | nil
   def person(ref) do
     case identity(ref) do
-      {:person, login} -> %{name: Map.get(names([login]), login, login), href: nil}
+      {:person, login} -> %{name: Map.get(every_name(), login, login), href: nil}
       :local -> @local
       nil -> nil
     end
+  end
+
+  # Everyone's name, read once within a page read (`PageRead`): a page named
+  # each person it showed with a query a row (2026-10-04 review). The people
+  # are the few who sign in to the console.
+  defp every_name do
+    PageRead.memo({__MODULE__, :names}, fn ->
+      Repo.all(from(person in __MODULE__, select: {person.login, person.name})) |> Map.new()
+    end)
   end
 
   @doc "The name of each login a sign-in named, in one read."
