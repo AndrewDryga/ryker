@@ -270,9 +270,12 @@ case "$command" in
     repin=0
 
     if [ -r "$env_file" ]; then
-      for root in RYKER_CHECKPOINT_KEY RYKER_CREDENTIAL_KEY RYKER_STATE_TOOLS_TOKEN; do
+      # The two keys encrypt what the backup holds. The state-tools token signs only the tool
+      # tokens of turns running now and is rotated when it leaks, so a backup taken before a
+      # rotation restores (2026-10-06).
+      for root in RYKER_CHECKPOINT_KEY RYKER_CREDENTIAL_KEY; do
         same_root "$root" "$scratch/compose.env" || {
-          echo "The backup belongs to an installation with different cryptographic roots." >&2
+          echo "The backup belongs to an installation with different encryption keys. Nothing was changed." >&2
           exit 1
         }
       done

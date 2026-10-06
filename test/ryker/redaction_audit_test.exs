@@ -131,8 +131,8 @@ defmodule Ryker.RedactionAuditTest do
   # allowlist, and listing them here would publish them. The operator keeps them in an ignored
   # file, one per line, and this fails when any reaches a tracked file. Commits after the
   # 2026-10-01 substitution put the tenant's organization and repository names back into comments
-  # and tests, and nothing above could see it (2026-10-04). A checkout without the file, such as
-  # CI's, checks nothing here.
+  # and tests, and nothing above could see it (2026-10-04). CI writes the file from the
+  # RYKER_REDACTION_DENYLIST secret before the gate; a checkout without either checks nothing here.
   @private_names Path.expand("../../.ryker/redaction-denylist", __DIR__)
 
   test "no name the operator keeps private reaches a tracked file" do
@@ -159,6 +159,22 @@ defmodule Ryker.RedactionAuditTest do
       # git grep answers 1 when nothing matched. The names stay out of the message.
       assert {status, output} == {1, ""},
              "a privately listed name reached these tracked files:\n" <> output
+    end
+  end
+
+  # CI's checkout has no ignored file, so until 2026-10-06 the check above found nothing to
+  # refuse there, and a private name pushed from anywhere but the main checkout reached the
+  # public repository unseen. Every workflow that runs the gate writes the names first.
+  test "every workflow that runs the gate gives the audit the private names first" do
+    for workflow <- Path.wildcard(Path.expand("../../.github/workflows/*.yml", __DIR__)),
+        text = File.read!(workflow),
+        String.contains?(text, "run: make check") do
+      names = :binary.match(text, "secrets.RYKER_REDACTION_DENYLIST")
+      written = :binary.match(text, ">.ryker/redaction-denylist")
+      gate = :binary.match(text, "run: make check")
+
+      assert names != :nomatch and written != :nomatch, "#{workflow} does not write the names"
+      assert elem(written, 0) < elem(gate, 0), "#{workflow} writes the names after the gate"
     end
   end
 

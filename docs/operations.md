@@ -195,7 +195,9 @@ Restore with:
 scripts/compose.sh restore .ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz
 ```
 
-Restore refuses an archive whose cryptographic roots differ from an existing installation. With no
+Restore refuses an archive whose encryption keys (`RYKER_CHECKPOINT_KEY`, `RYKER_CREDENTIAL_KEY`)
+differ from an existing installation's. The state-tools token may differ: a backup taken before
+the token was rotated restores, and the current token stays. With no
 existing installation state it restores the archived roots first, unless another checkout's
 installation already owns this host's database volume. It pins the release the backup was taken
 on, so restoring a pre-deploy backup rolls the deploy back; that release's image must be on this
@@ -208,6 +210,21 @@ as it was and Ryker stopped. It then restores the private state and, when the ar
 the worker's state, starts the pinned image without
 building anything, and verifies the exact running version. A missing, wrong or damaged root must
 fail; never generate a replacement key for an existing database.
+
+### Rotating the state-tools token
+
+`RYKER_STATE_TOOLS_TOKEN` signs the token each turn gets for Ryker's tools, and the cursors of a
+memory search. Rotate it when it may have been seen: replace it in place and start Ryker again.
+
+```bash
+sed -i '' "s|^RYKER_STATE_TOOLS_TOKEN=.*|RYKER_STATE_TOOLS_TOKEN=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')|" .ryker/compose.env
+scripts/compose.sh start
+```
+
+On Linux, `sed -i` takes no `''`. Nothing is printed, and `start` recreates only the Ryker
+container. A running turn keeps its tools, since Ryker finds a turn's token by its stored digest;
+a memory search's next-page cursor handed out before the rotation is refused as invalid. Backups
+taken before the rotation still restore.
 
 ## Destruction
 

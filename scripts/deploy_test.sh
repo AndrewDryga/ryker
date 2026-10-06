@@ -478,6 +478,23 @@ check "a whole restore keeps the replaced database" "ALTER DATABASE ryker RENAME
 check "a whole restore swaps the restored database in" "ALTER DATABASE ryker_restoring RENAME TO ryker" "$(cat "$fake/calls")"
 check "a restore starts the pinned image without building" "up --detach --no-build --wait ryker" "$(cat "$fake/calls")"
 
+# 2026-10-06: the state-tools token signs only the tool tokens of turns running now, and it is
+# rotated when it leaks, as a reviewer's helper printed it on 2026-10-04. Restore compared it
+# with the keys that encrypt what a backup holds, so every backup taken before a rotation was
+# refused. One from an installation with other encryption keys still is.
+seed
+printf 'RYKER_STATE_TOOLS_TOKEN=rotated-after-the-backup\n' >>"$state/compose.env"
+out=$(cd "$repo" && sh scripts/compose.sh restore "$backup" 2>&1; echo "exit=$?")
+check "a backup taken before the state-tools token was rotated restores" "exit=0" "$out"
+check "the restore keeps the rotated token" "RYKER_STATE_TOOLS_TOKEN=rotated-after-the-backup" "$(cat "$state/compose.env")"
+
+seed
+printf 'RYKER_CREDENTIAL_KEY=another-installation\n' >>"$state/compose.env"
+out=$(cd "$repo" && sh scripts/compose.sh restore "$backup" 2>&1; echo "exit=$?")
+check "a backup from an installation with other encryption keys is refused" "different encryption keys" "$out"
+check "a backup with other encryption keys fails" "exit=1" "$out"
+refute "a backup with other encryption keys stops nothing" "stop ryker" "$(cat "$fake/calls")"
+
 # 2026-10-04 review: restore kept the current pin, so restoring the backup taken before a
 # deploy started the new release on the old rows, which it migrated forward again. A
 # backup from another release pins that release, and one whose image this host lacks is
