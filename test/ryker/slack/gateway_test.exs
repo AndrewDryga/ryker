@@ -643,6 +643,9 @@ defmodule Ryker.Slack.GatewayTest do
              {:retry, :database_unavailable}
   end
 
+  # A button press's acknowledgement shows nothing in Slack: block_actions accept no response
+  # payload, so the explanation sent in it never reached the person who pressed (2026-10-04
+  # review). It is posted to them instead.
   test "denied and stale controls are audited and receive a private explanation" do
     audit = fn interaction, outcome ->
       send(self(), {:audited_interaction, interaction.event_ref, outcome})
@@ -655,25 +658,21 @@ defmodule Ryker.Slack.GatewayTest do
       |> Map.put(:interaction_options, %{observer: self(), result: {:ok, %{outcome: :denied}}})
       |> Map.put(:interaction_audit, audit)
 
-    assert {:ack, {:interaction, :denied}, denied_payload} =
+    assert {:ack, {:interaction, :denied}} =
              Gateway.handle_envelope(interaction_envelope("env-denied"), denied)
 
-    assert denied_payload == %{
-             "response_type" => "ephemeral",
-             "text" => "You don't have permission to use that Ryker control."
-           }
+    assert_received {:told_presser, _actor,
+                     "You don't have permission to use that Ryker control."}
 
     assert_received {:audited_interaction, "interaction:env-denied", :denied}
 
     invalid = put_in(denied, [:interaction_options, :result], {:ok, %{outcome: :invalid}})
 
-    assert {:ack, {:interaction, :invalid}, invalid_payload} =
+    assert {:ack, {:interaction, :invalid}} =
              Gateway.handle_envelope(interaction_envelope("env-stale"), invalid)
 
-    assert invalid_payload == %{
-             "response_type" => "ephemeral",
-             "text" => "That control is no longer current. Use the refreshed message instead."
-           }
+    assert_received {:told_presser, _actor,
+                     "That control is no longer current. Use the refreshed message instead."}
 
     assert_received {:audited_interaction, "interaction:env-stale", :invalid}
   end
@@ -696,15 +695,15 @@ defmodule Ryker.Slack.GatewayTest do
       })
       |> Map.put(:interaction_audit, audit)
 
-    assert {:ack, {:interaction, :room_capacity}, payload} =
+    assert {:ack, {:interaction, :room_capacity}} =
              Gateway.handle_envelope(interaction_envelope("env-rooms-full"), full)
 
-    assert payload["response_type"] == "ephemeral"
-    assert payload["text"] =~ "as many incident rooms open as it keeps"
+    assert_received {:told_presser, _actor, text}
+    assert text =~ "as many incident rooms open as it keeps"
     # It said to archive a room, but an archived room keeps its place, since
     # it can come back; only Close frees one (2026-10-04 review).
-    assert payload["text"] =~ "Close one whose incident is over"
-    refute payload["text"] =~ "Archive"
+    assert text =~ "Close one whose incident is over"
+    refute text =~ "Archive"
     assert_received {:audited_interaction, "interaction:env-rooms-full", :invalid}
   end
 
@@ -725,15 +724,12 @@ defmodule Ryker.Slack.GatewayTest do
       })
       |> Map.put(:interaction_audit, audit)
 
-    assert {:ack, {:interaction, :task_not_here}, payload} =
+    assert {:ack, {:interaction, :task_not_here}} =
              Gateway.handle_envelope(interaction_envelope("env-task-elsewhere"), elsewhere)
 
-    assert payload == %{
-             "response_type" => "ephemeral",
-             "text" =>
-               "Ryker can't start this task in this channel. " <>
-                 "Its environment doesn't let Ryker change that repository."
-           }
+    assert_received {:told_presser, _actor,
+                     "Ryker can't start this task in this channel. " <>
+                       "Its environment doesn't let Ryker change that repository."}
 
     assert_received {:audited_interaction, "interaction:env-task-elsewhere", :invalid}
   end
@@ -747,13 +743,10 @@ defmodule Ryker.Slack.GatewayTest do
         result: {:ok, %{outcome: :selection_required}}
       })
 
-    assert {:ack, {:interaction, :selection_required}, feedback} =
+    assert {:ack, {:interaction, :selection_required}} =
              Gateway.handle_envelope(interaction_envelope("env-no-selection"), options)
 
-    assert feedback == %{
-             "response_type" => "ephemeral",
-             "text" => "Choose an option first, then select Submit answer."
-           }
+    assert_received {:told_presser, _actor, "Choose an option first, then select Submit answer."}
   end
 
   test "successful confirmations persist card feedback before acknowledgement, including redelivery" do
@@ -776,10 +769,9 @@ defmodule Ryker.Slack.GatewayTest do
           [%{button | "action_id" => action}]
         end)
 
-      assert {:ack, {:interaction, ^outcome}, %{"text" => feedback}} =
-               Gateway.handle_envelope(envelope, settings)
-
-      assert feedback =~ "saved"
+      # The repainted message is the confirmation's answer; no note is posted.
+      assert {:ack, {:interaction, ^outcome}} = Gateway.handle_envelope(envelope, settings)
+      refute_received {:told_presser, _actor, _text}
       assert_received {:confirmation_recorded, ^action, :confirmed}
 
       unavailable =
@@ -814,8 +806,7 @@ defmodule Ryker.Slack.GatewayTest do
           [%{button | "action_id" => action}]
         end)
 
-      assert {:ack, {:interaction, ^outcome}, %{"text" => _feedback}} =
-               Gateway.handle_envelope(envelope, settings)
+      assert {:ack, {:interaction, ^outcome}} = Gateway.handle_envelope(envelope, settings)
 
       assert_received {:confirmation_recorded, ^action, :confirmed}
     end
@@ -1001,6 +992,38 @@ defmodule Ryker.Slack.GatewayTest do
     assert {:ack, {:recorded, _ref}} = Gateway.handle_envelope(bot_event, continuation)
   end
 
+  # Apps and bots passed with no check at all, so another organization's app
+  # in a Slack Connect channel could engage Ryker and open incident rooms
+  # (2026-10-04 review). Slack names the author's workspace on such messages.
+  test "an app from another organization in a shared channel is not one of ours" do
+    watched = %{settings() | effective_settings: &participation(&1, &2, :proactive)}
+
+    bot_event = fn ref, fields ->
+      message_envelope(ref, "message")
+      |> update_in(["payload", "event"], fn event ->
+        event
+        |> Map.delete("user")
+        |> Map.put("bot_id", "B999")
+        |> Map.put("subtype", "bot_message")
+        |> Map.merge(fields)
+      end)
+    end
+
+    for fields <- [
+          %{"team" => "TOTHER"},
+          %{"user_team" => "TOTHER"},
+          %{"source_team" => "TOTHER"},
+          %{"bot_profile" => %{"team_id" => "TOTHER"}}
+        ] do
+      assert Gateway.handle_envelope(bot_event.("Ev-foreign", fields), watched) ==
+               {:ack, {:ignored, :actor_not_authorized}},
+             inspect(fields)
+    end
+
+    own = %{"bot_profile" => %{"team_id" => "T74CADB5B58F9"}, "team" => "T74CADB5B58F9"}
+    assert {:ack, {:recorded, _ref}} = Gateway.handle_envelope(bot_event.("Ev-own", own), watched)
+  end
+
   test "an exact confirmed standing assignment can admit only its ambient match" do
     matching =
       Map.put(settings(), :standing_matcher, fn input ->
@@ -1095,6 +1118,11 @@ defmodule Ryker.Slack.GatewayTest do
       directory: Directory,
       identity: %{bot_ref: "B-BOT", bot_user_ref: "UBOT", workspace_ref: "T74CADB5B58F9"},
       inbox: Inbox,
+      # The note a refused press posts to the person who pressed, told to this test.
+      interaction_feedback: fn interaction, text ->
+        send(self(), {:told_presser, interaction.actor_ref, text})
+        :ok
+      end,
       interaction_handler: Ryker.Slack.InteractionHandler,
       interaction_options: %{},
       effective_settings: &participation(&1, &2, :mentions)

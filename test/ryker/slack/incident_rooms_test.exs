@@ -413,14 +413,17 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     assert [
              {"CINCIDENT", nil, %{"incident_room" => root}, root_delivery_ref},
-             {"C456", "1787832000.000100", %{"message" => handoff}, handoff_delivery_ref}
+             {"C456", "1787832000.000100", handoff, handoff_delivery_ref}
            ] = state.posts
 
     assert root["room_ref"] == room.ref
     assert root["status"] == "provisioning"
     assert root["repository"] == "ryker"
     assert root_delivery_ref == "#{room.ref}:root"
-    assert handoff =~ "<#CINCIDENT>"
+    # What Slack is sent links the room's channel; the escaped text of a link showed as
+    # "<#CINCIDENT>" in the thread (2026-10-04 review).
+    assert {:ok, %{"text" => handoff_text}} = Client.Messages.render(handoff)
+    assert handoff_text =~ "Incident room ready: <#CINCIDENT>."
     assert handoff_delivery_ref == "incident-room:#{room.ref}:handoff"
 
     assert {:ok, duplicate} =
@@ -1679,9 +1682,12 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert settings.conversation_actor_allowed.(operator_input) == {:ok, true}
     assert settings.setup_allowed.("T123", conversation_ref) == {:ok, false}
 
+    # A room invited its responders, then heard only the operators among them,
+    # though anyone may talk to Ryker (Andrew, 2026-09-26; 2026-10-04 review).
+    # An app's posts there are not the investigation's.
     teammate_input = put_in(operator_input, [:actor, :ref], "U200")
     app_input = %{operator_input | actor: %{kind: :app, ref: "A123"}}
-    assert settings.conversation_actor_allowed.(teammate_input) == {:ok, false}
+    assert settings.conversation_actor_allowed.(teammate_input) == {:ok, true}
     assert settings.conversation_actor_allowed.(app_input) == {:ok, false}
 
     adapter = Runtime.delivery_adapter!(configuration)
@@ -1704,20 +1710,26 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              {:error, {:slack_incident_room_inactive, :archived}}
   end
 
+  # An incident offer may carry a brief of 32,000 characters, but a room kept
+  # at most 4,000, so an offer with a longer brief could never get its room:
+  # pressed, it failed; offered automatically, it failed every second and hid
+  # every newer offer (2026-10-05).
+  test "an incident offer with a long brief gets its room" do
+    brief = String.duplicate("Check the payment gateway's error rate by region. ", 120)
+    fixture = delivered_offer!(:user, prompt: brief)
+    save_channel_configuration!()
+
+    assert {:ok, %{status: :requested, room: room}} = IncidentRooms.request(request(fixture))
+    assert String.length(room.prompt) > 4_000
+    assert room.prompt == fixture.record.payload["prompt"]
+  end
+
   test "automatic alert policy opens only a delivered external-app incident offer" do
     _human_offer = delivered_offer!(:user)
     save_channel_configuration!(:automatic)
     agent = incident_agent!()
 
-    automatic_request = fn ->
-      case IncidentRooms.automatic_candidate("T123") do
-        {:ok, nil} -> {:ok, nil}
-        {:ok, candidate} -> IncidentRooms.request(automatic_request(candidate))
-        {:error, _reason} = error -> error
-      end
-    end
-
-    options = Map.put(worker_options(agent), :automatic_request, automatic_request)
+    options = automatic_options(agent)
     assert {:ok, :idle} = IncidentRoomWorker.run_once(options)
     assert Repo.aggregate(IncidentRoom, :count) == 0
 
@@ -1741,19 +1753,6 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     agent = incident_agent!()
     _app_offer = delivered_offer!(:app)
 
-    automatic_request = fn ->
-      case IncidentRooms.automatic_candidate("T123") do
-        {:ok, nil} ->
-          {:ok, nil}
-
-        {:ok, candidate} ->
-          IncidentRooms.request(%{automatic_request(candidate) | maximum_open_rooms: 1})
-
-        {:error, _reason} = error ->
-          error
-      end
-    end
-
     # One room is open and checked: the limit is full and the room needs nothing.
     assert {:ok, %{status: :requested}} = IncidentRooms.request(request(delivered_offer!()))
     assert {:ok, {:ready, _room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
@@ -1762,10 +1761,43 @@ defmodule Ryker.Slack.IncidentRoomsTest do
       set: [channel_checked_at: Repo.now!(), root_card_checked_at: Repo.now!()]
     )
 
-    options = Map.put(worker_options(agent), :automatic_request, automatic_request)
+    options = automatic_options(agent, maximum_open_rooms: 1)
 
     log = capture_log(fn -> assert {:ok, :idle} = IncidentRoomWorker.run_once(options) end)
     refute log =~ "incident_room_capacity"
+  end
+
+  # An automatic offer whose room could not be made was asked for again every
+  # second, logged each time, and, being the oldest, hid every newer offer from
+  # the worker (2026-10-04 review).
+  test "an automatic offer refused its room is logged once and stops hiding newer offers" do
+    save_channel_configuration!(:automatic)
+    agent = incident_agent!()
+    refused = delivered_offer!(:app)
+    newer = delivered_offer!(:app)
+
+    # Its brief is gone, so no room can be made from it.
+    Repo.update_all(from(record in Record, where: record.id == ^refused.record.id),
+      set: [payload: Map.put(refused.record.payload, "prompt", "")]
+    )
+
+    options = automatic_options(agent)
+    refused_ref = refused.record.ref
+
+    log =
+      capture_log(fn ->
+        assert {:ok, {:refused, ^refused_ref}} = IncidentRoomWorker.run_once(options)
+      end)
+
+    assert log =~ "could not open an incident room for #{refused_ref} automatically"
+
+    log =
+      capture_log(fn ->
+        assert {:ok, {:requested, room_ref}} = IncidentRoomWorker.run_once(options)
+        assert Repo.get_by!(IncidentRoom, ref: room_ref).record_id == newer.record.id
+      end)
+
+    refute log =~ refused_ref
   end
 
   test "transient Slack failures resume each exact provisioning phase without duplicating the room" do
@@ -2573,15 +2605,26 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     }
   end
 
-  defp automatic_request(candidate) do
-    Map.merge(candidate, %{
-      bot_user_ref: "U-BOT",
-      channel_prefix: "ems",
-      invite_user_refs: ["U123", "U300"],
-      maximum_open_rooms: 25,
-      policy: %{digest: @policy_digest, name: "incident-investigate"},
-      private: true
-    })
+  # The worker's automatic request as the runtime wires it.
+  defp automatic_options(agent, settings \\ []) do
+    settings =
+      Map.merge(
+        %{
+          bot_user_ref: "U-BOT",
+          channel_prefix: "ems",
+          invite_user_refs: ["U123", "U300"],
+          maximum_open_rooms: 25,
+          policy: %{digest: @policy_digest, name: "incident-investigate"},
+          private: true
+        },
+        Map.new(settings)
+      )
+
+    Map.put(
+      worker_options(agent),
+      :automatic_request,
+      &IncidentRooms.request_automatic("T123", settings, &1)
+    )
   end
 
   defp delivered_offer!(actor_kind \\ :user, options \\ []) do
@@ -2643,7 +2686,8 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     payload =
       TaskOffer.payload(%{
         "kind" => "incident",
-        "prompt" => "Investigate checkout errors and coordinate responders.",
+        "prompt" =>
+          Keyword.get(options, :prompt, "Investigate checkout errors and coordinate responders."),
         "repository" => nil,
         "title" => "Checkout errors"
       })

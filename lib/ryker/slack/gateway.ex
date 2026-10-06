@@ -268,7 +268,7 @@ defmodule Ryker.Slack.Gateway do
   end
 
   defp handle_event(normalized, settings) do
-    with {:ok, true} <- actor_allowed(normalized.input.actor, settings),
+    with {:ok, true} <- author_allowed(normalized, settings),
          {:ok, true} <- conversation_actor_allowed(normalized.input, settings) do
       case setup_message(normalized, settings) do
         {:ok, %{outcome: outcome}} -> {:ack, {:configuration, outcome}}
@@ -486,7 +486,8 @@ defmodule Ryker.Slack.Gateway do
   defp handle_interaction(interaction, settings) do
     case settings.interaction_handler.handle(interaction, settings.interaction_options) do
       {:ok, %{outcome: :selection_required}} ->
-        {:ack, {:interaction, :selection_required}, interaction_feedback(:selection_required)}
+        tell(interaction, :selection_required, settings)
+        {:ack, {:interaction, :selection_required}}
 
       {:ok, %{outcome: outcome}}
       when outcome in [:denied, :invalid, :room_capacity, :task_not_here] ->
@@ -517,23 +518,32 @@ defmodule Ryker.Slack.Gateway do
   # A refused control is audited as denied or invalid; a full set of incident
   # rooms, or a task this channel cannot start, is audited as invalid, but the
   # person hears which.
-  defp refuse_interaction(interaction, outcome, settings)
-       when outcome in [:room_capacity, :task_not_here] do
-    with {:ack, result, _feedback} <-
-           acknowledge_interaction(interaction, outcome, :invalid, settings),
-         do: {:ack, result, interaction_feedback(outcome)}
-  end
+  defp refuse_interaction(interaction, outcome, settings) do
+    audited = if outcome in [:room_capacity, :task_not_here], do: :invalid, else: outcome
 
-  defp refuse_interaction(interaction, outcome, settings),
-    do: acknowledge_interaction(interaction, outcome, outcome, settings)
+    with {:ack, _result} = acknowledged <-
+           acknowledge_interaction(interaction, outcome, audited, settings) do
+      tell(interaction, outcome, settings)
+      acknowledged
+    end
+  end
 
   defp acknowledge_interaction(interaction, outcome, audit_outcome, settings) do
     case audit_interaction(interaction, audit_outcome, settings) do
-      {:ok, _audit} ->
-        {:ack, {:interaction, outcome}, interaction_feedback(audit_outcome)}
+      {:ok, _audit} -> {:ack, {:interaction, outcome}}
+      {:error, reason} -> {:retry, reason}
+    end
+  end
 
-      {:error, reason} ->
-        {:retry, reason}
+  # Slack shows nothing from the acknowledgement of a button press: a
+  # block_actions envelope accepts no response payload, so every note on a
+  # refused press went nowhere (2026-10-04 review). It is posted to the person
+  # who pressed instead, beside the acknowledgement. A confirmation needs no
+  # note: its message is repainted.
+  defp tell(interaction, reason, settings) do
+    case Map.get(settings, :interaction_feedback) do
+      callback when is_function(callback, 2) -> callback.(interaction, feedback_text(reason))
+      _missing -> :ok
     end
   end
 
@@ -544,52 +554,24 @@ defmodule Ryker.Slack.Gateway do
     end
   end
 
-  defp interaction_feedback(:selection_required) do
-    %{
-      "response_type" => "ephemeral",
-      "text" => "Choose an option first, then select Submit answer."
-    }
-  end
+  defp feedback_text(:selection_required),
+    do: "Choose an option first, then select Submit answer."
 
-  defp interaction_feedback(:denied) do
-    %{
-      "response_type" => "ephemeral",
-      "text" => "You don't have permission to use that Ryker control."
-    }
-  end
+  defp feedback_text(:denied), do: "You don't have permission to use that Ryker control."
 
-  defp interaction_feedback(:invalid) do
-    %{
-      "response_type" => "ephemeral",
-      "text" => "That control is no longer current. Use the refreshed message instead."
-    }
-  end
+  defp feedback_text(:invalid),
+    do: "That control is no longer current. Use the refreshed message instead."
 
-  defp interaction_feedback(:room_capacity) do
-    %{
-      "response_type" => "ephemeral",
-      "text" =>
-        "Ryker already has as many incident rooms open as it keeps. Close one whose " <>
-          "incident is over on Ryker's Incident rooms page, then press again. An " <>
-          "archived room keeps its place, since it can come back."
-    }
-  end
+  defp feedback_text(:room_capacity),
+    do:
+      "Ryker already has as many incident rooms open as it keeps. Close one whose " <>
+        "incident is over on Ryker's Incident rooms page, then press again. An " <>
+        "archived room keeps its place, since it can come back."
 
-  defp interaction_feedback(:task_not_here) do
-    %{
-      "response_type" => "ephemeral",
-      "text" =>
-        "Ryker can't start this task in this channel. " <>
-          "Its environment doesn't let Ryker change that repository."
-    }
-  end
-
-  defp interaction_feedback(:confirmed) do
-    %{
-      "response_type" => "ephemeral",
-      "text" => "Your confirmation is saved. The message is being updated."
-    }
-  end
+  defp feedback_text(:task_not_here),
+    do:
+      "Ryker can't start this task in this channel. " <>
+        "Its environment doesn't let Ryker change that repository."
 
   defp handle_home(event, settings) do
     case {Map.get(settings, :home_handler), Map.get(settings, :home_options)} do
@@ -648,8 +630,27 @@ defmodule Ryker.Slack.Gateway do
     end
   end
 
-  defp actor_allowed(%{kind: kind}, _settings) when kind in [:app, :bot], do: {:ok, true}
   defp actor_allowed(_actor, _settings), do: {:ok, false}
+
+  # Apps and bots have no member to look up. Slack names the author's
+  # workspace on messages from a shared channel, and an app another
+  # organization runs there is not one of ours; one with no workspace named is
+  # this workspace's own integration, such as an incoming webhook.
+  defp author_allowed(%{input: %{actor: %{kind: kind}}} = normalized, settings)
+       when kind in [:app, :bot] do
+    event = Map.get(normalized, :source_envelope) || %{}
+
+    profile_team =
+      case event["bot_profile"] do
+        %{"team_id" => team} -> team
+        _none -> nil
+      end
+
+    teams = [event["team"], event["user_team"], event["source_team"], profile_team]
+    {:ok, Enum.all?(teams, &(is_nil(&1) or &1 == settings.identity.workspace_ref))}
+  end
+
+  defp author_allowed(normalized, settings), do: actor_allowed(normalized.input.actor, settings)
 
   defp conversation_actor_allowed(input, settings) do
     case Map.get(settings, :conversation_actor_allowed) do

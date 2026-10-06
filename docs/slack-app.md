@@ -130,8 +130,8 @@ agent surfaces speculatively. Slack reviews must be able to exercise every reque
 and the manifest tests plus guided live journeys treat its scope list as the runtime contract.
 
 The `message.channels` and `message.groups` subscriptions let Ryker participate throughout a
-created incident room and triage configured operational feeds. Configured incident operators do not
-need to mention the bot in incident rooms. Human messages in effectively proactive channels are
+created incident room and triage configured operational feeds. Anyone in an incident room can talk
+to Ryker there without mentioning the bot; an app's posts in the room are not heard. Human messages in effectively proactive channels are
 classified as ignore or a reply that follows the human's channel or thread location; a reply can
 offer an operator-confirmed incident without creating it. A credible unresolved external-app alert
 can create an incident room directly where the channel's alert setting says so; an explicit human

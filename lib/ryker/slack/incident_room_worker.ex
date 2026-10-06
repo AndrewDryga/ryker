@@ -27,11 +27,13 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   alias Ryker.Delivery.Retry
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
+  alias Ryker.ErrorDetail
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelConfigurations, IncidentRoomCard, IncidentRooms}
   alias Ryker.Work.{Custody, Turn}
 
   @default_interval_ms 1_000
+  @refused_offers {__MODULE__, :refused_offers}
 
   @spec start_link(map() | keyword()) :: GenServer.on_start()
   def start_link(options) do
@@ -187,7 +189,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
       Map.get(options, :root_card_check_seconds) in 1..86_400,
       Map.get(options, :interval_ms) in 50..3_600_000,
       Map.get(options, :idle_interval_ms, 50) in 50..3_600_000,
-      is_nil(automatic_request) or is_function(automatic_request, 0),
+      is_nil(automatic_request) or is_function(automatic_request, 1),
       is_nil(reserve_channel) or is_function(reserve_channel, 2),
       is_binary(Map.get(options, :worker_ref)),
       Map.get(options, :worker_ref) != ""
@@ -195,14 +197,37 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   end
 
   # A full open-room limit is nothing to do until a room closes; as a failure
-  # it was retried and logged every second.
-  defp request_automatic(%{automatic_request: callback}) when is_function(callback, 0) do
-    case callback.() do
-      {:ok, nil} -> {:ok, :idle}
-      {:ok, %{room: room}} -> {:ok, {:requested, room.ref}}
-      {:error, :incident_room_capacity} -> {:ok, :idle}
-      {:error, _reason} = error -> error
-      _invalid -> {:error, :invalid_automatic_incident_request}
+  # it was retried and logged every second. An offer refused a room for itself
+  # is logged once and left out while this worker runs: asked for again, it
+  # failed every second and hid every newer offer (2026-10-04 review). After a
+  # restart it is asked for, and logged, once more.
+  defp request_automatic(%{automatic_request: callback}) when is_function(callback, 1) do
+    refused = Process.get(@refused_offers, MapSet.new())
+
+    case callback.(MapSet.to_list(refused)) do
+      {:ok, nil} ->
+        {:ok, :idle}
+
+      {:ok, %{room: room}} ->
+        {:ok, {:requested, room.ref}}
+
+      {:error, :incident_room_capacity} ->
+        {:ok, :idle}
+
+      {:error, {:automatic_incident_refused, record_ref, reason}} ->
+        Logger.warning(
+          "Ryker could not open an incident room for #{record_ref} automatically: " <>
+            ErrorDetail.detail(reason)
+        )
+
+        Process.put(@refused_offers, MapSet.put(refused, record_ref))
+        {:ok, {:refused, record_ref}}
+
+      {:error, _reason} = error ->
+        error
+
+      _invalid ->
+        {:error, :invalid_automatic_incident_request}
     end
   end
 
@@ -797,10 +822,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
             options.client,
             room.source_channel_ref,
             room.source_thread_ref,
-            %{
-              "message" =>
-                "Incident room ready: <##{room.channel_ref}>. The investigation and its pinned status card are now in that room."
-            },
+            handoff_message(room),
             delivery_ref
           )
 
@@ -811,6 +833,25 @@ defmodule Ryker.Slack.IncidentRoomWorker do
     with {:ok, message_ref} <- result do
       IncidentRooms.bind_handoff(room.id, room.lease_ref, message_ref)
     end
+  end
+
+  # The room's channel as a link: the message's text is escaped, so the link
+  # is a typed one this message alone may name. Written into the text, it
+  # showed as "<#C…>" (2026-10-04 review).
+  defp handoff_message(room) do
+    conversation = "slack:#{room.workspace_ref}:#{room.channel_ref}"
+
+    %{
+      "message" =>
+        "Incident room ready: [##{room.channel_name}](slack-channel:#{conversation}). The investigation and its pinned status card are now in that room.",
+      "slack_mentions" => %{
+        "broadcasts" => [],
+        "channels" => [conversation],
+        "user_groups" => [],
+        "users" => [],
+        "workspace_ref" => room.workspace_ref
+      }
+    }
   end
 
   defp handle_error(room, reason, options) do

@@ -472,7 +472,7 @@ defmodule Ryker.ProductContractsTest do
              Ryker.Slack.InteractionFeedbackWorker,
              Ryker.Slack.TaskCardWorker,
              Ryker.Slack.ThreadStatusWorker,
-             Ryker.Slack.WelcomeTasks
+             Ryker.Slack.Tasks
            ]
   end
 

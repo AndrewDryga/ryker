@@ -188,6 +188,39 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   @doc """
+  Asks for a room for the oldest automatic candidate (`automatic_candidate/2`)
+  not among the offers `refused` names, with the room `settings` a person's
+  request carries too. A refusal other than a full room limit names its offer,
+  so the caller can leave it out after: asked for again, it failed every second
+  and hid every newer offer (2026-10-04 review).
+  """
+  @spec request_automatic(String.t(), map(), [String.t()]) ::
+          {:ok, request_result() | nil}
+          | {:error, :incident_room_capacity | {:automatic_incident_refused, String.t(), term()}}
+          | {:error, term()}
+  def request_automatic(workspace_ref, settings, refused) do
+    case automatic_candidate(workspace_ref, refused) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, candidate} ->
+        case request(Map.merge(candidate, settings)) do
+          {:error, :incident_room_capacity} = full ->
+            full
+
+          {:error, reason} ->
+            {:error, {:automatic_incident_refused, candidate.record_ref, reason}}
+
+          requested ->
+            requested
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  @doc """
   Finds the oldest delivered incident offer that a saved automatic-alert policy
   may open without an operator button press.
 
@@ -195,19 +228,19 @@ defmodule Ryker.Slack.IncidentRooms do
   when every current input in the frozen Work submission is an authenticated
   Slack app event and the exact source channel saved `automatic` policy.
   """
-  @spec automatic_candidate(String.t()) :: {:ok, map() | nil} | {:error, term()}
-  def automatic_candidate(workspace_ref) do
+  @spec automatic_candidate(String.t(), [String.t()]) :: {:ok, map() | nil} | {:error, term()}
+  def automatic_candidate(workspace_ref, refused \\ []) do
     with :ok <- slack_id(workspace_ref, :workspace_ref) do
-      candidates = automatic_candidates(workspace_ref)
+      candidates = automatic_candidates(workspace_ref, refused)
 
       {:ok, Enum.find_value(candidates, &automatic_request(&1, workspace_ref))}
     end
   end
 
-  defp automatic_candidates(workspace_ref) do
+  defp automatic_candidates(workspace_ref, refused) do
     workspace_ref
     |> automatic_candidate_base()
-    |> automatic_offer_filter()
+    |> automatic_offer_filter(refused)
     |> automatic_delivery_filter()
     |> automatic_authority_filter(workspace_ref)
     |> automatic_candidate_order()
@@ -230,11 +263,12 @@ defmodule Ryker.Slack.IncidentRooms do
     )
   end
 
-  defp automatic_offer_filter(query) do
+  defp automatic_offer_filter(query, refused) do
     from([record, _turn, _episode, _configuration, _room] in query,
       where:
         record.kind == "task_offer" and record.status == :open and
-          fragment("(?::jsonb ->> 'kind') = 'incident'", record.payload)
+          fragment("(?::jsonb ->> 'kind') = 'incident'", record.payload) and
+          record.ref not in ^refused
     )
   end
 

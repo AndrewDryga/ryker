@@ -13,10 +13,13 @@ defmodule Ryker.Slack.Runtime do
   environment of the conversation it was opened from.
   """
 
+  require Logger
+
   alias Ryker.Artifacts
   alias Ryker.Delivery.{BinaryClient, JSONClient}
   alias Ryker.Episodes.Reactions
   alias Ryker.Episodes.Scope, as: WorkspaceScope
+  alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Options
@@ -108,9 +111,10 @@ defmodule Ryker.Slack.Runtime do
     :operators
   ]
 
-  # Redraws asked for from outside Slack run under this supervisor and give up
-  # after this long, well within the time a person waits on a page.
-  @welcome_tasks Ryker.Slack.WelcomeTasks
+  # Redraws asked for from outside Slack, and notes to the person who pressed a
+  # button, run under this supervisor; a redraw gives up after this long, well
+  # within the time a person waits on a page.
+  @tasks Ryker.Slack.Tasks
   @welcome_timeout_ms 15_000
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
@@ -141,7 +145,7 @@ defmodule Ryker.Slack.Runtime do
   @spec redraw_welcome(String.t(), String.t(), pid()) :: :ok | {:error, :slack_not_running}
   def redraw_welcome(workspace_ref, channel_ref, reply_to) do
     with %{} = configuration <- Application.get_env(:ryker, :slack),
-         tasks when is_pid(tasks) <- Process.whereis(@welcome_tasks) do
+         tasks when is_pid(tasks) <- Process.whereis(@tasks) do
       setup = options!(configuration).handler_settings.setup_options
 
       ChannelSetup.redraw_welcome_async(
@@ -165,7 +169,7 @@ defmodule Ryker.Slack.Runtime do
   @spec leave_channel(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def leave_channel(workspace_ref, channel_ref) do
     with %{} = configuration <- Application.get_env(:ryker, :slack),
-         tasks when is_pid(tasks) <- Process.whereis(@welcome_tasks) do
+         tasks when is_pid(tasks) <- Process.whereis(@tasks) do
       setup = options!(configuration).handler_settings.setup_options
       ChannelSetup.leave(workspace_ref, channel_ref, setup)
     else
@@ -174,8 +178,46 @@ defmodule Ryker.Slack.Runtime do
   end
 
   @doc false
-  @spec welcome_tasks() :: atom()
-  def welcome_tasks, do: @welcome_tasks
+  @spec tasks() :: atom()
+  def tasks, do: @tasks
+
+  @doc """
+  Posts `text` to the person who pressed a button, privately, on a task so
+  the gateway never waits on Slack. Slack shows nothing from the
+  acknowledgement of a button press, so every note on a refused press went
+  nowhere (2026-10-04 review). Best effort: a failed note is logged.
+  """
+  @spec tell_presser(Client.t(), Ryker.Slack.Interaction.t(), String.t()) :: :ok
+  def tell_presser(client, interaction, text) do
+    case Process.whereis(@tasks) do
+      tasks when is_pid(tasks) ->
+        {:ok, _task} =
+          Task.Supervisor.start_child(tasks, fn -> post_note(client, interaction, text) end)
+
+        :ok
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp post_note(client, interaction, text) do
+    case Client.post_ephemeral(
+           client,
+           interaction.channel_ref,
+           interaction.actor_ref,
+           interaction.thread_ref,
+           text
+         ) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Slack note to the person who pressed a button failed: #{ErrorDetail.detail(reason)}"
+        )
+    end
+  end
 
   @doc """
   Builds the trusted Delivery registry entry for the same Slack runtime.
@@ -323,26 +365,19 @@ defmodule Ryker.Slack.Runtime do
       show_collection: &AppHome.publish_collection(&1, &2, &3, home_options)
     }
 
-    request_incident_room = fn attributes ->
-      attributes
-      |> Map.merge(%{
-        bot_user_ref: identity.bot_user_ref,
-        channel_prefix: channel_prefix,
-        invite_user_refs: incident_invite_users,
-        maximum_open_rooms: maximum_open_incidents,
-        policy: incident_policy,
-        private: incident_private
-      })
-      |> IncidentRooms.request()
-    end
+    room_settings = %{
+      bot_user_ref: identity.bot_user_ref,
+      channel_prefix: channel_prefix,
+      invite_user_refs: incident_invite_users,
+      maximum_open_rooms: maximum_open_incidents,
+      policy: incident_policy,
+      private: incident_private
+    }
 
-    automatic_request = fn ->
-      case IncidentRooms.automatic_candidate(identity.workspace_ref) do
-        {:ok, nil} -> {:ok, nil}
-        {:ok, candidate} -> request_incident_room.(candidate)
-        {:error, _reason} = error -> error
-      end
-    end
+    request_incident_room = &IncidentRooms.request(Map.merge(&1, room_settings))
+
+    automatic_request =
+      &IncidentRooms.request_automatic(identity.workspace_ref, room_settings, &1)
 
     catalog = %{
       default_environment: default_environment,
@@ -382,7 +417,7 @@ defmodule Ryker.Slack.Runtime do
         settings_view: settings_view(catalog, default_participation)
       },
       continuation: &Engagement.continuation?/1,
-      conversation_actor_allowed: incident_actor_allowed(operators),
+      conversation_actor_allowed: &incident_actor_allowed/1,
       directory: Client,
       effective_settings: effective_settings(default_participation),
       home_handler: AppHome,
@@ -394,6 +429,7 @@ defmodule Ryker.Slack.Runtime do
       inbox: Inbox,
       interaction_audit: &InteractionAudits.record/2,
       reaction_feedback: &Reactions.record/1,
+      interaction_feedback: &tell_presser(bot_client, &1, &2),
       interaction_handler: InteractionHandler,
       interaction_options: %{
         answer_input_request: &InputRequests.answer/1,
@@ -735,21 +771,18 @@ defmodule Ryker.Slack.Runtime do
     end
   end
 
-  defp incident_actor_allowed(operators) do
-    fn input ->
-      channel_ref =
-        input.destination.conversation_ref |> String.split(":", parts: 3) |> List.last()
+  # Anyone in a ready room talks to its investigation, as anyone may talk to
+  # Ryker (2026-09-26); it heard only operators before 2026-10-05. An app's
+  # posts there are not the investigation's, and a room no longer active hears
+  # no one.
+  defp incident_actor_allowed(input) do
+    channel_ref =
+      input.destination.conversation_ref |> String.split(":", parts: 3) |> List.last()
 
-      case IncidentRooms.channel_profile(input.source.ref, channel_ref) do
-        :not_found ->
-          {:ok, true}
-
-        {:ok, %{channel_state: :active, status: :ready}} ->
-          {:ok, input.actor.kind == :user and Operators.operator?(operators, input.actor.ref)}
-
-        {:ok, _inactive_room} ->
-          {:ok, false}
-      end
+    case IncidentRooms.channel_profile(input.source.ref, channel_ref) do
+      :not_found -> {:ok, true}
+      {:ok, %{channel_state: :active, status: :ready}} -> {:ok, input.actor.kind == :user}
+      {:ok, _inactive_room} -> {:ok, false}
     end
   end
 

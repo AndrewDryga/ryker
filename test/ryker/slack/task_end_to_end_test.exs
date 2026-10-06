@@ -149,12 +149,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert Gateway.handle_envelope(
              task_interaction("U-NOT-A-MEMBER", offer.ref),
              gateway_settings()
-           ) ==
-             {:ack, {:interaction, :denied},
-              %{
-                "response_type" => "ephemeral",
-                "text" => "You don't have permission to use that Ryker control."
-              }}
+           ) == {:ack, {:interaction, :denied}}
 
     assert Gateway.handle_envelope(task_interaction("U123", offer.ref), gateway_settings()) ==
              {:ack, {:interaction, :confirmed}}

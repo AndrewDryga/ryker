@@ -43,7 +43,7 @@ defmodule Ryker.Slack.Supervisor do
         {InteractionFeedbackWorker, interaction_feedback_worker},
         {TaskCardWorker, task_card_worker},
         {ThreadStatusWorker, thread_status_worker},
-        {Task.Supervisor, name: Runtime.welcome_tasks()}
+        {Task.Supervisor, name: Runtime.tasks()}
       ],
       strategy: :one_for_one
     )

@@ -114,7 +114,7 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
     |> validate_repository_context()
     |> validate_format(:environment_ref, Environment.ref_pattern())
     |> validate_length(:title, min: 1, max: 200)
-    |> validate_length(:prompt, min: 1, max: 4_000)
+    |> validate_length(:prompt, min: 1, max: 32_000)
     |> validate_length(:channel_name, min: 1, max: 80)
     |> validate_format(:channel_name, ~r/\A[a-z0-9_-]+\z/)
     |> validate_length(:topic, min: 1, max: 250)
