@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.WebhookPreview do
   """
 
   use Phoenix.LiveComponent
-
   alias Ryker.ControlPlane.{Components, Kit, SettingsSections}
   alias Ryker.Webhooks.Presets
 
@@ -96,22 +95,22 @@ defmodule Ryker.ControlPlane.WebhookPreview do
     "This payload has no usable #{label}. Check where the mapping says the #{label} is."
   end
 
-  defp message({:invalid_webhook_transform, field}, :grafana),
-    do:
-      "This is not a Grafana alert delivery Ryker can read: it has no usable " <>
-        "#{lower(label(field))}."
+  defp message({:invalid_webhook_transform, field}, :grafana) do
+    "This is not a Grafana alert delivery Ryker can read: it has no usable " <>
+      "#{lower(label(field))}."
+  end
 
   defp message({:invalid_webhook_transform, field}, _universal),
     do: "This is not in Ryker's own format: it has no usable #{lower(label(field))}."
 
-  defp message({:invalid_webhook_route, _field}, _shape),
-    do:
-      "This source's settings are not complete, so it cannot read anything yet. Edit it, then check again."
+  defp message({:invalid_webhook_route, _field}, _shape) do
+    "This source's settings are not complete, so it cannot read anything yet. Edit it, then check again."
+  end
 
-  defp message(_reason, _shape),
-    do:
-      "Ryker could not turn this payload into an event. Check that the sender sends the shape " <>
-        "this source expects."
+  defp message(_reason, _shape) do
+    "Ryker could not turn this payload into an event. Check that the sender sends the shape " <>
+      "this source expects."
+  end
 
   defp label(:alerts), do: "Alerts"
   defp label(:metadata), do: "Labels and annotations"

@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.MintSocketTransportTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.MintSocketTransport
 
   defmodule Requester do

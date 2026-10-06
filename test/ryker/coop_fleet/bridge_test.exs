@@ -1,8 +1,6 @@
 defmodule Ryker.CoopFleet.BridgeTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CoopFleet.{Bridge, ControlPlane, Placement}
   alias Ryker.Episodes

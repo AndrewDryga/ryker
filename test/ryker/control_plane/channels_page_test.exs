@@ -5,11 +5,8 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
   in the words people use.
   """
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [outline: 2]
-
   import Phoenix.LiveViewTest, only: [render_component: 2]
-
   alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, Pages, Projection, SettingsView}
   alias Ryker.Credentials
   alias Ryker.Fixtures.SavedEntities

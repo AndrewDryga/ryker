@@ -8,7 +8,6 @@ defmodule Ryker.LocalRouting.QuotesMigrationTest do
   back keeps every comparison and only forgets the keys.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry

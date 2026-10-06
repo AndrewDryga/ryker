@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   """
 
   import Ecto.Query
-
   alias Ryker.ControlPlane.{ChannelsPage, PagedRelation, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.Repo

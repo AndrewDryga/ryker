@@ -1,6 +1,5 @@
 defmodule Ryker.Work.FinalPreflightTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Work.FinalPreflight
 
   test "host-issued output artifact identities do not spend a second final preflight" do

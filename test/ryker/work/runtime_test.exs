@@ -1,6 +1,5 @@
 defmodule Ryker.Work.RuntimeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Work.Runtime
 
   @client %Ryker.CoopFleet.Client{bridge: Ryker.CoopFleet.Bridge, bridge_options: []}

@@ -1,19 +1,17 @@
 defmodule Ryker.ControlPlane.ConversationMemoryReadOnlyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.Continuity
   alias Ryker.ControlPlane.ConversationMemory
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Knowledge, as: Fixtures
-  alias Ryker.Learning.Rebuilds
-  alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
-
-  alias Ryker.Continuity
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
+  alias Ryker.Learning.Rebuilds
+  alias Ryker.Repo
+  alias Ryker.Slack.ChannelMembership
 
   test "read-only inspection shows usable knowledge and revision history without acquiring write locks" do
     # The restored Tenant inspection server rejected FOR SHARE and hid every

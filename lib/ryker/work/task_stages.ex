@@ -88,11 +88,11 @@ defmodule Ryker.Work.TaskStages do
   # Setting the workspace up is also keeping it: a working copy the host never
   # snapshotted is this stage's failure, and saying "✓ Workspace setup" above it
   # told a reader the one thing that was not true.
-  defp workspace_setup(%{workspace_hold: %{closed: closed?}}),
-    do:
-      row("workspace_setup", "failed",
-        detail: if(closed?, do: "no saved snapshot · session closed", else: "no saved snapshot")
-      )
+  defp workspace_setup(%{workspace_hold: %{closed: closed?}}) do
+    row("workspace_setup", "failed",
+      detail: if(closed?, do: "no saved snapshot · session closed", else: "no saved snapshot")
+    )
+  end
 
   defp workspace_setup(%{session: %Session{coop_session_id: id}}) when is_binary(id) and id != "",
     do: row("workspace_setup", "completed")
@@ -101,12 +101,12 @@ defmodule Ryker.Work.TaskStages do
   # its saved error is an inspected internal term: the enum, the tuple and the
   # identifiers in it are bookkeeping, not an explanation. Printing it put
   # `{:work_retry_exhausted, {:coop_operation_failed, …}}` on an operator's card.
-  defp workspace_setup(%{turn: %Turn{status: :blocked, coop_turn_id: nil} = turn}),
-    do:
-      row("workspace_setup", "failed",
-        detail: "work never started",
-        reason: never_started(turn.last_error_detail)
-      )
+  defp workspace_setup(%{turn: %Turn{status: :blocked, coop_turn_id: nil} = turn}) do
+    row("workspace_setup", "failed",
+      detail: "work never started",
+      reason: never_started(turn.last_error_detail)
+    )
+  end
 
   defp workspace_setup(%{episode: %Episode{state: :cancelled}}),
     do: row("workspace_setup", "stopped")
@@ -253,12 +253,12 @@ defmodule Ryker.Work.TaskStages do
          },
          _stale?
        )
-       when is_integer(number),
-       do:
-         row("draft_pr", "running",
-           detail: "##{number} · updating",
-           url: publication.pull_request_url
-         )
+       when is_integer(number) do
+    row("draft_pr", "running",
+      detail: "##{number} · updating",
+      url: publication.pull_request_url
+    )
+  end
 
   defp draft_pr(%{publication: %Publication{status: :publish_pending}}, _stale?),
     do: row("draft_pr", "running", detail: "creating the draft")
@@ -345,29 +345,29 @@ defmodule Ryker.Work.TaskStages do
 
   defp ci_state(%Followup{}, checks, url), do: row("ci", "running", detail: checks, url: url)
 
-  defp review_and_merge(%{followup: %Followup{pr_state: :merged}} = facts, _ci, _stale?),
-    do:
-      row("review_and_merge", "completed",
-        detail: "merged",
-        url: publication_url(facts[:publication])
-      )
+  defp review_and_merge(%{followup: %Followup{pr_state: :merged}} = facts, _ci, _stale?) do
+    row("review_and_merge", "completed",
+      detail: "merged",
+      url: publication_url(facts[:publication])
+    )
+  end
 
-  defp review_and_merge(%{followup: %Followup{pr_state: :closed}} = facts, _ci, _stale?),
-    do:
-      row("review_and_merge", "stopped",
-        detail: "closed without merging",
-        url: publication_url(facts[:publication])
-      )
+  defp review_and_merge(%{followup: %Followup{pr_state: :closed}} = facts, _ci, _stale?) do
+    row("review_and_merge", "stopped",
+      detail: "closed without merging",
+      url: publication_url(facts[:publication])
+    )
+  end
 
   # Ryker stops following a pull request at its hard deadline, so what became
   # of it is unknown here; the row said "your turn" over a state nobody was
   # checking (2026-10-04 review).
-  defp review_and_merge(%{followup: %Followup{pr_state: :expired}} = facts, _ci, _stale?),
-    do:
-      row("review_and_merge", "unknown",
-        detail: "no longer followed",
-        url: publication_url(facts[:publication])
-      )
+  defp review_and_merge(%{followup: %Followup{pr_state: :expired}} = facts, _ci, _stale?) do
+    row("review_and_merge", "unknown",
+      detail: "no longer followed",
+      url: publication_url(facts[:publication])
+    )
+  end
 
   defp review_and_merge(%{publication: %Publication{status: status} = publication}, ci, stale?)
        when status in @published_statuses do

@@ -1,8 +1,6 @@
 defmodule Ryker.Knowledge.KnowledgeSourcesTest do
   use Ryker.DataCase, async: false
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Repo
-
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRetention
@@ -12,6 +10,7 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.Repo
 
   # 103 of the 1,034 retained replay inputs have no old observation note. Raw
   # learning must not require inventing a note or rewrite the original admission.

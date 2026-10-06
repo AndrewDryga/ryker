@@ -1,8 +1,6 @@
 defmodule Ryker.Coop.ClientTest do
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.CanonicalJSON
   alias Ryker.Coop.Client
   alias Ryker.Evals.Job

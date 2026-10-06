@@ -7,7 +7,6 @@ defmodule Ryker.GitHub.OnboardingWorker do
   up it sleeps for its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :github_onboarding, interval: :interval_ms
-
   alias Ryker.GitHub.Onboarding
   alias Ryker.PollingWorker
   alias Ryker.Settings

@@ -15,7 +15,6 @@ defmodule Ryker.Runtime.Assembly do
   """
 
   require Logger
-
   alias Ryker.Bootstrap
   alias Ryker.ControlPlane.Actor, as: ControlPlaneActor
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
@@ -25,19 +24,9 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Defaults
   alias Ryker.Delivery.{JSONClient, Request}
   alias Ryker.Emisar.ApprovalRuntime
-
-  alias Ryker.GitHub.{
-    AppJWT,
-    Binding,
-    Client,
-    Confirmations,
-    InstallationTokens,
-    Publisher,
-    RepositoryAccess,
-    Target
-  }
-
+  alias Ryker.GitHub.{AppJWT, Binding, Client, Confirmations, InstallationTokens, Publisher}
   alias Ryker.GitHub.CapabilityTools, as: GitHubCapabilityTools
+  alias Ryker.GitHub.{RepositoryAccess, Target}
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.GitHubStatus
   alias Ryker.Secret
@@ -1413,30 +1402,32 @@ defmodule Ryker.Runtime.Assembly do
     do: {:ok, %{kind: :grafana, group_by_labels: source.group_by_labels}}
 
   defp webhook_adapter(%{adapter_kind: :mapped_json} = source) do
-    if Enum.all?(Map.keys(source.mapping), &(&1 in @mapping_fields)),
-      do:
-        {:ok,
-         %{
-           kind: :mapped_json,
-           group_by_labels: source.group_by_labels,
-           mapping:
-             Map.new(source.mapping, fn {field, path} ->
-               {String.to_existing_atom(field), path}
-             end)
-         }},
-      else: {:error, :mapping_unknown_field}
+    if Enum.all?(Map.keys(source.mapping), &(&1 in @mapping_fields)) do
+      {:ok,
+       %{
+         kind: :mapped_json,
+         group_by_labels: source.group_by_labels,
+         mapping:
+           Map.new(source.mapping, fn {field, path} ->
+             {String.to_existing_atom(field), path}
+           end)
+       }}
+    else
+      {:error, :mapping_unknown_field}
+    end
   end
 
   defp webhook_lifecycle(%{publication_lifecycle: nil}, _repositories), do: {:ok, nil}
 
   defp webhook_lifecycle(%{publication_lifecycle: scope}, repositories) do
-    if Enum.all?(scope["repositories"], &Map.has_key?(repositories, &1)),
-      do:
-        {:ok,
-         Map.new(~w(environments kinds repositories targets), fn field ->
-           {String.to_existing_atom(field), Enum.sort(scope[field])}
-         end)},
-      else: {:error, :lifecycle_repository_unreviewed}
+    if Enum.all?(scope["repositories"], &Map.has_key?(repositories, &1)) do
+      {:ok,
+       Map.new(~w(environments kinds repositories targets), fn field ->
+         {String.to_existing_atom(field), Enum.sort(scope[field])}
+       end)}
+    else
+      {:error, :lifecycle_repository_unreviewed}
+    end
   end
 
   # Where a source posts must be a delivery target this configuration runs:

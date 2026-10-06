@@ -16,7 +16,6 @@ defmodule Ryker.ControlPlane.WorkerLiveness do
   """
   use GenServer
   require Logger
-
   alias Ryker.CoopFleet.ControlPlane.Workers
 
   @interval_ms 10_000

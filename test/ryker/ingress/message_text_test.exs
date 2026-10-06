@@ -1,6 +1,5 @@
 defmodule Ryker.Ingress.MessageTextTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Ingress.MessageText
   alias Ryker.Transcription
 

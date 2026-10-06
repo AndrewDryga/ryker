@@ -1,6 +1,5 @@
 defmodule Ryker.LocalRouting.MigrationTest do
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @previous_version 20_260_927_190_000

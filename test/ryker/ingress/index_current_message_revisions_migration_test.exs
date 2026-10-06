@@ -1,8 +1,6 @@
 defmodule Ryker.Ingress.IndexCurrentMessageRevisionsMigrationTest do
   use Ryker.MigrationCase
-
   import Ecto.Query
-
   alias Ecto.Adapters.SQL
   alias Ryker.ControlPlane.CurrentInputs
   alias Ryker.Ingress.Inbox.Entry

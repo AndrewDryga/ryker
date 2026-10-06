@@ -1,8 +1,6 @@
 defmodule Ryker.Memories.ForgettingKeepsNoIdentifyingKeysMigrationTest do
   use Ryker.MigrationCase
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ecto.Adapters.SQL
 
   @version 20_261_005_161_000

@@ -13,9 +13,7 @@ defmodule Ryker.PeopleConcurrencyTest do
   wrote.
   """
   use Ryker.ConcurrencyCase, async: false
-
   import Ecto.Query
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.People

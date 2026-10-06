@@ -8,7 +8,6 @@ defmodule Ryker.Slack.AppHomeActions do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Operator.Retention, as: RetentionOperator

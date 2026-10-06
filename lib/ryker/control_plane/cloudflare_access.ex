@@ -88,10 +88,10 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
          (is_integer(claims["nbf"]) and claims["nbf"] - @leeway_seconds <= now))
   end
 
-  defp login?(email),
-    do:
-      is_binary(email) and byte_size(email) in 3..@maximum_login_bytes and String.valid?(email) and
-        Regex.match?(~r/\A[^\s@]+@[^\s@]+\z/u, email)
+  defp login?(email) do
+    is_binary(email) and byte_size(email) in 3..@maximum_login_bytes and String.valid?(email) and
+      Regex.match?(~r/\A[^\s@]+@[^\s@]+\z/u, email)
+  end
 
   defp decode(segment) do
     with {:ok, json} <- Base.url_decode64(segment, padding: false),

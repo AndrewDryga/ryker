@@ -1,16 +1,8 @@
 defmodule Ryker.ControlPlane.UsagePageTest do
   use Ryker.DataCase, async: false
   alias Ryker.Accounting.Execution
-
-  alias Ryker.ControlPlane.{
-    Activity,
-    Assets,
-    ConsolePeople,
-    ShortTime,
-    UsagePage,
-    UsageProjection
-  }
-
+  alias Ryker.ControlPlane.{Activity, Assets, ConsolePeople, ShortTime, UsagePage}
+  alias Ryker.ControlPlane.UsageProjection
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox

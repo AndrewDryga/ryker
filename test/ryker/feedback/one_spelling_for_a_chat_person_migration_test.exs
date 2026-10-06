@@ -1,8 +1,6 @@
 defmodule Ryker.Feedback.OneSpellingForAChatPersonMigrationTest do
   use Ryker.MigrationCase
-
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Feedback
   alias Ryker.Feedback.Signal

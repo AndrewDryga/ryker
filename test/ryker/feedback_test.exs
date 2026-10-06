@@ -1,8 +1,6 @@
 defmodule Ryker.FeedbackTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Feedback
   alias Ryker.Feedback.Signal

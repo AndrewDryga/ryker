@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.TargetTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Delivery.Request
   alias Ryker.GitHub.Target
 
@@ -34,9 +33,10 @@ defmodule Ryker.GitHub.TargetTest do
       }
     ]
 
-    Enum.each(invalid, fn request ->
-      assert {:error, {:invalid_github_delivery_target, _field}} = Target.parse(request)
-    end)
+    Enum.each(
+      invalid,
+      &assert({:error, {:invalid_github_delivery_target, _field}} = Target.parse(&1))
+    )
 
     slack = %{request(:message, "slack:T:C", "thread", nil) | transport: "slack"}
     assert Target.parse(slack) == {:error, {:invalid_github_delivery_target, :transport}}

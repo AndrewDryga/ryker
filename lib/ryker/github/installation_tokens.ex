@@ -12,9 +12,7 @@ defmodule Ryker.GitHub.InstallationTokens do
   """
 
   use GenServer
-
   require Logger
-
   alias Ryker.Options
   alias Ryker.Secret
 
@@ -100,14 +98,15 @@ defmodule Ryker.GitHub.InstallationTokens do
   end
 
   defp fresh_worker_token(server, binding_name, binding, purpose) do
-    if valid_binding?({binding_name, binding}),
-      do:
-        GenServer.call(
-          server,
-          {:fresh_worker_token, binding_name, binding, purpose},
-          @call_timeout_ms
-        ),
-      else: unavailable(:binding)
+    if valid_binding?({binding_name, binding}) do
+      GenServer.call(
+        server,
+        {:fresh_worker_token, binding_name, binding, purpose},
+        @call_timeout_ms
+      )
+    else
+      unavailable(:binding)
+    end
   catch
     :exit, reason -> {:error, {:github_installation_token_unavailable, reason}}
   end

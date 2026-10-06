@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.FailureListingTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.ControlPlane.{FailureProjection, Pages, Projection}
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes

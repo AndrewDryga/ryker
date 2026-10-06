@@ -1,35 +1,20 @@
 defmodule Ryker.ControlPlane.LiveTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1, outline: 2]
-
   import Ecto.Query
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Ryker.Admission.Attempts
-
-  alias Ryker.ControlPlane.{
-    Actions,
-    BehaviorLibrary,
-    ConversationLab,
-    ConversationProjection,
-    EpisodeProjection,
-    Kit,
-    LabPage,
-    LiveSocket,
-    Projection,
-    UsageProjection,
-    WorkbenchLive
-  }
-
+  alias Ryker.ControlPlane.{Actions, BehaviorLibrary, ConversationLab, ConversationProjection}
+  alias Ryker.ControlPlane.Endpoint
+  alias Ryker.ControlPlane.{EpisodeProjection, Kit, LabPage, LiveSocket, Projection}
+  alias Ryker.ControlPlane.{UsageProjection, WorkbenchLive}
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
+  alias Ryker.Episodes.Reactions
   alias Ryker.Feedback
   alias Ryker.Fixtures.{Answers, SavedEntities}
   alias Ryker.Ingress.Inbox.EntryChangeset
   alias Ryker.Ingress.WorkProfile
-
-  alias Ryker.ControlPlane.Endpoint
-  alias Ryker.Episodes.Reactions
 
   # Activity's in-progress count: the number in the count that opens In progress.
   @active_count ".kit-count[href$='?filter=running'] b"
@@ -1721,9 +1706,9 @@ defmodule Ryker.ControlPlane.LiveTest do
     heart_form =
       reply
       |> LazyHTML.query("form.lab-reaction-pill")
-      |> Enum.find(fn form ->
-        LazyHTML.query(form, "input[name=emoji]") |> LazyHTML.attribute("value") == ["heart"]
-      end)
+      |> Enum.find(
+        &(LazyHTML.query(&1, "input[name=emoji]") |> LazyHTML.attribute("value") == ["heart"])
+      )
 
     [heart_form_id] = LazyHTML.attribute(heart_form, "id")
     view |> form("##{heart_form_id}") |> render_submit()
@@ -2605,7 +2590,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     html
     |> LazyHTML.from_document()
     |> LazyHTML.query(".lab-chat-message.actor-ryker")
-    |> Enum.find(fn message -> LazyHTML.text(message) =~ text end)
+    |> Enum.find(&(LazyHTML.text(&1) =~ text))
   end
 
   defp picker_id!(html, text) do

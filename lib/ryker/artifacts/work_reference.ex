@@ -2,7 +2,6 @@ defmodule Ryker.Artifacts.WorkReference do
   @moduledoc false
 
   use Ecto.Schema
-
   alias Ryker.Artifacts.Artifact
   alias Ryker.Work.Turn
 

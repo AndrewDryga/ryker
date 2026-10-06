@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.AppHomeActionsTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
@@ -294,9 +292,7 @@ defmodule Ryker.Slack.AppHomeActionsTest do
   test "newer unsafe retained work cannot hide an older discardable workspace" do
     eligible = retained_session!("eligible", true)
 
-    Enum.each(1..8, fn index ->
-      retained_session!("unsafe-#{index}", false)
-    end)
+    Enum.each(1..8, &retained_session!("unsafe-#{&1}", false))
 
     Repo.update_all(
       from(session in Ryker.Work.Session, where: session.id == ^eligible.id),

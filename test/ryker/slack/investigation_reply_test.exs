@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.InvestigationReplyTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.{Renderer, ReplyRecords}
 
   @fixture Path.expand("../../../testdata/slack/terraform-deployment-reply.json", __DIR__)

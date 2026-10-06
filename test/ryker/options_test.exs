@@ -1,6 +1,5 @@
 defmodule Ryker.OptionsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Options
 
   @messages [

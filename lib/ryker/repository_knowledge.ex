@@ -28,7 +28,6 @@ defmodule Ryker.RepositoryKnowledge do
   """
 
   import Ecto.Query
-
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.{Custody, Entry}
   alias Ryker.Settings
@@ -83,14 +82,14 @@ defmodule Ryker.RepositoryKnowledge do
   unknown one still says what happened and what comes next.
   """
   @spec failure(term()) :: String.t()
-  def failure({:github_onboarding, :permission}),
-    do:
-      "The Ryker GitHub App cannot read this repository's code. Give it Contents access, " <>
-        "then refresh knowledge."
+  def failure({:github_onboarding, :permission}) do
+    "The Ryker GitHub App cannot read this repository's code. Give it Contents access, " <>
+      "then refresh knowledge."
+  end
 
-  def failure({:github_onboarding, :not_found}),
-    do:
-      "GitHub no longer finds this repository or its default branch, so RYKER.md was not updated."
+  def failure({:github_onboarding, :not_found}) do
+    "GitHub no longer finds this repository or its default branch, so RYKER.md was not updated."
+  end
 
   def failure(:repository_empty),
     do: "The repository has no commits yet, so there is nothing to write RYKER.md from."
@@ -98,20 +97,20 @@ defmodule Ryker.RepositoryKnowledge do
   def failure(:repository_too_large),
     do: "The repository has too many files for Ryker to check a RYKER.md against them."
 
-  def failure(reason),
-    do:
-      "RYKER.md was not updated: #{cause(reason)} Ryker tries again with the next daily " <>
-        "check, or refresh knowledge."
+  def failure(reason) do
+    "RYKER.md was not updated: #{cause(reason)} Ryker tries again with the next daily " <>
+      "check, or refresh knowledge."
+  end
 
   @doc """
   Why a repository's RYKER.md is only the outline from its file list: the
   model could not finish reading it, and Ryker tries again.
   """
   @spec outline_failure(term()) :: String.t()
-  def outline_failure(reason),
-    do:
-      "RYKER.md is only an outline: #{cause(reason)} Ryker tries again with the next daily " <>
-        "check, or refresh knowledge."
+  def outline_failure(reason) do
+    "RYKER.md is only an outline: #{cause(reason)} Ryker tries again with the next daily " <>
+      "check, or refresh knowledge."
+  end
 
   defp cause(reason) when reason in [:output_contract_failed, :invalid_repository_knowledge],
     do: "the model's answers did not follow the form Ryker asks for."

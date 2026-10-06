@@ -1,8 +1,6 @@
 defmodule Ryker.Artifacts.KeepVoiceMessagesMigrationTest do
   use Ryker.MigrationCase
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ecto.Adapters.SQL
 
   @before_version 20_260_927_110_000

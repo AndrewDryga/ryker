@@ -45,7 +45,6 @@ defmodule Ryker.Improvement do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback.Signal
   alias Ryker.Improvement.{AnalysisRun, Candidate, Evidence}
@@ -431,25 +430,25 @@ defmodule Ryker.Improvement do
   @spec forget_in_transaction([String.t()]) :: :ok
   def forget_in_transaction([]), do: :ok
 
-  def forget_in_transaction(keys) when is_list(keys),
-    do:
-      erase(
-        from(candidate in Candidate,
-          where: fragment("? && ?::text[]", candidate.message_keys, ^keys)
-        )
+  def forget_in_transaction(keys) when is_list(keys) do
+    erase(
+      from(candidate in Candidate,
+        where: fragment("? && ?::text[]", candidate.message_keys, ^keys)
       )
+    )
+  end
 
   @doc "Erases what candidates hold about a conversation that was deleted, in its transaction."
   @spec forget_conversation_in_transaction(String.t()) :: :ok
-  def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref),
-    do:
-      erase(
-        from(candidate in Candidate,
-          where:
-            candidate.conversation_ref == ^conversation_ref or
-              fragment("? @> ARRAY[?]::text[]", candidate.conversation_refs, ^conversation_ref)
-        )
+  def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
+    erase(
+      from(candidate in Candidate,
+        where:
+          candidate.conversation_ref == ^conversation_ref or
+            fragment("? @> ARRAY[?]::text[]", candidate.conversation_refs, ^conversation_ref)
       )
+    )
+  end
 
   defp erase(query) do
     now = Repo.now!()

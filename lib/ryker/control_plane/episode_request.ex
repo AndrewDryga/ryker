@@ -1,7 +1,6 @@
 defmodule Ryker.ControlPlane.EpisodeRequest do
   @moduledoc "A readable model call, with the retained evidence available inline."
   use Phoenix.Component
-
   alias Ryker.Admission.Sentiment
   alias Ryker.ControlPlane.CallRun
   alias Ryker.ControlPlane.Components
@@ -295,30 +294,30 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   # Drawn from the whole entry rather than its sections alone: the entry
   # carries the names known when it loaded (`Names.revision/0`), so a name
   # Slack gives later draws the briefing again (2026-09-26).
-  defp briefing(request),
-    do:
-      RequestContextHTML.briefing(
-        request.sections,
-        request.source_kind,
-        request.id,
-        request[:counts] || %{}
-      )
+  defp briefing(request) do
+    RequestContextHTML.briefing(
+      request.sections,
+      request.source_kind,
+      request.id,
+      request[:counts] || %{}
+    )
+  end
 
-  defp submitted(request, prompt_section),
-    do:
-      RequestContextHTML.submitted(
-        request.sections,
-        request.id <> "-submitted",
-        prompt_section[:artifact_id]
-      )
+  defp submitted(request, prompt_section) do
+    RequestContextHTML.submitted(
+      request.sections,
+      request.id <> "-submitted",
+      prompt_section[:artifact_id]
+    )
+  end
 
   defp unavailable_assembly?(%{id: "instructions", artifact: artifact}),
     do: artifact.state != :retained
 
-  defp unavailable_assembly?(section),
-    do:
-      section.artifact.state != :retained || section.artifact.truncated ||
-        not is_map(document(%{sections: [section]}, "context"))
+  defp unavailable_assembly?(section) do
+    section.artifact.state != :retained || section.artifact.truncated ||
+      not is_map(document(%{sections: [section]}, "context"))
+  end
 
   defp result_evidence(%{source_kind: :work, sections: sections}),
     do: Enum.filter(sections, &(&1.id == "candidate"))
@@ -513,9 +512,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       "call kept running, and it resumed waiting #{Units.duration(gap)} later."
   end
 
-  defp wait_text(%{paused_at: %DateTime{} = paused}),
-    do:
-      "Ryker's wait for the worker ran out at #{Calendar.strftime(paused, "%H:%M:%S")} while the call kept running."
+  defp wait_text(%{paused_at: %DateTime{} = paused}) do
+    "Ryker's wait for the worker ran out at #{Calendar.strftime(paused, "%H:%M:%S")} while the call kept running."
+  end
 
   defp failure_explanation(%{summary: summary}, _response) when is_binary(summary),
     do: sentence(summary)
@@ -828,13 +827,13 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp explanation(%{phase: :submission, source_kind: :admission}),
     do: "Use an AI model to classify this message and choose how to respond."
 
-  defp explanation(%{phase: :submission, source_kind: :learning}),
-    do:
-      "Use an AI model to learn from these messages and keep what Ryker knows up to date. Learning sends no reply."
+  defp explanation(%{phase: :submission, source_kind: :learning}) do
+    "Use an AI model to learn from these messages and keep what Ryker knows up to date. Learning sends no reply."
+  end
 
-  defp explanation(%{phase: :submission, source_kind: :improvement}),
-    do:
-      "Use an AI model to find what went wrong in this request after a person was unhappy with it. It sends no reply and changes nothing."
+  defp explanation(%{phase: :submission, source_kind: :improvement}) do
+    "Use an AI model to find what went wrong in this request after a person was unhappy with it. It sends no reply and changes nothing."
+  end
 
   defp explanation(%{source_kind: kind, background: background}) when kind in @background_kinds,
     do: background[:reason]

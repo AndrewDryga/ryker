@@ -11,9 +11,7 @@ defmodule Ryker.Publication.FixLoopTest do
   """
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.Artifacts
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -25,16 +23,8 @@ defmodule Ryker.Publication.FixLoopTest do
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Slack.{Renderer, TaskCardProjection}
-
-  alias Ryker.Work.{
-    Custody,
-    DeliveryReceipt,
-    Result,
-    Session,
-    SessionChangeset,
-    Submission,
-    SubmissionBuilder
-  }
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, SessionChangeset, Submission}
+  alias Ryker.Work.SubmissionBuilder
 
   @now ~U[2026-09-28 12:00:00.000000Z]
 

@@ -1,8 +1,6 @@
 defmodule Ryker.CoopFleet.BodiesTest do
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.CoopFleet.Bodies
   @key Ryker.Secret.new(:binary.copy(<<7>>, 32))
 

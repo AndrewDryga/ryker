@@ -14,11 +14,9 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
   seconds for the page to show it.
   """
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   import Ryker.TestHelpers, only: [eventually: 2]
-
   alias Ryker.ControlPlane.{Actions, ConversationLab, Endpoint, Projection}
   alias Ryker.Delivery.PlatformActionCustody
   alias Ryker.Episodes

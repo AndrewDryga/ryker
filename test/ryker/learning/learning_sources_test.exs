@@ -2,11 +2,10 @@ defmodule Ryker.Learning.LearningSourcesTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
-
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Episodes.Episode
+  alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations

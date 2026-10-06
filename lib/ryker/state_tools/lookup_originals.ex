@@ -136,13 +136,13 @@ defmodule Ryker.StateTools.LookupOriginals do
 
   defp trim_hit(hit), do: hit
 
-  defp restart_expansion(%{"source_read" => %{"arguments" => arguments}} = hit),
-    do:
-      put_in(
-        hit,
-        ["source_read", "arguments"],
-        arguments |> Map.delete("cursor") |> Map.put("limit", 20)
-      )
+  defp restart_expansion(%{"source_read" => %{"arguments" => arguments}} = hit) do
+    put_in(
+      hit,
+      ["source_read", "arguments"],
+      arguments |> Map.delete("cursor") |> Map.put("limit", 20)
+    )
+  end
 
   defp restart_expansion(hit), do: hit
 

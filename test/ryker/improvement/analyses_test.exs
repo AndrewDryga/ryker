@@ -1,8 +1,6 @@
 defmodule Ryker.Improvement.AnalysesTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Accounting.Execution
   alias Ryker.Episodes
   alias Ryker.Feedback
@@ -308,7 +306,7 @@ defmodule Ryker.Improvement.AnalysesTest do
     coop = coop!([Jason.encode!(@diagnosis)])
 
     assert {:ok, _yielded} = Dispatcher.run_once(settings(coop))
-    Agent.update(coop, fn state -> put_in(state, [:session, "state"], "closed") end)
+    Agent.update(coop, &put_in(&1, [:session, "state"], "closed"))
     drain(settings(coop))
 
     candidate = Improvement.for_request(request)
@@ -577,14 +575,14 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
   end
 
-  defp runs(candidate),
-    do:
-      Repo.all(
-        from(run in AnalysisRun,
-          where: run.candidate_id == ^candidate.id,
-          order_by: run.generation
-        )
+  defp runs(candidate) do
+    Repo.all(
+      from(run in AnalysisRun,
+        where: run.candidate_id == ^candidate.id,
+        order_by: run.generation
       )
+    )
+  end
 
   defp stopped_run(request) do
     candidate = Improvement.for_request(request)

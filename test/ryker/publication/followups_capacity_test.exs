@@ -4,9 +4,7 @@ defmodule Ryker.Publication.FollowupsCapacityTest do
   # pushes on 2026-09-30, twice taking a Lab claim that ran beside it past its
   # fifteen-second query limit. It runs with the serial tests instead.
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Ingress.Input
   alias Ryker.Publication.{Followup, Followups, LifecycleEvent, Publication}

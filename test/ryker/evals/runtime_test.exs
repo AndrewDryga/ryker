@@ -4,7 +4,6 @@ defmodule Ryker.Evals.RuntimeTest do
   # environment and shipped defaults alone, so a run can never pick up the
   # installation's repositories, destinations or reviewed grants.
   use ExUnit.Case, async: false
-
   alias Ryker.CoopFleet.Server, as: FleetServer
   alias Ryker.Defaults
   alias Ryker.Evals.Runtime

@@ -2,16 +2,15 @@ defmodule Ryker.Learning.LearningSources do
   @moduledoc "Bounded, host-owned source receipts carried across derived conversation memory."
   import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Episodes.Event
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Publication.LifecycleEvent
-
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Episodes.Event
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.Observations
+  alias Ryker.Publication.LifecycleEvent
 
   @maximum_sources 10_000
   @maximum_bytes 8 * 1_024 * 1_024
@@ -30,13 +29,13 @@ defmodule Ryker.Learning.LearningSources do
 
   @doc false
   def with_input_boundary(scope, %Ryker.Episodes.Episode{id: id} = episode)
-      when is_binary(id),
-      do:
-        Map.put(
-          scope,
-          :input_boundary,
-          {episode.id, episode.next_sequence, episode.queued_input_refs}
-        )
+      when is_binary(id) do
+    Map.put(
+      scope,
+      :input_boundary,
+      {episode.id, episode.next_sequence, episode.queued_input_refs}
+    )
+  end
 
   def with_input_boundary(scope, _destination), do: scope
 

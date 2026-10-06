@@ -1,9 +1,7 @@
 defmodule Ryker.GitHub.AuthTest do
   use ExUnit.Case, async: true
-
   import Plug.Conn
   import Plug.Test
-
   alias Ryker.GitHub.Auth
 
   test "matches GitHub's published HMAC-SHA256 verification vector" do

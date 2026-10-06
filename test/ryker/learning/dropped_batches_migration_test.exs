@@ -8,9 +8,7 @@ defmodule Ryker.Learning.DroppedBatchesMigrationTest do
   """
   # The migrator runs inside this test's sandbox transaction.
   use Ryker.MigrationCase
-
   import Ecto.Query
-
   alias Ryker.Learning.Batch
 
   @version 20_260_927_150_000

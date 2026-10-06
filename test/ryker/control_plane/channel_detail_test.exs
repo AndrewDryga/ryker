@@ -9,45 +9,28 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   never collapsed into "unknown", and loading the page changes nothing.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
   import Phoenix.LiveViewTest
-
   alias Ryker.Accounting.Execution
-
-  alias Ryker.ControlPlane.{
-    Actions,
-    Activity,
-    ChannelDetail,
-    ConversationMemory,
-    Endpoint,
-    HTML,
-    LearningActivity,
-    Pages,
-    Projection,
-    ShortTime,
-    UsageProjection
-  }
-
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Continuity.ConversationRollup
+  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Continuity.ConversationSummaryDraft
+  alias Ryker.ControlPlane.{Actions, Activity, ChannelDetail, ConversationMemory, Endpoint, HTML}
+  alias Ryker.ControlPlane.{LearningActivity, Pages, Projection, ShortTime, UsageProjection}
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Ingress.Inbox
-  alias Ryker.Learning.Batch
-  alias Ryker.Slack.{ChannelConfigurationChangeset, IncidentRoomChangeset, Input}
-
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Continuity.ConversationRollup
-  alias Ryker.Continuity.ConversationSummary
-  alias Ryker.Continuity.ConversationSummaryDraft
   alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Learning.Batch
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Records
   alias Ryker.Schedules.Schedule
-
+  alias Ryker.Slack.{ChannelConfigurationChangeset, IncidentRoomChangeset, Input}
   alias Ryker.Work.Turn
 
   @endpoint Endpoint
@@ -603,24 +586,24 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
             do: rule!(rules_source, "Rule #{index}", scope_ref: "slack:T123:C456").ref
 
       preference_refs =
-        for index <- 1..26,
-            do:
-              preference!(preferences_source, "key_#{index}", "v", scope_ref: "slack:T123:C456").ref
+        for index <- 1..26 do
+          preference!(preferences_source, "key_#{index}", "v", scope_ref: "slack:T123:C456").ref
+        end
 
       guidance_refs =
-        for index <- 1..26,
-            do:
-              guidance!(guidance_source, "Guidance #{index}", "conversation",
-                scope_ref: "slack:T123:C456"
-              ).ref
+        for index <- 1..26 do
+          guidance!(guidance_source, "Guidance #{index}", "conversation",
+            scope_ref: "slack:T123:C456"
+          ).ref
+        end
 
       memory_refs =
-        for index <- 1..26,
-            do:
-              memory!(memory_source, "subject #{index}", "v",
-                scope_kind: :conversation,
-                scope_ref: "slack:T123:C456"
-              ).ref
+        for index <- 1..26 do
+          memory!(memory_source, "subject #{index}", "v",
+            scope_kind: :conversation,
+            scope_ref: "slack:T123:C456"
+          ).ref
+        end
 
       for {section, key, refs} <- [
             {:episodes, "episode_page", episode_refs},
@@ -1601,9 +1584,9 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
   defp schedules!(source, destination, count) do
     refs =
-      for index <- 1..count,
-          do:
-            SavedEntities.schedule!(source, "Schedule #{index}", index, destination: destination).ref
+      for index <- 1..count do
+        SavedEntities.schedule!(source, "Schedule #{index}", index, destination: destination).ref
+      end
 
     # One shared next run: the pager must fall back to the unique id.
     Repo.update_all(from(schedule in Schedule, where: schedule.ref in ^refs),
@@ -2168,29 +2151,29 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     )
   end
 
-  defp description(html),
-    do:
-      html
-      |> LazyHTML.from_document()
-      |> LazyHTML.query(".page-description")
-      |> LazyHTML.text()
-      |> String.trim()
+  defp description(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(".page-description")
+    |> LazyHTML.text()
+    |> String.trim()
+  end
 
-  defp header_state(html),
-    do:
-      html
-      |> LazyHTML.from_document()
-      |> LazyHTML.query(".page-title-line .state-word")
-      |> LazyHTML.text()
-      |> String.trim()
+  defp header_state(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query(".page-title-line .state-word")
+    |> LazyHTML.text()
+    |> String.trim()
+  end
 
-  defp title_link(html),
-    do:
-      html
-      |> LazyHTML.from_document()
-      |> LazyHTML.query("h1 a.page-title-link")
-      |> LazyHTML.attribute("href")
-      |> List.first()
+  defp title_link(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("h1 a.page-title-link")
+    |> LazyHTML.attribute("href")
+    |> List.first()
+  end
 
   defp lede(html) do
     html
@@ -2212,9 +2195,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     html
     |> LazyHTML.from_document()
     |> LazyHTML.query("#taking-part dl > div")
-    |> Enum.find(fn pair ->
-      pair |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim() == label
-    end)
+    |> Enum.find(&(&1 |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim() == label))
     |> LazyHTML.query("dd a")
     |> LazyHTML.attribute("href")
   end
@@ -2223,9 +2204,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     html
     |> LazyHTML.from_document()
     |> LazyHTML.query("#taking-part dl > div")
-    |> Enum.find(fn pair ->
-      pair |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim() == label
-    end)
+    |> Enum.find(&(&1 |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim() == label))
     |> case do
       nil -> flunk("no #{inspect(label)} fact on the page")
       pair -> pair |> LazyHTML.query("dd") |> LazyHTML.text() |> String.trim() |> squeeze()
@@ -2237,9 +2216,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     html
     |> LazyHTML.from_document()
     |> LazyHTML.query("#taking-part dl > div")
-    |> Enum.find(fn pair ->
-      pair |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim() == label
-    end)
+    |> Enum.find(&(&1 |> LazyHTML.query("dt") |> LazyHTML.text() |> String.trim() == label))
     |> case do
       nil ->
         flunk("no #{inspect(label)} fact on the page")

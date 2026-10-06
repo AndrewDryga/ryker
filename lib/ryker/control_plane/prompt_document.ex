@@ -299,16 +299,16 @@ defmodule Ryker.ControlPlane.PromptDocument do
   defp digest(text),
     do: :sha256 |> :crypto.hash(text) |> Base.encode16(case: :lower) |> binary_part(0, 16)
 
-  defp pre(text),
-    do:
-      Components.copy_block_html(
-        [
-          "<pre class=\"submitted-prompt submitted-prompt-raw\"><code>",
-          escape(text),
-          "</code></pre>"
-        ],
-        "Copy exact text"
-      )
+  defp pre(text) do
+    Components.copy_block_html(
+      [
+        "<pre class=\"submitted-prompt submitted-prompt-raw\"><code>",
+        escape(text),
+        "</code></pre>"
+      ],
+      "Copy exact text"
+    )
+  end
 
   defp escape(text), do: Plug.HTML.html_escape(text)
 end

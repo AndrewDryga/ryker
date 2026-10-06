@@ -1,7 +1,6 @@
 defmodule Ryker.ControlPlane.NativePagesTest do
   use Ryker.DataCase, async: true
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{ActivityPage, Assets, Components, EpisodePage, EpisodeProjection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -318,9 +317,9 @@ defmodule Ryker.ControlPlane.NativePagesTest do
 
     assert selectors != []
 
-    for selector <- selectors,
-        do:
-          assert(selector =~ ".filter-toolbar-controls", "#{selector} misses the custom filters")
+    for selector <- selectors do
+      assert(selector =~ ".filter-toolbar-controls", "#{selector} misses the custom filters")
+    end
   end
 
   defp activity_document(params, total, menu \\ nil) do
@@ -571,12 +570,12 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     end
   end
 
-  defp episode_html(snapshot),
-    do:
-      render_component(&EpisodePage.render/1,
-        snapshot: snapshot,
-        selected_step: nil,
-        requests: nil,
-        params: %{}
-      )
+  defp episode_html(snapshot) do
+    render_component(&EpisodePage.render/1,
+      snapshot: snapshot,
+      selected_step: nil,
+      requests: nil,
+      params: %{}
+    )
+  end
 end

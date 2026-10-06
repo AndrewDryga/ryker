@@ -19,11 +19,7 @@ defmodule Ryker.Memories.Forgetting do
   """
 
   import Ecto.Query
-
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Repo
-  alias Ryker.Work.Turn
-
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -33,7 +29,9 @@ defmodule Ryker.Memories.Forgetting do
   alias Ryker.Learning.Observations
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Records.Record
+  alias Ryker.Repo
   alias Ryker.RoutingExamples
+  alias Ryker.Work.Turn
 
   @erased %{"retention" => "pruned"}
 

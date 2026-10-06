@@ -1,6 +1,5 @@
 defmodule Ryker.Learning.ObservationsConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Admission
   alias Ryker.Ingress.Inbox

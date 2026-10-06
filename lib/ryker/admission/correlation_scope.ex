@@ -11,7 +11,6 @@ defmodule Ryker.Admission.CorrelationScope do
   """
 
   import Ecto.Query
-
   alias Ryker.Ingress.Input
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership

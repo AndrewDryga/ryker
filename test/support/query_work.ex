@@ -123,11 +123,12 @@ defmodule Ryker.QueryWork do
 
   defp scanned(plan, table) do
     own =
-      if plan["Relation Name"] == table,
-        do:
-          (plan["Actual Rows"] + Map.get(plan, "Rows Removed by Filter", 0) +
-             Map.get(plan, "Rows Removed by Index Recheck", 0)) * plan["Actual Loops"],
-        else: 0
+      if plan["Relation Name"] == table do
+        (plan["Actual Rows"] + Map.get(plan, "Rows Removed by Filter", 0) +
+           Map.get(plan, "Rows Removed by Index Recheck", 0)) * plan["Actual Loops"]
+      else
+        0
+      end
 
     own + Enum.sum_by(Map.get(plan, "Plans", []), &scanned(&1, table))
   end

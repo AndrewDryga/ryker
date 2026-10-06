@@ -2,7 +2,6 @@ defmodule Ryker.ControlPlane.HTML do
   @moduledoc false
 
   alias Phoenix.HTML.Safe
-
   alias Ryker.ControlPlane.{Emoji, Kit, Layouts, SlackMarkdown}
   alias Ryker.Delivery.ChatCard
 

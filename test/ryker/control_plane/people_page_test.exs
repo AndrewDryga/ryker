@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
   # forgetting them asks first and takes effect at once.
   use Ryker.DataCase, async: false
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Actions, Pages, PeoplePage, PeopleProjection, Projection, Router}
   alias Ryker.People
   alias Ryker.People.PersonFact

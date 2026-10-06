@@ -1,9 +1,7 @@
 defmodule Ryker.HTTPConnectionTest do
   use ExUnit.Case, async: true
-
   import Plug.Conn
   import Plug.Test
-
   alias Ryker.HTTPConnection
 
   # A refusal is usually answered through the conn from before the body was

@@ -11,7 +11,6 @@ defmodule Ryker.Slack.ChannelFenceConcurrencyTest do
   These commit for real, on connections of their own; they write nothing.
   """
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Repo
   alias Ryker.Slack.ChannelFence

@@ -2,9 +2,7 @@ defmodule Ryker.Transcription.LocalTest do
   # Stand-in ffmpeg and whisper programs, written per test, take the place of
   # the real ones: every bound is checked without running a speech model.
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [os_process_gone?: 1]
-
   alias Ryker.Transcription.{Local, Parts}
 
   setup do

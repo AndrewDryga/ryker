@@ -2,17 +2,9 @@ defmodule Ryker.Records.InputRequestsTest do
   use Ryker.DataCase, async: false
   import Phoenix.LiveViewTest
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.Admission.Executor
-
-  alias Ryker.ControlPlane.{
-    ConversationProjection,
-    EpisodePage,
-    EpisodeProjection,
-    HTML,
-    ModelRequests
-  }
-
+  alias Ryker.ControlPlane.{ConversationProjection, EpisodePage, EpisodeProjection, HTML}
+  alias Ryker.ControlPlane.ModelRequests
   alias Ryker.Delivery.ChatCard
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

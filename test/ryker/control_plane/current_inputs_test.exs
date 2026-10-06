@@ -4,9 +4,7 @@ defmodule Ryker.ControlPlane.CurrentInputsTest do
   message a page shows rather than by ranking every revision in the inbox.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Activity, AdmissionProgress, ConversationProjection, CurrentInputs}
   alias Ryker.Episodes

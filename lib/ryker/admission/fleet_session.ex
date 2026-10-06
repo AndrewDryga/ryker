@@ -14,7 +14,6 @@ defmodule Ryker.Admission.FleetSession do
   """
 
   import Ecto.Query
-
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Session}

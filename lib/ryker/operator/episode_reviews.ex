@@ -17,9 +17,7 @@ defmodule Ryker.Operator.EpisodeReviews do
   """
 
   import Ecto.Query
-
   require Logger
-
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback
   alias Ryker.Operator.EpisodeReview

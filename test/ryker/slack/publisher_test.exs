@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.PublisherTest do
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.Delivery.Request
   alias Ryker.Slack.Publisher
   alias Ryker.TestSupport.FakeSlackAPI

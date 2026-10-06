@@ -11,7 +11,6 @@ defmodule Ryker.Work.Dispatcher do
   """
 
   require Logger
-
   alias Ryker.ErrorDetail
   alias Ryker.Work.{Custody, Executor}
 

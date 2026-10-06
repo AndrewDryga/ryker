@@ -104,17 +104,17 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   # The channel's environment decides what its work may use: the repo work
   # changes, the ones it only reads, and Emisar. No environment means none of
   # them, which is never the same as the default.
-  defp environment_access(%{"environment" => nil, "environment_count" => 0}),
-    do:
-      "I don't have access to any repos, so please connect one (or more) if you want me to work on coding tasks."
+  defp environment_access(%{"environment" => nil, "environment_count" => 0}) do
+    "I don't have access to any repos, so please connect one (or more) if you want me to work on coding tasks."
+  end
 
-  defp environment_access(%{"environment" => nil} = settings),
-    do:
-      "This channel doesn't use an environment, so I'll answer here without any repos or Emisar. Choose one with *#{configure_label(settings)}* if you want me to work on code here."
+  defp environment_access(%{"environment" => nil} = settings) do
+    "This channel doesn't use an environment, so I'll answer here without any repos or Emisar. Choose one with *#{configure_label(settings)}* if you want me to work on code here."
+  end
 
-  defp environment_access(%{"environment" => %{"ready" => false, "ref" => ref}}),
-    do:
-      "This channel uses the `#{escape(ref)}` environment, but it can't run work right now, so I'll answer without any repos or Emisar until it can."
+  defp environment_access(%{"environment" => %{"ready" => false, "ref" => ref}}) do
+    "This channel uses the `#{escape(ref)}` environment, but it can't run work right now, so I'll answer without any repos or Emisar until it can."
+  end
 
   defp environment_access(%{
          "environment" => %{"emisar" => emisar, "name" => name, "repositories" => []}
@@ -134,11 +134,11 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   defp uses([repository], emisar),
     do: "work on #{repository_link(repository)}" <> if(emisar, do: " and use Emisar", else: "")
 
-  defp uses(repositories, emisar),
-    do:
-      "work on #{named_repositories(repositories)}, " <>
-        "changing only ones with read/write access" <>
-        if(emisar, do: ", and use Emisar", else: "")
+  defp uses(repositories, emisar) do
+    "work on #{named_repositories(repositories)}, " <>
+      "changing only ones with read/write access" <>
+      if(emisar, do: ", and use Emisar", else: "")
+  end
 
   # Ten by name and the rest counted: every one by name pushed a full
   # environment's welcome past a section and cut a link (2026-10-04 review).
@@ -157,33 +157,33 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   defp configure_label(%{"participation" => %{"value" => "shadow"}}), do: "Configure channel"
   defp configure_label(_settings), do: "Customize"
 
-  defp conversation_sentence(%{"observation" => %{"on" => true}}, bot_user_ref),
-    do:
-      "For now I'm only reading along to learn how this channel works, and I'll stay out of the conversation. Mention #{mention(bot_user_ref)} whenever you want me in it."
+  defp conversation_sentence(%{"observation" => %{"on" => true}}, bot_user_ref) do
+    "For now I'm only reading along to learn how this channel works, and I'll stay out of the conversation. Mention #{mention(bot_user_ref)} whenever you want me in it."
+  end
 
-  defp conversation_sentence(%{"participation" => %{"value" => "proactive"}}, bot_user_ref),
-    do:
-      "Talk to me like any other teammate. I'll read the messages I can access here to build useful knowledge and join conversations when I can help. You can also mention #{mention(bot_user_ref)} directly."
+  defp conversation_sentence(%{"participation" => %{"value" => "proactive"}}, bot_user_ref) do
+    "Talk to me like any other teammate. I'll read the messages I can access here to build useful knowledge and join conversations when I can help. You can also mention #{mention(bot_user_ref)} directly."
+  end
 
-  defp conversation_sentence(_settings, bot_user_ref),
-    do:
-      "Talk to me like any other teammate. I'll read the messages I can access here to build useful knowledge. In conversations, I'll reply when you mention #{mention(bot_user_ref)}."
+  defp conversation_sentence(_settings, bot_user_ref) do
+    "Talk to me like any other teammate. I'll read the messages I can access here to build useful knowledge. In conversations, I'll reply when you mention #{mention(bot_user_ref)}."
+  end
 
-  defp alert_sentence(%{"observation" => %{"on" => true}}),
-    do:
-      "Alerts posted here go into that reading too, and I'll wait to be asked before looking into one."
+  defp alert_sentence(%{"observation" => %{"on" => true}}) do
+    "Alerts posted here go into that reading too, and I'll wait to be asked before looking into one."
+  end
 
-  defp alert_sentence(%{"alert_policy" => "reply"}),
-    do:
-      "When an alert is posted here, I'll investigate proactively in its thread and share what I find."
+  defp alert_sentence(%{"alert_policy" => "reply"}) do
+    "When an alert is posted here, I'll investigate proactively in its thread and share what I find."
+  end
 
-  defp alert_sentence(%{"alert_policy" => "offer"} = settings),
-    do:
-      "When an alert needs investigation, I'll offer to investigate in its thread or create a dedicated incident room. If you choose a room, I'll invite #{audience_phrase(settings)}."
+  defp alert_sentence(%{"alert_policy" => "offer"} = settings) do
+    "When an alert needs investigation, I'll offer to investigate in its thread or create a dedicated incident room. If you choose a room, I'll invite #{audience_phrase(settings)}."
+  end
 
-  defp alert_sentence(%{"alert_policy" => "automatic"} = settings),
-    do:
-      "When an alert needs investigation, I'll automatically create an incident room and invite #{audience_phrase(settings)}."
+  defp alert_sentence(%{"alert_policy" => "automatic"} = settings) do
+    "When an alert needs investigation, I'll automatically create an incident room and invite #{audience_phrase(settings)}."
+  end
 
   defp welcome_closing(settings, notice) do
     [override_sentence(settings), notice_line(notice)] |> compact_lines()
@@ -211,9 +211,9 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   defp notice_line(notice), do: "*#{escape(notice)}*"
 
   defp override_sentence(%{"participation" => %{"source" => "channel", "value" => setting}})
-       when setting in ~w(proactive shadow),
-       do:
-         "This channel has its own `#{setting}` setting, so it no longer follows the installation default. `/ryker #{setting} inherit` returns it to the default."
+       when setting in ~w(proactive shadow) do
+    "This channel has its own `#{setting}` setting, so it no longer follows the installation default. `/ryker #{setting} inherit` returns it to the default."
+  end
 
   defp override_sentence(_settings), do: nil
 

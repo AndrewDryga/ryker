@@ -7,9 +7,7 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
   """
   # The migrator runs inside this test's sandbox transaction.
   use Ryker.MigrationCase
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.CoopFleet.ControlPlane
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

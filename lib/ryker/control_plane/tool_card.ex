@@ -384,29 +384,29 @@ defmodule Ryker.ControlPlane.ToolCard do
     end
   end
 
-  defp edit?(title, args),
-    do:
-      String.starts_with?(title, ["Edit file", "Write file", "Apply patch"]) ||
-        is_binary(args["diff"] || args["patch"])
+  defp edit?(title, args) do
+    String.starts_with?(title, ["Edit file", "Write file", "Apply patch"]) ||
+      is_binary(args["diff"] || args["patch"])
+  end
 
   defp readable_text("cite_source", args), do: string(args["observation"])
   defp readable_text("run_action", _args), do: nil
 
-  defp readable_text("record_finding", args),
-    do:
-      [string(args["what"]), string(args["reason"])]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.join("\n\n")
+  defp readable_text("record_finding", args) do
+    [string(args["what"]), string(args["reason"])]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n\n")
+  end
 
   defp readable_text("update_conversation_summary", %{"state" => state}) when is_map(state),
     do: string(state["situation"])
 
-  defp readable_text(_, args),
-    do:
-      string(
-        args["reason"] || args["description"] || args["summary"] || args["context"] ||
-          args["detail"]
-      )
+  defp readable_text(_, args) do
+    string(
+      args["reason"] || args["description"] || args["summary"] || args["context"] ||
+        args["detail"]
+    )
+  end
 
   defp groups("request_input", args) do
     args["questions"]

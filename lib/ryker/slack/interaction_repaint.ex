@@ -8,23 +8,11 @@ defmodule Ryker.Slack.InteractionRepaint do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.Episode
-  alias Ryker.Repo
-
-  alias Ryker.Slack.{
-    ChannelSetup,
-    ConfigurationSession,
-    IncidentRoom,
-    IncidentRoomCard,
-    InteractionAudit,
-    Mentions,
-    ReplyRecords,
-    TaskCard,
-    TaskCardProjection
-  }
-
   alias Ryker.Records.DerivedContext
+  alias Ryker.Repo
+  alias Ryker.Slack.{ChannelSetup, ConfigurationSession, IncidentRoom, IncidentRoomCard}
+  alias Ryker.Slack.{InteractionAudit, Mentions, ReplyRecords, TaskCard, TaskCardProjection}
   alias Ryker.Work.{Session, Turn}
 
   @confirmation_kinds ~w(preference_offer guidance_offer standing_assignment_offer memory_offer schedule_offer automation_change_offer)

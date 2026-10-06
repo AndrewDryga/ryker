@@ -328,9 +328,9 @@ defmodule Ryker.Publication.Review do
 
   defp findings_reason([]), do: nil
 
-  defp findings_reason(findings) when is_list(findings),
-    do:
-      "The trusted policy review found #{length(findings)} issue#{if length(findings) == 1, do: "", else: "s"}."
+  defp findings_reason(findings) when is_list(findings) do
+    "The trusted policy review found #{length(findings)} issue#{if length(findings) == 1, do: "", else: "s"}."
+  end
 
   defp findings_reason(_findings), do: "The trusted policy review is unreadable."
 

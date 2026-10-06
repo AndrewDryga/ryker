@@ -21,18 +21,8 @@ defmodule Ryker.Slack.Client do
   @behaviour Ryker.Slack.MemberDirectory
 
   alias Ryker.Delivery.JSONClient
-
-  alias Ryker.Slack.Client.{
-    Assistant,
-    Conversations,
-    Files,
-    Messages,
-    Reactions,
-    Rooms,
-    Users,
-    Views
-  }
-
+  alias Ryker.Slack.Client.{Assistant, Conversations, Files, Messages, Reactions, Rooms, Users}
+  alias Ryker.Slack.Client.Views
   alias Ryker.Slack.UploadClient
 
   @required_fields [:http, :requester]

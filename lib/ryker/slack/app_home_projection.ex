@@ -8,7 +8,6 @@ defmodule Ryker.Slack.AppHomeProjection do
   """
 
   import Ecto.Query
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Memories
@@ -53,9 +52,10 @@ defmodule Ryker.Slack.AppHomeProjection do
       memory_reviews = %{
         memory_reviews
         | items:
-            Enum.map(memory_reviews.items, fn review ->
-              decorate_memory_review(review, workspace_ref, shared_conversations)
-            end)
+            Enum.map(
+              memory_reviews.items,
+              &decorate_memory_review(&1, workspace_ref, shared_conversations)
+            )
       }
 
       %{

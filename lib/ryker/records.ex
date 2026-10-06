@@ -15,22 +15,19 @@ defmodule Ryker.Records do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Emisar.Approvals
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Input
-  alias Ryker.Repo
-
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.InvestigationPayload
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
   alias Ryker.Records.RecordPayload
+  alias Ryker.Repo
   alias Ryker.Waits.EventSubscriptions
   alias Ryker.Waits.EventWaitTiming
   alias Ryker.Waits.SourceEventMatcher
-
   alias Ryker.Work.Turn
 
   @operation_id ~r/\A[A-Za-z0-9_.:-]{1,80}\z/
@@ -823,11 +820,9 @@ defmodule Ryker.Records do
     claims = Map.get(payload, "cause_claim_ids", [])
     by_ref = Map.new(evidence, &{&1.ref, &1})
 
-    if Enum.all?(refs, fn ref ->
-         get_in(by_ref, [ref, Access.key(:payload), "claim_id"]) in claims
-       end),
-       do: :ok,
-       else: {:error, {:invalid_state_record, :cause_claim_ids}}
+    if Enum.all?(refs, &(get_in(by_ref, [&1, Access.key(:payload), "claim_id"]) in claims)),
+      do: :ok,
+      else: {:error, {:invalid_state_record, :cause_claim_ids}}
   end
 
   defp checked_targets(%{"checked_targets" => checked, "evidence_refs" => refs}, evidence) do
@@ -939,9 +934,10 @@ defmodule Ryker.Records do
   defp prerequisites_satisfied(goal, goals, _state) do
     states = Map.new(goals, &{&1["id"], &1["state"]})
 
-    if Enum.all?(Map.get(goal, "prerequisite_goal_ids", []), fn prerequisite_id ->
-         Map.get(states, prerequisite_id) in @satisfied_prerequisite_states
-       end),
+    if Enum.all?(
+         Map.get(goal, "prerequisite_goal_ids", []),
+         &(Map.get(states, &1) in @satisfied_prerequisite_states)
+       ),
        do: :ok,
        else: {:error, {:invalid_state_record, :prerequisite_goal_ids}}
   end

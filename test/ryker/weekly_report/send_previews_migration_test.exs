@@ -7,7 +7,6 @@ defmodule Ryker.WeeklyReport.SendPreviewsMigrationTest do
   refuses while a preview would read as a week already sent.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @previous_version 20_260_929_010_000

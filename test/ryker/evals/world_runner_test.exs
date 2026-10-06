@@ -1,30 +1,18 @@
 defmodule Ryker.Evals.WorldRunnerTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
 
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
-
   alias Ryker.Artifacts.Artifact
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.Adapters
   alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
-
-  alias Ryker.Evals.{
-    SlackDeliveryPublisher,
-    WorldCase,
-    WorldCassette,
-    WorldCoverage,
-    WorldDatabase,
-    WorldJudgeCase,
-    WorldReport,
-    WorldRunner
-  }
-
+  alias Ryker.Evals.{SlackDeliveryPublisher, WorldCase, WorldCassette, WorldCoverage}
+  alias Ryker.Evals.{WorldDatabase, WorldJudgeCase, WorldReport, WorldRunner}
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo

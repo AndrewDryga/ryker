@@ -6,7 +6,6 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
   # REST API: its documented error bodies, and the archived refusal GitHub
   # gave andrewdryga.github.com on 2026-09-27.
   use Ryker.DataCase, async: true
-
   alias Ryker.GitHub.RepositoryFiles
   alias Ryker.Settings
   alias Ryker.TestSupport.RecordedGitHub
@@ -137,7 +136,7 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
     ok(200, %{"type" => "file", "encoding" => "base64", "content" => content, "sha" => sha})
   end
 
-  defp ok(status, body, headers \\ []),
-    do:
-      {:ok, %{status: status, body: body, headers: [{"x-ratelimit-remaining", "4999"} | headers]}}
+  defp ok(status, body, headers \\ []) do
+    {:ok, %{status: status, body: body, headers: [{"x-ratelimit-remaining", "4999"} | headers]}}
+  end
 end

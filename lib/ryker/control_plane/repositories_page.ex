@@ -16,22 +16,9 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   anything it says changes (`subscriptions/0`).
   """
   use Phoenix.Component
-
   alias Phoenix.HTML.Safe
-
-  alias Ryker.ControlPlane.{
-    CallRun,
-    Components,
-    Environments,
-    Integrations,
-    Kit,
-    KnowledgeDocument,
-    Paths,
-    SettingsView,
-    ShortTime,
-    Units
-  }
-
+  alias Ryker.ControlPlane.{CallRun, Components, Environments, Integrations, Kit}
+  alias Ryker.ControlPlane.{KnowledgeDocument, Paths, SettingsView, ShortTime, Units}
   alias Ryker.{Episodes, RepositoryKnowledge, Schedules}
   alias Ryker.GitHub.Events, as: GitHubEvents
   alias Ryker.Publication.Custody, as: Publications
@@ -271,22 +258,22 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
 
   # One sentence: what is wrong, then what to do about it.
   defp problem(%{configured: %{github_bound: false} = repository}) do
-    if is_binary(repository[:github_repository]),
-      do:
-        "Adding it stopped before it finished, so Ryker cannot use it yet. " <>
-          "Add it again, or remove it.",
-      else:
-        "It was not added from GitHub, so Ryker cannot use it. Remove it, then add it from " <>
-          "GitHub."
+    if is_binary(repository[:github_repository]) do
+      "Adding it stopped before it finished, so Ryker cannot use it yet. " <>
+        "Add it again, or remove it."
+    else
+      "It was not added from GitHub, so Ryker cannot use it. Remove it, then add it from " <>
+        "GitHub."
+    end
   end
 
-  defp problem(%{configured: %{github_access: :removed}}),
-    do:
-      "GitHub access was removed. Give the Ryker GitHub App access to this repository again, then retry."
+  defp problem(%{configured: %{github_access: :removed}}) do
+    "GitHub access was removed. Give the Ryker GitHub App access to this repository again, then retry."
+  end
 
-  defp problem(%{configured: %{github_access: :suspended}}),
-    do:
-      "The Ryker GitHub App is suspended for this repository. Unsuspend it in GitHub, then retry."
+  defp problem(%{configured: %{github_access: :suspended}}) do
+    "The Ryker GitHub App is suspended for this repository. Unsuspend it in GitHub, then retry."
+  end
 
   # A reason that already says how to go on is not followed by a second
   # instruction: an archived repository's "Unarchive it on GitHub and retry,
@@ -398,14 +385,14 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
 
   defp knowledge_facts(_knowledge, _now), do: ["Knowledge not written yet"]
 
-  defp updated(knowledge, now, prefix),
-    do:
-      ShortTime.time(%{
-        __changed__: nil,
-        at: knowledge.document_at,
-        now: now,
-        prefix: prefix
-      })
+  defp updated(knowledge, now, prefix) do
+    ShortTime.time(%{
+      __changed__: nil,
+      at: knowledge.document_at,
+      now: now,
+      prefix: prefix
+    })
+  end
 
   # A failed step, or a write that waits, says why on the row, beneath anything
   # that needs a person more; the repository itself still works. A waiting
@@ -517,9 +504,9 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     """
   end
 
-  defp run_note(%{status: :applied, dropped: count}) when is_integer(count) and count > 0,
-    do:
-      "Ryker left out #{plural(count, "path or command", "paths or commands")} it could not find in the repository."
+  defp run_note(%{status: :applied, dropped: count}) when is_integer(count) and count > 0 do
+    "Ryker left out #{plural(count, "path or command", "paths or commands")} it could not find in the repository."
+  end
 
   defp run_note(%{status: :rejected, result: %{}}),
     do: "The answer did not match what Ryker asked for, so Ryker did not use it."

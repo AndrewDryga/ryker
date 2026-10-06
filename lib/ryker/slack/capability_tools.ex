@@ -18,16 +18,8 @@ defmodule Ryker.Slack.CapabilityTools do
 
   alias Ryker.Delivery.{PlatformActionCustody, Retry}
   alias Ryker.{Options, Rescued}
-
-  alias Ryker.Slack.CapabilityTools.{
-    Actions,
-    Arguments,
-    Authority,
-    ChannelListing,
-    Search,
-    SourceReader
-  }
-
+  alias Ryker.Slack.CapabilityTools.{Actions, Arguments, Authority, ChannelListing, Search}
+  alias Ryker.Slack.CapabilityTools.SourceReader
   alias Ryker.Slack.{ChannelConfigurations, Mentions, SourceAudits, SourceRef}
 
   @spec list(map() | keyword()) :: [map()]
@@ -579,10 +571,10 @@ defmodule Ryker.Slack.CapabilityTools do
   defp action_tokens?({module, _server}), do: module_callback?(module, :checkout, 3)
   defp action_tokens?(_value), do: false
 
-  defp module_callback?(module, function, arity),
-    do:
-      is_atom(module) and Code.ensure_loaded?(module) and
-        function_exported?(module, function, arity)
+  defp module_callback?(module, function, arity) do
+    is_atom(module) and Code.ensure_loaded?(module) and
+      function_exported?(module, function, arity)
+  end
 
   defp error_code(:invalid_arguments), do: "invalid_arguments"
 
@@ -598,9 +590,9 @@ defmodule Ryker.Slack.CapabilityTools do
   # messages carry, such as one that mentions it, kept for fifteen minutes.
   # Without it no retry can work; "temporarily_unavailable" told the model to
   # try again, and every search from 27 to 28 Sep failed that way.
-  defp error_code(:slack_action_token_unavailable),
-    do:
-      "search_unavailable: Slack lets Ryker search only for a short time after a message that mentions it, and this turn has no such permission. Do not retry. Read the channels and threads you know with read_slack_source, or say in the answer what a search would have checked."
+  defp error_code(:slack_action_token_unavailable) do
+    "search_unavailable: Slack lets Ryker search only for a short time after a message that mentions it, and this turn has no such permission. Do not retry. Read the channels and threads you know with read_slack_source, or say in the answer what a search would have checked."
+  end
 
   defp error_code(:slack_source_not_found), do: "not_found"
 
@@ -625,13 +617,13 @@ defmodule Ryker.Slack.CapabilityTools do
   def refusal_code({:invalid_update_mentions, violations}),
     do: "invalid_arguments: " <> Enum.join(violations, " ") <> " Nothing was posted."
 
-  def refusal_code(:update_limit_reached),
-    do:
-      "update_limit_reached: this turn has already posted its #{PlatformActionCustody.maximum_per_turn()} updates. Nothing was posted; say anything more in the final answer."
+  def refusal_code(:update_limit_reached) do
+    "update_limit_reached: this turn has already posted its #{PlatformActionCustody.maximum_per_turn()} updates. Nothing was posted; say anything more in the final answer."
+  end
 
-  def refusal_code(:reaction_limit_reached),
-    do:
-      "reaction_limit_reached: at most #{PlatformActionCustody.maximum_per_turn()} reactions per turn, and this turn has made them. Nothing was changed; say anything more in the final answer."
+  def refusal_code(:reaction_limit_reached) do
+    "reaction_limit_reached: at most #{PlatformActionCustody.maximum_per_turn()} reactions per turn, and this turn has made them. Nothing was changed; say anything more in the final answer."
+  end
 
   def refusal_code(_reason), do: nil
 end

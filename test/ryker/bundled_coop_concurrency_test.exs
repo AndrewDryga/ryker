@@ -1,6 +1,5 @@
 defmodule Ryker.BundledCoopConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.BundledCoop
   alias Ryker.CoopFleet.EnrollmentToken

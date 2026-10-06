@@ -1,6 +1,5 @@
 defmodule Ryker.Work.ValidationIntentTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Work.{Result, ValidationIntent}
 
   test "accept preserves the exact host result that Coop is asked to validate" do

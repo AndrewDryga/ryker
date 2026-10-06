@@ -2,7 +2,6 @@ defmodule Ryker.Memories.MemoryEntryChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Memories.MemoryEntry
 
   @insert_fields [

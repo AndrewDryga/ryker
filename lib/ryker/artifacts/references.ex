@@ -10,7 +10,6 @@ defmodule Ryker.Artifacts.References do
   """
 
   import Ecto.Query
-
   alias Ryker.Artifacts.{Artifact, IngressReference, WorkReference}
   alias Ryker.Ingress.Input
   alias Ryker.Repo
@@ -162,10 +161,10 @@ defmodule Ryker.Artifacts.References do
       }
   end
 
-  defp artifact_ref?(value),
-    do:
-      is_binary(value) and byte_size(value) in 1..128 and
-        String.starts_with?(value, "artifact:input:")
+  defp artifact_ref?(value) do
+    is_binary(value) and byte_size(value) in 1..128 and
+      String.starts_with?(value, "artifact:input:")
+  end
 
   defp transaction_open do
     if Repo.in_transaction?(),

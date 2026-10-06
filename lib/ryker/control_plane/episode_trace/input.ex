@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
-
   alias Ryker.ControlPlane.ConsolePeople
   alias Ryker.Episodes.{Episode, Origins}
   alias Ryker.Episodes.Words
@@ -128,12 +127,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   end
 
   @doc "The admitted messages that start a message of their own, as causality counts inputs."
-  def admitted_inputs(admitted),
-    do:
-      for(
-        %{boundary: true} = input <- admitted,
-        do: Map.take(input, [:id, :dedupe_key, :occurred_at])
-      )
+  def admitted_inputs(admitted) do
+    for(
+      %{boundary: true} = input <- admitted,
+      do: Map.take(input, [:id, :dedupe_key, :occurred_at])
+    )
+  end
 
   @doc "A turn's selection names an admitted input by the kernel's reference to it."
   def admitted_refs(admitted),
@@ -350,13 +349,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
   defp summary(:wait_resumed, %{"expected_wait" => %{"kind" => "input"}}, %Entry{
          event_kind: :edit
-       }),
-       do:
-         "The message was edited while Ryker waited, so the question it asked was replaced and the work started again from the new wording."
+       }) do
+    "The message was edited while Ryker waited, so the question it asked was replaced and the work started again from the new wording."
+  end
 
-  defp summary(:wait_resumed, _payload, %Entry{event_kind: :edit}),
-    do:
-      "The message was edited while Ryker waited, so the work started again from the new wording."
+  defp summary(:wait_resumed, _payload, %Entry{event_kind: :edit}) do
+    "The message was edited while Ryker waited, so the work started again from the new wording."
+  end
 
   defp summary(kind, payload, _input), do: lifecycle_summary(kind, payload)
 

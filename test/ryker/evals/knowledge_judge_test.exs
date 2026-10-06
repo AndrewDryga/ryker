@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.KnowledgeJudgeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Evals.KnowledgeJudge
   alias Ryker.RepositoryKnowledge.Document
 

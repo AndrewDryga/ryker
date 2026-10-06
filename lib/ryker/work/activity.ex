@@ -9,7 +9,6 @@ defmodule Ryker.Work.Activity do
   """
 
   import Ecto.Query
-
   alias Ryker.Admission.FleetSession
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
@@ -17,15 +16,8 @@ defmodule Ryker.Work.Activity do
   alias Ryker.Ingress.Inbox
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-
-  alias Ryker.Work.{
-    ActivityEvent,
-    ActivityEventChangeset,
-    ActivityPaths,
-    ActivityRetention,
-    Session
-  }
-
+  alias Ryker.Work.{ActivityEvent, ActivityEventChangeset, ActivityPaths, ActivityRetention}
+  alias Ryker.Work.Session
   alias Ryker.Work.SessionChangeset
 
   @activity_kinds ~w(

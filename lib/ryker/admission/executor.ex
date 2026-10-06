@@ -11,7 +11,6 @@ defmodule Ryker.Admission.Executor do
   """
 
   require Logger
-
   alias Ryker.Admission
   alias Ryker.Admission.{Attempts, Context, Decision, FleetSession, Prompt}
   alias Ryker.Coop.API
@@ -1201,9 +1200,9 @@ defmodule Ryker.Admission.Executor do
     "ryker:admission:turn:#{entry.id}:g#{entry.execution_generation}:#{entry.admission_context_fingerprint}"
   end
 
-  defp validation_key(entry, candidate_attempt, candidate_sha256, verdict),
-    do:
-      "ryker:admission:validate:#{entry.id}:g#{entry.execution_generation}:a#{candidate_attempt}:v#{entry.validation_generation}:#{candidate_sha256}:#{verdict}"
+  defp validation_key(entry, candidate_attempt, candidate_sha256, verdict) do
+    "ryker:admission:validate:#{entry.id}:g#{entry.execution_generation}:a#{candidate_attempt}:v#{entry.validation_generation}:#{candidate_sha256}:#{verdict}"
+  end
 
   defp exact_validation_attempt(%{"validation_attempt" => attempt}, attempt), do: :ok
 

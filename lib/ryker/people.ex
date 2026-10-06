@@ -30,7 +30,6 @@ defmodule Ryker.People do
   """
 
   import Ecto.Query
-
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.People.PersonFact
   alias Ryker.Repo

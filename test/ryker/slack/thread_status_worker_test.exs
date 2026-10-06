@@ -1,11 +1,9 @@
 defmodule Ryker.Slack.ThreadStatusWorkerTest do
   alias Ryker.Slack.ThreadStatusReceipts
   use Ryker.DataCase, async: false
-
   import ExUnit.CaptureLog
   import Ecto.Query
   import Ryker.TestHelpers, only: [eventually: 2]
-
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.Failures

@@ -7,7 +7,6 @@ defmodule Ryker.Slack.TaskCardProjection do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.{FixLoop, Followup, LifecycleEvent, Publication, Review}
@@ -281,10 +280,10 @@ defmodule Ryker.Slack.TaskCardProjection do
     end
   end
 
-  defp same_destination?(card, episode),
-    do:
-      episode.destination_transport == "slack" and
-        episode.destination_conversation_ref == "slack:#{card.workspace_ref}:#{card.channel_ref}"
+  defp same_destination?(card, episode) do
+    episode.destination_transport == "slack" and
+      episode.destination_conversation_ref == "slack:#{card.workspace_ref}:#{card.channel_ref}"
+  end
 
   defp snapshot_documents(snapshot) do
     (snapshot.records ++
@@ -443,14 +442,14 @@ defmodule Ryker.Slack.TaskCardProjection do
     |> Enum.max(DateTime)
   end
 
-  defp github_moved_at(%Publication{id: id}),
-    do:
-      Repo.one(
-        from(event in LifecycleEvent,
-          where: event.publication_id == ^id,
-          select: max(event.occurred_at)
-        )
+  defp github_moved_at(%Publication{id: id}) do
+    Repo.one(
+      from(event in LifecycleEvent,
+        where: event.publication_id == ^id,
+        select: max(event.occurred_at)
       )
+    )
+  end
 
   defp github_moved_at(nil), do: nil
 
@@ -569,9 +568,9 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp held_cause(:reply),
     do: "The worker finished, but saving its result stopped, so its reply is still held."
 
-  defp held_restore(true),
-    do:
-      "Keep its working copy and task notes: the worker session is closed, so a retry can't recover them."
+  defp held_restore(true) do
+    "Keep its working copy and task notes: the worker session is closed, so a retry can't recover them."
+  end
 
   defp held_restore(false),
     do: "Keep its working copy and task notes until they are restored into a bound workspace."
@@ -581,18 +580,18 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp held_report(report),
     do: "The worker's own report, which is not a check result: \"#{compact(report, 900)}\""
 
-  defp unstarted_review(%Episode{state: :complete}, nil, %{"status" => "open"}),
-    do:
-      "Prepared changes are saved, but checks have not started. Open the request's timeline to review how to recover the working copy."
+  defp unstarted_review(%Episode{state: :complete}, nil, %{"status" => "open"}) do
+    "Prepared changes are saved, but checks have not started. Open the request's timeline to review how to recover the working copy."
+  end
 
   defp unstarted_review(_episode, _publication, _offer), do: nil
 
-  defp action_needed(_episode, _turn, _records, %Publication{status: :blocked} = publication),
-    do:
-      compact(
-        publication.last_error_detail || "Draft pull-request work needs operator attention.",
-        500
-      )
+  defp action_needed(_episode, _turn, _records, %Publication{status: :blocked} = publication) do
+    compact(
+      publication.last_error_detail || "Draft pull-request work needs operator attention.",
+      500
+    )
+  end
 
   defp action_needed(
          _episode,
@@ -600,9 +599,9 @@ defmodule Ryker.Slack.TaskCardProjection do
          _records,
          %Publication{status: :published, expected_remote_head_sha: head_sha}
        )
-       when is_binary(head_sha),
-       do:
-         "The draft pull-request head changed outside this reviewed publication. Review the latest state or discard publication custody."
+       when is_binary(head_sha) do
+    "The draft pull-request head changed outside this reviewed publication. Review the latest state or discard publication custody."
+  end
 
   defp action_needed(
          _episode,
@@ -631,9 +630,9 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp action_needed(%Episode{state: :waiting_for_event}, _turn, records, _publication),
     do: wait_summary(records, "event_wait", "The task is waiting for external verification.")
 
-  defp action_needed(_episode, %Turn{status: :blocked} = turn, _records, _publication),
-    do:
-      compact(turn.last_error_detail || "Task work is blocked and needs operator attention.", 500)
+  defp action_needed(_episode, %Turn{status: :blocked} = turn, _records, _publication) do
+    compact(turn.last_error_detail || "Task work is blocked and needs operator attention.", 500)
+  end
 
   defp action_needed(_episode, _turn, _records, _publication), do: nil
 
@@ -786,9 +785,9 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   # A check takes minutes, and the card offered nothing while it ran (Andrew,
   # 2026-09-28): a person can always drop a change that is being checked.
-  defp publication_controls(%Publication{status: :review_pending, last_error_code: code}),
-    do:
-      if(is_binary(code) and code not in @in_flight, do: ["retry", "discard"], else: ["discard"])
+  defp publication_controls(%Publication{status: :review_pending, last_error_code: code}) do
+    if(is_binary(code) and code not in @in_flight, do: ["retry", "discard"], else: ["discard"])
+  end
 
   defp publication_controls(%Publication{status: status, last_error_code: code})
        when status in [:review_ready, :publish_pending, :published_ready] and is_binary(code) and

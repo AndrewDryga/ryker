@@ -6,9 +6,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
   in one closed Details disclosure.
   """
   use ExUnit.Case, async: true
-
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Navigation, PageHelp, Pages, SubscriptionsPage}
   alias Ryker.Fixtures.ControlPlaneOptions
 

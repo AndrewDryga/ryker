@@ -19,17 +19,9 @@ defmodule Ryker.ControlPlane.ActivityPage do
   import Ryker.ControlPlane.Components,
     only: [icon: 1, live_filter_toolbar: 1, page_header: 1, pager: 1]
 
-  alias Ryker.ControlPlane.{
-    Components,
-    Kit,
-    Paths,
-    RequestFilters,
-    SchedulesPage,
-    SlackMarkdown,
-    UsageProjection
-  }
-
   alias Ryker.{Accounting, Episodes, Schedules, Settings}
+  alias Ryker.ControlPlane.{Components, Kit, Paths, RequestFilters, SchedulesPage, SlackMarkdown}
+  alias Ryker.ControlPlane.UsageProjection
   alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.Episodes.Words
   alias Ryker.Ingress.Inbox
@@ -371,44 +363,44 @@ defmodule Ryker.ControlPlane.ActivityPage do
 
   defp where(item), do: item.source
 
-  defp filter_path(path, params, filter),
-    do:
-      path <>
-        "?" <>
-        Paths.encode_query(
-          Map.merge(
-            Map.take(
-              UsageProjection.link_params(params),
-              ~w(q mode repository state conversation thread transport) ++
-                UsageProjection.filter_keys()
-            ),
-            %{"filter" => filter}
-          )
+  defp filter_path(path, params, filter) do
+    path <>
+      "?" <>
+      Paths.encode_query(
+        Map.merge(
+          Map.take(
+            UsageProjection.link_params(params),
+            ~w(q mode repository state conversation thread transport) ++
+              UsageProjection.filter_keys()
+          ),
+          %{"filter" => filter}
         )
+      )
+  end
 
-  defp page_path(path, params, page),
-    do:
-      path <>
-        "?" <>
-        Paths.encode_query(
-          Map.put(
-            Map.take(
-              UsageProjection.link_params(params),
-              ~w(q mode filter repository state conversation thread transport) ++
-                UsageProjection.filter_keys()
-            ),
-            "page",
-            page
-          )
+  defp page_path(path, params, page) do
+    path <>
+      "?" <>
+      Paths.encode_query(
+        Map.put(
+          Map.take(
+            UsageProjection.link_params(params),
+            ~w(q mode filter repository state conversation thread transport) ++
+              UsageProjection.filter_keys()
+          ),
+          "page",
+          page
         )
+      )
+  end
 
-  defp filtered?(params),
-    do:
-      Enum.any?(
-        ~w(q repository state conversation thread transport),
-        &(params[&1] not in [nil, ""])
-      ) or
-        params["filter"] not in [nil, "all"] or UsageProjection.filtered?(params)
+  defp filtered?(params) do
+    Enum.any?(
+      ~w(q repository state conversation thread transport),
+      &(params[&1] not in [nil, ""])
+    ) or
+      params["filter"] not in [nil, "all"] or UsageProjection.filtered?(params)
+  end
 
   # The requests behind a Usage figure lead back to Usage, at the same window
   # and work, from the place every sub-page leads back from (`Kit.back/1`).

@@ -2,22 +2,20 @@ defmodule Ryker.Delivery.ChatCard do
   @moduledoc false
 
   import Ecto.Query
-
+  alias Ryker.Behaviors.Behavior
   alias Ryker.ControlPlane.Paths
   alias Ryker.Delivery.OfferWords
   alias Ryker.InspectionRedactor
+  alias Ryker.Memories.MemoryEntry
   alias Ryker.Publication.Card, as: PublicationCard
   alias Ryker.Publication.{Publication, Review}
-  alias Ryker.Repo
-  alias Ryker.Slack.TaskCardProjection
-
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Memories.MemoryEntry
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
   alias Ryker.Records.Response
+  alias Ryker.Repo
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleCadence
+  alias Ryker.Slack.TaskCardProjection
 
   @doc "Only a lifecycle state that changes the card's meaning is shown."
   def display_status(%{status: status})
@@ -412,9 +410,7 @@ defmodule Ryker.Delivery.ChatCard do
   defp card(%Record{kind: "finding"} = record, payload) do
     secrets = InspectionRedactor.configured_secrets()
 
-    prose = fn value ->
-      InspectionRedactor.artifact(value, secrets: secrets).text
-    end
+    prose = &InspectionRedactor.artifact(&1, secrets: secrets).text
 
     common(
       record,

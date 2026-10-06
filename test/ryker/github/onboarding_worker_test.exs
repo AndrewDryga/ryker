@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.OnboardingWorkerTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.GitHub.OnboardingWorker
   alias Ryker.PollingWorker
   alias Ryker.Settings

@@ -6,10 +6,8 @@ defmodule Ryker.ControlPlane.ComponentsTest do
   on one page and the settled tone on another), so the contract lives here.
   """
   use ExUnit.Case, async: true
-
   import Phoenix.Component
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Components, Kit, Pages}
   alias Ryker.Episodes.Words
   alias Ryker.Fixtures.ControlPlaneOptions

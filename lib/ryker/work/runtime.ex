@@ -9,7 +9,6 @@ defmodule Ryker.Work.Runtime do
   """
 
   use Supervisor
-
   alias Ryker.Options
   alias Ryker.StateTools.Capabilities
   alias Ryker.Work.{ActivitySyncWorker, Executor, Worker}

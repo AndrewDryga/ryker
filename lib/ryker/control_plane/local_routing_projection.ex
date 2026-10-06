@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   """
 
   import Ecto.Query
-
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.Comparison

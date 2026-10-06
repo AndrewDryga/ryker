@@ -22,21 +22,10 @@ defmodule Ryker.Slack.Gateway do
   @member_ttl_ms 5 * 60 * 1_000
 
   require Logger
-
   alias Ryker.Ingress.Inbox
   alias Ryker.Options
-
-  alias Ryker.Slack.{
-    Command,
-    Event,
-    HomeEvent,
-    HomeInteraction,
-    HomeSubmission,
-    Interaction,
-    MembershipTransition,
-    ReactionEvent,
-    Shortcut
-  }
+  alias Ryker.Slack.{Command, Event, HomeEvent, HomeInteraction, HomeSubmission, Interaction}
+  alias Ryker.Slack.{MembershipTransition, ReactionEvent, Shortcut}
 
   @configuration_fields [
     :handler_settings,
@@ -104,9 +93,9 @@ defmodule Ryker.Slack.Gateway do
 
     case state.transport.connect(state.transport_options) do
       {:ok, connection} ->
-        if state.reconnect_failures > 0,
-          do:
-            Logger.info("Slack Socket Mode connected after #{state.reconnect_failures} failures")
+        if state.reconnect_failures > 0 do
+          Logger.info("Slack Socket Mode connected after #{state.reconnect_failures} failures")
+        end
 
         broadcast_connection_changed(true)
 
@@ -562,16 +551,16 @@ defmodule Ryker.Slack.Gateway do
   defp feedback_text(:invalid),
     do: "That control is no longer current. Use the refreshed message instead."
 
-  defp feedback_text(:room_capacity),
-    do:
-      "Ryker already has as many incident rooms open as it keeps. Close one whose " <>
-        "incident is over on Ryker's Incident rooms page, then press again. An " <>
-        "archived room keeps its place, since it can come back."
+  defp feedback_text(:room_capacity) do
+    "Ryker already has as many incident rooms open as it keeps. Close one whose " <>
+      "incident is over on Ryker's Incident rooms page, then press again. An " <>
+      "archived room keeps its place, since it can come back."
+  end
 
-  defp feedback_text(:task_not_here),
-    do:
-      "Ryker can't start this task in this channel. " <>
-        "Its environment doesn't let Ryker change that repository."
+  defp feedback_text(:task_not_here) do
+    "Ryker can't start this task in this channel. " <>
+      "Its environment doesn't let Ryker change that repository."
+  end
 
   defp handle_home(event, settings) do
     case {Map.get(settings, :home_handler), Map.get(settings, :home_options)} do

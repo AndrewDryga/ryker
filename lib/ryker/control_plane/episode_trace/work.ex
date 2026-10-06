@@ -8,7 +8,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
-
   alias Ryker.CoopFleet.Event, as: CoopEvent
   alias Ryker.Delivery.ChatCard
   alias Ryker.InspectionRedactor
@@ -460,18 +459,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   # "Call validate_final with this exact candidate…"). The response's shape
   # and size are the raw response's own line (Andrew, 2026-09-27: "details not
   # needed the duplicate whats already shown above nicely").
-  defp validation_details(violations),
-    do:
-      compact_details([
-        {"What Ryker told the model", if(violations != [], do: Enum.join(violations, " "))}
-      ])
+  defp validation_details(violations) do
+    compact_details([
+      {"What Ryker told the model", if(violations != [], do: Enum.join(violations, " "))}
+    ])
+  end
 
   # What was sent back and why, in a person's words; the exact correction the model got stays
   # under Details.
-  defp validation_summary("reject", violations, _attempt, _turn),
-    do:
-      "Ryker checks every answer before sending it. " <>
-        sent_back_reason(Enum.join(violations, " ")) <> " This is a routine check, not an error."
+  defp validation_summary("reject", violations, _attempt, _turn) do
+    "Ryker checks every answer before sending it. " <>
+      sent_back_reason(Enum.join(violations, " ")) <> " This is a routine check, not an error."
+  end
 
   # In the words the model call's Checks line uses: first time, or on
   # which attempt.

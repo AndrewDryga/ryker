@@ -8,19 +8,14 @@ defmodule Ryker.Work.SubmissionBuilder do
   """
 
   import Ecto.Query
-
   alias Ryker.Artifacts
+  alias Ryker.Behaviors
   alias Ryker.CanonicalJSON
+  alias Ryker.Continuity
   alias Ryker.Episodes.{CorrelationClaims, Episode, Event, Origins, Reactions, RoutingDigests}
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
-  alias Ryker.Repo
-  alias Ryker.RepositoryKnowledge
-  alias Ryker.Slack.SourceRef, as: SlackSourceRef
-
-  alias Ryker.Behaviors
-  alias Ryker.Continuity
   alias Ryker.Learning.LearningSources
   alias Ryker.Memories
   alias Ryker.Memories.Cases
@@ -28,7 +23,9 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Records
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.Outcomes
-
+  alias Ryker.Repo
+  alias Ryker.RepositoryKnowledge
+  alias Ryker.Slack.SourceRef, as: SlackSourceRef
   alias Ryker.StateTools.Capabilities
   alias Ryker.StateTools.FixedTools
   alias Ryker.StateTools.ToolVisibility
@@ -438,7 +435,7 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   defp artifact_refs_from_items(items) do
     items
-    |> Enum.flat_map(fn item -> collect_artifact_refs(item["content"]) end)
+    |> Enum.flat_map(&collect_artifact_refs(&1["content"]))
     |> Enum.uniq()
   end
 

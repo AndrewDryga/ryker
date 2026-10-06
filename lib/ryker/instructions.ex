@@ -208,9 +208,9 @@ defmodule Ryker.Instructions do
 
   defp instructions_topic, do: "instructions"
 
-  defp broadcast_instructions_saved(scope_ref),
-    do:
-      Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(instructions_topic(), {:instructions_saved, scope_ref})
-      end)
+  defp broadcast_instructions_saved(scope_ref) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(instructions_topic(), {:instructions_saved, scope_ref})
+    end)
+  end
 end

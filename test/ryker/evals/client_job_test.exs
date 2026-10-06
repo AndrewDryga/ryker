@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.ClientJobTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Coop.Client
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Evals.{Job, WorldSource}

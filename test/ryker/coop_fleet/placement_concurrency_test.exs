@@ -1,8 +1,6 @@
 defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CoopFleet.{Certificate, Client, Command, ControlPlane, JobSpec, Placement, Worker}
   alias Ryker.CoopFleet.ControlPlane.Commands

@@ -267,14 +267,15 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
       "before" => arguments["before"]
     }
 
-    if hit["thread_source_ref"],
-      do:
-        Map.merge(base, %{
-          "source_ref" => hit["thread_source_ref"],
-          "view" => "thread",
-          "anchor_ref" => hit["source_ref"]
-        }),
-      else: base
+    if hit["thread_source_ref"] do
+      Map.merge(base, %{
+        "source_ref" => hit["thread_source_ref"],
+        "view" => "thread",
+        "anchor_ref" => hit["source_ref"]
+      })
+    else
+      base
+    end
   end
 
   defp conversations(values, workspace_ref)

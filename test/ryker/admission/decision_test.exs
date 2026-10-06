@@ -1,6 +1,5 @@
 defmodule Ryker.Admission.DecisionTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Admission.Decision
 
   test "parses each supported generic admission action" do
@@ -99,8 +98,8 @@ defmodule Ryker.Admission.DecisionTest do
                )
              )
 
-    words = fn messages -> Map.put(both, "messages", messages) end
-    emoji = fn reactions -> Map.put(both, "reactions", reactions) end
+    words = &Map.put(both, "messages", &1)
+    emoji = &Map.put(both, "reactions", &1)
 
     refusals = [
       {words.(nil), :messages},

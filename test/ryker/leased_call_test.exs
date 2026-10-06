@@ -1,6 +1,5 @@
 defmodule Ryker.LeasedCallTest do
   use ExUnit.Case, async: true
-
   alias Ryker.LeasedCall
 
   test "an answer comes back only after the lease is renewed once more" do

@@ -1,10 +1,8 @@
 defmodule Ryker.GitHub.RouterTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
   import Plug.Conn
   import Plug.Test
-
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.GitHub.{Auth, Binding, Router}
   alias Ryker.Ingress.Inbox

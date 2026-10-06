@@ -9,13 +9,10 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
   had not asked Slack yet, and nothing drew the page again once it had.
   """
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
-
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Credentials
@@ -60,7 +57,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
   end
 
   test "who can manage Ryker names each person, linked to Slack, and the name arrives without a reload" do
-    names!(%{@andrew => "Andrew"})
+    directory = names!(%{})
     slack_on!([@andrew])
 
     {:ok, view, _html} = open("/integrations/slack")
@@ -71,6 +68,8 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
 
     # Slack answers in the background, one name at a time, and the open page
     # shows the name.
+    knows!(directory, @andrew, "Andrew")
+
     assert eventually(fn ->
              :ok = GenServer.call(Names, :refresh)
              has_element?(view, "#{@managers} a[href='#{@profile}']", "@Andrew")
@@ -205,7 +204,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
   # "Slack user" on its Timeline card until a reload, though the name arrived
   # seconds later: the card was drawn from data that had not changed.
   test "a person mentioned in a Timeline message is named once Slack says, without a reload" do
-    names!(%{"U0SENDER1" => "Sam", @andrew => "Andrew"})
+    directory = names!(%{"U0SENDER1" => "Sam"})
     Names.name(@workspace, "U0SENDER1")
     :ok = GenServer.call(Names, :refresh)
     entry = slack_message!("U0SENDER1", "Can <@#{@andrew}> look at the deploy?")
@@ -214,6 +213,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
     body = "#story-message-#{entry.id} .ui-message-body"
 
     assert has_element?(view, "#{body} a[href='#{@profile}']", "Slack user")
+    knows!(directory, @andrew, "Andrew")
 
     assert eventually(fn ->
              :ok = GenServer.call(Names, :refresh)
@@ -225,13 +225,14 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
   # never changes, so a sender Slack named after the page opened stayed
   # "Slack user" in it until a reload.
   test "a sender in a request's briefing is named once Slack says, without a reload" do
-    names!(%{@andrew => "Andrew"})
+    directory = names!(%{})
     episode = work_request!(@andrew, "Is the deploy healthy?")
 
     {:ok, view, _html} = open("/timeline/" <> episode.id)
     sender = ".prompt-assembly .ui-message-header a[href='#{@profile}']"
 
     assert has_element?(view, sender, "Slack user")
+    knows!(directory, @andrew, "Andrew")
 
     assert eventually(fn ->
              :ok = GenServer.call(Names, :refresh)
@@ -241,14 +242,25 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
 
   # The name cache is handed the workspace, its address and a lookup; here the
   # lookup is the directory a test names.
+  # The people Slack can name, which a test adds to once it has seen a page
+  # before Slack named someone. Three tests named them up front and looked for
+  # the page's "Slack user" first: a slow first render (6.7 s under load,
+  # 2026-10-06) let the name cache's own tick name them before the page was
+  # looked at.
   defp names!(directory) do
+    known = start_supervised!(Supervisor.child_spec({Agent, fn -> directory end}, id: :directory))
+
     start_supervised!(
       {Names,
        workspace: @workspace,
        workspace_url: "https://acme.slack.com",
-       fetch: fn ref -> {:ok, Map.get(directory, ref)} end}
+       fetch: fn ref -> {:ok, Agent.get(known, &Map.get(&1, ref))} end}
     )
+
+    known
   end
+
+  defp knows!(directory, ref, name), do: Agent.update(directory, &Map.put(&1, ref, name))
 
   defp slack_on!(operators) do
     {:ok, _snapshot} =

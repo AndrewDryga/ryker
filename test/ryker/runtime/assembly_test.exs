@@ -3,9 +3,7 @@ defmodule Ryker.Runtime.AssemblyTest do
   # case here is about that boundary: what an installation's saved connections
   # turn on, what they may never turn on, and what a refusal has to name.
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.{Bootstrap, Credentials, IntegrationSetup, Secret, Settings}
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.CoopFleet.JobTemplates
@@ -1008,13 +1006,13 @@ defmodule Ryker.Runtime.AssemblyTest do
     )
   end
 
-  defp webhook_environment_naming(revision),
-    do:
-      Settings.put_webhook_source(
-        %{name: "custom", environment_ref: "unreviewed"},
-        revision,
-        @actor
-      )
+  defp webhook_environment_naming(revision) do
+    Settings.put_webhook_source(
+      %{name: "custom", environment_ref: "unreviewed"},
+      revision,
+      @actor
+    )
+  end
 
   defp github_binding(name, repository_ref, repository_id, revision) do
     {:ok, _} =

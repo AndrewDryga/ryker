@@ -92,9 +92,9 @@ defmodule Ryker.Publication.FollowupExecutor do
     kind, reason -> {:error, {:publication_followup_callback_crashed, kind, reason}}
   end
 
-  defp renew(claim, :poll, settings),
-    do:
-      settings.custody.renew_poll(claim.publication.ref, claim.lease_ref, settings.lease_seconds)
+  defp renew(claim, :poll, settings) do
+    settings.custody.renew_poll(claim.publication.ref, claim.lease_ref, settings.lease_seconds)
+  end
 
   defp renew(claim, :delivery, settings),
     do: settings.custody.renew_delivery(claim.event.ref, claim.lease_ref, settings.lease_seconds)
@@ -146,10 +146,10 @@ defmodule Ryker.Publication.FollowupExecutor do
     )
   end
 
-  defp callback?(module, function, arity),
-    do:
-      is_atom(module) and Code.ensure_loaded?(module) and
-        function_exported?(module, function, arity)
+  defp callback?(module, function, arity) do
+    is_atom(module) and Code.ensure_loaded?(module) and
+      function_exported?(module, function, arity)
+  end
 
   defp positive?(value), do: is_integer(value) and value > 0
 end

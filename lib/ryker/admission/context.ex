@@ -92,9 +92,10 @@ defmodule Ryker.Admission.Context do
     do: instruction_text?(snapshot)
 
   defp instruction_text?(%{} = snapshot) do
-    Enum.any?(~w(global channel), fn scope ->
-      match?(%{"text" => text} when is_binary(text) and text != "", snapshot[scope])
-    end)
+    Enum.any?(
+      ~w(global channel),
+      &match?(%{"text" => text} when is_binary(text) and text != "", snapshot[&1])
+    )
   end
 
   defp instruction_text?(_snapshot), do: false

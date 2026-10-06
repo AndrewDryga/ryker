@@ -13,7 +13,6 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   import Ecto.Query
   import Ryker.Work.Custody.Locks
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
   alias Ryker.CoopFleet.{Placement, Worker}
@@ -716,10 +715,10 @@ defmodule Ryker.Work.Custody.Cancellation do
     end
   end
 
-  defp cancellation_already_settled?(turn, receipt_fingerprint),
-    do:
-      turn.status in [:blocked, :superseded] and
-        turn.cancellation_receipt_fingerprint == receipt_fingerprint
+  defp cancellation_already_settled?(turn, receipt_fingerprint) do
+    turn.status in [:blocked, :superseded] and
+      turn.cancellation_receipt_fingerprint == receipt_fingerprint
+  end
 
   defp cancellation_pending(%Turn{status: :cancel_pending}), do: :ok
   defp cancellation_pending(_turn), do: {:error, :work_cancellation_not_pending}

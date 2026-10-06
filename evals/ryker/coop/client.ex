@@ -16,7 +16,6 @@ defmodule Ryker.Coop.Client do
 
   alias Ryker.CanonicalJSON
   import Ecto.Query
-
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Evals.Job
   alias Ryker.Repo

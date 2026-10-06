@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.LabMessageEditorTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.HTML
 
   # The editor's id was the message's id written into the page unescaped, so its safety rested

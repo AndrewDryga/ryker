@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.AppJWTTest do
   use ExUnit.Case, async: true
-
   alias Ryker.GitHub.AppJWT
 
   @now ~U[2026-08-29 12:00:00Z]

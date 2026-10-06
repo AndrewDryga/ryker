@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.ServerTest do
   use ExUnit.Case, async: true
-
   alias Ryker.CoopFleet.Server
 
   test "the worker listener is TLS 1.3 and only enrollment may omit a client certificate" do

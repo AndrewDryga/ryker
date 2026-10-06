@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldSuiteTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Evals.{WorldCase, WorldSuite}
 
   test "case and tag selection produce a complete deterministic repeat plan" do

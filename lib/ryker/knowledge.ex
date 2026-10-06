@@ -8,8 +8,6 @@ defmodule Ryker.Knowledge do
   import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Slack.ChannelMembership
-
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Knowledge.KnowledgeRevision
@@ -20,6 +18,7 @@ defmodule Ryker.Knowledge do
   alias Ryker.Learning.Observations
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
+  alias Ryker.Slack.ChannelMembership
 
   @stale {:error, {:admission_rejected, :context_stale}}
 
@@ -791,13 +790,13 @@ defmodule Ryker.Knowledge do
   # the same subject and refused it as unavailable, so a recurring subject
   # stopped being learned once its first topic expired (2026-10-04 review).
   # The old row stays for its history under a key nothing proposes.
-  defp kept,
-    do:
-      dynamic(
-        [k],
-        is_nil(k.forgotten_at) and
-          fragment(~s(?::jsonb <> '{"retention":"pruned"}'::jsonb), k.state)
-      )
+  defp kept do
+    dynamic(
+      [k],
+      is_nil(k.forgotten_at) and
+        fragment(~s(?::jsonb <> '{"retention":"pruned"}'::jsonb), k.state)
+    )
+  end
 
   defp release_if_gone(%ConversationKnowledge{} = head, %{"target_ref" => nil}) do
     if head.forgotten_at || head.state == %{"retention" => "pruned"} do
@@ -843,14 +842,14 @@ defmodule Ryker.Knowledge do
          _,
          omissions,
          scope
-       ),
-       do:
-         not Enum.any?(
-           omissions,
-           &(&1["topic_key"] == proposal["topic_key"] and
-               &1["conversation_ref"] == scope.conversation_ref and
-               &1["repository_ref"] == scope.repository_ref and &1["reason"] == "source_capacity")
-         )
+       ) do
+    not Enum.any?(
+      omissions,
+      &(&1["topic_key"] == proposal["topic_key"] and
+          &1["conversation_ref"] == scope.conversation_ref and
+          &1["repository_ref"] == scope.repository_ref and &1["reason"] == "source_capacity")
+    )
+  end
 
   defp allowed_update?(%{id: key, version: version}, proposal, offered, _, _) do
     reference = "knowledge:" <> key
@@ -935,13 +934,14 @@ defmodule Ryker.Knowledge do
       )
 
     item =
-      if existing,
-        do:
-          existing
-          |> Ecto.Changeset.change(attrs)
-          |> Ecto.Changeset.force_change(:updated_at, now)
-          |> Repo.update!(),
-        else: Repo.insert!(struct!(ConversationKnowledge, Map.put(attrs, :id, id)))
+      if existing do
+        existing
+        |> Ecto.Changeset.change(attrs)
+        |> Ecto.Changeset.force_change(:updated_at, now)
+        |> Repo.update!()
+      else
+        Repo.insert!(struct!(ConversationKnowledge, Map.put(attrs, :id, id)))
+      end
 
     persist_memberships(item, roots, source.direct_sources, version)
     broadcast_knowledge_updated(item.id)
@@ -1174,11 +1174,11 @@ defmodule Ryker.Knowledge do
   outside this module, call it too.
   """
   @spec broadcast_knowledge_updated(Ecto.UUID.t()) :: :ok
-  def broadcast_knowledge_updated(knowledge_id),
-    do:
-      Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(knowledge_topic(), {:knowledge_updated, knowledge_id})
-      end)
+  def broadcast_knowledge_updated(knowledge_id) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(knowledge_topic(), {:knowledge_updated, knowledge_id})
+    end)
+  end
 
   defp knowledge_topic, do: "knowledge"
 end

@@ -21,17 +21,9 @@ defmodule Ryker.ControlPlane.FailuresPage do
   retried, changes (`subscriptions/0`).
   """
   use Phoenix.Component
-
   alias Phoenix.HTML.Safe
-
-  alias Ryker.ControlPlane.{
-    Components,
-    FailureExplanation,
-    FailureProjection,
-    Kit,
-    ShortTime,
-    SlackMarkdown
-  }
+  alias Ryker.ControlPlane.{Components, FailureExplanation, FailureProjection, Kit, ShortTime}
+  alias Ryker.ControlPlane.SlackMarkdown
 
   @doc """
   The topics an open Failures list or failure page listens to, as the context

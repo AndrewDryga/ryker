@@ -10,7 +10,6 @@ defmodule Ryker.Evals.WorldDatabase do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Repo

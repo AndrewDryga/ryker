@@ -1,6 +1,5 @@
 defmodule Ryker.Work.FinalTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Work.Final
 
   test "an unchanged lifecycle may wait silently without discarding its durable record" do

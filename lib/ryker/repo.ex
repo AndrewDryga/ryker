@@ -24,10 +24,10 @@ defmodule Ryker.Repo do
   # them with now() and clock_timestamp(), which PostgreSQL reads in the
   # session's zone. Each connection asks for UTC, so a server in another zone
   # cannot shift every lease and retention horizon by its offset.
-  def init(_context, config),
-    do:
-      {:ok,
-       Keyword.update(config, :parameters, [timezone: "UTC"], &Keyword.put(&1, :timezone, "UTC"))}
+  def init(_context, config) do
+    {:ok,
+     Keyword.update(config, :parameters, [timezone: "UTC"], &Keyword.put(&1, :timezone, "UTC"))}
+  end
 
   # The after-commit queue of the outermost transaction this process has open,
   # newest callback first. Absent outside a transaction Ryker.Repo started.

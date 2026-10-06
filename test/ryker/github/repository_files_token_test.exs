@@ -7,7 +7,6 @@ defmodule Ryker.GitHub.RepositoryFilesTokenTest do
   # Token minting is a named process and the file requester is application
   # configuration, so this test runs alone.
   use Ryker.DataCase, async: false
-
   alias Ryker.GitHub.{InstallationTokens, RepositoryFiles}
   alias Ryker.Settings
 

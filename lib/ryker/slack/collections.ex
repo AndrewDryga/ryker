@@ -15,7 +15,6 @@ defmodule Ryker.Slack.Collections do
   """
 
   import Ecto.Query
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Repo

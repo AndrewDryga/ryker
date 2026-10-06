@@ -2,14 +2,14 @@ defmodule Ryker.ControlPlane.UsageChart do
   @moduledoc "An accessible daily series. Missing dates keep their position, not a false adjacency."
   alias Ryker.ControlPlane.Kit
 
-  def render([]),
-    do:
-      Kit.empty_html(
-        variant: :bare,
-        icon: :usage,
-        title: "No model work in this window",
-        text: "The daily tokens show here once Ryker works."
-      )
+  def render([]) do
+    Kit.empty_html(
+      variant: :bare,
+      icon: :usage,
+      title: "No model work in this window",
+      text: "The daily tokens show here once Ryker works."
+    )
+  end
 
   def render(days) do
     days = Enum.sort_by(days, &Date.to_gregorian_days(&1.date))
@@ -30,11 +30,11 @@ defmodule Ryker.ControlPlane.UsageChart do
     bar_width = min(step * 0.7, 48)
 
     [
-      if(Date.compare(first, oldest) == :gt,
-        do:
-          "<p>Chart shows the latest 366 calendar days with a recorded endpoint. Totals above still cover the selected period.</p>",
-        else: []
-      ),
+      if Date.compare(first, oldest) == :gt do
+        "<p>Chart shows the latest 366 calendar days with a recorded endpoint. Totals above still cover the selected period.</p>"
+      else
+        []
+      end,
       "<figure class=\"usage-chart\"><figcaption><strong>",
       number(Enum.sum(Enum.map(days, & &1.tokens))),
       "</strong> tokens · ",

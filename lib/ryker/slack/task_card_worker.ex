@@ -10,9 +10,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   """
 
   use Ryker.PollingWorker, lane: :slack_task_cards, interval: :interval_ms
-
   require Logger
-
   alias Ryker.Delivery.Retry
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
@@ -20,7 +18,6 @@ defmodule Ryker.Slack.TaskCardWorker do
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Records
-
   alias Ryker.Slack.{TaskCardProjection, TaskCards}
 
   @default_interval_ms 1_000

@@ -18,7 +18,6 @@ defmodule Ryker.ControlPlane.Integrations do
   """
 
   use Phoenix.Component
-
   alias Ryker.ControlPlane.{Environments, Kit}
   alias Ryker.Slack.Names
 
@@ -370,30 +369,30 @@ defmodule Ryker.ControlPlane.Integrations do
   defp github_why(:private_key_missing),
     do: "GitHub is on, but the App's private key is missing. Connect the App again with its key."
 
-  defp github_why(:private_key_unreadable),
-    do:
-      "GitHub is on, but its saved private key cannot be read. Connect the App again with " <>
-        "its key."
+  defp github_why(:private_key_unreadable) do
+    "GitHub is on, but its saved private key cannot be read. Connect the App again with " <>
+      "its key."
+  end
 
-  defp github_why(:private_key_unusable),
-    do:
-      "GitHub is on, but its saved private key cannot be used. Connect the App again with " <>
-        "its current key."
+  defp github_why(:private_key_unusable) do
+    "GitHub is on, but its saved private key cannot be used. Connect the App again with " <>
+      "its current key."
+  end
 
-  defp github_why(:webhook_secret_missing),
-    do:
-      "GitHub is on, but its webhook secret is missing. Connect the App again, and Ryker " <>
-        "creates a new one."
+  defp github_why(:webhook_secret_missing) do
+    "GitHub is on, but its webhook secret is missing. Connect the App again, and Ryker " <>
+      "creates a new one."
+  end
 
-  defp github_why(:webhook_secret_unreadable),
-    do:
-      "GitHub is on, but its saved webhook secret cannot be read. Connect the App again, and " <>
-        "Ryker creates a new one."
+  defp github_why(:webhook_secret_unreadable) do
+    "GitHub is on, but its saved webhook secret cannot be read. Connect the App again, and " <>
+      "Ryker creates a new one."
+  end
 
-  defp github_why(_refused),
-    do:
-      "GitHub is on, but Ryker could not use its saved settings. Connect the App again; " <>
-        "Advanced shows what the running Ryker loaded."
+  defp github_why(_refused) do
+    "GitHub is on, but Ryker could not use its saved settings. Connect the App again; " <>
+      "Advanced shows what the running Ryker loaded."
+  end
 
   @doc """
   Emisar is in use only when work can reach an account that Ryker watches for
@@ -414,15 +413,16 @@ defmodule Ryker.ControlPlane.Integrations do
     stopped = Enum.filter(watched, &Map.has_key?(left_out, &1.ref))
 
     {variant, missing} =
-      if stopped != [],
-        do:
-          {if(stopped == watched, do: :not_watching, else: :partly_watching),
-           Enum.map_join(
-             stopped,
-             " ",
-             &"#{&1.display_name} is not watched for approval decisions: #{account_why(left_out[&1.ref])}"
-           )},
-        else: emisar_variant(accounts, used)
+      if stopped != [] do
+        {if(stopped == watched, do: :not_watching, else: :partly_watching),
+         Enum.map_join(
+           stopped,
+           " ",
+           &"#{&1.display_name} is not watched for approval decisions: #{account_why(left_out[&1.ref])}"
+         )}
+      else
+        emisar_variant(accounts, used)
+      end
 
     :emisar
     |> state(variant, facts: if(accounts == [], do: [], else: [account_names(accounts)]))
@@ -484,10 +484,10 @@ defmodule Ryker.ControlPlane.Integrations do
     end
   end
 
-  defp account_why(:address_invalid),
-    do:
-      "its saved address is not the exact https address of its Emisar endpoint. Connect the " <>
-        "account again with the right address."
+  defp account_why(:address_invalid) do
+    "its saved address is not the exact https address of its Emisar endpoint. Connect the " <>
+      "account again with the right address."
+  end
 
   defp account_why(_refused),
     do: "Ryker could not use its saved settings. Connect the account again."
@@ -501,10 +501,10 @@ defmodule Ryker.ControlPlane.Integrations do
   later one waits to be chosen for one.
   """
   @spec emisar_connected([String.t()]) :: String.t()
-  def emisar_connected([]),
-    do:
-      "Emisar account is connected. No environment uses it yet: choose it for one on the " <>
-        "Environments page."
+  def emisar_connected([]) do
+    "Emisar account is connected. No environment uses it yet: choose it for one on the " <>
+      "Environments page."
+  end
 
   def emisar_connected([_one] = names),
     do: "Emisar account is connected. #{Environments.sentence(names)} uses it now."
@@ -597,10 +597,10 @@ defmodule Ryker.ControlPlane.Integrations do
   # what to change.
   defp why(_source, :slack_not_running, _view), do: "it posts to Slack, and Slack is not running."
 
-  defp why(_source, :slack_workspace_not_served, _view),
-    do:
-      "it posts to a Slack channel in a workspace Ryker is not connected to. Choose one of " <>
-        "the channels Ryker is in."
+  defp why(_source, :slack_workspace_not_served, _view) do
+    "it posts to a Slack channel in a workspace Ryker is not connected to. Choose one of " <>
+      "the channels Ryker is in."
+  end
 
   defp why(_source, :github_not_running, _view),
     do: "it posts to GitHub, and GitHub is not running."
@@ -611,10 +611,10 @@ defmodule Ryker.ControlPlane.Integrations do
   defp why(_source, :conversation_not_found, _view),
     do: "it posts to a Chat conversation that no longer exists."
 
-  defp why(source, :environment_cannot_run_work, view),
-    do:
-      "its environment #{environment_name(view, source.environment_ref)} cannot run work yet. " <>
-        "Check what each kind of work may do under Advanced."
+  defp why(source, :environment_cannot_run_work, view) do
+    "its environment #{environment_name(view, source.environment_ref)} cannot run work yet. " <>
+      "Check what each kind of work may do under Advanced."
+  end
 
   defp why(source, :credential_missing, _view),
     do: "its signing credential #{source.secret_name} no longer exists. Choose another."
@@ -634,9 +634,9 @@ defmodule Ryker.ControlPlane.Integrations do
   defp why(_source, :mapping_unknown_field, _view),
     do: "its field mapping names a field Ryker does not know."
 
-  defp why(_source, _reason, _view),
-    do:
-      "Ryker cannot post where it sends events, or use it as it is saved. Edit it and save again."
+  defp why(_source, _reason, _view) do
+    "Ryker cannot post where it sends events, or use it as it is saved. Edit it and save again."
+  end
 
   defp environment_name(view, ref) do
     case Environments.find(view.snapshot, ref) do
@@ -692,9 +692,9 @@ defmodule Ryker.ControlPlane.Integrations do
   defp gives(:slack), do: "Ryker reads and replies in the Slack channels it is invited to."
   defp gives(:github), do: "Ryker reads your code and opens pull requests through a GitHub App."
 
-  defp gives(:emisar),
-    do:
-      "Ryker carries out the operational fixes you ask for, after a person approves them in Emisar."
+  defp gives(:emisar) do
+    "Ryker carries out the operational fixes you ask for, after a person approves them in Emisar."
+  end
 
   defp gives(:webhooks), do: "Other systems, such as Grafana, send alerts and events to Ryker."
 

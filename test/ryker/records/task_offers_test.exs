@@ -1,31 +1,21 @@
 defmodule Ryker.Records.TaskOffersTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
   import Phoenix.LiveViewTest, only: [render_component: 2]
-
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, TaskProgress}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.TaskOffer
-  alias Ryker.Publication.Changeset
-  alias Ryker.Repo
-
-  alias Ryker.Slack.{
-    Renderer,
-    TaskCard,
-    TaskCardProjection,
-    TaskCards,
-    TaskCardWorker,
-    WorkRecord
-  }
-
   alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Publication.Changeset
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Records.TaskOffers
+  alias Ryker.Repo
+  alias Ryker.Slack.{Renderer, TaskCard, TaskCardProjection, TaskCards, TaskCardWorker}
+  alias Ryker.Slack.WorkRecord
   alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session, Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]

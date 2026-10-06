@@ -1,6 +1,5 @@
 defmodule Ryker.ConcurrencyCaseTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ConcurrencyCase
 
   # The guard against committed rows a test leaves behind runs only in a database its run

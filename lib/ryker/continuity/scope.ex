@@ -10,7 +10,6 @@ defmodule Ryker.Continuity.Scope do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Episodes.Scope, as: WorkspaceScope

@@ -10,7 +10,6 @@ defmodule Ryker.Publication.Followups.Leases do
   """
 
   import Ecto.Query
-
   alias Ryker.ErrorDetail
   alias Ryker.Publication.{Followup, LifecycleEvent, Publication}
   alias Ryker.Publication.Followups.Store

@@ -56,15 +56,15 @@ defmodule Ryker.Slack.Command do
 
   def from_socket(_envelope, _workspace_ref, _occurred_at), do: :ignore
 
-  defp text?(value),
-    do:
-      is_binary(value) and String.valid?(value) and byte_size(value) <= 4_096 and
-        :binary.match(value, <<0>>) == :nomatch
+  defp text?(value) do
+    is_binary(value) and String.valid?(value) and byte_size(value) <= 4_096 and
+      :binary.match(value, <<0>>) == :nomatch
+  end
 
-  defp reference?(value),
-    do:
-      is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-        String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch
+  defp reference?(value) do
+    is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
+      String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch
+  end
 
   defp utc?(%DateTime{} = value),
     do: value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0

@@ -10,9 +10,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
   import Ecto.Changeset
   import Ecto.Query
-
   require Logger
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Bodies, Command, Placement, Protocol, Requests}
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
@@ -79,23 +77,23 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   end
 
   @doc false
-  def create_intent(session, task \\ nil),
-    do:
-      Map.take(session, [
-        :id,
-        :generation,
-        :external_ref,
-        :policy,
-        :policy_digest,
-        :authority_digest,
-        :repository_ref,
-        :repository_context,
-        :repository_source,
-        :environment_ref,
-        :workspace_task
-      ])
-      |> Map.new(fn {field, value} -> {Atom.to_string(field), value} end)
-      |> Map.put("task", task)
+  def create_intent(session, task \\ nil) do
+    Map.take(session, [
+      :id,
+      :generation,
+      :external_ref,
+      :policy,
+      :policy_digest,
+      :authority_digest,
+      :repository_ref,
+      :repository_context,
+      :repository_source,
+      :environment_ref,
+      :workspace_task
+    ])
+    |> Map.new(fn {field, value} -> {Atom.to_string(field), value} end)
+    |> Map.put("task", task)
+  end
 
   @doc false
   def local_fence?(%Command{

@@ -2,23 +2,11 @@ defmodule Ryker.StateTools.FixedTools do
   @moduledoc false
 
   require Logger
-
   alias Ryker.Episodes.Origins
   alias Ryker.Records
+  alias Ryker.StateTools.{AutomationTools, Capabilities, Catalog, ErrorCode, EvidenceTools}
+  alias Ryker.StateTools.{MemoryTools, RecordWriter, SchemaCheck, TaskTools, WorkStateTools}
   alias Ryker.Work.{Contract, Final}
-
-  alias Ryker.StateTools.{
-    AutomationTools,
-    Capabilities,
-    Catalog,
-    ErrorCode,
-    EvidenceTools,
-    MemoryTools,
-    RecordWriter,
-    SchemaCheck,
-    TaskTools,
-    WorkStateTools
-  }
 
   @confirmation_tools ~w(propose_automation propose_memory propose_preference request_task)
   @names ~w(

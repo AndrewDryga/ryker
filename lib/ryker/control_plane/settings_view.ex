@@ -13,15 +13,8 @@ defmodule Ryker.ControlPlane.SettingsView do
   """
 
   import Ecto.Query
-
-  alias Ryker.ControlPlane.{
-    ChannelDirectory,
-    Environments,
-    Integrations,
-    PageRead,
-    ProductReadiness
-  }
-
+  alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, PageRead}
+  alias Ryker.ControlPlane.ProductReadiness
   alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.CoopFleet.Worker
   alias Ryker.Credentials

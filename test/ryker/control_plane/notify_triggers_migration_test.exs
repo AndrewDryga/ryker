@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.NotifyTriggersMigrationTest do
   and put the triggers back on the way down for a release that listens again.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @version 20_260_926_200_000

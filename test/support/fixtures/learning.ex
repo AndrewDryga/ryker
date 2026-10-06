@@ -3,7 +3,6 @@ defmodule Ryker.Fixtures.Learning do
 
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
-
   alias Ryker.Admission.Decision
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes

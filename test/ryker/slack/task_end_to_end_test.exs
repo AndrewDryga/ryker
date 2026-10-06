@@ -1,10 +1,8 @@
 defmodule Ryker.Slack.TaskEndToEndTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Plug.Conn
   import Plug.Test
-
   alias Ryker.Delivery.Adapters
   alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
   alias Ryker.Episodes
@@ -14,25 +12,14 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   alias Ryker.GitHub.Client, as: GitHubClient
   alias Ryker.GitHub.Publisher, as: GitHubPublisher
   alias Ryker.Ingress.WorkProfile
-  alias Ryker.Publication.{Dispatcher, FollowupDispatcher, LifecycleEvent, Publication}
-  alias Ryker.Repo
-
-  alias Ryker.Slack.{
-    Gateway,
-    InteractionHandler,
-    Operators,
-    Publisher,
-    Renderer,
-    TaskCard,
-    TaskCardProjection,
-    TaskCardWorker,
-    WorkControls
-  }
-
   alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Publication.{Dispatcher, FollowupDispatcher, LifecycleEvent, Publication}
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Records.TaskOffers
+  alias Ryker.Repo
+  alias Ryker.Slack.{Gateway, InteractionHandler, Operators, Publisher, Renderer, TaskCard}
+  alias Ryker.Slack.{TaskCardProjection, TaskCardWorker, WorkControls}
   alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI, GitHubRequester}
   alias Ryker.Work.{Custody, Executor, Session, SubmissionBuilder, Turn}
 
@@ -122,9 +109,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
       FakeSlackAPI.start_link(
         observer: self(),
         render: true,
-        message_ref: fn n ->
-          "1788268001." <> String.pad_leading(Integer.to_string(n + 199), 6, "0")
-        end
+        message_ref: &("1788268001." <> String.pad_leading(Integer.to_string(&1 + 199), 6, "0"))
       )
 
     adapters = adapters!(slack_api)

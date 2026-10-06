@@ -1,10 +1,7 @@
 defmodule Ryker.ReleaseTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.CoopFleet.ControlPlane
   alias Ryker.Release
 

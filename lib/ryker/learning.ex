@@ -10,18 +10,16 @@ defmodule Ryker.Learning do
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
-  alias Ryker.Learning.{Batches, Rebuilds}
-  alias Ryker.Reference
-  alias Ryker.Repo
-
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Knowledge.KnowledgeUpdate
+  alias Ryker.Learning.{Batches, Rebuilds}
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.People
-
+  alias Ryker.Reference
+  alias Ryker.Repo
   alias Ryker.Work.Session
 
   @max_inputs 16
@@ -618,10 +616,10 @@ defmodule Ryker.Learning do
   defp valid_failure_state?(receipt, :output_contract_failed),
     do: receipt["state"] == "failed" and receipt["error_code"] == "output_contract_failed"
 
-  defp valid_failure_state?(receipt, :learning_provider_failed),
-    do:
-      receipt["state"] in ~w(failed cancelled interrupted budget_exhausted) and
-        (is_nil(receipt["error_code"]) or valid_remote_ref?(receipt["error_code"]))
+  defp valid_failure_state?(receipt, :learning_provider_failed) do
+    receipt["state"] in ~w(failed cancelled interrupted budget_exhausted) and
+      (is_nil(receipt["error_code"]) or valid_remote_ref?(receipt["error_code"]))
+  end
 
   defp fail_locked(run, reason, receipt) do
     code = Atom.to_string(reason)
@@ -665,10 +663,10 @@ defmodule Ryker.Learning do
     |> Repo.update!()
   end
 
-  defp owned_failure_receipt?(run, receipt),
-    do:
-      retained_prompt_matches?(run, receipt) and run.coop_turn_id == receipt["turn_id"] and
-        owned_remote_session?(run, receipt["session_id"])
+  defp owned_failure_receipt?(run, receipt) do
+    retained_prompt_matches?(run, receipt) and run.coop_turn_id == receipt["turn_id"] and
+      owned_remote_session?(run, receipt["session_id"])
+  end
 
   defp failure_stop_receipt(receipt),
     do: %{
@@ -679,10 +677,10 @@ defmodule Ryker.Learning do
       "failure" => receipt
     }
 
-  defp retained_prompt_matches?(run, receipt),
-    do:
-      is_binary(run.prompt) and receipt["prompt_sha256"] == run.prompt_sha256 and
-        CanonicalJSON.digest(run.prompt) == run.prompt_sha256
+  defp retained_prompt_matches?(run, receipt) do
+    is_binary(run.prompt) and receipt["prompt_sha256"] == run.prompt_sha256 and
+      CanonicalJSON.digest(run.prompt) == run.prompt_sha256
+  end
 
   defp result_present?(run), do: not is_nil(run.result) or not is_nil(run.result_sha256)
 
@@ -709,15 +707,15 @@ defmodule Ryker.Learning do
     end
   end
 
-  defp prepare_attempt(existing, entries, manifest, key, settings),
-    do:
-      new_attempt(
-        entries,
-        manifest,
-        key,
-        if(existing, do: existing.generation + 1, else: 1),
-        retry_settings(settings, existing, entries)
-      )
+  defp prepare_attempt(existing, entries, manifest, key, settings) do
+    new_attempt(
+      entries,
+      manifest,
+      key,
+      if(existing, do: existing.generation + 1, else: 1),
+      retry_settings(settings, existing, entries)
+    )
+  end
 
   defp retry_settings(settings, existing, entries) do
     keys =
@@ -947,10 +945,11 @@ defmodule Ryker.Learning do
     document = if thread == [], do: document, else: Map.put(document, "thread_context", thread)
 
     document =
-      if rebuild,
-        do:
-          Map.put(document, "rebuild_target", Map.take(rebuild, ~w(topic_id version generation))),
-        else: document
+      if rebuild do
+        Map.put(document, "rebuild_target", Map.take(rebuild, ~w(topic_id version generation)))
+      else
+        document
+      end
 
     CanonicalJSON.encode!(document)
   end
@@ -1008,12 +1007,12 @@ defmodule Ryker.Learning do
     end
   end
 
-  defp usable_context(candidates, first),
-    do:
-      Enum.filter(
-        candidates,
-        &(valid_entries?([first, &1]) and is_list(LearningSources.for_entry(&1)))
-      )
+  defp usable_context(candidates, first) do
+    Enum.filter(
+      candidates,
+      &(valid_entries?([first, &1]) and is_list(LearningSources.for_entry(&1)))
+    )
+  end
 
   # What a thread message says, shortened: who, when and its words.
   defp context_document(entry) do
@@ -1185,7 +1184,7 @@ defmodule Ryker.Learning do
   end
 
   def apply_result(id, claim \\ nil) do
-    case owned_transaction(id, claim, fn run -> apply_locked(run) end) do
+    case owned_transaction(id, claim, &apply_locked/1) do
       {:ok, run} ->
         {:ok, run}
 
@@ -1580,10 +1579,10 @@ defmodule Ryker.Learning do
     Enum.each(rows, fn [id] -> broadcast_learning_updated(Ecto.UUID.load!(id)) end)
   end
 
-  defp json_array(column),
-    do:
-      "CASE WHEN pg_input_is_valid(#{column}, 'jsonb') AND " <>
-        "jsonb_typeof(#{column}::jsonb) = 'array' THEN #{column}::jsonb ELSE '[]'::jsonb END"
+  defp json_array(column) do
+    "CASE WHEN pg_input_is_valid(#{column}, 'jsonb') AND " <>
+      "jsonb_typeof(#{column}::jsonb) = 'array' THEN #{column}::jsonb ELSE '[]'::jsonb END"
+  end
 
   defp request_schema(entries, thread, nil), do: schema(entries, thread)
 
@@ -1731,11 +1730,11 @@ defmodule Ryker.Learning do
   batch or note `id` changed. The learning modules that write one call this.
   """
   @spec broadcast_learning_updated(Ecto.UUID.t()) :: :ok
-  def broadcast_learning_updated(id),
-    do:
-      Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(learning_topic(), {:learning_updated, id})
-      end)
+  def broadcast_learning_updated(id) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(learning_topic(), {:learning_updated, id})
+    end)
+  end
 
   defp learning_topic, do: "learning"
 end

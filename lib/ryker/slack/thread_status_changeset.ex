@@ -2,7 +2,6 @@ defmodule Ryker.Slack.ThreadStatusChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Slack.ThreadStatus
 
   @fields [

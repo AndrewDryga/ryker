@@ -97,15 +97,16 @@ defmodule Ryker.Slack.Publisher do
         api.add_reaction(client, target.channel_ref, target.message_ref, document["emoji_name"])
 
       "remove" ->
-        if function_exported?(api, :remove_reaction, 4),
-          do:
-            api.remove_reaction(
-              client,
-              target.channel_ref,
-              target.message_ref,
-              document["emoji_name"]
-            ),
-          else: {:error, {:slack_reaction_removal_not_supported, :adapter}}
+        if function_exported?(api, :remove_reaction, 4) do
+          api.remove_reaction(
+            client,
+            target.channel_ref,
+            target.message_ref,
+            document["emoji_name"]
+          )
+        else
+          {:error, {:slack_reaction_removal_not_supported, :adapter}}
+        end
     end
   end
 

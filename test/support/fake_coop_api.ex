@@ -117,10 +117,11 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
   def operation_by_key(agent, key) do
     receipt =
       if Agent.get(agent, & &1.resume_operations) and
-           String.starts_with?(key, "ryker:admission:create:"),
-         do:
-           job_receipt(String.replace_prefix(key, "ryker:admission:create:", "ryker-admission:")),
-         else: %{}
+           String.starts_with?(key, "ryker:admission:create:") do
+        job_receipt(String.replace_prefix(key, "ryker:admission:create:", "ryker-admission:"))
+      else
+        %{}
+      end
 
     Agent.get_and_update(agent, fn state ->
       session = with_job(state.session, receipt)
@@ -157,11 +158,11 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
        else: %{}
   end
 
-  defp with_job(session, receipt) when map_size(receipt) > 0,
-    do:
-      session
-      |> Map.merge(receipt)
-      |> Map.put("id", "remote:" <> receipt["job_ref"])
+  defp with_job(session, receipt) when map_size(receipt) > 0 do
+    session
+    |> Map.merge(receipt)
+    |> Map.put("id", "remote:" <> receipt["job_ref"])
+  end
 
   defp with_job(session, _receipt), do: session
 
@@ -356,11 +357,12 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         (state.fail_prepare == :first and state.prepare_keys == [])
 
     {result, prepared} =
-      if refused?,
-        do:
-          {{:error, {:coop_error, 503, "acp_process_error", "the agent did not start"}},
-           state.prepared_sessions},
-        else: {{:ok, session_for(state, session_id)}, state.prepared_sessions ++ [session_id]}
+      if refused? do
+        {{:error, {:coop_error, 503, "acp_process_error", "the agent did not start"}},
+         state.prepared_sessions}
+      else
+        {{:ok, session_for(state, session_id)}, state.prepared_sessions ++ [session_id]}
+      end
 
     {result,
      %{

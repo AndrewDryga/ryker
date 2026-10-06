@@ -130,10 +130,11 @@ defmodule Ryker.Evals.WorldSource do
     Enum.reduce_while(files, :ok, fn %{"path" => path, "data" => data}, :ok ->
       target = Path.join(repository, path)
 
-      if Path.type(path) == :relative and not String.contains?(path, ".."),
-        do:
-          {:cont, with(:ok <- File.mkdir_p(Path.dirname(target)), do: File.write(target, data))},
-        else: {:halt, {:error, :invalid_world_source_path}}
+      if Path.type(path) == :relative and not String.contains?(path, "..") do
+        {:cont, with(:ok <- File.mkdir_p(Path.dirname(target)), do: File.write(target, data))}
+      else
+        {:halt, {:error, :invalid_world_source_path}}
+      end
     end)
   end
 

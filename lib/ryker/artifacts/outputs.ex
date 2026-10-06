@@ -8,7 +8,6 @@ defmodule Ryker.Artifacts.Outputs do
   """
 
   import Ecto.Query
-
   alias Ryker.Artifacts.{OutputArtifact, OutputArtifactChangeset}
   alias Ryker.Repo
   alias Ryker.Work.Custody

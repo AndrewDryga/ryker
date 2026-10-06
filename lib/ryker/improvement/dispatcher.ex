@@ -6,7 +6,6 @@ defmodule Ryker.Improvement.Dispatcher do
   """
 
   require Logger
-
   alias Ryker.Improvement.{Analyses, Executor, FleetSession}
 
   @refused_policy_hold_seconds 300

@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.FollowupDispatcherTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Delivery.Adapters
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.{FollowupDispatcher, LifecycleEvent}

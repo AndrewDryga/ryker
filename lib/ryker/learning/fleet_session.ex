@@ -71,12 +71,12 @@ defmodule Ryker.Learning.FleetSession do
     end)
   end
 
-  defp locked(run),
-    do:
-      Repo.one!(
-        from(s in Session,
-          where: s.execution_kind == :learning and s.learning_run_id == ^run.id,
-          lock: "FOR UPDATE"
-        )
+  defp locked(run) do
+    Repo.one!(
+      from(s in Session,
+        where: s.execution_kind == :learning and s.learning_run_id == ^run.id,
+        lock: "FOR UPDATE"
       )
+    )
+  end
 end

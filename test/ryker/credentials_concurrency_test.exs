@@ -10,7 +10,6 @@ defmodule Ryker.CredentialsConcurrencyTest do
   wrote.
   """
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Credential
   alias Ryker.Credential.Event

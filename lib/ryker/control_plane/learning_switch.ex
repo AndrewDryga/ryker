@@ -15,7 +15,6 @@ defmodule Ryker.ControlPlane.LearningSwitch do
   `Kit.confirm_modal/1` over the page, so the page head never grows.
   """
   use Phoenix.LiveComponent
-
   alias Ryker.ControlPlane.{Kit, SettingsView}
 
   # The shell holds the open question, like every other confirmation.

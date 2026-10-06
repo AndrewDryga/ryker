@@ -8,7 +8,6 @@ defmodule Ryker.Memories.CaseConversationsMigrationTest do
   conversations.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @previous_version 20_260_928_140_000

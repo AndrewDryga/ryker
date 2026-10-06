@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   """
 
   import Ryker.ControlPlane.EpisodeTrace.Step
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.EpisodeCausality
   alias Ryker.{InspectionRedactor, Repo}
@@ -110,13 +109,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     |> Map.put("ryker_summary", ErrorCode.explain(error))
   end
 
-  defp failed_call(payload, %{call: %CallRecord{}}),
-    do:
-      Map.put(
-        payload,
-        "ryker_summary",
-        "Ryker answered the call, but the worker reported it as failed."
-      )
+  defp failed_call(payload, %{call: %CallRecord{}}) do
+    Map.put(
+      payload,
+      "ryker_summary",
+      "Ryker answered the call, but the worker reported it as failed."
+    )
+  end
 
   # The sentence said "not recorded for this older call" whenever the turn had
   # no recording at all, which a new turn whose only call never reached Ryker
@@ -608,10 +607,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp plan_artifacts(_event, _disclosed), do: []
 
-  defp merge_artifacts(start, finish),
-    do:
-      Enum.reject(start, fn artifact -> Enum.any?(finish, &(&1.label == artifact.label)) end) ++
-        finish
+  defp merge_artifacts(start, finish) do
+    Enum.reject(start, fn artifact -> Enum.any?(finish, &(&1.label == artifact.label)) end) ++
+      finish
+  end
 
   defp tool_outcome(%{"ryker_summary" => summary}, "failed"), do: summary
 
@@ -658,10 +657,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
       else: "#{String.capitalize(name)} connection setup"
   end
 
-  defp activity_tool_key(event),
-    do:
-      {event.session_id, event.coop_turn_id,
-       event.payload["tool_call_id"] || event.remote_event_id}
+  defp activity_tool_key(event) do
+    {event.session_id, event.coop_turn_id, event.payload["tool_call_id"] || event.remote_event_id}
+  end
 
   defp activity_tool_title(%{
          "input" => %{"operation" => action, "server" => server}
@@ -738,9 +736,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   defp redact_activity_value(value) when is_binary(value), do: scrub_url(value)
   defp redact_activity_value(value), do: value
 
-  defp sensitive_key?(key) when is_atom(key) or is_binary(key),
-    do:
-      Regex.match?(~r/(?:authorization|cookie|credential|password|secret|token)/i, to_string(key))
+  defp sensitive_key?(key) when is_atom(key) or is_binary(key) do
+    Regex.match?(~r/(?:authorization|cookie|credential|password|secret|token)/i, to_string(key))
+  end
 
   defp sensitive_key?(_key), do: false
 

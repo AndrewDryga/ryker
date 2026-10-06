@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.SourceRefTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.SourceRef
 
   # Every capability tool re-encodes the source it parsed to name it in

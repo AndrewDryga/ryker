@@ -1,12 +1,9 @@
 defmodule Ryker.CoopFleet.PublicationGrantsTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Changeset, only: [change: 2]
   import Plug.Conn
   import Plug.Test
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CoopFleet.{ControlPlane, PublicationGrants, Router}
   alias Ryker.Fixtures.Publication, as: PublicationFixture
@@ -305,13 +302,13 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     assert {:error, :publication_grant_unavailable} = Task.await(task)
   end
 
-  defp authority(context),
-    do:
-      PublicationGrants.publication_grant_authority(
-        context.certificate,
-        context.session.external_ref,
-        context.request
-      )
+  defp authority(context) do
+    PublicationGrants.publication_grant_authority(
+      context.certificate,
+      context.session.external_ref,
+      context.request
+    )
+  end
 
   defp complete!(command, status) do
     result = %{"status" => status}

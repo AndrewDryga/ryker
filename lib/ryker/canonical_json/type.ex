@@ -7,7 +7,6 @@ defmodule Ryker.CanonicalJSON.Type do
   """
 
   use Ecto.Type
-
   alias Ryker.CanonicalJSON
 
   @impl true

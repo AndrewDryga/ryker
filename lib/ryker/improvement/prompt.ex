@@ -235,10 +235,10 @@ defmodule Ryker.Improvement.Prompt do
   defp smaller(_instructions, context, _step, context), do: context
   defp smaller(instructions, _context, step, next), do: until_fits(instructions, next, step)
 
-  defp fits?(instructions, context),
-    do:
-      byte_size(CanonicalJSON.encode!(%{"instructions" => instructions, "context" => context})) <=
-        @max_encoded_bytes
+  defp fits?(instructions, context) do
+    byte_size(CanonicalJSON.encode!(%{"instructions" => instructions, "context" => context})) <=
+      @max_encoded_bytes
+  end
 
   defp drop_routing_prompt(context) do
     case Enum.find_index(context["routing"], &is_binary(&1["prompt"])) do

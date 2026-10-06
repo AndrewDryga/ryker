@@ -1,6 +1,5 @@
 defmodule Ryker.RepositoryKnowledge.MigrationTest do
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @version 20_260_927_220_000

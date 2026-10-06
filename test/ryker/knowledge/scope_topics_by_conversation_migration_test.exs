@@ -7,7 +7,6 @@ defmodule Ryker.Knowledge.ScopeTopicsByConversationMigrationTest do
   conversation shared a key, and rolls back to the repository keys.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
   alias Ryker.CanonicalJSON
   alias Ryker.Knowledge.KnowledgeAnchors

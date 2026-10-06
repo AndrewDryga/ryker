@@ -10,13 +10,11 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   transcript so that bounded keyset pages neither skip nor repeat a row.
   """
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [clocks_past!: 1, digest: 1]
 
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
-
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, TranscriptCursor}

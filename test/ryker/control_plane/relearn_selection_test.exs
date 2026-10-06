@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.RelearnSelectionTest do
   use ExUnit.Case, async: false
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Assets, RelearnPanel}
   alias Ryker.Slack.Names

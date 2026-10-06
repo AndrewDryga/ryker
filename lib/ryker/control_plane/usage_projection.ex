@@ -272,11 +272,11 @@ defmodule Ryker.ControlPlane.UsageProjection do
     |> Enum.sort_by(&{-&1.tokens, -&1.attempts, inspect(Map.take(&1, fields))})
   end
 
-  defp correction_counts(query, [:work_kind, :provider, :model, :effort]),
-    do:
-      select_merge(query, [e], %{
-        corrections: type(fragment("COALESCE(SUM(?), 0)::bigint", e.corrections), :integer)
-      })
+  defp correction_counts(query, [:work_kind, :provider, :model, :effort]) do
+    select_merge(query, [e], %{
+      corrections: type(fragment("COALESCE(SUM(?), 0)::bigint", e.corrections), :integer)
+    })
+  end
 
   defp correction_counts(query, _), do: query
 

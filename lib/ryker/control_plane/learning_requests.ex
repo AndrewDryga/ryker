@@ -250,11 +250,10 @@ defmodule Ryker.ControlPlane.LearningRequests do
       # An attempt still waiting on its model has no result card to carry them.
       identity: if(not result_card?(run), do: identity(run, context)),
       retention_note:
-        if(run.pruned_at,
-          do:
-            "Retention removed the messages, instructions and prompt this attempt was sent on " <>
-              timestamp(run.pruned_at) <> ". Nothing is rebuilt from today's settings."
-        ),
+        if run.pruned_at do
+          "Retention removed the messages, instructions and prompt this attempt was sent on " <>
+            timestamp(run.pruned_at) <> ". Nothing is rebuilt from today's settings."
+        end,
       sections: [
         section("instructions", "Learning instructions", prompt["instructions"], options),
         section("context", "What learning was given", briefing_context(prompt), options),
@@ -281,11 +280,10 @@ defmodule Ryker.ControlPlane.LearningRequests do
           run: CallRun.from_background(run, context.executions[run.id]),
           retried_after: retried_after(run, context),
           retention_note:
-            if(run.pruned_at,
-              do:
-                "Retention removed the model's response on #{timestamp(run.pruned_at)}. " <>
-                  "What it changed, what it cost and how long it took stay recorded."
-            ),
+            if run.pruned_at do
+              "Retention removed the model's response on #{timestamp(run.pruned_at)}. " <>
+                "What it changed, what it cost and how long it took stay recorded."
+            end,
           sections: [section("response", "Model response", run.result, options)],
           background: %{
             headline: LearningActivity.attempt_label(run),

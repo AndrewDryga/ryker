@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.FileClientTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.FileClient
 
   defmodule JSONRequester do

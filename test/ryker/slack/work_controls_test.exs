@@ -1,17 +1,14 @@
 defmodule Ryker.Slack.WorkControlsTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, Publication}
-  alias Ryker.Repo
-
   alias Ryker.Records
+  alias Ryker.Repo
   alias Ryker.Slack.{TaskCardChangeset, WorkControls, WorkRecord, WorkTarget}
   alias Ryker.TestSupport.FakeSlackAPI
   alias Ryker.Work.{Cancellation, Custody, OperationKeys, Submission}

@@ -2,7 +2,6 @@ defmodule Ryker.Work.ActivityEventChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Work.ActivityEvent
 
   @fields [

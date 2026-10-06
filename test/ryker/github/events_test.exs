@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.EventsTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.GitHub.{Binding, Event, Events}
 
   # Repositories shows each repository's GitHub health: when its last delivery

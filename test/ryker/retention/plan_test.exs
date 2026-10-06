@@ -1,6 +1,5 @@
 defmodule Ryker.Retention.PlanTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Retention.Plan
 
   @digest String.duplicate("b", 64)

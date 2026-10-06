@@ -1,23 +1,19 @@
 defmodule Ryker.Behaviors.AutomationsTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
-  alias Ryker.Episodes
-  alias Ryker.Episodes.Episode
-  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Repo
-  alias Ryker.Slack.{ChannelMembership, Renderer, ReplyRecords}
-
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Automations
   alias Ryker.Behaviors.Behavior
+  alias Ryker.Episodes
+  alias Ryker.Episodes.Episode
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Records
   alias Ryker.Records.Record
+  alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Schedules.Schedule
-
+  alias Ryker.Slack.{ChannelMembership, Renderer, ReplyRecords}
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission}
 
   @now ~U[2026-08-29 12:00:00.000000Z]

@@ -1,8 +1,6 @@
 defmodule Ryker.Settings.EnvironmentsTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Settings
   alias Ryker.Settings.{Edit, EmisarConnection, Environment}
 

@@ -8,7 +8,6 @@ defmodule Ryker.Admission.ReplayTest do
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
-
   alias Ryker.Admission
   alias Ryker.Admission.{Candidate, Context, Decision, Executor, Prompt}
   alias Ryker.CanonicalJSON

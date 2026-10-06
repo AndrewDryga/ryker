@@ -8,7 +8,6 @@ defmodule Ryker.Evals.WorldEvidence do
   """
 
   import Ecto.Query
-
   alias Ryker.Evals.{Evidence, WorldCase, WorldCassette, WorldInputs}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records

@@ -212,9 +212,9 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   # A draft-authorized task never rests in "reviewed": its checks passing is
   # enough for the draft the confirming person already granted. What is left
   # here is a candidate nobody granted a draft for.
-  defp publication_status_message("reviewed", _controls, _unverified),
-    do:
-      "The changes passed their checks. I don't have a draft-PR grant for this task, so open the draft when you want one."
+  defp publication_status_message("reviewed", _controls, _unverified) do
+    "The changes passed their checks. I don't have a draft-PR grant for this task, so open the draft when you want one."
+  end
 
   defp publication_status_message("published", _controls, nil),
     do: "Draft PR created. Open it to review the changes."
@@ -223,9 +223,9 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   # after it exists. Saying only "open it to review the changes" is how an
   # unrun gate reads as a checked change one message later. Which check, and
   # why, is the Self-review row's to say.
-  defp publication_status_message("published", _controls, _unverified),
-    do:
-      "Draft PR created from the saved change. It isn't verified, and a draft doesn't merge or deploy anything."
+  defp publication_status_message("published", _controls, _unverified) do
+    "Draft PR created from the saved change. It isn't verified, and a draft doesn't merge or deploy anything."
+  end
 
   defp publication_status_message("published_ready", _controls, _unverified),
     do: "Draft PR created. Sending the publication update."
@@ -266,9 +266,9 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   defp blocked_message(_controls, _unverified, _reason, _number),
     do: ":warning: *PR creation failed.*"
 
-  defp unverified_offer(number) when is_integer(number),
-    do:
-      "I saved the newer change exactly as it is. I can add it to draft PR ##{number} marked unverified"
+  defp unverified_offer(number) when is_integer(number) do
+    "I saved the newer change exactly as it is. I can add it to draft PR ##{number} marked unverified"
+  end
 
   defp unverified_offer(_number),
     do: "I saved the change exactly as it is. I can open it as a draft PR marked unverified"
@@ -285,13 +285,13 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
   # A closed worker session can never be reviewed, so Ryker ends that request
   # itself; the task's next finished run is checked afresh.
-  defp discarded_message("review_session_closed"),
-    do:
-      "I stopped preparing the PR: the worker session holding these changes closed before they could be checked, so no PR was made from them. When the task runs again, its new changes are checked then."
+  defp discarded_message("review_session_closed") do
+    "I stopped preparing the PR: the worker session holding these changes closed before they could be checked, so no PR was made from them. When the task runs again, its new changes are checked then."
+  end
 
-  defp discarded_message(nil),
-    do:
-      "Someone discarded these changes, so I stopped preparing their PR. The review history is saved."
+  defp discarded_message(nil) do
+    "Someone discarded these changes, so I stopped preparing their PR. The review history is saved."
+  end
 
   defp publish_confirmation(repository, number, unverified) do
     target =

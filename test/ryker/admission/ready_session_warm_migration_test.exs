@@ -6,7 +6,6 @@ defmodule Ryker.Admission.ReadySessionWarmMigrationTest do
   """
   # The migrator runs inside this test's sandbox transaction.
   use Ryker.MigrationCase
-
   alias Ryker.Admission.ReadySessions
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

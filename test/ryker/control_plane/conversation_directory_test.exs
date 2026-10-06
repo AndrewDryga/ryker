@@ -5,9 +5,7 @@ defmodule Ryker.ControlPlane.ConversationDirectoryTest do
   it replied.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.ConversationProjection
   alias Ryker.Episodes

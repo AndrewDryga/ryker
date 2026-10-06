@@ -2,7 +2,6 @@ defmodule Ryker.ControlPlane.CallRunTest do
   # An estimate reads the prices saved in Settings, whose writes hold its lock
   # until the test ends, so these run apart from the asynchronous suites.
   use Ryker.DataCase, async: false
-
   alias Ryker.ControlPlane.{CallRun, Units}
   alias Ryker.Settings
 

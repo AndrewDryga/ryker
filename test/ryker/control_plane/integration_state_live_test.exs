@@ -13,20 +13,10 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
   saved settings, and hold them to one word and one reason.
   """
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
-  alias Ryker.ControlPlane.{
-    Actions,
-    ChannelsPage,
-    Endpoint,
-    Integrations,
-    Projection,
-    SettingsPage,
-    SettingsView
-  }
-
+  alias Ryker.ControlPlane.{Actions, ChannelsPage, Endpoint, Integrations, Projection}
+  alias Ryker.ControlPlane.{SettingsPage, SettingsView}
   alias Ryker.Credentials
   alias Ryker.Settings
 

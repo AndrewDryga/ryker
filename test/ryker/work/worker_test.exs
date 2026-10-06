@@ -1,9 +1,7 @@
 defmodule Ryker.Work.WorkerTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [eventually: 1, settled: 1]
-
   import ExUnit.CaptureLog
-
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.TestSupport.FakeWorkCoopAPI, as: FakeAPI

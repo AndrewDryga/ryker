@@ -13,7 +13,6 @@ defmodule Ryker.ControlPlane.Environments do
   """
 
   import Ecto.Query
-
   alias Ryker.ControlPlane.Integrations
   alias Ryker.Repo
   alias Ryker.Settings.Environment

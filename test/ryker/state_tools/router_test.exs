@@ -8,22 +8,19 @@ defmodule Ryker.StateTools.RouterTest do
   import Ecto.Query
   import Plug.Conn
   import Plug.Test
-
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Scope}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Repo
-  alias Ryker.Settings
-  alias Ryker.Slack.ChannelMembership
-
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
   alias Ryker.Records.Record
+  alias Ryker.Repo
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleChangeset
-
+  alias Ryker.Settings
+  alias Ryker.Slack.ChannelMembership
   alias Ryker.StateTools.{FixedTools, Router, Tools, ToolVisibility}
   alias Ryker.Work.{Custody, Final, FinalPreflight, Prompt, SubmissionBuilder}
 
@@ -269,7 +266,7 @@ defmodule Ryker.StateTools.RouterTest do
   test "arguments within a tool's limits are kept in any language" do
     claim = claim!("character-limits")
     options = bound_options(claim)
-    words = fn count -> String.duplicate("ї", count) end
+    words = &String.duplicate("ї", &1)
 
     assert {:ok, %{"kind" => "citation"}} =
              Tools.call(
@@ -2260,9 +2257,10 @@ defmodule Ryker.StateTools.RouterTest do
               }} = Tools.call("propose_preference", arguments, options)
     end
 
-    assert Enum.count(Records.retained_records(claim.episode.id), fn record ->
-             record["kind"] == "preference_offer"
-           end) == length(cases)
+    assert Enum.count(
+             Records.retained_records(claim.episode.id),
+             &(&1["kind"] == "preference_offer")
+           ) == length(cases)
 
     assert Repo.aggregate(Behavior, :count, :id) == 0,
            "proposing a preference must not make it effective before confirmation"

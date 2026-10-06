@@ -3,7 +3,6 @@ defmodule Ryker.EmbeddingsTest do
   # OpenAI embeddings API (`Ryker.Embeddings`). What it does with an answer is
   # held here with a stand-in server; no test calls a model.
   use ExUnit.Case, async: true
-
   alias Ryker.Embeddings
 
   test "vectors come back in the order asked, each of length one" do

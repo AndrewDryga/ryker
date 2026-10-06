@@ -10,7 +10,6 @@ defmodule Ryker.Slack.Renderer.Records do
 
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
-
   alias Ryker.Delivery.OfferWords
   alias Ryker.Publication.Card, as: PublicationCard
   alias Ryker.Publication.Review
@@ -549,10 +548,10 @@ defmodule Ryker.Slack.Renderer.Records do
        ]
 
   # What a confirmed offer saved, by the name its card gave it.
-  defp saved_name("automation_change_offer", payload),
-    do:
-      get_in(payload, ["after", "title"]) || get_in(payload, ["before", "title"]) ||
-        "The automation change"
+  defp saved_name("automation_change_offer", payload) do
+    get_in(payload, ["after", "title"]) || get_in(payload, ["before", "title"]) ||
+      "The automation change"
+  end
 
   defp saved_name(kind, %{"title" => title})
        when kind in ~w(schedule_offer standing_assignment_offer),

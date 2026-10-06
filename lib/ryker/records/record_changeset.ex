@@ -2,7 +2,6 @@ defmodule Ryker.Records.RecordChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
 

@@ -1,22 +1,10 @@
 defmodule Ryker.CoopFleet.ClientTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query, only: [from: 2]
-
   alias Ryker.{Artifacts, CanonicalJSON, Instructions}
-
-  alias Ryker.CoopFleet.{
-    Client,
-    Command,
-    ControlPlane,
-    JobSpec,
-    Placement,
-    Worker,
-    WorkspaceCheckpointTransfer
-  }
-
+  alias Ryker.CoopFleet.{Client, Command, ControlPlane, JobSpec, Placement, Worker}
+  alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture

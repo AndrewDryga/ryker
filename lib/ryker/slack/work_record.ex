@@ -8,7 +8,6 @@ defmodule Ryker.Slack.WorkRecord do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Episodes.Words
   alias Ryker.Publication.{Followup, Publication}
@@ -551,9 +550,9 @@ defmodule Ryker.Slack.WorkRecord do
   defp worker_report(nil),
     do: "Worker's saved response:\nNo retained response is available."
 
-  defp worker_report(output),
-    do:
-      "Worker's saved response, which is its own report and not a check result:\n#{text(output)}"
+  defp worker_report(output) do
+    "Worker's saved response, which is its own report and not a check result:\n#{text(output)}"
+  end
 
   defp kind_available(:task, :postmortem), do: {:error, :work_record_not_available}
   defp kind_available(_work_kind, _record_kind), do: :ok

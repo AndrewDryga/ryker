@@ -10,10 +10,8 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
   tests hold the ownership rules that make the page answerable.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
   import Phoenix.LiveViewTest
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodeCausality, EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
@@ -116,7 +114,7 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
       end)
 
     third_chapters =
-      Enum.filter(chapters, fn chapter -> {:input, third_id} in chapter.owners end)
+      Enum.filter(chapters, &({:input, third_id} in &1.owners))
 
     assert late_chapter.conversation_turn == 1
     assert third_chapters != []

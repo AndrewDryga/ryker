@@ -9,7 +9,6 @@ defmodule Ryker.Observability.Retention do
   """
 
   import Ecto.Query
-
   alias Ryker.Observability.Reads
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Work.Session

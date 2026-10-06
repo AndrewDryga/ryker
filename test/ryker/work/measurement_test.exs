@@ -1,6 +1,5 @@
 defmodule Ryker.Work.MeasurementTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Work.Measurement
 
   # Unsuccessful turns consumed inference without appearing in Usage. When

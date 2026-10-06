@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
-
   alias Ryker.ControlPlane.{ConsolePeople, CurrentInputs, Paths, ProviderMessage, SlackMarkdown}
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Delivery.PlatformAction
@@ -287,13 +286,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   defp case_message(input, options) do
     artifact =
       InspectionRedactor.artifact(
-        if(is_nil(input.operational_pruned_at),
-          do:
-            if(input.event_kind == :delete,
-              do: "Message deleted",
-              else: SourceText.from_content(input.content)
-            )
-        ),
+        if(is_nil(input.operational_pruned_at)) do
+          if(input.event_kind == :delete,
+            do: "Message deleted",
+            else: SourceText.from_content(input.content)
+          )
+        end,
         Keyword.put(options, :expired, not is_nil(input.operational_pruned_at))
       )
 
@@ -392,10 +390,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   defp raw_absent(%{source_kind: "control_plane"}),
     do: "This input was submitted directly in the control plane, so no adapter payload exists."
 
-  defp raw_absent(_input),
-    do:
-      "The adapter did not hand over its source payload for this input, so there is no raw " <>
-        "record; the normalized input below is not a substitute."
+  defp raw_absent(_input) do
+    "The adapter did not hand over its source payload for this input, so there is no raw " <>
+      "record; the normalized input below is not a substitute."
+  end
 
   defp raw_envelope(_input, true, _disclosed?, _options),
     do: %{state: :expired, text: nil, sha256: nil, bytes: nil, redacted: false, truncated: false}

@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
 
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
-
   alias Ryker.ControlPlane.Emoji
   alias Ryker.ControlPlane.Paths
   alias Ryker.Delivery.PlatformAction

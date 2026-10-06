@@ -141,10 +141,10 @@ defmodule Ryker.Publication.FollowupDispatcher do
 
   defp settings(_options), do: {:error, {:invalid_publication_followup_dispatcher, :options}}
 
-  defp callback?(module, function, arity),
-    do:
-      is_atom(module) and Code.ensure_loaded?(module) and
-        function_exported?(module, function, arity)
+  defp callback?(module, function, arity) do
+    is_atom(module) and Code.ensure_loaded?(module) and
+      function_exported?(module, function, arity)
+  end
 
   defp positive?(value), do: is_integer(value) and value > 0
 

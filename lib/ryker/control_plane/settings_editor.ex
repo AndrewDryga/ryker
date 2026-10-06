@@ -28,17 +28,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   """
 
   use Phoenix.LiveComponent
-
-  alias Ryker.ControlPlane.{
-    Components,
-    Integrations,
-    Kit,
-    Paths,
-    SettingsRows,
-    SettingsSections,
-    SettingsView
-  }
-
+  alias Ryker.ControlPlane.{Components, Integrations, Kit, Paths, SettingsRows, SettingsSections}
+  alias Ryker.ControlPlane.SettingsView
   alias Ryker.Settings.Work
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
@@ -358,10 +349,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp section_error([]), do: nil
 
-  defp section_error([{:retention, :ordering} | _rest]),
-    do:
-      "These limits are out of order. Keep each kind of data at least as long as the one " <>
-        "above it, and conversation memory at least as long as prompts, replies and tool activity."
+  defp section_error([{:retention, :ordering} | _rest]) do
+    "These limits are out of order. Keep each kind of data at least as long as the one " <>
+      "above it, and conversation memory at least as long as prompts, replies and tool activity."
+  end
 
   defp section_error([{:retention, :incomplete} | _rest]),
     do: "Fill in every limit, then save again."
@@ -1408,12 +1399,12 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       options: channels ++ saved,
       prompt: "Choose a channel",
       help:
-        if(channels == [],
-          do:
-            "Ryker is not in any Slack channel yet. Invite it to one with /invite, then " <>
-              "choose it here.",
-          else: "One of the Slack channels Ryker is in."
-        )
+        if channels == [] do
+          "Ryker is not in any Slack channel yet. Invite it to one with /invite, then " <>
+            "choose it here."
+        else
+          "One of the Slack channels Ryker is in."
+        end
     })
   end
 
@@ -1547,12 +1538,12 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp impact_lines(section, %{impact: impact}) do
     for {field, rows} <- impact,
-        Enum.any?(rows, &(&1.count > 0)),
-        do:
-          {horizon_label(section, field),
-           rows
-           |> Enum.filter(&(&1.count > 0))
-           |> Enum.map_join(" · ", &"#{&1.count} #{&1.label}")}
+        Enum.any?(rows, &(&1.count > 0)) do
+      {horizon_label(section, field),
+       rows
+       |> Enum.filter(&(&1.count > 0))
+       |> Enum.map_join(" · ", &"#{&1.count} #{&1.label}")}
+    end
   end
 
   # What the other writer saved, rendered the same way the rows are: a mapping
@@ -1564,12 +1555,12 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     end
   end
 
-  defp saved_value(section, view, _item_key, field),
-    do:
-      SettingsSections.row_value(
-        field,
-        Map.get(Map.fetch!(view.snapshot, section.domain), field.name)
-      )
+  defp saved_value(section, view, _item_key, field) do
+    SettingsSections.row_value(
+      field,
+      Map.get(Map.fetch!(view.snapshot, section.domain), field.name)
+    )
+  end
 
   defp item_key(section, item), do: to_string(Map.get(item, section.item_key))
 
@@ -1651,10 +1642,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp phrase(:mapping_values), do: "has a path that is empty or too long."
   defp phrase(:mapping_unsupported), do: "is only used with the custom JSON shape."
 
-  defp phrase(:lifecycle),
-    do:
-      "needs at least one value for each filter, known repositories, " <>
-        "and the kinds deployment or terraform."
+  defp phrase(:lifecycle) do
+    "needs at least one value for each filter, known repositories, " <>
+      "and the kinds deployment or terraform."
+  end
 
   defp phrase(_reason), do: "was refused."
 

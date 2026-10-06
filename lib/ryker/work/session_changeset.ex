@@ -2,7 +2,6 @@ defmodule Ryker.Work.SessionChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.Work.{RepositoryContext, RepositorySource, Session}
 

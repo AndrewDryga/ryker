@@ -35,9 +35,7 @@ defmodule Ryker.Feedback.Messages do
   """
 
   import Ecto.Query
-
   require Logger
-
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Feedback
   alias Ryker.Ingress.Inbox

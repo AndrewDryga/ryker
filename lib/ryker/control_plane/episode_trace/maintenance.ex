@@ -15,7 +15,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
-
   alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.CoopFleet.Placement
   alias Ryker.InspectionRedactor
@@ -248,11 +247,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
   defp error_details(session) do
     detail =
-      if session.cleanup_last_error_detail,
-        do:
-          session.cleanup_last_error_detail
-          |> InspectionRedactor.artifact(max_bytes: 2_048)
-          |> Map.fetch!(:text)
+      if session.cleanup_last_error_detail do
+        session.cleanup_last_error_detail
+        |> InspectionRedactor.artifact(max_bytes: 2_048)
+        |> Map.fetch!(:text)
+      end
 
     compact_details([
       {"Error", error_words(session.cleanup_last_error_code) |> String.trim()},
@@ -270,14 +269,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   # The close, as the sentence a session's story starts with.
   defp closed_sentence(%Session{closed_at: nil}), do: ""
 
-  defp closed_sentence(%Session{repository_ref: nil, closed_at: at}),
-    do:
-      "After the request ended, Ryker closed its worker session, which worked without a repository, at #{clock(at)}. "
+  defp closed_sentence(%Session{repository_ref: nil, closed_at: at}) do
+    "After the request ended, Ryker closed its worker session, which worked without a repository, at #{clock(at)}. "
+  end
 
-  defp closed_sentence(%Session{repository_ref: repository, closed_at: at}),
-    do:
-      "After the request ended, Ryker closed #{RepositoryNames.name(repository)}'s worker " <>
-        "session at #{clock(at)}. "
+  defp closed_sentence(%Session{repository_ref: repository, closed_at: at}) do
+    "After the request ended, Ryker closed #{RepositoryNames.name(repository)}'s worker " <>
+      "session at #{clock(at)}. "
+  end
 
   defp close_details(%Session{closed_at: nil}), do: []
 
@@ -295,32 +294,32 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
   # What the cleanup receipt proves, by the kind cleanup writes, read on after
   # the close. Only "discarded" is a removal this pass made.
-  defp cleanup_outcome("already_discarded", _session),
-    do:
-      {"Working copy already gone",
-       "The worker reported the working copy was already gone; Ryker saw that, it did not delete it."}
+  defp cleanup_outcome("already_discarded", _session) do
+    {"Working copy already gone",
+     "The worker reported the working copy was already gone; Ryker saw that, it did not delete it."}
+  end
 
-  defp cleanup_outcome("remote_absent", _session),
-    do:
-      {"Working copy already gone",
-       "By cleanup time the worker no longer knew this session, so there was nothing left to close or remove."}
+  defp cleanup_outcome("remote_absent", _session) do
+    {"Working copy already gone",
+     "By cleanup time the worker no longer knew this session, so there was nothing left to close or remove."}
+  end
 
-  defp cleanup_outcome("worker_removed", _session),
-    do:
-      {"Working copy left on a removed worker",
-       "The worker holding it was removed from Ryker, so Ryker cannot reach it to close or remove it."}
+  defp cleanup_outcome("worker_removed", _session) do
+    {"Working copy left on a removed worker",
+     "The worker holding it was removed from Ryker, so Ryker cannot reach it to close or remove it."}
+  end
 
-  defp cleanup_outcome(_discarded, session),
-    do:
-      {"Working copy removed",
-       "#{if session.closed_at, do: "It", else: "Ryker"} removed the temporary working copy at #{clock(session.discarded_at)}" <>
-         plan_sentence(session.discard_plan) <>
-         " What this page shows about the work is unaffected."}
+  defp cleanup_outcome(_discarded, session) do
+    {"Working copy removed",
+     "#{if session.closed_at, do: "It", else: "Ryker"} removed the temporary working copy at #{clock(session.discarded_at)}" <>
+       plan_sentence(session.discard_plan) <>
+       " What this page shows about the work is unaffected."}
+  end
 
   # What Ryker checked before it removed a working copy it removed itself.
-  defp plan_sentence(%{"workspace" => %{"unmerged" => true}}),
-    do:
-      ", after checking it held no uncommitted changes; its unmerged commits could go because the work was published."
+  defp plan_sentence(%{"workspace" => %{"unmerged" => true}}) do
+    ", after checking it held no uncommitted changes; its unmerged commits could go because the work was published."
+  end
 
   defp plan_sentence(%{"workspace" => %{}}),
     do: ", after checking it held no uncommitted changes and no unpublished commits."

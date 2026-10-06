@@ -1,6 +1,5 @@
 defmodule Ryker.Settings.ConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Repo
   alias Ryker.Settings

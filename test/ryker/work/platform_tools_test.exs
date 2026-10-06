@@ -1,6 +1,5 @@
 defmodule Ryker.Work.PlatformToolsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.TestSupport.FakeWorkCoopAPI
   alias Ryker.Work.{Executor, PlatformTools, Runtime}
 

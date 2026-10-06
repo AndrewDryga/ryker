@@ -16,7 +16,6 @@ defmodule Ryker.RoutingExamplesTest do
   named taken out, since this test offers neither.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import ExUnit.CaptureLog
   import Ryker.TestHelpers, only: [digest: 1, eventually: 1]

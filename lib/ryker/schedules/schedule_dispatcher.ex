@@ -100,10 +100,10 @@ defmodule Ryker.Schedules.ScheduleDispatcher do
     min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
   end
 
-  defp callback?(module, function, arity),
-    do:
-      is_atom(module) and Code.ensure_loaded?(module) and
-        function_exported?(module, function, arity)
+  defp callback?(module, function, arity) do
+    is_atom(module) and Code.ensure_loaded?(module) and
+      function_exported?(module, function, arity)
+  end
 
   defp positive?(value), do: is_integer(value) and value > 0
   defp non_negative?(value), do: is_integer(value) and value >= 0

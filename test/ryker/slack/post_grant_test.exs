@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.PostGrantTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.{PostGrant, SourceRef}
 
   test "a permalink grant honors the explicit root thread timestamp" do

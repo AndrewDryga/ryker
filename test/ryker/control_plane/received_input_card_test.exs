@@ -9,10 +9,8 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
   operator that the source had sent fields Ryker had actually added.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
   import Phoenix.LiveViewTest
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes

@@ -4,15 +4,12 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   import Ecto.Query
   alias Ryker.{Admission, Repo}
   alias Ryker.Admission.{Context, Decision, Prompt}
+  alias Ryker.Continuity
   alias Ryker.ControlPlane.{ConversationMemory, LearnedPage}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.RecallText
-  alias Ryker.Retention.Data
-  alias Ryker.Slack.{ChannelMembership, Input}
-
-  alias Ryker.Continuity
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRetention
@@ -23,6 +20,8 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Memories.MemorySearchPage
+  alias Ryker.Retention.Data
+  alias Ryker.Slack.{ChannelMembership, Input}
 
   # The replay made 931 notes from 1,034 messages. These two actual observations
   # (bec3eb2b... and 62a54f69...) described one alert as two unrelated memories.

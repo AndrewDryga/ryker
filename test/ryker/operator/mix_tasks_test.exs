@@ -1,8 +1,6 @@
 defmodule Ryker.Operator.MixTasksTest do
   use Ryker.DataCase, async: false
-
   import ExUnit.CaptureIO
-
   alias Mix.Tasks.Ryker.{Doctor, OperatorSupport, Replay, Retry, Status}
   alias Mix.Tasks.Ryker.Failures, as: FailuresTask
   alias Ryker.Ingress.Inbox

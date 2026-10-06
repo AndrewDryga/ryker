@@ -2,7 +2,6 @@ defmodule Ryker.Memories.MemoryReviewItemChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Memories.MemoryReviewItem
 
   @insert_fields [

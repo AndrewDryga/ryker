@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.AppHomeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.{AppHome, AppHomeProjection, HomeEvent, Operators}
 
   @plan_fingerprint String.duplicate("a", 64)

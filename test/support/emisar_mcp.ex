@@ -76,13 +76,13 @@ defmodule Ryker.TestSupport.EmisarMCP do
   def answer(%{"id" => id}, "refused-" <> _token),
     do: respond(401, %{"error" => %{"code" => -32_001, "message" => "unauthorized"}}, id)
 
-  def answer(%{"method" => "tools/call", "id" => id}, "echo-" <> _rest = token),
-    do:
-      respond(
-        200,
-        %{"error" => %{"code" => -32_602, "message" => "params refused for #{token}"}},
-        id
-      )
+  def answer(%{"method" => "tools/call", "id" => id}, "echo-" <> _rest = token) do
+    respond(
+      200,
+      %{"error" => %{"code" => -32_602, "message" => "params refused for #{token}"}},
+      id
+    )
+  end
 
   def answer(%{"method" => "initialize", "id" => id, "params" => params}, token) do
     respond(
@@ -195,8 +195,8 @@ defmodule Ryker.TestSupport.EmisarMCP do
   defp instructions("leaky-" <> _rest = token), do: File.read!(@instructions) <> " Key: " <> token
   defp instructions(_token), do: File.read!(@instructions)
 
-  defp respond(status, body, id),
-    do:
-      {:ok,
-       %{body: Map.merge(%{"id" => id, "jsonrpc" => "2.0"}, body), headers: [], status: status}}
+  defp respond(status, body, id) do
+    {:ok,
+     %{body: Map.merge(%{"id" => id, "jsonrpc" => "2.0"}, body), headers: [], status: status}}
+  end
 end

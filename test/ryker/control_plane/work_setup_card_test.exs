@@ -14,10 +14,8 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
   writers on one lock, so this module runs on its own.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Phoenix.LiveViewTest
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{ConversationLab, EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes

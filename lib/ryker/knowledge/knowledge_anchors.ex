@@ -10,9 +10,9 @@ defmodule Ryker.Knowledge.KnowledgeAnchors do
 
   defp strings(value) when is_binary(value), do: [value]
 
-  defp strings(value) when is_map(value),
-    do:
-      value |> Enum.sort_by(&elem(&1, 0)) |> Enum.flat_map(fn {_key, value} -> strings(value) end)
+  defp strings(value) when is_map(value) do
+    value |> Enum.sort_by(&elem(&1, 0)) |> Enum.flat_map(fn {_key, value} -> strings(value) end)
+  end
 
   defp strings(value) when is_list(value), do: Enum.flat_map(value, &strings/1)
   defp strings(_), do: []
@@ -38,10 +38,10 @@ defmodule Ryker.Knowledge.KnowledgeAnchors do
   defp github_subject?(_), do: false
 
   defp slack_message?(%URI{scheme: "https", host: host, userinfo: nil, port: 443} = uri)
-       when is_binary(host),
-       do:
-         Regex.match?(~r/\A[a-z0-9-]+\.slack\.com\z/, host) and
-           Regex.match?(~r{\A/archives/[A-Z0-9]+/p[0-9]+\z}, uri.path || "")
+       when is_binary(host) do
+    Regex.match?(~r/\A[a-z0-9-]+\.slack\.com\z/, host) and
+      Regex.match?(~r{\A/archives/[A-Z0-9]+/p[0-9]+\z}, uri.path || "")
+  end
 
   defp slack_message?(_), do: false
 

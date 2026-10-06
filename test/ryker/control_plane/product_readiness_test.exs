@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.ProductReadinessTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.ProductReadiness
 
   @profile %{

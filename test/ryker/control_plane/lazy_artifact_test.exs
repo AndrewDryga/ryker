@@ -13,10 +13,8 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
   removes the content, and no reading state may bring it back.
   """
   use Ryker.DataCase, async: true
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Endpoint, EpisodePage, EpisodeProjection, ModelRequests, Projection}
   alias Ryker.Episodes

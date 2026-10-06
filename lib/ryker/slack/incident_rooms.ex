@@ -13,27 +13,19 @@ defmodule Ryker.Slack.IncidentRooms do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.ErrorDetail
-  alias Ryker.Repo
-
-  alias Ryker.Slack.{
-    ChannelConfiguration,
-    IncidentRoom,
-    IncidentRoomChangeset,
-    IncidentRoomLifecycleEvent,
-    IncidentRoomLifecycleEventChangeset,
-    MembershipTransition
-  }
-
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
   alias Ryker.Records.TaskOffers
+  alias Ryker.Repo
+  alias Ryker.Slack.{ChannelConfiguration, IncidentRoom, IncidentRoomChangeset}
+  alias Ryker.Slack.{IncidentRoomLifecycleEvent, IncidentRoomLifecycleEventChangeset}
+  alias Ryker.Slack.MembershipTransition
   alias Ryker.UTCDateTime
   alias Ryker.Work.{Custody, Session, Turn}
 

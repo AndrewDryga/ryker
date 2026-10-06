@@ -1,7 +1,6 @@
 defmodule Ryker.Learning.Dispatcher do
   @moduledoc "Dispatches exclusively assigned original inputs; replying is a separate decision."
   require Logger
-
   alias Ryker.Learning.{Batches, EmptyChat, Executor, FleetSession}
 
   @maximum_reconciliations 12
@@ -249,24 +248,24 @@ defmodule Ryker.Learning.Dispatcher do
   defp code(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp code(_), do: "learning_execution_failed"
   # Never turn provider or model text into atoms.
-  defp error_reason(code),
-    do:
-      Map.get(
-        %{
-          "knowledge_target_unavailable" => :knowledge_target_unavailable,
-          "knowledge_match_ambiguous" => :knowledge_match_ambiguous,
-          "learning_capacity_exceeded" => :learning_capacity_exceeded,
-          "learning_match_required" => :learning_match_required,
-          "learning_source_stale" => :learning_source_stale,
-          "learning_context_stale" => :learning_context_stale,
-          "output_contract_failed" => :output_contract_failed,
-          "invalid_learning_result" => :invalid_learning_result,
-          "learning_execution_timeout" => :learning_execution_timeout,
-          "learning_provider_failed" => :learning_provider_failed,
-          "learning_session_unconfirmed" => :learning_session_unconfirmed,
-          "learning_session_not_isolated" => :learning_session_not_isolated
-        },
-        code,
-        :learning_execution_failed
-      )
+  defp error_reason(code) do
+    Map.get(
+      %{
+        "knowledge_target_unavailable" => :knowledge_target_unavailable,
+        "knowledge_match_ambiguous" => :knowledge_match_ambiguous,
+        "learning_capacity_exceeded" => :learning_capacity_exceeded,
+        "learning_match_required" => :learning_match_required,
+        "learning_source_stale" => :learning_source_stale,
+        "learning_context_stale" => :learning_context_stale,
+        "output_contract_failed" => :output_contract_failed,
+        "invalid_learning_result" => :invalid_learning_result,
+        "learning_execution_timeout" => :learning_execution_timeout,
+        "learning_provider_failed" => :learning_provider_failed,
+        "learning_session_unconfirmed" => :learning_session_unconfirmed,
+        "learning_session_not_isolated" => :learning_session_not_isolated
+      },
+      code,
+      :learning_execution_failed
+    )
+  end
 end

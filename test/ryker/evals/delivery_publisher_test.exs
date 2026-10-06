@@ -1,13 +1,7 @@
 defmodule Ryker.Evals.DeliveryPublisherTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Delivery.Request
-
-  alias Ryker.Evals.{
-    DeliveryPublisher,
-    GitHubDeliveryPublisher,
-    SlackDeliveryPublisher
-  }
+  alias Ryker.Evals.{DeliveryPublisher, GitHubDeliveryPublisher, SlackDeliveryPublisher}
 
   test "evaluation delivery adapters exercise the exact platform interface without external writes" do
     {:ok, agent} =

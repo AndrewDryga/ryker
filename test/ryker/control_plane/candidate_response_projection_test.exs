@@ -1,11 +1,8 @@
 defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Phoenix.LiveViewTest
   import Ecto.Query
-
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, EpisodeRequest, ModelRequests}
   alias Ryker.InspectionRedactor
   alias Ryker.Work.{CandidateResponse, Custody, Submission, Turn}

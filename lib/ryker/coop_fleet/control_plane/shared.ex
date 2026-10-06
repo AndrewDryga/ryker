@@ -5,7 +5,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Shared do
   """
 
   import Ecto.Query
-
   alias Ryker.CoopFleet.{Protocol, Worker}
   alias Ryker.Repo
 

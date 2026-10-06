@@ -1,6 +1,5 @@
 defmodule Ryker.Webhooks.RouteTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Webhooks.Route
 
   test "accepts bearer and HMAC routes with a host-owned destination" do

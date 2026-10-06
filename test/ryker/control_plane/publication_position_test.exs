@@ -1,10 +1,7 @@
 defmodule Ryker.ControlPlane.PublicationPositionTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   require Ryker.ControlPlane.ConversationTranscript
-
   alias Ryker.ControlPlane.ConversationTranscript
 
   @inserted ~N[2026-10-01 09:00:00.000000]

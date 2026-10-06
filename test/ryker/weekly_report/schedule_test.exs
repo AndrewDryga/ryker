@@ -3,7 +3,6 @@ defmodule Ryker.WeeklyReport.ScheduleTest do
   # computed in UTC arrives hours off for everyone east or west of it, and
   # one that ignores the clock changes arrives an hour off for half the year.
   use ExUnit.Case, async: true
-
   alias Ryker.TestSupport.TimeZones
   alias Ryker.WeeklyReport.Schedule
 

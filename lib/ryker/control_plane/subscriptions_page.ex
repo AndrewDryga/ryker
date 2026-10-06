@@ -10,7 +10,6 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   follow-up or what it waits on changes (`subscriptions/0`).
   """
   use Phoenix.Component
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
   alias Ryker.ControlPlane.SubscriptionPresentation, as: Presentation

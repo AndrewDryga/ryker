@@ -4,9 +4,7 @@ defmodule Ryker.Embeddings.WorkerTest do
   # vector only for the text it read, and leaves the rest waiting when the
   # server fails.
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Embeddings.Worker
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, RoutingDigest, RoutingDigests}

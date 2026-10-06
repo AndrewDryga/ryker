@@ -217,10 +217,10 @@ defmodule Ryker.Publication.Request do
   defp git_identity?(value),
     do: is_binary(value) and Regex.match?(~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/, value)
 
-  defp branch_ref?(value),
-    do:
-      is_binary(value) and
-        Regex.match?(~r/\Arefs\/heads\/[A-Za-z0-9._\/-]{1,240}\z/, value)
+  defp branch_ref?(value) do
+    is_binary(value) and
+      Regex.match?(~r/\Arefs\/heads\/[A-Za-z0-9._\/-]{1,240}\z/, value)
+  end
 
   defp github_pull_url?(value, number) when is_binary(value) and byte_size(value) <= 2_048 do
     case URI.new(value) do

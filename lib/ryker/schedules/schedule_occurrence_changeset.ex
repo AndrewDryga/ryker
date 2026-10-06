@@ -2,7 +2,6 @@ defmodule Ryker.Schedules.ScheduleOccurrenceChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Schedules.ScheduleOccurrence
 
   @fields [

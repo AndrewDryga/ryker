@@ -1,8 +1,6 @@
 defmodule Ryker.ControlPlane.WorkerEvidenceTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.ControlPlane.WorkerEvidence
   alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.Episodes

@@ -1,6 +1,5 @@
 defmodule Ryker.Episodes.ReplayTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Episodes.Replay
 
   @source %{
@@ -212,14 +211,11 @@ defmodule Ryker.Episodes.ReplayTest do
     base = Replay.read!(Path.join(__DIR__, "fixtures/grafana_firing_resolved_cycle.json"))
 
     cases = [
-      {fn source -> Map.put(source, "database", "unknown.db") end,
-       ~r/source database is unsupported/},
-      {fn source -> Map.put(source, "reason", " ") end, ~r/source reason must be nonempty/},
-      {fn source -> Map.put(source, "episode_ids", []) end,
-       ~r/episode_ids must be a nonempty reference array/},
-      {fn source -> Map.put(source, "incident_id", "") end, ~r/incident_id must be a reference/},
-      {fn source -> Map.put(source, "observed_attempts", -1) end,
-       ~r/observed_attempts must be a nonnegative integer/}
+      {&Map.put(&1, "database", "unknown.db"), ~r/source database is unsupported/},
+      {&Map.put(&1, "reason", " "), ~r/source reason must be nonempty/},
+      {&Map.put(&1, "episode_ids", []), ~r/episode_ids must be a nonempty reference array/},
+      {&Map.put(&1, "incident_id", ""), ~r/incident_id must be a reference/},
+      {&Map.put(&1, "observed_attempts", -1), ~r/observed_attempts must be a nonnegative integer/}
     ]
 
     Enum.each(cases, fn {mutate, message} ->

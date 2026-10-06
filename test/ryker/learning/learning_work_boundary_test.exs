@@ -2,13 +2,11 @@ defmodule Ryker.Learning.LearningWorkBoundaryTest do
   use Ryker.DataCase, async: false
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
-
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Learning.SourceExposure
-
   alias Ryker.Work.{Custody, SubmissionBuilder}
 
   test "background learning cannot leak a queued input into an earlier Work turn" do

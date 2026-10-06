@@ -1,6 +1,5 @@
 defmodule Ryker.Emisar.ConnectionsTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Emisar.{Approvals, Connections}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command

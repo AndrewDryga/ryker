@@ -147,10 +147,10 @@ defmodule Ryker.Slack.TaskCardDetails do
   defp optional_text?(nil, _maximum), do: true
   defp optional_text?(text, maximum), do: text?(text, maximum)
 
-  defp text?(text, maximum),
-    do:
-      is_binary(text) and String.valid?(text) and String.length(text) in 1..maximum and
-        :binary.match(text, <<0>>) == :nomatch and String.trim(text) != ""
+  defp text?(text, maximum) do
+    is_binary(text) and String.valid?(text) and String.length(text) in 1..maximum and
+      :binary.match(text, <<0>>) == :nomatch and String.trim(text) != ""
+  end
 
   defp display(text, maximum), do: text |> escape() |> truncate(maximum)
 

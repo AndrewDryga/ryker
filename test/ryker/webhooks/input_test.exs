@@ -1,6 +1,5 @@
 defmodule Ryker.Webhooks.InputTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Ingress.Input, as: IngressInput
   alias Ryker.Webhooks.{Input, Route}
 

@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.CommandTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.Command
 
   @now ~U[2026-08-28 12:00:00.000000Z]

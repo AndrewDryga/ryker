@@ -6,22 +6,13 @@ defmodule Ryker.Slack.EndToEndTest do
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
-
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.Delivery.{Adapters, Dispatcher, RoutingResponse}
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
   alias Ryker.Repo
-
-  alias Ryker.Slack.{
-    Engagement,
-    Gateway,
-    InteractionAudit,
-    InteractionHandler,
-    InteractionRepaint,
-    Publisher
-  }
-
+  alias Ryker.Slack.{Engagement, Gateway, InteractionAudit, InteractionHandler}
+  alias Ryker.Slack.{InteractionRepaint, Publisher}
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Final, Session, Turn}
 

@@ -23,9 +23,7 @@ defmodule Ryker.Feedback.Signal do
   """
 
   use Ecto.Schema
-
   import Ecto.Changeset
-
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
 

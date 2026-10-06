@@ -365,7 +365,7 @@ defmodule Ryker.Work.Executor.Cancellation do
       Remote.ambiguous_mutation(:cancel_turn, reason),
       key,
       settings,
-      fn operation -> cancellation_from_operation(claim, operation, key, settings) end
+      &cancellation_from_operation(claim, &1, key, settings)
     )
   end
 
@@ -375,9 +375,12 @@ defmodule Ryker.Work.Executor.Cancellation do
         settle_remote_cancellation(claim, key, current, settings)
 
       _not_proven ->
-        Remote.reconcile_after_transport(error, key, settings, fn operation ->
-          cancellation_from_operation(claim, operation, key, settings)
-        end)
+        Remote.reconcile_after_transport(
+          error,
+          key,
+          settings,
+          &cancellation_from_operation(claim, &1, key, settings)
+        )
     end
   end
 
@@ -580,15 +583,15 @@ defmodule Ryker.Work.Executor.Cancellation do
        when is_map(operation),
        do: cancellation_close_from_operation(claim, proof, operation, key, settings)
 
-  defp handle_cancellation_close_response({:ok, _response}, claim, proof, key, settings),
-    do:
-      reconcile_cancellation_close_response(
-        claim,
-        proof,
-        key,
-        :close_session_response,
-        settings
-      )
+  defp handle_cancellation_close_response({:ok, _response}, claim, proof, key, settings) do
+    reconcile_cancellation_close_response(
+      claim,
+      proof,
+      key,
+      :close_session_response,
+      settings
+    )
+  end
 
   defp handle_cancellation_close_response(
          {:error, {:coop_error, 409, "revision_conflict", _detail} = reason},
@@ -615,9 +618,12 @@ defmodule Ryker.Work.Executor.Cancellation do
          key,
          settings
        ) do
-    Remote.reconcile_after_transport(error, key, settings, fn operation ->
-      cancellation_close_from_operation(claim, proof, operation, key, settings)
-    end)
+    Remote.reconcile_after_transport(
+      error,
+      key,
+      settings,
+      &cancellation_close_from_operation(claim, proof, &1, key, settings)
+    )
   end
 
   defp reconcile_cancellation_close_response(claim, proof, key, reason, settings) do
@@ -625,9 +631,7 @@ defmodule Ryker.Work.Executor.Cancellation do
       Remote.ambiguous_mutation(:close_session, reason),
       key,
       settings,
-      fn operation ->
-        cancellation_close_from_operation(claim, proof, operation, key, settings)
-      end
+      &cancellation_close_from_operation(claim, proof, &1, key, settings)
     )
   end
 

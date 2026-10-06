@@ -6,11 +6,9 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
   report an hour off, or a burst of stale reports after an outage.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import ExUnit.CaptureLog
   import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
-
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
   alias Ryker.Delivery.{Adapters, Dispatcher}
   alias Ryker.Operator.Delivery, as: DeliveryOperator

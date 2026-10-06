@@ -9,7 +9,6 @@ defmodule Ryker.Slack.Engagement do
   """
 
   import Ecto.Query
-
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes.Episode
   alias Ryker.Repo

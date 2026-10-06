@@ -8,11 +8,8 @@ defmodule Ryker.Work.CancellationWorkerTest do
   """
 
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.CoopFleet.{Client, Command, ControlPlane, Placement, WorkerLifecycle}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

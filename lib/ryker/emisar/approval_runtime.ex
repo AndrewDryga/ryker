@@ -4,7 +4,6 @@ defmodule Ryker.Emisar.ApprovalRuntime do
   """
 
   use Supervisor
-
   alias Ryker.Emisar.ApprovalWorker
   alias Ryker.Options
 
@@ -162,8 +161,8 @@ defmodule Ryker.Emisar.ApprovalRuntime do
 
   defp validate_ref!(value) do
     unless is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-             :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-           do:
-             raise(ArgumentError, "Emisar approval worker_ref must be a bounded nonblank string")
+             :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "" do
+      raise(ArgumentError, "Emisar approval worker_ref must be a bounded nonblank string")
+    end
   end
 end

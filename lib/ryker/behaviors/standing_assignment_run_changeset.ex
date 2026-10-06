@@ -2,7 +2,6 @@ defmodule Ryker.Behaviors.StandingAssignmentRunChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Behaviors.StandingAssignmentRun
 
   @fields [

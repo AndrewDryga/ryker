@@ -2,9 +2,7 @@ defmodule Ryker.GitHub.ConfirmationsTest do
   # Sync: one test breaks a table for the length of its own transaction.
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
   import ExUnit.CaptureLog
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

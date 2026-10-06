@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldToolsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Evals.{WorldCase, WorldCassette, WorldTools}
   alias Ryker.StateTools.{Router, Tools}
 

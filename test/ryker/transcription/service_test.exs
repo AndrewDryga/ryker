@@ -8,9 +8,7 @@ defmodule Ryker.Transcription.ServiceTest do
   # recording and each of its parts; a stand-in ffmpeg cuts a recording of six
   # spoken parts, as Ryker cuts his.
   use ExUnit.Case, async: true
-
   import ExUnit.CaptureLog
-
   alias Ryker.Transcription.{Parts, Service}
 
   @fixture "testdata/transcription/voice-2026-09-28-language-probabilities.json"
@@ -184,7 +182,7 @@ defmodule Ryker.Transcription.ServiceTest do
 
   # Six parts of speech, each followed by a pause, as Ryker cut the recording.
   defp six_parts do
-    Enum.map_join(1..6, fn part -> speech(2.5) <> if(part < 6, do: silence(0.6), else: "") end)
+    Enum.map_join(1..6, &(speech(2.5) <> if(&1 < 6, do: silence(0.6), else: "")))
   end
 
   # Writes the given samples as the WAV ffmpeg's last argument names.

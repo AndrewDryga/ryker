@@ -7,7 +7,6 @@ defmodule Ryker.Credentials do
   """
 
   import Ecto.Query
-
   alias Ryker.Credential
   alias Ryker.Credential.Event
   alias Ryker.Repo
@@ -299,12 +298,12 @@ defmodule Ryker.Credentials do
     _error -> {:error, :credential_decryption_failed}
   end
 
-  defp associated_data(kind, name, version),
-    do:
-      Enum.join(
-        ["ryker-integration-credential", Integer.to_string(version), to_string(kind), name],
-        <<0>>
-      )
+  defp associated_data(kind, name, version) do
+    Enum.join(
+      ["ryker-integration-credential", Integer.to_string(version), to_string(kind), name],
+      <<0>>
+    )
+  end
 
   defp validate_identity(kind, name) when kind in @kinds and is_binary(name) do
     if Regex.match?(@name, name), do: :ok, else: {:error, :credential_name_invalid}
@@ -354,9 +353,9 @@ defmodule Ryker.Credentials do
 
   defp topic, do: "credentials"
 
-  defp broadcast_credentials_changed(kind, name),
-    do:
-      Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(topic(), {:credentials_changed, kind, name})
-      end)
+  defp broadcast_credentials_changed(kind, name) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(topic(), {:credentials_changed, kind, name})
+    end)
+  end
 end

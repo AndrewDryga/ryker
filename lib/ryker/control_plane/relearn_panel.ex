@@ -11,19 +11,9 @@ defmodule Ryker.ControlPlane.RelearnPanel do
   """
   use Phoenix.Component
   import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1, timestamp: 1]
-
   alias Ryker.CanonicalJSON
-
-  alias Ryker.ControlPlane.{
-    ConversationMemory,
-    CSRF,
-    Kit,
-    LearningActivity,
-    Paths,
-    SlackMarkdown,
-    SourceText
-  }
-
+  alias Ryker.ControlPlane.{ConversationMemory, CSRF, Kit, LearningActivity, Paths, SlackMarkdown}
+  alias Ryker.ControlPlane.SourceText
   alias Ryker.InspectionRedactor
   alias Ryker.Slack.Names
 
@@ -179,30 +169,30 @@ defmodule Ryker.ControlPlane.RelearnPanel do
 
   def reason(:knowledge_changed), do: "This topic changed. Reload it before choosing sources."
 
-  def reason(:learning_remote_unresolved),
-    do:
-      "An earlier model execution has not stopped. Relearning must wait for its stop confirmation."
+  def reason(:learning_remote_unresolved) do
+    "An earlier model execution has not stopped. Relearning must wait for its stop confirmation."
+  end
 
   def reason(:learning_batch_busy),
     do: "This request is still in progress. Inspect its activity before choosing new sources."
 
   def reason(:knowledge_not_found), do: "This topic no longer exists."
 
-  def reason(:learning_configuration_invalid),
-    do:
-      "Learning cannot start with its current configuration. Check Learning and Models in Settings before relearning this topic."
+  def reason(:learning_configuration_invalid) do
+    "Learning cannot start with its current configuration. Check Learning and Models in Settings before relearning this topic."
+  end
 
-  def reason(:knowledge_rebuild_conflict),
-    do:
-      "This topic or its source access changed. Reload the topic and choose current messages again."
+  def reason(:knowledge_rebuild_conflict) do
+    "This topic or its source access changed. Reload the topic and choose current messages again."
+  end
 
-  def reason(:learning_source_stale),
-    do:
-      "The selected sources are no longer eligible. Choose current messages from this conversation."
+  def reason(:learning_source_stale) do
+    "The selected sources are no longer eligible. Choose current messages from this conversation."
+  end
 
-  def reason(:learning_mixed_execution_modes),
-    do:
-      "Choose messages from the same execution mode: either live or shadow. Clear the mixed selection and select again."
+  def reason(:learning_mixed_execution_modes) do
+    "Choose messages from the same execution mode: either live or shadow. Clear the mixed selection and select again."
+  end
 
   def reason(:invalid_learning_rebuild), do: reason(:form)
   def reason(:form), do: "Choose 1 to 16 current messages using the source selector."

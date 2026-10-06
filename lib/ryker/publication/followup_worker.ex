@@ -9,9 +9,7 @@ defmodule Ryker.Publication.FollowupWorker do
   """
 
   use Ryker.PollingWorker, lane: :publication_followup, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
   alias Ryker.Publication.{Custody, FollowupDispatcher}

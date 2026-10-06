@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.IncidentRoomsListTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.ControlPlane.{IncidentProjection, Pages, Projection}
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Records

@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.HomeInteractionTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.HomeInteraction
 
   @now ~U[2026-08-28 12:00:00.000000Z]

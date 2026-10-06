@@ -90,10 +90,10 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
 
       suites =
         for [database, "do ecto.create --quiet + ecto.migrate --quiet + test " <> files] <- calls,
-            into: %{},
-            do:
-              {String.replace(database, ~r/^ryker_test_\d+_\d+_/, ""),
-               files |> String.split() |> Enum.filter(&String.ends_with?(&1, "_test.exs"))}
+            into: %{} do
+          {String.replace(database, ~r/^ryker_test_\d+_\d+_/, ""),
+           files |> String.split() |> Enum.filter(&String.ends_with?(&1, "_test.exs"))}
+        end
 
       assert suites == %{
                "p0" => ["test/ryker/a_test.exs", "test/ryker/c_test.exs"],

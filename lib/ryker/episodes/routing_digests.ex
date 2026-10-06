@@ -17,7 +17,6 @@ defmodule Ryker.Episodes.RoutingDigests do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event, Origins, RoutingDigest}
   alias Ryker.Ingress.RecallText

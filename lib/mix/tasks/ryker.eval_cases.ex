@@ -11,7 +11,6 @@ defmodule Mix.Tasks.Ryker.EvalCases do
   """
 
   use Mix.Task
-
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Improvement.Export
 

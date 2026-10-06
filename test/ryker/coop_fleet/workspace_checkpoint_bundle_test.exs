@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.WorkspaceCheckpointBundleTest do
   use ExUnit.Case, async: true
-
   alias Ryker.CoopFleet.WorkspaceCheckpointBundle, as: Bundle
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: Fixture
 

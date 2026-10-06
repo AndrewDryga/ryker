@@ -31,7 +31,6 @@ defmodule Ryker.Feedback do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback.Signal

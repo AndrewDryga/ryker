@@ -1,8 +1,6 @@
 defmodule Ryker.Improvement.ExportTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.ControlPlane.{ActionRefusal, ConversationLab}
   alias Ryker.Evals.WorldCase
   alias Ryker.Feedback

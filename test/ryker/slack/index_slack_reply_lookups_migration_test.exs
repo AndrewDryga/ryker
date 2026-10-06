@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.IndexSlackReplyLookupsMigrationTest do
   use Ryker.MigrationCase
-
   import Ecto.Query
-
   alias Ecto.Adapters.SQL
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Slack.{InteractionAudit, InteractionRepaint}

@@ -8,7 +8,6 @@ defmodule Ryker.Publication.GateOutputTest do
   broken read must never cost the review it follows.
   """
   use Ryker.DataCase, async: true
-
   alias Ryker.Artifacts
   alias Ryker.Publication.{GateOutput, Publication}
 

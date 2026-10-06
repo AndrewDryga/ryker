@@ -86,29 +86,29 @@ defmodule Ryker.ControlPlane.ProductReadiness do
     }
   end
 
-  defp chat_state(nil, _fleet),
-    do:
-      state(
-        :setting_up,
-        "Chat is finishing setup",
-        "Ryker is applying the saved work settings. This page will update when it is ready."
-      )
+  defp chat_state(nil, _fleet) do
+    state(
+      :setting_up,
+      "Chat is finishing setup",
+      "Ryker is applying the saved work settings. This page will update when it is ready."
+    )
+  end
 
-  defp chat_state(_profile, {:error, _reason}),
-    do:
-      state(
-        :worker_unavailable,
-        "Chat is waiting for its worker",
-        "The bundled worker is not reporting readiness yet."
-      )
+  defp chat_state(_profile, {:error, _reason}) do
+    state(
+      :worker_unavailable,
+      "Chat is waiting for its worker",
+      "The bundled worker is not reporting readiness yet."
+    )
+  end
 
-  defp chat_state(_profile, {:ok, %{required: false}}),
-    do:
-      state(
-        :setting_up,
-        "Chat is finishing setup",
-        "Work placement has not been applied yet."
-      )
+  defp chat_state(_profile, {:ok, %{required: false}}) do
+    state(
+      :setting_up,
+      "Chat is finishing setup",
+      "Work placement has not been applied yet."
+    )
+  end
 
   defp chat_state(_profile, {:ok, fleet}) do
     if fleet.eligible_workers == 0 do

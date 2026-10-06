@@ -32,7 +32,6 @@ defmodule Ryker.WorkExamples.Export do
   """
 
   import Ecto.Query
-
   alias Ryker.Repo
   alias Ryker.WorkExamples.{Example, Feedback}
 

@@ -26,7 +26,6 @@ defmodule Ryker.ControlPlane.SetupPage do
   """
 
   use Phoenix.Component
-
   alias Ryker.ControlPlane.{Components, Integrations, Kit, Paths}
 
   @type status :: :done | :current | :later | :skipped

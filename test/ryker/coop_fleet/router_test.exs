@@ -1,26 +1,12 @@
 defmodule Ryker.CoopFleet.RouterTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import ExUnit.CaptureLog
   import Plug.Conn
   import Plug.Test
-
   alias Ecto.Adapters.SQL.Sandbox
-
-  alias Ryker.CoopFleet.{
-    Bodies,
-    Checkpoints,
-    ControlPlane,
-    Enrollment,
-    JobSpec,
-    Placement,
-    Router,
-    SourceGrants,
-    WorkspaceCheckpointTransfer
-  }
-
+  alias Ryker.CoopFleet.{Bodies, Checkpoints, ControlPlane, Enrollment, JobSpec, Placement}
+  alias Ryker.CoopFleet.{Router, SourceGrants, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob

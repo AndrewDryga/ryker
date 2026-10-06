@@ -272,24 +272,24 @@ defmodule Ryker.Publication.FixLoop do
          "gate_failed",
          _review,
          %{"status" => "read", "artifact" => file, "incomplete" => cut} = output
-       ),
-       do:
-         "The gate's output is the attached #{file["name"]}#{kept(file, output)}, and its end is in review.gate_output_end. It is not the whole run: #{cut} Fix what fails, run the repository's gate again and commit."
+       ) do
+    "The gate's output is the attached #{file["name"]}#{kept(file, output)}, and its end is in review.gate_output_end. It is not the whole run: #{cut} Fix what fails, run the repository's gate again and commit."
+  end
 
-  defp instruction("gate_failed", _review, %{"status" => "read", "artifact" => file} = output),
-    do:
-      "The gate's complete output is the attached #{file["name"]}#{kept(file, output)}, and its end is in review.gate_output_end. Fix what fails, run the repository's gate again and commit."
+  defp instruction("gate_failed", _review, %{"status" => "read", "artifact" => file} = output) do
+    "The gate's complete output is the attached #{file["name"]}#{kept(file, output)}, and its end is in review.gate_output_end. Fix what fails, run the repository's gate again and commit."
+  end
 
-  defp instruction("gate_failed", _review, %{"status" => "lost", "reason" => reason}),
-    do:
-      "Coop could not keep the gate's output (#{reason}). Run the repository's gate yourself to see what fails, fix it and commit."
+  defp instruction("gate_failed", _review, %{"status" => "lost", "reason" => reason}) do
+    "Coop could not keep the gate's output (#{reason}). Run the repository's gate yourself to see what fails, fix it and commit."
+  end
 
   defp instruction("gate_failed", _review, _output),
     do: "Run the repository's gate yourself to see what fails, fix it and commit."
 
-  defp instruction("rebase_conflict", review, _output),
-    do:
-      "Bring the change up to date with the latest base branch (commit #{review["parent_head"]}), resolve the conflicts, run the repository's gate and commit."
+  defp instruction("rebase_conflict", review, _output) do
+    "Bring the change up to date with the latest base branch (commit #{review["parent_head"]}), resolve the conflicts, run the repository's gate and commit."
+  end
 
   defp instruction("gate_modified_candidate", _review, _output),
     do: "Run the repository's gate and commit the files it changes, with anything else they need."

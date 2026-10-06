@@ -3,7 +3,6 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
   # branch heads and spelled-out bindings. Each gets a probe it must flag and
   # a compliant probe it must not.
   use ExUnit.Case, async: true
-
   import Ryker.CredoCheckProbe
 
   @context "lib/ryker/sprockets.ex"
@@ -154,7 +153,216 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
     end
   end
 
+  describe "Ryker.Checks.MultilineAliasGroup" do
+    test "flags a grouped alias the formatter expanded across lines" do
+      source = """
+      defmodule Ryker.Sprockets do
+        alias Ryker.ControlPlane.{
+          Actions,
+          BehaviorLibrary
+        }
+      end
+      """
+
+      assert [issue] = issues(alias_group(), source, @context)
+      assert issue.check == alias_group()
+      assert issue.line_no == 2
+      assert issue.message =~ "single-line grouped aliases"
+    end
+
+    test "allows single-line groups and plain aliases" do
+      source = """
+      defmodule Ryker.Sprockets do
+        alias Ryker.ControlPlane.{Actions, BehaviorLibrary, BrowserGuard}
+        alias Ryker.ControlPlane.{CSRF, FactsPage, FailureExplanation}
+        alias Ryker.Sprockets.Sprocket
+      end
+      """
+
+      assert issues(alias_group(), source, @context) == []
+    end
+  end
+
+  describe "Ryker.Checks.MultilineDoColon" do
+    test "flags a do: the formatter wrapped onto its own line" do
+      source = """
+      defmodule Ryker.Sprockets do
+        defp reduced?(a, b),
+          do:
+            not MapSet.subset?(perms(a), perms(b))
+      end
+      """
+
+      assert [issue] = issues(do_colon(), source, @context)
+      assert issue.check == do_colon()
+      assert issue.line_no == 3
+      assert issue.message =~ "do … end"
+    end
+
+    test "allows a fitting one-liner and a do … end block" do
+      source = """
+      defmodule Ryker.Sprockets do
+        defp reduced?(a, b), do: MapSet.subset?(a, b)
+
+        defp perms(role) do
+          Enum.sort(role.permissions)
+        end
+      end
+      """
+
+      assert issues(do_colon(), source, @context) == []
+    end
+
+    test "reads a documented example as documentation, not as code" do
+      source = """
+      defmodule Ryker.Sprockets do
+        @moduledoc \"""
+        The banned shape:
+
+            defp reduced?(a, b),
+              do:
+                not MapSet.subset?(perms(a), perms(b))
+        \"""
+
+        defp reduced?(a, b), do: MapSet.subset?(a, b)
+      end
+      """
+
+      assert issues(do_colon(), source, @context) == []
+    end
+  end
+
+  describe "Ryker.Checks.NoBlankBetweenDirectives" do
+    test "flags a blank line sandwiched between two directives" do
+      source = """
+      defmodule Ryker.Sprockets do
+        import Ecto.Query
+
+        alias Ryker.Episodes
+      end
+      """
+
+      assert [issue] = issues(blank_directives(), source, @context)
+      assert issue.check == blank_directives()
+      assert issue.line_no == 3
+      assert issue.message =~ "contiguous block"
+    end
+
+    test "allows a contiguous header, a why-comment, and the formatter's multi-line blank" do
+      source = """
+      defmodule Ryker.Sprockets do
+        import Ecto.Query
+        # The endpoint has to be compiled before the routes it verifies.
+
+        use Phoenix.VerifiedRoutes,
+          endpoint: Ryker.ControlPlane.Endpoint
+
+        alias Ryker.Episodes
+      end
+      """
+
+      assert issues(blank_directives(), source, @context) == []
+    end
+
+    test "reads a documented example as documentation, not as code" do
+      source = """
+      defmodule Ryker.Sprockets do
+        @moduledoc \"""
+        The banned shape:
+
+            use Ryker.DataCase, async: true
+
+            alias Ryker.Episodes
+        \"""
+        import Ecto.Query
+        alias Ryker.Episodes
+      end
+      """
+
+      assert issues(blank_directives(), source, @context) == []
+    end
+  end
+
+  describe "Ryker.Checks.PreferCaptureClosure" do
+    test "flags single-call forwarding closures" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def names(sprockets), do: Enum.map(sprockets, fn sprocket -> sprocket.name end)
+        def strings(sprockets), do: Enum.map(sprockets, fn sprocket -> to_string(sprocket) end)
+        def labels(sprockets), do: Enum.map(sprockets, fn sprocket -> label(sprocket, :short) end)
+      end
+      """
+
+      assert triggers(capture_closure(), source, @context) == [
+               "fn sprocket ->",
+               "fn sprocket ->",
+               "fn sprocket ->"
+             ]
+
+      assert [issue | _] = issues(capture_closure(), source, @context)
+      assert issue.check == capture_closure()
+      assert issue.message =~ "capture syntax"
+    end
+
+    test "allows a capture, a constructor body, a multi-arg closure, and a matching head" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def names(sprockets), do: Enum.map(sprockets, & &1.name)
+        def pairs(sprockets), do: Enum.map(sprockets, fn sprocket -> {sprocket.id, sprocket.name} end)
+        def sum(sprockets), do: Enum.reduce(sprockets, 0, fn sprocket, acc -> acc + sprocket.size end)
+        def matched(sprockets), do: Enum.map(sprockets, fn %Sprocket{name: name} -> name end)
+      end
+      """
+
+      assert issues(capture_closure(), source, @context) == []
+    end
+
+    # The first sweep turned ten-line closures into captures with `&1` buried
+    # in a map, and wrote `^&1.id` into Ecto queries (2026-10-06). A capture
+    # is for a body that fits on its line.
+    test "leaves a body over several lines, a pinned query value and an inner closure alone" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def reset(approvals) do
+          Enum.map(approvals, fn approval ->
+            update!(approval, %{
+              failure_count: 0,
+              last_error: nil
+            })
+          end)
+        end
+
+        def load(items, query) do
+          Enum.map(items, fn item -> Repo.one(from(row in query, where: row.id == ^item.id)) end)
+        end
+
+        def pairs(xs, ys), do: Enum.map(xs, fn x -> Enum.map(ys, fn y -> {x, y} end) end)
+      end
+      """
+
+      assert issues(capture_closure(), source, @context) == []
+    end
+
+    test "flags a closure written over three lines whose body is one" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def scoped(checks, scope) do
+          Enum.filter(checks, fn check ->
+            Map.get(check, "scope", scope) == scope
+          end)
+        end
+      end
+      """
+
+      assert triggers(capture_closure(), source, @context) == ["fn check ->"]
+    end
+  end
+
   defp acronym, do: check("AcronymModuleCase")
+  defp alias_group, do: check("MultilineAliasGroup")
+  defp do_colon, do: check("MultilineDoColon")
+  defp blank_directives, do: check("NoBlankBetweenDirectives")
+  defp capture_closure, do: check("PreferCaptureClosure")
   defp pipe_in_branch_head, do: check("NoPipeInBranchHead")
   defp short_bindings, do: check("ShortBindings")
 end

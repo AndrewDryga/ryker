@@ -6,11 +6,9 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
   other way shows nobody and acts as the local console.
   """
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Plug.Conn, only: [put_req_header: 3]
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Actions, ConsolePeople, Endpoint, Projection, Viewer}
   alias Ryker.{Instructions, Settings}
 

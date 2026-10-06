@@ -1,40 +1,28 @@
 defmodule Ryker.Work.SubmissionBuilderTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.{Artifacts, Episodes, Settings}
+  alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Continuity
   alias Ryker.Episodes.Scope
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
-  alias Ryker.Slack.SourceRef
-
-  alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Learning.ConversationObservation
   alias Ryker.Memories
   alias Ryker.Memories.Cases
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemoryEntryChangeset
-  alias Ryker.Records.RecordChangeset
-
-  alias Ryker.Continuity
-  alias Ryker.Knowledge.KnowledgeSnapshot
-  alias Ryker.Learning.ConversationObservation
   alias Ryker.Records
+  alias Ryker.Records.RecordChangeset
+  alias Ryker.Slack.SourceRef
   alias Ryker.StateTools.FixedTools
-
-  alias Ryker.Work.{
-    Contract,
-    Custody,
-    DeliveryReceipt,
-    Final,
-    Result,
-    Submission,
-    SubmissionBuilder
-  }
+  alias Ryker.Work.{Contract, Custody, DeliveryReceipt, Final, Result, Submission}
+  alias Ryker.Work.SubmissionBuilder
 
   # An hour before this file compiles, which is every test run: in the past, as
   # a confirmation is, but never a fixed date. Preferences confirmed at a fixed

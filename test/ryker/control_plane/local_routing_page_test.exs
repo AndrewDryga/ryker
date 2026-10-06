@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.LocalRoutingPageTest do
   costs?!").
   """
   use Ryker.DataCase, async: false
-
   alias Ryker.Admission.Decision
   alias Ryker.ControlPlane.{LocalRoutingPage, Pages, Projection, UsagePage, UsageProjection}
   alias Ryker.Fixtures.LocalRouting, as: Harvested
@@ -337,13 +336,13 @@ defmodule Ryker.ControlPlane.LocalRoutingPageTest do
     end)
   end
 
-  defp text(node, selector),
-    do:
-      node
-      |> LazyHTML.query(selector)
-      |> LazyHTML.text()
-      |> String.replace(~r/\s+/, " ")
-      |> String.trim()
+  defp text(node, selector) do
+    node
+    |> LazyHTML.query(selector)
+    |> LazyHTML.text()
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+  end
 
   defp counts(section, selector) do
     section
@@ -404,15 +403,15 @@ defmodule Ryker.ControlPlane.LocalRoutingPageTest do
   end
 
   # Given up an hour ago, unless said otherwise.
-  defp failed!(entry, at \\ DateTime.add(DateTime.utc_now(), -3_600)),
-    do:
-      comparison(entry, %{
-        status: :failed,
-        attempt_count: 4,
-        last_error: "could not reach the local model: connection refused",
-        inserted_at: at,
-        updated_at: at
-      })
+  defp failed!(entry, at \\ DateTime.add(DateTime.utc_now(), -3_600)) do
+    comparison(entry, %{
+      status: :failed,
+      attempt_count: 4,
+      last_error: "could not reach the local model: connection refused",
+      inserted_at: at,
+      updated_at: at
+    })
+  end
 
   defp waiting!(entry), do: comparison(entry, %{status: :pending})
 

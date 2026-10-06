@@ -190,10 +190,10 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
   # A filtered session that has not run still has a receipt -- provisional, with
   # no runs in it. Hiding the disclosure because the observation is empty would
   # turn "nothing has run yet" back into the silence the export exists to end.
-  defp disclosable?(network),
-    do:
-      network.availability.state == :recorded or
-        network.receipt.availability.state == :recorded
+  defp disclosable?(network) do
+    network.availability.state == :recorded or
+      network.receipt.availability.state == :recorded
+  end
 
   defp network_facts(network) do
     [

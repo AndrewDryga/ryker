@@ -1,6 +1,5 @@
 defmodule Ryker.Webhooks.TransformsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Webhooks.{Route, Transforms}
 
   @now ~U[2026-09-04 08:00:00Z]

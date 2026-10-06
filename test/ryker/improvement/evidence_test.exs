@@ -1,8 +1,6 @@
 defmodule Ryker.Improvement.EvidenceTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Actor, ConversationLab}
@@ -339,10 +337,10 @@ defmodule Ryker.Improvement.EvidenceTest do
     })
   end
 
-  defp key(%Entry{} = entry),
-    do:
-      RoutingExamples.message_key(
-        entry.destination_conversation_ref,
-        entry.source_item_ref || entry.native_input_id
-      )
+  defp key(%Entry{} = entry) do
+    RoutingExamples.message_key(
+      entry.destination_conversation_ref,
+      entry.source_item_ref || entry.native_input_id
+    )
+  end
 end

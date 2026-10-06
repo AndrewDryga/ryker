@@ -1,9 +1,7 @@
 defmodule Ryker.Slack.ArtifactEndToEndTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.{Adapters, Dispatcher}
   alias Ryker.Episodes

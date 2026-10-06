@@ -2,12 +2,10 @@ defmodule Ryker.StateTools.CallLogTest do
   # Reads the episode page projection, which starts the globally named
   # Slack names cache, so it cannot share the VM with other running suites.
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Plug.Conn
   import Plug.Test
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{EpisodeProjection, ToolCard}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

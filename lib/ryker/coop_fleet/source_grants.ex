@@ -2,9 +2,7 @@ defmodule Ryker.CoopFleet.SourceGrants do
   @moduledoc false
 
   import Ecto.Query
-
   require Logger
-
   alias Ryker.CoopFleet.{ControlPlane, JobSpec, Placement}
   alias Ryker.GitHub.InstallationTokens
   alias Ryker.{Repo, Settings}

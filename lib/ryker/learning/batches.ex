@@ -11,16 +11,15 @@ defmodule Ryker.Learning.Batches do
   """
   import Ecto.Query
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Learning.{Batch, InputMembership, Rebuilds, Runtime}
-  alias Ryker.Repo
-  alias Ryker.Work.Custody
-
   alias Ryker.Learning
+  alias Ryker.Learning.{Batch, InputMembership, Rebuilds, Runtime}
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.Repo
   alias Ryker.UTCDateTime
+  alias Ryker.Work.Custody
 
   def claim(worker, settings) do
     Repo.transaction(fn ->
@@ -515,12 +514,12 @@ defmodule Ryker.Learning.Batches do
          else: (_ -> false)
   end
 
-  defp same_scope?(entry, batch),
-    do:
-      entry.destination_transport == batch.transport and
-        entry.destination_conversation_ref == batch.conversation_ref and
-        entry.repository_ref == batch.repository_ref and
-        entry.execution_mode == batch.execution_mode
+  defp same_scope?(entry, batch) do
+    entry.destination_transport == batch.transport and
+      entry.destination_conversation_ref == batch.conversation_ref and
+      entry.repository_ref == batch.repository_ref and
+      entry.execution_mode == batch.execution_mode
+  end
 
   defp retry_document(batch),
     do: %{
@@ -586,16 +585,16 @@ defmodule Ryker.Learning.Batches do
     end)
   end
 
-  def outstanding(batch_id),
-    do:
-      Repo.one(
-        from(r in LearningRun,
-          where:
-            r.batch_id == ^batch_id and not is_nil(r.started_at) and is_nil(r.remote_stopped_at),
-          order_by: [asc: r.inserted_at, asc: r.id],
-          limit: 1
-        )
+  def outstanding(batch_id) do
+    Repo.one(
+      from(r in LearningRun,
+        where:
+          r.batch_id == ^batch_id and not is_nil(r.started_at) and is_nil(r.remote_stopped_at),
+        order_by: [asc: r.inserted_at, asc: r.id],
+        limit: 1
       )
+    )
+  end
 
   defp outstanding_scope_query(scope_key) do
     from(r in LearningRun,
@@ -606,20 +605,20 @@ defmodule Ryker.Learning.Batches do
     )
   end
 
-  def latest(batch_id),
-    do:
-      Repo.one(
-        from(r in LearningRun,
-          join: b in Batch,
-          on: b.id == r.batch_id,
-          where:
-            r.batch_id == ^batch_id and
-              r.policy == b.policy and r.policy_digest == b.policy_digest and
-              (is_nil(b.rebuild_target_id) or r.batch_budget_version == b.budget_version),
-          order_by: [desc: r.inserted_at, desc: r.id],
-          limit: 1
-        )
+  def latest(batch_id) do
+    Repo.one(
+      from(r in LearningRun,
+        join: b in Batch,
+        on: b.id == r.batch_id,
+        where:
+          r.batch_id == ^batch_id and
+            r.policy == b.policy and r.policy_digest == b.policy_digest and
+            (is_nil(b.rebuild_target_id) or r.batch_budget_version == b.budget_version),
+        order_by: [desc: r.inserted_at, desc: r.id],
+        limit: 1
       )
+    )
+  end
 
   def reconciliation_failed(claim, run_id) do
     with_lease(claim, fn ->
@@ -863,9 +862,9 @@ defmodule Ryker.Learning.Batches do
 
   defp current_request?(%{rebuild_target_id: nil}, _run), do: true
 
-  defp current_request?(batch, run),
-    do:
-      run.batch_budget_version == batch.budget_version and run.rebuild == Rebuilds.contract(batch)
+  defp current_request?(batch, run) do
+    run.batch_budget_version == batch.budget_version and run.rebuild == Rebuilds.contract(batch)
+  end
 
   defp lease(batch, worker, seconds, now) do
     if batch.status == :deferred do

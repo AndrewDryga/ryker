@@ -16,7 +16,6 @@ defmodule Ryker.WorkExamplesTest do
   a result refused and another accepted, the answer delivered.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
 

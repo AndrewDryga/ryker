@@ -7,11 +7,9 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
   away a request at that address that did not come through Access.
   """
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Plug.Conn, only: [get_session: 1, put_req_header: 3]
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Actions, ConsolePeople, Endpoint, LiveSocket, Projection, Viewer}
   alias Ryker.Settings
 

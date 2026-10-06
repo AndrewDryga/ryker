@@ -56,12 +56,12 @@ defmodule Ryker.CoopFleet.Server do
 
     certificate_ttl_seconds = Map.get(configuration, :certificate_ttl_seconds, 24 * 60 * 60)
 
-    unless is_integer(certificate_ttl_seconds) and certificate_ttl_seconds in 300..604_800,
-      do:
-        raise(
-          ArgumentError,
-          "Coop worker certificate lifetime must be between 300 and 604800 seconds"
-        )
+    unless is_integer(certificate_ttl_seconds) and certificate_ttl_seconds in 300..604_800 do
+      raise(
+        ArgumentError,
+        "Coop worker certificate lifetime must be between 300 and 604800 seconds"
+      )
+    end
 
     validate_public_url!(Map.get(configuration, :public_url))
     validate_state_tools!(Map.get(configuration, :state_tools))

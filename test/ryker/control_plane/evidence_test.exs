@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.EvidenceTest do
   one place so eighteen cards cannot each re-decide it.
   """
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.Evidence
 
   test "an unknown count is never a zero" do

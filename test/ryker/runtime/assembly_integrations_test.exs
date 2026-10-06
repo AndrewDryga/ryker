@@ -1,6 +1,5 @@
 defmodule Ryker.Runtime.AssemblyIntegrationsTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.Emisar.ApprovalRuntime
   alias Ryker.Runtime.Assembly

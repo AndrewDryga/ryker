@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.SourceAuditsTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Slack.{ActionTokens, CapabilityTools, SourceAudit, SourceAudits, SourceRef}

@@ -1,8 +1,6 @@
 defmodule Ryker.ControlPlane.MemoryActionsTest do
   use Ryker.DataCase, async: true
-
   import Plug.Test
-
   alias Ryker.ControlPlane.{MemoryProjection, Paths, Projection, Router}
   alias Ryker.Fixtures.{ControlPlaneOptions, SavedEntities}
   alias Ryker.Memories.MemoryReviewItem

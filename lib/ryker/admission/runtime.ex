@@ -8,7 +8,6 @@ defmodule Ryker.Admission.Runtime do
   """
 
   use Supervisor
-
   alias Ryker.Admission.{FleetSession, ReadySessions, Worker}
   alias Ryker.Options
 

@@ -7,7 +7,6 @@ defmodule Ryker.Publication.Runtime do
   """
 
   use Supervisor
-
   alias Ryker.Delivery.Adapters
   alias Ryker.Options
   alias Ryker.Publication.{FollowupWorker, Worker}
@@ -184,12 +183,12 @@ defmodule Ryker.Publication.Runtime do
 
   defp status_source!(%{status_api: api, status_client: client}) do
     unless is_atom(api) and Code.ensure_loaded?(api) and
-             function_exported?(api, :get_publication_status, 3),
-           do:
-             raise(
-               ArgumentError,
-               "publication status API must implement get_publication_status/3"
-             )
+             function_exported?(api, :get_publication_status, 3) do
+      raise(
+        ArgumentError,
+        "publication status API must implement get_publication_status/3"
+      )
+    end
 
     {api, client}
   end

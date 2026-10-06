@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.ActionsTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.ControlPlane.{Actions, EpisodeProjection}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command

@@ -2,7 +2,6 @@ defmodule Ryker.Emisar.ToolsTest do
   # Emisar is `Ryker.TestSupport.EmisarMCP` here (config/test.exs): it answers
   # as emisar.dev did on 2026-09-27 and tells this process what it was sent.
   use Ryker.DataCase, async: true
-
   alias Ryker.Credentials
   alias Ryker.Emisar.Tools
 

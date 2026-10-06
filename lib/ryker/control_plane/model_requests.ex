@@ -3,27 +3,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
   import Ecto.Query
   require Ryker.ControlPlane.CurrentInputs
   alias Ryker.Admission.Attempt
-
-  alias Ryker.ControlPlane.{
-    Activity,
-    CallRun,
-    ContextSearch,
-    ContextSelection,
-    CurrentInputs,
-    EpisodeTrace,
-    FeedbackProjection,
-    ImprovementRequests,
-    LearningRequests,
-    PagedRelation,
-    Paths,
-    RepositoryNames,
-    RoutingReason,
-    ThreadContext,
-    Units,
-    UsageProjection
-  }
-
+  alias Ryker.ControlPlane.{Activity, CallRun, ContextSearch, ContextSelection, CurrentInputs}
+  alias Ryker.ControlPlane.{EpisodeTrace, FeedbackProjection, ImprovementRequests}
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Step}
+  alias Ryker.ControlPlane.{LearningRequests, PagedRelation, Paths, RepositoryNames}
+  alias Ryker.ControlPlane.{RoutingReason, ThreadContext, Units, UsageProjection}
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes.Episode
@@ -1019,14 +1003,15 @@ defmodule Ryker.ControlPlane.ModelRequests do
               is_integer(attempt),
               do: attempt
 
-        if is_nil(turn.operational_pruned_at) && attempts != [],
-          do:
-            dynamic(
-              [response],
-              ^predicate or
-                (response.turn_id == ^turn.id and response.candidate_attempt in ^attempts)
-            ),
-          else: predicate
+        if is_nil(turn.operational_pruned_at) && attempts != [] do
+          dynamic(
+            [response],
+            ^predicate or
+              (response.turn_id == ^turn.id and response.candidate_attempt in ^attempts)
+          )
+        else
+          predicate
+        end
       end)
 
     rows =

@@ -11,9 +11,7 @@ defmodule Ryker.Admission.Worker do
   """
 
   use Ryker.PollingWorker, lane: :admission, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.Admission.Dispatcher
   alias Ryker.Ingress.Inbox
   alias Ryker.Observability.Progress

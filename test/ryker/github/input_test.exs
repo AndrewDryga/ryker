@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.InputTest do
   use ExUnit.Case, async: true
-
   alias Ryker.GitHub.{Binding, Input}
   alias Ryker.Ingress.Input, as: IngressInput
 

@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.MentionsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.Mentions
 
   test "renders only authorized typed Slack entities and keeps raw control syntax inert" do

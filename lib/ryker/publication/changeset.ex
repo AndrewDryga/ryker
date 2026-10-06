@@ -2,7 +2,6 @@ defmodule Ryker.Publication.Changeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Publication.Publication
 
   @fields [

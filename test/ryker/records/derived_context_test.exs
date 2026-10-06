@@ -1,12 +1,10 @@
 defmodule Ryker.Records.DerivedContextTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
-
   alias Ryker.{Episodes, Repo}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
-
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
@@ -15,7 +13,6 @@ defmodule Ryker.Records.DerivedContextTest do
   alias Ryker.Records
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.Outcomes
-
   alias Ryker.StateTools.FixedTools
   alias Ryker.Work.{Custody, Final, Result, Session, Submission, SubmissionBuilder, Turn}
 
@@ -602,13 +599,13 @@ defmodule Ryker.Records.DerivedContextTest do
     %{producer | episode: episode, session: session, turn: turn}
   end
 
-  defp work_state(claim),
-    do:
-      FixedTools.call(
-        "get_work_state",
-        %{"limit" => 64},
-        %{binding: tool_binding(claim)}
-      )
+  defp work_state(claim) do
+    FixedTools.call(
+      "get_work_state",
+      %{"limit" => 64},
+      %{binding: tool_binding(claim)}
+    )
+  end
 
   defp tool_binding(claim), do: Map.put(claim, :state_token, Records.token(claim.turn))
   defp captured, do: @captured |> File.read!() |> Jason.decode!()

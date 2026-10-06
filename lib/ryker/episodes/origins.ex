@@ -10,7 +10,6 @@ defmodule Ryker.Episodes.Origins do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.{Episode, Event, Origin}
   alias Ryker.Repo
 

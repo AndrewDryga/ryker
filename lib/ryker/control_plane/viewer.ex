@@ -26,7 +26,6 @@ defmodule Ryker.ControlPlane.Viewer do
   @behaviour Plug
 
   import Plug.Conn
-
   alias Ryker.ControlPlane.{Actor, CloudflareAccess, Endpoint}
 
   # `until`: the Unix second an Access sign-in stops counting.

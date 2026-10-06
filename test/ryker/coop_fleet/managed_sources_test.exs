@@ -1,8 +1,6 @@
 defmodule Ryker.CoopFleet.ManagedSourcesTest do
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [os_process_gone?: 1]
-
   alias Ryker.CoopFleet.ManagedSources
   alias Ryker.Work.RepositorySource
 

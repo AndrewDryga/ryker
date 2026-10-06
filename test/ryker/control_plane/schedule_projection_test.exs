@@ -5,9 +5,7 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
   words in the schedule's own time zone.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.ControlPlane.ScheduleProjection
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

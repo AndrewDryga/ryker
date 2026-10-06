@@ -44,9 +44,7 @@ defmodule Ryker.RoutingExamples do
   """
 
   import Ecto.Query
-
   require Logger
-
   alias Ryker.Accounting.Pricing
   alias Ryker.Admission.{Attempt, Prompt}
   alias Ryker.CanonicalJSON
@@ -332,12 +330,12 @@ defmodule Ryker.RoutingExamples do
   """
   @spec message_key(String.t(), String.t()) :: String.t()
   def message_key(conversation_ref, message_ref)
-      when is_binary(conversation_ref) and is_binary(message_ref),
-      do:
-        CanonicalJSON.digest(%{
-          "conversation_ref" => conversation_ref,
-          "message_ref" => message_ref
-        })
+      when is_binary(conversation_ref) and is_binary(message_ref) do
+    CanonicalJSON.digest(%{
+      "conversation_ref" => conversation_ref,
+      "message_ref" => message_ref
+    })
+  end
 
   @doc "The key an example's `message_keys` holds for one quoted learned topic."
   @spec knowledge_key(String.t()) :: String.t()
@@ -679,12 +677,12 @@ defmodule Ryker.RoutingExamples do
     }
   end
 
-  defp reactions(reactions) when is_list(reactions),
-    do:
-      Enum.map(reactions, fn
-        %{"emoji_name" => name} -> name
-        name -> name
-      end)
+  defp reactions(reactions) when is_list(reactions) do
+    Enum.map(reactions, fn
+      %{"emoji_name" => name} -> name
+      name -> name
+    end)
+  end
 
   defp reactions(_none), do: []
 

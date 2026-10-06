@@ -4,7 +4,6 @@ defmodule Ryker.ControlPlane.RequestContextNamesTest do
   It starts the Slack name cache, which is one per node, so it runs alone.
   """
   use ExUnit.Case, async: false
-
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.InspectionRedactor
   alias Ryker.Slack.Names

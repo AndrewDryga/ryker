@@ -1,10 +1,10 @@
 defmodule Ryker.Memories.MemorySearch do
   @moduledoc "Bounded, permission-rechecked keyset recall across existing memory owners."
   import Ecto.Query
-  alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Episodes.Event
-
   alias Ryker.Behaviors
+  alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.Continuity.Recall, as: ContinuityRecall
+  alias Ryker.Episodes.Event
   alias Ryker.Episodes.Scope
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
@@ -12,8 +12,6 @@ defmodule Ryker.Memories.MemorySearch do
   alias Ryker.Memories.Cases
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
-
-  alias Ryker.Continuity.Recall, as: ContinuityRecall
   alias Ryker.Memories.Recall
   alias Ryker.StateTools.Binding
 

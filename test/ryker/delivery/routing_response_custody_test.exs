@@ -1,6 +1,5 @@
 defmodule Ryker.Delivery.RoutingResponseCustodyTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
 
   # Six async suites once shared T123:C456: sandbox transactions held the

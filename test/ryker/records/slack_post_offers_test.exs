@@ -1,8 +1,6 @@
 defmodule Ryker.Records.SlackPostOffersTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

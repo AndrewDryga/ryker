@@ -8,7 +8,6 @@ defmodule Ryker.Waits.EventWaits do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, ConversationLock, Episode}
   alias Ryker.Ingress.Input

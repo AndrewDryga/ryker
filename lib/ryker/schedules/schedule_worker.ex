@@ -9,9 +9,7 @@ defmodule Ryker.Schedules.ScheduleWorker do
   """
 
   use Ryker.PollingWorker, lane: :schedule, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
   alias Ryker.Schedules

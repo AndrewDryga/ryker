@@ -20,7 +20,6 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   at the routing step.
   """
   use Phoenix.Component
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, Paths, ShortTime, Units}
   alias Ryker.LocalRouting
@@ -34,10 +33,10 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   def path, do: @path
 
   @doc "The sentence under the page's title."
-  def description,
-    do:
-      "How the small model you run yourself would have routed live messages, compared with " <>
-        "the provider model. Routing doesn't use its answers."
+  def description do
+    "How the small model you run yourself would have routed live messages, compared with " <>
+      "the provider model. Routing doesn't use its answers."
+  end
 
   @doc """
   The topics an open page listens to: comparisons queued and settled, and

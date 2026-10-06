@@ -1,6 +1,5 @@
 defmodule Ryker.Work.AdmissionBackdropTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.Episodes

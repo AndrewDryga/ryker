@@ -9,7 +9,6 @@ defmodule Ryker.Slack.Mentions do
 
   import Ecto.Query
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
-
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Repo
@@ -117,7 +116,7 @@ defmodule Ryker.Slack.Mentions do
 
     channels =
       [conversation_ref | captures(evidence, ~r/(slack:[A-Z0-9]+:[A-Z0-9]+)/, "")]
-      |> Enum.filter(fn ref -> match?({:ok, ^workspace_ref, _channel_ref}, conversation(ref)) end)
+      |> Enum.filter(&match?({:ok, ^workspace_ref, _channel_ref}, conversation(&1)))
 
     user_groups =
       captures(evidence, ~r/<!subteam\^([A-Z0-9]+)(?:\|[^>]+)?>/, "slack-usergroup:") ++
@@ -310,9 +309,7 @@ defmodule Ryker.Slack.Mentions do
 
   defp channel_refs(values, workspace_ref) when is_list(values) and length(values) <= 256 do
     if values == Enum.uniq(values) and
-         Enum.all?(values, fn value ->
-           match?({:ok, ^workspace_ref, _channel_ref}, conversation(value))
-         end),
+         Enum.all?(values, &match?({:ok, ^workspace_ref, _channel_ref}, conversation(&1))),
        do: {:ok, values},
        else: {:error, :channels}
   end

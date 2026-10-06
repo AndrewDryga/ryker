@@ -2,7 +2,6 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Settings.Environment
   alias Ryker.Slack.IncidentRoom
   alias Ryker.Work.RepositoryContext

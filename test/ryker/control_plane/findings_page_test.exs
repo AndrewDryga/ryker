@@ -1,23 +1,13 @@
 defmodule Ryker.ControlPlane.FindingsPageTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [outline: 2]
   import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
   import Phoenix.LiveViewTest
 
   @endpoint Ryker.ControlPlane.Endpoint
 
-  alias Ryker.ControlPlane.{
-    Actions,
-    Endpoint,
-    EpisodeProjection,
-    FindingsPage,
-    FindingsProjection,
-    Pages,
-    Projection,
-    Router
-  }
-
+  alias Ryker.ControlPlane.{Actions, Endpoint, EpisodeProjection, FindingsPage}
+  alias Ryker.ControlPlane.{FindingsProjection, Pages, Projection, Router}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Records

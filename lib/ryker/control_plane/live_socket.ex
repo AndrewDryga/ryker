@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.LiveSocket do
   sign-in that opened its page counts.
   """
   use Phoenix.LiveView.Socket
-
   alias Phoenix.LiveView.Socket
   alias Ryker.ControlPlane.{BrowserGuard, Endpoint, Viewer}
 

@@ -1,6 +1,5 @@
 defmodule Ryker.Retention.PolicyTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry

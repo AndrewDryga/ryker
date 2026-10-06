@@ -14,7 +14,6 @@ defmodule Ryker.Slack.ChannelConfigurationsConcurrencyTest do
   wrote.
   """
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry

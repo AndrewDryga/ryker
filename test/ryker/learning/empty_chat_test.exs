@@ -1,6 +1,5 @@
 defmodule Ryker.Learning.EmptyChatTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.EmptyChat
 

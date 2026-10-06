@@ -1,6 +1,5 @@
 defmodule Ryker.Learning.LearningRetentionTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures

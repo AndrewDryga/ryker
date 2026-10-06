@@ -1,6 +1,5 @@
 defmodule Ryker.Ingress.AdaptersTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Ingress.Adapters
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Webhooks.{Input, Route}

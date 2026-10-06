@@ -659,15 +659,15 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
   defp squish(text), do: text |> String.split() |> Enum.join(" ")
 
-  defp rules_document(view),
-    do:
-      render_component(&BehaviorPage.rules/1, view: view, now: @now)
-      |> LazyHTML.from_fragment()
+  defp rules_document(view) do
+    render_component(&BehaviorPage.rules/1, view: view, now: @now)
+    |> LazyHTML.from_fragment()
+  end
 
-  defp instructions_document(channels, saved),
-    do:
-      render_component(&BehaviorPage.instructions/1, channels: channels, saved: saved, now: @now)
-      |> LazyHTML.from_fragment()
+  defp instructions_document(channels, saved) do
+    render_component(&BehaviorPage.instructions/1, channels: channels, saved: saved, now: @now)
+    |> LazyHTML.from_fragment()
+  end
 
   defp saved(items), do: %{view(:guidance, items) | kinds: [:preference, :guidance]}
 

@@ -171,11 +171,11 @@ defmodule Ryker.Publication.GateOutput do
     }
   end
 
-  defp descriptor?(%{"artifact_ref" => ref, "bytes" => bytes, "name" => @name} = descriptor),
-    do:
-      map_size(descriptor) == 6 and is_binary(ref) and is_integer(bytes) and bytes > 0 and
-        descriptor["media_type"] == "text/plain" and descriptor["status"] == "available" and
-        is_binary(descriptor["sha256"])
+  defp descriptor?(%{"artifact_ref" => ref, "bytes" => bytes, "name" => @name} = descriptor) do
+    map_size(descriptor) == 6 and is_binary(ref) and is_integer(bytes) and bytes > 0 and
+      descriptor["media_type"] == "text/plain" and descriptor["status"] == "available" and
+      is_binary(descriptor["sha256"])
+  end
 
   defp descriptor?(_artifact), do: false
 

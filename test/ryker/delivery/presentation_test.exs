@@ -1,8 +1,6 @@
 defmodule Ryker.Delivery.PresentationTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Delivery.{PlatformActionCustody, Presentation}
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode

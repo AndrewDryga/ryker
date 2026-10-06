@@ -2,7 +2,6 @@ defmodule Ryker.WeeklyReport.ReportSavedAtMigrationTest do
   # The DDL runs inside this test's sandbox transaction, which takes the table
   # lock, so nothing else may run beside it.
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
   alias Ryker.Settings
 

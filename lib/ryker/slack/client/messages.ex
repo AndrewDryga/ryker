@@ -150,15 +150,15 @@ defmodule Ryker.Slack.Client.Messages do
           ([map()] -> {:ok, term()} | :not_found | {:error, term()}),
           String.t() | nil
         ) :: {:ok, term()} | :not_found | {:error, term()}
-  def find_in_history(client, channel, thread, match, oldest \\ nil),
-    do:
-      Pagination.find(
-        client,
-        &(channel |> history_path(thread, &1) |> since(oldest)),
-        &history/1,
-        match,
-        @page_size
-      )
+  def find_in_history(client, channel, thread, match, oldest \\ nil) do
+    Pagination.find(
+      client,
+      &(channel |> history_path(thread, &1) |> since(oldest)),
+      &history/1,
+      match,
+      @page_size
+    )
+  end
 
   @doc "A message body as Slack takes it: plain text escaped, a document rendered to blocks."
   @spec render(term()) :: {:ok, map()} | {:error, term()}
@@ -284,8 +284,8 @@ defmodule Ryker.Slack.Client.Messages do
   defp source_history_path(channel_ref, nil, parameters),
     do: "/conversations.history?" <> URI.encode_query([{"channel", channel_ref} | parameters])
 
-  defp source_history_path(channel_ref, thread_ref, parameters),
-    do:
-      "/conversations.replies?" <>
-        URI.encode_query([{"channel", channel_ref}, {"ts", thread_ref} | parameters])
+  defp source_history_path(channel_ref, thread_ref, parameters) do
+    "/conversations.replies?" <>
+      URI.encode_query([{"channel", channel_ref}, {"ts", thread_ref} | parameters])
+  end
 end

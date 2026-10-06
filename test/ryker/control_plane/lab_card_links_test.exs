@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.LabCardLinksTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.{Assets, HTML}
 
   @pull_request "https://github.com/AndrewDryga/test/pull/4"

@@ -9,7 +9,6 @@ defmodule Ryker.Records.SlackPostOffers do
   """
 
   import Ecto.Query
-
   alias Ryker.Delivery.{PlatformAction, PlatformActionCustody}
   alias Ryker.Episodes.Episode
   alias Ryker.Records

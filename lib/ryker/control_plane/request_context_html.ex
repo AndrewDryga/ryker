@@ -309,16 +309,16 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
          {:ok, %{"candidates" => candidates}} when is_list(candidates) <- Jason.decode(text) do
       for %{"episode_ref" => ref, "state" => state} = item <- candidates,
           is_binary(ref) and is_binary(state),
-          into: %{},
-          do:
-            {ref,
-             %{
-               label: "Selected work",
-               value: candidate_link_title(item),
-               href: "#" <> candidate_anchor(prefix, ref),
-               allowed_relations:
-                 if(is_list(item["allowed_relations"]), do: item["allowed_relations"], else: [])
-             }}
+          into: %{} do
+        {ref,
+         %{
+           label: "Selected work",
+           value: candidate_link_title(item),
+           href: "#" <> candidate_anchor(prefix, ref),
+           allowed_relations:
+             if(is_list(item["allowed_relations"]), do: item["allowed_relations"], else: [])
+         }}
+      end
     else
       _ -> %{}
     end
@@ -345,21 +345,21 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     root = briefing_root(kind)
 
     [
-      if(instructions,
-        do:
-          group(
-            "Instructions",
-            "How Ryker asked the model to work.",
-            [
-              assembly_instructions(instructions.artifact, prefix),
-              if(kind == :learning and context,
-                do: learning_instructions(context.artifact, prefix),
-                else: []
-              )
-            ]
-          ),
-        else: []
-      ),
+      if(instructions) do
+        group(
+          "Instructions",
+          "How Ryker asked the model to work.",
+          [
+            assembly_instructions(instructions.artifact, prefix),
+            if(kind == :learning and context,
+              do: learning_instructions(context.artifact, prefix),
+              else: []
+            )
+          ]
+        )
+      else
+        []
+      end,
       cond do
         is_nil(context) -> []
         kind == :improvement -> analysis_assembly(context.artifact, prefix, counts)
@@ -702,14 +702,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp group_extra("summaries", _context, conversation, _parts, root, prefix),
     do: summary_sources(conversation, routing?(root), prefix)
 
-  defp group_extra("runtime", context, _conversation, parts, root, prefix),
-    do:
-      [
-        permitted_actions_source(context, allowed_rows(context), root, prefix),
-        run_details_source(context, root, prefix),
-        other_fields_source(Enum.filter(parts, &(&1.title == "Other fields")), root, prefix)
-      ]
-      |> Enum.reject(&(&1 == []))
+  defp group_extra("runtime", context, _conversation, parts, root, prefix) do
+    [
+      permitted_actions_source(context, allowed_rows(context), root, prefix),
+      run_details_source(context, root, prefix),
+      other_fields_source(Enum.filter(parts, &(&1.title == "Other fields")), root, prefix)
+    ]
+    |> Enum.reject(&(&1 == []))
+  end
 
   defp group_extra(_group, _context, _conversation, _parts, _root, _prefix), do: []
 
@@ -1056,16 +1056,16 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     ]
   end
 
-  defp candidate_group_source(key, title, _description, [], _links, path, prefix),
-    do:
-      absent_source(
-        key,
-        path,
-        {title, "memory"},
-        "None",
-        if(key == "continuation_candidates", do: @no_continuation, else: @no_background),
-        prefix
-      )
+  defp candidate_group_source(key, title, _description, [], _links, path, prefix) do
+    absent_source(
+      key,
+      path,
+      {title, "memory"},
+      "None",
+      if(key == "continuation_candidates", do: @no_continuation, else: @no_background),
+      prefix
+    )
+  end
 
   defp candidate_group_source(key, title, description, items, links, path, prefix) do
     source(
@@ -1087,28 +1087,28 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     end)
   end
 
-  defp instruction_parent?(parent),
-    do:
-      parent in [
-        "$.work.custom_instructions",
-        "$.context.custom_instructions",
-        "$.custom_instructions"
-      ]
+  defp instruction_parent?(parent) do
+    parent in [
+      "$.work.custom_instructions",
+      "$.context.custom_instructions",
+      "$.custom_instructions"
+    ]
+  end
 
   defp conversation_sources(context, {bundle, manifest, bundle_path}, parts, routing?, prefix) do
     shown? = routing? or Enum.any?(parts, &(&1.title == "Earlier messages"))
 
     [
-      if(shown?,
-        do:
-          earlier_messages_source(
-            earlier_messages(context, bundle),
-            manifest,
-            bundle_path,
-            prefix
-          ),
-        else: []
-      )
+      if(shown?) do
+        earlier_messages_source(
+          earlier_messages(context, bundle),
+          manifest,
+          bundle_path,
+          prefix
+        )
+      else
+        []
+      end
     ]
     |> Enum.reject(&(&1 == []))
   end
@@ -1284,10 +1284,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        when is_map(bundle),
        do: {bundle, context_map(envelope["manifest"]), root <> ".conversation_context.bundle"}
 
-  defp conversation_context(values, root),
-    do:
-      {context_map(values["conversation_context"]), context_map(values["context_manifest"]),
-       root <> ".conversation_context"}
+  defp conversation_context(values, root) do
+    {context_map(values["conversation_context"]), context_map(values["context_manifest"]),
+     root <> ".conversation_context"}
+  end
 
   defp context_map(value) when is_map(value), do: value
   defp context_map(_value), do: %{}
@@ -1624,12 +1624,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     if permitted, do: hint, else: hint <> " (not permitted for this message)"
   end
 
-  defp allowed_rows(values),
-    do:
-      Enum.reject(
-        [context_row("Repository sources", word_list(values["repository_source_kinds"]))],
-        &(&1 == [])
-      )
+  defp allowed_rows(values) do
+    Enum.reject(
+      [context_row("Repository sources", word_list(values["repository_source_kinds"]))],
+      &(&1 == [])
+    )
+  end
 
   defp word_list(values) when is_list(values) and values != [],
     do: Enum.map_join(values, " · ", &human/1)
@@ -1727,15 +1727,15 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   # A learning pass's parts, at the top of its prompt.
-  defp metadata("inputs", "$"),
-    do:
-      {"Source messages", "conversation", nil,
-       "The messages this learning pass read, in the order they were sent."}
+  defp metadata("inputs", "$") do
+    {"Source messages", "conversation", nil,
+     "The messages this learning pass read, in the order they were sent."}
+  end
 
-  defp metadata("knowledge", "$"),
-    do:
-      {"Prior knowledge", "memory", nil,
-       "Topics Ryker already kept that these messages might change, as they stood then."}
+  defp metadata("knowledge", "$") do
+    {"Prior knowledge", "memory", nil,
+     "Topics Ryker already kept that these messages might change, as they stood then."}
+  end
 
   # Shown with the instructions, never as a row of what the model was given.
   defp metadata(key, "$") when key in ~w(previous_attempt_error rebuild_target),
@@ -1746,14 +1746,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     {title, origin, nil, description}
   end
 
-  defp metadata(key, _root),
-    do:
-      Map.get(
-        @sources,
-        key,
-        {field_label(key), "other", "Additional retained field",
-         "Part of the request this page has no section for."}
-      )
+  defp metadata(key, _root) do
+    Map.get(
+      @sources,
+      key,
+      {field_label(key), "other", "Additional retained field",
+       "Part of the request this page has no section for."}
+    )
+  end
 
   defp source_metadata(key, parent) when key in ["global", "channel"] do
     if instruction_parent?(parent),
@@ -2355,9 +2355,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     )
   end
 
-  defp recall_fields(_),
-    do:
-      "<p>Saved summary is not structured. Its retained value is in the exact component below.</p>"
+  defp recall_fields(_) do
+    "<p>Saved summary is not structured. Its retained value is in the exact component below.</p>"
+  end
 
   # The people a conversation involved, as the model wrote them down: a Slack
   # ID or a mention there is the person, by name and linked to their profile.
@@ -2770,7 +2770,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp message_text(%{} = value) do
     SourceText.from_content(value) ||
-      Enum.find_value(~w(content comment review payload), fn key -> message_text(value[key]) end)
+      Enum.find_value(~w(content comment review payload), &message_text(value[&1]))
   end
 
   defp message_text(value) when is_binary(value) do

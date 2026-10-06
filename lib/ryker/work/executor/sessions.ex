@@ -95,13 +95,13 @@ defmodule Ryker.Work.Executor.Sessions do
        when is_binary(repository_ref),
        do: repository_capabilities(claim, settings)
 
-  defp replace_lost_session(claim, settings),
-    do:
-      continue_on_next_generation(
-        claim,
-        settings,
-        &Custody.replace_session_after_placement_loss/4
-      )
+  defp replace_lost_session(claim, settings) do
+    continue_on_next_generation(
+      claim,
+      settings,
+      &Custody.replace_session_after_placement_loss/4
+    )
+  end
 
   defp rotate_session(claim, settings),
     do: continue_on_next_generation(claim, settings, &Custody.rotate_session/4)
@@ -278,7 +278,7 @@ defmodule Ryker.Work.Executor.Sessions do
       Remote.ambiguous_mutation(:create_session, reason),
       key,
       settings,
-      fn operation -> bind_session_from_operation(claim, operation, key, settings) end
+      &bind_session_from_operation(claim, &1, key, settings)
     )
   end
 

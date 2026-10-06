@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.PathsTest do
   These hold the one way: a record by its plain id or slug, and `:` readable where a URL allows it.
   """
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.{Paths, WebRouter}
 
   @id "01f5eb8f-5b61-4303-bead-47da638cd792"

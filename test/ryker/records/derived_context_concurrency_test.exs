@@ -1,6 +1,5 @@
 defmodule Ryker.Records.DerivedContextConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.{Episodes, Repo}
   alias Ryker.Episodes.{Episode, Event}

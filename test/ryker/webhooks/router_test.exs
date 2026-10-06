@@ -7,7 +7,6 @@ defmodule Ryker.Webhooks.RouterTest do
 
   import Plug.Conn
   import Plug.Test
-
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.Ingress.Inbox

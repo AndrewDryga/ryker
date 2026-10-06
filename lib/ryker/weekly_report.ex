@@ -42,7 +42,6 @@ defmodule Ryker.WeeklyReport do
   """
 
   import Ecto.Query
-
   alias Ryker.Repo
   alias Ryker.Settings.{Report, Slack}
   alias Ryker.WeeklyReport.{Custody, Digest, Facts, Schedule}

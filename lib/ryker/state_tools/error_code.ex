@@ -15,60 +15,60 @@ defmodule Ryker.StateTools.ErrorCode do
   def code(:unauthorized), do: "unauthorized"
   def code(:invalid_arguments), do: "invalid_arguments"
 
-  def code(:invalid_automation_source),
-    do:
-      "invalid_arguments: source_kind must name an authenticated input adapter: github, slack, or webhook. Terraform and Grafana are vendors, not input adapters. A notification posted in Slack uses slack. Read a real matching notification before choosing its exact content filter; do not invent filter fields or silently subscribe to every message."
+  def code(:invalid_automation_source) do
+    "invalid_arguments: source_kind must name an authenticated input adapter: github, slack, or webhook. Terraform and Grafana are vendors, not input adapters. A notification posted in Slack uses slack. Read a real matching notification before choosing its exact content filter; do not invent filter fields or silently subscribe to every message."
+  end
 
   # QA, 2026-09-25: propose_automation failed four times on "every weekday at
   # 9:00" and the model settled for Mondays; a weekly trigger's list of days
   # was also kept as its one weekday. A day-set error has to say which
   # recurrence expresses which days, or the model cannot correct it.
-  def code(:invalid_schedule_trigger),
-    do:
-      "invalid_arguments: a time trigger takes one recurrence and only that recurrence's fields. Use recurrence daily for every day, recurrence weekdays for Monday to Friday, and recurrence weekly with one weekday for a single day, each with time; monthly takes day and time, once takes at, and interval takes every_seconds. For any other set of days, such as Monday, Wednesday and Friday, propose one weekly schedule per day in the same call. Nothing was proposed."
+  def code(:invalid_schedule_trigger) do
+    "invalid_arguments: a time trigger takes one recurrence and only that recurrence's fields. Use recurrence daily for every day, recurrence weekdays for Monday to Friday, and recurrence weekly with one weekday for a single day, each with time; monthly takes day and time, once takes at, and interval takes every_seconds. For any other set of days, such as Monday, Wednesday and Friday, propose one weekly schedule per day in the same call. Nothing was proposed."
+  end
 
-  def code(:automation_proposal_limit),
-    do:
-      "invalid_arguments: propose_automation takes at most #{Catalog.maximum_automation_proposals()} proposals per call. Monday to Friday at one time is a single proposal with recurrence weekdays, and every day is one with recurrence daily. Nothing was proposed."
+  def code(:automation_proposal_limit) do
+    "invalid_arguments: propose_automation takes at most #{Catalog.maximum_automation_proposals()} proposals per call. Monday to Friday at one time is a single proposal with recurrence weekdays, and every day is one with recurrence daily. Nothing was proposed."
+  end
 
-  def code(:invalid_final_arguments),
-    do:
-      ~s(invalid_arguments: validate_final requires {"candidate":{"decision_reason":null,"delivery":"reply","message":"Your answer","outcome":{"state":"complete","record_refs":[],"artifact_refs":[]}}}. Keep the candidate wrapper and every outcome field. Use the actual host-issued refs. For delivery none, message must be null and decision_reason must explain the silence. Nothing was accepted; correct the call before returning.)
+  def code(:invalid_final_arguments) do
+    ~s(invalid_arguments: validate_final requires {"candidate":{"decision_reason":null,"delivery":"reply","message":"Your answer","outcome":{"state":"complete","record_refs":[],"artifact_refs":[]}}}. Keep the candidate wrapper and every outcome field. Use the actual host-issued refs. For delivery none, message must be null and decision_reason must explain the silence. Nothing was accepted; correct the call before returning.)
+  end
 
-  def code(:automation_repository_not_writable),
-    do:
-      "invalid_arguments: repository must be null or one this work can change: work.repository_ref, or another repository of this environment that is not read-only. Nothing was proposed."
+  def code(:automation_repository_not_writable) do
+    "invalid_arguments: repository must be null or one this work can change: work.repository_ref, or another repository of this environment that is not read-only. Nothing was proposed."
+  end
 
-  def code(:task_repository_required),
-    do:
-      "repository_required: engineering tasks require a non-null configured target, any repository of this environment: work.repository_ref or the relevant supplied work.workspace.companions[].name, whichever the task changes. This is an inert proposal, not execution. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
+  def code(:task_repository_required) do
+    "repository_required: engineering tasks require a non-null configured target, any repository of this environment: work.repository_ref or the relevant supplied work.workspace.companions[].name, whichever the task changes. This is an inert proposal, not execution. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
+  end
 
-  def code(:task_repository_source_unscoped),
-    do:
-      "invalid_arguments: repository_source selects a branch, pull request or commit inside the task's own configured repository, so it requires a non-null repository. It never changes this session's workspace."
+  def code(:task_repository_source_unscoped) do
+    "invalid_arguments: repository_source selects a branch, pull request or commit inside the task's own configured repository, so it requires a non-null repository. It never changes this session's workspace."
+  end
 
-  def code(:invalid_repository_reference),
-    do:
-      "invalid_repository_reference: use a configured repository reference supported by this task interface: 1-256 letters, digits, underscores, dots, colons, or hyphens. A GitHub slug or checkout path is not automatically a configured reference."
+  def code(:invalid_repository_reference) do
+    "invalid_repository_reference: use a configured repository reference supported by this task interface: 1-256 letters, digits, underscores, dots, colons, or hyphens. A GitHub slug or checkout path is not automatically a configured reference."
+  end
 
   # Creation permitted what validation forbids: `waiting_for_input` requires
   # exactly one open input wait, so a second open question leaves no valid
   # final at all. Episode 0b0c3590 asked again on each rejected attempt until
   # the answer an operator had typed could never be delivered.
-  def code(:question_already_open),
-    do:
-      "question_already_open: this episode already has an unanswered question. Wait for that answer, or supersede the open request instead of opening a second one."
+  def code(:question_already_open) do
+    "question_already_open: this episode already has an unanswered question. Wait for that answer, or supersede the open request instead of opening a second one."
+  end
 
-  def code(:no_addressee),
-    do:
-      "no_addressee: nobody has spoken in this conversation, so a question would wait unanswered. Continue with the evidence you can gather, use wait_for when you are waiting on a system rather than a person, and say plainly in the reply what is unresolved and what would settle it."
+  def code(:no_addressee) do
+    "no_addressee: nobody has spoken in this conversation, so a question would wait unanswered. Continue with the evidence you can gather, use wait_for when you are waiting on a system rather than a person, and say plainly in the reply what is unresolved and what would settle it."
+  end
 
   # A final naming a record this work never created was answered
   # `temporarily_unavailable`, so the model retried the same call; three checks
   # of one reply failed that way on 2026-09-26.
-  def code(:state_record_not_found),
-    do:
-      "invalid_arguments: outcome.record_refs names a record this work did not create. Use only the refs your tools returned, or leave record_refs empty. Nothing was accepted."
+  def code(:state_record_not_found) do
+    "invalid_arguments: outcome.record_refs names a record this work did not create. Use only the refs your tools returned, or leave record_refs empty. Nothing was accepted."
+  end
 
   def code(:not_configured), do: "not_configured"
   def code(:not_found), do: "not_found"
@@ -92,37 +92,37 @@ defmodule Ryker.StateTools.ErrorCode do
   def code(:memory_search_result_too_large), do: "memory_search_result_too_large"
   def code(:answer_memory_unauthorized), do: "answer_memory_unauthorized"
 
-  def code(:answer_memory_question_not_found),
-    do:
-      "invalid_arguments: question_ref must name a question this conversation asked and a person answered. Nothing was remembered."
+  def code(:answer_memory_question_not_found) do
+    "invalid_arguments: question_ref must name a question this conversation asked and a person answered. Nothing was remembered."
+  end
 
-  def code(:answer_memory_not_requested),
-    do:
-      "invalid_arguments: this question was asked without remember, so its answer is not saved. Nothing was remembered."
+  def code(:answer_memory_not_requested) do
+    "invalid_arguments: this question was asked without remember, so its answer is not saved. Nothing was remembered."
+  end
 
-  def code(:answer_memory_revised),
-    do:
-      "answer_memory_revised: the person edited their answer after giving it. Nothing was remembered."
+  def code(:answer_memory_revised) do
+    "answer_memory_revised: the person edited their answer after giving it. Nothing was remembered."
+  end
 
   def code(:answer_memory_conflict), do: "answer_memory_conflict"
   def code(:invalid_answer_memory), do: "invalid_answer_memory"
 
-  def code(:answer_memory_not_in_answer),
-    do:
-      "answer_memory_not_in_answer: value must be words the person's answer says, trimmed to the fact, with nothing added. Nothing was remembered."
+  def code(:answer_memory_not_in_answer) do
+    "answer_memory_not_in_answer: value must be words the person's answer says, trimmed to the fact, with nothing added. Nothing was remembered."
+  end
 
   def code(:memory_capacity_reached), do: "memory_capacity_reached"
   def code(:work_memory_source_capacity_exceeded), do: "memory_source_capacity_exceeded"
   def code({:invalid_schedule, _field}), do: "invalid_arguments"
   # Which field the record refused, so the model can shorten or correct that
   # one instead of repeating the same call.
-  def code({:invalid_state_record, :payload}),
-    do:
-      "invalid_arguments: the record would be too large to keep; shorten its longest text. Nothing was recorded."
+  def code({:invalid_state_record, :payload}) do
+    "invalid_arguments: the record would be too large to keep; shorten its longest text. Nothing was recorded."
+  end
 
-  def code({:invalid_state_record, field}) when is_atom(field),
-    do:
-      "invalid_arguments: #{field} was refused: missing where required, too long, or not valid. Nothing was recorded."
+  def code({:invalid_state_record, field}) when is_atom(field) do
+    "invalid_arguments: #{field} was refused: missing where required, too long, or not valid. Nothing was recorded."
+  end
 
   def code({:invalid_emisar_approval, _field}), do: "invalid_arguments"
   def code(_reason), do: "temporarily_unavailable"
@@ -167,9 +167,9 @@ defmodule Ryker.StateTools.ErrorCode do
 
   defp explanation("unknown_tool"), do: "Ryker does not offer this tool here."
 
-  defp explanation("operation_conflict"),
-    do:
-      "Ryker refused the call because it conflicts with something this run had already recorded."
+  defp explanation("operation_conflict") do
+    "Ryker refused the call because it conflicts with something this run had already recorded."
+  end
 
   defp explanation("confirmation_unsupported"),
     do: "Ryker refused the offer because nobody here can confirm it."
@@ -210,9 +210,9 @@ defmodule Ryker.StateTools.ErrorCode do
   defp explanation("internal_error"),
     do: "Ryker hit an error of its own answering the call. The error is in Ryker's log."
 
-  defp explanation("search_unavailable"),
-    do:
-      "Slack lets Ryker search only for a short time after a message that mentions it, and this run had no such permission."
+  defp explanation("search_unavailable") do
+    "Slack lets Ryker search only for a short time after a message that mentions it, and this run had no such permission."
+  end
 
   defp explanation("search_budget_exhausted"),
     do: "The run had already made as many Slack searches as it may."

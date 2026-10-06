@@ -15,9 +15,7 @@ defmodule Ryker.Work.Custody.Claims do
 
   import Ecto.Query
   import Ryker.Work.Custody.Locks
-
   require Logger
-
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.Publication
   alias Ryker.Repo

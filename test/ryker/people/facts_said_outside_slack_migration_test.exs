@@ -1,6 +1,5 @@
 defmodule Ryker.People.FactsSaidOutsideSlackMigrationTest do
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @version 20_261_005_160_000

@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.EpisodeTrace.MaintenanceTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.ControlPlane.EpisodeTrace.Maintenance
   alias Ryker.Settings
   alias Ryker.Work.Session

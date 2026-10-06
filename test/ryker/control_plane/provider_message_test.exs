@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.ProviderMessageTest do
   card. It proves a format, never a sender.
   """
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.ProviderMessage
 
   @terraform "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()

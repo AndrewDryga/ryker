@@ -9,18 +9,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
   (a worker identity or a credential value) is not here.
   """
 
-  alias Ryker.Settings.{
-    Learning,
-    PricingRate,
-    Publication,
-    Report,
-    Slack,
-    WebhookSource,
-    Work
-  }
-
   alias Ryker.ControlPlane.Environments
   alias Ryker.Settings.Environment
+  alias Ryker.Settings.{Learning, PricingRate, Publication, Report, Slack, WebhookSource, Work}
   alias Ryker.Slack.Names
   alias Ryker.Webhooks.Presets
   alias Ryker.Work.ExecutionTarget
@@ -925,12 +916,12 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   def options(%{options: :webhook_secrets}, _view), do: []
 
-  def options(%{options: :workspaces}, view),
-    do:
-      Enum.map(
-        view.worker_installs,
-        &{&1.ref, "#{&1.ref} · #{&1.eligible} of #{&1.workers} #{workers(&1.workers)} ready"}
-      )
+  def options(%{options: :workspaces}, view) do
+    Enum.map(
+      view.worker_installs,
+      &{&1.ref, "#{&1.ref} · #{&1.eligible} of #{&1.workers} #{workers(&1.workers)} ready"}
+    )
+  end
 
   def options(%{options: options}, _view) when is_list(options), do: options
 
@@ -1159,19 +1150,20 @@ defmodule Ryker.ControlPlane.SettingsSections do
         [provider, _name] -> provider in Work.providers()
       end
 
-    if known?,
-      do:
-        "Write it as provider@name, such as claude@work, in lowercase letters, numbers, " <>
-          "dashes and underscores.",
-      else: "Ryker runs Codex and Claude models, so an account starts with codex@ or claude@."
+    if known? do
+      "Write it as provider@name, such as claude@work, in lowercase letters, numbers, " <>
+        "dashes and underscores."
+    else
+      "Ryker runs Codex and Claude models, so an account starts with codex@ or claude@."
+    end
   end
 
   defp provider(model) when is_binary(model), do: model |> String.split(":", parts: 2) |> hd()
   defp provider(_model), do: ""
 
-  defp provider_order(provider),
-    do:
-      {Enum.find_index(Work.providers(), &(&1 == provider)) || length(Work.providers()), provider}
+  defp provider_order(provider) do
+    {Enum.find_index(Work.providers(), &(&1 == provider)) || length(Work.providers()), provider}
+  end
 
   defp model_name(model), do: model |> String.split(":", parts: 2) |> List.last()
 

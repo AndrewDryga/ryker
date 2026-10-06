@@ -216,9 +216,9 @@ defmodule Ryker.Retention.Dispatcher do
   defp outage?(_reason), do: false
 
   # The durable error codes an outage leaves behind, for reconnect recovery.
-  defp outage_error_codes,
-    do:
-      ~w(coop_unavailable coop_transport_error coop_worker_capacity_unavailable coop_worker_command_timeout coop_error coop_session_replacement_pending retention_worker_unavailable retention_database_unavailable)
+  defp outage_error_codes do
+    ~w(coop_unavailable coop_transport_error coop_worker_capacity_unavailable coop_worker_command_timeout coop_error coop_session_replacement_pending retention_worker_unavailable retention_database_unavailable)
+  end
 
   defp retry_delay(attempt, settings) do
     exponent = min(max(attempt - 1, 0), 20)

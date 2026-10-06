@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.EventTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Ingress.Input
   alias Ryker.Slack.{Event, SourceRef}
 

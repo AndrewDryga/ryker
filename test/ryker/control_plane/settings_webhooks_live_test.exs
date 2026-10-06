@@ -1,9 +1,7 @@
 defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Credentials
   alias Ryker.Ingress.Inbox

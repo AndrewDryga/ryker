@@ -1,6 +1,5 @@
 defmodule Ryker.TextTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Text
 
   test "a cut fits its byte budget, keeps whole characters and says it was cut" do

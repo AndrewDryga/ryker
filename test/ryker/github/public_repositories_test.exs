@@ -3,7 +3,6 @@ defmodule Ryker.GitHub.PublicRepositoriesTest do
   # reaches (2026-10-03): whether such a repository is public decides whether its code is
   # fetched without credentials, and only GitHub not answering is worth another attempt.
   use ExUnit.Case, async: true
-
   alias Ryker.GitHub.PublicRepositories
 
   defmodule Answers do

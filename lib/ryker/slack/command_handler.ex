@@ -236,13 +236,13 @@ defmodule Ryker.Slack.CommandHandler do
   defp assignment_verb("resume"), do: "Resumed"
   defp assignment_verb("delete"), do: "Deleted"
 
-  defp setting_usage(setting),
-    do:
-      "Use `/ryker #{setting} on|off|inherit` for this channel or `/ryker #{setting} global on|off` for the workspace."
+  defp setting_usage(setting) do
+    "Use `/ryker #{setting} on|off|inherit` for this channel or `/ryker #{setting} global on|off` for the workspace."
+  end
 
-  defp assignments_usage,
-    do:
-      "Use `/ryker assignments`, or `pause|resume|delete <assignment-ref>`. Creation is conversational and confirmation-backed."
+  defp assignments_usage do
+    "Use `/ryker assignments`, or `pause|resume|delete <assignment-ref>`. Creation is conversational and confirmation-backed."
+  end
 
   defp help do
     """

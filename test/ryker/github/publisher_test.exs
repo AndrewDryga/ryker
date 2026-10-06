@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.PublisherTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Delivery.Request
   alias Ryker.GitHub.Publisher
 

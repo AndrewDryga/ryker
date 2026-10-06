@@ -2,7 +2,6 @@ defmodule Ryker.CoopFleet.PublicationGrants do
   @moduledoc false
 
   import Ecto.Query
-
   alias Ryker.CoopFleet.{Command, ControlPlane, JobAuthority, Placement}
   alias Ryker.GitHub.InstallationTokens
   alias Ryker.Publication.{Custody, Executor, Publication}

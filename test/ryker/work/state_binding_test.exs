@@ -1,6 +1,5 @@
 defmodule Ryker.Work.StateBindingTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Work.{Session, StateBinding, Turn}
 
   test "state-tool authority is exact to one logical turn and one session placement" do

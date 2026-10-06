@@ -8,9 +8,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
   request. Coop is the recorded fake throughout; no model is called.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Delivery.Adapters
   alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
   alias Ryker.Episodes
@@ -22,9 +20,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
   alias Ryker.Records
   alias Ryker.Records.{Record, TaskOffers}
   alias Ryker.Repo
-
   alias Ryker.Slack.{Gateway, InteractionHandler, Operators, Publisher, WorkControls}
-
   alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Custody, Executor, Session, SubmissionBuilder}
 
@@ -247,9 +243,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
       FakeSlackAPI.start_link(
         observer: self(),
         render: true,
-        message_ref: fn n ->
-          "1788268001." <> String.pad_leading(Integer.to_string(n + 199), 6, "0")
-        end
+        message_ref: &("1788268001." <> String.pad_leading(Integer.to_string(&1 + 199), 6, "0"))
       )
 
     adapters = adapters!(slack_api)

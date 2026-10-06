@@ -9,9 +9,7 @@ defmodule Ryker.Publication.RecheckParkedPullRequestsMigrationTest do
   """
   # The migrator runs inside this test's sandbox transaction.
   use Ryker.MigrationCase
-
   import Ecto.Query
-
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.{Followup, Followups}
 

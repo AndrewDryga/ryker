@@ -1,9 +1,7 @@
 defmodule Ryker.Delivery.JSONClientTest do
   use ExUnit.Case, async: false
-
   import ExUnit.CaptureLog
   import Plug.Conn
-
   alias Ryker.Delivery.JSONClient
 
   defmodule EchoPlug do
@@ -147,9 +145,10 @@ defmodule Ryker.Delivery.JSONClientTest do
       %{valid | token_provider: :not_a_function}
     ]
 
-    Enum.each(invalid, fn attributes ->
-      assert {:error, {:invalid_delivery_json_client, _field}} = JSONClient.new(attributes)
-    end)
+    Enum.each(
+      invalid,
+      &assert({:error, {:invalid_delivery_json_client, _field}} = JSONClient.new(&1))
+    )
 
     assert {:ok, client} = JSONClient.new(valid)
     assert {:ok, _long_poll_client} = JSONClient.new(%{valid | receive_timeout: 75_000})

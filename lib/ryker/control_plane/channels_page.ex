@@ -10,19 +10,9 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   changes (`subscriptions/0`).
   """
   use Phoenix.Component
-
   alias Phoenix.HTML.Safe
-
-  alias Ryker.ControlPlane.{
-    Components,
-    Integrations,
-    Kit,
-    PagedRelation,
-    Paths,
-    SettingsView,
-    ShortTime
-  }
-
+  alias Ryker.ControlPlane.{Components, Integrations, Kit, PagedRelation, Paths, SettingsView}
+  alias Ryker.ControlPlane.ShortTime
   alias Ryker.Episodes
   alias Ryker.Slack.{IncidentRooms, Names}
 
@@ -259,11 +249,11 @@ defmodule Ryker.ControlPlane.ChannelsPage do
 
   # All can hold channels Ryker left or never joined, such as an incident
   # room nobody recorded it in, so In use never claims there are none.
-  defp empty_text(%{show: "in_use"}),
-    do:
-      "Invite Ryker to a Slack channel with /invite, and the channel appears here with how Ryker takes part in it. Channels Ryker is not in are under All."
+  defp empty_text(%{show: "in_use"}) do
+    "Invite Ryker to a Slack channel with /invite, and the channel appears here with how Ryker takes part in it. Channels Ryker is not in are under All."
+  end
 
-  defp empty_text(_view),
-    do:
-      "Invite Ryker to a Slack channel with /invite, and the channel appears here with how Ryker takes part in it."
+  defp empty_text(_view) do
+    "Invite Ryker to a Slack channel with /invite, and the channel appears here with how Ryker takes part in it."
+  end
 end

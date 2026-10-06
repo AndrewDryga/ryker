@@ -10,7 +10,6 @@ defmodule Ryker.SecretInspectionTest do
   token typed into a settings form (2026-10-04 review).
   """
   use ExUnit.Case, async: true
-
   alias Ryker.Bootstrap
   alias Ryker.CoopFleet.Client
   alias Ryker.GitHub.Binding

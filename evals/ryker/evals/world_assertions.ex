@@ -7,7 +7,6 @@ defmodule Ryker.Evals.WorldAssertions do
   """
 
   import Ecto.Query
-
   alias Ryker.Evals.{WorldCase, WorldEvidence, WorldInputs, WorldMatch}
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -116,7 +115,7 @@ defmodule Ryker.Evals.WorldAssertions do
     do: Enum.any?(deliveries, &(&1.target == target))
 
   defp artifact_delivered?(deliveries, expected) do
-    Enum.any?(deliveries, fn delivery -> expected in delivery.artifacts end)
+    Enum.any?(deliveries, &(expected in &1.artifacts))
   end
 
   defp generated_image_delivered?(deliveries) do
@@ -131,9 +130,7 @@ defmodule Ryker.Evals.WorldAssertions do
   defp scoped_hard_checks(checks, mode) do
     scope = Atom.to_string(mode)
 
-    Enum.filter(checks, fn check ->
-      Map.get(check, "scope", scope) == scope
-    end)
+    Enum.filter(checks, &(Map.get(&1, "scope", scope) == scope))
   end
 
   defp actor_authority_failures(scenario, executions) do

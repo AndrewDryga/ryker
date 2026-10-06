@@ -7,9 +7,7 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
   path produced it.
   """
   use ExUnit.Case, async: true
-
   import Plug.Conn, only: [get_resp_header: 2]
-
   alias Ryker.ControlPlane.{BrowserGuard, Router}
   alias Ryker.Fixtures.ControlPlaneOptions
 

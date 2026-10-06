@@ -1,6 +1,5 @@
 defmodule Ryker.Retention.RuntimeTest do
   use ExUnit.Case, async: true
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Retention.{Runtime, Worker}
 

@@ -1,6 +1,5 @@
 defmodule Ryker.RepositoryKnowledge.RefreshTest do
   use ExUnit.Case, async: true
-
   alias Ryker.RepositoryKnowledge.{Document, Refresh}
 
   @written "a" |> String.duplicate(40)

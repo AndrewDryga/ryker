@@ -11,7 +11,6 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
   """
 
   import Ecto.Query
-
   alias Ryker.CoopFleet.{Placement, SessionEvidence, Worker}
   alias Ryker.Repo
   alias Ryker.Work.Session

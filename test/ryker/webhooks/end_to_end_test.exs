@@ -6,7 +6,6 @@ defmodule Ryker.Webhooks.EndToEndTest do
   import Ecto.Query
   import Plug.Conn
   import Plug.Test
-
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, Publisher}
   alias Ryker.Delivery.Adapters

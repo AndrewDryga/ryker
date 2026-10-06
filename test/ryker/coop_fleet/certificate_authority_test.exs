@@ -1,10 +1,7 @@
 defmodule Ryker.CoopFleet.CertificateAuthorityTest do
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   require Record
-
   alias Ryker.CoopFleet.CertificateAuthority
 
   Record.defrecordp(

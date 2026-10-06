@@ -9,20 +9,9 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   """
 
   import Ecto.Query
-
   alias Ryker.Accounting.Query, as: AccountingQuery
-
-  alias Ryker.ControlPlane.{
-    Activity,
-    ChannelContext,
-    ChannelScope,
-    Environments,
-    PagedRelation,
-    Paths,
-    RepositoryNames,
-    UsageProjection
-  }
-
+  alias Ryker.ControlPlane.{Activity, ChannelContext, ChannelScope, Environments, PagedRelation}
+  alias Ryker.ControlPlane.{Paths, RepositoryNames, UsageProjection}
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule

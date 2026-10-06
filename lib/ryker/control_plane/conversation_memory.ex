@@ -8,27 +8,13 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   """
   import Ecto.Query
   require Ryker.ControlPlane.Search
-
-  alias Ryker.ControlPlane.{
-    Activity,
-    LearningActivity,
-    LearningRequests,
-    PagedRelation,
-    Paths,
-    RepositoryNames,
-    Search
-  }
-
+  alias Ryker.Continuity
+  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.ControlPlane.{Activity, LearningActivity, LearningRequests, PagedRelation, Paths}
+  alias Ryker.ControlPlane.{RepositoryNames, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
-  alias Ryker.Learning.Rebuilds
-  alias Ryker.Repo
-
-  alias Ryker.Slack.Names
-
-  alias Ryker.Continuity
-  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -36,8 +22,11 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
+  alias Ryker.Learning.Rebuilds
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
+  alias Ryker.Repo
+  alias Ryker.Slack.Names
 
   @page_size 30
   @history_size 50
@@ -248,11 +237,11 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp rebuild(_, _, _, _), do: nil
 
-  defp forgotten?(id),
-    do:
-      Repo.exists?(
-        from(k in ConversationKnowledge, where: k.id == ^id and not is_nil(k.forgotten_at))
-      )
+  defp forgotten?(id) do
+    Repo.exists?(
+      from(k in ConversationKnowledge, where: k.id == ^id and not is_nil(k.forgotten_at))
+    )
+  end
 
   # The operator can inspect withdrawn history, but its recall label must apply
   # the same inherited-source visibility and retention fences as model recall.
@@ -340,10 +329,10 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp source_path(_kind, _id, 0), do: nil
 
-  defp source_path(kind, id, _count),
-    do:
-      "/memory/learned?" <>
-        Paths.encode_query(%{"kind" => "sources", "related_to" => "#{kind}:#{id}"})
+  defp source_path(kind, id, _count) do
+    "/memory/learned?" <>
+      Paths.encode_query(%{"kind" => "sources", "related_to" => "#{kind}:#{id}"})
+  end
 
   defp selected_kind(value, _) when value in ["knowledge", "context"], do: value
   defp selected_kind("sources", %{}), do: "sources"
@@ -366,17 +355,17 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp search(query, "knowledge", text),
     do: from(item in query, where: Search.json_text_matches(item.state, ^Search.contains(text)))
 
-  defp search(query, "sources", text),
-    do:
-      from(source in query,
-        where: fragment("position(lower(?) in lower(?)) > 0", ^text, source.note)
-      )
+  defp search(query, "sources", text) do
+    from(source in query,
+      where: fragment("position(lower(?) in lower(?)) > 0", ^text, source.note)
+    )
+  end
 
-  defp search(query, "context", text),
-    do:
-      from(summary in query,
-        where: Search.json_text_matches(summary.state, ^Search.contains(text))
-      )
+  defp search(query, "context", text) do
+    from(summary in query,
+      where: Search.json_text_matches(summary.state, ^Search.contains(text))
+    )
+  end
 
   # The requests rows came from, and the names of the repositories they used.
   defp lookup(rows, episode_ids),
@@ -594,12 +583,12 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         do: {ref, path}
   end
 
-  defp learning_reference(value) when is_binary(value),
-    do:
-      Regex.run(
-        ~r/\Alearning:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):([0-9a-f]{64})\z/,
-        value
-      )
+  defp learning_reference(value) when is_binary(value) do
+    Regex.run(
+      ~r/\Alearning:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):([0-9a-f]{64})\z/,
+      value
+    )
+  end
 
   defp learning_reference(_value), do: nil
 

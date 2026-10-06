@@ -2,7 +2,6 @@ defmodule Ryker.Fixtures.WorkerJob do
   @moduledoc false
 
   import Ecto.Query
-
   alias Ryker.CoopFleet.{JobAuthority, JobSpec}
   alias Ryker.Repo
   alias Ryker.Work.{RepositoryContext, RepositorySource, Session, SessionChangeset}

@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.ConversationLinksTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.{Activity, ConversationMemory}
   alias Ryker.Slack.Names
 

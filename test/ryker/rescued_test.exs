@@ -1,8 +1,6 @@
 defmodule Ryker.RescuedTest do
   use ExUnit.Case, async: true
-
   import ExUnit.CaptureLog
-
   alias Ryker.Rescued
 
   # Tools, readiness checks and lookups turned a raise into a soft answer and logged

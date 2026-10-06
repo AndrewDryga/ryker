@@ -94,9 +94,9 @@ defmodule Ryker.Slack.Client.Conversations do
 
   # --- one conversation -----------------------------------------------------
 
-  defp info_path(channel_ref),
-    do:
-      "/conversations.info?" <> URI.encode_query(channel: channel_ref, include_num_members: false)
+  defp info_path(channel_ref) do
+    "/conversations.info?" <> URI.encode_query(channel: channel_ref, include_num_members: false)
+  end
 
   defp conversation_state_response(
          %{body: %{"error" => "channel_not_found", "ok" => false}, status: 200},

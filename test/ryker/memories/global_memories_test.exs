@@ -1,6 +1,5 @@
 defmodule Ryker.Memories.GlobalMemoriesTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{FactsPage, MemoryProjection}
   alias Ryker.Episodes

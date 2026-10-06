@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.InteractionHandlerTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.{Interaction, InteractionHandler, Operators}
 
   defmodule Directory do

@@ -4,7 +4,6 @@ defmodule Ryker.Webhooks.PresetsTest do
   # sample must still be one the transforms accept: a stale sample turns "Check
   # a payload" into a failure the operator reads as their own mistake.
   use ExUnit.Case, async: true
-
   alias Ryker.Settings.WebhookSource
   alias Ryker.Webhooks.{Presets, Preview}
 

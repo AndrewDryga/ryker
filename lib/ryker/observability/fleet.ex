@@ -10,7 +10,6 @@ defmodule Ryker.Observability.Fleet do
   """
 
   import Ecto.Query
-
   alias Ryker.CoopFleet.{Command, Placement, Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Defaults
   alias Ryker.Observability.Reads

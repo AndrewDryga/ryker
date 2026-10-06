@@ -1,6 +1,5 @@
 defmodule Ryker.Admission.ReadySessionsMigrationTest do
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @baseline_version 20_260_926_100_000

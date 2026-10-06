@@ -7,7 +7,6 @@ defmodule Ryker.Transcription.PartsTest do
   tone and silence at known times, so every cut lands at a known byte.
   """
   use ExUnit.Case, async: true
-
   alias Ryker.Transcription.Parts
 
   # 16 kHz mono 16-bit: 32,000 bytes a second, 640 bytes a 20 ms frame.

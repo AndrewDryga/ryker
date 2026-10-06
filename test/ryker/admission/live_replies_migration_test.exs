@@ -1,6 +1,5 @@
 defmodule Ryker.Admission.LiveRepliesMigrationTest do
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
   alias Ryker.Admission.Decision
   alias Ryker.CanonicalJSON

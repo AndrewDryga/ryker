@@ -11,7 +11,6 @@ defmodule Ryker.Slack.TaskCards do
   """
 
   import Ecto.Query
-
   alias Ryker.Delivery.Request
   alias Ryker.Episodes.Episode
   alias Ryker.ErrorDetail

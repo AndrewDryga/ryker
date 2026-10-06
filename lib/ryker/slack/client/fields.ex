@@ -115,26 +115,26 @@ defmodule Ryker.Slack.Client.Fields do
   end
 
   @spec resource_id?(term()) :: boolean()
-  def resource_id?(value),
-    do:
-      is_binary(value) and byte_size(value) in 1..256 and
-        Regex.match?(~r/\A[A-Za-z0-9]+\z/, value)
+  def resource_id?(value) do
+    is_binary(value) and byte_size(value) in 1..256 and
+      Regex.match?(~r/\A[A-Za-z0-9]+\z/, value)
+  end
 
   @spec optional_resource_id?(term()) :: boolean()
   def optional_resource_id?(nil), do: true
   def optional_resource_id?(value), do: resource_id?(value)
 
   @spec bounded_token?(term(), pos_integer()) :: boolean()
-  def bounded_token?(value, maximum),
-    do:
-      is_binary(value) and byte_size(value) in 1..maximum and
-        Regex.match?(~r/\A[a-z0-9_]+\z/, value)
+  def bounded_token?(value, maximum) do
+    is_binary(value) and byte_size(value) in 1..maximum and
+      Regex.match?(~r/\A[a-z0-9_]+\z/, value)
+  end
 
   @spec bounded_string?(term(), pos_integer()) :: boolean()
-  def bounded_string?(value, maximum),
-    do:
-      is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-        :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
+  def bounded_string?(value, maximum) do
+    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
+      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
+  end
 
   @spec optional_bounded_string?(term(), pos_integer()) :: boolean()
   def optional_bounded_string?(nil, _maximum), do: true

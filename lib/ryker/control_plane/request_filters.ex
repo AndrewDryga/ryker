@@ -15,7 +15,6 @@ defmodule Ryker.ControlPlane.RequestFilters do
   use Phoenix.Component
   import Ryker.ControlPlane.Components
   alias Phoenix.LiveView.JS
-
   alias Ryker.ControlPlane.{ShortTime, UsagePage, UsageProjection}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names

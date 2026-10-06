@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.FactsProjectionTest do
   facts exist, so a search that misses is not mistaken for having none.
   """
   use Ryker.DataCase, async: false
-
   alias Ryker.ControlPlane.{FactsPage, MemoryProjection}
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Memories.MemoryEntry

@@ -13,7 +13,6 @@ defmodule Ryker.Admission.ConversationSummaries do
   """
 
   import Ecto.Query
-
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Ingress.Inbox.Entry

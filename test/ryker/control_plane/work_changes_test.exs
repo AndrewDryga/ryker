@@ -1,7 +1,6 @@
 defmodule Ryker.ControlPlane.WorkChangesTest do
   use ExUnit.Case, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.ControlPlane.WorkChanges
 
   @work_ref "task-card:abc123"

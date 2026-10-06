@@ -1,6 +1,5 @@
 defmodule Ryker.Delivery.ChatCardTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.HTML
   alias Ryker.Delivery.ChatCard
   alias Ryker.Fixtures.TaskOffer

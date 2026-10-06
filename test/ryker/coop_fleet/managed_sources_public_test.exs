@@ -4,7 +4,6 @@ defmodule Ryker.CoopFleet.ManagedSourcesPublicTest do
   # that listed it (2026-10-03). A public repository Ryker was never given is fetched without
   # credentials; one that is not public, or that Ryker was given but cannot reach, stays refused.
   use ExUnit.Case, async: true
-
   alias Ryker.CoopFleet.ManagedSources
 
   @snapshot %{

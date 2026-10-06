@@ -13,7 +13,6 @@ defmodule Ryker.ControlPlane.LiveUpdatesTest do
   visibly stale instead of quietly catching up.
   """
   use Ryker.DataCase, async: false
-
   alias Ryker.ControlPlane.{WebRouter, WorkbenchLive}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

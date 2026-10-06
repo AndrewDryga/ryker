@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   """
 
   import Ecto.Query
-
   alias Ryker.ControlPlane.{Activity, PagedRelation, RepositoryNames}
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode

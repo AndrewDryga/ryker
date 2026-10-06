@@ -32,10 +32,10 @@ defmodule Ryker.Publication.ConflictReceipt do
   defp repository?(value),
     do: is_binary(value) and Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, value)
 
-  defp branch_ref?(value),
-    do:
-      is_binary(value) and
-        Regex.match?(~r/\Arefs\/heads\/[A-Za-z0-9._\/-]{1,240}\z/, value)
+  defp branch_ref?(value) do
+    is_binary(value) and
+      Regex.match?(~r/\Arefs\/heads\/[A-Za-z0-9._\/-]{1,240}\z/, value)
+  end
 
   defp git_identity?(value),
     do: is_binary(value) and Regex.match?(~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/, value)

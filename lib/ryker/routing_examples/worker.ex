@@ -13,7 +13,6 @@ defmodule Ryker.RoutingExamples.Worker do
   its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :routing_examples, interval: :poll_interval_ms
-
   alias Ryker.{Episodes, Feedback, Options, PollingWorker, RoutingExamples}
   alias Ryker.Ingress.Inbox
 

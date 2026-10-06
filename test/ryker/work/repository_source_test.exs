@@ -1,6 +1,5 @@
 defmodule Ryker.Work.RepositorySourceTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Work.RepositorySource
 
   @default_commit String.duplicate("a", 40)

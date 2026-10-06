@@ -114,25 +114,25 @@ defmodule Ryker.ControlPlane.Paths do
 
   @doc "A file a Chat turn produced, downloaded from the turn that made it."
   @spec artifact(String.t(), String.t(), String.t()) :: String.t()
-  def artifact(conversation_id, turn_id, ref),
-    do:
-      "/" <>
-        Enum.map_join(
-          ["conversations", conversation_id, "turns", turn_id, "artifacts", ref],
-          "/",
-          &segment/1
-        )
+  def artifact(conversation_id, turn_id, ref) do
+    "/" <>
+      Enum.map_join(
+        ["conversations", conversation_id, "turns", turn_id, "artifacts", ref],
+        "/",
+        &segment/1
+      )
+  end
 
   @doc "Where a Chat record card's action posts, or its read-only view opens."
   @spec conversation_record(String.t(), String.t(), String.t()) :: String.t()
-  def conversation_record(conversation_id, record_ref, action),
-    do:
-      "/" <>
-        Enum.map_join(
-          ["conversations", conversation_id, "records", record_ref, action],
-          "/",
-          &segment/1
-        )
+  def conversation_record(conversation_id, record_ref, action) do
+    "/" <>
+      Enum.map_join(
+        ["conversations", conversation_id, "records", record_ref, action],
+        "/",
+        &segment/1
+      )
+  end
 
   # -- Addresses ----------------------------------------------------------------
 

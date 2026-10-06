@@ -1,12 +1,10 @@
 defmodule Ryker.Learning.LearningCapacityTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
-
   alias Ryker.{CanonicalJSON, Episodes}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
-
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -420,13 +418,13 @@ defmodule Ryker.Learning.LearningCapacityTest do
     )
   end
 
-  defp candidate_state(candidate),
-    do:
-      candidate
-      |> Jason.decode!()
-      |> Map.fetch!("updates")
-      |> hd()
-      |> Map.take(~w(title summary topics anchors))
+  defp candidate_state(candidate) do
+    candidate
+    |> Jason.decode!()
+    |> Map.fetch!("updates")
+    |> hd()
+    |> Map.take(~w(title summary topics anchors))
+  end
 
   defp assert_bounded_source_scan({query, params}, root_count) do
     %{rows: [[[%{"Plan" => plan}]]]} =
@@ -438,11 +436,11 @@ defmodule Ryker.Learning.LearningCapacityTest do
            "source retrieval performed #{visited} scan/recheck operations for #{root_count} roots; expected bounded linear work"
   end
 
-  defp source_query_work(%{"Plans" => plans} = plan),
-    do:
-      Enum.sum(Enum.map(plans, &source_query_work/1)) +
-        Map.get(plan, "Rows Removed by Join Filter", 0) * plan["Actual Loops"] +
-        materialized_work(plan)
+  defp source_query_work(%{"Plans" => plans} = plan) do
+    Enum.sum(Enum.map(plans, &source_query_work/1)) +
+      Map.get(plan, "Rows Removed by Join Filter", 0) * plan["Actual Loops"] +
+      materialized_work(plan)
+  end
 
   defp source_query_work(%{"Node Type" => type} = plan)
        when type in ["Index Scan", "Index Only Scan", "Bitmap Index Scan", "Seq Scan"] do

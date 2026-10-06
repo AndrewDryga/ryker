@@ -8,9 +8,7 @@ defmodule Ryker.Slack.MembershipReconciler do
   """
 
   use Ryker.PollingWorker, lane: :slack_membership, interval: :interval_ms
-
   require Logger
-
   alias Ryker.Options
   alias Ryker.Slack.Names
 

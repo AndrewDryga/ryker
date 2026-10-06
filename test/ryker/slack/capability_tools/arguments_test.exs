@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.CapabilityTools.ArgumentsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.CapabilityTools.Arguments
 
   @arguments %{"query" => "deployment", "content_types" => ["messages"], "limit" => 20}

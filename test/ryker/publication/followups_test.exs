@@ -1,31 +1,20 @@
 defmodule Ryker.Publication.FollowupsTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
+  alias Ryker.Continuity
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Event, EventChangeset}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
-
-  alias Ryker.Publication.{
-    Custody,
-    Followup,
-    FollowupExecutor,
-    Followups,
-    LifecycleEvent,
-    Publication
-  }
-
-  alias Ryker.Continuity
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Memories.{CaseRecord, Cases}
-
+  alias Ryker.Publication.{Custody, Followup, FollowupExecutor, Followups, LifecycleEvent}
+  alias Ryker.Publication.Publication
   alias Ryker.Work.Cancellation
   alias Ryker.Work.Custody, as: WorkCustody
   alias Ryker.Work.DeliveryReceipt

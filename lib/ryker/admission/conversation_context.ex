@@ -16,7 +16,6 @@ defmodule Ryker.Admission.ConversationContext do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Episodes.Episode
@@ -256,38 +255,38 @@ defmodule Ryker.Admission.ConversationContext do
 
   # The place rules the inputs follow: a thread reply sees its own thread, a
   # channel root sees top-level messages only, anything else its conversation.
-  defp reply_scope(query, entry, :thread_reply),
-    do:
-      from(turn in query,
-        where:
-          fragment("(?::jsonb ->> 'thread_ref')", turn.external_receipt) ==
-            ^entry.destination_thread_ref
-      )
+  defp reply_scope(query, entry, :thread_reply) do
+    from(turn in query,
+      where:
+        fragment("(?::jsonb ->> 'thread_ref')", turn.external_receipt) ==
+          ^entry.destination_thread_ref
+    )
+  end
 
-  defp reply_scope(query, _entry, :channel_root),
-    do:
-      from(turn in query,
-        where:
-          fragment(
-            "coalesce(?::jsonb ->> 'thread_ref', ?::jsonb ->> 'message_ref') = ?::jsonb ->> 'message_ref'",
-            turn.external_receipt,
-            turn.external_receipt,
-            turn.external_receipt
-          )
-      )
+  defp reply_scope(query, _entry, :channel_root) do
+    from(turn in query,
+      where:
+        fragment(
+          "coalesce(?::jsonb ->> 'thread_ref', ?::jsonb ->> 'message_ref') = ?::jsonb ->> 'message_ref'",
+          turn.external_receipt,
+          turn.external_receipt,
+          turn.external_receipt
+        )
+    )
+  end
 
   defp reply_scope(query, _entry, :conversation), do: query
 
   defp post_scope(query, entry, :thread_reply),
     do: from(action in query, where: action.thread_ref == ^entry.destination_thread_ref)
 
-  defp post_scope(query, _entry, :channel_root),
-    do:
-      from(action in query,
-        where:
-          is_nil(action.thread_ref) or
-            action.thread_ref == fragment("(?::jsonb ->> 'message_ref')", action.external_receipt)
-      )
+  defp post_scope(query, _entry, :channel_root) do
+    from(action in query,
+      where:
+        is_nil(action.thread_ref) or
+          action.thread_ref == fragment("(?::jsonb ->> 'message_ref')", action.external_receipt)
+    )
+  end
 
   defp post_scope(query, _entry, :conversation), do: query
 

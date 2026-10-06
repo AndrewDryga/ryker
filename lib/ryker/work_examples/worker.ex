@@ -11,7 +11,6 @@ defmodule Ryker.WorkExamples.Worker do
   sleeps for its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :work_examples, interval: :poll_interval_ms
-
   alias Ryker.{Episodes, Feedback, Options, PollingWorker, WorkExamples}
 
   @fields [:batch_size, :poll_interval_ms, :window_seconds]

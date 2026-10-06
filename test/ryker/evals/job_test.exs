@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.JobTest do
   use ExUnit.Case, async: false
-
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.Evals.{Job, WorldSource}
 

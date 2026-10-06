@@ -11,7 +11,6 @@ defmodule Ryker.StateTools.CallLog do
   """
 
   import Ecto.Query
-
   alias Ryker.Repo
   alias Ryker.StateTools.CallRecord
   alias Ryker.Work.{Activity, Custody, Turn}

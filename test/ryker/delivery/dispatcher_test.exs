@@ -1,7 +1,6 @@
 defmodule Ryker.Delivery.DispatcherTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query, only: [from: 2]
   import ExUnit.CaptureIO
 
@@ -12,15 +11,8 @@ defmodule Ryker.Delivery.DispatcherTest do
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.Artifacts.Outputs
-
-  alias Ryker.Delivery.{
-    Adapters,
-    Dispatcher,
-    PlatformAction,
-    PlatformActionCustody,
-    RoutingResponse
-  }
-
+  alias Ryker.Delivery.{Adapters, Dispatcher, PlatformAction, PlatformActionCustody}
+  alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -939,9 +931,10 @@ defmodule Ryker.Delivery.DispatcherTest do
       ]
     ]
 
-    Enum.each(invalid, fn options ->
-      assert {:error, {:invalid_delivery_dispatcher, _field}} = Dispatcher.run_once(options)
-    end)
+    Enum.each(
+      invalid,
+      &assert({:error, {:invalid_delivery_dispatcher, _field}} = Dispatcher.run_once(&1))
+    )
   end
 
   defp joined_question_refs(command, options) do

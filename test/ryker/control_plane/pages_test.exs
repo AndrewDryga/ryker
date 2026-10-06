@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.PagesTest do
   live routes won, so the page body prepared here is the whole contract now.
   """
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.{HTML, Pages, RunningSystem}
   alias Ryker.Fixtures.ControlPlaneOptions
 

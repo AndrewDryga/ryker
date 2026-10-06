@@ -1,6 +1,5 @@
 defmodule Ryker.Retention.DataConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Artifacts
   alias Ryker.Episodes
@@ -170,7 +169,7 @@ defmodule Ryker.Retention.DataConcurrencyTest do
           [Process.delete({__MODULE__, :blocker}), Process.delete({__MODULE__, :pruner})]
           |> Enum.reject(&is_nil/1)
 
-        Enum.each(tasks, fn task -> send(task.pid, {:reopen, nil}) end)
+        Enum.each(tasks, &send(&1.pid, {:reopen, nil}))
         stop_tasks(tasks)
         Repo.delete_all(from(event in Event, where: event.episode_id == ^episode.id))
         Repo.delete_all(from(row in Episode, where: row.id == ^episode.id))

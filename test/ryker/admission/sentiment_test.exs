@@ -15,7 +15,6 @@ defmodule Ryker.Admission.SentimentTest do
   decision beside it.
   """
   use Ryker.DataCase, async: true
-
   import Phoenix.LiveViewTest
 
   @moduletag isolation: "REPEATABLE READ"

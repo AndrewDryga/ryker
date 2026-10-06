@@ -1,24 +1,10 @@
 defmodule Ryker.CoopFleet.FailoverEndToEndTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ecto.Adapters.SQL.Sandbox
-
-  alias Ryker.CoopFleet.{
-    Bodies,
-    Checkpoints,
-    Client,
-    Command,
-    ControlPlane,
-    JobSpec,
-    Placement,
-    Worker,
-    WorkspaceCheckpointTransfer
-  }
-
+  alias Ryker.CoopFleet.{Bodies, Checkpoints, Client, Command, ControlPlane, JobSpec, Placement}
+  alias Ryker.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob

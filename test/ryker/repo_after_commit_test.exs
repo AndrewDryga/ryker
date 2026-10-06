@@ -8,7 +8,6 @@ defmodule Ryker.RepoAfterCommitTest do
   them away, so every context announces through `Repo.after_commit/1`.
   """
   use Ryker.DataCase, async: true
-
   alias Ryker.Repo
 
   setup do

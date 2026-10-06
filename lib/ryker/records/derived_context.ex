@@ -226,10 +226,10 @@ defmodule Ryker.Records.DerivedContext do
       document["payload"] in [record.payload, record_payload(record.payload)]
   end
 
-  defp same_conversation?(left, right),
-    do:
-      left.destination_transport == right.destination_transport and
-        left.destination_conversation_ref == right.destination_conversation_ref
+  defp same_conversation?(left, right) do
+    left.destination_transport == right.destination_transport and
+      left.destination_conversation_ref == right.destination_conversation_ref
+  end
 
   defp get_uuid(schema, id) do
     case Ecto.UUID.cast(id) do

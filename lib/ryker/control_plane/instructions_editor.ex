@@ -30,15 +30,15 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
 
   @impl true
   def handle_event("edit", %{"text" => text, "revision" => revision}, socket)
-      when is_binary(text),
-      do:
-        {:noreply,
-         draft(socket, text)
-         |> assign(
-           message: "",
-           error: if(socket.assigns.conflict, do: socket.assigns.error),
-           expected_revision: revision(revision)
-         )}
+      when is_binary(text) do
+    {:noreply,
+     draft(socket, text)
+     |> assign(
+       message: "",
+       error: if(socket.assigns.conflict, do: socket.assigns.error),
+       expected_revision: revision(revision)
+     )}
+  end
 
   def handle_event("cancel", _, socket),
     do: {:noreply, reset(socket, socket.assigns.view.setting)}
@@ -90,17 +90,17 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
        )}
   end
 
-  defp reset(socket, saved),
-    do:
-      assign(socket,
-        saved: saved,
-        expected_revision: saved.revision,
-        draft: saved.text,
-        dirty: false,
-        error: nil,
-        conflict: nil,
-        message: ""
-      )
+  defp reset(socket, saved) do
+    assign(socket,
+      saved: saved,
+      expected_revision: saved.revision,
+      draft: saved.text,
+      dirty: false,
+      error: nil,
+      conflict: nil,
+      message: ""
+    )
+  end
 
   defp revision(value) when is_binary(value) do
     case Integer.parse(value) do
@@ -129,9 +129,9 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
   defp error(:instructions_scope_unavailable),
     do: "This channel is no longer available for editing. Your draft has not been saved."
 
-  defp error(_),
-    do:
-      "The instructions could not be saved. Check the text and try again; your draft is preserved."
+  defp error(_) do
+    "The instructions could not be saved. Check the text and try again; your draft is preserved."
+  end
 
   # The quiet line under the text: what is left, and the byte size only once
   # it is close enough to the 8 KiB limit to matter (emoji and some scripts

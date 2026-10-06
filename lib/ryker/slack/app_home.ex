@@ -256,31 +256,29 @@ defmodule Ryker.Slack.AppHome do
     total = Map.get(collection, :total, 0)
 
     [
-      if(offset > 0,
-        do:
-          button(
-            "ryker_home_show_collection",
-            "Previous",
-            collection_value(kind, max(offset - page_size, 0))
-          )
-      ),
-      if(offset + page_size < total,
-        do:
-          button(
-            "ryker_home_show_collection",
-            "Next",
-            collection_value(kind, offset + page_size)
-          )
-      ),
+      if(offset > 0) do
+        button(
+          "ryker_home_show_collection",
+          "Previous",
+          collection_value(kind, max(offset - page_size, 0))
+        )
+      end,
+      if(offset + page_size < total) do
+        button(
+          "ryker_home_show_collection",
+          "Next",
+          collection_value(kind, offset + page_size)
+        )
+      end,
       button("ryker_home_show_dashboard", "Back to Home", "home-collection:dashboard")
     ]
     |> Enum.reject(&is_nil/1)
   end
 
-  defp collection_summary(%{outcome: :unavailable} = collection),
-    do:
-      "I couldn't load your #{collection_label(Map.get(collection, :kind))} right now. " <>
-        "Try again in a moment."
+  defp collection_summary(%{outcome: :unavailable} = collection) do
+    "I couldn't load your #{collection_label(Map.get(collection, :kind))} right now. " <>
+      "Try again in a moment."
+  end
 
   defp collection_summary(%{outcome: :empty} = collection),
     do: collection_empty(Map.get(collection, :kind))
@@ -440,21 +438,21 @@ defmodule Ryker.Slack.AppHome do
         do: button("ryker_home_edit_memory_review", "Edit…", review_ref),
         else: nil
       ),
-      if(Map.get(row, "kind") == "duplicate",
-        do:
-          button(
-            "ryker_home_merge_memory_review",
-            "Merge (#{entry_count})",
-            review_ref,
-            destructive_confirm(
-              "Merge #{entry_count} entries?",
-              "The newest entry will remain; #{max(entry_count - 1, 0)} duplicate values will be redacted.",
-              "Merge",
-              "Cancel"
-            )
-          ),
-        else: nil
-      ),
+      if Map.get(row, "kind") == "duplicate" do
+        button(
+          "ryker_home_merge_memory_review",
+          "Merge (#{entry_count})",
+          review_ref,
+          destructive_confirm(
+            "Merge #{entry_count} entries?",
+            "The newest entry will remain; #{max(entry_count - 1, 0)} duplicate values will be redacted.",
+            "Merge",
+            "Cancel"
+          )
+        )
+      else
+        nil
+      end,
       button(
         "ryker_home_forget_memory_review",
         "Forget all (#{entry_count})",
@@ -567,16 +565,16 @@ defmodule Ryker.Slack.AppHome do
           button("ryker_home_run_schedule", "Run now", Map.get(row, :ref)),
           status_button,
           open_button(row, "Replace in chat"),
-          if(status in [:active, :paused],
-            do:
-              button(
-                "ryker_home_delete_schedule",
-                "Delete",
-                versioned_control(:schedule, row),
-                destructive_confirm("Delete this schedule?", "Future occurrences will stop.")
-              ),
-            else: nil
-          )
+          if status in [:active, :paused] do
+            button(
+              "ryker_home_delete_schedule",
+              "Delete",
+              versioned_control(:schedule, row),
+              destructive_confirm("Delete this schedule?", "Future occurrences will stop.")
+            )
+          else
+            nil
+          end
         ]
         |> Enum.reject(&is_nil/1)
       )

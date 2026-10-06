@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.ActionTokensTest do
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [eventually: 1]
-
   alias Ryker.Slack.ActionTokens
 
   # Slack sends a search token with every mention and most turns never search.

@@ -349,15 +349,15 @@ defmodule Ryker.WeeklyReport.Digest do
   defp feedback(%{positive: 0, negative: negative}),
     do: "All #{negative} pieces of feedback I have received were negative."
 
-  defp feedback(%{positive: positive, negative: negative}) when positive > negative,
-    do:
-      "Feedback I have received was mostly positive: " <>
-        "#{positive} positive and #{negative} negative."
+  defp feedback(%{positive: positive, negative: negative}) when positive > negative do
+    "Feedback I have received was mostly positive: " <>
+      "#{positive} positive and #{negative} negative."
+  end
 
-  defp feedback(%{positive: positive, negative: negative}) when positive < negative,
-    do:
-      "Feedback I have received was mostly negative: " <>
-        "#{positive} positive and #{negative} negative."
+  defp feedback(%{positive: positive, negative: negative}) when positive < negative do
+    "Feedback I have received was mostly negative: " <>
+      "#{positive} positive and #{negative} negative."
+  end
 
   defp feedback(%{positive: positive, negative: negative}),
     do: "Feedback I have received was mixed: #{positive} positive and #{negative} negative."

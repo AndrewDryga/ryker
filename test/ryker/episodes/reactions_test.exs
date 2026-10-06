@@ -1,8 +1,6 @@
 defmodule Ryker.Episodes.ReactionsTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Event, Reactions, Transition}
   alias Ryker.Feedback

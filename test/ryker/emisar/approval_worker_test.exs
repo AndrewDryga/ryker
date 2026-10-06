@@ -1,8 +1,6 @@
 defmodule Ryker.Emisar.ApprovalWorkerTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query, only: [from: 2]
-
   alias Ryker.Emisar.{Approval, ApprovalDispatcher, Approvals, ApprovalWorker, RunState}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command

@@ -1,8 +1,6 @@
 defmodule Ryker.Acceptance.LiveObserverTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Acceptance.Live
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

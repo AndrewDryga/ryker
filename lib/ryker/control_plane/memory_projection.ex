@@ -12,7 +12,6 @@ defmodule Ryker.ControlPlane.MemoryProjection do
   """
 
   import Ecto.Query
-
   alias Ryker.ControlPlane.{PagedRelation, RepositoryNames}
   alias Ryker.InspectionRedactor
   alias Ryker.Memories
@@ -124,18 +123,18 @@ defmodule Ryker.ControlPlane.MemoryProjection do
 
   defp search(query, ""), do: query
 
-  defp search(query, text),
-    do:
-      from(memory in query,
-        where:
-          fragment(
-            "position(lower(?) in lower(concat_ws(' ', ?, ?::jsonb->>'value', ?::jsonb->>'applicability'))) > 0",
-            ^text,
-            memory.subject,
-            memory.payload,
-            memory.payload
-          )
-      )
+  defp search(query, text) do
+    from(memory in query,
+      where:
+        fragment(
+          "position(lower(?) in lower(concat_ws(' ', ?, ?::jsonb->>'value', ?::jsonb->>'applicability'))) > 0",
+          ^text,
+          memory.subject,
+          memory.payload,
+          memory.payload
+        )
+    )
+  end
 
   defp search_text(value) when is_binary(value), do: String.slice(String.trim(value), 0, 200)
   defp search_text(_value), do: ""

@@ -14,7 +14,6 @@ defmodule Ryker.ControlPlane.CallRun do
   repository's knowledge runs both show it.
   """
   use Phoenix.Component
-
   alias Ryker.Accounting.Pricing
   alias Ryker.ControlPlane.Units
   alias Ryker.Work.ExecutionTarget

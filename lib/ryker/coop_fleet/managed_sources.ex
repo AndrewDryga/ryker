@@ -8,7 +8,6 @@ defmodule Ryker.CoopFleet.ManagedSources do
   """
 
   require Logger
-
   alias Ryker.ChildEnvironment
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.CoopFleet.Protocol

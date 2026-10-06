@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.RepositoryNames do
   """
 
   import Ecto.Query
-
   alias Ryker.ControlPlane.PageRead
   alias Ryker.Repo
   alias Ryker.Settings.Repository

@@ -9,7 +9,6 @@ defmodule Ryker.Slack.ActionTokens do
   """
 
   use GenServer
-
   alias Ryker.Options
 
   @default_ttl_ms 15 * 60 * 1_000

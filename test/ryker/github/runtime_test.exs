@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.RuntimeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.GitHub.{DeliveryPoller, InstallationTokens, OnboardingWorker, Runtime, Server}
 
   defmodule Requester do

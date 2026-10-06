@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.PayloadTest do
   use ExUnit.Case, async: true
-
   alias Ryker.GitHub.Payload
 
   # A check run's details link leads to the CI provider and its html_url to

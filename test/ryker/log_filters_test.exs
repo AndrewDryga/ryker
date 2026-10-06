@@ -1,6 +1,5 @@
 defmodule Ryker.TestSupport.LogFiltersTest do
   use ExUnit.Case, async: true
-
   alias Ryker.TestSupport.LogFilters
 
   # Built the way DBConnection.Connection logs a disconnect, from its own

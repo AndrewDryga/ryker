@@ -8,18 +8,8 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   """
 
   import Ecto.Query
-
-  alias Ryker.ControlPlane.{
-    Activity,
-    EpisodeTrace,
-    FeedbackProjection,
-    ImprovementRequests,
-    ModelRequests,
-    Paths,
-    TaskProgress,
-    UsageProjection
-  }
-
+  alias Ryker.ControlPlane.{Activity, EpisodeTrace, FeedbackProjection, ImprovementRequests}
+  alias Ryker.ControlPlane.{ModelRequests, Paths, TaskProgress, UsageProjection}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox

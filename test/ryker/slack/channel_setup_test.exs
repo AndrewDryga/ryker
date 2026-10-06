@@ -1,21 +1,9 @@
 defmodule Ryker.Slack.ChannelSetupTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Fixtures.ChannelEnvironments
-
-  alias Ryker.Slack.{
-    ChannelConfiguration,
-    ChannelConfigurations,
-    ChannelSettings,
-    ChannelSetup,
-    ConfigurationSession,
-    Input,
-    Interaction,
-    MembershipTransition,
-    Operators,
-    Renderer
-  }
-
+  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurations, ChannelSettings, ChannelSetup}
+  alias Ryker.Slack.{ConfigurationSession, Input, Interaction, MembershipTransition, Operators}
+  alias Ryker.Slack.Renderer
   alias Ryker.TestSupport.FakeSlackAPI
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -1111,11 +1099,11 @@ defmodule Ryker.Slack.ChannelSetupTest do
   defp updates(options), do: FakeSlackAPI.state(options.client).updates
 
   # The people chosen to manage Ryker, with the workspace's admins left out.
-  defp chosen_operators(people),
-    do:
-      Operators.new(
-        chosen: people,
-        workspace_admins: false,
-        workspace_ref: @workspace
-      )
+  defp chosen_operators(people) do
+    Operators.new(
+      chosen: people,
+      workspace_admins: false,
+      workspace_ref: @workspace
+    )
+  end
 end

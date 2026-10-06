@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldMatchTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Evals.WorldMatch
 
   test "reviewed match rules preserve exact list shape and nested values" do

@@ -18,7 +18,6 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   changes (`subscriptions/1`).
   """
   use Phoenix.Component
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, Units}
   alias Ryker.{Episodes, Schedules}
@@ -151,12 +150,11 @@ defmodule Ryker.ControlPlane.SchedulesPage do
     [
       how_often(item),
       place(item),
-      if(item.status == :active and item.next_local,
-        do:
-          moment(next_lead(item), item.next_local, item.now_local, item.next_occurrence_at, :time,
-            zone: item.timezone
-          )
-      ),
+      if(item.status == :active and item.next_local) do
+        moment(next_lead(item), item.next_local, item.now_local, item.next_occurrence_at, :time,
+          zone: item.timezone
+        )
+      end,
       if(changeable? and item.expires_local,
         do: moment("stops ", item.expires_local, item.now_local, item.expires_at, :date, [])
       ),
@@ -267,10 +265,10 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   # Run times are the schedule's own clock; the list names the zone once
   # rather than on every row.
-  defp runs_lede(schedule),
-    do:
-      "Each run starts its own request. Newest first. Times are " <>
-        ScheduleCadence.zone_name(schedule.timezone) <> "."
+  defp runs_lede(schedule) do
+    "Each run starts its own request. Newest first. Times are " <>
+      ScheduleCadence.zone_name(schedule.timezone) <> "."
+  end
 
   defp detail_facts(schedule) do
     changeable? = schedule.status in @changeable
@@ -289,17 +287,17 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   defp next_run(%{status: :paused}), do: "None while it is paused"
 
-  defp next_run(%{next_local: %NaiveDateTime{} = local} = schedule),
-    do:
-      moment(nil, local, schedule.now_local, schedule.next_occurrence_at, :time,
-        zone: schedule.timezone
-      )
+  defp next_run(%{next_local: %NaiveDateTime{} = local} = schedule) do
+    moment(nil, local, schedule.now_local, schedule.next_occurrence_at, :time,
+      zone: schedule.timezone
+    )
+  end
 
   defp next_run(_schedule), do: nil
 
-  defp stops(%{expires_local: %NaiveDateTime{} = local} = schedule),
-    do:
-      moment(nil, local, schedule.now_local, schedule.expires_at, :time, zone: schedule.timezone)
+  defp stops(%{expires_local: %NaiveDateTime{} = local} = schedule) do
+    moment(nil, local, schedule.now_local, schedule.expires_at, :time, zone: schedule.timezone)
+  end
 
   defp stops(_schedule), do: "Never"
 

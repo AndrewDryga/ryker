@@ -176,7 +176,7 @@ defmodule Ryker.Learning.Executor do
       fn ->
         call(claim, settings, action, [key, run.policy, FleetSession.external_ref(run), nil])
       end,
-      fn id -> call(claim, settings, :get_session, [id]) end,
+      &call(claim, settings, :get_session, [&1]),
       :create
     )
   end
@@ -231,7 +231,7 @@ defmodule Ryker.Learning.Executor do
              "SubmitTurn",
              "turn",
              fn -> dispatch_turn(claim, frozen, session, settings, mode) end,
-             fn id -> call(claim, settings, :get_turn, [session["id"], id]) end,
+             &call(claim, settings, :get_turn, [session["id"], &1]),
              :submit
            ),
          :ok <- exact_turn(turn, session["id"], nil),
@@ -412,12 +412,13 @@ defmodule Ryker.Learning.Executor do
       {:error, reason} = error ->
         # An unreachable worker proves nothing and keeps reconciling; a session
         # that can never be addressed again leaves only the local proof.
-        if unaddressable?(run, reason),
-          do:
-            run.id
-            |> Learning.record_unaddressable_stop(unaddressable_code(reason), claim)
-            |> stopped(),
-          else: error
+        if unaddressable?(run, reason) do
+          run.id
+          |> Learning.record_unaddressable_stop(unaddressable_code(reason), claim)
+          |> stopped()
+        else
+          error
+        end
 
       other ->
         other
@@ -529,12 +530,12 @@ defmodule Ryker.Learning.Executor do
   defp valid_session_state?(state, revision),
     do: state in ~w(open exhausted closed discarded) and is_integer(revision) and revision > 0
 
-  defp isolated_session?(session),
-    do:
-      is_nil(session["controller_tools_digest"]) and is_nil(session["workspace_task"]) and
-        session["repository_read_only"] == true and
-        session["project_env"] == false and session["project_mcp"] == false and
-        Map.get(session, "companions", []) == []
+  defp isolated_session?(session) do
+    is_nil(session["controller_tools_digest"]) and is_nil(session["workspace_task"]) and
+      session["repository_read_only"] == true and
+      session["project_env"] == false and session["project_mcp"] == false and
+      Map.get(session, "companions", []) == []
+  end
 
   defp exact_turn(%{"id" => id, "session_id" => sid}, sid, expected)
        when is_binary(id) and byte_size(id) in 1..1024 and (is_nil(expected) or expected == id),

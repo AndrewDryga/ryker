@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.SourceWindowTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.{SourceRef, SourceWindow}
 
   test "bounded long scans do not re-emit discarded distant originals when expanding nearer pages" do

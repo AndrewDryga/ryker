@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.JobCheckTest do
   use ExUnit.Case, async: true
-
   alias Ryker.CoopFleet.JobCheck
 
   defmodule Reader do

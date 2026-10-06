@@ -42,7 +42,6 @@ defmodule Ryker.LocalRouting do
   """
 
   import Ecto.Query
-
   alias Ryker.Accounting.Query, as: Ledger
   alias Ryker.Admission
   alias Ryker.Admission.Attempt
@@ -395,15 +394,15 @@ defmodule Ryker.LocalRouting do
   (`Ryker.RoutingExamples.quoted_keys/1`).
   """
   @spec forget_in_transaction([String.t()], [String.t()]) :: :ok
-  def forget_in_transaction(identities, keys) when is_list(identities) and is_list(keys),
-    do:
-      erase(
-        from(comparison in Comparison,
-          where:
-            comparison.source_identity in ^identities or
-              fragment("? && ?::text[]", comparison.message_keys, ^keys)
-        )
+  def forget_in_transaction(identities, keys) when is_list(identities) and is_list(keys) do
+    erase(
+      from(comparison in Comparison,
+        where:
+          comparison.source_identity in ^identities or
+            fragment("? && ?::text[]", comparison.message_keys, ^keys)
       )
+    )
+  end
 
   @doc """
   Erases the comparisons from a conversation that was deleted, or whose
@@ -411,14 +410,13 @@ defmodule Ryker.LocalRouting do
   it.
   """
   @spec forget_conversation_in_transaction(String.t()) :: :ok
-  def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref),
-    do:
-      erase(
-        from(comparison in Comparison,
-          where:
-            fragment("? @> ARRAY[?]::text[]", comparison.conversation_refs, ^conversation_ref)
-        )
+  def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
+    erase(
+      from(comparison in Comparison,
+        where: fragment("? @> ARRAY[?]::text[]", comparison.conversation_refs, ^conversation_ref)
       )
+    )
+  end
 
   # An erased comparison is gone, never asked and never counted.
   defp erase(query) do
@@ -437,9 +435,9 @@ defmodule Ryker.LocalRouting do
 
   def unsubscribe_comparisons, do: Ryker.PubSub.unsubscribe(@topic)
 
-  defp broadcast(input_id),
-    do:
-      Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(@topic, {:local_routing_updated, input_id})
-      end)
+  defp broadcast(input_id) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(@topic, {:local_routing_updated, input_id})
+    end)
+  end
 end

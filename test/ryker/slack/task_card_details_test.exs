@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.TaskCardDetailsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.Renderer
 
   @records Jason.decode!(File.read!("testdata/slack/legacy_task_records.json"))

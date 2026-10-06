@@ -4,7 +4,6 @@ defmodule Ryker.Admission.ContextTest do
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
-
   alias Ryker.Admission
   alias Ryker.Admission.{Context, Decision}
   alias Ryker.Episodes

@@ -1,6 +1,5 @@
 defmodule Ryker.Admission.RuntimeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Admission.{Runtime, Worker}
 
   defmodule FleetAPI do

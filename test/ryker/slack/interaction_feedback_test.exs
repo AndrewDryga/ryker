@@ -1,20 +1,11 @@
 defmodule Ryker.Slack.InteractionFeedbackTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import ExUnit.CaptureLog
-
   alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Repo
-
-  alias Ryker.Slack.{
-    ConfigurationSession,
-    Interaction,
-    InteractionAudit,
-    InteractionAudits,
-    InteractionFeedbackWorker,
-    InteractionRepaint
-  }
+  alias Ryker.Slack.{ConfigurationSession, Interaction, InteractionAudit, InteractionAudits}
+  alias Ryker.Slack.{InteractionFeedbackWorker, InteractionRepaint}
 
   @now ~U[2026-08-29 12:00:00.000000Z]
 

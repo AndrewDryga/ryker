@@ -14,9 +14,7 @@ defmodule Ryker.CoopFleet.SessionEvidence do
   """
 
   use Ecto.Schema
-
   import Ecto.Query
-
   alias Ecto.Changeset
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.SessionEvidenceDocument, as: Document

@@ -74,11 +74,11 @@ defmodule Ryker.ControlPlane.PageCost do
   # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
   defp restore(previous), do: Process.put(@key, previous)
 
-  defp log(label, queries, db_ms, ms) when ms >= @slow_ms or queries >= @many_queries,
-    do:
-      Logger.warning(
-        "Slow page #{label}: #{ms} ms, #{queries} queries, #{db_ms} ms in the database"
-      )
+  defp log(label, queries, db_ms, ms) when ms >= @slow_ms or queries >= @many_queries do
+    Logger.warning(
+      "Slow page #{label}: #{ms} ms, #{queries} queries, #{db_ms} ms in the database"
+    )
+  end
 
   defp log(label, queries, db_ms, ms),
     do: Logger.debug("Page #{label}: #{ms} ms, #{queries} queries, #{db_ms} ms in the database")

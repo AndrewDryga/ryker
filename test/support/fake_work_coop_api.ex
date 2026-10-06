@@ -140,12 +140,12 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   def state(agent), do: Agent.get(agent, & &1)
 
   @impl true
-  def capabilities(_agent),
-    do:
-      {:ok,
-       %{
-         "repository_freshness_receipt_versions" => [2]
-       }}
+  def capabilities(_agent) do
+    {:ok,
+     %{
+       "repository_freshness_receipt_versions" => [2]
+     }}
+  end
 
   def update(agent, function) when is_function(function, 1),
     do: Agent.update(agent, function)

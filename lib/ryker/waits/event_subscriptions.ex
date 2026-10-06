@@ -22,15 +22,12 @@ defmodule Ryker.Waits.EventSubscriptions do
   """
 
   import Ecto.Query
-
   require Logger
-
   alias Ryker.Episodes.Episode
-  alias Ryker.Repo
-
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
+  alias Ryker.Repo
   alias Ryker.Waits.EventSubscription
   alias Ryker.Waits.EventSubscriptionChangeset
   alias Ryker.Waits.EventWaitTiming

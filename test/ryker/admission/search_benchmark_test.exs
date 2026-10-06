@@ -15,13 +15,11 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
   # Its connection is held as long: on 2026-09-30 the sandbox's default two
   # minutes ran out first on CI and cancelled a search mid-query.
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
 
   @moduletag timeout: 300_000, ownership_timeout: 300_000
 
   import Ecto.Query
-
   alias Ryker.Admission.{CandidateSearch, CorrelationScope, Ranking}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, RoutingDigest, RoutingDigests}

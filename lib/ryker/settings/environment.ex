@@ -25,7 +25,6 @@ defmodule Ryker.Settings.Environment do
   use Ecto.Schema
   import Ecto.Changeset
   import Ecto.Query
-
   alias Ryker.Repo
   alias Ryker.Settings.{EnvironmentRepository, Validation}
 
@@ -155,10 +154,11 @@ defmodule Ryker.Settings.Environment do
           &(&1.ref != ref and comparable_name(&1.display_name) == name)
         )
 
-    if taken?,
-      do:
-        add_error(changeset, :display_name, "is used by another environment", validation: :taken),
-      else: changeset
+    if taken? do
+      add_error(changeset, :display_name, "is used by another environment", validation: :taken)
+    else
+      changeset
+    end
   end
 
   defp comparable_name(name) when is_binary(name), do: name |> String.trim() |> String.downcase()
@@ -202,11 +202,11 @@ defmodule Ryker.Settings.Environment do
     end
   end
 
-  defp put_rows([{_default, :read_only} | _rest], changeset, _current),
-    do:
-      add_error(changeset, :access, "the default repository has to be read and write",
-        validation: :default_read_only
-      )
+  defp put_rows([{_default, :read_only} | _rest], changeset, _current) do
+    add_error(changeset, :access, "the default repository has to be read and write",
+      validation: :default_read_only
+    )
+  end
 
   defp put_rows(rows, changeset, current) do
     cond do

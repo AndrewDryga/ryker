@@ -12,18 +12,9 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   import Ecto.Query
   require Ryker.ControlPlane.ConversationTranscript
   require Ryker.ControlPlane.CurrentInputs
-
   alias Ryker.Artifacts.OutputArtifact
-
-  alias Ryker.ControlPlane.{
-    AdmissionProgress,
-    ConversationLab,
-    ConversationTranscript,
-    CurrentInputs,
-    ShortTime,
-    TranscriptCursor
-  }
-
+  alias Ryker.ControlPlane.{AdmissionProgress, ConversationLab, ConversationTranscript}
+  alias Ryker.ControlPlane.{CurrentInputs, ShortTime, TranscriptCursor}
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
   alias Ryker.Episodes.{Episode, Event, RoutingDigest}
@@ -669,13 +660,13 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   defp candidate_key(:quick_reply, row),
     do: TranscriptCursor.key(row.delivered_at, :quick_reply, "quick-reply:" <> row.id)
 
-  defp candidate_key(:publication, {publication, _record_ref}),
-    do:
-      TranscriptCursor.key(
-        ConversationTranscript.publication_position(publication),
-        :publication,
-        "publication:" <> publication.id
-      )
+  defp candidate_key(:publication, {publication, _record_ref}) do
+    TranscriptCursor.key(
+      ConversationTranscript.publication_position(publication),
+      :publication,
+      "publication:" <> publication.id
+    )
+  end
 
   # Keyset conditions per source. `own` is the rank of the source being read;
   # rows sharing the boundary's microsecond fall before it exactly when their
@@ -974,9 +965,9 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   defp publications_older(:all), do: dynamic(true)
 
-  defp publications_older({:before_or_at, at}),
-    do:
-      dynamic([publication], ConversationTranscript.publication_position_sql(publication) <= ^at)
+  defp publications_older({:before_or_at, at}) do
+    dynamic([publication], ConversationTranscript.publication_position_sql(publication) <= ^at)
+  end
 
   defp publications_older({:before, at}),
     do: dynamic([publication], ConversationTranscript.publication_position_sql(publication) < ^at)

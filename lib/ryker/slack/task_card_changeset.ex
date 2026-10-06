@@ -2,7 +2,6 @@ defmodule Ryker.Slack.TaskCardChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Slack.TaskCard
 
   @fields [

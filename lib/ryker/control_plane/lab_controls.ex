@@ -251,15 +251,15 @@ defmodule Ryker.ControlPlane.LabControls do
     end
   end
 
-  defp read_action?(action),
-    do:
-      action in [
-        :view_diff,
-        :view_timeline,
-        :view_evidence,
-        :view_handoff,
-        :view_postmortem
-      ]
+  defp read_action?(action) do
+    action in [
+      :view_diff,
+      :view_timeline,
+      :view_evidence,
+      :view_handoff,
+      :view_postmortem
+    ]
+  end
 
   @doc "The record action a route segment names, or an error for a segment that names none."
   def record_action("confirm-task"), do: {:ok, :confirm_task}
@@ -335,9 +335,9 @@ defmodule Ryker.ControlPlane.LabControls do
   # with one of these; which one is the host's business, not the reader's.
   @superseded_suffixes ~w(_stale _not_found _mismatch _not_delivered _already_confirmed _already_answered _already_requested _status_conflict)
 
-  defp failure_reason(reason) when reason in [:schedule_not_future, :automation_not_future],
-    do:
-      "Its time has already passed, or it would stop before its first run. Ask Ryker for a new time."
+  defp failure_reason(reason) when reason in [:schedule_not_future, :automation_not_future] do
+    "Its time has already passed, or it would stop before its first run. Ask Ryker for a new time."
+  end
 
   defp failure_reason({:invalid_schedule, :timezone}),
     do: "Ryker doesn't recognise its time zone. Ask again with one such as Europe/Berlin."
@@ -346,9 +346,9 @@ defmodule Ryker.ControlPlane.LabControls do
        when reason in [
               :conversation_lab_not_configured,
               :conversation_lab_task_policy_not_configured
-            ],
-       do:
-         "This conversation's environment can't run it. Choose an environment for the conversation, then try again."
+            ] do
+    "This conversation's environment can't run it. Choose an environment for the conversation, then try again."
+  end
 
   defp failure_reason({:automation_revision_conflict, _revision}), do: superseded()
 
@@ -360,9 +360,9 @@ defmodule Ryker.ControlPlane.LabControls do
 
   defp failure_reason(_reason), do: unfinished()
 
-  defp superseded,
-    do:
-      "This is no longer current: it was already handled or replaced. Use the latest message in the conversation."
+  defp superseded do
+    "This is no longer current: it was already handled or replaced. Use the latest message in the conversation."
+  end
 
   defp unfinished,
     do: "Ryker couldn't finish it. Try again; if it keeps failing, look under Failures."
@@ -447,37 +447,37 @@ defmodule Ryker.ControlPlane.LabControls do
 
   @doc "Whether `token` confirms editing or deleting one operator message."
   def valid_message_token?(secret, conversation_id, item_id, action, token)
-      when action in [:edit, :delete],
-      do:
-        CSRF.valid?(
-          secret,
-          @message_action,
-          message_resource(conversation_id, item_id, action),
-          token
-        )
+      when action in [:edit, :delete] do
+    CSRF.valid?(
+      secret,
+      @message_action,
+      message_resource(conversation_id, item_id, action),
+      token
+    )
+  end
 
   @doc "Whether `token` confirms a reaction on one delivered reply."
-  def valid_reaction_token?(secret, conversation_id, message_ref, token),
-    do:
-      CSRF.valid?(
-        secret,
-        @reaction_action,
-        reaction_resource(conversation_id, message_ref),
-        token
-      )
+  def valid_reaction_token?(secret, conversation_id, message_ref, token) do
+    CSRF.valid?(
+      secret,
+      @reaction_action,
+      reaction_resource(conversation_id, message_ref),
+      token
+    )
+  end
 
   @doc """
   Whether `token` confirms `action` on one record card, in the exact context
   the control was minted for: a chosen answer, a publication, or nothing.
   """
-  def valid_record_token?(secret, conversation_id, record_ref, action, context, token),
-    do:
-      CSRF.valid?(
-        secret,
-        @record_action,
-        record_resource(conversation_id, record_ref, action, context),
-        token
-      )
+  def valid_record_token?(secret, conversation_id, record_ref, action, context, token) do
+    CSRF.valid?(
+      secret,
+      @record_action,
+      record_resource(conversation_id, record_ref, action, context),
+      token
+    )
+  end
 
   @doc "The route a record card's `action` posts to, or a read-only view opens."
   def record_path(conversation_id, record_ref, action),

@@ -10,7 +10,6 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
 
   import Ecto.Changeset
   import Ecto.Query
-
   alias Ryker.CoopFleet.{Certificate, EnrollmentToken, Placement, Protocol, Worker}
   alias Ryker.Repo
 

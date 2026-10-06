@@ -12,33 +12,13 @@ defmodule Ryker.ControlPlane.Router do
 
   import Plug.Conn
   require Logger
-
   alias Plug.Conn.Query
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
-
-  alias Ryker.ControlPlane.{
-    ActionRefusal,
-    BehaviorLibrary,
-    BehaviorPage,
-    BrowserGuard,
-    CSRF,
-    FactsPage,
-    FailureExplanation,
-    FailureProjection,
-    FindingsPage,
-    HTML,
-    ImprovementPage,
-    IncidentRoomsPage,
-    LabControls,
-    LearningActivity,
-    PathRef,
-    Paths,
-    PeoplePage,
-    RelearnPanel,
-    Viewer
-  }
-
+  alias Ryker.ControlPlane.{ActionRefusal, BehaviorLibrary, BehaviorPage, BrowserGuard, CSRF}
+  alias Ryker.ControlPlane.{FactsPage, FailureExplanation, FailureProjection, FindingsPage, HTML}
+  alias Ryker.ControlPlane.{ImprovementPage, IncidentRoomsPage, LabControls, LearningActivity}
+  alias Ryker.ControlPlane.{PathRef, Paths, PeoplePage, RelearnPanel, Viewer}
   alias Ryker.HTTPConnection
   alias Ryker.Observability
   alias Ryker.Operator.Learning, as: LearningOperator
@@ -1056,15 +1036,15 @@ defmodule Ryker.ControlPlane.Router do
 
   defp confirmation(_kind, _resource_ref, _action, _snapshot), do: {:error, :not_found}
 
-  defp rating_confirmation("rate-good"),
-    do:
-      {"Did this request go well?",
-       "Ryker counts it as positive feedback on the Feedback page and stops asking about this ending. You can't change the rating afterwards."}
+  defp rating_confirmation("rate-good") do
+    {"Did this request go well?",
+     "Ryker counts it as positive feedback on the Feedback page and stops asking about this ending. You can't change the rating afterwards."}
+  end
 
-  defp rating_confirmation("rate-needs-work"),
-    do:
-      {"Does this request need work?",
-       "Ryker counts it as negative feedback and adds the request to Self-improvement: once it is quiet, Ryker works out what went wrong and proposes a test case you can accept or dismiss. Nothing is posted anywhere, and you can't change the rating afterwards."}
+  defp rating_confirmation("rate-needs-work") do
+    {"Does this request need work?",
+     "Ryker counts it as negative feedback and adds the request to Self-improvement: once it is quiet, Ryker works out what went wrong and proposes a test case you can accept or dismiss. Nothing is posted anywhere, and you can't change the rating afterwards."}
+  end
 
   # Accept only what can become an eval case and is not one yet; dismiss
   # anything not dismissed already.
@@ -1200,28 +1180,28 @@ defmodule Ryker.ControlPlane.Router do
   defp perform(_kind, _resource_ref, _action, _actions, _viewer), do: {:error, :invalid_action}
 
   # What a reviewed fact's action does, in the words its confirmation page shows.
-  defp review_confirmation("keep", "duplicate", subjects),
-    do:
-      {"Keep these facts separate?",
-       "Ryker keeps #{subjects} as separate facts and stops asking about them.", :primary}
+  defp review_confirmation("keep", "duplicate", subjects) do
+    {"Keep these facts separate?",
+     "Ryker keeps #{subjects} as separate facts and stops asking about them.", :primary}
+  end
 
-  defp review_confirmation("keep", _kind, subjects),
-    do:
-      {"Keep #{subjects}?",
-       "Ryker keeps using this as it is and stops asking about it for now. Nothing is changed.",
-       :primary}
+  defp review_confirmation("keep", _kind, subjects) do
+    {"Keep #{subjects}?",
+     "Ryker keeps using this as it is and stops asking about it for now. Nothing is changed.",
+     :primary}
+  end
 
-  defp review_confirmation("merge", _kind, subjects),
-    do:
-      {"Merge these facts?",
-       "Ryker keeps the most recently changed of #{subjects} and forgets the other copies. This can't be undone.",
-       :danger}
+  defp review_confirmation("merge", _kind, subjects) do
+    {"Merge these facts?",
+     "Ryker keeps the most recently changed of #{subjects} and forgets the other copies. This can't be undone.",
+     :danger}
+  end
 
-  defp review_confirmation("forget", _kind, subjects),
-    do:
-      {"Forget #{subjects}?",
-       "Ryker stops using this and erases what it saved. You can ask it to remember again later.",
-       :danger}
+  defp review_confirmation("forget", _kind, subjects) do
+    {"Forget #{subjects}?",
+     "Ryker stops using this and erases what it saved. You can ask it to remember again later.",
+     :danger}
+  end
 
   defp memory_review_action("keep"), do: :keep
   defp memory_review_action("merge"), do: :merge

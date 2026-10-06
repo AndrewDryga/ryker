@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.BindingTest do
   use ExUnit.Case, async: true
-
   alias Ryker.GitHub.Binding
 
   @valid [

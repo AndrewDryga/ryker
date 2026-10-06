@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.CapabilityToolsTest do
   use ExUnit.Case, async: true
-
   import ExUnit.CaptureLog
-
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.Episode
   alias Ryker.Slack.{CapabilityTools, ChannelConfiguration, SourceRef}
@@ -458,9 +456,10 @@ defmodule Ryker.Slack.CapabilityToolsTest do
     newest = DenseChannelThreadAPI.channel_rows() |> List.last() |> Map.fetch!("ts")
     refute newest in stamps
 
-    assert Enum.all?(stamps, fn stamp ->
-             abs(String.to_integer(hd(String.split(stamp, "."))) - 1_789_058_307) <= 4
-           end),
+    assert Enum.all?(
+             stamps,
+             &(abs(String.to_integer(hd(String.split(&1, "."))) - 1_789_058_307) <= 4)
+           ),
            "channel context must centre on the root: #{inspect(stamps)}"
 
     assert context["coverage"]["before"]["status"] in ~w(complete partial previous_page)

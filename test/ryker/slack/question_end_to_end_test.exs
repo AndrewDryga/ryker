@@ -11,16 +11,10 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
-
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.Delivery.{Adapters, Dispatcher}
   alias Ryker.Episodes
   alias Ryker.Ingress.Inbox
-  alias Ryker.Repo
-  alias Ryker.Slack.{Engagement, Gateway, InteractionHandler, Publisher, Renderer}
-  alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.Slack.{InteractionAudit, InteractionFeedbackWorker}
-
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
@@ -28,11 +22,14 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
   alias Ryker.Records.InputRequests
   alias Ryker.Records.Record
   alias Ryker.Records.Response
-  alias Ryker.Waits.EventSubscription
-  alias Ryker.Waits.EventSubscriptions
-
+  alias Ryker.Repo
+  alias Ryker.Slack.{Engagement, Gateway, InteractionHandler, Publisher, Renderer}
+  alias Ryker.Slack.Input, as: SlackInput
+  alias Ryker.Slack.{InteractionAudit, InteractionFeedbackWorker}
   alias Ryker.StateTools.{Router, Tools}
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
+  alias Ryker.Waits.EventSubscription
+  alias Ryker.Waits.EventSubscriptions
   alias Ryker.Work.{Custody, Executor, Session, SubmissionBuilder, Turn}
 
   @now ~U[2026-08-31 12:00:01.000200Z]

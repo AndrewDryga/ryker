@@ -13,9 +13,7 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
   """
 
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
 
   @moduletag :simulation

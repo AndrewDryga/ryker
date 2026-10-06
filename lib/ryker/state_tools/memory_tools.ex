@@ -2,7 +2,6 @@ defmodule Ryker.StateTools.MemoryTools do
   @moduledoc false
 
   import Ecto.Query
-
   alias Ryker.Continuity
   alias Ryker.Memories
   alias Ryker.Memories.MemorySearch

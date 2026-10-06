@@ -6,7 +6,6 @@ defmodule Mix.Tasks.Ryker.Failures do
   """
 
   use Mix.Task
-
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Operator.Failures
 

@@ -8,17 +8,8 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
   Deterministic views; no database.
   """
   use ExUnit.Case, async: true
-
-  alias Ryker.ControlPlane.{
-    CSRF,
-    FactsPage,
-    LearnedPage,
-    LearningActivity,
-    LearningPage,
-    MemoryFormat,
-    PageHelp,
-    Pages
-  }
+  alias Ryker.ControlPlane.{CSRF, FactsPage, LearnedPage, LearningActivity, LearningPage}
+  alias Ryker.ControlPlane.{MemoryFormat, PageHelp, Pages}
 
   @at ~U[2026-09-10 09:00:00Z]
   @secret String.duplicate("s", 32)

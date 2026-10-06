@@ -9,25 +9,22 @@ defmodule Ryker.Continuity.Compaction do
   """
 
   import Ecto.Query
-
   alias Ecto.Changeset
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Episode
-  alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
-
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Continuity.ConversationSummaryDraft
   alias Ryker.Continuity.ConversationSummaryState
+  alias Ryker.Continuity.Scope
+  alias Ryker.Episodes.Episode
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
-
-  alias Ryker.Continuity.Scope
+  alias Ryker.Repo
+  alias Ryker.Slack.ChannelMembership
 
   @maximum_compaction 100
   @maximum_rollup_source_refs 500

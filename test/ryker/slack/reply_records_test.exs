@@ -1,7 +1,6 @@
 defmodule Ryker.Slack.ReplyRecordsTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
-
   alias Ryker.{Episodes, Repo}
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Records

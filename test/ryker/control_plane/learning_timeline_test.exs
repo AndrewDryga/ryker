@@ -16,21 +16,10 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
   the receipt opens that card.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Phoenix.LiveViewTest
-
-  alias Ryker.ControlPlane.{
-    ConversationMemory,
-    EpisodePage,
-    EpisodeProjection,
-    LearnedPage,
-    LearningActivity,
-    LearningPage,
-    ModelRequests,
-    WorkbenchLive
-  }
-
+  alias Ryker.ControlPlane.{ConversationMemory, EpisodePage, EpisodeProjection, LearnedPage}
+  alias Ryker.ControlPlane.{LearningActivity, LearningPage, ModelRequests, WorkbenchLive}
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.KnowledgeRevision
@@ -48,16 +37,16 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
     defdelegate fence_create_session(client, key, policy, ref, source), to: Fake
     defdelegate cancel_turn(client, sid, tid, key, revision), to: Fake
 
-    def submit_frozen_turn(client, sid, key, revision, submission, nil, []),
-      do:
-        Fake.submit_turn(
-          client,
-          sid,
-          key,
-          revision,
-          submission["prompt"],
-          submission["output_schema"]
-        )
+    def submit_frozen_turn(client, sid, key, revision, submission, nil, []) do
+      Fake.submit_turn(
+        client,
+        sid,
+        key,
+        revision,
+        submission["prompt"],
+        submission["output_schema"]
+      )
+    end
 
     def fence_frozen_turn(client, sid, key, revision, submission, nil, []),
       do: Fake.fence_frozen_turn(client, sid, key, revision, submission, nil, [])

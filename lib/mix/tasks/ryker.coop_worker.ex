@@ -13,7 +13,6 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
   """
 
   use Mix.Task
-
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.CoopFleet.{Enrollment, WorkerLifecycle}
 

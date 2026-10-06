@@ -4,7 +4,6 @@ defmodule Ryker.Evals.ImprovementReplayCaseTest do
   # diagnosis, harvested: the fault unclear, first at work, low confidence. A replay asks the same
   # evidence again under today's instructions and passes when the fault lands in the same place.
   use ExUnit.Case, async: true
-
   alias Ryker.Evals.{ImprovementReplay, ImprovementReplayCase}
   alias Ryker.Improvement.Prompt
 

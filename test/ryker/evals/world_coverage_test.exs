@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldCoverageTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Evals.{WorldCase, WorldCoverage}
 
   @scenario_root "testdata/scenarios"

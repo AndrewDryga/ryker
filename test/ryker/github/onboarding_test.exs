@@ -1,8 +1,6 @@
 defmodule Ryker.GitHub.OnboardingTest do
   use Ryker.DataCase, async: false
-
   import ExUnit.CaptureLog
-
   alias Ryker.GitHub.{Onboarding, OnboardingWorker}
   alias Ryker.{Repo, RepositoryKnowledge, Settings}
 

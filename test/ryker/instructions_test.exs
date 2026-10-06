@@ -1,6 +1,5 @@
 defmodule Ryker.InstructionsTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.CanonicalJSON
   alias Ryker.Instructions
   alias Ryker.Instructions.{Edit, Setting}

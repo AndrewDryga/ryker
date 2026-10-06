@@ -41,9 +41,7 @@ defmodule Ryker.WorkExamples do
   """
 
   import Ecto.Query
-
   require Logger
-
   alias Ryker.Accounting.Pricing
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode

@@ -11,19 +11,17 @@ defmodule Ryker.Memories.Reviews do
   """
 
   import Ecto.Query
-
-  alias Ryker.CanonicalJSON
-  alias Ryker.Repo
-
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.CanonicalJSON
   alias Ryker.Memories
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Memories.MemoryReviewItem
   alias Ryker.Memories.MemoryReviewItemChangeset
+  alias Ryker.Repo
 
   @maximum_reviews 100
   @maximum_home_review_entries 8
@@ -773,10 +771,10 @@ defmodule Ryker.Memories.Reviews do
       ),
       do: true
 
-  def home_source_visible?(%{type: :guidance, record: %Behavior{} = behavior}, _actor_ref),
-    do:
-      behavior.scope_kind in [:repository, :workspace] and
-        behavior.payload["visibility"] == "workspace"
+  def home_source_visible?(%{type: :guidance, record: %Behavior{} = behavior}, _actor_ref) do
+    behavior.scope_kind in [:repository, :workspace] and
+      behavior.payload["visibility"] == "workspace"
+  end
 
   def home_source_visible?(_source, _actor_ref), do: false
 

@@ -1,11 +1,8 @@
 defmodule Ryker.Slack.IncidentRoomsTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1, eventually: 2]
-
   import ExUnit.CaptureLog
-
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, InstructionSettings}
   alias Ryker.Delivery.{Adapters, Dispatcher, JSONClient}
   alias Ryker.Episodes
@@ -13,39 +10,17 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
-  alias Ryker.Operator.Delivery, as: DeliveryOperator
-  alias Ryker.Repo
-
-  alias Ryker.Slack.{
-    ChannelConfigurationChangeset,
-    ChannelConfigurations,
-    Client,
-    IncidentRoom,
-    IncidentRoomCard,
-    IncidentRoomLifecycleEvent,
-    IncidentRooms,
-    IncidentRoomWorker,
-    MembershipTransition,
-    Renderer,
-    Runtime,
-    WorkRecord,
-    WorkTarget
-  }
-
   alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Records
   alias Ryker.Records.Record
-
-  alias Ryker.Work.{
-    Cancellation,
-    Custody,
-    DeliveryReceipt,
-    Result,
-    Session,
-    Submission,
-    SubmissionBuilder,
-    Turn
-  }
+  alias Ryker.Repo
+  alias Ryker.Slack.{ChannelConfigurationChangeset, ChannelConfigurations, Client, IncidentRoom}
+  alias Ryker.Slack.{IncidentRoomCard, IncidentRoomLifecycleEvent, IncidentRooms}
+  alias Ryker.Slack.{IncidentRoomWorker, MembershipTransition, Renderer, Runtime, WorkRecord}
+  alias Ryker.Slack.WorkTarget
+  alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session, Submission}
+  alias Ryker.Work.{SubmissionBuilder, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy_digest String.duplicate("b", 64)

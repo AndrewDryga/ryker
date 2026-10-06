@@ -1,6 +1,5 @@
 defmodule Ryker.Admission.CandidateFittingTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Admission.{Candidate, Context, Prompt}
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode

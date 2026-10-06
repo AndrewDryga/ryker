@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.UploadClientTest do
   use ExUnit.Case, async: false
-
   import Plug.Conn
-
   alias Ryker.Slack.UploadClient
 
   defmodule UploadPlug do

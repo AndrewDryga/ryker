@@ -1,9 +1,7 @@
 defmodule Ryker.Publication.RuntimeTest do
   use Ryker.DataCase, async: false
-
   import ExUnit.CaptureLog
   import Ryker.TestHelpers, only: [beats: 1, settled: 1]
-
   alias Ryker.Publication.{FollowupWorker, Runtime, Worker}
 
   defmodule StatusAPI do

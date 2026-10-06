@@ -1,8 +1,6 @@
 defmodule Ryker.Evals.OperatorTaskTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [without_eval_targets: 0]
-
   alias Mix.Tasks.Ryker.Eval
   alias Ryker.Evals.WorldCase
   alias Ryker.Settings

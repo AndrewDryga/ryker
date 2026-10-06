@@ -8,7 +8,6 @@ defmodule Ryker.GitHub.Runtime do
   """
 
   use Supervisor
-
   alias Ryker.GitHub.{DeliveryPoller, InstallationTokens, OnboardingWorker, Server}
   alias Ryker.Options
 

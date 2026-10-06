@@ -95,10 +95,10 @@ defmodule Ryker.LocalRouting.Client do
        when status in [408, 429] or status >= 500,
        do: {:error, {:retry, "the local model's server answered #{status}#{excerpt(body)}"}}
 
-  defp classify({:ok, %{status: status, body: body}}, _elapsed),
-    do:
-      {:error,
-       {:refused, "the local model's server refused the request with #{status}#{excerpt(body)}"}}
+  defp classify({:ok, %{status: status, body: body}}, _elapsed) do
+    {:error,
+     {:refused, "the local model's server refused the request with #{status}#{excerpt(body)}"}}
+  end
 
   defp classify({:error, {:timeout, timeout_ms}}, _elapsed),
     do: {:error, {:retry, "the local model did not answer within #{seconds(timeout_ms)} s"}}

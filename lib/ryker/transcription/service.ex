@@ -29,7 +29,6 @@ defmodule Ryker.Transcription.Service do
   @behaviour Ryker.Transcription
 
   require Logger
-
   alias Ryker.Delivery.HTTPClient
   alias Ryker.Transcription
   alias Ryker.Transcription.{Languages, Local}

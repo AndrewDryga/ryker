@@ -2,21 +2,20 @@ defmodule Ryker.Learning.Observations do
   @moduledoc "Authenticated source custody and bounded original excerpts, never model-written memories."
   import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Ingress.RecallText
-  alias Ryker.Publication.{LifecycleEvent, Publication}
-  alias Ryker.Slack.{ChannelFence, ChannelMembership}
-
   alias Ryker.Continuity
   alias Ryker.Continuity.Relevance
   alias Ryker.Continuity.Scope, as: ContinuityScope
+  alias Ryker.Episodes.Episode
+  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.RecallText
   alias Ryker.Knowledge
   alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
+  alias Ryker.Publication.{LifecycleEvent, Publication}
+  alias Ryker.Slack.{ChannelFence, ChannelMembership}
 
   @doc "Retain a deterministic excerpt of the original input with only that source's receipt."
   def record_excerpt_in_transaction(%Entry{status: :decided} = entry),

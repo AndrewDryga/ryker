@@ -32,7 +32,6 @@ defmodule Ryker.ControlPlane.Kit do
   over the page, so nothing that asked ever grows or moves.
   """
   use Phoenix.Component
-
   alias Phoenix.HTML.Safe
   alias Phoenix.LiveView.JS
   alias Ryker.ControlPlane.{Components, ShortTime}

@@ -8,9 +8,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
   only accepts or dismisses them.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.ControlPlane.{Actions, Pages, Projection, Router}
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers

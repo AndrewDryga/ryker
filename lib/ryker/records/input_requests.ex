@@ -9,23 +9,20 @@ defmodule Ryker.Records.InputRequests do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Reference
-  alias Ryker.Repo
-  alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.Slack.InteractionAudits
-
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
   alias Ryker.Records.Response
   alias Ryker.Records.ResponseChangeset
-
+  alias Ryker.Reference
+  alias Ryker.Repo
+  alias Ryker.Slack.Input, as: SlackInput
+  alias Ryker.Slack.InteractionAudits
   alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
 

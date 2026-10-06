@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.GatewayRuntimeTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Fixtures.SlackVoice
   alias Ryker.Ingress.Inbox

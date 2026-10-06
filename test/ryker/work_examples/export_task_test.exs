@@ -5,7 +5,6 @@ defmodule Ryker.WorkExamples.ExportTaskTest do
   operator runs it, against a committed example.
   """
   use ExUnit.Case, async: false
-
   alias Ecto.Adapters.SQL
 
   defmodule CommittedRepo do

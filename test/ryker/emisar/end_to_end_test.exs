@@ -1,19 +1,9 @@
 defmodule Ryker.Emisar.EndToEndTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Delivery.Adapters
-
-  alias Ryker.Emisar.{
-    Approval,
-    ApprovalDispatcher,
-    ApprovalPresenter,
-    Approvals,
-    Review,
-    RunState
-  }
-
+  alias Ryker.Emisar.{Approval, ApprovalDispatcher, ApprovalPresenter, Approvals, Review}
+  alias Ryker.Emisar.RunState
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

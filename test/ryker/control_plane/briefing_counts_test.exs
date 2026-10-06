@@ -8,10 +8,8 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
   the reason for anything excluded.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
   import Phoenix.LiveViewTest
-
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}

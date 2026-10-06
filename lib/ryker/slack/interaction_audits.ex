@@ -12,16 +12,14 @@ defmodule Ryker.Slack.InteractionAudits do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records.Record
   alias Ryker.Repo
+  alias Ryker.Slack.{Interaction, InteractionAudit, InteractionAuditChangeset}
   alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
-
-  alias Ryker.Slack.{Interaction, InteractionAudit, InteractionAuditChangeset}
 
   @identity_fields ~w(action_id action_value_digest actor_ref channel_ref event_ref message_ref outcome thread_ref workspace_ref)a
 
@@ -406,9 +404,9 @@ defmodule Ryker.Slack.InteractionAudits do
 
   defp interactions_topic, do: "slack:interactions"
 
-  defp broadcast_interaction_updated(%InteractionAudit{id: id}),
-    do:
-      Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(interactions_topic(), {:slack_interaction_updated, id})
-      end)
+  defp broadcast_interaction_updated(%InteractionAudit{id: id}) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(interactions_topic(), {:slack_interaction_updated, id})
+    end)
+  end
 end

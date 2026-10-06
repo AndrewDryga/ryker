@@ -1,8 +1,6 @@
 defmodule Ryker.GitHub.InstallationTokensTest do
   use ExUnit.Case, async: true
-
   import ExUnit.CaptureLog
-
   alias Ryker.GitHub.InstallationTokens
 
   defmodule FakeRequester do
@@ -145,7 +143,7 @@ defmodule Ryker.GitHub.InstallationTokensTest do
     assert InstallationTokens.token(provider, "github-main", :delivery) == {:ok, "token-one"}
     assert length(Agent.get(requester, & &1.calls)) == 1
 
-    Agent.update(clock, fn now -> DateTime.add(now, 3_301, :second) end)
+    Agent.update(clock, &DateTime.add(&1, 3_301, :second))
 
     assert InstallationTokens.token(provider, "github-main", :delivery) == {:ok, "token-two"}
 

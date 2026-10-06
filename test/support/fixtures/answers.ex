@@ -8,10 +8,8 @@ defmodule Ryker.Fixtures.Answers do
   """
 
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
   import ExUnit.Assertions
-
   alias Ryker.Admission.Decision
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}

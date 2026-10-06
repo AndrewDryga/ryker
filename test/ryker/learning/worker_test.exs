@@ -4,7 +4,6 @@ defmodule Ryker.Learning.WorkerTest do
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
-
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.Episodes.Episode
@@ -130,23 +129,23 @@ defmodule Ryker.Learning.WorkerTest do
       )
 
     {decision, options} =
-      if Keyword.get(options, :start_work, false),
-        do:
-          {%{
-             "action" => "start_episode",
-             "messages" => nil,
-             "reactions" => nil,
-             "reason" => "Check the deploy.",
-             "work_class" => "standard"
-           }, [work_policy: %{name: "work-read-only", digest: String.duplicate("a", 64)}]},
-        else:
-          {%{
-             "action" => "react",
-             "messages" => nil,
-             "reactions" => ["eyes"],
-             "reason" => "Acknowledge without starting work.",
-             "work_class" => nil
-           }, []}
+      if Keyword.get(options, :start_work, false) do
+        {%{
+           "action" => "start_episode",
+           "messages" => nil,
+           "reactions" => nil,
+           "reason" => "Check the deploy.",
+           "work_class" => "standard"
+         }, [work_policy: %{name: "work-read-only", digest: String.duplicate("a", 64)}]}
+      else
+        {%{
+           "action" => "react",
+           "messages" => nil,
+           "reactions" => ["eyes"],
+           "reason" => "Acknowledge without starting work.",
+           "work_class" => nil
+         }, []}
+      end
 
     {:ok, decision} =
       decision

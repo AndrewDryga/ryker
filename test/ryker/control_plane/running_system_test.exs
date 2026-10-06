@@ -8,7 +8,6 @@ defmodule Ryker.ControlPlane.RunningSystemTest do
   line where it stops taking new work.
   """
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.RunningSystem
   alias Ryker.CoopFleet.Worker
 

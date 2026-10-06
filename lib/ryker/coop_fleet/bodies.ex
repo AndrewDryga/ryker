@@ -2,7 +2,6 @@ defmodule Ryker.CoopFleet.Bodies do
   @moduledoc false
 
   import Ecto.Query
-
   alias Ryker.{CanonicalJSON, Defaults, Repo}
   alias Ryker.CoopFleet.{BodyCrypto, Command, ControlPlane, Placement, Protocol}
 

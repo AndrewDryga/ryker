@@ -7,7 +7,6 @@ defmodule Ryker.BundledCoop do
   """
 
   import Ecto.Query
-
   alias Ryker.CoopFleet.{Enrollment, EnrollmentToken, Worker}
   alias Ryker.{Repo, Settings}
 

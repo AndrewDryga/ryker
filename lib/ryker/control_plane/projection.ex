@@ -9,36 +9,14 @@ defmodule Ryker.ControlPlane.Projection do
   for training, downloaded from Data retention.
   """
 
-  alias Ryker.ControlPlane.{
-    Activity,
-    BehaviorLibrary,
-    ChannelDetail,
-    ChannelDirectory,
-    ConversationMemory,
-    ConversationProjection,
-    EpisodeProjection,
-    FailureProjection,
-    FeedbackProjection,
-    FindingsProjection,
-    ImprovementProjection,
-    IncidentProjection,
-    InstructionSettings,
-    LearningActivity,
-    LocalRoutingProjection,
-    MemoryProjection,
-    ModelRequests,
-    OverviewProjection,
-    PeopleProjection,
-    ProductReadiness,
-    RepositoryProjection,
-    RunningSystem,
-    ScheduleProjection,
-    SettingsView,
-    SubscriptionProjection,
-    UsageProjection,
-    WorkspaceProjection
-  }
-
+  alias Ryker.ControlPlane.{Activity, BehaviorLibrary, ChannelDetail, ChannelDirectory}
+  alias Ryker.ControlPlane.{ConversationMemory, ConversationProjection, EpisodeProjection}
+  alias Ryker.ControlPlane.{FailureProjection, FeedbackProjection, FindingsProjection}
+  alias Ryker.ControlPlane.{ImprovementProjection, IncidentProjection, InstructionSettings}
+  alias Ryker.ControlPlane.{LearningActivity, LocalRoutingProjection, MemoryProjection}
+  alias Ryker.ControlPlane.{ModelRequests, OverviewProjection, PeopleProjection, ProductReadiness}
+  alias Ryker.ControlPlane.{RepositoryProjection, RunningSystem, ScheduleProjection, SettingsView}
+  alias Ryker.ControlPlane.{SubscriptionProjection, UsageProjection, WorkspaceProjection}
   alias Ryker.Improvement.Export, as: EvalCases
   alias Ryker.RoutingExamples.Export
   alias Ryker.WeeklyReport

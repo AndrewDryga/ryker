@@ -8,7 +8,6 @@ defmodule Ryker.RoutingExamples.FeedbackAndRefusedAnswersMigrationTest do
   what was kept on purpose.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @before_version 20_260_930_020_000

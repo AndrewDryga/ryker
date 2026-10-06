@@ -18,9 +18,7 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   decided (`subscriptions/0`).
   """
   use Phoenix.Component
-
   import Ryker.ControlPlane.Components, only: [action_button: 1, pager: 1]
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.Paths
@@ -58,10 +56,9 @@ defmodule Ryker.ControlPlane.ImprovementPage do
         "Requests people were unhappy with, each with Ryker's own diagnosis. Accept one to keep it as an eval case, or dismiss it.",
       back: {"All feedback", "/feedback"},
       action:
-        if(view.exportable > 0,
-          do:
-            ~s(<a class="ui-button secondary" href="#{@download}" download>Download eval cases</a>)
-        )
+        if(view.exportable > 0) do
+          ~s(<a class="ui-button secondary" href="#{@download}" download>Download eval cases</a>)
+        end
     }
   end
 
@@ -177,9 +174,9 @@ defmodule Ryker.ControlPlane.ImprovementPage do
 
   @doc "What a category means, in one sentence."
   @spec category_hint(atom()) :: String.t()
-  def category_hint(:host_bug),
-    do:
-      "Ryker's own code let the model down: a tool was missing or failed, the context was wrong, or a good answer was mishandled."
+  def category_hint(:host_bug) do
+    "Ryker's own code let the model down: a tool was missing or failed, the context was wrong, or a good answer was mishandled."
+  end
 
   def category_hint(:prompt_bug),
     do: "The model did what its instructions said, and they led it wrong or left something out."
@@ -214,21 +211,21 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   def state(%{status: :dismissed}),
     do: {:off, "Not analyzed", "It was dismissed before Ryker analyzed it."}
 
-  def state(%{analysis: :pending}),
-    do:
-      {:off, "Waiting",
-       "Ryker analyzes it once the request is done and a few minutes pass without new feedback, while learning is on."}
+  def state(%{analysis: :pending}) do
+    {:off, "Waiting",
+     "Ryker analyzes it once the request is done and a few minutes pass without new feedback, while learning is on."}
+  end
 
   defp failure("improvement_evidence_unavailable"),
     do: "The person's messages were deleted or have expired, so there was nothing to analyze."
 
-  defp failure("improvement_evidence_wordless"),
-    do:
-      "The person's messages had no words Ryker can read, such as a file, an image or a review sent without any, so there was nothing to analyze."
+  defp failure("improvement_evidence_wordless") do
+    "The person's messages had no words Ryker can read, such as a file, an image or a review sent without any, so there was nothing to analyze."
+  end
 
-  defp failure("improvement_evidence_automated"),
-    do:
-      "No person asked for it: an alert, a schedule or an app's message started it, so there were no person's words to analyze."
+  defp failure("improvement_evidence_automated") do
+    "No person asked for it: an alert, a schedule or an app's message started it, so there were no person's words to analyze."
+  end
 
   defp failure("improvement_retry_exhausted"),
     do: "Ryker tried three times and got no usable answer from the learning models."
@@ -371,9 +368,9 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   defp empty_title(:accepted), do: "No eval cases yet"
   defp empty_title(:dismissed), do: "Nothing dismissed"
 
-  defp empty_text(:open),
-    do:
-      "When someone is frustrated with an answer, reacts with a thumbs down, asks again or changes their message after it, the request shows here with what Ryker thinks went wrong."
+  defp empty_text(:open) do
+    "When someone is frustrated with an answer, reacts with a thumbs down, asks again or changes their message after it, the request shows here with what Ryker thinks went wrong."
+  end
 
   defp empty_text(:accepted),
     do: "Accept a request to keep it as an eval case you can download for testdata."

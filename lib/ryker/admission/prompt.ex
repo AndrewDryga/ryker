@@ -213,12 +213,12 @@ defmodule Ryker.Admission.Prompt do
       |> fit_context_memory(:knowledge)
       |> fit_conversation_context()
 
-    unless fits?(baseline),
-      do:
-        raise(
-          ArgumentError,
-          "admission prompt exceeds its bound: required context or source receipts do not fit"
-        )
+    unless fits?(baseline) do
+      raise(
+        ArgumentError,
+        "admission prompt exceeds its bound: required context or source receipts do not fit"
+      )
+    end
 
     fitted =
       expand_previews(baseline, captured, @baseline_preview_bytes, Candidate.preview_limit())

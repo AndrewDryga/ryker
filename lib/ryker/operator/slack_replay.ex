@@ -7,7 +7,6 @@ defmodule Ryker.Operator.SlackReplay do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}

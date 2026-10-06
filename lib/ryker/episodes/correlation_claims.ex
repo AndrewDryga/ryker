@@ -9,7 +9,6 @@ defmodule Ryker.Episodes.CorrelationClaims do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.CorrelationClaim
   alias Ryker.Repo
 

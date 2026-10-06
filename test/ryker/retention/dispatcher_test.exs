@@ -1,10 +1,7 @@
 defmodule Ryker.Retention.DispatcherTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{ControlPlane, Placement}
   alias Ryker.Episodes

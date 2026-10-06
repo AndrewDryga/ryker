@@ -1,6 +1,5 @@
 defmodule Ryker.Emisar.ApprovalRuntimeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Emisar.ApprovalRuntime
 
   defmodule API do

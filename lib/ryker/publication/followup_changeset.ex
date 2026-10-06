@@ -2,7 +2,6 @@ defmodule Ryker.Publication.FollowupChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Publication.Followup
 
   @fields [

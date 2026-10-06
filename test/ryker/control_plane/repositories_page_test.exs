@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   which holds its buttons and every fact in cards.
   """
   use ExUnit.Case, async: true
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Pages, RepositoriesPage}
 
@@ -836,12 +835,12 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
   defp render_row(item), do: [item] |> render() |> LazyHTML.query("article.entity-row")
 
-  defp detail(item),
-    do:
-      item
-      |> RepositoriesPage.detail_html(@now)
-      |> IO.iodata_to_binary()
-      |> LazyHTML.from_fragment()
+  defp detail(item) do
+    item
+    |> RepositoriesPage.detail_html(@now)
+    |> IO.iodata_to_binary()
+    |> LazyHTML.from_fragment()
+  end
 
   defp squeeze(text), do: text |> String.replace(~r/\s+/, " ") |> String.trim()
 

@@ -68,11 +68,11 @@ defmodule Ryker.ControlPlane.Server do
       else: :restart
   end
 
-  defp listener(configuration),
-    do:
-      configuration
-      |> normalize!()
-      |> Map.take([:access, :cloudflare_access, :csrf_secret, :ip, :port, :public_url])
+  defp listener(configuration) do
+    configuration
+    |> normalize!()
+    |> Map.take([:access, :cloudflare_access, :csrf_secret, :ip, :port, :public_url])
+  end
 
   defp actions(options) do
     Actions.callbacks(

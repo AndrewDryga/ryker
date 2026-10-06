@@ -7,7 +7,6 @@ defmodule Ryker.Delivery.RoutingResponse do
   """
 
   use Ecto.Schema
-
   alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
   alias Ryker.Ingress.Inbox.Entry
 

@@ -11,9 +11,7 @@ defmodule Ryker.RepositoryKnowledge.Worker do
   safety-net interval.
   """
   use Ryker.PollingWorker, lane: :repository_knowledge, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.{PollingWorker, RepositoryKnowledge, Settings}
   alias Ryker.RepositoryKnowledge.Dispatcher
 

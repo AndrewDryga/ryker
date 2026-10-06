@@ -9,7 +9,6 @@ defmodule Ryker.CoopFleet.Bridge do
   """
 
   import Ecto.Query
-
   alias Ryker.CoopFleet.{Bodies, Checkpoints, Command, ControlPlane, Placement}
   alias Ryker.CoopFleet.ControlPlane.Commands
   alias Ryker.Repo
@@ -271,10 +270,10 @@ defmodule Ryker.CoopFleet.Bridge do
 
   defp settings(_options), do: {:error, {:invalid_coop_worker_bridge, :options}}
 
-  defp valid_option_list?(options),
-    do:
-      Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options) and
-        Keyword.keys(options) -- @option_keys == []
+  defp valid_option_list?(options) do
+    Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options) and
+      Keyword.keys(options) -- @option_keys == []
+  end
 
   defp prepare_settings(options) do
     poll_interval_ms = Keyword.get(options, :poll_interval_ms, 100)

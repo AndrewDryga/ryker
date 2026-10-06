@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Accounting.Execution
   alias Ryker.Delivery.Adapters
@@ -52,9 +51,10 @@ defmodule Ryker.Evals.WorldConcurrencyTest do
         {:ok, fake} = FakeWorkCoopAPI.start_link([])
         {:ok, deliveries} = Agent.start_link(fn -> [] end)
 
-        FakeWorkCoopAPI.update(fake, fn state ->
-          put_in(state, [:session, "id"], "remote_concurrent_#{episode_id}")
-        end)
+        FakeWorkCoopAPI.update(
+          fake,
+          &put_in(&1, [:session, "id"], "remote_concurrent_#{episode_id}")
+        )
 
         try do
           assert {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake)

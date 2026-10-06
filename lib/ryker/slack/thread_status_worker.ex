@@ -10,9 +10,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   """
 
   use Ryker.PollingWorker, lane: :slack_status, interval: :interval_ms
-
   require Logger
-
   alias Ryker.Delivery.Retry
   alias Ryker.Episodes
   alias Ryker.Ingress.Inbox
@@ -255,8 +253,8 @@ defmodule Ryker.Slack.ThreadStatusWorker do
     ])
   end
 
-  defp valid_ref?(value),
-    do:
-      is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-        String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch
+  defp valid_ref?(value) do
+    is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
+      String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch
+  end
 end

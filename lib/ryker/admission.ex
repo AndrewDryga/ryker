@@ -10,44 +10,19 @@ defmodule Ryker.Admission do
   """
 
   import Ecto.Query
-
   require Logger
-
   alias Ryker.Admission.Attempts
-
-  alias Ryker.Admission.{
-    Candidate,
-    CandidateSearch,
-    Context,
-    ConversationContext,
-    ConversationSummaries,
-    CorrelationScope,
-    Decision,
-    Occurrences,
-    Prompt,
-    Ranking
-  }
-
+  alias Ryker.Admission.{Candidate, CandidateSearch, Context, ConversationContext}
+  alias Ryker.Admission.{ConversationSummaries, CorrelationScope, Decision, Occurrences, Prompt}
+  alias Ryker.Admission.Ranking
+  alias Ryker.Behaviors
   alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
+  alias Ryker.Episodes.{Command, ConversationLock, CorrelationClaims, Episode, Event, Origins}
+  alias Ryker.Episodes.RoutingDigests
   alias Ryker.Feedback
-
-  alias Ryker.Episodes.{
-    Command,
-    ConversationLock,
-    CorrelationClaims,
-    Episode,
-    Event,
-    Origins,
-    RoutingDigests
-  }
-
   alias Ryker.Ingress.{Inbox, Input, RecallText, WorkProfile}
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
-  alias Ryker.Repo
-  alias Ryker.Settings.Repository
-
-  alias Ryker.Behaviors
   alias Ryker.Knowledge
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
@@ -55,7 +30,8 @@ defmodule Ryker.Admission do
   alias Ryker.People
   alias Ryker.Records
   alias Ryker.Records.InputRequests
-
+  alias Ryker.Repo
+  alias Ryker.Settings.Repository
   alias Ryker.Work.{Custody, Turn}
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]

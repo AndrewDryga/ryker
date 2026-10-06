@@ -10,10 +10,8 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   integration pages, not in a disclosure under these lists.
   """
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, RepositoryImport}
   alias Ryker.{Credentials, IntegrationSetup, RepositoryKnowledge, Settings}
 

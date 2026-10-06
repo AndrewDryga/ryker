@@ -55,15 +55,15 @@ defmodule Ryker.Slack.SourceWindow do
     end
   end
 
-  defp side(_read, _source, _document, _anchor, _root, _state, _side, 0),
-    do:
-      {:ok,
-       %{
-         messages: [],
-         cursor: "done",
-         pages: 0,
-         coverage: %{"status" => "partial", "adjacent" => false}
-       }}
+  defp side(_read, _source, _document, _anchor, _root, _state, _side, 0) do
+    {:ok,
+     %{
+       messages: [],
+       cursor: "done",
+       pages: 0,
+       coverage: %{"status" => "partial", "adjacent" => false}
+     }}
+  end
 
   defp side(read, source, document, anchor, root, state, side, limit) do
     if state[side] == "done" do

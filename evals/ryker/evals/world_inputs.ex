@@ -9,14 +9,8 @@ defmodule Ryker.Evals.WorldInputs do
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.Adapters
-
-  alias Ryker.Evals.{
-    GitHubDeliveryPublisher,
-    LabDeliveryPublisher,
-    SlackDeliveryPublisher,
-    WorldCase
-  }
-
+  alias Ryker.Evals.{GitHubDeliveryPublisher, LabDeliveryPublisher, SlackDeliveryPublisher}
+  alias Ryker.Evals.WorldCase
   alias Ryker.Ingress.Input
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership

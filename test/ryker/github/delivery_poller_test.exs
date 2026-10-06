@@ -7,7 +7,6 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
   reached it, once.
   """
   use Ryker.DataCase, async: false
-
   alias Ryker.GitHub.{Binding, DeliveryPoller, Event}
   alias Ryker.Ingress.Inbox.Entry
 

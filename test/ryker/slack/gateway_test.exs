@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.GatewayTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Artifacts
   alias Ryker.Fixtures.SlackVoice
   alias Ryker.Ingress.Inbox
@@ -1026,9 +1025,7 @@ defmodule Ryker.Slack.GatewayTest do
 
   test "an exact confirmed standing assignment can admit only its ambient match" do
     matching =
-      Map.put(settings(), :standing_matcher, fn input ->
-        input.content["text"] == "investigate"
-      end)
+      Map.put(settings(), :standing_matcher, &(&1.content["text"] == "investigate"))
 
     assert {:ack, {:recorded, _ref}} =
              Gateway.handle_envelope(message_envelope("Ev-assigned", "message"), matching)

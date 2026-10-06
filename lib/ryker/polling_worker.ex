@@ -86,15 +86,15 @@ defmodule Ryker.PollingWorker do
       def init(argument), do: Ryker.PollingWorker.init(__MODULE__, argument)
 
       @impl GenServer
-      def handle_info(message, state),
-        do:
-          Ryker.PollingWorker.handle_info(
-            __MODULE__,
-            unquote(lane),
-            unquote(interval),
-            message,
-            state
-          )
+      def handle_info(message, state) do
+        Ryker.PollingWorker.handle_info(
+          __MODULE__,
+          unquote(lane),
+          unquote(interval),
+          message,
+          state
+        )
+      end
     end
   end
 

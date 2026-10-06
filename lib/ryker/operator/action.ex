@@ -2,7 +2,6 @@ defmodule Ryker.Operator.Action do
   @moduledoc false
 
   use Ecto.Schema
-
   alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
 
   @primary_key {:id, :binary_id, autogenerate: true}

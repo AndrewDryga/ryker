@@ -1,8 +1,6 @@
 defmodule Ryker.Retention.CustodyTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes

@@ -176,9 +176,9 @@ defmodule Ryker.RenameAuditTest do
     (index + 1)..last//1
   end
 
-  defp in_section?(sections, path, line),
-    do:
-      Enum.any?(sections, fn {section_path, range} -> section_path == path and line in range end)
+  defp in_section?(sections, path, line) do
+    Enum.any?(sections, fn {section_path, range} -> section_path == path and line in range end)
+  end
 
   defp strip_allowed(text, path) do
     Enum.reduce(@allowed_tokens, text, fn {path_pattern, token, _reason}, rest ->

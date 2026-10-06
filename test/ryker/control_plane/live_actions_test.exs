@@ -1,7 +1,6 @@
 defmodule Ryker.ControlPlane.LiveActionsTest do
   # The current callbacks are one value for the whole node.
   use ExUnit.Case, async: false
-
   alias Ryker.ControlPlane.Actions
 
   setup do

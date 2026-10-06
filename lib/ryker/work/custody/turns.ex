@@ -12,7 +12,6 @@ defmodule Ryker.Work.Custody.Turns do
   """
 
   import Ryker.Work.Custody.Locks
-
   alias Ryker.Artifacts.References, as: ArtifactReferences
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
@@ -22,19 +21,9 @@ defmodule Ryker.Work.Custody.Turns do
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Repo
   alias Ryker.Waits.EventSubscriptions
+  alias Ryker.Work.{CandidateResponse, FinalPreflight, Measurement, OperationKeys, Result}
   alias Ryker.Work.Custody.{Claims, Delivery}
-
-  alias Ryker.Work.{
-    CandidateResponse,
-    FinalPreflight,
-    Measurement,
-    OperationKeys,
-    Result,
-    Submission,
-    Turn,
-    TurnChangeset,
-    ValidationIntent
-  }
+  alias Ryker.Work.{Submission, Turn, TurnChangeset, ValidationIntent}
 
   @spec freeze_submission(Ecto.UUID.t(), String.t(), String.t(), Submission.t(), keyword()) ::
           {:ok, Turn.t()} | {:error, term()}
@@ -1110,14 +1099,15 @@ defmodule Ryker.Work.Custody.Turns do
 
   defp build_result_acceptance(episode, turn, result, attributes, result_ref, delivery_ref, now) do
     {next_turn, next_wait} =
-      if result.delivery == :none,
-        do:
-          Delivery.delivery_continuation(
-            episode,
-            %{turn | continuation: result.continuation},
-            now
-          ),
-        else: {next_turn_ref(episode, result.delivery, turn.id), nil}
+      if result.delivery == :none do
+        Delivery.delivery_continuation(
+          episode,
+          %{turn | continuation: result.continuation},
+          now
+        )
+      else
+        {next_turn_ref(episode, result.delivery, turn.id), nil}
+      end
 
     command = %Command.AcceptResult{
       decision_reason: result.decision_reason,

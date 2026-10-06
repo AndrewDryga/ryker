@@ -9,17 +9,8 @@ defmodule Ryker.Episodes.Replay do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Command
-
-  alias Ryker.Episodes.Command.{
-    AcceptResult,
-    AdmitInput,
-    CancelEpisode,
-    ConfirmDelivery,
-    ResumeWait,
-    StartWait,
-    TransferOwner
-  }
-
+  alias Ryker.Episodes.Command.{AcceptResult, AdmitInput, CancelEpisode, ConfirmDelivery}
+  alias Ryker.Episodes.Command.{ResumeWait, StartWait, TransferOwner}
   alias Ryker.Episodes.{Kernel, Snapshot}
 
   defmodule Result do

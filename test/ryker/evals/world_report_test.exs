@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldReportTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Evals.WorldReport
 
   test "a model-world result is written atomically with exact runtime provenance" do

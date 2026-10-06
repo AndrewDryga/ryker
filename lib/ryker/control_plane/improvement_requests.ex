@@ -111,11 +111,10 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       sort_at: run.inserted_at,
       identity: if(not result_card?(run), do: identity(run, context)),
       retention_note:
-        if(run.pruned_at,
-          do:
-            "Retention removed the evidence and prompt this attempt was sent on " <>
-              timestamp(run.pruned_at) <> ". Nothing is rebuilt from today's records."
-        ),
+        if run.pruned_at do
+          "Retention removed the evidence and prompt this attempt was sent on " <>
+            timestamp(run.pruned_at) <> ". Nothing is rebuilt from today's records."
+        end,
       sections: [
         section("instructions", "Self-analysis instructions", prompt["instructions"], options),
         section("context", "The evidence it was given", prompt["context"], options),
@@ -141,11 +140,10 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
           sort_at: ended,
           run: CallRun.from_background(run, context.executions[run.id]),
           retention_note:
-            if(run.pruned_at,
-              do:
-                "Retention removed the model's response on #{timestamp(run.pruned_at)}. " <>
-                  "What it cost and how long it took stay recorded."
-            ),
+            if run.pruned_at do
+              "Retention removed the model's response on #{timestamp(run.pruned_at)}. " <>
+                "What it cost and how long it took stay recorded."
+            end,
           sections: [section("response", "Model response", run.result, options)],
           background: %{
             headline: headline(run, document),
@@ -227,10 +225,10 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
 
   defp facts(_run, _document), do: []
 
-  defp finding_path(run),
-    do:
-      Paths.query(ImprovementPage.path(), %{"candidate" => run.candidate_id}) <>
-        "#improvement-" <> run.candidate_id
+  defp finding_path(run) do
+    Paths.query(ImprovementPage.path(), %{"candidate" => run.candidate_id}) <>
+      "#improvement-" <> run.candidate_id
+  end
 
   defp category(%{"category" => value}) when is_binary(value),
     do: Enum.find(Candidate.categories(), &(Atom.to_string(&1) == value))

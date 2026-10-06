@@ -18,7 +18,6 @@ defmodule Ryker.Improvement.Analyses do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Improvement
@@ -84,29 +83,29 @@ defmodule Ryker.Improvement.Analyses do
     )
   end
 
-  defp claimable(now, _quiet, false),
-    do:
-      dynamic(
-        [candidate: c],
-        ^stale_lease(now) or (^due(now) and exists(outstanding_parent_run()))
-      )
+  defp claimable(now, _quiet, false) do
+    dynamic(
+      [candidate: c],
+      ^stale_lease(now) or (^due(now) and exists(outstanding_parent_run()))
+    )
+  end
 
   defp stale_lease(now),
     do: dynamic([candidate: c], c.analysis == :running and c.lease_expires_at <= ^now)
 
-  defp due(now),
-    do:
-      dynamic(
-        [candidate: c],
-        c.analysis == :pending and (is_nil(c.next_attempt_at) or c.next_attempt_at <= ^now)
-      )
+  defp due(now) do
+    dynamic(
+      [candidate: c],
+      c.analysis == :pending and (is_nil(c.next_attempt_at) or c.next_attempt_at <= ^now)
+    )
+  end
 
-  defp wanted(quiet),
-    do:
-      dynamic(
-        [candidate: c],
-        is_nil(c.forgotten_at) and c.status != :dismissed and c.last_signal_at <= ^quiet
-      )
+  defp wanted(quiet) do
+    dynamic(
+      [candidate: c],
+      is_nil(c.forgotten_at) and c.status != :dismissed and c.last_signal_at <= ^quiet
+    )
+  end
 
   # The request has nothing still running: its Work has come to rest, or the
   # quick replies routing chose for the message were delivered or given up.
@@ -302,17 +301,17 @@ defmodule Ryker.Improvement.Analyses do
   # -- Runs -------------------------------------------------------------------------
 
   @doc "The run of a candidate that started and has no stop proof yet, or nil."
-  def outstanding(candidate_id),
-    do:
-      Repo.one(
-        from(run in AnalysisRun,
-          where:
-            run.candidate_id == ^candidate_id and not is_nil(run.started_at) and
-              is_nil(run.remote_stopped_at),
-          order_by: [asc: run.generation],
-          limit: 1
-        )
+  def outstanding(candidate_id) do
+    Repo.one(
+      from(run in AnalysisRun,
+        where:
+          run.candidate_id == ^candidate_id and not is_nil(run.started_at) and
+            is_nil(run.remote_stopped_at),
+        order_by: [asc: run.generation],
+        limit: 1
       )
+    )
+  end
 
   @doc "A run as it is stored now."
   def current(run_id), do: Repo.get!(AnalysisRun, run_id)
@@ -384,14 +383,14 @@ defmodule Ryker.Improvement.Analyses do
     )
   end
 
-  defp next_generation(candidate_id),
-    do:
-      (Repo.one(
-         from(run in AnalysisRun,
-           where: run.candidate_id == ^candidate_id,
-           select: max(run.generation)
-         )
-       ) || 0) + 1
+  defp next_generation(candidate_id) do
+    (Repo.one(
+       from(run in AnalysisRun,
+         where: run.candidate_id == ^candidate_id,
+         select: max(run.generation)
+       )
+     ) || 0) + 1
+  end
 
   # What went in, by count, and what was left out, beside the frozen prompt.
   defp manifest(evidence, request, prompt) do
@@ -668,11 +667,11 @@ defmodule Ryker.Improvement.Analyses do
 
   def record_stop(_claim, _run_id, _turn), do: {:error, :improvement_remote_not_stopped}
 
-  defp terminal_receipt(turn),
-    do:
-      turn
-      |> Map.take(~w(id session_id state error_code validation_attempt))
-      |> Map.put("kind", "terminal_turn")
+  defp terminal_receipt(turn) do
+    turn
+    |> Map.take(~w(id session_id state error_code validation_attempt))
+    |> Map.put("kind", "terminal_turn")
+  end
 
   @doc """
   Records a terminal turn that gave no usable answer: the model's output did
@@ -686,12 +685,13 @@ defmodule Ryker.Improvement.Analyses do
         do: Repo.rollback(:improvement_remote_identity_conflict)
 
       run =
-        if run.status in [:prepared, :responded],
-          do:
-            run
-            |> Ecto.Changeset.change(status: :rejected, error_code: Atom.to_string(reason))
-            |> Repo.update!(),
-          else: run
+        if run.status in [:prepared, :responded] do
+          run
+          |> Ecto.Changeset.change(status: :rejected, error_code: Atom.to_string(reason))
+          |> Repo.update!()
+        else
+          run
+        end
 
       store_stop(
         run,
@@ -778,15 +778,16 @@ defmodule Ryker.Improvement.Analyses do
              do: Repo.rollback(:improvement_absence_unconfirmed)
 
       run =
-        if run.status in [:prepared, :responded],
-          do:
-            run
-            |> Ecto.Changeset.change(
-              status: :rejected,
-              error_code: "improvement_provider_failed"
-            )
-            |> Repo.update!(),
-          else: run
+        if run.status in [:prepared, :responded] do
+          run
+          |> Ecto.Changeset.change(
+            status: :rejected,
+            error_code: "improvement_provider_failed"
+          )
+          |> Repo.update!()
+        else
+          run
+        end
 
       session = FleetSession.for_run(run)
 
@@ -817,12 +818,13 @@ defmodule Ryker.Improvement.Analyses do
              do: Repo.rollback(:improvement_remote_unresolved)
 
       run =
-        if run.status in [:prepared, :responded],
-          do:
-            run
-            |> Ecto.Changeset.change(status: :rejected, error_code: "improvement_attempt_expired")
-            |> Repo.update!(),
-          else: run
+        if run.status in [:prepared, :responded] do
+          run
+          |> Ecto.Changeset.change(status: :rejected, error_code: "improvement_attempt_expired")
+          |> Repo.update!()
+        else
+          run
+        end
 
       session = FleetSession.for_run(run)
 

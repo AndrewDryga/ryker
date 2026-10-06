@@ -1,13 +1,11 @@
 defmodule Ryker.Knowledge.KnowledgeRebuildTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
-
   alias Ryker.{CanonicalJSON, Episodes, Repo}
+  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
-
-  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -16,7 +14,6 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Learning.SourceExposure
-
   alias Ryker.Work.{Custody, Session}
 
   @capture "testdata/learning/recorded-draft-retention-create.json"
@@ -383,15 +380,15 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
     {entries, Repo.one!(ConversationKnowledge), first_document}
   end
 
-  defp context(head, entries),
-    do:
-      source_context(entries)
-      |> Map.put(:rebuild_source_entries, entries)
-      |> Map.put(:rebuild, %{
-        topic_id: head.id,
-        version: head.version,
-        generation: head.source_generation
-      })
+  defp context(head, entries) do
+    source_context(entries)
+    |> Map.put(:rebuild_source_entries, entries)
+    |> Map.put(:rebuild, %{
+      topic_id: head.id,
+      version: head.version,
+      generation: head.source_generation
+    })
+  end
 
   defp source_context(entries),
     do: %{

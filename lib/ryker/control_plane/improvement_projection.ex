@@ -12,7 +12,6 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   """
 
   import Ecto.Query
-
   alias Ryker.ControlPlane.{FeedbackProjection, PagedRelation, PathRef}
   alias Ryker.Improvement
   alias Ryker.Improvement.Candidate
@@ -47,10 +46,11 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
           in_status = in_status(visible, status)
 
           listed =
-            if category,
-              do:
-                from([candidate: candidate] in in_status, where: candidate.category == ^category),
-              else: in_status
+            if category do
+              from([candidate: candidate] in in_status, where: candidate.category == ^category)
+            else
+              in_status
+            end
 
           {status, category, in_status, listed}
       end

@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.UnitsTest do
   sizes in GiB, GB, KiB and a 1024-based "MB" (2026-10-04 review).
   """
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.Units
 
   test "a duration reads in words, to the unit that matters" do

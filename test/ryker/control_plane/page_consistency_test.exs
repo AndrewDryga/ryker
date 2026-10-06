@@ -21,23 +21,9 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
   """
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
-
   alias Phoenix.HTML.Safe
-
-  alias Ryker.ControlPlane.{
-    ActivityPage,
-    Assets,
-    BehaviorPage,
-    ChannelPage,
-    EnvironmentsPage,
-    FailuresPage,
-    Kit,
-    PageHelp,
-    Pages,
-    UsagePage,
-    WorkingCopiesPage
-  }
-
+  alias Ryker.ControlPlane.{ActivityPage, Assets, BehaviorPage, ChannelPage, EnvironmentsPage}
+  alias Ryker.ControlPlane.{FailuresPage, Kit, PageHelp, Pages, UsagePage, WorkingCopiesPage}
   alias Ryker.Fixtures.ControlPlaneOptions
 
   @retired ~w(.collection-shell .manage-filters .memory-tools .memory-filter .schedule-toolbar

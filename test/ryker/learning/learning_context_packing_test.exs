@@ -1,12 +1,10 @@
 defmodule Ryker.Learning.LearningContextPackingTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
-
   alias Ryker.{CanonicalJSON, Episodes}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
-
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning
@@ -190,12 +188,12 @@ defmodule Ryker.Learning.LearningContextPackingTest do
 
     thread = entry.destination_thread_ref || entry.source_item_ref
 
-    for _ <- 1..6,
-        do:
-          assert(
-            Knowledge.context(entry, entry.repository_ref, {:threads, [thread]}, 8, "writable") ==
-              []
-          )
+    for _ <- 1..6 do
+      assert(
+        Knowledge.context(entry, entry.repository_ref, {:threads, [thread]}, 8, "writable") ==
+          []
+      )
+    end
   end
 
   defp seed_topic!(topic, history) do

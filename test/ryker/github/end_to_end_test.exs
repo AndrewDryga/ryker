@@ -5,7 +5,6 @@ defmodule Ryker.GitHub.EndToEndTest do
 
   import Plug.Conn
   import Plug.Test
-
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.Delivery.{Adapters, RoutingResponse}
   alias Ryker.Fixtures.Publication, as: PublicationFixture

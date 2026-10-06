@@ -11,17 +11,9 @@ defmodule Ryker.Publication.Followups.Store do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
-
-  alias Ryker.Publication.{
-    Followup,
-    FollowupChangeset,
-    LifecycleEvent,
-    LifecycleEventChangeset
-  }
-
   alias Ryker.Publication.Custody
+  alias Ryker.Publication.{Followup, FollowupChangeset, LifecycleEvent, LifecycleEventChangeset}
   alias Ryker.Repo
 
   # --- entries --------------------------------------------------------------

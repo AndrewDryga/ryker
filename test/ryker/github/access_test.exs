@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.AccessTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.GitHub.{Access, Binding}
   alias Ryker.Settings
 

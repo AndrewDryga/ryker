@@ -11,7 +11,6 @@ defmodule Ryker.Admission.Dispatcher do
   alias Ryker.Delivery.HostNote
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox
-
   require Logger
 
   @maximum_attempts 8

@@ -2,7 +2,6 @@ defmodule Ryker.Slack.IncidentRoomLifecycleEventChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Slack.IncidentRoomLifecycleEvent
 
   @fields [

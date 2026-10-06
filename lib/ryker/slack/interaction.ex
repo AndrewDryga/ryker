@@ -173,11 +173,11 @@ defmodule Ryker.Slack.Interaction do
 
   defp action_value?(_action_id, value), do: reference?(value)
 
-  defp action_id?(value),
-    do:
-      is_binary(value) and
-        (value in @actions or value == "ryker_submit_input" or
-           Regex.match?(@environment_action, value))
+  defp action_id?(value) do
+    is_binary(value) and
+      (value in @actions or value == "ryker_submit_input" or
+         Regex.match?(@environment_action, value))
+  end
 
   defp action(
          %{"action_id" => "ryker_submit_input", "type" => "button", "value" => ref},

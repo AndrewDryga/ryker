@@ -5,7 +5,6 @@ defmodule Ryker.CredoChecks.RuntimeSafetyChecksTest do
   # wrapper seam and inline PubSub broadcasts. Each gets a probe it must flag
   # and a compliant probe it must not.
   use ExUnit.Case, async: true
-
   import Ryker.CredoCheckProbe
 
   @context "lib/ryker/sprockets.ex"

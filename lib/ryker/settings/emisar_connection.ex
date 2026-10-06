@@ -4,7 +4,6 @@ defmodule Ryker.Settings.EmisarConnection do
   use Ecto.Schema
   import Ecto.Changeset
   import Ecto.Query
-
   alias Ryker.Settings.Validation
 
   @primary_key {:ref, :string, autogenerate: false}

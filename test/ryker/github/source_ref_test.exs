@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.SourceRefTest do
   use ExUnit.Case, async: true
-
   alias Ryker.GitHub.SourceRef
 
   test "round-trips only exact reaction-capable GitHub comment identities" do

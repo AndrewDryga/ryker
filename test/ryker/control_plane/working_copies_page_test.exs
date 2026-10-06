@@ -6,9 +6,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
   disclosure.
   """
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [outline: 2]
-
   alias Ryker.ControlPlane.{PageHelp, Pages, WorkingCopiesPage}
 
   @now ~U[2026-08-28 14:00:00Z]

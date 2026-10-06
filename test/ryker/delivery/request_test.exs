@@ -1,8 +1,6 @@
 defmodule Ryker.Delivery.RequestTest do
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.Delivery.Request
 
   test "prepares one immutable message or reaction without platform credentials" do

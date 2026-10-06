@@ -13,25 +13,15 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   would show.
   """
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Fixtures.ChannelEnvironments
+  alias Ryker.Slack.{ChannelConfigurations, ChannelSettings, ChannelSetup, MembershipTransition}
+  alias Ryker.Slack.{Operators, Renderer}
   alias Ryker.Slack.Runtime, as: SlackRuntime
   alias Ryker.TestSupport.FakeSlackAPI
-
-  alias Ryker.Slack.{
-    ChannelConfigurations,
-    ChannelSettings,
-    ChannelSetup,
-    MembershipTransition,
-    Operators,
-    Renderer
-  }
 
   @endpoint Endpoint
   @workspace "TD65C7CD93124"
@@ -92,17 +82,18 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
       Map.put(Actions.callbacks(), :redraw_channel_welcome, fn workspace_ref, channel_ref ->
         slack = if Agent.get(slow, & &1), do: %{slack | api: SlowAPI}, else: slack
 
-        if Agent.get(running, & &1),
-          do:
-            ChannelSetup.redraw_welcome_async(
-              workspace_ref,
-              channel_ref,
-              slack,
-              self(),
-              tasks,
-              300
-            ),
-          else: {:error, :slack_not_running}
+        if Agent.get(running, & &1) do
+          ChannelSetup.redraw_welcome_async(
+            workspace_ref,
+            channel_ref,
+            slack,
+            self(),
+            tasks,
+            300
+          )
+        else
+          {:error, :slack_not_running}
+        end
       end)
       # What the running Slack runtime does when the page removes Ryker
       # (`Ryker.Slack.Runtime.leave_channel/2`).
@@ -299,11 +290,11 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   end
 
   # The people chosen to manage Ryker, with the workspace's admins left out.
-  defp chosen_operators(people),
-    do:
-      Operators.new(
-        chosen: people,
-        workspace_admins: false,
-        workspace_ref: @workspace
-      )
+  defp chosen_operators(people) do
+    Operators.new(
+      chosen: people,
+      workspace_admins: false,
+      workspace_ref: @workspace
+    )
+  end
 end

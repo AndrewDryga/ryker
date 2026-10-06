@@ -10,7 +10,6 @@ defmodule Ryker.GitHub.Onboarding do
   """
 
   require Logger
-
   alias Ryker.{RepositoryKnowledge, Settings}
 
   @actor "github:onboarding"

@@ -9,10 +9,8 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
   nobody recorded is "Not recorded", never a zero-second wait.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
   import Phoenix.LiveViewTest
-
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}

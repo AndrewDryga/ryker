@@ -1,9 +1,7 @@
 defmodule Ryker.Webhooks.AdapterEndToEndTest do
   use Ryker.DataCase, async: true
-
   import Plug.Conn
   import Plug.Test
-
   alias Ryker.Ingress.Inbox
   alias Ryker.Webhooks.{Route, Router}
 

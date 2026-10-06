@@ -10,7 +10,6 @@ defmodule Ryker.Ingress.Inbox.Entry do
   """
 
   use Ecto.Schema
-
   alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
   alias Ryker.Episodes.Episode
 

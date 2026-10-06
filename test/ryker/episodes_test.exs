@@ -1,6 +1,5 @@
 defmodule Ryker.EpisodesTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{EpisodeChangeset, Event, EventChangeset, Reducer}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

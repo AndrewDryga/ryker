@@ -17,7 +17,6 @@ defmodule Ryker.ControlPlane.PageHelpTest do
   """
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Assets, Integrations, Layouts, PageHelp, WebRouter}
 
   # Words that name Ryker's machinery rather than anything a reader sees. A

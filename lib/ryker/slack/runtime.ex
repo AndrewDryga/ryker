@@ -14,65 +14,36 @@ defmodule Ryker.Slack.Runtime do
   """
 
   require Logger
-
   alias Ryker.Artifacts
+  alias Ryker.Behaviors
+  alias Ryker.Behaviors.Automations
   alias Ryker.Delivery.{BinaryClient, JSONClient}
   alias Ryker.Episodes.Reactions
   alias Ryker.Episodes.Scope, as: WorkspaceScope
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Memories
   alias Ryker.Options
   alias Ryker.Publication.Custody
-  alias Ryker.Settings.Environment
-
-  alias Ryker.Slack.{
-    ActionTokens,
-    AppHome,
-    AppHomeActions,
-    AppHomeControls,
-    AppHomeEditor,
-    AppHomeProjection,
-    AttachmentIngestor,
-    ChannelConfiguration,
-    ChannelConfigurations,
-    ChannelSettings,
-    ChannelSetup,
-    Client,
-    CommandHandler,
-    Engagement,
-    FileClient,
-    Gateway,
-    IncidentRooms,
-    IncidentRoomWorker,
-    InteractionAudits,
-    InteractionFeedbackWorker,
-    InteractionHandler,
-    InteractionRepaint,
-    MembershipReconciler,
-    Mentions,
-    MintSocketTransport,
-    Operators,
-    Publisher,
-    TaskCardWorker,
-    ThreadStatusProjection,
-    ThreadStatusWorker,
-    WorkControls
-  }
-
-  alias Ryker.Slack.Supervisor, as: SlackSupervisor
-  alias Ryker.Transcription
-  alias Ryker.Transcription.Worker, as: TranscriptionWorker
-
-  alias Ryker.Behaviors
-  alias Ryker.Behaviors.Automations
-  alias Ryker.Memories
   alias Ryker.Records
   alias Ryker.Records.InputRequests
   alias Ryker.Records.SlackPostOffers
   alias Ryker.Records.TaskOffers
   alias Ryker.Schedules
   alias Ryker.Schedules.ScheduleRuntime
+  alias Ryker.Settings.Environment
+  alias Ryker.Slack.{ActionTokens, AppHome, AppHomeActions, AppHomeControls, AppHomeEditor}
+  alias Ryker.Slack.{AppHomeProjection, AttachmentIngestor, ChannelConfiguration}
+  alias Ryker.Slack.{ChannelConfigurations, ChannelSettings, ChannelSetup, Client, CommandHandler}
+  alias Ryker.Slack.{Engagement, FileClient, Gateway, IncidentRooms, IncidentRoomWorker}
+  alias Ryker.Slack.{InteractionAudits, InteractionFeedbackWorker, InteractionHandler}
+  alias Ryker.Slack.{InteractionRepaint, MembershipReconciler, Mentions, MintSocketTransport}
+  alias Ryker.Slack.{Operators, Publisher, TaskCardWorker, ThreadStatusProjection}
+  alias Ryker.Slack.Supervisor, as: SlackSupervisor
+  alias Ryker.Slack.{ThreadStatusWorker, WorkControls}
+  alias Ryker.Transcription
+  alias Ryker.Transcription.Worker, as: TranscriptionWorker
 
   @fields [
     :app_http,
@@ -912,10 +883,10 @@ defmodule Ryker.Slack.Runtime do
     raise ArgumentError, "Slack environments must be a map"
   end
 
-  defp display_name?(value),
-    do:
-      is_binary(value) and String.valid?(value) and String.trim(value) != "" and
-        String.length(value) <= 80
+  defp display_name?(value) do
+    is_binary(value) and String.valid?(value) and String.trim(value) != "" and
+      String.length(value) <= 80
+  end
 
   defp environment_profile!(work_profile, ref) do
     case WorkProfile.prepare(work_profile) do
@@ -944,12 +915,12 @@ defmodule Ryker.Slack.Runtime do
   defp github_repositories!(names, held) do
     Map.new(names, fn {repository, name} ->
       unless repository in held and is_binary(name) and
-               Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, name),
-             do:
-               raise(
-                 ArgumentError,
-                 "Slack environments must name their own GitHub repositories as owner/name"
-               )
+               Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, name) do
+        raise(
+          ArgumentError,
+          "Slack environments must name their own GitHub repositories as owner/name"
+        )
+      end
 
       {repository, name}
     end)

@@ -26,9 +26,7 @@ defmodule Ryker.Admission.ReadyPool do
   """
 
   use Ryker.PollingWorker, lane: :admission_ready, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.Admission.ReadySessions
   alias Ryker.Coop.API
   alias Ryker.CoopFleet.JobAuthority

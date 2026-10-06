@@ -1,6 +1,5 @@
 defmodule Ryker.Waits.WaitFailuresMigrationTest do
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @version 20_261_005_170_000

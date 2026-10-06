@@ -8,19 +8,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   """
 
   import Ecto.Query
-
   require Ryker.ControlPlane.CurrentInputs
-
-  alias Ryker.ControlPlane.{
-    ConsolePeople,
-    CurrentInputs,
-    Environments,
-    PagedRelation,
-    RepositoryNames,
-    Search,
-    UsageProjection
-  }
-
+  alias Ryker.ControlPlane.{ConsolePeople, CurrentInputs, Environments, PagedRelation}
+  alias Ryker.ControlPlane.{RepositoryNames, Search, UsageProjection}
   alias Ryker.Delivery.ChatCard
   alias Ryker.{Episodes, InspectionRedactor, Settings}
   alias Ryker.Episodes.Episode

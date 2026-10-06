@@ -7,7 +7,6 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
   """
 
   import Ecto.Query
-
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.Run
   alias Ryker.Work.{Custody, Session}
@@ -101,12 +100,12 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
   def for_run(id) when is_binary(id),
     do: Repo.get_by(Session, execution_kind: :knowledge, knowledge_run_id: id)
 
-  defp locked(run),
-    do:
-      Repo.one!(
-        from(session in Session,
-          where: session.execution_kind == :knowledge and session.knowledge_run_id == ^run.id,
-          lock: "FOR UPDATE"
-        )
+  defp locked(run) do
+    Repo.one!(
+      from(session in Session,
+        where: session.execution_kind == :knowledge and session.knowledge_run_id == ^run.id,
+        lock: "FOR UPDATE"
       )
+    )
+  end
 end

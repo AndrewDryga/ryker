@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.ReactionEventTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.ReactionEvent
 
   @identity %{bot_ref: "B-BOT", bot_user_ref: "U-BOT", workspace_ref: "T123"}

@@ -9,9 +9,7 @@ defmodule Ryker.ControlPlane.AdmittedMessagesTest do
   task's own admitted inputs, pruned to the fields the page reads.
   """
   use Ryker.DataCase, async: true
-
   import Phoenix.LiveViewTest, only: [render_component: 2]
-
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.ControlPlane.EpisodeTrace.Input
   alias Ryker.Episodes

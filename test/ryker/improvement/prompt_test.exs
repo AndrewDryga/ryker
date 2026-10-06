@@ -1,6 +1,5 @@
 defmodule Ryker.Improvement.PromptTest do
   use ExUnit.Case, async: true
-
   alias Ryker.CanonicalJSON
   alias Ryker.Improvement.Prompt
 

@@ -2,7 +2,6 @@ defmodule Ryker.Operator.EpisodeReviewChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Operator.EpisodeReview
 
   @fields [:actor_ref, :episode_id, :id, :note, :rating, :reviewed_at, :semantic_version]

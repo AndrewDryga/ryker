@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.ControlPlane.{ConversationMemory, LearnedPage}

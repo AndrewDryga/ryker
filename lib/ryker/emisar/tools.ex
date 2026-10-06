@@ -22,7 +22,6 @@ defmodule Ryker.Emisar.Tools do
   """
 
   import Bitwise
-
   alias Ryker.{Credentials, Rescued}
   alias Ryker.Delivery.JSONClient
   alias Ryker.Emisar.ToolCache

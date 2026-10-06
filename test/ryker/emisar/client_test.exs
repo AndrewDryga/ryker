@@ -1,6 +1,5 @@
 defmodule Ryker.Emisar.ClientTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Emisar.{Client, RunState}
 
   defmodule Requester do

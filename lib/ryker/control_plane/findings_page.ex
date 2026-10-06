@@ -15,9 +15,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
   investigation, and what a person can do.
   """
   use Phoenix.Component
-
   import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1, pager: 1]
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{FindingsProjection, Kit, MemoryFormat, Paths}
   alias Ryker.Records
@@ -264,15 +262,15 @@ defmodule Ryker.ControlPlane.FindingsPage do
 
   # What a person settled comes first; otherwise how Ryker classified it. Each
   # says what it means on hover and focus.
-  defp state(%{status: :dismissed}),
-    do:
-      {:off, "Forgotten",
-       "Someone forgot this finding, so Ryker no longer uses it. The investigation keeps it in its history."}
+  defp state(%{status: :dismissed}) do
+    {:off, "Forgotten",
+     "Someone forgot this finding, so Ryker no longer uses it. The investigation keeps it in its history."}
+  end
 
-  defp state(%{status: :answered}),
-    do:
-      {:on, "Marked explained",
-       "Someone marked this finding explained, so Ryker no longer treats it as an open question."}
+  defp state(%{status: :answered}) do
+    {:on, "Marked explained",
+     "Someone marked this finding explained, so Ryker no longer treats it as an open question."}
+  end
 
   defp state(%{classification: "unexplained"}),
     do: {:warn, "Not explained yet", "Ryker could not say why this happened yet."}

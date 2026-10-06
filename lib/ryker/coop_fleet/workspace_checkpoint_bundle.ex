@@ -130,14 +130,14 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
          mode: 0o644,
          size: size
        })
-       when size in 1..1_048_576,
-       do:
-         {:ok,
-          %{
-            state
-            | phase: {:body, :manifest, size, :crypto.hash_init(:sha256), state.scanner, []},
-              expected: [padding_size(size)]
-          }}
+       when size in 1..1_048_576 do
+    {:ok,
+     %{
+       state
+       | phase: {:body, :manifest, size, :crypto.hash_init(:sha256), state.scanner, []},
+         expected: [padding_size(size)]
+     }}
+  end
 
   defp start_member(%{expected: [wanted | remaining]} = state, actual) when is_map(wanted) do
     if Map.take(wanted, [:name, :mode, :size]) == actual do

@@ -13,17 +13,9 @@ defmodule Ryker.Evals.WorldRunner do
   disposable database around the whole run.
   """
 
+  alias Ryker.Evals.{WorldAssertions, WorldCase, WorldDatabase, WorldDriver, WorldEvidence}
+  alias Ryker.Evals.WorldInputs
   alias Ryker.Reference
-
-  alias Ryker.Evals.{
-    WorldAssertions,
-    WorldCase,
-    WorldDatabase,
-    WorldDriver,
-    WorldEvidence,
-    WorldInputs
-  }
-
   alias Ryker.Repo
 
   @fields [

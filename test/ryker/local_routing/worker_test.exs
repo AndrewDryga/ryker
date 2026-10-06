@@ -1,6 +1,5 @@
 defmodule Ryker.LocalRouting.WorkerTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.Ingress.Inbox
   alias Ryker.Learning.Observations
   alias Ryker.LocalRouting

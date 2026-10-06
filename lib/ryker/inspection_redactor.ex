@@ -160,12 +160,12 @@ defmodule Ryker.InspectionRedactor do
   defp sanitize(_value, _secrets, depth) when depth > 32, do: "[inspection depth limit]"
 
   # A provider-cut JSON string cannot be safely inspected as a structured document.
-  defp sanitize(%{"truncated" => true, "preview" => _} = value, secrets, depth),
-    do:
-      value
-      |> Map.delete("preview")
-      |> sanitize(secrets, depth)
-      |> Map.put("preview", @withheld)
+  defp sanitize(%{"truncated" => true, "preview" => _} = value, secrets, depth) do
+    value
+    |> Map.delete("preview")
+    |> sanitize(secrets, depth)
+    |> Map.put("preview", @withheld)
+  end
 
   # A prompt's object, member by member in the order it was sent, by the rules
   # a map follows.
@@ -242,9 +242,9 @@ defmodule Ryker.InspectionRedactor do
   defp unique_object?(values) when is_list(values), do: Enum.all?(values, &unique_object?/1)
   defp unique_object?(_), do: true
 
-  defp sensitive?(key) when is_atom(key) or is_binary(key),
-    do:
-      Regex.match?(@secret_key, String.replace(to_string(key), ~r/([a-z0-9])([A-Z])/, "\\1_\\2"))
+  defp sensitive?(key) when is_atom(key) or is_binary(key) do
+    Regex.match?(@secret_key, String.replace(to_string(key), ~r/([a-z0-9])([A-Z])/, "\\1_\\2"))
+  end
 
   defp sensitive?(_key), do: false
 

@@ -15,18 +15,9 @@ defmodule Ryker.ControlPlane.LearnedPage do
   (`subscriptions/0`).
   """
   use Phoenix.Component
-
   import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1]
-
   alias Phoenix.HTML.Safe
-
-  alias Ryker.ControlPlane.{
-    ConversationMemory,
-    Kit,
-    MemoryFormat,
-    Paths,
-    RelearnPanel
-  }
+  alias Ryker.ControlPlane.{ConversationMemory, Kit, MemoryFormat, Paths, RelearnPanel}
 
   @doc """
   The topics an open Learned page listens to, as the context functions that
@@ -381,17 +372,17 @@ defmodule Ryker.ControlPlane.LearnedPage do
   defp empty_title("context"), do: "No conversation summaries yet"
   defp empty_title("sources"), do: "No source messages are left"
 
-  defp empty_text("knowledge"),
-    do:
-      "Ryker reads conversations in the background and keeps topics here once it has learned something useful."
+  defp empty_text("knowledge") do
+    "Ryker reads conversations in the background and keeps topics here once it has learned something useful."
+  end
 
-  defp empty_text("context"),
-    do:
-      "When Ryker finishes work in a conversation, it saves a short summary so the next request can pick up where it stopped."
+  defp empty_text("context") do
+    "When Ryker finishes work in a conversation, it saves a short summary so the next request can pick up where it stopped."
+  end
 
-  defp empty_text("sources"),
-    do:
-      "The messages behind this were removed or have expired. What Ryker learned stays readable."
+  defp empty_text("sources") do
+    "The messages behind this were removed or have expired. What Ryker learned stays readable."
+  end
 
   # A topic's facts in its row: where it came from, when it changed and what
   # backs it.
@@ -437,9 +428,9 @@ defmodule Ryker.ControlPlane.LearnedPage do
 
   defp messages_link(_item), do: nil
 
-  defp summary_warning(%{recall_warning: :missing_source_history}),
-    do:
-      "Not used in answers: no complete record of the messages behind it was saved. It is kept so you can read it."
+  defp summary_warning(%{recall_warning: :missing_source_history}) do
+    "Not used in answers: no complete record of the messages behind it was saved. It is kept so you can read it."
+  end
 
   defp summary_warning(%{recall_warning: :invalid_source_history}),
     do: "Not used in answers: the record of the messages behind it is invalid."
@@ -455,10 +446,9 @@ defmodule Ryker.ControlPlane.LearnedPage do
     end
   end
 
-  defp summary_in_use,
-    do:
-      {:on, "In use",
-       "Ryker uses this summary to pick up where work in this conversation stopped."}
+  defp summary_in_use do
+    {:on, "In use", "Ryker uses this summary to pick up where work in this conversation stopped."}
+  end
 
   defp summary_facts(item) do
     [
@@ -501,8 +491,8 @@ defmodule Ryker.ControlPlane.LearnedPage do
     Paths.query("/memory/learned", query)
   end
 
-  defp history_path(view, page),
-    do:
-      "/memory/learned?" <>
-        Paths.encode_query(%{"item" => view.selected, "history_page" => page}) <> "#history"
+  defp history_path(view, page) do
+    "/memory/learned?" <>
+      Paths.encode_query(%{"item" => view.selected, "history_page" => page}) <> "#history"
+  end
 end

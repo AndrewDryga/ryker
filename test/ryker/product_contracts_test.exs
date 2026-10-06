@@ -1,12 +1,9 @@
 defmodule Ryker.ProductContractsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.CSRF
   alias Ryker.Ingress.{Projections, WorkProfile}
   alias Ryker.Publication.{LifecycleStatus, Receipt}
-
   alias Ryker.Slack.{ChannelSettingChangeset, IncidentRoomChangeset, Supervisor}
-
   alias Ryker.Work.{RepositoryContext, SessionChangeset}
 
   @digest String.duplicate("a", 64)

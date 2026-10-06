@@ -18,7 +18,6 @@ defmodule Ryker.Ingress.Inbox do
   """
 
   import Ecto.Query
-
   alias Ryker.Artifacts.References, as: ArtifactReferences
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes

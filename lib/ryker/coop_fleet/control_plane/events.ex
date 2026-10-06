@@ -11,9 +11,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
 
   import Ecto.Changeset
   import Ecto.Query
-
   require Logger
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Command, Event, Placement}
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}

@@ -12,7 +12,6 @@ defmodule Ryker.Feedback.Answers do
   """
 
   import Ecto.Query
-
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Repo
 

@@ -5,10 +5,6 @@ defmodule Ryker.Learning.LearningTest do
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
-  alias Ryker.Repo
-  alias Ryker.Retention.Data
-  alias Ryker.Slack.ChannelMembership
-
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Learning
@@ -17,7 +13,9 @@ defmodule Ryker.Learning.LearningTest do
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.People
-
+  alias Ryker.Repo
+  alias Ryker.Retention.Data
+  alias Ryker.Slack.ChannelMembership
   alias Ryker.Work.Turn
 
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}

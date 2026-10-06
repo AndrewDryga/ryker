@@ -14,11 +14,8 @@ defmodule Ryker.Embeddings.Worker do
   """
 
   use Ryker.PollingWorker, lane: :embeddings, interval: :poll_interval_ms
-
   import Ecto.Query
-
   require Logger
-
   alias Ryker.Embeddings
   alias Ryker.Episodes
   alias Ryker.Episodes.{RoutingDigest, RoutingDigests}

@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.SessionEvidenceConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.Episodes

@@ -7,7 +7,6 @@ defmodule Ryker.Work.RetryCurrentSettingsTest do
   should pick up the environment as it is now.
   """
   use Ryker.DataCase, async: true
-
   alias Ryker.CoopFleet.{JobAuthority, JobTemplates}
   alias Ryker.{Episodes, Repo, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

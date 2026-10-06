@@ -9,7 +9,6 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Repo
   alias Ryker.Slack.CapabilityTools.Arguments

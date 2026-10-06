@@ -20,18 +20,9 @@ defmodule Ryker.Slack.Renderer do
   """
 
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1, message_blocks: 1]
-
   alias Ryker.Slack.Mentions
-
-  alias Ryker.Slack.Renderer.{
-    ChannelCards,
-    ChannelSetup,
-    EmisarReview,
-    Fields,
-    Records,
-    SavedEntityCard,
-    WorkCards
-  }
+  alias Ryker.Slack.Renderer.{ChannelCards, ChannelSetup, EmisarReview, Fields, Records}
+  alias Ryker.Slack.Renderer.{SavedEntityCard, WorkCards}
 
   @maximum_message_characters 20_000
   @maximum_blocks 50
@@ -99,9 +90,9 @@ defmodule Ryker.Slack.Renderer do
   # A message without cards that names someone: the publisher added the
   # delivery's mention authority to it.
   defp render_document(%{"message" => message, "slack_mentions" => authority} = document)
-       when map_size(document) == 2,
-       do:
-         render_document(%{"message" => message, "records" => [], "slack_mentions" => authority})
+       when map_size(document) == 2 do
+    render_document(%{"message" => message, "records" => [], "slack_mentions" => authority})
+  end
 
   defp render_document(
          %{

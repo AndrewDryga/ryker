@@ -1,21 +1,18 @@
 defmodule Ryker.ControlPlane.ConversationLabTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
 
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
-
-  alias Ryker.Admission.Attempts
-  alias Ryker.ControlPlane.Activity
-
   alias Ryker.Admission
+  alias Ryker.Admission.Attempts
   alias Ryker.Admission.Decision
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Artifact
   alias Ryker.Behaviors.Behavior
   alias Ryker.ControlPlane.{Actions, ConsolePeople, ConversationLab, ConversationProjection, HTML}
+  alias Ryker.ControlPlane.Activity
   alias Ryker.ControlPlane.WorkChanges
   alias Ryker.Episodes
   alias Ryker.Fixtures.ChannelEnvironments
@@ -29,15 +26,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Schedules.Schedule
   alias Ryker.TestSupport.FakeWorkCoopAPI
   alias Ryker.TestTranscriber
-
-  alias Ryker.Work.{
-    Cancellation,
-    Custody,
-    DeliveryReceipt,
-    Result,
-    Session,
-    SubmissionBuilder
-  }
+  alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session, SubmissionBuilder}
 
   @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e6"
   @event_id "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7"

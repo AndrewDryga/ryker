@@ -7,10 +7,8 @@ defmodule Ryker.WeeklyReportTest do
   never writes a word of it.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
   import Ryker.TestHelpers, only: [clocks_past!: 2]
-
   alias Ryker.Accounting.Execution
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, RoutingDigest}

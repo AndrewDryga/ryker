@@ -7,7 +7,6 @@ defmodule Ryker.Feedback.MessagesTest do
   is, and nobody has to press anything for it.
   """
   use Ryker.DataCase, async: true
-
   alias Ryker.Feedback
   alias Ryker.Feedback.Messages
   alias Ryker.Fixtures.Answers

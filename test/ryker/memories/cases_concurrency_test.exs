@@ -14,7 +14,6 @@ defmodule Ryker.Memories.CasesConcurrencyTest do
   wrote.
   """
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Event, Origin, RoutingDigest}

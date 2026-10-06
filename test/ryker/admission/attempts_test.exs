@@ -1,7 +1,6 @@
 defmodule Ryker.Admission.AttemptsTest do
   use Ryker.DataCase, async: true
   alias Ryker.Accounting.Query
-
   alias Ryker.Admission.{Attempt, Attempts}
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input

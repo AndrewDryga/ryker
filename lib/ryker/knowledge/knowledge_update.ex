@@ -98,10 +98,10 @@ defmodule Ryker.Knowledge.KnowledgeUpdate do
 
   defp target?(_, _), do: false
 
-  defp anchors?(anchors) when is_list(anchors),
-    do:
-      length(anchors) <= 8 and Enum.uniq(anchors) == anchors and
-        Enum.all?(anchors, &(is_binary(&1) and Regex.match?(~r/\A[!-~]{1,512}\z/, &1)))
+  defp anchors?(anchors) when is_list(anchors) do
+    length(anchors) <= 8 and Enum.uniq(anchors) == anchors and
+      Enum.all?(anchors, &(is_binary(&1) and Regex.match?(~r/\A[!-~]{1,512}\z/, &1)))
+  end
 
   defp anchors?(_), do: false
 
@@ -118,9 +118,9 @@ defmodule Ryker.Knowledge.KnowledgeUpdate do
       "pattern" => "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
     }
 
-  defp text?(value, max),
-    do:
-      is_binary(value) and String.valid?(value) and
-        String.length(value) <= max and String.trim(value) != "" and
-        not String.contains?(value, <<0>>)
+  defp text?(value, max) do
+    is_binary(value) and String.valid?(value) and
+      String.length(value) <= max and String.trim(value) != "" and
+      not String.contains?(value, <<0>>)
+  end
 end

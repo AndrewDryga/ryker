@@ -12,7 +12,6 @@ defmodule Mix.Tasks.Ryker.Replay do
   """
 
   use Mix.Task
-
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Operator.SlackReplay
 

@@ -6,7 +6,6 @@ defmodule Ryker.Publication.FollowupCheckTest do
   verification. No test noticed for four days (2026-10-04 review).
   """
   use Ryker.DataCase, async: true
-
   alias Ryker.Fixtures.Publication, as: PublicationFixture
 
   test "PostgreSQL refuses a follow-up that breaks its own rules" do

@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.CapabilityToolsTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Artifacts
   alias Ryker.ControlPlane.CapabilityTools
   alias Ryker.Delivery.{PlatformAction, PlatformActionCustody}

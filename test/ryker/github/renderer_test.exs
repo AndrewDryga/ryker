@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.RendererTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.GitHub.Renderer
 

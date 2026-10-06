@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldJudgeCoopRunnerTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Evals.{CoopRunner, Job, WorldCase, WorldJudgeCase}
   alias Ryker.TestSupport.FakeCoopAPI
 

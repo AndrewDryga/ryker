@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.Renderer.BlocksTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.Renderer.Blocks
 
   # A line longer than a section is cut where it must be, but a cut inside

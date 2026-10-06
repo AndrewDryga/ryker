@@ -1,7 +1,6 @@
 defmodule Ryker.ArtifactsTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Outputs
   alias Ryker.Artifacts.References

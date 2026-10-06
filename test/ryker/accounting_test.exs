@@ -1,12 +1,11 @@
 defmodule Ryker.AccountingTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
-  alias Ryker.Work.SubmissionBuilder
-
   alias Ryker.{Accounting, Episodes, Repo}
   alias Ryker.Accounting.Execution
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Work.Custody
+  alias Ryker.Work.SubmissionBuilder
 
   test "polling and missing telemetry cannot duplicate or erase an unsuccessful execution's spend" do
     claim = claim!()

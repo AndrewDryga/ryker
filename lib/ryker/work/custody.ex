@@ -21,7 +21,6 @@ defmodule Ryker.Work.Custody do
   """
 
   import Ecto.Query, only: [from: 2]
-
   alias Ryker.Episodes.Episode
   alias Ryker.Work.Custody.{Cancellation, Claims, Delivery, Sessions, Turns}
   alias Ryker.Work.{Result, Session, Submission, Turn}

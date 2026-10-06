@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.ExecutorCleanupTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Publication.{Executor, FollowupExecutor}
 
   defmodule HeldAPI do

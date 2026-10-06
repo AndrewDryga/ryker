@@ -15,9 +15,7 @@ defmodule Ryker.Episodes.Reactions do
   """
 
   import Ecto.Query
-
   require Logger
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Event}
   alias Ryker.Feedback
@@ -152,9 +150,10 @@ defmodule Ryker.Episodes.Reactions do
     |> reaction_events()
     |> Enum.reduce(%{}, &apply_current_event/2)
     |> Map.values()
-    |> Enum.group_by(& &1.target_delivery_ref, fn reaction ->
-      Map.take(reaction, [:actor_ref, :emoji_name, :occurred_at])
-    end)
+    |> Enum.group_by(
+      & &1.target_delivery_ref,
+      &Map.take(&1, [:actor_ref, :emoji_name, :occurred_at])
+    )
     |> Map.new(fn {delivery_ref, reactions} ->
       {delivery_ref, Enum.sort_by(reactions, &{&1.emoji_name, &1.actor_ref})}
     end)

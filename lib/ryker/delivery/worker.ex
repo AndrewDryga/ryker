@@ -12,9 +12,7 @@ defmodule Ryker.Delivery.Worker do
   """
 
   use Ryker.PollingWorker, lane: :delivery, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.Delivery.Dispatcher
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker

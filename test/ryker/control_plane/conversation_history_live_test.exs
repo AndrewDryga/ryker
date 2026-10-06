@@ -9,11 +9,9 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
   change of conversation resets anything.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, Endpoint, Projection}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile

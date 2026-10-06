@@ -3,7 +3,6 @@ defmodule Ryker.Slack.ControlValueTest do
   # button's value; one of them raised on a value that was not text. One reader
   # now serves both (2026-10-06 review).
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.ControlValue
 
   @resource "behavior:0b0e5d5e-8c9a-4a57-9a4f-1d0f2b0c3a11"

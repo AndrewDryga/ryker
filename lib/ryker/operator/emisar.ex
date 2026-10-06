@@ -14,7 +14,6 @@ defmodule Ryker.Operator.Emisar do
   """
 
   import Ecto.Query
-
   alias Ryker.Credentials
   alias Ryker.Emisar.{Approval, ApprovalChangeset, Approvals}
   alias Ryker.Episodes.Episode

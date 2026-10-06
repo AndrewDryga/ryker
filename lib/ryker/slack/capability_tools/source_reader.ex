@@ -157,12 +157,12 @@ defmodule Ryker.Slack.CapabilityTools.SourceReader do
 
   defp source_datetime(nil), do: nil
 
-  defp source_datetime(timestamp),
-    do:
-      timestamp
-      |> Arguments.timestamp_value()
-      |> DateTime.from_unix!(:microsecond)
-      |> DateTime.to_iso8601()
+  defp source_datetime(timestamp) do
+    timestamp
+    |> Arguments.timestamp_value()
+    |> DateTime.from_unix!(:microsecond)
+    |> DateTime.to_iso8601()
+  end
 
   @spec source_page(map(), map(), String.t() | nil, map(), map() | nil, map() | nil) ::
           {:ok, map()} | {:error, term()}
@@ -223,10 +223,10 @@ defmodule Ryker.Slack.CapabilityTools.SourceReader do
   def seal_source_cursor(_cursor, _document, _source, _view, _binding),
     do: {:error, :invalid_source_cursor}
 
-  defp source_cursor_scope(document, source, view, binding),
-    do:
-      {SourceRef.encode(source), Map.get(source, :anchor_message_ref), view,
-       Map.delete(document, "cursor"), binding.episode.id, binding.turn.id}
+  defp source_cursor_scope(document, source, view, binding) do
+    {SourceRef.encode(source), Map.get(source, :anchor_message_ref), view,
+     Map.delete(document, "cursor"), binding.episode.id, binding.turn.id}
+  end
 
   @doc "Every message gains the server-issued source_ref the model must cite it by."
   @spec decorate_source_messages(term(), String.t(), String.t()) ::

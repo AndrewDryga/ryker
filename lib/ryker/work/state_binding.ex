@@ -2,7 +2,6 @@ defmodule Ryker.Work.StateBinding do
   @moduledoc false
 
   import Ecto.Query
-
   alias Ryker.CoopFleet.Placement
   alias Ryker.{Repo, Secret}
   alias Ryker.Work.{Session, Turn}

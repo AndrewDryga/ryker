@@ -1,11 +1,14 @@
 defmodule Ryker.Retention.DataTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.Admission.FleetSession
   alias Ryker.Artifacts
+  alias Ryker.Behaviors
+  alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Behaviors.StandingAssignmentRun
+  alias Ryker.Behaviors.StandingAssignmentRunChangeset
+  alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Command, ControlPlane, Placement, SessionEvidence, Worker}
   alias Ryker.Delivery.PlatformAction
@@ -13,44 +16,29 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Learning
   alias Ryker.Learning.Batches
   alias Ryker.Learning.FleetSession, as: LearningFleetSession
   alias Ryker.Learning.Observations
   alias Ryker.LocalRouting.Comparison
+  alias Ryker.Memories.CaseRecord
   alias Ryker.Operator.Actions
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Operator.RetentionAction
+  alias Ryker.Records.Record
+  alias Ryker.Records.RecordChangeset
   alias Ryker.Repo
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Retention.Data
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, ThreadStatusReceipts}
-  alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.StateTools.{CallLog, CallRecord}
-  alias Ryker.WeeklyReport.Report, as: WeeklyReport
-
-  alias Ryker.Behaviors
-  alias Ryker.Behaviors.BehaviorChangeset
-  alias Ryker.Behaviors.StandingAssignmentRun
-  alias Ryker.Behaviors.StandingAssignmentRunChangeset
-  alias Ryker.Behaviors.StandingRuleInventory
-  alias Ryker.Learning
-  alias Ryker.Memories.CaseRecord
-  alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Schedules.ScheduleOccurrenceChangeset
-
-  alias Ryker.Work.{
-    Activity,
-    ActivityEvent,
-    Custody,
-    Result,
-    Session,
-    Submission,
-    Turn
-  }
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, ThreadStatusReceipts}
+  alias Ryker.Slack.Input, as: SlackInput
+  alias Ryker.StateTools.{CallLog, CallRecord}
+  alias Ryker.WeeklyReport.Report, as: WeeklyReport
+  alias Ryker.Work.{Activity, ActivityEvent, Custody, Result, Session, Submission, Turn}
 
   @old ~U[2020-01-01 00:00:00.000000Z]
 

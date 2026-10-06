@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.CapabilityToolsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.{CapabilityTools, SourceRef}

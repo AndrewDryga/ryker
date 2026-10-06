@@ -1,8 +1,6 @@
 defmodule Ryker.Knowledge.KnowledgeSnapshot do
   @moduledoc "Reauthorize the sources of an exact retained knowledge revision used by Work."
   import Ecto.Query
-  alias Ryker.Repo
-
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeExposure
   alias Ryker.Knowledge.KnowledgeRevision
@@ -12,6 +10,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   alias Ryker.Learning.Observations
   alias Ryker.Learning.SourceExposure
   alias Ryker.Records.DerivedContext
+  alias Ryker.Repo
 
   @stale {:error, :work_knowledge_context_stale}
 
@@ -425,9 +424,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     # Even maximum-size receipts fit the 8 MiB validation budget in these batches.
     # Check the whole transcript without reverting to per-root round trips.
     |> Stream.chunk_every(500)
-    |> Enum.all?(fn receipts ->
-      LearningSources.valid?(LearningSources.merge([receipts]), scope)
-    end)
+    |> Enum.all?(&LearningSources.valid?(LearningSources.merge([&1]), scope))
   end
 
   def authorize_submission(destination, repository, submission) do

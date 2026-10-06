@@ -1,23 +1,12 @@
 defmodule Ryker.Work.CandidateResponseTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Retention.Data
-
-  alias Ryker.Work.{
-    CandidateResponse,
-    Custody,
-    Result,
-    Session,
-    Submission,
-    Turn,
-    TurnChangeset
-  }
+  alias Ryker.Work.{CandidateResponse, Custody, Result, Session, Submission, Turn, TurnChangeset}
 
   @old ~U[2020-01-01 00:00:00.000000Z]
   @fixture __DIR__ <> "/fixtures/airflow_candidate_responses.json"

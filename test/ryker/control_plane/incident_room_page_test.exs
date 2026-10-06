@@ -14,9 +14,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
   what it found, what happened to the room, and only then the references.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, IncidentProjection, IncidentRoomsPage}
   alias Ryker.Episodes.Episode
@@ -24,14 +22,8 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Records
   alias Ryker.Records.Record
-
-  alias Ryker.Slack.{
-    IncidentRoom,
-    IncidentRoomChangeset,
-    IncidentRoomLifecycleEventChangeset,
-    Input
-  }
-
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomChangeset, IncidentRoomLifecycleEventChangeset}
+  alias Ryker.Slack.Input
   alias Ryker.Work.Turn
 
   # The page is read the morning after the room opened.

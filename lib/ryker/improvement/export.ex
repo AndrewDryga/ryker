@@ -38,7 +38,6 @@ defmodule Ryker.Improvement.Export do
   """
 
   import Ecto.Query
-
   alias Ryker.Improvement.Candidate
   alias Ryker.Repo
 

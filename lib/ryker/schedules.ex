@@ -12,18 +12,16 @@ defmodule Ryker.Schedules do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Input
   alias Ryker.Operator.Actions
-  alias Ryker.Reference
-  alias Ryker.Repo
-
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
+  alias Ryker.Reference
+  alias Ryker.Repo
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Schedules.ScheduleOccurrence
@@ -31,7 +29,6 @@ defmodule Ryker.Schedules do
   alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.Settings
   alias Ryker.Settings.Environment
-
   alias Ryker.UTCDateTime
   alias Ryker.Work.{Custody, Session, Turn}
 
@@ -645,14 +642,14 @@ defmodule Ryker.Schedules do
     update_schedule!(schedule, attributes)
   end
 
-  defp release_schedule(schedule, next_attempt_at),
-    do:
-      update_schedule!(schedule, %{
-        lease_expires_at: nil,
-        lease_owner: nil,
-        lease_ref: nil,
-        next_attempt_at: next_attempt_at
-      })
+  defp release_schedule(schedule, next_attempt_at) do
+    update_schedule!(schedule, %{
+      lease_expires_at: nil,
+      lease_owner: nil,
+      lease_ref: nil,
+      next_attempt_at: next_attempt_at
+    })
+  end
 
   defp release_attributes(next_occurrence_at) do
     %{

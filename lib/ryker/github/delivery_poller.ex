@@ -25,9 +25,7 @@ defmodule Ryker.GitHub.DeliveryPoller do
   """
 
   use GenServer
-
   require Logger
-
   alias Plug.Adapters.Test.Conn, as: RequestConn
   alias Ryker.Delivery.JSONClient
   alias Ryker.GitHub.{Auth, Events, Router}
@@ -127,9 +125,9 @@ defmodule Ryker.GitHub.DeliveryPoller do
     end
   end
 
-  defp reached?(%{"id" => id} = delivery, through, oldest),
-    do:
-      (is_integer(through) and is_integer(id) and id <= through) or not recent?(delivery, oldest)
+  defp reached?(%{"id" => id} = delivery, through, oldest) do
+    (is_integer(through) and is_integer(id) and id <= through) or not recent?(delivery, oldest)
+  end
 
   defp reached?(_delivery, _through, _oldest), do: true
 

@@ -12,7 +12,6 @@ defmodule Ryker.Work.Custody.Delivery do
 
   import Ecto.Query
   import Ryker.Work.Custody.Locks
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Origin}
   alias Ryker.Repo
@@ -697,10 +696,10 @@ defmodule Ryker.Work.Custody.Delivery do
     )
   end
 
-  defp delivery_already_settled?(turn, receipt, fingerprint),
-    do:
-      turn.status == :settled and turn.external_receipt == receipt and
-        turn.external_receipt_fingerprint == fingerprint
+  defp delivery_already_settled?(turn, receipt, fingerprint) do
+    turn.status == :settled and turn.external_receipt == receipt and
+      turn.external_receipt_fingerprint == fingerprint
+  end
 
   defp delivery_receipt_unset(%Turn{external_receipt: nil}), do: :ok
   defp delivery_receipt_unset(_turn), do: {:error, :work_delivery_receipt_conflict}

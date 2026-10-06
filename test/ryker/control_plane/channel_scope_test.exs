@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.ChannelScopeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.{ChannelScope, PagedRelation}
 
   test "raw Slack refs derive the canonical refs every context table stores" do

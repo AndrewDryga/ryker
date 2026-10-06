@@ -8,7 +8,6 @@ defmodule Ryker.Delivery.Runtime do
   """
 
   use Supervisor
-
   alias Ryker.Defaults
   alias Ryker.Delivery.{Adapters, Worker}
   alias Ryker.Options

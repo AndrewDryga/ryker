@@ -86,23 +86,25 @@ defmodule Ryker.Slack.SourceRef do
   end
 
   defp encode(workspace_ref, channel_ref, kind, message_ref) do
-    if id?(workspace_ref) and id?(channel_ref) and timestamp?(message_ref),
-      do:
-        Enum.join(
-          ["slack-source", "v1", workspace_ref, channel_ref, kind, message_ref],
-          ":"
-        ),
-      else: raise(ArgumentError, "invalid Slack source identity")
+    if id?(workspace_ref) and id?(channel_ref) and timestamp?(message_ref) do
+      Enum.join(
+        ["slack-source", "v1", workspace_ref, channel_ref, kind, message_ref],
+        ":"
+      )
+    else
+      raise(ArgumentError, "invalid Slack source identity")
+    end
   end
 
   defp encode_resource(workspace_ref, channel_ref, kind, resource_ref) do
-    if id?(workspace_ref) and id?(channel_ref) and resource_id?(resource_ref),
-      do:
-        Enum.join(
-          ["slack-source", "v1", workspace_ref, channel_ref, kind, resource_ref],
-          ":"
-        ),
-      else: raise(ArgumentError, "invalid Slack source identity")
+    if id?(workspace_ref) and id?(channel_ref) and resource_id?(resource_ref) do
+      Enum.join(
+        ["slack-source", "v1", workspace_ref, channel_ref, kind, resource_ref],
+        ":"
+      )
+    else
+      raise(ArgumentError, "invalid Slack source identity")
+    end
   end
 
   defp parsed(workspace_ref, channel_ref, kind, message_ref, expected_workspace_ref) do

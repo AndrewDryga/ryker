@@ -1,19 +1,9 @@
 defmodule Ryker.CoopFleet.WorkerLifecycleTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
-  alias Ryker.CoopFleet.{
-    Certificate,
-    ControlPlane,
-    Enrollment,
-    EnrollmentToken,
-    Placement,
-    Worker
-  }
-
+  alias Ryker.CoopFleet.{Certificate, ControlPlane, Enrollment, EnrollmentToken, Placement}
+  alias Ryker.CoopFleet.Worker
   alias Ryker.CoopFleet.WorkerLifecycle
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

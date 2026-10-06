@@ -26,7 +26,6 @@ defmodule Ryker.Settings.Work do
   """
   use Ecto.Schema
   import Ecto.Changeset
-
   alias Ryker.LocalRouting.Endpoint
 
   @primary_key {:id, :string, autogenerate: false}

@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   """
 
   import Ecto.Query
-
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.ControlPlane.{ConsolePeople, Paths, TranscriptCursor}
   alias Ryker.Delivery.{ChatCard, PlatformAction, RoutingResponse}

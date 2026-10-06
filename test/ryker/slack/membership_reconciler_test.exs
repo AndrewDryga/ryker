@@ -1,23 +1,12 @@
 defmodule Ryker.Slack.MembershipReconcilerTest do
   use Ryker.DataCase, async: true
-
   import ExUnit.CaptureLog
   import Ryker.TestHelpers, only: [settled: 1]
-
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Repo
-
-  alias Ryker.Slack.{
-    ChannelConfiguration,
-    ChannelConfigurations,
-    ChannelMembership,
-    ChannelSettings,
-    ChannelSetup,
-    ConfigurationSession,
-    MembershipReconciler,
-    Operators
-  }
-
+  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurations, ChannelMembership}
+  alias Ryker.Slack.{ChannelSettings, ChannelSetup, ConfigurationSession, MembershipReconciler}
+  alias Ryker.Slack.Operators
   alias Ryker.TestSupport.FakeSlackAPI
 
   defmodule FailingAPI do
@@ -288,11 +277,11 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
   end
 
   # The people chosen to manage Ryker, with the workspace's admins left out.
-  defp chosen_operators(people),
-    do:
-      Operators.new(
-        chosen: people,
-        workspace_admins: false,
-        workspace_ref: "T9E23FDA39DE5"
-      )
+  defp chosen_operators(people) do
+    Operators.new(
+      chosen: people,
+      workspace_admins: false,
+      workspace_ref: "T9E23FDA39DE5"
+    )
+  end
 end

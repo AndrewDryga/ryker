@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.ChannelFenceTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Repo
   alias Ryker.Slack.ChannelFence
 

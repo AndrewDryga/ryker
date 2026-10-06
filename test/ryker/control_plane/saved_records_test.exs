@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.SavedRecordsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.SavedRecords
   alias Ryker.Records.Record
   alias Ryker.Work.{ActivityEvent, Turn}

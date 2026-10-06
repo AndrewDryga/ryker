@@ -7,19 +7,9 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
   opening the request where it happened; a request's Timeline lists its own.
   """
   use Ryker.DataCase, async: true
-
   import Phoenix.LiveViewTest
-
-  alias Ryker.ControlPlane.{
-    EpisodePage,
-    EpisodeProjection,
-    FeedbackPage,
-    Kit,
-    ModelRequests,
-    Pages,
-    Projection
-  }
-
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, FeedbackPage, Kit, ModelRequests}
+  alias Ryker.ControlPlane.{Pages, Projection}
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
 

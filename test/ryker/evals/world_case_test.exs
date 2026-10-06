@@ -1,8 +1,6 @@
 defmodule Ryker.Evals.WorldCaseTest do
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.Evals.{WorldCase, WorldCassette}
   alias Ryker.StateTools.Tools
 
@@ -236,9 +234,10 @@ defmodule Ryker.Evals.WorldCaseTest do
     assert {:ok, scenario} =
              WorldCase.fetch("worker-loss-reconciles-frozen-turn", @scenario_root)
 
-    assert Enum.any?(scenario.host_replay["model_events"], fn event ->
-             "crash_after_submit" in Map.get(event, "faults", [])
-           end)
+    assert Enum.any?(
+             scenario.host_replay["model_events"],
+             &("crash_after_submit" in Map.get(&1, "faults", []))
+           )
 
     [input] = scenario.events
     request = input["payload"]["text"]
@@ -597,19 +596,17 @@ defmodule Ryker.Evals.WorldCaseTest do
 
   test "rejects malformed scenario contracts at each authority boundary" do
     cases = [
-      {fn scenario -> Map.put(scenario, "version", 2) end, :version},
-      {fn scenario -> Map.put(scenario, "id", "different-case") end, :id},
-      {fn scenario -> put_in(scenario, ["provenance", "kind"], "guess") end, :provenance},
-      {fn scenario -> put_in(scenario, ["clock", "start"], "tomorrow") end, :clock},
-      {fn scenario -> Map.put(scenario, "clock", %{}) end, :clock},
-      {fn scenario -> Map.put(scenario, "actors", "operator") end, :actors},
-      {fn scenario -> Map.put(scenario, "actors", ["operator"]) end, :actors},
+      {&Map.put(&1, "version", 2), :version},
+      {&Map.put(&1, "id", "different-case"), :id},
+      {&put_in(&1, ["provenance", "kind"], "guess"), :provenance},
+      {&put_in(&1, ["clock", "start"], "tomorrow"), :clock},
+      {&Map.put(&1, "clock", %{}), :clock},
+      {&Map.put(&1, "actors", "operator"), :actors},
+      {&Map.put(&1, "actors", ["operator"]), :actors},
       {fn scenario ->
          update_in(scenario, ["actors", Access.at(0)], &Map.delete(&1, "input_profile"))
        end, :actors},
-      {fn scenario ->
-         put_in(scenario, ["actors", Access.at(0), "input_profile", "actor", "ref"], "other")
-       end, :actors},
+      {&put_in(&1, ["actors", Access.at(0), "input_profile", "actor", "ref"], "other"), :actors},
       {fn scenario ->
          put_in(
            scenario,
@@ -617,17 +614,16 @@ defmodule Ryker.Evals.WorldCaseTest do
            %{"emoji_names" => []}
          )
        end, :actors},
-      {fn scenario -> put_in(scenario, ["actors", Access.at(0), "authority"], "root") end,
-       :actors},
+      {&put_in(&1, ["actors", Access.at(0), "authority"], "root"), :actors},
       {fn scenario ->
          duplicate = hd(scenario["actors"])
          Map.update!(scenario, "actors", &(&1 ++ [duplicate]))
        end, :actors},
-      {fn scenario -> Map.put(scenario, "events", ["not-an-event"]) end, :object_list},
+      {&Map.put(&1, "events", ["not-an-event"]), :object_list},
       {fn scenario ->
          update_in(scenario, ["events", Access.at(0)], &Map.delete(&1, "destination"))
        end, :events},
-      {fn scenario -> put_in(scenario, ["world", "repositories"], %{}) end, :repositories},
+      {&put_in(&1, ["world", "repositories"], %{}), :repositories},
       {fn scenario ->
          put_in(scenario, ["world", "scheduled_events"], [
            %{
@@ -637,7 +633,7 @@ defmodule Ryker.Evals.WorldCaseTest do
            }
          ])
        end, :scheduled_events},
-      {fn scenario -> put_in(scenario, ["world", "tool_rules"], %{}) end, :tool_rules},
+      {&put_in(&1, ["world", "tool_rules"], %{}), :tool_rules},
       {fn scenario ->
          put_in(
            scenario,
@@ -652,7 +648,7 @@ defmodule Ryker.Evals.WorldCaseTest do
            [%{"kind" => "unknown"}]
          )
        end, :tool_response},
-      {fn scenario -> Map.put(scenario, "host_replay", %{}) end, :fields},
+      {&Map.put(&1, "host_replay", %{}), :fields},
       {fn scenario ->
          update_in(
            scenario,
@@ -690,8 +686,8 @@ defmodule Ryker.Evals.WorldCaseTest do
        end, :input_index},
       {fn scenario -> Map.update!(scenario, "tags", &List.delete(&1, "host-replay")) end,
        :host_replay},
-      {fn scenario -> put_in(scenario, ["expect", "hard"], "pass") end, :hard},
-      {fn scenario -> Map.put(scenario, "tags", ["model-world", "model-world"]) end, :tags}
+      {&put_in(&1, ["expect", "hard"], "pass"), :hard},
+      {&Map.put(&1, "tags", ["model-world", "model-world"]), :tags}
     ]
 
     Enum.each(cases, fn {mutate, expected_field} ->

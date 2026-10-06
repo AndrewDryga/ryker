@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.OverviewProjection do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Observability

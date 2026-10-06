@@ -1,7 +1,6 @@
 defmodule Ryker.Records.OutcomesTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Knowledge.KnowledgeSnapshot
@@ -9,16 +8,8 @@ defmodule Ryker.Records.OutcomesTest do
   alias Ryker.Records.Outcomes
   alias Ryker.Records.Record
   alias Ryker.Repo
-
-  alias Ryker.Work.{
-    Cancellation,
-    Custody,
-    DeliveryReceipt,
-    OperationKeys,
-    Result,
-    Submission,
-    SubmissionBuilder
-  }
+  alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, OperationKeys, Result, Submission}
+  alias Ryker.Work.SubmissionBuilder
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 

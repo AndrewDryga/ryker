@@ -4,7 +4,6 @@ defmodule Ryker.Delivery.ChatCardConfirmationTest do
   confirmation saved rather than from the offer the model wrote.
   """
   use Ryker.DataCase, async: true
-
   alias Ecto.Changeset
   alias Ryker.ControlPlane.{Assets, HTML}
   alias Ryker.Delivery.ChatCard

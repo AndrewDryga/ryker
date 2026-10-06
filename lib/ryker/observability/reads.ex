@@ -12,7 +12,6 @@ defmodule Ryker.Observability.Reads do
   """
 
   import Ecto.Query
-
   alias Ryker.Repo
 
   @type failure ::

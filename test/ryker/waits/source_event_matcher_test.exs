@@ -1,6 +1,5 @@
 defmodule Ryker.Waits.SourceEventMatcherTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Waits.SourceEventMatcher
 
   test "object array filters preserve each required object and all of its fields" do

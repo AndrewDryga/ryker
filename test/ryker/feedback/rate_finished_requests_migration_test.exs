@@ -7,7 +7,6 @@ defmodule Ryker.Feedback.RateFinishedRequestsMigrationTest do
   before ratings as it was.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @previous_version 20_260_928_210_000

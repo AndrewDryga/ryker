@@ -15,10 +15,8 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
   the rows already read.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
   import Phoenix.LiveViewTest
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
@@ -303,14 +301,14 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     })
   end
 
-  defp event_id(work, sequence),
-    do:
-      Repo.one!(
-        from(event in ActivityEvent,
-          where: event.session_id == ^work.session.id and event.sequence == ^sequence,
-          select: event.id
-        )
+  defp event_id(work, sequence) do
+    Repo.one!(
+      from(event in ActivityEvent,
+        where: event.session_id == ^work.session.id and event.sequence == ^sequence,
+        select: event.id
       )
+    )
+  end
 
   defp tool!(work, sequence, tool, arguments, status \\ "completed") do
     payload = %{

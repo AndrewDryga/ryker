@@ -23,7 +23,6 @@ defmodule Ryker.WeeklyReport.Facts do
   """
 
   import Ecto.Query
-
   alias Ryker.Accounting.Query, as: Ledger
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, Paths}
   alias Ryker.Episodes.{Episode, Event, RoutingDigests}

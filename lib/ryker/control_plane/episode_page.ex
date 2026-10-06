@@ -4,19 +4,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
   @moduledoc "One chronological case file: conversation, model requests, host decisions and delivery."
   use Phoenix.Component
   import Ryker.ControlPlane.Components
-
-  alias Ryker.ControlPlane.{
-    EpisodeRequest,
-    EpisodeTrace,
-    FeedbackPage,
-    Kit,
-    Paths,
-    RequestContextHTML,
-    ThreadContext,
-    ToolCard,
-    Units
-  }
-
+  alias Ryker.ControlPlane.{EpisodeRequest, EpisodeTrace, FeedbackPage, Kit, Paths}
+  alias Ryker.ControlPlane.{RequestContextHTML, ThreadContext, ToolCard, Units}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.{Names, TaskCardDetails}
 
@@ -338,13 +327,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ]
   end
 
-  defp feedback_description([]),
-    do:
-      "What people said about Ryker's answers here: reactions, asking again, changing their message, and how they felt."
+  defp feedback_description([]) do
+    "What people said about Ryker's answers here: reactions, asking again, changing their message, and how they felt."
+  end
 
-  defp feedback_description(_analysis),
-    do:
-      "What people said about Ryker's answers here, and Ryker's own analysis of what went wrong. The analysis sends no reply."
+  defp feedback_description(_analysis) do
+    "What people said about Ryker's answers here, and Ryker's own analysis of what went wrong. The analysis sends no reply."
+  end
 
   @doc """
   The page of a message that has no request of its own: a greeting routing
@@ -1245,16 +1234,16 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp summary_paragraphs(_step), do: []
 
   # Stages with their own card component instead of the generic event layout.
-  defp card_stage?(stage),
-    do:
-      stage in [
-        "Tool call",
-        "Participation",
-        "Queue",
-        "Search",
-        "Selection",
-        "Work setup"
-      ]
+  defp card_stage?(stage) do
+    stage in [
+      "Tool call",
+      "Participation",
+      "Queue",
+      "Search",
+      "Selection",
+      "Work setup"
+    ]
+  end
 
   defp message_container?(%{kind: :message, message: message}), do: is_nil(message[:provider])
   defp message_container?(_entry), do: false
@@ -1796,19 +1785,19 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
-  defp bookkeeping?(step),
-    do:
-      step.tone not in [:bad, :warn] and
-        not silent_result?(step) and
-        step.stage in [
-          "Preparation",
-          "Routing",
-          "Input",
-          "Execution",
-          "Result",
-          "Delivery",
-          "Validation"
-        ]
+  defp bookkeeping?(step) do
+    step.tone not in [:bad, :warn] and
+      not silent_result?(step) and
+      step.stage in [
+        "Preparation",
+        "Routing",
+        "Input",
+        "Execution",
+        "Result",
+        "Delivery",
+        "Validation"
+      ]
+  end
 
   defp compact_entry?(%{kind: :event, step: step}), do: bookkeeping?(step)
   defp compact_entry?(_), do: false
@@ -1816,14 +1805,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp show_event_state?(%{stage: "Validation", state: state}) when state in ["accept", "reject"],
     do: false
 
-  defp show_event_state?(step),
-    do:
-      step.state not in [nil, ""] &&
-        step.stage not in ["Preparation", "Execution", "Evidence"] &&
-        not String.contains?(
-          String.downcase(event_title(step)),
-          String.downcase(Words.label(step.state))
-        )
+  defp show_event_state?(step) do
+    step.state not in [nil, ""] &&
+      step.stage not in ["Preparation", "Execution", "Evidence"] &&
+      not String.contains?(
+        String.downcase(event_title(step)),
+        String.downcase(Words.label(step.state))
+      )
+  end
 
   defp event_title(%{stage: "Tool call", title: "Tool call", summary: summary})
        when is_binary(summary), do: summary
@@ -1856,9 +1845,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp chapter_description(:ready),
     do: "The message and context that started this part of the conversation."
 
-  defp chapter_description(:routing),
-    do:
-      "The model call that decides whether to respond, continue earlier work, or leave the message alone."
+  defp chapter_description(:routing) do
+    "The model call that decides whether to respond, continue earlier work, or leave the message alone."
+  end
 
   defp chapter_description(:work),
     do: "The model's briefing, progress, tool calls, and results."
@@ -1866,9 +1855,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp chapter_description(:answer),
     do: "What the model returned and what Ryker decided to do."
 
-  defp chapter_description(:learning),
-    do:
-      "Background learning from these messages, once the work they started has stopped. It sends no reply."
+  defp chapter_description(:learning) do
+    "Background learning from these messages, once the work they started has stopped. It sends no reply."
+  end
 
   defp chapter_description(:maintenance),
     do: "What happened afterwards to the worker Ryker used and its working copy."
@@ -2007,10 +1996,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
     }
   end
 
-  defp delivered_message?(message),
-    do:
-      message.actor == "Ryker" && message[:delivery_ref] &&
-        (message[:delivered] || message[:status] == "Response sent")
+  defp delivered_message?(message) do
+    message.actor == "Ryker" && message[:delivery_ref] &&
+      (message[:delivered] || message[:status] == "Response sent")
+  end
 
   # Kernel transitions are recognised by their durable id and stage, never by
   # the words a person reads for them.
@@ -2022,10 +2011,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   # The message body can expire independently of its delivery receipt. Keep the
   # exact turn receipt and hide only its matching kernel lifecycle confirmation.
-  defp redundant_step?(%{id: "kernel-" <> _, stage: "Delivery"} = step, copies),
-    do:
-      step[:delivery_ref] in copies.delivery_refs ||
-        step[:delivery_ref] in copies.confirmed_delivery_refs
+  defp redundant_step?(%{id: "kernel-" <> _, stage: "Delivery"} = step, copies) do
+    step[:delivery_ref] in copies.delivery_refs ||
+      step[:delivery_ref] in copies.confirmed_delivery_refs
+  end
 
   defp redundant_step?(%{stage: "Delivery", state: "delivered"} = step, copies),
     do: step[:delivery_ref] in copies.delivery_refs
@@ -2035,10 +2024,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp redundant_step?(%{stage: "Platform action", state: "confirmed"} = step, copies),
     do: step[:delivery_ref] in copies.delivery_refs
 
-  defp redundant_step?(step, copies),
-    do:
-      String.ends_with?(step.id, "-prepared") &&
-        String.replace(step.id, ~r/^turn-(.*)-prepared$/, "request-\\1") in copies.briefing_ids
+  defp redundant_step?(step, copies) do
+    String.ends_with?(step.id, "-prepared") &&
+      String.replace(step.id, ~r/^turn-(.*)-prepared$/, "request-\\1") in copies.briefing_ids
+  end
 
   defp unix(nil), do: 9_223_372_036_854_775_807
   defp unix(%NaiveDateTime{} = at), do: at |> DateTime.from_naive!("Etc/UTC") |> unix()

@@ -1,9 +1,7 @@
 defmodule Ryker.Evals.MixTaskTest do
   use ExUnit.Case, async: false
-
   import ExUnit.CaptureIO
   import Ryker.TestHelpers, only: [without_eval_targets: 0]
-
   alias Ecto.Adapters.Postgres, as: Storage
   alias Mix.Tasks.Ryker.Eval
   alias Ryker.Evals.{WorldCase, WorldReport, WorldSuite}

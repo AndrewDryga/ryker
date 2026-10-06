@@ -2,7 +2,6 @@ defmodule Ryker.Slack.OperatorsTest do
   # The admin answers are cached in one named process, and the settings check
   # reads the saved Slack row, so these run alone.
   use Ryker.DataCase, async: false
-
   alias Ryker.Settings
   alias Ryker.Slack.{Client, Command, CommandHandler, Operators, WorkspaceAdmins}
 

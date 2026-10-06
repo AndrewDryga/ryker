@@ -9,7 +9,6 @@ defmodule Ryker.Application do
   """
 
   use Application
-
   alias Ryker.ControlPlane.PageCost
 
   @impl Application

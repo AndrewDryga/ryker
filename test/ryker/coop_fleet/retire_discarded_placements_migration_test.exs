@@ -10,11 +10,8 @@ defmodule Ryker.CoopFleet.RetireDiscardedPlacementsMigrationTest do
   """
   # The migrator runs inside this test's sandbox transaction.
   use Ryker.MigrationCase
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Command, ControlPlane, Placement}
   alias Ryker.Episodes

@@ -10,9 +10,7 @@ defmodule Ryker.GitHub.Confirmations do
   """
 
   import Ecto.Query
-
   require Logger
-
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Automations
   alias Ryker.Episodes.Episode

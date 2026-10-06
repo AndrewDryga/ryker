@@ -1,21 +1,10 @@
 defmodule Ryker.Slack.RuntimeTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Delivery.{BinaryClient, JSONClient}
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Ingress.WorkProfile
-
-  alias Ryker.Slack.{
-    ActionTokens,
-    AttachmentIngestor,
-    ChannelConfigurationChangeset,
-    Client,
-    FileClient,
-    MintSocketTransport,
-    Operators,
-    Runtime,
-    Supervisor
-  }
+  alias Ryker.Slack.{ActionTokens, AttachmentIngestor, ChannelConfigurationChangeset, Client}
+  alias Ryker.Slack.{FileClient, MintSocketTransport, Operators, Runtime, Supervisor}
 
   # No environment is a choice: work in the channel uses no repository and no
   # Emisar account. Reading it as "use the default" put a channel someone had

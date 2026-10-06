@@ -15,7 +15,6 @@ defmodule Ryker.Work.Custody.Locks do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Session, Turn}
@@ -151,10 +150,10 @@ defmodule Ryker.Work.Custody.Locks do
   end
 
   @doc false
-  def turn_owner?(episode, turn),
-    do:
-      episode.state == :working and episode.owner_kind == :turn and
-        episode.owner_ref == turn.turn_ref
+  def turn_owner?(episode, turn) do
+    episode.state == :working and episode.owner_kind == :turn and
+      episode.owner_ref == turn.turn_ref
+  end
 
   @doc false
   def current_turn_owner(episode, turn) do
@@ -240,10 +239,10 @@ defmodule Ryker.Work.Custody.Locks do
 
   def artifact_refs(_refs), do: {:error, {:invalid_work_custody, :artifact_refs}}
 
-  defp valid_reference?(value) when is_binary(value),
-    do:
-      byte_size(value) in 1..256 and String.valid?(value) and
-        :binary.match(value, <<0>>) == :nomatch
+  defp valid_reference?(value) when is_binary(value) do
+    byte_size(value) in 1..256 and String.valid?(value) and
+      :binary.match(value, <<0>>) == :nomatch
+  end
 
   defp valid_reference?(_value), do: false
 

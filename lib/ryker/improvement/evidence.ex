@@ -20,7 +20,6 @@ defmodule Ryker.Improvement.Evidence do
   """
 
   import Ecto.Query
-
   alias Ryker.Admission.Attempt
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Episodes.Episode
@@ -337,12 +336,12 @@ defmodule Ryker.Improvement.Evidence do
     }
   end
 
-  defp entry_key(entry),
-    do:
-      RoutingExamples.message_key(
-        entry.destination_conversation_ref,
-        entry.source_item_ref || entry.native_input_id
-      )
+  defp entry_key(entry) do
+    RoutingExamples.message_key(
+      entry.destination_conversation_ref,
+      entry.source_item_ref || entry.native_input_id
+    )
+  end
 
   # -- Ryker's answers --------------------------------------------------------------
 

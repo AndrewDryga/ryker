@@ -1,6 +1,5 @@
 defmodule Ryker.Work.TaskStagesTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Records
@@ -776,7 +775,7 @@ defmodule Ryker.Work.TaskStagesTest do
   # A review Coop returned for an exact retained snapshot whose checks did not
   # pass: shareable as a draft, never publishable on its own.
   defp shareable_review(gate) do
-    identity = fn char -> String.duplicate(char, 40) end
+    identity = &String.duplicate(&1, 40)
 
     %{
       "candidate_head" => identity.("a"),

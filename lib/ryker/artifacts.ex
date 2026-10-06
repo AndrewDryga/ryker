@@ -10,7 +10,6 @@ defmodule Ryker.Artifacts do
 
   import Bitwise
   import Ecto.Query
-
   alias Ryker.Artifacts.{Artifact, ArtifactChangeset}
   alias Ryker.CanonicalJSON
   alias Ryker.Repo

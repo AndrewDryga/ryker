@@ -15,7 +15,6 @@ defmodule Ryker.Retention.Custody do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
   alias Ryker.CoopFleet.Placement
@@ -650,12 +649,12 @@ defmodule Ryker.Retention.Custody do
     )
   end
 
-  defp owner_finished_filter,
-    do:
-      dynamic(
-        ^work_finished() or ^learning_finished() or ^improvement_finished() or
-          ^knowledge_finished() or ^admission_finished() or ^ready_retired()
-      )
+  defp owner_finished_filter do
+    dynamic(
+      ^work_finished() or ^learning_finished() or ^improvement_finished() or
+        ^knowledge_finished() or ^admission_finished() or ^ready_retired()
+    )
+  end
 
   # A Work session is finished when its episode is, or once a newer generation
   # replaced it. A replaced session stayed open on its worker, holding its

@@ -79,9 +79,12 @@ defmodule Ryker.Work.Executor.Turns do
        do: spend_submit_generation(claim, reason)
 
   defp handle_submit_response({:error, _reason} = error, claim, key, settings) do
-    Remote.reconcile_after_transport(error, key, settings, fn operation ->
-      bind_turn_from_operation(claim, operation, key, settings)
-    end)
+    Remote.reconcile_after_transport(
+      error,
+      key,
+      settings,
+      &bind_turn_from_operation(claim, &1, key, settings)
+    )
   end
 
   defp reconcile_submit_response(claim, key, reason, settings) do
@@ -89,7 +92,7 @@ defmodule Ryker.Work.Executor.Turns do
       Remote.ambiguous_mutation(:submit_turn, reason),
       key,
       settings,
-      fn operation -> bind_turn_from_operation(claim, operation, key, settings) end
+      &bind_turn_from_operation(claim, &1, key, settings)
     )
   end
 

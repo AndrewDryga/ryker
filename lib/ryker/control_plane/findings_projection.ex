@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   """
 
   import Ecto.Query
-
   alias Ryker.ControlPlane.{PagedRelation, Paths, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.InspectionRedactor
@@ -115,22 +114,22 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   defp in_view(query, "forgotten"),
     do: from([record, _episode] in query, where: record.status == :dismissed)
 
-  defp in_view(query, "explained"),
-    do:
-      from([record, _episode] in query,
-        where:
-          record.status == :answered or
-            (record.status == :open and
-               fragment("?::jsonb->>'status' = 'explained'", record.payload))
-      )
+  defp in_view(query, "explained") do
+    from([record, _episode] in query,
+      where:
+        record.status == :answered or
+          (record.status == :open and
+             fragment("?::jsonb->>'status' = 'explained'", record.payload))
+    )
+  end
 
-  defp in_view(query, classification),
-    do:
-      from([record, _episode] in query,
-        where:
-          record.status == :open and
-            fragment("?::jsonb->>'status' = ?", record.payload, ^classification)
-      )
+  defp in_view(query, classification) do
+    from([record, _episode] in query,
+      where:
+        record.status == :open and
+          fragment("?::jsonb->>'status' = ?", record.payload, ^classification)
+    )
+  end
 
   defp view_counts(query) do
     from([record, _episode] in exclude(query, :select),

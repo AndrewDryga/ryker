@@ -1,10 +1,8 @@
 defmodule Ryker.ControlPlane.SettingsLiveTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query, only: [from: 2]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SettingsPage, SettingsView, SetupPage}
   alias Ryker.{Credentials, IntegrationSetup}
   alias Ryker.Fixtures.Answers

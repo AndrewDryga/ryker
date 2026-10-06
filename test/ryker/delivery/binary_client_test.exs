@@ -1,8 +1,6 @@
 defmodule Ryker.Delivery.BinaryClientTest do
   use ExUnit.Case, async: false
-
   import Plug.Conn
-
   alias Ryker.Delivery.BinaryClient
 
   defmodule FilePlug do

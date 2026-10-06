@@ -1,19 +1,9 @@
 defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
   use Ryker.DataCase, async: false
-
   alias Phoenix.HTML.Safe
   alias Plug.Conn.Query
-
-  alias Ryker.ControlPlane.{
-    ConversationMemory,
-    CSRF,
-    LearnedPage,
-    RelearnPanel,
-    Router,
-    SlackMarkdown,
-    SourceText
-  }
-
+  alias Ryker.ControlPlane.{ConversationMemory, CSRF, LearnedPage, RelearnPanel, Router}
+  alias Ryker.ControlPlane.{SlackMarkdown, SourceText}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Knowledge, as: Fixtures

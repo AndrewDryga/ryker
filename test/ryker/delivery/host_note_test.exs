@@ -1,6 +1,5 @@
 defmodule Ryker.Delivery.HostNoteTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Delivery.{Adapters, HostNote}
 
   defmodule Refusing do

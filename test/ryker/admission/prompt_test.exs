@@ -1,6 +1,5 @@
 defmodule Ryker.Admission.PromptTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Admission.{Candidate, Context, Prompt}
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry

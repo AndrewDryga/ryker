@@ -2,10 +2,8 @@ defmodule Ryker.StateTools.EmisarToolsTest do
   # Emisar is `Ryker.TestSupport.EmisarMCP` here (config/test.exs): it answers
   # as emisar.dev did on 2026-09-27 and tells this process what it was sent.
   use Ryker.DataCase, async: true
-
   import Plug.Conn
   import Plug.Test
-
   alias Ryker.{Credentials, Episodes, Repo, Settings}
   alias Ryker.Emisar.{Approval, Approvals}
   alias Ryker.Episodes.Episode

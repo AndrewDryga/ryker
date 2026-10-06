@@ -9,20 +9,17 @@ defmodule Ryker.Continuity.Recall do
   """
 
   import Ecto.Query
-
-  alias Ryker.Episodes.Episode
-  alias Ryker.Repo
-
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Continuity.{Relevance, Scope}
+  alias Ryker.Episodes.Episode
   alias Ryker.Knowledge
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
-
-  alias Ryker.Continuity.{Relevance, Scope}
+  alias Ryker.Repo
 
   @maximum_related 8
   @maximum_rollups 4
@@ -183,12 +180,11 @@ defmodule Ryker.Continuity.Recall do
     |> rollups_within_scope(context, scope)
   end
 
-  defp rollups_within_scope(query, context, "current_channel"),
-    do:
-      from(rollup in query,
-        where:
-          rollup.scope_kind == :conversation and rollup.scope_ref == ^context.conversation_ref
-      )
+  defp rollups_within_scope(query, context, "current_channel") do
+    from(rollup in query,
+      where: rollup.scope_kind == :conversation and rollup.scope_ref == ^context.conversation_ref
+    )
+  end
 
   defp rollups_within_scope(query, %{repository_ref: repository_ref}, "repository")
        when is_binary(repository_ref),
@@ -246,10 +242,10 @@ defmodule Ryker.Continuity.Recall do
   defp continuity_search_candidate_visible?({:summary, summary}, context),
     do: summary_visible?(summary, context)
 
-  defp continuity_search_candidate_visible?({:rollup, rollup}, context),
-    do:
-      rollup_visible?(rollup, context) and
-        derived_sources_valid?(rollup, context)
+  defp continuity_search_candidate_visible?({:rollup, rollup}, context) do
+    rollup_visible?(rollup, context) and
+      derived_sources_valid?(rollup, context)
+  end
 
   defp continuity_search_document({:summary, summary}),
     do: summary |> summary_document() |> Map.put("kind", "continuity")
@@ -337,10 +333,10 @@ defmodule Ryker.Continuity.Recall do
   defp learning_visible(item, context),
     do: if(derived_sources_valid?(item, context), do: item)
 
-  defp derived_sources_valid?(item, context),
-    do:
-      LearningSources.sourced?(item.source_dependencies) and
-        LearningSources.valid?(item.source_dependencies, context)
+  defp derived_sources_valid?(item, context) do
+    LearningSources.sourced?(item.source_dependencies) and
+      LearningSources.valid?(item.source_dependencies, context)
+  end
 
   defp rollup_visible?(
          %ConversationRollup{scope_kind: :conversation, scope_ref: scope_ref},

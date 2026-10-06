@@ -1,11 +1,8 @@
 defmodule Ryker.ControlPlane.SettingsWorkerJobsLiveTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SettingsCommands, SettingsView}
   alias Ryker.CoopFleet.Worker
   alias Ryker.Settings

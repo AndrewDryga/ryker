@@ -1,15 +1,12 @@
 defmodule Ryker.Knowledge.KnowledgeSnapshotCapacityTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.CanonicalJSON
-  alias Ryker.Fixtures.Learning, as: Fixtures
-
   alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.SourceExposure
-
   alias Ryker.Work.Custody
 
   # Capacity proof, not a per-commit check: six seconds of the serial suite.

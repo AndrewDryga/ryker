@@ -10,28 +10,28 @@ defmodule Ryker.Evals.CoopRunnerTest do
     @behaviour Ryker.Coop.API
 
     def operation_by_key(client, key),
-      do: call(client, :operation_by_key, fn fake -> FakeCoopAPI.operation_by_key(fake, key) end)
+      do: call(client, :operation_by_key, &FakeCoopAPI.operation_by_key(&1, key))
 
-    def create_session(client, key, policy, task, source),
-      do:
-        call(client, :create_session, fn fake ->
-          FakeCoopAPI.create_session(fake, key, policy, task, source)
-        end)
+    def create_session(client, key, policy, task, source) do
+      call(client, :create_session, &FakeCoopAPI.create_session(&1, key, policy, task, source))
+    end
 
     def fence_create_session({fake, _faults}, key, policy, task, source),
       do: FakeCoopAPI.fence_create_session(fake, key, policy, task, source)
 
     def get_session(client, session_id),
-      do: call(client, :get_session, fn fake -> FakeCoopAPI.get_session(fake, session_id) end)
+      do: call(client, :get_session, &FakeCoopAPI.get_session(&1, session_id))
 
-    def submit_turn(client, session_id, key, revision, prompt, schema),
-      do:
-        call(client, :submit_turn, fn fake ->
-          FakeCoopAPI.submit_turn(fake, session_id, key, revision, prompt, schema)
-        end)
+    def submit_turn(client, session_id, key, revision, prompt, schema) do
+      call(
+        client,
+        :submit_turn,
+        &FakeCoopAPI.submit_turn(&1, session_id, key, revision, prompt, schema)
+      )
+    end
 
     def get_turn(client, session_id, turn_id),
-      do: call(client, :get_turn, fn fake -> FakeCoopAPI.get_turn(fake, session_id, turn_id) end)
+      do: call(client, :get_turn, &FakeCoopAPI.get_turn(&1, session_id, turn_id))
 
     def get_output_artifact({fake, _faults}, session_id, turn_id, artifact_id),
       do: FakeCoopAPI.get_output_artifact(fake, session_id, turn_id, artifact_id)
@@ -39,28 +39,28 @@ defmodule Ryker.Evals.CoopRunnerTest do
     def cancel_turn({fake, _faults}, session_id, turn_id, key, revision),
       do: FakeCoopAPI.cancel_turn(fake, session_id, turn_id, key, revision)
 
-    def validate_candidate(client, session_id, turn_id, key, digest, verdict),
-      do:
-        call(client, :validate_candidate, fn fake ->
-          FakeCoopAPI.validate_candidate(fake, session_id, turn_id, key, digest, verdict)
-        end)
+    def validate_candidate(client, session_id, turn_id, key, digest, verdict) do
+      call(
+        client,
+        :validate_candidate,
+        &FakeCoopAPI.validate_candidate(&1, session_id, turn_id, key, digest, verdict)
+      )
+    end
 
-    def close_session(client, session_id, key, revision),
-      do:
-        call(client, :close_session, fn fake ->
-          FakeCoopAPI.close_session(fake, session_id, key, revision)
-        end)
+    def close_session(client, session_id, key, revision) do
+      call(client, :close_session, &FakeCoopAPI.close_session(&1, session_id, key, revision))
+    end
 
-    def plan_discard({fake, _faults}, session_id, key, revision, accept_dirty, accept_unmerged),
-      do:
-        FakeCoopAPI.plan_discard(
-          fake,
-          session_id,
-          key,
-          revision,
-          accept_dirty,
-          accept_unmerged
-        )
+    def plan_discard({fake, _faults}, session_id, key, revision, accept_dirty, accept_unmerged) do
+      FakeCoopAPI.plan_discard(
+        fake,
+        session_id,
+        key,
+        revision,
+        accept_dirty,
+        accept_unmerged
+      )
+    end
 
     def discard_session({fake, _faults}, session_id, key, plan_operation_id),
       do: FakeCoopAPI.discard_session(fake, session_id, key, plan_operation_id)
@@ -271,9 +271,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
   end
 
   test "every ambiguous Coop operation envelope fails without inventing an eval result" do
-    operation = fn fields ->
-      Map.merge(%{"id" => "op-test", "method" => "CreateRemoteSession"}, fields)
-    end
+    operation = &Map.merge(%{"id" => "op-test", "method" => "CreateRemoteSession"}, &1)
 
     scenarios = [
       {%{create_session: {:return, {:ok, %{}}}},

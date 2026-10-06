@@ -1,19 +1,11 @@
 defmodule Ryker.Slack.ChannelConfigurationsTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Repo
   alias Ryker.Settings
-
-  alias Ryker.Slack.{
-    ChannelConfiguration,
-    ChannelConfigurations,
-    ChannelMembership,
-    ConfigurationAction,
-    ConfigurationSession
-  }
+  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurations, ChannelMembership}
+  alias Ryker.Slack.{ConfigurationAction, ConfigurationSession}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   # The environments `setup` saves, as the Slack runtime offers them.

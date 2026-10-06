@@ -10,7 +10,6 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   """
 
   import Ecto.Query
-
   alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.{CallRun, Environments, Search}
   alias Ryker.GitHub.Events

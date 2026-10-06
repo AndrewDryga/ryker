@@ -4,7 +4,6 @@ defmodule Ryker.Settings.ReportTest do
   # recurrence that nothing can deliver: no channel, no Slack connection, a day
   # outside the week or a zone the release cannot resolve.
   use Ryker.DataCase, async: false
-
   alias Ryker.Settings
 
   @actor "control-plane:local"

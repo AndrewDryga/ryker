@@ -12,18 +12,16 @@ defmodule Ryker.Evals.LearningRunner do
   alias Ryker.CanonicalJSON
   alias Ryker.Evals.{Job, LearningProbe}
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
-  alias Ryker.Learning.{Batch, Batches, Dispatcher, InputMembership, Runtime}
-  alias Ryker.Repo
-
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Learning.{Batch, Batches, Dispatcher, InputMembership, Runtime}
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.People
   alias Ryker.People.PersonFact
-
+  alias Ryker.Repo
   alias Ryker.Work.Session
 
   @terminal [:applied, :no_change, :deferred, :superseded]
@@ -36,13 +34,13 @@ defmodule Ryker.Evals.LearningRunner do
   def recorded_sequence("haproxy"),
     do: sequence("retained-haproxy-lifecycle.json", [:new_topic, :same_topic])
 
-  def recorded_sequence("auth-memory-recurrence"),
-    do:
-      sequence("retained-auth-memory-recurrence.json", [
-        :new_topic,
-        :same_topic,
-        :later_occurrence
-      ])
+  def recorded_sequence("auth-memory-recurrence") do
+    sequence("retained-auth-memory-recurrence.json", [
+      :new_topic,
+      :same_topic,
+      :later_occurrence
+    ])
+  end
 
   def recorded_sequence("draft-keep"),
     do: sequence("retained-draft-keep-thread.json", [:new_topic, :same_topic, :same_topic])
@@ -60,23 +58,23 @@ defmodule Ryker.Evals.LearningRunner do
     ]
   end
 
-  def recorded_sequence("starfall-correction"),
-    do:
-      sequence("retained-starfall-manual-correction.json", [
-        :optional_topic,
-        :topic_progress,
-        :same_topic
-      ])
+  def recorded_sequence("starfall-correction") do
+    sequence("retained-starfall-manual-correction.json", [
+      :optional_topic,
+      :topic_progress,
+      :same_topic
+    ])
+  end
 
   # Neither says anything about the person who wrote it, so neither may teach a fact about them.
   def recorded_sequence("chatter"),
     do: "retained-great-thanks.json" |> sequence([:no_change]) |> nothing_about_authors()
 
-  def recorded_sequence("one-off-request"),
-    do:
-      "retained-one-off-acceptance-request.json"
-      |> sequence([:no_change])
-      |> nothing_about_authors()
+  def recorded_sequence("one-off-request") do
+    "retained-one-off-acceptance-request.json"
+    |> sequence([:no_change])
+    |> nothing_about_authors()
+  end
 
   # Andrew wrote these in #test on 2026-09-30 as a People test case: his birthday, his favourite
   # show and how he likes to be written to. Each is about its author, so each is a fact about him
@@ -418,20 +416,20 @@ defmodule Ryker.Evals.LearningRunner do
       batch["start_limit"] == 3 and Enum.any?(later, &completed_offered_retry?(&1, race))
   end
 
-  defp rejected_unoffered?(run, race),
-    do:
-      run.knowledge == [] and run.error_code == "learning_match_required" and
-        race.source_ref in run.match_refs and is_binary(run.result)
+  defp rejected_unoffered?(run, race) do
+    run.knowledge == [] and run.error_code == "learning_match_required" and
+      race.source_ref in run.match_refs and is_binary(run.result)
+  end
 
-  defp completed_offered_retry?(run, race),
-    do:
-      run.status == :applied and is_binary(run.result) and
-        Enum.any?(run.knowledge, &offered_match?(&1, race))
+  defp completed_offered_retry?(run, race) do
+    run.status == :applied and is_binary(run.result) and
+      Enum.any?(run.knowledge, &offered_match?(&1, race))
+  end
 
-  defp offered_match?(offered, race),
-    do:
-      offered["source_ref"] == race.source_ref and offered["version"] == race.version and
-        offered["can_update"] == true
+  defp offered_match?(offered, race) do
+    offered["source_ref"] == race.source_ref and offered["version"] == race.version and
+      offered["can_update"] == true
+  end
 
   defp persist!(raw, settings) do
     # Import source fields only. Recorded routing, work authority and model results
@@ -485,10 +483,10 @@ defmodule Ryker.Evals.LearningRunner do
     entry
   end
 
-  defp enum!(value, allowed),
-    do:
-      Enum.find(allowed, &(Atom.to_string(&1) == value)) ||
-        raise(ArgumentError, "invalid recorded enum")
+  defp enum!(value, allowed) do
+    Enum.find(allowed, &(Atom.to_string(&1) == value)) ||
+      raise(ArgumentError, "invalid recorded enum")
+  end
 
   defp source_time!(value) do
     case DateTime.from_iso8601(value) do
@@ -575,22 +573,22 @@ defmodule Ryker.Evals.LearningRunner do
     Map.put(receipt, "run_id", run_id)
   end
 
-  defp inspect_turn({:ok, turn}),
-    do:
-      Map.take(
-        turn,
-        ~w(id session_id state target usage queued_at started_at finished_at error_code error_detail validation_attempt)
-      )
+  defp inspect_turn({:ok, turn}) do
+    Map.take(
+      turn,
+      ~w(id session_id state target usage queued_at started_at finished_at error_code error_detail validation_attempt)
+    )
+  end
 
   defp inspect_turn(error) do
     %{"inspection_error" => inspect(error, printable_limit: 2000)}
   end
 
-  defp heads,
-    do:
-      Repo.all(
-        from(k in ConversationKnowledge, order_by: k.id, select: %{id: k.id, version: k.version})
-      )
+  defp heads do
+    Repo.all(
+      from(k in ConversationKnowledge, order_by: k.id, select: %{id: k.id, version: k.version})
+    )
+  end
 
   defp check(:new_topic, before, after_heads), do: length(after_heads) == length(before) + 1
   defp check(:no_change, before, after_heads), do: before == after_heads
@@ -606,20 +604,20 @@ defmodule Ryker.Evals.LearningRunner do
 
   defp check(:matched_topic, _before, after_heads), do: after_heads != []
 
-  defp check(:same_topic, before, after_heads),
-    do:
-      before != [] and
-        Enum.map(before, & &1.id) == Enum.map(after_heads, & &1.id) and
-        Enum.zip(before, after_heads)
-        |> Enum.any?(fn {old, current} -> current.version == old.version + 1 end)
+  defp check(:same_topic, before, after_heads) do
+    before != [] and
+      Enum.map(before, & &1.id) == Enum.map(after_heads, & &1.id) and
+      Enum.zip(before, after_heads)
+      |> Enum.any?(fn {old, current} -> current.version == old.version + 1 end)
+  end
 
-  defp semantic_review(:later_occurrence),
-    do:
-      "required; a maintained service topic or distinct occurrence topic is valid, but the earlier resolution must not establish recovery of the later firing occurrence; review the exact source chronology and retained answer"
+  defp semantic_review(:later_occurrence) do
+    "required; a maintained service topic or distinct occurrence topic is valid, but the earlier resolution must not establish recovery of the later firing occurrence; review the exact source chronology and retained answer"
+  end
 
-  defp semantic_review(:matched_topic),
-    do:
-      "required; after the proven match correction a fresh judgment may update the offered topic or make no redundant change; a distinct creation needs independent semantic justification"
+  defp semantic_review(:matched_topic) do
+    "required; after the proven match correction a fresh judgment may update the offered topic or make no redundant change; a distinct creation needs independent semantic justification"
+  end
 
   defp semantic_review(_expectation),
     do: "required; structural checks do not prove the model's factual interpretation"
@@ -627,10 +625,10 @@ defmodule Ryker.Evals.LearningRunner do
   defp documents(schema),
     do: Repo.all(from(item in schema, order_by: [asc: item.inserted_at])) |> Enum.map(&document/1)
 
-  defp document(record),
-    do:
-      Map.take(record, record.__struct__.__schema__(:fields))
-      |> Map.new(fn {key, value} -> {Atom.to_string(key), printable(value)} end)
+  defp document(record) do
+    Map.take(record, record.__struct__.__schema__(:fields))
+    |> Map.new(fn {key, value} -> {Atom.to_string(key), printable(value)} end)
+  end
 
   defp printable(%DateTime{} = value), do: DateTime.to_iso8601(value)
 

@@ -1,6 +1,5 @@
 defmodule Ryker.CanonicalJSON.TypeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.CanonicalJSON.Type
 
   test "casts, dumps, and loads only valid canonical JSON" do

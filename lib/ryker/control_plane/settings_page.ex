@@ -21,24 +21,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
   """
 
   use Phoenix.Component
-
   alias Ryker.BundledCoop
-
-  alias Ryker.ControlPlane.{
-    Components,
-    Environments,
-    EnvironmentsPage,
-    Integrations,
-    Kit,
-    Paths,
-    SettingsEditor,
-    SettingsRows,
-    SettingsSections,
-    SetupPage,
-    SlackMarkdown,
-    WebhookPreview
-  }
-
+  alias Ryker.ControlPlane.{Components, Environments, EnvironmentsPage, Integrations, Kit, Paths}
+  alias Ryker.ControlPlane.{SettingsEditor, SettingsRows, SettingsSections, SetupPage}
+  alias Ryker.ControlPlane.{SlackMarkdown, WebhookPreview}
   alias Ryker.Settings
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
@@ -898,9 +884,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
   defp github_events(%{received: received, unreadable: 0}),
     do: "#{Integrations.count(received, "event")} in the last day."
 
-  defp github_events(%{received: received, unreadable: unreadable}),
-    do:
-      "#{Integrations.count(received, "event")} in the last day, #{unreadable} couldn't be read."
+  defp github_events(%{received: received, unreadable: unreadable}) do
+    "#{Integrations.count(received, "event")} in the last day, #{unreadable} couldn't be read."
+  end
 
   attr(:view, :map, required: true)
   attr(:commands, :map, required: true)
@@ -1829,16 +1815,15 @@ defmodule Ryker.ControlPlane.SettingsPage do
     %{
       title: "Advanced",
       description:
-        if(BundledCoop.distribution?(),
-          do:
-            worker <>
-              " The bundled worker on this host is set up for you; change these only if you " <>
-              "run your own workers.",
-          else:
-            worker <>
-              " This installation uses workers you run yourself; choose their install below. " <>
-              "Ryker supplies the code and settings for each job."
-        )
+        if BundledCoop.distribution?() do
+          worker <>
+            " The bundled worker on this host is set up for you; change these only if you " <>
+            "run your own workers."
+        else
+          worker <>
+            " This installation uses workers you run yourself; choose their install below. " <>
+            "Ryker supplies the code and settings for each job."
+        end
     }
   end
 end

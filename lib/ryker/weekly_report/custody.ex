@@ -17,7 +17,6 @@ defmodule Ryker.WeeklyReport.Custody do
   """
 
   import Ecto.Query
-
   alias Ryker.Delivery.Request
   alias Ryker.Repo
   alias Ryker.UTCDateTime

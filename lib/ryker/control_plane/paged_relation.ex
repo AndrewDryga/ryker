@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.PagedRelation do
   """
 
   import Ecto.Query
-
   alias Ryker.Repo
 
   @page_size 25

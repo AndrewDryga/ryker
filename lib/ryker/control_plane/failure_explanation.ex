@@ -494,13 +494,13 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp retention_affects(%{ready_state: :retired}),
     do: "Nobody is waiting on it. No message used this session, so this is only Ryker tidying up."
 
-  defp retention_affects(%{execution_kind: :learning}),
-    do:
-      "Nobody is waiting on it. Background learning has no requester, and this cleanup came after its work."
+  defp retention_affects(%{execution_kind: :learning}) do
+    "Nobody is waiting on it. Background learning has no requester, and this cleanup came after its work."
+  end
 
-  defp retention_affects(%{execution_kind: :improvement}),
-    do:
-      "Nobody is waiting on it. Self-analysis has no requester, and this cleanup came after its work."
+  defp retention_affects(%{execution_kind: :improvement}) do
+    "Nobody is waiting on it. Self-analysis has no requester, and this cleanup came after its work."
+  end
 
   defp retention_affects(%{request_state: :complete}),
     do: "Nobody is waiting on it. The request is complete, so this is only Ryker tidying up."
@@ -508,9 +508,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp retention_affects(%{request_state: :cancelled}),
     do: "Nobody is waiting on it. The request was stopped, so this is only Ryker tidying up."
 
-  defp retention_affects(_row),
-    do:
-      "The request is not waiting on this cleanup. It only tidies up a session the request no longer uses."
+  defp retention_affects(_row) do
+    "The request is not waiting on this cleanup. It only tidies up a session the request no longer uses."
+  end
 
   defp retention_happened(row, thing) do
     after_what =
@@ -533,9 +533,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp phase_name(phase), do: phase |> phase_step() |> String.capitalize()
 
-  defp cleanup_stop_reason,
-    do:
-      "Ryker keeps retrying cleanup while a worker is offline, busy or slow to answer. It stops at once when the worker refuses for a reason a retry can't change, and it only removes files it can prove belong to this session."
+  defp cleanup_stop_reason do
+    "Ryker keeps retrying cleanup while a worker is offline, busy or slow to answer. It stops at once when the worker refuses for a reason a retry can't change, and it only removes files it can prove belong to this session."
+  end
 
   defp retention_cause(%{summary: code} = row)
        when code in ["retention_generation_spent", "coop_mutation_response_unresolved"] do
@@ -650,16 +650,16 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       " A run counts as stopped only when its worker says so, and that answer has not come."
   end
 
-  defp stopping_affects(%{stop_intent: "transfer"}),
-    do:
-      "The person who wrote the newest message has no answer yet: Ryker takes it up only after the last run stops."
+  defp stopping_affects(%{stop_intent: "transfer"}) do
+    "The person who wrote the newest message has no answer yet: Ryker takes it up only after the last run stops."
+  end
 
   defp stopping_affects(%{stop_intent: "cancel"}),
     do: "The request stays open, and its run may still be using the worker."
 
-  defp stopping_affects(_row),
-    do:
-      "The person who asked has no answer, and the task cannot be run again until its run stops."
+  defp stopping_affects(_row) do
+    "The person who asked has no answer, and the task cannot be run again until its run stops."
+  end
 
   defp stopping_cause(%{worker: %{enrolled: false} = worker}, _now) do
     cause(
@@ -883,20 +883,20 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp work_affected(_brief), do: "The person who asked has no answer yet."
 
-  defp work_affects(%{kind: :completion}),
-    do:
-      "The person who asked is waiting for an answer the worker already wrote. It stays saved, unsent, until the result is saved."
+  defp work_affects(%{kind: :completion}) do
+    "The person who asked is waiting for an answer the worker already wrote. It stays saved, unsent, until the result is saved."
+  end
 
-  defp work_affects(_brief),
-    do:
-      "The person who asked has no answer yet, and nothing was posted to say the task stopped. The request stays open."
+  defp work_affects(_brief) do
+    "The person who asked has no answer yet, and nothing was posted to say the task stopped. The request stays open."
+  end
 
   defp work_happened(%{stop_code: "operator_stop"}, _brief),
     do: "Someone pressed Stop on this task while it was running."
 
-  defp work_happened(_row, %{kind: :completion}),
-    do:
-      "The worker finished the task and wrote its answer. Ryker then began saving the result, and that stopped."
+  defp work_happened(_row, %{kind: :completion}) do
+    "The worker finished the task and wrote its answer. Ryker then began saving the result, and that stopped."
+  end
 
   defp work_happened(_row, %{not_started: true}),
     do: "Ryker could not start the approved code changes, so no files changed and no checks ran."
@@ -909,35 +909,35 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp work_happened(_row, _brief), do: "The task stopped before the worker finished it."
 
-  defp work_tried(_row, %{kind: :completion}),
-    do:
-      "Ryker does not retry saving a finished result on its own: it stops at the first failure so finished work is never redone or lost."
+  defp work_tried(_row, %{kind: :completion}) do
+    "Ryker does not retry saving a finished result on its own: it stops at the first failure so finished work is never redone or lost."
+  end
 
-  defp work_tried(%{stop_code: "work_retry_exhausted" <> _}, _brief),
-    do:
-      "Ryker retried eight times over about two minutes, the most it tries on its own, and then stopped. A reply in the thread also starts the task again."
+  defp work_tried(%{stop_code: "work_retry_exhausted" <> _}, _brief) do
+    "Ryker retried eight times over about two minutes, the most it tries on its own, and then stopped. A reply in the thread also starts the task again."
+  end
 
-  defp work_tried(%{stop_code: "operator_stop"}, _brief),
-    do:
-      "Ryker does not restart a task someone stopped. A reply in the thread, or the button below, starts it again."
+  defp work_tried(%{stop_code: "operator_stop"}, _brief) do
+    "Ryker does not restart a task someone stopped. A reply in the thread, or the button below, starts it again."
+  end
 
   defp work_tried(
          %{stop_code: "destination_paused" <> _, paused_room: %{channel_state: :deleted}},
          _brief
-       ),
-       do:
-         "Ryker closes the request on its own, the way Close request does, and says so in the alert thread the room was opened from."
+       ) do
+    "Ryker closes the request on its own, the way Close request does, and says so in the alert thread the room was opened from."
+  end
 
   defp work_tried(%{stop_code: "destination_paused" <> _}, _brief),
     do: "Ryker resumes it on its own when the incident room is active again."
 
-  defp work_tried(_row, _brief),
-    do:
-      "Ryker retries a worker that is unreachable or slow up to eight times. It stopped at once here because a retry could not change the cause. A reply in the thread also starts the task again."
+  defp work_tried(_row, _brief) do
+    "Ryker retries a worker that is unreachable or slow up to eight times. It stopped at once here because a retry could not change the cause. A reply in the thread also starts the task again."
+  end
 
-  defp work_left(_row, %{kind: :completion}),
-    do:
-      "The finished answer stays saved but unsent, the worker keeps the session open, and the request stays open. Ryker will not retry on its own."
+  defp work_left(_row, %{kind: :completion}) do
+    "The finished answer stays saved but unsent, the worker keeps the session open, and the request stays open. Ryker will not retry on its own."
+  end
 
   defp work_left(
          %{stop_code: "destination_paused" <> _, paused_room: %{channel_state: :deleted}},
@@ -948,9 +948,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp work_left(%{stop_code: "destination_paused" <> _}, _brief),
     do: "Ryker resumes the task when the incident room is active again."
 
-  defp work_left(_row, _brief),
-    do:
-      "The request stays open and the person gets no answer. Ryker will not retry on its own, but a new reply in the thread starts the task again. The worker keeps the stopped run's files until the request ends."
+  defp work_left(_row, _brief) do
+    "The request stays open and the person gets no answer. Ryker will not retry on its own, but a new reply in the thread starts the task again. The worker keeps the stopped run's files until the request ends."
+  end
 
   defp work_cause(_row, %{not_started: true, action: nil} = brief) do
     cause(
@@ -1088,10 +1088,11 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp work_depends(%{stop_code: "work_turn_terminal"}, %{explained: true, cause: cause})
        when is_binary(cause) do
-    if String.contains?(cause, "sign-in"),
-      do:
-        "It works once the worker is signed in to its model account again. Ryker cannot see that from here.",
-      else: "It works if the condition the worker named has been corrected."
+    if String.contains?(cause, "sign-in") do
+      "It works once the worker is signed in to its model account again. Ryker cannot see that from here."
+    else
+      "It works if the condition the worker named has been corrected."
+    end
   end
 
   defp work_depends(_row, %{explained: true}),
@@ -1223,9 +1224,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "Ryker decides again how to respond to the same message: it picks up the same run if the worker still has it, or decides afresh from the conversation as it is now. Any reply goes to the original thread, however late#{late(row, now)}. While it runs, newer messages in the channel wait behind it."
     }
 
-  defp admission_tried(%{summary: "coop_turn_stopped"}),
-    do:
-      "Ryker read it again with a fresh run eight times over about two minutes, holding newer messages in the channel behind this one. The worker stopped every run, so Ryker stopped so they could go ahead."
+  defp admission_tried(%{summary: "coop_turn_stopped"}) do
+    "Ryker read it again with a fresh run eight times over about two minutes, holding newer messages in the channel behind this one. The worker stopped every run, so Ryker stopped so they could go ahead."
+  end
 
   defp admission_tried(%{summary: code})
        when code in [
@@ -1235,13 +1236,13 @@ defmodule Ryker.ControlPlane.FailureExplanation do
               "coop_worker_capacity_unavailable",
               "context_stale",
               "admission_rejected"
-            ],
-       do:
-         "Ryker retried eight times over about two minutes, holding newer messages in the channel behind this one, then stopped so they could go ahead."
+            ] do
+    "Ryker retried eight times over about two minutes, holding newer messages in the channel behind this one, then stopped so they could go ahead."
+  end
 
-  defp admission_tried(_row),
-    do:
-      "Ryker stopped at once: a retry could not change the cause, and waiting would have held up newer messages in the channel."
+  defp admission_tried(_row) do
+    "Ryker stopped at once: a retry could not change the cause, and waiting would have held up newer messages in the channel."
+  end
 
   # Every run reading it was stopped on the worker through the whole retry
   # budget. Why is on the worker; a retry starts one more fresh run.
@@ -1320,11 +1321,11 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       cause,
       "The model run that reads the message failed, and the worker had already tried its fallbacks.",
       :unknown,
-      if(String.contains?(cause, "sign-in"),
-        do:
-          "It works once the worker is signed in to its model account again. Ryker cannot see that from here.",
-        else: "It works if the condition named above has been corrected."
-      )
+      if(String.contains?(cause, "sign-in")) do
+        "It works once the worker is signed in to its model account again. Ryker cannot see that from here."
+      else
+        "It works if the condition named above has been corrected."
+      end
     )
   end
 
@@ -1520,14 +1521,14 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp slack_refusal(code, row, slack, _fallback) when code in @auth_errors,
     do: slack_auth(row, slack, "Slack no longer accepts Ryker's sign-in (#{words(code)}).")
 
-  defp slack_refusal("missing_scope", row, slack, _fallback),
-    do:
-      slack_auth(
-        row,
-        slack,
-        "Ryker's Slack app is missing a permission it needs for this.",
-        "Reinstall the Slack app with the permissions Ryker asks for"
-      )
+  defp slack_refusal("missing_scope", row, slack, _fallback) do
+    slack_auth(
+      row,
+      slack,
+      "Ryker's Slack app is missing a permission it needs for this.",
+      "Reinstall the Slack app with the permissions Ryker asks for"
+    )
+  end
 
   defp slack_refusal("is_archived", row, _slack, _fallback) do
     cause(
@@ -1659,10 +1660,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   end
 
   defp slack_channel_url(workspace, channel) do
-    if Regex.match?(~r/\A[A-Z0-9]+\z/, workspace) and Regex.match?(~r/\A[A-Z0-9]+\z/, channel),
-      do:
-        "https://slack.com/app_redirect?" <>
-          URI.encode_query(team: workspace, channel: channel)
+    if Regex.match?(~r/\A[A-Z0-9]+\z/, workspace) and Regex.match?(~r/\A[A-Z0-9]+\z/, channel) do
+      "https://slack.com/app_redirect?" <>
+        URI.encode_query(team: workspace, channel: channel)
+    end
   end
 
   # --- Slack message updates -------------------------------------------------
@@ -2281,9 +2282,9 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp action_words(_row), do: "an action"
 
   defp expired_words(%DateTime{} = expires, now) do
-    if DateTime.compare(expires, now) == :lt,
-      do:
-        "The approval window ended #{ShortTime.text(expires, now)}; Emisar has settled it without Ryker."
+    if DateTime.compare(expires, now) == :lt do
+      "The approval window ended #{ShortTime.text(expires, now)}; Emisar has settled it without Ryker."
+    end
   end
 
   defp expired_words(_expires, _now), do: nil
@@ -2483,60 +2484,60 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     }
 
   # Every start was used: the last attempt's own error says why, in words.
-  defp learning_cause(%{summary: "learning_retry_exhausted"} = row),
-    do:
-      cause(
-        "Every start it was given was used, and each attempt stopped.",
-        attempt_error_words(row[:attempt_error]),
-        :unknown,
-        "Another start works if what stopped the attempts has changed."
-      )
+  defp learning_cause(%{summary: "learning_retry_exhausted"} = row) do
+    cause(
+      "Every start it was given was used, and each attempt stopped.",
+      attempt_error_words(row[:attempt_error]),
+      :unknown,
+      "Another start works if what stopped the attempts has changed."
+    )
+  end
 
   defp learning_cause(%{summary: "knowledge_target_unavailable", relearn_path: path})
-       when is_binary(path),
-       do:
-         cause(
-           "A learned topic these messages would update lost the messages it was learned from.",
-           "Ryker does not change a topic whose own messages changed, were removed or expired, so every attempt stopped on it.",
-           :fix_first,
-           "Another start stops the same way until the topic is relearned from messages that still exist."
-         )
+       when is_binary(path) do
+    cause(
+      "A learned topic these messages would update lost the messages it was learned from.",
+      "Ryker does not change a topic whose own messages changed, were removed or expired, so every attempt stopped on it.",
+      :fix_first,
+      "Another start stops the same way until the topic is relearned from messages that still exist."
+    )
+  end
 
-  defp learning_cause(%{summary: "knowledge_target_unavailable"}),
-    do:
-      cause(
-        "The topic it stopped on has been relearned or forgotten since.",
-        "A learned topic these messages would update had lost the messages it was learned from. It has since been relearned from messages that still exist, or forgotten.",
-        :ready,
-        "One more start can now read these messages."
-      )
+  defp learning_cause(%{summary: "knowledge_target_unavailable"}) do
+    cause(
+      "The topic it stopped on has been relearned or forgotten since.",
+      "A learned topic these messages would update had lost the messages it was learned from. It has since been relearned from messages that still exist, or forgotten.",
+      :ready,
+      "One more start can now read these messages."
+    )
+  end
 
-  defp learning_cause(%{summary: "knowledge_match_ambiguous"}),
-    do:
-      cause(
-        "More than one learned topic fits these messages.",
-        "The messages matched more learned topics than Ryker can safely choose between.",
-        :unknown,
-        "Another start may settle on one topic; each attempt says which topics fit."
-      )
+  defp learning_cause(%{summary: "knowledge_match_ambiguous"}) do
+    cause(
+      "More than one learned topic fits these messages.",
+      "The messages matched more learned topics than Ryker can safely choose between.",
+      :unknown,
+      "Another start may settle on one topic; each attempt says which topics fit."
+    )
+  end
 
-  defp learning_cause(%{summary: "learning_capacity_exceeded"}),
-    do:
-      cause(
-        "These messages and the history they build on are too large to learn from at once.",
-        "One learning request has a size limit, and these messages with the topic history they extend go over it.",
-        :stuck,
-        "Another start reads the same messages and stops the same way."
-      )
+  defp learning_cause(%{summary: "learning_capacity_exceeded"}) do
+    cause(
+      "These messages and the history they build on are too large to learn from at once.",
+      "One learning request has a size limit, and these messages with the topic history they extend go over it.",
+      :stuck,
+      "Another start reads the same messages and stops the same way."
+    )
+  end
 
-  defp learning_cause(_row),
-    do:
-      cause(
-        "Learning could not finish.",
-        "The attempts stopped without a change Ryker could save.",
-        :unknown,
-        "Each attempt on the Learning page says what stopped it."
-      )
+  defp learning_cause(_row) do
+    cause(
+      "Learning could not finish.",
+      "The attempts stopped without a change Ryker could save.",
+      :unknown,
+      "Each attempt on the Learning page says what stopped it."
+    )
+  end
 
   # --- Anything else ---------------------------------------------------------
 

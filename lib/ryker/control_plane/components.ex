@@ -1,7 +1,6 @@
 defmodule Ryker.ControlPlane.Components do
   @moduledoc "Shared, accessible primitives for the operator workspace."
   use Phoenix.Component
-
   import Phoenix.HTML.Form, only: [options_for_select: 2]
   alias Phoenix.HTML.Safe
   alias Phoenix.LiveView.JS

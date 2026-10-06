@@ -15,21 +15,8 @@ defmodule Ryker.Episodes do
   """
 
   import Ecto.Query
-
-  alias Ryker.Episodes.{
-    Command,
-    ConversationLock,
-    CorrelationClaims,
-    Episode,
-    EpisodeChangeset,
-    Event,
-    EventChangeset,
-    Kernel,
-    Origins,
-    RoutingDigests,
-    Transition
-  }
-
+  alias Ryker.Episodes.{Command, ConversationLock, CorrelationClaims, Episode, EpisodeChangeset}
+  alias Ryker.Episodes.{Event, EventChangeset, Kernel, Origins, RoutingDigests, Transition}
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Work.Turn
@@ -338,9 +325,9 @@ defmodule Ryker.Episodes do
   """
   @spec broadcast_conversation_updated(String.t() | nil, String.t() | nil) :: :ok
   def broadcast_conversation_updated(transport, conversation_ref)
-      when is_binary(transport) and is_binary(conversation_ref),
-      do:
-        Repo.after_commit(fn -> broadcast_committed_conversation(transport, conversation_ref) end)
+      when is_binary(transport) and is_binary(conversation_ref) do
+    Repo.after_commit(fn -> broadcast_committed_conversation(transport, conversation_ref) end)
+  end
 
   def broadcast_conversation_updated(_transport, _conversation_ref), do: :ok
 

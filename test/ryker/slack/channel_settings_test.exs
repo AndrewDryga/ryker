@@ -1,18 +1,11 @@
 defmodule Ryker.Slack.ChannelSettingsTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Repo
   alias Ryker.Settings
-
-  alias Ryker.Slack.{
-    ChannelConfiguration,
-    ChannelConfigurationChangeset,
-    ChannelSettingAudit,
-    ChannelSettings
-  }
+  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurationChangeset, ChannelSettingAudit}
+  alias Ryker.Slack.ChannelSettings
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @workspace "T79ED658E769C"

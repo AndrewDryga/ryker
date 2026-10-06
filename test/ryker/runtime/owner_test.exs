@@ -1,7 +1,6 @@
 defmodule Ryker.Runtime.OwnerTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.{Bootstrap, Credentials, Repo, Settings}
   alias Ryker.ControlPlane.Endpoint

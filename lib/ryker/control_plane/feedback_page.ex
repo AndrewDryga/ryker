@@ -23,21 +23,10 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   Timeline. The page redraws when feedback is recorded (`subscriptions/0`).
   """
   use Phoenix.Component
-
   import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1]
-
   alias Phoenix.HTML.Safe
-
-  alias Ryker.ControlPlane.{
-    Emoji,
-    FeedbackChart,
-    FeedbackProjection,
-    ImprovementPage,
-    Kit,
-    Paths,
-    ShortTime
-  }
-
+  alias Ryker.ControlPlane.{Emoji, FeedbackChart, FeedbackProjection, ImprovementPage, Kit, Paths}
+  alias Ryker.ControlPlane.ShortTime
   alias Ryker.Improvement
   alias Ryker.Improvement.Candidate
 
@@ -54,9 +43,9 @@ defmodule Ryker.ControlPlane.FeedbackPage do
     ]
 
   @doc "The one sentence under the page title."
-  def description,
-    do:
-      "What people told Ryker about its answers, and how they felt, with the request each one is about."
+  def description do
+    "What people told Ryker about its answers, and how they felt, with the request each one is about."
+  end
 
   @doc """
   The heading of one category's page, or nil on the page of every category:
@@ -271,9 +260,9 @@ defmodule Ryker.ControlPlane.FeedbackPage do
 
   @doc "What a category holds, in one sentence."
   @spec lede(atom()) :: String.t()
-  def lede(:frustrated),
-    do:
-      "People who were frustrated or angry with an answer, reacted to say so, or rated the request as needing work."
+  def lede(:frustrated) do
+    "People who were frustrated or angry with an answer, reacted to say so, or rated the request as needing work."
+  end
 
   def lede(:asked_again),
     do: "The same person asked the same thing again within ten minutes of the answer."
@@ -297,10 +286,10 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   def state(%{kind: :reaction_removed}),
     do: {:off, "Took back", "They removed a reaction from Ryker's message."}
 
-  def state(%{kind: :asked_again}),
-    do:
-      {:warn, "Asked again",
-       "They asked the same thing again within ten minutes of Ryker's answer."}
+  def state(%{kind: :asked_again}) do
+    {:warn, "Asked again",
+     "They asked the same thing again within ten minutes of Ryker's answer."}
+  end
 
   def state(%{kind: :message_edited}),
     do: {:warn, "Edited", "They changed their message after Ryker answered it."}
@@ -311,10 +300,10 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   def state(%{kind: :reviewed, value: "good"}),
     do: {:on, "Went well", "Someone rated how this request went."}
 
-  def state(%{kind: :reviewed, value: "needs_work"}),
-    do:
-      {:bad, "Needs work",
-       "Someone rated how this request went; Ryker works out what went wrong under Self-improvement."}
+  def state(%{kind: :reviewed, value: "needs_work"}) do
+    {:bad, "Needs work",
+     "Someone rated how this request went; Ryker works out what went wrong under Self-improvement."}
+  end
 
   @doc "What a signal is, as a card's heading on the request's Timeline."
   @spec title(map()) :: String.t()

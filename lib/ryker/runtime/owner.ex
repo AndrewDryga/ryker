@@ -25,7 +25,6 @@ defmodule Ryker.Runtime.Owner do
 
   use GenServer
   require Logger
-
   alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.Runtime.{Assembly, Child}
   alias Ryker.Slack.Client.Users, as: SlackUsers

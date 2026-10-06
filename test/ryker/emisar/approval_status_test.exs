@@ -1,6 +1,5 @@
 defmodule Ryker.Emisar.ApprovalStatusTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Emisar.{ApprovalStatus, RunState}
 
   @fixture "test/ryker/emisar/fixtures/wait_for_run_review_v1.json"

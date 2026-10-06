@@ -7,9 +7,7 @@ defmodule Ryker.ControlPlane.CloudflareAccessTest do
   nobody.
   """
   use ExUnit.Case, async: true
-
   import Plug.Conn, only: [put_req_header: 3]
-
   alias Ryker.ControlPlane.{BrowserGuard, CloudflareAccess, Viewer}
 
   setup do

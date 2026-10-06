@@ -1,9 +1,7 @@
 defmodule Ryker.ObservabilityTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Plug.Test
-
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.ControlPlane.Router

@@ -1,24 +1,13 @@
 defmodule Ryker.Work.CustodyConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   import Ecto.Query
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Repo
-
-  alias Ryker.Work.{
-    Activity,
-    ActivityEvent,
-    Cancellation,
-    Custody,
-    OperationKeys,
-    Session,
-    Submission,
-    Turn
-  }
+  alias Ryker.Work.{Activity, ActivityEvent, Cancellation, Custody, OperationKeys, Session}
+  alias Ryker.Work.{Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 

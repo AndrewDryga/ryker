@@ -1,8 +1,6 @@
 defmodule Ryker.RepositoryKnowledge.LaneTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.RepositoryProjection
   alias Ryker.GitHub.Onboarding
@@ -611,12 +609,12 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     entry
   end
 
-  defp applied_runs,
-    do:
-      Repo.aggregate(
-        from(run in Run, where: run.repository_ref == "emisar" and run.status == :applied),
-        :count
-      )
+  defp applied_runs do
+    Repo.aggregate(
+      from(run in Run, where: run.repository_ref == "emisar" and run.status == :applied),
+      :count
+    )
+  end
 
   defp due!,
     do: Repo.update_all(Entry, set: [next_check_at: DateTime.add(DateTime.utc_now(), -60)])

@@ -1,21 +1,18 @@
 defmodule Ryker.Knowledge.KnowledgeRebuildConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.{CanonicalJSON, Episodes, Repo}
+  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.Inbox.Entry
-
-  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
-
   alias Ryker.Work.{Custody, Session, Turn}
 
   test "a compact summary cannot cross a concurrent generation replacement without current custody" do

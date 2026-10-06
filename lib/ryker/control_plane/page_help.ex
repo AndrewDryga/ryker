@@ -27,7 +27,6 @@ defmodule Ryker.ControlPlane.PageHelp do
   `page-help.mjs` after), so both are rendered closed here.
   """
   use Phoenix.Component
-
   alias Ryker.ControlPlane.{Components, Integrations}
 
   @type section :: %{heading: String.t(), paragraphs: [String.t()]}

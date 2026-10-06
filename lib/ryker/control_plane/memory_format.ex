@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.MemoryFormat do
   so a link or a time inside the facts line is escaped once, in one place.
   """
   use Phoenix.Component
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, ShortTime, SlackMarkdown}
 
@@ -64,16 +63,16 @@ defmodule Ryker.ControlPlane.MemoryFormat do
 
   def external(label, "/" <> _ = href), do: link(label, href)
 
-  def external(label, href),
-    do:
-      {:safe,
-       [
-         "<a href=\"",
-         escape(href),
-         "\" target=\"_blank\" rel=\"noopener noreferrer\">",
-         escape(label),
-         " ↗</a>"
-       ]}
+  def external(label, href) do
+    {:safe,
+     [
+       "<a href=\"",
+       escape(href),
+       "\" target=\"_blank\" rel=\"noopener noreferrer\">",
+       escape(label),
+       " ↗</a>"
+     ]}
+  end
 
   @doc "Words with one reference emphasised, e.g. \"In <strong>#payments</strong>\"."
   def with_ref(prefix, ref), do: {:safe, [escape(prefix), "<strong>", escape(ref), "</strong>"]}

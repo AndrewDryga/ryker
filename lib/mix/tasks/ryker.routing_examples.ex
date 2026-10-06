@@ -10,7 +10,6 @@ defmodule Mix.Tasks.Ryker.RoutingExamples do
   """
 
   use Mix.Task
-
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.RoutingExamples.Export
 

@@ -7,14 +7,8 @@ defmodule Ryker.Operator.Delivery do
   """
 
   import Ecto.Query
-
-  alias Ryker.Delivery.{
-    PlatformAction,
-    PlatformActionCustody,
-    RoutingResponse,
-    RoutingResponseCustody
-  }
-
+  alias Ryker.Delivery.{PlatformAction, PlatformActionCustody, RoutingResponse}
+  alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.{Reference, Repo}
   alias Ryker.WeeklyReport.Custody, as: ReportCustody
   alias Ryker.WeeklyReport.Report

@@ -5,9 +5,7 @@ defmodule Ryker.ControlPlane.SetupPageTest do
   pages only decide what a person sees next.
   """
   use ExUnit.Case, async: true
-
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Integrations, SettingsPage, SettingsView, SetupPage}
 
   @steps [:slack, :github, :repositories, :invited, :channel_environment, :request]
@@ -449,14 +447,14 @@ defmodule Ryker.ControlPlane.SetupPageTest do
       application: :applied,
       applying: false,
       credentials:
-        if(:slack in done,
-          do:
-            for(
-              kind <- [:slack_app, :slack_bot],
-              do: %{kind: kind, verification_status: :verified}
-            ),
-          else: []
-        ),
+        if(:slack in done) do
+          for(
+            kind <- [:slack_app, :slack_bot],
+            do: %{kind: kind, verification_status: :verified}
+          )
+        else
+          []
+        end,
       github_connection: github_connection,
       readiness: %{slack: %{state: :ready}, left_out: %{}},
       snapshot: %{

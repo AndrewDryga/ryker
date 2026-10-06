@@ -1,6 +1,5 @@
 defmodule Ryker.BootstrapTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Bootstrap
 
   @database "ecto://ryker:database-secret@localhost/ryker"

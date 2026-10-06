@@ -1,11 +1,9 @@
 defmodule Ryker.Knowledge.KnowledgeRetentionShapeTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.CanonicalJSON
-  alias Ryker.Fixtures.Learning, as: LearningFixtures
-
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Knowledge.KnowledgeRetention
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources

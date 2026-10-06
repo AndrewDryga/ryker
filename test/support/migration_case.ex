@@ -17,7 +17,6 @@ defmodule Ryker.MigrationCase do
   (2026-10-04 review).
   """
   use ExUnit.CaseTemplate
-
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
 
@@ -70,23 +69,23 @@ defmodule Ryker.MigrationCase do
 
   @doc "Migrates the scratch schema `prefix` up to `version`; the versions it ran."
   @spec migrate!(module(), String.t(), pos_integer()) :: [pos_integer()]
-  def migrate!(repo, prefix, version),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
-        to: version,
-        prefix: prefix,
-        log: false
-      )
+  def migrate!(repo, prefix, version) do
+    Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :up,
+      to: version,
+      prefix: prefix,
+      log: false
+    )
+  end
 
   @doc "Rolls the scratch schema `prefix` back by one migration; the version it undid."
   @spec rollback!(module(), String.t()) :: [pos_integer()]
-  def rollback!(repo, prefix),
-    do:
-      Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
-        step: 1,
-        prefix: prefix,
-        log: false
-      )
+  def rollback!(repo, prefix) do
+    Ecto.Migrator.run(repo, Ryker.TestMigrations.all(), :down,
+      step: 1,
+      prefix: prefix,
+      log: false
+    )
+  end
 
   @doc "Runs the migration at `version` up inside the test's sandbox transaction."
   @spec migrate_up(pos_integer()) :: :ok | :already_up

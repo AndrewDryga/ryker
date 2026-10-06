@@ -77,12 +77,12 @@ defmodule Ryker.ControlPlane.Units do
     end
   end
 
-  defp one_place(value),
-    do:
-      value
-      |> Float.round(1)
-      |> :erlang.float_to_binary(decimals: 1)
-      |> String.trim_trailing(".0")
+  defp one_place(value) do
+    value
+    |> Float.round(1)
+    |> :erlang.float_to_binary(decimals: 1)
+    |> String.trim_trailing(".0")
+  end
 
   defp joined(whole, unit, 0, _part_unit), do: "#{whole} #{unit}"
   defp joined(whole, unit, part, part_unit), do: "#{whole} #{unit} #{part} #{part_unit}"

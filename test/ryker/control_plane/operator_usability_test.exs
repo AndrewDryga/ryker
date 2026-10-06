@@ -1,19 +1,10 @@
 defmodule Ryker.ControlPlane.OperatorUsabilityTest do
   alias Ryker.ControlPlane.UsageChart
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [outline: 2]
   import Phoenix.LiveViewTest, only: [render_component: 2]
-
-  alias Ryker.ControlPlane.{
-    BehaviorPage,
-    FailureExplanation,
-    FailuresPage,
-    FindingsPage,
-    RepositoriesPage,
-    SubscriptionsPage
-  }
-
+  alias Ryker.ControlPlane.{BehaviorPage, FailureExplanation, FailuresPage, FindingsPage}
+  alias Ryker.ControlPlane.{RepositoriesPage, SubscriptionsPage}
   alias Ryker.Work.FailureCause
 
   @now ~U[2026-09-24 12:00:00Z]

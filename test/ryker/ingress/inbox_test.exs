@@ -1,8 +1,6 @@
 defmodule Ryker.Ingress.InboxTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Artifacts
   alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Ingress.Inbox

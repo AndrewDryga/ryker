@@ -1,10 +1,7 @@
 defmodule Ryker.RepositoryKnowledge.WorkerTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
-
   import Ecto.Query
-
   alias Ryker.GitHub.Onboarding
   alias Ryker.{RepositoryKnowledge, Settings}
   alias Ryker.RepositoryKnowledge.{Entry, Worker}

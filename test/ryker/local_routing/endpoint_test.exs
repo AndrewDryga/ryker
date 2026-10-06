@@ -1,6 +1,5 @@
 defmodule Ryker.LocalRouting.EndpointTest do
   use ExUnit.Case, async: true
-
   alias Ryker.LocalRouting.Endpoint
 
   # Every routing prompt holds a person's message and the conversation around

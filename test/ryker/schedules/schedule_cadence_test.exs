@@ -5,7 +5,6 @@ defmodule Ryker.Schedules.ScheduleCadenceTest do
   comment all read the stored recurrence through this one function.
   """
   use ExUnit.Case, async: true
-
   alias Ryker.Schedules.ScheduleCadence
 
   test "a recurrence reads as words in the schedule's own time zone" do

@@ -1,8 +1,6 @@
 defmodule Ryker.Episodes.RoutingDigestsTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, RoutingDigests}
   alias Ryker.Ingress.Input

@@ -7,7 +7,6 @@ defmodule Ryker.GitHub.CapabilityTools do
   """
 
   import Ecto.Query
-
   alias Ryker.Delivery.PlatformActionCustody
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.GitHub.SourceRef
@@ -789,11 +788,11 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   defp review_comment?(
          %{"body" => body, "line" => line, "path" => path, "side" => side} = comment
-       ),
-       do:
-         Enum.sort(Map.keys(comment)) == ~w(body line path side) and is_binary(body) and
-           byte_size(body) in 1..12_000 and is_integer(line) and line > 0 and is_binary(path) and
-           byte_size(path) in 1..1_024 and side in ["LEFT", "RIGHT"]
+       ) do
+    Enum.sort(Map.keys(comment)) == ~w(body line path side) and is_binary(body) and
+      byte_size(body) in 1..12_000 and is_integer(line) and line > 0 and is_binary(path) and
+      byte_size(path) in 1..1_024 and side in ["LEFT", "RIGHT"]
+  end
 
   defp review_comment?(_comment), do: false
 

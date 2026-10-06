@@ -15,49 +15,15 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   """
   use Phoenix.LiveView, layout: false
   require Logger
-
   alias Phoenix.HTML.Safe
-
+  alias Ryker.ControlPlane.{Activity, ActivityPage, Actor, BehaviorPage, ChannelDetail}
+  alias Ryker.ControlPlane.{ChannelPage, Components, ConfigurationGuide, ConsolePeople}
+  alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, Endpoint, Environments}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, IntegrationErrors, Integrations, Kit}
   alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
-
-  alias Ryker.ControlPlane.{
-    Activity,
-    ActivityPage,
-    Actor,
-    BehaviorPage,
-    ChannelDetail,
-    ChannelPage,
-    Components,
-    ConfigurationGuide,
-    ConsolePeople,
-    ConversationLab,
-    ConversationProjection,
-    Endpoint,
-    Environments,
-    EpisodePage,
-    EpisodeProjection,
-    IntegrationErrors,
-    Integrations,
-    Kit,
-    LabControls,
-    LabPage,
-    Navigation,
-    PageCost,
-    PageHelp,
-    PageRead,
-    Pages,
-    PathRef,
-    Paths,
-    RepositoriesPage,
-    RequestFilters,
-    Router,
-    RunningSystem,
-    SettingsPage,
-    SettingsView,
-    UsageProjection,
-    Viewer
-  }
-
+  alias Ryker.ControlPlane.{LabControls, LabPage, Navigation, PageCost, PageHelp, PageRead, Pages}
+  alias Ryker.ControlPlane.{PathRef, Paths, RepositoriesPage, RequestFilters, Router}
+  alias Ryker.ControlPlane.{RunningSystem, SettingsPage, SettingsView, UsageProjection, Viewer}
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.Retention.Data, as: RetentionData
   alias Ryker.Slack.{ChannelConfigurations, Names}
@@ -459,36 +425,36 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_async(:slack_members, {:exit, {:shutdown, :cancel}}, socket),
     do: {:noreply, socket}
 
-  def handle_async(:slack_members, {:exit, _reason}, socket),
-    do:
-      {:noreply,
-       assign(socket,
-         slack_people: nil,
-         setup_failure: "Ryker could not list the people in Slack. Choose people to try again."
-       )}
+  def handle_async(:slack_members, {:exit, _reason}, socket) do
+    {:noreply,
+     assign(socket,
+       slack_people: nil,
+       setup_failure: "Ryker could not list the people in Slack. Choose people to try again."
+     )}
+  end
 
-  def handle_async(:github_repositories, {:ok, {:ok, repositories}}, socket),
-    do:
-      {:noreply,
-       assign(socket, github_repositories: repositories, github_repository_discovery: :complete)}
+  def handle_async(:github_repositories, {:ok, {:ok, repositories}}, socket) do
+    {:noreply,
+     assign(socket, github_repositories: repositories, github_repository_discovery: :complete)}
+  end
 
-  def handle_async(:github_repositories, {:ok, {:error, reason}}, socket),
-    do:
-      {:noreply,
-       assign(socket, github_repository_discovery: {:error, IntegrationErrors.message(reason)})}
+  def handle_async(:github_repositories, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     assign(socket, github_repository_discovery: {:error, IntegrationErrors.message(reason)})}
+  end
 
   # A listing given up for the next visit's (`reset_repository_discovery/3`)
   # did not fail; it says nothing.
   def handle_async(:github_repositories, {:exit, {:shutdown, :cancel}}, socket),
     do: {:noreply, socket}
 
-  def handle_async(:github_repositories, {:exit, _reason}, socket),
-    do:
-      {:noreply,
-       assign(socket,
-         github_repository_discovery:
-           {:error, "Ryker could not list the repositories. Refresh to try again."}
-       )}
+  def handle_async(:github_repositories, {:exit, _reason}, socket) do
+    {:noreply,
+     assign(socket,
+       github_repository_discovery:
+         {:error, "Ryker could not list the repositories. Refresh to try again."}
+     )}
+  end
 
   @impl true
   def handle_event(event, _params, socket) when event in ["refresh", "show-new"],
@@ -698,10 +664,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         "slack-people-more",
         _params,
         %{assigns: %{slack_people: %{} = people}} = socket
-      ),
-      do:
-        {:noreply,
-         assign(socket, :slack_people, %{people | shown: people.shown + @slack_people_page})}
+      ) do
+    {:noreply,
+     assign(socket, :slack_people, %{people | shown: people.shown + @slack_people_page})}
+  end
 
   def handle_event("slack-people-more", _params, socket), do: {:noreply, socket}
 
@@ -774,9 +740,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       if Map.get(params, "import_mode") == "all" do
         Enum.reject(socket.assigns.github_repositories, & &1.already_present)
       else
-        Enum.filter(socket.assigns.github_repositories, fn repository ->
-          MapSet.member?(selected, to_string(repository.repository_id))
-        end)
+        Enum.filter(
+          socket.assigns.github_repositories,
+          &MapSet.member?(selected, to_string(&1.repository_id))
+        )
       end
 
     case IntegrationSetup.import_github_repositories(repositories, actor(socket),
@@ -802,13 +769,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           )
 
         {:noreply,
-         if(tone == :success,
-           do:
-             socket
-             |> assign(repository_notice: {:list, tone, message})
-             |> push_patch(to: "/repositories"),
-           else: socket |> assign(repository_notice: {:import, tone, message}) |> refresh(true)
-         )}
+         if(tone == :success) do
+           socket
+           |> assign(repository_notice: {:list, tone, message})
+           |> push_patch(to: "/repositories")
+         else
+           socket |> assign(repository_notice: {:import, tone, message}) |> refresh(true)
+         end}
 
       {:error, reason} ->
         {:noreply,
@@ -1006,15 +973,15 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # button that starts it only opens the question; the action runs when the
   # question's own button sends it, so a double click never gets past it.
   def handle_event("confirm-settings-action", %{"action" => action, "ref" => ref}, socket)
-      when action in @confirmed_settings_actions and is_binary(ref),
-      do:
-        {:noreply,
-         assign(socket, settings_confirm: {action, ref}, setup_notice: nil, setup_failure: nil)}
+      when action in @confirmed_settings_actions and is_binary(ref) do
+    {:noreply,
+     assign(socket, settings_confirm: {action, ref}, setup_notice: nil, setup_failure: nil)}
+  end
 
-  def handle_event("cancel-settings-action", _params, socket),
-    do:
-      {:noreply,
-       assign(socket, settings_confirm: nil, knowledge_question: nil, approvals_question: nil)}
+  def handle_event("cancel-settings-action", _params, socket) do
+    {:noreply,
+     assign(socket, settings_confirm: nil, knowledge_question: nil, approvals_question: nil)}
+  end
 
   def handle_event("disconnect-integration", %{"kind" => kind}, socket)
       when kind in ["slack", "github"] do
@@ -1290,10 +1257,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # what matches, and nothing is applied until a value is chosen.
   def handle_event("filter-values-search", %{"key" => key, "q" => query}, socket)
       when is_binary(query) do
-    if key in RequestFilters.keys(),
-      do:
-        {:noreply, update(socket, :filter_search, &Map.put(&1, key, String.slice(query, 0, 200)))},
-      else: {:noreply, socket}
+    if key in RequestFilters.keys() do
+      {:noreply, update(socket, :filter_search, &Map.put(&1, key, String.slice(query, 0, 200)))}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("filter-values-search", _params, socket), do: {:noreply, socket}
@@ -1492,12 +1460,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       page_title: "Activity",
       activity: Map.delete(activity, :items),
       filter_values:
-        if(reset,
-          do:
-            Activity.conversation_filter_options() ++
-              options.projection.usage_filter_options.(),
-          else: socket.assigns.filter_values
-        ),
+        if(reset) do
+          Activity.conversation_filter_options() ++
+            options.projection.usage_filter_options.()
+        else
+          socket.assigns.filter_values
+        end,
       fleet: options.projection.fleet.(),
       schedules: schedules
     )
@@ -1862,13 +1830,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   # A refusal is said in the error tone, never in the tone of a success.
-  defp failed(socket, reason),
-    do:
-      assign(socket,
-        setup_notice: nil,
-        setup_failure: IntegrationErrors.message(reason),
-        setup_reveal: nil
-      )
+  defp failed(socket, reason) do
+    assign(socket,
+      setup_notice: nil,
+      setup_failure: IntegrationErrors.message(reason),
+      setup_reveal: nil
+    )
+  end
 
   # The question is read from the repository's row as the list shows it now.
   defp ask_remove_repository(socket, ref) do
@@ -2067,16 +2035,16 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  defp leave_error(:slack_not_running),
-    do:
-      "Slack is not connected, so Ryker could not leave the channel. Connect Slack, then try again."
+  defp leave_error(:slack_not_running) do
+    "Slack is not connected, so Ryker could not leave the channel. Connect Slack, then try again."
+  end
 
   defp leave_error({:slack_api_error, "cant_leave_general"}),
     do: "Slack does not let anyone leave the workspace's general channel."
 
-  defp leave_error({:slack_api_error, "missing_scope"}),
-    do:
-      "The Slack app is missing the permission to leave channels. Update it from the manifest on the Slack page, then try again."
+  defp leave_error({:slack_api_error, "missing_scope"}) do
+    "The Slack app is missing the permission to leave channels. Update it from the manifest on the Slack page, then try again."
+  end
 
   defp leave_error(_reason),
     do: "Slack did not take Ryker out of the channel. Try again in a moment."
@@ -2129,9 +2097,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  defp welcome_not_redrawn(:slack_not_running),
-    do:
-      "Slack is not connected, so the welcome message in the channel still shows the old setting."
+  defp welcome_not_redrawn(:slack_not_running) do
+    "Slack is not connected, so the welcome message in the channel still shows the old setting."
+  end
 
   defp welcome_not_redrawn(:timeout),
     do: "Slack did not answer in time, so the welcome message may still show the old setting."
@@ -2139,9 +2107,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp welcome_not_redrawn(_refused),
     do: "Ryker could not update its welcome message in Slack, so it still shows the old setting."
 
-  defp channel_setting_error(:configuration_revision_stale),
-    do:
-      "This channel's settings changed in Slack meanwhile. The page shows them now; choose again."
+  defp channel_setting_error(:configuration_revision_stale) do
+    "This channel's settings changed in Slack meanwhile. The page shows them now; choose again."
+  end
 
   defp channel_setting_error(:configuration_not_found),
     do: "Ryker has no settings for this channel yet. Invite Ryker to the channel first."
@@ -2192,19 +2160,19 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     |> Enum.join(" ")
   end
 
-  defp retry_error(:github_access_unavailable),
-    do:
-      "Setup cannot retry while GitHub access is unavailable. Give the Ryker GitHub App access to the repository first."
+  defp retry_error(:github_access_unavailable) do
+    "Setup cannot retry while GitHub access is unavailable. Give the Ryker GitHub App access to the repository first."
+  end
 
   defp retry_error(:repository_not_found), do: "That repository is no longer added."
 
   defp retry_error(_reason),
     do: "Setup could not be retried. Reload the page and try again."
 
-  defp add_again_error({:github_repository_unreachable, name}),
-    do:
-      "The GitHub App cannot reach #{name}. Give the app access to it on GitHub, then add it " <>
-        "again."
+  defp add_again_error({:github_repository_unreachable, name}) do
+    "The GitHub App cannot reach #{name}. Give the app access to it on GitHub, then add it " <>
+      "again."
+  end
 
   defp add_again_error(:repository_not_found), do: "That repository is no longer added."
   defp add_again_error(reason), do: IntegrationErrors.message(reason)
@@ -2215,20 +2183,20 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     do: "Knowledge is written once the repository's setup has finished."
 
   defp refresh_error(reason)
-       when reason in [:github_access_unavailable, :repository_binding_missing],
-       do:
-         "Ryker cannot reach this repository on GitHub. Give the Ryker GitHub App access " <>
-           "to it, then refresh."
+       when reason in [:github_access_unavailable, :repository_binding_missing] do
+    "Ryker cannot reach this repository on GitHub. Give the Ryker GitHub App access " <>
+      "to it, then refresh."
+  end
 
   defp refresh_error(_reason),
     do: "The knowledge could not be refreshed. Reload the page and try again."
 
   defp remove_error(:repository_not_found), do: "That repository is no longer added."
 
-  defp remove_error({:environment_left_read_only, environment}),
-    do:
-      "Work in #{environment} can change only this repository. Make another of its " <>
-        "repositories read and write on the Environments page, then remove this one."
+  defp remove_error({:environment_left_read_only, environment}) do
+    "Work in #{environment} can change only this repository. Make another of its " <>
+      "repositories read and write on the Environments page, then remove this one."
+  end
 
   defp remove_error(_reason),
     do: "The repository could not be removed. Reload the page and try again."

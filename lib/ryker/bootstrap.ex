@@ -125,12 +125,12 @@ defmodule Ryker.Bootstrap do
   # the host, a box included, could open it (2026-10-04 review).
   defp control_listener!(env) do
     if value!(env, "RYKER_CONTAINER", "false") == "true" do
-      unless address!(env, "RYKER_CONTROL_BIND") in @loopback,
-        do:
-          invalid!(
-            "RYKER_CONTROL_BIND",
-            "must be loopback; publish the console through Tailscale Serve, a Cloudflare tunnel or an SSH tunnel"
-          )
+      unless address!(env, "RYKER_CONTROL_BIND") in @loopback do
+        invalid!(
+          "RYKER_CONTROL_BIND",
+          "must be loopback; publish the console through Tailscale Serve, a Cloudflare tunnel or an SSH tunnel"
+        )
+      end
 
       env
       |> listener!("RYKER_CONTROL", 4321, :network)
@@ -233,12 +233,12 @@ defmodule Ryker.Bootstrap do
     unless (uri.scheme == "https" or (uri.scheme == "http" and loopback)) and
              is_binary(uri.host) and uri.host != "" and
              Enum.all?([uri.userinfo, uri.query, uri.fragment], &is_nil/1) and
-             uri.port in 1..65_535,
-           do:
-             invalid!(
-               name,
-               "must be HTTPS, or loopback HTTP, without credentials, query or fragment"
-             )
+             uri.port in 1..65_535 do
+      invalid!(
+        name,
+        "must be HTTPS, or loopback HTTP, without credentials, query or fragment"
+      )
+    end
 
     String.trim_trailing(value, "/")
   end
@@ -268,9 +268,9 @@ defmodule Ryker.Bootstrap do
     if languages = optional(env, "RYKER_VOICE_LANGUAGES") do
       unless languages
              |> String.split([",", " "], trim: true)
-             |> Enum.all?(&Regex.match?(~r/\A[a-z]{2,3}\z/i, &1)),
-             do:
-               invalid!("RYKER_VOICE_LANGUAGES", "must list two- or three-letter language codes")
+             |> Enum.all?(&Regex.match?(~r/\A[a-z]{2,3}\z/i, &1)) do
+        invalid!("RYKER_VOICE_LANGUAGES", "must list two- or three-letter language codes")
+      end
     end
 
     :ok

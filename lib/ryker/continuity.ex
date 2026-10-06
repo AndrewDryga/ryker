@@ -67,11 +67,11 @@ defmodule Ryker.Continuity do
   `conversation_ref` changed. The continuity seams call it.
   """
   @spec broadcast_continuity_updated(String.t()) :: :ok
-  def broadcast_continuity_updated(conversation_ref),
-    do:
-      Ryker.Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(continuity_topic(), {:continuity_updated, conversation_ref})
-      end)
+  def broadcast_continuity_updated(conversation_ref) do
+    Ryker.Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(continuity_topic(), {:continuity_updated, conversation_ref})
+    end)
+  end
 
   defp continuity_topic, do: "continuity"
 end

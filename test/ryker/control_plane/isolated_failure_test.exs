@@ -9,10 +9,8 @@ defmodule Ryker.ControlPlane.IsolatedFailureTest do
   removes the evidence they came for.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
   import Phoenix.LiveViewTest
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes

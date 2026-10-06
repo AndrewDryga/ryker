@@ -1,6 +1,5 @@
 defmodule Ryker.Waits.EventWaitTimingTest do
   use ExUnit.Case, async: true
-
   alias Ryker.StateTools.FixedTools
   alias Ryker.Waits.EventWaitTiming
 

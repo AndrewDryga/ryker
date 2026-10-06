@@ -7,9 +7,7 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
   it answered could only be read from the database.
   """
   use Ryker.DataCase, async: true
-
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ImprovementRequests, ModelRequests}
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers

@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.InputTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Ingress.Input
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Slack.SourceRef

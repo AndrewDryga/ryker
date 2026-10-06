@@ -1,7 +1,6 @@
 defmodule Ryker.Slack.AttachmentIngestorTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.Admission.{Context, Prompt}
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON

@@ -12,7 +12,6 @@ defmodule Ryker.Slack.ChannelFence do
   """
 
   import Ecto.Query
-
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
 

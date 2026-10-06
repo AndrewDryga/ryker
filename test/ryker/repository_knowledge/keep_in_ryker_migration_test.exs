@@ -9,9 +9,7 @@ defmodule Ryker.RepositoryKnowledge.KeepInRykerMigrationTest do
   each document.
   """
   use Ryker.MigrationCase
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ecto.Adapters.SQL
 
   @previous_version 20_260_928_160_000

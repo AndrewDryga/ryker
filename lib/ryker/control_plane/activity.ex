@@ -2,19 +2,8 @@ defmodule Ryker.ControlPlane.Activity do
   @moduledoc "A bounded conversation-first inbox, including work not yet admitted."
   import Ecto.Query
   require Ryker.ControlPlane.CurrentInputs
-
-  alias Ryker.ControlPlane.{
-    ConversationProjection,
-    CurrentInputs,
-    PagedRelation,
-    Paths,
-    RepositoryNames,
-    Search,
-    ShortTime,
-    SlackMarkdown,
-    UsageProjection
-  }
-
+  alias Ryker.ControlPlane.{ConversationProjection, CurrentInputs, PagedRelation, Paths}
+  alias Ryker.ControlPlane.{RepositoryNames, Search, ShortTime, SlackMarkdown, UsageProjection}
   alias Ryker.Episodes.{Episode, RoutingDigest, Words}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor

@@ -11,11 +11,8 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
   only the pages' own five-second poll ever showed that it had gone.
   """
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1, eventually: 2]
-
   import Ecto.Query
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.ControlPlane.WorkerLiveness
   alias Ryker.CoopFleet.{ControlPlane, Worker}

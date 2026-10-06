@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.ShortTimeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.ShortTime
 
   @now ~U[2026-09-26 12:00:00Z]

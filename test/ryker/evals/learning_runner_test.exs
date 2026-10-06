@@ -7,12 +7,12 @@ defmodule Ryker.Evals.LearningRunnerTest do
 
   defmodule HostAPI do
     @moduledoc "Offline dispatcher plumbing: constructed contract output, never a recorded model answer."
-    def capabilities(_client),
-      do:
-        {:ok,
-         %{
-           "repository_freshness_receipt_versions" => [2]
-         }}
+    def capabilities(_client) do
+      {:ok,
+       %{
+         "repository_freshness_receipt_versions" => [2]
+       }}
+    end
 
     defdelegate operation_by_key(client, key), to: Fake
     defdelegate prepare_create_session(client, key, policy, ref, source), to: Fake
@@ -25,11 +25,11 @@ defmodule Ryker.Evals.LearningRunnerTest do
     def get_turn(client, sid, tid),
       do: in_session(client, sid, fn -> Fake.get_turn(client, sid, tid) end)
 
-    def plan_discard(client, sid, key, revision, dirty, unmerged),
-      do:
-        in_session(client, sid, fn ->
-          Fake.plan_discard(client, sid, key, revision, dirty, unmerged)
-        end)
+    def plan_discard(client, sid, key, revision, dirty, unmerged) do
+      in_session(client, sid, fn ->
+        Fake.plan_discard(client, sid, key, revision, dirty, unmerged)
+      end)
+    end
 
     def discard_session(client, sid, key, plan),
       do: in_session(client, sid, fn -> Fake.discard_session(client, sid, key, plan) end)
@@ -123,12 +123,12 @@ defmodule Ryker.Evals.LearningRunnerTest do
 
       body =
         if input["source_input_id"] in Map.get(state, :eval_no_change_input_ids, []) or
-             (state[:eval_no_change_when_offered] && old != nil),
-           do:
-             Jason.encode!(%{"updates" => [], "reason" => "Constructed host no-change output."}),
-           else:
-             get_in(state, [:eval_bodies, input["source_input_id"]]) || state[:eval_body] ||
-               body
+             (state[:eval_no_change_when_offered] && old != nil) do
+          Jason.encode!(%{"updates" => [], "reason" => "Constructed host no-change output."})
+        else
+          get_in(state, [:eval_bodies, input["source_input_id"]]) || state[:eval_body] ||
+            body
+        end
 
       Agent.update(client, &%{&1 | candidates: [body], turn: nil})
 
@@ -428,12 +428,12 @@ defmodule Ryker.Evals.LearningRunnerTest do
       # establish whether a real model interprets the correction correctly.
       sequence = LearningRunner.recorded_sequence("starfall-correction")
 
-      if unquote(release) == :no_change,
-        do:
-          Agent.update(
-            options.client,
-            &Map.put(&1, :eval_no_change_input_ids, [hd(sequence).input["id"]])
-          )
+      if unquote(release) == :no_change do
+        Agent.update(
+          options.client,
+          &Map.put(&1, :eval_no_change_input_ids, [hd(sequence).input["id"]])
+        )
+      end
 
       assert {:ok, report} = LearningRunner.run(sequence, options)
 
@@ -499,12 +499,12 @@ defmodule Ryker.Evals.LearningRunnerTest do
       sequence = LearningRunner.recorded_sequence("auth-memory-recurrence")
       [firing, resolved, recurrence] = sequence
 
-      if unquote(memory_shape) == :occurrence_topic,
-        do:
-          Agent.update(
-            options.client,
-            &Map.put(&1, :eval_distinct_input_ids, [recurrence.input["id"]])
-          )
+      if unquote(memory_shape) == :occurrence_topic do
+        Agent.update(
+          options.client,
+          &Map.put(&1, :eval_distinct_input_ids, [recurrence.input["id"]])
+        )
+      end
 
       assert {:ok, report} = LearningRunner.run(sequence, options)
       assert report.passed, inspect(report.steps)

@@ -1,8 +1,6 @@
 defmodule Ryker.ControlPlane.PageCostTest do
   use ExUnit.Case, async: true
-
   import ExUnit.CaptureLog
-
   alias Ryker.ControlPlane.PageCost
 
   # A slow page was logged by its full path, Slack workspace and channel ids and request ids

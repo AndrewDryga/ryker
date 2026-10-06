@@ -5,7 +5,6 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   # console, and LiveView subscriptions only once connected (IL-18). Each gets
   # a probe it must flag and a compliant probe it must not.
   use ExUnit.Case, async: true
-
   import Ryker.CredoCheckProbe
 
   @context "lib/ryker/sprockets.ex"

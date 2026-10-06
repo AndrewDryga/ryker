@@ -1,8 +1,6 @@
 defmodule Ryker.CredentialsTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Credential
   alias Ryker.Credential.Event
   alias Ryker.Credentials

@@ -3,7 +3,6 @@ defmodule Ryker.ControlPlane.PageReadTest do
   What every part of a console page asks for, read once a page read.
   """
   use Ryker.DataCase, async: true
-
   alias Ryker.ControlPlane.{ConsolePeople, PageRead, RepositoryNames, SettingsView}
   alias Ryker.QueryWork
   alias Ryker.Settings

@@ -71,12 +71,13 @@ defmodule Ryker.Settings.PricingRate do
           rate.effective_from == get_field(changeset, :effective_from)
       end)
 
-    if duplicate,
-      do:
-        add_error(changeset, :effective_from, "already has a rate for this target",
-          validation: :already_bound
-        ),
-      else: changeset
+    if duplicate do
+      add_error(changeset, :effective_from, "already has a rate for this target",
+        validation: :already_bound
+      )
+    else
+      changeset
+    end
   end
 
   def deletable(_rate, _snapshot), do: :ok

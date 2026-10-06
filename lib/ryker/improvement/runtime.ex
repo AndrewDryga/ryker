@@ -6,7 +6,6 @@ defmodule Ryker.Improvement.Runtime do
   finishes the ones already out at Coop.
   """
   use Supervisor
-
   alias Ryker.Improvement.Worker
   alias Ryker.{Options, Reference}
 

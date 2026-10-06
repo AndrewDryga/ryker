@@ -1,8 +1,6 @@
 defmodule Ryker.Admission.CandidateSearchTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Admission.{CandidateSearch, CorrelationScope, Ranking}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, CorrelationClaims, Episode, RoutingDigests}

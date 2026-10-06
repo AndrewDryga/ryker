@@ -1,6 +1,5 @@
 defmodule Ryker.DefaultsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Defaults
 
   test "every owner keeps the exact operational value its YAML loader validated" do

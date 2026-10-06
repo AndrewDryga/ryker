@@ -5,19 +5,16 @@ defmodule Ryker.Learning.RebuildsTest do
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.RecallText
-
-  alias Ryker.Learning.{Batch, Batches, Dispatcher, FleetSession, InputMembership, Rebuilds}
-
-  alias Ryker.Operator.Actions
-  alias Ryker.Operator.Learning, as: LearningOperator
-
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Learning
+  alias Ryker.Learning.{Batch, Batches, Dispatcher, FleetSession, InputMembership, Rebuilds}
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Memories.Forgetting
+  alias Ryker.Operator.Actions
+  alias Ryker.Operator.Learning, as: LearningOperator
 
   @settings %{
     policy: "recorded-read-only-policy",
@@ -745,16 +742,16 @@ defmodule Ryker.Learning.RebuildsTest do
     |> hd()
   end
 
-  defp rebuild(topic, current, action),
-    do:
-      LearningOperator.rebuild(
-        topic.id,
-        topic.version,
-        topic.source_generation,
-        [selection(current)],
-        "operator:andrew",
-        action
-      )
+  defp rebuild(topic, current, action) do
+    LearningOperator.rebuild(
+      topic.id,
+      topic.version,
+      topic.source_generation,
+      [selection(current)],
+      "operator:andrew",
+      action
+    )
+  end
 
   defp target(topic), do: %{version: topic.version, generation: topic.source_generation}
 
@@ -765,12 +762,12 @@ defmodule Ryker.Learning.RebuildsTest do
       "fingerprint" => entry.event_fingerprint
     }
 
-  defp result(entry),
-    do:
-      Jason.encode!(%{
-        "updates" => [proposal(entry)],
-        "reason" => "Rebuild using the selected original only."
-      })
+  defp result(entry) do
+    Jason.encode!(%{
+      "updates" => [proposal(entry)],
+      "reason" => "Rebuild using the selected original only."
+    })
+  end
 
   defp proposal(entry) do
     %{
@@ -787,15 +784,15 @@ defmodule Ryker.Learning.RebuildsTest do
     }
   end
 
-  defp stop(run, claim),
-    do:
-      Learning.record_stop(
-        run.id,
-        %{
-          "id" => "host-contract-turn:#{run.id}",
-          "session_id" => "host-contract-session:#{run.id}",
-          "state" => "completed"
-        },
-        claim
-      )
+  defp stop(run, claim) do
+    Learning.record_stop(
+      run.id,
+      %{
+        "id" => "host-contract-turn:#{run.id}",
+        "session_id" => "host-contract-session:#{run.id}",
+        "state" => "completed"
+      },
+      claim
+    )
+  end
 end

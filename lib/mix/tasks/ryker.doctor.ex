@@ -10,7 +10,6 @@ defmodule Mix.Tasks.Ryker.Doctor do
   """
 
   use Mix.Task
-
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Operator.Preflight
 
@@ -25,9 +24,9 @@ defmodule Mix.Tasks.Ryker.Doctor do
   end
 
   defp preflight do
-    Support.with_configuration(fn configuration ->
-      Preflight.run(configuration: configuration, check_progress: false, check_runtimes: false)
-    end)
+    Support.with_configuration(
+      &Preflight.run(configuration: &1, check_progress: false, check_runtimes: false)
+    )
   end
 
   defp print_result({:ok, report}), do: Support.print(report)

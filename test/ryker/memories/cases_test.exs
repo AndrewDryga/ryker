@@ -1,8 +1,6 @@
 defmodule Ryker.Memories.CasesTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Event, Origin}
   alias Ryker.Ingress.{Inbox, Input}

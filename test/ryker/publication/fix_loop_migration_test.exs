@@ -9,7 +9,6 @@ defmodule Ryker.Publication.FixLoopMigrationTest do
   """
   # The migrator runs inside this test's sandbox transaction.
   use Ryker.MigrationCase
-
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.Publication
 

@@ -1,6 +1,5 @@
 defmodule Ryker.Transcription.LanguagesTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Transcription.Languages
 
   # Andrew, 2026-09-28, of his 33-second voice message: it "did not properly

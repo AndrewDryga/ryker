@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.FailureProjection do
   """
 
   import Ecto.Query
-
   alias Ryker.ControlPlane.{Activity, LearningActivity, ProductReadiness, RepositoryNames}
   alias Ryker.CoopFleet.{JobAuthority, Placement, Worker}
   alias Ryker.Credentials
@@ -15,25 +14,16 @@ defmodule Ryker.ControlPlane.FailureProjection do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.Batch, as: LearningBatch
+  alias Ryker.Learning.LearningRun
   alias Ryker.Observability
   alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Operator.Emisar, as: EmisarOperator
   alias Ryker.Operator.FailureDetail
+  alias Ryker.Operator.FailureDismissals
   alias Ryker.Publication.Publication
   alias Ryker.Repo
-
-  alias Ryker.Slack.{
-    ChannelConfigurations,
-    IncidentRoom,
-    IncidentRooms,
-    InteractionAudit,
-    Names,
-    TaskCard,
-    ThreadStatus
-  }
-
-  alias Ryker.Learning.LearningRun
-  alias Ryker.Operator.FailureDismissals
+  alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRooms, InteractionAudit, Names}
+  alias Ryker.Slack.{TaskCard, ThreadStatus}
   alias Ryker.Work.{Cancellation, FailureCause, Recovery, Session, Turn}
 
   # The phases Ryker is still retrying. A recorded failure there is a stuck
@@ -85,7 +75,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     # dropped below, so each kind reads that many more: a hundred left ones
     # hid an older open one on every page.
     left = FailureDismissals.counts()
-    deep = fn kind -> fetch + Map.get(left, kind, 0) end
+    deep = &(fetch + Map.get(left, &1, 0))
 
     work =
       Repo.all(
@@ -938,10 +928,10 @@ defmodule Ryker.ControlPlane.FailureProjection do
           nil
       end
 
-    if reply,
-      do:
-        {%{channel_name: room.channel_name, channel_state: room.channel_state, reply: reply},
-         join_target(alert_thread["conversation_ref"], alert_thread["thread_ref"])}
+    if reply do
+      {%{channel_name: room.channel_name, channel_state: room.channel_state, reply: reply},
+       join_target(alert_thread["conversation_ref"], alert_thread["thread_ref"])}
+    end
   end
 
   # Whether the worker that held a session could take it back right now.
@@ -1017,9 +1007,10 @@ defmodule Ryker.ControlPlane.FailureProjection do
       job_valid: match?({:ok, _session}, JobAuthority.validate(session)),
       setup_current: setup_current?(worker, requirements),
       free_slot:
-        Enum.all?(~w(session turn workspace), fn kind ->
-          Map.get(worker.capacity || %{}, "#{kind}_slots_free", 0) > 0
-        end)
+        Enum.all?(
+          ~w(session turn workspace),
+          &(Map.get(worker.capacity || %{}, "#{&1}_slots_free", 0) > 0)
+        )
     }
   end
 
@@ -1218,16 +1209,16 @@ defmodule Ryker.ControlPlane.FailureProjection do
   defp put_live(item, _key, value) when value in [nil, false], do: item
   defp put_live(item, key, value), do: Map.put(item, key, value)
 
-  defp slack_row?(item),
-    do:
-      item.kind in [
-        "delivery",
-        "slack_interaction",
-        "slack_incident",
-        "slack_task_card",
-        "slack_thread_status"
-      ] and
-        slack_channel(item) != nil
+  defp slack_row?(item) do
+    item.kind in [
+      "delivery",
+      "slack_interaction",
+      "slack_incident",
+      "slack_task_card",
+      "slack_thread_status"
+    ] and
+      slack_channel(item) != nil
+  end
 
   @doc """
   The Slack workspace and channel a failure's destination names

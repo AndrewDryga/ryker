@@ -2,7 +2,6 @@ defmodule Ryker.BundledCoopTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
-
   alias Ryker.BundledCoop
   alias Ryker.CoopFleet.{ControlPlane, EnrollmentToken, Worker}
   alias Ryker.Settings
@@ -192,11 +191,11 @@ defmodule Ryker.BundledCoopTest do
     )
   end
 
-  defp update_worker!(attributes),
-    do:
-      Repo.update_all(from(worker in Worker, where: worker.id == "ryker-compose"),
-        set: attributes
-      )
+  defp update_worker!(attributes) do
+    Repo.update_all(from(worker in Worker, where: worker.id == "ryker-compose"),
+      set: attributes
+    )
+  end
 
   defp hash(token), do: digest(token)
 end

@@ -7,7 +7,6 @@ defmodule Ryker.WorkExamples.MigrationTest do
   kept rather than drop them.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @before_version 20_260_930_110_000

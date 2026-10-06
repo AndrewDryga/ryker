@@ -4,10 +4,8 @@ defmodule Ryker.ControlPlane.LearningSwitchTest do
   uses it.
   """
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Learning.Batch
   alias Ryker.Settings

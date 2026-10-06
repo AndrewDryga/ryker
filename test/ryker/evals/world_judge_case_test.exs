@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldJudgeCaseTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Evals.{WorldCase, WorldJudgeCase}
 
   test "compiles a bounded judge case and requires one verdict per rubric criterion" do

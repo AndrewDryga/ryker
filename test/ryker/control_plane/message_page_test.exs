@@ -14,11 +14,9 @@ defmodule Ryker.ControlPlane.MessagePageTest do
   It is, but the page has to show the conversation the message is part of.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Actions, Activity, ConversationLab, Endpoint, Projection}

@@ -12,18 +12,11 @@ defmodule Ryker.Slack.ChannelSettings do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Repo
   alias Ryker.Settings
-
-  alias Ryker.Slack.{
-    ChannelConfiguration,
-    ChannelConfigurationChangeset,
-    ChannelConfigurations,
-    ChannelSettingAudit,
-    ChannelSettingChangeset
-  }
+  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurationChangeset, ChannelConfigurations}
+  alias Ryker.Slack.{ChannelSettingAudit, ChannelSettingChangeset}
 
   @fields [
     :actor_ref,

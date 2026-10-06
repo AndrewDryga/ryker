@@ -2,7 +2,6 @@ defmodule Ryker.Delivery.RoutingResponseChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Ingress.Inbox.Entry
 

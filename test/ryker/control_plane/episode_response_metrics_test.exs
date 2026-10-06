@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.EpisodeResponseMetricsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.EpisodeResponseMetrics
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry

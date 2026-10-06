@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.ServerOriginTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.Server
 
   # mac-server, 2026-10-01: the tenant instance's setup page, reached through an SSH tunnel on port

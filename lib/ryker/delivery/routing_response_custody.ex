@@ -16,7 +16,6 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{Request, RoutingResponse, RoutingResponseChangeset}
   alias Ryker.Ingress.Inbox

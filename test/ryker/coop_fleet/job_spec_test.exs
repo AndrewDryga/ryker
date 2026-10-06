@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.JobSpecTest do
   use ExUnit.Case, async: true
-
   alias Ryker.CoopFleet.{JobSpec, JobTemplates}
   alias Ryker.Work.SessionChangeset
 
@@ -154,9 +153,7 @@ defmodule Ryker.CoopFleet.JobSpecTest do
       put_in(job, ["mode"], "bare")
     ]
 
-    Enum.each(invalid, fn document ->
-      assert {:error, :invalid_coop_worker_job} = JobSpec.digest(document)
-    end)
+    Enum.each(invalid, &assert({:error, :invalid_coop_worker_job} = JobSpec.digest(&1)))
   end
 
   test "a workspaceless job carries no source or worker-local project settings" do

@@ -16,9 +16,7 @@ defmodule Ryker.WeeklyReport.Worker do
   """
 
   use Ryker.PollingWorker, lane: :weekly_report, interval: :retry_ms
-
   require Logger
-
   alias Ryker.{Options, PollingWorker, Settings, WeeklyReport}
 
   @fields [:longest_sleep_ms, :retry_ms]

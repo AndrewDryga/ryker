@@ -1,6 +1,5 @@
 defmodule Ryker.LocalRouting.SchemaTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Admission.Decision
   alias Ryker.Fixtures.LocalRouting, as: Harvested
   alias Ryker.LocalRouting.Schema

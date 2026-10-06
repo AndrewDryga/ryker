@@ -1,6 +1,5 @@
 defmodule Ryker.Work.ResultTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Work.Result
 
   test "a silent event-only wait survives result freezing without acquiring a deadline" do

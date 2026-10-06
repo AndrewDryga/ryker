@@ -1,6 +1,5 @@
 defmodule Ryker.Learning.DispatcherTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.Fixtures.Learning, as: Fixtures
@@ -67,11 +66,11 @@ defmodule Ryker.Learning.DispatcherTest do
       lose_after(client, :cancel, fn -> Fake.cancel_turn(client, sid, tid, key, revision) end)
     end
 
-    def create_session(client, key, policy, ref, source),
-      do:
-        lose_after(client, :create, fn ->
-          Fake.create_session(client, key, policy, ref, source)
-        end)
+    def create_session(client, key, policy, ref, source) do
+      lose_after(client, :create, fn ->
+        Fake.create_session(client, key, policy, ref, source)
+      end)
+    end
 
     def submit_frozen_turn(client, sid, key, revision, submission, nil, []) do
       unless submission["contract_version"] == "conversation-learning-v2",
@@ -130,12 +129,12 @@ defmodule Ryker.Learning.DispatcherTest do
       end
     end
 
-    defp record_call(client, phase),
-      do:
-        Agent.update(
-          client,
-          &Map.update(&1, :boundary_calls, [phase], fn calls -> calls ++ [phase] end)
-        )
+    defp record_call(client, phase) do
+      Agent.update(
+        client,
+        &Map.update(&1, :boundary_calls, [phase], fn calls -> calls ++ [phase] end)
+      )
+    end
 
     defp pause_after(client, phase) do
       target =
@@ -157,13 +156,13 @@ defmodule Ryker.Learning.DispatcherTest do
       end
     end
 
-    defp fault?(client, phase),
-      do:
-        Agent.get_and_update(client, fn state ->
-          if state[:lose_boundary] == phase,
-            do: {true, Map.delete(state, :lose_boundary)},
-            else: {false, state}
-        end)
+    defp fault?(client, phase) do
+      Agent.get_and_update(client, fn state ->
+        if state[:lose_boundary] == phase,
+          do: {true, Map.delete(state, :lose_boundary)},
+          else: {false, state}
+      end)
+    end
   end
 
   @settings %{
@@ -620,9 +619,7 @@ defmodule Ryker.Learning.DispatcherTest do
     entries = inputs!()
     {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
 
-    Agent.update(fake, fn state ->
-      put_in(state.session["controller_tools_digest"], String.duplicate("b", 64))
-    end)
+    Agent.update(fake, &put_in(&1.session["controller_tools_digest"], String.duplicate("b", 64)))
 
     settings = Map.put(@settings, :client, fake)
     assert {:ok, batch} = Dispatcher.run_once(settings)

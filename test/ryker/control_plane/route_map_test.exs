@@ -9,11 +9,9 @@ defmodule Ryker.ControlPlane.RouteMapTest do
   domains and the removal of the superseded paths.
   """
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   import Plug.Conn, only: [get_resp_header: 2]
-
   alias Ryker.ControlPlane.{Activity, Endpoint, ModelRequests, Navigation}
   alias Ryker.ControlPlane.{ConversationLab, Projection}
   alias Ryker.Ingress.WorkProfile

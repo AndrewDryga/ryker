@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.WorkerTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.{Custody, Worker}
 

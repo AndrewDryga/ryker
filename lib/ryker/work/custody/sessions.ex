@@ -10,7 +10,6 @@ defmodule Ryker.Work.Custody.Sessions do
 
   import Ecto.Query
   import Ryker.Work.Custody.Locks
-
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.Emisar.Connections, as: EmisarConnections
@@ -18,16 +17,8 @@ defmodule Ryker.Work.Custody.Sessions do
   alias Ryker.Repo
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.Turns
-
-  alias Ryker.Work.{
-    OperationKeys,
-    RepositoryContext,
-    RepositorySource,
-    Session,
-    SessionChangeset,
-    Turn,
-    TurnChangeset
-  }
+  alias Ryker.Work.{OperationKeys, RepositoryContext, RepositorySource, Session, SessionChangeset}
+  alias Ryker.Work.{Turn, TurnChangeset}
 
   @doc false
   @spec pin_episode(Ecto.UUID.t(), String.t(), String.t()) ::
@@ -907,15 +898,15 @@ defmodule Ryker.Work.Custody.Sessions do
     end
   end
 
-  defp rotate_session_locked(episode_id, turn_ref, lease_ref, expected_generation),
-    do:
-      rotate_session_locked(
-        episode_id,
-        turn_ref,
-        lease_ref,
-        expected_generation,
-        :remote_terminal
-      )
+  defp rotate_session_locked(episode_id, turn_ref, lease_ref, expected_generation) do
+    rotate_session_locked(
+      episode_id,
+      turn_ref,
+      lease_ref,
+      expected_generation,
+      :remote_terminal
+    )
+  end
 
   defp rotate_session_locked(
          episode_id,

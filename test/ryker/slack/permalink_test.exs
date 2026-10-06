@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.PermalinkTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.Permalink
 
   # The 2026-09-12 coverage measurement found two card states that could name a

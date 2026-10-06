@@ -1,9 +1,7 @@
 defmodule Ryker.Publication.DispatcherTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Delivery.Adapters
@@ -440,9 +438,7 @@ defmodule Ryker.Publication.DispatcherTest do
 
     options =
       dispatcher_options(coop, effects)
-      |> Keyword.update!(:executor_options, fn options ->
-        Keyword.put(options, :repositories, %{})
-      end)
+      |> Keyword.update!(:executor_options, &Keyword.put(&1, :repositories, %{}))
 
     assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
     assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)

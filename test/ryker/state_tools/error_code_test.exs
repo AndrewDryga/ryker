@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.ErrorCodeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.StateTools.ErrorCode
 
   # A final naming a record this work never created was answered

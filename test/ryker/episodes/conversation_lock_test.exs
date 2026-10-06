@@ -1,6 +1,5 @@
 defmodule Ryker.Episodes.ConversationLockTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Episodes.ConversationLock
 
   defmodule FailingRepo do

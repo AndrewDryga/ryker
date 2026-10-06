@@ -1,6 +1,5 @@
 defmodule Ryker.RepositoryKnowledge.PromptTest do
   use ExUnit.Case, async: true
-
   alias Ryker.CanonicalJSON
   alias Ryker.RepositoryKnowledge.{Document, Prompt}
 

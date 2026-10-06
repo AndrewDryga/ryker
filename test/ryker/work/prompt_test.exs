@@ -1,6 +1,5 @@
 defmodule Ryker.Work.PromptTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Work.Prompt
 
   test "Work is asked to name its episode, and to keep the name with null" do

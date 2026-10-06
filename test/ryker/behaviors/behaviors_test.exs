@@ -1,13 +1,16 @@
 defmodule Ryker.Behaviors.BehaviorsTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
 
   @moduletag isolation: "REPEATABLE READ"
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
+  alias Ryker.Behaviors
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{BehaviorLibrary, Projection, Router}
   alias Ryker.Episodes
@@ -15,16 +18,10 @@ defmodule Ryker.Behaviors.BehaviorsTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.MemoryPages
   alias Ryker.Ingress.{Inbox, Input}
-  alias Ryker.Slack.{AppHomeProjection, ChannelMembership, Event, Renderer, ReplyRecords}
-
-  alias Ryker.Behaviors
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Behaviors.BehaviorChangeset
-  alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
-
+  alias Ryker.Slack.{AppHomeProjection, ChannelMembership, Event, Renderer, ReplyRecords}
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
   # An hour before this file compiles, which is every test run: in the past, as

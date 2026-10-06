@@ -13,7 +13,6 @@ defmodule Ryker.Operator.FailureDismissals do
   """
 
   import Ecto.Query
-
   alias Ryker.Operator.FailureDismissal
   alias Ryker.Repo
 

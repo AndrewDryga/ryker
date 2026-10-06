@@ -1,6 +1,5 @@
 defmodule Ryker.Delivery.AdaptersTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Delivery.{Adapters, Request}
 
   defmodule Publisher do

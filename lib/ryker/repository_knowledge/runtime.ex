@@ -7,7 +7,6 @@ defmodule Ryker.RepositoryKnowledge.Runtime do
   (`Ryker.GitHub.RepositoryFiles`).
   """
   use Supervisor
-
   alias Ryker.{Options, Reference}
   alias Ryker.RepositoryKnowledge.Worker
 
@@ -36,12 +35,12 @@ defmodule Ryker.RepositoryKnowledge.Runtime do
         other: "repository knowledge configuration must be a map or keyword list"
       )
 
-    unless Reference.valid?(config.worker_ref, 160),
-      do:
-        raise(
-          ArgumentError,
-          "repository knowledge worker_ref must be a bounded nonblank reference"
-        )
+    unless Reference.valid?(config.worker_ref, 160) do
+      raise(
+        ArgumentError,
+        "repository knowledge worker_ref must be a bounded nonblank reference"
+      )
+    end
 
     unless is_atom(config.api) and not is_nil(config.api) and not is_nil(config.client),
       do: raise(ArgumentError, "repository knowledge requires a trusted Coop adapter")

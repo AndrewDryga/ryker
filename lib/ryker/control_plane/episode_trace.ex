@@ -13,26 +13,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
-
-  alias Ryker.ControlPlane.{
-    EpisodeCausality,
-    EpisodeResponseMetrics,
-    Paths,
-    RepositoryNames,
-    SavedRecords,
-    Units
-  }
-
-  alias Ryker.ControlPlane.EpisodeTrace.{
-    CaseFile,
-    Input,
-    Maintenance,
-    Outcome,
-    Preparation,
-    ToolActivity,
-    Work
-  }
-
+  alias Ryker.ControlPlane.{EpisodeCausality, EpisodeResponseMetrics, Paths, RepositoryNames}
+  alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Maintenance, Outcome, Preparation}
+  alias Ryker.ControlPlane.EpisodeTrace.{ToolActivity, Work}
+  alias Ryker.ControlPlane.{SavedRecords, Units}
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Operator.EpisodeReview

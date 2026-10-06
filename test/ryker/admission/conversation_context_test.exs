@@ -1,8 +1,6 @@
 defmodule Ryker.Admission.ConversationContextTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Admission.{ConversationContext, ConversationSummaries}
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.ConversationSummary

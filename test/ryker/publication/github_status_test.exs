@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.GitHubStatusTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Publication.GitHubStatus
 
   defmodule API do

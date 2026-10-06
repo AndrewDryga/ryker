@@ -1,6 +1,5 @@
 defmodule Ryker.Delivery.TargetTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Delivery.Request
   alias Ryker.GitHub.Target, as: GitHubTarget
   alias Ryker.Slack.Target, as: SlackTarget

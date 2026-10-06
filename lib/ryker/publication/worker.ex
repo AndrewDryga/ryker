@@ -10,9 +10,7 @@ defmodule Ryker.Publication.Worker do
   """
 
   use Ryker.PollingWorker, lane: :publication, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.Episodes
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker

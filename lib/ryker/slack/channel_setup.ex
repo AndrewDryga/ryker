@@ -14,16 +14,9 @@ defmodule Ryker.Slack.ChannelSetup do
   rechecked for every action or conversational answer.
   """
 
+  alias Ryker.Slack.{ChannelConfiguration, Collections, ConfigurationSession}
   alias Ryker.Slack.Client.Messages
-
-  alias Ryker.Slack.{
-    ChannelConfiguration,
-    Collections,
-    ConfigurationSession,
-    MembershipTransition,
-    Operators
-  }
-
+  alias Ryker.Slack.{MembershipTransition, Operators}
   alias Ryker.Slack.Renderer.Fields
 
   @environment_action ~r/\Aryker_setup_environment_([0-9]{1,3})\z/
@@ -1072,9 +1065,9 @@ defmodule Ryker.Slack.ChannelSetup do
   defp clarification(%ConfigurationSession{step: :alerts}),
     do: "Please choose Investigate, Offer a choice, or Create automatically."
 
-  defp clarification(%ConfigurationSession{step: :audience}),
-    do:
-      "Please mention the full Slack members or user groups to invite, or choose the button to invite no one else."
+  defp clarification(%ConfigurationSession{step: :audience}) do
+    "Please mention the full Slack members or user groups to invite, or choose the button to invite no one else."
+  end
 
   defp clarification(%ConfigurationSession{step: :confirm}),
     do: "Please choose Save settings, Start over, or Cancel."

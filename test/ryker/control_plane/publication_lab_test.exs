@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.PublicationLabTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.ControlPlane.{Actions, ConversationProjection, Publisher}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -13,7 +12,6 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.TaskCardProjection
-
   alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, SubmissionBuilder}
 
   @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc3e6"

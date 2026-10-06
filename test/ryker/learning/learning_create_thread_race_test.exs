@@ -1,6 +1,5 @@
 defmodule Ryker.Learning.LearningCreateThreadRaceTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge

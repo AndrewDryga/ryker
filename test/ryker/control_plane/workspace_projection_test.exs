@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.WorkspaceProjectionTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.ControlPlane.{Pages, Projection, WorkspaceProjection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -49,11 +48,11 @@ defmodule Ryker.ControlPlane.WorkspaceProjectionTest do
         do: count |> LazyHTML.text() |> String.split() |> Enum.join(" ")
   end
 
-  defp copies_on(page),
-    do:
-      page
-      |> LazyHTML.query("div.working-copies-page > .entity-list > article")
-      |> Enum.count()
+  defp copies_on(page) do
+    page
+    |> LazyHTML.query("div.working-copies-page > .entity-list > article")
+    |> Enum.count()
+  end
 
   # A Work request whose worker session holds a checkout of a repository.
   defp pinned_session!(suffix) do

@@ -1,6 +1,5 @@
 defmodule Ryker.RepositoryKnowledge.DocumentTest do
   use ExUnit.Case, async: true
-
   alias Ryker.RepositoryKnowledge.{Document, Prompt}
 
   @fixtures "test/ryker/repository_knowledge/fixtures"

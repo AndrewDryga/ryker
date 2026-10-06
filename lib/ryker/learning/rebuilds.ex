@@ -1,20 +1,19 @@
 defmodule Ryker.Learning.Rebuilds do
   @moduledoc "Explicit, source-only repair of an unavailable topic under the existing learning budget."
   import Ecto.Query
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Learning.{Batch, Runtime}
-  alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
-
   alias Ryker.Continuity
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeSource
   alias Ryker.Learning
+  alias Ryker.Learning.{Batch, Runtime}
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.Repo
+  alias Ryker.Slack.ChannelMembership
 
   @page_size 20
   @terminal [:no_change, :deferred, :superseded, :dropped]
@@ -170,13 +169,13 @@ defmodule Ryker.Learning.Rebuilds do
 
   defp unexpired_originals(query, nil), do: query
 
-  defp unexpired_originals(query, seconds),
-    do:
-      where(
-        query,
-        [o],
-        o.updated_at > fragment("clock_timestamp() - (? * interval '1 second')", ^seconds)
-      )
+  defp unexpired_originals(query, seconds) do
+    where(
+      query,
+      [o],
+      o.updated_at > fragment("clock_timestamp() - (? * interval '1 second')", ^seconds)
+    )
+  end
 
   defp undeleted_destination(query, %{transport: "slack"} = topic) do
     deleted =
@@ -196,9 +195,9 @@ defmodule Ryker.Learning.Rebuilds do
 
   defp matching(query, ""), do: query
 
-  defp matching(query, search),
-    do:
-      where(query, [_o, e], fragment("strpos(lower(?::text), lower(?)) > 0", e.content, ^search))
+  defp matching(query, search) do
+    where(query, [_o, e], fragment("strpos(lower(?::text), lower(?)) > 0", e.content, ^search))
+  end
 
   def selections(value) when is_list(value) and length(value) in 1..16 do
     if Enum.all?(value, &selection?/1) and
@@ -379,14 +378,14 @@ defmodule Ryker.Learning.Rebuilds do
     end
   end
 
-  defp selected_revision?(entry, batch),
-    do:
-      entry.execution_mode == batch.execution_mode and
-        %{
-          "source_input_id" => entry.id,
-          "revision" => entry.revision,
-          "fingerprint" => entry.event_fingerprint
-        } in batch.rebuild_selection
+  defp selected_revision?(entry, batch) do
+    entry.execution_mode == batch.execution_mode and
+      %{
+        "source_input_id" => entry.id,
+        "revision" => entry.revision,
+        "fingerprint" => entry.event_fingerprint
+      } in batch.rebuild_selection
+  end
 
   @doc false
   def validate_selection!(batch) do

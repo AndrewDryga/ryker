@@ -2,7 +2,6 @@ defmodule Ryker.Slack.ChannelSettingChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Slack.ChannelSettingAudit
 
   @audit_fields [

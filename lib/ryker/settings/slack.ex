@@ -58,22 +58,22 @@ defmodule Ryker.Settings.Slack do
   end
 
   defp validate_enabled(changeset) do
-    if get_field(changeset, :enabled),
-      do:
-        Enum.reduce(
-          [:workspace_ref, :bot_ref, :bot_user_ref],
-          changeset,
-          &require_to_enable/2
-        ),
-      else: changeset
+    if get_field(changeset, :enabled) do
+      Enum.reduce(
+        [:workspace_ref, :bot_ref, :bot_user_ref],
+        changeset,
+        &require_to_enable/2
+      )
+    else
+      changeset
+    end
   end
 
   defp require_to_enable(field, changeset) do
-    if is_nil(get_field(changeset, field)),
-      do:
-        add_error(changeset, field, "is required to enable Slack",
-          validation: :required_to_enable
-        ),
-      else: changeset
+    if is_nil(get_field(changeset, field)) do
+      add_error(changeset, field, "is required to enable Slack", validation: :required_to_enable)
+    else
+      changeset
+    end
   end
 end

@@ -188,9 +188,12 @@ defmodule Ryker.Work.Executor.Validation do
         reconcile_uncertain_validation(claim, reason, settings)
 
       {:error, _reason} = error ->
-        Remote.reconcile_after_transport(error, key, settings, fn operation ->
-          validation_from_operation(claim, operation, key, settings)
-        end)
+        Remote.reconcile_after_transport(
+          error,
+          key,
+          settings,
+          &validation_from_operation(claim, &1, key, settings)
+        )
     end
   end
 
@@ -199,7 +202,7 @@ defmodule Ryker.Work.Executor.Validation do
       Remote.ambiguous_mutation(:validate_candidate, reason),
       key,
       settings,
-      fn operation -> validation_from_operation(claim, operation, key, settings) end
+      &validation_from_operation(claim, &1, key, settings)
     )
   end
 

@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.AssetsTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.{Assets, BrowserGuard}
 
   # Every page load downloaded the console's scripts and stylesheets again, about 650 KB

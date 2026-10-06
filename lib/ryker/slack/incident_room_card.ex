@@ -8,7 +8,6 @@ defmodule Ryker.Slack.IncidentRoomCard do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Records

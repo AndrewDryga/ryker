@@ -1,6 +1,5 @@
 defmodule Ryker.Records.CardDeliveryTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Episodes.Episode
   alias Ryker.Records.CardDelivery
   alias Ryker.Work.Turn

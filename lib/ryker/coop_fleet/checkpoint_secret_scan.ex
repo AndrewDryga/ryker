@@ -86,9 +86,9 @@ defmodule Ryker.CoopFleet.CheckpointSecretScan do
       else: :ok
   end
 
-  defp last(bytes, maximum),
-    do:
-      :binary.copy(
-        binary_part(bytes, max(0, byte_size(bytes) - maximum), min(byte_size(bytes), maximum))
-      )
+  defp last(bytes, maximum) do
+    :binary.copy(
+      binary_part(bytes, max(0, byte_size(bytes) - maximum), min(byte_size(bytes), maximum))
+    )
+  end
 end

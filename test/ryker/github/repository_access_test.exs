@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.RepositoryAccessTest do
   use ExUnit.Case, async: true
-
   alias Ryker.GitHub.{Binding, RepositoryAccess}
 
   defmodule Requester do

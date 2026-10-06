@@ -1,18 +1,15 @@
 defmodule Ryker.StateTools.MemorySearchTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
+  alias Ryker.Behaviors.Behavior
   alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.Continuity.ConversationRollup
+  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Scope, as: WorkspaceScope
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.{Knowledge, Learning}
-  alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
-  alias Ryker.Slack.SourceRef
-
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Continuity.ConversationRollup
-  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
@@ -23,7 +20,8 @@ defmodule Ryker.StateTools.MemorySearchTest do
   alias Ryker.Memories.MemorySearch
   alias Ryker.Records
   alias Ryker.Records.Record
-
+  alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
+  alias Ryker.Slack.SourceRef
   alias Ryker.StateTools.{LookupContext, Router, Tools}
   alias Ryker.Work.Custody
 

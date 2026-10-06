@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldEvidenceTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.{Episodes, Repo}
   alias Ryker.Evals.WorldEvidence
   alias Ryker.Fixtures.Episodes, as: Fixtures

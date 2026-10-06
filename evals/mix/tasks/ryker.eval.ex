@@ -46,31 +46,14 @@ defmodule Mix.Tasks.Ryker.Eval do
   """
 
   use Mix.Task
-
   import Ecto.Query
-
   alias Ecto.Adapters.Postgres
   alias Ryker.Coop.Client
   alias Ryker.CoopFleet.Server, as: FleetServer
-
-  alias Ryker.Evals.{
-    CoopRunner,
-    ImprovementReplay,
-    Job,
-    RoutingReplay,
-    WorldCase,
-    WorldCassette,
-    WorldCoverage,
-    WorldDatabase,
-    WorldJudgeCase,
-    WorldReport,
-    WorldRunner,
-    WorldSource,
-    WorldSuite,
-    WorldTools
-  }
-
+  alias Ryker.Evals.{CoopRunner, ImprovementReplay, Job, RoutingReplay, WorldCase, WorldCassette}
   alias Ryker.Evals.Runtime, as: EvalRuntime
+  alias Ryker.Evals.{WorldCoverage, WorldDatabase, WorldJudgeCase, WorldReport, WorldRunner}
+  alias Ryker.Evals.{WorldSource, WorldSuite, WorldTools}
   alias Ryker.Repo
   alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
   alias Ryker.Work.Session, as: WorkSession

@@ -7,7 +7,6 @@ defmodule Ryker.Admission.SearchByMeaningMigrationTest do
   is refused. Rolling back drops only what can be computed again.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @previous_version 20_260_930_010_000

@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.ConsolePeopleTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.ControlPlane.ConsolePeople
 
   # Chat called everyone "You" while Tailscale Serve said who they were (Andrew, 2026-10-04).

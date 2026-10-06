@@ -53,14 +53,14 @@ defmodule Ryker.CoopFleet.Requests do
     end
   end
 
-  defp request_for("ensure_workspace", payload, _),
-    do:
-      {:ok,
-       request(
-         "POST",
-         session_path(payload) <> "/workspace",
-         Map.take(payload, ~w(expected_revision task))
-       )}
+  defp request_for("ensure_workspace", payload, _) do
+    {:ok,
+     request(
+       "POST",
+       session_path(payload) <> "/workspace",
+       Map.take(payload, ~w(expected_revision task))
+     )}
+  end
 
   defp request_for("submit_turn", %{"submission" => submission} = payload, _) do
     with {:ok, artifacts} <- Artifacts.fetch_many(submission["input_artifact_refs"]) do
@@ -104,23 +104,22 @@ defmodule Ryker.CoopFleet.Requests do
     {:ok, request("GET", session_path(payload) <> "/changes?" <> query)}
   end
 
-  defp request_for("get_output_artifact", payload, _),
-    do:
-      {:ok,
-       request("GET", turn_path(payload) <> "/artifacts/" <> segment(payload["artifact_ref"]))}
+  defp request_for("get_output_artifact", payload, _) do
+    {:ok, request("GET", turn_path(payload) <> "/artifacts/" <> segment(payload["artifact_ref"]))}
+  end
 
-  defp request_for("get_checkpoint_bundle", payload, _),
-    do:
-      {:ok,
-       request(
-         "GET",
-         "/v1/operations/" <> segment(payload["operation_id"]) <> "/checkpoint-bundle"
-       )}
+  defp request_for("get_checkpoint_bundle", payload, _) do
+    {:ok,
+     request(
+       "GET",
+       "/v1/operations/" <> segment(payload["operation_id"]) <> "/checkpoint-bundle"
+     )}
+  end
 
-  defp request_for("get_review", payload, _),
-    do:
-      {:ok,
-       request("GET", session_path(payload) <> "/reviews/" <> segment(payload["operation_id"]))}
+  defp request_for("get_review", payload, _) do
+    {:ok,
+     request("GET", session_path(payload) <> "/reviews/" <> segment(payload["operation_id"]))}
+  end
 
   defp request_for("get_review_gate_output", payload, _) do
     query =
@@ -135,10 +134,10 @@ defmodule Ryker.CoopFleet.Requests do
     {:ok, request("GET", path <> query)}
   end
 
-  defp request_for("reconcile_operation", payload, _),
-    do:
-      {:ok,
-       request("GET", "/v1/operations?" <> URI.encode_query(%{"key" => payload["operation_key"]}))}
+  defp request_for("reconcile_operation", payload, _) do
+    {:ok,
+     request("GET", "/v1/operations?" <> URI.encode_query(%{"key" => payload["operation_key"]}))}
+  end
 
   defp request_for("fence_operation", payload, _),
     do: {:ok, request("POST", "/v1/operations/fence", Map.take(payload, ~w(method request)))}

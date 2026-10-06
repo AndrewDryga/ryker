@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.EvidenceTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Evals.Evidence
 
   test "sanitized model-world evidence redacts nested authority and remains JSON-safe" do

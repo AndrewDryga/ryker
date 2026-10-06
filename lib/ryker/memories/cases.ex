@@ -24,7 +24,6 @@ defmodule Ryker.Memories.Cases do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.Scope, as: ContinuityScope
   alias Ryker.Episodes.{CorrelationClaim, Episode, Origin, RoutingDigest, RoutingDigests}
@@ -306,11 +305,9 @@ defmodule Ryker.Memories.Cases do
     end
   end
 
-  defp locked(case_ref),
-    do:
-      Repo.one(
-        from(record in CaseRecord, where: record.case_ref == ^case_ref, lock: "FOR UPDATE")
-      )
+  defp locked(case_ref) do
+    Repo.one(from(record in CaseRecord, where: record.case_ref == ^case_ref, lock: "FOR UPDATE"))
+  end
 
   # The identity and the lifecycle stay; the text is erased.
   defp redact!(%CaseRecord{} = record) do

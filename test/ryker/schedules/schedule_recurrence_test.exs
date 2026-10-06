@@ -1,6 +1,5 @@
 defmodule Ryker.Schedules.ScheduleRecurrenceTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.Schedules.ScheduleRecurrence
 
   test "calendar recurrences retain their local wall-clock time across daylight saving changes" do

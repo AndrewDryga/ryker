@@ -1,8 +1,6 @@
 defmodule Ryker.CoopFleet.OperatorTaskTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Mix.Tasks.Ryker.CoopWorker
   alias Ryker.CoopFleet.{ControlPlane, Worker}
 

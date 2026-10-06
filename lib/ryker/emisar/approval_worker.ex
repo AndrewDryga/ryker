@@ -9,9 +9,7 @@ defmodule Ryker.Emisar.ApprovalWorker do
   """
 
   use Ryker.PollingWorker, lane: :emisar_approval, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.Emisar.{ApprovalDispatcher, Approvals}
   alias Ryker.Episodes
   alias Ryker.Observability.Progress

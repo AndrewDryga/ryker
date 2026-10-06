@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.ThreadStatusProjectionTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry

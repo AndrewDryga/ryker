@@ -1,7 +1,6 @@
 defmodule Ryker.ControlPlane.ServerTest do
   use ExUnit.Case, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.ControlPlane.Server
   alias Ryker.Ingress.WorkProfile
 

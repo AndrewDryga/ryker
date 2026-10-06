@@ -2,18 +2,8 @@ defmodule Ryker.CoopFleet.Checkpoints do
   @moduledoc false
 
   import Ecto.Changeset
-
-  alias Ryker.CoopFleet.{
-    Bodies,
-    Bridge,
-    Command,
-    ControlPlane,
-    Placement,
-    WorkspaceCheckpoint,
-    WorkspaceCheckpointBundle,
-    WorkspaceCheckpointTransfer
-  }
-
+  alias Ryker.CoopFleet.{Bodies, Bridge, Command, ControlPlane, Placement, WorkspaceCheckpoint}
+  alias Ryker.CoopFleet.{WorkspaceCheckpointBundle, WorkspaceCheckpointTransfer}
   alias Ryker.{Credentials, Repo, Secret}
   alias Ryker.Work.{RepositorySource, Session}
 
@@ -86,9 +76,11 @@ defmodule Ryker.CoopFleet.Checkpoints do
          true <- headers["Content-Type"] == checkpoint["bundle"]["media_type"],
          true <- headers["Etag"] == ~s("#{reference["sha256"]}"),
          {:ok, _manifest} <-
-           Bodies.with_stream(body, key, fn stream ->
-             WorkspaceCheckpointBundle.validate_stream(checkpoint, stream.(), credential_values())
-           end) do
+           Bodies.with_stream(
+             body,
+             key,
+             &WorkspaceCheckpointBundle.validate_stream(checkpoint, &1.(), credential_values())
+           ) do
       prepared = %{
         id: Ecto.UUID.generate(),
         command_id: producer.id,
@@ -150,9 +142,11 @@ defmodule Ryker.CoopFleet.Checkpoints do
            Repo.get(WorkspaceCheckpointTransfer, saved["transfer_id"]),
          :ok <- restore_authority(command, transfer),
          :ok <-
-           with_checkpoint(transfer, options, fn stream ->
-             copy_checkpoint_to_request(command, transfer, stream, options)
-           end) do
+           with_checkpoint(
+             transfer,
+             options,
+             &copy_checkpoint_to_request(command, transfer, &1, options)
+           ) do
       :ok
     else
       nil -> {:error, :checkpoint_not_available}
@@ -200,19 +194,19 @@ defmodule Ryker.CoopFleet.Checkpoints do
     end
   end
 
-  defp leased_placement?(%Placement{state: :active} = placement, command),
-    do:
-      placement.worker_id == command.worker_id and
-        placement.generation == command.placement_generation and
-        DateTime.compare(placement.lease_expires_at, Repo.now!()) == :gt
+  defp leased_placement?(%Placement{state: :active} = placement, command) do
+    placement.worker_id == command.worker_id and
+      placement.generation == command.placement_generation and
+      DateTime.compare(placement.lease_expires_at, Repo.now!()) == :gt
+  end
 
   defp leased_placement?(_placement, _command), do: false
 
-  defp same_source_sessions?(%Session{} = source, %Session{} = target),
-    do:
-      source.episode_id == target.episode_id and
-        source.repository_ref == target.repository_ref and
-        RepositorySource.same?(source.repository_source, target.repository_source)
+  defp same_source_sessions?(%Session{} = source, %Session{} = target) do
+    source.episode_id == target.episode_id and
+      source.repository_ref == target.repository_ref and
+      RepositorySource.same?(source.repository_source, target.repository_source)
+  end
 
   defp same_source_sessions?(_source, _target), do: false
 

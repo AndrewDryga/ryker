@@ -112,9 +112,9 @@ defmodule Ryker.Improvement.Executor do
 
   defp unaddressable?({:coop_session_replacement_required, _session, _generation}), do: true
 
-  defp unaddressable?(reason),
-    do:
-      reason in [:improvement_session_authority_conflict, :improvement_session_identity_conflict]
+  defp unaddressable?(reason) do
+    reason in [:improvement_session_authority_conflict, :improvement_session_identity_conflict]
+  end
 
   defp give_up_session(claim, run, reason) do
     code =
@@ -177,12 +177,12 @@ defmodule Ryker.Improvement.Executor do
              do: located_session({:ok, session}, Repo.get!(Session, local.id))
 
       {:resource, id} ->
-        with {:ok, _bound} <- bind(claim, run, id),
-             do:
-               located_session(
-                 call(claim, settings, :get_session, [id]),
-                 Repo.get!(Session, local.id)
-               )
+        with {:ok, _bound} <- bind(claim, run, id) do
+          located_session(
+            call(claim, settings, :get_session, [id]),
+            Repo.get!(Session, local.id)
+          )
+        end
 
       {:failed, operation} ->
         with {:ok, _run} <- Analyses.record_failed_operation(claim, run.id, :create, operation),
@@ -210,11 +210,11 @@ defmodule Ryker.Improvement.Executor do
   defp located_session(other, _local), do: other
 
   # Retained messages go only to an isolated session, as learning's do.
-  defp isolated_session?(session),
-    do:
-      is_nil(session["controller_tools_digest"]) and is_nil(session["workspace_task"]) and
-        session["repository_read_only"] == true and session["project_env"] == false and
-        session["project_mcp"] == false and Map.get(session, "companions", []) == []
+  defp isolated_session?(session) do
+    is_nil(session["controller_tools_digest"]) and is_nil(session["workspace_task"]) and
+      session["repository_read_only"] == true and session["project_env"] == false and
+      session["project_mcp"] == false and Map.get(session, "companions", []) == []
+  end
 
   # -- The turn ----------------------------------------------------------------------
 

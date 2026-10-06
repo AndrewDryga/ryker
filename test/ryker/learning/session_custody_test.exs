@@ -12,7 +12,6 @@ defmodule Ryker.Learning.SessionCustodyTest do
   """
   use Ryker.DataCase, async: false
   import Ecto.Query
-
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry

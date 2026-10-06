@@ -18,7 +18,6 @@ defmodule Ryker.Retention.Data do
   alias Ryker.Memories.Reviews
   alias Ryker.Repo
   alias Ryker.Work.ActivityRetention
-
   require Logger
 
   @advisory_lock 7_152_019_552_843_111

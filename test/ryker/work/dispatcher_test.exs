@@ -1,23 +1,11 @@
 defmodule Ryker.Work.DispatcherTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-
-  alias Ryker.Work.{
-    Cancellation,
-    Custody,
-    Dispatcher,
-    OperationKeys,
-    Result,
-    Submission,
-    Turn,
-    ValidationIntent
-  }
+  alias Ryker.Work.{Cancellation, Custody, Dispatcher, OperationKeys, Result, Submission, Turn}
+  alias Ryker.Work.ValidationIntent
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 

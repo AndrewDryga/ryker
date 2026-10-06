@@ -12,7 +12,6 @@ defmodule Ryker.Operator.Actions do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Operator.Action
   alias Ryker.Reference
@@ -208,11 +207,11 @@ defmodule Ryker.Operator.Actions do
   keeps its own audit rows and announces them here too.
   """
   @spec broadcast_action_recorded(Ecto.UUID.t()) :: :ok
-  def broadcast_action_recorded(action_id),
-    do:
-      Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(actions_topic(), {:operator_action_recorded, action_id})
-      end)
+  def broadcast_action_recorded(action_id) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(actions_topic(), {:operator_action_recorded, action_id})
+    end)
+  end
 
   defp actions_topic, do: "operator:actions"
 end

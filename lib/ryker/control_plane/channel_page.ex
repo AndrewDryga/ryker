@@ -14,32 +14,11 @@ defmodule Ryker.ControlPlane.ChannelPage do
   redraws when anything it shows changes (`subscriptions/2`).
   """
   use Phoenix.Component
-
-  alias Ryker.{
-    Behaviors,
-    Continuity,
-    Episodes,
-    Instructions,
-    Knowledge,
-    Learning,
-    Memories,
-    Schedules,
-    Settings
-  }
-
-  alias Ryker.ControlPlane.{
-    Activity,
-    Actor,
-    ChannelScope,
-    ChannelsPage,
-    Components,
-    Kit,
-    Paths,
-    ShortTime,
-    Units
-  }
-
+  alias Ryker.{Behaviors, Continuity, Episodes, Instructions, Knowledge, Learning, Memories}
+  alias Ryker.ControlPlane.{Activity, Actor, ChannelScope, ChannelsPage, Components, Kit, Paths}
+  alias Ryker.ControlPlane.{ShortTime, Units}
   alias Ryker.Episodes.Words
+  alias Ryker.{Schedules, Settings}
   alias Ryker.Slack.{ChannelConfigurations, IncidentRooms, Names}
 
   @doc """
@@ -387,18 +366,18 @@ defmodule Ryker.ControlPlane.ChannelPage do
   # What the section lets a person do here. An instruction never stands
   # without its control: the QA re-test (2026-09-26) found "Choose the
   # environment here." above an incident room that has none to choose.
-  defp taking_part_lede(configuration, _environment) when is_map(configuration),
-    do:
-      "Change how Ryker takes part here. Each choice saves at once, and Ryker's welcome " <>
-        "message in the channel shows it too."
+  defp taking_part_lede(configuration, _environment) when is_map(configuration) do
+    "Change how Ryker takes part here. Each choice saves at once, and Ryker's welcome " <>
+      "message in the channel shows it too."
+  end
 
-  defp taking_part_lede(nil, %{source: :incident_room}),
-    do:
-      "An incident room works in the code it was opened with, so there is no environment to choose."
+  defp taking_part_lede(nil, %{source: :incident_room}) do
+    "An incident room works in the code it was opened with, so there is no environment to choose."
+  end
 
-  defp taking_part_lede(nil, _environment),
-    do:
-      "Ryker keeps settings only for channels it is in. Once it joins this one, choose its environment here."
+  defp taking_part_lede(nil, _environment) do
+    "Ryker keeps settings only for channels it is in. Once it joins this one, choose its environment here."
+  end
 
   attr(:id, :string, required: true, doc: "The form's id; its select is id <> \"-choice\"")
   attr(:event, :string, required: true, doc: "What the LiveView saves the choice with")
@@ -456,19 +435,19 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp refusal({:error, name, message}, name), do: message
   defp refusal(_notice, _name), do: nil
 
-  defp participation_options,
-    do:
-      for(
-        value <- [:mentions, :proactive, :shadow],
-        do: {Atom.to_string(value), ChannelsPage.participation(value)}
-      )
+  defp participation_options do
+    for(
+      value <- [:mentions, :proactive, :shadow],
+      do: {Atom.to_string(value), ChannelsPage.participation(value)}
+    )
+  end
 
-  defp alert_options,
-    do:
-      for(
-        value <- [:reply, :offer, :automatic],
-        do: {Atom.to_string(value), alerts(%{alert_policy: value}, nil)}
-      )
+  defp alert_options do
+    for(
+      value <- [:reply, :offer, :automatic],
+      do: {Atom.to_string(value), alerts(%{alert_policy: value}, nil)}
+    )
+  end
 
   defp environment_options(environments),
     do: Enum.map(environments, &{&1.ref, &1.name}) ++ [{"", "No environment"}]
@@ -530,10 +509,10 @@ defmodule Ryker.ControlPlane.ChannelPage do
   # Slack's own page for the channel, in the app when it is installed. The
   # page shows no Slack IDs (Andrew, 2026-09-28): whether a channel is private
   # or shared is in the description under the title.
-  defp slack_link(scope),
-    do:
-      "https://slack.com/app_redirect?" <>
-        URI.encode_query(%{"team" => scope.workspace_ref, "channel" => scope.channel_ref})
+  defp slack_link(scope) do
+    "https://slack.com/app_redirect?" <>
+      URI.encode_query(%{"team" => scope.workspace_ref, "channel" => scope.channel_ref})
+  end
 
   attr(:configuration, :map, default: nil)
   attr(:workspace, :string, required: true)
@@ -754,10 +733,10 @@ defmodule Ryker.ControlPlane.ChannelPage do
     """
   end
 
-  defp summary_state(%{recall_warning: :missing_source_history}),
-    do:
-      {:off, "Not in use",
-       "No complete record of the messages behind it was saved. It is kept so you can read it."}
+  defp summary_state(%{recall_warning: :missing_source_history}) do
+    {:off, "Not in use",
+     "No complete record of the messages behind it was saved. It is kept so you can read it."}
+  end
 
   defp summary_state(%{recall_warning: :invalid_source_history}),
     do: {:off, "Not in use", "The record of the messages behind it is invalid."}

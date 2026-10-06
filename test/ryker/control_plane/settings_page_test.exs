@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.SettingsPageTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.SettingsPage
 
   # "Install the App in another organization" always led to github.com, so an App on a GitHub

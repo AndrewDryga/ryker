@@ -1,6 +1,5 @@
 defmodule Ryker.Admission.LeaseRenewerTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Admission.LeaseRenewer
 
   test "many fast Coop polls renew the durable lease at a bounded cadence" do

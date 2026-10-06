@@ -6,7 +6,6 @@ defmodule Ryker.Slack.Renderer.WorkCards do
 
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
-
   alias Ryker.Records.InvestigationPayload
   alias Ryker.Slack.Renderer.TaskPublication
   alias Ryker.Slack.TaskCardDetails
@@ -390,11 +389,11 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   defp task_action_block(value, nil), do: incident_action_block(value)
   defp task_action_block(nil, _question_url), do: nil
 
-  defp task_action_block(value, question_url),
-    do:
-      section(
-        ":warning: *Action needed*\n#{escape(value)}\n#{link(question_url, "Open the question")}"
-      )
+  defp task_action_block(value, question_url) do
+    section(
+      ":warning: *Action needed*\n#{escape(value)}\n#{link(question_url, "Open the question")}"
+    )
+  end
 
   # Slack reads the notification line as markup too, so it escapes the same
   # values the blocks do.

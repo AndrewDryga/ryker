@@ -7,10 +7,8 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
   rule, which until then opened a bare confirmation page of its own.
   """
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.ControlPlane.{Actions, CSRF, Endpoint, Projection}
   alias Ryker.Fixtures.SavedEntities

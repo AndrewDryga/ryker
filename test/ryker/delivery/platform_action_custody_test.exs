@@ -1,8 +1,6 @@
 defmodule Ryker.Delivery.PlatformActionCustodyTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Delivery.{PlatformAction, PlatformActionCustody, Request}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

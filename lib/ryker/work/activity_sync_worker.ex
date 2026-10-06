@@ -7,9 +7,7 @@ defmodule Ryker.Work.ActivitySyncWorker do
   """
 
   use Ryker.PollingWorker, lane: :activity_sync, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.Work.Activity
 
   @spec start_link(keyword()) :: GenServer.on_start()

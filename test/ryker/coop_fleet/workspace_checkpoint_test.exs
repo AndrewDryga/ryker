@@ -1,7 +1,6 @@
 defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
   use ExUnit.Case, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.CoopFleet.WorkspaceCheckpoint
   alias Ryker.CoopFleet.WorkspaceCheckpointBundle
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture

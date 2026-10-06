@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.WaitPromptTest do
   use ExUnit.Case, async: true
-
   alias Ryker.StateTools.FixedTools
 
   test "reliable source notifications may be awaited without any scheduled wake" do
@@ -56,9 +55,10 @@ defmodule Ryker.StateTools.WaitPromptTest do
     tool = Enum.find(FixedTools.list(capabilities: [:event_waits]), &(&1["name"] == "wait_for"))
 
     trigger =
-      Enum.find(tool["inputSchema"]["properties"]["trigger"]["oneOf"], fn schema ->
-        Map.has_key?(schema["properties"], "source_kind")
-      end)
+      Enum.find(
+        tool["inputSchema"]["properties"]["trigger"]["oneOf"],
+        &Map.has_key?(&1["properties"], "source_kind")
+      )
 
     description = trigger["properties"]["match"]["description"]
     assert description =~ "item.content.content"

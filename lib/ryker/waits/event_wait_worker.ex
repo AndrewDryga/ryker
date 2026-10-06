@@ -10,9 +10,7 @@ defmodule Ryker.Waits.EventWaitWorker do
   """
 
   use Ryker.PollingWorker, lane: :event_waits, interval: :interval_ms
-
   require Logger
-
   alias Ryker.Episodes
   alias Ryker.Observability.Progress
   alias Ryker.Options

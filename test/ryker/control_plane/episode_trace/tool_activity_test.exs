@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivityTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.EpisodeCausality
   alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
   alias Ryker.Work.ActivityEvent
@@ -36,10 +35,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivityTest do
            "1,600 calls cost #{Float.round(large / small, 1)} times the work of 400"
   end
 
-  defp calls(count),
-    do:
-      Enum.map(1..count, &started("call-#{&1}", &1)) ++
-        Enum.map(1..count, &completed("call-#{&1}", count + &1))
+  defp calls(count) do
+    Enum.map(1..count, &started("call-#{&1}", &1)) ++
+      Enum.map(1..count, &completed("call-#{&1}", count + &1))
+  end
 
   defp steps(events),
     do: ToolActivity.steps(events, EpisodeCausality.index([], [], []), MapSet.new())
@@ -51,21 +50,21 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivityTest do
     after_run - before
   end
 
-  defp started(call, second),
-    do:
-      event("tool.started", second, %{
-        "kind" => "execute",
-        "title" => "Run #{call}",
-        "tool_call_id" => call
-      })
+  defp started(call, second) do
+    event("tool.started", second, %{
+      "kind" => "execute",
+      "title" => "Run #{call}",
+      "tool_call_id" => call
+    })
+  end
 
-  defp completed(call, second),
-    do:
-      event("tool.completed", second, %{
-        "kind" => "execute",
-        "status" => "completed",
-        "tool_call_id" => call
-      })
+  defp completed(call, second) do
+    event("tool.completed", second, %{
+      "kind" => "execute",
+      "status" => "completed",
+      "tool_call_id" => call
+    })
+  end
 
   defp event(kind, second, payload) do
     %ActivityEvent{

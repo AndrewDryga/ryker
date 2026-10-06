@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.CommandHandlerTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.{Command, CommandHandler, Operators}
 
   defmodule Directory do

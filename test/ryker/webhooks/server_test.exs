@@ -1,6 +1,5 @@
 defmodule Ryker.Webhooks.ServerTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Webhooks.{Route, Server}
 
   test "builds one explicit listener and derives route names from trusted configuration" do

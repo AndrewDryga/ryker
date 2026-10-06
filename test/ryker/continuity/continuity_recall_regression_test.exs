@@ -1,20 +1,17 @@
 defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Fixtures.Learning, as: LearningFixtures
-  alias Ryker.Slack.ChannelMembership
-
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Continuity.Recall
+  alias Ryker.Episodes.Episode
+  alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Memories.MemorySearchPage
-
-  alias Ryker.Continuity.Recall
+  alias Ryker.Slack.ChannelMembership
 
   # Copied verbatim from the "cross-channel operational continuity" behavioral
   # scenario in testdata/eval/scenarios.jsonl. The 64 unrelated rows below are

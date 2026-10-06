@@ -16,7 +16,6 @@ defmodule Ryker.Slack.ChannelConfigurations do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.Memories
@@ -25,17 +24,9 @@ defmodule Ryker.Slack.ChannelConfigurations do
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.Settings.Environment
-
-  alias Ryker.Slack.{
-    ChannelConfiguration,
-    ChannelConfigurationChangeset,
-    ChannelFence,
-    ChannelMembership,
-    ChannelMembershipEvent,
-    ChannelSettings,
-    ConfigurationAction,
-    ConfigurationSession
-  }
+  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurationChangeset, ChannelFence}
+  alias Ryker.Slack.{ChannelMembership, ChannelMembershipEvent, ChannelSettings}
+  alias Ryker.Slack.{ConfigurationAction, ConfigurationSession}
 
   @membership_fields [:actor_ref, :channel_ref, :event_ref, :kind, :occurred_at, :workspace_ref]
   @participation_change_fields [

@@ -14,20 +14,9 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   a room's own page listens to that room (`IncidentProjection.subscriptions/1`).
   """
   use Phoenix.Component
-
   alias Phoenix.HTML.Safe
-
-  alias Ryker.ControlPlane.{
-    ChannelsPage,
-    Components,
-    Kit,
-    Paths,
-    ShortTime,
-    SlackMarkdown,
-    Units,
-    UsageProjection
-  }
-
+  alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, Paths, ShortTime, SlackMarkdown, Units}
+  alias Ryker.ControlPlane.UsageProjection
   alias Ryker.Publication.Custody, as: Publications
   alias Ryker.Slack.{IncidentRooms, Names}
 
@@ -66,15 +55,15 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   # about it: the channel is where Ryker's work in the room happens. Andrew,
   # 2026-10-03, of "Ryker cannot reach the room's channel in Slack, so its work
   # in it is paused.": "wtf?"
-  def summary(%{status: :ready, channel_state: :archived}),
-    do:
-      "The room's channel is archived in Slack, so Ryker stopped working in it. " <>
-        "Restore the channel in Slack to carry on, or close the room."
+  def summary(%{status: :ready, channel_state: :archived}) do
+    "The room's channel is archived in Slack, so Ryker stopped working in it. " <>
+      "Restore the channel in Slack to carry on, or close the room."
+  end
 
-  def summary(%{status: :ready, channel_state: :unavailable}),
-    do:
-      "Ryker can't find the room's channel in Slack: it is gone, or Ryker is no longer in it. " <>
-        "Add Ryker to the channel again, or close the room."
+  def summary(%{status: :ready, channel_state: :unavailable}) do
+    "Ryker can't find the room's channel in Slack: it is gone, or Ryker is no longer in it. " <>
+      "Add Ryker to the channel again, or close the room."
+  end
 
   def summary(%{status: :ready, channel_state: :deleted}),
     do: "Slack deleted the room's channel, so Ryker is closing the room."
@@ -113,10 +102,10 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
 
   @doc "What closing a room does, in the words its Close question uses."
   @spec close_explanation(map()) :: String.t()
-  def close_explanation(%{channel_ref: nil}),
-    do:
-      "Ryker stops setting up the room and says so in the alert thread it came from. " <>
-        "You can't reopen it."
+  def close_explanation(%{channel_ref: nil}) do
+    "Ryker stops setting up the room and says so in the alert thread it came from. " <>
+      "You can't reopen it."
+  end
 
   def close_explanation(room) do
     said =
@@ -547,10 +536,11 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   # Who asked for the room: the person who chose Create incident room, or, for
   # a room the channel opens for every alert, that setting.
   defp requested_words(%{requested_by: ref} = room) when is_binary(ref) do
-    if Names.person_ref?(ref),
-      do:
-        Kit.person(%{__changed__: nil, person: Names.person(room.workspace_ref, ref), class: nil}),
-      else: "opened for the alert by the channel's setting"
+    if Names.person_ref?(ref) do
+      Kit.person(%{__changed__: nil, person: Names.person(room.workspace_ref, ref), class: nil})
+    else
+      "opened for the alert by the channel's setting"
+    end
   end
 
   defp requested_words(_room), do: nil

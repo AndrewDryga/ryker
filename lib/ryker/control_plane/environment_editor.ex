@@ -20,7 +20,6 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   """
 
   use Phoenix.LiveComponent
-
   alias Ryker.ControlPlane.{Components, Environments, SettingsView}
   alias Ryker.Settings.Environment
 
@@ -248,10 +247,10 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
     end
   end
 
-  defp error({:settings_conflict, _current}),
-    do:
-      "This environment changed while you were editing it, so nothing was saved. " <>
-        "Reload the page to see it now, then make your change again."
+  defp error({:settings_conflict, _current}) do
+    "This environment changed while you were editing it, so nothing was saved. " <>
+      "Reload the page to see it now, then make your change again."
+  end
 
   defp error(:settings_forbidden), do: "This console is not allowed to change settings."
 
@@ -271,11 +270,11 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   # With several repositories, work opens every one it does not change
   # beside the one it does, under the repository's own name, so every name
   # has to fit.
-  defp refused({:repositories, :companion_name}),
-    do:
-      "With more than one repository, each name has to be up to 48 lowercase letters, " <>
-        "numbers, dashes or underscores, so Ryker can open it beside the others. " <>
-        "Leave out the one whose name does not fit."
+  defp refused({:repositories, :companion_name}) do
+    "With more than one repository, each name has to be up to 48 lowercase letters, " <>
+      "numbers, dashes or underscores, so Ryker can open it beside the others. " <>
+      "Leave out the one whose name does not fit."
+  end
 
   defp refused({:repositories, :unknown_repository}),
     do: "A chosen repository is no longer added. Reload the page and choose again."

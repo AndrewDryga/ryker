@@ -7,7 +7,6 @@ defmodule Ryker.CoopFleet.ManagedSourcesGitAuthTest do
   x-access-token user. A freshly minted token proved both forms that day.
   """
   use ExUnit.Case, async: true
-
   alias Ryker.CoopFleet.ManagedSources
 
   test "a managed source fetch authenticates to GitHub's git endpoint the one way it accepts" do

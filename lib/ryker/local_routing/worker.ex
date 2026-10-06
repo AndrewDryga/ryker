@@ -12,9 +12,7 @@ defmodule Ryker.LocalRouting.Worker do
   """
 
   use Ryker.PollingWorker, lane: :local_routing, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.Endpoint
   alias Ryker.PollingWorker
@@ -90,12 +88,12 @@ defmodule Ryker.LocalRouting.Worker do
   end
 
   defp between!(value, first..last//1, field) do
-    unless is_integer(value) and value >= first and value <= last,
-      do:
-        raise(
-          ArgumentError,
-          "local routing #{field} must be a whole number from #{first} to #{last}"
-        )
+    unless is_integer(value) and value >= first and value <= last do
+      raise(
+        ArgumentError,
+        "local routing #{field} must be a whole number from #{first} to #{last}"
+      )
+    end
   end
 
   @impl PollingWorker

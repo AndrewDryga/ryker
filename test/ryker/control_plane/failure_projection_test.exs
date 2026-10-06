@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.FailureProjectionTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
 
   # Admission context reads under REPEATABLE READ; the fixture keeps its own
@@ -8,26 +7,13 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query, only: [from: 2]
-
   alias Ryker.Admission
   alias Ryker.Admission.{Decision, ReadySessions}
-
   alias Ryker.CanonicalJSON
-
-  alias Ryker.ControlPlane.{
-    Actions,
-    ConversationMemory,
-    FailureExplanation,
-    FailureProjection,
-    FailuresPage,
-    Pages,
-    Projection,
-    WorkspaceProjection
-  }
-
+  alias Ryker.ControlPlane.{Actions, ConversationMemory, FailureExplanation, FailureProjection}
+  alias Ryker.ControlPlane.{FailuresPage, Pages, Projection, WorkspaceProjection}
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
   alias Ryker.CoopFleet.Placement
-
   alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

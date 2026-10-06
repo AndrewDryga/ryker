@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.ServerTest do
   use ExUnit.Case, async: true
-
   alias Ryker.GitHub.{Binding, Server}
 
   @secret Ryker.Secret.new(String.duplicate("s", 32))

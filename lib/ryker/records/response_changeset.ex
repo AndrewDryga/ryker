@@ -2,7 +2,6 @@ defmodule Ryker.Records.ResponseChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Records.Response
 
   @fields [

@@ -13,7 +13,6 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   worker changes (`subscriptions/0`).
   """
   use Phoenix.Component
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, SlackMarkdown, Units}
   alias Ryker.Slack.Names
@@ -319,9 +318,9 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp plural(1, unit), do: "1 #{unit}"
   defp plural(count, unit), do: "#{count} #{unit}s"
 
-  defp space_in_use?(workers),
-    do:
-      Enum.any?(workers, fn worker ->
-        is_integer(worker.bytes["protected_bytes"]) and worker.bytes["protected_bytes"] > 0
-      end)
+  defp space_in_use?(workers) do
+    Enum.any?(workers, fn worker ->
+      is_integer(worker.bytes["protected_bytes"]) and worker.bytes["protected_bytes"] > 0
+    end)
+  end
 end

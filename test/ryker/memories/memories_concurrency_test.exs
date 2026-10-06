@@ -1,27 +1,23 @@
 defmodule Ryker.Memories.MemoriesConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Accounting.Execution
   alias Ryker.CanonicalJSON
+  alias Ryker.Continuity
+  alias Ryker.Continuity.ConversationSummaryDraft
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Repo
-  alias Ryker.Slack.{ChannelConfigurations, ChannelMembership, ChannelMembershipEvent}
-
-  alias Ryker.Continuity
-  alias Ryker.Continuity.ConversationSummaryDraft
   alias Ryker.Memories
   alias Ryker.Memories.{CaseRecord, MemoryEntry}
   alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Memories.MemoryReviewItem
+  alias Ryker.Memories.Reviews
   alias Ryker.Records
   alias Ryker.Records.Record
-
-  alias Ryker.Memories.Reviews
+  alias Ryker.Repo
+  alias Ryker.Slack.{ChannelConfigurations, ChannelMembership, ChannelMembershipEvent}
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Submission, Turn}
 
   @review_advisory_lock 7_152_019_552_843_112

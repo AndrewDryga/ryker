@@ -2,7 +2,6 @@ defmodule Ryker.Behaviors.BehaviorChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Behaviors.Behavior
 
   @fields [

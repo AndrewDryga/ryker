@@ -56,11 +56,11 @@ defmodule Mix.Tasks.Ryker.LearningEval do
     supplied = Keyword.keys(options)
 
     unless rest == [] and invalid == [] and supplied -- (keys ++ [:scenario, :probe]) == [] and
-             keys -- supplied == [] and length(Enum.uniq(supplied)) == length(supplied),
-           do:
-             Mix.raise(
-               "provide each required flag once: --database --socket --target --results; optional --scenario haproxy|auth-memory-recurrence|draft-keep|unoffered-draft-match|starfall-correction|chatter|one-off-request|people --probe"
-             )
+             keys -- supplied == [] and length(Enum.uniq(supplied)) == length(supplied) do
+      Mix.raise(
+        "provide each required flag once: --database --socket --target --results; optional --scenario haproxy|auth-memory-recurrence|draft-keep|unoffered-draft-match|starfall-correction|chatter|one-off-request|people --probe"
+      )
+    end
 
     options
   end
@@ -135,11 +135,11 @@ defmodule Mix.Tasks.Ryker.LearningEval do
           "Public learning report: #{options[:results]}; custody retained in #{options[:database]}"
         )
 
-        unless match?({:ok, %{passed: true}}, result),
-          do:
-            Mix.raise(
-              "learning structural qualification failed; inspect report and retained custody"
-            )
+        unless match?({:ok, %{passed: true}}, result) do
+          Mix.raise(
+            "learning structural qualification failed; inspect report and retained custody"
+          )
+        end
       after
         File.close(file)
       end
@@ -149,21 +149,21 @@ defmodule Mix.Tasks.Ryker.LearningEval do
   end
 
   # Authored evaluation questions, deliberately separate from harvested inputs.
-  defp probe_question("haproxy"),
-    do:
-      "What do we know about the website HAProxy OOM on nomad-hst01, and what does the later resolved alert establish or leave unverified? Answer from the conversation history; do not run infrastructure checks."
+  defp probe_question("haproxy") do
+    "What do we know about the website HAProxy OOM on nomad-hst01, and what does the later resolved alert establish or leave unverified? Answer from the conversation history; do not run infrastructure checks."
+  end
 
-  defp probe_question("auth-memory-recurrence"),
-    do:
-      "What is the latest recorded state of auth/auth resident-memory pressure on nomad-hst02, and how does it relate to the earlier firing and resolved alerts? Answer from the conversation history, distinguish separate occurrences, and do not inspect live infrastructure."
+  defp probe_question("auth-memory-recurrence") do
+    "What is the latest recorded state of auth/auth resident-memory pressure on nomad-hst02, and how does it relate to the earlier firing and resolved alerts? Answer from the conversation history, distinguish separate occurrences, and do not inspect live infrastructure."
+  end
 
-  defp probe_question("draft-keep"),
-    do:
-      "What did the team decide about keeping draft-ai-suggestions, and why? Answer from the conversation history; do not change code or inspect live systems."
+  defp probe_question("draft-keep") do
+    "What did the team decide about keeping draft-ai-suggestions, and why? Answer from the conversation history; do not change code or inspect live systems."
+  end
 
-  defp probe_question("starfall-correction"),
-    do:
-      "Was the Starfall release stuck, and what did the team clarify about how updates happen? Answer from the conversation history, distinguish the initial concern from the later clarification, and do not inspect live systems."
+  defp probe_question("starfall-correction") do
+    "Was the Starfall release stuck, and what did the team clarify about how updates happen? Answer from the conversation history, distinguish the initial concern from the later clarification, and do not inspect live systems."
+  end
 
   @doc false
   def write_result(file, scenario, execute) do

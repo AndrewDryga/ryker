@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.TaskCardProjectionTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Delivery.ChatCard
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

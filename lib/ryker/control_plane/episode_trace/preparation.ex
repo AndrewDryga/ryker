@@ -8,7 +8,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
-
   alias Ryker.Behaviors
   alias Ryker.ControlPlane.{Activity, Paths, RepositoryNames}
   alias Ryker.CoopFleet.Placement
@@ -324,10 +323,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   defp current_queue_event(%{awaiting_transcript_until: %DateTime{} = until}, _last, true, now) do
     reason =
-      if live_after?(until, now),
-        do:
-          "Waiting for the voice message's transcript, until #{retry_time(until)} at the latest.",
-        else: "The transcript was not ready in time. Ready for the next routing worker."
+      if live_after?(until, now) do
+        "Waiting for the voice message's transcript, until #{retry_time(until)} at the latest."
+      else
+        "The transcript was not ready in time. Ready for the next routing worker."
+      end
 
     [%{kind: :current, label: "Current", at: nil, reason: reason, href: nil, link_label: nil}]
   end
@@ -519,16 +519,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp live_reason(:existing_episode),
     do: "Ryker processed this message because it continued earlier work."
 
-  defp live_reason({:rule, title}),
-    do:
-      "Ryker processed this message because the standing rule \"#{bounded(title, 160)}\" matched."
+  defp live_reason({:rule, title}) do
+    "Ryker processed this message because the standing rule \"#{bounded(title, 160)}\" matched."
+  end
 
   defp live_reason(:rule),
     do: "Ryker processed this message because a standing rule matched."
 
-  defp live_reason(:proactive),
-    do:
-      "Ryker processed this message even though it was not mentioned because proactive replies were on."
+  defp live_reason(:proactive) do
+    "Ryker processed this message even though it was not mentioned because proactive replies were on."
+  end
 
   defp live_reason(_cause), do: "Ryker processed this message."
 
@@ -757,10 +757,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
          %Turn{status: :superseded, coop_turn_id: nil, remote_queued_at: nil},
          _session,
          _now
-       ),
-       do:
-         {:replaced, "Replaced", "A newer run took its place before a worker started this one.",
-          nil, nil}
+       ) do
+    {:replaced, "Replaced", "A newer run took its place before a worker started this one.", nil,
+     nil}
+  end
 
   defp outcome_of(turn, session, now) do
     cond do
@@ -778,12 +778,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   defp setup_diagnostics(kind, _turn, _session, _placement) when kind != :blocked, do: []
 
-  defp setup_diagnostics(:blocked, turn, nil, _placement),
-    do:
-      compact_details([
-        {"Run ID", turn.turn_ref, identifier: true},
-        {"Start attempts", turn.work_attempt_count}
-      ])
+  defp setup_diagnostics(:blocked, turn, nil, _placement) do
+    compact_details([
+      {"Run ID", turn.turn_ref, identifier: true},
+      {"Start attempts", turn.work_attempt_count}
+    ])
+  end
 
   defp setup_diagnostics(:blocked, turn, session, placement) do
     compact_details([

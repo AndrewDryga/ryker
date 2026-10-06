@@ -1,7 +1,6 @@
 defmodule Ryker.Waits.EventWaitWorkerTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [beats: 1, eventually: 2, settled: 1]
-
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Records

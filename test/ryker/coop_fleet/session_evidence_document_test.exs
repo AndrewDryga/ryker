@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.SessionEvidenceDocumentTest do
   use ExUnit.Case, async: true
-
   alias Ryker.CoopFleet.SessionEvidenceDocument, as: Document
 
   # These are the exact bytes Coop's own exporter test writes

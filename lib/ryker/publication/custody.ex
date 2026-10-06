@@ -12,25 +12,12 @@ defmodule Ryker.Publication.Custody do
   """
 
   import Ecto.Query
-
   alias Ecto.Changeset
   alias Ryker.CoopFleet.{Command, WorkspaceCheckpointTransfer}
   alias Ryker.Delivery.Request
   alias Ryker.Episodes.Episode
-
-  alias Ryker.Publication.{
-    Card,
-    Changeset,
-    ConflictReceipt,
-    FixLoop,
-    Followup,
-    Followups,
-    GateOutput,
-    Publication,
-    Receipt,
-    Review
-  }
-
+  alias Ryker.Publication.{Card, Changeset, ConflictReceipt, FixLoop, Followup, Followups}
+  alias Ryker.Publication.{GateOutput, Publication, Receipt, Review}
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
@@ -394,9 +381,9 @@ defmodule Ryker.Publication.Custody do
 
   def delivery_request(_publication), do: {:error, :publication_delivery_not_pending}
 
-  defp review_delivery_message(_publication, true),
-    do:
-      "The committed change passed the trusted review. I'm opening the draft pull request for it now; merging and deploying stay with you."
+  defp review_delivery_message(_publication, true) do
+    "The committed change passed the trusted review. I'm opening the draft pull request for it now; merging and deploying stay with you."
+  end
 
   defp review_delivery_message(publication, false) do
     cond do
@@ -1685,14 +1672,14 @@ defmodule Ryker.Publication.Custody do
 
   defp publications_topic, do: "publications"
 
-  defp episode_of_publication(publication_id),
-    do:
-      Repo.one(
-        from(publication in Publication,
-          where: publication.id == ^publication_id,
-          select: publication.episode_id
-        )
+  defp episode_of_publication(publication_id) do
+    Repo.one(
+      from(publication in Publication,
+        where: publication.id == ^publication_id,
+        select: publication.episode_id
       )
+    )
+  end
 
   defp broadcast_committed_publication(publication_id),
     do: Ryker.PubSub.broadcast(publications_topic(), {:publication_updated, publication_id})

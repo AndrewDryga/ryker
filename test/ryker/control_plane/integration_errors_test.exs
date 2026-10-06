@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.IntegrationErrorsTest do
   pages can meet is said as a plain sentence that names what to do next.
   """
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.IntegrationErrors
 
   # Every refusal `Ryker.IntegrationSetup` and the credential store return to

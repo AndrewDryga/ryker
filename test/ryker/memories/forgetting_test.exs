@@ -4,13 +4,9 @@ defmodule Ryker.Memories.ForgettingTest do
   # learned by background learning from the same message and kept until
   # December, and a learned topic had no way to be forgotten at all.
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
-  alias Ryker.Repo
-
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -24,6 +20,7 @@ defmodule Ryker.Memories.ForgettingTest do
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.Reviews
+  alias Ryker.Repo
 
   setup do
     [first, second] = LearningFixtures.inputs!(isolate: true)
@@ -283,13 +280,13 @@ defmodule Ryker.Memories.ForgettingTest do
     Repo.get!(ConversationKnowledge, topic.id)
   end
 
-  defp observation!(entry),
-    do:
-      Repo.one!(
-        from(o in ConversationObservation,
-          where: o.identity_key == ^Observations.source_identity(entry)
-        )
+  defp observation!(entry) do
+    Repo.one!(
+      from(o in ConversationObservation,
+        where: o.identity_key == ^Observations.source_identity(entry)
       )
+    )
+  end
 
   defp available(entry) do
     Knowledge.context(entry, entry.repository_ref)

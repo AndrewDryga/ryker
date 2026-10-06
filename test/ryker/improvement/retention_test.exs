@@ -9,9 +9,7 @@ defmodule Ryker.Improvement.RetentionTest do
   """
   # Retention takes one advisory lock for a whole pass.
   use Ryker.MigrationCase
-
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers

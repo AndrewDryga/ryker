@@ -9,10 +9,8 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
   looking for the rule that should have fired.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
   import Phoenix.LiveViewTest
-
   alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}

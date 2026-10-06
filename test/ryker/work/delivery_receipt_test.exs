@@ -1,6 +1,5 @@
 defmodule Ryker.Work.DeliveryReceiptTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Work.DeliveryReceipt
 
   test "a delivery receipt has one bounded transport destination and message identity" do

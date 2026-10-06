@@ -14,7 +14,6 @@ defmodule Ryker.Improvement.AnalysesConcurrencyTest do
   wrote.
   """
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Feedback
   alias Ryker.Feedback.Signal

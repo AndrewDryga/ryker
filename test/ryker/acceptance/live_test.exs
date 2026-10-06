@@ -1,6 +1,5 @@
 defmodule Ryker.Acceptance.LiveTest do
   use ExUnit.Case, async: false
-
   alias Ryker.Acceptance.Live
   alias Ryker.Delivery.JSONClient
   alias Ryker.Slack.Client

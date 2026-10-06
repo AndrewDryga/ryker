@@ -1,6 +1,5 @@
 defmodule Ryker.Operator.EpisodeReviewsTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Feedback

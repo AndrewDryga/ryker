@@ -1,8 +1,6 @@
 defmodule Ryker.Admission.RoutingContractTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Admission
   alias Ryker.Admission.{Candidate, Context, Decision, Prompt}
   alias Ryker.Episodes

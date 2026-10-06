@@ -546,10 +546,10 @@ defmodule Ryker.ControlPlane.ConversationLab do
   defp chat_actor?("local-operator"), do: true
   defp chat_actor?(actor), do: Actor.chat_ref?(actor)
 
-  defp transcriber?(module),
-    do:
-      is_atom(module) and Code.ensure_loaded?(module) and
-        function_exported?(module, :transcribe, 2)
+  defp transcriber?(module) do
+    is_atom(module) and Code.ensure_loaded?(module) and
+      function_exported?(module, :transcribe, 2)
+  end
 
   defp generated_id(id_generator) do
     case Ecto.UUID.cast(id_generator.()) do

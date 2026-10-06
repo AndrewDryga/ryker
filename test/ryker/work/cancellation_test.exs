@@ -1,6 +1,5 @@
 defmodule Ryker.Work.CancellationTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

@@ -1,8 +1,6 @@
 defmodule Ryker.Schedules.ScheduleRuntimeTest do
   use ExUnit.Case, async: false
-
   import ExUnit.CaptureLog
-
   alias Ryker.Schedules.ScheduleDispatcher
   alias Ryker.Schedules.ScheduleRuntime
   alias Ryker.Schedules.ScheduleWorker

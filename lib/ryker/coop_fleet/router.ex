@@ -4,18 +4,9 @@ defmodule Ryker.CoopFleet.Router do
   @behaviour Plug
 
   import Plug.Conn
-
   require Logger
-
-  alias Ryker.CoopFleet.{
-    Bodies,
-    ControlPlane,
-    Enrollment,
-    Protocol,
-    PublicationGrants,
-    SourceGrants
-  }
-
+  alias Ryker.CoopFleet.{Bodies, ControlPlane, Enrollment, Protocol, PublicationGrants}
+  alias Ryker.CoopFleet.SourceGrants
   alias Ryker.HTTPConnection
   alias Ryker.StateTools.Binding
   alias Ryker.StateTools.Router, as: StateToolsRouter
@@ -53,9 +44,7 @@ defmodule Ryker.CoopFleet.Router do
          {:ok, key} <- Keyword.fetch(options, :checkpoint_key),
          {:ok, body, _reference} <- Bodies.fetch(root, id, :request),
          {:ok, conn} <-
-           Bodies.with_stream(body, key, fn stream ->
-             send_request_body(conn, certificate, id, stream)
-           end) do
+           Bodies.with_stream(body, key, &send_request_body(conn, certificate, id, &1)) do
       conn
     else
       {:error, :body_not_authorized} -> json_error(conn, 404, "not_found")

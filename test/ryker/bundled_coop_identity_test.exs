@@ -1,8 +1,6 @@
 defmodule Ryker.BundledCoopIdentityTest do
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ryker.CoopFleet.CertificateAuthority
 
   @controller "https://172.30.42.10:4322"

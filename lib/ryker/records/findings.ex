@@ -19,7 +19,6 @@ defmodule Ryker.Records.Findings do
   """
 
   import Ecto.Query
-
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo

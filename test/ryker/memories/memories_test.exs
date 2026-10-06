@@ -1,37 +1,26 @@
 defmodule Ryker.Memories.MemoriesTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
+  alias Ryker.Behaviors
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Episodes
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.MemoryPages
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Ingress.Inbox.Entry
-
-  alias Ryker.Slack.{
-    AppHomeEditor,
-    AppHomeProjection,
-    ChannelConfigurations,
-    ChannelMembership
-  }
-
-  alias Ryker.Behaviors
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Memories.MemoryReviewItem
   alias Ryker.Memories.MemorySearchPage
-  alias Ryker.Records
-  alias Ryker.Records.Record
-
   alias Ryker.Memories.Recall
   alias Ryker.Memories.Reviews
-
+  alias Ryker.Records
+  alias Ryker.Records.Record
+  alias Ryker.Slack.{AppHomeEditor, AppHomeProjection, ChannelConfigurations, ChannelMembership}
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
   # An hour before this file compiles, which is every test run: in the past, as
@@ -806,9 +795,9 @@ defmodule Ryker.Memories.MemoriesTest do
 
     hidden =
       Reviews.list_reviews("slack:T123", limit: 5)
-      |> Enum.find(fn review ->
-        get_in(review, ["entries", Access.at(0), "memory_ref"]) == conversation.memory.ref
-      end)
+      |> Enum.find(
+        &(get_in(&1, ["entries", Access.at(0), "memory_ref"]) == conversation.memory.ref)
+      )
 
     assert Memories.fetch_home_review(
              hidden["review_ref"],

@@ -2,9 +2,7 @@ defmodule Ryker.ConcurrencyCase do
   @moduledoc false
 
   use ExUnit.CaseTemplate
-
   import Ecto.Query
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.Ingress.Inbox

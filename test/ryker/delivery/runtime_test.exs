@@ -1,6 +1,5 @@
 defmodule Ryker.Delivery.RuntimeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Delivery.Runtime
 
   defmodule Publisher do

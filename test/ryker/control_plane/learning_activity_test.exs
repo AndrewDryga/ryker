@@ -1,25 +1,12 @@
 defmodule Ryker.ControlPlane.LearningActivityTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   import Phoenix.LiveViewTest, only: [render_component: 2]
   alias Ryker.CanonicalJSON
-
-  alias Ryker.ControlPlane.{
-    Actions,
-    ConversationMemory,
-    CSRF,
-    EpisodePage,
-    EpisodeProjection,
-    FailureProjection,
-    LearningActivity,
-    LearningPage,
-    ModelRequests,
-    Projection,
-    Router
-  }
-
+  alias Ryker.ControlPlane.{Actions, ConversationMemory, CSRF, EpisodePage, EpisodeProjection}
+  alias Ryker.ControlPlane.{FailureProjection, LearningActivity, LearningPage, ModelRequests}
+  alias Ryker.ControlPlane.{Projection, Router}
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.{Inbox, Input}

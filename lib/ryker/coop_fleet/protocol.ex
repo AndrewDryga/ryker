@@ -61,10 +61,10 @@ defmodule Ryker.CoopFleet.Protocol do
   def digest?(_value), do: false
 
   @doc false
-  def body_reference?(%{"sha256" => hash, "byte_size" => size} = reference),
-    do:
-      map_size(reference) == 2 and digest?(hash) and is_integer(size) and
-        size > 0 and size < 9_223_372_036_854_775_807
+  def body_reference?(%{"sha256" => hash, "byte_size" => size} = reference) do
+    map_size(reference) == 2 and digest?(hash) and is_integer(size) and
+      size > 0 and size < 9_223_372_036_854_775_807
+  end
 
   def body_reference?(_), do: false
 

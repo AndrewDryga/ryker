@@ -2,7 +2,6 @@ defmodule Ryker.StateTools.Binding do
   @moduledoc false
 
   import Ecto.Query
-
   alias Ryker.CoopFleet.Placement
   alias Ryker.Episodes.Episode
   alias Ryker.Records
@@ -122,15 +121,15 @@ defmodule Ryker.StateTools.Binding do
     )
   end
 
-  defp active_session(query),
-    do:
-      from([session, _episode, _turn, placement] in query,
-        where:
-          session.cleanup_status == :active and
-            (is_nil(placement.id) or
-               (placement.state == :active and
-                  placement.lease_expires_at > fragment("clock_timestamp()")))
-      )
+  defp active_session(query) do
+    from([session, _episode, _turn, placement] in query,
+      where:
+        session.cleanup_status == :active and
+          (is_nil(placement.id) or
+             (placement.state == :active and
+                placement.lease_expires_at > fragment("clock_timestamp()")))
+    )
+  end
 
   defp active_episode(query) do
     from([_session, episode, turn, _placement] in query,

@@ -1,8 +1,6 @@
 defmodule Ryker.Admission.FleetSessionTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Admission.FleetSession
   alias Ryker.ControlPlane.ModelRequests
   alias Ryker.FakeRetentionCoopAPI, as: RetentionAPI

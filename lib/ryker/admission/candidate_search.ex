@@ -14,18 +14,9 @@ defmodule Ryker.Admission.CandidateSearch do
   """
 
   import Ecto.Query
-
   alias Ryker.Admission.{CorrelationScope, Ranking}
-
-  alias Ryker.Episodes.{
-    CorrelationClaims,
-    Episode,
-    Origin,
-    Origins,
-    RoutingDigest,
-    RoutingDigests
-  }
-
+  alias Ryker.Episodes.{CorrelationClaims, Episode, Origin, Origins, RoutingDigest}
+  alias Ryker.Episodes.RoutingDigests
   alias Ryker.Repo
   alias Ryker.Work.Session
 

@@ -1,26 +1,11 @@
 defmodule Ryker.ControlPlane.RouterTest do
   use ExUnit.Case, async: true
-
   import Plug.Conn
   import Plug.Test
   import Phoenix.LiveViewTest
-
-  alias Ryker.ControlPlane.{
-    Actor,
-    CSRF,
-    EpisodePage,
-    FailureExplanation,
-    FailuresPage,
-    HTML,
-    LabControls,
-    LabPage,
-    Pages,
-    Paths,
-    Router,
-    UsagePage,
-    WorkingCopiesPage
-  }
-
+  alias Ryker.ControlPlane.{Actor, CSRF, EpisodePage, FailureExplanation, FailuresPage, HTML}
+  alias Ryker.ControlPlane.{LabControls, LabPage, Pages, Paths, Router, UsagePage}
+  alias Ryker.ControlPlane.WorkingCopiesPage
   alias Ryker.Fixtures.ControlPlaneOptions
 
   @secret ControlPlaneOptions.secret()
@@ -2441,9 +2426,9 @@ defmodule Ryker.ControlPlane.RouterTest do
     )
   end
 
-  defp multipart_request(path, token, message, filename, media_type, data),
-    do:
-      multipart_request_with_options(path, token, message, filename, media_type, data, options())
+  defp multipart_request(path, token, message, filename, media_type, data) do
+    multipart_request_with_options(path, token, message, filename, media_type, data, options())
+  end
 
   defp multipart_request_with_options(path, token, message, filename, media_type, data, options) do
     boundary = "ryker-lab-boundary"

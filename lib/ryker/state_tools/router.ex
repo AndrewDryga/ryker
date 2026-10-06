@@ -10,9 +10,7 @@ defmodule Ryker.StateTools.Router do
   @behaviour Plug
 
   import Plug.Conn
-
   require Logger
-
   alias Ryker.{CanonicalJSON, Secret}
   alias Ryker.Emisar.Tools, as: EmisarTools
   alias Ryker.HTTPConnection
@@ -38,9 +36,9 @@ defmodule Ryker.StateTools.Router do
     unless is_nil(answer_authorizer) or is_function(answer_authorizer, 1),
       do: raise(ArgumentError, "answer authorizer must be a trusted one-argument function")
 
-    unless is_nil(cursor_secret) or sealed_secret?(cursor_secret),
-      do:
-        raise(ArgumentError, "memory cursor secret must be at least 16 valid UTF-8 bytes, sealed")
+    unless is_nil(cursor_secret) or sealed_secret?(cursor_secret) do
+      raise(ArgumentError, "memory cursor secret must be at least 16 valid UTF-8 bytes, sealed")
+    end
 
     unless Capabilities.valid?(capabilities),
       do: raise(ArgumentError, "state-tools capabilities must be unique known atoms")
@@ -131,12 +129,11 @@ defmodule Ryker.StateTools.Router do
            "params" => %{}
          },
          options
-       ),
-       do:
-         rpc_result(conn, id, %{
-           "tools" =>
-             Tools.list(options) ++ visible_additional_tools(options) ++ emisar_tools(options)
-         })
+       ) do
+    rpc_result(conn, id, %{
+      "tools" => Tools.list(options) ++ visible_additional_tools(options) ++ emisar_tools(options)
+    })
+  end
 
   defp respond_rpc(
          conn,
@@ -311,50 +308,50 @@ defmodule Ryker.StateTools.Router do
 
   defp emisar_answer({:ok, result}), do: {:emisar, result}
 
-  defp emisar_answer({:error, :key_refused}),
-    do:
-      {:error,
-       "emisar_key_refused: Emisar refused the key of this conversation's environment. " <>
-         "Nothing ran. A person can replace the key on Ryker's Integrations page."}
+  defp emisar_answer({:error, :key_refused}) do
+    {:error,
+     "emisar_key_refused: Emisar refused the key of this conversation's environment. " <>
+       "Nothing ran. A person can replace the key on Ryker's Integrations page."}
+  end
 
-  defp emisar_answer({:error, :unavailable}),
-    do:
-      {:error,
-       "emisar_unavailable: Ryker could not reach Emisar, so nothing ran and nothing was " <>
-         "read. Say so rather than guessing what Emisar would have answered."}
+  defp emisar_answer({:error, :unavailable}) do
+    {:error,
+     "emisar_unavailable: Ryker could not reach Emisar, so nothing ran and nothing was " <>
+       "read. Say so rather than guessing what Emisar would have answered."}
+  end
 
-  defp emisar_answer({:error, :not_configured}),
-    do:
-      {:error,
-       "emisar_not_configured: this conversation's environment has no usable Emisar " <>
-         "account, so nothing ran."}
+  defp emisar_answer({:error, :not_configured}) do
+    {:error,
+     "emisar_not_configured: this conversation's environment has no usable Emisar " <>
+       "account, so nothing ran."}
+  end
 
   defp emisar_answer({:error, {:rejected, message}}),
     do: {:error, "emisar_rejected: Emisar rejected the call before running it: " <> message}
 
-  defp emisar_answer({:error, :answer_withheld}),
-    do:
-      {:error,
-       "emisar_answer_withheld: Emisar's answer carried the environment's key, so Ryker " <>
-         "withheld it. Tell a person; do not repeat the call."}
+  defp emisar_answer({:error, :answer_withheld}) do
+    {:error,
+     "emisar_answer_withheld: Emisar's answer carried the environment's key, so Ryker " <>
+       "withheld it. Tell a person; do not repeat the call."}
+  end
 
   # Emisar: "If transport fails after a mutation may have reached Emisar,
   # recover through its operation ID; never repeat the mutation merely because
   # the response was lost."
-  defp emisar_answer({:error, {:no_answer, operation_id}}),
-    do:
-      {:error,
-       %{
-         "code" => "emisar_no_answer",
-         "message" =>
-           "Emisar may have received this request, but its answer was lost, so it may " <>
-             "have run. Do not repeat it: look the operation up with get_operation.",
-         "next" => %{
-           "arguments" => %{"operation_id" => operation_id},
-           "tool" => "get_operation"
-         },
-         "operation_id" => operation_id
-       }}
+  defp emisar_answer({:error, {:no_answer, operation_id}}) do
+    {:error,
+     %{
+       "code" => "emisar_no_answer",
+       "message" =>
+         "Emisar may have received this request, but its answer was lost, so it may " <>
+           "have run. Do not repeat it: look the operation up with get_operation.",
+       "next" => %{
+         "arguments" => %{"operation_id" => operation_id},
+         "tool" => "get_operation"
+       },
+       "operation_id" => operation_id
+     }}
+  end
 
   defp call_additional(callback, name, arguments, binding) when is_function(callback, 3),
     do: callback.(name, arguments, binding)
@@ -373,9 +370,7 @@ defmodule Ryker.StateTools.Router do
           {nil, :live}
       end
 
-    Enum.filter(options.additional_tools, fn tool ->
-      ToolVisibility.visible?(tool["name"], transport, mode)
-    end)
+    Enum.filter(options.additional_tools, &ToolVisibility.visible?(&1["name"], transport, mode))
   end
 
   defp json_content_type(conn) do

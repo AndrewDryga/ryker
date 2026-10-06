@@ -10,23 +10,11 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   so a page that offers a destination the routes refuse fails here first.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query, only: [from: 2]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
-  alias Ryker.ControlPlane.{
-    Actions,
-    Actor,
-    Endpoint,
-    EpisodeProjection,
-    FailureProjection,
-    InstructionSettings,
-    ModelRequests,
-    PageHelp,
-    Projection
-  }
-
+  alias Ryker.ControlPlane.{Actions, Actor, Endpoint, EpisodeProjection, FailureProjection}
+  alias Ryker.ControlPlane.{InstructionSettings, ModelRequests, PageHelp, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.ControlPlaneOptions
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

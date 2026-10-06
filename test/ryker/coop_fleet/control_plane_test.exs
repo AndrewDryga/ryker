@@ -1,26 +1,11 @@
 defmodule Ryker.CoopFleet.ControlPlaneTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import ExUnit.CaptureLog
-
   import Ecto.Query
-
   alias Ryker.Admission.FleetSession
-
-  alias Ryker.CoopFleet.{
-    Bodies,
-    Client,
-    Command,
-    ControlPlane,
-    Event,
-    Placement,
-    Worker,
-    WorkerLifecycle,
-    WorkspaceCheckpointTransfer
-  }
-
+  alias Ryker.CoopFleet.{Bodies, Client, Command, ControlPlane, Event, Placement, Worker}
+  alias Ryker.CoopFleet.{WorkerLifecycle, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob

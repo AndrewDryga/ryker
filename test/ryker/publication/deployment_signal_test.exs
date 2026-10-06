@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.DeploymentSignalTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Publication.DeploymentSignal
 
   test "accepts only the exact bounded lifecycle contract" do

@@ -18,7 +18,6 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{PlatformAction, Request}
   alias Ryker.Episodes.{Episode, Event}
@@ -446,9 +445,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp subject(%{document: document}), do: document
 
-  defp intent(action),
-    do:
-      Map.take(action, [:conversation_ref, :document, :source_item_ref, :thread_ref, :transport])
+  defp intent(action) do
+    Map.take(action, [:conversation_ref, :document, :source_item_ref, :thread_ref, :transport])
+  end
 
   defp limit_reached(:set_slack_reaction), do: :reaction_limit_reached
   defp limit_reached(:post_slack_update), do: :update_limit_reached

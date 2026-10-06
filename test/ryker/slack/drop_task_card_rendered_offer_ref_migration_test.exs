@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.DropTaskCardRenderedOfferRefMigrationTest do
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @version 20_261_006_090_000

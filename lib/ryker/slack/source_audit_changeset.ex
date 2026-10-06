@@ -2,7 +2,6 @@ defmodule Ryker.Slack.SourceAuditChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Slack.SourceAudit
 
   @fields [

@@ -8,9 +8,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   """
 
   import Ecto.Query
-
   require Logger
-
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.SourcePage
@@ -346,12 +344,12 @@ defmodule Ryker.ControlPlane.CapabilityTools do
        do: {:ok, ""}
 
   defp search_continuation(_remaining, selected, scope, secret)
-       when is_binary(secret) and byte_size(secret) >= 16,
-       do:
-         {:ok,
-          Plug.Crypto.sign(secret, "lab-source-search", {scope, search_key(List.last(selected))},
-            max_age: 3_600
-          )}
+       when is_binary(secret) and byte_size(secret) >= 16 do
+    {:ok,
+     Plug.Crypto.sign(secret, "lab-source-search", {scope, search_key(List.last(selected))},
+       max_age: 3_600
+     )}
+  end
 
   defp search_continuation(_remaining, _selected, _scope, _secret),
     do: {:error, :invalid_source_cursor}
@@ -937,10 +935,10 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp error_code(:invalid_arguments), do: "invalid_arguments"
   defp error_code(:invalid_source_cursor), do: "invalid_source_cursor"
 
-  defp error_code(:source_anchor_outside_bounds),
-    do:
-      "invalid_arguments: The message to read around was sent outside after and before. " <>
-        "Widen them, or leave them out."
+  defp error_code(:source_anchor_outside_bounds) do
+    "invalid_arguments: The message to read around was sent outside after and before. " <>
+      "Widen them, or leave them out."
+  end
 
   defp error_code(:state_record_unauthorized), do: "unauthorized"
   defp error_code(:state_record_confirmation_unsupported), do: "unauthorized"

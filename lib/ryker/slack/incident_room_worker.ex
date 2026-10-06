@@ -14,20 +14,16 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   """
 
   use Ryker.PollingWorker, lane: :slack_incidents, interval: :interval_ms
-
   import Ecto.Query, only: [from: 2]
-
   require Logger
-
-  alias Ryker.Observability.Progress
-  alias Ryker.Options
-  alias Ryker.PollingWorker
-
   alias Ryker.Delivery.HostNote
   alias Ryker.Delivery.Retry
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.ErrorDetail
+  alias Ryker.Observability.Progress
+  alias Ryker.Options
+  alias Ryker.PollingWorker
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelConfigurations, IncidentRoomCard, IncidentRooms}
   alias Ryker.Work.{Custody, Turn}
@@ -600,22 +596,22 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   defp deletion_detail({:not_posted, :shadow}),
     do: @deletion_detail <> ". It was a shadow room, so nothing was posted."
 
-  defp deletion_detail({:not_posted, _reason}),
-    do:
-      @deletion_detail <>
-        ". Ryker has no way to post in the alert thread, so it said nothing there."
+  defp deletion_detail({:not_posted, _reason}) do
+    @deletion_detail <>
+      ". Ryker has no way to post in the alert thread, so it said nothing there."
+  end
 
-  defp deletion_detail({:refused, reason}),
-    do:
-      @deletion_detail <>
-        ". Its note in the alert thread was refused (#{refusal(reason)}), so it said nothing there."
+  defp deletion_detail({:refused, reason}) do
+    @deletion_detail <>
+      ". Its note in the alert thread was refused (#{refusal(reason)}), so it said nothing there."
+  end
 
   defp reply_detail(nil), do: ""
 
-  defp reply_detail(%Turn{} = reply),
-    do:
-      " The investigation's finished reply could not be posted (#{reply_refusal(reply)}), " <>
-        "so it waits on the Failures page."
+  defp reply_detail(%Turn{} = reply) do
+    " The investigation's finished reply could not be posted (#{reply_refusal(reply)}), " <>
+      "so it waits on the Failures page."
+  end
 
   # Slack's own word for the refusal when the error text the delivery lane
   # saved carries one, and the saved error code otherwise.
@@ -891,16 +887,16 @@ defmodule Ryker.Slack.IncidentRoomWorker do
     end
   end
 
-  defp permanent?(reason),
-    do:
-      reason in [
-        :incident_offer_delivery_mismatch,
-        :incident_offer_not_delivered,
-        :incident_offer_not_found,
-        :incident_offer_stale,
-        :incident_offer_workspace_mismatch,
-        :incident_room_capacity
-      ]
+  defp permanent?(reason) do
+    reason in [
+      :incident_offer_delivery_mismatch,
+      :incident_offer_not_delivered,
+      :incident_offer_not_found,
+      :incident_offer_stale,
+      :incident_offer_workspace_mismatch,
+      :incident_room_capacity
+    ]
+  end
 
   defp retry_delay(attempt_count, base) do
     exponent = max(attempt_count - 1, 0) |> min(8)

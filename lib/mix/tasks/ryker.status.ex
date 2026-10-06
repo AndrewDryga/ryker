@@ -6,7 +6,6 @@ defmodule Mix.Tasks.Ryker.Status do
   """
 
   use Mix.Task
-
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Operator.Status
 
@@ -21,9 +20,9 @@ defmodule Mix.Tasks.Ryker.Status do
   end
 
   defp snapshot do
-    Support.with_configuration(fn configuration ->
-      Status.snapshot(configuration: configuration, check_progress: false, check_runtimes: false)
-    end)
+    Support.with_configuration(
+      &Status.snapshot(configuration: &1, check_progress: false, check_runtimes: false)
+    )
   end
 
   defp print_result({:ok, snapshot}), do: Support.print(snapshot)

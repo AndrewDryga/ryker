@@ -1,6 +1,5 @@
 defmodule Ryker.Work.ExecutionTargetTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Work.ExecutionTarget
 
   test "the co:op target is presented as labelled human information" do

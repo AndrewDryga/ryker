@@ -22,9 +22,7 @@ defmodule Ryker.ControlPlane.ConsolePeople do
   a page calls it "You", as before.
   """
   use Ecto.Schema
-
   import Ecto.Query
-
   alias Ryker.ControlPlane.{Actor, PageRead}
   alias Ryker.Repo
 

@@ -10,9 +10,7 @@ defmodule Ryker.Improvement.Worker do
   or for its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :improvement, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.{Episodes, Improvement, PollingWorker}
   alias Ryker.Improvement.{Analyses, Dispatcher}
 

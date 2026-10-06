@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.MembershipTransitionTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.MembershipTransition
 
   test "normalizes only this bot's join leave and channel deletion events" do

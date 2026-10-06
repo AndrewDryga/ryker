@@ -15,7 +15,6 @@ defmodule Ryker.LocalRoutingTest do
   in-process OpenAI-compatible double, never a model.
   """
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Ryker.TestHelpers, only: [eventually: 1]
 
@@ -529,14 +528,14 @@ defmodule Ryker.LocalRoutingTest do
   end
 
   # The messages with a comparison kept, waiting, compared or given up.
-  defp kept,
-    do:
-      Repo.all(
-        from(comparison in Comparison,
-          order_by: comparison.inserted_at,
-          select: comparison.input_id
-        )
+  defp kept do
+    Repo.all(
+      from(comparison in Comparison,
+        order_by: comparison.inserted_at,
+        select: comparison.input_id
       )
+    )
+  end
 
   # Every prompt the local model was sent so far.
   defp local_prompts do
@@ -548,11 +547,11 @@ defmodule Ryker.LocalRoutingTest do
     end
   end
 
-  defp prompt(entry),
-    do:
-      Repo.get_by!(Attempt, input_id: entry.id, generation: entry.execution_generation).submission[
-        "prompt"
-      ]
+  defp prompt(entry) do
+    Repo.get_by!(Attempt, input_id: entry.id, generation: entry.execution_generation).submission[
+      "prompt"
+    ]
+  end
 
   # The person deletes the message the first time the lane reads it back for
   # a comparison it has already taken.

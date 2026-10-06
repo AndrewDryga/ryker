@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.ActivityDaysTest do
   """
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest, only: [render_component: 2]
-
   alias Ryker.ControlPlane.{ActivityPage, Kit}
 
   @now ~U[2026-09-25 09:00:00Z]

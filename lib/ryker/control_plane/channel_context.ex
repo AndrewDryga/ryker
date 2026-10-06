@@ -9,26 +9,17 @@ defmodule Ryker.ControlPlane.ChannelContext do
   """
 
   import Ecto.Query
-
-  alias Ryker.ControlPlane.{
-    BehaviorLibrary,
-    BehaviorPage,
-    ChannelScope,
-    ConversationMemory,
-    PagedRelation
-  }
-
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Learning.{Batch, InputMembership}
-  alias Ryker.Repo
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Continuity.ConversationSummaryDraft
+  alias Ryker.ControlPlane.{BehaviorLibrary, BehaviorPage, ChannelScope, ConversationMemory}
+  alias Ryker.ControlPlane.PagedRelation
+  alias Ryker.Episodes.Episode
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Learning.{Batch, InputMembership}
   alias Ryker.Memories.MemoryEntry
-
+  alias Ryker.Repo
   alias Ryker.Work.Turn
 
   @doc """

@@ -2,7 +2,6 @@ defmodule Ryker.Waits.EventSubscriptionChangeset do
   @moduledoc false
 
   import Ecto.Changeset
-
   alias Ryker.Waits.EventSubscription
 
   @fields [

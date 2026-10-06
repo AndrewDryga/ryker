@@ -12,7 +12,6 @@ defmodule Ryker.CoopFleet.JobCheck do
   """
 
   require Logger
-
   alias Ryker.GitHub.RepositoryFiles
 
   @project_file ".agent/project.yaml"

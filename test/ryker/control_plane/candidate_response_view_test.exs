@@ -1,8 +1,6 @@
 defmodule Ryker.ControlPlane.CandidateResponseViewTest do
   use ExUnit.Case, async: true
-
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.EpisodeRequest
   alias Ryker.InspectionRedactor
 

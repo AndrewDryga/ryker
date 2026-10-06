@@ -1,24 +1,14 @@
 defmodule Ryker.Work.ResultCustodyTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{RoutingDigest, RoutingDigests}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Records
   alias Ryker.Waits.EventSubscription
-
-  alias Ryker.Work.{
-    Custody,
-    DeliveryReceipt,
-    Result,
-    Submission,
-    SubmissionBuilder,
-    Turn,
-    ValidationIntent
-  }
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, SubmissionBuilder, Turn}
+  alias Ryker.Work.ValidationIntent
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 

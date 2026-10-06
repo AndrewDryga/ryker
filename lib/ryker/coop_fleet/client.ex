@@ -9,22 +9,10 @@ defmodule Ryker.CoopFleet.Client do
   @behaviour Ryker.Coop.API
 
   import Ecto.Query
-
   alias Ryker.{Artifacts, CanonicalJSON}
-
-  alias Ryker.CoopFleet.{
-    Bodies,
-    Bridge,
-    Checkpoints,
-    Command,
-    ControlPlane,
-    JobAuthority,
-    Placement,
-    Worker,
-    WorkspaceCheckpointTransfer
-  }
-
+  alias Ryker.CoopFleet.{Bodies, Bridge, Checkpoints, Command, ControlPlane, JobAuthority}
   alias Ryker.CoopFleet.ControlPlane.Commands
+  alias Ryker.CoopFleet.{Placement, Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Repo
   alias Ryker.Work.{RepositorySource, Session, StateBinding}
 
@@ -615,13 +603,13 @@ defmodule Ryker.CoopFleet.Client do
     end
   end
 
-  defp publication_post_response(client, %Command{status: :succeeded} = command),
-    do:
-      Bridge.command_response(
-        command,
-        client.bridge_options[:body_root],
-        client.bridge_options[:checkpoint_key]
-      )
+  defp publication_post_response(client, %Command{status: :succeeded} = command) do
+    Bridge.command_response(
+      command,
+      client.bridge_options[:body_root],
+      client.bridge_options[:checkpoint_key]
+    )
+  end
 
   defp publication_post_response(_client, %Command{status: :uncertain}), do: {:ok, :reconcile}
 
@@ -1416,12 +1404,12 @@ defmodule Ryker.CoopFleet.Client do
          %Command{session_id: session_id, placement_generation: placement_generation},
          %Session{id: session_id} = session,
          coop_session_id
-       ),
-       do:
-         match?(
-           {:ok, _remote_session},
-           durable_ensured_session(session, coop_session_id, placement_generation)
-         )
+       ) do
+    match?(
+      {:ok, _remote_session},
+      durable_ensured_session(session, coop_session_id, placement_generation)
+    )
+  end
 
   defp durable_workspace_bound?(_command, _session, _coop_session_id), do: false
 

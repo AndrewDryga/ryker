@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.JobTemplatesTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Admission.ReadySessions
   alias Ryker.CoopFleet.{JobSpec, JobTemplates}
   alias Ryker.Settings.{Environment, EnvironmentRepository, GitHubBinding, Repository, Work}
@@ -197,12 +196,12 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
     end
   end
 
-  defp template(templates, purpose),
-    do:
-      Enum.find(
-        templates,
-        &(&1.scope_kind == :repository and &1.scope_ref == "app" and &1.purpose == purpose)
-      )
+  defp template(templates, purpose) do
+    Enum.find(
+      templates,
+      &(&1.scope_kind == :repository and &1.scope_ref == "app" and &1.purpose == purpose)
+    )
+  end
 
   defp snapshot do
     %{

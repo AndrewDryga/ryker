@@ -14,7 +14,6 @@ defmodule Ryker.ControlPlane.PeoplePage do
   (`subscriptions/0`).
   """
   use Phoenix.Component
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, MemoryFormat, Paths, ShortTime}
   alias Ryker.Learning

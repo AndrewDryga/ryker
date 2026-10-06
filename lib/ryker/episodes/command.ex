@@ -626,10 +626,10 @@ defmodule Ryker.Episodes.Command do
   defp valid_next_wait?(%{kind: :event, ref: ref, deadline_at: nil} = wait),
     do: exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref)
 
-  defp valid_next_wait?(%{kind: :event, ref: ref, deadline_at: %DateTime{} = deadline} = wait),
-    do:
-      exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref) and
-        utc_datetime?(deadline)
+  defp valid_next_wait?(%{kind: :event, ref: ref, deadline_at: %DateTime{} = deadline} = wait) do
+    exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref) and
+      utc_datetime?(deadline)
+  end
 
   defp valid_next_wait?(_wait), do: false
 

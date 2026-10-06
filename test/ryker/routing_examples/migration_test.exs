@@ -6,7 +6,6 @@ defmodule Ryker.RoutingExamples.MigrationTest do
   back must refuse while any example is kept rather than drop them.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @before_version 20_260_927_160_000

@@ -14,12 +14,9 @@ defmodule Ryker.ControlPlane.LearningPage do
   for it or its sessions change (`subscriptions/0`).
   """
   use Phoenix.Component
-
   import Ryker.ControlPlane.Components, only: [action_button: 1, pager: 1]
-
-  alias Ryker.ControlPlane.Components
-
   alias Phoenix.HTML.Safe
+  alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.{CSRF, Kit, LearningActivity, MemoryFormat, Paths}
   alias Ryker.Ingress.Inbox
   alias Ryker.{Knowledge, Learning, Settings}
@@ -452,29 +449,29 @@ defmodule Ryker.ControlPlane.LearningPage do
 
   defp happened(:deferred), do: "Ryker stopped learning from these messages and needs you."
 
-  defp happened(:superseded),
-    do:
-      "These messages changed, were removed or expired before Ryker could learn from them, so it did not."
+  defp happened(:superseded) do
+    "These messages changed, were removed or expired before Ryker could learn from them, so it did not."
+  end
 
-  defp happened(:dropped),
-    do:
-      "Learning from these messages was dropped. Ryker will not read them again, and nothing it already learned changed."
+  defp happened(:dropped) do
+    "Learning from these messages was dropped. Ryker will not read them again, and nothing it already learned changed."
+  end
 
   # Why it stopped. A batch stopped by topics that lost their messages names
   # them; any other says what its code means.
-  defp cause(%{relearn: [topic]}),
-    do:
-      "Every attempt stopped on \"#{topic.title}\", a learned topic that lost the messages it was learned from. Ryker does not change such a topic."
+  defp cause(%{relearn: [topic]}) do
+    "Every attempt stopped on \"#{topic.title}\", a learned topic that lost the messages it was learned from. Ryker does not change such a topic."
+  end
 
-  defp cause(%{relearn: [_, _ | _] = topics}),
-    do:
-      "Every attempt stopped on #{Enum.map_join(topics, ", ", &"\"#{&1.title}\"")}, learned topics that lost the messages they were learned from. Ryker does not change such topics."
+  defp cause(%{relearn: [_, _ | _] = topics}) do
+    "Every attempt stopped on #{Enum.map_join(topics, ", ", &"\"#{&1.title}\"")}, learned topics that lost the messages they were learned from. Ryker does not change such topics."
+  end
 
   defp cause(batch), do: batch.error
 
-  defp options_lede(%{relearn: [_ | _]}),
-    do:
-      "Every start stops on a learned topic that lost its messages. Relearn or forget it first, or drop this batch."
+  defp options_lede(%{relearn: [_ | _]}) do
+    "Every start stops on a learned topic that lost its messages. Relearn or forget it first, or drop this batch."
+  end
 
   defp options_lede(%{retry_available: true}),
     do: "One more start may work if what stopped the attempts has changed."
@@ -482,11 +479,11 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp options_lede(_batch), do: nil
 
   # Forgetting a topic from a batch's page asks first, then comes back here.
-  defp forget_path(topic_id, batch_id),
-    do:
-      Paths.query(Paths.action("knowledge", topic_id, "forget"), %{
-        "back" => LearningActivity.path(batch_id)
-      })
+  defp forget_path(topic_id, batch_id) do
+    Paths.query(Paths.action("knowledge", topic_id, "forget"), %{
+      "back" => LearningActivity.path(batch_id)
+    })
+  end
 
   defp state_word(:on), do: {:on, "Learning is on"}
   defp state_word(:starting), do: {:busy, "Learning is starting"}
@@ -495,9 +492,9 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp state_word(:cannot_start), do: {:warn, "Learning can't start"}
   defp state_word(:off), do: {:off, "Learning is off"}
 
-  defp state_note(:off),
-    do:
-      "Ryker keeps new messages but learns nothing from them until learning is on. What it already learned stays available."
+  defp state_note(:off) do
+    "Ryker keeps new messages but learns nothing from them until learning is on. What it already learned stays available."
+  end
 
   defp state_note(:starting),
     do: "Ryker is applying the change. New messages are learned from once it runs."
@@ -505,13 +502,13 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp state_note(:cannot_start),
     do: "Learning is turned on, but Ryker has no worker or model to learn with yet."
 
-  defp state_note(:not_running),
-    do:
-      "Learning is set up, but its worker is not running in this Ryker process. New messages wait until it runs."
+  defp state_note(:not_running) do
+    "Learning is set up, but its worker is not running in this Ryker process. New messages wait until it runs."
+  end
 
-  defp state_note(:paused),
-    do:
-      "The worker reported more access than learning allows, so Ryker sends it nothing. Check the worker's version. New messages wait until it's fixed."
+  defp state_note(:paused) do
+    "The worker reported more access than learning allows, so Ryker sends it nothing. Check the worker's version. New messages wait until it's fixed."
+  end
 
   defp state_note(_state), do: nil
 
@@ -521,9 +518,9 @@ defmodule Ryker.ControlPlane.LearningPage do
   # How many model starts a batch used. The limit is part of it only while
   # the batch can still start: a stopped batch keeps none of the starts it
   # did not use, so "1 of 3" there promised two that would never run.
-  defp starts(%{status: status} = batch) when status in [:queued, :running],
-    do:
-      "#{batch.start_count} of #{MemoryFormat.count(batch.start_limit, "model start", "model starts")} used"
+  defp starts(%{status: status} = batch) when status in [:queued, :running] do
+    "#{batch.start_count} of #{MemoryFormat.count(batch.start_limit, "model start", "model starts")} used"
+  end
 
   defp starts(%{start_count: 0}), do: "No model starts used"
 
@@ -609,13 +606,13 @@ defmodule Ryker.ControlPlane.LearningPage do
 
   # Only an attempt that may have reached the model waits here; one that never
   # sent the model anything closes without its worker's answer.
-  defp session_detail(%{learning_state: :retry_scheduled, learning_retry_at: %DateTime{} = at}),
-    do:
-      sentence([
-        "The worker has not confirmed that this session stopped. Ryker checks again ",
-        MemoryFormat.time(at),
-        "."
-      ])
+  defp session_detail(%{learning_state: :retry_scheduled, learning_retry_at: %DateTime{} = at}) do
+    sentence([
+      "The worker has not confirmed that this session stopped. Ryker checks again ",
+      MemoryFormat.time(at),
+      "."
+    ])
+  end
 
   defp session_detail(%{learning_state: :retry_scheduled}),
     do: "The worker has not confirmed that this session stopped. Ryker checks again on its own."
@@ -626,9 +623,9 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp session_detail(%{learning_state: :cleanup_pending}),
     do: "Learning is done with this session. Cleanup is next."
 
-  defp session_detail(%{status: :blocked, summary: "coop_error"}),
-    do:
-      "The worker couldn't finish this step. Its error is saved here; check it before you try again."
+  defp session_detail(%{status: :blocked, summary: "coop_error"}) do
+    "The worker couldn't finish this step. Its error is saved here; check it before you try again."
+  end
 
   defp session_detail(%{status: :blocked, summary: "coop_unavailable"}),
     do: "The worker could not be reached. Check its connection, then retry."

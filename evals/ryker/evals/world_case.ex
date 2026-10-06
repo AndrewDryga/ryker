@@ -173,7 +173,7 @@ defmodule Ryker.Evals.WorldCase do
       |> Enum.filter(&(&1["authority"] == "operator"))
       |> MapSet.new(&operator_identity/1)
 
-    fn entry -> MapSet.member?(operators, entry_identity(entry)) end
+    &MapSet.member?(operators, entry_identity(&1))
   end
 
   defp operator_identity(%{"input_profile" => %{"actor" => actor, "source" => source}}),

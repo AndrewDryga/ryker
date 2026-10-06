@@ -4,7 +4,6 @@ defmodule Ryker.ControlPlane.RepositoryProjectionTest do
   last recorded and GitHub's side of it, read for the rows a page shows.
   """
   use Ryker.DataCase, async: false
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.RepositoryProjection
   alias Ryker.Episodes

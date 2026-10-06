@@ -2,18 +2,8 @@ defmodule Ryker.ControlPlane.ActivityTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Phoenix.LiveViewTest
-
-  alias Ryker.ControlPlane.{
-    Actions,
-    Activity,
-    ActivityPage,
-    EpisodeProjection,
-    OverviewProjection,
-    UsagePage,
-    UsageProjection,
-    WorkspaceProjection
-  }
-
+  alias Ryker.ControlPlane.{Actions, Activity, ActivityPage, EpisodeProjection}
+  alias Ryker.ControlPlane.{OverviewProjection, UsagePage, UsageProjection, WorkspaceProjection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Answers
   alias Ryker.Fixtures.Episodes, as: Fixtures

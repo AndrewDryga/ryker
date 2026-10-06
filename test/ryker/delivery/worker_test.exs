@@ -7,16 +7,8 @@ defmodule Ryker.Delivery.WorkerTest do
 
   alias Ryker.Admission
   alias Ryker.Admission.Decision
-
-  alias Ryker.Delivery.{
-    Adapters,
-    PlatformAction,
-    PlatformActionCustody,
-    RoutingResponse,
-    RoutingResponseCustody,
-    Worker
-  }
-
+  alias Ryker.Delivery.{Adapters, PlatformAction, PlatformActionCustody, RoutingResponse}
+  alias Ryker.Delivery.{RoutingResponseCustody, Worker}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox

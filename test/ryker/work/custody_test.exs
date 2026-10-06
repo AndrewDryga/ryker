@@ -1,10 +1,7 @@
 defmodule Ryker.Work.CustodyTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.CoopFleet.{Bodies, Worker, WorkspaceCheckpointTransfer}
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
   alias Ryker.Episodes

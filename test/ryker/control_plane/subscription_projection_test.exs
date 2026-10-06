@@ -1,10 +1,8 @@
 defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Endpoint, Projection, SubscriptionProjection}
   alias Ryker.Episodes

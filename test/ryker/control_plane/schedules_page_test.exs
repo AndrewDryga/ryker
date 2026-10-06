@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
   references kept in one closed Details disclosure.
   """
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.{PageHelp, Pages, SchedulesPage}
   alias Ryker.Fixtures.ControlPlaneOptions
 
@@ -278,7 +277,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       parent = self()
 
       options = %{
-        projection: %{schedules: fn params -> send(parent, {:schedules, params}) && [] end}
+        projection: %{schedules: &(send(parent, {:schedules, &1}) && [])}
       }
 
       Pages.page(["schedules"], %{"view" => "everything"}, options)

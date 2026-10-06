@@ -12,30 +12,27 @@ defmodule Ryker.Behaviors do
   """
 
   import Ecto.Query
-
-  alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Input
-  alias Ryker.Operator.Actions
-  alias Ryker.Reference
-  alias Ryker.Repo
-  alias Ryker.Slack.ChannelFence
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.Behaviors.StandingAssignmentRunChangeset
   alias Ryker.Behaviors.StandingRuleInventory
+  alias Ryker.CanonicalJSON
+  alias Ryker.Episodes.Episode
   alias Ryker.Episodes.Scope
+  alias Ryker.Ingress.Input
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
   alias Ryker.Memories.Reviews
+  alias Ryker.Operator.Actions
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
-  alias Ryker.Waits.SourceEventMatcher
-
+  alias Ryker.Reference
+  alias Ryker.Repo
+  alias Ryker.Slack.ChannelFence
   alias Ryker.UTCDateTime
+  alias Ryker.Waits.SourceEventMatcher
   alias Ryker.Work.Turn
 
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
@@ -1320,10 +1317,10 @@ defmodule Ryker.Behaviors do
        ),
        do: true
 
-  defp home_behavior_visible?(%Behavior{kind: :guidance} = behavior, _actor_ref),
-    do:
-      behavior.scope_kind in [:repository, :workspace] and
-        behavior.payload["visibility"] == "workspace"
+  defp home_behavior_visible?(%Behavior{kind: :guidance} = behavior, _actor_ref) do
+    behavior.scope_kind in [:repository, :workspace] and
+      behavior.payload["visibility"] == "workspace"
+  end
 
   defp home_behavior_visible?(%Behavior{} = behavior, _actor_ref),
     do: behavior.scope_kind in [:repository, :workspace]
@@ -1348,9 +1345,8 @@ defmodule Ryker.Behaviors do
 
     if Map.get(context, :execution_mode, :live) in [:live, :shadow] and
          (Map.keys(context) -- [:execution_mode]) |> Enum.sort() == Enum.sort(fields) and
-         Enum.all?([:conversation_ref, :workspace_ref], fn field ->
-           Reference.valid?(context[field])
-         end) and Enum.all?([:operator_ref, :repository], &optional_reference?(context[&1])) do
+         Enum.all?([:conversation_ref, :workspace_ref], &Reference.valid?(context[&1])) and
+         Enum.all?([:operator_ref, :repository], &optional_reference?(context[&1])) do
       {:ok, context}
     else
       {:error, :invalid_behavior_context}
@@ -1481,9 +1477,9 @@ defmodule Ryker.Behaviors do
   beside facts, calls it too.
   """
   @spec broadcast_behavior_updated(Ecto.UUID.t()) :: :ok
-  def broadcast_behavior_updated(behavior_id),
-    do:
-      Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(behaviors_topic(), {:behavior_updated, behavior_id})
-      end)
+  def broadcast_behavior_updated(behavior_id) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(behaviors_topic(), {:behavior_updated, behavior_id})
+    end)
+  end
 end

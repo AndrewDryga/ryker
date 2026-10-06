@@ -3,7 +3,6 @@ defmodule Ryker.Work.OperationKeysTest do
   # stopped by comparing keys exactly, so a format change strands every
   # operation already sent. These are the formats in use on 2026-10-05.
   use ExUnit.Case, async: true
-
   alias Ryker.Work.OperationKeys
 
   @session %{id: "session-1", create_generation: 2}

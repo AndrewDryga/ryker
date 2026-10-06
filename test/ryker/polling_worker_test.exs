@@ -1,8 +1,6 @@
 defmodule Ryker.PollingWorkerTest do
   use Ryker.DataCase, async: false
-
   import ExUnit.CaptureLog
-
   alias Ryker.Observability
   alias Ryker.PollingWorker
   alias Ryker.Retention.Worker

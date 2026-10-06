@@ -1,6 +1,5 @@
 defmodule Ryker.Memories.MemorySearchConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior

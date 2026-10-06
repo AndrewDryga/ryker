@@ -1,6 +1,5 @@
 defmodule Ryker.Settings.DomainsTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.Settings
   alias Ryker.Settings.Edit
 

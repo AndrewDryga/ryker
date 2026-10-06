@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.OnboardingConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.GitHub.Onboarding
   alias Ryker.{Repo, Settings}

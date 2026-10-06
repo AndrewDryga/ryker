@@ -6,7 +6,6 @@ defmodule Ryker.Evals.RoutingReplayTest do
   # the host itself and the model's answers stand in, so these tests hold the
   # host to what it does with any answer; none calls a model.
   use ExUnit.Case, async: true
-
   alias Ryker.Admission.{Candidate, Context, Decision, Prompt}
   alias Ryker.Episodes.Episode
   alias Ryker.Evals.{CoopRunner, Job, RoutingReplay, RoutingReplayCase}

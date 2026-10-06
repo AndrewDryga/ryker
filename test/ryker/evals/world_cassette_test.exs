@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldCassetteTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Evals.{WorldCase, WorldCassette}
 
   setup do

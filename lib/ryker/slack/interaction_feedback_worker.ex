@@ -8,14 +8,11 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
   """
 
   use Ryker.PollingWorker, lane: :slack_interactions, interval: :interval_ms
-
   require Logger
-
   alias Ryker.Delivery.Retry
   alias Ryker.Observability.Progress
   alias Ryker.Options
   alias Ryker.PollingWorker
-
   alias Ryker.Slack.{InteractionAudits, InteractionRepaint}
 
   @default_interval_ms 1_000

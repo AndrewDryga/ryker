@@ -8,10 +8,8 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
   reads the receipt written at decision time or says that none was written.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
   import Phoenix.LiveViewTest
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes

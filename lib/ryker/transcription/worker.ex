@@ -18,9 +18,7 @@ defmodule Ryker.Transcription.Worker do
   """
 
   use Ryker.PollingWorker, lane: :transcription, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.Artifacts
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
@@ -162,10 +160,10 @@ defmodule Ryker.Transcription.Worker do
 
   defp settings(_options), do: {:error, {:invalid_transcription_worker, :options}}
 
-  defp transcriber?(module),
-    do:
-      is_atom(module) and Code.ensure_loaded?(module) and
-        function_exported?(module, :transcribe, 2)
+  defp transcriber?(module) do
+    is_atom(module) and Code.ensure_loaded?(module) and
+      function_exported?(module, :transcribe, 2)
+  end
 
   defp positive?(value), do: is_integer(value) and value > 0
 end

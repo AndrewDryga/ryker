@@ -6,18 +6,8 @@ defmodule Ryker.ControlPlane.UsagePage do
   """
   alias Phoenix.HTML.Safe
   alias Ryker.{Accounting, Settings}
-
-  alias Ryker.ControlPlane.{
-    Components,
-    ConsolePeople,
-    Kit,
-    Paths,
-    SettingsRows,
-    ShortTime,
-    Units,
-    UsageChart
-  }
-
+  alias Ryker.ControlPlane.{Components, ConsolePeople, Kit, Paths, SettingsRows, ShortTime, Units}
+  alias Ryker.ControlPlane.UsageChart
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
@@ -273,20 +263,20 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp empty(:channel),
     do: {"No work came from a Slack channel in this period", "Chat is not listed by channel."}
 
-  defp empty(:user),
-    do:
-      {"No work came from a person in this period",
-       "Chat lists a person only when they signed in, through Tailscale or Cloudflare Access."}
+  defp empty(:user) do
+    {"No work came from a person in this period",
+     "Chat lists a person only when they signed in, through Tailscale or Cloudflare Access."}
+  end
 
   defp empty(_kind),
     do: {"No activity in this period", "Choose a longer window to see earlier work."}
 
-  defp truncation(rows),
-    do:
-      if(length(rows) > 500,
-        do: "<p>Showing the 500 largest groups. Totals include all activity.</p>",
-        else: ""
-      )
+  defp truncation(rows) do
+    if(length(rows) > 500,
+      do: "<p>Showing the 500 largest groups. Totals include all activity.</p>",
+      else: ""
+    )
+  end
 
   defp missing_identity?(row, :profile), do: is_nil(row.profile)
 
@@ -320,13 +310,13 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp identity(row, snapshot, :channel),
     do: entity_link(channel(row), %{channel: row.conversation_ref}, snapshot)
 
-  defp identity(row, snapshot, :repository),
-    do:
-      entity_link(
-        row[:repository_name] || "No repository",
-        %{repository: row.repository_ref || ""},
-        snapshot
-      )
+  defp identity(row, snapshot, :repository) do
+    entity_link(
+      row[:repository_name] || "No repository",
+      %{repository: row.repository_ref || ""},
+      snapshot
+    )
+  end
 
   defp identity(row, snapshot, :kind),
     do: kind_link(row.work_kind, kind_name(row.work_kind), %{work_kind: row.work_kind}, snapshot)
@@ -590,11 +580,11 @@ defmodule Ryker.ControlPlane.UsagePage do
 
   defp value(row, key), do: Map.get(row, key) || 0
 
-  defp share(row, total),
-    do:
-      if(value(total, :tokens) > 0 and value(row, :usage_measured) > 0,
-        do: value(row, :tokens) / total.tokens
-      )
+  defp share(row, total) do
+    if(value(total, :tokens) > 0 and value(row, :usage_measured) > 0,
+      do: value(row, :tokens) / total.tokens
+    )
+  end
 
   defp primary(value, suffix), do: ["<strong>", e(value), "</strong>", e(suffix)]
   defp secondary(text), do: ["<span class=\"usage-secondary\">", e(text), "</span>"]
@@ -603,20 +593,20 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp money(%{attempts: 0}), do: Units.money(Decimal.new(0))
   defp money(row), do: Units.cost(row, false)
 
-  defp tokens(row, key),
-    do:
-      if(Map.get(row, :usage_measured, Map.get(row, :measured, 0)) > 0,
-        do: compact(value(row, key)),
-        else: "—"
-      )
+  defp tokens(row, key) do
+    if(Map.get(row, :usage_measured, Map.get(row, :measured, 0)) > 0,
+      do: compact(value(row, key)),
+      else: "—"
+    )
+  end
 
   defp number(n), do: to_string(n) |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
 
-  defp compact(n) when n >= 1_000_000,
-    do:
-      (:erlang.float_to_binary(n / 1_000_000, decimals: 2)
-       |> String.trim_trailing("0")
-       |> String.trim_trailing(".")) <> "M"
+  defp compact(n) when n >= 1_000_000 do
+    (:erlang.float_to_binary(n / 1_000_000, decimals: 2)
+     |> String.trim_trailing("0")
+     |> String.trim_trailing(".")) <> "M"
+  end
 
   defp compact(n) when n >= 1000, do: decimal(n / 1000) <> "k"
   defp compact(n), do: number(n)

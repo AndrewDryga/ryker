@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.ClientTest do
   use ExUnit.Case, async: true
-
   alias Ryker.GitHub.Client
   alias Ryker.Publication.LifecycleStatus
   alias Ryker.TestSupport.GitHubRequester, as: FakeRequester

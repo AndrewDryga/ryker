@@ -447,11 +447,11 @@ defmodule Ryker.ControlPlane.BehaviorPage do
 
   defp conditions(_item), do: []
 
-  defp flatten(value, path) when is_map(value) and map_size(value) > 0,
-    do:
-      value
-      |> Enum.sort()
-      |> Enum.flat_map(fn {key, nested} -> flatten(nested, path ++ [key]) end)
+  defp flatten(value, path) when is_map(value) and map_size(value) > 0 do
+    value
+    |> Enum.sort()
+    |> Enum.flat_map(fn {key, nested} -> flatten(nested, path ++ [key]) end)
+  end
 
   defp flatten(value, path), do: [{Enum.join(path, "."), value}]
 

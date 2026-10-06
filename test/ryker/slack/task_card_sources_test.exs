@@ -5,23 +5,13 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Fixtures.TaskOffer
-
-  alias Ryker.Slack.{
-    InteractionAudit,
-    InteractionRepaint,
-    Renderer,
-    TaskCard,
-    TaskCardProjection,
-    TaskCardWorker,
-    WorkRecord
-  }
-
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.Observations
   alias Ryker.Records
   alias Ryker.Records.Record
-
+  alias Ryker.Slack.{InteractionAudit, InteractionRepaint, Renderer, TaskCard, TaskCardProjection}
+  alias Ryker.Slack.{TaskCardWorker, WorkRecord}
   alias Ryker.Work.{Custody, Session}
 
   @captured Jason.decode!(File.read!("testdata/learning/recorded-private-source-citation.json"))

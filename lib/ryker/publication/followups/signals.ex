@@ -12,7 +12,6 @@ defmodule Ryker.Publication.Followups.Signals do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Input
   alias Ryker.Learning.Observations

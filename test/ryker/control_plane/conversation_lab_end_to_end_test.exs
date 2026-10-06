@@ -1,35 +1,18 @@
 defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
 
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
   import Phoenix.LiveViewTest
-
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.CanonicalJSON
-
-  alias Ryker.ControlPlane.{
-    Actions,
-    Actor,
-    CapabilityTools,
-    ConversationLab,
-    ConversationProjection,
-    EpisodePage,
-    EpisodeProjection,
-    HTML,
-    LabControls,
-    LabPage,
-    ModelRequests,
-    Projection,
-    Publisher
-  }
-
-  alias Ryker.Delivery.{Adapters, PlatformAction, RoutingResponse}
-
+  alias Ryker.ControlPlane.{Actions, Actor, CapabilityTools, ConversationLab}
+  alias Ryker.ControlPlane.{ConversationProjection, EpisodePage, EpisodeProjection, HTML}
   alias Ryker.ControlPlane.EpisodeTrace.{Input, Maintenance, ToolActivity}
+  alias Ryker.ControlPlane.{LabControls, LabPage, ModelRequests, Projection, Publisher}
+  alias Ryker.Delivery.{Adapters, PlatformAction, RoutingResponse}
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
@@ -39,16 +22,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
   alias Ryker.StateTools.WorkStateTools
   alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
-
-  alias Ryker.Work.{
-    ActivityEvent,
-    Custody,
-    Executor,
-    Result,
-    Session,
-    SubmissionBuilder,
-    Turn
-  }
+  alias Ryker.Work.{ActivityEvent, Custody, Executor, Result, Session, SubmissionBuilder, Turn}
 
   @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2e6"
   @first_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2e7"
@@ -175,9 +149,8 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
           work_reply("The first durable response is ready."),
           work_reply("The follow-up continued the same episode and Coop session.")
         ],
-        on_validation_reject: fn violations ->
-          raise "unexpected conversation-lab semantic rejection: #{inspect(violations)}"
-        end
+        on_validation_reject:
+          &raise("unexpected conversation-lab semantic rejection: #{inspect(&1)}")
       )
 
     assert {:ok, {:executed, first_execution}} =

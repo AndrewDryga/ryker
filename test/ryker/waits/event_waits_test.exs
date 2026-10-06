@@ -1,8 +1,6 @@
 defmodule Ryker.Waits.EventWaitsTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.ControlPlane.SubscriptionProjection
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
@@ -733,9 +731,7 @@ defmodule Ryker.Waits.EventWaitsTest do
     fixture = active_source_wait!("restore-legacy", now)
 
     payload =
-      Map.update!(fixture.record.payload, "event_matcher", fn matcher ->
-        Map.delete(matcher, "poll_after")
-      end)
+      Map.update!(fixture.record.payload, "event_matcher", &Map.delete(&1, "poll_after"))
 
     Repo.delete!(fixture.subscription)
 
@@ -796,10 +792,11 @@ defmodule Ryker.Waits.EventWaitsTest do
     poll_after = DateTime.add(now, 600, :second)
 
     deadline =
-      if deadline_override == :timed,
-        do:
-          DateTime.add(now, if(trigger["type"] == "source_event", do: 3_600, else: 900), :second),
-        else: deadline_override
+      if deadline_override == :timed do
+        DateTime.add(now, if(trigger["type"] == "source_event", do: 3_600, else: 900), :second)
+      else
+        deadline_override
+      end
 
     episode_id = Ecto.UUID.generate()
     turn_ref = "turn:event-subscription-source:#{episode_id}"

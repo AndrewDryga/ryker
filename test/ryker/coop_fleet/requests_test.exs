@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.RequestsTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.CoopFleet.Requests
 
   test "every Work operation becomes an ordinary Coop API request" do

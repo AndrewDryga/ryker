@@ -11,32 +11,13 @@ defmodule Ryker.Settings do
   """
 
   import Ecto.Query
-
   alias Ryker.Accounting.Pricing
   alias Ryker.CanonicalJSON
   alias Ryker.Repo
-
-  alias Ryker.Settings.{
-    Edit,
-    EmisarConnection,
-    Environment,
-    EnvironmentRepository,
-    GitHub,
-    GitHubBinding,
-    Installation,
-    Learning,
-    PricingRate,
-    Publication,
-    Report,
-    Repository,
-    Retention,
-    RetentionImpact,
-    Slack,
-    Validation,
-    WebhookSource,
-    Work
-  }
-
+  alias Ryker.Settings.{Edit, EmisarConnection, Environment, EnvironmentRepository, GitHub}
+  alias Ryker.Settings.{GitHubBinding, Installation, Learning, PricingRate, Publication, Report}
+  alias Ryker.Settings.{Repository, Retention, RetentionImpact, Slack, Validation, WebhookSource}
+  alias Ryker.Settings.Work
   alias Ryker.Slack.Operators
 
   @actor "control-plane:local"
@@ -319,18 +300,18 @@ defmodule Ryker.Settings do
   defp shortened?(:routing_examples_enabled, current, proposed),
     do: current.routing_examples_enabled and not proposed.routing_examples_enabled
 
-  defp shortened?(:routing_examples_seconds, current, proposed),
-    do:
-      current.routing_examples_enabled and
-        proposed.routing_examples_seconds < current.routing_examples_seconds
+  defp shortened?(:routing_examples_seconds, current, proposed) do
+    current.routing_examples_enabled and
+      proposed.routing_examples_seconds < current.routing_examples_seconds
+  end
 
   defp shortened?(:work_examples_enabled, current, proposed),
     do: current.work_examples_enabled and not proposed.work_examples_enabled
 
-  defp shortened?(:work_examples_seconds, current, proposed),
-    do:
-      current.work_examples_enabled and
-        proposed.work_examples_seconds < current.work_examples_seconds
+  defp shortened?(:work_examples_seconds, current, proposed) do
+    current.work_examples_enabled and
+      proposed.work_examples_seconds < current.work_examples_seconds
+  end
 
   defp shortened?(field, current, proposed),
     do: Map.fetch!(proposed, field) < Map.fetch!(current, field)
@@ -495,16 +476,16 @@ defmodule Ryker.Settings do
   def delete_environment(ref, expected_revision, actor_ref),
     do: delete_item(:environments, Environment, :ref, ref, expected_revision, actor_ref)
 
-  def put_emisar_connection(attributes, expected_revision, actor_ref),
-    do:
-      put_item(
-        :emisar,
-        EmisarConnection,
-        :ref,
-        attributes,
-        expected_revision,
-        actor_ref
-      )
+  def put_emisar_connection(attributes, expected_revision, actor_ref) do
+    put_item(
+      :emisar,
+      EmisarConnection,
+      :ref,
+      attributes,
+      expected_revision,
+      actor_ref
+    )
+  end
 
   def delete_emisar_connection(ref, expected_revision, actor_ref) do
     atomically(fn ->
@@ -846,11 +827,11 @@ defmodule Ryker.Settings do
     end
   end
 
-  defp broadcast_settings_applied(revision),
-    do:
-      Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(application_topic(), {:settings_applied, revision})
-      end)
+  defp broadcast_settings_applied(revision) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(application_topic(), {:settings_applied, revision})
+    end)
+  end
 
   # The local console is trusted by reach, and so is the person Tailscale Serve
   # or Cloudflare Access named there (`Ryker.ControlPlane.Viewer`). A Slack actor is trusted

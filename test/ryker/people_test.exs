@@ -7,9 +7,7 @@ defmodule Ryker.PeopleTest do
   # them, or the channel goes. The learning pass's answer is constructed here:
   # these tests hold the host to what it does with any answer.
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.People

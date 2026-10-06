@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.PublisherTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.Publisher
   alias Ryker.Delivery.{Adapters, Request}
 

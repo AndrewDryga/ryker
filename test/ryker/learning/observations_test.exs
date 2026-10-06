@@ -4,20 +4,18 @@ defmodule Ryker.Learning.ObservationsTest do
   import Ecto.Query
   alias Ryker.{Admission, CanonicalJSON, Repo}
   alias Ryker.Admission.{Context, Decision, Executor, Prompt}
+  alias Ryker.Continuity
+  alias Ryker.Continuity.ConversationSummary
   alias Ryker.ControlPlane.{Components, ConversationMemory, LearnedPage}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Ingress.Inbox
-  alias Ryker.Retention.Data
-  alias Ryker.Slack.{ChannelMembership, Input}
-
-  alias Ryker.Continuity
-  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Memories.MemorySearchPage
-
+  alias Ryker.Retention.Data
+  alias Ryker.Slack.{ChannelMembership, Input}
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
 
   @now ~U[2026-09-06 10:00:00.000000Z]
@@ -543,15 +541,15 @@ defmodule Ryker.Learning.ObservationsTest do
     entry
   end
 
-  defp destination(entry),
-    do:
-      struct!(
-        Episode,
-        Map.take(
-          Map.from_struct(entry),
-          [:destination_transport, :destination_conversation_ref, :destination_thread_ref]
-        )
+  defp destination(entry) do
+    struct!(
+      Episode,
+      Map.take(
+        Map.from_struct(entry),
+        [:destination_transport, :destination_conversation_ref, :destination_thread_ref]
       )
+    )
+  end
 
   defp context!(entry) do
     {:ok, context} =

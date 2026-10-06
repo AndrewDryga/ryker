@@ -1,35 +1,15 @@
 defmodule Ryker.ControlPlane.ProjectionTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
   require Phoenix.LiveViewTest
-
   alias Ryker.CanonicalJSON
-
-  alias Ryker.ControlPlane.{
-    Activity,
-    BehaviorLibrary,
-    ChannelDetail,
-    ChannelDirectory,
-    EpisodePage,
-    EpisodeProjection,
-    FailureProjection,
-    FindingsProjection,
-    IncidentProjection,
-    MemoryProjection,
-    OverviewProjection,
-    RepositoryProjection,
-    RequestFilters,
-    ScheduleProjection,
-    SubscriptionProjection,
-    UsagePage,
-    UsageProjection,
-    WorkingCopiesPage,
-    WorkspaceProjection
-  }
-
+  alias Ryker.ControlPlane.{Activity, BehaviorLibrary, ChannelDetail, ChannelDirectory}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, FailureProjection, FindingsProjection}
+  alias Ryker.ControlPlane.{IncidentProjection, MemoryProjection, OverviewProjection}
+  alias Ryker.ControlPlane.{RepositoryProjection, RequestFilters, ScheduleProjection}
+  alias Ryker.ControlPlane.{SubscriptionProjection, UsagePage, UsageProjection, WorkingCopiesPage}
+  alias Ryker.ControlPlane.WorkspaceProjection
   alias Ryker.CoopFleet.{Event, Placement, Worker}
   alias Ryker.Delivery.{PlatformAction, PlatformActionCustody}
   alias Ryker.Episodes
@@ -40,38 +20,22 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input, as: GenericInput
+  alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Publication.Changeset, as: PublicationChangeset
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.Publication
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Retention.Custody, as: RetentionCustody
-
-  alias Ryker.Slack.{
-    ChannelConfigurationChangeset,
-    IncidentRoom,
-    IncidentRoomChangeset,
-    IncidentRoomLifecycleEventChangeset
-  }
-
-  alias Ryker.Slack.Input, as: SlackInput
-
-  alias Ryker.Memories.MemoryEntryChangeset
-  alias Ryker.Records
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Schedules.ScheduleOccurrenceChangeset
+  alias Ryker.Slack.{ChannelConfigurationChangeset, IncidentRoom, IncidentRoomChangeset}
+  alias Ryker.Slack.IncidentRoomLifecycleEventChangeset
+  alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Waits.EventSubscriptionChangeset
-
-  alias Ryker.Work.{
-    ActivityEvent,
-    Cancellation,
-    Custody,
-    DeliveryReceipt,
-    Measurement,
-    Result,
-    Session,
-    SubmissionBuilder
-  }
+  alias Ryker.Work.{ActivityEvent, Cancellation, Custody, DeliveryReceipt, Measurement, Result}
+  alias Ryker.Work.{Session, SubmissionBuilder}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 

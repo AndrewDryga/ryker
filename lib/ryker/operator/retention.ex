@@ -9,7 +9,6 @@ defmodule Ryker.Operator.Retention do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Operator.{Actions, RetentionAction}
   alias Ryker.Reference
@@ -30,15 +29,15 @@ defmodule Ryker.Operator.Retention do
 
   @spec discard_unmerged(String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  def discard_unmerged(session_ref, expected_plan_fingerprint, actor_ref, action_ref),
-    do:
-      change(
-        :discard_unmerged,
-        session_ref,
-        expected_plan_fingerprint,
-        actor_ref,
-        action_ref
-      )
+  def discard_unmerged(session_ref, expected_plan_fingerprint, actor_ref, action_ref) do
+    change(
+      :discard_unmerged,
+      session_ref,
+      expected_plan_fingerprint,
+      actor_ref,
+      action_ref
+    )
+  end
 
   defp change(action, session_ref, expected_plan_fingerprint, actor_ref, action_ref) do
     with :ok <- reference(session_ref, :session_ref),

@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.CardTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Publication.Card
 
   @review %{

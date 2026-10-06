@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.BrandAssetsTest do
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Assets, BrowserGuard, Layouts, Navigation}

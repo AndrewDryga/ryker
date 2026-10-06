@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.HomeEventTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.HomeEvent
 
   @identity %{bot_ref: "B999", bot_user_ref: "U999", workspace_ref: "T123"}

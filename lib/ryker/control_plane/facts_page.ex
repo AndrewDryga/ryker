@@ -10,9 +10,7 @@ defmodule Ryker.ControlPlane.FactsPage do
   (`subscriptions/0`).
   """
   use Phoenix.Component
-
   import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1, pager: 1]
-
   alias Phoenix.HTML.Safe
   alias Ryker.{Behaviors, Memories, Records}
   alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection, Paths}

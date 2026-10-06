@@ -1,6 +1,5 @@
 defmodule Ryker.RepoTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Repo
 
   # Every column is `timestamp without time zone` holding UTC, and SQL compares them with

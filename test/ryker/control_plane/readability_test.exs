@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.ReadabilityTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.{Assets, EpisodeTrace}
 
   test "message content has its own surface and sections outrank disclosure labels" do

@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.ReviewTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.Review
 

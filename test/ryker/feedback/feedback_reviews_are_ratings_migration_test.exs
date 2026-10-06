@@ -1,6 +1,5 @@
 defmodule Ryker.Feedback.FeedbackReviewsAreRatingsMigrationTest do
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @version 20_261_005_180_000

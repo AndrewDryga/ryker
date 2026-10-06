@@ -12,7 +12,6 @@ defmodule Ryker.Publication.Followups.Start do
   """
 
   import Ecto.Query
-
   alias Ryker.Publication.{Custody, Followup, FollowupChangeset, Publication}
   alias Ryker.Publication.Followups.Store
   alias Ryker.Repo

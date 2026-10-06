@@ -5,7 +5,6 @@ defmodule Ryker.RoutingExamples.ExportTaskTest do
   the way an operator runs it, against a committed example.
   """
   use ExUnit.Case, async: false
-
   alias Ecto.Adapters.SQL
 
   defmodule CommittedRepo do

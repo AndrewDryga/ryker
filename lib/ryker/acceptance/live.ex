@@ -9,7 +9,6 @@ defmodule Ryker.Acceptance.Live do
   """
 
   import Ecto.Query
-
   alias Ryker.{Bootstrap, Settings}
   alias Ryker.CoopFleet.Placement
   alias Ryker.Delivery.HTTPClient
@@ -224,7 +223,7 @@ defmodule Ryker.Acceptance.Live do
     client = gateway.client
 
     operations(configuration, slack, %{
-      admit: fn envelope -> production_admit(envelope, gateway) end,
+      admit: &production_admit(&1, gateway),
       conversation_info: &Client.conversation_info(client, &1),
       monotonic_ms: fn -> System.monotonic_time(:millisecond) end,
       now: &DateTime.utc_now/0,
@@ -285,14 +284,14 @@ defmodule Ryker.Acceptance.Live do
     prompt = prompt(kind, settings.environment_ref, settings.repository_ref)
     sequence = if(kind == :first, do: 1, else: 2)
 
-    with {:ok, occurred_at} <- utc_now(settings.operations.now),
-         do:
-           admit_and_wait(
-             settings,
-             envelope(settings, root_message_ref, event_ref, prompt, occurred_at, sequence),
-             event_ref,
-             previous_turn_ids
-           )
+    with {:ok, occurred_at} <- utc_now(settings.operations.now) do
+      admit_and_wait(
+        settings,
+        envelope(settings, root_message_ref, event_ref, prompt, occurred_at, sequence),
+        event_ref,
+        previous_turn_ids
+      )
+    end
   end
 
   defp admit_and_wait(settings, envelope, event_ref, previous_turn_ids) do

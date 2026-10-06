@@ -8,7 +8,6 @@ defmodule Ryker.Evals.WorldCassette do
   """
 
   use GenServer
-
   alias Ryker.CanonicalJSON
   alias Ryker.Evals.{Evidence, WorldCase, WorldMatch}
 

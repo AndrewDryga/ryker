@@ -4,7 +4,6 @@ defmodule Ryker.Operator.WorkflowsTest do
   @moduletag isolation: "REPEATABLE READ"
 
   import Ecto.Query
-
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.Delivery.RoutingResponseCustody

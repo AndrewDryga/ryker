@@ -2,7 +2,6 @@ defmodule Ryker.CredoChecks.TestHygieneChecksTest do
   # Fixture coverage for the ban on `Process.sleep` as synchronization in the
   # suite: a probe it must flag and compliant probes it must not.
   use ExUnit.Case, async: true
-
   import Ryker.CredoCheckProbe
 
   @test_file "test/ryker/sprockets_test.exs"

@@ -44,9 +44,11 @@ defmodule Ryker.Admission.Attempts do
   end
 
   def observe(entry, phase, attributes, settings) when phase in @phases and is_map(attributes) do
-    locked(entry, settings, fn attempt ->
-      persist(attempt, Map.take(attributes, @observations), phase, settings.now.())
-    end)
+    locked(
+      entry,
+      settings,
+      &persist(&1, Map.take(attributes, @observations), phase, settings.now.())
+    )
     |> case do
       {:ok, _attempt} -> :ok
       {:error, _reason} = error -> error
@@ -164,11 +166,11 @@ defmodule Ryker.Admission.Attempts do
     end)
   end
 
-  defp query(entry),
-    do:
-      from(attempt in Attempt,
-        where: attempt.input_id == ^entry.id and attempt.generation == ^entry.execution_generation
-      )
+  defp query(entry) do
+    from(attempt in Attempt,
+      where: attempt.input_id == ^entry.id and attempt.generation == ^entry.execution_generation
+    )
+  end
 
   defp persist(attempt, attributes, phase, at) do
     # A reconciliation poll must not move the visible phase backwards or reset

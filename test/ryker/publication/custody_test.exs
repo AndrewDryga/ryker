@@ -1,9 +1,7 @@
 defmodule Ryker.Publication.CustodyTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
   alias Ryker.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
@@ -20,18 +18,8 @@ defmodule Ryker.Publication.CustodyTest do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.Renderer
-
-  alias Ryker.Work.{
-    Cancellation,
-    Custody,
-    DeliveryReceipt,
-    Result,
-    Session,
-    SessionChangeset,
-    Submission,
-    Turn,
-    TurnChangeset
-  }
+  alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session, SessionChangeset}
+  alias Ryker.Work.{Submission, Turn, TurnChangeset}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 

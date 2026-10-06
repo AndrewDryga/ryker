@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.CollectionsTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Fixtures.SavedEntities, as: Fixtures
   alias Ryker.Repo
   alias Ryker.Slack.Collections

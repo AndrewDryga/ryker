@@ -1,10 +1,15 @@
 defmodule Ryker.Continuity.ContinuityTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
+  alias Ryker.Continuity
+  alias Ryker.Continuity.Compaction
+  alias Ryker.Continuity.ConversationRollup
+  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Continuity.ConversationSummaryDraft
+  alias Ryker.Continuity.ConversationSummaryState
+  alias Ryker.Continuity.Recall
   alias Ryker.ControlPlane.{ConversationMemory, LearnedPage}
   alias Ryker.Episodes
   alias Ryker.Fixtures.DatabaseClock
@@ -12,14 +17,6 @@ defmodule Ryker.Continuity.ContinuityTest do
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.{Inbox, Input}
-  alias Ryker.Repo
-  alias Ryker.Slack.{ChannelConfigurations, ChannelMembership, SourceRef}
-
-  alias Ryker.Continuity
-  alias Ryker.Continuity.ConversationRollup
-  alias Ryker.Continuity.ConversationSummary
-  alias Ryker.Continuity.ConversationSummaryDraft
-  alias Ryker.Continuity.ConversationSummaryState
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeRetention
   alias Ryker.Knowledge.KnowledgeSnapshot
@@ -28,9 +25,8 @@ defmodule Ryker.Continuity.ContinuityTest do
   alias Ryker.Learning.Observations
   alias Ryker.Learning.SourceExposure
   alias Ryker.Memories.MemorySearchPage
-
-  alias Ryker.Continuity.Compaction
-  alias Ryker.Continuity.Recall
+  alias Ryker.Repo
+  alias Ryker.Slack.{ChannelConfigurations, ChannelMembership, SourceRef}
   alias Ryker.Work.{Custody, FinalPreflight, Result, Submission, SubmissionBuilder}
 
   @now ~U[2026-09-04 12:00:00.000000Z]

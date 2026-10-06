@@ -1,6 +1,5 @@
 defmodule Ryker.SettingsTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.Retention.Data, as: RetentionData

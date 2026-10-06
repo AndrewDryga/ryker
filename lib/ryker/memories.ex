@@ -22,27 +22,24 @@ defmodule Ryker.Memories do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.Scope
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Reference
-  alias Ryker.Repo
-  alias Ryker.Slack.ChannelFence
-
-  alias Ryker.Episodes.Scope
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemoryEntryChangeset
+  alias Ryker.Memories.Recall
+  alias Ryker.Memories.Reviews
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.Response
+  alias Ryker.Reference
+  alias Ryker.Repo
   alias Ryker.RoutingExamples
-
-  alias Ryker.Memories.Recall
-  alias Ryker.Memories.Reviews
+  alias Ryker.Slack.ChannelFence
   alias Ryker.StateTools.Binding
   alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
@@ -765,9 +762,9 @@ defmodule Ryker.Memories do
   this.
   """
   @spec broadcast_memory_updated(Ecto.UUID.t()) :: :ok
-  def broadcast_memory_updated(id) when is_binary(id),
-    do:
-      Repo.after_commit(fn -> Ryker.PubSub.broadcast(memories_topic(), {:memory_updated, id}) end)
+  def broadcast_memory_updated(id) when is_binary(id) do
+    Repo.after_commit(fn -> Ryker.PubSub.broadcast(memories_topic(), {:memory_updated, id}) end)
+  end
 
   defp memories_topic, do: "memories"
 end

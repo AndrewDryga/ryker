@@ -6,10 +6,8 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
   person sees what each environment holds and who uses it, and changes it.
   """
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Credentials
   alias Ryker.Settings

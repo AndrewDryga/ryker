@@ -5,7 +5,6 @@ defmodule Ryker.Improvement.EvalCasesTaskTest do
   it is run the way a developer runs it, against a committed accepted case.
   """
   use ExUnit.Case, async: false
-
   alias Ecto.Adapters.SQL
   alias Ryker.Evals.WorldCase
 

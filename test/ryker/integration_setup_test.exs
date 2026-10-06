@@ -1,8 +1,6 @@
 defmodule Ryker.IntegrationSetupTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.ControlPlane.{IntegrationErrors, Integrations}
   alias Ryker.{Credentials, Episodes, IntegrationSetup, Repo, Settings}
   alias Ryker.Emisar.Connections
@@ -159,19 +157,17 @@ defmodule Ryker.IntegrationSetupTest do
   defmodule PagedRepositoriesRequester do
     alias Ryker.IntegrationSetupTest.Requester
 
-    def request(_client, :get, "/installation/repositories?per_page=100&page=1", _body, _headers),
-      do:
-        page(
-          Enum.map(1..100, &repository("acme/quiet-#{&1}", 1_000 + &1, "2026-01-01T00:00:00Z"))
-        )
+    def request(_client, :get, "/installation/repositories?per_page=100&page=1", _body, _headers) do
+      page(Enum.map(1..100, &repository("acme/quiet-#{&1}", 1_000 + &1, "2026-01-01T00:00:00Z")))
+    end
 
-    def request(_client, :get, "/installation/repositories?per_page=100&page=2", _body, _headers),
-      do:
-        page([
-          repository("acme/recent", 2_001, "2026-09-30T09:00:00Z"),
-          repository("acme/retired", 2_002, "2026-10-03T09:00:00Z", true),
-          repository("acme/busy", 2_003, "2026-10-02T09:00:00Z")
-        ])
+    def request(_client, :get, "/installation/repositories?per_page=100&page=2", _body, _headers) do
+      page([
+        repository("acme/recent", 2_001, "2026-09-30T09:00:00Z"),
+        repository("acme/retired", 2_002, "2026-10-03T09:00:00Z", true),
+        repository("acme/busy", 2_003, "2026-10-02T09:00:00Z")
+      ])
+    end
 
     def request(client, method, path, body, headers),
       do: Requester.request(client, method, path, body, headers)
@@ -186,14 +182,14 @@ defmodule Ryker.IntegrationSetupTest do
         "pushed_at" => pushed_at
       }
 
-    defp page(repositories),
-      do:
-        {:ok,
-         %{
-           body: %{"repositories" => repositories, "total_count" => 103},
-           headers: [],
-           status: 200
-         }}
+    defp page(repositories) do
+      {:ok,
+       %{
+         body: %{"repositories" => repositories, "total_count" => 103},
+         headers: [],
+         status: 200
+       }}
+    end
   end
 
   # Slack listing a workspace's people a page at a time, as it does: a page may hold fewer
@@ -202,12 +198,12 @@ defmodule Ryker.IntegrationSetupTest do
     def request(_client, :get, "/users.list?limit=200", _body, _headers),
       do: page([person("U2", "Zoe")], "page-2")
 
-    def request(_client, :get, "/users.list?limit=200&cursor=page-2", _body, _headers),
-      do:
-        page(
-          [person("U3", "Bea"), %{"deleted" => true, "id" => "U9", "is_bot" => false}],
-          "page-3"
-        )
+    def request(_client, :get, "/users.list?limit=200&cursor=page-2", _body, _headers) do
+      page(
+        [person("U3", "Bea"), %{"deleted" => true, "id" => "U9", "is_bot" => false}],
+        "page-3"
+      )
+    end
 
     def request(_client, :get, "/users.list?limit=200&cursor=page-3", _body, _headers),
       do: page([person("U1", "Ada")], "")
@@ -329,7 +325,7 @@ defmodule Ryker.IntegrationSetupTest do
     assert {:ok, members} =
              IntegrationSetup.slack_members(
                requester: LimitedMembersRequester,
-               sleep: fn milliseconds -> send(parent, {:waited, milliseconds}) end
+               sleep: &send(parent, {:waited, &1})
              )
 
     assert Enum.map(members, & &1.name) == ["Ada", "Bea", "Zoe"]

@@ -2,7 +2,6 @@ defmodule Ryker.Artifacts.IngressReference do
   @moduledoc false
 
   use Ecto.Schema
-
   alias Ryker.Artifacts.Artifact
   alias Ryker.Ingress.Inbox.Entry
 

@@ -119,12 +119,12 @@ defmodule Ryker.Delivery.Request do
        do: :ok
 
   defp reaction_document(%{"action" => action, "emoji_name" => _emoji_name} = document)
-       when map_size(document) == 2,
-       do:
-         if(action in ["add", "remove"],
-           do: :ok,
-           else: {:error, {:invalid_delivery_request, :reaction}}
-         )
+       when map_size(document) == 2 do
+    if(action in ["add", "remove"],
+      do: :ok,
+      else: {:error, {:invalid_delivery_request, :reaction}}
+    )
+  end
 
   defp reaction_document(_document), do: {:error, {:invalid_delivery_request, :reaction}}
 

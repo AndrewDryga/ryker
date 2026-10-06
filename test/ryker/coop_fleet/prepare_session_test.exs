@@ -1,10 +1,7 @@
 defmodule Ryker.CoopFleet.PrepareSessionTest do
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Admission.ReadySessions
   alias Ryker.CoopFleet.{Client, Command, ControlPlane}
@@ -120,14 +117,14 @@ defmodule Ryker.CoopFleet.PrepareSessionTest do
     ready
   end
 
-  defp commands(session),
-    do:
-      Repo.all(
-        from(command in Command,
-          where: command.session_id == ^session.id,
-          order_by: [asc: command.inserted_at, asc: command.id]
-        )
+  defp commands(session) do
+    Repo.all(
+      from(command in Command,
+        where: command.session_id == ^session.id,
+        order_by: [asc: command.inserted_at, asc: command.id]
       )
+    )
+  end
 
   defp deliver!(suffix) do
     assert {:ok, %{"commands" => [command]}} = poll!("deliver:#{suffix}", capacity(4, 4))

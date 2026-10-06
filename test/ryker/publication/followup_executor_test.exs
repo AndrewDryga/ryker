@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.FollowupExecutorTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Publication.FollowupExecutor
 
   defmodule API do

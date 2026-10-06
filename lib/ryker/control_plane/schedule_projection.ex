@@ -12,7 +12,6 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   """
 
   import Ecto.Query
-
   alias Ryker.ControlPlane.{Activity, EpisodeProjection, RepositoryNames, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.FailureDetail

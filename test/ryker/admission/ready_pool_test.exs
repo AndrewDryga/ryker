@@ -1,9 +1,7 @@
 defmodule Ryker.Admission.ReadyPoolTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import Ryker.TestHelpers, only: [eventually: 1]
-
   alias Ryker.Admission.ReadyPool
   alias Ryker.Repo
   alias Ryker.TestSupport.FakeCoopAPI

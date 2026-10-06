@@ -28,7 +28,6 @@ defmodule Ryker.Admission.ReadySessions do
   """
 
   import Ecto.Query
-
   alias Ryker.Admission.FleetSession
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.Inbox.Entry

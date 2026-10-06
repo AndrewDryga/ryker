@@ -5,7 +5,6 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   """
 
   import Ryker.Slack.Renderer.Blocks
-
   alias Ryker.Emisar.ApprovalStatus
 
   @spec render(map()) :: {:ok, map()} | {:error, term()}
@@ -152,9 +151,9 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   defp pending_review?(%{"review" => %{"status" => status}}), do: status == "pending"
   defp pending_review?(%{"status" => status}), do: status == "pending_approval"
 
-  defp review_text(status, nil),
-    do:
-      "Emisar review · #{escape(status["action_id"])} · #{ApprovalStatus.label(status["status"])}"
+  defp review_text(status, nil) do
+    "Emisar review · #{escape(status["action_id"])} · #{ApprovalStatus.label(status["status"])}"
+  end
 
   defp review_text(status, %{summary: summary}),
     do: "Emisar review · #{escape(status["action_id"])} · #{escape(summary)}"

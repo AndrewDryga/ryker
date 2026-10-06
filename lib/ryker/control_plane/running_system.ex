@@ -14,9 +14,7 @@ defmodule Ryker.ControlPlane.RunningSystem do
   """
 
   use Phoenix.Component
-
   import Ecto.Query
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, ShortTime, Units}
   alias Ryker.CoopFleet.Worker

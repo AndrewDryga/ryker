@@ -1,27 +1,24 @@
 defmodule Ryker.Continuity.ContinuityConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Accounting.Execution
   alias Ryker.CanonicalJSON
+  alias Ryker.Continuity
+  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Continuity.ConversationSummaryDraft
+  alias Ryker.Continuity.Recall
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Repo
-
-  alias Ryker.Continuity
-  alias Ryker.Continuity.ConversationSummary
-  alias Ryker.Continuity.ConversationSummaryDraft
   alias Ryker.Knowledge.KnowledgeExposure
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.SourceExposure
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Records.Record
-
-  alias Ryker.Continuity.Recall
+  alias Ryker.Repo
   alias Ryker.Work.{Custody, Result, Session, SubmissionBuilder, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]

@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.IncidentRoomsConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Accounting.Execution
   alias Ryker.Episodes

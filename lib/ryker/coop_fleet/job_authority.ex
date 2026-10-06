@@ -2,7 +2,6 @@ defmodule Ryker.CoopFleet.JobAuthority do
   @moduledoc "Freezes controller settings and exact sources before a session can be placed."
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Command, JobCheck, JobSpec, JobTemplates, ManagedSources, Placement}
   alias Ryker.GitHub.RepositoryFiles
@@ -147,12 +146,12 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   defp refresh_companions(session, _root, _prepare), do: {:ok, session}
 
-  defp source_commits(%{"source" => %{"binding" => binding}}),
-    do:
-      Map.take(
-        binding,
-        ~w(default_ref default_commit selected_ref selected_commit base_commit admitted_tree)
-      )
+  defp source_commits(%{"source" => %{"binding" => binding}}) do
+    Map.take(
+      binding,
+      ~w(default_ref default_commit selected_ref selected_commit base_commit admitted_tree)
+    )
+  end
 
   defp repin(original, job) do
     with {:ok, digest} <- JobSpec.digest(job),
@@ -353,17 +352,17 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp cleanup_receipt?(
          %Session{worker_job_document: nil, worker_job_digest: nil} = session,
          remote
-       ),
-       do:
-         is_binary(session.coop_session_id) and remote["id"] == session.coop_session_id and
-           remote["external_ref"] == Session.coop_task_ref(session)
+       ) do
+    is_binary(session.coop_session_id) and remote["id"] == session.coop_session_id and
+      remote["external_ref"] == Session.coop_task_ref(session)
+  end
 
-  defp cleanup_receipt?(%Session{worker_job_document: %{} = job} = session, remote),
-    do:
-      CanonicalJSON.worker_digest(job) == session.worker_job_digest and
-        remote["external_ref"] == Session.coop_task_ref(session) and
-        remote["job_ref"] == session.external_ref and
-        remote["job_digest"] == session.worker_job_digest
+  defp cleanup_receipt?(%Session{worker_job_document: %{} = job} = session, remote) do
+    CanonicalJSON.worker_digest(job) == session.worker_job_digest and
+      remote["external_ref"] == Session.coop_task_ref(session) and
+      remote["job_ref"] == session.external_ref and
+      remote["job_digest"] == session.worker_job_digest
+  end
 
   defp cleanup_receipt?(_session, _remote), do: false
 
@@ -454,10 +453,10 @@ defmodule Ryker.CoopFleet.JobAuthority do
     end
   end
 
-  defp scope_matches?(%{scope_kind: :environment} = binding, session),
-    do:
-      binding.scope_ref == session.environment_ref and
-        binding.repository_ref == session.repository_ref
+  defp scope_matches?(%{scope_kind: :environment} = binding, session) do
+    binding.scope_ref == session.environment_ref and
+      binding.repository_ref == session.repository_ref
+  end
 
   defp scope_matches?(%{scope_kind: :repository} = binding, session),
     do: binding.scope_ref == session.repository_ref

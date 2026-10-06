@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.AppHomeEditorTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Slack.AppHomeEditor
 
   test "builds a bounded native editor only for one stale visible entry" do

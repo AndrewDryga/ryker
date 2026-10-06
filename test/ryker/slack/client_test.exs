@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.ClientTest do
   use ExUnit.Case, async: true
-
   alias __MODULE__.FakeRequester
   alias Ryker.Delivery.JSONClient
   alias Ryker.Slack.Client
@@ -416,7 +415,7 @@ defmodule Ryker.Slack.ClientTest do
     assert Client.remove_reaction(client, "C123", "1787832001.000200", "rocket") ==
              {:error, {:slack_api_error, "channel_not_found"}}
 
-    assert Enum.map(FakeRequester.requests(requester), fn request -> elem(request, 1) end) ==
+    assert Enum.map(FakeRequester.requests(requester), &elem(&1, 1)) ==
              List.duplicate("/reactions.remove", 3)
   end
 

@@ -1,6 +1,5 @@
 defmodule Ryker.Learning.CandidateCustodyTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Knowledge.KnowledgeRevision

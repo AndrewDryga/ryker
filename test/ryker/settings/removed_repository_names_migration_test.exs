@@ -5,7 +5,6 @@ defmodule Ryker.Settings.RemovedRepositoryNamesMigrationTest do
   (2026-09-28). The migration adds the table the name is kept in on removal.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @previous_version 20_260_928_200_000

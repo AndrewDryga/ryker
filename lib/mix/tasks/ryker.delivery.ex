@@ -8,7 +8,6 @@ defmodule Mix.Tasks.Ryker.Delivery do
   """
 
   use Mix.Task
-
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Operator.Delivery, as: DeliveryOperator
 

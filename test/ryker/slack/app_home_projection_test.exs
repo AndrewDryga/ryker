@@ -1,8 +1,6 @@
 defmodule Ryker.Slack.AppHomeProjectionTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture

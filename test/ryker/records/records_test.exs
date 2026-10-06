@@ -1,6 +1,5 @@
 defmodule Ryker.Records.RecordsTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer

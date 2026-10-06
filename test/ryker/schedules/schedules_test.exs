@@ -1,24 +1,20 @@
 defmodule Ryker.Schedules.SchedulesTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1, eventually: 2]
-
   import Ecto.Query
-
+  alias Ryker.Behaviors.Automations
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Repo
-  alias Ryker.Slack.{AppHomeProjection, Renderer, ReplyRecords}
-
-  alias Ryker.Behaviors.Automations
   alias Ryker.Records
   alias Ryker.Records.Record
+  alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.Schedules.ScheduleWorker
-
+  alias Ryker.Slack.{AppHomeProjection, Renderer, ReplyRecords}
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Submission, SubmissionBuilder}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -928,11 +924,11 @@ defmodule Ryker.Schedules.SchedulesTest do
     confirmed
   end
 
-  defp ran?(schedule),
-    do:
-      Repo.exists?(
-        from(occurrence in ScheduleOccurrence, where: occurrence.schedule_id == ^schedule.id)
-      )
+  defp ran?(schedule) do
+    Repo.exists?(
+      from(occurrence in ScheduleOccurrence, where: occurrence.schedule_id == ^schedule.id)
+    )
+  end
 
   defp sleeping_worker(worker_ref) do
     [

@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.ProtocolTest do
   use ExUnit.Case, async: true
-
   alias Ryker.CoopFleet.Protocol
 
   @fixture Path.expand("../../../testdata/protocol/coop-worker-v2.json", __DIR__)

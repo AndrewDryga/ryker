@@ -15,7 +15,6 @@ defmodule Ryker.LocalRoutingConcurrencyTest do
   wrote.
   """
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Admission
   alias Ryker.Admission.{Attempt, Context, Decision, Prompt}
@@ -41,7 +40,6 @@ defmodule Ryker.LocalRoutingConcurrencyTest do
     @behaviour Plug
 
     import Plug.Conn
-
     alias Ryker.Fixtures.LocalRouting, as: Harvested
 
     @impl true

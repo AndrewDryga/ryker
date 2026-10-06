@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.RendererTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Slack.{Interaction, Renderer}
   alias Ryker.Work.{Recovery, TaskStages, Turn}

@@ -8,7 +8,6 @@ defmodule Ryker.Records.TaskOffers do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Records

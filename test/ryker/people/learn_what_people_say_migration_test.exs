@@ -7,7 +7,6 @@ defmodule Ryker.People.LearnWhatPeopleSayMigrationTest do
   forgotten one keeps no words. Rolling back refuses while anything is kept.
   """
   use Ryker.MigrationCase
-
   alias Ecto.Adapters.SQL
 
   @previous_version 20_260_929_020_000

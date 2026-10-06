@@ -2,13 +2,10 @@ defmodule Ryker.Retention.Worker do
   @moduledoc "A small polling process for ownership cleanup and data pruning."
 
   use Ryker.PollingWorker, lane: :retention, interval: :poll_interval_ms
-
   require Logger
-
   alias Ryker.CoopFleet.{Bodies, ControlPlane}
   alias Ryker.Observability.Progress
   alias Ryker.Repo
-
   alias Ryker.Retention.{Custody, Data, Dispatcher}
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -115,13 +112,14 @@ defmodule Ryker.Retention.Worker do
         :ok
 
       {:ok, pass} ->
-        if pass.blocked > 0 or pass.deferred > 0,
-          do:
-            Logger.warning(
-              "retention pass executed #{pass.executed}, deferred #{pass.deferred}, " <>
-                "blocked #{pass.blocked}, stopped on #{pass.stopped}"
-            ),
-          else: :ok
+        if pass.blocked > 0 or pass.deferred > 0 do
+          Logger.warning(
+            "retention pass executed #{pass.executed}, deferred #{pass.deferred}, " <>
+              "blocked #{pass.blocked}, stopped on #{pass.stopped}"
+          )
+        else
+          :ok
+        end
 
       {:error, reason} ->
         Logger.error("retention dispatcher failed: #{inspect(reason)}")

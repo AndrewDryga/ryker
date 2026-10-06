@@ -12,7 +12,6 @@ defmodule Ryker.Slack.ThreadStatuses do
   """
 
   import Ecto.Query
-
   alias Ryker.ErrorDetail
   alias Ryker.Repo
   alias Ryker.Slack.{ThreadStatus, ThreadStatusChangeset}

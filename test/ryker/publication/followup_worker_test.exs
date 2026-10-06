@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.FollowupWorkerTest do
   use Ryker.DataCase, async: false
-
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.{Followups, FollowupWorker}
 

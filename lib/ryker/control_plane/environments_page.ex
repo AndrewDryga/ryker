@@ -13,16 +13,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
   """
 
   use Phoenix.Component
-
-  alias Ryker.ControlPlane.{
-    Components,
-    EnvironmentEditor,
-    Environments,
-    Integrations,
-    Kit,
-    Paths
-  }
-
+  alias Ryker.ControlPlane.{Components, EnvironmentEditor, Environments, Integrations, Kit, Paths}
   alias Ryker.Settings.Environment
 
   attr(:view, :map, required: true, doc: "The settings view")
@@ -226,10 +217,10 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
     end
   end
 
-  defp removal(%{is_default: true}),
-    do:
-      "Its repositories and Emisar account stay. Chat and every conversation without its own " <>
-        "environment then work without one until you choose another default."
+  defp removal(%{is_default: true}) do
+    "Its repositories and Emisar account stay. Chat and every conversation without its own " <>
+      "environment then work without one until you choose another default."
+  end
 
   defp removal(_environment), do: "Its repositories and Emisar account stay."
 

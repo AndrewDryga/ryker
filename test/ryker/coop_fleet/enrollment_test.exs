@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.EnrollmentTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.CoopFleet.{Certificate, ControlPlane, Enrollment, EnrollmentToken}
 
   test "a single-use token binds one named worker without receiving its private key" do
@@ -133,9 +132,7 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
     enrolled = enroll!("worker-renewals", authority)
     first = certificate_der(enrolled["certificate_pem"])
 
-    renew = fn der ->
-      Enrollment.renew(der, %{"public_key_pem" => public_key_pem(private_key())}, authority)
-    end
+    renew = &Enrollment.renew(&1, %{"public_key_pem" => public_key_pem(private_key())}, authority)
 
     assert {:ok, lost} = renew.(first)
     # The answer was lost, so the worker asks again with the certificate it has.

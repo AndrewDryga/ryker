@@ -16,12 +16,9 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
   close request, the removal plan and the receipt sit behind Details.
   """
   use Ryker.DataCase, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
-
   import Ecto.Query
   import Phoenix.LiveViewTest
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.CoopFleet.{ControlPlane, Placement}

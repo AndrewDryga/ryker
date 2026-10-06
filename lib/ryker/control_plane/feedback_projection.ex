@@ -17,26 +17,14 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   """
 
   import Ecto.Query
-
-  alias Ryker.ControlPlane.{
-    Activity,
-    ConsolePeople,
-    CurrentInputs,
-    FeedbackChart,
-    ImprovementProjection,
-    PagedRelation,
-    Paths,
-    Search,
-    SlackMarkdown
-  }
-
+  alias Ryker.ControlPlane.{Activity, ConsolePeople, CurrentInputs, FeedbackChart}
+  alias Ryker.ControlPlane.{ImprovementProjection, PagedRelation, Paths, Search, SlackMarkdown}
   alias Ryker.Episodes.{Episode, RoutingDigest}
   alias Ryker.Feedback.Signal
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Slack.Names
-
   require CurrentInputs
 
   @overview_rows 5

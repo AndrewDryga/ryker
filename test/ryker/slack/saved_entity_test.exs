@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.SavedEntityTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.Schedules.Schedule
   alias Ryker.Slack.Renderer.SavedEntityCard

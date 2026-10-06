@@ -7,18 +7,8 @@ defmodule Ryker.Episodes.Reducer do
   """
 
   alias Ryker.Episodes.Command
-
-  alias Ryker.Episodes.Command.{
-    AcceptResult,
-    AdmitInput,
-    CancelEpisode,
-    ConfirmDelivery,
-    RecordReaction,
-    ResumeWait,
-    StartWait,
-    TransferOwner
-  }
-
+  alias Ryker.Episodes.Command.{AcceptResult, AdmitInput, CancelEpisode, ConfirmDelivery}
+  alias Ryker.Episodes.Command.{RecordReaction, ResumeWait, StartWait, TransferOwner}
   alias Ryker.Episodes.{Episode, Event, Transition}
 
   # One admitted command may carry the full 64 KiB kernel envelope. Two fit

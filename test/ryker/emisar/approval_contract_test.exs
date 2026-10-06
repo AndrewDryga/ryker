@@ -1,6 +1,5 @@
 defmodule Ryker.Emisar.ApprovalContractTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Emisar.ApprovalContract
 
   @now ~U[2026-08-29 12:00:00.000000Z]

@@ -1,6 +1,5 @@
 defmodule Ryker.UTCDateTimeTest do
   use ExUnit.Case, async: true
-
   alias Ryker.UTCDateTime
 
   # Found live 2026-09-27 14:13 UTC: a due-time query mixed an aggregate the

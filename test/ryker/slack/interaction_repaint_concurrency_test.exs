@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.InteractionRepaintConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.{CanonicalJSON, Episodes, Repo}
   alias Ryker.Episodes.{Episode, Event}

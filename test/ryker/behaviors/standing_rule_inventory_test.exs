@@ -9,9 +9,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
   may move a rule into or out of scheduling, and none may fail an input.
   """
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.BehaviorChangeset

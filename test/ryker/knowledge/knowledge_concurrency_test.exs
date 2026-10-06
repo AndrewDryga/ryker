@@ -6,9 +6,6 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
-  alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
-
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -17,6 +14,8 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
+  alias Ryker.Repo
+  alias Ryker.Slack.ChannelMembership
 
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
 
@@ -130,12 +129,12 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
     end
   end
 
-  defp create_result(entry, key),
-    do:
-      Jason.encode!(%{
-        "updates" => [create_proposal(entry, key)],
-        "reason" => "Host-contract matching boundary over a retained alert."
-      })
+  defp create_result(entry, key) do
+    Jason.encode!(%{
+      "updates" => [create_proposal(entry, key)],
+      "reason" => "Host-contract matching boundary over a retained alert."
+    })
+  end
 
   defp create_proposal(entry, key),
     do: %{
@@ -263,15 +262,15 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
     error in Postgrex.Error -> {:crashed, error.postgres[:code]}
   end
 
-  defp proposal(item),
-    do:
-      item
-      |> Map.take(~w(topic_key title summary topics))
-      |> Map.merge(%{
-        "target_ref" => item["source_ref"],
-        "anchors" => [],
-        "expected_version" => item["version"]
-      })
+  defp proposal(item) do
+    item
+    |> Map.take(~w(topic_key title summary topics))
+    |> Map.merge(%{
+      "target_ref" => item["source_ref"],
+      "anchors" => [],
+      "expected_version" => item["version"]
+    })
+  end
 
   for action <- [:edit, :delete], boundary <- [:recall, :reauthorize] do
     test "#{boundary} cannot reuse a source changed by #{action} while waiting for its row lock" do

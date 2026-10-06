@@ -19,9 +19,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   """
 
   import Ecto.Query
-
   require Logger
-
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
   alias Ryker.Repo
@@ -254,9 +252,9 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       at = DateTime.add(Repo.now!(), if(repeated, do: repeat_delay_seconds, else: delay_seconds))
       due = if entry.phase == :idle, do: [next_check_at: at], else: [next_attempt_at: at]
 
-      unless repeated,
-        do:
-          Logger.warning("repository knowledge for #{entry.repository_ref} waits: #{held(code)}")
+      unless repeated do
+        Logger.warning("repository knowledge for #{entry.repository_ref} waits: #{held(code)}")
+      end
 
       save(entry, unleased() ++ due ++ [error_code: code, error: held(code)])
     end)
@@ -265,9 +263,9 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   defp held("repository_knowledge_policy_unavailable"),
     do: "No model setup reads this repository yet. Ryker waits for its standard policy."
 
-  defp held("repository_knowledge_worker_unavailable"),
-    do:
-      "No Coop worker takes this repository's sessions. Check that a worker is online and offers its policy."
+  defp held("repository_knowledge_worker_unavailable") do
+    "No Coop worker takes this repository's sessions. Check that a worker is online and offers its policy."
+  end
 
   defp held("repository_knowledge_github_unavailable"),
     do: "GitHub did not answer for this repository. Ryker tries again."
@@ -437,31 +435,31 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   # -- Runs -------------------------------------------------------------------------
 
   @doc "The run of a repository that started and has no stop proof yet, or nil."
-  def outstanding(ref),
-    do:
-      Repo.one(
-        from(run in Run,
-          where:
-            run.repository_ref == ^ref and not is_nil(run.started_at) and
-              is_nil(run.remote_stopped_at),
-          order_by: [asc: run.generation],
-          limit: 1
-        )
+  def outstanding(ref) do
+    Repo.one(
+      from(run in Run,
+        where:
+          run.repository_ref == ^ref and not is_nil(run.started_at) and
+            is_nil(run.remote_stopped_at),
+        order_by: [asc: run.generation],
+        limit: 1
       )
+    )
+  end
 
   @doc "A run as it is stored now."
   def current(run_id), do: Repo.get!(Run, run_id)
 
   @doc "A repository's latest run, or nil."
-  def last_run(ref),
-    do:
-      Repo.one(
-        from(run in Run,
-          where: run.repository_ref == ^ref,
-          order_by: [desc: run.generation],
-          limit: 1
-        )
+  def last_run(ref) do
+    Repo.one(
+      from(run in Run,
+        where: run.repository_ref == ^ref,
+        order_by: [desc: run.generation],
+        limit: 1
       )
+    )
+  end
 
   @doc """
   Freezes the next attempt: the prompt and schema the turn will get, the
@@ -528,10 +526,10 @@ defmodule Ryker.RepositoryKnowledge.Custody do
     ) in ~w(output_contract_failed invalid_repository_knowledge repository_knowledge_unusable)
   end
 
-  defp next_generation(ref),
-    do:
-      (Repo.one(from(run in Run, where: run.repository_ref == ^ref, select: max(run.generation))) ||
-         0) + 1
+  defp next_generation(ref) do
+    (Repo.one(from(run in Run, where: run.repository_ref == ^ref, select: max(run.generation))) ||
+       0) + 1
+  end
 
   @doc "Spends one start on the run, once, when it first begins; retries of it do not spend again."
   def begin_execution(claim, run_id) do
@@ -798,11 +796,11 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
   def record_stop(_claim, _run_id, _turn), do: {:error, :repository_knowledge_remote_not_stopped}
 
-  defp terminal_receipt(turn),
-    do:
-      turn
-      |> Map.take(~w(id session_id state error_code validation_attempt))
-      |> Map.put("kind", "terminal_turn")
+  defp terminal_receipt(turn) do
+    turn
+    |> Map.take(~w(id session_id state error_code validation_attempt))
+    |> Map.put("kind", "terminal_turn")
+  end
 
   @doc """
   Records a terminal turn that gave no usable answer: the model's output did
@@ -816,12 +814,13 @@ defmodule Ryker.RepositoryKnowledge.Custody do
         do: Repo.rollback(:repository_knowledge_remote_identity_conflict)
 
       run =
-        if run.status in [:prepared, :responded],
-          do:
-            run
-            |> Ecto.Changeset.change(status: :rejected, error_code: Atom.to_string(reason))
-            |> Repo.update!(),
-          else: run
+        if run.status in [:prepared, :responded] do
+          run
+          |> Ecto.Changeset.change(status: :rejected, error_code: Atom.to_string(reason))
+          |> Repo.update!()
+        else
+          run
+        end
 
       store_stop(
         run,
@@ -908,15 +907,16 @@ defmodule Ryker.RepositoryKnowledge.Custody do
              do: Repo.rollback(:repository_knowledge_absence_unconfirmed)
 
       run =
-        if run.status in [:prepared, :responded],
-          do:
-            run
-            |> Ecto.Changeset.change(
-              status: :rejected,
-              error_code: "repository_knowledge_provider_failed"
-            )
-            |> Repo.update!(),
-          else: run
+        if run.status in [:prepared, :responded] do
+          run
+          |> Ecto.Changeset.change(
+            status: :rejected,
+            error_code: "repository_knowledge_provider_failed"
+          )
+          |> Repo.update!()
+        else
+          run
+        end
 
       session = FleetSession.for_run(run)
 
@@ -947,15 +947,16 @@ defmodule Ryker.RepositoryKnowledge.Custody do
              do: Repo.rollback(:repository_knowledge_remote_unresolved)
 
       run =
-        if run.status in [:prepared, :responded],
-          do:
-            run
-            |> Ecto.Changeset.change(
-              status: :rejected,
-              error_code: "repository_knowledge_attempt_expired"
-            )
-            |> Repo.update!(),
-          else: run
+        if run.status in [:prepared, :responded] do
+          run
+          |> Ecto.Changeset.change(
+            status: :rejected,
+            error_code: "repository_knowledge_attempt_expired"
+          )
+          |> Repo.update!()
+        else
+          run
+        end
 
       session = FleetSession.for_run(run)
 

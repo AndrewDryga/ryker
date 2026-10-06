@@ -9,7 +9,6 @@ defmodule Ryker.Memories.Recall do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.Episode
   alias Ryker.Episodes.Scope
   alias Ryker.Memories
@@ -172,13 +171,14 @@ defmodule Ryker.Memories.Recall do
       )
 
     kinds =
-      if is_binary(context.repository),
-        do:
-          dynamic(
-            [entry],
-            ^kinds or (entry.scope_kind == :repository and entry.scope_ref == ^context.repository)
-          ),
-        else: kinds
+      if is_binary(context.repository) do
+        dynamic(
+          [entry],
+          ^kinds or (entry.scope_kind == :repository and entry.scope_ref == ^context.repository)
+        )
+      else
+        kinds
+      end
 
     dynamic([entry], entry.workspace_ref == ^context.workspace_ref and ^kinds)
   end

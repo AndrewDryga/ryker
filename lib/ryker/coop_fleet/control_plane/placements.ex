@@ -11,19 +11,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   import Ecto.Changeset
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
-
-  alias Ryker.CoopFleet.{
-    Bodies,
-    Command,
-    JobAuthority,
-    Placement,
-    Worker,
-    WorkspaceCheckpointTransfer
-  }
-
+  alias Ryker.CoopFleet.{Bodies, Command, JobAuthority, Placement, Worker}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Shared}
+  alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Repo
   alias Ryker.Work.{RepositorySource, Session, Turn}
 
@@ -228,15 +219,15 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
        do: Map.take(checkpoint, [:byte_size, :checkpoint_ref, :repository_ref])
   end
 
-  defp checkpoint_available?(root, checkpoint),
-    do:
-      match?(
-        {:ok, _, _},
-        Bodies.fetch(root, checkpoint.body_command_id, :response, %{
-          "sha256" => checkpoint.sha256,
-          "byte_size" => checkpoint.byte_size
-        })
-      )
+  defp checkpoint_available?(root, checkpoint) do
+    match?(
+      {:ok, _, _},
+      Bodies.fetch(root, checkpoint.body_command_id, :response, %{
+        "sha256" => checkpoint.sha256,
+        "byte_size" => checkpoint.byte_size
+      })
+    )
+  end
 
   defp place_session_locked(session_id, requirements, lease_seconds) do
     lock_holding_workers(session_id)
@@ -587,14 +578,15 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   defp abandoned_query(cutoff, judge_vanished?) do
     abandoned =
-      if judge_vanished?,
-        do:
-          dynamic(
-            [placement, worker],
-            worker.state == :revoked or
-              (placement.lease_expires_at <= ^cutoff and worker.last_seen_at <= ^cutoff)
-          ),
-        else: dynamic([_placement, worker], worker.state == :revoked)
+      if judge_vanished? do
+        dynamic(
+          [placement, worker],
+          worker.state == :revoked or
+            (placement.lease_expires_at <= ^cutoff and worker.last_seen_at <= ^cutoff)
+        )
+      else
+        dynamic([_placement, worker], worker.state == :revoked)
+      end
 
     from(placement in Placement,
       join: worker in Worker,
@@ -748,9 +740,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     # A heartbeat can precede execution of an assigned create. Keep that
     # reservation until verified remote binding, not merely until the next poll.
     # Bound sessions use measured worker capacity and may park without a child.
-    Enum.all?(~w(session turn workspace), fn kind ->
-      capacity_slot(worker, "#{kind}_slots_free") > reserved_slots
-    end)
+    Enum.all?(
+      ~w(session turn workspace),
+      &(capacity_slot(worker, "#{&1}_slots_free") > reserved_slots)
+    )
   end
 
   # Only a create still under way reserves a slot, for as long as

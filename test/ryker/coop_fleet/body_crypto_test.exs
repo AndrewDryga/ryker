@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.BodyCryptoTest do
   use ExUnit.Case, async: true
-
   alias Ryker.CoopFleet.BodyCrypto
 
   test "key derivation agrees with RFC 5869 test case 1" do

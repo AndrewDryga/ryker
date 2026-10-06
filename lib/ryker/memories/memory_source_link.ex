@@ -131,9 +131,9 @@ defmodule Ryker.Memories.MemorySourceLink do
   def context_targets(
         %{"source_ref" => "continuity-rollup:" <> _, "workspace_ref" => "slack:" <> workspace} =
           document
-      ),
-      do:
-        Enum.flat_map(document["source_reads"] || [], &read_target(&1, workspace)) |> Enum.uniq()
+      ) do
+    Enum.flat_map(document["source_reads"] || [], &read_target(&1, workspace)) |> Enum.uniq()
+  end
 
   # A compacted Lab rollup is scoped by its own conversation rather than a Slack
   # workspace. Without this clause the descriptors a caller could follow while
@@ -143,10 +143,10 @@ defmodule Ryker.Memories.MemorySourceLink do
           "source_ref" => "continuity-rollup:" <> _,
           "workspace_ref" => "control-plane:lab:" <> _ = conversation
         } = document
-      ),
-      do:
-        Enum.flat_map(document["source_reads"] || [], &lab_read_target(&1, conversation))
-        |> Enum.uniq()
+      ) do
+    Enum.flat_map(document["source_reads"] || [], &lab_read_target(&1, conversation))
+    |> Enum.uniq()
+  end
 
   def context_targets(_document), do: []
 

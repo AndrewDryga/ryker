@@ -7,7 +7,6 @@ defmodule Ryker.Slack.Renderer.Offers do
 
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
-
   alias Ryker.Delivery.OfferWords
   alias Ryker.Schedules.ScheduleCadence
 
@@ -41,12 +40,12 @@ defmodule Ryker.Slack.Renderer.Offers do
   # Both the open and the confirmed card render this. An operator returning to
   # the thread reads the confirmed card to find out what was authorized, and
   # repainting it down to a title and a check mark answered nothing.
-  defp offer_summary(%{"kind" => "engineering", "repository" => repository} = offer),
-    do:
-      offer_lines(
-        "*#{escape(offer["title"])}*\nRepository: `#{escape(repository)}`#{offer_source(offer)}",
-        offer
-      )
+  defp offer_summary(%{"kind" => "engineering", "repository" => repository} = offer) do
+    offer_lines(
+      "*#{escape(offer["title"])}*\nRepository: `#{escape(repository)}`#{offer_source(offer)}",
+      offer
+    )
+  end
 
   defp offer_summary(%{"repository" => nil, "title" => title} = offer),
     do: offer_lines("*#{escape(title)}*", offer)

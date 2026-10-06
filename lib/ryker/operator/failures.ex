@@ -14,18 +14,8 @@ defmodule Ryker.Operator.Failures do
   alias Ryker.Operator.Emisar, as: EmisarOperator
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Reference
-
-  alias Ryker.Slack.{
-    IncidentRoom,
-    IncidentRooms,
-    InteractionAudit,
-    InteractionAudits,
-    TaskCard,
-    TaskCards,
-    ThreadStatus,
-    ThreadStatuses
-  }
-
+  alias Ryker.Slack.{IncidentRoom, IncidentRooms, InteractionAudit, InteractionAudits, TaskCard}
+  alias Ryker.Slack.{TaskCards, ThreadStatus, ThreadStatuses}
   alias Ryker.Work.Custody
   alias Ryker.Work.Session
 

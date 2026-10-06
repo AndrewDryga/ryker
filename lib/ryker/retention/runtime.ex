@@ -2,7 +2,6 @@ defmodule Ryker.Retention.Runtime do
   @moduledoc "Supervises exact Coop ownership cleanup and retention maintenance."
 
   use Supervisor
-
   alias Ryker.{Options, Reference}
   alias Ryker.Retention.Worker
 

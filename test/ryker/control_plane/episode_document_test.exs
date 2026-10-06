@@ -1,7 +1,6 @@
 defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   use Ryker.DataCase, async: true
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Activity, EpisodePage, EpisodeProjection, EpisodeRequest}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
@@ -1811,12 +1810,12 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   defp compact(value), do: String.replace(value, ~r/\s+/, "")
   defp words(value), do: value |> String.split() |> Enum.join(" ")
 
-  defp render_episode(snapshot, items),
-    do:
-      render_component(&EpisodePage.render/1,
-        snapshot: snapshot,
-        timeline: %{items: items, truncated: false},
-        requests: nil,
-        params: %{}
-      )
+  defp render_episode(snapshot, items) do
+    render_component(&EpisodePage.render/1,
+      snapshot: snapshot,
+      timeline: %{items: items, truncated: false},
+      requests: nil,
+      params: %{}
+    )
+  end
 end

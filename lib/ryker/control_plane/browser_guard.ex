@@ -17,7 +17,6 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   there without one did not come through Access.
   """
   import Plug.Conn
-
   alias Ryker.ControlPlane.{CloudflareAccess, Endpoint}
 
   @hosts ["localhost", "127.0.0.1", "::1"]

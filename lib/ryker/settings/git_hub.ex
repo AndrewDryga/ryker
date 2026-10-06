@@ -33,24 +33,26 @@ defmodule Ryker.Settings.GitHub do
       changeset
       |> validate_identity_pair(:bot_actor_id, :bot_login)
 
-    if get_field(changeset, :enabled) and is_nil(get_field(changeset, :app_id)),
-      do:
-        add_error(changeset, :app_id, "is required to enable GitHub",
-          validation: :required_to_enable
-        ),
-      else: changeset
+    if get_field(changeset, :enabled) and is_nil(get_field(changeset, :app_id)) do
+      add_error(changeset, :app_id, "is required to enable GitHub",
+        validation: :required_to_enable
+      )
+    else
+      changeset
+    end
   end
 
   defp validate_identity_pair(changeset, id_field, login_field) do
     id = get_field(changeset, id_field)
     login = get_field(changeset, login_field)
 
-    if (is_nil(id) and is_binary(login)) or (is_integer(id) and is_nil(login)),
-      do:
-        add_error(changeset, login_field, "must be verified with its GitHub identity",
-          validation: :identity_pair
-        ),
-      else: changeset
+    if (is_nil(id) and is_binary(login)) or (is_integer(id) and is_nil(login)) do
+      add_error(changeset, login_field, "must be verified with its GitHub identity",
+        validation: :identity_pair
+      )
+    else
+      changeset
+    end
   end
 
   defp validate_url(changeset, field) do

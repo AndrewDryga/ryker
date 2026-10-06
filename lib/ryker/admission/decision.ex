@@ -160,9 +160,9 @@ defmodule Ryker.Admission.Decision do
       do: json_schema(allowed_actions, reaction_names, repository_source?, [])
 
   @spec json_schema([atom()], :any | [String.t()] | nil, boolean(), [String.t()]) :: map()
-  def json_schema(allowed_actions, reaction_names, repository_source?, repository_choices),
-    do:
-      json_schema(allowed_actions, reaction_names, repository_source?, repository_choices, false)
+  def json_schema(allowed_actions, reaction_names, repository_source?, repository_choices) do
+    json_schema(allowed_actions, reaction_names, repository_source?, repository_choices, false)
+  end
 
   @doc """
   Publishes the decision contract for one source.

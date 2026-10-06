@@ -17,19 +17,9 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   """
 
   require Logger
-
   alias Ryker.CoopFleet.JobTemplates
-
-  alias Ryker.RepositoryKnowledge.{
-    Custody,
-    Document,
-    Executor,
-    FleetSession,
-    Prompt,
-    Refresh,
-    Run
-  }
-
+  alias Ryker.RepositoryKnowledge.{Custody, Document, Executor, FleetSession, Prompt, Refresh}
+  alias Ryker.RepositoryKnowledge.Run
   alias Ryker.Settings
 
   @no_policy_hold_seconds 300
@@ -134,14 +124,14 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     entry = claim.entry
 
     decision =
-      with {:ok, head} <- remote.head(binding, repository),
-           do:
-             Refresh.decide(
-               written(entry),
-               head,
-               fn -> remote.changes(binding, repository, entry.document_commit, head) end,
-               DateTime.utc_now()
-             )
+      with {:ok, head} <- remote.head(binding, repository) do
+        Refresh.decide(
+          written(entry),
+          head,
+          fn -> remote.changes(binding, repository, entry.document_commit, head) end,
+          DateTime.utc_now()
+        )
+      end
 
     case decision do
       {:error, reason} -> failed(claim, reason, settings, &check_failed/2)
@@ -170,14 +160,14 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
 
   # No read-only policy yet (the source is not pinned), or no worker would
   # take the session: the write waits, says why, and no start is spent.
-  defp start(claim, nil, _target, _settings),
-    do:
-      Custody.hold(
-        claim,
-        "repository_knowledge_policy_unavailable",
-        @no_policy_hold_seconds,
-        @repeated_hold_seconds
-      )
+  defp start(claim, nil, _target, _settings) do
+    Custody.hold(
+      claim,
+      "repository_knowledge_policy_unavailable",
+      @no_policy_hold_seconds,
+      @repeated_hold_seconds
+    )
+  end
 
   defp start(claim, policy, {repository, _binding} = target, settings) do
     if FleetSession.placeable?(settings, repository.ref, policy),

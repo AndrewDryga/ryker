@@ -1,6 +1,5 @@
 defmodule Ryker.Records.RecordPayloadTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Records.RecordPayload
 

@@ -1,6 +1,5 @@
 defmodule Ryker.EpisodesReplayPersistenceTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Episodes
   alias Ryker.Episodes.Replay
 
@@ -50,9 +49,10 @@ defmodule Ryker.EpisodesReplayPersistenceTest do
     with {:ok, transition} <- Episodes.apply(command),
          {:ok, episode} <- Episodes.fetch_by_key(command.episode_key) do
       event =
-        Enum.find(Episodes.list_events(command.episode_key), fn event ->
-          event.dedupe_key == transition.event.dedupe_key
-        end)
+        Enum.find(
+          Episodes.list_events(command.episode_key),
+          &(&1.dedupe_key == transition.event.dedupe_key)
+        )
 
       {:ok, %{transition | episode: episode, event: event}}
     end

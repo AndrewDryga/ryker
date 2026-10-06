@@ -1,6 +1,5 @@
 defmodule Ryker.Work.SubmissionTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Work.Submission
 
   test "a frozen submission rejects malformed or unbounded request bodies" do

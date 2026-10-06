@@ -194,10 +194,10 @@ defmodule Ryker.Defaults do
 
     increasing =
       for {owner, defaults} <- @owners,
-          Map.has_key?(defaults, :retry_base_seconds),
-          do:
-            {defaults.retry_max_seconds >= defaults.retry_base_seconds,
-             "#{owner} retry_max_seconds must not be below retry_base_seconds"}
+          Map.has_key?(defaults, :retry_base_seconds) do
+        {defaults.retry_max_seconds >= defaults.retry_base_seconds,
+         "#{owner} retry_max_seconds must not be below retry_base_seconds"}
+      end
 
     Enum.each(checks ++ increasing, fn
       {true, _reason} -> :ok

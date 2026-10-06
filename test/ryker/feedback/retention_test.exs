@@ -7,9 +7,7 @@ defmodule Ryker.Feedback.RetentionTest do
   """
   # Retention takes one advisory lock for a whole pass.
   use Ryker.MigrationCase
-
   import Ecto.Query
-
   alias Ryker.Feedback
   alias Ryker.Feedback.Signal
   alias Ryker.Ingress.Inbox

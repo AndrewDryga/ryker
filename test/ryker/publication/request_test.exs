@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.RequestTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Publication.Request
 
   @repositories %{"ryker" => %{base_branch: "main", branch_prefix: "ryker"}}

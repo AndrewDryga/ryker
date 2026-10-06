@@ -1,8 +1,6 @@
 defmodule Ryker.Learning.LearningThreadContextTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures

@@ -1,6 +1,5 @@
 defmodule Ryker.Ingress.InboxConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Admission
   alias Ryker.Admission.Decision

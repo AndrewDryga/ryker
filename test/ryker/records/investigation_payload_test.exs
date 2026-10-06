@@ -1,6 +1,5 @@
 defmodule Ryker.Records.InvestigationPayloadTest do
   use ExUnit.Case, async: true
-
   alias Ryker.Records.InvestigationPayload
 
   test "a fully sized Unicode finding leaves room for every advertised evidence reference" do

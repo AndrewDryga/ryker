@@ -24,7 +24,7 @@ defmodule Ryker.GitHub.Client.Comments do
         fn page ->
           "/repos/#{repository}/issues/#{number}/comments?per_page=#{@page_size}&page=#{page}"
         end,
-        fn comment -> marker_match(comment, marker) end
+        &marker_match(&1, marker)
       )
     end
   end
@@ -63,7 +63,7 @@ defmodule Ryker.GitHub.Client.Comments do
         fn page ->
           "/repos/#{repository}/pulls/#{number}/reviews?per_page=#{@page_size}&page=#{page}"
         end,
-        fn review -> marker_match(review, marker) end
+        &marker_match(&1, marker)
       )
     end
   end
@@ -110,7 +110,7 @@ defmodule Ryker.GitHub.Client.Comments do
         fn page ->
           "/repos/#{repository}/pulls/#{number}/comments?per_page=#{@page_size}&page=#{page}"
         end,
-        fn comment -> review_marker_match(comment, root_id, marker) end
+        &review_marker_match(&1, root_id, marker)
       )
     end
   end

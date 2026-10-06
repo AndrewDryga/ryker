@@ -1,9 +1,7 @@
 defmodule Ryker.ControlPlane.SessionCookieTest do
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
   import Plug.Conn, only: [put_req_header: 3, get_resp_header: 2]
-
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Settings
 

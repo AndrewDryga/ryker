@@ -9,7 +9,6 @@ defmodule Ryker.IntegrationSetup do
   """
 
   require Logger
-
   alias Ryker.{Bootstrap, Credentials}
   alias Ryker.CoopFleet.ManagedSources
   alias Ryker.Delivery.JSONClient
@@ -1121,13 +1120,13 @@ defmodule Ryker.IntegrationSetup do
   # A repository saved half-way could never be set up ("GitHub binding is
   # missing"), so finishing it starts its setup over. Kept as it was, it read
   # "Setup stopped" after Add it again finished it (2026-09-27).
-  defp put_imported_repository(_existing, ref, _repository, actor_ref),
-    do:
-      Settings.put_repository(
-        %{ref: ref, onboarding_state: :pending, onboarding_error: nil},
-        :current,
-        actor_ref
-      )
+  defp put_imported_repository(_existing, ref, _repository, actor_ref) do
+    Settings.put_repository(
+      %{ref: ref, onboarding_state: :pending, onboarding_error: nil},
+      :current,
+      actor_ref
+    )
+  end
 
   @doc false
   def github_action_grants(permissions) do

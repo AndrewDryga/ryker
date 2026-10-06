@@ -9,7 +9,6 @@ defmodule Ryker.Records.Outcomes do
   """
 
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Records.DerivedContext

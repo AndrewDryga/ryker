@@ -1,6 +1,5 @@
 defmodule Ryker.Admission.FleetSessionConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Admission.FleetSession
   alias Ryker.Ingress.Inbox

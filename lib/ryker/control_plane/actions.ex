@@ -2,7 +2,8 @@ defmodule Ryker.ControlPlane.Actions do
   @moduledoc false
 
   import Ecto.Query
-
+  alias Ryker.Behaviors
+  alias Ryker.Behaviors.Automations
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.Actor
   alias Ryker.ControlPlane.ConversationLab
@@ -15,31 +16,27 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Improvement
   alias Ryker.Ingress.WorkProfile
   alias Ryker.IntegrationSetup
+  alias Ryker.Memories
+  alias Ryker.Memories.Forgetting
   alias Ryker.Operator.{EpisodeReviews, FailureDismissals, Failures}
   alias Ryker.Operator.Learning, as: LearningOperator
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Operator.Retention, as: RetentionOperator
+  alias Ryker.People
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Publication, Review}
-  alias Ryker.Repo
-  alias Ryker.Slack.IncidentRooms
-  alias Ryker.Slack.Runtime, as: SlackRuntime
-  alias Ryker.Slack.WorkRecord
-  alias Ryker.WeeklyReport
-
-  alias Ryker.Behaviors
-  alias Ryker.Behaviors.Automations
-  alias Ryker.Memories
-  alias Ryker.Memories.Forgetting
-  alias Ryker.People
   alias Ryker.Records.Findings
   alias Ryker.Records.InputRequests
   alias Ryker.Records.Record
   alias Ryker.Records.SlackPostOffers
   alias Ryker.Records.TaskOffers
+  alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Schedules.Schedule
-
+  alias Ryker.Slack.IncidentRooms
+  alias Ryker.Slack.Runtime, as: SlackRuntime
+  alias Ryker.Slack.WorkRecord
+  alias Ryker.WeeklyReport
   alias Ryker.Work.{Custody, Session, Turn}
 
   @current {__MODULE__, :current}
@@ -176,14 +173,14 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
-  defp drop_learning(id, budget_version, viewer),
-    do:
-      LearningOperator.drop(
-        id,
-        budget_version,
-        Actor.of(viewer),
-        "control-plane:learning-drop:#{id}:#{budget_version}"
-      )
+  defp drop_learning(id, budget_version, viewer) do
+    LearningOperator.drop(
+      id,
+      budget_version,
+      Actor.of(viewer),
+      "control-plane:learning-drop:#{id}:#{budget_version}"
+    )
+  end
 
   # How the failure fails now, so failing some other way lists it again.
   defp leave_failure(kind, ref, viewer) do
@@ -1034,11 +1031,11 @@ defmodule Ryker.ControlPlane.Actions do
 
   # Who sends a Chat message, edits or deletes one, reacts or answers is the
   # person of the page or request doing it (`Actor.chat_ref/1`).
-  defp react_to_lab_message(conversation_id, message_ref, action, emoji_name, viewer),
-    do:
-      ConversationLab.react_to_message(conversation_id, message_ref, action, emoji_name,
-        actor: Actor.chat_ref(viewer)
-      )
+  defp react_to_lab_message(conversation_id, message_ref, action, emoji_name, viewer) do
+    ConversationLab.react_to_message(conversation_id, message_ref, action, emoji_name,
+      actor: Actor.chat_ref(viewer)
+    )
+  end
 
   defp discard_retention(ref, viewer) do
     RetentionOperator.discard_unmerged(ref, Actor.of(viewer), action_ref(:discard_unmerged))

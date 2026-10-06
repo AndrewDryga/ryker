@@ -852,51 +852,51 @@ defmodule Ryker.Work.Validator do
   defp final_violation(:type),
     do: "Return one JSON object matching the attached output schema."
 
-  defp final_violation(:fields),
-    do:
-      "The top-level object must contain exactly decision_reason, delivery, message, outcome, and title; remove unknown fields and add missing fields."
+  defp final_violation(:fields) do
+    "The top-level object must contain exactly decision_reason, delivery, message, outcome, and title; remove unknown fields and add missing fields."
+  end
 
   defp final_violation(:delivery),
     do: "delivery must be exactly reply or none."
 
-  defp final_violation(:message),
-    do:
-      "For delivery reply, message must be nonblank text with no NUL character and at most 20,000 Unicode characters."
+  defp final_violation(:message) do
+    "For delivery reply, message must be nonblank text with no NUL character and at most 20,000 Unicode characters."
+  end
 
-  defp final_violation(:decision_reason),
-    do:
-      "For delivery none, decision_reason must be nonblank text with no NUL character and at most 240 Unicode characters."
+  defp final_violation(:decision_reason) do
+    "For delivery none, decision_reason must be nonblank text with no NUL character and at most 240 Unicode characters."
+  end
 
-  defp final_violation(:delivery_shape),
-    do:
-      "For delivery reply, provide message and set decision_reason to null; for delivery none, set message to null and provide decision_reason."
+  defp final_violation(:delivery_shape) do
+    "For delivery reply, provide message and set decision_reason to null; for delivery none, set message to null and provide decision_reason."
+  end
 
-  defp final_violation(:outcome),
-    do:
-      "outcome must contain exactly artifact_refs, record_refs, and state using the attached output schema."
+  defp final_violation(:outcome) do
+    "outcome must contain exactly artifact_refs, record_refs, and state using the attached output schema."
+  end
 
   defp final_violation(:state),
     do: "outcome.state must be complete, waiting_for_input, or waiting_for_event."
 
-  defp final_violation(:record_refs),
-    do:
-      "outcome.record_refs must contain at most 64 unique host-issued references using only letters, numbers, underscore, dot, colon, or hyphen, each at most 256 characters."
+  defp final_violation(:record_refs) do
+    "outcome.record_refs must contain at most 64 unique host-issued references using only letters, numbers, underscore, dot, colon, or hyphen, each at most 256 characters."
+  end
 
-  defp final_violation(:artifact_refs),
-    do:
-      "outcome.artifact_refs must contain at most 5 unique host-issued references using only letters, numbers, underscore, dot, colon, or hyphen, each at most 256 characters."
+  defp final_violation(:artifact_refs) do
+    "outcome.artifact_refs must contain at most 5 unique host-issued references using only letters, numbers, underscore, dot, colon, or hyphen, each at most 256 characters."
+  end
 
-  defp final_violation(:state_requires_visible_reply),
-    do:
-      "An input-waiting outcome requires delivery reply so the user can answer. Event waiting may use delivery none with its durable wait record."
+  defp final_violation(:state_requires_visible_reply) do
+    "An input-waiting outcome requires delivery reply so the user can answer. Event waiting may use delivery none with its durable wait record."
+  end
 
-  defp final_violation(:title),
-    do:
-      "title must be null to keep the episode's current title, or one line of nonblank text naming the episode's work in at most 80 Unicode characters."
+  defp final_violation(:title) do
+    "title must be null to keep the episode's current title, or one line of nonblank text naming the episode's work in at most 80 Unicode characters."
+  end
 
-  defp final_violation(:waiting_state_requires_record),
-    do:
-      "A waiting outcome must reference the durable request_input, wait_for, or record_emisar_approval record that will resume it."
+  defp final_violation(:waiting_state_requires_record) do
+    "A waiting outcome must reference the durable request_input, wait_for, or record_emisar_approval record that will resume it."
+  end
 
   defp reference?(value),
     do: is_binary(value) and String.valid?(value) and Regex.match?(@reference_regex, value)

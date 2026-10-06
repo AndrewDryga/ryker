@@ -119,10 +119,10 @@ defmodule Ryker.StateTools.SchemaCheck do
       valid_pattern?(value, schema["pattern"]) and valid_format?(value, schema["format"])
   end
 
-  defp valid_schema_value?(%{"type" => "integer"} = schema, value) when is_integer(value),
-    do:
-      value >= Map.get(schema, "minimum", value) and
-        value <= Map.get(schema, "maximum", value)
+  defp valid_schema_value?(%{"type" => "integer"} = schema, value) when is_integer(value) do
+    value >= Map.get(schema, "minimum", value) and
+      value <= Map.get(schema, "maximum", value)
+  end
 
   defp valid_schema_value?(%{"type" => "boolean"}, value), do: is_boolean(value)
   defp valid_schema_value?(%{"type" => "null"}, value), do: is_nil(value)

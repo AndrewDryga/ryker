@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.RoutingReasonTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.RoutingReason
 
   # QA re-test, 2026-09-26: 26 timelines showed routing reasons in routing's

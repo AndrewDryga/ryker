@@ -8,28 +8,25 @@ defmodule Ryker.Behaviors.Automations do
   """
 
   import Ecto.Query
-
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Adapters
-  alias Ryker.Operator.FailureDetail
-  alias Ryker.Reference
-  alias Ryker.Repo
-
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Behaviors.StandingAssignmentRun
+  alias Ryker.Episodes.Episode
   alias Ryker.Episodes.Scope
+  alias Ryker.Ingress.Adapters
+  alias Ryker.Operator.FailureDetail
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
+  alias Ryker.Reference
+  alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.Slack.ChannelFence
-
   alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
 

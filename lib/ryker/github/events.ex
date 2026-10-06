@@ -13,7 +13,6 @@ defmodule Ryker.GitHub.Events do
   """
 
   import Ecto.Query
-
   alias Ecto.Changeset
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.GitHub.{Binding, Event}
@@ -218,9 +217,9 @@ defmodule Ryker.GitHub.Events do
 
   defp deliveries_topic, do: "github:deliveries"
 
-  defp broadcast_delivery_updated(binding_ref),
-    do:
-      Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(deliveries_topic(), {:github_delivery_updated, binding_ref})
-      end)
+  defp broadcast_delivery_updated(binding_ref) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(deliveries_topic(), {:github_delivery_updated, binding_ref})
+    end)
+  end
 end

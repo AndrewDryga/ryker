@@ -111,11 +111,11 @@ defmodule Ryker.ControlPlane.WorkerEvidence do
 
   defp access_availability("captured"), do: Evidence.availability(:recorded)
 
-  defp access_availability("not_filtered"),
-    do:
-      Evidence.applicability(:not_applicable,
-        detail: "This session did not run under restricted networking, so no policy was captured."
-      )
+  defp access_availability("not_filtered") do
+    Evidence.applicability(:not_applicable,
+      detail: "This session did not run under restricted networking, so no policy was captured."
+    )
+  end
 
   defp access_availability("unavailable"), do: Evidence.availability(:unavailable)
 
@@ -161,11 +161,11 @@ defmodule Ryker.ControlPlane.WorkerEvidence do
 
   defp observation_availability("observed"), do: Evidence.availability(:recorded)
 
-  defp observation_availability("no_run"),
-    do:
-      Evidence.applicability(:not_reached,
-        detail: "This session has not run under its captured policy yet."
-      )
+  defp observation_availability("no_run") do
+    Evidence.applicability(:not_reached,
+      detail: "This session has not run under its captured policy yet."
+    )
+  end
 
   defp observation_availability("not_filtered"),
     do: Evidence.applicability(:not_applicable, detail: "This session did not run filtered.")

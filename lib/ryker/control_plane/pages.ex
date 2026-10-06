@@ -13,38 +13,13 @@ defmodule Ryker.ControlPlane.Pages do
   """
 
   alias Phoenix.HTML.Safe
-
-  alias Ryker.ControlPlane.{
-    BehaviorPage,
-    ChannelDetail,
-    ChannelPage,
-    ChannelsPage,
-    ConfigurationGuide,
-    FactsPage,
-    FailureExplanation,
-    FailureProjection,
-    FailuresPage,
-    FeedbackPage,
-    FeedbackProjection,
-    FindingsPage,
-    HTML,
-    ImprovementPage,
-    ImprovementProjection,
-    IncidentProjection,
-    IncidentRoomsPage,
-    LearnedPage,
-    LearningPage,
-    LocalRoutingPage,
-    PathRef,
-    PeoplePage,
-    RepositoriesPage,
-    SchedulesPage,
-    SettingsView,
-    SubscriptionsPage,
-    UsagePage,
-    UsageProjection,
-    WorkingCopiesPage
-  }
+  alias Ryker.ControlPlane.{BehaviorPage, ChannelDetail, ChannelPage, ChannelsPage}
+  alias Ryker.ControlPlane.{ConfigurationGuide, FactsPage, FailureExplanation, FailureProjection}
+  alias Ryker.ControlPlane.{FailuresPage, FeedbackPage, FeedbackProjection, FindingsPage, HTML}
+  alias Ryker.ControlPlane.{ImprovementPage, ImprovementProjection, IncidentProjection}
+  alias Ryker.ControlPlane.{IncidentRoomsPage, LearnedPage, LearningPage, LocalRoutingPage}
+  alias Ryker.ControlPlane.{PathRef, PeoplePage, RepositoriesPage, SchedulesPage, SettingsView}
+  alias Ryker.ControlPlane.{SubscriptionsPage, UsagePage, UsageProjection, WorkingCopiesPage}
 
   @type page :: %{
           required(:status) => 200 | 404 | 503,
@@ -188,15 +163,16 @@ defmodule Ryker.ControlPlane.Pages do
         })
       )
 
-    if connected,
-      do:
-        Map.put(
-          page,
-          :action,
-          ~s(<a class="ui-button primary" href="/repositories/new" data-phx-link="patch" ) <>
-            ~s(data-phx-link-state="push">Add repositories</a>)
-        ),
-      else: page
+    if connected do
+      Map.put(
+        page,
+        :action,
+        ~s(<a class="ui-button primary" href="/repositories/new" data-phx-link="patch" ) <>
+          ~s(data-phx-link-state="push">Add repositories</a>)
+      )
+    else
+      page
+    end
   end
 
   # Adding repositories is a page of its own, its form in one card under the

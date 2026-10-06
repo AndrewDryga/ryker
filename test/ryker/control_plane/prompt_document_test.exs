@@ -336,11 +336,11 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
   defp leaf_paths(value, path) when is_map(value) and map_size(value) > 0,
     do: Enum.flat_map(value, fn {key, nested} -> leaf_paths(nested, segment(path, key)) end)
 
-  defp leaf_paths(value, path) when is_list(value) and value != [],
-    do:
-      value
-      |> Enum.with_index()
-      |> Enum.flat_map(fn {nested, index} -> leaf_paths(nested, "#{path}[#{index}]") end)
+  defp leaf_paths(value, path) when is_list(value) and value != [] do
+    value
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {nested, index} -> leaf_paths(nested, "#{path}[#{index}]") end)
+  end
 
   defp leaf_paths(_value, path), do: [path]
 

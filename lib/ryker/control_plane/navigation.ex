@@ -204,10 +204,10 @@ defmodule Ryker.ControlPlane.Navigation do
 
   defp signed_in(%{login: login}), do: "Signed in to Tailscale as #{login}"
 
-  defp selected?(path, "/"),
-    do:
-      path in ["/", "/activity"] or String.starts_with?(path, "/activity?") or
-        String.starts_with?(path, "/timeline")
+  defp selected?(path, "/") do
+    path in ["/", "/activity"] or String.starts_with?(path, "/activity?") or
+      String.starts_with?(path, "/timeline")
+  end
 
   defp selected?(path, href) do
     path == href or (href not in @overviews and String.starts_with?(path, href <> "/"))

@@ -8,7 +8,6 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
   use Ryker.DataCase, async: false
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Ingress.WorkProfile
 

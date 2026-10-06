@@ -19,7 +19,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
   import Ecto.Changeset
   import Ecto.Query
-
   alias Ryker.CoopFleet.{Certificate, Protocol, Worker}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Events, Placements, Shared}
   alias Ryker.Episodes
@@ -414,11 +413,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
   defp storage_state(_unmeasured), do: nil
 
-  defp broadcast_worker_updated(worker_id),
-    do:
-      Repo.after_commit(fn ->
-        Ryker.PubSub.broadcast(workers_topic(), {:coop_worker_updated, worker_id})
-      end)
+  defp broadcast_worker_updated(worker_id) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast(workers_topic(), {:coop_worker_updated, worker_id})
+    end)
+  end
 
   # What a worker reported about a session shows on the session's request.
   defp announce_reported_sessions(batches) do

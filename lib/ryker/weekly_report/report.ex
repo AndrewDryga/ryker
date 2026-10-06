@@ -10,7 +10,6 @@ defmodule Ryker.WeeklyReport.Report do
   """
 
   use Ecto.Schema
-
   alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
 
   @primary_key {:id, :binary_id, autogenerate: false}

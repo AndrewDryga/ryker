@@ -1,8 +1,6 @@
 defmodule Ryker.Improvement.CandidatesTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
-
   alias Ryker.ControlPlane.ImprovementProjection
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers

@@ -6,7 +6,6 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
 
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
-
   alias Ryker.Slack.Renderer.ChannelCards
 
   @setup_statuses ~w(asking confirming saved cancelled expired)
@@ -159,24 +158,24 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
       else: {:error, {:invalid_slack_render, :channel_setup}}
   end
 
-  defp setup_blocks("saved", _step, _draft, _session_ref, _presentation),
-    do:
-      {:ok, [section("*Settings saved.* I've updated my welcome message to match.")],
-       "Settings saved. I've updated my welcome message to match."}
+  defp setup_blocks("saved", _step, _draft, _session_ref, _presentation) do
+    {:ok, [section("*Settings saved.* I've updated my welcome message to match.")],
+     "Settings saved. I've updated my welcome message to match."}
+  end
 
-  defp setup_blocks("cancelled", _step, _draft, _session_ref, _presentation),
-    do:
-      {:ok, [section("*Setup cancelled.* Your settings haven't changed.")],
-       "Setup cancelled. Your settings haven't changed."}
+  defp setup_blocks("cancelled", _step, _draft, _session_ref, _presentation) do
+    {:ok, [section("*Setup cancelled.* Your settings haven't changed.")],
+     "Setup cancelled. Your settings haven't changed."}
+  end
 
-  defp setup_blocks("expired", _step, _draft, _session_ref, _presentation),
-    do:
-      {:ok,
-       [
-         section(
-           "*Setup expired.* Your settings haven't changed. Use *Customize* on my welcome message to start again."
-         )
-       ], "Setup expired. Your settings haven't changed."}
+  defp setup_blocks("expired", _step, _draft, _session_ref, _presentation) do
+    {:ok,
+     [
+       section(
+         "*Setup expired.* Your settings haven't changed. Use *Customize* on my welcome message to start again."
+       )
+     ], "Setup expired. Your settings haven't changed."}
+  end
 
   defp setup_blocks(_status, _step, _draft, _session_ref, _presentation),
     do: {:error, {:invalid_slack_render, :channel_setup}}
@@ -230,10 +229,10 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
     do: "I'll work on #{code(repository)}#{if emisar, do: " and use Emisar"}."
 
   # Work can read every repository; only read/write ones can be changed.
-  defp environment_sentence(%{"repositories" => repositories, "emisar" => emisar}),
-    do:
-      "I'll work on #{repositories |> Enum.map(&code/1) |> names()}, " <>
-        "changing only ones with read/write access#{if emisar, do: ", and use Emisar"}."
+  defp environment_sentence(%{"repositories" => repositories, "emisar" => emisar}) do
+    "I'll work on #{repositories |> Enum.map(&code/1) |> names()}, " <>
+      "changing only ones with read/write access#{if emisar, do: ", and use Emisar"}."
+  end
 
   defp code(ref), do: "`#{escape(ref)}`"
 
@@ -287,9 +286,9 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   defp draft_alert_sentence("reply"),
     do: "When an alert needs investigation, I'll work in its thread."
 
-  defp draft_alert_sentence("offer"),
-    do:
-      "When an alert needs investigation, I'll ask whether to work in its thread or create an incident room."
+  defp draft_alert_sentence("offer") do
+    "When an alert needs investigation, I'll ask whether to work in its thread or create an incident room."
+  end
 
   defp draft_alert_sentence("automatic"),
     do: "When an alert needs investigation, I'll create an incident room automatically."

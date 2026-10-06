@@ -10,7 +10,6 @@ defmodule Ryker.ControlPlane.ThreadContext do
   """
 
   import Ecto.Query
-
   alias Ryker.ControlPlane.Activity
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo

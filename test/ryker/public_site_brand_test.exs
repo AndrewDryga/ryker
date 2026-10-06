@@ -1,6 +1,5 @@
 defmodule Ryker.PublicSiteBrandTest do
   use ExUnit.Case, async: true
-
   import Ryker.TestHelpers, only: [digest: 1]
 
   # The public site in site/ is hand-written HTML and CSS that must render from

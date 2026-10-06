@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.KnowledgeDocumentTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ControlPlane.KnowledgeDocument
 
   @commit "162c01814dcfe24dd1472ae107c437cd54de3e77"

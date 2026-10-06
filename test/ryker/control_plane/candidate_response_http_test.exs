@@ -1,8 +1,6 @@
 defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
   use Ryker.DataCase, async: false
-
   import Phoenix.ConnTest
-
   alias Ryker.ControlPlane.{Endpoint, Projection}
   alias Ryker.Work.{CandidateResponse, Custody, Submission}
 

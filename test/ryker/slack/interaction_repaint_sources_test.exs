@@ -1,18 +1,15 @@
 defmodule Ryker.Slack.InteractionRepaintSourcesTest do
   use Ryker.DataCase, async: true
-
+  alias Ryker.Behaviors.Behavior
   alias Ryker.{CanonicalJSON, Episodes, Repo}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
-  alias Ryker.Slack.{InteractionAudit, InteractionRepaint, Renderer}
-
-  alias Ryker.Behaviors.Behavior
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.Observations
   alias Ryker.Records
-
+  alias Ryker.Slack.{InteractionAudit, InteractionRepaint, Renderer}
   alias Ryker.StateTools.FixedTools
   alias Ryker.Work.{Custody, Session, Turn}
 

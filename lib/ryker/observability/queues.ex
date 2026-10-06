@@ -9,7 +9,6 @@ defmodule Ryker.Observability.Queues do
   """
 
   import Ecto.Query
-
   alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
   alias Ryker.Emisar.Approval
   alias Ryker.Episodes.Episode

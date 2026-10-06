@@ -22,7 +22,6 @@ defmodule Ryker.Publication.Followups.Polls do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.ErrorDetail
   alias Ryker.Publication.Changeset, as: PublicationChangeset

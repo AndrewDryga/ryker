@@ -1,6 +1,5 @@
 defmodule Ryker.ErrorDetailTest do
   use ExUnit.Case, async: true
-
   alias Ryker.ErrorDetail
 
   # A provider's answer can quote the request it refused, credentials and all, and the lanes

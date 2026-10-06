@@ -1,6 +1,5 @@
 defmodule Ryker.Admission.ReadySessionsTest do
   use Ryker.DataCase, async: true
-
   import Ecto.Query
 
   @moduletag isolation: "REPEATABLE READ"
@@ -350,14 +349,14 @@ defmodule Ryker.Admission.ReadySessionsTest do
     assert Map.has_key?(FakeAPI.sessions(fake), id)
   end
 
-  defp pool_rows,
-    do:
-      Repo.all(
-        from(session in Session,
-          where: not is_nil(session.ready_state),
-          order_by: [asc: session.inserted_at]
-        )
+  defp pool_rows do
+    Repo.all(
+      from(session in Session,
+        where: not is_nil(session.ready_state),
+        order_by: [asc: session.inserted_at]
       )
+    )
+  end
 
   # Moves every recorded start back in time, as if `seconds` had passed.
   defp wait_past!(seconds) do

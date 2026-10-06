@@ -7,7 +7,6 @@ defmodule Ryker.StateTools.EvidenceToolsTest do
   observation was lost. Each source here is the one the model sent.
   """
   use Ryker.DataCase, async: true
-
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Records

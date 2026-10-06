@@ -13,7 +13,6 @@ defmodule Ryker.ControlPlane.TaskProgress do
   """
 
   import Ecto.Query
-
   alias Ryker.Episodes.Episode
   alias Ryker.Records.Record
   alias Ryker.Repo

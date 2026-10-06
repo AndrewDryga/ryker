@@ -34,7 +34,6 @@ defmodule Ryker.RoutingExamples.Export do
   """
 
   import Ecto.Query
-
   alias Ryker.Repo
   alias Ryker.RoutingExamples.{Example, Feedback}
 

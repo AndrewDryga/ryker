@@ -1,6 +1,5 @@
 defmodule Ryker.Memories.AnswerMemoryConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.AnswerMemory

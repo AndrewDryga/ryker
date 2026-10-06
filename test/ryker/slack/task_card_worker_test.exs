@@ -1,10 +1,8 @@
 defmodule Ryker.Slack.TaskCardWorkerTest do
   use Ryker.DataCase, async: false
-
   import Ecto.Query
   import ExUnit.CaptureLog
   import Ryker.TestHelpers, only: [eventually: 2]
-
   alias Ryker.{CanonicalJSON, Episodes, Repo}
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
   alias Ryker.Episodes.Episode

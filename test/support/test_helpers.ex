@@ -7,7 +7,6 @@ defmodule Ryker.TestHelpers do
   """
 
   import ExUnit.Assertions, only: [flunk: 1]
-
   alias Ryker.Evals.Job
   alias Ryker.Observability.Progress
   alias Ryker.Repo

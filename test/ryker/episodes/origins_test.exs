@@ -1,6 +1,5 @@
 defmodule Ryker.Episodes.OriginsTest do
   use Ryker.DataCase, async: true
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Origins}
   alias Ryker.Ingress.Input

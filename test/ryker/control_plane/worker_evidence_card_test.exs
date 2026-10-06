@@ -1,8 +1,6 @@
 defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
   use Ryker.DataCase, async: true
-
   import Phoenix.LiveViewTest, only: [render_component: 2, rendered_to_string: 1]
-
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, WorkerEvidenceCard}
   alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.Episodes

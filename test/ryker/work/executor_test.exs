@@ -1,9 +1,7 @@
 defmodule Ryker.Work.ExecutorTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [clocks_past!: 2, digest: 1, eventually: 2]
-
   import Ecto.Query
-
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Outputs
   alias Ryker.ControlPlane.{EpisodeProjection, FailureProjection, ModelRequests}
@@ -20,22 +18,9 @@ defmodule Ryker.Work.ExecutorTest do
   alias Ryker.Settings
   alias Ryker.StateTools.FixedTools
   alias Ryker.TestSupport.FakeWorkCoopAPI, as: FakeAPI
-
-  alias Ryker.Work.{
-    Activity,
-    Cancellation,
-    Custody,
-    DeliveryReceipt,
-    Dispatcher,
-    Executor,
-    Final,
-    FinalPreflight,
-    OperationKeys,
-    Result,
-    Session,
-    StateBinding,
-    SubmissionBuilder
-  }
+  alias Ryker.Work.{Activity, Cancellation, Custody, DeliveryReceipt, Dispatcher, Executor, Final}
+  alias Ryker.Work.{FinalPreflight, OperationKeys, Result, Session, StateBinding}
+  alias Ryker.Work.SubmissionBuilder
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -363,14 +348,14 @@ defmodule Ryker.Work.ExecutorTest do
 
     alias Ryker.TestSupport.FakeWorkCoopAPI, as: FakeAPI
 
-    def capabilities(client),
-      do:
-        dispatch(client, :capabilities, fn ->
-          {:ok,
-           %{
-             "repository_freshness_receipt_versions" => [2]
-           }}
-        end)
+    def capabilities(client) do
+      dispatch(client, :capabilities, fn ->
+        {:ok,
+         %{
+           "repository_freshness_receipt_versions" => [2]
+         }}
+      end)
+    end
 
     def capabilities(client, session) do
       case Map.fetch(client.overrides, :session_capabilities) do
@@ -380,27 +365,27 @@ defmodule Ryker.Work.ExecutorTest do
       end
     end
 
-    def operation_by_key(client, key),
-      do:
-        dispatch(client, :operation_by_key, fn -> FakeAPI.operation_by_key(client.fake, key) end)
+    def operation_by_key(client, key) do
+      dispatch(client, :operation_by_key, fn -> FakeAPI.operation_by_key(client.fake, key) end)
+    end
 
-    def prepare_create_session(client, key, policy, task, source),
-      do:
-        dispatch(client, :prepare_create_session, fn ->
-          FakeAPI.prepare_create_session(client.fake, key, policy, task, source)
-        end)
+    def prepare_create_session(client, key, policy, task, source) do
+      dispatch(client, :prepare_create_session, fn ->
+        FakeAPI.prepare_create_session(client.fake, key, policy, task, source)
+      end)
+    end
 
-    def create_session(client, key, policy, task, source),
-      do:
-        dispatch(client, :create_session, fn ->
-          FakeAPI.create_session(client.fake, key, policy, task, source)
-        end)
+    def create_session(client, key, policy, task, source) do
+      dispatch(client, :create_session, fn ->
+        FakeAPI.create_session(client.fake, key, policy, task, source)
+      end)
+    end
 
-    def fence_create_session(client, key, policy, task, source),
-      do:
-        dispatch(client, :fence_create_session, fn ->
-          FakeAPI.fence_create_session(client.fake, key, policy, task, source)
-        end)
+    def fence_create_session(client, key, policy, task, source) do
+      dispatch(client, :fence_create_session, fn ->
+        FakeAPI.fence_create_session(client.fake, key, policy, task, source)
+      end)
+    end
 
     def get_session(client, session_id),
       do: dispatch(client, :get_session, fn -> FakeAPI.get_session(client.fake, session_id) end)
@@ -408,23 +393,23 @@ defmodule Ryker.Work.ExecutorTest do
     def get_changes(client, session_id),
       do: dispatch(client, :get_changes, fn -> FakeAPI.get_changes(client.fake, session_id) end)
 
-    def get_changes_page(client, session_id, patch_offset, patch_limit),
-      do:
-        dispatch(client, :get_changes_page, fn ->
-          FakeAPI.get_changes_page(client.fake, session_id, patch_offset, patch_limit)
-        end)
+    def get_changes_page(client, session_id, patch_offset, patch_limit) do
+      dispatch(client, :get_changes_page, fn ->
+        FakeAPI.get_changes_page(client.fake, session_id, patch_offset, patch_limit)
+      end)
+    end
 
-    def close_session(client, session_id, key, revision),
-      do:
-        dispatch(client, :close_session, fn ->
-          FakeAPI.close_session(client.fake, session_id, key, revision)
-        end)
+    def close_session(client, session_id, key, revision) do
+      dispatch(client, :close_session, fn ->
+        FakeAPI.close_session(client.fake, session_id, key, revision)
+      end)
+    end
 
-    def submit_turn(client, session_id, key, revision, prompt, schema),
-      do:
-        dispatch(client, :submit_turn, fn ->
-          FakeAPI.submit_turn(client.fake, session_id, key, revision, prompt, schema)
-        end)
+    def submit_turn(client, session_id, key, revision, prompt, schema) do
+      dispatch(client, :submit_turn, fn ->
+        FakeAPI.submit_turn(client.fake, session_id, key, revision, prompt, schema)
+      end)
+    end
 
     def submit_frozen_turn(
           client,
@@ -434,19 +419,19 @@ defmodule Ryker.Work.ExecutorTest do
           submission,
           binding,
           artifacts
-        ),
-        do:
-          dispatch(client, :submit_turn, fn ->
-            FakeAPI.submit_frozen_turn(
-              client.fake,
-              session_id,
-              key,
-              revision,
-              submission,
-              binding,
-              artifacts
-            )
-          end)
+        ) do
+      dispatch(client, :submit_turn, fn ->
+        FakeAPI.submit_frozen_turn(
+          client.fake,
+          session_id,
+          key,
+          revision,
+          submission,
+          binding,
+          artifacts
+        )
+      end)
+    end
 
     def fence_frozen_turn(
           client,
@@ -456,51 +441,51 @@ defmodule Ryker.Work.ExecutorTest do
           submission,
           binding,
           artifacts
-        ),
-        do:
-          dispatch(client, :fence_frozen_turn, fn ->
-            FakeAPI.fence_frozen_turn(
-              client.fake,
-              session_id,
-              key,
-              revision,
-              submission,
-              binding,
-              artifacts
-            )
-          end)
+        ) do
+      dispatch(client, :fence_frozen_turn, fn ->
+        FakeAPI.fence_frozen_turn(
+          client.fake,
+          session_id,
+          key,
+          revision,
+          submission,
+          binding,
+          artifacts
+        )
+      end)
+    end
 
-    def get_turn(client, session_id, turn_id),
-      do:
-        dispatch(client, :get_turn, fn -> FakeAPI.get_turn(client.fake, session_id, turn_id) end)
+    def get_turn(client, session_id, turn_id) do
+      dispatch(client, :get_turn, fn -> FakeAPI.get_turn(client.fake, session_id, turn_id) end)
+    end
 
-    def get_output_artifact(client, session_id, turn_id, artifact_id),
-      do:
-        dispatch(client, :get_output_artifact, fn ->
-          FakeAPI.get_output_artifact(client.fake, session_id, turn_id, artifact_id)
-        end)
+    def get_output_artifact(client, session_id, turn_id, artifact_id) do
+      dispatch(client, :get_output_artifact, fn ->
+        FakeAPI.get_output_artifact(client.fake, session_id, turn_id, artifact_id)
+      end)
+    end
 
-    def validate_candidate(client, session_id, turn_id, key, sha256, verdict),
-      do:
-        dispatch(client, :validate_candidate, fn ->
-          FakeAPI.validate_candidate(
-            client.fake,
-            session_id,
-            turn_id,
-            key,
-            sha256,
-            verdict
-          )
-        end)
+    def validate_candidate(client, session_id, turn_id, key, sha256, verdict) do
+      dispatch(client, :validate_candidate, fn ->
+        FakeAPI.validate_candidate(
+          client.fake,
+          session_id,
+          turn_id,
+          key,
+          sha256,
+          verdict
+        )
+      end)
+    end
 
     def validate_frozen_candidate(client, session_id, turn_id, key, _attempt, sha256, verdict),
       do: validate_candidate(client, session_id, turn_id, key, sha256, verdict)
 
-    def cancel_turn(client, session_id, turn_id, key, revision),
-      do:
-        dispatch(client, :cancel_turn, fn ->
-          FakeAPI.cancel_turn(client.fake, session_id, turn_id, key, revision)
-        end)
+    def cancel_turn(client, session_id, turn_id, key, revision) do
+      dispatch(client, :cancel_turn, fn ->
+        FakeAPI.cancel_turn(client.fake, session_id, turn_id, key, revision)
+      end)
+    end
 
     defp dispatch(client, name, fallback) do
       case Map.fetch(client.overrides, name) do
@@ -5098,7 +5083,7 @@ defmodule Ryker.Work.ExecutorTest do
   defp create_key(claim),
     do: "ryker:work:create:#{claim.session.id}:g#{claim.session.create_generation}"
 
-  defp turn_key(claim),
-    do:
-      "ryker:work:turn:#{claim.turn.id}:g#{claim.turn.submit_generation}:#{claim.turn.submission_fingerprint}"
+  defp turn_key(claim) do
+    "ryker:work:turn:#{claim.turn.id}:g#{claim.turn.submit_generation}:#{claim.turn.submission_fingerprint}"
+  end
 end

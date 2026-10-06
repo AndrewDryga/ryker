@@ -1,24 +1,20 @@
 defmodule Ryker.Learning.LearningFailureTest do
   use Ryker.DataCase, async: false
-
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Learning.FleetSession
-  alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
-
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Learning
   alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.FleetSession
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.Observations
-
+  alias Ryker.Repo
+  alias Ryker.Slack.ChannelMembership
   alias Ryker.Work.Turn
 
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
@@ -490,11 +486,11 @@ defmodule Ryker.Learning.LearningFailureTest do
   defp change_source!(entry, :prune),
     do: Repo.update!(Ecto.Changeset.change(entry, operational_pruned_at: DateTime.utc_now()))
 
-  defp change_source!(entry, :conversation),
-    do:
-      Repo.update!(
-        Ecto.Changeset.change(entry, destination_conversation_ref: "slack:OTHER:CHANNEL")
-      )
+  defp change_source!(entry, :conversation) do
+    Repo.update!(
+      Ecto.Changeset.change(entry, destination_conversation_ref: "slack:OTHER:CHANNEL")
+    )
+  end
 
   defp change_source!(entry, :repository),
     do: Repo.update!(Ecto.Changeset.change(entry, repository_ref: "other-repository"))
@@ -524,34 +520,33 @@ defmodule Ryker.Learning.LearningFailureTest do
     })
   end
 
-  defp frozen(run),
-    do:
-      Map.take(
-        run,
-        ~w(id batch_key generation inputs source_dependencies knowledge omissions policy policy_digest prompt prompt_sha256 output_schema inserted_at)a
-      )
+  defp frozen(run) do
+    Map.take(
+      run,
+      ~w(id batch_key generation inputs source_dependencies knowledge omissions policy policy_digest prompt prompt_sha256 output_schema inserted_at)a
+    )
+  end
 
-  defp protected_rows,
-    do:
-      Enum.map(
-        [
-          Entry,
-          ConversationObservation,
-          ConversationKnowledge,
-          KnowledgeRevision,
-          Episode,
-          Event,
-          Turn
-        ],
-        &Repo.all/1
-      )
+  defp protected_rows do
+    Enum.map(
+      [
+        Entry,
+        ConversationObservation,
+        ConversationKnowledge,
+        KnowledgeRevision,
+        Episode,
+        Event,
+        Turn
+      ],
+      &Repo.all/1
+    )
+  end
 
   defp fixture, do: @fixture |> File.read!() |> Jason.decode!()
 end
 
 defmodule Ryker.Learning.LearningFailureConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Learning, as: Fixtures
@@ -668,10 +663,10 @@ defmodule Ryker.Learning.LearningFailureConcurrencyTest do
     end
   end
 
-  defp fixture_counts,
-    do:
-      Enum.map(
-        [LearningRun, ConversationObservation, Entry, Event, Episode],
-        &Repo.aggregate(&1, :count)
-      )
+  defp fixture_counts do
+    Enum.map(
+      [LearningRun, ConversationObservation, Entry, Event, Episode],
+      &Repo.aggregate(&1, :count)
+    )
+  end
 end

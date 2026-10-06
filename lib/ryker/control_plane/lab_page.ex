@@ -12,18 +12,8 @@ defmodule Ryker.ControlPlane.LabPage do
   """
   use Phoenix.Component
   import Ryker.ControlPlane.Components
-
-  alias Ryker.ControlPlane.{
-    ConsolePeople,
-    ConversationLab,
-    Environments,
-    FailureExplanation,
-    HTML,
-    Kit,
-    Paths,
-    ShortTime
-  }
-
+  alias Ryker.ControlPlane.{ConsolePeople, ConversationLab, Environments, FailureExplanation}
+  alias Ryker.ControlPlane.{HTML, Kit, Paths, ShortTime}
   alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.{Episodes, Settings}
   alias Ryker.Episodes.Words

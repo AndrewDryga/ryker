@@ -1,7 +1,6 @@
 defmodule Ryker.ControlPlane.LabPageTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
-
   alias Ryker.ControlPlane.{Assets, LabPage}
 
   @now ~U[2026-09-13 14:32:00Z]
