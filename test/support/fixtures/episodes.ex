@@ -6,12 +6,14 @@ defmodule Ryker.Fixtures.Episodes do
 
   @doc """
   The conversation an episode lands in unless a test names one: one per test,
-  shared with the Tasks that test starts.
+  shared with the Tasks that test starts, in a workspace of its own.
 
   Every async suite that took the default once shared "C-alerts". Its
   conversation lock, held for a whole sandboxed test, then serialized those
   suites across the run and deadlocked whenever two tests took a second lock in
-  the other order.
+  the other order. It was a bare channel id until 2026-10-05, a Slack
+  conversation no live episode has, which the channel fence let through
+  unread.
   """
   def conversation_ref do
     owner = List.last(Process.get(:"$callers", [])) || self()
@@ -24,7 +26,13 @@ defmodule Ryker.Fixtures.Episodes do
       |> String.trim_trailing(">")
       |> String.replace(".", "-")
 
-    "C-alerts-" <> suffix
+    "slack:T-#{suffix}:C-alerts"
+  end
+
+  @doc "The workspace `conversation_ref/0` is in, as an episode's scope names it."
+  def workspace_ref do
+    [_slack, workspace, _channel] = String.split(conversation_ref(), ":")
+    "slack:" <> workspace
   end
 
   def admit_input(overrides \\ %{}) do

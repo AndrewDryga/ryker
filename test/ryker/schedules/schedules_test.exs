@@ -145,30 +145,33 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert overlap.status == :overlap
     assert Repo.aggregate(ScheduleOccurrence, :count, :id) == 1
 
-    assert Schedules.set_status(confirmation.schedule.ref, :paused, %{
-             conversation_prefix: "slack:T999:",
-             transport: "slack"
-           }) == {:error, :schedule_scope_mismatch}
+    assert Schedules.set_home_status(
+             confirmation.schedule.ref,
+             :paused,
+             confirmation.schedule.revision,
+             "slack:user:U123",
+             "interaction:schedule:elsewhere",
+             %{conversation_prefix: "slack:T999:", transport: "slack"}
+           ) == {:error, :schedule_scope_mismatch}
 
     assert Repo.get!(Schedule, confirmation.schedule.id).status == :active
 
-    scope = %{conversation_prefix: "slack:T123:", transport: "slack"}
-    assert {:ok, paused} = Schedules.set_status(confirmation.schedule.ref, :paused, scope)
+    assert {:ok, paused} = Schedules.set_status(confirmation.schedule.ref, :paused)
     assert paused.status == :paused
     assert paused.revision == confirmation.schedule.revision + 1
 
-    assert {:ok, unchanged} = Schedules.set_status(confirmation.schedule.ref, :paused, scope)
+    assert {:ok, unchanged} = Schedules.set_status(confirmation.schedule.ref, :paused)
     assert unchanged.revision == paused.revision
 
-    assert {:ok, resumed} = Schedules.set_status(confirmation.schedule.ref, :active, scope)
+    assert {:ok, resumed} = Schedules.set_status(confirmation.schedule.ref, :active)
     assert resumed.status == :active
     assert resumed.revision == paused.revision + 1
 
-    assert {:ok, deleted} = Schedules.set_status(confirmation.schedule.ref, :deleted, scope)
+    assert {:ok, deleted} = Schedules.set_status(confirmation.schedule.ref, :deleted)
     assert deleted.status == :deleted
     assert deleted.revision == resumed.revision + 1
 
-    assert Schedules.set_status(confirmation.schedule.ref, :active, scope) ==
+    assert Schedules.set_status(confirmation.schedule.ref, :active) ==
              {:error, :schedule_terminal}
   end
 
@@ -279,11 +282,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert ["Access", "Read-only"] in entity["facts"]
     assert Enum.any?(entity["facts"], &match?(["Next run", _], &1))
 
-    assert {:ok, deleted} =
-             Schedules.set_status(confirmation.schedule.ref, :deleted, %{
-               conversation_prefix: "slack:T123:",
-               transport: "slack"
-             })
+    assert {:ok, deleted} = Schedules.set_status(confirmation.schedule.ref, :deleted)
 
     assert [%{"presentation" => %{"entity" => gone}}] =
              ReplyRecords.documents("slack", fixture.episode.id, [record])
@@ -312,7 +311,6 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert {:ok, confirmation} = Schedules.confirm(confirmation(fixture, "delete-dialog"))
     schedule = confirmation.schedule
     record = Repo.get!(Record, fixture.record.id)
-    scope = %{conversation_prefix: "slack:T123:", transport: "slack"}
 
     assert [document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
     assert {:ok, rendered} = Renderer.render(%{"message" => "Saved.", "records" => [document]})
@@ -331,7 +329,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert delete["confirm"]["deny"]["text"] == "Cancel"
 
     # A paused schedule is still removable, and the control follows its revision.
-    assert {:ok, paused} = Schedules.set_status(schedule.ref, :paused, scope)
+    assert {:ok, paused} = Schedules.set_status(schedule.ref, :paused)
     assert [paused_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
 
     assert {:ok, rendered} =
@@ -342,7 +340,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert paused_delete["confirm"]["title"]["text"] == "Delete schedule?"
 
     # Once it is gone there is nothing left to confirm.
-    assert {:ok, _deleted} = Schedules.set_status(schedule.ref, :deleted, scope)
+    assert {:ok, _deleted} = Schedules.set_status(schedule.ref, :deleted)
     assert [deleted_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
 
     assert {:ok, rendered} =
@@ -746,7 +744,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert {:error, _reason} = Schedules.renew("schedule", "lease", 0)
     assert {:error, _reason} = Schedules.defer("schedule", "lease", 0, :failed)
     assert {:error, _reason} = Schedules.set_status("schedule", :unknown)
-    assert {:error, _reason} = Schedules.set_status("schedule", :active, %{})
+    assert {:error, _reason} = Schedules.set_home_status("schedule", :active, 1, "a", "b", %{})
     assert {:error, _reason} = Schedules.run_now("", "", "", %{}, :not_a_resolver)
     assert {:error, _reason} = Schedules.run_now_for_operator("", "", "", :not_a_resolver)
     assert Schedules.set_status("missing-schedule", :active) == {:error, :schedule_not_found}

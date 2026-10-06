@@ -73,34 +73,6 @@ defmodule Ryker.Behaviors do
 
   def set_status(_ref, _status), do: {:error, {:invalid_behavior, :status}}
 
-  @spec set_status(String.t(), :active | :disabled | :deleted, String.t()) ::
-          {:ok, Behavior.t()} | {:error, term()}
-  def set_status(ref, status, workspace_ref) when status in [:active, :disabled, :deleted] do
-    with :ok <- reference(ref, :behavior_ref),
-         :ok <- reference(workspace_ref, :workspace_ref) do
-      Repo.transaction(reviewed(fn -> set_status_locked(ref, status, workspace_ref) end))
-    end
-  end
-
-  def set_status(_ref, _status, _workspace_ref), do: {:error, {:invalid_behavior, :status}}
-
-  @doc "Changes shared or actor-owned App Home behavior without crossing channel scope."
-  @spec set_home_status(String.t(), :active | :disabled | :deleted, String.t(), String.t()) ::
-          {:ok, Behavior.t()} | {:error, term()}
-  def set_home_status(ref, status, actor_ref, workspace_ref)
-      when status in [:active, :disabled, :deleted] do
-    with :ok <- reference(ref, :behavior_ref),
-         :ok <- reference(actor_ref, :actor_ref),
-         :ok <- reference(workspace_ref, :workspace_ref) do
-      Repo.transaction(
-        reviewed(fn -> set_home_status_locked(ref, status, actor_ref, workspace_ref) end)
-      )
-    end
-  end
-
-  def set_home_status(_ref, _status, _actor_ref, _workspace_ref),
-    do: {:error, {:invalid_behavior, :status}}
-
   @doc "Changes one App Home behavior through revision-fenced operator action custody."
   @spec set_home_status(
           String.t(),
@@ -159,19 +131,6 @@ defmodule Ryker.Behaviors do
       result = change.()
       Reviews.dismiss_orphan_reviews("system:behavior-change")
       result
-    end
-  end
-
-  defp set_home_status_locked(ref, status, actor_ref, workspace_ref) do
-    case Repo.one(from(behavior in Behavior, where: behavior.ref == ^ref, lock: "FOR UPDATE")) do
-      nil ->
-        Repo.rollback(:behavior_not_found)
-
-      %Behavior{workspace_ref: actual} when actual != workspace_ref ->
-        Repo.rollback(:behavior_workspace_mismatch)
-
-      %Behavior{} = behavior ->
-        set_visible_home_status(behavior, ref, status, actor_ref, workspace_ref)
     end
   end
 
@@ -283,12 +242,6 @@ defmodule Ryker.Behaviors do
           {:error, :behavior_unauthorized}
         end
     end
-  end
-
-  defp set_visible_home_status(behavior, ref, status, actor_ref, workspace_ref) do
-    if home_behavior_visible?(behavior, actor_ref),
-      do: set_status_locked(ref, status, workspace_ref),
-      else: Repo.rollback(:behavior_unauthorized)
   end
 
   @spec assignments_for_channel(String.t(), String.t()) :: [Behavior.t()]

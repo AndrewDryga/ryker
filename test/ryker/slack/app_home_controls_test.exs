@@ -109,19 +109,6 @@ defmodule Ryker.Slack.AppHomeControlsTest do
 
     assert_received {:refreshed_home, "U123", "T123"}
     refute_received {:forgot_memory, _, _}
-
-    for {action, ref} <- [
-          {:disable_behavior, "behavior:pre-upgrade"},
-          {:pause_schedule, "schedule:pre-upgrade"}
-        ] do
-      assert AppHomeControls.handle(interaction(action, ref), options(parent)) ==
-               {:ok, %{outcome: :invalid, resource_ref: ref}}
-
-      assert_received {:refreshed_home, "U123", "T123"}
-    end
-
-    refute_received {:set_behavior, _, _, _, _, _, _}
-    refute_received {:set_schedule, _, _, _, _, _, _}
   end
 
   # Opening the complete list must not be followed by the dashboard repaint

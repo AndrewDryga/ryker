@@ -421,8 +421,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
 
   defp revoke(:fact, entry, :deleted), do: Memories.forget(entry.ref, entry.workspace_ref)
 
-  defp revoke(:guidance, entry, status),
-    do: Behaviors.set_status(entry.ref, status, entry.workspace_ref)
+  defp revoke(:guidance, entry, status), do: Behaviors.set_status(entry.ref, status)
 
   defp read(:fact, :recall, context), do: Recall.recall(context)
 

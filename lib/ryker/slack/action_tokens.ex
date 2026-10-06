@@ -4,7 +4,8 @@ defmodule Ryker.Slack.ActionTokens do
 
   Slack supplies this credential only on a user-initiated event. It is never
   written to the inbox, episode ledger, logs, or a model prompt. The first Work
-  turn that checks it out owns the token and receives at most three searches.
+  turn that checks it out owns the token and receives at most three searches,
+  and the token leaves memory when its life ends, used or not.
   """
 
   use GenServer
@@ -86,6 +87,7 @@ defmodule Ryker.Slack.ActionTokens do
 
       nil ->
         entry = %{calls: 0, expires_at: now + state.ttl_ms, token: token, turn_ref: nil}
+        Process.send_after(self(), {:expire, event_ref, entry.expires_at}, state.ttl_ms)
         {:reply, :ok, put_in(state, [:entries, event_ref], entry)}
     end
   end
@@ -110,6 +112,17 @@ defmodule Ryker.Slack.ActionTokens do
 
       nil ->
         {:reply, {:error, :slack_action_token_unavailable}, state}
+    end
+  end
+
+  @impl GenServer
+  def handle_info({:expire, event_ref, expires_at}, state) do
+    case Map.get(state.entries, event_ref) do
+      %{expires_at: ^expires_at} ->
+        {:noreply, update_in(state.entries, &Map.delete(&1, event_ref))}
+
+      _replaced_or_gone ->
+        {:noreply, state}
     end
   end
 

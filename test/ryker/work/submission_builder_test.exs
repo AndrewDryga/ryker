@@ -5,6 +5,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   import Ecto.Query
 
   alias Ryker.{Artifacts, Episodes, Settings}
+  alias Ryker.Episodes.Scope
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.SavedEntities
@@ -1851,7 +1852,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                source_thread_ref: "1787832000.000100",
                source_transport: "slack",
                status: :active,
-               workspace_ref: EpisodeFixtures.conversation_ref()
+               workspace_ref: EpisodeFixtures.workspace_ref()
              }
              |> BehaviorChangeset.insert()
              |> Repo.insert()
@@ -1892,7 +1893,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                status: :active,
                subject: payload["subject"],
                visibility: :conversation,
-               workspace_ref: episode.destination_conversation_ref
+               workspace_ref: Scope.workspace_ref(episode)
              }
              |> MemoryEntryChangeset.insert()
              |> Repo.insert()

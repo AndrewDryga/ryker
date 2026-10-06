@@ -2,20 +2,20 @@ defmodule Ryker.Slack.HomeInteraction do
   @moduledoc false
 
   @actions %{
-    "ryker_home_delete_behavior" => {:delete_behavior, ["behavior-control:", "behavior:"]},
-    "ryker_home_delete_schedule" => {:delete_schedule, ["schedule-control:", "schedule:"]},
+    "ryker_home_delete_behavior" => {:delete_behavior, "behavior-control:"},
+    "ryker_home_delete_schedule" => {:delete_schedule, "schedule-control:"},
     "ryker_home_discard_publication" => {:discard_publication, "publication-recovery:"},
     "ryker_home_discard_workspace" => {:discard_workspace, "ryker-work-control:"},
-    "ryker_home_disable_behavior" => {:disable_behavior, ["behavior-control:", "behavior:"]},
+    "ryker_home_disable_behavior" => {:disable_behavior, "behavior-control:"},
     "ryker_home_edit_memory_review" => {:edit_memory_review, "memory-review:"},
-    "ryker_home_enable_behavior" => {:enable_behavior, ["behavior-control:", "behavior:"]},
+    "ryker_home_enable_behavior" => {:enable_behavior, "behavior-control:"},
     "ryker_home_forget_memory" => {:forget_memory, "memory:"},
     "ryker_home_forget_memory_review" => {:forget_memory_review, "memory-review:"},
     "ryker_home_keep_memory_review" => {:keep_memory_review, "memory-review:"},
     "ryker_home_merge_memory_review" => {:merge_memory_review, "memory-review:"},
     "ryker_home_open" => {:open_resource, :resource},
-    "ryker_home_pause_schedule" => {:pause_schedule, ["schedule-control:", "schedule:"]},
-    "ryker_home_resume_schedule" => {:resume_schedule, ["schedule-control:", "schedule:"]},
+    "ryker_home_pause_schedule" => {:pause_schedule, "schedule-control:"},
+    "ryker_home_resume_schedule" => {:resume_schedule, "schedule-control:"},
     "ryker_home_retry_publication" => {:retry_publication, "publication-recovery:"},
     "ryker_home_run_schedule" => {:run_schedule, "schedule:"},
     "ryker_home_show_collection" => {:show_collection, "home-collection:"},
@@ -140,9 +140,6 @@ defmodule Ryker.Slack.HomeInteraction do
   defp optional_reference?(value), do: reference?(value)
 
   defp resource?(value, prefix) when is_binary(prefix), do: String.starts_with?(value, prefix)
-
-  defp resource?(value, prefixes) when is_list(prefixes),
-    do: Enum.any?(prefixes, &String.starts_with?(value, &1))
 
   defp resource?(value, :resource),
     do: Enum.any?(@resource_prefixes, &String.starts_with?(value, &1))

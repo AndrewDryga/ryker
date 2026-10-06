@@ -23,7 +23,8 @@ defmodule Ryker.Records.OutcomesTest do
   @now ~U[2026-08-28 12:00:00.000000Z]
 
   test "completed and blocked episodes are recalled only inside their conversation" do
-    completed = claim_episode!("completed", "private checkout latency incident", "conversation:A")
+    completed =
+      claim_episode!("completed", "private checkout latency incident", "slack:TOUTCOME:CA")
 
     assert {:ok, evidence} =
              Records.create(Records.token(completed.turn), "latency-evidence", "evidence", %{
@@ -54,7 +55,7 @@ defmodule Ryker.Records.OutcomesTest do
 
     complete!(completed, "Checkout recovered after the pool ceiling changed.")
 
-    blocked = claim_episode!("blocked", "worker is failing health checks", "conversation:A")
+    blocked = claim_episode!("blocked", "worker is failing health checks", "slack:TOUTCOME:CA")
 
     assert {:ok, _finding} =
              Records.create(Records.token(blocked.turn), "blocked-finding", "finding", %{
@@ -64,7 +65,7 @@ defmodule Ryker.Records.OutcomesTest do
 
     block!(blocked, "Repository access is unavailable.")
 
-    probe = claim_episode!("probe", "Is this related?", "conversation:A")
+    probe = claim_episode!("probe", "Is this related?", "slack:TOUTCOME:CA")
     outcomes = Outcomes.recall(probe.episode)
 
     assert Enum.map(outcomes, & &1["state"]) == ["blocked", "complete"]
@@ -83,15 +84,15 @@ defmodule Ryker.Records.OutcomesTest do
     assert submission["context"]["related_outcomes"] == outcomes
     assert submission["prompt"] =~ "payments gateway connection pool"
 
-    other_room = claim_episode!("other-room", "What happened elsewhere?", "conversation:B")
+    other_room = claim_episode!("other-room", "What happened elsewhere?", "slack:TOUTCOME:CB")
     assert Outcomes.recall(other_room.episode) == []
   end
 
   test "cancelled and reopened episodes are not recalled as resolved outcomes" do
-    cancelled = claim_episode!("cancelled", "cancel this investigation", "conversation:C")
+    cancelled = claim_episode!("cancelled", "cancel this investigation", "slack:TOUTCOME:CC")
     cancel!(cancelled)
 
-    completed = claim_episode!("reopened", "initial lifecycle", "conversation:C")
+    completed = claim_episode!("reopened", "initial lifecycle", "slack:TOUTCOME:CC")
     complete!(completed, "Initially resolved.")
 
     assert {:ok, _reopened} =
@@ -107,7 +108,7 @@ defmodule Ryker.Records.OutcomesTest do
                })
              )
 
-    probe = claim_episode!("cancelled-probe", "Recall prior work", "conversation:C")
+    probe = claim_episode!("cancelled-probe", "Recall prior work", "slack:TOUTCOME:CC")
     refs = MapSet.new(Outcomes.recall(probe.episode), & &1["episode_ref"])
 
     refute MapSet.member?(refs, cancelled.episode.id)
@@ -117,11 +118,14 @@ defmodule Ryker.Records.OutcomesTest do
   test "frozen outcomes survive unrelated producer metadata and later record additions" do
     # A source-proven frozen result must not become stale because a sibling
     # episode receives another audit row or its diagnostics are updated.
-    completed = claim_episode!("frozen-history", "Historical outcome", "conversation:frozen")
+    completed = claim_episode!("frozen-history", "Historical outcome", "slack:TOUTCOME:CFROZEN")
     complete!(completed, "The original retained result.")
-    blocked = claim_episode!("frozen-blocked", "Blocked history", "conversation:frozen")
+    blocked = claim_episode!("frozen-blocked", "Blocked history", "slack:TOUTCOME:CFROZEN")
     block!(blocked, "The original retained blocker.")
-    probe = claim_episode!("frozen-reader", "Recall prior work", "conversation:frozen", :briefing)
+
+    probe =
+      claim_episode!("frozen-reader", "Recall prior work", "slack:TOUTCOME:CFROZEN", :briefing)
+
     submission = probe.turn.submission
     assert length(submission["context"]["related_outcomes"]) == 2
     assert :ok = KnowledgeSnapshot.authorize_submission(probe.episode, nil, submission)

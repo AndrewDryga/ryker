@@ -32,14 +32,6 @@ defmodule Ryker.Slack.AppHomeActions do
   @doc "Rechecks exact user/channel visibility before a stale Home control can mutate state."
   @spec authorize_resource(HomeInteraction.t() | HomeSubmission.t(), module(), term()) ::
           :ok | {:error, term()}
-  def authorize_resource(
-        %HomeInteraction{action: action, resource_ref: "schedule:" <> _},
-        _api,
-        _client
-      )
-      when action in [:pause_schedule, :resume_schedule, :delete_schedule],
-      do: :ok
-
   def authorize_resource(%{action: action}, _api, _client)
       when action not in @destination_actions,
       do: :ok

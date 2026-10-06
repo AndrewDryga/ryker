@@ -475,6 +475,8 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              )
 
     assert {:ok, submission} = SubmissionBuilder.build(claim)
+    # As the room's live Work turn records, so its records may be shown there.
+    assert :ok = KnowledgeSnapshot.expose(claim, [])
     instructions = submission["context"]["custom_instructions"]
     assert instructions["global"]["text"] == "Global incident default"
     assert instructions["channel"]["text"] == "Incident room default"

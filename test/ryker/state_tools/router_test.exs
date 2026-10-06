@@ -10,7 +10,7 @@ defmodule Ryker.StateTools.RouterTest do
   import Plug.Test
 
   alias Ryker.Episodes
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.{Episode, Scope}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Repo
   alias Ryker.Settings
@@ -1906,7 +1906,7 @@ defmodule Ryker.StateTools.RouterTest do
         source_thread_ref: claim.episode.destination_thread_ref,
         source_transport: claim.episode.destination_transport,
         status: :active,
-        workspace_ref: claim.episode.destination_conversation_ref
+        workspace_ref: Scope.workspace_ref(claim.episode)
       }
       |> BehaviorChangeset.insert()
       |> Repo.insert!()

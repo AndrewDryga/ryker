@@ -96,18 +96,6 @@ defmodule Ryker.ControlPlane.ConversationMemoryReadOnlyTest do
     end)
   end
 
-  test "a deleted colon-bearing channel suffix is interpreted as the exact destination" do
-    with_topics(fn fixture ->
-      destination = destination(fixture.workspace, "CTARGET:SUFFIX")
-      joined!(fixture.workspace, "CTARGET:SUFFIX")
-      {_, document} = Fixtures.learn!(destination)
-      id = String.replace_prefix(document["source_ref"], "knowledge:", "")
-      assert available?(id)
-      change_membership(fixture.workspace, "CTARGET:SUFFIX", :deleted)
-      refute available?(id)
-    end)
-  end
-
   test "direct-message inspection does not acquire a channel membership fence" do
     with_topics(fn fixture ->
       joined!(fixture.workspace, "DPRIVATE")

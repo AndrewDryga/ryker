@@ -114,10 +114,6 @@ defmodule Ryker.Slack.AppHomeControls do
     resolve_memory_review(options, ref, :edit, actor_ref, workspace_ref, replacement)
   end
 
-  defp dispatch(%HomeInteraction{action: action, resource_ref: "behavior:" <> _}, _options)
-       when action in [:disable_behavior, :enable_behavior, :delete_behavior],
-       do: {:ok, :invalid}
-
   defp dispatch(
          %HomeInteraction{
            action: action,
@@ -132,10 +128,6 @@ defmodule Ryker.Slack.AppHomeControls do
 
     resolve_memory_review(options, ref, review_action, actor_ref, workspace_ref)
   end
-
-  defp dispatch(%HomeInteraction{action: action, resource_ref: "schedule:" <> _}, _options)
-       when action in [:pause_schedule, :resume_schedule, :delete_schedule],
-       do: {:ok, :invalid}
 
   defp dispatch(
          %HomeInteraction{

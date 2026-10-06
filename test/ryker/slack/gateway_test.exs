@@ -242,33 +242,6 @@ defmodule Ryker.Slack.GatewayTest do
     assert interaction.resource_ref == "schedule-control:schedule:abc:4"
   end
 
-  test "pre-upgrade App Home lifecycle controls are settled as stale" do
-    configured =
-      settings()
-      |> Map.put(:home_interaction_handler, HomeInteractionHandler)
-      |> Map.put(:home_interaction_options, %{
-        observer: self(),
-        result: {:ok, %{outcome: :invalid}}
-      })
-
-    for {action_id, value, action} <- [
-          {"ryker_home_disable_behavior", "behavior:pre-upgrade", :disable_behavior},
-          {"ryker_home_pause_schedule", "schedule:pre-upgrade", :pause_schedule}
-        ] do
-      envelope =
-        home_interaction_envelope()
-        |> put_in(["payload", "actions", Access.at(0), "action_id"], action_id)
-        |> put_in(["payload", "actions", Access.at(0), "value"], value)
-
-      assert Gateway.handle_envelope(envelope, configured) ==
-               {:ack, {:app_home_control, :invalid}}
-
-      assert_received {:handled_home_interaction, interaction}
-      assert interaction.action == action
-      assert interaction.resource_ref == value
-    end
-  end
-
   test "an App Home modal submission uses the same authorized control boundary" do
     configured =
       settings()

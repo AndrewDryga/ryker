@@ -12,7 +12,8 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
     Renderer,
     TaskCard,
     TaskCardProjection,
-    TaskCardWorker
+    TaskCardWorker,
+    WorkRecord
   }
 
   alias Ryker.Knowledge.KnowledgeSnapshot
@@ -104,6 +105,31 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
     KnowledgeFixtures.revoke!(fixture.source)
     assert {:ok, after_withdrawal} = TaskCardProjection.build(fixture.card)
     assert_neutral(after_withdrawal.document)
+  end
+
+  # The card hid a withdrawn source's text, but its Timeline and Evidence
+  # buttons still showed it to anyone in the channel who pressed them
+  # (2026-10-04 review).
+  test "a task's views leave out what a withdrawn source produced" do
+    fixture = fixture!(:progress)
+
+    target = %{
+      conversation_ref: @conversation,
+      message_ref: fixture.card.message_ref,
+      thread_ref: fixture.card.thread_ref,
+      transport: "slack"
+    }
+
+    observation = @captured["arguments"]["observation"]
+    assert {:ok, %{"message" => before}} = WorkRecord.build(fixture.card.ref, target, :timeline)
+    assert before =~ String.slice(observation, 0, 40)
+
+    KnowledgeFixtures.revoke!(fixture.source)
+
+    for kind <- [:timeline, :evidence, :handoff] do
+      assert {:ok, %{"message" => message}} = WorkRecord.build(fixture.card.ref, target, kind)
+      refute message =~ String.slice(observation, 0, 40), "#{kind}"
+    end
   end
 
   test "missing producer attestation is not authority to publish retained task text" do

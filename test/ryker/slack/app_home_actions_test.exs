@@ -53,12 +53,6 @@ defmodule Ryker.Slack.AppHomeActionsTest do
              %{shared: MapSet.new()}
            ) == :ok
 
-    assert AppHomeActions.authorize_resource(
-             home_interaction(:pause_schedule, "schedule:pre-upgrade"),
-             SharedAPI,
-             :must_not_query_slack
-           ) == :ok
-
     assert AppHomeActions.authorize_resource(interaction, ErrorSharedAPI, :client) ==
              {:error, :slack_unavailable}
 

@@ -398,8 +398,10 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert Behaviors.set_home_status(
              conversation.behavior.ref,
              :deleted,
+             conversation.behavior.revision,
              "slack:user:U123",
-             "slack:T123"
+             "slack:T123",
+             "interaction:behavior:conversation"
            ) == {:error, :behavior_unauthorized}
 
     assert {:ok, disabled_receipt} =
@@ -446,42 +448,54 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert Behaviors.set_home_status(
              operator.behavior.ref,
              :disabled,
+             operator.behavior.revision,
              "slack:user:U999",
-             "slack:T123"
+             "slack:T123",
+             "interaction:behavior:someone-else"
            ) == {:error, :behavior_unauthorized}
 
     assert {:ok, own} =
              Behaviors.set_home_status(
                operator.behavior.ref,
                :disabled,
+               operator.behavior.revision,
                "slack:user:U123",
-               "slack:T123"
+               "slack:T123",
+               "interaction:behavior:own"
              )
 
-    assert own.status == :disabled
+    assert own.outcome["status"] == "disabled"
+
+    enabled = Repo.get!(Behavior, workspace.behavior.id)
 
     assert {:ok, shared} =
              Behaviors.set_home_status(
                workspace.behavior.ref,
                :disabled,
+               enabled.revision,
                "slack:user:U999",
-               "slack:T123"
+               "slack:T123",
+               "interaction:behavior:shared"
              )
 
-    assert shared.status == :disabled
+    assert shared.outcome["status"] == "disabled"
 
     assert Behaviors.set_home_status(
              workspace.behavior.ref,
              :active,
+             enabled.revision + 1,
              "slack:user:U123",
-             "slack:T999"
+             "slack:T999",
+             "interaction:behavior:other-workspace"
            ) == {:error, :behavior_workspace_mismatch}
 
     assert Behaviors.set_home_status(
              "behavior:missing",
              :active,
+             1,
              "slack:user:U123",
-             "slack:T123"
+             "slack:T123",
+             "interaction:behavior:missing"
            ) == {:error, :behavior_not_found}
   end
 
@@ -595,29 +609,22 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     refute Behaviors.standing_match?(terraform_input(:app, "slack:T123:C999"))
     refute Behaviors.standing_match?(deployment_input())
 
-    assert Behaviors.set_status(confirmed.behavior.ref, :disabled, "slack:T999") ==
-             {:error, :behavior_workspace_mismatch}
-
-    assert Repo.get!(Behavior, confirmed.behavior.id).status == :active
-
-    assert {:ok, disabled} =
-             Behaviors.set_status(confirmed.behavior.ref, :disabled, "slack:T123")
+    assert {:ok, disabled} = Behaviors.set_status(confirmed.behavior.ref, :disabled)
 
     assert disabled.status == :disabled
     assert disabled.revision == confirmed.behavior.revision + 1
 
-    assert {:ok, unchanged} =
-             Behaviors.set_status(confirmed.behavior.ref, :disabled, "slack:T123")
+    assert {:ok, unchanged} = Behaviors.set_status(confirmed.behavior.ref, :disabled)
 
     assert unchanged.revision == disabled.revision
     refute Behaviors.standing_match?(terraform_input(:app, "slack:T123:C456"))
 
-    assert {:ok, active} = Behaviors.set_status(confirmed.behavior.ref, :active, "slack:T123")
+    assert {:ok, active} = Behaviors.set_status(confirmed.behavior.ref, :active)
     assert active.status == :active
     assert active.revision == disabled.revision + 1
     assert Behaviors.standing_match?(terraform_input(:app, "slack:T123:C456"))
 
-    assert {:ok, deleted} = Behaviors.set_status(confirmed.behavior.ref, :deleted, "slack:T123")
+    assert {:ok, deleted} = Behaviors.set_status(confirmed.behavior.ref, :deleted)
     assert deleted.status == :deleted
     assert deleted.revision == active.revision + 1
 
@@ -625,7 +632,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     # fact keeps a digest (2026-10-04 review).
     assert Map.keys(deleted.payload) == ["deleted_payload_sha256"]
 
-    assert Behaviors.set_status(confirmed.behavior.ref, :active, "slack:T123") ==
+    assert Behaviors.set_status(confirmed.behavior.ref, :active) ==
              {:error, :behavior_terminal}
   end
 
@@ -833,7 +840,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     # A paused preference is still removable, and the control follows its
     # revision. The notice keeps naming the save event while the entity is
     # live, so the pause is carried by the status, not by the headline.
-    assert {:ok, disabled} = Behaviors.set_status(behavior.ref, :disabled, "slack:T123")
+    assert {:ok, disabled} = Behaviors.set_status(behavior.ref, :disabled)
     assert [paused_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
     assert paused_document["presentation"]["entity"]["status"] == "disabled"
     assert paused_document["presentation"]["entity"]["removable"] == true
@@ -847,7 +854,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert paused_delete["confirm"]["title"]["text"] == "Delete preference?"
 
     # Once it is gone there is nothing left to confirm.
-    assert {:ok, _deleted} = Behaviors.set_status(behavior.ref, :deleted, "slack:T123")
+    assert {:ok, _deleted} = Behaviors.set_status(behavior.ref, :deleted)
     assert [deleted_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
 
     assert {:ok, rendered} =
@@ -896,7 +903,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert delete["confirm"]["confirm"]["text"] == "Delete guidance"
     assert delete["confirm"]["deny"]["text"] == "Cancel"
 
-    assert {:ok, _deleted} = Behaviors.set_status(behavior.ref, :deleted, "slack:T123")
+    assert {:ok, _deleted} = Behaviors.set_status(behavior.ref, :deleted)
     assert [deleted_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
 
     assert {:ok, rendered} =
@@ -1162,10 +1169,10 @@ defmodule Ryker.Behaviors.BehaviorsTest do
            }) ==
              {:error, :behavior_offer_not_found}
 
-    assert Behaviors.set_status("behavior", :unknown, "slack:T123") ==
+    assert Behaviors.set_status("behavior", :unknown) ==
              {:error, {:invalid_behavior, :status}}
 
-    assert Behaviors.set_home_status("behavior", :unknown, "actor", "workspace") ==
+    assert Behaviors.set_home_status("behavior", :unknown, 1, "actor", "workspace", "action") ==
              {:error, {:invalid_behavior, :status}}
 
     assert Behaviors.assignments_for_channel("", "") == []

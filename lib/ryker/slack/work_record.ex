@@ -12,12 +12,11 @@ defmodule Ryker.Slack.WorkRecord do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Episodes.Words
   alias Ryker.Publication.Publication
-  alias Ryker.Records.Record
+  alias Ryker.Records.{DerivedContext, Record}
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoom, TaskCard, TaskCardDetails, WorkTarget}
   alias Ryker.Slack.Renderer.Blocks
-  alias Ryker.Work.Recovery
-  alias Ryker.Work.Turn
+  alias Ryker.Work.{Recovery, Session, Turn}
 
   @maximum_events 60
   @maximum_records 80
@@ -31,7 +30,7 @@ defmodule Ryker.Slack.WorkRecord do
       when kind in [:timeline, :evidence, :handoff, :recovery, :postmortem] do
     with {:ok, resolved} <- WorkTarget.resolve(work_ref, target),
          :ok <- kind_available(resolved.kind, kind) do
-      snapshot = snapshot(resolved)
+      snapshot = resolved |> snapshot() |> shown_in_channel()
 
       case render(kind, snapshot) do
         nil -> {:error, :work_record_not_available}
@@ -110,6 +109,31 @@ defmodule Ryker.Slack.WorkRecord do
       work_ref: resolved.work_ref
     }
   end
+
+  # The card shows a record only while every source behind it may still be
+  # shown in its channel (`Ryker.Slack.TaskCardProjection`). These views, which
+  # anyone there can open, showed every record regardless (2026-10-04 review).
+  # The control plane's copy (`build_episode/3`) is the operator's and keeps
+  # them all, as the task's page does.
+  defp shown_in_channel(%{turn: %Turn{session_id: session_id}} = snapshot)
+       when is_binary(session_id) do
+    repository =
+      Repo.one(
+        from(session in Session, where: session.id == ^session_id, select: session.repository_ref)
+      )
+
+    shown =
+      snapshot.records
+      |> Enum.map(
+        &DerivedContext.record(%{"kind" => &1.kind, "payload" => &1.payload, "ref" => &1.ref})
+      )
+      |> DerivedContext.filter(snapshot.episode, repository)
+      |> MapSet.new(& &1["document"]["ref"])
+
+    %{snapshot | records: Enum.filter(snapshot.records, &MapSet.member?(shown, &1.ref))}
+  end
+
+  defp shown_in_channel(snapshot), do: %{snapshot | records: []}
 
   # The task or incident by its own title; the card's reference is Ryker's (Andrew, 2026-10-01:
   # "Timeline for task-card:c00814ba-…").

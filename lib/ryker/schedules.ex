@@ -139,23 +139,11 @@ defmodule Ryker.Schedules do
           {:ok, Schedule.t()} | {:error, term()}
   def set_status(schedule_ref, status) when status in [:paused, :active, :deleted] do
     with :ok <- reference(schedule_ref, :schedule_ref) do
-      Repo.transaction(fn -> set_status_locked(schedule_ref, status, nil) end)
+      Repo.transaction(fn -> set_status_locked(schedule_ref, status) end)
     end
   end
 
   def set_status(_schedule_ref, _status), do: {:error, {:invalid_schedule, :status}}
-
-  @spec set_status(String.t(), :paused | :active | :deleted, map()) ::
-          {:ok, Schedule.t()} | {:error, term()}
-  def set_status(schedule_ref, status, scope) when status in [:paused, :active, :deleted] do
-    with :ok <- reference(schedule_ref, :schedule_ref),
-         {:ok, scope} <- status_scope(scope) do
-      Repo.transaction(fn -> set_status_locked(schedule_ref, status, scope) end)
-    end
-  end
-
-  def set_status(_schedule_ref, _status, _scope),
-    do: {:error, {:invalid_schedule, :status}}
 
   @doc "Changes one App Home schedule through revision-fenced operator action custody."
   @spec set_home_status(
@@ -758,21 +746,10 @@ defmodule Ryker.Schedules do
     Repo.one(from(schedule in Schedule, where: schedule.ref == ^schedule_ref, lock: "FOR UPDATE"))
   end
 
-  defp set_status_locked(schedule_ref, status, scope) do
+  defp set_status_locked(schedule_ref, status) do
     case lock_schedule(schedule_ref) do
-      nil ->
-        Repo.rollback(:schedule_not_found)
-
-      %Schedule{} = schedule when not is_nil(scope) ->
-        if schedule.destination_transport == scope.transport and
-             String.starts_with?(schedule.destination_conversation_ref, scope.conversation_prefix) do
-          update_schedule_status(schedule, status)
-        else
-          Repo.rollback(:schedule_scope_mismatch)
-        end
-
-      %Schedule{} = schedule ->
-        update_schedule_status(schedule, status)
+      nil -> Repo.rollback(:schedule_not_found)
+      %Schedule{} = schedule -> update_schedule_status(schedule, status)
     end
   end
 
