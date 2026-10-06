@@ -2270,8 +2270,18 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert Map.delete(detail, :knowledge_runs) == row
     assert {newest.status, oldest.status} == {:applied, :rejected}
-    assert newest.prompt == ~s({"instructions":"Write it.","context":{"generation":2}})
-    assert newest.result == ~s({"purpose":"Ryker."})
+    prompt = ~s({"instructions":"Write it.","context":{"generation":2}})
+    # A prompt and an answer are read once the reader opens them.
+    assert %{artifact_id: prompt_id, text: nil} = newest.prompt
+    assert newest.prompt.bytes == byte_size(prompt)
+    assert %{artifact_id: answer_id, text: nil} = newest.result
+
+    assert {:ok, %{knowledge_runs: [newest, oldest]}} =
+             RepositoryProjection.detail("ryker", MapSet.new([prompt_id, answer_id]))
+
+    assert newest.prompt.text == prompt
+    assert newest.result.text == ~s({"purpose":"Ryker."})
+    assert oldest.prompt.text == nil
     assert RepositoryProjection.detail("ryk") == :error
 
     assert {:ok, episode_detail} = EpisodeProjection.fetch(source.episode.key)

@@ -347,8 +347,8 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     options = %{
       projection: %{
         repository_detail: fn
-          "acme-checkout-api" -> {:ok, @repository}
-          _other -> :error
+          "acme-checkout-api", _disclosed -> {:ok, @repository}
+          _other, _disclosed -> :error
         end
       }
     }
@@ -394,8 +394,8 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         call: call,
         error_code: nil,
         dropped: 2,
-        prompt: prompt,
-        result: answer
+        prompt: opened("run-2", "prompt", prompt),
+        result: opened("run-2", "answer", answer)
       },
       %{
         id: "run-1",
@@ -413,8 +413,9 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         },
         error_code: "repository_knowledge_result_invalid",
         dropped: nil,
-        prompt: "An older prompt, not JSON.",
-        result: ~s({"purpose":1})
+        prompt: opened("run-1", "prompt", "An older prompt, not JSON."),
+        # Not opened yet: read once the reader opens it.
+        result: %{artifact_id: "knowledge-run-run-1-answer", bytes: 13, text: nil}
       }
     ]
 
@@ -476,12 +477,21 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert card |> LazyHTML.query("#knowledge-run-run-2-answer pre") |> LazyHTML.text() == answer
     refute squeeze(LazyHTML.text(card)) =~ "repository_knowledge_result_invalid"
 
+    # An answer not opened yet asks for itself when it is opened.
+    unopened = LazyHTML.query(card, "#knowledge-run-run-1-answer")
+    assert LazyHTML.attribute(unopened, "data-artifact") == ["knowledge-run-run-1-answer"]
+    assert unopened |> LazyHTML.query(".artifact-loading") |> LazyHTML.text() == "Loading…"
+    assert unopened |> LazyHTML.query("pre") |> Enum.count() == 0
+
     assert @repository
            |> Map.put(:knowledge_runs, [])
            |> detail()
            |> LazyHTML.query("#repository-knowledge-runs")
            |> Enum.count() == 0
   end
+
+  defp opened(run, part, text),
+    do: %{artifact_id: "knowledge-run-#{run}-#{part}", bytes: byte_size(text), text: text}
 
   test "an empty list says how to add one, and a search miss says so" do
     bare = render([])

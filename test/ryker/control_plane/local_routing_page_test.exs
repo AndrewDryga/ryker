@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.LocalRoutingPageTest do
   alias Ryker.Learning.Observations
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.Comparison
+  alias Ryker.QueryWork
   alias Ryker.Settings
   alias Ryker.Slack.Input, as: SlackInput
 
@@ -178,6 +179,40 @@ defmodule Ryker.ControlPlane.LocalRoutingPageTest do
            |> LazyHTML.attribute("href") == [
              "/timeline/#{differed.id}#admission-#{differed.id}-1"
            ]
+  end
+
+  # The page loaded every answer compared in its period, up to 10,000, each
+  # with the local model's answer and the provider's whole decision, to count
+  # them in Elixir, and did it again whenever a comparison settled (2026-10-04
+  # review). The database counts what the tables show.
+  test "its tables are counted by the database, not from every answer" do
+    shadow!()
+
+    for index <- 1..20 do
+      answer =
+        Harvested.deploy_script_reply()
+        |> Jason.decode!()
+        |> Map.put("reason", String.duplicate("The deploy script failed. ", 500))
+        |> Jason.encode!()
+
+      "Ev-local-size-#{index}"
+      |> decided!(Harvested.hi_quick_reply())
+      |> compared!(answer,
+        agrees: false,
+        differing: ["action"],
+        local_ms: 1_000,
+        cost: "0.010000",
+        provider_ms: 9_000
+      )
+    end
+
+    {section, statements} = QueryWork.statements(&section!/0)
+
+    assert table(section, "#local-routing-decisions") == [
+             ["A quick reply", "20", "20", "0", "A reply (20)", "just now"]
+           ]
+
+    assert QueryWork.bytes_returned(statements, "local_routing_comparisons") < 20_000
   end
 
   # The Mac running Ollama went to sleep: comparisons stop coming back, and

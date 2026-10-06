@@ -22,7 +22,7 @@ defmodule Ryker.LocalRoutingTest do
   @moduletag isolation: "REPEATABLE READ"
 
   alias Ryker.Admission.{Attempt, Executor}
-  alias Ryker.ControlPlane.LocalRoutingPage
+  alias Ryker.ControlPlane.LocalRoutingProjection
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.LocalRouting, as: Harvested
   alias Ryker.Ingress.Inbox
@@ -396,7 +396,7 @@ defmodule Ryker.LocalRoutingTest do
       other = route!(Harvested.hi_quick_reply(), "Ev-local-compared-2", at: 1, channel: "C999")
       drain(endpoint)
 
-      compared = LocalRoutingPage.project(nil, "all")
+      compared = LocalRoutingProjection.project(nil, "all")
       differed = Enum.sum(Enum.map(compared.decisions, &(&1.valid - &1.agreed)))
       assert {compared.figures.compared, differed} == {2, 1}
 
@@ -404,7 +404,7 @@ defmodule Ryker.LocalRoutingTest do
 
       assert kept() == [other.id], "the local model's answer to a deleted message is still kept"
 
-      usage = LocalRoutingPage.project(nil, "all")
+      usage = LocalRoutingProjection.project(nil, "all")
 
       assert Map.take(usage.figures, [:compared, :valid, :agreed, :waiting, :failed]) ==
                %{compared: 1, valid: 1, agreed: 1, waiting: 0, failed: 0}

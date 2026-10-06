@@ -215,7 +215,11 @@ defmodule Ryker.ControlPlane.Pages do
   # no page; its past requests stay in Activity.
   def page(["repositories", repository_ref], _params, options) do
     with {:ok, repository_ref} <- PathRef.decode(repository_ref),
-         {:ok, item} <- options.projection.repository_detail.(repository_ref) do
+         {:ok, item} <-
+           options.projection.repository_detail.(
+             repository_ref,
+             Map.get(options, :disclosed, MapSet.new())
+           ) do
       item
       |> RepositoriesPage.name()
       |> ok(RepositoriesPage.detail_html(item))
@@ -292,9 +296,9 @@ defmodule Ryker.ControlPlane.Pages do
   # How the local routing model compares on live routing, beside its setting:
   # Andrew, 2026-10-03, of it on Usage & cost: "why the fuck you added Local
   # routing model and Where it decided differently to usage and costs?!"
-  def page(["settings", "models", "local-routing"], params, _options) do
+  def page(["settings", "models", "local-routing"], params, options) do
     window = UsageProjection.window(params["window"])
-    summary = LocalRoutingPage.project(UsageProjection.since(window), "live")
+    summary = options.projection.local_routing.(UsageProjection.since(window), "live")
 
     "Local routing model"
     |> ok(LocalRoutingPage.description(), LocalRoutingPage.render(summary, window))

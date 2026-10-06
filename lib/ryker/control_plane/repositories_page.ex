@@ -520,7 +520,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     do:
       "Ryker left out #{plural(count, "path or command", "paths or commands")} it could not find in the repository."
 
-  defp run_note(%{status: :rejected, result: result}) when is_binary(result),
+  defp run_note(%{status: :rejected, result: %{}}),
     do: "The answer did not match what Ryker asked for, so Ryker did not use it."
 
   defp run_note(%{status: :rejected}), do: "The run ended before the model answered."
@@ -708,23 +708,27 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
               <div :if={run.prompt || run.result} class="kit-rows knowledge-run-parts">
                 <Components.disclosure
                   :if={run.prompt}
-                  id={"knowledge-run-" <> run.id <> "-prompt"}
+                  id={run.prompt.artifact_id}
                   label="Prompt sent"
                   kind={:source}
+                  data-artifact={run.prompt.artifact_id}
                 >
-                  <:meta>{CallRun.estimated_tokens(run.prompt)}</:meta>
-                  <.prompt_view prompt={run.prompt} />
+                  <:meta>{CallRun.estimated_tokens({:bytes, run.prompt.bytes})}</:meta>
+                  <.prompt_view :if={run.prompt.text} prompt={run.prompt.text} />
+                  <p :if={!run.prompt.text} class="artifact-loading" role="status">Loading…</p>
                 </Components.disclosure>
                 <Components.disclosure
                   :if={run.result}
-                  id={"knowledge-run-" <> run.id <> "-answer"}
+                  id={run.result.artifact_id}
                   label="The model's answer"
                   kind={:source}
+                  data-artifact={run.result.artifact_id}
                 >
-                  <:meta>{CallRun.estimated_tokens(run.result)}</:meta>
-                  <Components.copy_block label="Copy the answer">
-                    <pre class="knowledge-run-text">{run.result}</pre>
+                  <:meta>{CallRun.estimated_tokens({:bytes, run.result.bytes})}</:meta>
+                  <Components.copy_block :if={run.result.text} label="Copy the answer">
+                    <pre class="knowledge-run-text">{run.result.text}</pre>
                   </Components.copy_block>
+                  <p :if={!run.result.text} class="artifact-loading" role="status">Loading…</p>
                 </Components.disclosure>
               </div>
             </Components.disclosure>

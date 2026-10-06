@@ -61,10 +61,15 @@ defmodule Ryker.RepositoryKnowledge do
   @spec check_soon(String.t()) :: :ok
   def check_soon(ref) when is_binary(ref), do: Custody.check_now(ref)
 
-  @doc "Every repository's knowledge entry, by repository ref."
-  @spec entries() :: %{String.t() => Entry.t()}
-  def entries do
-    Repo.all(from(entry in Entry, select: {entry.repository_ref, entry}))
+  @doc "The knowledge entries of the repositories `refs` names, by repository ref."
+  @spec entries([String.t()]) :: %{String.t() => Entry.t()}
+  def entries(refs) when is_list(refs) do
+    Repo.all(
+      from(entry in Entry,
+        where: entry.repository_ref in ^refs,
+        select: {entry.repository_ref, entry}
+      )
+    )
     |> Map.new()
   end
 

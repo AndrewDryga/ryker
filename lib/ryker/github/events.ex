@@ -17,6 +17,7 @@ defmodule Ryker.GitHub.Events do
   alias Ecto.Changeset
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.GitHub.{Binding, Event}
+  alias Ryker.Settings.GitHubBinding
 
   @dispositions ~w(metadata routed continued duplicate failed)
   @abandoned_seconds 10 * 60
@@ -87,58 +88,32 @@ defmodule Ryker.GitHub.Events do
     )
   end
 
-  def health(binding_ref) when is_binary(binding_ref) do
-    latest =
-      Repo.one(
-        from(event in Event,
-          where: event.binding_ref == ^binding_ref,
-          order_by: [desc: event.occurred_at, desc: event.id],
-          limit: 1
-        )
+  @doc """
+  What GitHub's deliveries for a repository say, as its page shows them: how
+  many wait to be taken, how many failed, how many duplicate copies were
+  ignored, and when the last one arrived. One query; it took five, for
+  fields no page showed (2026-10-04 review).
+  """
+  @spec repository_health(String.t()) :: %{
+          duplicate_count: non_neg_integer(),
+          failed: non_neg_integer(),
+          last_event_at: DateTime.t() | nil,
+          pending: non_neg_integer()
+        }
+  def repository_health(repository_ref) when is_binary(repository_ref) do
+    Repo.one!(
+      from(event in Event,
+        join: binding in GitHubBinding,
+        on: binding.name == event.binding_ref,
+        where: binding.repository_ref == ^repository_ref,
+        select: %{
+          duplicate_count: coalesce(sum(event.duplicate_count), 0),
+          failed: filter(count(event.id), event.disposition == "failed"),
+          last_event_at: max(event.occurred_at),
+          pending: filter(count(event.id), event.disposition == "received")
+        }
       )
-
-    pending =
-      Repo.aggregate(
-        from(event in Event,
-          where: event.binding_ref == ^binding_ref and event.disposition == "received"
-        ),
-        :count
-      )
-
-    failed =
-      Repo.aggregate(
-        from(event in Event,
-          where: event.binding_ref == ^binding_ref and event.disposition == "failed"
-        ),
-        :count
-      )
-
-    processed =
-      Repo.one(
-        from(event in Event,
-          where: event.binding_ref == ^binding_ref and not is_nil(event.processed_at),
-          order_by: [desc: event.processed_at, desc: event.id],
-          limit: 1
-        )
-      )
-
-    duplicate_count =
-      Repo.one(
-        from(event in Event,
-          where: event.binding_ref == ^binding_ref,
-          select: coalesce(sum(event.duplicate_count), 0)
-        )
-      )
-
-    %{
-      duplicate_count: duplicate_count,
-      failed: failed,
-      last_event_at: latest && latest.occurred_at,
-      last_disposition: latest && latest.disposition,
-      last_processed_at: processed && processed.processed_at,
-      pending: pending,
-      processing_lag_seconds: processing_lag(latest, processed)
-    }
+    )
   end
 
   # Only one of two racing copies wins the update, so a retried delivery is
@@ -198,12 +173,6 @@ defmodule Ryker.GitHub.Events do
         {:error, :github_event_persistence_failed}
     end
   end
-
-  defp processing_lag(nil, _processed), do: nil
-  defp processing_lag(_latest, nil), do: nil
-
-  defp processing_lag(latest, processed),
-    do: max(DateTime.diff(latest.occurred_at, processed.occurred_at, :second), 0)
 
   defp event_time(payload, fallback) do
     candidates = [

@@ -1410,10 +1410,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     :throw, {:projection_unavailable, source} -> projection_failed(socket, source, [])
   end
 
-  # The console's options with the person this page is for: Chat offers them
-  # Edit and Delete on their own messages and marks their own reactions.
-  defp page_options(socket),
-    do: Map.put(Endpoint.config(:control_plane), :viewer, socket.assigns.viewer)
+  # The console's options with the person this page is for (Chat offers them
+  # Edit and Delete on their own messages and marks their own reactions) and
+  # the bodies they opened on it, which a page reads only once opened.
+  defp page_options(socket) do
+    Endpoint.config(:control_plane)
+    |> Map.put(:viewer, socket.assigns.viewer)
+    |> Map.put(:disclosed, socket.assigns.disclosed)
+  end
 
   # A failed read keeps what the page now listens to, so the page still hears
   # the change that lets the read succeed.
