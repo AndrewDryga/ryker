@@ -11,7 +11,7 @@ defmodule Ryker.Slack.WorkRecord do
 
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Episodes.Words
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Records.{DerivedContext, Record}
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoom, TaskCard, TaskCardDetails, WorkTarget}
@@ -98,11 +98,23 @@ defmodule Ryker.Slack.WorkRecord do
       )
       |> Enum.reverse()
 
+    # What GitHub last said of each pull request: the views said "open" for one
+    # a person had merged (2026-10-04 review).
+    pull_request_states =
+      Repo.all(
+        from(followup in Followup,
+          where: followup.publication_id in ^Enum.map(publications, & &1.id),
+          select: {followup.publication_id, followup.pr_state}
+        )
+      )
+      |> Map.new()
+
     %{
       episode: resolved.episode,
       events: events,
       kind: resolved.kind,
       publications: publications,
+      pull_request_states: pull_request_states,
       records: records,
       title: work_title(resolved.work_ref),
       turn: current_turn(resolved.episode),
@@ -184,7 +196,7 @@ defmodule Ryker.Slack.WorkRecord do
     entries =
       (Enum.map(snapshot.events, &event_entry/1) ++
          Enum.flat_map(snapshot.records, &record_entry(&1, goals)) ++
-         Enum.map(snapshot.publications, &publication_entry/1))
+         Enum.map(snapshot.publications, &publication_entry(&1, snapshot.pull_request_states)))
       |> Enum.sort_by(& &1.sort)
       |> Enum.map(& &1.text)
 
@@ -245,7 +257,9 @@ defmodule Ryker.Slack.WorkRecord do
       "#{state_words(snapshot.episode.state)}. " <> progress_line(progress),
       if(steps != [], do: "Steps:\n" <> Enum.join(steps, "\n")),
       Enum.map(waits, &wait_line/1),
-      if(snapshot.kind == :task, do: publication_line(List.last(snapshot.publications))),
+      if(snapshot.kind == :task,
+        do: publication_line(List.last(snapshot.publications), snapshot.pull_request_states)
+      ),
       for("• " <> unknown <- incident_unknowns(snapshot, []), do: "Unknown: " <> unknown)
     ]
     |> List.flatten()
@@ -395,10 +409,12 @@ defmodule Ryker.Slack.WorkRecord do
         do: {id, compact(payload["requested_outcome"], 300)}
   end
 
-  defp publication_entry(publication) do
+  defp publication_entry(publication, states) do
     %{
       sort: {DateTime.to_unix(publication.updated_at, :microsecond), 2, 0},
-      text: "• #{slack_time(publication.updated_at)}  " <> publication_words(publication)
+      text:
+        "• #{slack_time(publication.updated_at)}  " <>
+          publication_words(publication, states[publication.id])
     }
   end
 
@@ -482,14 +498,28 @@ defmodule Ryker.Slack.WorkRecord do
   defp wait_line(%Record{kind: "event_wait", payload: payload}),
     do: "Waiting for: #{compact(payload["verification"], 700)}"
 
-  defp publication_line(nil), do: "No draft PR yet."
-  defp publication_line(publication), do: publication_words(publication)
+  defp publication_line(nil, _states), do: "No draft PR yet."
 
-  defp publication_words(%Publication{pull_request_url: url, pull_request_number: number} = p)
+  defp publication_line(publication, states),
+    do: publication_words(publication, states[publication.id])
+
+  # Only a person merges or closes a pull request on GitHub, and that is the news.
+  defp publication_words(%Publication{pull_request_url: url, pull_request_number: number}, state)
+       when is_binary(url) and is_integer(number) and state in ["merged", "closed"],
+       do: "PR <#{url}|##{number}> · #{settled_words(state)}"
+
+  defp publication_words(
+         %Publication{pull_request_url: url, pull_request_number: number} = p,
+         _state
+       )
        when is_binary(url) and is_integer(number),
        do: "Draft PR <#{url}|##{number}> · #{publication_state(p.status)}"
 
-  defp publication_words(publication), do: "Draft PR · #{publication_state(publication.status)}"
+  defp publication_words(publication, _state),
+    do: "Draft PR · #{publication_state(publication.status)}"
+
+  defp settled_words("merged"), do: "merged"
+  defp settled_words("closed"), do: "closed without merging"
 
   defp publication_state(:published), do: "open"
   defp publication_state(:discarded), do: "discarded"

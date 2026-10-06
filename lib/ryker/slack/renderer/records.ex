@@ -11,6 +11,7 @@ defmodule Ryker.Slack.Renderer.Records do
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
 
+  alias Ryker.Delivery.OfferWords
   alias Ryker.Publication.Card, as: PublicationCard
   alias Ryker.Publication.Review
   alias Ryker.Records.RecordPayload
@@ -113,6 +114,22 @@ defmodule Ryker.Slack.Renderer.Records do
          {:ok, _prepared} <- RecordPayload.prepare(kind, payload, ref),
          :ok <- SavedEntityCard.validate(entity) do
       {:ok, SavedEntityCard.blocks(entity)}
+    else
+      _invalid -> {:error, {:invalid_slack_render, :record}}
+    end
+  end
+
+  # Once retention has removed what a confirmed offer saved, the offer says so:
+  # it rendered as nothing, and the whole reply it sat in could never be
+  # repainted again (2026-10-04 review).
+  defp render_record(
+         %{"kind" => kind, "payload" => payload, "ref" => ref, "status" => "confirmed"} = record
+       )
+       when map_size(record) == 4 and kind in @confirmation_kinds do
+    with :ok <- reference(ref),
+         {:ok, %{payload: prepared}} <- RecordPayload.prepare(kind, payload, ref) do
+      {:ok,
+       [context("*#{escape(saved_name(kind, prepared))}* was saved and has since been removed.")]}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
@@ -530,4 +547,19 @@ defmodule Ryker.Slack.Renderer.Records do
            "✓ Remembered *#{escape(subject)}* as `#{escape(value)}` for #{escape(applicability)}."
          )
        ]
+
+  # What a confirmed offer saved, by the name its card gave it.
+  defp saved_name("automation_change_offer", payload),
+    do:
+      get_in(payload, ["after", "title"]) || get_in(payload, ["before", "title"]) ||
+        "The automation change"
+
+  defp saved_name(kind, %{"title" => title})
+       when kind in ~w(schedule_offer standing_assignment_offer),
+       do: title
+
+  defp saved_name(kind, %{"subject" => subject}) when kind in ~w(guidance_offer memory_offer),
+    do: subject
+
+  defp saved_name("preference_offer", %{"key" => key}), do: OfferWords.humanize(key)
 end

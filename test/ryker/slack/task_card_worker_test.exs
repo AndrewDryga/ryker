@@ -12,7 +12,6 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Operator.Failures
   alias Ryker.Records
-  alias Ryker.Records.Record
   alias Ryker.Slack.{TaskCard, TaskCards, TaskCardWorker}
   alias Ryker.Work.Custody
 
@@ -88,17 +87,11 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
   test "a card whose build raises spends its attempts and blocks, like a refused refresh" do
     card = card!("raises")
 
-    # Its offer reads as never confirmed, so the card has no confirmation to show
-    # and building it raises.
-    Repo.update_all(from(record in Record, where: record.id == ^card.record_id),
-      set: [
-        status: :open,
-        confirmed_at: nil,
-        confirmed_by_actor_ref: nil,
-        confirmation_ref: nil,
-        confirmed_episode_id: nil
-      ]
-    )
+    # Its offer's stored payload is a list, not the object every offer is, so
+    # reading a field of it while building the card raises.
+    Repo.query!("UPDATE episode_state_records SET payload = '[]' WHERE id = $1", [
+      Ecto.UUID.dump!(card.record_id)
+    ])
 
     client = client!(:ok)
     options = options(client, max_attempts: 2)

@@ -260,6 +260,34 @@ defmodule Ryker.Slack.TaskCardDetailsTest do
     assert length(section_texts(rendered)) > 3
   end
 
+  # Long lines were cut between words to fit a section, but a single word
+  # longer than one, such as a pasted log line, was cut at Slack's limit and
+  # lost its end (2026-10-04 review).
+  test "a request holding one very long word is shown whole" do
+    word = Enum.map_join(1..900, "", &"x#{&1}&")
+    request = "See this:\n" <> word <> " and the rest."
+
+    task =
+      Map.merge(task(), %{
+        "request" => request,
+        "stages" => Enum.map(@stages, &stage(&1, "pending"))
+      })
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+
+    shown =
+      rendered
+      |> section_texts()
+      |> Enum.filter(&(not String.starts_with?(&1, "*Progress*")))
+      |> Enum.drop(1)
+      |> Enum.join()
+
+    escaped = String.replace(word, "&", "&amp;")
+    assert String.replace(shown, "\n", "") =~ escaped
+    assert shown =~ "and the rest."
+    assert Enum.all?(section_texts(rendered), &(String.length(&1) <= 3_000))
+  end
+
   defp section_texts(rendered) do
     for %{"type" => "section", "text" => %{"text" => text}} <- rendered["blocks"], do: text
   end
@@ -297,20 +325,15 @@ defmodule Ryker.Slack.TaskCardDetailsTest do
     # above is harvested and carries its source episode in the checked-in file.
     %{
       "action_needed" => nil,
-      "confirmed_at" => "2026-09-04T12:00:00Z",
-      "confirmed_by" => "slack:user:U123",
       "controls" => [],
-      "episode_state" => "working",
       "publication" => nil,
       "repository" => "emisar",
-      "session_generation" => 1,
       "status" => "working",
       "summary" => "Retained task",
       "task_ref" => "task-card:test",
       "title" => @records["runner_task"]["title"],
       "ui_revision" => 4,
-      "updated_at" => "2026-09-04T12:04:00Z",
-      "work_state" => "pending"
+      "updated_at" => "2026-09-04T12:04:00Z"
     }
   end
 end

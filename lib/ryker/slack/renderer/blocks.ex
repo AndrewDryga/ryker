@@ -11,6 +11,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
   alias Ryker.Slack.Renderer.Fields
 
   @maximum_section_characters 3_000
+  @maximum_field_characters 2_000
   @maximum_markdown_characters 12_000
   @maximum_button_characters 75
 
@@ -71,8 +72,14 @@ defmodule Ryker.Slack.Renderer.Blocks do
 
   # A link's destination and label are separate values the host validated. Both
   # are escaped, and a `|` in the label stays part of the label.
-  def link(url, label),
-    do: "<#{escape(url)}|#{label |> escape() |> String.replace("|", "&#124;")}>"
+  def link(url, label), do: "<#{escape(url)}|#{label |> escape() |> link_label()}>"
+
+  @doc """
+  A link label's `|` as the divides sign, which looks the same and ends
+  nothing. Slack decodes only `&amp;`, `&lt;` and `&gt;`, so the `&#124;` it
+  was written as showed as those six characters (2026-10-04 review).
+  """
+  def link_label(label), do: String.replace(label, "|", "∣")
 
   # A repository is a typed link. Ordinary text is escaped and never becomes
   # clickable Slack markup.
@@ -86,6 +93,73 @@ defmodule Ryker.Slack.Renderer.Blocks do
       "text" => %{"text" => truncate(text, @maximum_section_characters), "type" => "mrkdwn"},
       "type" => "section"
     }
+  end
+
+  @doc """
+  Text in as many sections as it takes, made by `block`, where one would cut
+  it at Slack's 3,000 characters: split between lines, then between words,
+  and inside a word only when one alone is longer than a section, never
+  inside an escape. An offer that grants authority is shown whole this way;
+  one section showed a fifth of a long post, and a long pasted word lost its
+  end on a task card (2026-10-04 review).
+  """
+  def sections(text, block \\ &section/1) do
+    text
+    |> String.split("\n")
+    |> Enum.flat_map(&line_pieces/1)
+    |> Enum.reduce([], &pack(&1, &2, "\n"))
+    |> Enum.reverse()
+    |> Enum.map(block)
+  end
+
+  defp pack(piece, [current | packed], separator) do
+    joined = current <> separator <> piece
+
+    if String.length(joined) <= @maximum_section_characters,
+      do: [joined | packed],
+      else: [piece, current | packed]
+  end
+
+  defp pack(piece, [], _separator), do: [piece]
+
+  defp line_pieces(line) do
+    if String.length(line) <= @maximum_section_characters do
+      [line]
+    else
+      line
+      |> String.split(" ")
+      |> Enum.flat_map(&word_pieces/1)
+      |> Enum.reduce([], &pack(&1, &2, " "))
+      |> Enum.reverse()
+    end
+  end
+
+  defp word_pieces(word) do
+    if String.length(word) <= @maximum_section_characters do
+      [word]
+    else
+      {piece, rest} = word |> String.graphemes() |> cut_outside_escape()
+      [Enum.join(piece) | word_pieces(Enum.join(rest))]
+    end
+  end
+
+  # A cut that would end inside `&amp;`, `&lt;` or `&gt;` moves to before it.
+  defp cut_outside_escape(graphemes) do
+    {piece, rest} = Enum.split(graphemes, @maximum_section_characters)
+    tail = piece |> Enum.take(-4) |> Enum.join()
+
+    case :binary.match(tail, "&") do
+      {at, _length} ->
+        if String.contains?(binary_part(tail, at, byte_size(tail) - at), ";") do
+          {piece, rest}
+        else
+          keep = length(piece) - (String.length(tail) - String.length(binary_part(tail, 0, at)))
+          Enum.split(graphemes, keep)
+        end
+
+      :nomatch ->
+        {piece, rest}
+    end
   end
 
   @doc """
@@ -111,10 +185,38 @@ defmodule Ryker.Slack.Renderer.Blocks do
     %{
       "fields" =>
         Enum.map(facts, fn {label, value} ->
-          %{"text" => "*#{heading(label)}*\n#{fact_markdown(value)}", "type" => "mrkdwn"}
+          %{"text" => field_text("*#{heading(label)}*\n", value), "type" => "mrkdwn"}
         end),
       "type" => "section"
     }
+  end
+
+  # Slack refuses a message with a field over 2,000 characters. A list shows
+  # the values that fit and says how many more there are: an environment's
+  # every repository went into one field, and enough of them made a channel's
+  # settings unpostable (2026-10-04 review).
+  defp field_text(heading, values) when is_list(values) do
+    lines = Enum.map(values, &fact_markdown/1)
+
+    if String.length(heading <> Enum.join(lines, "\n")) <= @maximum_field_characters do
+      heading <> Enum.join(lines, "\n")
+    else
+      shown = fitting_lines(lines, heading, @maximum_field_characters - 20)
+      heading <> Enum.join(shown, "\n") <> "\nand #{length(lines) - length(shown)} more"
+    end
+  end
+
+  defp field_text(heading, value),
+    do: truncate(heading <> fact_markdown(value), @maximum_field_characters)
+
+  defp fitting_lines(lines, heading, room) do
+    lines
+    |> Enum.reduce_while({[], String.length(heading)}, fn line, {shown, used} ->
+      used = used + String.length(line) + 1
+      if used <= room, do: {:cont, {[line | shown], used}}, else: {:halt, {shown, used}}
+    end)
+    |> elem(0)
+    |> Enum.reverse()
   end
 
   # Fact values are escaped text unless the host typed them: a repository link,
@@ -180,16 +282,19 @@ defmodule Ryker.Slack.Renderer.Blocks do
 
   def plain_text(text), do: %{"emoji" => true, "text" => text, "type" => "plain_text"}
 
+  # Slack refuses a whole message over one dialog field too long: a title of
+  # 100 characters, text of 300, buttons of 30. Start task named a repository
+  # of up to 256 characters inside its 300 (2026-10-04 review).
   def button(action_id, label, value, style, title, confirmation, confirm_label) do
     %{
       "action_id" => action_id,
       "confirm" => %{
-        "confirm" => plain_text(confirm_label),
+        "confirm" => plain_text(truncate(confirm_label, 30)),
         "deny" => plain_text("Cancel"),
-        "text" => plain_text(confirmation),
-        "title" => plain_text(title)
+        "text" => plain_text(truncate(confirmation, 300)),
+        "title" => plain_text(truncate(title, 100))
       },
-      "text" => plain_text(label),
+      "text" => plain_text(truncate(label, @maximum_button_characters)),
       "type" => "button",
       "value" => value
     }

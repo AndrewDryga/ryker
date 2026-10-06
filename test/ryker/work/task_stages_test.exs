@@ -168,6 +168,21 @@ defmodule Ryker.Work.TaskStagesTest do
          },
          plan: plan([goal("drain", "implementation", "completed")])
        ), ~w(completed completed completed completed completed completed stopped)},
+      # Ryker stops following a pull request at its deadline; the row kept
+      # saying "your turn" over a state nobody was checking (2026-10-04 review).
+      {"no longer followed",
+       facts(
+         episode: %Episode{state: :complete, owner_kind: :turn},
+         turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
+         publication: published(),
+         followup: %Followup{
+           pr_state: "expired",
+           checks_state: "passing",
+           checks_total: 8,
+           checks_passed: 8
+         },
+         plan: plan([goal("drain", "implementation", "completed")])
+       ), ~w(completed completed completed completed completed completed unknown)},
       {"candidate discarded",
        facts(
          episode: %Episode{state: :complete, owner_kind: :turn},

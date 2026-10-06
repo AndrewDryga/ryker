@@ -20,7 +20,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   @task_statuses ~w(queued working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
   # Every key a task card may carry. The function head requires all but the
   # optional links, the request and the resume reference.
-  @task_fields ~w(action_needed confirmed_at confirmed_by controls episode_state publication question_url repository repository_url request resume_ref session_generation stages status summary task_ref title ui_revision updated_at work_state)
+  @task_fields ~w(action_needed controls publication question_url repository repository_url request resume_ref stages status summary task_ref title ui_revision updated_at)
   # The work document is shared with the control-plane card, which owns diff
   # reading. `view_diff` stays a valid document control there and never becomes
   # a Slack control: Slack links out and never pages a patch.
@@ -34,16 +34,12 @@ defmodule Ryker.Slack.Renderer.WorkCards do
           "action_needed" => action_needed,
           "alert" => alert,
           "controls" => controls,
-          "episode_state" => episode_state,
           "goals" => goals,
           "opened_at" => opened_at,
           "opened_by" => opened_by,
           "repository" => repository,
           "room_ref" => room_ref,
-          "session_generation" => session_generation,
-          "severity" => severity,
-          "signals" => signals,
-          "source" => source,
+          "source_channel_ref" => source_channel_ref,
           "status" => status,
           "summary" => summary,
           "title" => title,
@@ -51,53 +47,44 @@ defmodule Ryker.Slack.Renderer.WorkCards do
           "updated_at" => updated_at
         } = room
       )
-      when map_size(room) == 18 and is_map(source) and status in @incident_statuses do
+      when map_size(room) == 14 and status in @incident_statuses do
     with :ok <- incident_reference(room_ref),
          :ok <- bounded_text(opened_by, 1_024),
-         :ok <- bounded_text(repository, 256),
+         :ok <- optional_bounded_text(repository, 256),
          :ok <- bounded_text(title, 200),
          :ok <- bounded_text(summary, 2_000),
-         :ok <- bounded_text(severity, 120),
          :ok <- optional_bounded_text(action_needed, 2_000),
-         :ok <- bounded_text(episode_state, 120),
-         :ok <- incident_source(source),
+         true <- slack_reference?(source_channel_ref),
          :ok <- incident_alert(alert),
-         :ok <- incident_signals(signals),
          :ok <- incident_goals(goals),
-         :ok <- incident_generation(session_generation),
          :ok <- work_controls(controls),
          # An incident card carries no recovery fingerprint to resume against.
          :ok <- resume_reference(nil, controls),
          :ok <- positive_integer(ui_revision),
          :ok <- iso8601(opened_at),
          :ok <- iso8601(updated_at) do
-      short = room_ref |> String.split(":") |> List.last() |> String.slice(0, 8)
       label = incident_status_label(status)
-      signal_text = incident_signal_text(signals)
 
-      session_text =
-        if session_generation, do: Integer.to_string(session_generation), else: "pending"
-
+      # The title first, as on a task card: Slack cuts a notification short.
       text =
-        "Incident #{short}: #{escape(title)}. #{label}. #{escape(summary)}" <>
-          action_needed_text(action_needed)
+        "#{escape(title)}: #{label}. #{escape(summary)}" <> action_needed_text(action_needed)
 
+      # Who opened it, from where and when, in Slack's own mentions and dates. The
+      # card printed the source's channel and message ids, the request's state
+      # name, the session number, the room's id, "Severity: not supplied" on every
+      # card and a footer about "the durable status anchor" (2026-10-04 review).
       blocks =
         [
           section("*Incident · #{escape(title)}*\n_Status: #{escape(label)}_"),
           section(escape(summary)),
-          section(
-            "Severity: *#{escape(severity)}* · Signals: #{escape(signal_text)}\nRepository: `#{escape(repository)}` · Episode: `#{escape(episode_state)}` · Session: `#{session_text}`"
-          ),
           incident_alert_block(alert),
           incident_goals_block(goals),
           incident_action_block(action_needed),
+          if(repository, do: fact_fields([{"Repository", %{"ref" => repository, "url" => nil}}])),
           work_controls_block(room_ref, controls, :incident, nil),
-          section(
-            "Source: channel `#{escape(source["channel_ref"])}` · message `#{escape(source["message_ref"])}`#{incident_thread(source["thread_ref"])}\nOpened by: `#{escape(opened_by)}` · Incident: `#{escape(short)}`"
-          ),
-          section(
-            "_Opened #{escape(opened_at)} · Updated #{escape(updated_at)}. This pinned card is the durable status anchor; the linked episode owns the work and authority._"
+          context(
+            "Opened by #{opener(opened_by)} from <##{source_channel_ref}> · " <>
+              "#{slack_date(opened_at)} · Updated #{slack_date(updated_at)}"
           )
         ]
         |> Enum.reject(&is_nil/1)
@@ -109,6 +96,13 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   end
 
   def incident_room(_room), do: {:error, {:invalid_slack_render, :incident_room}}
+
+  defp opener("slack:user:" <> user_ref) do
+    if slack_reference?(user_ref), do: mention(user_ref), else: "a teammate"
+  end
+
+  defp opener("slack:app:" <> _app_ref), do: "an alert"
+  defp opener(_actor_ref), do: "Ryker"
 
   # "What have we actually established" is the whole question on an incident
   # card, so it lists each goal with where it stands, bounded, in the order the
@@ -131,21 +125,16 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   def task_card(
         %{
           "action_needed" => action_needed,
-          "confirmed_at" => confirmed_at,
-          "confirmed_by" => confirmed_by,
           "controls" => controls,
-          "episode_state" => episode_state,
           "publication" => publication,
           "repository" => repository,
-          "session_generation" => session_generation,
           "stages" => _stages,
           "status" => status,
           "summary" => summary,
           "task_ref" => task_ref,
           "title" => title,
           "ui_revision" => ui_revision,
-          "updated_at" => updated_at,
-          "work_state" => work_state
+          "updated_at" => updated_at
         } = task
       )
       when status in @task_statuses do
@@ -156,18 +145,14 @@ defmodule Ryker.Slack.Renderer.WorkCards do
          :ok <- resume_reference(task["resume_ref"], controls),
          true <- TaskCardDetails.valid?(task),
          :ok <- task_reference(task_ref),
-         :ok <- bounded_text(confirmed_by, 1_024),
-         :ok <- bounded_text(episode_state, 120),
          :ok <- bounded_text(repository, 256),
          :ok <- bounded_text(summary, 2_000),
          :ok <- bounded_text(title, 200),
          :ok <- optional_bounded_text(action_needed, 2_000),
-         :ok <- optional_bounded_text(work_state, 120),
          :ok <- optional_https_url(repository_url),
-         :ok <- incident_generation(session_generation),
+         :ok <- optional_https_url(task["question_url"]),
          :ok <- TaskPublication.validate(publication),
          :ok <- positive_integer(ui_revision),
-         :ok <- iso8601(confirmed_at),
          :ok <- iso8601(updated_at) do
       label = task_status_label(status)
 
@@ -188,7 +173,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
            [fact_fields([{"Repository", %{"ref" => repository, "url" => repository_url}}])] ++
            publication_blocks ++
            [
-             incident_action_block(action_needed),
+             task_action_block(action_needed, task["question_url"]),
              controls_block,
              context("_Updated #{display_time(updated_at)}_")
            ])
@@ -400,19 +385,21 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   defp incident_action_block(nil), do: nil
   defp incident_action_block(value), do: section(":warning: *Action needed*\n#{escape(value)}")
 
+  # The question a task waits on, with a link to where it was asked: the card
+  # worked the link out and never showed it (2026-10-04 review).
+  defp task_action_block(value, nil), do: incident_action_block(value)
+  defp task_action_block(nil, _question_url), do: nil
+
+  defp task_action_block(value, question_url),
+    do:
+      section(
+        ":warning: *Action needed*\n#{escape(value)}\n#{link(question_url, "Open the question")}"
+      )
+
   # Slack reads the notification line as markup too, so it escapes the same
   # values the blocks do.
   defp action_needed_text(nil), do: ""
   defp action_needed_text(value), do: " Action needed: #{escape(value)}"
-
-  defp incident_signals(%{"firing" => firing, "total" => total} = signals)
-       when map_size(signals) == 2 do
-    if Enum.all?([firing, total], &(is_nil(&1) or (is_integer(&1) and &1 >= 0))),
-      do: :ok,
-      else: {:error, :invalid_incident_signals}
-  end
-
-  defp incident_signals(_signals), do: {:error, :invalid_incident_signals}
 
   defp incident_goals(goals) when is_list(goals) and length(goals) <= @incident_goals do
     if Enum.all?(goals, &incident_goal?/1), do: :ok, else: {:error, :invalid_incident_goals}
@@ -429,33 +416,6 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   end
 
   defp incident_goal?(_goal), do: false
-
-  defp incident_signal_text(%{"firing" => nil, "total" => nil}), do: "not supplied"
-
-  defp incident_signal_text(%{"firing" => firing, "total" => total}),
-    do: "#{firing || 0} firing / #{total || 0} total"
-
-  defp incident_generation(nil), do: :ok
-  defp incident_generation(value), do: positive_integer(value)
-
-  defp incident_thread(nil), do: ""
-  defp incident_thread(value), do: " · thread `#{escape(value)}`"
-
-  defp incident_source(
-         %{
-           "channel_ref" => channel_ref,
-           "message_ref" => message_ref,
-           "thread_ref" => thread_ref
-         } = source
-       )
-       when map_size(source) == 3 do
-    with :ok <- bounded_text(channel_ref, 256),
-         :ok <- bounded_text(message_ref, 1_024) do
-      optional_bounded_text(thread_ref, 1_024)
-    end
-  end
-
-  defp incident_source(_source), do: {:error, :invalid_incident_source}
 
   defp incident_reference(value) do
     if is_binary(value) and Regex.match?(~r/\Aincident-room:[0-9a-f-]{36}\z/, value),

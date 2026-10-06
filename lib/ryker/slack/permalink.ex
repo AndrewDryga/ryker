@@ -9,7 +9,9 @@ defmodule Ryker.Slack.Permalink do
   nothing rather than linking nowhere.
   """
 
-  @conversation ~r/\Aslack:T[A-Z0-9]{1,20}:(C[A-Z0-9]{1,20})\z/
+  # Public and private channels and direct messages: only public channels'
+  # ids matched until 2026-10-06 (2026-10-04 review).
+  @conversation ~r/\Aslack:T[A-Z0-9]{1,20}:([CGD][A-Z0-9]{1,20})\z/
   @message ~r/\A\d{10}\.\d{6}\z/
   @origin ~r/\Ahttps:\/\/[a-z0-9-]{1,64}\.slack\.com\/?\z/
 

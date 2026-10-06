@@ -167,6 +167,34 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert timeline =~ "<!date^"
   end
 
+  # The handoff said "Draft PR #91 · open" after a person had merged it on
+  # GitHub, and the timeline listed it as opened and nothing more (2026-10-04
+  # review). What its follow-up last saw is what the views say.
+  test "a task's views say a pull request was merged or closed on GitHub" do
+    for {state, words} <- [{"merged", "merged"}, {"closed", "closed without merging"}] do
+      fixture =
+        PublicationFixture.published!("views-#{state}", conversation_ref: "slack:T123:C456")
+
+      card = publication_task_card!(fixture.publication, "views-#{state}")
+
+      Repo.update_all(
+        from(followup in Followup, where: followup.publication_id == ^fixture.publication.id),
+        set: [pr_state: state]
+      )
+
+      target = %{
+        conversation_ref: "slack:T123:C456",
+        message_ref: card.message_ref,
+        thread_ref: card.thread_ref,
+        transport: "slack"
+      }
+
+      assert {:ok, %{"message" => handoff}} = WorkRecord.build(card.ref, target, :handoff)
+      assert handoff =~ "PR <https://github.com/acme/ryker/pull/91|#91> · #{words}"
+      refute handoff =~ "· open"
+    end
+  end
+
   test "the exact task card approves only its reviewed publication" do
     fixture =
       PublicationFixture.published!("task-card-publish", conversation_ref: "slack:T123:C456")

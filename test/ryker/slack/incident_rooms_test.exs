@@ -26,6 +26,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     IncidentRooms,
     IncidentRoomWorker,
     MembershipTransition,
+    Renderer,
     Runtime,
     WorkRecord,
     WorkTarget
@@ -361,7 +362,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert room.channel_ref == "CINCIDENT"
     assert room.root_message_ref == "1787832001.000200"
     assert room.root_card_fingerprint =~ ~r/\A[0-9a-f]{64}\z/
-    assert room.root_card_ui_revision == 2
+    assert room.root_card_ui_revision == 3
     assert room.episode_id
     assert room.audience_prepared_at
     assert room.topic_prepared_at
@@ -442,8 +443,8 @@ defmodule Ryker.Slack.IncidentRoomsTest do
            ] = Agent.get(agent, &Map.get(&1, :updates, []))
 
     assert updated_root["status"] == "investigating"
-    assert updated_root["episode_state"] == "working"
-    assert updated_root["session_generation"] == 1
+    # What Slack is sent is what the renderer accepts.
+    assert {:ok, _rendered} = Renderer.render(%{"incident_room" => updated_root})
 
     assert updated_root["controls"] == [
              "close",
@@ -597,6 +598,11 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
     room = Repo.get_by!(IncidentRoom, ref: room_ref)
     assert %Session{repository_ref: nil} = Repo.get_by!(Session, episode_id: room.episode_id)
+
+    # Its pinned card renders: the card required a repository and refused one
+    # without (2026-10-06).
+    assert {:ok, card} = IncidentRoomCard.build(room)
+    assert {:ok, _rendered} = Renderer.render(card.document)
   end
 
   # A channel's room audience named one person who had since left the
@@ -759,6 +765,32 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     refute_received {:incident_room_updated, _room_id}
     refute_received {:episode_updated, _episode_id}
+  end
+
+  # The pinned card printed a blocked turn's saved error as it was stored, a
+  # code and whatever the worker had said, in the room everyone reads
+  # (2026-10-04 review). It says what Ryker can tell in words, and where the
+  # rest is written.
+  test "a blocked investigation's card says what stopped it in words, never its saved code" do
+    room = ready_room!("card-blocked")
+    assert {:ok, claim} = Custody.claim_next("incident-card:blocked", 60, :work)
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id),
+      set: [
+        status: :blocked,
+        last_error_code: "work_execution_failed",
+        last_error_detail: "work_execution_failed: {:work_execution_failed, :unknown}",
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil,
+        next_attempt_at: nil
+      ]
+    )
+
+    assert {:ok, projection} = IncidentRoomCard.build(Repo.get!(IncidentRoom, room.room.id))
+    action = projection.document["incident_room"]["action_needed"]
+    refute action =~ "work_execution"
+    assert action =~ "needs a person"
   end
 
   # Every routine check of a ready room's card took an attempt and gave none
@@ -2326,7 +2358,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     assert {:ok, provisioning} = IncidentRoomCard.build(%{event_wait.room | episode_id: nil})
     assert provisioning.document["incident_room"]["status"] == "provisioning"
-    assert provisioning.document["incident_room"]["episode_state"] == "provisioning"
+    assert {:ok, _rendered} = Renderer.render(provisioning.document)
 
     for {state, expected} <- [
           {:archived, "Unarchive it"},

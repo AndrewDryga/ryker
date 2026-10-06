@@ -167,7 +167,7 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
     assert {:ok, projection} = TaskCardProjection.build(fixture.card)
     action = projection.document["task_card"]["action_needed"]
     refute action =~ @captured["arguments"]["observation"]
-    assert action =~ "operator attention"
+    assert action =~ "needs a person"
   end
 
   defp assert_neutral(document) do

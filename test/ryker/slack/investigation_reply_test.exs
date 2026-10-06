@@ -153,7 +153,11 @@ defmodule Ryker.Slack.InvestigationReplyTest do
     assert {:ok, rendered} =
              Renderer.render(%{"message" => "Plan reviewed.", "records" => records})
 
-    assert inspect(rendered) =~ "Plan &#124; &lt;!channel&gt;"
+    # Slack decodes only &amp;, &lt; and &gt;, so a "|" written as &#124;
+    # showed as "&#124;" (2026-10-04 review). It reads as the divides sign,
+    # which ends nothing.
+    assert inspect(rendered) =~ "Plan ∣ &lt;!channel&gt;"
+    refute inspect(rendered) =~ "&#124;"
     refute inspect(rendered) =~ "<!channel>"
   end
 
@@ -205,7 +209,9 @@ defmodule Ryker.Slack.InvestigationReplyTest do
                    ReplyRecords.enrich([%{record | "payload" => payload}], fixture["receipts"])
                })
 
-      if character == "|", do: refute(inspect(rendered["blocks"]) =~ "Sources")
+      # 500 pipes read as 500 divides signs; written as &#124; they were 3,000
+      # characters and the source was left off the reply.
+      if character == "|", do: assert(inspect(rendered["blocks"]) =~ "Sources")
 
       for %{"type" => "context", "elements" => elements} <- rendered["blocks"],
           element <- elements do

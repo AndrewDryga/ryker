@@ -12,7 +12,7 @@ defmodule Ryker.Slack.TaskCardDetails do
   """
 
   import Ryker.Slack.Renderer.Blocks,
-    only: [escape: 1, expanded_section: 1, section: 1, truncate: 2]
+    only: [escape: 1, expanded_section: 1, link_label: 1, sections: 1, sections: 2, truncate: 2]
 
   alias Ryker.Records.InvestigationPayload
   alias Ryker.Work.TaskStages
@@ -22,7 +22,6 @@ defmodule Ryker.Slack.TaskCardDetails do
   @stage_keys ~w(current detail reason stage state subtasks subtasks_total url your_turn)
   @subtask_keys ~w(current detail id outcome state)
   @maximum_subtasks 6
-  @maximum_section_characters 3_000
   # As long as a task offer's request can be (`Ryker.Records.RecordPayload`).
   @maximum_request_characters 12_000
 
@@ -32,35 +31,16 @@ defmodule Ryker.Slack.TaskCardDetails do
   def blocks(task), do: request(task) ++ progress(task["stages"])
 
   defp request(%{"request" => request, "title" => title})
-       when is_binary(request) and request != title do
-    lines = request |> escape() |> String.split("\n") |> Enum.flat_map(&pieces/1)
-    sections(["*The request*" | lines], &section/1)
-  end
+       when is_binary(request) and request != title,
+       do: sections("*The request*\n" <> escape(request))
 
   defp request(_task), do: []
 
   defp progress(stages) do
-    ["*Progress*" | Enum.flat_map(stages, &stage_lines/1)] |> sections(&expanded_section/1)
+    ["*Progress*" | Enum.flat_map(stages, &stage_lines/1)]
+    |> Enum.join("\n")
+    |> sections(&expanded_section/1)
   end
-
-  # A line longer than one section is cut at word boundaries into lines that
-  # fit, so no part of the request is lost to a section's limit.
-  defp pieces(line) do
-    if String.length(line) <= @maximum_section_characters - 200,
-      do: [line],
-      else: line |> String.split(" ") |> Enum.chunk_while("", &fit/2, &done/1)
-  end
-
-  defp fit(word, ""), do: {:cont, word}
-
-  defp fit(word, line) do
-    if String.length(line) + 1 + String.length(word) > @maximum_section_characters - 200,
-      do: {:cont, line, word},
-      else: {:cont, line <> " " <> word}
-  end
-
-  defp done(""), do: {:cont, ""}
-  defp done(line), do: {:cont, line, ""}
 
   defp stage_lines(stage) do
     subtasks = Enum.map(stage["subtasks"], &subtask_line/1)
@@ -111,7 +91,7 @@ defmodule Ryker.Slack.TaskCardDetails do
   end
 
   defp link(text, nil), do: text
-  defp link(text, url), do: "<#{url}|#{String.replace(text, "|", "&#124;")}>"
+  defp link(text, url), do: "<#{url}|#{link_label(text)}>"
 
   defp handoff(text, true), do: text <> " ← 🙋 your turn"
   defp handoff(text, _your_turn), do: text
@@ -121,19 +101,6 @@ defmodule Ryker.Slack.TaskCardDetails do
 
   # Slack bounds one section; text splits on whole lines so no line, and no
   # stage row, is ever cut in half.
-  defp sections(lines, block) do
-    lines
-    |> Enum.reduce([[]], fn line, [current | rest] ->
-      if current != [] and length_of(current ++ [line]) > @maximum_section_characters,
-        do: [[line], current | rest],
-        else: [current ++ [line] | rest]
-    end)
-    |> Enum.reverse()
-    |> Enum.map(&block.(Enum.join(&1, "\n")))
-  end
-
-  defp length_of(lines), do: lines |> Enum.join("\n") |> String.length()
-
   defp stages?(stages) when is_list(stages) do
     Enum.map(stages, & &1["stage"]) == TaskStages.stages() and Enum.all?(stages, &stage?/1)
   end

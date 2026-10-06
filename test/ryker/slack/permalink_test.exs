@@ -20,6 +20,18 @@ defmodule Ryker.Slack.PermalinkTest do
            ) == "https://emisar.slack.com/archives/C0BLU1GACKC/p1789161922548889"
   end
 
+  # Only public channels' ids matched, so a question asked in a private
+  # channel or a direct message never got a link (2026-10-04 review).
+  test "a private channel's or a direct message's message links like any other" do
+    for channel <- ["G0BLU1GACKC", "D0BLU1GACKC"] do
+      assert Permalink.message_url(
+               "https://emisar.slack.com",
+               "slack:T0BHXKZJVDX:#{channel}",
+               "1789161922.548889"
+             ) == "https://emisar.slack.com/archives/#{channel}/p1789161922548889"
+    end
+  end
+
   test "anything the host cannot vouch for yields no link at all" do
     for {origin, conversation, message} <- [
           {nil, "slack:T1:C1", "1789161922.548889"},

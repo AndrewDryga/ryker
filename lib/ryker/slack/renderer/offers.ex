@@ -123,8 +123,9 @@ defmodule Ryker.Slack.Renderer.Offers do
     do: {:error, :invalid_incident_room_presentation}
 
   defp engineering_button(ref, repository) do
+    # The repository last, where a name too long for the dialog loses only its end.
     confirmation =
-      "Start this task for #{repository} in an isolated working copy where Ryker can edit, test, and commit?"
+      "Start this task? Ryker edits, tests and commits in an isolated working copy of #{repository}."
 
     button(
       "ryker_start_engineering_task",
@@ -165,21 +166,21 @@ defmodule Ryker.Slack.Renderer.Offers do
     summary =
       "*#{escape(title)}*\n#{escape(body)}\n_No branch or pull request has been published._"
 
-    [
-      section(summary),
-      actions(
-        ref,
-        button(
-          "ryker_review_publication",
-          "Review changes",
+    sections(summary) ++
+      [
+        actions(
           ref,
-          "primary",
-          "Review these changes",
-          "Ryker checks the committed changes without changing anything. Nothing is published.",
-          "Review"
+          button(
+            "ryker_review_publication",
+            "Review changes",
+            ref,
+            "primary",
+            "Review these changes",
+            "Ryker checks the committed changes without changing anything. Nothing is published.",
+            "Review"
+          )
         )
-      )
-    ]
+      ]
   end
 
   defp schedule_offer(ref, payload) do
@@ -204,21 +205,21 @@ defmodule Ryker.Slack.Renderer.Offers do
       ]
       |> compact_lines()
 
-    [
-      section(summary),
-      actions(
-        ref,
-        button(
-          "ryker_confirm_schedule",
-          "Schedule this",
+    sections(summary) ++
+      [
+        actions(
           ref,
-          "primary",
-          "Create this schedule",
-          "Ryker starts each run on its own, where and with the access this card shows. You can pause or delete it later.",
-          "Schedule this"
+          button(
+            "ryker_confirm_schedule",
+            "Schedule this",
+            ref,
+            "primary",
+            "Create this schedule",
+            "Ryker starts each run on its own, where and with the access this card shows. You can pause or delete it later.",
+            "Schedule this"
+          )
         )
-      )
-    ]
+      ]
   end
 
   # A change is said in words: what it changes, with what it was, and the
@@ -343,22 +344,22 @@ defmodule Ryker.Slack.Renderer.Offers do
       ]
       |> compact_lines()
 
-    [
-      section(summary),
-      fact_fields([{"Where", post_place(payload)}]),
-      actions(
-        ref,
-        button(
-          "ryker_confirm_slack_post",
-          "Post this message",
+    sections(summary) ++
+      [
+        fact_fields([{"Where", post_place(payload)}]),
+        actions(
           ref,
-          "primary",
-          "Post this message",
-          "Ryker posts this message as written, where this card says.",
-          "Post message"
+          button(
+            "ryker_confirm_slack_post",
+            "Post this message",
+            ref,
+            "primary",
+            "Post this message",
+            "Ryker posts this message as written, where this card says.",
+            "Post message"
+          )
         )
-      )
-    ]
+      ]
   end
 
   def slack_post_offer(_ref, payload, "confirmed") do
@@ -400,14 +401,14 @@ defmodule Ryker.Slack.Renderer.Offers do
       ]
       |> compact_lines()
 
-    [
-      section(summary),
-      facts([
-        {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
-        {"Expires", OfferWords.duration(payload["expires_in"])}
-      ]),
-      behavior_actions(ref, "Confirm preference")
-    ]
+    (sections(summary) ++
+       [
+         facts([
+           {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
+           {"Expires", OfferWords.duration(payload["expires_in"])}
+         ]),
+         behavior_actions(ref, "Confirm preference")
+       ])
     |> Enum.reject(&is_nil/1)
   end
 
@@ -420,15 +421,15 @@ defmodule Ryker.Slack.Renderer.Offers do
       ]
       |> compact_lines()
 
-    [
-      section(summary),
-      facts([
-        {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
-        {"Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"])},
-        {"Expires", OfferWords.duration(payload["expires_in"])}
-      ]),
-      behavior_actions(ref, "Remember this")
-    ]
+    (sections(summary) ++
+       [
+         facts([
+           {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
+           {"Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"])},
+           {"Expires", OfferWords.duration(payload["expires_in"])}
+         ]),
+         behavior_actions(ref, "Remember this")
+       ])
     |> Enum.reject(&is_nil/1)
   end
 
@@ -441,17 +442,17 @@ defmodule Ryker.Slack.Renderer.Offers do
       ]
       |> compact_lines()
 
-    [
-      section(summary),
-      facts([
-        {"Listens to", OfferWords.listens_to(payload)},
-        {"Takes", OfferWords.only_when(payload["filter"])},
-        {"Posts in", channel(payload["delivery_channel"])},
-        {"Repository", payload["repository"]},
-        {"Stops", OfferWords.stamp(payload["expires_at"]) || "When you turn it off"}
-      ]),
-      behavior_actions(ref, "Enable automation")
-    ]
+    (sections(summary) ++
+       [
+         facts([
+           {"Listens to", OfferWords.listens_to(payload)},
+           {"Takes", OfferWords.only_when(payload["filter"])},
+           {"Posts in", channel(payload["delivery_channel"])},
+           {"Repository", payload["repository"]},
+           {"Stops", OfferWords.stamp(payload["expires_at"]) || "When you turn it off"}
+         ]),
+         behavior_actions(ref, "Enable automation")
+       ])
     |> Enum.reject(&is_nil/1)
   end
 
@@ -464,26 +465,26 @@ defmodule Ryker.Slack.Renderer.Offers do
       ]
       |> compact_lines()
 
-    [
-      section(summary),
-      facts([
-        {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
-        {"Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"])},
-        {"Expires", OfferWords.duration(payload["expires_in"])}
-      ]),
-      actions(
-        ref,
-        button(
-          "ryker_confirm_memory",
-          "Remember this",
-          ref,
-          "primary",
-          "Remember this",
-          "Ryker saves it as written, for the people and the time this card shows.",
-          "Remember this"
-        )
-      )
-    ]
+    (sections(summary) ++
+       [
+         facts([
+           {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
+           {"Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"])},
+           {"Expires", OfferWords.duration(payload["expires_in"])}
+         ]),
+         actions(
+           ref,
+           button(
+             "ryker_confirm_memory",
+             "Remember this",
+             ref,
+             "primary",
+             "Remember this",
+             "Ryker saves it as written, for the people and the time this card shows.",
+             "Remember this"
+           )
+         )
+       ])
     |> Enum.reject(&is_nil/1)
   end
 

@@ -116,23 +116,22 @@ defmodule Ryker.Slack.TaskCardProjection do
 
     progress = Enum.map(snapshot.progress_records, &progress_detail/1)
     fix = snapshot.automatic_fix
-    attention = if fix_line(fix, :fixing), do: nil, else: publication
+    settled? = settled_on_github?(snapshot.followup)
+    attention = if fix_line(fix, :fixing) || settled?, do: nil, else: publication
+    # A settled pull request leaves no prepared change waiting to be reviewed.
+    offer = if settled?, do: nil, else: publication_offer
 
     projection = %{
       "action_needed" =>
         held_work(snapshot.workspace_hold, publication) || fix_line(fix, :stopped) ||
           action_needed(episode, turn, records, attention) ||
-          unstarted_review(episode, publication, publication_offer),
-      "confirmed_at" => DateTime.to_iso8601(record.confirmed_at),
-      "confirmed_by" => record.confirmed_by_actor_ref,
+          unstarted_review(episode, publication, offer),
       "controls" =>
         controls(record, episode, turn, session, publication, snapshot.workspace_hold),
-      "episode_state" => Atom.to_string(episode.state),
       "publication" => publication(publication, snapshot.followup, fix),
       "request" => record.payload["prompt"] |> request_text() |> compact(12_000),
       "repository" => repository_name(record.payload["repository"]),
       "repository_url" => repository_url(publication),
-      "session_generation" => session && session.generation,
       "stages" =>
         TaskStages.build(%{
           episode: episode,
@@ -145,14 +144,13 @@ defmodule Ryker.Slack.TaskCardProjection do
           workspace_hold: snapshot.workspace_hold
         }),
       "question_url" => question_url(episode),
-      "status" => status(episode, turn, attention, publication_offer),
+      "status" => status(episode, turn, attention, offer),
       "summary" => summary(record, progress),
       "task_ref" => task_ref,
       "title" => record.payload["title"],
       "ui_revision" => @ui_revision,
       "updated_at" => DateTime.to_iso8601(updated_at(episode, publication)),
-      "resume_ref" => resume_ref(task_ref, turn, snapshot.workspace_hold),
-      "work_state" => turn && Atom.to_string(turn.status)
+      "resume_ref" => resume_ref(task_ref, turn, snapshot.workspace_hold)
     }
 
     document = %{"task_card" => projection}
@@ -366,7 +364,7 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp public_error(%Publication{last_error_code: code}, _turn, _hold)
        when is_binary(code) and code not in @in_flight,
-       do: attention("Draft pull-request work needs operator attention", code)
+       do: attention("Making the draft pull request stopped and needs a person")
 
   # The generic notice keeps untrusted error text out of Slack, and for a task
   # that never started it was also everything the card ever said — above a
@@ -378,7 +376,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp public_error(_publication, %Turn{status: :blocked} = turn, _hold) do
     case FailureCause.explain(turn.last_error_detail) do
       %{cause: cause, next_step: next_step} -> compact(cause <> "\n" <> next_step, 2_000)
-      nil -> attention("Task work is blocked and needs operator attention", turn.last_error_code)
+      nil -> attention("Task work stopped and needs a person")
     end
   end
 
@@ -386,12 +384,10 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   # "Open the episode for details" pointed a Slack reader at a page bound to
   # loopback, which their client cannot reach; it is the dead end that hid a
-  # runner's question for two days. The worker's own sentence may be untrusted
-  # here, but the error *code* is ours, so it is the one fact that can travel.
-  defp attention(statement, code) when is_binary(code) and code != "",
-    do: "#{statement}: `#{code}`."
-
-  defp attention(statement, _code), do: "#{statement}; no cause was recorded."
+  # runner's question for two days. The worker's own sentence may be untrusted,
+  # and the card then printed Ryker's own error code, but a Slack card carries
+  # no codes (Andrew, 2026-09-30): it says where the cause is written.
+  defp attention(statement), do: "#{statement}. The cause is on Ryker's Failures page."
 
   defp sentence_list([only]), do: only
 
@@ -405,9 +401,7 @@ defmodule Ryker.Slack.TaskCardProjection do
 
     safe =
       task
-      |> Map.take(
-        ~w(confirmed_at confirmed_by episode_state session_generation status task_ref ui_revision updated_at work_state)
-      )
+      |> Map.take(~w(status task_ref ui_revision updated_at))
       |> Map.merge(%{
         "title" => "Engineering task",
         "summary" => "Task details are unavailable until their source context can be checked.",
@@ -698,7 +692,11 @@ defmodule Ryker.Slack.TaskCardProjection do
       "blocked_reason" => nil,
       "branch" => publication.branch_ref,
       "controls" =>
-        if(fix_line(fix, :fixing), do: ["discard"], else: publication_controls(publication)),
+        cond do
+          fix_line(fix, :fixing) -> ["discard"]
+          settled_on_github?(followup) -> ["open"]
+          true -> publication_controls(publication)
+        end,
       "discarded_reason" => discarded_reason(publication),
       "publication_ref" => publication.ref,
       "pull_request_number" => publication.pull_request_number,
@@ -713,6 +711,13 @@ defmodule Ryker.Slack.TaskCardProjection do
   # Only a person closes or merges a pull request on GitHub; its follow-up records which.
   defp pull_request_state(%Followup{pr_state: state}) when state in ~w(closed merged), do: state
   defp pull_request_state(_followup), do: nil
+
+  # What the task asked for is settled on GitHub, so the card asks nothing more
+  # of anyone and offers only the pull request. A merge moves its head, and the
+  # card said the head "changed outside this reviewed publication", asked for
+  # action and offered Update and Discard on a merged pull request (2026-10-04
+  # review).
+  defp settled_on_github?(followup), do: not is_nil(pull_request_state(followup))
 
   # Andrew, 2026-09-28: a change the trusted review refused for something the
   # task's own work can fix goes back to that work without a person, three

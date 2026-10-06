@@ -101,13 +101,17 @@ defmodule Ryker.Slack.RendererTest do
     refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
     assert inspect(rendered) =~ "Standing rule deleted"
 
-    # The offer payload alone no longer describes what was saved; a confirmed
-    # offer without its entity is an error, not a shorter card.
-    assert Renderer.render(%{
-             "message" => "Confirmation saved.",
-             "records" => [Map.delete(record, "presentation")]
-           }) ==
-             {:error, {:invalid_slack_render, :record}}
+    # The offer payload alone no longer describes what was saved, so a
+    # confirmed offer whose entity is gone says only that; it was an error,
+    # and the reply around it could never be repainted (2026-10-04 review).
+    assert {:ok, gone} =
+             Renderer.render(%{
+               "message" => "Confirmation saved.",
+               "records" => [Map.delete(record, "presentation")]
+             })
+
+    assert Jason.encode!(gone["blocks"]) =~ "was saved and has since been removed"
+    refute Jason.encode!(gone["blocks"]) =~ "ryker_delete_behavior"
 
     memory = %{
       "facts" => [
@@ -376,6 +380,69 @@ defmodule Ryker.Slack.RendererTest do
     forged = welcome.(%{production | "name" => "<!channel> *prod*"}, 2)
     refute forged =~ "<!channel>"
     assert forged =~ "&lt;!channel&gt;"
+  end
+
+  # A field holds 2,000 characters and Slack refuses a message with a longer
+  # one. The card listed every repository of the environment in one field, so
+  # an environment with a few dozen made the channel's settings unpostable
+  # (2026-10-04 review). The field shows what fits and how many more there are.
+  test "a channel's settings list as many repositories as fit and count the rest" do
+    # As many as an environment holds (`Ryker.Settings.Environment`), with names of real length.
+    repositories =
+      for index <- 1..33 do
+        name = "service-#{index}-backend-api"
+        %{"ref" => name, "url" => "https://github.com/acme-platform-engineering/#{name}"}
+      end
+
+    settings = put_in(settings_document(), ["environment", "repositories"], repositories)
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "channel_settings" => %{
+                 "audience" => "thread",
+                 "bot_user_ref" => "UBOT",
+                 "configuration_ref" => Ecto.UUID.generate(),
+                 "revision" => 3,
+                 "settings" => settings
+               }
+             })
+
+    fields = rendered["blocks"] |> Enum.flat_map(&(&1["fields"] || [])) |> Enum.map(& &1["text"])
+    assert Enum.all?(fields, &(String.length(&1) <= 2_000))
+
+    repositories = Enum.find(fields, &String.starts_with?(&1, "*Repositories*"))
+
+    assert repositories =~
+             "<https://github.com/acme-platform-engineering/service-1-backend-api|service-1-backend-api> · default"
+
+    [_, more] = Regex.run(~r/and (\d+) more\z/, repositories)
+    shown = length(Regex.scan(~r/\|service-\d+-backend-api>/, repositories))
+    assert shown + String.to_integer(more) == 33
+  end
+
+  # The welcome named every repository in one sentence, which a full
+  # environment pushed past a section's 3,000 characters, cutting a link
+  # (2026-10-04 review). It names ten and counts the rest.
+  test "a welcome names ten repositories and counts the rest" do
+    repositories =
+      for index <- 1..33 do
+        name = "service-#{index}-backend-api"
+        %{"ref" => name, "url" => "https://github.com/acme-platform-engineering/#{name}"}
+      end
+
+    settings = put_in(settings_document(), ["environment", "repositories"], repositories)
+    assert {:ok, rendered} = Renderer.render(welcome_document(Ecto.UUID.generate(), settings))
+
+    text =
+      rendered["blocks"]
+      |> Enum.filter(&(&1["type"] == "section" and is_map(&1["text"])))
+      |> Enum.map_join("\n", & &1["text"]["text"])
+
+    assert text =~
+             "|service-10-backend-api> and 23 more, changing only ones with read/write access"
+
+    refute text =~ "service-11-backend-api"
+    refute text =~ "…"
   end
 
   test "settings on request share the welcome's projection in both audiences" do
@@ -722,26 +789,84 @@ defmodule Ryker.Slack.RendererTest do
     refute inspect(rendered) =~ "Change the parser"
   end
 
+  # A confirmation dialog holds 300 characters and Slack refuses a message
+  # with a longer one. Start task named the repository, up to 256 characters,
+  # inside 95 of its own words, so a long repository name made the offer
+  # undeliverable (2026-10-04 review).
+  test "a button's confirmation stays within Slack's 300 characters whatever it names" do
+    repository = String.duplicate("platform-infrastructure-", 10) <> "core"
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "Ready.",
+               "records" => [
+                 %{
+                   "kind" => "task_offer",
+                   "payload" =>
+                     TaskOffer.payload(%{
+                       "kind" => "engineering",
+                       "prompt" => "Change it.",
+                       "repository" => repository,
+                       "title" => "Change it"
+                     }),
+                   "ref" => "record:task_offer:long-repository",
+                   "status" => "open"
+                 }
+               ]
+             })
+
+    confirmation =
+      rendered["blocks"]
+      |> Enum.find(&(&1["type"] == "actions"))
+      |> get_in(["elements", Access.at(0), "confirm", "text", "text"])
+
+    assert String.length(confirmation) <= 300
+
+    assert confirmation =~
+             "Start this task? Ryker edits, tests and commits in an isolated working copy of platform-"
+  end
+
+  # The card worked out a link to the question its task waits on and never
+  # showed it (2026-10-04 review).
+  test "a waiting task's card links the question it waits on" do
+    url = "https://acme.slack.com/archives/C456/p1787832000000100"
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "task_card" => %{
+                 "action_needed" => "Which deployment should I inspect?",
+                 "controls" => ["stop", "timeline"],
+                 "publication" => nil,
+                 "question_url" => url,
+                 "repository" => "ryker",
+                 "stages" => task_stages(),
+                 "status" => "waiting_for_input",
+                 "summary" => "Waiting for an answer.",
+                 "task_ref" => "task-card:question",
+                 "title" => "Inspect the deployment",
+                 "ui_revision" => 2,
+                 "updated_at" => "2026-08-28T12:01:00.000000Z"
+               }
+             })
+
+    assert Jason.encode!(rendered["blocks"]) =~ "<#{url}|Open the question>"
+  end
+
   test "renders a durable engineering task projection without model-owned controls" do
     assert {:ok, rendered} =
              Renderer.render(%{
                "task_card" => %{
                  "action_needed" => nil,
-                 "confirmed_at" => "2026-08-28T12:00:00.000000Z",
-                 "confirmed_by" => "slack:user:U123",
                  "controls" => ["stop", "view_diff", "close", "timeline", "evidence", "handoff"],
-                 "episode_state" => "working",
                  "publication" => nil,
                  "repository" => "ryker",
-                 "session_generation" => 1,
                  "stages" => task_stages(),
                  "status" => "working",
                  "summary" => "The parser fix is being validated.",
                  "task_ref" => "task-card:abc123",
                  "title" => "Fix parser retries",
                  "ui_revision" => 2,
-                 "updated_at" => "2026-08-28T12:01:00.000000Z",
-                 "work_state" => "pending"
+                 "updated_at" => "2026-08-28T12:01:00.000000Z"
                }
              })
 
@@ -798,41 +923,28 @@ defmodule Ryker.Slack.RendererTest do
 
     task = %{
       "action_needed" => nil,
-      "confirmed_at" => "2026-08-28T12:00:00.000000Z",
-      "confirmed_by" => "slack:user:U123",
       "controls" => ["stop", "view_diff", "close", "timeline", "evidence", "handoff"],
-      "episode_state" => "working",
       "publication" => nil,
       "repository" => "ryker",
-      "session_generation" => 1,
       "stages" => task_stages(),
       "status" => "working",
       "summary" => "The parser fix is being validated.",
       "task_ref" => "task-card:abc123",
       "title" => "Fix parser retries",
       "ui_revision" => 2,
-      "updated_at" => "2026-08-28T12:01:00.000000Z",
-      "work_state" => "pending"
+      "updated_at" => "2026-08-28T12:01:00.000000Z"
     }
 
     room = %{
       "action_needed" => nil,
       "alert" => nil,
       "controls" => ["stop", "view_diff", "close", "timeline", "evidence", "handoff"],
-      "episode_state" => "working",
       "goals" => [],
       "opened_at" => "2026-08-28T12:00:00.000000Z",
       "opened_by" => "slack:user:U123",
       "repository" => "ryker",
       "room_ref" => "incident-room:82208f8f-2ef4-4f1b-a011-626aabdc9342",
-      "session_generation" => 1,
-      "severity" => "not supplied",
-      "signals" => %{"firing" => nil, "total" => nil},
-      "source" => %{
-        "channel_ref" => "C123",
-        "message_ref" => "1787832000.000100",
-        "thread_ref" => nil
-      },
+      "source_channel_ref" => "C123",
       "status" => "investigating",
       "summary" => "Checking the production symptoms.",
       "title" => "Checkout errors",
@@ -1048,10 +1160,7 @@ defmodule Ryker.Slack.RendererTest do
   test "renders only publication actions valid for the durable task state" do
     task = %{
       "action_needed" => nil,
-      "confirmed_at" => "2026-08-28T12:00:00.000000Z",
-      "confirmed_by" => "slack:user:U123",
       "controls" => ["view_diff", "timeline", "evidence", "handoff"],
-      "episode_state" => "complete",
       "publication" => %{
         "automatic_fix" => nil,
         "blocked_reason" => nil,
@@ -1067,15 +1176,13 @@ defmodule Ryker.Slack.RendererTest do
         "unverified" => nil
       },
       "repository" => "ryker",
-      "session_generation" => 1,
       "stages" => task_stages(),
       "status" => "published",
       "summary" => "The reviewed change is available as a draft PR.",
       "task_ref" => "task-card:abc123",
       "title" => "Fix parser retries",
       "ui_revision" => 3,
-      "updated_at" => "2026-08-28T12:01:00.000000Z",
-      "work_state" => "settled"
+      "updated_at" => "2026-08-28T12:01:00.000000Z"
     }
 
     assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
@@ -1188,10 +1295,7 @@ defmodule Ryker.Slack.RendererTest do
   test "an opened draft names the check that never finished once, on its Self-review row" do
     task = %{
       "action_needed" => nil,
-      "confirmed_at" => "2026-08-28T12:00:00.000000Z",
-      "confirmed_by" => "slack:user:U123",
       "controls" => ["view_diff", "timeline", "evidence", "handoff"],
-      "episode_state" => "complete",
       "publication" => %{
         "automatic_fix" => nil,
         "blocked_reason" => nil,
@@ -1207,7 +1311,6 @@ defmodule Ryker.Slack.RendererTest do
         "unverified" => "The repository's checks couldn't start: docker: command not found."
       },
       "repository" => "ryker",
-      "session_generation" => 1,
       "stages" =>
         Enum.map(task_stages(), fn
           %{"stage" => "self_review"} = stage ->
@@ -1225,8 +1328,7 @@ defmodule Ryker.Slack.RendererTest do
       "task_ref" => "task-card:abc123",
       "title" => "Bump the hosted runner",
       "ui_revision" => 7,
-      "updated_at" => "2026-08-28T12:01:00.000000Z",
-      "work_state" => "settled"
+      "updated_at" => "2026-08-28T12:01:00.000000Z"
     }
 
     assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
@@ -1258,21 +1360,16 @@ defmodule Ryker.Slack.RendererTest do
   test "a work card offers recovery as a record control, never as a work button" do
     task = %{
       "action_needed" => "The worker finished, but I couldn't save its working copy.",
-      "confirmed_at" => "2026-08-28T12:00:00.000000Z",
-      "confirmed_by" => "slack:user:U123",
       "controls" => ["close", "timeline", "evidence", "handoff", "recovery"],
-      "episode_state" => "working",
       "publication" => nil,
       "repository" => "ryker",
-      "session_generation" => 1,
       "stages" => task_stages(),
       "status" => "action_required",
       "summary" => "The prepared change is saved but unrecovered.",
       "task_ref" => "task-card:abc123",
       "title" => "Bump the hosted runner",
       "ui_revision" => 7,
-      "updated_at" => "2026-08-28T12:01:00.000000Z",
-      "work_state" => "blocked"
+      "updated_at" => "2026-08-28T12:01:00.000000Z"
     }
 
     assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
@@ -1306,22 +1403,17 @@ defmodule Ryker.Slack.RendererTest do
 
     task = %{
       "action_needed" => "The operator stopped the current run.",
-      "confirmed_at" => "2026-08-28T12:00:00.000000Z",
-      "confirmed_by" => "slack:user:U123",
       "controls" => ["resume", "close", "timeline", "evidence", "handoff"],
-      "episode_state" => "working",
       "publication" => nil,
       "repository" => "ryker",
       "resume_ref" => "task-card:abc123|" <> fingerprint,
-      "session_generation" => 1,
       "stages" => task_stages(),
       "status" => "action_required",
       "summary" => "The run was stopped before it finished.",
       "task_ref" => "task-card:abc123",
       "title" => "Fix parser retries",
       "ui_revision" => 4,
-      "updated_at" => "2026-08-28T12:01:00.000000Z",
-      "work_state" => "blocked"
+      "updated_at" => "2026-08-28T12:01:00.000000Z"
     }
 
     assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
@@ -1369,19 +1461,11 @@ defmodule Ryker.Slack.RendererTest do
         "postmortem"
       ],
       "goals" => [],
-      "episode_state" => "working",
       "opened_at" => "2026-08-28T12:00:00.000000Z",
       "opened_by" => "slack:user:U123",
       "repository" => "ryker",
       "room_ref" => room_ref,
-      "session_generation" => 1,
-      "severity" => "not supplied",
-      "signals" => %{"firing" => nil, "total" => nil},
-      "source" => %{
-        "channel_ref" => "C123",
-        "message_ref" => "1787832000.000100",
-        "thread_ref" => nil
-      },
+      "source_channel_ref" => "C123",
       "status" => "investigating",
       "summary" => "Checking the production symptoms.",
       "title" => "Checkout errors",
@@ -1397,6 +1481,40 @@ defmodule Ryker.Slack.RendererTest do
 
     assert Renderer.render(%{"incident_room" => invented}) ==
              {:error, {:invalid_slack_render, :incident_room}}
+  end
+
+  # The pinned incident card printed Ryker's codes: the source channel's and
+  # message's ids, the request's state name, the session number, the room's
+  # id, "Severity: not supplied" on every card, and a footer about "the durable
+  # status anchor" (2026-10-04 review). A room opened where no repository is
+  # set up, possible since 2026-10-05, had no card at all: the repository was
+  # required.
+  test "an incident card reads in words, with or without a repository" do
+    for repository <- ["ryker", nil] do
+      room = %{incident_document("investigating") | "repository" => repository}
+      assert {:ok, rendered} = Renderer.render(%{"incident_room" => room})
+      json = Jason.encode!(rendered)
+
+      assert json =~ "Opened by <@U123> from <#C123>"
+      assert json =~ "<!date^"
+
+      for code <- [
+            "82208f8f",
+            "`C123`",
+            "1787832000.000100",
+            "slack:user",
+            "Episode",
+            "Session",
+            "Severity",
+            "not supplied",
+            "anchor"
+          ] do
+        refute json =~ code, "#{inspect(repository)}: #{code}"
+      end
+
+      assert String.starts_with?(rendered["text"], "Checkout errors: Investigating.")
+      assert json =~ "*Repository*" == not is_nil(repository)
+    end
   end
 
   # A resume button is only as safe as the recovery fingerprint it carries, and
@@ -1920,6 +2038,38 @@ defmodule Ryker.Slack.RendererTest do
              {:error, {:invalid_slack_render, :emisar_approval_status}}
   end
 
+  # A confirmed offer shows the entity it saved, and once retention had removed
+  # that entity the offer rendered as nothing at all, so the whole reply it sat
+  # in could never be repainted again (2026-10-04 review).
+  test "a confirmed offer whose saved entity is gone still renders, saying so" do
+    payload = %{
+      "authority" => "read_only",
+      "expires_at" => nil,
+      "recurrence" => %{"kind" => "weekly", "time" => "09:00:00", "weekday" => "monday"},
+      "repository" => nil,
+      "task" => "Inspect current service health.",
+      "timezone" => "Etc/UTC",
+      "title" => "Weekly service health"
+    }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "Saved it.",
+               "records" => [
+                 %{
+                   "kind" => "schedule_offer",
+                   "payload" => payload,
+                   "ref" => "record:schedule_offer:gone",
+                   "status" => "confirmed"
+                 }
+               ]
+             })
+
+    json = Jason.encode!(rendered["blocks"])
+    assert json =~ "*Weekly service health* was saved and has since been removed."
+    refute json =~ "ryker_confirm_schedule"
+  end
+
   test "renders an inert schedule offer with exact recurrence and operator confirmation" do
     assert {:ok, rendered} =
              Renderer.render(%{
@@ -2066,6 +2216,72 @@ defmodule Ryker.Slack.RendererTest do
 
     assert Renderer.render(%{"message" => "Posted.", "records" => [forged]}) ==
              {:error, {:invalid_slack_render, :record}}
+  end
+
+  # An offer's text went into one section that Slack cuts at 3,000
+  # characters, so a 20,000-character post or a 12,000-character task was
+  # confirmed by people who saw a fifth of it (2026-10-04 review).
+  test "an offer that grants authority shows its whole text, however long" do
+    long = fn word ->
+      Enum.map_join(1..400, "\n", &"#{word} line #{&1}: check the gateway & queues.")
+    end
+
+    offers = [
+      {"slack_post_offer",
+       %{
+         "conversation_ref" => "slack:T123:C789",
+         "destination_ref" => "slack-source:v1:T123:C789:channel",
+         "instruction_ref" => "slack-source:v1:T123:C456:message:1787832000.000100",
+         "message" => long.("Post"),
+         "requested_by_actor_ref" => "slack:user:U123",
+         "thread_ref" => nil,
+         "transport" => "slack"
+       }, "Post"},
+      {"schedule_offer",
+       %{
+         "authority" => "read_only",
+         "expires_at" => nil,
+         "recurrence" => %{"kind" => "weekly", "time" => "09:00:00", "weekday" => "monday"},
+         "repository" => nil,
+         "task" => String.slice(long.("Task"), 0, 12_000),
+         "timezone" => "Etc/UTC",
+         "title" => "Weekly checks"
+       }, "Task"},
+      {"publication_offer", %{"body" => String.slice(long.("Body"), 0, 8_000), "title" => "Fix"},
+       "Body"}
+    ]
+
+    for {kind, payload, word} <- offers do
+      assert {:ok, rendered} =
+               Renderer.render(%{
+                 "message" => "Ready.",
+                 "records" => [
+                   %{
+                     "kind" => kind,
+                     "payload" => payload,
+                     "ref" => "record:#{kind}:long",
+                     "status" => "open"
+                   }
+                 ]
+               })
+
+      shown =
+        rendered["blocks"]
+        |> Enum.filter(&(&1["type"] == "section" and is_map(&1["text"])))
+        |> Enum.map_join("\n", & &1["text"]["text"])
+
+      text = payload["message"] || payload["task"] || payload["body"]
+      escaped = String.replace(text, "&", "&amp;")
+
+      for line <- String.split(escaped, "\n"), do: assert(shown =~ line, "#{kind}: #{line}")
+      refute shown =~ "…", kind
+
+      assert rendered["blocks"]
+             |> Enum.filter(&(&1["type"] == "section" and is_map(&1["text"])))
+             |> Enum.all?(&(String.length(&1["text"]["text"]) <= 3_000))
+
+      assert String.contains?(shown, word)
+    end
   end
 
   test "renders an additional Slack post as an exact requester-owned confirmation" do
@@ -3480,7 +3696,7 @@ defmodule Ryker.Slack.RendererTest do
       result = Renderer.render(%{"incident_room" => room})
       assert match?({:ok, _rendered}, result), inspect({status, result})
       {:ok, rendered} = result
-      assert rendered["text"] =~ "Incident 82208f8f"
+      assert String.starts_with?(rendered["text"], "Checkout errors: ")
       assert inspect(rendered) =~ "Latest alert assessment"
       assert inspect(rendered) =~ "Action needed"
     end)
@@ -3996,21 +4212,16 @@ defmodule Ryker.Slack.RendererTest do
   defp task_document(status) do
     %{
       "action_needed" => nil,
-      "confirmed_at" => "2026-08-28T12:00:00.000000Z",
-      "confirmed_by" => "slack:user:U123",
       "controls" => [],
-      "episode_state" => "working",
       "publication" => nil,
       "repository" => "ryker",
-      "session_generation" => nil,
       "stages" => task_stages(),
       "status" => status,
       "summary" => "The durable task state is current.",
       "task_ref" => "task-card:abc123",
       "title" => "Verify the product",
       "ui_revision" => 2,
-      "updated_at" => "2026-08-28T12:01:00.000000Z",
-      "work_state" => nil
+      "updated_at" => "2026-08-28T12:01:00.000000Z"
     }
   end
 
@@ -4018,35 +4229,20 @@ defmodule Ryker.Slack.RendererTest do
   defp text_of(%{"text" => %{"text" => text}}) when is_binary(text), do: text
   defp text_of(_block), do: ""
 
-  defp publication_task_card(publication) do
-    "action_required"
-    |> task_document()
-    |> Map.merge(%{
-      "episode_state" => "complete",
-      "publication" => publication,
-      "work_state" => "settled"
-    })
-  end
+  defp publication_task_card(publication),
+    do: Map.put(task_document("action_required"), "publication", publication)
 
   defp incident_document(status) do
     %{
       "action_needed" => "Review the current blocker.",
       "alert" => %{"impact" => "Checkout traffic is affected.", "verdict" => "firing"},
       "controls" => [],
-      "episode_state" => "working",
       "goals" => [],
       "opened_at" => "2026-08-28T12:00:00.000000Z",
       "opened_by" => "slack:user:U123",
       "repository" => "ryker",
       "room_ref" => "incident-room:82208f8f-2ef4-4f1b-a011-626aabdc9342",
-      "session_generation" => nil,
-      "severity" => "high",
-      "signals" => %{"firing" => 2, "total" => 3},
-      "source" => %{
-        "channel_ref" => "C123",
-        "message_ref" => "1787832000.000100",
-        "thread_ref" => "1787832000.000100"
-      },
+      "source_channel_ref" => "C123",
       "status" => status,
       "summary" => "The investigation state is current.",
       "title" => "Checkout errors",

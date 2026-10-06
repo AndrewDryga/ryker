@@ -15,9 +15,10 @@ defmodule Ryker.Slack.IncidentRoomCard do
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.IncidentRoom
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work.{FailureCause, Session, Turn}
 
-  @ui_revision 2
+  # 3 since 2026-10-06: the card reads in words, without Ryker's ids and codes.
+  @ui_revision 3
   @record_kinds ~w(alert_assessment event_wait input_request progress)
   @goals_shown 8
 
@@ -46,11 +47,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
        "action_needed" => nil,
        "alert" => nil,
        "controls" => [],
-       "episode_state" => "provisioning",
        "goals" => [],
-       "session_generation" => nil,
-       "severity" => "not supplied",
-       "signals" => %{"firing" => nil, "total" => nil},
        "status" => "provisioning",
        "summary" => compact(room.prompt, 500),
        "updated_at" => DateTime.to_iso8601(room.requested_at)
@@ -73,11 +70,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
            "action_needed" => action_needed(room, episode, records, turn),
            "alert" => alert(records),
            "controls" => controls(episode, turn, session),
-           "episode_state" => Atom.to_string(episode.state),
            "goals" => goals(episode.id),
-           "session_generation" => session && session.generation,
-           "severity" => "not supplied",
-           "signals" => %{"firing" => nil, "total" => nil},
            "status" => status(room, episode, turn),
            "summary" => summary(room, records),
            "updated_at" => DateTime.to_iso8601(episode.updated_at)
@@ -91,11 +84,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
       "opened_by" => room.requested_by_actor_ref,
       "repository" => room.repository_ref,
       "room_ref" => room.ref,
-      "source" => %{
-        "channel_ref" => room.source_channel_ref,
-        "message_ref" => room.source_message_ref,
-        "thread_ref" => room.source_thread_ref
-      },
+      "source_channel_ref" => room.source_channel_ref,
       "title" => room.title,
       "ui_revision" => @ui_revision
     }
@@ -180,7 +169,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
     do: "Slack no longer exposes this room. Restore access before work can resume."
 
   defp action_needed(%IncidentRoom{channel_state: :deleted}, _episode, _records, _turn),
-    do: "Slack reports this room deleted. Its episode and audit history remain durable."
+    do: "Slack says this room was deleted. Ryker keeps its investigation and history."
 
   defp action_needed(_room, %Episode{state: :waiting_for_input}, records, _turn) do
     case records["input_request"] do
@@ -196,8 +185,18 @@ defmodule Ryker.Slack.IncidentRoomCard do
     end
   end
 
+  # The saved error is Ryker's record of it, a code and whatever the worker
+  # said; the pinned card printed it whole in the room everyone reads
+  # (2026-10-04 review). It says in words what Ryker can tell of it, as a task
+  # card does, and otherwise where the cause is written.
   defp action_needed(_room, _episode, _records, %Turn{status: :blocked} = turn) do
-    compact(turn.last_error_detail || "Work is blocked and needs operator attention.", 500)
+    case FailureCause.explain(turn.last_error_detail) do
+      %{cause: cause, next_step: next_step} ->
+        compact(cause <> "\n" <> next_step, 500)
+
+      nil ->
+        "The investigation stopped and needs a person. The cause is on Ryker's Failures page."
+    end
   end
 
   defp action_needed(_room, _episode, _records, _turn), do: nil

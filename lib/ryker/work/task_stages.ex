@@ -359,6 +359,16 @@ defmodule Ryker.Work.TaskStages do
         url: publication_url(facts[:publication])
       )
 
+  # Ryker stops following a pull request at its hard deadline, so what became
+  # of it is unknown here; the row said "your turn" over a state nobody was
+  # checking (2026-10-04 review).
+  defp review_and_merge(%{followup: %Followup{pr_state: "expired"}} = facts, _ci, _stale?),
+    do:
+      row("review_and_merge", "unknown",
+        detail: "no longer followed",
+        url: publication_url(facts[:publication])
+      )
+
   defp review_and_merge(%{publication: %Publication{status: status} = publication}, ci, stale?)
        when status in @published_statuses do
     # A person reviews and merges once the draft reflects the current work and

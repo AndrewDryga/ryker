@@ -136,9 +136,19 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
 
   defp uses(repositories, emisar),
     do:
-      "work on #{repositories |> Enum.map(&repository_link/1) |> join_names()}, " <>
+      "work on #{named_repositories(repositories)}, " <>
         "changing only ones with read/write access" <>
         if(emisar, do: ", and use Emisar", else: "")
+
+  # Ten by name and the rest counted: every one by name pushed a full
+  # environment's welcome past a section and cut a link (2026-10-04 review).
+  defp named_repositories(repositories) when length(repositories) > 10 do
+    {named, rest} = Enum.split(repositories, 10)
+    join_names(Enum.map(named, &repository_link/1) ++ ["#{length(rest)} more"])
+  end
+
+  defp named_repositories(repositories),
+    do: repositories |> Enum.map(&repository_link/1) |> join_names()
 
   # The control that opens the setup Q&A, named as the welcome shows it.
   defp configure_label(%{"participation" => %{"source" => "incident_room"}}),

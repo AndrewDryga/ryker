@@ -372,7 +372,6 @@ defmodule Ryker.Records.TaskOffersTest do
     # A session exists but no turn does, so no worker has been asked for
     # anything yet. Since 07df8ca0 the card says so instead of "Working".
     assert task["status"] == "queued"
-    assert task["session_generation"] == 1
     assert task["controls"] == ["close", "timeline", "evidence", "handoff"]
 
     stored = Repo.get!(TaskCard, card.id)
@@ -666,17 +665,17 @@ defmodule Ryker.Records.TaskOffersTest do
     assert {:ok, _bounded} = Renderer.render(flooded.document)
 
     # An error the host genuinely cannot characterise still never prints the term
-    # it could not read — but it names the host's *own* error code, which is ours
-    # and not the worker's. The notice used to end "Open the episode for details",
-    # pointing a Slack reader at a page bound to loopback that their client cannot
-    # reach, so the card said nothing anyone could act on.
+    # it could not read. It printed the host's own error code instead, and a
+    # Slack card carries no codes (Andrew, 2026-09-30; 2026-10-04 review): it
+    # says where the cause is written. The notice used to end "Open the episode
+    # for details", pointing a Slack reader at a page bound to loopback.
     saved!(fixture, "work_execution_failed: {:work_execution_failed, :unknown}")
 
     assert {:ok, unreadable} = TaskCardProjection.build(fixture.card)
     unreadable_task = unreadable.document["task_card"]
 
     assert unreadable_task["action_needed"] ==
-             "Task work is blocked and needs operator attention: `work_execution_blocked`."
+             "Task work stopped and needs a person. The cause is on Ryker's Failures page."
 
     refute unreadable_task["action_needed"] =~ "Open the episode for details"
 

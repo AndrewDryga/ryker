@@ -1,9 +1,42 @@
 defmodule Ryker.Slack.SavedEntityTest do
   use ExUnit.Case, async: true
 
+  alias Ryker.Behaviors.Behavior
   alias Ryker.Schedules.Schedule
   alias Ryker.Slack.Renderer.SavedEntityCard
   alias Ryker.Slack.SavedEntity
+
+  # The offer said which events a rule takes in words, and the rule it saved
+  # showed the same filter as raw JSON (2026-10-04 review).
+  test "a saved rule says which events it takes in the words its offer used" do
+    rule = %Behavior{
+      confirmed_at: ~U[2026-09-25 21:31:00.000000Z],
+      confirmed_by_actor_ref: "slack:user:U123",
+      expires_at: nil,
+      identity_key: "pull-request-reviews",
+      kind: :standing_assignment,
+      payload: %{
+        "context_channel" => "slack:T123:C456",
+        "delivery_channel" => "slack:T123:C456",
+        "filter" => %{"action" => "submitted", "state" => ["approved", "changes_requested"]},
+        "source_kind" => "github",
+        "task" => "Summarize each submitted review.",
+        "title" => "Pull request reviews"
+      },
+      ref: "behavior:pull-request-reviews",
+      revision: 1,
+      scope_kind: :conversation,
+      scope_ref: "slack:T123:C456",
+      status: :active
+    }
+
+    facts = SavedEntity.document(rule, :saved)["facts"]
+
+    assert [
+             "Event filter",
+             "Only when action is submitted and state is approved or changes_requested"
+           ] in facts
+  end
 
   # QA, 2026-09-25: the saved schedule in Slack said "Every monday at 09:00:00
   # · Etc/UTC" in words of its own, and had none for a weekday schedule. It

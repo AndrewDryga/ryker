@@ -766,6 +766,51 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     assert json =~ "<https://github.com/acme/ryker|ryker>"
   end
 
+  # A merge moves the pull request's head, and a card whose head had moved
+  # said it "changed outside this reviewed publication", asked a person to act,
+  # and offered Update and Discard on a merged pull request (2026-10-04 review).
+  test "a pull request merged or closed on GitHub asks nothing more of anyone" do
+    for {state, fields} <- [
+          {"merged", %{merge_sha: String.duplicate("c", 40), merged_at: DateTime.utc_now()}},
+          {"closed", %{}}
+        ] do
+      %{episode: episode, publication: publication} =
+        PublicationFixture.published!("settled-#{state}")
+
+      publication
+      |> Ecto.Changeset.change(expected_remote_head_sha: String.duplicate("d", 40))
+      |> Repo.update!()
+
+      {:ok, followup} =
+        Repo.transaction(fn ->
+          Followups.arm_published_in_transaction(publication, DateTime.utc_now())
+        end)
+
+      followup |> FollowupChangeset.update(Map.put(fields, :pr_state, state)) |> Repo.update!()
+
+      source = %Record{
+        kind: "task_offer",
+        status: :confirmed,
+        confirmed_episode_id: episode.id,
+        confirmed_at: DateTime.utc_now(),
+        confirmed_by_actor_ref: "slack:user:U1",
+        ref: "task-card:settled-#{state}",
+        payload:
+          TaskOffer.payload(%{
+            "title" => "Bump the runner",
+            "repository" => "ryker",
+            "prompt" => "Update the runner."
+          })
+      }
+
+      assert {:ok, card} = TaskCardProjection.build(source)
+      task = card.document["task_card"]
+      assert task["status"] == "completed", state
+      assert task["action_needed"] == nil, state
+      assert task["publication"]["controls"] == ["open"], state
+    end
+  end
+
   # Andrew closed draft PR #90 on GitHub (2026-10-04): the Review and merge row changed within
   # seconds, but the line under the progress kept "Draft PR created. Open it to review the
   # changes." and the card still said "Updated 03 Oct". The pull request's state, and when GitHub

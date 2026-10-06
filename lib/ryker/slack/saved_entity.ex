@@ -12,6 +12,7 @@ defmodule Ryker.Slack.SavedEntity do
 
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
+  alias Ryker.Delivery.OfferWords
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleCadence
@@ -225,7 +226,9 @@ defmodule Ryker.Slack.SavedEntity do
   defp event_filter(source_kind, filter) when filter in [nil, %{}],
     do: "All #{source_kind} events posted here"
 
-  defp event_filter(_source_kind, filter), do: Jason.encode!(filter)
+  # In the words the rule's offer used; the saved rule showed raw JSON
+  # (2026-10-04 review).
+  defp event_filter(_source_kind, filter), do: OfferWords.only_when(filter)
 
   defp source(%{source_transport: "slack", source_conversation_ref: conversation_ref})
        when is_binary(conversation_ref),
