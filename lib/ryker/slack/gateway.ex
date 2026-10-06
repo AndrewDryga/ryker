@@ -624,6 +624,7 @@ defmodule Ryker.Slack.Gateway do
       _unread_or_stale ->
         with {:ok, allowed} <-
                settings.directory.user_allowed(settings.client, actor_ref, workspace_ref) do
+          # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
           Process.put(key, {allowed, now})
           {:ok, allowed}
         end

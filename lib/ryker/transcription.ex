@@ -74,7 +74,7 @@ defmodule Ryker.Transcription do
   @doc "The descriptors of the recordings in a message's content still waiting for a transcript."
   @spec pending_files(term()) :: [map()]
   def pending_files(%{"files" => files}) when is_list(files),
-    do: Enum.filter(files, &match?(%{"transcript_pending" => true}, &1))
+    do: Enum.filter(files, &(&1["transcript_pending"] == true))
 
   def pending_files(_content), do: []
 

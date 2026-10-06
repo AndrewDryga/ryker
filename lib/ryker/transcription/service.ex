@@ -30,7 +30,7 @@ defmodule Ryker.Transcription.Service do
 
   require Logger
 
-  alias Ryker.Delivery.OutboundHTTP
+  alias Ryker.Delivery.HTTPClient
   alias Ryker.Transcription
   alias Ryker.Transcription.{Languages, Local}
 
@@ -80,7 +80,7 @@ defmodule Ryker.Transcription.Service do
     with {:ok, whole} <- detect(settings, wav, deadline),
          main = Languages.main(whole, settings.languages),
          {:ok, texts} <- read_parts(parts, main, settings, deadline) do
-      case texts |> Enum.join("\n") |> Transcription.words() do
+      case Transcription.words(Enum.join(texts, "\n")) do
         {:ok, words} -> {:ok, words}
         :error -> {:error, :no_speech}
       end
@@ -150,7 +150,7 @@ defmodule Ryker.Transcription.Service do
     boundary = "ryker-" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
 
     request =
-      Finch.build(
+      HTTPClient.build(
         :post,
         url,
         [
@@ -163,7 +163,7 @@ defmodule Ryker.Transcription.Service do
     task =
       Task.async(fn ->
         try do
-          OutboundHTTP.stream(
+          HTTPClient.stream(
             request,
             Ryker.CoopFinch,
             timeout_ms + 1_000,

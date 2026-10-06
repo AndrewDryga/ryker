@@ -59,6 +59,8 @@ defmodule Ryker.Repo do
   def after_commit(callback) when is_function(callback, 0) do
     case Process.get(@after_commit) do
       nil -> run_after_commit([callback])
+      # The open transaction's after-commit queue lives with it, as Ecto's own transaction state does.
+      # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
       queue -> Process.put(@after_commit, [callback | queue])
     end
 
@@ -89,6 +91,7 @@ defmodule Ryker.Repo do
   defp open_after_commit_scope do
     case Process.get(@after_commit) do
       nil ->
+        # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
         Process.put(@after_commit, [])
         :outermost
 

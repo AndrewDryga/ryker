@@ -1,6 +1,8 @@
 defmodule Ryker.CoopFleet.ManagedSourcesTest do
   use ExUnit.Case, async: true
 
+  import Ryker.TestHelpers, only: [os_process_gone?: 1]
+
   alias Ryker.CoopFleet.ManagedSources
   alias Ryker.Work.RepositorySource
 
@@ -74,7 +76,7 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
 
     assert Task.yield(preparation, 30_000) == {:ok, {:error, :coop_worker_source_unavailable}}
     assert File.exists?(pid_file), "the fetch never started: a real git command ran out of time"
-    refute pid_file |> File.read!() |> String.trim() |> alive?()
+    assert pid_file |> File.read!() |> String.trim() |> os_process_gone?()
 
     # A transfer that stalls without hanging git outright is git's to give up:
     # below a byte a second for a minute.
@@ -437,17 +439,6 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
     File.write!(path, "#!/bin/sh\n" <> body)
     File.chmod!(path, 0o755)
     path
-  end
-
-  # A stopped program may be reaped a moment after it dies.
-  defp alive?(os_pid, checks \\ 20) do
-    {_output, status} = System.cmd("sh", ["-c", "kill -0 #{os_pid} 2>/dev/null"])
-
-    cond do
-      status != 0 -> false
-      checks == 0 -> true
-      true -> Process.sleep(50) == :ok and alive?(os_pid, checks - 1)
-    end
   end
 
   defp fixture_root do

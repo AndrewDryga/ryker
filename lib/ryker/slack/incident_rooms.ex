@@ -1016,11 +1016,8 @@ defmodule Ryker.Slack.IncidentRooms do
     with {:ok, record, source_episode, _turn, session} <- lock_offer(attributes.record_ref),
          :ok <- workspace_source?(source_episode, attributes.workspace_ref),
          :ok <- no_room_for(record),
-         {:ok, confirmation} <-
-           attributes
-           |> Map.delete(:workspace_ref)
-           |> inherit_placement(session)
-           |> TaskOffers.confirm() do
+         offer = attributes |> Map.delete(:workspace_ref) |> inherit_placement(session),
+         {:ok, confirmation} <- TaskOffers.confirm(offer) do
       confirmation
     else
       {:error, :task_offer_stale} -> Repo.rollback(:incident_offer_stale)
@@ -1650,9 +1647,8 @@ defmodule Ryker.Slack.IncidentRooms do
            ),
          :ok <- confirmable_record(record),
          {:ok, _record} <- confirm_record(record, transition.episode.id, room),
-         {:ok, room} <-
-           room
-           |> IncidentRoomChangeset.update(%{
+         changeset =
+           IncidentRoomChangeset.update(room, %{
              channel_checked_at: Repo.now!(),
              episode_id: transition.episode.id,
              last_error_code: nil,
@@ -1664,8 +1660,8 @@ defmodule Ryker.Slack.IncidentRooms do
              reconciled_channel_state: room.channel_state,
              root_card_checked_at: nil,
              status: :ready
-           })
-           |> Repo.update() do
+           }),
+         {:ok, room} <- Repo.update(changeset) do
       broadcast_room_updated(room)
       room
     else
@@ -1713,7 +1709,9 @@ defmodule Ryker.Slack.IncidentRooms do
   defp update!(room, attributes, now, announce) do
     attributes = Map.put(attributes, :updated_at, now)
 
-    case room |> IncidentRoomChangeset.update(attributes) |> Repo.update() do
+    changeset = IncidentRoomChangeset.update(room, attributes)
+
+    case Repo.update(changeset) do
       {:ok, room} when announce == :quiet -> room
       {:ok, room} -> tap(room, &broadcast_room_updated/1)
       {:error, changeset} -> Repo.rollback({:incident_room_persistence_failed, changeset.errors})

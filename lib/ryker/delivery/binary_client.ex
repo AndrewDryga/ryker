@@ -4,10 +4,10 @@ defmodule Ryker.Delivery.BinaryClient do
 
   Callers validate the destination host before using this transport. The body
   is streamed under the caller's byte limit so an authenticated attachment
-  cannot exhaust the gateway while being downloaded; see `Ryker.Delivery.OutboundHTTP`.
+  cannot exhaust the gateway while being downloaded; see `Ryker.Delivery.HTTPClient`.
   """
 
-  alias Ryker.Delivery.OutboundHTTP
+  alias Ryker.Delivery.HTTPClient
 
   @fields [:finch, :receive_timeout, :token_provider]
   @maximum_download_bytes 8 * 1_024 * 1_024
@@ -30,14 +30,14 @@ defmodule Ryker.Delivery.BinaryClient do
     end
   end
 
-  @spec get(t(), String.t(), pos_integer()) :: {:ok, OutboundHTTP.response()} | {:error, term()}
+  @spec get(t(), String.t(), pos_integer()) :: {:ok, HTTPClient.response()} | {:error, term()}
   def get(%__MODULE__{} = client, url, maximum_bytes) do
     with :ok <- url(url),
          :ok <- maximum(maximum_bytes),
-         {:ok, token} <- OutboundHTTP.bearer_token(client.token_provider) do
+         {:ok, token} <- HTTPClient.bearer_token(client.token_provider) do
       :get
-      |> Finch.build(url, [{"authorization", "Bearer " <> token}])
-      |> OutboundHTTP.stream(client.finch, client.receive_timeout, maximum_bytes)
+      |> HTTPClient.build(url, [{"authorization", "Bearer " <> token}])
+      |> HTTPClient.stream(client.finch, client.receive_timeout, maximum_bytes)
     end
   end
 

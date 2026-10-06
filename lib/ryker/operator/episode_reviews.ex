@@ -16,7 +16,6 @@ defmodule Ryker.Operator.EpisodeReviews do
   request's topics too.
   """
 
-  import Ecto.Changeset
   import Ecto.Query
 
   require Logger
@@ -24,6 +23,7 @@ defmodule Ryker.Operator.EpisodeReviews do
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback
   alias Ryker.Operator.EpisodeReview
+  alias Ryker.Operator.EpisodeReviewChangeset
   alias Ryker.Reference
   alias Ryker.Repo
 
@@ -69,31 +69,9 @@ defmodule Ryker.Operator.EpisodeReviews do
           semantic_version: episode.semantic_version
         }
 
-        case %EpisodeReview{}
-             |> cast(attributes, [
-               :actor_ref,
-               :episode_id,
-               :id,
-               :note,
-               :rating,
-               :reviewed_at,
-               :semantic_version
-             ])
-             |> validate_required([
-               :actor_ref,
-               :episode_id,
-               :id,
-               :rating,
-               :reviewed_at,
-               :semantic_version
-             ])
-             |> validate_length(:actor_ref, min: 1, max: 1_024)
-             |> validate_length(:note, max: 2_048, count: :bytes)
-             |> validate_number(:semantic_version, greater_than_or_equal_to: 0)
-             |> unique_constraint([:episode_id, :semantic_version])
-             |> foreign_key_constraint(:episode_id)
-             |> check_constraint(:semantic_version, name: :episode_operator_review_valid)
-             |> Repo.insert() do
+        changeset = EpisodeReviewChangeset.insert(attributes)
+
+        case Repo.insert(changeset) do
           {:ok, review} ->
             broadcast_review_recorded(review)
             record_feedback(review, episode)

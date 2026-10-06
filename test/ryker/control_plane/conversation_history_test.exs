@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   """
   use Ryker.DataCase, async: true
 
-  import Ryker.TestHelpers, only: [digest: 1]
+  import Ryker.TestHelpers, only: [clocks_past!: 1, digest: 1]
 
   @moduletag isolation: "REPEATABLE READ"
 
@@ -264,7 +264,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     # stamped before `since` went unreported (a dev-check flake, 2026-09-28).
     # Both clocks pass `since` before anything changes.
     since = Enum.max([DateTime.utc_now(), Repo.now!()], DateTime)
-    await_clocks_past!(since)
+    clocks_past!(since)
     assert {:ok, []} = ConversationProjection.changes(@conversation_id, since)
 
     all =
@@ -827,13 +827,6 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
 
   defp conversation_ref(conversation_id \\ @conversation_id),
     do: "control-plane:lab:#{conversation_id}"
-
-  defp await_clocks_past!(moment) do
-    unless Enum.all?([DateTime.utc_now(), Repo.now!()], &DateTime.after?(&1, moment)) do
-      Process.sleep(1)
-      await_clocks_past!(moment)
-    end
-  end
 
   defp profile do
     {:ok, profile} =

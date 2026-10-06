@@ -10,7 +10,7 @@ defmodule Ryker.LocalRouting.Client do
   is bounded by a firm timeout: a server that accepts the connection and
   never answers, or drips its answer, is cut off when the time is up, and
   nothing it sends after that is read. Its body is read under a byte limit
-  (`Ryker.Delivery.OutboundHTTP`).
+  (`Ryker.Delivery.HTTPClient`).
 
   A failure says whether asking again could help: `{:retry, why}` for a
   server that could not be reached, timed out or failed (408, 429, 5xx), and
@@ -20,7 +20,7 @@ defmodule Ryker.LocalRouting.Client do
   prompt is never part of it.
   """
 
-  alias Ryker.Delivery.OutboundHTTP
+  alias Ryker.Delivery.HTTPClient
   alias Ryker.LocalRouting.{Endpoint, Schema}
 
   @maximum_response_bytes 2 * 1_024 * 1_024
@@ -58,7 +58,7 @@ defmodule Ryker.LocalRouting.Client do
       })
 
     request =
-      Finch.build(
+      HTTPClient.build(
         :post,
         Endpoint.completions(endpoint),
         [{"accept", "application/json"}, {"content-type", "application/json"}],
@@ -82,7 +82,7 @@ defmodule Ryker.LocalRouting.Client do
   end
 
   defp exchange(request, finch, receive_timeout) do
-    OutboundHTTP.stream(request, finch, receive_timeout, @maximum_response_bytes)
+    HTTPClient.stream(request, finch, receive_timeout, @maximum_response_bytes)
   rescue
     error -> {:error, {:delivery_transport_unavailable, error}}
   catch

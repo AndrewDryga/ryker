@@ -1208,10 +1208,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     do: place(destination["thread_ref"] || destination["conversation_ref"])
 
   defp run_value("origins", %{"conversations" => refs}) when is_list(refs) do
-    case refs |> Enum.filter(&is_binary/1) |> Enum.map(&place/1) |> Enum.uniq() do
-      [] -> "None"
-      places -> Enum.join(places, ", ")
-    end
+    places = refs |> Enum.filter(&is_binary/1) |> Enum.map(&place/1) |> Enum.uniq()
+    if places == [], do: "None", else: Enum.join(places, ", ")
   end
 
   defp run_value("repository_ref", ref) when is_binary(ref),

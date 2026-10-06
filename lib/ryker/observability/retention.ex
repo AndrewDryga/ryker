@@ -10,12 +10,12 @@ defmodule Ryker.Observability.Retention do
 
   import Ecto.Query
 
-  alias Ryker.Observability.Query
+  alias Ryker.Observability.Reads
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Work.Session
 
   @doc "Cleanup at the database clock reading `now`."
-  @spec snapshot(DateTime.t()) :: {:ok, map()} | {:error, Query.failure()}
+  @spec snapshot(DateTime.t()) :: {:ok, map()} | {:error, Reads.failure()}
   def snapshot(now) do
     eligible = RetentionCustody.eligible_query(now)
 
@@ -34,21 +34,21 @@ defmodule Ryker.Observability.Retention do
       )
 
     with {:ok, last_reclaimed} <-
-           Query.one(from(session in Session, select: max(session.discarded_at))),
+           Reads.one(from(session in Session, select: max(session.discarded_at))),
          {:ok, blocked} <-
-           Query.count(from(session in Session, where: session.cleanup_status == :blocked)),
-         {:ok, eligible_count} <- Query.count(eligible),
+           Reads.count(from(session in Session, where: session.cleanup_status == :blocked)),
+         {:ok, eligible_count} <- Reads.count(eligible),
          {:ok, oldest_eligible} <-
-           Query.read(fn -> RetentionCustody.oldest_eligible_at(eligible) end),
-         {:ok, retained} <- Query.all(retained),
-         {:ok, retrying} <- Query.count(retrying),
-         {:ok, sessions} <- Query.counts(Session, :cleanup_status) do
+           Reads.read(fn -> RetentionCustody.oldest_eligible_at(eligible) end),
+         {:ok, retained} <- Reads.all(retained),
+         {:ok, retrying} <- Reads.count(retrying),
+         {:ok, sessions} <- Reads.counts(Session, :cleanup_status) do
       {:ok,
        %{
          blocked: blocked,
          eligible: eligible_count,
-         last_reclaimed_age_seconds: Query.age_seconds(now, last_reclaimed),
-         oldest_eligible_age_seconds: Query.age_seconds(now, oldest_eligible),
+         last_reclaimed_age_seconds: Reads.age_seconds(now, last_reclaimed),
+         oldest_eligible_age_seconds: Reads.age_seconds(now, oldest_eligible),
          retained: Map.new(retained),
          retrying: retrying,
          sessions: sessions

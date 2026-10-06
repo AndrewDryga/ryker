@@ -7,7 +7,7 @@ defmodule Ryker.Slack.InteractionHandler do
   the click. The button value alone grants nothing.
   """
 
-  alias Ryker.Slack.{Interaction, Operators}
+  alias Ryker.Slack.{ControlValue, Interaction, Operators}
 
   @task_not_here [:slack_task_outside_environment, :slack_task_policy_not_configured]
   @invalid_offer_errors [
@@ -238,18 +238,7 @@ defmodule Ryker.Slack.InteractionHandler do
     do: "slack:#{interaction.workspace_ref}:#{interaction.channel_ref}"
 
   defp versioned_resource(value, kind) do
-    prefix = "#{kind}-control:"
-
-    with true <- String.starts_with?(value, prefix),
-         parts when length(parts) >= 2 <-
-           value |> String.replace_prefix(prefix, "") |> String.split(":"),
-         {revision, ""} when revision > 0 <- Integer.parse(List.last(parts)),
-         ref <- parts |> Enum.drop(-1) |> Enum.join(":"),
-         true <- String.starts_with?(ref, "#{kind}:") do
-      {:ok, ref, revision}
-    else
-      _invalid -> {:error, :slack_action_mismatch}
-    end
+    with :error <- ControlValue.decode(value, kind), do: {:error, :slack_action_mismatch}
   end
 
   defp handle_record_action(interaction, options) do

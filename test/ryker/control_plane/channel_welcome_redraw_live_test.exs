@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   """
   use Ryker.DataCase, async: false
 
-  import Ryker.TestHelpers, only: [eventually: 1]
+  import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
@@ -41,6 +41,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     # Slack taking longer to answer than anyone should wait for.
     def update_message(agent, _channel, _message_ref, _document, _delivery_ref) do
       Agent.update(agent, &Map.put(&1, :asked, true))
+      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
       Process.sleep(3_000)
       :ok
     end
@@ -294,8 +295,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     # Choosing what the channel already uses changes nothing to redraw.
     Agent.update(context.running, fn _running -> true end)
     view |> form("#channel-environment", environment: "staging") |> render_change()
-    Process.sleep(100)
-    assert FakeSlackAPI.state(context.agent).updates == []
+    refute eventually(fn -> FakeSlackAPI.state(context.agent).updates != [] end, 100)
   end
 
   # The people chosen to manage Ryker, with the workspace's admins left out.

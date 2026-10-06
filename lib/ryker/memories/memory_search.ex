@@ -157,7 +157,8 @@ defmodule Ryker.Memories.MemorySearch do
   defp document_id(document) do
     with ref when is_binary(ref) <-
            document["source_ref"] || document["memory_ref"] || document["behavior_ref"],
-         {:ok, id} <- ref |> String.split(":") |> List.last() |> Ecto.UUID.cast() do
+         id = ref |> String.split(":") |> List.last(),
+         {:ok, id} <- Ecto.UUID.cast(id) do
       [id]
     else
       _none -> []

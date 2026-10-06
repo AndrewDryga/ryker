@@ -400,7 +400,7 @@ defmodule Ryker.Webhooks.Transforms do
   end
 
   defp status(value) when is_binary(value) do
-    case value |> String.trim() |> String.downcase() do
+    case String.downcase(String.trim(value)) do
       value when value in ["firing", "alerting", "active", "open", "triggered"] ->
         {:ok, "firing"}
 

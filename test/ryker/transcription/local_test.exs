@@ -3,6 +3,8 @@ defmodule Ryker.Transcription.LocalTest do
   # the real ones: every bound is checked without running a speech model.
   use ExUnit.Case, async: true
 
+  import Ryker.TestHelpers, only: [os_process_gone?: 1]
+
   alias Ryker.Transcription.{Local, Parts}
 
   setup do
@@ -121,7 +123,7 @@ defmodule Ryker.Transcription.LocalTest do
     assert Local.transcribe("m4a bytes", options) == {:error, :timeout}
     assert System.monotonic_time(:millisecond) - started < 10_000
 
-    refute pid_file |> File.read!() |> String.trim() |> alive?()
+    assert pid_file |> File.read!() |> String.trim() |> os_process_gone?()
     refute File.exists?(Path.join(dir, "whisper-ran"))
     assert File.ls!(work_dir(dir)) == []
     refute_received {_port, {:exit_status, _status}}
@@ -215,16 +217,5 @@ defmodule Ryker.Transcription.LocalTest do
     File.write!(path, "#!/bin/sh\n" <> body)
     File.chmod!(path, 0o755)
     path
-  end
-
-  # A killed program may be reaped a moment after it dies.
-  defp alive?(os_pid, checks \\ 20) do
-    {_output, status} = System.cmd("sh", ["-c", "kill -0 #{os_pid} 2>/dev/null"])
-
-    cond do
-      status != 0 -> false
-      checks == 0 -> true
-      true -> Process.sleep(50) == :ok and alive?(os_pid, checks - 1)
-    end
   end
 end

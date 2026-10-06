@@ -42,10 +42,21 @@ defmodule Ryker.TestMigrations do
 
   defp version(file), do: file |> Path.basename() |> Integer.parse() |> elem(0)
 
+  # The migration module, loaded once: Ecto's migrator may already have
+  # compiled it, and compiling it again would redefine it.
   defp module(file) do
     [_definition, name] = Regex.run(~r/^defmodule\s+([\w.]+)\s+do/m, File.read!(file))
-    module = Module.concat([name])
-    unless Code.ensure_loaded?(module), do: Code.compile_file(file)
-    module
+
+    case loaded(name) do
+      nil -> file |> Code.compile_file() |> Enum.find_value(fn {module, _binary} -> module end)
+      module -> module
+    end
+  end
+
+  defp loaded(name) do
+    module = Module.safe_concat([name])
+    if Code.ensure_loaded?(module), do: module
+  rescue
+    ArgumentError -> nil
   end
 end

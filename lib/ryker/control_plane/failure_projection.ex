@@ -553,8 +553,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
         |> Map.merge(%{
           # A task whose room was deleted is closed by Ryker itself; running it
           # again would only post into a room that no longer exists.
-          action:
-            if(match?(%{channel_state: :deleted}, paused_room), do: nil, else: recovery.action),
+          action: if(room_deleted?(paused_room), do: nil, else: recovery.action),
           paused_room: paused_room,
           work_recovery: recovery
         })
@@ -894,7 +893,11 @@ defmodule Ryker.ControlPlane.FailureProjection do
     end)
   end
 
-  defp room_reply?(item), do: match?(%{kind: "delivery", delivery_kind: :message}, item)
+  defp room_deleted?(%{channel_state: :deleted}), do: true
+  defp room_deleted?(_room), do: false
+
+  defp room_reply?(%{kind: "delivery", delivery_kind: :message}), do: true
+  defp room_reply?(_item), do: false
 
   defp deleted_room_replies([]), do: %{}
 
@@ -1226,14 +1229,21 @@ defmodule Ryker.ControlPlane.FailureProjection do
       ] and
         slack_channel(item) != nil
 
-  defp slack_channel(%{destination: "slack:" <> rest}) do
-    case rest |> String.split(" / ", parts: 2) |> hd() |> String.split(":", parts: 2) do
+  @doc """
+  The Slack workspace and channel a failure's destination names
+  (`slack:<workspace>:<channel> / <thread>`), or nil for any other place.
+  """
+  @spec slack_channel(map()) :: {String.t(), String.t()} | nil
+  def slack_channel(%{destination: "slack:" <> rest}) do
+    [conversation | _thread] = String.split(rest, " / ", parts: 2)
+
+    case String.split(conversation, ":", parts: 2) do
       [workspace, channel] -> {workspace, channel}
       _other -> nil
     end
   end
 
-  defp slack_channel(_item), do: nil
+  def slack_channel(_item), do: nil
 
   defp slack_state(item, slack),
     do: %{

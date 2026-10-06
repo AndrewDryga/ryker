@@ -490,16 +490,15 @@ defmodule Ryker.Memories.Reviews do
         with :ok <- review_authorized_entries(entries, authorization),
              :ok <- review_entries_current(review, entries),
              :ok <- apply_review_action(review, entries, action, replacement, actor_ref),
-             {:ok, review} <-
-               review
-               |> MemoryReviewItemChangeset.resolve(%{
+             changeset =
+               MemoryReviewItemChangeset.resolve(review, %{
                  action: action,
                  replacement: review_audit_replacement(action, replacement),
                  reviewed_at: Repo.now!(),
                  reviewed_by_actor_ref: actor_ref,
                  status: review_status(action)
-               })
-               |> Repo.update() do
+               }),
+             {:ok, review} <- Repo.update(changeset) do
           Memories.broadcast_memory_updated(review.id)
           dismiss_superseded_reviews(review, entries, action, actor_ref)
           dismiss_orphan_reviews(actor_ref)

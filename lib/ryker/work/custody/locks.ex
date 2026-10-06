@@ -196,6 +196,9 @@ defmodule Ryker.Work.Custody.Locks do
   end
 
   @doc false
+  def persist_update(changeset, kind), do: changeset |> Repo.update() |> persistence_result(kind)
+
+  @doc false
   def persistence_result({:ok, record}, kind) do
     announce(record, kind)
     {:ok, record}

@@ -781,6 +781,9 @@ defmodule Ryker.Delivery.DispatcherTest do
       spawn_link(fn ->
         receive do
           {:delivery_publish_started, publisher_pid} ->
+            # Past the one-second lease: a publisher that did not renew it has
+            # lost it by now.
+            # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
             Process.sleep(1_200)
 
             competing =

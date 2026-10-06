@@ -58,7 +58,7 @@ defmodule Ryker.Webhooks.Server do
           else: raise(ArgumentError, "webhook route key and configured name must match")
 
       {name, attributes} when is_binary(name) and is_map(attributes) ->
-        case attributes |> Map.put_new(:name, name) |> Route.new() do
+        case Route.new(Map.put_new(attributes, :name, name)) do
           {:ok, route} ->
             {name, route}
 

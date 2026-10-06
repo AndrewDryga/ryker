@@ -482,11 +482,20 @@ defmodule Ryker.ControlPlane.EpisodePage do
     |> Enum.sort_by(&(&1[:sort_at] || &1.at), &(DateTime.compare(&1, &2) != :gt))
     |> fold_waits()
     |> merge_queue_runs()
-    |> Enum.split_with(&match?(%{kind: :event, step: %{band: :ready}}, &1))
+    |> Enum.split_with(&ready_event?/1)
   end
 
+  defp ready_event?(%{kind: :event, step: %{band: :ready}}), do: true
+  defp ready_event?(_entry), do: false
+
+  defp decided_request?(%{kind: :request, phase: :result}), do: true
+  defp decided_request?(_entry), do: false
+
+  defp result_event?(%{kind: :event, step: %{stage: "Result"}}), do: true
+  defp result_event?(_entry), do: false
+
   defp message_outcome(routing, answer) do
-    decided = Enum.filter(routing, &match?(%{kind: :request, phase: :result}, &1))
+    decided = Enum.filter(routing, &decided_request?/1)
 
     case List.last(answer) || List.last(decided) do
       %{id: id} -> "#" <> id
@@ -992,7 +1001,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       Enum.any?(entries, &(message_direction(&1) == "out" and !&1.message[:update])) ->
         "Response sent"
 
-      Enum.any?(entries, &match?(%{kind: :event, step: %{stage: "Result"}}, &1)) ->
+      Enum.any?(entries, &result_event?/1) ->
         "No reply sent"
 
       true ->

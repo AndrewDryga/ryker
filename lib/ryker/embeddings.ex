@@ -18,7 +18,7 @@ defmodule Ryker.Embeddings do
   so a dot product is the cosine.
   """
 
-  alias Ryker.Delivery.OutboundHTTP
+  alias Ryker.Delivery.HTTPClient
 
   @default_model "bge-m3"
   @maximum_texts 32
@@ -74,7 +74,7 @@ defmodule Ryker.Embeddings do
   @spec request(String.t(), iodata(), pos_integer()) :: {:ok, map()} | {:error, term()}
   def request(url, body, timeout_ms) do
     request =
-      Finch.build(
+      HTTPClient.build(
         :post,
         url,
         [{"content-type", "application/json"}, {"accept", "application/json"}],
@@ -84,7 +84,7 @@ defmodule Ryker.Embeddings do
     task =
       Task.async(fn ->
         try do
-          OutboundHTTP.stream(
+          HTTPClient.stream(
             request,
             Ryker.CoopFinch,
             timeout_ms + 1_000,

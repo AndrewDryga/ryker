@@ -556,7 +556,7 @@ defmodule Ryker.Learning.LearningSources do
         current
       )
       when is_boolean(current) do
-    case input |> matching_input_sources() |> unexpired_sources() do
+    case unexpired_sources(matching_input_sources(input)) do
       [_ | _] = sources ->
         %{
           "content" => %{"event_kind" => "delete", "unavailable" => "source_deleted"},

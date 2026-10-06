@@ -227,11 +227,11 @@ defmodule Ryker.Work.Validator do
 
   defp timer_wait_delivery_violations(violations, _final, _context), do: violations
 
-  defp referenced_timer_wait?(final, context) do
-    Enum.any?(final.record_refs, fn ref ->
-      match?(%{kind: "event_wait", wait_mode: :timer}, context.records[ref])
-    end)
-  end
+  defp referenced_timer_wait?(final, context),
+    do: Enum.any?(final.record_refs, &timer_wait?(context.records[&1]))
+
+  defp timer_wait?(%{kind: "event_wait", wait_mode: :timer}), do: true
+  defp timer_wait?(_record), do: false
 
   defp platform_action_violations(violations, %{records: records}) do
     unresolved =

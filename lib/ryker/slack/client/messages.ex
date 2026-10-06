@@ -52,7 +52,7 @@ defmodule Ryker.Slack.Client.Messages do
          :ok <- Fields.text(channel),
          :ok <- Fields.optional_text(thread),
          :ok <- Fields.text(delivery_ref),
-         document <- channel |> message_document(rendered, delivery_ref) |> put_thread(thread),
+         document = channel |> message_document(rendered, delivery_ref) |> put_thread(thread),
          {:ok, response} <- Transport.request(client, :post, "/chat.postMessage", document),
          {:ok, response_body} <- Transport.response(response) do
       case response_body do
@@ -70,9 +70,7 @@ defmodule Ryker.Slack.Client.Messages do
          :ok <- Fields.text(actor),
          :ok <- Fields.optional_text(thread),
          :ok <- Fields.text(text),
-         document <-
-           %{"channel" => channel, "text" => text, "user" => actor}
-           |> put_thread(thread),
+         document = put_thread(%{"channel" => channel, "text" => text, "user" => actor}, thread),
          {:ok, response} <- Transport.request(client, :post, "/chat.postEphemeral", document),
          {:ok, _body} <- Transport.response(response) do
       :ok
@@ -86,7 +84,7 @@ defmodule Ryker.Slack.Client.Messages do
          :ok <- Fields.text(delivery_ref),
          # An edit is parsed as the post was: chat.update otherwise parses
          # the text as a client would, and keeps that for the message.
-         document <-
+         document =
            channel
            |> message_document(rendered, delivery_ref)
            |> Map.merge(%{"parse" => "none", "ts" => message_ref}),

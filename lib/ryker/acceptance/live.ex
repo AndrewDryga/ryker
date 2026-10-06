@@ -12,6 +12,7 @@ defmodule Ryker.Acceptance.Live do
 
   alias Ryker.{Bootstrap, Settings}
   alias Ryker.CoopFleet.Placement
+  alias Ryker.Delivery.HTTPClient
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Reference
   alias Ryker.Repo
@@ -21,6 +22,7 @@ defmodule Ryker.Acceptance.Live do
 
   @default_timeout_ms 10 * 60 * 1_000
   @poll_interval_ms 500
+  @maximum_ready_bytes 4_096
   @maximum_timeout_ms 30 * 60 * 1_000
   @operation_fields [
     :admit,
@@ -118,19 +120,12 @@ defmodule Ryker.Acceptance.Live do
   end
 
   defp with_finch(function) do
-    case Finch.start_link(name: Ryker.CoopFinch) do
-      {:ok, pid} ->
-        try do
-          function.()
-        after
-          GenServer.stop(pid)
-        end
-
-      {:error, {:already_started, _pid}} ->
-        function.()
-
-      {:error, reason} ->
+    case HTTPClient.with_pool(function) do
+      {:error, {:http_pool_unavailable, reason}} ->
         {:error, {:live_acceptance_http_unavailable, reason}}
+
+      result ->
+        result
     end
   end
 
@@ -359,17 +354,17 @@ defmodule Ryker.Acceptance.Live do
        when is_tuple(ip) and is_integer(port) do
     host = ip |> :inet.ntoa() |> to_string()
     authority = if String.contains?(host, ":"), do: "[#{host}]", else: host
-    request = Finch.build(:get, "http://#{authority}:#{port}/readyz")
+    request = HTTPClient.build(:get, "http://#{authority}:#{port}/readyz")
     expected_version = release_version()
 
-    case Finch.request(request, Ryker.CoopFinch, receive_timeout: 5_000) do
-      {:ok, %Finch.Response{headers: headers, status: 200}} ->
+    case HTTPClient.stream(request, Ryker.CoopFinch, 5_000, @maximum_ready_bytes) do
+      {:ok, %{headers: headers, status: 200}} ->
         case List.keyfind(headers, "x-ryker-version", 0) do
           {"x-ryker-version", ^expected_version} -> :ok
           _missing_or_crossed -> {:error, :live_acceptance_release_version_mismatch}
         end
 
-      {:ok, %Finch.Response{status: status}} ->
+      {:ok, %{status: status}} ->
         {:error, {:live_acceptance_deployment_not_ready, status}}
 
       {:error, reason} ->

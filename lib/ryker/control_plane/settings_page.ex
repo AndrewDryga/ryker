@@ -1569,12 +1569,16 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   # Which environments send their approvals to an account.
   defp used_by(snapshot, account) do
-    case Environments.ordered(snapshot.environments)
-         |> Enum.filter(&(&1.emisar_connection_ref == account.ref)) do
+    environments =
+      snapshot.environments
+      |> Environments.ordered()
+      |> Enum.filter(&(&1.emisar_connection_ref == account.ref))
+
+    case environments do
       [] ->
         "No environment uses it yet"
 
-      environments ->
+      [_ | _] ->
         "Used by " <> Environments.sentence(Enum.map(environments, & &1.display_name))
     end
   end

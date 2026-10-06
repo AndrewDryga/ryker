@@ -31,7 +31,10 @@ defmodule Ryker.ControlPlane.Endpoint do
     Plug.Session.call(conn, Plug.Session.init(options))
   end
 
+  # A console started without a published address, as most tests start it,
+  # has neither key.
   defp secure_session?(%Plug.Conn{host: host}) do
-    match?(%{public_host: ^host, public_https: true}, config(:control_plane))
+    control_plane = config(:control_plane)
+    Map.get(control_plane, :public_https) == true and Map.get(control_plane, :public_host) == host
   end
 end

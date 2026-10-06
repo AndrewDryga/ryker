@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
   """
 
   alias Ryker.ControlPlane.Viewer
+  alias Ryker.Delivery.HTTPClient
 
   @certs_path "/cdn-cgi/access/certs"
   @refresh_seconds 60
@@ -26,6 +27,7 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
   @leeway_seconds 60
   @maximum_token_bytes 8_192
   @maximum_login_bytes 200
+  @maximum_certs_bytes 65_536
   @signed_in :ryker_cloudflare_access_viewer
 
   @type config :: %{
@@ -157,10 +159,10 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
   defp rsa_key(_jwk), do: :error
 
   defp fetch_certs(team) do
-    request = Finch.build(:get, "https://" <> team <> @certs_path)
+    request = HTTPClient.build(:get, "https://" <> team <> @certs_path)
 
-    with {:ok, %Finch.Response{status: 200, body: body}} <-
-           Finch.request(request, Ryker.CoopFinch, receive_timeout: 5_000),
+    with {:ok, %{status: 200, body: body}} <-
+           HTTPClient.stream(request, Ryker.CoopFinch, 5_000, @maximum_certs_bytes),
          {:ok, %{} = certs} <- Jason.decode(body) do
       {:ok, certs}
     else

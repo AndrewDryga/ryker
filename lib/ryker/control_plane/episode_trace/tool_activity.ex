@@ -582,7 +582,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp shown_artifact(%{"kind" => "execute", "content" => content}, "content", label)
        when is_list(content) do
-    if Enum.all?(content, &match?(%{"type" => "terminal"}, &1)),
+    if Enum.all?(content, &(&1["type"] == "terminal")),
       do: {label, nil},
       else: {label, content}
   end

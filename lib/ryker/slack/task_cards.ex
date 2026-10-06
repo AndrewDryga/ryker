@@ -412,7 +412,9 @@ defmodule Ryker.Slack.TaskCards do
         workspace_ref: workspace_ref
       }
 
-      case attributes |> TaskCardChangeset.insert() |> Repo.insert() do
+      changeset = TaskCardChangeset.insert(attributes)
+
+      case Repo.insert(changeset) do
         {:ok, card} ->
           tap(card, &broadcast_task_card_updated/1)
 
@@ -464,9 +466,9 @@ defmodule Ryker.Slack.TaskCards do
   defp check_announcement(_card, _fingerprint, _revision), do: :announce
 
   defp update!(card, attributes, now, announce \\ :announce) do
-    case card
-         |> TaskCardChangeset.update(Map.put(attributes, :updated_at, now))
-         |> Repo.update() do
+    changeset = TaskCardChangeset.update(card, Map.put(attributes, :updated_at, now))
+
+    case Repo.update(changeset) do
       {:ok, card} when announce == :quiet -> card
       {:ok, card} -> tap(card, &broadcast_task_card_updated/1)
       {:error, changeset} -> Repo.rollback({:task_card_persistence_failed, changeset.errors})

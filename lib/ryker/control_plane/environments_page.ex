@@ -231,7 +231,9 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
 
   defp removal(_environment), do: "Its repositories and Emisar account stay."
 
-  defp query(%{"q" => q}) when is_binary(q), do: q |> String.trim() |> String.slice(0, 200)
+  defp query(%{"q" => search}) when is_binary(search),
+    do: search |> String.trim() |> String.slice(0, 200)
+
   defp query(_params), do: ""
 
   defp matches?(_environment, "", _snapshot), do: true

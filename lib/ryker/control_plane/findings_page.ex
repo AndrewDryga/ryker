@@ -197,17 +197,17 @@ defmodule Ryker.ControlPlane.FindingsPage do
   end
 
   # How many findings the list holds, then how many are not explained yet.
-  defp counts(view, q, selected) do
+  defp counts(view, search, selected) do
     unexplained = Map.get(view, :unexplained, 0)
 
     [
-      Kit.list_total(view.total, {"finding", "findings"}, q != "" or not is_nil(selected)),
+      Kit.list_total(view.total, {"finding", "findings"}, search != "" or not is_nil(selected)),
       unexplained > 0 && is_nil(selected) &&
         %{
           value: unexplained,
           label: "not explained yet",
           tone: :warn,
-          href: path_for("unexplained", q, nil)
+          href: path_for("unexplained", search, nil)
         }
     ]
     |> Enum.filter(& &1)
@@ -215,7 +215,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
 
   # All, then each view that has a finding, in a fixed order; the chosen one
   # stays even when a search empties it.
-  defp views(view, q, selected) do
+  defp views(view, search, selected) do
     present =
       Enum.filter(
         FindingsProjection.views(),
@@ -225,8 +225,8 @@ defmodule Ryker.ControlPlane.FindingsPage do
     if present == [] do
       []
     else
-      [{"All", path_for(nil, q, nil), is_nil(selected)}] ++
-        Enum.map(present, &{view_label(&1), path_for(&1, q, nil), &1 == selected})
+      [{"All", path_for(nil, search, nil), is_nil(selected)}] ++
+        Enum.map(present, &{view_label(&1), path_for(&1, search, nil), &1 == selected})
     end
   end
 
@@ -236,8 +236,8 @@ defmodule Ryker.ControlPlane.FindingsPage do
   defp view_label("out_of_scope"), do: "Out of scope"
   defp view_label("forgotten"), do: "Forgotten"
 
-  defp path_for(view, q, page) do
-    [{"view", view}, {"q", q}, {"page", page}]
+  defp path_for(view, search, page) do
+    [{"view", view}, {"q", search}, {"page", page}]
     |> Enum.reject(fn {_key, value} -> value in [nil, "", 1] end)
     |> Paths.encode_query()
     |> case do

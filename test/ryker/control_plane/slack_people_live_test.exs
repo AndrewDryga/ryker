@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
 
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-  import Ryker.TestHelpers, only: [eventually: 1]
+  import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
 
   import Ecto.Query
 
@@ -384,17 +384,8 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
   # Who Slack lists, counted, and held back while a test looks at the page in between.
   defp list_people(agent) do
     Agent.update(agent, &Map.update!(&1, :calls, fn calls -> calls + 1 end))
-    held(agent, 500)
+    _released = eventually(fn -> not Agent.get(agent, & &1.hold) end, 5_000)
     {:ok, Agent.get(agent, & &1.people)}
-  end
-
-  defp held(_agent, 0), do: :ok
-
-  defp held(agent, tries) do
-    if Agent.get(agent, & &1.hold) do
-      Process.sleep(10)
-      held(agent, tries - 1)
-    end
   end
 
   defp rows(view) do

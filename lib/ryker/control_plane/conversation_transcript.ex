@@ -191,11 +191,13 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   # admission the kernel recorded for it: `%{episode_id => refs}` in,
   # `%{{episode_id, ref} => %{native_input_id, revision}}` out.
   defp admitted_inputs(refs_by_episode) do
-    case refs_by_episode |> Map.values() |> List.flatten() |> Enum.uniq() do
+    refs = refs_by_episode |> Map.values() |> List.flatten() |> Enum.uniq()
+
+    case refs do
       [] ->
         %{}
 
-      refs ->
+      [_ | _] ->
         refs_by_episode
         |> admission_events(refs)
         |> Enum.flat_map(&admitted_input(&1, refs_by_episode))
@@ -603,10 +605,8 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp marker_component(value, fallback) when is_binary(value) do
-    case value |> String.replace(~r/\s+/u, " ") |> String.trim() |> String.slice(0, 160) do
-      "" -> fallback
-      component -> component
-    end
+    component = value |> String.replace(~r/\s+/u, " ") |> String.trim() |> String.slice(0, 160)
+    if component == "", do: fallback, else: component
   end
 
   defp marker_component(_value, fallback), do: fallback

@@ -1020,10 +1020,7 @@ defmodule Ryker.Work.Custody.Turns do
            ),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          {:ok, turn} <-
-           turn
-           |> TurnChangeset.accept_result(attributes)
-           |> Repo.update()
-           |> persistence_result(:work_result),
+           persist_update(TurnChangeset.accept_result(turn, attributes), :work_result),
          :ok <-
            PublicationCustody.ensure_task_review_in_transaction(
              transition.episode,

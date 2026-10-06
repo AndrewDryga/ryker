@@ -33,7 +33,6 @@ defmodule Ryker.Behaviors do
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
   alias Ryker.Waits.SourceEventMatcher
 
   alias Ryker.UTCDateTime
@@ -861,16 +860,7 @@ defmodule Ryker.Behaviors do
          :ok <- capacity(prepared),
          :ok <- supersede_existing(prepared),
          {:ok, behavior} <- insert_behavior(record, episode, attributes, prepared),
-         {:ok, confirmed} <-
-           record
-           |> RecordChangeset.confirm_resource(%{
-             confirmed_at: attributes.occurred_at,
-             confirmed_by_actor_ref: attributes.actor_ref,
-             confirmation_ref: attributes.confirmation_ref,
-             status: :confirmed
-           })
-           |> Repo.update() do
-      Records.broadcast_record_updated(confirmed)
+         {:ok, _confirmed} <- Records.confirm_offer(record, attributes) do
       %{behavior: behavior, status: :confirmed}
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -1274,7 +1264,9 @@ defmodule Ryker.Behaviors do
   end
 
   defp finalize_assignment_run(%StandingAssignmentRun{outcome: :pending} = run, desired, now) do
-    case run |> StandingAssignmentRunChangeset.finalize(desired) |> Repo.update() do
+    changeset = StandingAssignmentRunChangeset.finalize(run, desired)
+
+    case Repo.update(changeset) do
       {:ok, _updated} -> increment_assignment_use(run.assignment_id, now)
       {:error, changeset} -> Repo.rollback({:standing_assignment_run_failed, changeset.errors})
     end

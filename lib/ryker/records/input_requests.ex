@@ -151,7 +151,7 @@ defmodule Ryker.Records.InputRequests do
          {:ok, input} <- input(record, choice, attributes),
          {:ok, inbox_receipt} <- Inbox.record(input),
          {:ok, response} <- persist_response(record, inbox_receipt.entry, choice, attributes),
-         {:ok, record} <- record |> RecordChangeset.answer() |> Repo.update(),
+         {:ok, record} <- Repo.update(RecordChangeset.answer(record)),
          :ok <-
            InteractionAudits.record_answer_in_transaction(
              inbox_receipt.entry,

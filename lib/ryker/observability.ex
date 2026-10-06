@@ -15,7 +15,7 @@ defmodule Ryker.Observability do
 
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Observability.{Fleet, Metrics, Progress, Query, Queues, Readiness, Retention}
+  alias Ryker.Observability.{Fleet, Metrics, Progress, Queues, Readiness, Reads, Retention}
   alias Ryker.Publication.Publication
   alias Ryker.Schedules.Schedule
   alias Ryker.Slack.{IncidentRoom, TaskCard}
@@ -31,7 +31,7 @@ defmodule Ryker.Observability do
 
   @spec health() :: {:ok, map()} | {:error, term()}
   def health do
-    case Query.sql("SELECT 1") do
+    case Reads.sql("SELECT 1") do
       {:ok, _result} -> {:ok, %{database: :ok}}
       {:error, reason} -> {:error, {:database_unavailable, reason}}
     end
@@ -101,13 +101,13 @@ defmodule Ryker.Observability do
     do: {:error, {:invalid_observability, :stall_after_seconds}}
 
   defp counts do
-    with {:ok, incidents} <- Query.counts(IncidentRoom, :status),
-         {:ok, ingress} <- Query.counts(Entry, :status),
-         {:ok, publications} <- Query.counts(Publication, :status),
-         {:ok, routing_responses} <- Query.counts(RoutingResponse, :status),
-         {:ok, schedules} <- Query.counts(Schedule, :status),
-         {:ok, task_cards} <- Query.count(TaskCard),
-         {:ok, work} <- Query.counts(Turn, :status) do
+    with {:ok, incidents} <- Reads.counts(IncidentRoom, :status),
+         {:ok, ingress} <- Reads.counts(Entry, :status),
+         {:ok, publications} <- Reads.counts(Publication, :status),
+         {:ok, routing_responses} <- Reads.counts(RoutingResponse, :status),
+         {:ok, schedules} <- Reads.counts(Schedule, :status),
+         {:ok, task_cards} <- Reads.count(TaskCard),
+         {:ok, work} <- Reads.counts(Turn, :status) do
       {:ok,
        %{
          incidents: incidents,
@@ -122,7 +122,7 @@ defmodule Ryker.Observability do
   end
 
   defp database_now do
-    case Query.sql("SELECT clock_timestamp()") do
+    case Reads.sql("SELECT clock_timestamp()") do
       {:ok, %{rows: [[%DateTime{} = now]]}} -> {:ok, now}
       {:ok, _unexpected} -> {:error, {:observability_query_failed, :database_clock}}
       {:error, reason} -> {:error, {:database_unavailable, reason}}

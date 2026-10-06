@@ -12,7 +12,7 @@ defmodule Ryker.Slack.AppHome do
   can open Home for the complete list.
   """
 
-  alias Ryker.Slack.{Collections, HomeEvent, Operators}
+  alias Ryker.Slack.{Collections, ControlValue, HomeEvent, Operators}
 
   @maximum_attention 8
   @maximum_work 8
@@ -766,7 +766,7 @@ defmodule Ryker.Slack.AppHome do
   defp versioned_control(kind, row) do
     case {Map.get(row, :ref), Map.get(row, :revision)} do
       {ref, revision} when is_binary(ref) and is_integer(revision) and revision > 0 ->
-        "#{kind}-control:#{ref}:#{revision}"
+        ControlValue.encode(kind, ref, revision)
 
       _invalid ->
         nil

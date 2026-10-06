@@ -33,7 +33,7 @@ defmodule Ryker.Slack.Client.Files do
          :ok <- uploads(files),
          :ok <- upload_configured(client),
          {:ok, uploaded} <- upload_external(client, files),
-         document <-
+         document =
            channel |> completion_document(rendered, uploaded) |> Messages.put_thread(thread),
          {:ok, response} <-
            Transport.request(client, :post, "/files.completeUploadExternal", document),

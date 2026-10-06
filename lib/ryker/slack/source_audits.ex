@@ -9,7 +9,7 @@ defmodule Ryker.Slack.SourceAudits do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Repo
-  alias Ryker.Slack.SourceAudit
+  alias Ryker.Slack.SourceAuditChangeset
 
   @fields [
     :authorized,
@@ -32,59 +32,8 @@ defmodule Ryker.Slack.SourceAudits do
   def record(attributes) do
     with {:ok, attributes} <- exact_attributes(attributes),
          :ok <- validate(attributes),
-         {:ok, _audit} <-
-           %SourceAudit{}
-           |> Ecto.Changeset.cast(
-             %{
-               authorized: attributes.authorized,
-               capability: attributes.capability,
-               channel_ref: attributes.channel_ref,
-               complete: attributes.complete,
-               episode_id: attributes.episode_id,
-               id: Ecto.UUID.generate(),
-               range_fingerprint: CanonicalJSON.digest(attributes.range),
-               request_fingerprint: CanonicalJSON.digest(attributes.request),
-               requester_ref: attributes.requester_ref,
-               result_count: attributes.result_count,
-               source_fingerprint: digest_optional(attributes.source_ref),
-               tool: attributes.tool,
-               turn_id: attributes.turn_id,
-               workspace_ref: attributes.workspace_ref
-             },
-             [
-               :authorized,
-               :capability,
-               :channel_ref,
-               :complete,
-               :episode_id,
-               :id,
-               :range_fingerprint,
-               :request_fingerprint,
-               :requester_ref,
-               :result_count,
-               :source_fingerprint,
-               :tool,
-               :turn_id,
-               :workspace_ref
-             ]
-           )
-           |> Ecto.Changeset.validate_required([
-             :authorized,
-             :capability,
-             :complete,
-             :episode_id,
-             :id,
-             :range_fingerprint,
-             :request_fingerprint,
-             :requester_ref,
-             :result_count,
-             :tool,
-             :turn_id,
-             :workspace_ref
-           ])
-           |> Ecto.Changeset.foreign_key_constraint(:episode_id)
-           |> Ecto.Changeset.foreign_key_constraint(:turn_id)
-           |> Repo.insert() do
+         changeset = SourceAuditChangeset.insert(row(attributes)),
+         {:ok, _audit} <- Repo.insert(changeset) do
       # What a run read from Slack is part of its request's record.
       Ryker.Episodes.broadcast_episode_updated(attributes.episode_id)
     else
@@ -94,6 +43,25 @@ defmodule Ryker.Slack.SourceAudits do
       {:error, _reason} = error ->
         error
     end
+  end
+
+  defp row(attributes) do
+    %{
+      authorized: attributes.authorized,
+      capability: attributes.capability,
+      channel_ref: attributes.channel_ref,
+      complete: attributes.complete,
+      episode_id: attributes.episode_id,
+      id: Ecto.UUID.generate(),
+      range_fingerprint: CanonicalJSON.digest(attributes.range),
+      request_fingerprint: CanonicalJSON.digest(attributes.request),
+      requester_ref: attributes.requester_ref,
+      result_count: attributes.result_count,
+      source_fingerprint: digest_optional(attributes.source_ref),
+      tool: attributes.tool,
+      turn_id: attributes.turn_id,
+      workspace_ref: attributes.workspace_ref
+    }
   end
 
   defp exact_attributes(attributes) when is_list(attributes) do

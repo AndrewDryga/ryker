@@ -65,7 +65,7 @@ defmodule Ryker.Slack.Input do
   end
 
   defp exact_attributes(%{} = attributes) do
-    case Map.keys(attributes) |> Enum.sort() do
+    case Enum.sort(Map.keys(attributes)) do
       @required_keys ->
         {:ok, Map.put(attributes, :post_destination_refs, [])}
 

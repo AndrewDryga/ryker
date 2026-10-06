@@ -313,7 +313,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     with true <-
            is_nil(turn.operational_pruned_at) and
              Turns.completion_matches?(turn, turn.completion_receipt),
-         {:ok, turn} <- turn |> TurnChangeset.retry_completion() |> Repo.update() do
+         {:ok, turn} <- Repo.update(TurnChangeset.retry_completion(turn)) do
       Custody.broadcast_turn_updated(turn)
       episode
     else
@@ -598,17 +598,16 @@ defmodule Ryker.Work.Custody.Cancellation do
              episode,
              turn
            ),
-         {:ok, turn} <-
-           turn
-           |> TurnChangeset.replace_cancellation_disposition(
+         changeset =
+           TurnChangeset.replace_cancellation_disposition(
+             turn,
              intent,
              fingerprint,
              cancellation_error_code(intent),
              cancellation_error_detail(intent),
              :superseded
-           )
-           |> Repo.update()
-           |> persistence_result(:work_cancellation_disposition),
+           ),
+         {:ok, turn} <- persist_update(changeset, :work_cancellation_disposition),
          :ok <- maybe_rotate_cancelled_session(intent, turn.cancellation_receipt, session) do
       %{episode: settled_episode, status: :settled, turn: turn}
     else
@@ -861,18 +860,17 @@ defmodule Ryker.Work.Custody.Cancellation do
     command = WorkCancellation.command(turn.cancellation_intent, episode, now)
 
     with {:ok, settled_episode} <- settle_episode_after_cancellation(command, episode, turn),
-         {:ok, turn} <-
-           turn
-           |> TurnChangeset.settle_cancellation(
+         changeset =
+           TurnChangeset.settle_cancellation(
+             turn,
              receipt,
              fingerprint,
              now,
              cancellation_error_code(turn.cancellation_intent),
              cancellation_error_detail(turn.cancellation_intent),
              cancellation_status(turn.cancellation_intent)
-           )
-           |> Repo.update()
-           |> persistence_result(:work_cancellation),
+           ),
+         {:ok, turn} <- persist_update(changeset, :work_cancellation),
          :ok <- maybe_rotate_cancelled_session(turn.cancellation_intent, receipt, session) do
       %{episode: settled_episode, turn: turn}
     else

@@ -78,7 +78,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   @spec enqueue_in_turn(map(), map() | keyword()) ::
           {:ok, %{action: PlatformAction.t(), status: :created | :duplicate}} | {:error, term()}
   def enqueue_in_turn(binding, attributes) do
-    with {:ok, attributes} <- attributes |> with_numbered_slot() |> exact_attributes(),
+    with {:ok, attributes} <- exact_attributes(with_numbered_slot(attributes)),
          :ok <- numbered_kind(attributes),
          {:ok, _request} <- request_attributes(attributes),
          :ok <- live_binding_shape(binding) do
@@ -437,10 +437,8 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp repeated(earlier, attributes) do
     subject = subject(attributes)
 
-    case earlier |> Enum.filter(&(subject(&1) == subject)) |> List.last() do
-      %PlatformAction{} = latest -> if intent(latest) == intent(attributes), do: latest
-      nil -> nil
-    end
+    latest = earlier |> Enum.filter(&(subject(&1) == subject)) |> List.last()
+    if latest != nil and intent(latest) == intent(attributes), do: latest
   end
 
   defp subject(%{kind: :reaction, source_item_ref: item, document: %{"emoji_name" => emoji}}),

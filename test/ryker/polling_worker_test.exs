@@ -191,6 +191,9 @@ defmodule Ryker.PollingWorkerTest do
 
     for change <- 1..60 do
       Ryker.PubSub.broadcast(topic, {:changed, change})
+      # The stream itself: sixty announcements over about 600 ms, longer than
+      # the 250 ms between the polls they may cause.
+      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
       Process.sleep(10)
     end
 

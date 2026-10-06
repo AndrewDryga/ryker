@@ -96,6 +96,8 @@ defmodule Ryker.Slack.TaskCardWorker do
           "Slack task card could not be created for #{record_id}: #{ErrorDetail.detail(reason)}"
         )
 
+        # The records this worker has already logged as unbuildable, so each is logged once.
+        # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
         Process.put(@unbuildable, MapSet.put(unbuildable, record_id))
         claim_and_refresh(options)
 

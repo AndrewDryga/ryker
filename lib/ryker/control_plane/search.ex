@@ -1,15 +1,14 @@
 defmodule Ryker.ControlPlane.Search do
   @moduledoc "One spelling of a free-text search as a bounded SQL `ILIKE` pattern."
 
-  @maximum_bytes 200
+  # Characters, which String.slice/3 counts, not bytes.
+  @maximum_length 200
 
   @doc "The trimmed, bounded search a directory was asked for, or nil when it was asked for nothing."
   @spec term(term()) :: String.t() | nil
   def term(value) when is_binary(value) do
-    case value |> String.trim() |> String.slice(0, @maximum_bytes) do
-      "" -> nil
-      search -> search
-    end
+    search = value |> String.trim() |> String.slice(0, @maximum_length)
+    if search != "", do: search
   end
 
   def term(_value), do: nil
@@ -47,7 +46,7 @@ defmodule Ryker.ControlPlane.Search do
   def contains(text) when is_binary(text) do
     escaped =
       text
-      |> String.slice(0, @maximum_bytes)
+      |> String.slice(0, @maximum_length)
       |> String.replace(["\\", "%", "_"], &("\\" <> &1))
 
     "%" <> escaped <> "%"

@@ -109,6 +109,8 @@ defmodule Ryker.Transcription.ServiceTest do
   test "a stuck service leaves Ryker's own model only the rest of the recording's time",
        %{dir: dir} do
     request = fn _url, _fields, _audio, _timeout_ms ->
+      # A stuck service spends part of the recording's time.
+      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
       Process.sleep(200)
       {:error, {:service, "did not answer in 30 s"}}
     end
@@ -126,6 +128,8 @@ defmodule Ryker.Transcription.ServiceTest do
 
   test "a recording whose time the service spent is not read again", %{dir: dir} do
     request = fn _url, _fields, _audio, _timeout_ms ->
+      # A stuck service spends all of the recording's time.
+      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
       Process.sleep(600)
       {:error, {:service, "did not answer in 0 s"}}
     end

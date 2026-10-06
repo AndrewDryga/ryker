@@ -268,11 +268,15 @@ defmodule Ryker.StateTools.Router do
     end
   end
 
+  # A shadow run only observes; a binding without an episode is not one.
+  defp shadow?(%{episode: %{execution_mode: :shadow}}), do: true
+  defp shadow?(_binding), do: false
+
   defp visible_emisar_tools(catalog, options) do
     taken =
       MapSet.new(Tools.list(options) ++ visible_additional_tools(options), & &1["name"])
 
-    observe_only? = match?(%{episode: %{execution_mode: :shadow}}, options.binding)
+    observe_only? = shadow?(options.binding)
 
     Enum.filter(catalog.tools, fn tool ->
       not MapSet.member?(taken, tool["name"]) and

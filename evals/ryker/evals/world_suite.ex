@@ -332,8 +332,12 @@ defmodule Ryker.Evals.WorldSuite do
     reports
     |> invariant_failures()
     |> Enum.reject(&(&1.kind == :hard_invariant))
-    |> Enum.map(&%{&1 | kind: :"baseline_#{&1.kind}"})
+    |> Enum.map(&%{&1 | kind: baseline_kind(&1.kind)})
   end
+
+  defp baseline_kind(:unrun), do: :baseline_unrun
+  defp baseline_kind(:execution_error), do: :baseline_execution_error
+  defp baseline_kind(:cleanup_error), do: :baseline_cleanup_error
 
   defp threshold_failures(candidate, settings) do
     case_failures =

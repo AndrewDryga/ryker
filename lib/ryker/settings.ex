@@ -834,9 +834,9 @@ defmodule Ryker.Settings do
 
   # One capture however many writes the transaction made, so the commit is
   # announced once, with the revision it left.
-  defp broadcast_settings_saved, do: Repo.after_commit(&announce_saved_revision/0)
+  defp broadcast_settings_saved, do: Repo.after_commit(&broadcast_saved_revision/0)
 
-  defp announce_saved_revision do
+  defp broadcast_saved_revision do
     case Repo.one(from(installation in Installation, select: installation.revision)) do
       revision when is_integer(revision) ->
         Ryker.PubSub.broadcast(saves_topic(), {:settings_saved, revision})
@@ -876,7 +876,8 @@ defmodule Ryker.Settings do
       )
 
     with %{chosen: chosen} when is_list(chosen) <- saved,
-         true <- saved |> Map.to_list() |> Operators.new() |> Operators.operator?(user_ref) do
+         operators = Operators.new(Map.to_list(saved)),
+         true <- Operators.operator?(operators, user_ref) do
       :ok
     else
       _not_an_operator -> {:error, :settings_forbidden}

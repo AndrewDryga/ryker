@@ -31,6 +31,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   status) are listed under What happened (`details/1`).
   """
 
+  alias Ryker.ControlPlane.FailureProjection
   alias Ryker.ControlPlane.LearningActivity
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.ShortTime
@@ -1650,14 +1651,12 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp renewed_since?(_renewed, _stopped), do: false
 
   # Slack's own link to a channel, which opens it in the Slack app.
-  defp slack_url(%{destination: "slack:" <> rest}) do
-    case rest |> String.split(" / ", parts: 2) |> hd() |> String.split(":", parts: 2) do
-      [workspace, channel] -> slack_channel_url(workspace, channel)
-      _other -> nil
+  defp slack_url(row) do
+    case FailureProjection.slack_channel(row) do
+      {workspace, channel} -> slack_channel_url(workspace, channel)
+      nil -> nil
     end
   end
-
-  defp slack_url(_row), do: nil
 
   defp slack_channel_url(workspace, channel) do
     if Regex.match?(~r/\A[A-Z0-9]+\z/, workspace) and Regex.match?(~r/\A[A-Z0-9]+\z/, channel),
@@ -2326,8 +2325,11 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     }
   end
 
+  defp publishing_configured?(%{configured: true}), do: true
+  defp publishing_configured?(_publishing), do: false
+
   defp publication_cause(%{summary: "publication_repository_not_configured"} = row) do
-    if match?(%{configured: true}, row[:publishing]) do
+    if publishing_configured?(row[:publishing]) do
       cause(
         "The repository was not set up for pull requests, and it is now.",
         "Ryker could not publish to #{repository_words(row)}: pull requests were not set up for it. They are now.",

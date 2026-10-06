@@ -2389,10 +2389,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
       IncidentRoomWorker.options!(:invalid)
     end
 
-    name = Module.concat(__MODULE__, "Idle#{System.unique_integer([:positive])}")
-
-    pid =
-      start_supervised!({IncidentRoomWorker, Map.merge(options, %{interval_ms: 50, name: name})})
+    pid = start_supervised!({IncidentRoomWorker, Map.merge(options, %{interval_ms: 50})})
 
     assert Process.alive?(pid)
   end

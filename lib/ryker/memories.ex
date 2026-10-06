@@ -38,7 +38,6 @@ defmodule Ryker.Memories do
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
   alias Ryker.Records.Response
   alias Ryker.RoutingExamples
 
@@ -257,11 +256,11 @@ defmodule Ryker.Memories do
     with :ok <- answer_not_obsolete(prepared, response.occurred_at),
          :ok <- capacity(prepared),
          :ok <- supersede_existing(prepared),
-         {:ok, memory} <-
+         changeset =
            attributes
            |> MemoryEntryChangeset.insert()
-           |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
-           |> Repo.insert() do
+           |> Ecto.Changeset.change(inserted_at: now, updated_at: now),
+         {:ok, memory} <- Repo.insert(changeset) do
       broadcast_memory_updated(memory.id)
       %{memory: memory, status: :confirmed}
     else
@@ -468,16 +467,7 @@ defmodule Ryker.Memories do
     with :ok <- capacity(prepared),
          :ok <- supersede_existing(prepared),
          {:ok, entry} <- insert_entry(record, episode, attributes, prepared),
-         {:ok, confirmed} <-
-           record
-           |> RecordChangeset.confirm_resource(%{
-             confirmed_at: attributes.occurred_at,
-             confirmed_by_actor_ref: attributes.actor_ref,
-             confirmation_ref: attributes.confirmation_ref,
-             status: :confirmed
-           })
-           |> Repo.update() do
-      Records.broadcast_record_updated(confirmed)
+         {:ok, _confirmed} <- Records.confirm_offer(record, attributes) do
       %{memory: entry, status: :confirmed}
     else
       {:error, reason} -> Repo.rollback(reason)

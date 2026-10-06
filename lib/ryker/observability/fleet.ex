@@ -13,7 +13,7 @@ defmodule Ryker.Observability.Fleet do
 
   alias Ryker.CoopFleet.{Command, Placement, Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Defaults
-  alias Ryker.Observability.Query
+  alias Ryker.Observability.Reads
 
   @current_placement_states [:assigning, :active, :draining, :revoking]
   @slot_kinds ~w(session turn workspace)a
@@ -41,7 +41,7 @@ defmodule Ryker.Observability.Fleet do
   """
 
   @doc "The fleet at the database clock reading `now`."
-  @spec snapshot(DateTime.t()) :: {:ok, map()} | {:error, Query.failure()}
+  @spec snapshot(DateTime.t()) :: {:ok, map()} | {:error, Reads.failure()}
   def snapshot(now) do
     settings = settings()
     cutoff = DateTime.add(now, -Worker.heartbeat_seconds(), :second)
@@ -52,25 +52,25 @@ defmodule Ryker.Observability.Fleet do
     expired_placements =
       from(placement in current_placements, where: placement.lease_expires_at <= ^now)
 
-    with {:ok, workers} <- Query.all(Worker),
+    with {:ok, workers} <- Reads.all(Worker),
          {:ok, oldest_queued_command} <-
-           Query.one(
+           Reads.one(
              from(command in Command,
                where: command.status == :queued,
                select: min(command.inserted_at)
              )
            ),
          {:ok, latest_checkpoint} <-
-           Query.one(
+           Reads.one(
              from(checkpoint in WorkspaceCheckpointTransfer, select: max(checkpoint.inserted_at))
            ),
-         {:ok, checkpoints} <- Query.count(WorkspaceCheckpointTransfer),
-         {:ok, commands} <- Query.counts(Command, :status),
-         {:ok, current} <- Query.count(current_placements),
+         {:ok, checkpoints} <- Reads.count(WorkspaceCheckpointTransfer),
+         {:ok, commands} <- Reads.counts(Command, :status),
+         {:ok, current} <- Reads.count(current_placements),
          {:ok, event_cursor_lag} <- event_cursor_lag(),
-         {:ok, expired} <- Query.count(expired_placements),
-         {:ok, placements} <- Query.counts(Placement, :state),
-         {:ok, worker_states} <- Query.counts(Worker, :state) do
+         {:ok, expired} <- Reads.count(expired_placements),
+         {:ok, placements} <- Reads.counts(Placement, :state),
+         {:ok, worker_states} <- Reads.counts(Worker, :state) do
       fresh = Enum.filter(workers, &fresh?(&1, cutoff))
       eligible = Enum.filter(fresh, &eligible?(&1, settings.workspace_ref, settings.capabilities))
 
@@ -78,7 +78,7 @@ defmodule Ryker.Observability.Fleet do
        %{
          capacity: capacity(eligible),
          checkpoints: %{
-           latest_age_seconds: Query.age_seconds(now, latest_checkpoint),
+           latest_age_seconds: Reads.age_seconds(now, latest_checkpoint),
            total: checkpoints
          },
          commands: commands,
@@ -87,7 +87,7 @@ defmodule Ryker.Observability.Fleet do
          event_cursor_lag: event_cursor_lag,
          expired_current_placements: expired,
          fresh_workers: length(fresh),
-         oldest_queued_command_age_seconds: Query.age_seconds(now, oldest_queued_command),
+         oldest_queued_command_age_seconds: Reads.age_seconds(now, oldest_queued_command),
          placements: placements,
          provider_states: Enum.frequencies_by(fresh, &provider_state/1),
          required: settings.required,
@@ -150,7 +150,7 @@ defmodule Ryker.Observability.Fleet do
       oldest_measurement_age_seconds:
         if(measured_at == [],
           do: 0,
-          else: Query.age_seconds(now, Enum.min(measured_at, DateTime))
+          else: Reads.age_seconds(now, Enum.min(measured_at, DateTime))
         ),
       reclaimed_bytes: Enum.sum(Enum.map(workers, & &1.storage_reclaimed_bytes)),
       refused: Enum.count(fresh, &(&1.storage["allocation"] == "refused")),
@@ -239,7 +239,7 @@ defmodule Ryker.Observability.Fleet do
   end
 
   defp event_cursor_lag do
-    case Query.rows(@event_cursor_lag) do
+    case Reads.rows(@event_cursor_lag) do
       {:ok, [[lag]]} when is_integer(lag) ->
         {:ok, lag}
 

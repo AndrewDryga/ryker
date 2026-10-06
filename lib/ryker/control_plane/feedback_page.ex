@@ -457,8 +457,8 @@ defmodule Ryker.ControlPlane.FeedbackPage do
         do: {label, tone_path(tone, view.q), view.tone == tone}
   end
 
-  defp tone_path(tone, q) do
-    [{"tone", tone && Atom.to_string(tone)}, {"q", q}]
+  defp tone_path(tone, search) do
+    [{"tone", tone && Atom.to_string(tone)}, {"q", search}]
     |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
     |> Paths.encode_query()
     |> case do
@@ -478,8 +478,8 @@ defmodule Ryker.ControlPlane.FeedbackPage do
 
   defp category_path(category, ""), do: "#{@path}?category=#{category}"
 
-  defp category_path(category, q),
-    do: Paths.query(@path, %{"category" => category, "q" => q})
+  defp category_path(category, search),
+    do: Paths.query(@path, %{"category" => category, "q" => search})
 
   defp page_path(view, page) do
     "#{@path}?" <>

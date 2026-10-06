@@ -340,7 +340,9 @@ defmodule Ryker.LocalRouting do
       |> Map.update(:compared_at, nil, fn :now -> now end)
       |> Map.put(:updated_at, now)
 
-    case comparison |> Ecto.Changeset.change(changes) |> Repo.update(stale_error_field: :id) do
+    changeset = Ecto.Changeset.change(comparison, changes)
+
+    case Repo.update(changeset, stale_error_field: :id) do
       {:ok, settled} ->
         broadcast(settled.input_id)
         settled

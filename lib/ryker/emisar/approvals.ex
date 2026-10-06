@@ -561,7 +561,7 @@ defmodule Ryker.Emisar.Approvals do
          {:ok, _approval} <- live_lease(locked_approval, lease_ref, now),
          :ok <- exact_run(locked_approval, state),
          :ok <- exact_wait_record(locked_record, locked_approval, record.ref),
-         {:ok, answered_record} <- locked_record |> RecordChangeset.answer() |> Repo.update(),
+         {:ok, answered_record} <- Repo.update(RecordChangeset.answer(locked_record)),
          approval <-
            update!(locked_approval, %{
              failure_count: 0,
@@ -757,7 +757,9 @@ defmodule Ryker.Emisar.Approvals do
   # lease extension change nothing anyone sees, and a watch is looked at
   # every few seconds for as long as its approval waits: those write quietly.
   defp update!(approval, attributes, announce \\ :announce) do
-    case approval |> ApprovalChangeset.update(attributes) |> Repo.update() do
+    changeset = ApprovalChangeset.update(approval, attributes)
+
+    case Repo.update(changeset) do
       {:ok, approval} when announce == :quiet ->
         approval
 

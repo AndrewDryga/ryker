@@ -485,7 +485,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp when_fact(%DateTime{} = at, now), do: rich([{:time, at, ago(at, now)}])
   defp when_fact(_at, _now), do: nil
 
-  defp rules_empty(%{params: %{"q" => q}}) when q != "", do: "No rules match \"#{q}\""
+  defp rules_empty(%{params: %{"q" => search}}) when search != "",
+    do: "No rules match \"#{search}\""
 
   defp rules_empty(%{params: params, counts: counts}) do
     cond do
@@ -495,7 +496,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     end
   end
 
-  defp rules_empty_text(%{params: %{"q" => q}}) when q != "",
+  defp rules_empty_text(%{params: %{"q" => search}}) when search != "",
     do: "Try other words, or clear the search to see every rule."
 
   defp rules_empty_text(%{params: params, counts: counts}) do

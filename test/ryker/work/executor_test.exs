@@ -1,6 +1,6 @@
 defmodule Ryker.Work.ExecutorTest do
   use Ryker.DataCase, async: true
-  import Ryker.TestHelpers, only: [digest: 1]
+  import Ryker.TestHelpers, only: [clocks_past!: 2, digest: 1, eventually: 2]
 
   import Ecto.Query
 
@@ -548,7 +548,7 @@ defmodule Ryker.Work.ExecutorTest do
     lease_expires!(claim, expiry)
 
     prepare = fn fallback ->
-      database_clock_past!(expiry)
+      clocks_past!(expiry, [:database])
       send(parent, {:second_slot, Custody.claim_next("worker:second-slot", 60, :work)})
       fallback.()
     end
@@ -600,9 +600,11 @@ defmodule Ryker.Work.ExecutorTest do
 
     assert_raise DBConnection.ConnectionError, fn -> Executor.run(claim, options) end
 
-    # Past the first renewal the heartbeat would have made.
-    Process.sleep(700)
-    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).lease_expires_at == expiry
+    # Not even past the first renewal the heartbeat would have made.
+    refute eventually(
+             fn -> Repo.get!(Ryker.Work.Turn, claim.turn.id).lease_expires_at != expiry end,
+             700
+           )
   end
 
   test "one frozen turn reaches a validated durable delivery intent" do
@@ -4940,14 +4942,6 @@ defmodule Ryker.Work.ExecutorTest do
       Repo.update_all(from(turn in Ryker.Work.Turn, where: turn.id == ^claim.turn.id),
         set: [lease_expires_at: expiry]
       )
-  end
-
-  defp database_clock_past!(moment, checks \\ 100) do
-    cond do
-      DateTime.compare(Repo.now!(), moment) == :gt -> :ok
-      checks == 0 -> flunk("the database clock never passed #{moment}")
-      true -> Process.sleep(50) == :ok and database_clock_past!(moment, checks - 1)
-    end
   end
 
   defp prepare_remote_operation(claim, kind, key, revision, function) do

@@ -514,7 +514,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
     # Reselection changes the batch, never the outcome of an earlier attempt.
     case Jason.decode(result) do
       {:ok, %{"updates" => updates}} when is_list(updates) ->
-        if Enum.all?(updates, &match?(%{"action" => "defer"}, &1)),
+        if Enum.all?(updates, &(&1["action"] == "defer")),
           do: "No change needed",
           else: "Knowledge updated"
 

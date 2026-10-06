@@ -68,11 +68,11 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   """
   @spec page(map()) :: map()
   def page(params) when is_map(params) do
-    q = Search.term(params["q"]) || ""
+    text = Search.term(params["q"]) || ""
     category = category(params["category"])
     # One kind's page lists that kind, whichever way it went.
     tone = if category, do: nil, else: tone(params["tone"])
-    matching = from(signal in Signal, as: :signal) |> search(q) |> going(tone)
+    matching = from(signal in Signal, as: :signal) |> search(text) |> going(tone)
     counts = counts(matching)
 
     view = %{
@@ -80,7 +80,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
       counts: counts,
       # By day is all feedback, whatever the search or Negative and Positive.
       days: days(from(signal in Signal, as: :signal)),
-      q: q,
+      q: text,
       tone: tone,
       total: counts |> Map.values() |> Enum.sum()
     }
@@ -128,8 +128,8 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   # answered by itself.
   defp search(query, ""), do: query
 
-  defp search(query, q) do
-    pattern = Search.contains(q)
+  defp search(query, text) do
+    pattern = Search.contains(text)
 
     from([signal: signal] in query,
       left_join: digest in RoutingDigest,

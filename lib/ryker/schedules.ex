@@ -24,7 +24,6 @@ defmodule Ryker.Schedules do
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Schedules.ScheduleOccurrence
@@ -291,16 +290,7 @@ defmodule Ryker.Schedules do
              recurrence,
              next_occurrence_at
            ),
-         {:ok, confirmed} <-
-           record
-           |> RecordChangeset.confirm_resource(%{
-             confirmed_at: attributes.occurred_at,
-             confirmed_by_actor_ref: attributes.actor_ref,
-             confirmation_ref: attributes.confirmation_ref,
-             status: :confirmed
-           })
-           |> Repo.update() do
-      Records.broadcast_record_updated(confirmed)
+         {:ok, _confirmed} <- Records.confirm_offer(record, attributes) do
       %{schedule: schedule, status: :confirmed}
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -1042,19 +1032,19 @@ defmodule Ryker.Schedules do
   @spec broadcast_schedule_updated(Schedule.t() | Ecto.UUID.t()) :: :ok
   def broadcast_schedule_updated(%Schedule{id: id, ref: ref} = schedule) do
     Episodes.broadcast_episode_updated(schedule.source_episode_id)
-    Repo.after_commit(fn -> announce_schedule(id, ref) end)
+    Repo.after_commit(fn -> broadcast_committed_schedule(id, ref) end)
   end
 
   def broadcast_schedule_updated(schedule_id) when is_binary(schedule_id) do
     Repo.after_commit(fn ->
       case Repo.one(from(schedule in Schedule, where: schedule.id == ^schedule_id)) do
-        %Schedule{ref: ref} -> announce_schedule(schedule_id, ref)
+        %Schedule{ref: ref} -> broadcast_committed_schedule(schedule_id, ref)
         nil -> :ok
       end
     end)
   end
 
-  defp announce_schedule(id, ref) do
+  defp broadcast_committed_schedule(id, ref) do
     Ryker.PubSub.broadcast(schedule_topic(ref), {:schedule_updated, id})
     Ryker.PubSub.broadcast(schedules_topic(), {:schedule_updated, id})
   end

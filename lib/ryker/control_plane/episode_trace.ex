@@ -190,7 +190,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   end
 
   defp repository_detail?(%{details: details}) when is_list(details),
-    do: Enum.any?(details, &match?(%{label: "Repository"}, &1))
+    do: Enum.any?(details, &(&1.label == "Repository"))
 
   defp repository_detail?(_step), do: false
 

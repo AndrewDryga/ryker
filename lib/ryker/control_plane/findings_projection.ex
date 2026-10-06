@@ -32,7 +32,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   explained yet.
   """
   def list(params) do
-    q = Search.term(params["q"]) || ""
+    text = Search.term(params["q"]) || ""
     view = if params["view"] in @views, do: params["view"]
 
     findings =
@@ -42,7 +42,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
         where: record.kind == "finding",
         select: {record, episode.id}
       )
-      |> search(q)
+      |> search(text)
 
     page =
       PagedRelation.read(
@@ -57,7 +57,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
     secrets = InspectionRedactor.configured_secrets()
 
     %{
-      q: q,
+      q: text,
       view: view,
       views: view_counts,
       total: page.total,
@@ -165,8 +165,8 @@ defmodule Ryker.ControlPlane.FindingsProjection do
 
   defp search(query, ""), do: query
 
-  defp search(query, q) do
-    pattern = Search.contains(q)
+  defp search(query, text) do
+    pattern = Search.contains(text)
 
     from([record, _episode] in query,
       where:

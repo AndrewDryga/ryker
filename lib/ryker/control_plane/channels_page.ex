@@ -58,10 +58,10 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   @doc "The search phrase, which channels to show and the page, from the page's query."
   @spec view(map()) :: %{q: String.t(), show: String.t(), page: pos_integer()}
   def view(params) do
-    q = if is_binary(params["q"]), do: String.trim(params["q"]), else: ""
+    search = if is_binary(params["q"]), do: String.trim(params["q"]), else: ""
 
     %{
-      q: q,
+      q: search,
       show: if(params["show"] == "all", do: "all", else: "in_use"),
       page: PagedRelation.requested(params, "page")
     }
@@ -69,8 +69,8 @@ defmodule Ryker.ControlPlane.ChannelsPage do
 
   @doc "The query the channel directory reads for `view/1`."
   @spec query(map()) :: map()
-  def query(%{q: q, show: show, page: page}),
-    do: %{"q" => q, "show" => show, "page" => Integer.to_string(page)}
+  def query(%{q: search, show: show, page: page}),
+    do: %{"q" => search, "show" => show, "page" => Integer.to_string(page)}
 
   @doc "The page body as HTML, as the route hands it to the shell."
   @spec html(map()) :: binary()
@@ -248,14 +248,14 @@ defmodule Ryker.ControlPlane.ChannelsPage do
     if query == [], do: "/channels", else: Paths.query("/channels", query)
   end
 
-  defp empty_title(%{q: q}) when q != "", do: "No channels match \"#{q}\""
+  defp empty_title(%{q: search}) when search != "", do: "No channels match \"#{search}\""
   defp empty_title(%{show: "in_use"}), do: "Ryker is not in any channel now"
   defp empty_title(_view), do: "No channels yet"
 
-  defp empty_text(%{q: q, show: "in_use"}) when q != "",
+  defp empty_text(%{q: search, show: "in_use"}) when search != "",
     do: "Try another name, or look under All for channels Ryker has left."
 
-  defp empty_text(%{q: q}) when q != "", do: "Try another name or clear the search."
+  defp empty_text(%{q: search}) when search != "", do: "Try another name or clear the search."
 
   # All can hold channels Ryker left or never joined, such as an incident
   # room nobody recorded it in, so In use never claims there are none.

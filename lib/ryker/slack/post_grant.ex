@@ -38,8 +38,7 @@ defmodule Ryker.Slack.PostGrant do
 
   defp permalink_ref("<" <> wrapped, workspace_ref) do
     with true <- String.ends_with?(wrapped, ">"),
-         value <- String.trim_trailing(wrapped, ">"),
-         url <- value |> String.split("|", parts: 2) |> hd(),
+         [url | _label] = wrapped |> String.trim_trailing(">") |> String.split("|", parts: 2),
          %URI{host: host, path: path, query: query, scheme: "https"} <- URI.parse(url),
          true <- is_binary(host) and String.ends_with?(String.downcase(host), ".slack.com"),
          [_, channel_ref, path_timestamp] <- Regex.run(@permalink_path, path),

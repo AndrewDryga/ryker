@@ -165,7 +165,7 @@ defmodule Ryker.Feedback.Messages do
 
     with true <- words.tokens != [],
          [_ | _] = repeated <-
-           entry |> earlier_questions() |> Enum.filter(&repeats?(words(text(&1.content)), words)),
+           Enum.filter(earlier_questions(entry), &repeats?(words(text(&1.content)), words)),
          {:ok, request} <- answered_soon(repeated, entry) do
       record(entry, :asked_again, request)
     else

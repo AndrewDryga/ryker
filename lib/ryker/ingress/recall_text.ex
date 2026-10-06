@@ -100,9 +100,11 @@ defmodule Ryker.Ingress.RecallText do
   defp bounded_list(values), do: values |> Enum.uniq() |> Enum.take(@maximum_references)
 
   defp fields(content) do
-    case content |> fragments(0) |> Enum.reject(&(String.trim(&1) == "")) |> Enum.uniq() do
+    texts = content |> fragments(0) |> Enum.reject(&(String.trim(&1) == "")) |> Enum.uniq()
+
+    case texts do
       [] -> String.slice(CanonicalJSON.encode!(content), 0, 4000)
-      texts -> bounded(texts)
+      [_ | _] -> bounded(texts)
     end
   end
 

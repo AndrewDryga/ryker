@@ -51,7 +51,7 @@ defmodule Ryker.ControlPlane.LiveUpdatesTest do
 
       for {module, function, arguments} = subscription <- subscriptions do
         Code.ensure_loaded!(module)
-        leave = String.to_atom("un" <> Atom.to_string(function))
+        leave = String.to_existing_atom("un" <> Atom.to_string(function))
 
         assert function_exported?(module, function, length(arguments)),
                "#{path}: #{inspect(subscription)} is not a subscription"

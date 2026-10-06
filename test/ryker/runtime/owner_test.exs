@@ -218,10 +218,14 @@ defmodule Ryker.Runtime.OwnerTest do
     assert applied(owner, saved)
     console = console_pids(context)
 
-    for _crash <- 1..6 do
-      if pid = event_waits_pid(context), do: kill_between_messages(pid)
-      Process.sleep(5)
-    end
+    # Six crashes, each of a runtime that came back: a loop that found none
+    # between restarts crashed it fewer times than it said.
+    Enum.reduce(1..6, nil, fn _crash, killed ->
+      assert eventually(fn -> event_waits_pid(context) not in [nil, killed] end, 5_000)
+      pid = event_waits_pid(context)
+      kill_between_messages(pid)
+      pid
+    end)
 
     assert eventually(fn -> is_pid(event_waits_pid(context)) end, 5_000)
     assert eventually(fn -> :event_waits in Owner.running_keys(owner) end, 5_000)
@@ -329,7 +333,7 @@ defmodule Ryker.Runtime.OwnerTest do
   defp start_owner(context) do
     options =
       [
-        name: :"owner-#{System.unique_integer([:positive])}",
+        name: {:global, {Owner, System.unique_integer([:positive])}},
         supervisor: context.supervisor,
         bootstrap: context.bootstrap
       ] ++ if(retry_ms = Map.get(context, :retry_ms), do: [retry_ms: retry_ms], else: [])
@@ -395,13 +399,20 @@ defmodule Ryker.Runtime.OwnerTest do
     end)
   end
 
-  # Each runtime key runs under its own supervisor; these are the processes inside them.
+  # Each runtime key runs under its own supervisor; these are the processes inside them. A key's
+  # supervisor that gave up on its crashing runtime may be gone by the time it is asked.
   defp runtime_children(context) do
     for {_id, key_supervisor, :supervisor, _modules} <-
           DynamicSupervisor.which_children(context.supervisor),
         is_pid(key_supervisor),
-        child <- Supervisor.which_children(key_supervisor),
+        child <- children(key_supervisor),
         do: child
+  end
+
+  defp children(supervisor) do
+    Supervisor.which_children(supervisor)
+  catch
+    :exit, _gone -> []
   end
 
   defp initialize do

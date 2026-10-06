@@ -306,7 +306,7 @@ defmodule Ryker.Feedback do
            returning: true
          ) do
       {1, [recorded]} ->
-        announce(recorded)
+        broadcast_feedback_recorded(recorded)
         :ok = Improvement.note_in_transaction(recorded)
         {:ok, %{signal: recorded, status: :recorded}}
 
@@ -332,7 +332,7 @@ defmodule Ryker.Feedback do
 
   defp feedback_topic, do: "feedback"
 
-  defp announce(%Signal{id: id} = signal) do
+  defp broadcast_feedback_recorded(%Signal{id: id} = signal) do
     Episodes.broadcast_episode_updated(signal.episode_id)
     if signal.input_id, do: Inbox.broadcast_input_updated(signal.input_id)
 

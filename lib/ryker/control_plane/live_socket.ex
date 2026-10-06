@@ -33,13 +33,14 @@ defmodule Ryker.ControlPlane.LiveSocket do
   # that sign-in stops counting. A held session reconnected at the published
   # host with no current sign-in (2026-10-04 review).
   defp signed_in?(host, %{public_host: host, cloudflare_access: %{}}, session) do
-    now = System.os_time(:second)
-
-    match?(
-      %{via: :cloudflare, until: until} when until >= now,
-      Viewer.from_session(session || %{})
-    )
+    session
+    |> Kernel.||(%{})
+    |> Viewer.from_session()
+    |> current_access_sign_in?(System.os_time(:second))
   end
 
   defp signed_in?(_host, _control_plane, _session), do: true
+
+  defp current_access_sign_in?(%{via: :cloudflare, until: until}, now), do: until >= now
+  defp current_access_sign_in?(_viewer, _now), do: false
 end

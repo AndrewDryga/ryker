@@ -30,6 +30,8 @@ defmodule Ryker.GitHub.OnboardingWorkerTest do
     for _event <- 1..5,
         do: assert(:ok = PollingWorker.poll_now(worker))
 
+    # The window the polls are counted over.
+    # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
     Process.sleep(550)
     {:ok, statistics} = :sys.statistics(worker, :get)
 

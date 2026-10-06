@@ -196,7 +196,9 @@ defmodule Ryker.Slack.InteractionAudits do
           else: Repo.rollback(:slack_interaction_event_conflict)
 
       nil ->
-        case attributes |> InteractionAuditChangeset.insert() |> Repo.insert() do
+        changeset = InteractionAuditChangeset.insert(attributes)
+
+        case Repo.insert(changeset) do
           {:ok, audit} ->
             broadcast_interaction_updated(audit)
             %{audit: audit, status: :recorded}
@@ -326,7 +328,9 @@ defmodule Ryker.Slack.InteractionAudits do
   end
 
   defp update!(audit, attributes) do
-    case audit |> InteractionAuditChangeset.update(attributes) |> Repo.update() do
+    changeset = InteractionAuditChangeset.update(audit, attributes)
+
+    case Repo.update(changeset) do
       {:ok, updated} ->
         tap(updated, &broadcast_interaction_updated/1)
 

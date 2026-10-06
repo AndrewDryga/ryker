@@ -97,6 +97,8 @@ defmodule Ryker.LocalRoutingTest do
     end
 
     defp hang(conn, milliseconds) do
+      # A local model that answers after Ryker stopped waiting for it.
+      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
       Process.sleep(milliseconds)
       send_resp(conn, 504, "too late")
     end

@@ -87,12 +87,12 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
       |> Map.new()
 
     view = if params["view"] == "past", do: "past", else: "current"
-    q = params |> scalar("q") |> String.trim() |> String.slice(0, 160)
+    search = params |> scalar("q") |> String.trim() |> String.slice(0, 160)
 
     filtered =
       from(b in subquery(base))
       |> filter_status(view)
-      |> filter_search(q)
+      |> filter_search(search)
 
     page = PagedRelation.read(filtered, [desc: :updated_at, desc: :id], "page", params)
 
@@ -104,7 +104,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
       page: page.page,
       pages: page.pages,
       runs: if(kinds == [:standing_assignment], do: runs(page.items), else: []),
-      params: %{"view" => view, "q" => q, "show" => show}
+      params: %{"view" => view, "q" => search, "show" => show}
     }
   end
 

@@ -57,7 +57,7 @@ defmodule Ryker.Episodes do
   def apply_batch_in_transaction(commands, options \\ []) do
     with {:ok, commands} <- prepare_batch(commands),
          :ok <- lock_input_conversations(Repo, commands),
-         episode_key <- commands |> hd() |> Map.fetch!(:episode_key),
+         %{episode_key: episode_key} = hd(commands),
          {:ok, :locked} <- lock_source(Repo, episode_key),
          {:ok, episode} <- load_episode(Repo, episode_key) do
       apply_prepared_batch(Repo, episode, commands, options)
@@ -327,7 +327,7 @@ defmodule Ryker.Episodes do
     do: broadcast_episode_updated(id)
 
   def broadcast_episode_updated(episode_id) when is_binary(episode_id),
-    do: Repo.after_commit(fn -> announce_episode(episode_id) end)
+    do: Repo.after_commit(fn -> broadcast_committed_episode(episode_id) end)
 
   def broadcast_episode_updated(nil), do: :ok
 
@@ -339,7 +339,8 @@ defmodule Ryker.Episodes do
   @spec broadcast_conversation_updated(String.t() | nil, String.t() | nil) :: :ok
   def broadcast_conversation_updated(transport, conversation_ref)
       when is_binary(transport) and is_binary(conversation_ref),
-      do: Repo.after_commit(fn -> announce_conversation(transport, conversation_ref) end)
+      do:
+        Repo.after_commit(fn -> broadcast_committed_conversation(transport, conversation_ref) end)
 
   def broadcast_conversation_updated(_transport, _conversation_ref), do: :ok
 
@@ -352,7 +353,7 @@ defmodule Ryker.Episodes do
 
   # A request removed by the change is still announced, so a page showing it
   # can say it is gone; it has no conversation left to announce.
-  defp announce_episode(episode_id) do
+  defp broadcast_committed_episode(episode_id) do
     destination =
       Repo.one(
         from(episode in Episode,
@@ -366,14 +367,14 @@ defmodule Ryker.Episodes do
 
     case destination do
       {transport, conversation_ref} when is_binary(transport) and is_binary(conversation_ref) ->
-        announce_conversation(transport, conversation_ref)
+        broadcast_committed_conversation(transport, conversation_ref)
 
       _none ->
         :ok
     end
   end
 
-  defp announce_conversation(transport, conversation_ref) do
+  defp broadcast_committed_conversation(transport, conversation_ref) do
     message = {:conversation_updated, conversation_ref}
     Ryker.PubSub.broadcast(conversation_topic(transport, conversation_ref), message)
     Ryker.PubSub.broadcast(conversations_topic(transport), message)

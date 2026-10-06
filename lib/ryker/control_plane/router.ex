@@ -675,6 +675,8 @@ defmodule Ryker.ControlPlane.Router do
     do: send_example_line(conn, line)
 
   defp send_example(line, conn, name) do
+    # Whether this download already sent its headers, read by its own rescue a few lines up.
+    # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
     Process.put(@examples_sent, true)
     conn |> examples_file(name) |> send_chunked(200) |> send_example_line(line)
   end

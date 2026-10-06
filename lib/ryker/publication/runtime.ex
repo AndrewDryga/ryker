@@ -112,7 +112,7 @@ defmodule Ryker.Publication.Runtime do
     {status_api, status_client} = status_source!(configuration)
 
     delivery_adapters =
-      case configuration |> Map.fetch!(:delivery_adapters) |> Adapters.new() do
+      case Adapters.new(Map.fetch!(configuration, :delivery_adapters)) do
         {:ok, adapters} ->
           adapters
 

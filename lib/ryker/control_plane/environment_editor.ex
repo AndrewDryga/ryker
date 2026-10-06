@@ -244,9 +244,11 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   end
 
   defp error({:invalid_settings, errors}) do
-    case errors |> Enum.map(&refused/1) |> Enum.reject(&is_nil/1) |> Enum.uniq() do
+    sentences = errors |> Enum.map(&refused/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    case sentences do
       [] -> "The environment could not be saved. Reload the page and try again."
-      sentences -> Enum.join(sentences, " ")
+      [_ | _] -> Enum.join(sentences, " ")
     end
   end
 

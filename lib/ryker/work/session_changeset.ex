@@ -6,6 +6,10 @@ defmodule Ryker.Work.SessionChangeset do
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.Work.{RepositoryContext, RepositorySource, Session}
 
+  @spec advance_activity_cursor(Session.t(), non_neg_integer()) :: Ecto.Changeset.t()
+  def advance_activity_cursor(%Session{} = session, cursor),
+    do: change(session, activity_cursor: cursor)
+
   @spec insert(
           Ecto.UUID.t(),
           Ecto.UUID.t(),

@@ -362,7 +362,9 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   defp settle_transcripts!(entry, content) do
-    case entry |> EntryChangeset.settle_transcripts(content) |> Repo.update() do
+    changeset = EntryChangeset.settle_transcripts(entry, content)
+
+    case Repo.update(changeset) do
       {:ok, settled} ->
         settled
 
@@ -413,7 +415,9 @@ defmodule Ryker.Ingress.Inbox do
       next_attempt_at: nil
     }
 
-    case entry |> EntryChangeset.claim(attributes) |> Repo.update() do
+    changeset = EntryChangeset.claim(entry, attributes)
+
+    case Repo.update(changeset) do
       {:ok, claimed} ->
         append_transition!(claimed, if(entry.attempt_count > 0, do: :reclaimed, else: :claimed),
           occurred_at: now,
@@ -508,7 +512,9 @@ defmodule Ryker.Ingress.Inbox do
         requested_expiry = DateTime.add(now, lease_seconds, :second)
         lease_expires_at = later_datetime(entry.lease_expires_at, requested_expiry)
 
-        case entry |> EntryChangeset.renew(lease_expires_at) |> Repo.update() do
+        changeset = EntryChangeset.renew(entry, lease_expires_at)
+
+        case Repo.update(changeset) do
           {:ok, renewed} ->
             renewed
 
@@ -553,7 +559,9 @@ defmodule Ryker.Ingress.Inbox do
           }
           |> maybe_clear_context(generation)
 
-        case entry |> EntryChangeset.defer(attributes) |> Repo.update() do
+        changeset = EntryChangeset.defer(entry, attributes)
+
+        case Repo.update(changeset) do
           {:ok, deferred} ->
             append_transition!(deferred, :retry_scheduled,
               occurred_at: now,
@@ -598,7 +606,9 @@ defmodule Ryker.Ingress.Inbox do
         Repo.rollback({:admission_context_failed, :input_not_found})
 
       %Entry{status: :pending, lease_ref: ^lease_ref, admission_context: nil} = entry ->
-        case entry |> EntryChangeset.bind_context(context, fingerprint) |> Repo.update() do
+        changeset = EntryChangeset.bind_context(entry, context, fingerprint)
+
+        case Repo.update(changeset) do
           {:ok, bound} ->
             broadcast_input_updated(bound)
             bound
@@ -654,7 +664,9 @@ defmodule Ryker.Ingress.Inbox do
           }
           |> maybe_clear_context(generation)
 
-        case entry |> EntryChangeset.block(attributes) |> Repo.update() do
+        changeset = EntryChangeset.block(entry, attributes)
+
+        case Repo.update(changeset) do
           {:ok, blocked} ->
             append_transition!(blocked, :blocked,
               attempt: entry.attempt_count,
@@ -679,7 +691,9 @@ defmodule Ryker.Ingress.Inbox do
         Repo.rollback({:ingress_rearm_failed, :input_not_found})
 
       %Entry{status: :blocked} = entry ->
-        case entry |> EntryChangeset.rearm() |> Repo.update() do
+        changeset = EntryChangeset.rearm(entry)
+
+        case Repo.update(changeset) do
           {:ok, rearmed} ->
             append_transition!(rearmed, :rearmed)
             rearmed
@@ -1185,7 +1199,7 @@ defmodule Ryker.Ingress.Inbox do
     )
 
     Episodes.broadcast_episode_updated(entry.episode_id)
-    Repo.after_commit(fn -> announce_input(id) end)
+    Repo.after_commit(fn -> broadcast_committed_input(id) end)
   end
 
   def broadcast_input_updated(input_id) when is_binary(input_id) do
@@ -1203,12 +1217,12 @@ defmodule Ryker.Ingress.Inbox do
              )
            ) do
         %Entry{} = entry -> broadcast_input_updated(entry)
-        nil -> announce_input(input_id)
+        nil -> broadcast_committed_input(input_id)
       end
     end)
   end
 
-  defp announce_input(input_id) do
+  defp broadcast_committed_input(input_id) do
     Ryker.PubSub.broadcast(input_topic(input_id), {:input_updated, input_id})
     Ryker.PubSub.broadcast(inputs_topic(), {:input_updated, input_id})
   end

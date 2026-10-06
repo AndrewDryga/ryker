@@ -1,7 +1,4 @@
 defmodule Ryker.Work.Activity do
-  alias Ryker.Admission.FleetSession
-  alias Ryker.Work.ActivityRetention
-
   @moduledoc """
   Durable, replay-safe custody for Coop's bounded turn narration.
 
@@ -13,14 +10,23 @@ defmodule Ryker.Work.Activity do
 
   import Ecto.Query
 
-  alias Ecto.Changeset
+  alias Ryker.Admission.FleetSession
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.Work.{ActivityEvent, ActivityPaths, Session}
+
+  alias Ryker.Work.{
+    ActivityEvent,
+    ActivityEventChangeset,
+    ActivityPaths,
+    ActivityRetention,
+    Session
+  }
+
+  alias Ryker.Work.SessionChangeset
 
   @activity_kinds ~w(
     tool.started
@@ -425,36 +431,9 @@ defmodule Ryker.Work.Activity do
         |> Map.put(:admission_input_id, session.admission_input_id)
         |> Map.put(:session_id, session.id)
 
-      case %ActivityEvent{}
-           |> Changeset.cast(attributes, [
-             :coop_turn_id,
-             :episode_id,
-             :admission_input_id,
-             :kind,
-             :occurred_at,
-             :payload,
-             :payload_fingerprint,
-             :remote_payload_fingerprint,
-             :operational_pruned_at,
-             :remote_event_id,
-             :remote_session_id,
-             :sequence,
-             :session_id,
-             :version
-           ])
-           |> Changeset.validate_required([
-             :kind,
-             :occurred_at,
-             :payload,
-             :payload_fingerprint,
-             :remote_event_id,
-             :remote_session_id,
-             :sequence,
-             :session_id,
-             :version
-           ])
-           |> Changeset.check_constraint(:episode_id, name: :activity_owner_valid)
-           |> Repo.insert() do
+      changeset = ActivityEventChangeset.insert(attributes)
+
+      case Repo.insert(changeset) do
         {:ok, _stored} -> {:cont, {:ok, count + 1}}
         {:error, changeset} -> {:halt, {:error, {:coop_activity_store, changeset.errors}}}
       end
@@ -481,7 +460,9 @@ defmodule Ryker.Work.Activity do
   defp persist_cursor(_session, cursor, cursor), do: :ok
 
   defp persist_cursor(session, _previous, cursor) do
-    case session |> Changeset.change(activity_cursor: cursor) |> Repo.update() do
+    changeset = SessionChangeset.advance_activity_cursor(session, cursor)
+
+    case Repo.update(changeset) do
       {:ok, _session} -> :ok
       {:error, changeset} -> {:error, {:coop_activity_cursor, changeset.errors}}
     end

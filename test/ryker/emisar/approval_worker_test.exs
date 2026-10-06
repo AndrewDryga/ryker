@@ -50,11 +50,11 @@ defmodule Ryker.Emisar.ApprovalWorkerTest do
   end
 
   test "named and anonymous workers both use the same bounded polling contract" do
-    name = Module.concat(__MODULE__, "Named#{System.unique_integer([:positive])}")
+    name = {:global, {__MODULE__, System.unique_integer([:positive])}}
     options = [dispatcher_options: dispatcher_options(), poll_interval_ms: 60_000]
 
     assert {:ok, named} = ApprovalWorker.start_link(Keyword.put(options, :name, name))
-    assert Process.whereis(name) == named
+    assert GenServer.whereis(name) == named
     GenServer.stop(named)
 
     assert {:ok, anonymous} = ApprovalWorker.start_link(options)

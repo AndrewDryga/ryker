@@ -381,10 +381,8 @@ defmodule Ryker.CoopFleet.Router do
   defp reason_codes(reason) when is_atom(reason), do: Atom.to_string(reason)
 
   defp reason_codes(reason) when is_tuple(reason) do
-    case reason |> Tuple.to_list() |> Enum.filter(&is_atom/1) do
-      [] -> "unrecognized"
-      codes -> Enum.map_join(codes, " ", &Atom.to_string/1)
-    end
+    codes = reason |> Tuple.to_list() |> Enum.filter(&is_atom/1)
+    if codes == [], do: "unrecognized", else: Enum.map_join(codes, " ", &Atom.to_string/1)
   end
 
   defp reason_codes(_reason), do: "unrecognized"

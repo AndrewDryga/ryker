@@ -139,8 +139,7 @@ defmodule Ryker.Coop.ClientTest do
   end
 
   test "a selector outside the frozen union never reaches the socket" do
-    finch = String.to_atom("coop_finch_#{System.unique_integer([:positive])}")
-    start_supervised!({Finch, name: finch})
+    finch = Ryker.CoopFinch
 
     assert {:ok, client} =
              Client.new(
@@ -1007,8 +1006,7 @@ defmodule Ryker.Coop.ClientTest do
 
   # A client whose socket is never dialed: what it refuses, it refuses first.
   defp unreachable_client do
-    finch = String.to_atom("coop_finch_#{System.unique_integer([:positive])}")
-    start_supervised!({Finch, name: finch})
+    finch = Ryker.CoopFinch
 
     {:ok, client} =
       Client.new(
@@ -1051,8 +1049,7 @@ defmodule Ryker.Coop.ClientTest do
         send(parent, {:captured_request, self(), captured})
       end)
 
-    finch = String.to_atom("coop_finch_#{System.unique_integer([:positive])}")
-    start_supervised!({Finch, name: finch})
+    finch = Ryker.CoopFinch
     assert {:ok, client} = Client.new(finch: finch, receive_timeout: 2_000, socket: socket_path)
 
     request = fn ->
@@ -1099,8 +1096,7 @@ defmodule Ryker.Coop.ClientTest do
         send(parent, {:captured_request, self(), captured})
       end)
 
-    finch = String.to_atom("coop_finch_#{System.unique_integer([:positive])}")
-    start_supervised!({Finch, name: finch})
+    finch = Ryker.CoopFinch
     assert {:ok, client} = Client.new(finch: finch, receive_timeout: 2_000, socket: socket_path)
 
     request = fn ->

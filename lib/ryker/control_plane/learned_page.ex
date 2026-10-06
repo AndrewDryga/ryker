@@ -493,9 +493,9 @@ defmodule Ryker.ControlPlane.LearnedPage do
     end
   end
 
-  defp sources_path(related_to, q, page \\ 1) do
+  defp sources_path(related_to, search, page \\ 1) do
     query =
-      [{"kind", "sources"}, {"related_to", related_to}, {"q", q}, {"page", page}]
+      [{"kind", "sources"}, {"related_to", related_to}, {"q", search}, {"page", page}]
       |> Enum.reject(fn {key, value} -> value in [nil, ""] or {key, value} == {"page", 1} end)
 
     Paths.query("/memory/learned", query)

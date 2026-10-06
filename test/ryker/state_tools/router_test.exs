@@ -3140,6 +3140,7 @@ defmodule Ryker.StateTools.RouterTest do
     # A client writes a large body after its headers, so the server has read
     # only the headers when the router starts reading the call.
     :ok = :gen_tcp.send(socket, head)
+    # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
     Process.sleep(50)
     :ok = :gen_tcp.send(socket, body)
     socket_response(socket, "")

@@ -26,6 +26,8 @@ defmodule Ryker.ControlPlane.PageCost do
   def handle_query(_event, measurements, _metadata, _config) do
     case Process.get(@key) do
       {queries, native} ->
+        # A page read's query count, kept where the telemetry handler runs: bookkeeping, not who acts.
+        # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
         Process.put(@key, {queries + 1, native + Map.get(measurements, :total_time, 0)})
 
       nil ->
@@ -44,6 +46,8 @@ defmodule Ryker.ControlPlane.PageCost do
   @spec measure(String.t(), boolean(), (-> result)) :: result when result: term()
   def measure(path, connected?, fun) do
     label = "#{route(path)} (#{if connected?, do: "live", else: "first render"})"
+    # The count starts with the read and is restored after it; nothing here says who acts.
+    # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
     previous = Process.put(@key, {0, 0})
     started = System.monotonic_time()
 
@@ -67,6 +71,7 @@ defmodule Ryker.ControlPlane.PageCost do
   end
 
   defp restore(nil), do: Process.delete(@key)
+  # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
   defp restore(previous), do: Process.put(@key, previous)
 
   defp log(label, queries, db_ms, ms) when ms >= @slow_ms or queries >= @many_queries,

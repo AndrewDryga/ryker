@@ -6,8 +6,11 @@ defmodule Ryker.TestHelpers do
   been copied again.
   """
 
+  import ExUnit.Assertions, only: [flunk: 1]
+
   alias Ryker.Evals.Job
   alias Ryker.Observability.Progress
+  alias Ryker.Repo
 
   @doc "Lowercase hex SHA-256 of a binary, as fixtures and receipts write it."
   @spec digest(iodata()) :: String.t()
@@ -17,11 +20,40 @@ defmodule Ryker.TestHelpers do
   Whether `check` becomes true within `within_ms`, polling every 10 ms.
 
   For state another process changes on its own time; a message is better
-  awaited with `assert_receive`.
+  awaited with `assert_receive`. `refute eventually(check, ms)` holds that
+  something does not happen for `ms`, checking throughout rather than once
+  after a sleep.
   """
   @spec eventually((-> as_boolean(term())), pos_integer()) :: boolean()
   def eventually(check, within_ms \\ 2_000) when is_function(check, 0) do
     poll(check, System.monotonic_time(:millisecond) + within_ms)
+  end
+
+  @doc """
+  Waits until each of `clocks` (`:host`, `:database`) reads past `moment`, for
+  a test that stamps a row a moment ahead of now. PostgreSQL keeps its own
+  clock, a few milliseconds off the host's and, after the Mac restarted on
+  2026-10-03, a quarter of a second ahead. Three suites kept their own wait.
+  """
+  @spec clocks_past!(DateTime.t(), [:host | :database]) :: :ok
+  def clocks_past!(moment, clocks \\ [:host, :database]) do
+    if eventually(fn -> Enum.all?(clocks, &DateTime.after?(clock(&1), moment)) end, 5_000),
+      do: :ok,
+      else: flunk("the clocks never passed #{moment}")
+  end
+
+  @doc """
+  Whether the operating-system process `os_pid` is gone within `within_ms`. A
+  killed program may be reaped a moment after it dies. Two suites kept a copy.
+  """
+  @spec os_process_gone?(String.t(), pos_integer()) :: boolean()
+  def os_process_gone?(os_pid, within_ms \\ 1_000) do
+    eventually(
+      fn ->
+        elem(System.cmd("sh", ["-c", "kill -0 \"$1\" 2>/dev/null", "sh", os_pid]), 1) != 0
+      end,
+      within_ms
+    )
   end
 
   @doc """
@@ -76,6 +108,9 @@ defmodule Ryker.TestHelpers do
     end)
   end
 
+  defp clock(:host), do: DateTime.utc_now()
+  defp clock(:database), do: Repo.now!()
+
   defp poll(check, deadline) do
     cond do
       check.() ->
@@ -85,6 +120,9 @@ defmodule Ryker.TestHelpers do
         false
 
       true ->
+        # The one wait the suites share: what it watches changes in another
+        # process, which sends no message to await.
+        # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
         Process.sleep(10)
         poll(check, deadline)
     end

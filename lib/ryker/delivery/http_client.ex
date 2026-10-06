@@ -1,7 +1,12 @@
-defmodule Ryker.Delivery.OutboundHTTP do
+defmodule Ryker.Delivery.HTTPClient do
   @moduledoc """
-  The two steps the JSON and binary delivery transports share: asking the
-  host for a bearer token, and streaming one response under a hard byte limit.
+  Ryker's one way out to HTTP: nothing else in `lib/` calls Finch. Delivery's
+  JSON and binary transports, embeddings, transcription, local routing,
+  Cloudflare Access's keys and the live acceptance check all build, send and
+  read their requests here, so there is one seam to stub and bound.
+
+  It asks the host for a bearer token, and streams one response under a hard
+  byte limit.
 
   The token provider belongs to host configuration and runs for each request,
   so short-lived installation credentials are never persisted in an ingress
@@ -39,6 +44,37 @@ defmodule Ryker.Delivery.OutboundHTTP do
       )
 
       {:error, {:delivery_credentials_unavailable, {:raised, error.__struct__}}}
+  end
+
+  @pool Ryker.CoopFinch
+
+  @doc "A request for `stream/4`."
+  @spec build(atom(), String.t(), [{String.t(), String.t()}], iodata() | nil) ::
+          Finch.Request.t()
+  def build(method, url, headers \\ [], body \\ nil), do: Finch.build(method, url, headers, body)
+
+  @doc """
+  Runs `function` with the HTTP pool started, for a process that runs outside
+  the application, such as the live acceptance check started from a release
+  command. The application's own pool serves when it is running.
+  """
+  @spec with_pool((-> result)) :: result | {:error, {:http_pool_unavailable, term()}}
+        when result: term()
+  def with_pool(function) do
+    case Finch.start_link(name: @pool) do
+      {:ok, pid} ->
+        try do
+          function.()
+        after
+          GenServer.stop(pid)
+        end
+
+      {:error, {:already_started, _pid}} ->
+        function.()
+
+      {:error, reason} ->
+        {:error, {:http_pool_unavailable, reason}}
+    end
   end
 
   @spec stream(Finch.Request.t(), atom(), pos_integer(), pos_integer()) ::

@@ -9,6 +9,7 @@ defmodule Ryker.WeeklyReportTest do
   use Ryker.DataCase, async: true
 
   import Ecto.Query
+  import Ryker.TestHelpers, only: [clocks_past!: 2]
 
   alias Ryker.Accounting.Execution
   alias Ryker.Episodes
@@ -82,11 +83,13 @@ defmodule Ryker.WeeklyReportTest do
     Answers.quick_reply!(asked, "Yes, it is.", "1790700001.000200", DateTime.utc_now())
 
     # The answer as the database stamped it, a moment ahead of the host's clock.
+    stamped = DateTime.add(Repo.now!(), 300, :millisecond)
+
     Repo.update_all(from(entry in Entry, where: entry.id == ^asked.id),
-      set: [inserted_at: DateTime.add(Repo.now!(), 300, :millisecond)]
+      set: [inserted_at: stamped]
     )
 
-    Process.sleep(400)
+    clocks_past!(stamped, [:database])
 
     assert WeeklyReport.preview(base_url: @base).text =~ "This past week I handled 1 message"
   end

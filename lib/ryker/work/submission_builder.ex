@@ -242,7 +242,7 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   # The platform tools Work was assembled with (`Ryker.Runtime.Assembly`).
   defp platform_tool_names(episode, mode, options) do
-    case options |> Keyword.get(:platform_tools) |> PlatformTools.names() do
+    case PlatformTools.names(Keyword.get(options, :platform_tools)) do
       {:ok, names} ->
         {:ok,
          Enum.filter(names, &visible_platform_tool?(&1, episode.destination_transport, mode))}

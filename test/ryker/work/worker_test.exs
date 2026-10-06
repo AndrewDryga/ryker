@@ -1,6 +1,6 @@
 defmodule Ryker.Work.WorkerTest do
   use Ryker.DataCase, async: false
-  import Ryker.TestHelpers, only: [eventually: 1]
+  import Ryker.TestHelpers, only: [eventually: 1, settled: 1]
 
   import ExUnit.CaptureLog
 
@@ -191,8 +191,7 @@ defmodule Ryker.Work.WorkerTest do
              ]}
           )
 
-        Process.sleep(30)
-        assert Process.alive?(worker)
+        assert worker |> settled() |> Process.alive?()
         assert :ok = stop_supervised(Worker)
       end)
 

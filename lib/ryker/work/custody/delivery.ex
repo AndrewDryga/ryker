@@ -242,15 +242,14 @@ defmodule Ryker.Work.Custody.Delivery do
              receipt_fingerprint
            ),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
-         {:ok, turn} <-
-           turn
-           |> TurnChangeset.confirm_delivery(
+         changeset =
+           TurnChangeset.confirm_delivery(
+             turn,
              external_receipt,
              receipt_fingerprint,
              delivered_at
-           )
-           |> Repo.update()
-           |> persistence_result(:work_delivery),
+           ),
+         {:ok, turn} <- persist_update(changeset, :work_delivery),
          {:ok, _subscription} <- EventSubscriptions.ensure_in_transaction(transition.episode) do
       %{episode: transition.episode, turn: turn}
     else
@@ -295,13 +294,12 @@ defmodule Ryker.Work.Custody.Delivery do
     with {:ok, session} <- Sessions.current_session(episode),
          {:ok, turn} <- Sessions.insert_turn(episode, session),
          {:ok, turn} <-
-           turn
-           |> TurnChangeset.prepare_cancellation(intent, fingerprint, nil)
-           |> Repo.update()
-           |> persistence_result(:work_destination_pause),
-         {:ok, turn} <-
-           turn
-           |> TurnChangeset.block(%{
+           persist_update(
+             TurnChangeset.prepare_cancellation(turn, intent, fingerprint, nil),
+             :work_destination_pause
+           ),
+         blocked =
+           TurnChangeset.block(turn, %{
              last_error_code: "destination_paused",
              last_error_detail: intent["reason"],
              lease_expires_at: nil,
@@ -309,9 +307,8 @@ defmodule Ryker.Work.Custody.Delivery do
              lease_ref: nil,
              next_attempt_at: nil,
              status: :blocked
-           })
-           |> Repo.update()
-           |> persistence_result(:work_destination_pause) do
+           }),
+         {:ok, turn} <- persist_update(blocked, :work_destination_pause) do
       %{episode: episode, status: :settled, turn: turn}
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -401,7 +398,9 @@ defmodule Ryker.Work.Custody.Delivery do
          last_error_detail: ^reason,
          status: :blocked
        } = turn} ->
-        case turn |> TurnChangeset.retry_delivery() |> Repo.update() do
+        changeset = TurnChangeset.retry_delivery(turn)
+
+        case Repo.update(changeset) do
           {:ok, turn} ->
             Custody.broadcast_turn_updated(turn)
             %{episode: episode, status: :settled, turn: turn}
@@ -467,17 +466,16 @@ defmodule Ryker.Work.Custody.Delivery do
              [WorkCancellation.command(intent, episode, Repo.now!())],
              settled_work_turn_id: turn.id
            ),
-         {:ok, turn} <-
-           turn
-           |> TurnChangeset.replace_cancellation_disposition(
+         changeset =
+           TurnChangeset.replace_cancellation_disposition(
+             turn,
              turn.cancellation_intent,
              turn.cancellation_intent_fingerprint,
              "destination_resumed",
              "The destination became active before remote work was submitted.",
              :superseded
-           )
-           |> Repo.update()
-           |> persistence_result(:work_destination_resume) do
+           ),
+         {:ok, turn} <- persist_update(changeset, :work_destination_resume) do
       %{episode: transition.episode, status: :settled, turn: turn}
     else
       {:error, reason} -> Repo.rollback(reason)

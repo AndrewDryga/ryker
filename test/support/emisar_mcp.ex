@@ -49,6 +49,8 @@ defmodule Ryker.TestSupport.EmisarMCP do
       recipient = List.first(Process.get(:"$callers", [])) || self()
       send(recipient, {:emisar_mcp, %{body: body, headers: headers, path: path, token: token}})
 
+      # A host that never answers in the time anyone waits for it.
+      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
       if host == "hanging.example", do: Process.sleep(10_000)
 
       cond do

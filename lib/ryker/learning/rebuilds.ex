@@ -25,8 +25,8 @@ defmodule Ryker.Learning.Rebuilds do
          {:ok, scope} <- scope(topic) do
       query = source_query(topic)
       any_sources = Repo.exists?(query)
-      q = options |> Map.get(:q, "") |> String.slice(0, 200)
-      selected = matching(query, q)
+      search = options |> Map.get(:q, "") |> String.slice(0, 200)
+      selected = matching(query, search)
       total = Repo.aggregate(selected, :count)
       pages = max(1, div(total + @page_size - 1, @page_size))
       page = min(max(Map.get(options, :page, 1), 1), pages)
@@ -60,7 +60,7 @@ defmodule Ryker.Learning.Rebuilds do
          page: page,
          pages: pages,
          total: total,
-         q: q
+         q: search
        }}
     else
       _ -> {:error, :knowledge_not_found}
@@ -196,8 +196,9 @@ defmodule Ryker.Learning.Rebuilds do
 
   defp matching(query, ""), do: query
 
-  defp matching(query, q),
-    do: where(query, [_o, e], fragment("strpos(lower(?::text), lower(?)) > 0", e.content, ^q))
+  defp matching(query, search),
+    do:
+      where(query, [_o, e], fragment("strpos(lower(?::text), lower(?)) > 0", e.content, ^search))
 
   def selections(value) when is_list(value) and length(value) in 1..16 do
     if Enum.all?(value, &selection?/1) and

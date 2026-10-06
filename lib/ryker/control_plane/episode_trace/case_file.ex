@@ -322,7 +322,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       expired_at: input.operational_pruned_at,
       href: Paths.request(input.id),
       event_kind: input.event_kind,
-      answer: match?(%{"input_request_ref" => _, "interaction_kind" => "button"}, input.content),
+      answer: button_answer?(input.content),
       provider:
         if(is_nil(input.operational_pruned_at),
           do: ProviderMessage.recognize(input.source_kind, input.content)
@@ -440,4 +440,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   defp case_reply_status(%{delivered_at: %DateTime{}}), do: "Response sent"
   defp case_reply_status(%{accepted_at: %DateTime{}}), do: "Accepted · delivery not confirmed"
   defp case_reply_status(_turn), do: nil
+
+  # A person's click on a question's button, recorded as their answer.
+  defp button_answer?(%{"input_request_ref" => _ref, "interaction_kind" => "button"}), do: true
+  defp button_answer?(_content), do: false
 end

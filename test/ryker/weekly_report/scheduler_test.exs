@@ -9,6 +9,7 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
 
   import Ecto.Query
   import ExUnit.CaptureLog
+  import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
 
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
   alias Ryker.Delivery.{Adapters, Dispatcher}
@@ -379,23 +380,23 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     # Saved just now: this week's send time came before it, so nothing is due.
     worker = start_supervised!({Worker, %{longest_sleep_ms: 3_600_000}})
     :sys.get_state(worker)
-    refute_eventually(fn -> reports() != [] end)
+    refute eventually(fn -> reports() != [] end, 300)
 
     # Moved back without a word to the worker: it sleeps on.
     last_saved!(DateTime.add(DateTime.utc_now(), -30, :day))
-    refute_eventually(fn -> reports() != [] end)
+    refute eventually(fn -> reports() != [] end, 300)
 
     # Any settings save is announced, and the worker wakes and posts.
     %{installation: %{revision: revision}} = Settings.fetch!()
     assert {:ok, _saved} = Settings.save_learning(%{enabled: false}, revision, @actor)
-    assert_eventually(fn -> length(reports()) == 1 end)
+    assert eventually(fn -> length(reports()) == 1 end)
 
     stop_supervised!(Worker)
 
     # A restart finds the week sent and posts nothing more.
     worker = start_supervised!({Worker, %{longest_sleep_ms: 3_600_000}})
     :sys.get_state(worker)
-    refute_eventually(fn -> length(reports()) > 1 end)
+    refute eventually(fn -> length(reports()) > 1 end, 300)
   end
 
   # -- Helpers -------------------------------------------------------------------------
@@ -455,24 +456,4 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
   defp zone!(zone), do: Repo.update_all(Settings.Report, set: [timezone: zone])
 
   defp last_saved!(at), do: Repo.update_all(Ryker.Settings.Report, set: [saved_at: at])
-
-  defp assert_eventually(check, attempts \\ 40) do
-    cond do
-      check.() ->
-        :ok
-
-      attempts == 0 ->
-        flunk("the worker never did it")
-
-      true ->
-        Process.sleep(50)
-        assert_eventually(check, attempts - 1)
-    end
-  end
-
-  # What must not happen has had time to.
-  defp refute_eventually(check) do
-    Process.sleep(300)
-    refute check.()
-  end
 end

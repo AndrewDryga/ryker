@@ -104,7 +104,7 @@ defmodule Ryker.Admission.Decision do
   @doc "Checks a decision the host holds again, keeping the sentiment beside it."
   @spec prepare(t()) :: {:ok, t()} | {:error, term()}
   def prepare(%__MODULE__{} = decision) do
-    with {:ok, prepared} <- decision |> document() |> parse(),
+    with {:ok, prepared} <- parse(document(decision)),
          do: {:ok, %{prepared | sentiment: Sentiment.prepare(decision.sentiment)}}
   end
 

@@ -137,10 +137,10 @@ defmodule Ryker.ControlPlane.ChannelPage do
 
   # Andrew, 2026-09-28: "no way to remove a channel". Ryker can leave a
   # channel it is in; a direct message has nothing to leave.
-  defp leavable?(view),
-    do:
-      match?(%{status: :joined}, view.channel.membership) and
-        view.channel.kind != :direct_message
+  defp leavable?(%{channel: %{membership: %{status: :joined}, kind: kind}}),
+    do: kind != :direct_message
+
+  defp leavable?(_view), do: false
 
   @doc "What the channel's Instructions card says under its title."
   @spec instructions_lede() :: String.t()

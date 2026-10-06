@@ -1670,7 +1670,7 @@ defmodule Ryker.Publication.Custody do
   @spec broadcast_publication_updated(Publication.t() | Ecto.UUID.t()) :: :ok
   def broadcast_publication_updated(%Publication{id: id, episode_id: episode_id}) do
     Ryker.Episodes.broadcast_episode_updated(episode_id)
-    Repo.after_commit(fn -> announce_publication(id) end)
+    Repo.after_commit(fn -> broadcast_committed_publication(id) end)
   end
 
   def broadcast_publication_updated(publication_id) when is_binary(publication_id) do
@@ -1679,7 +1679,7 @@ defmodule Ryker.Publication.Custody do
       |> episode_of_publication()
       |> Ryker.Episodes.broadcast_episode_updated()
 
-      announce_publication(publication_id)
+      broadcast_committed_publication(publication_id)
     end)
   end
 
@@ -1694,6 +1694,6 @@ defmodule Ryker.Publication.Custody do
         )
       )
 
-  defp announce_publication(publication_id),
+  defp broadcast_committed_publication(publication_id),
     do: Ryker.PubSub.broadcast(publications_topic(), {:publication_updated, publication_id})
 end

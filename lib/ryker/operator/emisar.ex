@@ -121,9 +121,8 @@ defmodule Ryker.Operator.Emisar do
 
       %Approval{status: :blocked} = approval ->
         with :ok <- exact_open_wait(approval),
-             {:ok, rearmed} <-
-               approval
-               |> ApprovalChangeset.update(%{
+             changeset =
+               ApprovalChangeset.update(approval, %{
                  failure_count: 0,
                  last_error: nil,
                  lease_expires_at: nil,
@@ -131,8 +130,8 @@ defmodule Ryker.Operator.Emisar do
                  lease_ref: nil,
                  next_attempt_at: nil,
                  status: :monitoring
-               })
-               |> Repo.update() do
+               }),
+             {:ok, rearmed} <- Repo.update(changeset) do
           Approvals.broadcast_approval_updated(rearmed)
           fetch_locked(rearmed)
         else

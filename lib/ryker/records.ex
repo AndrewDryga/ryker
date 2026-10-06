@@ -1104,6 +1104,27 @@ defmodule Ryker.Records do
   def unsubscribe_records, do: Ryker.PubSub.unsubscribe(records_topic())
 
   @doc """
+  Marks the offer `record` confirmed by a person's answer (its `occurred_at`,
+  `actor_ref` and `confirmation_ref`) and announces it once the caller's
+  transaction commits. Five offers kept a copy of this.
+  """
+  @spec confirm_offer(Record.t(), map()) :: {:ok, Record.t()} | {:error, Ecto.Changeset.t()}
+  def confirm_offer(%Record{} = record, answer) do
+    changeset =
+      RecordChangeset.confirm_resource(record, %{
+        confirmed_at: answer.occurred_at,
+        confirmed_by_actor_ref: answer.actor_ref,
+        confirmation_ref: answer.confirmation_ref,
+        status: :confirmed
+      })
+
+    with {:ok, confirmed} <- Repo.update(changeset) do
+      broadcast_record_updated(confirmed)
+      {:ok, confirmed}
+    end
+  end
+
+  @doc """
   Internal — announces, after the outermost commit, that `record` changed.
   Every context that writes a record calls this, so the record's request
   hears it on its own topics too.

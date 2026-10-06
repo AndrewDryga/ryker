@@ -12,7 +12,7 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
   """
   use Ryker.DataCase, async: true
 
-  import Ryker.TestHelpers, only: [digest: 1]
+  import Ryker.TestHelpers, only: [digest: 1, eventually: 2]
 
   import Ecto.Query
 
@@ -147,24 +147,15 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
 
     # The first check learns who is reporting; only a later one can see a
     # worker leave that set.
-    await_reporting!(liveness, worker_id)
+    assert eventually(
+             fn -> MapSet.member?(:sys.get_state(liveness).reporting, worker_id) end,
+             1_000
+           ),
+           "the liveness clock never saw #{worker_id} reporting"
+
     silence!(worker_id)
 
     assert_receive {:coop_worker_updated, ^worker_id}, 1_000
-  end
-
-  defp await_reporting!(liveness, worker_id, attempts \\ 100) do
-    cond do
-      MapSet.member?(:sys.get_state(liveness).reporting, worker_id) ->
-        :ok
-
-      attempts == 0 ->
-        flunk("the liveness clock never saw #{worker_id} reporting")
-
-      true ->
-        Process.sleep(10)
-        await_reporting!(liveness, worker_id, attempts - 1)
-    end
   end
 
   defp insert_worker! do

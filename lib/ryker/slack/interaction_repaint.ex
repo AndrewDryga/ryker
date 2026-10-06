@@ -130,7 +130,7 @@ defmodule Ryker.Slack.InteractionRepaint do
   end
 
   defp turn_document(audit) do
-    case audit |> delivered_turn() |> Repo.one() do
+    case Repo.one(delivered_turn(audit)) do
       %Turn{} = turn -> public_turn_document(turn, audit)
       nil -> :not_found
     end

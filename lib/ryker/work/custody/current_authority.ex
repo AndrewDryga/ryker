@@ -31,8 +31,7 @@ defmodule Ryker.Work.Custody.CurrentAuthority do
          {:ok, snapshot} <- Settings.fetch(),
          {:ok, current} <- current(snapshot, session),
          true <- current != saved(session),
-         {:ok, refreshed} <-
-           session |> SessionChangeset.refresh_authority(current) |> Repo.update() do
+         {:ok, refreshed} <- Repo.update(SessionChangeset.refresh_authority(session, current)) do
       refreshed
     else
       _unchanged -> session

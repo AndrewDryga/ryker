@@ -21,6 +21,8 @@ defmodule Ryker.ControlPlane.PageRead do
   def run(fun) do
     case Process.get(@scope) do
       nil ->
+        # A page read's memo of what its parts share; it ends with the read.
+        # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
         Process.put(@scope, %{})
 
         try do
@@ -50,6 +52,7 @@ defmodule Ryker.ControlPlane.PageRead do
       :error ->
         value = read.()
         # A read can memo others of its own, so the scope is read again.
+        # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
         Process.put(@scope, Map.put(Process.get(@scope), key, value))
         value
     end

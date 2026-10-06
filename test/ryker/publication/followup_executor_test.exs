@@ -22,6 +22,9 @@ defmodule Ryker.Publication.FollowupExecutorTest do
 
   defmodule SlowAPI do
     def get_publication_status(_client, _repository, _number) do
+      # GitHub answering after the first renewal of a one-second lease, due a
+      # third of the way in.
+      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
       Process.sleep(375)
       {:ok, %{"state" => "open"}}
     end

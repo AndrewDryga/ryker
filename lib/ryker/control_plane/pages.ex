@@ -39,6 +39,7 @@ defmodule Ryker.ControlPlane.Pages do
     PeoplePage,
     RepositoriesPage,
     SchedulesPage,
+    SettingsView,
     SubscriptionsPage,
     UsagePage,
     UsageProjection,
@@ -172,7 +173,7 @@ defmodule Ryker.ControlPlane.Pages do
     %{items: items, total: total} = options.projection.repositories.(%{"q" => view.q})
     # Adding repositories needs a working GitHub App; until then the status
     # line above the list is the one way forward, not a second prompt.
-    connected = match?({:ok, %{github_connection: :ready}}, settings(options))
+    connected = SettingsView.github_ready?(settings(options))
 
     page =
       ok(

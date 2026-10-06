@@ -7,7 +7,7 @@ defmodule Ryker.Observability.Progress do
   a healthy idle loop from one blocked forever inside a call.
   """
 
-  alias Ryker.Observability.Query
+  alias Ryker.Observability.Reads
   alias Ryker.Repo
 
   @lanes ~w(
@@ -45,6 +45,8 @@ defmodule Ryker.Observability.Progress do
     if is_nil(last) or now - last >= @minimum_interval_ms do
       case record(lane, outcome) do
         :ok ->
+          # When this lane's process last recorded a beat, to record at most one a interval.
+          # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
           Process.put(key, now)
           :ok
 
@@ -89,10 +91,10 @@ defmodule Ryker.Observability.Progress do
   `/readyz` and `/metrics` unavailable for good. The table's check constraint
   admits only the outcomes `record/2` writes.
   """
-  @spec snapshot(DateTime.t()) :: {:ok, [map()]} | {:error, Query.failure()}
+  @spec snapshot(DateTime.t()) :: {:ok, [map()]} | {:error, Reads.failure()}
   def snapshot(now) do
     with {:ok, rows} <-
-           Query.rows(
+           Reads.rows(
              """
              SELECT lane, outcome, cycle_count, observed_at FROM ryker_runtime_progress
              WHERE lane = ANY($1) ORDER BY lane
@@ -105,7 +107,7 @@ defmodule Ryker.Observability.Progress do
 
   defp heartbeat([lane, outcome, cycle_count, observed_at], now) do
     %{
-      age_seconds: Query.age_seconds(now, observed_at),
+      age_seconds: Reads.age_seconds(now, observed_at),
       cycle_count: cycle_count,
       lane: String.to_existing_atom(lane),
       outcome: String.to_existing_atom(outcome),

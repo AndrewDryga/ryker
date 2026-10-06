@@ -60,6 +60,8 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     alias Ryker.RepositoryKnowledge.LaneTest.API
 
     def prepare_create_session(client, key, policy, ref, source) do
+      # Longer than the test's one-second lease.
+      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
       Process.sleep(1_600)
       rival = Custody.claim("knowledge-rival", %{lease_seconds: 60}, ["emisar"])
       send(self(), {:rival_claim, rival})

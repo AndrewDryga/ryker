@@ -351,7 +351,12 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
          :ok <- text(denial["source"], @maximum_text_bytes, :denial_source),
          :ok <- counter(denial["source_sequence"], :denial_sequence),
          :ok <- port(denial["port"]) do
-      destination(denial["destination"], denial["destination_withheld"], included, :denial)
+      destination(
+        denial["destination"],
+        denial["destination_withheld"],
+        included,
+        :denial_destination
+      )
     end
   end
 
@@ -383,7 +388,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
         connection["destination"],
         connection["destination_withheld"],
         included,
-        :connection
+        :connection_destination
       )
     end
   end
@@ -597,14 +602,16 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
   defp note_text(_status, nil), do: :ok
   defp note_text(_status, _value), do: error(:task_note_text)
 
-  defp destination(nil, withheld, included, scope) when is_boolean(withheld) do
-    if withheld and included, do: error(:"#{scope}_destination"), else: :ok
+  # `field` names the destination in the error: :denial_destination or
+  # :connection_destination.
+  defp destination(nil, withheld, included, field) when is_boolean(withheld) do
+    if withheld and included, do: error(field), else: :ok
   end
 
-  defp destination(value, false, true, scope) when is_binary(value),
-    do: text(value, @maximum_text_bytes, :"#{scope}_destination")
+  defp destination(value, false, true, field) when is_binary(value),
+    do: text(value, @maximum_text_bytes, field)
 
-  defp destination(_value, _withheld, _included, scope), do: error(:"#{scope}_destination")
+  defp destination(_value, _withheld, _included, field), do: error(field)
 
   defp posture(status, filtered, field) do
     if status == "not_filtered" == filtered, do: error(field), else: :ok

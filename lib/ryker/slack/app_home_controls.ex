@@ -7,7 +7,8 @@ defmodule Ryker.Slack.AppHomeControls do
   again by the host.
   """
 
-  alias Ryker.Slack.{Collections, HomeEvent, HomeInteraction, HomeSubmission, Operators}
+  alias Ryker.Slack.{Collections, ControlValue, HomeEvent, HomeInteraction, HomeSubmission}
+  alias Ryker.Slack.Operators
 
   # A retained-workspace control names the session's external_ref.
   @work_session_prefix "ryker-work:"
@@ -567,19 +568,7 @@ defmodule Ryker.Slack.AppHomeControls do
   end
 
   defp versioned_resource(value, kind) do
-    prefix = "#{kind}-control:"
-
-    with true <- is_binary(value) and String.starts_with?(value, prefix),
-         rest <- String.replace_prefix(value, prefix, ""),
-         parts when length(parts) >= 2 <- String.split(rest, ":"),
-         revision_text <- List.last(parts),
-         {revision, ""} when revision > 0 <- Integer.parse(revision_text),
-         ref <- parts |> Enum.drop(-1) |> Enum.join(":"),
-         true <- String.starts_with?(ref, "#{kind}:") do
-      {:ok, ref, revision}
-    else
-      _invalid -> {:error, :app_home_control_mismatch}
-    end
+    with :error <- ControlValue.decode(value, kind), do: {:error, :app_home_control_mismatch}
   end
 
   defp refresh(interaction, options) do

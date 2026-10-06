@@ -334,6 +334,8 @@ defmodule Ryker.Work.Executor.Remote do
         function
       )
 
+    # The turn's last heartbeat, kept by the process running the turn.
+    # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
     Process.put(settings.heartbeat_key, settings.monotonic_ms.())
     result
   end
@@ -406,6 +408,7 @@ defmodule Ryker.Work.Executor.Remote do
              settings.lease_seconds
            ) do
         {:ok, _turn} ->
+          # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
           Process.put(settings.heartbeat_key, now)
           :ok
 

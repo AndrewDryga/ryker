@@ -34,6 +34,8 @@ defmodule Ryker.Work.Executor do
     with {:ok, settings} <- settings(options),
          :ok <- valid_claim(claim) do
       heartbeat_key = {__MODULE__, claim.turn.id, make_ref()}
+      # The turn's last heartbeat, kept by the process running the turn.
+      # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
       Process.put(heartbeat_key, settings.monotonic_ms.())
 
       try do
@@ -224,7 +226,7 @@ defmodule Ryker.Work.Executor do
 
   defp ensure_submission(%{turn: %{submission: nil}} = claim, settings) do
     with {:ok, workspace} <- Workspace.session_workspace(claim, settings),
-         submission_options <-
+         submission_options =
            [state_tool_capabilities: settings.state_tool_capabilities, workspace: workspace]
            |> maybe_submission_option(:platform_tools, settings.platform_tools)
            |> maybe_submission_option(:connected, settings.connected),

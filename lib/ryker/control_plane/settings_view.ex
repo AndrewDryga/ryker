@@ -131,6 +131,11 @@ defmodule Ryker.ControlPlane.SettingsView do
       {:error, :settings_unavailable}
   end
 
+  @doc "Whether a settings read found the GitHub App ready to use."
+  @spec github_ready?({:ok, t()} | {:error, term()} | nil) :: boolean()
+  def github_ready?({:ok, %{github_connection: :ready}}), do: true
+  def github_ready?(_settings), do: false
+
   @doc "The view for a snapshot the caller already holds, after a save."
   @spec view(Settings.snapshot()) :: t()
   def view(%{installation: installation} = snapshot) do

@@ -154,15 +154,15 @@ defmodule Ryker.Slack.Names do
   """
   @spec conversations_named(String.t()) :: [String.t()]
   def conversations_named(text) when is_binary(text) do
-    case text |> String.trim() |> String.trim_leading("#") |> String.downcase() do
-      "" ->
-        []
+    needle = text |> String.trim() |> String.trim_leading("#") |> String.downcase()
 
-      needle ->
-        for {{workspace, <<prefix, _::binary>> = ref}, label, _expires} <- names(),
-            prefix in [?C, ?G] and is_binary(label),
-            String.contains?(String.downcase(label), needle),
-            do: "slack:#{workspace}:#{ref}"
+    if needle == "" do
+      []
+    else
+      for {{workspace, <<prefix, _::binary>> = ref}, label, _expires} <- names(),
+          prefix in [?C, ?G] and is_binary(label),
+          String.contains?(String.downcase(label), needle),
+          do: "slack:#{workspace}:#{ref}"
     end
   end
 
@@ -239,7 +239,7 @@ defmodule Ryker.Slack.Names do
           changed
       end)
 
-    if changed, do: announce()
+    if changed, do: broadcast_names_updated()
     {:reply, :ok, state}
   end
 
@@ -273,7 +273,7 @@ defmodule Ryker.Slack.Names do
           {nil, 300_000, 0}
       end
 
-    if store(state.workspace, ref, label, ttl), do: announce()
+    if store(state.workspace, ref, label, ttl), do: broadcast_names_updated()
     %{state | blocked_until: now() + backoff}
   end
 
@@ -319,7 +319,7 @@ defmodule Ryker.Slack.Names do
     end
   end
 
-  defp announce do
+  defp broadcast_names_updated do
     revision = :ets.update_counter(@table, :revision, 1, {:revision, 0})
     Ryker.PubSub.broadcast(names_topic(), {:slack_names_updated, revision})
   end

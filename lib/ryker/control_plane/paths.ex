@@ -206,10 +206,8 @@ defmodule Ryker.ControlPlane.Paths do
   """
   @spec query(String.t(), map() | keyword()) :: String.t()
   def query(path, params) when is_binary(path) do
-    case params |> Enum.reject(fn {_key, value} -> value in [nil, ""] end) |> encode_query() do
-      "" -> path
-      query -> path <> "?" <> query
-    end
+    query = params |> Enum.reject(fn {_key, value} -> value in [nil, ""] end) |> encode_query()
+    if query == "", do: path, else: path <> "?" <> query
   end
 
   @doc """

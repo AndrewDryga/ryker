@@ -72,8 +72,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     drain(:activity_read)
 
     # Nothing changed, so nothing is read again: there is no poll to wait for.
-    Process.sleep(300)
-    refute_received :activity_read
+    refute_receive :activity_read, 300
 
     assert {:ok, _receipt} =
              ConversationLab.send_message(

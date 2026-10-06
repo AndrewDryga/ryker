@@ -394,7 +394,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
            conversation_id: conversation_id,
            conversation_ref: conversation_ref,
            episode: episode,
-           name: "conversation-lab-" <> String.slice(conversation_id, 0, 8)
+           name: "conversation-lab-" <> conversation_id
          }}
 
       :error ->

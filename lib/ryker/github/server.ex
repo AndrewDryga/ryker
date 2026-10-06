@@ -105,7 +105,7 @@ defmodule Ryker.GitHub.Server do
           else: raise(ArgumentError, "GitHub binding key and configured name must match")
 
       {name, attributes} when is_binary(name) and is_map(attributes) ->
-        case attributes |> Map.put_new(:name, name) |> Binding.new() do
+        case Binding.new(Map.put_new(attributes, :name, name)) do
           {:ok, binding} ->
             {name, binding}
 

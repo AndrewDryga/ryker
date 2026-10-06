@@ -3,11 +3,11 @@ defmodule Ryker.Delivery.JSONClient do
   Bounded authenticated JSON transport for trusted platform adapters.
 
   The bearer token comes from the host's provider on every request; see
-  `Ryker.Delivery.OutboundHTTP`.
+  `Ryker.Delivery.HTTPClient`.
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.OutboundHTTP
+  alias Ryker.Delivery.HTTPClient
 
   @fields [:base_url, :finch, :receive_timeout, :token_provider]
   @maximum_body_bytes 2 * 1_024 * 1_024
@@ -44,17 +44,17 @@ defmodule Ryker.Delivery.JSONClient do
     with :ok <- method(method),
          :ok <- path(path),
          :ok <- headers(headers),
-         {:ok, token} <- OutboundHTTP.bearer_token(client.token_provider),
+         {:ok, token} <- HTTPClient.bearer_token(client.token_provider),
          {:ok, body, headers} <- request_body(document, headers),
          request =
-           Finch.build(
+           HTTPClient.build(
              method,
              client.base_url <> path,
              [{"authorization", "Bearer " <> token} | headers],
              body
            ),
          {:ok, response} <-
-           OutboundHTTP.stream(request, client.finch, client.receive_timeout, @maximum_body_bytes) do
+           HTTPClient.stream(request, client.finch, client.receive_timeout, @maximum_body_bytes) do
       decode_response(response)
     end
   end

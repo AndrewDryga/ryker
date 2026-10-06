@@ -1,4 +1,4 @@
-defmodule Ryker.Observability.Query do
+defmodule Ryker.Observability.Reads do
   @moduledoc """
   The reads every observability projection shares.
 

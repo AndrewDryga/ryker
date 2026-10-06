@@ -350,7 +350,9 @@ defmodule Ryker.Slack.ThreadStatuses do
       workspace_ref: workspace_ref
     }
 
-    case attributes |> ThreadStatusChangeset.insert() |> Repo.insert() do
+    changeset = ThreadStatusChangeset.insert(attributes)
+
+    case Repo.insert(changeset) do
       {:ok, status} ->
         tap(status, &broadcast_thread_status_updated/1)
 
@@ -391,7 +393,9 @@ defmodule Ryker.Slack.ThreadStatuses do
   end
 
   defp update!(status, attributes) do
-    case status |> ThreadStatusChangeset.update(attributes) |> Repo.update() do
+    changeset = ThreadStatusChangeset.update(status, attributes)
+
+    case Repo.update(changeset) do
       {:ok, status} ->
         tap(status, &broadcast_thread_status_updated/1)
 

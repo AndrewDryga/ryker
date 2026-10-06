@@ -15,7 +15,7 @@ defmodule Ryker.Observability.Queues do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Observability.Query
+  alias Ryker.Observability.Reads
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, Followups, LifecycleEvent, Publication}
   alias Ryker.Records.Record
@@ -33,7 +33,7 @@ defmodule Ryker.Observability.Queues do
         }
 
   @doc "Every queue at the database clock reading `now`, in the order they are reported."
-  @spec snapshot(DateTime.t()) :: {:ok, [queue()]} | {:error, Query.failure()}
+  @spec snapshot(DateTime.t()) :: {:ok, [queue()]} | {:error, Reads.failure()}
   def snapshot(now) do
     [
       fn -> ingress(now) end,
@@ -56,7 +56,7 @@ defmodule Ryker.Observability.Queues do
       fn -> retention(now) end,
       fn -> due_schedule(now) end
     ]
-    |> Query.collect(& &1.())
+    |> Reads.collect(& &1.())
   end
 
   @doc "Names of the queues whose oldest claimable work has waited past the bound."
@@ -163,18 +163,18 @@ defmodule Ryker.Observability.Queues do
       )
 
     with {:ok, oldest_active} <-
-           Query.one(from([session: session] in active, select: min(session.updated_at))),
-         {:ok, active_leases} <- Query.count(active),
-         {:ok, claimable_count} <- Query.count(claimable),
+           Reads.one(from([session: session] in active, select: min(session.updated_at))),
+         {:ok, active_leases} <- Reads.count(active),
+         {:ok, claimable_count} <- Reads.count(claimable),
          {:ok, oldest_claimable} <-
-           Query.read(fn -> RetentionCustody.oldest_eligible_at(claimable) end) do
+           Reads.read(fn -> RetentionCustody.oldest_eligible_at(claimable) end) do
       {:ok,
        %{
          active_leases: active_leases,
          claimable: claimable_count,
          name: :retention,
-         oldest_active_age_seconds: Query.age_seconds(now, oldest_active),
-         oldest_age_seconds: Query.age_seconds(now, oldest_claimable)
+         oldest_active_age_seconds: Reads.age_seconds(now, oldest_active),
+         oldest_age_seconds: Reads.age_seconds(now, oldest_claimable)
        }}
     end
   end
@@ -222,17 +222,17 @@ defmodule Ryker.Observability.Queues do
   defp runnable(query, _name, _now), do: query
 
   defp projection(claimable, active, name, age_field, now) do
-    with {:ok, oldest_claimable} <- Query.one(oldest_due(claimable, age_field)),
-         {:ok, oldest_active} <- Query.one(from(row in active, select: min(row.updated_at))),
-         {:ok, active_leases} <- Query.count(active),
-         {:ok, claimable_count} <- Query.count(claimable) do
+    with {:ok, oldest_claimable} <- Reads.one(oldest_due(claimable, age_field)),
+         {:ok, oldest_active} <- Reads.one(from(row in active, select: min(row.updated_at))),
+         {:ok, active_leases} <- Reads.count(active),
+         {:ok, claimable_count} <- Reads.count(claimable) do
       {:ok,
        %{
          active_leases: active_leases,
          claimable: claimable_count,
          name: name,
-         oldest_active_age_seconds: Query.age_seconds(now, oldest_active),
-         oldest_age_seconds: Query.age_seconds(now, oldest_claimable)
+         oldest_active_age_seconds: Reads.age_seconds(now, oldest_active),
+         oldest_age_seconds: Reads.age_seconds(now, oldest_claimable)
        }}
     end
   end

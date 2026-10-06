@@ -169,6 +169,10 @@ defmodule Ryker.PollingWorker do
     if function_exported?(module, :wake_on, 1) do
       subscriptions = module.wake_on(state)
       Enum.each(subscriptions, fn subscribe -> :ok = subscribe.() end)
+      # The poll machinery keeps its own bookkeeping (wake subscriptions, the
+      # woken flag, wake credit, the pending timer) in the worker's process, beside
+      # the state its module owns; none of it says who acts.
+      # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
       Process.put(@wakes, subscriptions != [])
     end
   end
@@ -206,6 +210,7 @@ defmodule Ryker.PollingWorker do
   # starts after each of them was received and so reads what they announced.
   defp wake do
     unless Process.get(@woken) do
+      # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
       Process.put(@woken, true)
 
       case wake_wait() do
@@ -223,6 +228,7 @@ defmodule Ryker.PollingWorker do
     full = @wake_burst * @wake_refill_ms
     {credit, at} = Process.get(@wake_credit, {full, now})
     credit = min(credit + now - at, full) - @wake_refill_ms
+    # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
     Process.put(@wake_credit, {credit, now})
     max(-credit, 0)
   end
@@ -239,6 +245,7 @@ defmodule Ryker.PollingWorker do
   # One pending poll at a time. A poll asked for early used to arm its own
   # timer beside the one already waiting, and each such loop ran forever.
   defp schedule_poll(delay) do
+    # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
     case Process.put(@timer, Process.send_after(self(), :poll, delay)) do
       nil -> :ok
       waiting -> Process.cancel_timer(waiting, async: true, info: false)

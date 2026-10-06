@@ -1654,7 +1654,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     socket = load_snapshot(socket, options)
 
     if socket.assigns.github_repository_discovery == :idle and connected?(socket) and
-         match?({:ok, %{github_connection: :ready}}, socket.assigns.settings),
+         SettingsView.github_ready?(socket.assigns.settings),
        do: discover_github_repositories(socket, options),
        else: socket
   end
@@ -2093,7 +2093,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   }
 
   defp channel_setting_value(name, value) do
-    case @channel_setting_values |> Map.fetch!(name) |> Map.fetch(value) do
+    choices = Map.fetch!(@channel_setting_values, name)
+
+    case Map.fetch(choices, value) do
       {:ok, atom} -> {:ok, atom}
       :error -> {:error, :invalid_choice}
     end
@@ -2694,7 +2696,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               </:action>
               <:action :if={
                 @path == "/repositories/new" and
-                  match?({:ok, %{github_connection: :ready}}, @settings)
+                  SettingsView.github_ready?(@settings)
               }>
                 <button
                   type="button"
@@ -2716,7 +2718,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               :if={
                 @path == "/repositories" or
                   (@path == "/repositories/new" and
-                     not match?({:ok, %{github_connection: :ready}}, @settings))
+                     not SettingsView.github_ready?(@settings))
               }
               settings={@settings}
             />
@@ -2731,7 +2733,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             <Kit.form_card
               :if={
                 @path == "/repositories/new" &&
-                  match?({:ok, %{github_connection: :ready}}, @settings)
+                  SettingsView.github_ready?(@settings)
               }
               label="Add repositories"
             >

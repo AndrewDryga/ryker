@@ -2481,6 +2481,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     # A browser writes a large body after its headers, so the server has read
     # only the headers when the router starts reading the upload.
     :ok = :gen_tcp.send(socket, head)
+    # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
     Process.sleep(50)
     :ok = :gen_tcp.send(socket, body)
     socket_response(socket, "")

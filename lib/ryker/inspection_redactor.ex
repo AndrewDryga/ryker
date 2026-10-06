@@ -112,6 +112,8 @@ defmodule Ryker.InspectionRedactor do
   def with_configured_secrets(fun) do
     case Process.get(@secrets_memo) do
       nil ->
+        # A read's memo of the configured secrets; it ends with the read.
+        # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
         Process.put(@secrets_memo, collect_configured_secrets())
 
         try do

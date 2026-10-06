@@ -23,7 +23,6 @@ defmodule Ryker.Behaviors.Automations do
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
   alias Ryker.Schedules
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleChangeset
@@ -278,7 +277,7 @@ defmodule Ryker.Behaviors.Automations do
          :ok <- exact_revision(automation, payload["revision"]),
          :ok <- exact_frozen_change(automation, episode, payload),
          {:ok, changed} <- persist_change(automation, payload, attributes.occurred_at),
-         {:ok, _record} <- confirm_record(record, attributes) do
+         {:ok, _record} <- Records.confirm_offer(record, attributes) do
       %{automation: document(changed), status: :confirmed}
     else
       :error -> Repo.rollback(:automation_not_found)
@@ -595,18 +594,6 @@ defmodule Ryker.Behaviors.Automations do
     end
   end
 
-  defp confirm_record(record, attributes) do
-    record
-    |> RecordChangeset.confirm_resource(%{
-      confirmed_at: attributes.occurred_at,
-      confirmed_by_actor_ref: attributes.actor_ref,
-      confirmation_ref: attributes.confirmation_ref,
-      status: :confirmed
-    })
-    |> Repo.update()
-    |> tap(&announce/1)
-  end
-
   defp lock_visible_automation(episode, automation_id) do
     case Repo.one(visible_schedule_query(episode, automation_id) |> lock("FOR UPDATE")) do
       %Schedule{} = schedule -> {:ok, schedule}
@@ -805,17 +792,15 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp persistence_result({:ok, resource}, _kind) do
-    announce({:ok, resource})
+    announce(resource)
     {:ok, resource}
   end
 
   defp persistence_result({:error, %Ecto.Changeset{} = changeset}, kind),
     do: {:error, {:automation_persistence_failed, kind, changeset.errors}}
 
-  # The owning context announces each automation changed here, and the record
-  # that confirmed the change.
-  defp announce({:ok, %Schedule{} = schedule}), do: Schedules.broadcast_schedule_updated(schedule)
-  defp announce({:ok, %Behavior{id: id}}), do: Behaviors.broadcast_behavior_updated(id)
-  defp announce({:ok, %Record{} = record}), do: Records.broadcast_record_updated(record)
-  defp announce(_not_written), do: :ok
+  # The owning context announces each automation changed here; `Records`
+  # announces the record that confirmed the change.
+  defp announce(%Schedule{} = schedule), do: Schedules.broadcast_schedule_updated(schedule)
+  defp announce(%Behavior{id: id}), do: Behaviors.broadcast_behavior_updated(id)
 end

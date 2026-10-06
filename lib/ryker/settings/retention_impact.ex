@@ -114,18 +114,24 @@ defmodule Ryker.Settings.RetentionImpact do
   end
 
   defp turned_off(shorter, current, proposed, kind, label) do
-    enabled = :"#{kind}_enabled"
+    {enabled, seconds} = example_fields(kind)
 
     if Map.fetch!(current, enabled) and not Map.fetch!(proposed, enabled) do
       %{rows: [[count]]} = Repo.query!(Map.fetch!(@all_examples, kind), [], log: false)
 
       shorter
-      |> Map.delete(:"#{kind}_seconds")
+      |> Map.delete(seconds)
       |> Map.put(enabled, [%{label: label, count: count} | also_deleted(kind, proposed)])
     else
       shorter
     end
   end
+
+  # The switch and the window of each kind of example.
+  defp example_fields(:routing_examples),
+    do: {:routing_examples_enabled, :routing_examples_seconds}
+
+  defp example_fields(:work_examples), do: {:work_examples_enabled, :work_examples_seconds}
 
   # An accepted eval case is kept over the routing examples window only while
   # they are kept; with them off it ages at the prompts limit, and the question

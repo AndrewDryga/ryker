@@ -738,19 +738,19 @@ defmodule Ryker.Work.Custody.Sessions do
         {:cont, :ok}
 
       %Turn{} = turn, :ok ->
-        case turn
-             |> TurnChangeset.block(%{
-               last_error_code: "owner_transferred",
-               last_error_detail:
-                 "The episode moved to another logical turn before this work settled.",
-               lease_expires_at: nil,
-               lease_owner: nil,
-               lease_ref: nil,
-               next_attempt_at: nil,
-               status: :blocked
-             })
-             |> Repo.update()
-             |> persistence_result(:work_transferred_turn) do
+        changeset =
+          TurnChangeset.block(turn, %{
+            last_error_code: "owner_transferred",
+            last_error_detail:
+              "The episode moved to another logical turn before this work settled.",
+            lease_expires_at: nil,
+            lease_owner: nil,
+            lease_ref: nil,
+            next_attempt_at: nil,
+            status: :blocked
+          })
+
+        case persist_update(changeset, :work_transferred_turn) do
           {:ok, _turn} -> {:cont, :ok}
           {:error, reason} -> {:halt, {:error, reason}}
         end
@@ -796,10 +796,9 @@ defmodule Ryker.Work.Custody.Sessions do
              Map.get(authority, :worker_job_digest),
              external_ref
            ),
-         {:ok, authority} <-
-           authority
-           |> Map.merge(%{worker_job_document: job, worker_job_digest: job_digest})
-           |> JobAuthority.without_removed_repositories() do
+         rebound =
+           Map.merge(authority, %{worker_job_document: job, worker_job_digest: job_digest}),
+         {:ok, authority} <- JobAuthority.without_removed_repositories(rebound) do
       job = authority.worker_job_document
       job_digest = authority.worker_job_digest
 
@@ -950,16 +949,12 @@ defmodule Ryker.Work.Custody.Sessions do
                  session.generation + 1,
                  session_authority(session)
                ),
+             {:ok, turn} <- persist_update(TurnChangeset.thaw(turn), :work_submission),
              {:ok, turn} <-
-               turn
-               |> TurnChangeset.thaw()
-               |> Repo.update()
-               |> persistence_result(:work_submission),
-             {:ok, turn} <-
-               turn
-               |> TurnChangeset.rebind_session(replacement.id)
-               |> Repo.update()
-               |> persistence_result(:work_turn_session) do
+               persist_update(
+                 TurnChangeset.rebind_session(turn, replacement.id),
+                 :work_turn_session
+               ) do
           %{session: replacement, turn: turn}
         else
           {:error, reason} -> Repo.rollback(reason)

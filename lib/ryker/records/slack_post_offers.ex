@@ -15,7 +15,6 @@ defmodule Ryker.Records.SlackPostOffers do
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
@@ -58,16 +57,7 @@ defmodule Ryker.Records.SlackPostOffers do
              record,
              platform_action_attributes(record)
            ),
-         {:ok, record} <-
-           record
-           |> RecordChangeset.confirm_resource(%{
-             confirmed_at: attributes.occurred_at,
-             confirmed_by_actor_ref: attributes.actor_ref,
-             confirmation_ref: attributes.confirmation_ref,
-             status: :confirmed
-           })
-           |> Repo.update() do
-      Records.broadcast_record_updated(record)
+         {:ok, record} <- Records.confirm_offer(record, attributes) do
       %{action: action, record: record, status: :confirmed}
     else
       {:error, reason} -> Repo.rollback(reason)
