@@ -235,6 +235,35 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
              ThreadStatuses.reconcile("T123", [], 3_000, 90_000)
   end
 
+  # A status that left before Slack ever showed it was turned into a clear, a write to a thread
+  # showing nothing; and a clear Slack refused stayed blocked for good, one more for every
+  # thread (2026-10-04 review). A status lapses by itself once Ryker stops refreshing it.
+  test "a status that leaves unshown is dropped, and so is a clear Slack refused" do
+    assert {:ok, _statuses} =
+             ThreadStatuses.reconcile("T123", [target(:working, "is working...")], 3_000, 90_000)
+
+    assert {:ok, []} = ThreadStatuses.reconcile("T123", [], 3_000, 90_000)
+    assert Repo.aggregate(ThreadStatus, :count) == 0
+
+    assert {:ok, _statuses} =
+             ThreadStatuses.reconcile("T123", [target(:working, "is working...")], 3_000, 90_000)
+
+    assert {:ok, shown} = ThreadStatuses.claim_next("status:test", "T123", 30)
+    assert {:ok, _delivered} = ThreadStatuses.confirm(shown.id, shown.lease_ref, shown.generation)
+
+    assert {:ok, [%ThreadStatus{id: id, phase: :clear}]} =
+             ThreadStatuses.reconcile("T123", [], 3_000, 90_000)
+
+    make_due!(id)
+    assert {:ok, %ThreadStatus{} = clear} = ThreadStatuses.claim_next("status:test", "T123", 30)
+
+    assert {:ok, %ThreadStatus{status: :blocked}} =
+             ThreadStatuses.block(clear.id, clear.lease_ref, clear.generation, :channel_not_found)
+
+    assert {:ok, []} = ThreadStatuses.reconcile("T123", [], 3_000, 90_000)
+    assert Repo.aggregate(ThreadStatus, :count) == 0
+  end
+
   test "a restart can durably queue a clear without prior local status memory" do
     assert {:ok, [%ThreadStatus{desired_text: "", phase: :clear, status: :pending}]} =
              ThreadStatuses.reconcile("T123", [target(:clear, "")], 3_000, 90_000)

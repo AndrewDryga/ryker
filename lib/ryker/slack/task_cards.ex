@@ -27,9 +27,15 @@ defmodule Ryker.Slack.TaskCards do
   # cards kept an idle install at about 350 queries a second (2026-10-04).
   @quiet_check_seconds 60
 
-  @spec ensure_one() :: {:ok, TaskCard.t() | nil} | {:error, term()}
-  def ensure_one do
-    Repo.transaction(&ensure_one_locked/0)
+  @doc """
+  Makes the card of the oldest confirmed engineering task offer that has none,
+  passing over the offers in `skip`: nil when every offer has its card. An
+  offer whose card cannot be built is `{:task_card_unbuildable, record_id,
+  reason}`.
+  """
+  @spec ensure_one([Ecto.UUID.t()]) :: {:ok, TaskCard.t() | nil} | {:error, term()}
+  def ensure_one(skip \\ []) when is_list(skip) do
+    Repo.transaction(fn -> ensure_one_locked(skip) end)
     |> transaction_result()
   end
 
@@ -332,7 +338,7 @@ defmodule Ryker.Slack.TaskCards do
     if Keyword.get(options, :counted, true), do: attempt_count, else: max(attempt_count - 1, 0)
   end
 
-  defp ensure_one_locked do
+  defp ensure_one_locked(skip) do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
       "slack-task-card-repair"
     ])
@@ -350,7 +356,7 @@ defmodule Ryker.Slack.TaskCards do
             record.kind == "task_offer" and record.status == :confirmed and
               fragment("(?::jsonb)->>'kind' = 'engineering'", record.payload) and
               fragment("(?::jsonb)->>'transport' = 'slack'", source_turn.external_receipt) and
-              is_nil(card.id),
+              is_nil(card.id) and record.id not in ^skip,
           order_by: [asc: record.confirmed_at, asc: record.id],
           limit: 1,
           select: {record, source_turn, episode}
@@ -385,11 +391,16 @@ defmodule Ryker.Slack.TaskCards do
       }
 
       case attributes |> TaskCardChangeset.insert() |> Repo.insert() do
-        {:ok, card} -> tap(card, &broadcast_task_card_updated/1)
-        {:error, changeset} -> Repo.rollback({:task_card_persistence_failed, changeset.errors})
+        {:ok, card} ->
+          tap(card, &broadcast_task_card_updated/1)
+
+        {:error, changeset} ->
+          Repo.rollback(
+            {:task_card_unbuildable, record.id, {:task_card_persistence_failed, changeset.errors}}
+          )
       end
     else
-      {:error, reason} -> Repo.rollback(reason)
+      {:error, reason} -> Repo.rollback({:task_card_unbuildable, record.id, reason})
     end
   end
 

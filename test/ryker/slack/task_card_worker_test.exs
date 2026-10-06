@@ -2,10 +2,11 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
   use Ryker.DataCase, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
   import Ryker.TestHelpers, only: [eventually: 2]
 
+  alias Ryker.{CanonicalJSON, Episodes, Repo}
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
-  alias Ryker.{Episodes, Repo}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
@@ -60,6 +61,24 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     assert explanation.title == "Updating a task's card stopped"
     assert explanation.outlook == :stuck
     assert FailureExplanation.kind_name("slack_task_card") == "Task card update"
+  end
+
+  # Cards are created oldest offer first, before any refresh: one offer whose card could not
+  # be built failed every run before a single card was refreshed (2026-10-04 review).
+  test "an offer whose card cannot be built leaves every other card refreshing" do
+    card = card!("refreshed")
+    make_due!(card.id)
+    unbuildable!("unbuildable")
+    client = client!(:ok)
+
+    log =
+      capture_log(fn ->
+        assert {:ok, {:updated, ref}} = TaskCardWorker.run_once(options(client))
+        assert ref == card.ref
+      end)
+
+    assert log =~ "Slack task card could not be created"
+    assert Agent.get(client, & &1.updates) == 1
   end
 
   # Slack answering "try later" for long enough is not a reason to edit the
@@ -322,6 +341,65 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
       })
 
     %{card | episode: task.episode}
+  end
+
+  # A confirmed engineering task offer whose post's receipt names no message: its card has no
+  # message to edit, so it cannot be built.
+  defp unbuildable!(suffix) do
+    producer = claim!("#{suffix}-source")
+    task = claim!("#{suffix}-task")
+
+    assert {:ok, offered} =
+             Records.create(
+               Records.token(producer.turn),
+               "task-#{suffix}",
+               "task_offer",
+               TaskOffer.payload(%{
+                 "kind" => "engineering",
+                 "repository" => "ryker",
+                 "title" => "Unbuildable card",
+                 "prompt" => "This card's message is unknown."
+               })
+             )
+
+    offered
+    |> Ecto.Changeset.change(
+      status: :confirmed,
+      confirmed_episode_id: task.episode.id,
+      confirmed_at: DateTime.add(DateTime.utc_now(), 1, :second),
+      confirmed_by_actor_ref: "slack:user:U1",
+      confirmation_ref: "confirmation-#{suffix}"
+    )
+    |> Repo.update!()
+
+    # Delivered, as the offer's post was, with a receipt that names no message.
+    candidate = %{"kind" => "complete"}
+    delivery = %{"message" => "Offer."}
+
+    producer.turn
+    |> Ecto.Changeset.change(
+      status: :settled,
+      candidate: Jason.encode!(candidate),
+      candidate_sha256: CanonicalJSON.digest(candidate),
+      candidate_attempt: 1,
+      validation_intent: %{"verdict" => "accept"},
+      validation_intent_fingerprint: String.duplicate("a", 64),
+      validation_receipt: "captured-validation",
+      continuation: candidate,
+      lease_ref: nil,
+      lease_owner: nil,
+      lease_expires_at: nil,
+      next_attempt_at: nil,
+      result_ref: "captured-result:#{producer.turn.id}",
+      delivery_ref: "captured-delivery:#{producer.turn.id}",
+      delivery_document: delivery,
+      delivery_fingerprint: CanonicalJSON.digest(delivery),
+      external_receipt: %{"transport" => "slack", "conversation_ref" => @conversation},
+      external_receipt_fingerprint: String.duplicate("a", 64),
+      delivered_at: DateTime.utc_now(),
+      accepted_at: DateTime.utc_now()
+    )
+    |> Repo.update!()
   end
 
   defp claim!(suffix) do

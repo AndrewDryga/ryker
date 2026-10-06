@@ -56,9 +56,11 @@ defmodule Ryker.Slack.ThreadStatuses do
 
     target_map = Map.new(targets, &{{&1.channel_ref, &1.thread_ref}, &1})
     existing_map = Map.new(existing, &{{&1.channel_ref, &1.thread_ref}, &1})
+    {dropped, kept} = Enum.split_with(existing, &drop?(&1, target_map, now))
+    Enum.each(dropped, &drop!/1)
 
     updated =
-      Enum.map(existing, fn status ->
+      Enum.map(kept, fn status ->
         target = target_or_clear(target_map, status)
         reconcile_existing!(status, target, now, minimum_interval_ms, refresh_interval_ms)
       end)
@@ -69,6 +71,27 @@ defmodule Ryker.Slack.ThreadStatuses do
       |> Enum.map(&insert!(&1, workspace_ref))
 
     updated ++ inserted
+  end
+
+  # A status that leaves before Slack ever showed it has nothing to clear, and
+  # a clear Slack refused is not tried again: a status lapses by itself once
+  # Ryker stops refreshing it. The first was written as a clear to a thread
+  # showing nothing, and the second stayed blocked for good, one more for every
+  # thread (2026-10-04 review). A write in flight finishes first.
+  defp drop?(status, target_map, now) do
+    not Map.has_key?(target_map, {status.channel_ref, status.thread_ref}) and
+      not leased?(status, now) and
+      (status.delivered_generation == 0 or {status.phase, status.status} == {:clear, :blocked})
+  end
+
+  defp leased?(%ThreadStatus{lease_expires_at: %DateTime{} = expires_at}, now),
+    do: DateTime.compare(expires_at, now) == :gt
+
+  defp leased?(_status, _now), do: false
+
+  defp drop!(status) do
+    Repo.delete!(status)
+    broadcast_thread_status_updated(status)
   end
 
   defp target_or_clear(target_map, status) do

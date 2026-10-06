@@ -15,6 +15,7 @@ defmodule Ryker.Slack.TaskCardWorker do
 
   alias Ryker.Delivery.Retry
   alias Ryker.Episodes
+  alias Ryker.ErrorDetail
   alias Ryker.Observability.Progress
   alias Ryker.Options
   alias Ryker.PollingWorker
@@ -37,6 +38,9 @@ defmodule Ryker.Slack.TaskCardWorker do
       &TaskCards.subscribe_task_cards/0,
       &Episodes.subscribe_episodes/0
     ]
+
+  # Offers whose card this worker could not build: passed over until it restarts.
+  @unbuildable {__MODULE__, :unbuildable}
 
   @impl PollingWorker
   def poll(options) do
@@ -65,13 +69,29 @@ defmodule Ryker.Slack.TaskCardWorker do
           | {:error, term()}
   def run_once(options) do
     options = options!(options)
+    unbuildable = Process.get(@unbuildable, MapSet.new())
 
-    with {:ok, created} <- TaskCards.ensure_one() do
-      if created do
-        {:ok, {:created, created.ref}}
-      else
+    case TaskCards.ensure_one(MapSet.to_list(unbuildable)) do
+      {:ok, nil} ->
         claim_and_refresh(options)
-      end
+
+      {:ok, created} ->
+        {:ok, {:created, created.ref}}
+
+      # Cards are made oldest offer first, before any refresh, and one offer
+      # whose card could not be built failed every run before a single card
+      # was refreshed (2026-10-04 review). It is logged once and passed over
+      # for the life of this worker.
+      {:error, {:task_card_unbuildable, record_id, reason}} ->
+        Logger.warning(
+          "Slack task card could not be created for #{record_id}: #{ErrorDetail.detail(reason)}"
+        )
+
+        Process.put(@unbuildable, MapSet.put(unbuildable, record_id))
+        claim_and_refresh(options)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
