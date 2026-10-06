@@ -163,7 +163,7 @@ defmodule Ryker.BundledCoop do
   defp worker_ready?(
          %Worker{state: :eligible, protocol_version: "2", last_seen_at: %DateTime{}} = worker
        ) do
-    cutoff = DateTime.add(DateTime.utc_now(), -60, :second)
+    cutoff = DateTime.add(DateTime.utc_now(), -Worker.heartbeat_seconds(), :second)
     capacity = worker.capacity || %{}
 
     worker.workspace_ref == configured_workspace_ref() and

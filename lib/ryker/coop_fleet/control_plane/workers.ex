@@ -360,10 +360,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
   # -- PubSub ------------------------------------------------------------------
 
-  # What pages read from a worker row, and whether it had gone quiet: the
-  # fleet counts a worker silent for a minute as stale.
+  # What pages read from a worker row, and whether it had gone quiet: a worker
+  # silent past its heartbeat (`Worker.heartbeat_seconds/0`) is stale.
   @status_fields ~w(state capacity capabilities build_version sandbox_digest protocol_version drain_requested_at)a
-  @quiet_seconds 60
 
   @doc """
   Subscribes the caller to Coop worker status: `{:coop_worker_updated,
@@ -386,7 +385,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   """
   @spec announce_quiet(MapSet.t(String.t())) :: MapSet.t(String.t())
   def announce_quiet(%MapSet{} = reporting) do
-    cutoff = DateTime.add(Repo.now!(), -@quiet_seconds, :second)
+    cutoff = DateTime.add(Repo.now!(), -Worker.heartbeat_seconds(), :second)
 
     current =
       from(worker in Worker, where: worker.last_seen_at >= ^cutoff, select: worker.id)
@@ -401,7 +400,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
   defp status_changed?(previous, current, now) do
     status(previous) != status(current) or is_nil(previous.last_seen_at) or
-      DateTime.diff(now, previous.last_seen_at, :second) > @quiet_seconds
+      DateTime.diff(now, previous.last_seen_at, :second) > Worker.heartbeat_seconds()
   end
 
   # A worker measures its storage as files come and go, so the bytes move on

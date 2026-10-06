@@ -15,7 +15,6 @@ defmodule Ryker.Observability.Fleet do
   alias Ryker.Defaults
   alias Ryker.Observability.Query
 
-  @heartbeat_stale_seconds 60
   @current_placement_states [:assigning, :active, :draining, :revoking]
   @slot_kinds ~w(session turn workspace)a
 
@@ -45,7 +44,7 @@ defmodule Ryker.Observability.Fleet do
   @spec snapshot(DateTime.t()) :: {:ok, map()} | {:error, Query.failure()}
   def snapshot(now) do
     settings = settings()
-    cutoff = DateTime.add(now, -@heartbeat_stale_seconds, :second)
+    cutoff = DateTime.add(now, -Worker.heartbeat_seconds(), :second)
 
     current_placements =
       from(placement in Placement, where: placement.state in ^@current_placement_states)

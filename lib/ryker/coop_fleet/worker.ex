@@ -31,4 +31,14 @@ defmodule Ryker.CoopFleet.Worker do
 
     timestamps(type: :utc_datetime_usec)
   end
+
+  @doc """
+  How long a worker may go without polling before Ryker stops counting on it:
+  placement gives it no work, the console says it is not connected, and the
+  fleet counts it as stale. A worker polls every few seconds. Each of those
+  had a threshold of its own, and the console's was twice placement's
+  (2026-10-04 review).
+  """
+  @spec heartbeat_seconds() :: pos_integer()
+  def heartbeat_seconds, do: 60
 end

@@ -999,8 +999,6 @@ defmodule Ryker.ControlPlane.FailureProjection do
     end)
   end
 
-  @heartbeat_stale_seconds 60
-
   defp session_worker(placement, _session, nil, _now),
     do: %{id: placement.worker_id, enrolled: false}
 
@@ -1036,7 +1034,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   defp reporting?(%Worker{last_seen_at: %DateTime{} = seen} = worker, now) do
     worker.state in [:eligible, :busy] and is_nil(worker.drain_requested_at) and
-      is_nil(worker.revoked_at) and DateTime.diff(now, seen, :second) <= @heartbeat_stale_seconds
+      is_nil(worker.revoked_at) and
+      DateTime.diff(now, seen, :second) <= Worker.heartbeat_seconds()
   end
 
   defp reporting?(_worker, _now), do: false

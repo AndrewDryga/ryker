@@ -27,7 +27,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   alias Ryker.Repo
   alias Ryker.Work.{RepositorySource, Session, Turn}
 
-  @heartbeat_stale_seconds 60
   @creating_seconds 300
   @cleanup_phases [:close_pending, :plan_pending, :discard_pending]
   @holder_purpose "stop_or_cleanup"
@@ -485,7 +484,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   end
 
   defp holder_reachable?(%Worker{} = worker, workspace_ref, now) do
-    cutoff = DateTime.add(now, -@heartbeat_stale_seconds, :second)
+    cutoff = DateTime.add(now, -Worker.heartbeat_seconds(), :second)
 
     worker.workspace_ref == workspace_ref and worker.state != :revoked and
       is_nil(worker.revoked_at) and match?(%DateTime{}, worker.last_seen_at) and
@@ -501,7 +500,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   defp holder_placement?(%Placement{}), do: false
 
   defp worker_current?(%Worker{} = worker, workspace_ref, now) do
-    cutoff = DateTime.add(now, -@heartbeat_stale_seconds, :second)
+    cutoff = DateTime.add(now, -Worker.heartbeat_seconds(), :second)
 
     worker.workspace_ref == workspace_ref and worker.state == :eligible and
       is_nil(worker.drain_requested_at) and is_nil(worker.revoked_at) and
@@ -641,7 +640,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   end
 
   defp choose_worker!(session, requirements, now) do
-    cutoff = DateTime.add(now, -@heartbeat_stale_seconds, :second)
+    cutoff = DateTime.add(now, -Worker.heartbeat_seconds(), :second)
 
     case choose_worker_candidate(session, requirements, now, cutoff, [], nil) do
       %Worker{} = worker ->

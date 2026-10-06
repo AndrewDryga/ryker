@@ -55,6 +55,18 @@ defmodule Ryker.ControlPlane.RunningSystemTest do
     assert render(true, []) |> text() =~ "No worker has connected yet"
   end
 
+  # Placement stops giving a worker work after a minute without a poll, while
+  # this card waited two, so for a minute it said "Taking work" about a worker
+  # that was given none (2026-10-04 review). Every view shares one heartbeat.
+  test "a worker past the heartbeat placement uses reads as not connected" do
+    quiet = %{worker() | last_seen_at: DateTime.add(@now, -90, :second)}
+    assert render(true, [quiet]) |> text() =~ "Not connected"
+
+    seconds = Worker.heartbeat_seconds()
+    current = %{worker() | last_seen_at: DateTime.add(@now, -seconds, :second)}
+    refute render(true, [current]) |> text() =~ "Not connected"
+  end
+
   test "tasks that change code show only when they cannot run, with what to check" do
     unsupported = render(false, [worker()])
     code = LazyHTML.query(unsupported, "#code-editing") |> text()
