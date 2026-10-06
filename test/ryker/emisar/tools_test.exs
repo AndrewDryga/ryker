@@ -61,9 +61,11 @@ defmodule Ryker.Emisar.ToolsTest do
 
     {microseconds, answer} = :timer.tc(fn -> Tools.catalog(pin) end)
 
-    # The read gives up at its budget (1.5 s in tests), long before the host answers.
+    # The read gives up at its four-second budget, long before the host answers at ten. Tests
+    # once had a budget of their own, 1.5 s, which ordinary reads overran on a loaded gate, so
+    # a refused key read as an unreachable Emisar (2026-10-06).
     assert answer == {:error, :unavailable}
-    assert microseconds < 5_000_000
+    assert microseconds < 9_000_000
 
     # Remembered briefly, so the next read does not ask, or wait, again. A
     # 100 ms bound on this read failed on a loaded gate (0.2 s, 2026-10-05);

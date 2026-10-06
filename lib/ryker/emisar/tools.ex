@@ -64,7 +64,7 @@ defmodule Ryker.Emisar.Tools do
   @spec catalog(pin()) :: {:ok, catalog()} | {:error, failure()}
   def catalog(%{connection_ref: ref, rpc_url: url}) when is_binary(ref) and is_binary(url) do
     with {:ok, key} <- key(ref),
-         {:ok, client} <- client(url, key, catalog_budget_ms()),
+         {:ok, client} <- client(url, key, @catalog_budget_ms),
          do: cached_catalog({ref, url, fingerprint(key)}, client, key)
   end
 
@@ -80,7 +80,7 @@ defmodule Ryker.Emisar.Tools do
   defp bounded_read(client, key) do
     task = Task.async(fn -> safe_read(client, key) end)
 
-    case Task.yield(task, catalog_budget_ms()) || Task.shutdown(task, :brutal_kill) do
+    case Task.yield(task, @catalog_budget_ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, answer} -> answer
       _late -> {:error, :unavailable}
     end
@@ -96,9 +96,6 @@ defmodule Ryker.Emisar.Tools do
       Rescued.log("Emisar catalog read", error, __STACKTRACE__)
       {:error, :unavailable}
   end
-
-  defp catalog_budget_ms,
-    do: Application.get_env(:ryker, :emisar_catalog_budget_ms, @catalog_budget_ms)
 
   defp remember(cache_key, answer) do
     ttl = if match?({:ok, _catalog}, answer), do: @catalog_ttl_ms, else: @failure_ttl_ms

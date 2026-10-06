@@ -41,7 +41,6 @@ config :ryker, :transcriber, Ryker.TestTranscriber
 # 300 ms an ordinary read of the double ran out on a loaded machine and
 # failed the gate (2026-10-04); hanging.example holds far longer than this.
 config :ryker, :emisar_requester, Ryker.TestSupport.EmisarMCP
-config :ryker, :emisar_catalog_budget_ms, 1_500
 
 # What the knowledge lane and setup read from GitHub answers from replies each
 # test records: no test reaches GitHub.
