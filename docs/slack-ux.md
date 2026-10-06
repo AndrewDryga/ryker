@@ -480,9 +480,9 @@ The shipped Slack app registers one command, and this is the whole of it:
 ```text
 /ryker status
 /ryker proactive on|off|inherit
-/ryker proactive global on|off|inherit
+/ryker proactive global on|off
 /ryker shadow on|off|inherit
-/ryker shadow global on|off|inherit
+/ryker shadow global on|off
 /ryker assignments [list|pause|resume|delete]
 /ryker help
 ```

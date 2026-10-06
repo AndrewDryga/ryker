@@ -44,13 +44,19 @@ defmodule Ryker.Slack.FileClient do
   def download(_client, _file, _maximum_bytes),
     do: {:error, {:slack_file_rejected, :metadata}}
 
-  defp resolve(_client, %{"url_private_download" => url} = file) when is_binary(url),
+  @doc """
+  The file's full description, from files.info when the share named the file
+  by its id alone, as Slack Connect does; a share that carries its download
+  address is complete as it is.
+  """
+  @spec resolve(t(), map()) :: {:ok, map()} | {:error, term()}
+  def resolve(_client, %{"url_private_download" => url} = file) when is_binary(url),
     do: {:ok, file}
 
-  defp resolve(_client, %{"url_private" => url} = file) when is_binary(url),
+  def resolve(_client, %{"url_private" => url} = file) when is_binary(url),
     do: {:ok, file}
 
-  defp resolve(client, %{"id" => id}) do
+  def resolve(%__MODULE__{} = client, %{"id" => id}) do
     with :ok <- slack_ref(id),
          path <- "/files.info?" <> URI.encode_query(file: id),
          {:ok, response} <- client.json_requester.request(client.json_http, :get, path, nil, []) do
@@ -58,7 +64,7 @@ defmodule Ryker.Slack.FileClient do
     end
   end
 
-  defp resolve(_client, _file), do: {:error, {:slack_file_rejected, :metadata}}
+  def resolve(_client, _file), do: {:error, {:slack_file_rejected, :metadata}}
 
   defp file_response(%{body: %{"file" => file, "ok" => true}, status: 200}) when is_map(file),
     do: {:ok, file}

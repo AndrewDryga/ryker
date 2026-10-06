@@ -48,6 +48,31 @@ defmodule Ryker.Slack.ClientTest do
     assert FakeRequester.requests(requester) == []
   end
 
+  # A busy channel's 100 messages can carry more than the 768 KB a read keeps, and that read
+  # failed the same way every time it was asked again (2026-10-04 review). It reads again at
+  # half the size until the page fits, and its cursor goes on from there.
+  test "a history page too large to keep is read again at half its size" do
+    big = String.duplicate("x", 9_000)
+    heavy = for n <- 1..100, do: %{"ts" => "1787832#{n + 100}.000100", "text" => big}
+    light = for n <- 1..50, do: %{"ts" => "1787832#{n + 100}.000100", "text" => "short"}
+    more = %{"has_more" => true, "response_metadata" => %{"next_cursor" => "page-2"}}
+
+    {:ok, requester} =
+      FakeRequester.start([
+        slack(Map.merge(more, %{"messages" => heavy})),
+        slack(Map.merge(more, %{"messages" => light}))
+      ])
+
+    assert {:ok, %{"messages" => messages, "cursor" => "page-2"}} =
+             Client.read_messages(client(requester), "C456", nil, %{"limit" => 100})
+
+    assert length(messages) == 50
+
+    assert [{:get, first, nil, []}, {:get, second, nil, []}] = FakeRequester.requests(requester)
+    assert URI.decode_query(URI.parse(first).query)["limit"] == "100"
+    assert URI.decode_query(URI.parse(second).query)["limit"] == "50"
+  end
+
   test "message reconciliation reads the whole channel history without a specimen window" do
     # find_card_specimen bounded its search with `oldest`; ordinary delivery
     # reconciliation never did, and losing that parameter must not narrow it.

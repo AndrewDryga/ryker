@@ -50,7 +50,11 @@ defmodule Ryker.Slack.CapabilityTools do
             "configured_only" => %{"type" => "boolean"},
             "cursor" => nullable_string("Optional server cursor from the prior list call."),
             "include_archived" => %{"type" => "boolean"},
-            "include_resources" => %{"type" => "boolean"},
+            "include_resources" => %{
+              "description" =>
+                "Also list each channel's bookmarks, one Slack call per channel; ask for 25 channels or fewer with it.",
+              "type" => "boolean"
+            },
             "kinds" => %{
               "items" => %{
                 "enum" => ["public_channel", "private_channel"],

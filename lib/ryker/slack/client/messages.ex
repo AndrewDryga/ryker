@@ -103,18 +103,38 @@ defmodule Ryker.Slack.Client.Messages do
   def read_messages(client, channel_ref, thread_ref, document) do
     with :ok <- Fields.slack_id(channel_ref),
          :ok <- Fields.optional_message_timestamp(thread_ref),
-         {:ok, parameters} <- history_document(document),
-         path <- source_history_path(channel_ref, thread_ref, parameters),
-         {:ok, response} <- Transport.request(client, :get, path, nil),
+         {:ok, parameters} <- history_document(document) do
+      read_page(client, channel_ref, thread_ref, parameters)
+    end
+  end
+
+  # A page larger than a read keeps is read again at half its size until it
+  # fits, and its cursor goes on from the smaller page: a busy channel's 100
+  # messages can carry more than the bound in blocks and files, and that read
+  # failed the same way every time (2026-10-04 review).
+  defp read_page(client, channel_ref, thread_ref, parameters) do
+    path = source_history_path(channel_ref, thread_ref, parameters)
+
+    with {:ok, response} <- Transport.request(client, :get, path, nil),
          {:ok, body} <- Transport.response(response),
-         {:ok, messages, cursor} <- history(body),
-         result <-
-           Map.merge(
-             %{"cursor" => cursor, "messages" => messages},
-             Map.take(body, ["has_more", "is_limited"])
-           ),
-         :ok <- Fields.bounded_result(result, :history) do
-      {:ok, result}
+         {:ok, messages, cursor} <- history(body) do
+      result =
+        Map.merge(
+          %{"cursor" => cursor, "messages" => messages},
+          Map.take(body, ["has_more", "is_limited"])
+        )
+
+      case {Fields.bounded_result(result, :history), List.keyfind(parameters, "limit", 0)} do
+        {:ok, _limit} ->
+          {:ok, result}
+
+        {{:error, _reason}, {"limit", limit}} when limit > 1 ->
+          halved = List.keyreplace(parameters, "limit", 0, {"limit", div(limit, 2)})
+          read_page(client, channel_ref, thread_ref, halved)
+
+        {{:error, _reason} = error, _limit} ->
+          error
+      end
     end
   end
 

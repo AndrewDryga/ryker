@@ -14,6 +14,29 @@ defmodule Ryker.Slack.AttachmentIngestorTest do
 
   @png <<137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0>>
 
+  # Slack Connect shares a file as its id and `file_access: check_file_info`, and the ingestor
+  # refused it for want of a type before files.info could say what it is (2026-10-04 review).
+  test "a file shared by its id alone is looked up, then read" do
+    shared = %{"file_access" => "check_file_info", "id" => "F123"}
+
+    client = %{
+      observer: self(),
+      resolved: {:ok, file()},
+      result: {:ok, file(), @png}
+    }
+
+    assert {:ok, enriched} =
+             AttachmentIngestor.ingest(%{audience: :mention, input: input!([shared])}, %{
+               client: client,
+               downloader: Downloader,
+               store: Artifacts
+             })
+
+    assert_received {:resolve, "F123"}
+    assert_received {:download, "F123", _maximum}
+    assert [%{"status" => "available", "name" => "failure.png"}] = enriched.input.content["files"]
+  end
+
   test "downloads each eligible Slack file once and replaces private URLs with durable refs" do
     input = input!([file()])
     client = %{observer: self(), result: {:ok, file(), @png}}

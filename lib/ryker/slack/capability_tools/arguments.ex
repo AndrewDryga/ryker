@@ -10,6 +10,9 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   @content_types ~w(messages files channels users)
   @search_fields ~w(after author_ref before content_types conversation_refs cursor limit query)
   @list_fields ~w(configured_only cursor include_archived include_resources kinds limit query)
+  @resources_channels 25
+  # Slack's search sends at most this much query (`Ryker.Slack.Client.Assistant`).
+  @maximum_query_bytes 2_048
   @read_fields ~w(after anchor_ref before cursor limit source_ref view)
   @reaction_fields ~w(action emoji message_ref)
   @post_fields ~w(destination_ref instruction_ref message)
@@ -27,7 +30,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
     with true <-
            Enum.all?(keys, &is_binary/1) and Map.has_key?(arguments, "query") and
              keys -- @search_fields == [],
-         {:ok, query} <- text(arguments["query"], 2_048),
+         {:ok, query} <- text(arguments["query"], @maximum_query_bytes),
          {:ok, content_types} <- content_types(Map.get(arguments, "content_types", ["messages"])),
          {:ok, conversations} <-
            conversations(Map.get(arguments, "conversation_refs", []), workspace_ref),
@@ -66,9 +69,10 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
          {:ok, kinds} <- kinds(Map.get(arguments, "kinds", ["public_channel"])),
          {:ok, configured_only} <- boolean(Map.get(arguments, "configured_only", false)),
          {:ok, include_archived} <- boolean(Map.get(arguments, "include_archived", false)),
-         {:ok, include_resources} <- boolean(Map.get(arguments, "include_resources", true)),
+         {:ok, include_resources} <- boolean(Map.get(arguments, "include_resources", false)),
          {:ok, cursor} <- optional_text(Map.get(arguments, "cursor"), 4_096),
-         {:ok, limit} <- channel_limit(Map.get(arguments, "limit", 50)) do
+         {:ok, limit} <- channel_limit(Map.get(arguments, "limit", 50)),
+         :ok <- resources_limit(include_resources, limit) do
       {:ok,
        %{
          "exclude_archived" => not include_archived,
@@ -243,8 +247,11 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
       Enum.map(conversations, &"in:<##{&1}>") ++
         if(author, do: ["from:<@#{author}>"], else: [])
 
+    # The query Slack is sent, filters and all, holds the client's bound: the
+    # tool let it reach 4,096 bytes while the client sends 2,048, and the
+    # model met a failure it could not act on (2026-10-04 review).
     prepared = Enum.join([query | suffix], " ")
-    if byte_size(prepared) <= 4_096, do: {:ok, prepared}, else: {:error, :query}
+    if byte_size(prepared) <= @maximum_query_bytes, do: {:ok, prepared}, else: {:error, :query}
   end
 
   # The read_slack_source call that continues from a search hit or a file
@@ -321,9 +328,11 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
 
   defp timestamp(nil), do: {:ok, nil}
 
+  # An RFC 3339 time names one moment whatever its offset; only UTC was
+  # accepted (2026-10-04 review).
   defp timestamp(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, DateTime.to_unix(datetime)}
+      {:ok, datetime, _offset} -> {:ok, DateTime.to_unix(datetime)}
       _invalid -> {:error, :timestamp}
     end
   end
@@ -334,7 +343,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
 
   defp slack_timestamp(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, "#{DateTime.to_unix(datetime)}.000000"}
+      {:ok, datetime, _offset} -> {:ok, "#{DateTime.to_unix(datetime)}.000000"}
       _invalid -> {:error, :timestamp}
     end
   end
@@ -359,6 +368,11 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
 
   defp channel_limit(value) when is_integer(value) and value in 1..200, do: {:ok, value}
   defp channel_limit(_value), do: {:error, :limit}
+
+  # Bookmarks are read one channel at a time, a Tier 2 call each: a listing
+  # that read them by default made up to 200 calls (2026-10-04 review).
+  defp resources_limit(true, limit) when limit > @resources_channels, do: {:error, :limit}
+  defp resources_limit(_include_resources, _limit), do: :ok
 
   defp source_limit(value) when is_integer(value) and value in 1..100, do: {:ok, value}
   defp source_limit(_value), do: {:error, :limit}

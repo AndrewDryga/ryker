@@ -79,6 +79,7 @@ defmodule Ryker.Slack.AttachmentIngestor do
   defp stored(input, file, total, options) do
     with {:ok, source_ref} <- source_ref(input, file),
          {:miss, source_ref} <- existing(options.store, source_ref),
+         {:ok, file} <- complete(file, options),
          :ok <- supported(file),
          :ok <- transcribable(file),
          :ok <- available_capacity(file, total),
@@ -149,6 +150,14 @@ defmodule Ryker.Slack.AttachmentIngestor do
   end
 
   defp source_ref(_input, _file), do: {:error, {:slack_file_rejected, :metadata}}
+
+  # Slack Connect shares a file as its id and `file_access: check_file_info`,
+  # with no type or name: files.info says what it is. Refusing it for want of a
+  # type kept every such file from the model (2026-10-04 review).
+  defp complete(%{"mimetype" => media_type} = file, _options) when is_binary(media_type),
+    do: {:ok, file}
+
+  defp complete(file, options), do: options.downloader.resolve(options.client, file)
 
   # Slack labels a script or a log by its own kind (text/x-sh,
   # application/octet-stream), so a label need not be a supported type for the
@@ -282,9 +291,10 @@ defmodule Ryker.Slack.AttachmentIngestor do
   defp failure(_reason), do: :failed
 
   defp options(%{client: _client, downloader: downloader, store: store} = settings) do
-    if implements?(downloader, download: 3) and implements?(store, fetch_source: 2, put: 1),
-      do: {:ok, Map.take(settings, [:client, :downloader, :store])},
-      else: {:error, {:invalid_slack_attachment_ingestor, :settings}}
+    if implements?(downloader, download: 3, resolve: 2) and
+         implements?(store, fetch_source: 2, put: 1),
+       do: {:ok, Map.take(settings, [:client, :downloader, :store])},
+       else: {:error, {:invalid_slack_attachment_ingestor, :settings}}
   end
 
   defp options(_settings), do: {:error, {:invalid_slack_attachment_ingestor, :settings}}

@@ -159,6 +159,29 @@ defmodule Ryker.Slack.CommandHandlerTest do
     assert create["text"] =~ "Ask for the standing assignment in ordinary language"
   end
 
+  # "global inherit" saved the workspace default as off: the workspace has no default above it
+  # to follow. And "Pause" was an unknown verb where "pause" was not (2026-10-04 review).
+  test "global inherit is refused, and a verb is read whatever its case" do
+    options = options()
+
+    assert {:ok, refused} =
+             CommandHandler.handle(command("proactive global inherit", "event:inherit"), options)
+
+    assert refused["text"] ==
+             "Use `/ryker proactive on|off|inherit` for this channel or `/ryker proactive global on|off` for the workspace."
+
+    refute_received {:setting_changed, _change}
+
+    assert {:ok, paused} =
+             CommandHandler.handle(
+               command("Assignments Pause behavior:assignment:terraform", "event:capital"),
+               options
+             )
+
+    assert paused["text"] =~ "Paused"
+    assert_receive {:assignment_changed, "behavior:assignment:terraform", :disabled, _scope}
+  end
+
   test "non-operators and non-members are denied before any write" do
     denied_operator = %{options() | operators: chosen_operators([])}
 

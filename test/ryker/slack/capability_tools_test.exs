@@ -503,6 +503,26 @@ defmodule Ryker.Slack.CapabilityToolsTest do
     refute Jason.encode!(expanded) =~ "another thread reply"
   end
 
+  # A listing read each channel's bookmarks unless told not to: one Tier 2 call a channel, up to
+  # 200 for one listing (2026-10-04 review). It reads them when asked, for 25 channels at most.
+  test "a channel listing reads bookmarks only when asked, and for 25 channels at most" do
+    options = options()
+
+    assert {:ok, _listed} =
+             CapabilityTools.call("list_slack_channels", %{}, work_binding(), options)
+
+    refute_received {:list_bookmarks, _channel}
+
+    assert CapabilityTools.call(
+             "list_slack_channels",
+             %{"include_resources" => true, "limit" => 26},
+             work_binding(),
+             options
+           ) == {:error, "invalid_arguments"}
+
+    refute_received {:list_bookmarks, _channel}
+  end
+
   test "list_slack_channels exposes public joined channels and only the current private channel" do
     options = options()
 
@@ -524,7 +544,7 @@ defmodule Ryker.Slack.CapabilityToolsTest do
                  "include_archived" => false,
                  "include_resources" => true,
                  "kinds" => ["public_channel", "private_channel"],
-                 "limit" => 50,
+                 "limit" => 25,
                  "query" => "operations"
                },
                work_binding(),
@@ -534,7 +554,7 @@ defmodule Ryker.Slack.CapabilityToolsTest do
     assert_received {:list_conversations,
                      %{
                        "exclude_archived" => true,
-                       "limit" => 50,
+                       "limit" => 25,
                        "types" => ["public_channel", "private_channel"]
                      }}
 

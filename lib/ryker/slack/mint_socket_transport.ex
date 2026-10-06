@@ -139,41 +139,53 @@ defmodule Ryker.Slack.MintSocketTransport do
     end
   end
 
+  # The handshake runs in the gateway's process, so it takes its own socket's
+  # messages only. It took whatever came next, and a call to the gateway, a
+  # :sys request or an announcement was read as a socket message and dropped
+  # (2026-10-04 review).
   defp await_upgrade(conn, request_ref, timeout_ms, options) do
     deadline = System.monotonic_time(:millisecond) + timeout_ms
-    await_upgrade(conn, request_ref, deadline, nil, nil, options)
+    socket = options.mint_http.get_socket(conn)
+    await_upgrade({conn, socket}, request_ref, deadline, nil, nil, options)
   end
 
-  defp await_upgrade(conn, request_ref, deadline, status, headers, options) do
+  defp await_upgrade({conn, socket}, request_ref, deadline, status, headers, options) do
     remaining = max(deadline - System.monotonic_time(:millisecond), 0)
 
     receive do
-      message ->
-        case options.mint_websocket.stream(conn, message) do
-          {:ok, conn, responses} ->
-            case upgrade_responses(responses, request_ref, status, headers) do
-              {:continue, status, headers} ->
-                await_upgrade(conn, request_ref, deadline, status, headers, options)
+      {tag, ^socket, _data} = message when tag in [:ssl, :tcp, :ssl_error, :tcp_error] ->
+        handshake(conn, socket, message, request_ref, deadline, status, headers, options)
 
-              {:done, status, headers} ->
-                finish_upgrade(conn, request_ref, status, headers, options)
-
-              {:error, reason} ->
-                options.mint_http.close(conn)
-                {:error, reason}
-            end
-
-          {:error, conn, reason, _responses} ->
-            options.mint_http.close(conn)
-            {:error, {:slack_socket_upgrade_failed, reason}}
-
-          :unknown ->
-            await_upgrade(conn, request_ref, deadline, status, headers, options)
-        end
+      {tag, ^socket} = message when tag in [:ssl_closed, :tcp_closed] ->
+        handshake(conn, socket, message, request_ref, deadline, status, headers, options)
     after
       remaining ->
         options.mint_http.close(conn)
         {:error, {:slack_socket_upgrade_failed, :timeout}}
+    end
+  end
+
+  defp handshake(conn, socket, message, request_ref, deadline, status, headers, options) do
+    case options.mint_websocket.stream(conn, message) do
+      {:ok, conn, responses} ->
+        case upgrade_responses(responses, request_ref, status, headers) do
+          {:continue, status, headers} ->
+            await_upgrade({conn, socket}, request_ref, deadline, status, headers, options)
+
+          {:done, status, headers} ->
+            finish_upgrade(conn, request_ref, status, headers, options)
+
+          {:error, reason} ->
+            options.mint_http.close(conn)
+            {:error, reason}
+        end
+
+      {:error, conn, reason, _responses} ->
+        options.mint_http.close(conn)
+        {:error, {:slack_socket_upgrade_failed, reason}}
+
+      :unknown ->
+        await_upgrade({conn, socket}, request_ref, deadline, status, headers, options)
     end
   end
 
@@ -260,7 +272,7 @@ defmodule Ryker.Slack.MintSocketTransport do
     Enum.all?([
       Map.keys(options) |> Enum.sort() == Enum.sort(@fields),
       requester?(Map.get(options, :requester)),
-      module_exports?(Map.get(options, :mint_http), connect: 4, close: 1),
+      module_exports?(Map.get(options, :mint_http), connect: 4, close: 1, get_socket: 1),
       module_exports?(Map.get(options, :mint_websocket),
         decode: 2,
         encode: 2,

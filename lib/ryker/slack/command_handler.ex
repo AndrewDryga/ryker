@@ -194,19 +194,31 @@ defmodule Ryker.Slack.CommandHandler do
   defp setting_arguments([value]) when value in ["on", "off", "inherit"],
     do: {:ok, :channel, String.to_existing_atom(value)}
 
-  defp setting_arguments(["global", value]) when value in ["on", "off", "inherit"],
+  # The workspace default has no default above it to follow, and "global
+  # inherit" saved it as off (2026-10-04 review).
+  defp setting_arguments(["global", value]) when value in ["on", "off"],
     do: {:ok, :workspace, String.to_existing_atom(value)}
 
   defp setting_arguments(_arguments), do: {:error, :usage}
 
+  # A verb is read whatever its case, as every other `/ryker` word is; a
+  # reference keeps its own (2026-10-04 review: "Pause" was unknown).
   defp assignment_arguments(text) do
     text
     |> String.trim()
     |> String.split(~r/\s+/, parts: 2, trim: true)
     |> case do
-      [_command, arguments] -> String.split(arguments, ~r/\s+/, trim: true)
-      [_command] -> []
-      [] -> []
+      [_command, arguments] ->
+        case String.split(arguments, ~r/\s+/, trim: true) do
+          [verb | rest] -> [String.downcase(verb) | rest]
+          [] -> []
+        end
+
+      [_command] ->
+        []
+
+      [] ->
+        []
     end
   end
 
@@ -228,7 +240,7 @@ defmodule Ryker.Slack.CommandHandler do
 
   defp setting_usage(setting),
     do:
-      "Use `/ryker #{setting} on|off|inherit` for this channel or `/ryker #{setting} global on|off|inherit` for the workspace."
+      "Use `/ryker #{setting} on|off|inherit` for this channel or `/ryker #{setting} global on|off` for the workspace."
 
   defp assignments_usage,
     do:
@@ -239,9 +251,9 @@ defmodule Ryker.Slack.CommandHandler do
     Ryker emergency kit
     `/ryker status`
     `/ryker proactive on|off|inherit`
-    `/ryker proactive global on|off|inherit`
+    `/ryker proactive global on|off`
     `/ryker shadow on|off|inherit`
-    `/ryker shadow global on|off|inherit`
+    `/ryker shadow global on|off`
     `/ryker assignments [list|pause|resume|delete]`
 
     These commands use no model or Coop session. Create tasks, schedules, memory, preferences, guidance, and assignments conversationally, then confirm the exact host-rendered offer.

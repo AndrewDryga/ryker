@@ -220,12 +220,15 @@ defmodule Ryker.Slack.Event do
 
   # Slack sends a new message that mentions Ryker as app_mention and as a
   # channel message. The channel message is a mention too, so the input says
-  # why Ryker took it up whichever copy arrives first.
+  # why Ryker took it up whichever copy arrives first. An edit that names Ryker
+  # is a mention as well: Slack sends no app_mention for one, and an edit was
+  # always ambient, so adding Ryker to a message went unheard (2026-10-04
+  # review).
   defp audience(
-         %{event_kind: :message, content: %{"text" => text}},
+         %{event_kind: kind, content: %{"text" => text}},
          %{bot_user_ref: bot_user_ref}
        )
-       when is_binary(text) and is_binary(bot_user_ref) do
+       when kind in [:message, :edit] and is_binary(text) and is_binary(bot_user_ref) do
     if String.contains?(text, ["<@#{bot_user_ref}>", "<@#{bot_user_ref}|"]),
       do: :mention,
       else: :ambient

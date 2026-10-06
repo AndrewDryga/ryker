@@ -197,9 +197,9 @@ covers channels that never chose, and `/ryker` remains the recovery surface:
 ```text
 /ryker status
 /ryker proactive on|off|inherit
-/ryker proactive global on|off|inherit
+/ryker proactive global on|off
 /ryker shadow on|off|inherit
-/ryker shadow global on|off|inherit
+/ryker shadow global on|off
 /ryker assignments [list|pause|resume|delete]
 /ryker help
 ```

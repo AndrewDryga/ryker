@@ -287,6 +287,30 @@ defmodule Ryker.Slack.EventTest do
     end
   end
 
+  # Slack sends no app_mention for an edit, and an edit was always ambient, so someone who
+  # edited a message to add Ryker was not heard (2026-10-04 review).
+  test "an edit that names Ryker is a mention" do
+    edited =
+      events_api(
+        %{
+          "channel" => "C456",
+          "event_ts" => "1787832010.000300",
+          "message" => %{
+            "edited" => %{"ts" => "1787832010.000300", "user" => "U123"},
+            "text" => "<@U-BOT> can you look at this?",
+            "ts" => "1787832001.000200",
+            "user" => "U123"
+          },
+          "subtype" => "message_changed",
+          "type" => "message"
+        },
+        "Ev-edit-mention"
+      )
+
+    assert {:ok, %{audience: :mention, input: input}} = Event.from_socket(edited, identity())
+    assert input.event_kind == :edit
+  end
+
   defp own_card_message do
     "testdata/slack/card-lab-own-message.json"
     |> File.read!()

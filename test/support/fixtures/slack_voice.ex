@@ -12,6 +12,12 @@ defmodule Ryker.Fixtures.SlackVoice do
       send(observer, {:download, file["id"], maximum_bytes})
       result
     end
+
+    # What files.info says of a file a message named only by its id.
+    def resolve(%{observer: observer} = client, file) do
+      send(observer, {:resolve, file["id"]})
+      Map.get(client, :resolved, {:ok, file})
+    end
   end
 
   @workspace_ref "T74CADB5B58F9"

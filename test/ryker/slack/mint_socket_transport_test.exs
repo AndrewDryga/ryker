@@ -17,6 +17,8 @@ defmodule Ryker.Slack.MintSocketTransportTest do
       send(pid, :connection_closed)
       :ok
     end
+
+    def get_socket({_state, pid}), do: {:fake_socket, pid}
   end
 
   defmodule FakeWebSocket do
@@ -28,6 +30,10 @@ defmodule Ryker.Slack.MintSocketTransportTest do
       send(pid, :upgrade_failed)
       {:error, conn, :rejected}
     end
+
+    # What the socket delivers, as a TLS connection's messages arrive.
+    def stream({:upgrading, _pid} = conn, {:ssl, {:fake_socket, _owner}, payload}),
+      do: stream(conn, payload)
 
     def stream({:upgrading, pid}, :handshake) do
       {:ok, {:upgrading, pid},
@@ -197,7 +203,7 @@ defmodule Ryker.Slack.MintSocketTransportTest do
   end
 
   test "performs the secure upgrade and moves websocket frames without live Slack" do
-    send(self(), :handshake)
+    send(self(), from_socket(:handshake))
 
     options = %{
       http:
@@ -237,7 +243,7 @@ defmodule Ryker.Slack.MintSocketTransportTest do
     assert_received :upgrade_failed
     assert_received :connection_closed
 
-    send(self(), :handshake_response_error)
+    send(self(), from_socket(:handshake_response_error))
 
     assert MintSocketTransport.connect(fake_options()) ==
              {:error, {:slack_socket_upgrade_failed, :refused}}
@@ -247,21 +253,21 @@ defmodule Ryker.Slack.MintSocketTransportTest do
     # Slack's refusals carry a body. The log said only
     # {:slack_socket_upgrade_failed, :response} for them (seen live 2026-09-27
     # 22:23 and 2026-09-28 00:31), so nobody could tell a 503 from a 408.
-    send(self(), :refused_with_body)
+    send(self(), from_socket(:refused_with_body))
 
     assert MintSocketTransport.connect(fake_options()) ==
              {:error, {:slack_socket_upgrade_failed, {:status, 503}}}
 
     assert_received :connection_closed
 
-    send(self(), :malformed_handshake)
+    send(self(), from_socket(:malformed_handshake))
 
     assert MintSocketTransport.connect(fake_options()) ==
              {:error, {:slack_socket_upgrade_failed, :response}}
 
     assert_received :connection_closed
 
-    send(self(), :handshake_transport_error)
+    send(self(), from_socket(:handshake_transport_error))
 
     assert MintSocketTransport.connect(fake_options()) ==
              {:error, {:slack_socket_upgrade_failed, :closed}}
@@ -269,11 +275,16 @@ defmodule Ryker.Slack.MintSocketTransportTest do
     assert_received :connection_closed
   end
 
-  test "ignores unrelated handshake messages and times out safely" do
-    send(self(), :unknown_handshake)
-    send(self(), :handshake)
+  # The handshake runs in the gateway's process and took whatever message came next: a call
+  # to the gateway, a :sys request or an announcement it was meant to answer was read as a
+  # socket message and dropped (2026-10-04 review). It reads its own socket's messages only.
+  test "the handshake leaves messages that are not its socket's for the gateway" do
+    send(self(), :an_announcement_for_the_gateway)
+    send(self(), from_socket(:unknown_handshake))
+    send(self(), from_socket(:handshake))
 
     assert {:ok, state} = MintSocketTransport.connect(fake_options())
+    assert_received :an_announcement_for_the_gateway
     assert :ok = MintSocketTransport.close(state)
 
     assert MintSocketTransport.connect(fake_options(%{handshake_timeout_ms: 100})) ==
@@ -283,7 +294,7 @@ defmodule Ryker.Slack.MintSocketTransportTest do
   end
 
   test "surfaces runtime transport, decode, response, and encoding failures" do
-    send(self(), :handshake)
+    send(self(), from_socket(:handshake))
     assert {:ok, state} = MintSocketTransport.connect(fake_options())
 
     assert MintSocketTransport.stream(state, :unknown) == {:unknown, state}
@@ -354,4 +365,6 @@ defmodule Ryker.Slack.MintSocketTransportTest do
       overrides
     )
   end
+
+  defp from_socket(payload), do: {:ssl, {:fake_socket, self()}, payload}
 end
