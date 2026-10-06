@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
 
   import Ecto.Query
 
-  alias Ryker.ControlPlane.PagedRelation
+  alias Ryker.ControlPlane.{PagedRelation, RepositoryNames}
   alias Ryker.InspectionRedactor
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
@@ -34,12 +34,15 @@ defmodule Ryker.ControlPlane.MemoryProjection do
       |> search(search)
       |> PagedRelation.read([desc: :updated_at, desc: :id], "page", params)
 
+    reviews = Memories.pending_reviews(@reviews_shown)
+    names = names(facts.items, reviews)
+
     %{
       q: search,
       memory_total: Repo.aggregate(active(), :count),
-      memories: Enum.map(facts.items, &redact(&1, secrets)),
+      memories: Enum.map(facts.items, &(&1 |> redact(secrets) |> named(names))),
       facts_page: Map.take(facts, [:page, :pages, :total]),
-      reviews: Memories.pending_reviews(@reviews_shown),
+      reviews: Enum.map(reviews, &named_review(&1, names)),
       review_total: Memories.pending_review_count()
     }
   end
@@ -48,12 +51,47 @@ defmodule Ryker.ControlPlane.MemoryProjection do
   def fact(ref) when is_binary(ref) do
     case Repo.one(from(memory in fact_rows(), where: memory.ref == ^ref)) do
       nil -> nil
-      fact -> redact(fact, InspectionRedactor.configured_secrets())
+      fact -> fact |> redact(InspectionRedactor.configured_secrets()) |> named(names([fact], []))
     end
   end
 
   @doc "One pending review as the page shows it, by reference, or nil."
-  def review(review_ref) when is_binary(review_ref), do: Memories.pending_review(review_ref)
+  def review(review_ref) when is_binary(review_ref) do
+    case Memories.pending_review(review_ref) do
+      nil -> nil
+      review -> named_review(review, names([], [review]))
+    end
+  end
+
+  # A fact for one repository names it the way GitHub does; the page named the
+  # repository by its ref, where every other page used the name (2026-10-04
+  # review).
+  defp names(facts, reviews) do
+    repository? =
+      Enum.any?(facts, &(&1.scope == :repository)) or
+        Enum.any?(reviews, fn review ->
+          Enum.any?(review["entries"] || [], &(&1["scope"] == "repository"))
+        end)
+
+    if repository?, do: RepositoryNames.all(), else: %{}
+  end
+
+  defp named(%{scope: :repository, scope_ref: ref} = fact, names),
+    do: Map.put(fact, :scope_name, RepositoryNames.name(names, ref))
+
+  defp named(fact, _names), do: fact
+
+  defp named_review(review, names) do
+    Map.update(review, "entries", [], fn entries ->
+      Enum.map(entries, fn
+        %{"scope" => "repository", "scope_ref" => ref} = entry ->
+          Map.put(entry, "scope_name", RepositoryNames.name(names, ref))
+
+        entry ->
+          entry
+      end)
+    end)
+  end
 
   defp active do
     from(memory in MemoryEntry,

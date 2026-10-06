@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.CallRun do
   use Phoenix.Component
 
   alias Ryker.Accounting.Pricing
+  alias Ryker.ControlPlane.Units
   alias Ryker.Work.ExecutionTarget
 
   @type segment :: %{kind: :prepare | :model | :save, label: String.t(), ms: non_neg_integer()}
@@ -234,7 +235,7 @@ defmodule Ryker.ControlPlane.CallRun do
       </div>
       <div :for={segment <- @run.segments}>
         <dt>{segment.label}</dt>
-        <dd>{duration(segment.ms)}</dd>
+        <dd>{Units.duration(segment.ms)}</dd>
       </div>
     </dl>
     """
@@ -267,25 +268,6 @@ defmodule Ryker.ControlPlane.CallRun do
   end
 
   def estimated_tokens(text) when is_binary(text), do: estimated_tokens({:bytes, byte_size(text)})
-
-  @doc "A duration in the words the cards use: 850 ms, 16.5 s, 4 min 10 s, 2 h 5 min."
-  @spec duration(non_neg_integer()) :: String.t()
-  def duration(ms) when ms < 1_000, do: "#{ms} ms"
-  def duration(ms) when ms < 60_000, do: "#{Float.round(ms / 1_000, 1)} s"
-
-  def duration(ms) when ms < 3_600_000 do
-    seconds = div(ms, 1_000)
-    minutes = div(seconds, 60)
-    rest = rem(seconds, 60)
-    if rest == 0, do: "#{minutes} min", else: "#{minutes} min #{rest} s"
-  end
-
-  def duration(ms) do
-    minutes = div(ms, 60_000)
-    hours = div(minutes, 60)
-    rest = rem(minutes, 60)
-    if rest == 0, do: "#{hours} h", else: "#{hours} h #{rest} min"
-  end
 
   @doc "A whole number with thousands separators."
   @spec delimit(integer()) :: String.t()
@@ -332,7 +314,7 @@ defmodule Ryker.ControlPlane.CallRun do
   defp tokens(_usage), do: nil
 
   defp cost(%{cost_recorded: true, cost: cost}, _target, _started) when not is_nil(cost),
-    do: "$" <> amount(cost)
+    do: Units.money(Decimal.new(cost))
 
   # Priced as Usage & cost prices it: the saved price in effect on the UTC day
   # the call started. A model no saved price covers stays unpriced.
@@ -344,17 +326,11 @@ defmodule Ryker.ControlPlane.CallRun do
        when is_integer(input) and is_integer(output) and is_binary(target) do
     case Pricing.in_effect(target, DateTime.to_date(started)) do
       nil -> nil
-      price -> "≈ $" <> amount(Pricing.estimate(price, usage))
+      price -> Units.money(Decimal.new(Pricing.estimate(price, usage)), true)
     end
   end
 
   defp cost(_usage, _target, _started), do: nil
-
-  defp amount(value) do
-    value = Decimal.new(value)
-    places = if Decimal.compare(value, Decimal.new("0.01")) == :lt, do: 4, else: 3
-    value |> Decimal.round(places) |> Decimal.to_string(:normal)
-  end
 
   # Andrew, 2026-09-27, of "Checks · Passed first time": "it's unclear how
   # that will look like if they did not pass first time?" A call that needed

@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.CallRunTest do
   # until the test ends, so these run apart from the asynchronous suites.
   use Ryker.DataCase, async: false
 
-  alias Ryker.ControlPlane.CallRun
+  alias Ryker.ControlPlane.{CallRun, Units}
   alias Ryker.Settings
 
   @actor "control-plane:local"
@@ -78,7 +78,7 @@ defmodule Ryker.ControlPlane.CallRunTest do
            ]
 
     assert run.total_ms == 30_767
-    assert CallRun.duration(run.total_ms) == "30.8 s"
+    assert Units.duration(run.total_ms) == "30.8 s"
     # The parts never claim more time than the whole they explain.
     assert run.segments |> Enum.map(& &1.ms) |> Enum.sum() <= run.total_ms
   end
@@ -97,7 +97,7 @@ defmodule Ryker.ControlPlane.CallRunTest do
              save: 5_326
            ]
 
-    assert CallRun.duration(run.total_ms) == "39.1 s"
+    assert Units.duration(run.total_ms) == "39.1 s"
   end
 
   # Found in manual testing on 2026-09-26: edits to Model prices never changed
@@ -200,9 +200,9 @@ defmodule Ryker.ControlPlane.CallRunTest do
   end
 
   test "durations read in the unit a person would use" do
-    assert CallRun.duration(850) == "850 ms"
-    assert CallRun.duration(16_491) == "16.5 s"
-    assert CallRun.duration(250_000) == "4 min 10 s"
-    assert CallRun.duration(7_500_000) == "2 h 5 min"
+    assert Units.duration(850) == "850 ms"
+    assert Units.duration(16_491) == "16.5 s"
+    assert Units.duration(250_000) == "4 min 10 s"
+    assert Units.duration(7_500_000) == "2 h 5 min"
   end
 end

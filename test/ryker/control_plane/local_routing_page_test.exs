@@ -143,13 +143,13 @@ defmodule Ryker.ControlPlane.LocalRoutingPageTest do
              {"4", "comparisons"},
              {"75%", "valid"},
              {"50%", "agreed with the provider"},
-             {"1.2s", "median local time"},
+             {"1.2 s", "median local time"},
              {"≈ $0.10", "provider cost of these messages"}
            ]
 
     assert counts(section, ".kit-counts-secondary") == [
-             {"10.5s", "median provider time"},
-             {"≈ $0.05", "of it on messages the local model agreed on"},
+             {"10.5 s", "median provider time"},
+             {"≈ $0.048", "of it on messages the local model agreed on"},
              {"1", "waiting"},
              {"1", "could not be asked"}
            ]

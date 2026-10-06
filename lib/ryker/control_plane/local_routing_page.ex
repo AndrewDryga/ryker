@@ -22,7 +22,7 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Kit, Paths, ShortTime}
+  alias Ryker.ControlPlane.{Kit, Paths, ShortTime, Units}
   alias Ryker.LocalRouting
   alias Ryker.Settings
 
@@ -217,25 +217,12 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   defp percent(_part, 0), do: "—"
   defp percent(part, whole), do: decimal(part / whole * 100) <> "%"
 
-  # The Usage page's own formats: seconds to one decimal, dollars to the cent
-  # or, below a cent, to four places, and ≈ for an estimate.
+  # A median is a fraction of a millisecond; the console writes it as every duration.
   defp duration(nil), do: "—"
-  defp duration(ms) when ms >= 3_600_000, do: decimal(ms / 3_600_000) <> "h"
-  defp duration(ms) when ms >= 60_000, do: decimal(ms / 60_000) <> "m"
-  defp duration(ms), do: decimal(ms / 1_000) <> "s"
+  defp duration(ms), do: Units.duration(round(ms))
 
   defp money(nil, _estimated), do: "Not measured"
-  defp money(%Decimal{coef: 0}, _estimated), do: "$0"
-
-  defp money(%Decimal{} = cost, estimated) do
-    precision =
-      if Decimal.compare(cost, 0) == :gt and Decimal.compare(cost, Decimal.new("0.01")) == :lt,
-        do: 4,
-        else: 2
-
-    if(estimated, do: "≈ $", else: "$") <>
-      Decimal.to_string(Decimal.round(cost, precision), :normal)
-  end
+  defp money(%Decimal{} = cost, estimated), do: Units.money(cost, estimated)
 
   defp decimal(n), do: :erlang.float_to_binary(n * 1.0, decimals: 1) |> String.trim_trailing(".0")
 end

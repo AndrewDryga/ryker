@@ -488,7 +488,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.query(document, "#routing-1-result") |> Enum.count() == 1
 
     assert LazyHTML.query(document, ".phase-routing .chapter-span") |> LazyHTML.text() ==
-             "+0s → +1s from start"
+             "+0 s → +1 s from start"
 
     # Truncated history may retain either side of the pair. Neither disappears.
     assert render_episode(snapshot, [result]) =~ "Conversational reply"
@@ -821,15 +821,17 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert :binary.match(html, "request-model-section") < :binary.match(html, "prompt-assembly")
 
     # Work names what it was classified as; a result card does not repeat the model.
+    # A repository reads by the name GitHub gives it, never its ref (2026-10-04 review).
     work = %{
       submission
       | source_kind: :work,
-        model_choice: %{
-          submission.model_choice
-          | purpose: :deep,
+        model_choice:
+          Map.merge(submission.model_choice, %{
+            purpose: :deep,
             scope_kind: :repository,
+            scope_name: "acme/emisar",
             scope_ref: "emisar"
-        }
+          })
     }
 
     assert render_component(&EpisodeRequest.render/1, request: work)
@@ -837,7 +839,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
            |> LazyHTML.query(".request-model-reason")
            |> LazyHTML.text()
            |> words() ==
-             "Deep work in emisar uses the model set for it in Settings"
+             "Deep work in acme/emisar uses the model set for it in Settings"
 
     result = render_component(&EpisodeRequest.render/1, request: %{submission | phase: :result})
     assert Enum.empty?(LazyHTML.query(LazyHTML.from_fragment(result), ".request-model-section"))
@@ -1208,7 +1210,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
            ]
 
     metrics = LazyHTML.query(document, ".episode-metrics")
-    assert LazyHTML.text(metrics) =~ "1m 24s"
+    assert LazyHTML.text(metrics) =~ "1 min 24 s"
 
     assert LazyHTML.query(metrics, "dt") |> Enum.map(&LazyHTML.text/1) == [
              "Conversation span",
@@ -1219,8 +1221,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
            ]
 
     response = LazyHTML.query(metrics, ".metric-response") |> LazyHTML.text()
-    assert compact(response) =~ "Responsetime1m24s"
-    refute response =~ "min"
+    assert compact(response) =~ "Responsetime1min24s"
+    # One response has no spread: no average, and no "min …, max …" note.
     refute response =~ "avg"
     refute response =~ "max"
 
@@ -1381,7 +1383,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       |> put_in([:episode, :updated_at], DateTime.add(snapshot.trace.received_at, 1_200))
 
     document = render_episode(snapshot, []) |> LazyHTML.from_fragment()
-    assert LazyHTML.query(document, ".episode-metrics") |> LazyHTML.text() =~ "1m 24s"
+    assert LazyHTML.query(document, ".episode-metrics") |> LazyHTML.text() =~ "1 min 24 s"
   end
 
   test "silent outcomes stay visible and never jump to an older answer" do
@@ -1463,7 +1465,9 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     assert Enum.empty?(LazyHTML.query(document, ".case-receipt-group #event-receipt-2"))
     assert Enum.empty?(LazyHTML.query(document, ".case-checkpoint#event-receipt-2"))
-    assert LazyHTML.query(document, ".chapter-span") |> LazyHTML.text() == "+1m 24s from start"
+
+    assert LazyHTML.query(document, ".chapter-span") |> LazyHTML.text() ==
+             "+1 min 24 s from start"
   end
 
   test "validation summaries cannot mistake missing or malformed evidence for an accepted answer" do
@@ -1577,11 +1581,11 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
              "Total cost"
            ]
 
-    assert text =~ "2m"
-    assert text =~ "1m 30s"
+    assert text =~ "2 min"
+    assert text =~ "1 min 30 s"
     assert text =~ "3"
     assert text =~ "≈ $0.15"
-    assert text =~ "min 1m, max 2m"
+    assert text =~ "min 1 min, max 2 min"
     refute text =~ "includes estimates"
     refute text =~ "Includes time between messages"
 

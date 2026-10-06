@@ -283,7 +283,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
              "worker-a has not reported storage yet."
 
     stale_line = document |> LazyHTML.query("#storage-worker-b") |> LazyHTML.text() |> squeeze()
-    assert stale_line =~ "unknown in use, 0 GiB can be freed of 10 GiB allowed"
+    assert stale_line =~ "unknown in use, 0 bytes can be freed of 10 GiB allowed"
     assert stale_line =~ "this report is out of date"
     refute stale_line =~ "not taking new copies"
 

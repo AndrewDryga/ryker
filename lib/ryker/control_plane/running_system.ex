@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.RunningSystem do
   import Ecto.Query
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Kit, ShortTime}
+  alias Ryker.ControlPlane.{Kit, ShortTime, Units}
   alias Ryker.CoopFleet.Worker
   alias Ryker.Repo
   alias Ryker.Work.CodeEditingSetup
@@ -127,7 +127,7 @@ defmodule Ryker.ControlPlane.RunningSystem do
   # The worker's own volume and the line where it stops taking new work.
   defp disk(%{"free_bytes" => free, "capacity_bytes" => capacity, "high_watermark_bytes" => stop})
        when is_integer(free) and is_integer(capacity) and is_integer(stop),
-       do: "#{gb(free)} free · new work stops below #{gb(capacity - stop)} free"
+       do: "#{Units.bytes(free)} free · new work stops below #{Units.bytes(capacity - stop)} free"
 
   defp disk(_storage), do: "Not reported yet"
 
@@ -141,6 +141,4 @@ defmodule Ryker.ControlPlane.RunningSystem do
     do: "working copies Ryker must keep fill its disk."
 
   defp refusal(_storage), do: "its disk is full."
-
-  defp gb(bytes), do: :erlang.float_to_binary(bytes / 1_000_000_000, decimals: 1) <> " GB"
 end

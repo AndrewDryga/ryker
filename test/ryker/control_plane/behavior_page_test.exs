@@ -509,22 +509,24 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
       refute LazyHTML.text(row) =~ key
     end
 
-    for {scope_kind, scope_ref, where} <- [
-          {:workspace, "slack:T123", "everywhere"},
-          {:conversation, "slack:T123:C456", "in Slack channel C456"},
-          {:repository, "acme/checkout-api", "for acme/checkout-api"},
-          {:operator, "slack:user:U123", "for Slack user"}
+    # A repository reads by the name GitHub gives it, never its ref (2026-10-04 review).
+    for {scope_kind, scope_ref, scope_name, where} <- [
+          {:workspace, "slack:T123", nil, "everywhere"},
+          {:conversation, "slack:T123:C456", nil, "in Slack channel C456"},
+          {:repository, "acme-checkout-api", "acme/checkout-api", "for acme/checkout-api"},
+          {:operator, "slack:user:U123", nil, "for Slack user"}
         ] do
-      guidance = %{
-        item(:guidance)
-        | payload: %{
+      guidance =
+        Map.merge(item(:guidance), %{
+          payload: %{
             "subject" => "Check the migrations folder before approving a deploy",
             "summary" => "Migrations first",
             "text" => "Any change under db/migrations needs a rollback note."
           },
           scope_kind: scope_kind,
+          scope_name: scope_name,
           scope_ref: scope_ref
-      }
+        })
 
       row = instructions_document([], view(:guidance, [guidance])) |> LazyHTML.query("article")
 

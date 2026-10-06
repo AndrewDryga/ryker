@@ -19,7 +19,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     EpisodeResponseMetrics,
     Paths,
     RepositoryNames,
-    SavedRecords
+    SavedRecords,
+    Units
   }
 
   alias Ryker.ControlPlane.EpisodeTrace.{
@@ -372,7 +373,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
         "Cost",
         if(totals.costed == 0,
           do: "unmeasured",
-          else: "$" <> Decimal.to_string(totals.cost, :normal)
+          else: Units.money(totals.cost)
         ),
         "#{totals.costed}/#{totals.turns} costed"
       ),

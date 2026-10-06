@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     ConversationLab,
     ConversationTranscript,
     CurrentInputs,
+    ShortTime,
     TranscriptCursor
   }
 
@@ -96,7 +97,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       Map.put(
         item,
         :title,
-        titles[item.ref] || "Conversation · #{Calendar.strftime(item.updated_at, "%d %b")}"
+        titles[item.ref] || "Conversation · " <> ShortTime.day(item.updated_at, Date.utc_today())
       )
     end)
   end

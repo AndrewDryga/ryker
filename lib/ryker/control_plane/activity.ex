@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.Activity do
     Paths,
     RepositoryNames,
     Search,
+    ShortTime,
     SlackMarkdown,
     UsageProjection
   }
@@ -135,7 +136,7 @@ defmodule Ryker.ControlPlane.Activity do
 
     Enum.map(labelled, fn {row, label} ->
       if counts[label] > 1,
-        do: {row, label <> " · " <> Calendar.strftime(row.updated_at, "%-d %b, %H:%M UTC")},
+        do: {row, label <> " · " <> ShortTime.stamp(row.updated_at, DateTime.utc_now())},
         else: {row, label}
     end)
   end

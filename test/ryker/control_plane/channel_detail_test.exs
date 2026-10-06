@@ -26,6 +26,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     LearningActivity,
     Pages,
     Projection,
+    ShortTime,
     UsageProjection
   }
 
@@ -248,7 +249,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
     # A save prints its day and clock time, never a relative time, and no
     # revision number.
-    saved = Calendar.strftime(@now, "%d %b, %H:%M UTC")
+    saved = ShortTime.stamp(@now, DateTime.utc_now())
     assert fact(html, "Last changed") == "Saved #{saved} by Slack user"
 
     assert fact_links(html, "Last changed") == [
@@ -266,7 +267,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     configuration!("T123", "C456", actor_ref: "control-plane:local", revision: 2)
 
     html = page("/channels/T123/C456")
-    saved = Calendar.strftime(@now, "%d %b, %H:%M UTC")
+    saved = ShortTime.stamp(@now, DateTime.utc_now())
     assert fact(html, "Last changed") == "Saved #{saved} in Ryker"
     assert fact_links(html, "Last changed") == []
   end

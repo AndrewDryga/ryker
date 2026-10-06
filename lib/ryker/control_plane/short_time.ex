@@ -43,6 +43,25 @@ defmodule Ryker.ControlPlane.ShortTime do
   @spec full(DateTime.t()) :: String.t()
   def full(%DateTime{} = at), do: Calendar.strftime(at, "%d %b %Y, %H:%M UTC")
 
+  @doc """
+  A day as every page writes one: "5 Oct", or "5 Oct 2025" in another year
+  than `today`'s. Each page had worked the year out its own way, and Chat's
+  list and every "Saved" stamp left it out (2026-10-04 review).
+  """
+  @spec day(Date.t() | DateTime.t() | NaiveDateTime.t(), Date.t() | DateTime.t()) :: String.t()
+  def day(at, today) do
+    if at.year == today.year,
+      do: Calendar.strftime(at, "%-d %b"),
+      else: Calendar.strftime(at, "%-d %b %Y")
+  end
+
+  @doc ~s(A moment: "5 Oct, 09:30 UTC", with the year once it is not `now`'s.)
+  @spec stamp(DateTime.t() | NaiveDateTime.t(), DateTime.t()) :: String.t()
+  def stamp(at, now) do
+    at = utc(at)
+    day(at, now) <> ", " <> Calendar.strftime(at, "%H:%M UTC")
+  end
+
   defp words(_at, seconds, _day, _today) when seconds in 0..59, do: "just now"
 
   defp words(_at, seconds, _day, _today) when seconds in 60..3_599,
@@ -52,7 +71,7 @@ defmodule Ryker.ControlPlane.ShortTime do
     do: "#{div(seconds, 3_600)} h ago"
 
   defp words(at, seconds, day, today) when seconds >= 0 do
-    if Date.diff(today, day) == 1, do: "yesterday", else: date(at, today)
+    if Date.diff(today, day) == 1, do: "yesterday", else: day(at, today)
   end
 
   defp words(_at, seconds, _day, _today) when seconds > -60, do: "in a moment"
@@ -65,14 +84,8 @@ defmodule Ryker.ControlPlane.ShortTime do
     case Date.diff(day, today) do
       0 -> "today " <> clock
       1 -> "tomorrow " <> clock
-      _later -> date(at, today) <> " " <> clock
+      _later -> day(at, today) <> " " <> clock
     end
-  end
-
-  defp date(at, today) do
-    if at.year == today.year,
-      do: Calendar.strftime(at, "%d %b") |> String.trim_leading("0"),
-      else: Calendar.strftime(at, "%d %b %Y") |> String.trim_leading("0")
   end
 
   defp utc(%DateTime{} = at), do: DateTime.shift_zone!(at, "Etc/UTC")

@@ -146,19 +146,4 @@ defmodule Ryker.Accounting.Pricing do
       limit: 1
     )
   end
-
-  def label(%{estimated: count}) when count > 0, do: "Cost · includes estimates"
-  def label(_), do: "Reported cost"
-
-  def amount(row) do
-    count = Map.get(row, :costed, 0) + Map.get(row, :estimated, 0)
-
-    if count > 0 do
-      cost = Decimal.add(row.cost_usd || 0, Map.get(row, :estimated_cost_usd) || 0)
-      prefix = if Map.get(row, :estimated, 0) > 0, do: "≈ $", else: "$"
-      prefix <> Decimal.to_string(Decimal.round(cost, 4), :normal)
-    else
-      "Not measured"
-    end
-  end
 end

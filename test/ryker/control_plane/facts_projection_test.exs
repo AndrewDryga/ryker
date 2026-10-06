@@ -36,6 +36,32 @@ defmodule Ryker.ControlPlane.FactsProjectionTest do
     refute html =~ "No facts yet"
   end
 
+  # A fact for one repository named it by its ref, where every other page
+  # uses the name GitHub gives it (2026-10-04 review).
+  test "a repository's fact names the repository the way GitHub does" do
+    {:ok, snapshot} = Ryker.Settings.initialize("control-plane:local")
+
+    {:ok, _snapshot} =
+      Ryker.Settings.put_repository(
+        %{ref: "acme-api", display_name: "acme/api", github_repository: "acme/api"},
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
+
+    source = SavedEntities.source!("slack:T123:C456")
+
+    SavedEntities.memory!(source, "deploys", "from the main branch",
+      scope_kind: :repository,
+      scope_ref: "acme-api"
+    )
+
+    Repo.update_all(MemoryEntry, set: [expires_at: DateTime.add(DateTime.utc_now(), 30, :day)])
+
+    facts = MemoryProjection.fetch(%{})
+    assert [%{scope_ref: "acme-api", scope_name: "acme/api"}] = facts.memories
+    assert facts |> FactsPage.html() |> IO.iodata_to_binary() =~ "For <strong>acme/api</strong>"
+  end
+
   # The page showed the newest 100 facts and said nothing of the rest (2026-10-04 review).
   test "facts page past the first page, newest first, and a search pages its matches" do
     source = SavedEntities.source!("slack:T123:C456")

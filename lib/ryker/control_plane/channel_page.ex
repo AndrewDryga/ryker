@@ -35,7 +35,8 @@ defmodule Ryker.ControlPlane.ChannelPage do
     Components,
     Kit,
     Paths,
-    ShortTime
+    ShortTime,
+    Units
   }
 
   alias Ryker.Episodes.Words
@@ -1089,13 +1090,5 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp number(_missing), do: "0"
 
   # Recorded cost only; a channel without a price is "Cost not recorded", never $0.
-  defp money(cost) do
-    precision =
-      if Decimal.compare(cost, Decimal.new(0)) == :gt and
-           Decimal.compare(cost, Decimal.new("0.01")) == :lt,
-         do: 4,
-         else: 2
-
-    "$" <> Decimal.to_string(Decimal.round(cost, precision), :normal)
-  end
+  defp money(cost), do: Units.money(cost)
 end

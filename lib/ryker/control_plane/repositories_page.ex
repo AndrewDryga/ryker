@@ -28,7 +28,8 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     KnowledgeDocument,
     Paths,
     SettingsView,
-    ShortTime
+    ShortTime,
+    Units
   }
 
   alias Ryker.{Episodes, RepositoryKnowledge, Schedules}
@@ -435,7 +436,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
 
   # What a run cost and how long it took, opposite its summary.
   defp run_meta(%{call: call}) do
-    case Enum.reject([call.cost, call.total_ms && CallRun.duration(call.total_ms)], &is_nil/1) do
+    case Enum.reject([call.cost, call.total_ms && Units.duration(call.total_ms)], &is_nil/1) do
       [] -> nil
       parts -> Enum.join(parts, " · ")
     end

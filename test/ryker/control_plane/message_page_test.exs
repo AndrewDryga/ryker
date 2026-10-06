@@ -96,7 +96,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
 
     # The summary strip says how long the answer took; nothing the message
     # never had, such as a conversation span, is shown as missing.
-    assert text(page, ".episode-metrics .metric-response") =~ "27s"
+    assert text(page, ".episode-metrics .metric-response") =~ "27 s"
     refute text(page, ".episode-metrics") =~ "Conversation span"
 
     # One message band: the message in the bubble the request page's Intake
@@ -254,7 +254,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     assert has_element?(view, ".episode-location .ui-status", "Reaction selected")
     assert has_element?(view, ".phase-answer .case-entry", ":eyes:")
     assert has_element?(view, ".phase-answer .case-entry .event-state", "Sent")
-    assert has_element?(view, ".episode-metrics .metric-response", "2s")
+    assert has_element?(view, ".episode-metrics .metric-response", "2 s")
   end
 
   # Andrew, 2026-09-26: "Now both reply and add a reaction". Routing now
@@ -287,7 +287,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     assert text(page, ".episode-location .ui-status") == "Answered right away"
 
     # The response time is to the first thing that reached the thread.
-    assert text(page, ".episode-metrics .metric-response") =~ "3s"
+    assert text(page, ".episode-metrics .metric-response") =~ "3 s"
 
     answer = LazyHTML.query(page, ".phase-answer")
 
@@ -343,7 +343,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
              "Hi! How can I help?"
 
     assert {"Answer", "Hi! How can I help?"} in decision_facts(page)
-    assert text(page, ".episode-metrics .metric-response") =~ "27s"
+    assert text(page, ".episode-metrics .metric-response") =~ "27 s"
   end
 
   # Chapters, their stages and each card's title, in the order a reader

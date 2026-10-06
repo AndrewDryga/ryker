@@ -20,7 +20,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
+  alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, Units}
   alias Ryker.{Episodes, Schedules}
   alias Ryker.Schedules.ScheduleCadence
   alias Ryker.Slack.Names
@@ -361,7 +361,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
         nil
 
       finished ->
-        "took " <> elapsed(DateTime.diff(finished, started))
+        "took " <> Units.duration(max(DateTime.diff(finished, started, :millisecond), 0))
 
       run_state(run) == {:busy, "Running"} ->
         started(DateTime.diff(now, started))
@@ -372,7 +372,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   end
 
   defp started(seconds) when seconds < 60, do: "started just now"
-  defp started(seconds), do: "started #{elapsed(seconds)} ago"
+  defp started(seconds), do: "started #{Units.duration(seconds * 1_000)} ago"
 
   defp attempts(count) when is_integer(count) and count > 1, do: "#{count} attempts"
   defp attempts(_count), do: nil
@@ -515,27 +515,13 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   defp short(local, _now), do: day(local, nil) <> ", " <> clock(local)
 
-  defp day(%NaiveDateTime{year: year} = local, %NaiveDateTime{year: year}),
-    do: Calendar.strftime(local, "%-d %b")
-
-  defp day(local, _now), do: Calendar.strftime(local, "%-d %b %Y")
+  defp day(local, %NaiveDateTime{} = now), do: ShortTime.day(local, now)
+  defp day(local, _no_now), do: Calendar.strftime(local, "%-d %b %Y")
 
   defp clock(local), do: Calendar.strftime(local, "%H:%M")
 
   defp exact(%DateTime{} = utc), do: ShortTime.full(utc)
   defp exact(_value), do: nil
-
-  defp elapsed(seconds) when seconds < 60, do: "#{max(seconds, 1)} s"
-  defp elapsed(seconds) when seconds < 3_600, do: "#{div(seconds, 60)} min"
-
-  defp elapsed(seconds) do
-    hours = div(seconds, 3_600)
-
-    case div(rem(seconds, 3_600), 60) do
-      0 -> "#{hours} h"
-      minutes -> "#{hours} h #{minutes} min"
-    end
-  end
 
   defp segments(path, query, view) do
     [

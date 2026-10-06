@@ -19,7 +19,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
   import Ryker.ControlPlane.Components,
     only: [card_heading: 1, disclosure: 1, fact_list: 1, identifier: 1]
 
-  alias Ryker.ControlPlane.WorkerEvidence
+  alias Ryker.ControlPlane.{Units, WorkerEvidence}
 
   @doc """
   The cards for one episode; renders nothing when nothing was captured.
@@ -429,11 +429,5 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
   end
 
   defp bytes(nil), do: "Not recorded"
-  defp bytes(count) when count < 1_024, do: "#{count} B"
-  defp bytes(count) when count < 1_024 * 1_024, do: "#{div(count, 1_024)} KB"
-
-  defp bytes(count) when count < 1_024 * 1_024 * 1_024,
-    do: "#{Float.round(count / 1_048_576, 1)} MB"
-
-  defp bytes(count), do: "#{Float.round(count / 1_073_741_824, 1)} GB"
+  defp bytes(count), do: Units.bytes(count)
 end

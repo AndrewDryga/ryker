@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.SettingsRows do
   a sender posts to, when it has one.
   """
 
-  alias Ryker.ControlPlane.{Integrations, SettingsSections}
+  alias Ryker.ControlPlane.{Integrations, SettingsSections, ShortTime}
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
 
@@ -80,14 +80,6 @@ defmodule Ryker.ControlPlane.SettingsRows do
   def webhook_address(view, name),
     do: String.trim_trailing(view.webhook_base_url, "/") <> "/v1/hooks/" <> name
 
-  @doc "A saved date as a short day and month, with the year only when it is not this one."
-  @spec short_date(Date.t()) :: String.t()
-  def short_date(%Date{} = date) do
-    if date.year == Date.utc_today().year,
-      do: Calendar.strftime(date, "%-d %b"),
-      else: Calendar.strftime(date, "%-d %b %Y")
-  end
-
   @doc """
   A saved price per million tokens in dollars, as Settings and Usage print
   it: cents always, and more places only when the price has them ($0.125).
@@ -140,7 +132,7 @@ defmodule Ryker.ControlPlane.SettingsRows do
   end
 
   defp effective(nil), do: nil
-  defp effective(%Date{} = date), do: "from " <> short_date(date)
+  defp effective(%Date{} = date), do: "from " <> ShortTime.day(date, Date.utc_today())
 
   # A source that is a web address opens it; only http and https are links,
   # so a saved note can never become a script URL.

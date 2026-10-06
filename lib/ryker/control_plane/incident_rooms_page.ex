@@ -16,7 +16,6 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.Accounting.Pricing
 
   alias Ryker.ControlPlane.{
     ChannelsPage,
@@ -25,6 +24,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
     Paths,
     ShortTime,
     SlackMarkdown,
+    Units,
     UsageProjection
   }
 
@@ -598,7 +598,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp days(days, hours), do: "#{days} d #{hours} h"
 
   # Counted the way the request page counts it, an estimate marked ≈.
-  defp cost(%{costed: _} = totals), do: Pricing.amount(totals)
+  defp cost(%{costed: _} = totals), do: Units.cost(totals)
   defp cost(_no_investigation), do: "None"
 
   # -- The people ------------------------------------------------------------------

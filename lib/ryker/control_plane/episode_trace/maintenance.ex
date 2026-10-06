@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
 
+  alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.CoopFleet.Placement
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
@@ -209,7 +210,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   # Which worker held the session, and the session's identities on both sides.
   defp session_details(session, worker) do
     compact_details([
-      {"Repository", session.repository_ref},
+      {"Repository", RepositoryNames.name(session.repository_ref)},
       {"Worker", worker_name(worker, session), identifier: is_binary(worker)},
       {"Worker session", session.coop_session_id, identifier: true},
       {"Session in Ryker", session.id, identifier: true},
@@ -274,7 +275,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
       "After the request ended, Ryker closed its worker session, which worked without a repository, at #{clock(at)}. "
 
   defp closed_sentence(%Session{repository_ref: repository, closed_at: at}),
-    do: "After the request ended, Ryker closed #{repository}'s worker session at #{clock(at)}. "
+    do:
+      "After the request ended, Ryker closed #{RepositoryNames.name(repository)}'s worker " <>
+        "session at #{clock(at)}. "
 
   defp close_details(%Session{closed_at: nil}), do: []
 

@@ -15,10 +15,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   use Phoenix.Component
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, SlackMarkdown}
+  alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, SlackMarkdown, Units}
   alias Ryker.Slack.Names
-
-  @gib 1_073_741_824
 
   @doc """
   The topics an open Working copies page listens to, as the context functions
@@ -265,7 +263,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
         <%= if worker.measurement == :unknown do %>
           has not reported storage yet.
         <% else %>
-          {gib(worker.bytes["protected_bytes"])} in use, {gib(worker.bytes["disposable_bytes"])} can be freed {limit(
+          {size(worker.bytes["protected_bytes"])} in use, {size(worker.bytes["disposable_bytes"])} can be freed {limit(
             @limit
           )}<span :if={worker.measured_at}> · <ShortTime.time
             at={worker.measured_at}
@@ -273,9 +271,9 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
             prefix="measured "
           /></span><span :if={worker.measurement == :stale}> · this report is out of date</span><span :if={
             is_integer(worker.bytes["unattributed_bytes"]) and worker.bytes["unattributed_bytes"] > 0
-          }> · {gib(worker.bytes["unattributed_bytes"])} not tied to a copy</span><span :if={
+          }> · {size(worker.bytes["unattributed_bytes"])} not tied to a copy</span><span :if={
             is_integer(worker.reclaimed_bytes) and worker.reclaimed_bytes > 0
-          }> · {gib(worker.reclaimed_bytes)} freed so far</span><span :if={
+          }> · {size(worker.reclaimed_bytes)} freed so far</span><span :if={
             worker.allocation == "refused"
           }> · not taking new copies ({refusal(worker.refusal_reason)})</span>
         <% end %>
@@ -298,22 +296,13 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   # What the worker uses counts its shared checkouts and its own data as well
   # as the copies listed below, so it is never called copies kept.
   defp limit(nil), do: "(no limit set)"
-  defp limit(bytes), do: "of " <> gib(bytes) <> " allowed"
+  defp limit(bytes), do: "of " <> size(bytes) <> " allowed"
 
   defp refusal(nil), do: "reason not reported"
   defp refusal(reason), do: reason |> to_string() |> String.replace("_", " ")
 
-  defp gib(value) when is_integer(value) do
-    amount =
-      (value / @gib)
-      |> Float.round(2)
-      |> :erlang.float_to_binary(decimals: 2)
-      |> String.replace(~r/\.?0+$/, "")
-
-    amount <> " GiB"
-  end
-
-  defp gib(_unmeasured), do: "unknown"
+  defp size(value) when is_integer(value), do: Units.bytes(value)
+  defp size(_unmeasured), do: "unknown"
 
   defp duration(seconds) when is_integer(seconds) and seconds < 60,
     do: plural(seconds, "second")

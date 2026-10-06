@@ -353,6 +353,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     assert request.model_choice == %{
              purpose: :conversational,
              scope_kind: :installation,
+             scope_name: nil,
              scope_ref: "",
              settings: true
            }
@@ -417,7 +418,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       |> LazyHTML.query("#request-#{turn.id}-result dl.call-run > div")
       |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
 
-    assert "Preparing and waiting for the worker 2.0 s" in rows
+    assert "Preparing and waiting for the worker 2 s" in rows
     assert "Model 1 min" in rows
     refute html =~ "Agent execution"
     refute html =~ "Host validation and repair history"

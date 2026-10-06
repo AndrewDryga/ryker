@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.MemoryFormat
   alias Ryker.ControlPlane.PromptDocument
   alias Ryker.ControlPlane.RepositoryNames
+  alias Ryker.ControlPlane.ShortTime
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Slack.Names
@@ -2969,8 +2970,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp readable_candidate_time(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, at, _offset} -> Calendar.strftime(at, "%d %b, %H:%M:%S UTC")
-      _invalid -> bounded(value, 120)
+      # To the second: a briefing's times place its messages against each other.
+      {:ok, at, _offset} ->
+        ShortTime.day(at, DateTime.utc_now()) <> ", " <> Calendar.strftime(at, "%H:%M:%S UTC")
+
+      _invalid ->
+        bounded(value, 120)
     end
   end
 

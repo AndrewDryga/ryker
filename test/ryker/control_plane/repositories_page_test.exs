@@ -431,7 +431,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
       |> Enum.map(&squeeze(LazyHTML.text(&1)))
 
     assert [written, refused] = summaries
-    assert written =~ ~r/^Written .+ gpt-5\.3 · medium reasoning ≈ \$0\.021 · 42\.0 s$/
+    assert written =~ ~r/^Written .+ gpt-5\.3 · medium reasoning ≈ \$0\.021 · 42 s$/
     assert refused =~ ~r/^Not used /
     refute refused =~ "reasoning"
 
@@ -441,7 +441,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
     assert table ==
              "Model gpt-5.3 · medium reasoning Tokens 12,000 in · 800 out Cost ≈ $0.021 " <>
-               "Checks Passed first time Code 0123456 Model 40.0 s"
+               "Checks Passed first time Code 0123456 Model 40 s"
 
     assert card
            |> LazyHTML.query("#knowledge-run-run-2 dl.call-run a")

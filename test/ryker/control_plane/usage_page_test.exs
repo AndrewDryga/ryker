@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     Activity,
     Assets,
     ConsolePeople,
-    SettingsRows,
+    ShortTime,
     UsagePage,
     UsageProjection
   }
@@ -82,7 +82,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
     html = %{snapshot | models: [model]} |> UsagePage.render() |> IO.iodata_to_binary()
     assert html =~ "gpt-5.6-sol/high"
-    assert html =~ "Avg. model time: 1m 18s"
+    assert html =~ "Avg. model time: 1 min 18 s"
     refute html =~ "High effort"
     refute html =~ "/ execution"
 
@@ -112,7 +112,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
              "Performance"
 
     assert LazyHTML.query(document, "#usage-models td.usage-performance") |> LazyHTML.text() =~
-             "Avg. model time: 1m 18s"
+             "Avg. model time: 1 min 18 s"
   end
 
   test "estimate rates do not repeat spend totals already shown in the usage breakdowns" do
@@ -254,14 +254,14 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     assert rows(pricing, "tbody tr") == [
              ["claude-sonnet-5", "$3.00", "$0.30", "$15.00", "$15.00"],
              [
-               "gpt-5.6-sol" <> "from " <> SettingsRows.short_date(~D[2026-09-05]),
+               "gpt-5.6-sol" <> "from " <> ShortTime.day(~D[2026-09-05], Date.utc_today()),
                "$4.00",
                "$0.40",
                "$20.00",
                "—"
              ],
              [
-               "gpt-5.6-sol" <> "from " <> SettingsRows.short_date(yesterday),
+               "gpt-5.6-sol" <> "from " <> ShortTime.day(yesterday, Date.utc_today()),
                "$5.00",
                "$0.50",
                "$25.00",
@@ -540,7 +540,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
           "andrew",
           "$0.0012",
           "1.2M",
-          "1h"
+          "1 h"
         ] do
       assert html =~ label
     end

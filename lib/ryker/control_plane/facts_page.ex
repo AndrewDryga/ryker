@@ -198,7 +198,7 @@ defmodule Ryker.ControlPlane.FactsPage do
       name: item.subject,
       text: item.value,
       meta: [
-        where(item[:scope], item[:scope_ref]),
+        where(item[:scope], item[:scope_ref], item[:scope_name]),
         applies_to(item[:applicability]),
         kind(item[:kind]),
         uses(item[:recall_count], nil),
@@ -251,7 +251,7 @@ defmodule Ryker.ControlPlane.FactsPage do
       subject: redact(entry["subject"], secrets) || "Untitled",
       value: redact(entry["value"], secrets),
       meta: [
-        where(entry["scope"], entry["scope_ref"]),
+        where(entry["scope"], entry["scope_ref"], entry["scope_name"]),
         kind(entry["kind"]),
         uses(entry["recall_count"], entry["last_recalled_at"]),
         MemoryFormat.time(entry["confirmed_at"], "Saved ")
@@ -323,16 +323,18 @@ defmodule Ryker.ControlPlane.FactsPage do
     "#{noun} may be #{problem}."
   end
 
-  defp where(scope, _ref) when scope in [:global, "global"], do: "Everywhere"
-  defp where(scope, _ref) when scope in [:workspace, "workspace"], do: "Across the workspace"
+  defp where(scope, _ref, _name) when scope in [:global, "global"], do: "Everywhere"
 
-  defp where(scope, ref) when scope in [:repository, "repository"] and is_binary(ref),
-    do: MemoryFormat.with_ref("For ", ref)
+  defp where(scope, _ref, _name) when scope in [:workspace, "workspace"],
+    do: "Across the workspace"
 
-  defp where(scope, ref) when scope in [:conversation, "conversation"] and is_binary(ref),
+  defp where(scope, _ref, name) when scope in [:repository, "repository"] and is_binary(name),
+    do: MemoryFormat.with_ref("For ", name)
+
+  defp where(scope, ref, _name) when scope in [:conversation, "conversation"] and is_binary(ref),
     do: MemoryFormat.with_ref("In ", Names.destination(ref))
 
-  defp where(_scope, _ref), do: nil
+  defp where(_scope, _ref, _name), do: nil
 
   defp applies_to(text) when is_binary(text) and text != "", do: "Applies to " <> text
   defp applies_to(_text), do: nil

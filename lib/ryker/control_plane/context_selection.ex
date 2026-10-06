@@ -10,6 +10,8 @@ defmodule Ryker.ControlPlane.ContextSelection do
   message sent") said nothing, so the card carries no counter.
   """
 
+  alias Ryker.ControlPlane.Units
+
   @listed [
     {"observations", "Source notes"},
     {"knowledge", "Saved topics"},
@@ -135,7 +137,7 @@ defmodule Ryker.ControlPlane.ContextSelection do
 
   defp limits(%{"max_inputs" => inputs, "context_bytes" => bytes})
        when is_integer(inputs) and is_integer(bytes),
-       do: "Up to #{inputs} messages · #{div(bytes, 1_024)} KiB of context"
+       do: "Up to #{inputs} messages · #{Units.bytes(bytes)} of context"
 
   defp limits(_limits), do: nil
 

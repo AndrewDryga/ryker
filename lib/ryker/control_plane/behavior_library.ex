@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   require Ryker.ControlPlane.Search
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.StandingAssignmentRun
-  alias Ryker.ControlPlane.{PagedRelation, Search}
+  alias Ryker.ControlPlane.{PagedRelation, RepositoryNames, Search}
   alias Ryker.Episodes.Episode
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
@@ -29,7 +29,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(from(b in instruction_query(), where: b.ref == ^ref)) do
       nil -> :not_found
-      item -> {:ok, sanitize(item)}
+      item -> {:ok, item |> sanitize() |> List.wrap() |> named() |> hd()}
     end
   end
 
@@ -98,7 +98,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
 
     %{
       kinds: kinds,
-      items: Enum.map(page.items, &sanitize/1),
+      items: page.items |> Enum.map(&sanitize/1) |> named(),
       counts: counts,
       total: page.total,
       page: page.page,
@@ -159,6 +159,24 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   end
 
   @doc false
+  # An entry for one repository names it the way GitHub does; it named the
+  # repository by its ref, where every other page used the name (2026-10-04
+  # review).
+  defp named(items) do
+    names =
+      if Enum.any?(items, &(&1.scope_kind == :repository)),
+        do: RepositoryNames.all(),
+        else: %{}
+
+    Enum.map(items, fn
+      %{scope_kind: :repository, scope_ref: ref} = item ->
+        Map.put(item, :scope_name, RepositoryNames.name(names, ref))
+
+      item ->
+        item
+    end)
+  end
+
   def sanitize(item) do
     payload =
       Map.new(Map.take(item.payload, @payload_fields), fn {key, value} ->

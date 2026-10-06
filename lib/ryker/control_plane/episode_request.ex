@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.RoutingReason
+  alias Ryker.ControlPlane.Units
   alias Ryker.Episodes.Words
 
   # Background calls about a request that send no reply: learning from its
@@ -59,7 +60,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       <Components.card_heading title={@headline}>
         <:detail :if={@attempt}>{@attempt}</:detail>
         <:description :if={!@result? && @explanation}>{@explanation}</:description>
-        <:meta :if={@run && @run.total_ms}>took {CallRun.duration(@run.total_ms)}</:meta>
+        <:meta :if={@run && @run.total_ms}>took {Units.duration(@run.total_ms)}</:meta>
       </Components.card_heading>
       <p :if={@retried_after} class="request-retry">
         Retried after attempt {@retried_after.generation} failed: {lower_first(
@@ -387,8 +388,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp artifact_meta(artifact), do: availability(artifact)
 
   defp artifact_size(nil), do: "Size not recorded"
-  defp artifact_size(count) when count < 1_024, do: "#{count} bytes"
-  defp artifact_size(count), do: "#{div(count, 1_024)} KiB"
+  defp artifact_size(count), do: Units.bytes(count)
 
   defp decision_artifact_needed?(request) do
     case Enum.find(request.sections, &(&1.id == "candidate")) do
@@ -510,15 +510,12 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     gap = DateTime.diff(resumed, paused, :millisecond)
 
     "Ryker's wait for the worker ran out at #{Calendar.strftime(paused, "%H:%M:%S")} while the " <>
-      "call kept running, and it resumed waiting #{seconds(gap)} later."
+      "call kept running, and it resumed waiting #{Units.duration(gap)} later."
   end
 
   defp wait_text(%{paused_at: %DateTime{} = paused}),
     do:
       "Ryker's wait for the worker ran out at #{Calendar.strftime(paused, "%H:%M:%S")} while the call kept running."
-
-  defp seconds(ms) when ms < 1_000, do: "#{ms} ms"
-  defp seconds(ms), do: "#{Float.round(ms / 1_000, 1)} s"
 
   defp failure_explanation(%{summary: summary}, _response) when is_binary(summary),
     do: sentence(summary)
@@ -557,7 +554,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp purpose(%{purpose: nil}), do: nil
 
-  defp purpose(%{purpose: purpose, scope_kind: :repository, scope_ref: repository}),
+  defp purpose(%{purpose: purpose, scope_kind: :repository, scope_name: repository}),
     do: "#{purpose_name(purpose)} in #{repository}"
 
   defp purpose(%{purpose: purpose}), do: purpose_name(purpose)

@@ -1,5 +1,4 @@
 defmodule Ryker.ControlPlane.EpisodePage do
-  alias Ryker.Accounting.Pricing
   alias Ryker.ControlPlane.SlackMarkdown
 
   @moduledoc "One chronological case file: conversation, model requests, host decisions and delivery."
@@ -14,7 +13,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
     Paths,
     RequestContextHTML,
     ThreadContext,
-    ToolCard
+    ToolCard,
+    Units
   }
 
   alias Ryker.Episodes.Words
@@ -450,7 +450,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <p class="metric-group-label">Timing</p>
           <dl class="metric-group-items">
             <div class="metric metric-response">
-              <dt>Response time</dt><dd>{duration_ms(@view.metrics.response_ms)}</dd>
+              <dt>Response time</dt><dd>{Units.duration(@view.metrics.response_ms)}</dd>
             </div>
           </dl>
         </div>
@@ -1327,7 +1327,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
             }
             class="action-duration"
           >
-            {duration(@step.queue.duration_ms)}
+            {Units.duration(round(@step.queue.duration_ms))}
           </span>
         </:meta>
       </.card_heading>
@@ -1676,9 +1676,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp omission(%{reason: reason}), do: "The source payload was not stored (#{reason})."
 
   defp bytes(nil), do: "Size not recorded"
-  defp bytes(count) when count < 1_024, do: "#{count} bytes"
-  defp bytes(count) when count < 1_024 * 1_024, do: "#{div(count, 1_024)} KiB"
-  defp bytes(count), do: "#{Float.round(count / (1_024 * 1_024), 1)} MiB"
+  defp bytes(count), do: Units.bytes(count)
 
   defp message_text(%{available: false}), do: "Source content not recorded or expired"
 
@@ -1696,7 +1694,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
             :if={show_event_state?(@step)}
             class={"event-state tone-#{@step.tone}"}
           >{Words.label(@step.state)}</span>
-          <span :if={@step.duration_ms}>{duration(@step.duration_ms)}</span>
+          <span :if={@step.duration_ms}>{Units.duration(@step.duration_ms)}</span>
         </:meta>
       </.card_heading>
       <p
@@ -1865,9 +1863,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp chapter_description(:maintenance),
     do: "What happened afterwards to the worker Ryker used and its working copy."
-
-  defp duration(ms) when ms < 1_000, do: "#{ms} ms"
-  defp duration(ms), do: "#{Float.round(ms / 1_000, 1)} s"
 
   defp entries(snapshot, timeline) do
     record_links =
@@ -2060,10 +2055,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp task_time(%{state: state, created_at: from, updated_at: to})
        when state in [:complete, :cancelled],
-       do: duration_ms(max(DateTime.diff(to, from, :millisecond), 0))
+       do: Units.duration(max(DateTime.diff(to, from, :millisecond), 0))
 
   defp task_time(%{created_at: from}),
-    do: duration_ms(max(DateTime.diff(DateTime.utc_now(), from, :millisecond), 0))
+    do: Units.duration(max(DateTime.diff(DateTime.utc_now(), from, :millisecond), 0))
 
   # A stage row in the Slack card's words: a count or #617 reads on after its
   # name, anything else after a "·".
@@ -2162,7 +2157,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   end
 
   defp wall_time(%{milliseconds: milliseconds}) when is_integer(milliseconds),
-    do: duration_ms(milliseconds)
+    do: Units.duration(milliseconds)
 
   defp wall_time(_wall), do: "Not measured"
 
@@ -2174,14 +2169,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp response_time(%{measured: measured, average_ms: milliseconds}, _wall)
        when measured > 0 and is_integer(milliseconds),
-       do: duration_ms(milliseconds)
+       do: Units.duration(milliseconds)
 
   defp response_time(_response, %{state: :active}), do: "Waiting"
   defp response_time(_response, _wall), do: "Not measured"
 
   defp response_note(%{measured: measured, minimum_ms: minimum, maximum_ms: maximum})
        when measured > 1 and is_integer(minimum) and is_integer(maximum),
-       do: "min #{duration_ms(minimum)}, max #{duration_ms(maximum)}"
+       do: "min #{Units.duration(minimum)}, max #{Units.duration(maximum)}"
 
   defp response_note(_response), do: nil
 
@@ -2199,12 +2194,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
     }
   end
 
-  defp duration_ms(milliseconds) when is_integer(milliseconds) and milliseconds < 1_000,
-    do: "< 1s"
-
-  defp duration_ms(milliseconds) when is_integer(milliseconds),
-    do: duration_seconds(round(milliseconds / 1_000))
-
   defp chapter_span(chapter, started) do
     times =
       chapter.steps
@@ -2215,21 +2204,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
     offsets =
       [List.first(times), List.last(times)]
       |> Enum.reject(&is_nil/1)
-      |> Enum.map(&("+" <> duration_seconds(max(div(unix(&1) - unix(started), 1_000_000), 0))))
+      |> Enum.map(&("+" <> Units.duration(max(div(unix(&1) - unix(started), 1_000), 0))))
       |> Enum.uniq()
 
     Enum.join(offsets, " → ")
   end
 
-  defp duration_seconds(0), do: "0s"
-
-  defp duration_seconds(seconds) do
-    [{div(seconds, 3600), "h"}, {div(rem(seconds, 3600), 60), "m"}, {rem(seconds, 60), "s"}]
-    |> Enum.reject(fn {count, _} -> count == 0 end)
-    |> Enum.map_join(" ", fn {count, unit} -> "#{count}#{unit}" end)
-  end
-
-  defp cost(%{costed: _} = totals), do: Pricing.amount(totals)
+  defp cost(%{costed: _} = totals), do: Units.cost(totals)
 
   defp cost(_), do: "Cost not reported"
 end

@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.RunningSystemTest do
     assert card =~ "Taking work"
     assert card =~ "Coop v9.0.0-506-gaaf66dd9"
     assert card =~ "Work slots 3 of 4 free"
-    assert card =~ "Disk 24.7 GB free · new work stops below 4.4 GB free"
+    assert card =~ "Disk 23 GiB free · new work stops below 4.1 GiB free"
     refute card =~ "New work is stopped"
   end
 

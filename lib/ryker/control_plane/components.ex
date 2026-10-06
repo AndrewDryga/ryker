@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.Components do
   alias Phoenix.LiveView.JS
   alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.Paths
+  alias Ryker.ControlPlane.ShortTime
   alias Ryker.Episodes.Words
   alias Ryker.Work.ExecutionTarget
 
@@ -904,7 +905,7 @@ defmodule Ryker.ControlPlane.Components do
   def tone(value) when value in ["complete", "quick_reply", "react"], do: "done"
   def tone(_), do: "quiet"
 
-  def timestamp(%DateTime{} = value), do: Calendar.strftime(value, "%d %b, %H:%M UTC")
-  def timestamp(%NaiveDateTime{} = value), do: Calendar.strftime(value, "%d %b, %H:%M UTC")
+  def timestamp(%DateTime{} = value), do: ShortTime.stamp(value, DateTime.utc_now())
+  def timestamp(%NaiveDateTime{} = value), do: ShortTime.stamp(value, DateTime.utc_now())
   def timestamp(_), do: "Not recorded"
 end

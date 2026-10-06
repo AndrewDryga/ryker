@@ -39,6 +39,11 @@ defmodule Ryker.ControlPlane.RepositoryNames do
     Map.new(removed ++ current)
   end
 
+  @doc "The name `ref` is known by, read once a page read (`all/0`); nil stays nil."
+  @spec name(String.t() | nil) :: String.t() | nil
+  def name(nil), do: nil
+  def name(ref), do: name(all(), ref)
+
   @doc "The name `ref` is known by in `names`, or the ref itself; nil stays nil."
   @spec name(%{String.t() => String.t()}, String.t() | nil) :: String.t() | nil
   def name(_names, nil), do: nil

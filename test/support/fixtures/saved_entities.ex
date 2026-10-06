@@ -141,7 +141,7 @@ defmodule Ryker.Fixtures.SavedEntities do
     payload = %{
       "expires_in" => "30d",
       "kind" => "entity_relationship",
-      "repository" => nil,
+      "repository" => if(scope_kind == :repository, do: scope_ref),
       "scope" => Atom.to_string(scope_kind),
       "subject" => subject,
       "value" => value,

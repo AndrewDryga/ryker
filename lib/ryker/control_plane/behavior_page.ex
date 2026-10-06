@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   """
   use Phoenix.Component
   alias Ryker.{Behaviors, Instructions}
-  alias Ryker.ControlPlane.{Components, Kit, Paths}
+  alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
   alias Ryker.Episodes.Words
   alias Ryker.Slack.{ChannelConfigurations, IncidentRooms, Names}
 
@@ -383,7 +383,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
 
   defp place(%{scope_kind: :conversation}), do: [" in a direct conversation"]
 
-  defp place(%{scope_kind: :repository, scope_ref: repository}),
+  defp place(%{scope_kind: :repository, scope_name: repository}),
     do: [" in ", {:strong, repository}]
 
   defp place(%{scope_kind: :workspace}), do: [" anywhere in the workspace"]
@@ -397,7 +397,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
 
   defp where(%{scope_kind: :conversation}), do: "in a direct conversation"
 
-  defp where(%{scope_kind: :repository, scope_ref: repository}),
+  defp where(%{scope_kind: :repository, scope_name: repository}),
     do: rich(["for ", {:strong, repository}])
 
   # Guidance for one person names them, linked to their Slack profile.
@@ -628,11 +628,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     end
   end
 
-  defp day(at, now) do
-    if at.year == now.year,
-      do: Calendar.strftime(at, "%-d %b"),
-      else: Calendar.strftime(at, "%-d %b %Y")
-  end
+  defp day(at, now), do: ShortTime.day(at, now)
 
   @doc false
   def source_url(%{source_conversation_ref: "control-plane:lab:" <> id}) do

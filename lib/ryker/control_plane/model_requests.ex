@@ -2,7 +2,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
   import Ecto.Query
   require Ryker.ControlPlane.CurrentInputs
-  alias Ryker.Accounting.Pricing
   alias Ryker.Admission.Attempt
 
   alias Ryker.ControlPlane.{
@@ -17,8 +16,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
     LearningRequests,
     PagedRelation,
     Paths,
+    RepositoryNames,
     RoutingReason,
     ThreadContext,
+    Units,
     UsageProjection
   }
 
@@ -257,6 +258,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
         Map.put(item, :model_choice, %{
           purpose: binding && binding.purpose,
           scope_kind: binding && binding.scope_kind,
+          scope_name: scope_name(binding),
           scope_ref: binding && binding.scope_ref,
           settings: not is_nil(binding)
         })
@@ -265,6 +267,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
         item
     end)
   end
+
+  # A repository's settings name it the way GitHub does (`RepositoryNames`).
+  defp scope_name(%{scope_kind: :repository, scope_ref: ref}), do: RepositoryNames.name(ref)
+  defp scope_name(_binding), do: nil
 
   defp selected_timeline_turn(episode, %{"attempt" => id}) when is_binary(id) do
     case Ecto.UUID.cast(id) do
@@ -663,7 +669,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       |> where([execution], execution.kind == "admission" and execution.source_id == ^id)
       |> UsageProjection.totals()
 
-    if totals.costed + totals.estimated > 0, do: Pricing.amount(totals)
+    if totals.costed + totals.estimated > 0, do: Units.cost(totals)
   end
 
   # What Ryker sent without work, the last stage of a message routing handled

@@ -20,7 +20,8 @@ defmodule Ryker.ControlPlane.LabPage do
     FailureExplanation,
     HTML,
     Kit,
-    Paths
+    Paths,
+    ShortTime
   }
 
   alias Ryker.CoopFleet.ControlPlane.Workers
@@ -559,7 +560,7 @@ defmodule Ryker.ControlPlane.LabPage do
   def directory_time(%DateTime{} = at, now) do
     if DateTime.to_date(at) == DateTime.to_date(now),
       do: Calendar.strftime(at, "%H:%M UTC"),
-      else: Calendar.strftime(at, "%d %b, %H:%M UTC")
+      else: ShortTime.stamp(at, now)
   end
 
   def directory_time(_at, _now), do: "Not recorded"

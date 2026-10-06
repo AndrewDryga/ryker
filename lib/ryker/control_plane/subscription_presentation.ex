@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
   every label comes from the saved matcher or the host's own timestamps.
   """
 
+  alias Ryker.ControlPlane.ShortTime
   alias Ryker.InspectionRedactor
   alias Ryker.Slack.Names
   alias Ryker.Slack.ReplyRecords
@@ -186,8 +187,7 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
     cond do
       seconds <= 0 -> {"stops waiting now", at}
       seconds < 86_400 -> {"stops waiting " <> relative(at, now), at}
-      at.year == now.year -> {"stops waiting " <> Calendar.strftime(at, "%-d %b"), at}
-      true -> {"stops waiting " <> Calendar.strftime(at, "%-d %b %Y"), at}
+      true -> {"stops waiting " <> ShortTime.day(at, now), at}
     end
   end
 

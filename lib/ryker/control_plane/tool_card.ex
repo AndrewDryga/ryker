@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.ToolCard do
   alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
   alias Ryker.ControlPlane.SlackMarkdown
+  alias Ryker.ControlPlane.Units
   alias Ryker.Work.ActivityPaths
 
   @tools %{
@@ -137,7 +138,7 @@ defmodule Ryker.ControlPlane.ToolCard do
       service: service(action),
       title: if(step.state == "started", do: "Started: " <> action.title, else: action.title),
       detail: line_detail(action),
-      duration: step.duration_ms && duration(step.duration_ms),
+      duration: step.duration_ms && Units.duration(step.duration_ms),
       failed: step.state in ["failed", "cancelled"]
     }
   end
@@ -197,7 +198,7 @@ defmodule Ryker.ControlPlane.ToolCard do
             :if={@step.state in ["failed", "cancelled", "running"]}
             class={"action-state action-#{@step.state}"}
           >{@step.state}</span>
-          <span :if={@step.duration_ms} class="action-duration">{duration(@step.duration_ms)}</span>
+          <span :if={@step.duration_ms} class="action-duration">{Units.duration(@step.duration_ms)}</span>
         </:meta>
       </Components.card_heading>
       <pre :if={@action.kind == "command" && @action.description} class="action-command-line"><code>{@action.description}</code></pre>
@@ -571,12 +572,8 @@ defmodule Ryker.ControlPlane.ToolCard do
   end
 
   defp bytes(nil), do: "size not recorded"
-  defp bytes(count) when count < 1_024, do: "#{count} bytes"
-  defp bytes(count) when count < 1_024 * 1_024, do: "#{div(count, 1_024)} KiB"
-  defp bytes(count), do: "#{Float.round(count / (1_024 * 1_024), 1)} MiB"
+  defp bytes(count), do: Units.bytes(count)
 
   defp string(value) when is_binary(value), do: value
   defp string(_), do: nil
-  defp duration(ms) when ms < 1_000, do: "#{ms} ms"
-  defp duration(ms), do: "#{Float.round(ms / 1_000, 1)} s"
 end

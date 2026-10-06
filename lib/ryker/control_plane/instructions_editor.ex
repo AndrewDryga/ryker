@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
   shows what was saved meanwhile.
   """
   use Phoenix.LiveComponent
-  alias Ryker.ControlPlane.{ChannelPage, Components, Kit}
+  alias Ryker.ControlPlane.{ChannelPage, Components, Kit, ShortTime}
   alias Ryker.Instructions
 
   @impl true
@@ -165,11 +165,7 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
   defp current_text(%{text: ""}), do: "Nothing. The saved instructions are empty."
   defp current_text(%{text: text}), do: text
 
-  defp saved_on(at) do
-    if at.year == Date.utc_today().year,
-      do: Calendar.strftime(at, "%-d %b"),
-      else: Calendar.strftime(at, "%-d %b %Y")
-  end
+  defp saved_on(at), do: ShortTime.day(at, Date.utc_today())
 
   defp saved_title(at), do: Calendar.strftime(at, "%d %b %Y, %H:%M UTC")
 

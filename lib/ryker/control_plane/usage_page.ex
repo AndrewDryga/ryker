@@ -6,7 +6,18 @@ defmodule Ryker.ControlPlane.UsagePage do
   """
   alias Phoenix.HTML.Safe
   alias Ryker.{Accounting, Settings}
-  alias Ryker.ControlPlane.{Components, ConsolePeople, Kit, Paths, SettingsRows, UsageChart}
+
+  alias Ryker.ControlPlane.{
+    Components,
+    ConsolePeople,
+    Kit,
+    Paths,
+    SettingsRows,
+    ShortTime,
+    Units,
+    UsageChart
+  }
+
   alias Ryker.Episodes.Words
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
@@ -227,7 +238,7 @@ defmodule Ryker.ControlPlane.UsagePage do
       end),
       "<td class=\"usage-group-start usage-performance\">",
       primary(percent(Map.get(row, :cache_hit_rate)), " cache"),
-      secondary("Avg. model time: " <> elapsed(Map.get(row, :average_provider_ms))),
+      secondary("Avg. model time: " <> duration(Map.get(row, :average_provider_ms))),
       "</td><td class=\"usage-money usage-group-start\">",
       e(money(row)),
       "</td></tr>"
@@ -544,7 +555,7 @@ defmodule Ryker.ControlPlane.UsagePage do
           "<tr><td>",
           e(price_model(price.execution_target)),
           if(price.execution_target in repeated,
-            do: secondary("from " <> SettingsRows.short_date(price.effective_from)),
+            do: secondary("from " <> ShortTime.day(price.effective_from, Date.utc_today())),
             else: ""
           ),
           "</td><td>",
@@ -577,20 +588,6 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp rate(nil), do: "—"
   defp rate(price), do: SettingsRows.usd(price)
 
-  defp elapsed(nil), do: "—"
-  defp elapsed(ms) when ms < 60_000, do: decimal(ms / 1000) <> "s"
-
-  defp elapsed(ms) do
-    seconds = round(ms / 1000)
-    hours = div(seconds, 3600)
-    minutes = div(rem(seconds, 3600), 60)
-    rest = rem(seconds, 60)
-
-    [{hours, "h"}, {minutes, "m"}, {rest, "s"}]
-    |> Enum.reject(fn {count, _} -> count == 0 end)
-    |> Enum.map_join(" ", fn {count, unit} -> "#{count}#{unit}" end)
-  end
-
   defp value(row, key), do: Map.get(row, key) || 0
 
   defp share(row, total),
@@ -601,21 +598,10 @@ defmodule Ryker.ControlPlane.UsagePage do
 
   defp primary(value, suffix), do: ["<strong>", e(value), "</strong>", e(suffix)]
   defp secondary(text), do: ["<span class=\"usage-secondary\">", e(text), "</span>"]
-  defp money(%{attempts: 0}), do: "$0.00"
-
-  defp money(row) do
-    if value(row, :costed) + value(row, :estimated) > 0 do
-      cost = Decimal.add(value(row, :cost_usd), value(row, :estimated_cost_usd))
-
-      precision =
-        if Decimal.compare(cost, Decimal.new(0)) == :gt and
-             Decimal.compare(cost, Decimal.new("0.01")) == :lt, do: 4, else: 2
-
-      "$" <> Decimal.to_string(Decimal.round(cost, precision), :normal)
-    else
-      "Not measured"
-    end
-  end
+  # One total with reported and estimated cost together; "Rates used for
+  # estimates" says how the estimated part was priced.
+  defp money(%{attempts: 0}), do: Units.money(Decimal.new(0))
+  defp money(row), do: Units.cost(row, false)
 
   defp tokens(row, key),
     do:
@@ -640,9 +626,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp percent(n) when n > 0 and n < 0.001, do: "<0.1%"
   defp percent(n), do: decimal(n * 100) <> "%"
   defp duration(nil), do: "—"
-  defp duration(ms) when ms >= 3_600_000, do: decimal(ms / 3_600_000) <> "h"
-  defp duration(ms) when ms >= 60_000, do: decimal(ms / 60_000) <> "m"
-  defp duration(ms), do: decimal(ms / 1000) <> "s"
+  defp duration(ms), do: Units.duration(round(ms))
   defp e(nil), do: ""
   defp e(text), do: Plug.HTML.html_escape(to_string(text))
 end

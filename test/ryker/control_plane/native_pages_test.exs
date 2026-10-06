@@ -516,7 +516,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     notice = LazyHTML.query(document, "#execution-timeline .history-pruned")
 
     assert LazyHTML.text(notice) =~
-             "Execution history was removed by retention on 05 Sep, 12:00 UTC"
+             "Execution history was removed by retention on 5 Sep, 12:00 UTC"
 
     assert LazyHTML.text(notice) =~ "not a request that did nothing"
 
@@ -525,7 +525,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   end
 
   test "a naive timestamp and every episode state read in the page's words" do
-    assert Components.timestamp(DateTime.to_naive(@now)) == "05 Sep, 12:00 UTC"
+    assert Components.timestamp(DateTime.to_naive(@now)) == "5 Sep, 12:00 UTC"
 
     for {state, expected} <- [
           {"pending", "Queued"},
@@ -554,7 +554,7 @@ defmodule Ryker.ControlPlane.NativePagesTest do
       |> put_in([:trace, :case_file, :conversation], [])
       |> Map.update!(:trace, &Map.put(&1, :received_at, DateTime.add(@now, -60)))
 
-    assert episode_html(snapshot) =~ "+30s from start"
+    assert episode_html(snapshot) =~ "+30 s from start"
   end
 
   test "the packaged asset allowlist serves local modules but never arbitrary paths" do

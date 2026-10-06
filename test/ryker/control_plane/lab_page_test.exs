@@ -43,7 +43,7 @@ defmodule Ryker.ControlPlane.LabPageTest do
 
     assert LabPage.directory_time(~U[2026-09-13 04:12:00Z], @now) == "04:12 UTC"
     assert LabPage.directory_time(~U[2026-09-12 23:59:00Z], @now) == "12 Sep, 23:59 UTC"
-    assert LabPage.directory_time(~U[2026-09-06 23:04:00Z], @now) == "06 Sep, 23:04 UTC"
+    assert LabPage.directory_time(~U[2026-09-06 23:04:00Z], @now) == "6 Sep, 23:04 UTC"
     assert LabPage.directory_days([], @now) == []
   end
 
@@ -78,7 +78,7 @@ defmodule Ryker.ControlPlane.LabPageTest do
              {"Yesterday's thread", "23:59 UTC", ["12 Sep, 23:59 UTC"], ["warn"],
               "Needs attention"},
              {"Deploy review", "18:20 UTC", ["10 Sep, 18:20 UTC"], ["warn"], "Waiting for you"},
-             {"Check why Livebook has zero instances", "23:04 UTC", ["06 Sep, 23:04 UTC"],
+             {"Check why Livebook has zero instances", "23:04 UTC", ["6 Sep, 23:04 UTC"],
               ["busy"], "Waiting"}
            ]
 

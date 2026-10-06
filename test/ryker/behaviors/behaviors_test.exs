@@ -182,6 +182,36 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert [%{status: "active"}] = Enum.filter(items, &(&1.ref == confirmed.behavior.ref))
   end
 
+  # Guidance and rules for one repository named it by its ref, where every
+  # other page uses the name GitHub gives it (2026-10-04 review).
+  test "a repository's guidance names the repository the way GitHub does" do
+    fixture = delivered_offers!("repository-name")
+
+    {:ok, snapshot} =
+      case Ryker.Settings.fetch() do
+        {:error, :settings_not_initialized} -> Ryker.Settings.initialize("control-plane:local")
+        found -> found
+      end
+
+    {:ok, _snapshot} =
+      Ryker.Settings.put_repository(
+        %{ref: "acme-api", display_name: "acme/api", github_repository: "acme/api"},
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
+
+    insert_unrelated_guidance!(fixture.guidance, 1,
+      scope_kind: :repository,
+      scope_ref: "acme-api"
+    )
+
+    assert [%{scope_ref: "acme-api", scope_name: "acme/api"}] =
+             :guidance
+             |> BehaviorLibrary.list(%{})
+             |> Map.fetch!(:items)
+             |> Enum.filter(&(&1.scope_kind == :repository))
+  end
+
   # A preference replaced by a newer one kept every word of the old one,
   # where a replaced fact keeps a digest (2026-10-04 review).
   test "a preference replaced by a newer one keeps no words" do
@@ -1377,7 +1407,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     })
   end
 
-  defp insert_unrelated_guidance!(offer, count) do
+  defp insert_unrelated_guidance!(offer, count, scope \\ []) do
     now = DateTime.utc_now()
 
     records_and_behaviors =
@@ -1425,8 +1455,8 @@ defmodule Ryker.Behaviors.BehaviorsTest do
           payload: payload,
           ref: "behavior:#{behavior_id}",
           revision: 1,
-          scope_kind: :conversation,
-          scope_ref: "slack:T123:C#{index + 1_000}",
+          scope_kind: Keyword.get(scope, :scope_kind, :conversation),
+          scope_ref: Keyword.get(scope, :scope_ref, "slack:T123:C#{index + 1_000}"),
           source_conversation_ref: "slack:T123:C#{index + 1_000}",
           source_message_ref: "message:unrelated:#{index}",
           source_transport: "slack",
