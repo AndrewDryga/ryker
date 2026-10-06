@@ -1260,8 +1260,6 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  # A learning worker session is listed on the Learning page rather than among
-  # the working copies, so confirming or cancelling its cleanup returns there.
   # A cleanup returns to the page that lists its session: a working copy to
   # Working copies, a learning session to Learning. A session no page lists
   # but Failures (a chat or routing session holds no checkout) returns to

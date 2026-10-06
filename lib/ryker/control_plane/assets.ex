@@ -73,8 +73,17 @@ defmodule Ryker.ControlPlane.Assets do
   # (2026-10-04). Each file now carries an ETag of its bytes: the browser keeps
   # it and asks whether it changed, and an unchanged file costs a 304 with no
   # body. Text goes gzipped to a browser that accepts it.
+  #
+  # The compressed bytes are a representation of their own with a tag of their
+  # own: one tag for both let a cache holding the compressed copy answer a
+  # browser that cannot unpack it with a 304 (2026-10-04 review).
   defp serve(conn, asset, file, type) do
     %{etag: etag, plain: plain, gzip: gzip} = prepared(file, type)
+
+    {etag, body, encoding} =
+      if is_binary(gzip) and accepts_gzip?(conn),
+        do: {String.replace_suffix(etag, ~s("), ~s(-gzip")), gzip, "gzip"},
+        else: {etag, plain, nil}
 
     conn =
       conn
@@ -87,11 +96,11 @@ defmodule Ryker.ControlPlane.Assets do
       etag in if_none_match(conn) ->
         conn |> send_resp(304, "") |> halt()
 
-      is_binary(gzip) and accepts_gzip?(conn) ->
-        conn |> put_resp_header("content-encoding", "gzip") |> send_resp(200, gzip) |> halt()
+      encoding ->
+        conn |> put_resp_header("content-encoding", encoding) |> send_resp(200, body) |> halt()
 
       true ->
-        conn |> send_resp(200, plain) |> halt()
+        conn |> send_resp(200, body) |> halt()
     end
   end
 
@@ -126,10 +135,38 @@ defmodule Ryker.ControlPlane.Assets do
     |> Enum.map(&(&1 |> String.trim() |> String.replace_prefix("W/", "")))
   end
 
+  # Accept-Encoding names each coding with an optional weight, and a weight of
+  # zero refuses it: "gzip;q=0" counted as accepting gzip (2026-10-04 review).
+  # gzip is accepted by name, or by "*" when gzip is not named.
   defp accepts_gzip?(conn) do
-    conn
-    |> get_req_header("accept-encoding")
-    |> Enum.any?(&(&1 |> String.downcase() |> String.contains?("gzip")))
+    weights =
+      conn
+      |> get_req_header("accept-encoding")
+      |> Enum.flat_map(&String.split(&1, ","))
+      |> Map.new(&coding_weight/1)
+
+    Map.get(weights, "gzip", Map.get(weights, "*", 0.0)) > 0.0
+  end
+
+  defp coding_weight(part) do
+    [coding | parameters] = part |> String.downcase() |> String.split(";")
+
+    weight =
+      Enum.find_value(parameters, 1.0, fn parameter ->
+        case String.split(String.trim(parameter), "=", parts: 2) do
+          ["q", value] -> parse_weight(value)
+          _other -> nil
+        end
+      end)
+
+    {String.trim(coding), weight}
+  end
+
+  defp parse_weight(value) do
+    case Float.parse(String.trim(value)) do
+      {weight, ""} -> weight
+      _invalid -> 0.0
+    end
   end
 
   defp charset("text/" <> _), do: "utf-8"

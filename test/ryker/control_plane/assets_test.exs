@@ -38,6 +38,34 @@ defmodule Ryker.ControlPlane.AssetsTest do
     assert Plug.Conn.get_resp_header(font, "content-encoding") == []
   end
 
+  # The compressed and plain bytes carried one strong tag, so a cache holding
+  # the compressed copy could answer a browser that cannot unpack it with a
+  # 304 for those bytes; and "gzip;q=0", which refuses gzip, counted as
+  # accepting it (2026-10-04 review).
+  test "each encoding has its own tag, and a refused gzip is not sent" do
+    plain = get("/workspace.css")
+    compressed = get("/workspace.css", [{"accept-encoding", "gzip"}])
+    assert [plain_tag] = Plug.Conn.get_resp_header(plain, "etag")
+    assert [gzip_tag] = Plug.Conn.get_resp_header(compressed, "etag")
+    refute plain_tag == gzip_tag
+
+    # The compressed copy's tag does not validate the plain bytes.
+    assert get("/workspace.css", [{"if-none-match", gzip_tag}]).status == 200
+
+    assert get("/workspace.css", [{"accept-encoding", "gzip"}, {"if-none-match", gzip_tag}]).status ==
+             304
+
+    for refused <- ["gzip;q=0", "gzip; q=0.0, deflate", "identity", "br"] do
+      response = get("/workspace.css", [{"accept-encoding", refused}])
+      assert Plug.Conn.get_resp_header(response, "content-encoding") == [], refused
+    end
+
+    for accepted <- ["gzip;q=0.5", "deflate, GZIP", "*"] do
+      response = get("/workspace.css", [{"accept-encoding", accepted}])
+      assert Plug.Conn.get_resp_header(response, "content-encoding") == ["gzip"], accepted
+    end
+  end
+
   test "the page guard's no-store does not reach a script" do
     guarded =
       Plug.Test.conn(:get, "/control-plane.js")

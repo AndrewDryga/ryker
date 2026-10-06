@@ -45,6 +45,22 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     %{unavailable: unavailable}
   end
 
+  # The settings events reached for the settings commands on any page, and
+  # Chat and Activity have none: a stale tab or a hand-sent event crashed the
+  # page (2026-10-04 review). Off the settings pages they change nothing.
+  test "a settings event from a page without settings leaves that page alone" do
+    for path <- ["/", "/activity"] do
+      {:ok, view, _html} = open(path)
+
+      for event <- ["initialize-settings", "send-weekly-report-preview"] do
+        render_hook(view, event, %{})
+        assert Process.alive?(view.pid), "#{path} #{event}"
+      end
+    end
+
+    assert Repo.aggregate(Installation, :count) == 0
+  end
+
   test "a database with no product settings offers setup instead of editors" do
     {:ok, view, html} = open()
     assert html =~ "Start setup"

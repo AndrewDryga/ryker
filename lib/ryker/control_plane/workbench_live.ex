@@ -596,6 +596,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     lab_mutation_result(socket, :reaction, message_ref, result)
   end
 
+  # The settings events come only from the settings pages, the one place their
+  # commands are; sent from any other page they reached for nil and crashed it
+  # (2026-10-04 review).
+  def handle_event(event, _params, %{assigns: %{settings_commands: nil}} = socket)
+      when event in ["initialize-settings", "send-weekly-report-preview"],
+      do: {:noreply, socket}
+
   def handle_event("initialize-settings", _params, socket) do
     case initialize_settings(socket) do
       {:ok, snapshot} ->
@@ -1273,10 +1280,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("remove-filter", %{"key" => key}, socket),
     do: patch_filters(socket, RequestFilters.remove(socket.assigns.params, key))
 
-  # One older page of the open conversation. The request names the boundary
-  # it expects to extend; anything else is a trigger that fired twice, a retry
-  # of a page that already landed, or a request from a conversation this view
-  # no longer shows, and each of those is answered, never loaded.
   # Filtering the conversation list is a reading aid over what is already
   # loaded; nothing is fetched or written.
   def handle_event("filter-conversations", %{"q" => query}, socket),
@@ -1313,6 +1316,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   def handle_event("select-conversation-environment", _params, socket), do: {:noreply, socket}
 
+  # One older page of the open conversation. The request names the boundary
+  # it expects to extend; anything else is a trigger that fired twice, a retry
+  # of a page that already landed, or a request from a conversation this view
+  # no longer shows, and each of those is answered, never loaded.
   def handle_event("load-older", %{"conversation" => id, "before" => before}, socket)
       when is_binary(id) and is_binary(before) do
     case socket.assigns.lab_window do
@@ -1356,10 +1363,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     {:noreply, socket |> assign(filter_menu: nil, filter_search: %{}) |> push_patch(to: path)}
   end
 
-  # The setup count is read first because what the shell listens to depends on
-  # it, and the page listens before it reads. Working out what to listen to
-  # changes nothing until it has all been worked out, so a failure there leaves
-  # the page listening to what it did.
   # A tool call's body is one row, so it is read and sent back on its own; projecting the whole
   # timeline again to show it took 3.4 seconds on emisar#87's (2026-09-30). The page's next
   # refresh renders the same body, since it is now disclosed.
@@ -1392,6 +1395,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end)
   end
 
+  # The setup count is read first because what the shell listens to depends on
+  # it, and the page listens before it reads. Working out what to listen to
+  # changes nothing until it has all been worked out, so a failure there leaves
+  # the page listening to what it did.
   defp read_shell_and_page(socket, reset) do
     socket
     |> assign(setup_progress: setup_progress(socket), setup_counted: true)
