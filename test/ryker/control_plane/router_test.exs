@@ -360,8 +360,8 @@ defmodule Ryker.ControlPlane.RouterTest do
     options =
       options()
       |> Map.put(:public_host, "ryker.tailnet.example")
-      |> put_in([:actions, :send_lab_message], fn _id, _message, _attachments ->
-        send(parent, {:sent_as, Actor.chat_ref(), Actor.ref()})
+      |> put_in([:actions, :send_lab_message], fn _id, _message, _attachments, viewer ->
+        send(parent, {:sent_as, Actor.chat_ref(viewer), Actor.of(viewer)})
         {:ok, %{status: :recorded}}
       end)
 
@@ -383,9 +383,6 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     assert_received {:sent_as, "tailscale:andrew@example.com",
                      "control-plane:tailscale:andrew@example.com"}
-
-    # The request is over, and its person with it.
-    assert Actor.chat_ref() == "local-operator"
 
     # The same headers sent to a loopback name never passed through Serve.
     assert post.("localhost").status == 303
@@ -788,7 +785,7 @@ defmodule Ryker.ControlPlane.RouterTest do
     token = CSRF.token(@secret, "conversation_lab:send", id)
 
     options =
-      put_in(options(), [:actions, :send_lab_message], fn _id, _message, _files ->
+      put_in(options(), [:actions, :send_lab_message], fn _id, _message, _files, _viewer ->
         {:error, :conversation_lab_not_configured}
       end)
 
@@ -868,7 +865,10 @@ defmodule Ryker.ControlPlane.RouterTest do
                      [%{data: ^audio, media_type: "audio/mp4", name: "voice.m4a"}]}
 
     refusing =
-      put_in(options(), [:actions, :send_lab_message], fn _id, _message, [%{name: name}] ->
+      put_in(options(), [:actions, :send_lab_message], fn _id,
+                                                          _message,
+                                                          [%{name: name}],
+                                                          _viewer ->
         {:error,
          {:recording_refused, name,
           "a voice message longer than 5 minutes, the most Ryker transcribes"}}
@@ -975,7 +975,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     unavailable_message =
       options()
-      |> put_in([:actions, :send_lab_message], fn _id, _message, _attachments ->
+      |> put_in([:actions, :send_lab_message], fn _id, _message, _attachments, _viewer ->
         {:error, :admission_unavailable}
       end)
       |> then(fn opts ->
@@ -995,7 +995,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     unavailable_record =
       options()
-      |> put_in([:actions, :act_on_lab_record], fn _id, _ref, _action, _choice ->
+      |> put_in([:actions, :act_on_lab_record], fn _id, _ref, _action, _choice, _viewer ->
         {:error, :record_stale}
       end)
       |> then(fn opts ->
@@ -1028,7 +1028,11 @@ defmodule Ryker.ControlPlane.RouterTest do
       token = CSRF.token(@secret, "conversation_lab:record", resource)
 
       options =
-        put_in(options(), [:actions, :act_on_lab_record], fn _id, _ref, _action, _choice ->
+        put_in(options(), [:actions, :act_on_lab_record], fn _id,
+                                                             _ref,
+                                                             _action,
+                                                             _choice,
+                                                             _viewer ->
           {:error, reason}
         end)
 
@@ -1383,11 +1387,11 @@ defmodule Ryker.ControlPlane.RouterTest do
           {"/actions/memory/one/forget", :forget_memory, fn _ref -> {:error, :stale} end,
            "/memory"},
           {"/actions/memory-review/memory-review:one/keep", :resolve_memory_review,
-           fn _ref, _action, _replacement -> {:error, :stale} end, "/memory#review"},
+           fn _ref, _action, _replacement, _viewer -> {:error, :stale} end, "/memory#review"},
           {"/actions/memory-review/memory-review:one/merge", :resolve_memory_review,
-           fn _ref, _action, _replacement -> {:error, :stale} end, "/memory#review"},
+           fn _ref, _action, _replacement, _viewer -> {:error, :stale} end, "/memory#review"},
           {"/actions/memory-review/memory-review:one/forget", :resolve_memory_review,
-           fn _ref, _action, _replacement -> {:error, :stale} end, "/memory#review"}
+           fn _ref, _action, _replacement, _viewer -> {:error, :stale} end, "/memory#review"}
         ] do
       confirmation = request(:get, path)
       assert {path, links(confirmation, "section.confirm a")} == {path, [back]}
@@ -1413,7 +1417,10 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert get_resp_header(request(:post, edit, form), "location") == ["/memory#review"]
 
     refusing =
-      put_in(options(), [:actions, :resolve_memory_review], fn _ref, _action, _replacement ->
+      put_in(options(), [:actions, :resolve_memory_review], fn _ref,
+                                                               _action,
+                                                               _replacement,
+                                                               _viewer ->
         {:error, :stale}
       end)
 
@@ -1907,7 +1914,8 @@ defmodule Ryker.ControlPlane.RouterTest do
           {:schedule_policy_unavailable, "no worker is set up to run it"},
           {:unexpected, "The page may be out of date"}
         ] do
-      options = put_in(options(), [:actions, :run_schedule], fn _ref -> {:error, reason} end)
+      options =
+        put_in(options(), [:actions, :run_schedule], fn _ref, _viewer -> {:error, reason} end)
 
       refused =
         request_with_options(:post, path, URI.encode_query(%{"_token" => token}), options)

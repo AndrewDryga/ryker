@@ -199,7 +199,8 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
              Actions.callbacks().put_settings_item.(
                :webhooks,
                Map.put(source_params(), "secret_name", "SLACK_BOT_TOKEN"),
-               revision
+               revision,
+               nil
              )
 
     assert Settings.fetch!().webhook_sources == []

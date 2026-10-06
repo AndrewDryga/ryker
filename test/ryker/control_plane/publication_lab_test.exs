@@ -29,6 +29,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
                @conversation_id,
                fixture.record.ref,
                :review_publication,
+               nil,
                nil
              )
 
@@ -82,6 +83,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
                @conversation_id,
                fixture.record.ref,
                :approve_publication,
+               nil,
                nil
              )
 
@@ -92,6 +94,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
              "018f3ef7-1f62-7ee0-a83c-0c12f21dc3e7",
              fixture.record.ref,
              :approve_publication,
+             nil,
              nil
            ) == {:error, :conversation_lab_record_mismatch}
   end
@@ -112,7 +115,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
       })
 
     assert {:ok, confirmation} =
-             actions.act_on_lab_record.(@conversation_id, task_offer.ref, :confirm_task, nil)
+             actions.act_on_lab_record.(@conversation_id, task_offer.ref, :confirm_task, nil, nil)
 
     assert {:ok, child_claim} = Custody.claim_next("lab-task-no-changes", 60, :work)
     child_claim = bind_claim!(child_claim, "task-no-changes")
@@ -149,7 +152,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
       })
 
     assert {:ok, confirmation} =
-             actions.act_on_lab_record.(@conversation_id, task_offer.ref, :confirm_task, nil)
+             actions.act_on_lab_record.(@conversation_id, task_offer.ref, :confirm_task, nil, nil)
 
     assert {:ok, child_claim} = Custody.claim_next("lab-task-unverified", 60, :work)
     child_claim = bind_claim!(child_claim, "task-unverified")
@@ -236,7 +239,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
       })
 
     assert {:ok, confirmation} =
-             actions.act_on_lab_record.(@conversation_id, task_offer.ref, :confirm_task, nil)
+             actions.act_on_lab_record.(@conversation_id, task_offer.ref, :confirm_task, nil, nil)
 
     assert {:ok, child_claim} = Custody.claim_next("lab-task-readiness", 60, :work)
     assert child_claim.episode.id == confirmation.episode.id
@@ -407,7 +410,8 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
              %{
                generation: reviewed_task.recovery_generation,
                publication_ref: reviewed_task.publication_ref
-             }
+             },
+             nil
            ) == {:error, :publication_recovery_not_allowed}
 
     assert Repo.get!(Publication, newer_publication.id).status == :review_pending

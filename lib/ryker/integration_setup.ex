@@ -4,12 +4,13 @@ defmodule Ryker.IntegrationSetup do
 
   Secrets are accepted once, verified against their provider, then handed to
   encrypted custody. Returned documents contain identities and status only.
+  Every change is recorded as the `actor_ref` the caller names: a console
+  person (`Ryker.ControlPlane.Actor.of/1`) or GitHub's own `github:webhook`.
   """
 
   require Logger
 
   alias Ryker.{Bootstrap, Credentials}
-  alias Ryker.ControlPlane.Actor
   alias Ryker.CoopFleet.ManagedSources
   alias Ryker.Delivery.JSONClient
   alias Ryker.Emisar.Approvals
@@ -33,8 +34,8 @@ defmodule Ryker.IntegrationSetup do
   @spec slack_scopes() :: [String.t()]
   def slack_scopes, do: @slack_scopes
 
-  @spec connect_slack(map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def connect_slack(params, options \\ []) when is_map(params) do
+  @spec connect_slack(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def connect_slack(params, actor_ref, options \\ []) when is_map(params) do
     app_token = text(params, "app_token")
     bot_token = text(params, "bot_token")
 
@@ -49,7 +50,7 @@ defmodule Ryker.IntegrationSetup do
          {:ok, auth_response} <- request(bot_http, :post, "/auth.test", %{}, [], options),
          {:ok, identity} <- slack_identity(auth_response, bot_http, options),
          :ok <- required_slack_scopes(auth_response.headers),
-         {:ok, snapshot} <- store_slack(app_token, bot_token, identity) do
+         {:ok, snapshot} <- store_slack(app_token, bot_token, identity, actor_ref) do
       {:ok,
        %{
          enabled: snapshot.slack.enabled,
@@ -69,13 +70,13 @@ defmodule Ryker.IntegrationSetup do
   # The tokens, the workspace they belong to and their verification are one
   # change: saved one by one, tokens whose workspace could not be saved stayed
   # next to the old one (2026-10-04 review).
-  defp store_slack(app_token, bot_token, identity) do
+  defp store_slack(app_token, bot_token, identity, actor_ref) do
     Settings.atomically(fn ->
-      with {:ok, _app} <- Credentials.put(:slack_app, "primary", app_token, Actor.ref()),
-           {:ok, _bot} <- Credentials.put(:slack_bot, "primary", bot_token, Actor.ref()),
-           {:ok, snapshot} <- save_slack_identity(identity),
-           {:ok, _app} <- Credentials.verify(:slack_app, "primary", :verified, Actor.ref()),
-           {:ok, _bot} <- Credentials.verify(:slack_bot, "primary", :verified, Actor.ref()),
+      with {:ok, _app} <- Credentials.put(:slack_app, "primary", app_token, actor_ref),
+           {:ok, _bot} <- Credentials.put(:slack_bot, "primary", bot_token, actor_ref),
+           {:ok, snapshot} <- save_slack_identity(identity, actor_ref),
+           {:ok, _app} <- Credentials.verify(:slack_app, "primary", :verified, actor_ref),
+           {:ok, _bot} <- Credentials.verify(:slack_bot, "primary", :verified, actor_ref),
            do: {:ok, snapshot}
     end)
   end
@@ -107,8 +108,8 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  @spec connect_github(map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def connect_github(params, options \\ []) when is_map(params) do
+  @spec connect_github(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def connect_github(params, actor_ref, options \\ []) when is_map(params) do
     app_id = integer(params, "app_id")
     private_key = text(params, "private_key")
     api_url = text(params, "api_url", "https://api.github.com")
@@ -119,7 +120,8 @@ defmodule Ryker.IntegrationSetup do
          {:ok, %{body: app, status: 200}} <- request(app_http, :get, "/app", nil, [], options),
          :ok <- exact_app(app, app_id),
          {:ok, actor} <- github_actor(app_http, api_url, app["slug"], options),
-         {:ok, snapshot} <- store_github(private_key, webhook_secret, app, actor, api_url) do
+         {:ok, snapshot} <-
+           store_github(private_key, webhook_secret, app, actor, api_url, actor_ref) do
       {:ok,
        %{
          app_id: app["id"],
@@ -136,17 +138,17 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  defp store_github(private_key, webhook_secret, app, actor, api_url) do
+  defp store_github(private_key, webhook_secret, app, actor, api_url, actor_ref) do
     Settings.atomically(fn ->
       with {:ok, _key} <-
-             Credentials.put(:github_private_key, "primary", private_key, Actor.ref()),
+             Credentials.put(:github_private_key, "primary", private_key, actor_ref),
            {:ok, _secret} <-
-             Credentials.put(:github_webhook, "primary", webhook_secret, Actor.ref()),
-           {:ok, snapshot} <- save_github_identity(app, actor, api_url),
+             Credentials.put(:github_webhook, "primary", webhook_secret, actor_ref),
+           {:ok, snapshot} <- save_github_identity(app, actor, api_url, actor_ref),
            {:ok, _key} <-
-             Credentials.verify(:github_private_key, "primary", :verified, Actor.ref()),
+             Credentials.verify(:github_private_key, "primary", :verified, actor_ref),
            {:ok, _secret} <-
-             Credentials.verify(:github_webhook, "primary", :verified, Actor.ref()),
+             Credentials.verify(:github_webhook, "primary", :verified, actor_ref),
            do: {:ok, snapshot}
     end)
   end
@@ -213,17 +215,18 @@ defmodule Ryker.IntegrationSetup do
     end)
   end
 
-  @spec import_github_repositories([map()], keyword()) ::
+  @spec import_github_repositories([map()], String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def import_github_repositories(repositories, options \\ []) when is_list(repositories) do
+  def import_github_repositories(repositories, actor_ref, options \\ [])
+      when is_list(repositories) do
     with {:ok, snapshot} <- Settings.fetch(),
          {:ok, ryker_actor_id} <- import_actor_id(snapshot, options) do
       {added, present, failed} =
         Enum.reduce(repositories, {[], [], []}, fn repository, totals ->
-          import_repository(repository, ryker_actor_id, totals)
+          import_repository(repository, ryker_actor_id, actor_ref, totals)
         end)
 
-      with :ok <- switch_github_on(added, options) do
+      with :ok <- switch_github_on(added, actor_ref, options) do
         {:ok,
          %{
            added: Enum.reverse(added),
@@ -239,7 +242,7 @@ defmodule Ryker.IntegrationSetup do
   # ignored: on 2026-09-26 it did not happen, and GitHub read "Add a repository
   # to start" with two repositories added. It is written against the current
   # settings, and a refusal is the import's answer.
-  defp switch_github_on(added, options) do
+  defp switch_github_on(added, actor_ref, options) do
     if added != [] or Keyword.has_key?(options, :auto_add_repositories) do
       auto_add =
         Keyword.get_lazy(options, :auto_add_repositories, fn ->
@@ -249,7 +252,7 @@ defmodule Ryker.IntegrationSetup do
       case Settings.save_github(
              %{enabled: true, auto_add_repositories: auto_add},
              :current,
-             Actor.ref()
+             actor_ref
            ) do
         {:ok, _snapshot} ->
           :ok
@@ -275,8 +278,8 @@ defmodule Ryker.IntegrationSetup do
   made for Chat when there is none: a connection that waited for two more
   switches did nothing. A later account changes no environment.
   """
-  @spec connect_emisar(map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def connect_emisar(params, options \\ []) when is_map(params) do
+  @spec connect_emisar(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def connect_emisar(params, actor_ref, options \\ []) when is_map(params) do
     requested_ref = text(params, "ref", "")
     token = text(params, "token")
     rpc_url = text(params, "rpc_url", "https://emisar.dev/api/mcp/rpc")
@@ -289,16 +292,20 @@ defmodule Ryker.IntegrationSetup do
          :ok <- connection_ref(ref),
          :ok <- bounded_text(display_name, 1, 120, :display_name),
          {:ok, snapshot} <-
-           store_emisar(token, %{
-             ref: ref,
-             display_name: display_name,
-             rpc_url: rpc_url,
-             account_ref: identity.account_ref,
-             account_label: identity.account_label,
-             enabled_for_new_work: true,
-             monitoring_enabled: true,
-             verified_at: DateTime.utc_now()
-           }) do
+           store_emisar(
+             token,
+             %{
+               ref: ref,
+               display_name: display_name,
+               rpc_url: rpc_url,
+               account_ref: identity.account_ref,
+               account_label: identity.account_label,
+               enabled_for_new_work: true,
+               monitoring_enabled: true,
+               verified_at: DateTime.utc_now()
+             },
+             actor_ref
+           ) do
       {:ok,
        %{
          ref: ref,
@@ -320,19 +327,19 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  defp store_emisar(token, connection) do
+  defp store_emisar(token, connection, actor_ref) do
     Settings.atomically(fn ->
-      with {:ok, _credential} <- Credentials.put(:emisar, connection.ref, token, Actor.ref()),
+      with {:ok, _credential} <- Credentials.put(:emisar, connection.ref, token, actor_ref),
            {:ok, _snapshot} <-
              Settings.put_emisar_connection(
                connection,
                Settings.fetch!().installation.revision,
-               Actor.ref()
+               actor_ref
              ),
            {:ok, _credential} <-
-             Credentials.verify(:emisar, connection.ref, :verified, Actor.ref()),
+             Credentials.verify(:emisar, connection.ref, :verified, actor_ref),
            {:ok, _watched_again} <- Approvals.token_replaced(connection.ref),
-           do: serve_environments(connection.ref)
+           do: serve_environments(connection.ref, actor_ref)
     end)
   end
 
@@ -342,13 +349,13 @@ defmodule Ryker.IntegrationSetup do
   # operator already gave an account, and a second account starts with none.
   # An account lets a task record an approval that Ryker then only reads; what
   # the model may run in Emisar is still Emisar's decision.
-  defp serve_environments(ref, attempts \\ 3) do
+  defp serve_environments(ref, actor_ref, attempts \\ 3) do
     snapshot = Settings.fetch!()
 
     if Enum.map(snapshot.emisar_connections, & &1.ref) == [ref] do
-      case assign_first_account(snapshot, ref) do
+      case assign_first_account(snapshot, ref, actor_ref) do
         {:error, {:settings_conflict, _current}} when attempts > 1 ->
-          serve_environments(ref, attempts - 1)
+          serve_environments(ref, actor_ref, attempts - 1)
 
         result ->
           result
@@ -358,17 +365,17 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  defp assign_first_account(snapshot, ref) do
-    with {:ok, snapshot, _default} <- ensure_default_environment(snapshot) do
+  defp assign_first_account(snapshot, ref, actor_ref) do
+    with {:ok, snapshot, _default} <- ensure_default_environment(snapshot, actor_ref) do
       snapshot.environments
       |> Enum.filter(&is_nil(&1.emisar_connection_ref))
-      |> set_emisar_account(ref, snapshot)
+      |> set_emisar_account(ref, snapshot, actor_ref)
     end
   end
 
   # Chat and every conversation without its own setting work in the default
   # environment; when none is chosen, Ryker makes "Default" the default.
-  defp ensure_default_environment(snapshot) do
+  defp ensure_default_environment(snapshot, actor_ref) do
     case Environment.default(snapshot) do
       %Environment{} = environment ->
         {:ok, snapshot, environment}
@@ -381,14 +388,16 @@ defmodule Ryker.IntegrationSetup do
           end
 
         with {:ok, saved} <-
-               Settings.put_environment(attributes, snapshot.installation.revision, Actor.ref()) do
+               Settings.put_environment(attributes, snapshot.installation.revision, actor_ref) do
           {:ok, saved, Environment.default(saved)}
         end
     end
   end
 
-  @spec rotate_emisar(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def rotate_emisar(ref, token, options \\ []) when is_binary(ref) and is_binary(token) do
+  @spec rotate_emisar(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def rotate_emisar(ref, token, actor_ref, options \\ [])
+      when is_binary(ref) and is_binary(token) do
     snapshot = Settings.fetch!()
 
     # Emisar cannot say whose key this is, so the replacement proves only that
@@ -396,7 +405,8 @@ defmodule Ryker.IntegrationSetup do
     with connection when not is_nil(connection) <-
            Enum.find(snapshot.emisar_connections, &(&1.ref == ref)),
          {:ok, _identity} <- verify_emisar(token, connection.rpc_url, options),
-         {:ok, _watched_again} <- Settings.atomically(fn -> replace_emisar(ref, token) end) do
+         {:ok, _watched_again} <-
+           Settings.atomically(fn -> replace_emisar(ref, token, actor_ref) end) do
       {:ok, %{ref: ref, status: :rotated}}
     else
       nil -> {:error, :connection_not_found}
@@ -404,24 +414,29 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  defp replace_emisar(ref, token) do
-    with {:ok, _credential} <- Credentials.put(:emisar, ref, token, Actor.ref()),
-         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, Actor.ref()),
+  defp replace_emisar(ref, token, actor_ref) do
+    with {:ok, _credential} <- Credentials.put(:emisar, ref, token, actor_ref),
+         {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, actor_ref),
          do: Approvals.token_replaced(ref)
   end
 
-  @spec create_webhook_credential(String.t(), String.t() | nil) ::
+  @doc """
+  Stores the signing secret for webhook source credential `name`: the one
+  supplied, or a strong one made here when the field was left empty.
+  """
+  @spec create_webhook_credential(String.t(), String.t() | nil, String.t()) ::
           {:ok, %{name: String.t(), secret: String.t()}} | {:error, term()}
-  def create_webhook_credential(name, supplied \\ nil) do
+  def create_webhook_credential(name, supplied, actor_ref) do
     with {:ok, secret} <- signing_secret(supplied),
-         {:ok, _metadata} <- Settings.atomically(fn -> store_webhook_secret(name, secret) end) do
+         {:ok, _metadata} <-
+           Settings.atomically(fn -> store_webhook_secret(name, secret, actor_ref) end) do
       {:ok, %{name: name, secret: secret}}
     end
   end
 
-  defp store_webhook_secret(name, secret) do
-    with {:ok, _metadata} <- Credentials.put(:webhook, name, secret, Actor.ref()),
-         do: Credentials.verify(:webhook, name, :verified, Actor.ref())
+  defp store_webhook_secret(name, secret, actor_ref) do
+    with {:ok, _metadata} <- Credentials.put(:webhook, name, secret, actor_ref),
+         do: Credentials.verify(:webhook, name, :verified, actor_ref)
   end
 
   # A signed route needs at least this much secret, so a shorter one could
@@ -437,39 +452,42 @@ defmodule Ryker.IntegrationSetup do
 
   defp signing_secret(_absent), do: {:ok, generate_secret()}
 
-  @spec disconnect(:slack | :github) :: {:ok, map()} | {:error, term()}
-  def disconnect(kind) when kind in [:slack, :github] do
+  @spec disconnect(:slack | :github, String.t()) :: {:ok, map()} | {:error, term()}
+  def disconnect(kind, actor_ref) when kind in [:slack, :github] do
     snapshot = Settings.fetch!()
 
-    with {:ok, _snapshot} <- Settings.atomically(fn -> remove_connection(kind, snapshot) end) do
+    with {:ok, _snapshot} <-
+           Settings.atomically(fn -> remove_connection(kind, snapshot, actor_ref) end) do
       {:ok, %{status: :disconnected, kind: kind}}
     end
   end
 
   # Switched off and its credentials gone, in one change.
-  defp remove_connection(kind, snapshot) do
-    with {:ok, snapshot} <- disable(kind, snapshot),
-         :ok <- delete_connection_credentials(kind),
+  defp remove_connection(kind, snapshot, actor_ref) do
+    with {:ok, snapshot} <- disable(kind, snapshot, actor_ref),
+         :ok <- delete_connection_credentials(kind, actor_ref),
          do: {:ok, snapshot}
   end
 
-  def disable_emisar(ref) when is_binary(ref) do
-    set_emisar_new_work(ref, false)
-  end
+  @doc "Stops Emisar account `ref` serving new work; work it already serves keeps it."
+  def disable_emisar(ref, actor_ref) when is_binary(ref),
+    do: set_emisar_new_work(ref, false, actor_ref)
 
-  def enable_emisar(ref) when is_binary(ref) do
-    set_emisar_new_work(ref, true)
-  end
+  @doc "Lets Emisar account `ref` serve new work again."
+  def enable_emisar(ref, actor_ref) when is_binary(ref),
+    do: set_emisar_new_work(ref, true, actor_ref)
 
-  def disable_emisar_monitoring(ref) when is_binary(ref) do
-    set_emisar_monitoring(ref, false)
-  end
+  @doc "Stops watching Emisar account `ref` for approval decisions."
+  def disable_emisar_monitoring(ref, actor_ref) when is_binary(ref),
+    do: set_emisar_monitoring(ref, false, actor_ref)
 
-  def enable_emisar_monitoring(ref) when is_binary(ref) do
-    set_emisar_monitoring(ref, true)
-  end
+  @doc "Watches Emisar account `ref` for approval decisions again."
+  def enable_emisar_monitoring(ref, actor_ref) when is_binary(ref),
+    do: set_emisar_monitoring(ref, true, actor_ref)
 
-  def rename_emisar(ref, display_name) when is_binary(ref) and is_binary(display_name) do
+  @doc "Renames Emisar account `ref` as the console shows it."
+  def rename_emisar(ref, display_name, actor_ref)
+      when is_binary(ref) and is_binary(display_name) do
     snapshot = Settings.fetch!()
 
     case Enum.find(snapshot.emisar_connections, &(&1.ref == ref)) do
@@ -485,12 +503,12 @@ defmodule Ryker.IntegrationSetup do
             monitoring_enabled: connection.monitoring_enabled
           },
           snapshot.installation.revision,
-          Actor.ref()
+          actor_ref
         )
     end
   end
 
-  defp set_emisar_new_work(ref, enabled) do
+  defp set_emisar_new_work(ref, enabled, actor_ref) do
     snapshot = Settings.fetch!()
 
     case Enum.find(snapshot.emisar_connections, &(&1.ref == ref)) do
@@ -505,12 +523,12 @@ defmodule Ryker.IntegrationSetup do
             monitoring_enabled: connection.monitoring_enabled
           },
           snapshot.installation.revision,
-          Actor.ref()
+          actor_ref
         )
     end
   end
 
-  defp set_emisar_monitoring(ref, enabled) do
+  defp set_emisar_monitoring(ref, enabled, actor_ref) do
     snapshot = Settings.fetch!()
 
     case Enum.find(snapshot.emisar_connections, &(&1.ref == ref)) do
@@ -525,7 +543,7 @@ defmodule Ryker.IntegrationSetup do
             monitoring_enabled: enabled
           },
           snapshot.installation.revision,
-          Actor.ref()
+          actor_ref
         )
     end
   end
@@ -536,7 +554,7 @@ defmodule Ryker.IntegrationSetup do
   names is refused before anything changes, so a refused removal never leaves
   an environment without its account.
   """
-  def delete_emisar(ref) when is_binary(ref) do
+  def delete_emisar(ref, actor_ref) when is_binary(ref) do
     snapshot = Settings.fetch!()
 
     case Enum.find(snapshot.emisar_connections, &(&1.ref == ref)) do
@@ -550,8 +568,8 @@ defmodule Ryker.IntegrationSetup do
         released = Enum.map(using, &%{&1 | emisar_connection_ref: nil})
 
         with :ok <- unreferenced(connection, %{snapshot | environments: others ++ released}),
-             {:ok, snapshot} <- set_emisar_account(using, nil, snapshot) do
-          Settings.delete_emisar_connection(ref, snapshot.installation.revision, Actor.ref())
+             {:ok, snapshot} <- set_emisar_account(using, nil, snapshot, actor_ref) do
+          Settings.delete_emisar_connection(ref, snapshot.installation.revision, actor_ref)
         end
     end
   end
@@ -563,12 +581,12 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  defp set_emisar_account(environments, connection_ref, snapshot) do
+  defp set_emisar_account(environments, connection_ref, snapshot, actor_ref) do
     Enum.reduce_while(environments, {:ok, snapshot}, fn environment, {:ok, current} ->
       case Settings.put_environment(
              %{ref: environment.ref, emisar_connection_ref: connection_ref},
              current.installation.revision,
-             Actor.ref()
+             actor_ref
            ) do
         {:ok, saved} -> {:cont, {:ok, saved}}
         {:error, _reason} = error -> {:halt, error}
@@ -581,8 +599,10 @@ defmodule Ryker.IntegrationSetup do
   until someone turns it on: where branch protection counts the Ryker App's
   review, one of its approvals can stand in for a person's.
   """
-  @spec allow_github_approvals(String.t(), boolean()) :: {:ok, map()} | {:error, term()}
-  def allow_github_approvals(ref, allowed?) when is_binary(ref) and is_boolean(allowed?) do
+  @spec allow_github_approvals(String.t(), boolean(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def allow_github_approvals(ref, allowed?, actor_ref)
+      when is_binary(ref) and is_boolean(allowed?) do
     snapshot = Settings.fetch!()
 
     case Enum.find(snapshot.github_bindings, &(&1.repository_ref == ref)) do
@@ -593,13 +613,14 @@ defmodule Ryker.IntegrationSetup do
         Settings.put_github_binding(
           %{name: binding.name, approvals_allowed: allowed?},
           snapshot.installation.revision,
-          Actor.ref()
+          actor_ref
         )
     end
   end
 
-  @spec retry_github_onboarding(String.t()) :: {:ok, map()} | {:error, term()}
-  def retry_github_onboarding(ref) when is_binary(ref) do
+  @doc "Starts setting repository `ref` up on GitHub again, once GitHub can reach it."
+  @spec retry_github_onboarding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def retry_github_onboarding(ref, actor_ref) when is_binary(ref) do
     snapshot = Settings.fetch!()
 
     case Enum.find(snapshot.repositories, &(&1.ref == ref)) do
@@ -610,7 +631,7 @@ defmodule Ryker.IntegrationSetup do
         Settings.put_repository(
           %{ref: ref, onboarding_state: :pending, onboarding_error: nil},
           snapshot.installation.revision,
-          Actor.ref()
+          actor_ref
         )
 
       _repository ->
@@ -625,13 +646,15 @@ defmodule Ryker.IntegrationSetup do
   AndrewDryga/andrewdryga.github.com was left that way on 2026-09-26, and its
   row offered only a Retry that could never work.
   """
-  @spec add_github_repository_again(String.t(), [map()]) :: {:ok, map()} | {:error, term()}
-  def add_github_repository_again(ref, discovered) when is_binary(ref) and is_list(discovered) do
+  @spec add_github_repository_again(String.t(), [map()], String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def add_github_repository_again(ref, discovered, actor_ref)
+      when is_binary(ref) and is_list(discovered) do
     case Enum.find(Settings.fetch!().repositories, &(&1.ref == ref)) do
       %{github_repository: name} when is_binary(name) ->
         case Enum.find(discovered, &(&1.full_name == name)) do
           nil -> {:error, {:github_repository_unreachable, name}}
-          repository -> import_github_repositories([repository])
+          repository -> import_github_repositories([repository], actor_ref)
         end
 
       _missing_or_not_from_github ->
@@ -649,9 +672,9 @@ defmodule Ryker.IntegrationSetup do
 
   Andrew, 2026-09-27: "how do I remove repositories?!" Nothing could.
   """
-  @spec remove_repository(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def remove_repository(ref, options \\ []) when is_binary(ref) do
-    case Settings.atomically(fn -> remove_saved_repository(ref) end) do
+  @spec remove_repository(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def remove_repository(ref, actor_ref, options \\ []) when is_binary(ref) do
+    case Settings.atomically(fn -> remove_saved_repository(ref, actor_ref) end) do
       {:ok, removed} ->
         storage_root = Keyword.get_lazy(options, :storage_root, &Bootstrap.storage_root!/0)
         :ok = ManagedSources.remove_mirror(storage_root, ref)
@@ -662,15 +685,15 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  defp remove_saved_repository(ref) do
+  defp remove_saved_repository(ref, actor_ref) do
     snapshot = Settings.fetch!()
 
     with %{} = repository <-
            Enum.find(snapshot.repositories, &(&1.ref == ref)) || {:error, :repository_not_found},
-         {:ok, _snapshot} <- leave_environments(snapshot, ref),
-         {:ok, _snapshot} <- leave_deployment_reports(snapshot, ref),
-         {:ok, _snapshot} <- drop_github_bindings(snapshot, ref),
-         {:ok, snapshot} <- Settings.delete_repository(ref, :current, Actor.ref()) do
+         {:ok, _snapshot} <- leave_environments(snapshot, ref, actor_ref),
+         {:ok, _snapshot} <- leave_deployment_reports(snapshot, ref, actor_ref),
+         {:ok, _snapshot} <- drop_github_bindings(snapshot, ref, actor_ref),
+         {:ok, snapshot} <- Settings.delete_repository(ref, :current, actor_ref) do
       {:ok, %{repository: repository, snapshot: snapshot}}
     end
   end
@@ -681,13 +704,13 @@ defmodule Ryker.IntegrationSetup do
   # repositories would have nothing work could change, so that is refused
   # and names it; making another repository there read and write first is
   # the person's choice, never Ryker's.
-  defp leave_environments(snapshot, ref) do
+  defp leave_environments(snapshot, ref, actor_ref) do
     snapshot.environments
     |> Enum.filter(&(ref in Environment.repository_refs(&1)))
-    |> each_write(&leave_environment(&1, ref))
+    |> each_write(&leave_environment(&1, ref, actor_ref))
   end
 
-  defp leave_environment(environment, ref) do
+  defp leave_environment(environment, ref, actor_ref) do
     remaining = Enum.reject(environment.repositories, &(&1.repository_ref == ref))
 
     case Enum.split_with(remaining, &(&1.access == :read_write)) do
@@ -706,14 +729,14 @@ defmodule Ryker.IntegrationSetup do
         Settings.put_environment(
           %{ref: environment.ref, repositories: refs},
           :current,
-          Actor.ref()
+          actor_ref
         )
     end
   end
 
   # A deployment report that names only this repository could report nothing
   # afterwards, so it goes; the source keeps receiving its events.
-  defp leave_deployment_reports(snapshot, ref) do
+  defp leave_deployment_reports(snapshot, ref, actor_ref) do
     snapshot.webhook_sources
     |> Enum.filter(&(ref in ((&1.publication_lifecycle || %{})["repositories"] || [])))
     |> each_write(fn source ->
@@ -727,15 +750,15 @@ defmodule Ryker.IntegrationSetup do
       Settings.put_webhook_source(
         %{name: source.name, publication_lifecycle: lifecycle},
         :current,
-        Actor.ref()
+        actor_ref
       )
     end)
   end
 
-  defp drop_github_bindings(snapshot, ref) do
+  defp drop_github_bindings(snapshot, ref, actor_ref) do
     snapshot.github_bindings
     |> Enum.filter(&(&1.repository_ref == ref))
-    |> each_write(&Settings.delete_github_binding(&1.name, :current, Actor.ref()))
+    |> each_write(&Settings.delete_github_binding(&1.name, :current, actor_ref))
   end
 
   defp each_write(items, write) do
@@ -747,12 +770,12 @@ defmodule Ryker.IntegrationSetup do
     end)
   end
 
-  @spec delete_webhook_credential(String.t()) :: {:ok, map()} | {:error, term()}
-  def delete_webhook_credential(name) when is_binary(name) do
+  @spec delete_webhook_credential(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def delete_webhook_credential(name, actor_ref) when is_binary(name) do
     if Enum.any?(Settings.fetch!().webhook_sources, &(&1.secret_name == name)) do
       {:error, :credential_in_use}
     else
-      with :ok <- Credentials.delete(:webhook, name, Actor.ref()) do
+      with :ok <- Credentials.delete(:webhook, name, actor_ref) do
         {:ok, %{name: name, status: :deleted}}
       end
     end
@@ -812,7 +835,7 @@ defmodule Ryker.IntegrationSetup do
   # stays as it was; until 2026-09-26 every replacement switched it off until
   # someone chose the same people again. Tokens for another workspace, or a
   # first connection, leave Slack off until someone there is chosen.
-  defp save_slack_identity(identity) do
+  defp save_slack_identity(identity, actor_ref) do
     snapshot = Settings.fetch!()
 
     Settings.save_slack(
@@ -826,7 +849,7 @@ defmodule Ryker.IntegrationSetup do
         bot_name: identity.bot_name
       },
       snapshot.installation.revision,
-      Actor.ref()
+      actor_ref
     )
   end
 
@@ -834,7 +857,7 @@ defmodule Ryker.IntegrationSetup do
   # then on. Before a repository was added nothing listened, and every delivery
   # GitHub made while the App was being set up failed (Andrew, 2026-10-03,
   # showing a failed ping and installation.created: "errors on setup").
-  defp save_github_identity(app, actor, api_url) do
+  defp save_github_identity(app, actor, api_url, actor_ref) do
     snapshot = Settings.fetch!()
 
     Settings.save_github(
@@ -847,7 +870,7 @@ defmodule Ryker.IntegrationSetup do
         bot_login: actor["login"]
       },
       snapshot.installation.revision,
-      Actor.ref()
+      actor_ref
     )
   end
 
@@ -872,20 +895,20 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  defp disable(:slack, snapshot),
-    do: Settings.save_slack(%{enabled: false}, snapshot.installation.revision, Actor.ref())
+  defp disable(:slack, snapshot, actor_ref),
+    do: Settings.save_slack(%{enabled: false}, snapshot.installation.revision, actor_ref)
 
-  defp disable(:github, snapshot),
-    do: Settings.save_github(%{enabled: false}, snapshot.installation.revision, Actor.ref())
+  defp disable(:github, snapshot, actor_ref),
+    do: Settings.save_github(%{enabled: false}, snapshot.installation.revision, actor_ref)
 
-  defp delete_connection_credentials(:slack) do
-    with :ok <- Credentials.delete(:slack_app, "primary", Actor.ref()),
-         do: Credentials.delete(:slack_bot, "primary", Actor.ref())
+  defp delete_connection_credentials(:slack, actor_ref) do
+    with :ok <- Credentials.delete(:slack_app, "primary", actor_ref),
+         do: Credentials.delete(:slack_bot, "primary", actor_ref)
   end
 
-  defp delete_connection_credentials(:github) do
-    with :ok <- Credentials.delete(:github_private_key, "primary", Actor.ref()),
-         do: Credentials.delete(:github_webhook, "primary", Actor.ref())
+  defp delete_connection_credentials(:github, actor_ref) do
+    with :ok <- Credentials.delete(:github_private_key, "primary", actor_ref),
+         do: Credentials.delete(:github_webhook, "primary", actor_ref)
   end
 
   # Emisar's handshake names the server, never the account behind a key, and
@@ -1022,7 +1045,7 @@ defmodule Ryker.IntegrationSetup do
   defp total(%{"total_count" => total}, _read) when is_integer(total), do: total
   defp total(_body, read), do: length(read) + 1
 
-  defp import_repository(repository, ryker_actor_id, {added, present, failed}) do
+  defp import_repository(repository, ryker_actor_id, actor_ref, {added, present, failed}) do
     full_name = repository_value(repository, :full_name)
     snapshot = Settings.fetch!()
     existing = Enum.find(snapshot.repositories, &(&1.github_repository == full_name))
@@ -1030,7 +1053,7 @@ defmodule Ryker.IntegrationSetup do
     if existing && Enum.any?(snapshot.github_bindings, &(&1.repository_ref == existing.ref)) do
       {added, [full_name | present], failed}
     else
-      case persist_repository(repository, ryker_actor_id, existing) do
+      case persist_repository(repository, ryker_actor_id, existing, actor_ref) do
         :ok ->
           {[full_name | added], present, failed}
 
@@ -1051,12 +1074,12 @@ defmodule Ryker.IntegrationSetup do
   # one by one, a failure between them left AndrewDryga/andrewdryga.github.com
   # saved without a binding on 2026-09-26, "Waiting to start" for good. A
   # repository saved half-way before is finished here instead of added again.
-  defp persist_repository(repository, ryker_actor_id, existing) do
+  defp persist_repository(repository, ryker_actor_id, existing, actor_ref) do
     full_name = repository_value(repository, :full_name)
     ref = if existing, do: existing.ref, else: unused_ref(full_name, Settings.fetch!())
 
     Settings.atomically(fn ->
-      with {:ok, _snapshot} <- put_imported_repository(existing, ref, repository),
+      with {:ok, _snapshot} <- put_imported_repository(existing, ref, repository, actor_ref),
            {:ok, _snapshot} <-
              Settings.put_github_binding(
                %{
@@ -1070,7 +1093,7 @@ defmodule Ryker.IntegrationSetup do
                    normalize_github_permissions(repository_value(repository, :permissions))
                },
                :current,
-               Actor.ref()
+               actor_ref
              ),
            do: {:ok, :added}
     end)
@@ -1080,7 +1103,7 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  defp put_imported_repository(nil, ref, repository) do
+  defp put_imported_repository(nil, ref, repository, actor_ref) do
     full_name = repository_value(repository, :full_name)
 
     Settings.put_repository(
@@ -1091,19 +1114,19 @@ defmodule Ryker.IntegrationSetup do
         base_branch: repository_value(repository, :default_branch)
       },
       :current,
-      Actor.ref()
+      actor_ref
     )
   end
 
   # A repository saved half-way could never be set up ("GitHub binding is
   # missing"), so finishing it starts its setup over. Kept as it was, it read
   # "Setup stopped" after Add it again finished it (2026-09-27).
-  defp put_imported_repository(_existing, ref, _repository),
+  defp put_imported_repository(_existing, ref, _repository, actor_ref),
     do:
       Settings.put_repository(
         %{ref: ref, onboarding_state: :pending, onboarding_error: nil},
         :current,
-        Actor.ref()
+        actor_ref
       )
 
   @doc false

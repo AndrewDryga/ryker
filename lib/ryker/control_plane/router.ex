@@ -19,7 +19,6 @@ defmodule Ryker.ControlPlane.Router do
 
   alias Ryker.ControlPlane.{
     ActionRefusal,
-    Actor,
     BehaviorLibrary,
     BehaviorPage,
     BrowserGuard,
@@ -123,19 +122,12 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
-  # What a request does is recorded as the person Tailscale Serve or Cloudflare Access named on it
-  # (`Actor`), and only while it runs: the next request on the same connection
-  # may be someone else's. Chat's composer sends here, so a message sent
-  # through Serve was recorded as the local console's until 2026-10-04.
-  defp as_viewer(conn, options) do
-    Actor.act_for(Viewer.from_conn(conn, options))
-
-    try do
-      route(conn, options)
-    after
-      Actor.act_for(nil)
-    end
-  end
+  # What a request does is recorded as the person Tailscale Serve or Cloudflare Access named on
+  # it, and the request hands that person to every action it takes (`conn.assigns.viewer`): the
+  # next request on the same connection may be someone else's. Chat's composer sends here, so a
+  # message sent through Serve was recorded as the local console's until 2026-10-04.
+  defp as_viewer(conn, options),
+    do: conn |> assign(:viewer, Viewer.from_conn(conn, options)) |> route(options)
 
   defp route(%Plug.Conn{method: "GET", path_info: ["healthz"]} = conn, options) do
     case options.observability.health.() do
@@ -270,7 +262,12 @@ defmodule Ryker.ControlPlane.Router do
          true <- LabControls.valid_send_token?(options.csrf_secret, conversation_id, token),
          {:ok, attachments} <- readable_attachments(attachments),
          {:ok, _receipt} <-
-           options.actions.send_lab_message.(conversation_id, message, attachments) do
+           options.actions.send_lab_message.(
+             conversation_id,
+             message,
+             attachments,
+             conn.assigns.viewer
+           ) do
       lab_accepted(conn, conversation_id)
     else
       false ->
@@ -364,7 +361,7 @@ defmodule Ryker.ControlPlane.Router do
              token
            ),
          {:ok, _result} <-
-           act_on_lab_record(options, conversation_id, record_ref, action, action_context) do
+           act_on_lab_record(conn, options, conversation_id, record_ref, action, action_context) do
       conn
       |> put_resp_header("location", Paths.conversation(conversation_id))
       |> send_resp(303, "")
@@ -526,7 +523,8 @@ defmodule Ryker.ControlPlane.Router do
            options.actions.resolve_memory_review.(
              resource_ref,
              :edit,
-             %{"subject" => subject, "value" => value}
+             %{"subject" => subject, "value" => value},
+             conn.assigns.viewer
            ) do
       conn
       |> put_resp_header("location", action_return_path("memory-review", resource_ref))
@@ -584,7 +582,7 @@ defmodule Ryker.ControlPlane.Router do
          :ok <- confirmed(options.csrf_secret, canonical_action, resource_ref, token),
          return_path <- back(conn) || action_return_path(kind, resource_ref, action, options),
          {:ok, _resource} <-
-           perform(kind, resource_ref, action, options.actions, canonical_action) do
+           perform(kind, resource_ref, action, canonical_action, options.actions, conn) do
       conn
       |> put_resp_header("location", return_path)
       |> send_resp(303, "")
@@ -1107,97 +1105,99 @@ defmodule Ryker.ControlPlane.Router do
   defp failure_intent(%{kind: kind, action: :rearm}), do: {:ok, kind <> ":rearm"}
   defp failure_intent(_row), do: {:error, :not_found}
 
-  defp perform("work", resource_ref, "retry", actions, "work:retry:" <> fingerprint),
-    do: actions.retry_work.(resource_ref, fingerprint)
+  # Who confirmed the action is the request's person (`conn.assigns.viewer`), handed to every
+  # action that records who took it.
+  defp perform("work", resource_ref, "retry", "work:retry:" <> fingerprint, actions, conn),
+    do: actions.retry_work.(resource_ref, fingerprint, conn.assigns.viewer)
 
-  defp perform("learning", resource_ref, "drop", actions, "learning:drop:" <> version),
-    do: actions.drop_learning.(resource_ref, String.to_integer(version))
+  defp perform("learning", resource_ref, "drop", "learning:drop:" <> version, actions, conn),
+    do: actions.drop_learning.(resource_ref, String.to_integer(version), conn.assigns.viewer)
 
-  defp perform(kind, resource_ref, action, actions, _canonical_action),
-    do: perform(kind, resource_ref, action, actions)
+  defp perform(kind, resource_ref, action, _canonical_action, actions, conn),
+    do: perform(kind, resource_ref, action, actions, conn.assigns.viewer)
 
-  defp perform("memory", resource_ref, "forget", actions),
+  defp perform("memory", resource_ref, "forget", actions, _viewer),
     do: actions.forget_memory.(resource_ref)
 
-  defp perform("knowledge", resource_ref, "forget", actions),
+  defp perform("knowledge", resource_ref, "forget", actions, _viewer),
     do: actions.forget_knowledge.(resource_ref)
 
-  defp perform("finding", resource_ref, "forget", actions),
+  defp perform("finding", resource_ref, "forget", actions, _viewer),
     do: actions.forget_finding.(resource_ref)
 
-  defp perform("person", resource_ref, "forget", actions),
+  defp perform("person", resource_ref, "forget", actions, _viewer),
     do: actions.forget_person.(resource_ref)
 
-  defp perform("person-fact", resource_ref, "forget", actions),
+  defp perform("person-fact", resource_ref, "forget", actions, _viewer),
     do: actions.forget_person_fact.(resource_ref)
 
-  defp perform("finding", resource_ref, "mark-explained", actions),
+  defp perform("finding", resource_ref, "mark-explained", actions, _viewer),
     do: actions.mark_finding_explained.(resource_ref)
 
-  defp perform("memory-review", resource_ref, action, actions)
+  defp perform("memory-review", resource_ref, action, actions, viewer)
        when action in ["keep", "merge", "forget"],
-       do: actions.resolve_memory_review.(resource_ref, memory_review_action(action), nil)
+       do: actions.resolve_memory_review.(resource_ref, memory_review_action(action), nil, viewer)
 
-  defp perform("admission", resource_ref, "rearm", actions),
-    do: actions.rearm_admission.(resource_ref)
+  defp perform("admission", resource_ref, "rearm", actions, viewer),
+    do: actions.rearm_admission.(resource_ref, viewer)
 
-  defp perform("delivery", resource_ref, "rearm", actions),
-    do: actions.rearm_delivery.(resource_ref)
+  defp perform("delivery", resource_ref, "rearm", actions, viewer),
+    do: actions.rearm_delivery.(resource_ref, viewer)
 
-  defp perform("emisar", resource_ref, "rearm", actions),
-    do: actions.rearm_emisar.(resource_ref)
+  defp perform("emisar", resource_ref, "rearm", actions, viewer),
+    do: actions.rearm_emisar.(resource_ref, viewer)
 
-  defp perform("retention", resource_ref, "rearm", actions),
-    do: actions.rearm_retention.(resource_ref)
+  defp perform("retention", resource_ref, "rearm", actions, viewer),
+    do: actions.rearm_retention.(resource_ref, viewer)
 
-  defp perform("retention", resource_ref, "discard", actions),
-    do: actions.discard_retention.(resource_ref)
+  defp perform("retention", resource_ref, "discard", actions, viewer),
+    do: actions.discard_retention.(resource_ref, viewer)
 
-  defp perform("slack_interaction", resource_ref, "rearm", actions),
-    do: actions.rearm_slack_interaction.(resource_ref)
+  defp perform("slack_interaction", resource_ref, "rearm", actions, viewer),
+    do: actions.rearm_slack_interaction.(resource_ref, viewer)
 
-  defp perform("slack_incident", resource_ref, "rearm", actions),
-    do: actions.rearm_slack_incident.(resource_ref)
+  defp perform("slack_incident", resource_ref, "rearm", actions, viewer),
+    do: actions.rearm_slack_incident.(resource_ref, viewer)
 
-  defp perform("slack_incident", resource_ref, "close", actions),
-    do: actions.close_incident_room.(resource_ref)
+  defp perform("slack_incident", resource_ref, "close", actions, viewer),
+    do: actions.close_incident_room.(resource_ref, viewer)
 
-  defp perform(kind, resource_ref, "leave", actions),
-    do: actions.leave_failure.(kind, resource_ref)
+  defp perform(kind, resource_ref, "leave", actions, viewer),
+    do: actions.leave_failure.(kind, resource_ref, viewer)
 
-  defp perform("slack_task_card", resource_ref, "rearm", actions),
-    do: actions.rearm_slack_task_card.(resource_ref)
+  defp perform("slack_task_card", resource_ref, "rearm", actions, viewer),
+    do: actions.rearm_slack_task_card.(resource_ref, viewer)
 
-  defp perform("slack_thread_status", resource_ref, "rearm", actions),
-    do: actions.rearm_slack_thread_status.(resource_ref)
+  defp perform("slack_thread_status", resource_ref, "rearm", actions, viewer),
+    do: actions.rearm_slack_thread_status.(resource_ref, viewer)
 
-  defp perform("improvement", resource_ref, "accept", actions),
-    do: actions.accept_improvement.(resource_ref)
+  defp perform("improvement", resource_ref, "accept", actions, viewer),
+    do: actions.accept_improvement.(resource_ref, viewer)
 
-  defp perform("improvement", resource_ref, "dismiss", actions),
-    do: actions.dismiss_improvement.(resource_ref)
+  defp perform("improvement", resource_ref, "dismiss", actions, viewer),
+    do: actions.dismiss_improvement.(resource_ref, viewer)
 
-  defp perform("episode", resource_ref, "resolve", actions),
+  defp perform("episode", resource_ref, "resolve", actions, _viewer),
     do: actions.resolve_episode.(resource_ref)
 
-  defp perform("episode", resource_ref, "rate-good", actions),
-    do: actions.rate_episode.(resource_ref, :good)
+  defp perform("episode", resource_ref, "rate-good", actions, viewer),
+    do: actions.rate_episode.(resource_ref, :good, viewer)
 
-  defp perform("episode", resource_ref, "rate-needs-work", actions),
-    do: actions.rate_episode.(resource_ref, :needs_work)
+  defp perform("episode", resource_ref, "rate-needs-work", actions, viewer),
+    do: actions.rate_episode.(resource_ref, :needs_work, viewer)
 
-  defp perform("behavior", resource_ref, action, actions)
+  defp perform("behavior", resource_ref, action, actions, _viewer)
        when action in ["active", "disabled", "deleted"],
        do: actions.set_behavior_status.(resource_ref, String.to_existing_atom(action))
 
-  defp perform("schedule", resource_ref, action, actions)
+  defp perform("schedule", resource_ref, action, actions, _viewer)
        when action in ["active", "paused", "deleted"],
        do: actions.set_schedule_status.(resource_ref, String.to_existing_atom(action))
 
-  defp perform("schedule", resource_ref, "run-now", actions),
-    do: actions.run_schedule.(resource_ref)
+  defp perform("schedule", resource_ref, "run-now", actions, viewer),
+    do: actions.run_schedule.(resource_ref, viewer)
 
-  defp perform(_kind, _resource_ref, _action, _actions), do: {:error, :invalid_action}
+  defp perform(_kind, _resource_ref, _action, _actions, _viewer), do: {:error, :invalid_action}
 
   # What a reviewed fact's action does, in the words its confirmation page shows.
   defp review_confirmation("keep", "duplicate", subjects),
@@ -1674,8 +1674,14 @@ defmodule Ryker.ControlPlane.Router do
   # A record action that did not go through keeps its action and conversation,
   # so its page can say what was not done and lead back. It once answered with a
   # bare "Record action is no longer available".
-  defp act_on_lab_record(options, conversation_id, record_ref, action, action_context) do
-    case options.actions.act_on_lab_record.(conversation_id, record_ref, action, action_context) do
+  defp act_on_lab_record(conn, options, conversation_id, record_ref, action, action_context) do
+    case options.actions.act_on_lab_record.(
+           conversation_id,
+           record_ref,
+           action,
+           action_context,
+           conn.assigns.viewer
+         ) do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, {:lab_record_failed, conversation_id, action, reason}}
     end

@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.SettingsCommands do
   @moduledoc """
-  The loopback operator's writes into durable product settings.
+  A console person's writes into durable product settings, recorded as
+  `actor_ref` (`Ryker.ControlPlane.Actor.of/1`).
 
   Each command names a section from the catalog, casts its form into typed
   attributes and hands them to `Ryker.Settings`, which owns authorization,
@@ -8,22 +9,22 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   Nothing here writes a row or decides what is allowed.
   """
 
-  alias Ryker.ControlPlane.{Actor, SettingsSections}
+  alias Ryker.ControlPlane.SettingsSections
   alias Ryker.Credentials
   alias Ryker.Settings
   alias Ryker.Webhooks.Preview
 
   @type result :: {:ok, Settings.snapshot()} | {:error, term()}
 
-  @spec initialize() :: result()
-  def initialize, do: Settings.initialize(Actor.ref())
+  @spec initialize(String.t()) :: result()
+  def initialize(actor_ref), do: Settings.initialize(actor_ref)
 
   @doc "Saves one singleton or retention section at an expected revision."
-  @spec save(atom() | String.t(), map(), integer()) :: result()
-  def save(section_key, params, expected_revision) when is_map(params) do
+  @spec save(atom() | String.t(), map(), integer(), String.t()) :: result()
+  def save(section_key, params, expected_revision, actor_ref) when is_map(params) do
     with {:ok, section} <- section(section_key),
          {:ok, attributes} <- SettingsSections.cast(section, params) do
-      write(section, attributes, expected_revision, params)
+      write(section, attributes, expected_revision, params, actor_ref)
     end
   end
 
@@ -37,11 +38,11 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   end
 
   @doc "Creates or updates one row of a collection section."
-  @spec put_item(atom() | String.t(), map(), integer()) :: result()
-  def put_item(section_key, params, expected_revision) when is_map(params) do
+  @spec put_item(atom() | String.t(), map(), integer(), String.t()) :: result()
+  def put_item(section_key, params, expected_revision, actor_ref) when is_map(params) do
     with {:ok, section} <- section(section_key),
          {:ok, attributes} <- SettingsSections.cast(section, params) do
-      put(section, identify(section, attributes, params), expected_revision)
+      put(section, identify(section, attributes, params), expected_revision, actor_ref)
     end
   end
 
@@ -63,9 +64,11 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   end
 
   @doc "Removes one row of a collection section."
-  @spec delete_item(atom() | String.t(), String.t(), integer()) :: result()
-  def delete_item(section_key, item_key, expected_revision) when is_binary(item_key) do
-    with {:ok, section} <- section(section_key), do: remove(section, item_key, expected_revision)
+  @spec delete_item(atom() | String.t(), String.t(), integer(), String.t()) :: result()
+  def delete_item(section_key, item_key, expected_revision, actor_ref)
+      when is_binary(item_key) do
+    with {:ok, section} <- section(section_key),
+         do: remove(section, item_key, expected_revision, actor_ref)
   end
 
   defp section(key) do
@@ -84,56 +87,54 @@ defmodule Ryker.ControlPlane.SettingsCommands do
     end
   end
 
-  defp write(%{kind: :retention}, attributes, revision, params) do
-    Settings.save_retention(attributes, revision, actor(), Map.get(params, "confirmation"))
+  defp write(%{kind: :retention}, attributes, revision, params, actor_ref) do
+    Settings.save_retention(attributes, revision, actor_ref, Map.get(params, "confirmation"))
   end
 
-  defp write(%{domain: :slack}, attributes, revision, _params),
-    do: Settings.save_slack(attributes, revision, actor())
+  defp write(%{domain: :slack}, attributes, revision, _params, actor_ref),
+    do: Settings.save_slack(attributes, revision, actor_ref)
 
-  defp write(%{domain: :publication}, attributes, revision, _params),
-    do: Settings.save_publication(attributes, revision, actor())
+  defp write(%{domain: :publication}, attributes, revision, _params, actor_ref),
+    do: Settings.save_publication(attributes, revision, actor_ref)
 
-  defp write(%{domain: :report}, attributes, revision, _params),
-    do: Settings.save_report(attributes, revision, actor())
+  defp write(%{domain: :report}, attributes, revision, _params, actor_ref),
+    do: Settings.save_report(attributes, revision, actor_ref)
 
-  defp write(%{domain: :learning}, attributes, revision, _params),
-    do: Settings.save_learning(attributes, revision, actor())
+  defp write(%{domain: :learning}, attributes, revision, _params, actor_ref),
+    do: Settings.save_learning(attributes, revision, actor_ref)
 
-  defp write(%{domain: :work}, attributes, revision, _params),
-    do: Settings.save_work(attributes, revision, actor())
+  defp write(%{domain: :work}, attributes, revision, _params, actor_ref),
+    do: Settings.save_work(attributes, revision, actor_ref)
 
-  defp put(%{key: :pricing}, attributes, revision),
-    do: Settings.put_pricing_rate(attributes, revision, actor())
+  defp put(%{key: :pricing}, attributes, revision, actor_ref),
+    do: Settings.put_pricing_rate(attributes, revision, actor_ref)
 
   # A source may reference only a credential this deployment registered. Saving
   # an unregistered name would leave a route that cannot start, and accepting an
   # arbitrary name would make the form a way to read the process environment.
   # A source with no credential chosen is refused by the settings, beside
   # whatever else it is missing, so the form can say everything at once.
-  defp put(%{key: :webhooks}, attributes, revision) do
+  defp put(%{key: :webhooks}, attributes, revision, actor_ref) do
     case Map.get(attributes, :secret_name) do
       nil ->
-        Settings.put_webhook_source(attributes, revision, actor())
+        Settings.put_webhook_source(attributes, revision, actor_ref)
 
       name ->
         if name in registered_secrets(),
-          do: Settings.put_webhook_source(attributes, revision, actor()),
+          do: Settings.put_webhook_source(attributes, revision, actor_ref),
           else: {:error, {:invalid_settings, [{:secret_name, :unregistered_secret}]}}
     end
   end
 
-  defp remove(%{key: :pricing}, id, revision),
-    do: Settings.delete_pricing_rate(id, revision, actor())
+  defp remove(%{key: :pricing}, id, revision, actor_ref),
+    do: Settings.delete_pricing_rate(id, revision, actor_ref)
 
-  defp remove(%{key: :webhooks}, name, revision),
-    do: Settings.delete_webhook_source(name, revision, actor())
+  defp remove(%{key: :webhooks}, name, revision, actor_ref),
+    do: Settings.delete_webhook_source(name, revision, actor_ref)
 
   defp registered_secrets do
     Credentials.statuses()
     |> Enum.filter(&(&1.kind == :webhook))
     |> Enum.map(& &1.name)
   end
-
-  defp actor, do: Actor.ref()
 end

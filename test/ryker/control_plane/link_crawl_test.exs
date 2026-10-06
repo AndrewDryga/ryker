@@ -17,6 +17,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
 
   alias Ryker.ControlPlane.{
     Actions,
+    Actor,
     Endpoint,
     EpisodeProjection,
     FailureProjection,
@@ -140,7 +141,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
         actions:
           Actions.callbacks()
           |> Map.merge(fixture.actions)
-          |> Map.put(:save_instructions, &InstructionSettings.save/3)
+          |> Map.put(:save_instructions, &InstructionSettings.save(&1, &2, &3, Actor.of(&4)))
     }
 
     start_supervised!(

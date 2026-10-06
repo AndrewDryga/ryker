@@ -635,7 +635,9 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
     refute "approve" in configuration[:github].server.bindings["ryker-app"].action_grants
 
-    assert {:ok, _saved} = IntegrationSetup.allow_github_approvals("ryker", true)
+    assert {:ok, _saved} =
+             IntegrationSetup.allow_github_approvals("ryker", true, "control-plane:local")
+
     assert {:ok, allowed} = Assembly.build(bootstrap(), Settings.fetch!())
     assert "approve" in allowed[:github].server.bindings["ryker-app"].action_grants
     refute "approve" in allowed[:github].server.bindings["docs-app"].action_grants

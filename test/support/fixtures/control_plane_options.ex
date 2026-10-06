@@ -36,11 +36,11 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
   def options(parent) do
     %{
       actions: %{
-        delete_lab_message: fn conversation_id, item_id ->
+        delete_lab_message: fn conversation_id, item_id, _viewer ->
           send(parent, {:lab_message_delete, conversation_id, item_id})
           {:ok, %{status: :recorded}}
         end,
-        discard_retention: fn ref ->
+        discard_retention: fn ref, _viewer ->
           send(parent, {:discarded_retention, ref})
           {:ok, %{ref: ref}}
         end,
@@ -56,59 +56,59 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {:resolved_episode, ref})
           {:ok, %{key: ref}}
         end,
-        resolve_memory_review: fn ref, action, replacement ->
+        resolve_memory_review: fn ref, action, replacement, _viewer ->
           send(parent, {:memory_review, ref, action, replacement})
           {:ok, %{ref: ref}}
         end,
-        rearm_admission: fn ref ->
+        rearm_admission: fn ref, _viewer ->
           send(parent, {:rearmed_admission, ref})
           {:ok, %{ref: ref}}
         end,
-        rearm_delivery: fn ref ->
+        rearm_delivery: fn ref, _viewer ->
           send(parent, {:rearmed_delivery, ref})
           {:ok, %{delivery_ref: ref}}
         end,
-        rearm_emisar: fn ref ->
+        rearm_emisar: fn ref, _viewer ->
           send(parent, {:rearmed_emisar, ref})
           {:ok, %{request_id: ref}}
         end,
-        rearm_retention: fn ref ->
+        rearm_retention: fn ref, _viewer ->
           send(parent, {:rearmed_retention, ref})
           {:ok, %{ref: ref}}
         end,
-        rearm_slack_interaction: fn ref ->
+        rearm_slack_interaction: fn ref, _viewer ->
           send(parent, {:rearmed_slack_interaction, ref})
           {:ok, %{event_ref: ref}}
         end,
-        react_to_lab_message: fn conversation_id, message_ref, action, emoji_name ->
+        react_to_lab_message: fn conversation_id, message_ref, action, emoji_name, _viewer ->
           send(parent, {:lab_reaction, conversation_id, message_ref, action, emoji_name})
           {:ok, %{status: :applied}}
         end,
-        leave_failure: fn kind, ref ->
+        leave_failure: fn kind, ref, _viewer ->
           send(parent, {:left_failure, kind, ref})
           {:ok, %{kind: kind, ref: ref}}
         end,
-        close_incident_room: fn ref ->
+        close_incident_room: fn ref, _viewer ->
           send(parent, {:closed_incident_room, ref})
           {:ok, %{ref: ref}}
         end,
-        rearm_slack_incident: fn ref ->
+        rearm_slack_incident: fn ref, _viewer ->
           send(parent, {:rearmed_slack_incident, ref})
           {:ok, %{ref: ref}}
         end,
-        rearm_slack_task_card: fn ref ->
+        rearm_slack_task_card: fn ref, _viewer ->
           send(parent, {:rearmed_slack_task_card, ref})
           {:ok, %{ref: ref}}
         end,
-        rearm_slack_thread_status: fn ref ->
+        rearm_slack_thread_status: fn ref, _viewer ->
           send(parent, {:rearmed_slack_thread_status, ref})
           {:ok, %{ref: ref}}
         end,
-        retry_work: fn ref, _fingerprint ->
+        retry_work: fn ref, _fingerprint, _viewer ->
           send(parent, {:retried_work, ref})
           {:ok, %{key: ref}}
         end,
-        rate_episode: fn ref, rating ->
+        rate_episode: fn ref, rating, _viewer ->
           send(parent, {:rated_episode, ref, rating})
           {:ok, %{key: ref}}
         end,
@@ -116,7 +116,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, :sent_weekly_report_preview)
           {:ok, %{}}
         end,
-        act_on_lab_record: fn conversation_id, record_ref, action, choice_index ->
+        act_on_lab_record: fn conversation_id, record_ref, action, choice_index, _viewer ->
           send(
             parent,
             {:lab_record_action, conversation_id, record_ref, action, choice_index}
@@ -124,7 +124,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
 
           {:ok, %{status: :confirmed}}
         end,
-        edit_lab_message: fn conversation_id, item_id, message ->
+        edit_lab_message: fn conversation_id, item_id, message, _viewer ->
           send(parent, {:lab_message_edit, conversation_id, item_id, message})
           {:ok, %{status: :recorded}}
         end,
@@ -156,7 +156,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
              title: if(view == :diff, do: "Workspace diff", else: "Durable timeline")
            }}
         end,
-        send_lab_message: fn conversation_id, message, attachments ->
+        send_lab_message: fn conversation_id, message, attachments, _viewer ->
           if byte_size(message) <= 20_000 do
             case attachments do
               [] -> send(parent, {:lab_message, conversation_id, message})
@@ -176,7 +176,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {{:schedule_status, status}, ref})
           {:ok, %{ref: ref, status: status}}
         end,
-        run_schedule: fn ref ->
+        run_schedule: fn ref, _viewer ->
           send(parent, {:schedule_run_now, ref})
           {:ok, %{ref: ref, status: :dispatched}}
         end

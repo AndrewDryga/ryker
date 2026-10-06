@@ -610,7 +610,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
     assert listed?(ref)
 
-    assert {:ok, _left} = Actions.callbacks().leave_failure.("retention", ref)
+    assert {:ok, _left} = Actions.callbacks().leave_failure.("retention", ref, nil)
 
     refute listed?(ref)
 
@@ -643,7 +643,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     [open | newer] = Enum.map(1..102, &blocked_admission!/1)
 
     for entry <- newer do
-      assert {:ok, _left} = Actions.callbacks().leave_failure.("admission", Inbox.ref(entry))
+      assert {:ok, _left} = Actions.callbacks().leave_failure.("admission", Inbox.ref(entry), nil)
     end
 
     assert {:ok, failures} = FailureProjection.list(%{})

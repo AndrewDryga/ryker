@@ -287,7 +287,7 @@ defmodule Ryker.IntegrationSetupTest do
       "bot_token" => "xoxb-this-is-a-long-bot-token"
     }
 
-    assert {:ok, result} = IntegrationSetup.connect_slack(params, requester: Requester)
+    assert {:ok, result} = IntegrationSetup.connect_slack(params, @actor, requester: Requester)
     assert result.status == :connected
     assert result.identity.workspace_name == "Acme"
     assert result.identity.bot_name == "Ryker"
@@ -357,7 +357,9 @@ defmodule Ryker.IntegrationSetupTest do
       "bot_token" => "xoxb-this-is-a-long-bot-token"
     }
 
-    assert {:ok, _connected} = IntegrationSetup.connect_slack(tokens, requester: Requester)
+    assert {:ok, _connected} =
+             IntegrationSetup.connect_slack(tokens, @actor, requester: Requester)
+
     assert {:ok, _members} = IntegrationSetup.slack_members(requester: Requester)
 
     assert Names.name("T0123456789", "U1") == "@Ada"
@@ -375,7 +377,7 @@ defmodule Ryker.IntegrationSetupTest do
       "bot_token" => "xapp-this-is-a-long-app-token"
     }
 
-    assert IntegrationSetup.connect_slack(swapped, requester: Requester) ==
+    assert IntegrationSetup.connect_slack(swapped, @actor, requester: Requester) ==
              {:error, {:invalid_credential, :swapped_tokens}}
 
     refute_received {:provider_request, _url, _method, _path, _body, _headers}
@@ -396,7 +398,7 @@ defmodule Ryker.IntegrationSetupTest do
       "bot_token" => "xoxb-this-is-a-long-bot-token"
     }
 
-    {:ok, _result} = IntegrationSetup.connect_slack(tokens, requester: Requester)
+    {:ok, _result} = IntegrationSetup.connect_slack(tokens, @actor, requester: Requester)
     refute Settings.fetch!().slack.enabled
 
     {:ok, _snapshot} =
@@ -409,18 +411,20 @@ defmodule Ryker.IntegrationSetupTest do
     replaced = %{tokens | "bot_token" => "xoxb-this-is-a-replaced-bot-token"}
 
     assert {:ok, %{enabled: true}} =
-             IntegrationSetup.connect_slack(replaced, requester: Requester)
+             IntegrationSetup.connect_slack(replaced, @actor, requester: Requester)
 
     assert %{enabled: true, operators: ["U1"], workspace_ref: "T0123456789"} =
              Settings.fetch!().slack
 
     assert {:ok, %{enabled: false}} =
-             IntegrationSetup.connect_slack(replaced, requester: OtherWorkspaceRequester)
+             IntegrationSetup.connect_slack(replaced, @actor, requester: OtherWorkspaceRequester)
 
     assert %{enabled: false, workspace_ref: "T9999999999"} = Settings.fetch!().slack
 
     # Slack that was never switched on stays off when its tokens are replaced.
-    {:ok, _result} = IntegrationSetup.connect_slack(replaced, requester: OtherWorkspaceRequester)
+    {:ok, _result} =
+      IntegrationSetup.connect_slack(replaced, @actor, requester: OtherWorkspaceRequester)
+
     refute Settings.fetch!().slack.enabled
   end
 
@@ -434,10 +438,11 @@ defmodule Ryker.IntegrationSetupTest do
       "bot_token" => "xoxb-this-is-a-long-bot-token"
     }
 
-    {:ok, _result} = IntegrationSetup.connect_slack(tokens, requester: Requester)
+    {:ok, _result} = IntegrationSetup.connect_slack(tokens, @actor, requester: Requester)
     replaced = %{tokens | "bot_token" => "xoxb-this-is-a-replaced-bot-token"}
 
-    result = IntegrationSetup.connect_slack(replaced, requester: UnsavableWorkspaceRequester)
+    result =
+      IntegrationSetup.connect_slack(replaced, @actor, requester: UnsavableWorkspaceRequester)
 
     assert Credentials.fetch(:slack_bot, "primary") == {:ok, tokens["bot_token"]}
     assert Credentials.status(:slack_bot, "primary").verification_status == :verified
@@ -454,6 +459,7 @@ defmodule Ryker.IntegrationSetupTest do
           "app_token" => "xapp-this-is-a-long-app-token",
           "bot_token" => "xoxb-this-is-a-long-bot-token"
         },
+        @actor,
         requester: Requester
       )
 
@@ -472,6 +478,7 @@ defmodule Ryker.IntegrationSetupTest do
                  "app_id" => "1234",
                  "private_key" => pem
                },
+               @actor,
                requester: Requester
              )
 
@@ -493,10 +500,14 @@ defmodule Ryker.IntegrationSetupTest do
   # refused where it is typed; an empty field still makes a strong one.
   test "a signing secret too short for a signed route is refused before it is stored" do
     assert {:error, :webhook_secret_too_short} =
-             IntegrationSetup.create_webhook_credential("grafana", "short")
+             IntegrationSetup.create_webhook_credential("grafana", "short", @actor)
 
     assert {:error, :webhook_secret_too_short} =
-             IntegrationSetup.create_webhook_credential("grafana", String.duplicate("s", 31))
+             IntegrationSetup.create_webhook_credential(
+               "grafana",
+               String.duplicate("s", 31),
+               @actor
+             )
 
     assert Credentials.status(:webhook, "grafana").status == :missing
 
@@ -506,6 +517,7 @@ defmodule Ryker.IntegrationSetupTest do
     assert {:error, :webhook_secret_too_short} =
              IntegrationSetup.connect_github(
                %{"app_id" => "1234", "private_key" => pem, "webhook_secret" => "short"},
+               @actor,
                requester: Requester
              )
 
@@ -515,7 +527,7 @@ defmodule Ryker.IntegrationSetupTest do
     long_enough = String.duplicate("s", 32)
 
     assert {:ok, %{secret: ^long_enough}} =
-             IntegrationSetup.create_webhook_credential("grafana", long_enough)
+             IntegrationSetup.create_webhook_credential("grafana", long_enough, @actor)
   end
 
   test "repository import records only actions granted to the GitHub App" do
@@ -529,6 +541,7 @@ defmodule Ryker.IntegrationSetupTest do
                  "app_id" => "1234",
                  "private_key" => pem
                },
+               @actor,
                requester: Requester
              )
 
@@ -536,7 +549,9 @@ defmodule Ryker.IntegrationSetupTest do
     assert repository.permissions["pull_requests"] == "write"
 
     assert {:ok, %{added: ["acme/widget"], failed: []}} =
-             IntegrationSetup.import_github_repositories([repository], requester: Requester)
+             IntegrationSetup.import_github_repositories([repository], @actor,
+               requester: Requester
+             )
 
     binding = hd(Settings.fetch!().github_bindings)
     assert binding.granted_permissions["issues"] == "read"
@@ -560,12 +575,16 @@ defmodule Ryker.IntegrationSetupTest do
     assert {:ok, [repository]} = IntegrationSetup.github_repositories(requester: Requester)
 
     assert {:ok, %{added: ["acme/widget"], failed: []}} =
-             IntegrationSetup.import_github_repositories([repository], requester: Requester)
+             IntegrationSetup.import_github_repositories([repository], @actor,
+               requester: Requester
+             )
 
     binding = hd(Settings.fetch!().github_bindings)
     refute "approve" in GitHubBinding.grants(binding)
 
-    assert {:ok, _saved} = IntegrationSetup.allow_github_approvals(binding.repository_ref, true)
+    assert {:ok, _saved} =
+             IntegrationSetup.allow_github_approvals(binding.repository_ref, true, @actor)
+
     allowed = hd(Settings.fetch!().github_bindings)
     assert "approve" in GitHubBinding.grants(allowed)
 
@@ -599,10 +618,12 @@ defmodule Ryker.IntegrationSetupTest do
     refute "approve" in refreshed.action_grants
     assert "approve" in GitHubBinding.grants(refreshed)
 
-    assert {:ok, _saved} = IntegrationSetup.allow_github_approvals(binding.repository_ref, false)
+    assert {:ok, _saved} =
+             IntegrationSetup.allow_github_approvals(binding.repository_ref, false, @actor)
+
     refute "approve" in GitHubBinding.grants(hd(Settings.fetch!().github_bindings))
 
-    assert IntegrationSetup.allow_github_approvals("not-added", true) ==
+    assert IntegrationSetup.allow_github_approvals("not-added", true, @actor) ==
              {:error, :repository_not_found}
   end
 
@@ -640,10 +661,15 @@ defmodule Ryker.IntegrationSetupTest do
     assert {:ok, [repository]} = IntegrationSetup.github_repositories(requester: Requester)
 
     assert {:ok, %{added: ["acme/widget"]}} =
-             IntegrationSetup.import_github_repositories([repository], requester: Requester)
+             IntegrationSetup.import_github_repositories([repository], @actor,
+               requester: Requester
+             )
 
     assert {:ok, %{added: ["acme/gadget"]}} =
-             IntegrationSetup.import_github_repositories([github_repository("acme/gadget", 502)])
+             IntegrationSetup.import_github_repositories(
+               [github_repository("acme/gadget", 502)],
+               @actor
+             )
 
     assert [%Environment{ref: "production"} = production] = Settings.fetch!().environments
     assert Environment.repository_refs(production) == []
@@ -663,7 +689,9 @@ defmodule Ryker.IntegrationSetupTest do
     ]
 
     assert {:ok, %{added: added, failed: []}} =
-             IntegrationSetup.import_github_repositories(repositories, requester: Requester)
+             IntegrationSetup.import_github_repositories(repositories, @actor,
+               requester: Requester
+             )
 
     assert Enum.sort(added) == ["AndrewDryga/AndrewDryga", "AndrewDryga/andrewdryga.github.com"]
 
@@ -684,7 +712,10 @@ defmodule Ryker.IntegrationSetupTest do
     connect_github!()
 
     assert {:ok, %{added: ["acme/widget"]}} =
-             IntegrationSetup.import_github_repositories([github_repository("acme/widget", 501)])
+             IntegrationSetup.import_github_repositories(
+               [github_repository("acme/widget", 501)],
+               @actor
+             )
 
     {:ok, _snapshot} =
       Settings.save_github(%{enabled: false}, Settings.fetch!().installation.revision, @actor)
@@ -702,7 +733,10 @@ defmodule Ryker.IntegrationSetupTest do
       )
 
     assert {:ok, %{added: ["acme/site"], already_present: [], failed: []}} =
-             IntegrationSetup.import_github_repositories([github_repository("acme/site", 602)])
+             IntegrationSetup.import_github_repositories(
+               [github_repository("acme/site", 602)],
+               @actor
+             )
 
     snapshot = Settings.fetch!()
 
@@ -731,15 +765,23 @@ defmodule Ryker.IntegrationSetupTest do
       )
 
     assert {:error, {:github_repository_unreachable, "acme/site"}} =
-             IntegrationSetup.add_github_repository_again("acme-site", [
-               github_repository("acme/other", 601)
-             ])
+             IntegrationSetup.add_github_repository_again(
+               "acme-site",
+               [
+                 github_repository("acme/other", 601)
+               ],
+               @actor
+             )
 
     assert {:ok, %{added: ["acme/site"], failed: []}} =
-             IntegrationSetup.add_github_repository_again("acme-site", [
-               github_repository("acme/other", 601),
-               github_repository("acme/site", 602)
-             ])
+             IntegrationSetup.add_github_repository_again(
+               "acme-site",
+               [
+                 github_repository("acme/other", 601),
+                 github_repository("acme/site", 602)
+               ],
+               @actor
+             )
 
     snapshot = Settings.fetch!()
     assert [%{repository_ref: "acme-site", repository_id: 602}] = snapshot.github_bindings
@@ -748,7 +790,7 @@ defmodule Ryker.IntegrationSetupTest do
     assert [%{onboarding_state: :pending, onboarding_error: nil}] = snapshot.repositories
 
     assert {:error, :repository_not_found} =
-             IntegrationSetup.add_github_repository_again("missing", [])
+             IntegrationSetup.add_github_repository_again("missing", [], @actor)
   end
 
   # Andrew, 2026-09-27: "how do I remove repositories?!" Nothing could: a
@@ -758,11 +800,14 @@ defmodule Ryker.IntegrationSetupTest do
     connect_github!()
 
     assert {:ok, %{added: ["acme/widget", "acme/gadget", "acme/tool"]}} =
-             IntegrationSetup.import_github_repositories([
-               github_repository("acme/widget", 501),
-               github_repository("acme/gadget", 502),
-               github_repository("acme/tool", 503)
-             ])
+             IntegrationSetup.import_github_repositories(
+               [
+                 github_repository("acme/widget", 501),
+                 github_repository("acme/gadget", 502),
+                 github_repository("acme/tool", 503)
+               ],
+               @actor
+             )
 
     # acme-widget is Default's default; acme-gadget is only read there.
     {:ok, _snapshot} =
@@ -813,7 +858,7 @@ defmodule Ryker.IntegrationSetupTest do
     session = pin_repository_work!("widget", "acme-widget")
 
     assert {:ok, %{repository: %{github_repository: "acme/widget"}}} =
-             IntegrationSetup.remove_repository("acme-widget", storage_root: storage)
+             IntegrationSetup.remove_repository("acme-widget", @actor, storage_root: storage)
 
     snapshot = Settings.fetch!()
     assert Enum.map(snapshot.repositories, & &1.ref) == ["acme-gadget", "acme-tool"]
@@ -842,12 +887,12 @@ defmodule Ryker.IntegrationSetupTest do
     assert %{repository_ref: "acme-widget"} = Repo.reload!(session)
 
     assert {:error, :repository_not_found} =
-             IntegrationSetup.remove_repository("acme-widget", storage_root: storage)
+             IntegrationSetup.remove_repository("acme-widget", @actor, storage_root: storage)
 
     # An environment left with nothing work could change is refused, and
     # nothing is removed.
     assert {:error, {:environment_left_read_only, "Default"}} =
-             IntegrationSetup.remove_repository("acme-tool", storage_root: storage)
+             IntegrationSetup.remove_repository("acme-tool", @actor, storage_root: storage)
 
     assert Enum.map(Settings.fetch!().repositories, & &1.ref) == ["acme-gadget", "acme-tool"]
   end
@@ -918,7 +963,7 @@ defmodule Ryker.IntegrationSetupTest do
       end
 
     assert {:ok, %{added: ["acme/platform-api", "acme-platform/api"], failed: []}} =
-             IntegrationSetup.import_github_repositories(imported, requester: Requester)
+             IntegrationSetup.import_github_repositories(imported, @actor, requester: Requester)
 
     snapshot = Settings.fetch!()
     names = Map.new(snapshot.repositories, &{&1.github_repository, &1.ref})
@@ -939,7 +984,9 @@ defmodule Ryker.IntegrationSetupTest do
     assert {:ok, [repository]} = IntegrationSetup.github_repositories(requester: Requester)
 
     assert {:ok, %{added: ["acme/widget"]}} =
-             IntegrationSetup.import_github_repositories([repository], requester: Requester)
+             IntegrationSetup.import_github_repositories([repository], @actor,
+               requester: Requester
+             )
 
     {:ok, _snapshot} =
       Settings.save_github(
@@ -1053,13 +1100,16 @@ defmodule Ryker.IntegrationSetupTest do
                  "app_id" => "1234",
                  "private_key" => pem
                },
+               @actor,
                requester: Requester
              )
 
     assert {:ok, [repository]} = IntegrationSetup.github_repositories(requester: Requester)
 
     assert {:ok, %{added: ["acme/widget"]}} =
-             IntegrationSetup.import_github_repositories([repository], requester: Requester)
+             IntegrationSetup.import_github_repositories([repository], @actor,
+               requester: Requester
+             )
 
     snapshot = Settings.fetch!()
 
@@ -1149,6 +1199,7 @@ defmodule Ryker.IntegrationSetupTest do
                  "rpc_url" => "https://emisar.example/api/mcp/rpc",
                  "token" => token
                },
+               @actor,
                requester: Requester
              )
 
@@ -1159,14 +1210,14 @@ defmodule Ryker.IntegrationSetupTest do
              &(&1.ref == "production")
            ).monitoring_enabled
 
-    assert {:ok, _snapshot} = IntegrationSetup.disable_emisar_monitoring("production")
+    assert {:ok, _snapshot} = IntegrationSetup.disable_emisar_monitoring("production", @actor)
 
     refute Enum.find(
              Settings.fetch!().emisar_connections,
              &(&1.ref == "production")
            ).monitoring_enabled
 
-    assert {:ok, _snapshot} = IntegrationSetup.enable_emisar_monitoring("production")
+    assert {:ok, _snapshot} = IntegrationSetup.enable_emisar_monitoring("production", @actor)
 
     assert Enum.find(
              Settings.fetch!().emisar_connections,
@@ -1177,6 +1228,7 @@ defmodule Ryker.IntegrationSetupTest do
              IntegrationSetup.rotate_emisar(
                "production",
                "replacement-emisar-token-long-enough",
+               @actor,
                requester: Requester
              )
 
@@ -1184,36 +1236,37 @@ defmodule Ryker.IntegrationSetupTest do
              IntegrationSetup.rotate_emisar(
                "production",
                "refused-replacement-token-long-enough",
+               @actor,
                requester: Requester
              )
 
     assert Credentials.status(:emisar, "production").status == :configured
 
-    assert {:ok, _snapshot} = IntegrationSetup.disable_emisar("production")
+    assert {:ok, _snapshot} = IntegrationSetup.disable_emisar("production", @actor)
 
     refute Enum.find(Settings.fetch!().emisar_connections, &(&1.ref == "production")).enabled_for_new_work
 
-    assert {:ok, _snapshot} = IntegrationSetup.enable_emisar("production")
+    assert {:ok, _snapshot} = IntegrationSetup.enable_emisar("production", @actor)
 
     assert Enum.find(Settings.fetch!().emisar_connections, &(&1.ref == "production")).enabled_for_new_work
 
     assert {:ok, _snapshot} =
-             IntegrationSetup.rename_emisar("production", "Production controls")
+             IntegrationSetup.rename_emisar("production", "Production controls", @actor)
 
     assert Enum.find(Settings.fetch!().emisar_connections, &(&1.ref == "production")).display_name ==
              "Production controls"
 
-    assert {:ok, _snapshot} = IntegrationSetup.delete_emisar("production")
+    assert {:ok, _snapshot} = IntegrationSetup.delete_emisar("production", @actor)
     assert Credentials.status(:emisar, "production").status == :missing
     assert Enum.all?(Settings.fetch!().environments, &is_nil(&1.emisar_connection_ref))
 
     assert {:ok, %{name: "alerts", secret: generated}} =
-             IntegrationSetup.create_webhook_credential("alerts")
+             IntegrationSetup.create_webhook_credential("alerts", nil, @actor)
 
     assert byte_size(generated) >= 32
 
     assert {:ok, %{name: "alerts", status: :deleted}} =
-             IntegrationSetup.delete_webhook_credential("alerts")
+             IntegrationSetup.delete_webhook_credential("alerts", @actor)
   end
 
   # Found live 2026-09-27: Andrew's new Emisar key, which emisar.dev showed as
@@ -1237,6 +1290,7 @@ defmodule Ryker.IntegrationSetupTest do
                  "rpc_url" => "https://emisar.example/api/mcp/rpc",
                  "token" => token
                },
+               @actor,
                requester: Requester
              )
 
@@ -1253,6 +1307,7 @@ defmodule Ryker.IntegrationSetupTest do
                  "rpc_url" => "https://emisar.example/api/mcp/rpc",
                  "token" => "refused-emisar-token-long-enough"
                },
+               @actor,
                requester: Requester
              )
 
@@ -1266,6 +1321,7 @@ defmodule Ryker.IntegrationSetupTest do
                  "rpc_url" => "https://emisar.example/api/mcp/rpc",
                  "token" => "audit-emisar-token-long-enough"
                },
+               @actor,
                requester: Requester
              )
 
@@ -1278,10 +1334,11 @@ defmodule Ryker.IntegrationSetupTest do
       "token" => "emisar-token-that-is-long-enough"
     }
 
-    assert {:ok, %{ref: ref}} = IntegrationSetup.connect_emisar(params, requester: Requester)
+    assert {:ok, %{ref: ref}} =
+             IntegrationSetup.connect_emisar(params, @actor, requester: Requester)
 
     assert {:error, {:emisar_key_already_connected, "emisar.example"}} =
-             IntegrationSetup.connect_emisar(params, requester: Requester)
+             IntegrationSetup.connect_emisar(params, @actor, requester: Requester)
 
     assert [%{ref: ^ref}] = Settings.fetch!().emisar_connections
   end
@@ -1300,6 +1357,7 @@ defmodule Ryker.IntegrationSetupTest do
                  "rpc_url" => "https://emisar.example/api/mcp/rpc",
                  "token" => "emisar-token-that-is-long-enough"
                },
+               @actor,
                requester: Requester
              )
 
@@ -1330,6 +1388,7 @@ defmodule Ryker.IntegrationSetupTest do
                  "rpc_url" => "https://emisar.example/api/mcp/rpc",
                  "token" => "emisar-token-that-is-long-enough"
                },
+               @actor,
                requester: Requester
              )
 
@@ -1346,6 +1405,7 @@ defmodule Ryker.IntegrationSetupTest do
                  "rpc_url" => "https://emisar.example/api/mcp/rpc",
                  "token" => "other-emisar-token-long-enough"
                },
+               @actor,
                requester: Requester
              )
 
@@ -1373,13 +1433,14 @@ defmodule Ryker.IntegrationSetupTest do
                  "rpc_url" => "https://emisar.example/api/mcp/rpc",
                  "token" => "emisar-token-that-is-long-enough"
                },
+               @actor,
                requester: Requester
              )
 
     assert pin_work!("pinned", "payments").emisar_connection_ref == ref
 
     assert {:error, {:invalid_settings, [ref: {:referenced, %{sessions: 1}}]}} =
-             IntegrationSetup.delete_emisar(ref)
+             IntegrationSetup.delete_emisar(ref, @actor)
 
     assert Enum.all?(Settings.fetch!().environments, &(&1.emisar_connection_ref == ref))
     assert Credentials.status(:emisar, ref).status == :configured
@@ -1389,7 +1450,7 @@ defmodule Ryker.IntegrationSetupTest do
       set: [cleanup_status: :discarded, discarded_at: DateTime.utc_now()]
     )
 
-    assert {:ok, snapshot} = IntegrationSetup.delete_emisar(ref)
+    assert {:ok, snapshot} = IntegrationSetup.delete_emisar(ref, @actor)
     assert snapshot.emisar_connections == []
     assert Enum.all?(snapshot.environments, &is_nil(&1.emisar_connection_ref))
     assert Credentials.status(:emisar, ref).status == :missing
@@ -1446,6 +1507,7 @@ defmodule Ryker.IntegrationSetupTest do
                  "app_id" => "1234",
                  "private_key" => pem
                },
+               @actor,
                requester: Requester
              )
   end

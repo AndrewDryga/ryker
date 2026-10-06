@@ -21,8 +21,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
 
   use Phoenix.LiveComponent
 
-  alias Ryker.ControlPlane.{Actor, Components, Environments, SettingsView}
-  alias Ryker.Settings
+  alias Ryker.ControlPlane.{Components, Environments, SettingsView}
   alias Ryker.Settings.Environment
 
   @impl true
@@ -217,12 +216,9 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
       is_default: draft.is_default
     }
 
+    # Saved as the page's person (`commands`, from its LiveView).
     case attempt(fn ->
-           Settings.put_environment(
-             attributes,
-             socket.assigns.expected_revision,
-             Actor.ref()
-           )
+           socket.assigns.commands.put_environment.(attributes, socket.assigns.expected_revision)
          end) do
       {:ok, snapshot} ->
         send(self(), {:environment_saved, SettingsView.view(snapshot), "#{name} was saved."})

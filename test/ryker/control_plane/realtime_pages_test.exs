@@ -331,10 +331,13 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     refute has_element?(view, "#setup-emisar[data-state=done]")
 
     assert {:ok, _connected} =
-             Ryker.IntegrationSetup.connect_emisar(%{
-               "rpc_url" => "https://emisar.example/api/mcp/rpc",
-               "token" => "emisar-token-that-is-long-enough"
-             })
+             Ryker.IntegrationSetup.connect_emisar(
+               %{
+                 "rpc_url" => "https://emisar.example/api/mcp/rpc",
+                 "token" => "emisar-token-that-is-long-enough"
+               },
+               "control-plane:local"
+             )
 
     assert shows?(fn -> has_element?(view, "#setup-emisar[data-state=done]", "Emisar") end)
     assert has_element?(view, ".setup-meter > span[data-optional=true][data-done=true]")

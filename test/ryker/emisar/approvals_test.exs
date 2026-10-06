@@ -266,7 +266,8 @@ defmodule Ryker.Emisar.ApprovalsTest do
     approval_wait!("unwatched")
     assert failure("production/apr-unwatched") == nil
 
-    assert {:ok, _snapshot} = IntegrationSetup.disable_emisar_monitoring(@connection_ref)
+    assert {:ok, _snapshot} =
+             IntegrationSetup.disable_emisar_monitoring(@connection_ref, "control-plane:local")
 
     row = failure("production/apr-unwatched")
     assert %{kind: "emisar", stall: :monitoring_off, action: nil, status: :monitoring} = row
@@ -282,7 +283,9 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
     assert failures_page() =~ "/failures/emisar/production%2Fapr-unwatched"
 
-    assert {:ok, _snapshot} = IntegrationSetup.enable_emisar_monitoring(@connection_ref)
+    assert {:ok, _snapshot} =
+             IntegrationSetup.enable_emisar_monitoring(@connection_ref, "control-plane:local")
+
     assert failure("production/apr-unwatched") == nil
 
     assert {:ok, %{approval: %{request_id: "apr-unwatched"}}} =
@@ -305,6 +308,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
              IntegrationSetup.rotate_emisar(
                @connection_ref,
                "replacement-emisar-token-long-enough",
+               "control-plane:local",
                requester: SameAccountRequester
              )
 
@@ -332,6 +336,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
              IntegrationSetup.rotate_emisar(
                @connection_ref,
                "replacement-emisar-token-long-enough",
+               "control-plane:local",
                requester: SameAccountRequester
              )
 
@@ -366,6 +371,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
              IntegrationSetup.rotate_emisar(
                @connection_ref,
                "replacement-emisar-token-long-enough",
+               "control-plane:local",
                requester: SameAccountRequester
              )
 

@@ -5,15 +5,14 @@ defmodule Ryker.ControlPlane.Actor do
   was named. A person's references say which of the two named them, so a
   Cloudflare sign-in never reads as a tailnet one.
 
-  A page's process takes its person once, when it connects (`act_for/1`), and
-  every action it runs reads them here instead of each callback taking one
-  more argument. A process that never took one, such as a background job or
-  a test, acts as the local console.
+  The console hands every action the person who took it, the viewer its page
+  or request has: nobody is read from the process running it. A viewer of nil
+  is the local console.
 
   A person is recorded in the form each record keeps: a change made on a page
-  under `ref/0`, and a Chat message, reaction or answer under `chat_ref/0`,
-  the actor a Chat input carries. `person_ref/0` is the person a turn is for,
-  the form a preference kept for one person is scoped to.
+  under `of/1`, and a Chat message, reaction or answer under `chat_ref/1`, the
+  actor a Chat input carries. `person_ref/1` is the person a turn is for, the
+  form a preference kept for one person is scoped to.
   `Ryker.ControlPlane.ConsolePeople.person/1` names any of them, and `login/1`
   reads the person out of any of them.
   """
@@ -24,23 +23,11 @@ defmodule Ryker.ControlPlane.Actor do
   # The services that name a person to the console (`Viewer`).
   @sources ~w(tailscale cloudflare)
   @maximum_login_bytes 200
-  @key {__MODULE__, :viewer}
 
   @doc "What `viewer`'s actions are recorded as."
   @spec of(Viewer.t() | nil) :: String.t()
   def of(%{login: login, via: via}), do: "control-plane:#{via}:" <> login
   def of(nil), do: @local
-
-  @doc "Makes `viewer` the actor of every action this process takes from now on."
-  @spec act_for(Viewer.t() | nil) :: :ok
-  def act_for(viewer) do
-    Process.put(@key, viewer)
-    :ok
-  end
-
-  @doc "Who this process's actions are recorded as."
-  @spec ref() :: String.t()
-  def ref, do: of(Process.get(@key))
 
   @doc """
   The actor of a Chat message, reaction or answer from `viewer`: their login
@@ -49,14 +36,6 @@ defmodule Ryker.ControlPlane.Actor do
   @spec chat_ref(Viewer.t() | nil) :: String.t()
   def chat_ref(%{login: login, via: via}), do: "#{via}:" <> login
   def chat_ref(nil), do: "local-operator"
-
-  @doc "The actor of a Chat message, reaction or answer this process sends."
-  @spec chat_ref() :: String.t()
-  def chat_ref, do: chat_ref(Process.get(@key))
-
-  @doc "The person a turn this process's Chat message starts is for."
-  @spec person_ref() :: String.t()
-  def person_ref, do: person_ref(chat_ref())
 
   @doc """
   The person a Chat actor (`chat_ref/1`) is: whom a turn is for, and whom a

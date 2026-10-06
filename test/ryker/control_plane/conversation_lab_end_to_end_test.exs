@@ -568,14 +568,14 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   # Serve or Cloudflare Access, where the console names its person, nobody
   # could confirm one (2026-10-04 review). The person who asked confirms it.
   test "Slack-compatible model actions stay local, render, and require the same host confirmation" do
-    Actor.act_for(%{login: "ada@example.com", name: "Ada", via: :tailscale})
+    ada = %{login: "ada@example.com", name: "Ada", via: :tailscale}
 
     assert {:ok, %{status: :recorded}} =
              send_message(
                @capability_event_id,
                @now,
                "React to this, then offer a second local message for my confirmation.",
-               actor: Actor.chat_ref()
+               actor: Actor.chat_ref(ada)
              )
 
     {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
@@ -717,7 +717,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     actions = Actions.callbacks(%{environments: %{}, fallback_work_profile: profile()}, %{})
 
     assert {:ok, %{action: %PlatformAction{action_ref: post_action_ref}, status: :confirmed}} =
-             actions.act_on_lab_record.(@conversation_id, post_ref, :confirm_post, nil)
+             actions.act_on_lab_record.(@conversation_id, post_ref, :confirm_post, nil, ada)
 
     assert {:ok, {:delivered, :action, ^post_action_ref}} =
              Ryker.Delivery.Dispatcher.run_once(delivery_options("capability-post", :action))

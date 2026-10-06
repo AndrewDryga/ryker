@@ -108,12 +108,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def mount(_params, session, socket) do
     viewer = Viewer.from_session(session)
 
-    # Only the connected process runs actions, and it serves this one page.
-    # The person's name is kept so every page can name them on what they did.
-    if connected?(socket) do
-      Actor.act_for(viewer)
-      ConsolePeople.seen(viewer)
-    end
+    # The person's name is kept so every page can name them on what they did;
+    # every action the page takes is recorded as them (`actor/1`).
+    if connected?(socket), do: ConsolePeople.seen(viewer)
 
     {:ok,
      socket
@@ -520,7 +517,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
                :edit,
                token
              ),
-           {:ok, _receipt} <- options.actions.edit_lab_message.(conversation_id, item_id, message) do
+           {:ok, _receipt} <-
+             options.actions.edit_lab_message.(
+               conversation_id,
+               item_id,
+               message,
+               socket.assigns.viewer
+             ) do
         {:ok, item_id}
       else
         false -> {:error, :unauthorized}
@@ -552,7 +555,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
                :delete,
                token
              ),
-           {:ok, _receipt} <- options.actions.delete_lab_message.(conversation_id, item_id) do
+           {:ok, _receipt} <-
+             options.actions.delete_lab_message.(conversation_id, item_id, socket.assigns.viewer) do
         {:ok, item_id}
       else
         false -> {:error, :unauthorized}
@@ -587,7 +591,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
                token
              ),
            {:ok, _transition} <-
-             options.actions.react_to_lab_message.(conversation_id, message_ref, action, emoji) do
+             options.actions.react_to_lab_message.(
+               conversation_id,
+               message_ref,
+               action,
+               emoji,
+               socket.assigns.viewer
+             ) do
         {:ok, message_ref}
       else
         false -> {:error, :unauthorized}
@@ -635,7 +645,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   def handle_event("connect-slack", %{"connection" => params}, socket) do
-    case IntegrationSetup.connect_slack(params) do
+    case IntegrationSetup.connect_slack(params, actor(socket)) do
       # New tokens for the workspace Slack already works in keep it on, for
       # the same people, so there is nobody to choose again.
       {:ok, %{enabled: true}} ->
@@ -708,7 +718,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     with {:ok, view} <- settings_read(socket),
          {:ok, _snapshot} <-
-           Settings.save_slack(%{enabled: true, operators: operators}, view.revision, Actor.ref()) do
+           Settings.save_slack(
+             %{enabled: true, operators: operators},
+             view.revision,
+             actor(socket)
+           ) do
       {:noreply,
        socket
        |> refresh_settings()
@@ -725,7 +739,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("save-slack-choices", _params, socket), do: {:noreply, socket}
 
   def handle_event("connect-github", %{"connection" => params}, socket) do
-    case IntegrationSetup.connect_github(params) do
+    case IntegrationSetup.connect_github(params, actor(socket)) do
       {:ok, result} ->
         {:noreply,
          socket
@@ -765,7 +779,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         end)
       end
 
-    case IntegrationSetup.import_github_repositories(repositories,
+    case IntegrationSetup.import_github_repositories(repositories, actor(socket),
            auto_add_repositories: Map.get(params, "auto_add_repositories") == "true"
          ) do
       # The picker marks what is now added, so a second "Add selected" cannot
@@ -805,7 +819,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # A connected account returns to the list of accounts, which says where it
   # is used; a refused one keeps its form open and says why.
   def handle_event("connect-emisar", %{"connection" => params}, socket) do
-    case IntegrationSetup.connect_emisar(params) do
+    case IntegrationSetup.connect_emisar(params, actor(socket)) do
       {:ok, _connection} = result ->
         {:noreply,
          socket
@@ -820,7 +834,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   def handle_event("rotate-emisar", %{"connection" => params}, socket) do
     result =
-      IntegrationSetup.rotate_emisar(Map.get(params, "ref", ""), Map.get(params, "token", ""))
+      IntegrationSetup.rotate_emisar(
+        Map.get(params, "ref", ""),
+        Map.get(params, "token", ""),
+        actor(socket)
+      )
 
     {:noreply, finish_setup(socket, result, "The Emisar key was replaced.")}
   end
@@ -829,14 +847,18 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     {:noreply,
      finish_setup(
        socket,
-       IntegrationSetup.disable_emisar(ref),
+       IntegrationSetup.disable_emisar(ref, actor(socket)),
        "New work will not use this account."
      )}
   end
 
   def handle_event("enable-emisar", %{"ref" => ref}, socket) when is_binary(ref) do
     {:noreply,
-     finish_setup(socket, IntegrationSetup.enable_emisar(ref), "This account can serve new work.")}
+     finish_setup(
+       socket,
+       IntegrationSetup.enable_emisar(ref, actor(socket)),
+       "This account can serve new work."
+     )}
   end
 
   def handle_event("disable-emisar-monitoring", %{"ref" => ref}, socket)
@@ -844,7 +866,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     {:noreply,
      finish_setup(
        socket,
-       IntegrationSetup.disable_emisar_monitoring(ref),
+       IntegrationSetup.disable_emisar_monitoring(ref, actor(socket)),
        "Approval monitoring is off for this account."
      )}
   end
@@ -854,7 +876,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     {:noreply,
      finish_setup(
        socket,
-       IntegrationSetup.enable_emisar_monitoring(ref),
+       IntegrationSetup.enable_emisar_monitoring(ref, actor(socket)),
        "Approval monitoring is on for this account."
      )}
   end
@@ -863,7 +885,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     result =
       IntegrationSetup.rename_emisar(
         Map.get(params, "ref", ""),
-        Map.get(params, "display_name", "")
+        Map.get(params, "display_name", ""),
+        actor(socket)
       )
 
     {:noreply, finish_setup(socket, result, "Emisar account name was updated.")}
@@ -872,7 +895,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # A removed account's page is gone, so its removal returns to the list.
   def handle_event("delete-emisar", %{"ref" => ref}, socket) when is_binary(ref) do
     confirmed(socket, {"delete-emisar", ref}, fn socket ->
-      case IntegrationSetup.delete_emisar(ref) do
+      case IntegrationSetup.delete_emisar(ref, actor(socket)) do
         {:ok, _snapshot} ->
           socket
           |> refresh_settings()
@@ -907,7 +930,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("create-webhook-credential", %{"credential" => params}, socket) do
     case IntegrationSetup.create_webhook_credential(
            Map.get(params, "name", ""),
-           Map.get(params, "secret")
+           Map.get(params, "secret"),
+           actor(socket)
          ) do
       # The list shows the secret once, beside the credential it signs for.
       {:ok, result} ->
@@ -1005,14 +1029,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           {:github, _connected} -> "GitHub is disconnected."
         end
 
-      finish_setup(socket, IntegrationSetup.disconnect(key), done)
+      finish_setup(socket, IntegrationSetup.disconnect(key, actor(socket)), done)
     end)
   end
 
   def handle_event("delete-webhook-credential", %{"name" => name}, socket)
       when is_binary(name) do
     confirmed(socket, {"delete-webhook-credential", name}, fn socket ->
-      case IntegrationSetup.delete_webhook_credential(name) do
+      case IntegrationSetup.delete_webhook_credential(name, actor(socket)) do
         {:error, :credential_in_use} ->
           assign(socket,
             setup_notice: nil,
@@ -1030,7 +1054,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("retry-github-onboarding", %{"repository" => ref}, socket)
       when is_binary(ref) do
     # Success shows on the row itself, which turns to "Setting up".
-    case IntegrationSetup.retry_github_onboarding(ref) do
+    case IntegrationSetup.retry_github_onboarding(ref, actor(socket)) do
       {:ok, _snapshot} ->
         {:noreply, socket |> assign(repository_notice: nil) |> refresh(true)}
 
@@ -1050,7 +1074,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     notice =
       with {:ok, discovered} <- actions.github_repositories.(),
-           {:ok, result} <- IntegrationSetup.add_github_repository_again(ref, discovered) do
+           {:ok, result} <-
+             IntegrationSetup.add_github_repository_again(ref, discovered, actor(socket)) do
         {:list, import_tone(result), import_message(result)}
       else
         {:error, reason} -> {:list, :error, add_again_error(reason)}
@@ -1069,7 +1094,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     name = socket.assigns.knowledge_question && socket.assigns.knowledge_question.name
 
     notice =
-      case RepositoryKnowledge.refresh(ref, Actor.ref()) do
+      case RepositoryKnowledge.refresh(ref, actor(socket)) do
         {:ok, :requested} ->
           {:list, :success, "Ryker is reading #{name || ref} again to rewrite its knowledge."}
 
@@ -1100,7 +1125,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     name = socket.assigns.approvals_question && socket.assigns.approvals_question.name
 
     notice =
-      case IntegrationSetup.allow_github_approvals(ref, allowed?) do
+      case IntegrationSetup.allow_github_approvals(ref, allowed?, actor(socket)) do
         {:ok, _snapshot} when allowed? ->
           {:list, :success, "Ryker's reviews may now approve pull requests in #{name || ref}."}
 
@@ -1131,7 +1156,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         %{"repository" => ref},
         %{assigns: %{settings_confirm: {"remove-repository", ref}}} = socket
       ) do
-    case IntegrationSetup.remove_repository(ref) do
+    case IntegrationSetup.remove_repository(ref, actor(socket)) do
       # A removed repository's page is gone, so its removal returns to the
       # list, which says what was removed.
       {:ok, %{repository: repository}} ->
@@ -1578,7 +1603,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         |> IO.iodata_to_binary(),
       instructions: view,
       instruction_scope: :global,
-      save_instructions: options.actions.save_instructions
+      save_instructions: save_instructions(options, socket.assigns.viewer)
     )
   end
 
@@ -1611,7 +1636,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           |> IO.iodata_to_binary(),
         instructions: view,
         instruction_scope: {:channel, workspace, channel},
-        save_instructions: options.actions.save_instructions
+        save_instructions: save_instructions(options, socket.assigns.viewer)
       )
     else
       _ -> load_snapshot(socket, options)
@@ -1681,7 +1706,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       native: :settings,
       page_title: SettingsPage.title(section, form, settings),
       settings: settings,
-      settings_commands: settings_commands(options),
+      settings_commands: settings_commands(options, socket.assigns.viewer),
       settings_section: section,
       settings_form: form,
       # Asked for with a link, so a reload shows it again; read afresh with
@@ -1744,26 +1769,29 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  defp settings_commands(options) do
-    Map.take(options.actions, [
-      :delete_settings_item,
-      :initialize_settings,
-      :preview_retention,
-      :preview_webhook,
-      :put_settings_item,
-      :save_settings,
-      :send_weekly_report_preview
-    ])
-    |> Map.new(fn {key, callback} -> {command_name(key), callback} end)
+  # The settings forms save as the page's person; the previews record nobody.
+  defp settings_commands(options, viewer) do
+    actions = options.actions
+
+    %{
+      delete_item: &actions.delete_settings_item.(&1, &2, &3, viewer),
+      initialize: fn -> actions.initialize_settings.(viewer) end,
+      preview_retention: actions[:preview_retention],
+      preview_webhook: actions[:preview_webhook],
+      put_environment: &Settings.put_environment(&1, &2, Actor.of(viewer)),
+      put_item: &actions.put_settings_item.(&1, &2, &3, viewer),
+      save: &actions.save_settings.(&1, &2, &3, viewer),
+      send_weekly_report_preview: actions[:send_weekly_report_preview]
+    }
   end
 
-  defp command_name(:delete_settings_item), do: :delete_item
-  defp command_name(:initialize_settings), do: :initialize
-  defp command_name(:preview_retention), do: :preview_retention
-  defp command_name(:preview_webhook), do: :preview_webhook
-  defp command_name(:put_settings_item), do: :put_item
-  defp command_name(:save_settings), do: :save
-  defp command_name(:send_weekly_report_preview), do: :send_weekly_report_preview
+  defp save_instructions(options, viewer) do
+    save = options.actions.save_instructions
+    &save.(&1, &2, &3, viewer)
+  end
+
+  # What every action this page takes is recorded as: the person who opened it.
+  defp actor(socket), do: Actor.of(socket.assigns.viewer)
 
   defp initialize_settings(socket) do
     socket.assigns.settings_commands.initialize.()
@@ -1950,7 +1978,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp delete_environment(socket, ref) do
     with {:ok, view} <- socket.assigns.settings,
          %{} = environment <- Environments.find(view.snapshot, ref) do
-      case Settings.delete_environment(ref, view.revision, Actor.ref()) do
+      case Settings.delete_environment(ref, view.revision, actor(socket)) do
         {:ok, _snapshot} ->
           socket
           |> refresh_settings()
@@ -1997,7 +2025,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     key = System.unique_integer([:positive])
 
     {notice, pending} =
-      case save_channel_setting(workspace, channel, name, params) do
+      case save_channel_setting(workspace, channel, name, params, actor(socket)) do
         {:ok, %{status: :unchanged}} ->
           {{:saved, name, key, nil}, nil}
 
@@ -2053,13 +2081,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp leave_error(_reason),
     do: "Slack did not take Ryker out of the channel. Try again in a moment."
 
-  defp save_channel_setting(workspace, channel, "environment", %{"environment" => ref})
+  defp save_channel_setting(workspace, channel, "environment", %{"environment" => ref}, actor_ref)
        when is_binary(ref) do
     choice = if ref == "", do: nil, else: ref
-    ChannelConfigurations.select_environment(workspace, channel, choice, Actor.ref())
+    ChannelConfigurations.select_environment(workspace, channel, choice, actor_ref)
   end
 
-  defp save_channel_setting(workspace, channel, name, params)
+  defp save_channel_setting(workspace, channel, name, params, actor_ref)
        when name in ["participation", "alert_policy"] do
     change =
       if name == "participation",
@@ -2070,7 +2098,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          {revision, ""} <- Integer.parse(to_string(params["revision"])) do
       change.(%{
         String.to_existing_atom(name) => value,
-        actor_ref: Actor.ref(),
+        actor_ref: actor_ref,
         channel_ref: channel,
         configuration_ref: params["configuration"],
         event_ref: "control-plane:channel:" <> Ecto.UUID.generate(),
@@ -2083,7 +2111,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  defp save_channel_setting(_workspace, _channel, _name, _params),
+  defp save_channel_setting(_workspace, _channel, _name, _params, _actor_ref),
     do: {:error, :invalid_choice}
 
   # The values Slack's setup offers, and nothing else.
@@ -2234,7 +2262,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       page_title_href: Map.get(page, :title_href),
       page_back: Map.get(page, :back),
       settings: header_settings(socket.assigns.path, options),
-      settings_commands: settings_commands(options)
+      settings_commands: settings_commands(options, socket.assigns.viewer)
     )
   end
 

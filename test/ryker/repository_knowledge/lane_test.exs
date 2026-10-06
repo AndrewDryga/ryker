@@ -433,7 +433,9 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     step_until_submitted!(coop)
 
     {:ok, _removed} =
-      IntegrationSetup.remove_repository("emisar", storage_root: System.tmp_dir!())
+      IntegrationSetup.remove_repository("emisar", "control-plane:local",
+        storage_root: System.tmp_dir!()
+      )
 
     drain(settings(coop), 40)
 

@@ -949,7 +949,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert {:ok, _blocked} = Inbox.block(Inbox.ref(entry), lease, "blocked", "stopped")
     assert %{views: %{"attention" => 1}, items: [%{bucket: "attention"}]} = Activity.list(%{})
 
-    assert {:ok, _left} = Actions.callbacks().leave_failure.("admission", Inbox.ref(entry))
+    assert {:ok, _left} = Actions.callbacks().leave_failure.("admission", Inbox.ref(entry), nil)
     assert %{views: %{"attention" => 0}, items: [%{bucket: "done"}]} = Activity.list(%{})
 
     blocked = Repo.get!(Entry, entry.id)

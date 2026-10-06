@@ -212,7 +212,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     watch = Process.monitor(first)
 
     render_patch(view, "/repositories")
-    {:ok, _disconnected} = IntegrationSetup.disconnect(:github)
+    {:ok, _disconnected} = IntegrationSetup.disconnect(:github, "control-plane:local")
     render_patch(view, "/repositories/new")
     assert_receive {:DOWN, ^watch, :process, ^first, _given_up}
 
@@ -336,10 +336,13 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     connect_github!()
 
     {:ok, %{added: ["acme/api", "acme/web"]}} =
-      IntegrationSetup.import_github_repositories([
-        repository("acme/api", 11),
-        repository("acme/web", 12)
-      ])
+      IntegrationSetup.import_github_repositories(
+        [
+          repository("acme/api", 11),
+          repository("acme/web", 12)
+        ],
+        "control-plane:local"
+      )
 
     {:ok, _snapshot} =
       Settings.put_environment(
@@ -407,7 +410,10 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     connect_github!()
 
     {:ok, %{added: ["acme/api"]}} =
-      IntegrationSetup.import_github_repositories([repository("acme/api", 11)])
+      IntegrationSetup.import_github_repositories(
+        [repository("acme/api", 11)],
+        "control-plane:local"
+      )
 
     {:ok, _snapshot} =
       Settings.put_repository(%{ref: "acme-api", onboarding_state: :ready}, :current, @actor)
@@ -448,7 +454,10 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     connect_github!()
 
     {:ok, %{added: ["acme/api"]}} =
-      IntegrationSetup.import_github_repositories([repository("acme/api", 11)])
+      IntegrationSetup.import_github_repositories(
+        [repository("acme/api", 11)],
+        "control-plane:local"
+      )
 
     {:ok, _snapshot} =
       Settings.put_repository(%{ref: "acme-api", onboarding_state: :ready}, :current, @actor)
@@ -501,7 +510,10 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     connect_github!()
 
     {:ok, %{added: ["acme/api"]}} =
-      IntegrationSetup.import_github_repositories([repository("acme/api", 11)])
+      IntegrationSetup.import_github_repositories(
+        [repository("acme/api", 11)],
+        "control-plane:local"
+      )
 
     {:ok, view, _html} = open("/repositories/acme-api")
     question = "#confirm-approvals"
@@ -556,10 +568,13 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     connect_github!()
 
     {:ok, %{added: ["acme/api", "acme/docs"]}} =
-      IntegrationSetup.import_github_repositories([
-        repository("acme/api", 11),
-        repository("acme/docs", 13)
-      ])
+      IntegrationSetup.import_github_repositories(
+        [
+          repository("acme/api", 11),
+          repository("acme/docs", 13)
+        ],
+        "control-plane:local"
+      )
 
     {:ok, _snapshot} =
       Settings.put_environment(

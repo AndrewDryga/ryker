@@ -90,6 +90,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
   attr(:view, :map, required: true)
   attr(:ref, :string, default: nil, doc: "The environment it edits; nil adds one")
   attr(:confirm, :any, default: nil, doc: "{action, ref} of the question now open, if any")
+  attr(:commands, :map, required: true, doc: "The page's settings writes, as its person")
 
   @doc """
   The page of one environment, adding one (`ref` nil) or editing one: its
@@ -113,6 +114,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
         id={"environment-editor-" <> (@ref || "new")}
         ref={@ref}
         view={@view}
+        commands={@commands}
       />
     </Kit.form_card>
     <Kit.remove_card

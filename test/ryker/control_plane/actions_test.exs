@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.ActionsTest do
   use Ryker.DataCase, async: false
 
-  alias Ryker.ControlPlane.{Actions, Actor, EpisodeProjection}
+  alias Ryker.ControlPlane.{Actions, EpisodeProjection}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -9,20 +9,20 @@ defmodule Ryker.ControlPlane.ActionsTest do
   test "local retention callbacks fail closed while preserving audited action identity" do
     callbacks = Actions.callbacks()
 
-    assert callbacks.send_lab_message.(Ecto.UUID.generate(), "hello", []) ==
+    assert callbacks.send_lab_message.(Ecto.UUID.generate(), "hello", [], nil) ==
              {:error, :conversation_lab_not_configured}
 
-    assert callbacks.rearm_retention.("missing-session") ==
+    assert callbacks.rearm_retention.("missing-session", nil) ==
              {:error, :operator_failure_not_found}
 
-    assert callbacks.discard_retention.("missing-session") ==
+    assert callbacks.discard_retention.("missing-session", nil) ==
              {:error, :retention_session_not_found}
 
-    assert callbacks.run_schedule.("missing-schedule") ==
+    assert callbacks.run_schedule.("missing-schedule", nil) ==
              {:error, :schedule_policy_unavailable}
 
     configured = Actions.callbacks(nil, %{}, %{}, fn _schedule -> {:ok, %{name: "policy"}} end)
-    assert configured.run_schedule.("missing-schedule") == {:error, :schedule_not_found}
+    assert configured.run_schedule.("missing-schedule", nil) == {:error, :schedule_not_found}
   end
 
   test "no retired Card Lab action can queue a Slack specimen or record catalog feedback" do
@@ -77,26 +77,26 @@ defmodule Ryker.ControlPlane.ActionsTest do
              )
 
     assert {:ok, %{review: review, status: :recorded}} =
-             callbacks.rate_episode.(complete.episode.key, :needs_work)
+             callbacks.rate_episode.(complete.episode.key, :needs_work, nil)
 
     assert review.semantic_version == completed.episode.semantic_version
     assert review.actor_ref == "control-plane:local"
     assert review.rating == :needs_work
 
     assert {:ok, %{review: replayed, status: :duplicate}} =
-             callbacks.rate_episode.(complete.episode.key, :needs_work)
+             callbacks.rate_episode.(complete.episode.key, :needs_work, nil)
 
     assert replayed.id == review.id
 
     # One rating per ending: a different one is refused, not rewritten.
-    assert callbacks.rate_episode.(complete.episode.key, :good) ==
+    assert callbacks.rate_episode.(complete.episode.key, :good, nil) ==
              {:error, :episode_review_conflict}
   end
 
   # Every console action was recorded as control-plane:local, so on a console
   # several people reach through Tailscale nobody could tell who did what.
   test "an action taken by a tailnet user is recorded as theirs" do
-    :ok = Actor.act_for(%{login: "andrew@example.com", name: "Andrew Example", via: :tailscale})
+    viewer = %{login: "andrew@example.com", name: "Andrew Example", via: :tailscale}
     complete = start_episode!("tailnet-review")
 
     assert {:ok, _completed} =
@@ -112,7 +112,7 @@ defmodule Ryker.ControlPlane.ActionsTest do
              )
 
     assert {:ok, %{review: review}} =
-             Actions.callbacks().rate_episode.(complete.episode.key, :good)
+             Actions.callbacks().rate_episode.(complete.episode.key, :good, viewer)
 
     assert review.actor_ref == "control-plane:tailscale:andrew@example.com"
   end

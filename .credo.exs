@@ -23,6 +23,7 @@
           {Ryker.Checks.NoHashPrefixSlice, []},
           {Ryker.Checks.NoPipeInBranchHead, []},
           {Ryker.Checks.NoPreloadInRepoOpts, []},
+          {Ryker.Checks.NoProcessDictionary, []},
           {Ryker.Checks.NoUnsafeDeserialization, []},
           {Ryker.Checks.RepoExistsOverCount, []},
           {Ryker.Checks.ShortBindings, []},

@@ -810,7 +810,9 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     refute has_element?(view, ".entity-row .entity-meta", "emisar.dev")
 
     # Given a name of its own, the account still says where it is.
-    {:ok, _snapshot} = IntegrationSetup.rename_emisar("emisar-dev", "Production approvals")
+    {:ok, _snapshot} =
+      IntegrationSetup.rename_emisar("emisar-dev", "Production approvals", "control-plane:local")
+
     {:ok, view, _html} = open("/integrations/emisar")
     assert has_element?(view, ".entity-row .entity-name", "Production approvals")
     assert has_element?(view, ".entity-row .entity-meta", "emisar.dev")
@@ -2406,11 +2408,12 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              Actions.callbacks().save_settings.(
                :incident_rooms,
                %{"channel_prefix" => %{"a" => "b"}},
-               1
+               1,
+               nil
              )
 
     assert {:error, {:invalid_settings, [{:section, :unknown}]}} =
-             Actions.callbacks().save_settings.(:not_a_section, %{}, 1)
+             Actions.callbacks().save_settings.(:not_a_section, %{}, 1, nil)
 
     assert Settings.fetch!().slack.channel_prefix == "inc"
     assert Settings.fetch!().installation.revision == 1

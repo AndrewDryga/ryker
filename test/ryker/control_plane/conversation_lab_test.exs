@@ -324,6 +324,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                @conversation_id,
                incident_offer.ref,
                :open_incident,
+               nil,
                nil
              )
 
@@ -1032,6 +1033,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              @conversation_id,
              task_offer.ref,
              :confirm_task,
+             nil,
              nil
            ) == {:error, :conversation_lab_record_mismatch}
 
@@ -1247,6 +1249,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              @conversation_id,
              "record:missing",
              :confirm_memory,
+             nil,
              nil
            ) == {:error, :conversation_lab_record_not_found}
 
@@ -1254,13 +1257,15 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              @conversation_id,
              task_offer.ref,
              :confirm_task,
-             1
+             1,
+             nil
            ) == {:error, :conversation_lab_record_action_invalid}
 
     assert Actions.callbacks(in_environment("production"), %{}).act_on_lab_record.(
              @conversation_id,
              task_offer.ref,
              :confirm_task,
+             nil,
              nil
            ) == {:error, :conversation_lab_task_policy_not_configured}
 
@@ -1276,6 +1281,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              @conversation_id,
              task_offer.ref,
              :confirm_task,
+             nil,
              nil
            ) == {:error, :conversation_lab_task_policy_not_configured}
 
@@ -1283,6 +1289,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              @conversation_id,
              memory_offer.ref,
              :confirm_schedule,
+             nil,
              nil
            ) == {:error, :conversation_lab_record_action_mismatch}
 
@@ -1290,6 +1297,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              "018f3ef7-1f62-7ee0-a83c-0c12f21d83e7",
              task_offer.ref,
              :confirm_task,
+             nil,
              nil
            ) == {:error, :conversation_lab_record_mismatch}
 
@@ -1298,6 +1306,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                @conversation_id,
                task_offer.ref,
                :confirm_task,
+               nil,
                nil
              )
 
@@ -1334,6 +1343,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                @conversation_id,
                memory_offer.ref,
                :confirm_memory,
+               nil,
                nil
              )
 
@@ -1348,6 +1358,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                @conversation_id,
                schedule_offer.ref,
                :confirm_schedule,
+               nil,
                nil
              )
 
@@ -1363,6 +1374,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                @conversation_id,
                preference_offer.ref,
                :confirm_behavior,
+               nil,
                nil
              )
 
@@ -1385,6 +1397,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                @conversation_id,
                guidance_offer.ref,
                :confirm_behavior,
+               nil,
                nil
              )
 
@@ -1422,6 +1435,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                @conversation_id,
                task_offer.ref,
                :confirm_task,
+               nil,
                nil
              )
 
@@ -1646,6 +1660,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                @conversation_id,
                task_offer.ref,
                :stop_task,
+               nil,
                nil
              )
 
@@ -1816,7 +1831,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert ConversationLab.environment(@conversation_id) == {:ok, "staging"}
 
     assert {:ok, %{entry: staging}} =
-             actions.send_lab_message.(@conversation_id, "Is staging healthy?", [])
+             actions.send_lab_message.(@conversation_id, "Is staging healthy?", [], nil)
 
     assert staging.work_profile["environment_ref"] == "staging"
     assert staging.work_policy == "staging-conversation"
@@ -1826,7 +1841,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert ConversationLab.environment(@conversation_id) == {:ok, nil}
 
     assert {:ok, %{entry: outside}} =
-             actions.send_lab_message.(@conversation_id, "And in general?", [])
+             actions.send_lab_message.(@conversation_id, "And in general?", [], nil)
 
     refute Map.has_key?(outside.work_profile, "environment_ref")
     assert outside.work_policy == "conversation-read"
@@ -1857,7 +1872,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     actions = Actions.callbacks(placements(["platform", "staging"]), %{})
 
     assert {:ok, %{entry: first}} =
-             actions.send_lab_message.(@conversation_id, "What runs in platform?", [])
+             actions.send_lab_message.(@conversation_id, "What runs in platform?", [], nil)
 
     assert first.work_profile["environment_ref"] == "platform"
 
@@ -1871,7 +1886,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert ConversationLab.environment(@conversation_id) == {:ok, "platform"}
 
     assert {:ok, %{entry: later}} =
-             actions.send_lab_message.(@conversation_id, "And now?", [])
+             actions.send_lab_message.(@conversation_id, "And now?", [], nil)
 
     assert later.work_profile["environment_ref"] == "platform"
 
@@ -1906,7 +1921,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
       unless choice == :default,
         do: {:ok, _chosen} = ConversationLab.select_environment(id, choice)
 
-      {:ok, _receipt} = actions.send_lab_message.(id, "Where does this run?", [])
+      {:ok, _receipt} = actions.send_lab_message.(id, "Where does this run?", [], nil)
       id
     end
 
@@ -1946,7 +1961,8 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              Actions.callbacks(runnable, %{}).send_lab_message.(
                @conversation_id,
                "Is staging healthy?",
-               []
+               [],
+               nil
              )
 
     refute Map.has_key?(entry.work_profile, "environment_ref")
@@ -1957,7 +1973,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert ConversationLab.work_profile(@conversation_id, nothing) ==
              {:error, :conversation_lab_not_configured}
 
-    assert Actions.callbacks(nothing, %{}).send_lab_message.(@conversation_id, "Hello?", []) ==
+    assert Actions.callbacks(nothing, %{}).send_lab_message.(@conversation_id, "Hello?", [], nil) ==
              {:error, :conversation_lab_not_configured}
   end
 

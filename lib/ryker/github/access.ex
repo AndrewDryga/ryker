@@ -133,7 +133,9 @@ defmodule Ryker.GitHub.Access do
         :ok
 
       repositories ->
-        case IntegrationSetup.import_github_repositories(repositories,
+        case IntegrationSetup.import_github_repositories(
+               repositories,
+               "github:webhook",
                ryker_actor_id: github.bot_actor_id
              ) do
           {:ok, %{failed: []}} -> :ok

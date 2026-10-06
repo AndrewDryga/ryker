@@ -349,7 +349,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     assigns = assign(assigns, :ref, ref)
 
     ~H"""
-    <EnvironmentsPage.form view={@view} ref={@ref} confirm={@confirm} />
+    <EnvironmentsPage.form view={@view} ref={@ref} confirm={@confirm} commands={@commands} />
     """
   end
 

@@ -30,11 +30,11 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     actions =
       Map.update!(Actions.callbacks(), :save_instructions, fn save ->
-        fn scope, text, revision ->
+        fn scope, text, revision, viewer ->
           if Agent.get(failures, & &1),
             do: raise(DBConnection.ConnectionError, message: "forced test outage")
 
-          save.(scope, text, revision)
+          save.(scope, text, revision, viewer)
         end
       end)
 
@@ -383,7 +383,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     for scope <- [{:channel, "TUNKNOWN", "CUNKNOWN"}, {:channel, "../T", "C"}, :personal] do
       assert {:error, :instructions_scope_unavailable} =
-               actions.save_instructions.(scope, "text", 0)
+               actions.save_instructions.(scope, "text", 0, nil)
     end
 
     assert Repo.aggregate(Ryker.Instructions.Setting, :count) == 0
@@ -444,7 +444,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     for channel <- ["CCONFIGURED", "CHISTORY"] do
       scope = {:channel, "TINSTRUCTIONS", channel}
-      assert {:ok, _} = InstructionSettings.save(scope, "Known channel", 0)
+      assert {:ok, _} = InstructionSettings.save(scope, "Known channel", 0, "control-plane:local")
 
       assert {:ok, %{setting: %{text: "Known channel"}}} =
                InstructionSettings.fetch(scope)

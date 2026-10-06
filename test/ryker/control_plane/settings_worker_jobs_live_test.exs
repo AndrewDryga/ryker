@@ -52,10 +52,15 @@ defmodule Ryker.ControlPlane.SettingsWorkerJobsLiveTest do
     revision = Settings.fetch!().installation.revision
 
     assert {:error, {:invalid_settings, [{:section, :unknown}]}} =
-             SettingsCommands.put_item(:policies, %{"policy_name" => "anything"}, revision)
+             SettingsCommands.put_item(
+               :policies,
+               %{"policy_name" => "anything"},
+               revision,
+               "control-plane:local"
+             )
 
     assert {:error, {:invalid_settings, [{:section, :unknown}]}} =
-             SettingsCommands.delete_item(:policies, "anything", revision)
+             SettingsCommands.delete_item(:policies, "anything", revision, "control-plane:local")
 
     assert Settings.fetch!().installation.revision == revision
   end

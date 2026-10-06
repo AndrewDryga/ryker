@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.CurrentInputsTest do
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Activity, AdmissionProgress, ConversationProjection, CurrentInputs}
   alias Ryker.Episodes
+  alias Ryker.Fixtures.Answers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
@@ -18,9 +19,22 @@ defmodule Ryker.ControlPlane.CurrentInputsTest do
 
   @table "ingress_inbox_entries"
 
+  # The rest of the inbox: other channels' Slack messages, which none of the
+  # pages below shows. They were other Chat conversations' messages until the
+  # test failed under load (2026-10-06): the shared test database's statistics,
+  # drawn from rows other suites commit, can make Chat messages look rare, and
+  # PostgreSQL then rightly reads every Chat message through the source index.
+  # Reading only Chat messages is not reading the whole inbox; Slack's are.
   setup do
-    # Other conversations' messages, which none of the pages below shows.
-    for _other <- 1..12, do: message!(conversation(), "Is the queue draining?")
+    for channel <- 1..12 do
+      Answers.slack_message!(
+        workspace: "TOTHER",
+        channel: "COTHER#{channel}",
+        text: "Is the queue draining?",
+        ts: "17907#{10_000 + channel}.000100"
+      )
+    end
+
     :ok
   end
 

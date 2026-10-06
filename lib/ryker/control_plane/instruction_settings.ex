@@ -1,7 +1,6 @@
 defmodule Ryker.ControlPlane.InstructionSettings do
-  @moduledoc "Instruction controls for the existing loopback operator, never a model tool."
+  @moduledoc "Instruction controls for a console person, never a model tool."
   import Ecto.Query
-  alias Ryker.ControlPlane.Actor
   alias Ryker.Episodes.Episode
   alias Ryker.Instructions
   alias Ryker.Instructions.Setting
@@ -46,12 +45,17 @@ defmodule Ryker.ControlPlane.InstructionSettings do
     end)
   end
 
-  def save(scope, text, revision) do
+  @doc """
+  Saves the instructions for `scope` at `revision` as `actor_ref` wrote them. A
+  channel Ryker left or Slack deleted keeps no new instructions, only an empty
+  save that clears them.
+  """
+  def save(scope, text, revision, actor_ref) do
     with {:ok, membership} <- available(scope),
          {:ok, text} <- Instructions.normalize_text(text) do
       if membership in [:left, :deleted] and text != "",
         do: {:error, :instructions_scope_unavailable},
-        else: Instructions.save(scope, text, revision, Actor.ref())
+        else: Instructions.save(scope, text, revision, actor_ref)
     end
   end
 

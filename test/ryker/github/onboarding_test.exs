@@ -37,7 +37,9 @@ defmodule Ryker.GitHub.OnboardingTest do
   defmodule RemovedDuringSetupAPI do
     def pin(_binding, _repository) do
       {:ok, _removed} =
-        Ryker.IntegrationSetup.remove_repository("repo", storage_root: System.tmp_dir!())
+        Ryker.IntegrationSetup.remove_repository("repo", "control-plane:local",
+          storage_root: System.tmp_dir!()
+        )
 
       {:ok, String.duplicate("a", 40)}
     end
