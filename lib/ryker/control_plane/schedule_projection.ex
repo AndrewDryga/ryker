@@ -159,15 +159,18 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
     }
   end
 
+  # Each run beside its latest turn, read for that run's episode alone: ranking
+  # every turn in the database for it read the whole table to show ten runs
+  # (2026-10-04 review).
   defp occurrences(schedule) do
-    latest_turns =
+    latest_turn =
       from(turn in Turn,
-        distinct: turn.episode_id,
-        order_by: [asc: turn.episode_id, desc: turn.inserted_at, desc: turn.id],
+        where: turn.episode_id == parent_as(:occurrence).child_episode_id,
+        order_by: [desc: turn.inserted_at, desc: turn.id],
+        limit: 1,
         select: %{
           accepted_at: turn.accepted_at,
           delivered_at: turn.delivered_at,
-          episode_id: turn.episode_id,
           last_error_code: turn.last_error_code,
           last_error_detail: turn.last_error_detail,
           remote_finished_at: turn.remote_finished_at,
@@ -178,10 +181,11 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
       )
 
     from(occurrence in ScheduleOccurrence,
+      as: :occurrence,
       left_join: episode in Episode,
       on: episode.id == occurrence.child_episode_id,
-      left_join: turn in subquery(latest_turns),
-      on: turn.episode_id == occurrence.child_episode_id,
+      left_lateral_join: turn in subquery(latest_turn),
+      on: true,
       where: occurrence.schedule_id == ^schedule.id,
       order_by: [desc: occurrence.scheduled_for, desc: occurrence.id],
       limit: @detail_limit + 1,

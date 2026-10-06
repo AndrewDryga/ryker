@@ -146,10 +146,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
       |> Enum.map(&("activity-" <> &1.id))
       |> MapSet.new()
 
-    activity_events
-    |> Enum.reject(&hidden_activity?/1)
-    |> Enum.reduce({[], %{}}, &fold_activity(&1, &2, disclosed))
-    |> elem(0)
+    {steps, _open, replaced} =
+      activity_events
+      |> Enum.reject(&hidden_activity?/1)
+      |> Enum.reduce({[], %{}, MapSet.new()}, &fold_activity(&1, &2, disclosed))
+
+    steps
+    |> Enum.reject(&MapSet.member?(replaced, &1.id))
     |> Enum.reverse()
     |> Enum.map(fn step ->
       step = %{step | owner: activity_step_owner(step.id, causality)}
@@ -166,25 +169,36 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   defp activity_step_owner(_id, _causality), do: :episode
 
   # Steps accumulate newest first; `open` holds each started tool call's step
-  # until its completion arrives, so a tool-heavy run folds in one pass.
-  defp fold_activity(%ActivityEvent{kind: "tool.started"} = event, {steps, open}, disclosed) do
+  # until its completion arrives, and `replaced` the starts a completion took
+  # the place of, which leave once the run is folded. Removing each start as
+  # its completion arrived searched every step so far, so folding took time in
+  # the square of a run's tool calls (2026-10-04 review).
+  defp fold_activity(
+         %ActivityEvent{kind: "tool.started"} = event,
+         {steps, open, replaced},
+         disclosed
+       ) do
     started = tool_started_step(event, disclosed)
-    {[started | steps], Map.put(open, activity_tool_key(event), started)}
+    {[started | steps], Map.put(open, activity_tool_key(event), started), replaced}
   end
 
-  defp fold_activity(%ActivityEvent{kind: "tool.completed"} = event, {steps, open}, disclosed) do
+  defp fold_activity(
+         %ActivityEvent{kind: "tool.completed"} = event,
+         {steps, open, replaced},
+         disclosed
+       ) do
     case Map.pop(open, activity_tool_key(event)) do
       {nil, open} ->
-        {[tool_completed_step(event, disclosed) | steps], open}
+        {[tool_completed_step(event, disclosed) | steps], open, replaced}
 
       {started, open} ->
-        remaining = Enum.reject(steps, &(&1.id == started.id))
-        {[complete_tool(started, event, disclosed) | remaining], open}
+        {[complete_tool(started, event, disclosed) | steps], open,
+         MapSet.put(replaced, started.id)}
     end
   end
 
-  defp fold_activity(event, {steps, open}, disclosed),
-    do: {[activity_step(event, disclosed) | steps], open}
+  defp fold_activity(event, {steps, open, replaced}, disclosed),
+    do: {[activity_step(event, disclosed) | steps], open, replaced}
 
   # A worker older than 2026-09-29 sent a thought's time and no words.
   defp hidden_activity?(%ActivityEvent{kind: "model.thought", payload: payload}),

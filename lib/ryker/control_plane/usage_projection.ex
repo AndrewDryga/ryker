@@ -159,14 +159,26 @@ defmodule Ryker.ControlPlane.UsageProjection do
     )
   end
 
+  # Each execution beside the message it answered: routing's names the
+  # message itself, and a Work turn names the message that started it as
+  # `ingress-turn:<message id>` (`Ryker.Admission`). One equality on the
+  # message's id reads it through its key; two ORed conditions, one on a
+  # reference built from every message, read the whole inbox for each
+  # execution (2026-10-04 review).
   defp dimensions(query) do
     from(e in query,
       left_join: turn in Turn,
       on: e.kind == "work" and turn.id == e.source_id,
       left_join: entry in Entry,
       on:
-        (e.kind == "admission" and entry.id == e.source_id) or
-          (e.kind == "work" and turn.turn_ref == fragment("'ingress-turn:' || ?::text", entry.id)),
+        entry.id ==
+          fragment(
+            "CASE WHEN ? = 'admission' THEN ? WHEN ? ~ '^ingress-turn:[0-9a-f-]{36}$' THEN substr(?, 14)::uuid END",
+            e.kind,
+            e.source_id,
+            turn.turn_ref,
+            turn.turn_ref
+          ),
       select_merge: %{
         source: entry.source_kind,
         workspace: entry.source_ref,

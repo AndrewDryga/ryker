@@ -234,29 +234,35 @@ defmodule Ryker.ControlPlane.Activity do
 
   defp rows, do: union_all(episode_rows(), ^admission_rows(DateTime.utc_now()))
 
-  defp episode_rows do
-    first_inputs =
+  # The message that opened each request, as it reads now, read for that
+  # request alone.
+  defp first_input do
+    first =
       from(entry in Entry,
-        join: current in subquery(CurrentInputs.latest()),
-        on:
-          current.native_input_id == entry.native_input_id and
-            current.execution_mode == entry.execution_mode,
-        where: not is_nil(entry.episode_id),
-        distinct: entry.episode_id,
-        order_by: [asc: entry.episode_id, asc: entry.inserted_at, asc: entry.id],
-        select: %{
-          episode_id: entry.episode_id,
-          content: current.content,
-          event_kind: current.event_kind,
-          pruned_at: current.operational_pruned_at,
-          repository: entry.repository_ref,
-          inserted_at: entry.inserted_at
-        }
+        where: entry.episode_id == parent_as(:episode).id,
+        order_by: [asc: entry.inserted_at, asc: entry.id],
+        limit: 1
       )
 
+    from(entry in subquery(first),
+      as: :revision,
+      inner_lateral_join: current in subquery(CurrentInputs.current()),
+      on: true,
+      select: %{
+        content: current.content,
+        event_kind: current.event_kind,
+        pruned_at: current.operational_pruned_at,
+        repository: entry.repository_ref,
+        inserted_at: entry.inserted_at
+      }
+    )
+  end
+
+  defp episode_rows do
     from(episode in Episode,
-      left_join: input in subquery(first_inputs),
-      on: input.episode_id == episode.id,
+      as: :episode,
+      left_lateral_join: input in subquery(first_input()),
+      on: true,
       left_join: checkout in subquery(checkouts()),
       on: checkout.episode_id == episode.id,
       left_join: scheduled in subquery(scheduled_runs()),
@@ -330,10 +336,9 @@ defmodule Ryker.ControlPlane.Activity do
   # A stopped message a person left as it is on Failures needs nobody now.
   defp admission_rows(now) do
     from(entry in Entry,
-      join: current in subquery(CurrentInputs.latest()),
-      on:
-        current.native_input_id == entry.native_input_id and
-          current.execution_mode == entry.execution_mode,
+      as: :revision,
+      inner_lateral_join: current in subquery(CurrentInputs.current()),
+      on: true,
       left_join: left in FailureDismissal,
       on:
         left.kind == "admission" and

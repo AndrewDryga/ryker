@@ -110,21 +110,21 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   def titles([]), do: %{}
 
   def titles(refs) do
+    # Each conversation's first message, then that message as it reads now.
+    first_messages =
+      from(entry in Entry,
+        where:
+          entry.destination_conversation_ref in ^refs and entry.source_kind == "control_plane",
+        distinct: entry.destination_conversation_ref,
+        order_by: [asc: entry.destination_conversation_ref, asc: entry.inserted_at, asc: entry.id]
+      )
+
     opening =
       Repo.all(
-        from(entry in Entry,
-          join: current in subquery(CurrentInputs.latest()),
-          on:
-            current.native_input_id == entry.native_input_id and
-              current.execution_mode == entry.execution_mode,
-          where:
-            entry.destination_conversation_ref in ^refs and entry.source_kind == "control_plane",
-          distinct: entry.destination_conversation_ref,
-          order_by: [
-            asc: entry.destination_conversation_ref,
-            asc: entry.inserted_at,
-            asc: entry.id
-          ],
+        from(entry in subquery(first_messages),
+          as: :revision,
+          inner_lateral_join: current in subquery(CurrentInputs.current()),
+          on: true,
           select:
             {entry.destination_conversation_ref,
              CurrentInputs.visible_text(
@@ -169,63 +169,54 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   end
 
   # What a conversation needs from the reader, from its inputs and their work:
-  # something stopped, Ryker is still at it, it is waiting, or it replied.
+  # something stopped, Ryker is still at it, it is waiting, or it replied. The
+  # database answers one row a conversation; every message row of every
+  # conversation listed was read to find these (2026-10-04 review).
   defp directory_states([]), do: []
 
   defp directory_states(items) do
     refs = Enum.map(items, & &1.ref)
 
-    rows =
-      Repo.all(
-        from(entry in Entry,
-          left_join: episode in Episode,
-          on: episode.id == entry.episode_id,
-          where:
-            entry.destination_transport == "control_plane" and
-              entry.destination_conversation_ref in ^refs,
-          select: {entry.destination_conversation_ref, entry.status, episode.id, episode.state}
-        )
-      )
-
-    episode_ids = for {_ref, _status, id, _state} <- rows, is_binary(id), uniq: true, do: id
-
-    blocked =
-      from(turn in Turn,
-        where: turn.episode_id in ^episode_ids and turn.status == :blocked,
-        distinct: true,
-        select: turn.episode_id
+    states =
+      from(entry in Entry,
+        left_join: episode in Episode,
+        on: episode.id == entry.episode_id,
+        where:
+          entry.destination_transport == "control_plane" and
+            entry.destination_conversation_ref in ^refs,
+        group_by: entry.destination_conversation_ref,
+        select:
+          {entry.destination_conversation_ref,
+           %{
+             attention:
+               fragment(
+                 "coalesce(bool_or(? = 'blocked' OR (? <> 'complete' AND EXISTS (SELECT 1 FROM episode_work_turns AS turn WHERE turn.episode_id = ? AND turn.status = 'blocked'))), false)",
+                 entry.status,
+                 episode.state,
+                 episode.id
+               ),
+             working:
+               fragment(
+                 "coalesce(bool_or(? = 'pending' OR ? = 'working'), false)",
+                 entry.status,
+                 episode.state
+               ),
+             waiting_for_you:
+               fragment("coalesce(bool_or(? = 'waiting_for_input'), false)", episode.state),
+             waiting: fragment("coalesce(bool_or(? = 'waiting_for_event'), false)", episode.state)
+           }}
       )
       |> Repo.all()
-      |> MapSet.new()
-
-    states =
-      rows
-      |> Enum.group_by(&elem(&1, 0))
-      |> Map.new(fn {ref, rows} -> {ref, conversation_status(rows, blocked)} end)
+      |> Map.new(fn {ref, needs} -> {ref, conversation_status(needs)} end)
 
     Enum.map(items, &Map.put(&1, :status, Map.get(states, &1.ref, :replied)))
   end
 
-  defp conversation_status(rows, blocked) do
-    cond do
-      Enum.any?(rows, fn {_ref, status, id, state} ->
-        status == :blocked or (MapSet.member?(blocked, id) and state != :complete)
-      end) ->
-        :attention
-
-      Enum.any?(rows, fn {_ref, status, _id, state} -> status == :pending or state == :working end) ->
-        :working
-
-      Enum.any?(rows, fn {_ref, _status, _id, state} -> state == :waiting_for_input end) ->
-        :waiting_for_you
-
-      Enum.any?(rows, fn {_ref, _status, _id, state} -> state == :waiting_for_event end) ->
-        :waiting
-
-      true ->
-        :replied
-    end
-  end
+  defp conversation_status(%{attention: true}), do: :attention
+  defp conversation_status(%{working: true}), do: :working
+  defp conversation_status(%{waiting_for_you: true}), do: :waiting_for_you
+  defp conversation_status(%{waiting: true}), do: :waiting
+  defp conversation_status(_needs), do: :replied
 
   @doc """
   Projects one local conversation from its durable ingress and accepted Work rows.

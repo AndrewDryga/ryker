@@ -28,10 +28,9 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
 
     Repo.all(
       from(entry in Entry,
-        join: current in subquery(CurrentInputs.latest()),
-        on:
-          current.native_input_id == entry.native_input_id and
-            current.execution_mode == entry.execution_mode,
+        as: :revision,
+        inner_lateral_join: current in subquery(CurrentInputs.current()),
+        on: true,
         left_join: attempt in Attempt,
         on: attempt.input_id == entry.id and attempt.generation == entry.execution_generation,
         left_join: retried in subquery(latest_retries()),

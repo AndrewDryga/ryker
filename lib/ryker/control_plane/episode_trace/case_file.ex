@@ -132,28 +132,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   # Every revision this episode admitted, newest twenty, each beside the
   # current revision of its message, which may have arrived anywhere.
   defp revisions(episode_id) do
-    entries =
-      Repo.all(
-        from(entry in Entry,
-          where: entry.episode_id == ^episode_id,
-          order_by: [desc: entry.occurred_at, desc: entry.id],
-          limit: 20
-        )
+    Repo.all(
+      from(entry in Entry,
+        as: :revision,
+        inner_lateral_join: current in subquery(CurrentInputs.current()),
+        on: true,
+        where: entry.episode_id == ^episode_id,
+        order_by: [desc: entry.occurred_at, desc: entry.id],
+        limit: 20,
+        select: {entry, {current.id, current.event_kind}}
       )
-      |> Enum.reverse()
-
-    native_ids = entries |> Enum.map(& &1.native_input_id) |> Enum.uniq()
-
-    current =
-      Repo.all(
-        from(entry in CurrentInputs.latest(),
-          where: entry.native_input_id in ^native_ids,
-          select: {{entry.execution_mode, entry.native_input_id}, {entry.id, entry.event_kind}}
-        )
-      )
-      |> Map.new()
-
-    Enum.map(entries, &{&1, current[{&1.execution_mode, &1.native_input_id}]})
+    )
+    |> Enum.reverse()
   end
 
   defp revision_message({entry, current}, options) do
@@ -163,7 +153,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       {id, _kind} when id == entry.id -> message
       {_id, :delete} -> Map.put(message, :status, "Deleted later")
       {_id, _kind} -> Map.put(message, :status, "Replaced by an edit")
-      nil -> message
     end
   end
 

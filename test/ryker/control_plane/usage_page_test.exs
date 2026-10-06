@@ -15,8 +15,10 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Input, as: ChatInput
+  alias Ryker.QueryWork
   alias Ryker.Settings
   alias Ryker.Slack.Input
+  alias Ryker.Work.{Session, Turn}
 
   @actor "control-plane:local"
 
@@ -657,6 +659,76 @@ defmodule Ryker.ControlPlane.UsagePageTest do
       end
 
     assert "Routing" in counted
+  end
+
+  # A Work turn's spend belongs to the message that started it, which the
+  # turn names by `ingress-turn:<message id>` (`Ryker.Admission`).
+  test "a work turn's spend counts for the person whose message started it" do
+    conversation = "control-plane:lab:" <> Ecto.UUID.generate()
+    entry = chat_entry!(conversation, "tailscale:andrew@example.com")
+    turn = turn!("ingress-turn:" <> entry.id)
+
+    execution!("work",
+      source_id: turn.id,
+      transport: "control_plane",
+      conversation_ref: conversation,
+      usage_input_tokens: 700
+    )
+
+    assert [%{actor: "tailscale:andrew@example.com", attempts: 1}] =
+             UsageProjection.page(%{}).users
+  end
+
+  # Each execution found its message through a join on two ORed conditions,
+  # one of them on a reference built from every message, which only a loop
+  # can answer: every execution read every message in the inbox (2026-10-04
+  # review). One equality on the message's id reads the inbox once at most.
+  test "usage reads the inbox once at most, not once for every execution" do
+    for _other <- 1..15, do: chat_entry!("control-plane:lab:" <> Ecto.UUID.generate(), "local")
+
+    for _counted <- 1..3 do
+      conversation = "control-plane:lab:" <> Ecto.UUID.generate()
+      entry = chat_entry!(conversation, "tailscale:andrew@example.com")
+      execution!("admission", source_id: entry.id, transport: "control_plane")
+    end
+
+    {_snapshot, statements} = QueryWork.statements(fn -> UsageProjection.page(%{}) end)
+    inbox = Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count)
+    assert QueryWork.most_rows_read(statements, "ingress_inbox_entries") <= inbox
+  end
+
+  defp turn!(turn_ref) do
+    id = Ecto.UUID.generate()
+
+    {:ok, %{episode: episode}} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          episode_id: id,
+          episode_key: "usage:" <> id,
+          native_input_id: "source:usage:" <> id,
+          turn_ref: "turn:usage:" <> id
+        })
+      )
+
+    session =
+      Repo.insert!(%Session{
+        id: Ecto.UUID.generate(),
+        episode_id: episode.id,
+        execution_kind: :work,
+        policy: "engineering",
+        policy_digest: String.duplicate("a", 64),
+        external_ref: "episode:#{episode.id}:session:1",
+        generation: 1,
+        create_generation: 1
+      })
+
+    Repo.insert!(%Turn{
+      id: Ecto.UUID.generate(),
+      episode_id: episode.id,
+      session_id: session.id,
+      turn_ref: turn_ref,
+      status: :pending
+    })
   end
 
   test "work that runs without a request says how many runs, never zero requests" do

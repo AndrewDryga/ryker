@@ -59,28 +59,39 @@ defmodule Ryker.ControlPlane.CurrentInputs do
     end
   end
 
-  def latest do
-    from(entry in Entry,
-      distinct: [entry.execution_mode, entry.native_input_id],
-      order_by: [
-        asc: entry.execution_mode,
-        asc: entry.native_input_id,
-        desc: entry.revision,
-        desc: entry.inserted_at,
-        desc: entry.id
-      ]
+  @doc """
+  The current revision of the message the `:revision` binding is a revision
+  of, for a lateral join: its highest revision, the latest recorded among
+  equals. It is one read of `ingress_inbox_current_revisions` a message;
+  ranking every revision in the inbox to find each current one read the
+  whole table on every page that showed a message (2026-10-04 review).
+  """
+  def current do
+    from(current in Entry,
+      where:
+        current.native_input_id == parent_as(:revision).native_input_id and
+          current.execution_mode == parent_as(:revision).execution_mode,
+      order_by: [desc: current.revision, desc: current.inserted_at, desc: current.id],
+      limit: 1
     )
   end
 
+  @doc """
+  The messages of an episode, each once, as they read now: the time the
+  first revision arrived and everything else from the current one.
+  """
   def for_episode(id) do
-    from(seed in Entry,
-      join: current in subquery(latest()),
-      on:
-        current.native_input_id == seed.native_input_id and
-          current.execution_mode == seed.execution_mode,
-      where: seed.episode_id == ^id,
-      distinct: seed.native_input_id,
-      order_by: [asc: seed.native_input_id, asc: seed.occurred_at, asc: seed.id],
+    first_revisions =
+      from(seed in Entry,
+        where: seed.episode_id == ^id,
+        distinct: seed.native_input_id,
+        order_by: [asc: seed.native_input_id, asc: seed.occurred_at, asc: seed.id]
+      )
+
+    from(seed in subquery(first_revisions),
+      as: :revision,
+      inner_lateral_join: current in subquery(current()),
+      on: true,
       select: %{
         id: current.id,
         occurred_at: seed.occurred_at,

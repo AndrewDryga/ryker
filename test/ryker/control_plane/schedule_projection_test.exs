@@ -9,9 +9,13 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
   import Ecto.Query
 
   alias Ryker.ControlPlane.ScheduleProjection
+  alias Ryker.Episodes
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.SavedEntities
+  alias Ryker.QueryWork
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleOccurrenceChangeset
+  alias Ryker.Work.{Session, Turn}
 
   test "current schedules put the next run first and paused ones after it, never alphabetical by status" do
     # Until 2026-09-24 the list sorted on the status column's text, so Paused
@@ -102,6 +106,79 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
     assert [item] = ScheduleProjection.list(%{"view" => "past"})
     assert item.once_local == ~N[2026-09-25 09:30:00.000000]
     assert item.next_local == nil
+  end
+
+  # Each run's latest turn was found by ranking every turn in the database, so
+  # a schedule's page read the whole turns table to show its ten newest runs,
+  # and read it again on every refresh (2026-10-04 review).
+  test "a schedule's page reads only its own runs' turns" do
+    source = SavedEntities.source!("slack:T123:C456")
+    schedule = SavedEntities.schedule!(source, "Nightly check", 1)
+    run = episode!()
+    turn!(run, :blocked, ~U[2026-10-01 08:00:00.000000Z])
+    turn!(run, :pending, ~U[2026-10-02 08:00:00.000000Z])
+    for _other <- 1..8, do: turn!(episode!(), :pending, ~U[2026-10-03 08:00:00.000000Z])
+
+    %{
+      id: Ecto.UUID.generate(),
+      child_episode_id: run.id,
+      ref: "schedule-run:#{schedule.id}:1",
+      schedule_id: schedule.id,
+      scheduled_for: ~U[2026-10-02 07:59:00.000000Z],
+      status: :dispatched
+    }
+    |> ScheduleOccurrenceChangeset.insert()
+    |> Repo.insert!()
+
+    {{:ok, %{occurrences: [shown]}}, statements} =
+      QueryWork.statements(fn -> ScheduleProjection.fetch(schedule.ref) end)
+
+    assert shown.turn_status == :pending
+    # The page shows the run and names the request the schedule came from.
+    shown_episodes = [run.id, source.episode.id]
+    own = Repo.aggregate(from(turn in Turn, where: turn.episode_id in ^shown_episodes), :count)
+    assert Repo.aggregate(Turn, :count) > own * 3
+    assert QueryWork.rows_read(statements, "episode_work_turns") <= own
+  end
+
+  defp episode! do
+    id = Ecto.UUID.generate()
+
+    assert {:ok, %{episode: episode}} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: id,
+                 episode_key: "schedule-projection:" <> id,
+                 native_input_id: "source:schedule-projection:" <> id,
+                 turn_ref: "turn:schedule-projection:" <> id
+               })
+             )
+
+    episode
+  end
+
+  defp turn!(episode, status, inserted_at) do
+    session =
+      Repo.insert!(%Session{
+        id: Ecto.UUID.generate(),
+        episode_id: episode.id,
+        execution_kind: :work,
+        policy: "engineering",
+        policy_digest: String.duplicate("a", 64),
+        external_ref: "episode:#{episode.id}:session:#{System.unique_integer([:positive])}",
+        generation: System.unique_integer([:positive]),
+        create_generation: 1
+      })
+
+    Repo.insert!(%Turn{
+      id: Ecto.UUID.generate(),
+      episode_id: episode.id,
+      session_id: session.id,
+      turn_ref: "work-turn:#{System.unique_integer([:positive])}",
+      status: status,
+      inserted_at: inserted_at,
+      updated_at: inserted_at
+    })
   end
 
   defp titles(items), do: Enum.map(items, & &1.title)
