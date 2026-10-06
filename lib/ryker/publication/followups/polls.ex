@@ -96,8 +96,8 @@ defmodule Ryker.Publication.Followups.Polls do
             followup,
             publication,
             status,
-            %{pr_state: "stale"},
-            {"status", "failed",
+            %{pr_state: :stale},
+            {:status, :failed,
              "The pull-request head changed outside this exact reviewed publication. Automatic tracking stopped until a new exact candidate is reviewed."},
             @far_future,
             now
@@ -146,15 +146,15 @@ defmodule Ryker.Publication.Followups.Polls do
   end
 
   defp past_deadline?(followup, now),
-    do: followup.pr_state == "open" and DateTime.compare(now, followup.deadline_at) != :lt
+    do: followup.pr_state == :open and DateTime.compare(now, followup.deadline_at) != :lt
 
   defp expire(followup, publication, observation, attributes, now) do
     transition_poll(
       followup,
       publication,
       observation,
-      Map.put(attributes, :pr_state, "expired"),
-      {"deadline", "failed", "Automatic pull-request tracking reached its hard deadline."},
+      Map.put(attributes, :pr_state, :expired),
+      {:deadline, :failed, "Automatic pull-request tracking reached its hard deadline."},
       @far_future,
       now
     )
@@ -182,9 +182,9 @@ defmodule Ryker.Publication.Followups.Polls do
   defp poll_transition(followup, publication, status, now) do
     pr_state =
       cond do
-        status["merged"] -> "merged"
-        status["state"] == "closed" -> "closed"
-        true -> "open"
+        status["merged"] -> :merged
+        status["state"] == "closed" -> :closed
+        true -> :open
       end
 
     attributes = %{
@@ -213,30 +213,30 @@ defmodule Ryker.Publication.Followups.Polls do
 
   # The deadline is checked first on every poll, so an open pull request past
   # it is marked expired at its next check and then checked no more.
-  defp next_check("open", now), do: DateTime.add(now, @recheck_seconds, :second)
+  defp next_check(:open, now), do: DateTime.add(now, @recheck_seconds, :second)
   defp next_check(_pr_state, _now), do: @far_future
 
   # --- the lifecycle event it means -----------------------------------------
 
-  defp transition(followup, publication, _status, "merged") when followup.pr_state != "merged" do
-    {"merged", "succeeded",
+  defp transition(followup, publication, _status, :merged) when followup.pr_state != :merged do
+    {:merged, :succeeded,
      "Draft PR ##{publication.pull_request_number} was merged. I'll keep this task linked only to deployment or Terraform signals carrying its exact PR, branch, head SHA, or merge SHA."}
   end
 
-  defp transition(followup, publication, _status, "closed") when followup.pr_state != "closed" do
-    {"closed", "stopped",
+  defp transition(followup, publication, _status, :closed) when followup.pr_state != :closed do
+    {:closed, :stopped,
      "Draft PR ##{publication.pull_request_number} was closed without merging. Automatic delivery tracking stopped."}
   end
 
   defp transition(%{checks_state: old}, publication, %{"checks_state" => "failing"}, _pr)
-       when old != "failing" do
-    {"checks", "failed",
+       when old != :failing do
+    {:checks, :failed,
      "GitHub checks are failing for PR ##{publication.pull_request_number}. Open the PR for the exact failures."}
   end
 
   defp transition(%{checks_state: old}, publication, %{"checks_state" => "passing"} = status, _pr)
-       when old != "passing" do
-    {"checks", "succeeded",
+       when old != :passing do
+    {:checks, :succeeded,
      "GitHub checks passed for PR ##{publication.pull_request_number} (#{status["checks_passed"]} of #{status["checks_total"]}). It is ready for human review or merge."}
   end
 
@@ -248,7 +248,7 @@ defmodule Ryker.Publication.Followups.Polls do
   # merge are not fixable there: they are facts a person owns, and they stay
   # history. The lifecycle key carries the head SHA, so one red run wakes the
   # task once however often it is polled.
-  defp correction_wakeup?("checks", "failed"), do: true
+  defp correction_wakeup?(:checks, :failed), do: true
   defp correction_wakeup?(_kind, _state), do: false
 
   defp transition_poll(followup, publication, status, attributes, transition, next_poll_at, now) do
@@ -268,8 +268,8 @@ defmodule Ryker.Publication.Followups.Polls do
           key =
             Store.lifecycle_key([
               publication.id,
-              kind,
-              state,
+              Atom.to_string(kind),
+              Atom.to_string(state),
               status["head_sha"],
               status["merge_sha"] || ""
             ])
@@ -400,6 +400,6 @@ defmodule Ryker.Publication.Followups.Polls do
   # once: a webhook that came meanwhile gets its check, and the timer resumes
   # from there.
   defp after_wait(followup, now) do
-    if followup.pr_state == "open", do: now, else: @far_future
+    if followup.pr_state == :open, do: now, else: @far_future
   end
 end

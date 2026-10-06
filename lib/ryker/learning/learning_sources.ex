@@ -466,7 +466,7 @@ defmodule Ryker.Learning.LearningSources do
          _content
        ) do
     case get_uuid(LifecycleEvent, id) do
-      %LifecycleEvent{kind: "review_feedback", observation: observation} ->
+      %LifecycleEvent{kind: :review_feedback, observation: observation} ->
         fields = ~w(source native_input_id revision event_kind content)
         Map.take(observation, fields) == Map.take(document, fields)
 

@@ -29,7 +29,7 @@ defmodule Ryker.Emisar.Approval do
     field(:resumed_at, :utc_datetime_usec)
     # Set together with status :closed: the task no longer waits for it.
     field(:closed_at, :utc_datetime_usec)
-    field(:closed_reason, :string)
+    field(:closed_reason, Ecto.Enum, values: [:wait_ended])
     field(:failure_count, :integer, default: 0)
     field(:last_error, :string)
     field(:next_attempt_at, :utc_datetime_usec)

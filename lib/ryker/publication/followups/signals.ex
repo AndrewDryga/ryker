@@ -81,7 +81,7 @@ defmodule Ryker.Publication.Followups.Signals do
         on: publication.id == followup.publication_id,
         where:
           publication.status == :published and publication.repository == ^repository and
-            followup.pr_state == "merged" and followup.deadline_at > ^now and
+            followup.pr_state == :merged and followup.deadline_at > ^now and
             not is_nil(followup.merge_sha),
         where: ^reference_match,
         order_by: [asc: publication.id],
@@ -256,7 +256,7 @@ defmodule Ryker.Publication.Followups.Signals do
           publication.status != :discarded and
             publication.github_repository == ^repository and
             publication.pull_request_number == ^pull_request_number and
-            followup.pr_state == "open",
+            followup.pr_state == :open,
         order_by: [asc: publication.id],
         limit: 2,
         select: publication,
@@ -277,7 +277,7 @@ defmodule Ryker.Publication.Followups.Signals do
       Repo.all(
         from(event in LifecycleEvent,
           where:
-            event.publication_id == ^publication.id and event.kind == "review_feedback" and
+            event.publication_id == ^publication.id and event.kind == :review_feedback and
               event.occurred_at == ^input.occurred_at,
           order_by: [asc: event.inserted_at, asc: event.id]
         )
@@ -319,7 +319,7 @@ defmodule Ryker.Publication.Followups.Signals do
 
     %{
       key: key,
-      kind: "review_feedback",
+      kind: :review_feedback,
       observation: Input.document(input),
       occurred_at: input.occurred_at,
       source: %{
@@ -327,7 +327,7 @@ defmodule Ryker.Publication.Followups.Signals do
         item_ref: input.source_item_ref || input.event_ref,
         transport: input.destination.transport
       },
-      state: "pending",
+      state: :pending,
       summary:
         "Authenticated GitHub review feedback arrived for PR ##{publication.pull_request_number}; continuing the exact engineering task.",
       wakeup?: true

@@ -192,7 +192,7 @@ defmodule Ryker.Publication.Custody do
         from(followup in Followup,
           where:
             followup.publication_id == ^publication.id and
-              followup.pr_state in ["merged", "closed"]
+              followup.pr_state in [:merged, :closed]
         )
       )
 

@@ -601,7 +601,6 @@ defmodule Ryker.Work.Custody.Turns do
          operation_revision
        ) do
     {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
-    kind = Atom.to_string(kind)
 
     cond do
       turn.remote_operation_kind == nil ->
@@ -647,7 +646,7 @@ defmodule Ryker.Work.Custody.Turns do
   end
 
   defp frozen_remote_operation?(turn, kind, operation_key, operation_revision) do
-    turn.remote_operation_kind == Atom.to_string(kind) and
+    turn.remote_operation_kind == kind and
       turn.remote_operation_key == operation_key and
       turn.remote_operation_revision == operation_revision
   end
@@ -745,7 +744,7 @@ defmodule Ryker.Work.Custody.Turns do
         Repo.rollback(:work_submission_not_frozen)
 
       turn.coop_turn_id == nil ->
-        turn = clear_remote_operation!(turn, "submit_turn", OperationKeys.turn(turn))
+        turn = clear_remote_operation!(turn, :submit_turn, OperationKeys.turn(turn))
 
         turn
         |> TurnChangeset.bind_coop_turn(coop_turn_id)
@@ -753,7 +752,7 @@ defmodule Ryker.Work.Custody.Turns do
         |> unwrap_or_rollback(:work_turn_binding)
 
       turn.coop_turn_id == coop_turn_id ->
-        clear_remote_operation!(turn, "submit_turn", OperationKeys.turn(turn))
+        clear_remote_operation!(turn, :submit_turn, OperationKeys.turn(turn))
 
       true ->
         Repo.rollback({:work_turn_conflict, turn.coop_turn_id})
@@ -777,7 +776,7 @@ defmodule Ryker.Work.Custody.Turns do
         Repo.rollback({:work_turn_submit_generation_conflict, turn.submit_generation})
 
       true ->
-        turn = clear_remote_operation!(turn, "submit_turn", OperationKeys.turn(turn))
+        turn = clear_remote_operation!(turn, :submit_turn, OperationKeys.turn(turn))
 
         turn
         |> TurnChangeset.advance_submit(turn.submit_generation + 1)

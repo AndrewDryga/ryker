@@ -25,8 +25,8 @@ defmodule Ryker.Publication.RecheckParkedPullRequestsMigrationTest do
       PublicationFixture.published!("parked-merged", pull_request_number: 92)
 
     # What the releases before the fix left after each first poll.
-    park!(open, "open")
-    park!(merged, "merged")
+    park!(open, :open)
+    park!(merged, :merged)
     assert {:ok, nil} = Followups.claim_poll("migration:before", 60)
 
     assert :ok = migrate_down(@version)

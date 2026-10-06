@@ -225,7 +225,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id == ^publication.id),
-      set: [merge_sha: String.duplicate("b", 40), pr_state: "merged"]
+      set: [merge_sha: String.duplicate("b", 40), pr_state: :merged]
     )
 
     payload = %{
@@ -240,13 +240,13 @@ defmodule Ryker.Webhooks.EndToEndTest do
 
     assert post_lifecycle(payload, "deployment-exact").status == 202
 
-    assert %LifecycleEvent{state: "succeeded", wakeup_state: :pending} =
+    assert %LifecycleEvent{state: :succeeded, wakeup_state: :pending} =
              Repo.get_by!(LifecycleEvent,
                publication_id: publication.id,
-               kind: "deployment"
+               kind: :deployment
              )
 
-    refute Repo.get_by(LifecycleEvent, publication_id: publication.id, kind: "terraform")
+    refute Repo.get_by(LifecycleEvent, publication_id: publication.id, kind: :terraform)
 
     assert post_lifecycle(
              %{payload | "environment" => "staging", "kind" => "terraform"},
@@ -254,7 +254,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
            ).status ==
              202
 
-    refute Repo.get_by(LifecycleEvent, publication_id: publication.id, kind: "terraform")
+    refute Repo.get_by(LifecycleEvent, publication_id: publication.id, kind: :terraform)
   end
 
   defp post(body, event_id) do

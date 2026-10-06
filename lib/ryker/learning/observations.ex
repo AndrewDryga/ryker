@@ -47,7 +47,7 @@ defmodule Ryker.Learning.Observations do
          %Publication{episode_id: ^episode_id, repository: ^repository} <-
            Repo.get(Publication, publication_id),
          %LifecycleEvent{
-           kind: "review_feedback",
+           kind: :review_feedback,
            publication_id: ^publication_id,
            episode_id: ^episode_id,
            observation:
@@ -203,7 +203,7 @@ defmodule Ryker.Learning.Observations do
 
   defp retained_content(%{source_input_id: id, source_result_ref: "publication-feedback:" <> id}) do
     case Repo.get(LifecycleEvent, id) do
-      %LifecycleEvent{kind: "review_feedback", observation: %{"content" => content}} ->
+      %LifecycleEvent{kind: :review_feedback, observation: %{"content" => content}} ->
         normalized_content(content, "github")
 
       _ ->

@@ -59,7 +59,7 @@ defmodule Ryker.Publication.Followups.Start do
              lock: "FOR UPDATE"
            )
          ) do
-      %Followup{pr_state: "stale"} = followup ->
+      %Followup{pr_state: :stale} = followup ->
         _followup = reset_followup!(followup, publication, now)
         :ok
 
@@ -113,7 +113,7 @@ defmodule Ryker.Publication.Followups.Start do
       %{
         checks_failed: 0,
         checks_passed: 0,
-        checks_state: "unknown",
+        checks_state: :unknown,
         checks_total: 0,
         checks_url: nil,
         deadline_at: DateTime.add(now, @default_deadline_seconds, :second),
@@ -126,7 +126,7 @@ defmodule Ryker.Publication.Followups.Start do
         merge_sha: nil,
         merged_at: nil,
         next_poll_at: now,
-        pr_state: "open",
+        pr_state: :open,
         verification_event_ref: nil,
         verification_sequence: nil,
         verification_turn_ref: nil,
@@ -143,9 +143,9 @@ defmodule Ryker.Publication.Followups.Start do
   # the pull request open, and that makes its check due; the check finds it
   # open and resumes the timer.
   defp tracked_states("pull_request", %{"pull_request" => %{"state" => "open"}}),
-    do: ["open", "closed"]
+    do: [:open, :closed]
 
-  defp tracked_states(_event_name, _payload), do: ["open"]
+  defp tracked_states(_event_name, _payload), do: [:open]
 
   defp nudge_github_locked(repository, number, head_sha, states) do
     now = Repo.now!()

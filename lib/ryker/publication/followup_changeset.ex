@@ -53,8 +53,6 @@ defmodule Ryker.Publication.FollowupChangeset do
 
   defp common(changeset) do
     changeset
-    |> validate_inclusion(:pr_state, ~w(open closed merged stale expired))
-    |> validate_inclusion(:checks_state, ~w(unknown none pending passing failing))
     |> validate_number(:checks_total, greater_than_or_equal_to: 0)
     |> validate_number(:checks_passed, greater_than_or_equal_to: 0)
     |> validate_number(:checks_failed, greater_than_or_equal_to: 0)

@@ -1352,7 +1352,7 @@ defmodule Ryker.Publication.CustodyTest do
   # After a draft merged or closed, the next generation reused its number, Coop
   # refused it (`publication_existing_pull_request_changed`) and Discard was
   # the only way out (2026-10-04 review).
-  for ending <- ["merged", "closed"] do
+  for ending <- [:merged, :closed] do
     test "a corrected candidate after the draft #{ending} opens a new draft" do
       suffix = "after-#{unquote(ending)}"
       %{claim: claim} = task_episode!(suffix)
@@ -1510,7 +1510,7 @@ defmodule Ryker.Publication.CustodyTest do
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id == ^published.id),
-      set: [pr_state: "stale"]
+      set: [pr_state: :stale]
     )
 
     %{claim: _second} = corrected_candidate!(first, "moved-head", "two")

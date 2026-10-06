@@ -279,7 +279,7 @@ defmodule Ryker.WeeklyReport.Facts do
         on: episode.id == followup.episode_id and episode.execution_mode == :live,
         where:
           (followup.inserted_at >= ^from and followup.inserted_at < ^to) or
-            followup.pr_state in ["open", "stale"],
+            followup.pr_state in [:open, :stale],
         order_by: [desc: followup.inserted_at, desc: followup.id],
         select: %{
           state: followup.pr_state,
@@ -298,10 +298,10 @@ defmodule Ryker.WeeklyReport.Facts do
 
     merged =
       this_week
-      |> Enum.filter(&(&1.state == "merged"))
+      |> Enum.filter(&(&1.state == :merged))
       |> Enum.sort_by(&(&1.merged_at || &1.opened_at), {:desc, DateTime})
 
-    waiting = Enum.filter(rows, &(&1.state in ["open", "stale"]))
+    waiting = Enum.filter(rows, &(&1.state in [:open, :stale]))
     public = rows |> Enum.map(& &1.conversation) |> Enum.uniq() |> Enum.filter(&public?/1)
 
     %{

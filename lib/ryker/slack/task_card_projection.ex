@@ -709,7 +709,9 @@ defmodule Ryker.Slack.TaskCardProjection do
   end
 
   # Only a person closes or merges a pull request on GitHub; its follow-up records which.
-  defp pull_request_state(%Followup{pr_state: state}) when state in ~w(closed merged), do: state
+  defp pull_request_state(%Followup{pr_state: state}) when state in [:closed, :merged],
+    do: Atom.to_string(state)
+
   defp pull_request_state(_followup), do: nil
 
   # What the task asked for is settled on GitHub, so the card asks nothing more

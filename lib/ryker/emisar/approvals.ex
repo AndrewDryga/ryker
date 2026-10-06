@@ -239,7 +239,7 @@ defmodule Ryker.Emisar.Approvals do
     |> Enum.map(fn approval ->
       update!(approval, %{
         closed_at: now,
-        closed_reason: "wait_ended",
+        closed_reason: :wait_ended,
         lease_expires_at: nil,
         lease_owner: nil,
         lease_ref: nil,

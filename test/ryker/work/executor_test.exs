@@ -2389,7 +2389,7 @@ defmodule Ryker.Work.ExecutorTest do
                "Stop while Coop may still admit the frozen submit."
              )
 
-    assert requested.turn.remote_operation_kind == "submit_turn"
+    assert requested.turn.remote_operation_kind == :submit_turn
     assert requested.turn.remote_operation_revision == 1
     assert {:ok, cancel_claim} = Custody.claim_next("worker:cancel-pre-journal-submit", 60)
 
@@ -2431,7 +2431,7 @@ defmodule Ryker.Work.ExecutorTest do
                "Stop while Coop may still admit the frozen create."
              )
 
-    assert requested.turn.remote_operation_kind == "create_session"
+    assert requested.turn.remote_operation_kind == :create_session
     assert {:ok, cancel_claim} = Custody.claim_next("worker:cancel-pre-journal-create", 60)
 
     assert {:ok, execution} = Executor.run(cancel_claim, options(fake))

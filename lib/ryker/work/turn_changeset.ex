@@ -219,7 +219,7 @@ defmodule Ryker.Work.TurnChangeset do
     |> work_constraints()
   end
 
-  @spec prepare_remote_operation(Turn.t(), String.t(), String.t(), pos_integer() | nil) ::
+  @spec prepare_remote_operation(Turn.t(), atom(), String.t(), pos_integer() | nil) ::
           Ecto.Changeset.t()
   def prepare_remote_operation(%Turn{} = turn, kind, key, revision) do
     turn
@@ -236,7 +236,6 @@ defmodule Ryker.Work.TurnChangeset do
       ]
     )
     |> validate_required([:remote_operation_key, :remote_operation_kind])
-    |> validate_inclusion(:remote_operation_kind, ~w(create_session submit_turn))
     |> validate_length(:remote_operation_key, min: 1, max: 1_024)
     |> work_constraints()
   end

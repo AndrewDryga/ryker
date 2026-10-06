@@ -66,12 +66,6 @@ defmodule Ryker.Publication.LifecycleEventChangeset do
 
   defp common(changeset) do
     changeset
-    |> validate_inclusion(
-      :kind,
-      ~w(checks merged closed status deployment terraform deadline review_feedback)
-    )
-    |> validate_inclusion(:state, ~w(pending succeeded failed stopped))
-    |> validate_inclusion(:wakeup_state, [:none, :pending, :admitted])
     |> validate_length(:ref, min: 1, max: 256)
     |> validate_length(:delivery_ref, min: 1, max: 256)
     |> validate_length(:summary, min: 1, max: 2_048, count: :bytes)

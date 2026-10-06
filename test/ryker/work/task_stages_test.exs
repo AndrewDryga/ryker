@@ -111,8 +111,8 @@ defmodule Ryker.Work.TaskStagesTest do
          turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
          publication: published(),
          followup: %Followup{
-           pr_state: "open",
-           checks_state: "pending",
+           pr_state: :open,
+           checks_state: :pending,
            checks_total: 8,
            checks_passed: 3,
            checks_failed: 0
@@ -125,8 +125,8 @@ defmodule Ryker.Work.TaskStagesTest do
          turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
          publication: published(),
          followup: %Followup{
-           pr_state: "open",
-           checks_state: "failing",
+           pr_state: :open,
+           checks_state: :failing,
            checks_total: 8,
            checks_passed: 6,
            checks_failed: 2
@@ -138,7 +138,7 @@ defmodule Ryker.Work.TaskStagesTest do
          episode: %Episode{state: :complete, owner_kind: :turn},
          turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
          publication: published(),
-         followup: %Followup{pr_state: "open", checks_state: "none"},
+         followup: %Followup{pr_state: :open, checks_state: :none},
          plan: plan([goal("drain", "implementation", "completed")])
        ), ~w(completed completed completed completed completed skipped waiting)},
       {"merged",
@@ -147,8 +147,8 @@ defmodule Ryker.Work.TaskStagesTest do
          turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
          publication: published(),
          followup: %Followup{
-           pr_state: "merged",
-           checks_state: "passing",
+           pr_state: :merged,
+           checks_state: :passing,
            checks_total: 8,
            checks_passed: 8,
            merge_sha: String.duplicate("b", 40)
@@ -161,8 +161,8 @@ defmodule Ryker.Work.TaskStagesTest do
          turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
          publication: published(),
          followup: %Followup{
-           pr_state: "closed",
-           checks_state: "passing",
+           pr_state: :closed,
+           checks_state: :passing,
            checks_total: 8,
            checks_passed: 8
          },
@@ -176,8 +176,8 @@ defmodule Ryker.Work.TaskStagesTest do
          turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
          publication: published(),
          followup: %Followup{
-           pr_state: "expired",
-           checks_state: "passing",
+           pr_state: :expired,
+           checks_state: :passing,
            checks_total: 8,
            checks_passed: 8
          },
@@ -246,8 +246,8 @@ defmodule Ryker.Work.TaskStagesTest do
           turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
           publication: published(),
           followup: %Followup{
-            pr_state: "open",
-            checks_state: "passing",
+            pr_state: :open,
+            checks_state: :passing,
             checks_total: 8,
             checks_passed: 8
           },
@@ -391,10 +391,10 @@ defmodule Ryker.Work.TaskStagesTest do
         followup: %Followup{
           checks_failed: 0,
           checks_passed: 6,
-          checks_state: "passing",
+          checks_state: :passing,
           checks_total: 6,
           checks_url: "https://github.com/acme/ryker/actions/runs/1",
-          pr_state: "open"
+          pr_state: :open
         },
         plan:
           plan([
@@ -422,8 +422,8 @@ defmodule Ryker.Work.TaskStagesTest do
         turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
         publication: published(~U[2026-09-11 10:00:00.000000Z]),
         followup: %Followup{
-          pr_state: "open",
-          checks_state: "passing",
+          pr_state: :open,
+          checks_state: :passing,
           checks_total: 6,
           checks_passed: 6
         },
@@ -495,7 +495,7 @@ defmodule Ryker.Work.TaskStagesTest do
       TaskStages.build(%{
         held
         | publication: published(),
-          followup: %Followup{pr_state: "open", checks_state: "passing"}
+          followup: %Followup{pr_state: :open, checks_state: :passing}
       })
 
     assert row(with_draft, "draft_pr")["state"] == "stale"
@@ -588,8 +588,8 @@ defmodule Ryker.Work.TaskStagesTest do
             }
         },
         followup: %Followup{
-          pr_state: "open",
-          checks_state: "passing",
+          pr_state: :open,
+          checks_state: :passing,
           checks_total: 6,
           checks_passed: 6
         },
@@ -621,7 +621,7 @@ defmodule Ryker.Work.TaskStagesTest do
         episode: %Episode{state: :complete, owner_kind: :turn},
         turn: %Turn{status: :settled, coop_turn_id: "turn-1"},
         publication: %{published() | review_document: shareable_review("none")},
-        followup: %Followup{pr_state: "open", checks_state: "none"},
+        followup: %Followup{pr_state: :open, checks_state: :none},
         plan: plan([goal("readme", "self_review", "completed")])
       )
 

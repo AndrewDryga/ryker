@@ -937,7 +937,7 @@ defmodule Ryker.Work.CustodyTest do
            ) ==
              {:error,
               {:work_remote_operation_conflict,
-               {"create_session", "operation:create:mutation-fence-identity"}}}
+               {:create_session, "operation:create:mutation-fence-identity"}}}
 
     assert Custody.with_mutation_fence(
              claim.episode.id,
@@ -980,7 +980,7 @@ defmodule Ryker.Work.CustodyTest do
            ) ==
              {:error,
               {:work_remote_operation_conflict,
-               {"create_session", "operation:create:release-create-fence"}}}
+               {:create_session, "operation:create:release-create-fence"}}}
 
     assert Custody.release_session_create(
              claim.episode.id,

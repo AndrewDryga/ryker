@@ -497,7 +497,7 @@ defmodule Ryker.GitHub.RouterTest do
 
     assert %LifecycleEvent{
              episode_id: ^episode_id,
-             kind: "review_feedback",
+             kind: :review_feedback,
              publication_id: ^publication_id,
              ref: ^publication_event_ref,
              wakeup_state: :pending
@@ -821,7 +821,7 @@ defmodule Ryker.GitHub.RouterTest do
 
     assert Repo.aggregate(
              from(event in LifecycleEvent,
-               where: event.publication_id == ^publication_id and event.kind == "review_feedback"
+               where: event.publication_id == ^publication_id and event.kind == :review_feedback
              ),
              :count
            ) == 2

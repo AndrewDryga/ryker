@@ -238,7 +238,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
     closed = Approvals.get_by_request_id(@connection_ref, "apr-closed-task")
     assert closed.status == :closed
-    assert closed.closed_reason == "wait_ended"
+    assert closed.closed_reason == :wait_ended
     assert %DateTime{} = closed.closed_at
     assert closed.last_error =~ "403"
     assert {:ok, %{status: :closed}} = EmisarOperator.fetch("production/apr-closed-task")

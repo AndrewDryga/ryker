@@ -97,7 +97,7 @@ defmodule Ryker.Publication.Followups.Delivery do
     followup = Store.lock_followup(publication.id)
 
     attributes =
-      if event.kind == "review_feedback" do
+      if event.kind == :review_feedback do
         %{next_poll_at: DateTime.add(now, 60, :second)}
       else
         %{
@@ -113,7 +113,7 @@ defmodule Ryker.Publication.Followups.Delivery do
     updated_event
   end
 
-  defp wakeup_input(_publication, _episode, %LifecycleEvent{kind: "review_feedback"} = event) do
+  defp wakeup_input(_publication, _episode, %LifecycleEvent{kind: :review_feedback} = event) do
     observation = event.observation
 
     {:ok, input} =
@@ -149,10 +149,10 @@ defmodule Ryker.Publication.Followups.Delivery do
             %{
               "kind" => "publication_lifecycle",
               "lifecycle" => %{
-                "kind" => event.kind,
+                "kind" => Atom.to_string(event.kind),
                 "observation" => event.observation,
                 "publication_event_ref" => event.ref,
-                "state" => event.state,
+                "state" => Atom.to_string(event.state),
                 "summary" => event.summary
               },
               "publication" => %{
@@ -188,7 +188,7 @@ defmodule Ryker.Publication.Followups.Delivery do
   # A red check asks the agent to finish its own change; a deployment or
   # Terraform signal asks it to verify one that already shipped. Naming the two
   # differently is what keeps a correction from being reported as a verification.
-  defp wakeup_request(%LifecycleEvent{kind: "checks"}),
+  defp wakeup_request(%LifecycleEvent{kind: :checks}),
     do: %{
       "correction_request" =>
         "The checks on this exact pull request are failing. Fix them inside the task's existing scope and update the same branch, or say precisely what is blocking them. Do not widen the task, and do not merge or deploy."
@@ -221,7 +221,7 @@ defmodule Ryker.Publication.Followups.Delivery do
     }
   end
 
-  defp publication_turn_ref(%LifecycleEvent{kind: "review_feedback", id: id}),
+  defp publication_turn_ref(%LifecycleEvent{kind: :review_feedback, id: id}),
     do: "turn:publication-feedback:#{id}"
 
   defp publication_turn_ref(%LifecycleEvent{id: id}),

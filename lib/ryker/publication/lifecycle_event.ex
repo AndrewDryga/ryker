@@ -11,8 +11,21 @@ defmodule Ryker.Publication.LifecycleEvent do
     belongs_to(:episode, Ryker.Episodes.Episode)
 
     field(:ref, :string)
-    field(:kind, :string)
-    field(:state, :string)
+
+    field(:kind, Ecto.Enum,
+      values: [
+        :checks,
+        :merged,
+        :closed,
+        :status,
+        :deployment,
+        :terraform,
+        :deadline,
+        :review_feedback
+      ]
+    )
+
+    field(:state, Ecto.Enum, values: [:pending, :succeeded, :failed, :stopped])
     field(:summary, :string)
     field(:observation, Ryker.CanonicalJSON.Type)
     field(:source_transport, :string)

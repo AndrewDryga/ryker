@@ -7,25 +7,29 @@ defmodule Ryker.Publication.FollowupCheckTest do
   """
   use Ryker.DataCase, async: true
 
-  import Ecto.Query
-
   alias Ryker.Fixtures.Publication, as: PublicationFixture
-  alias Ryker.Publication.Followup
 
   test "PostgreSQL refuses a follow-up that breaks its own rules" do
     %{publication: publication} = PublicationFixture.published!("followup-check")
-    followup = from(row in Followup, where: row.publication_id == ^publication.id)
+    id = Ecto.UUID.dump!(publication.id)
 
+    # Written as SQL: Ecto's enums refuse a state they do not know before
+    # PostgreSQL could, and this is about what PostgreSQL refuses.
     for broken <- [
-          [checks_total: 1, checks_passed: 1, checks_failed: 1],
-          [pr_state: "reopened"],
-          [checks_state: "green"],
-          [merge_sha: "not-a-commit"],
-          [failure_count: -1]
+          "checks_total = 1, checks_passed = 1, checks_failed = 1",
+          "pr_state = 'reopened'",
+          "checks_state = 'green'",
+          "merge_sha = 'not-a-commit'",
+          "failure_count = -1"
         ] do
       error =
         assert_raise Postgrex.Error, fn ->
-          Repo.transaction(fn -> Repo.update_all(followup, set: broken) end)
+          Repo.transaction(fn ->
+            Repo.query!(
+              "UPDATE episode_publication_followups SET #{broken} WHERE publication_id = $1",
+              [id]
+            )
+          end)
         end
 
       assert error.postgres.constraint == "episode_publication_followup_state_valid",

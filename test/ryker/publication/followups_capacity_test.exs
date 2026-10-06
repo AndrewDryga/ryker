@@ -32,7 +32,7 @@ defmodule Ryker.Publication.FollowupsCapacityTest do
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id in ^ids),
-      set: [merge_sha: String.duplicate("a", 40), pr_state: "merged"]
+      set: [merge_sha: String.duplicate("a", 40), pr_state: :merged]
     )
 
     assert Followups.observe_input(
@@ -41,7 +41,7 @@ defmodule Ryker.Publication.FollowupsCapacityTest do
 
     assert Repo.aggregate(
              from(event in LifecycleEvent,
-               where: event.publication_id in ^ids and event.kind == "deployment"
+               where: event.publication_id in ^ids and event.kind == :deployment
              ),
              :count
            ) == 101

@@ -171,7 +171,7 @@ defmodule Ryker.Slack.WorkControlsTest do
   # GitHub, and the timeline listed it as opened and nothing more (2026-10-04
   # review). What its follow-up last saw is what the views say.
   test "a task's views say a pull request was merged or closed on GitHub" do
-    for {state, words} <- [{"merged", "merged"}, {"closed", "closed without merging"}] do
+    for {state, words} <- [{:merged, "merged"}, {:closed, "closed without merging"}] do
       fixture =
         PublicationFixture.published!("views-#{state}", conversation_ref: "slack:T123:C456")
 
@@ -293,7 +293,7 @@ defmodule Ryker.Slack.WorkControlsTest do
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id == ^fixture.publication.id),
-      set: [pr_state: "stale"]
+      set: [pr_state: :stale]
     )
 
     {1, _rows} =
@@ -319,7 +319,7 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert recovered.recovery_generation == 2
     assert recovered.expected_remote_head_sha == observed_head
     assert recovered.branch_ref == fixture.publication.branch_ref
-    assert Repo.get_by!(Followup, publication_id: recovered.id).pr_state == "open"
+    assert Repo.get_by!(Followup, publication_id: recovered.id).pr_state == :open
 
     stale = %{attributes | request_ref: "interaction:stale-publication-recovery"}
 
@@ -339,7 +339,7 @@ defmodule Ryker.Slack.WorkControlsTest do
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id == ^fixture.publication.id),
-      set: [pr_state: "stale"]
+      set: [pr_state: :stale]
     )
 
     {1, _rows} =

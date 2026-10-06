@@ -16,6 +16,7 @@
         extra: [
           {Ryker.Checks.AcronymModuleCase, []},
           {Ryker.Checks.ChangesetNoTruncate, []},
+          {Ryker.Checks.EnumOverValidateInclusion, []},
           {Ryker.Checks.IL06QueryModulePure, []},
           {Ryker.Checks.IL12NoFloatMoney, []},
           {Ryker.Checks.InlineBroadcast, []},

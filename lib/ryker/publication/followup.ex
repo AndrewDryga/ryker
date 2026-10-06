@@ -10,8 +10,16 @@ defmodule Ryker.Publication.Followup do
     belongs_to(:publication, Ryker.Publication.Publication)
     belongs_to(:episode, Ryker.Episodes.Episode)
 
-    field(:pr_state, :string, default: "open")
-    field(:checks_state, :string, default: "unknown")
+    field(:pr_state, Ecto.Enum,
+      values: [:open, :closed, :merged, :stale, :expired],
+      default: :open
+    )
+
+    field(:checks_state, Ecto.Enum,
+      values: [:unknown, :none, :pending, :passing, :failing],
+      default: :unknown
+    )
+
     field(:checks_total, :integer, default: 0)
     field(:checks_passed, :integer, default: 0)
     field(:checks_failed, :integer, default: 0)

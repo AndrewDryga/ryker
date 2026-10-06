@@ -121,20 +121,6 @@ defmodule Ryker.Slack.IncidentRoomChangeset do
     |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
     |> validate_number(:root_card_ui_revision, greater_than_or_equal_to: 0)
     |> validate_format(:root_card_fingerprint, ~r/\A[0-9a-f]{64}\z/)
-    |> validate_inclusion(:channel_state, [
-      :pending,
-      :active,
-      :archived,
-      :deleted,
-      :unavailable
-    ])
-    |> validate_inclusion(:reconciled_channel_state, [
-      :pending,
-      :active,
-      :archived,
-      :deleted,
-      :unavailable
-    ])
     |> unique_constraint(:ref)
     |> unique_constraint(:record_id)
     |> unique_constraint(:episode_id)

@@ -320,9 +320,9 @@ defmodule Ryker.WeeklyReportTest do
     private = private_channel!(workspace, "CPULLSPRIVATE")
 
     merged = pull_request!(workspace, "merged", public, 11)
-    set_pull_request!(merged, pr_state: "merged", merged_at: now)
+    set_pull_request!(merged, pr_state: :merged, merged_at: now)
     closed = pull_request!(workspace, "closed", public, 12)
-    set_pull_request!(closed, pr_state: "closed")
+    set_pull_request!(closed, pr_state: :closed)
     fresh = pull_request!(workspace, "fresh", public, 13)
     _secret = pull_request!(workspace, "secret", private, 14)
     # Opened two weeks ago and still open: not this week's, still owed a review.

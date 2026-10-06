@@ -730,7 +730,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     |> FollowupChangeset.update(%{
       checks_failed: 0,
       checks_passed: 8,
-      checks_state: "passing",
+      checks_state: :passing,
       checks_total: 8
     })
     |> Repo.update!()
@@ -745,11 +745,11 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     followup
     |> FollowupChangeset.update(%{
       checks_passed: 8,
-      checks_state: "passing",
+      checks_state: :passing,
       checks_total: 8,
       merge_sha: String.duplicate("c", 40),
       merged_at: DateTime.utc_now(),
-      pr_state: "merged"
+      pr_state: :merged
     })
     |> Repo.update!()
 
@@ -866,7 +866,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       "url" => publication.pull_request_url
     }
 
-    assert {:ok, %{pr_state: "closed"}} =
+    assert {:ok, %{pr_state: :closed}} =
              Followups.store_poll(publication.ref, claim.lease_ref, closed_on_github)
 
     closed_at = DateTime.add(DateTime.utc_now(), 3_600, :second)
@@ -957,7 +957,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     |> FollowupChangeset.update(%{
       checks_failed: 0,
       checks_passed: 8,
-      checks_state: "passing",
+      checks_state: :passing,
       checks_total: 8
     })
     |> Repo.update!()

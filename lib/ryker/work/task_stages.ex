@@ -328,31 +328,31 @@ defmodule Ryker.Work.TaskStages do
 
   defp ci_state(nil, _checks, _url), do: row("ci", "waiting", detail: "waiting for GitHub")
 
-  defp ci_state(%Followup{checks_state: "unknown"}, _checks, _url),
+  defp ci_state(%Followup{checks_state: :unknown}, _checks, _url),
     do: row("ci", "waiting", detail: "waiting for GitHub")
 
-  defp ci_state(%Followup{pr_state: "merged"}, checks, url),
+  defp ci_state(%Followup{pr_state: :merged}, checks, url),
     do: row("ci", "completed", detail: checks, url: url)
 
-  defp ci_state(%Followup{checks_state: "none"}, _checks, _url),
+  defp ci_state(%Followup{checks_state: :none}, _checks, _url),
     do: row("ci", "skipped", detail: @no_checks)
 
-  defp ci_state(%Followup{checks_state: "failing"}, checks, url),
+  defp ci_state(%Followup{checks_state: :failing}, checks, url),
     do: row("ci", "failed", detail: checks, url: url)
 
-  defp ci_state(%Followup{checks_state: "passing"}, checks, url),
+  defp ci_state(%Followup{checks_state: :passing}, checks, url),
     do: row("ci", "completed", detail: checks, url: url)
 
   defp ci_state(%Followup{}, checks, url), do: row("ci", "running", detail: checks, url: url)
 
-  defp review_and_merge(%{followup: %Followup{pr_state: "merged"}} = facts, _ci, _stale?),
+  defp review_and_merge(%{followup: %Followup{pr_state: :merged}} = facts, _ci, _stale?),
     do:
       row("review_and_merge", "completed",
         detail: "merged",
         url: publication_url(facts[:publication])
       )
 
-  defp review_and_merge(%{followup: %Followup{pr_state: "closed"}} = facts, _ci, _stale?),
+  defp review_and_merge(%{followup: %Followup{pr_state: :closed}} = facts, _ci, _stale?),
     do:
       row("review_and_merge", "stopped",
         detail: "closed without merging",
@@ -362,7 +362,7 @@ defmodule Ryker.Work.TaskStages do
   # Ryker stops following a pull request at its hard deadline, so what became
   # of it is unknown here; the row said "your turn" over a state nobody was
   # checking (2026-10-04 review).
-  defp review_and_merge(%{followup: %Followup{pr_state: "expired"}} = facts, _ci, _stale?),
+  defp review_and_merge(%{followup: %Followup{pr_state: :expired}} = facts, _ci, _stale?),
     do:
       row("review_and_merge", "unknown",
         detail: "no longer followed",

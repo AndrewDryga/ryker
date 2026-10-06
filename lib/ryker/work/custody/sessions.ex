@@ -485,7 +485,7 @@ defmodule Ryker.Work.Custody.Sessions do
          :ok <- reference(operation_key, :operation_key) do
       Repo.transaction(fn ->
         {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
-        Turns.clear_remote_operation!(turn, "create_session", operation_key)
+        Turns.clear_remote_operation!(turn, :create_session, operation_key)
       end)
     end
   end
@@ -863,7 +863,7 @@ defmodule Ryker.Work.Custody.Sessions do
     {session, turn} = leased!(episode_id, turn_ref, lease_ref)
 
     _turn =
-      Turns.clear_remote_operation!(turn, "create_session", OperationKeys.create(session))
+      Turns.clear_remote_operation!(turn, :create_session, OperationKeys.create(session))
 
     cond do
       session.generation != generation ->
@@ -898,7 +898,7 @@ defmodule Ryker.Work.Custody.Sessions do
 
       true ->
         _turn =
-          Turns.clear_remote_operation!(turn, "create_session", OperationKeys.create(session))
+          Turns.clear_remote_operation!(turn, :create_session, OperationKeys.create(session))
 
         session
         |> SessionChangeset.advance_create(session.create_generation + 1)

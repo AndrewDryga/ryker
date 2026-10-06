@@ -505,7 +505,7 @@ defmodule Ryker.Slack.WorkRecord do
 
   # Only a person merges or closes a pull request on GitHub, and that is the news.
   defp publication_words(%Publication{pull_request_url: url, pull_request_number: number}, state)
-       when is_binary(url) and is_integer(number) and state in ["merged", "closed"],
+       when is_binary(url) and is_integer(number) and state in [:merged, :closed],
        do: "PR <#{url}|##{number}> · #{settled_words(state)}"
 
   defp publication_words(
@@ -518,8 +518,8 @@ defmodule Ryker.Slack.WorkRecord do
   defp publication_words(publication, _state),
     do: "Draft PR · #{publication_state(publication.status)}"
 
-  defp settled_words("merged"), do: "merged"
-  defp settled_words("closed"), do: "closed without merging"
+  defp settled_words(:merged), do: "merged"
+  defp settled_words(:closed), do: "closed without merging"
 
   defp publication_state(:published), do: "open"
   defp publication_state(:discarded), do: "discarded"

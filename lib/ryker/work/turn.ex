@@ -60,7 +60,7 @@ defmodule Ryker.Work.Turn do
     field(:cancellation_intent_fingerprint, :string)
     field(:cancellation_receipt, Ryker.CanonicalJSON.Type)
     field(:cancellation_receipt_fingerprint, :string)
-    field(:remote_operation_kind, :string)
+    field(:remote_operation_kind, Ecto.Enum, values: [:create_session, :submit_turn])
     field(:remote_operation_key, :string)
     field(:remote_operation_revision, :integer)
     field(:result_ref, :string)
@@ -146,7 +146,7 @@ defmodule Ryker.Work.Turn do
           cancellation_intent_fingerprint: String.t() | nil,
           cancellation_receipt: Ryker.Work.Cancellation.receipt() | nil,
           cancellation_receipt_fingerprint: String.t() | nil,
-          remote_operation_kind: String.t() | nil,
+          remote_operation_kind: :create_session | :submit_turn | nil,
           remote_operation_key: String.t() | nil,
           remote_operation_revision: pos_integer() | nil,
           result_ref: String.t() | nil,

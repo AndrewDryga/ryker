@@ -127,7 +127,7 @@ defmodule Ryker.Work.Executor.Cancellation do
   defp reconcile_cancellation_session(claim, settings) do
     key = OperationKeys.create(claim.session)
 
-    if frozen_remote_operation?(claim.turn, "create_session", key) do
+    if frozen_remote_operation?(claim.turn, :create_session, key) do
       fence_cancellation_session_create(claim, key, settings)
     else
       {:ok, %{claim | session: %{claim.session | coop_session_id: nil}}}
@@ -221,7 +221,7 @@ defmodule Ryker.Work.Executor.Cancellation do
   defp reconcile_cancellation_turn(claim, settings) do
     key = OperationKeys.turn(claim.turn)
 
-    if frozen_remote_operation?(claim.turn, "submit_turn", key) do
+    if frozen_remote_operation?(claim.turn, :submit_turn, key) do
       fence_cancellation_turn_submit(claim, key, settings)
     else
       {:ok, claim, :not_created}

@@ -87,8 +87,8 @@ defmodule Ryker.Publication.FollowupsTest do
     %{episode: episode, publication: publication} = PublicationFixture.published!("followup")
 
     followup = Repo.get_by!(Followup, publication_id: publication.id)
-    assert followup.pr_state == "open"
-    assert followup.checks_state == "unknown"
+    assert followup.pr_state == :open
+    assert followup.checks_state == :unknown
 
     assert {:ok, check_claim} = Followups.claim_poll("publication-followup:checks", 60)
     assert check_claim.publication.id == publication.id
@@ -98,12 +98,12 @@ defmodule Ryker.Publication.FollowupsTest do
     assert {:ok, passed} =
              Followups.store_poll(publication.ref, check_claim.lease_ref, passing)
 
-    assert passed.checks_state == "passing"
+    assert passed.checks_state == :passing
     assert passed.checks_passed == 2
     assert passed.lease_ref == nil
 
-    assert %LifecycleEvent{kind: "checks", state: "succeeded"} =
-             Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "checks")
+    assert %LifecycleEvent{kind: :checks, state: :succeeded} =
+             Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :checks)
 
     deliver_pending!()
 
@@ -119,7 +119,7 @@ defmodule Ryker.Publication.FollowupsTest do
     assert {:ok, merged_followup} =
              Followups.store_poll(publication.ref, merge_claim.lease_ref, merged)
 
-    assert merged_followup.pr_state == "merged"
+    assert merged_followup.pr_state == :merged
     assert merged_followup.merge_sha == merge_sha
 
     unrelated = typed_lifecycle_input(["unrelated"], "deployment", "succeeded")
@@ -138,8 +138,8 @@ defmodule Ryker.Publication.FollowupsTest do
     deployment =
       Repo.get_by!(LifecycleEvent,
         publication_id: publication.id,
-        kind: "deployment",
-        state: "succeeded"
+        kind: :deployment,
+        state: :succeeded
       )
 
     assert deployment.wakeup_state == :pending
@@ -173,8 +173,8 @@ defmodule Ryker.Publication.FollowupsTest do
 
     assert {:ok, _followup} = Followups.store_poll(publication.ref, claim.lease_ref, failing)
 
-    assert %LifecycleEvent{state: "failed", wakeup_state: :pending} =
-             event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "checks")
+    assert %LifecycleEvent{state: :failed, wakeup_state: :pending} =
+             event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :checks)
 
     # The same red run observed again is the same fact, not a second correction.
     Repo.update_all(
@@ -188,7 +188,7 @@ defmodule Ryker.Publication.FollowupsTest do
     assert [only] =
              Repo.all(
                from(saved in LifecycleEvent,
-                 where: saved.publication_id == ^publication.id and saved.kind == "checks"
+                 where: saved.publication_id == ^publication.id and saved.kind == :checks
                )
              )
 
@@ -303,7 +303,7 @@ defmodule Ryker.Publication.FollowupsTest do
     polled_after = Repo.now!()
     pending = lifecycle_status(publication, "pending", false)
     assert {:ok, polled} = Followups.store_poll(publication.ref, first.lease_ref, pending)
-    assert polled.pr_state == "open"
+    assert polled.pr_state == :open
     assert_next_check(polled, ten_minutes_after: polled_after)
 
     # Ten minutes on the checks have gone red; the pull request is still open.
@@ -316,7 +316,7 @@ defmodule Ryker.Publication.FollowupsTest do
     polled_after = Repo.now!()
     failing = lifecycle_status(publication, "failing", false)
     assert {:ok, polled} = Followups.store_poll(publication.ref, second.lease_ref, failing)
-    assert polled.pr_state == "open"
+    assert polled.pr_state == :open
     assert_next_check(polled, ten_minutes_after: polled_after)
   end
 
@@ -331,7 +331,7 @@ defmodule Ryker.Publication.FollowupsTest do
       assert {:ok, claim} = Followups.claim_poll("publication-followup:ended", 60)
       status = ended_status(publication, unquote(ending))
       assert {:ok, ended} = Followups.store_poll(publication.ref, claim.lease_ref, status)
-      assert ended.pr_state == unquote(ending)
+      assert Atom.to_string(ended.pr_state) == unquote(ending)
       assert ended.next_poll_at == @never
     end
   end
@@ -833,7 +833,7 @@ defmodule Ryker.Publication.FollowupsTest do
       {input, previous_source} =
         if unquote(route) == :reopened do
           Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
-            set: [pr_state: "closed"]
+            set: [pr_state: :closed]
           )
 
           assert {:ok, :unmatched} = Followups.observe_github_feedback(input)
@@ -845,7 +845,7 @@ defmodule Ryker.Publication.FollowupsTest do
           assert {:ok, scope} = Continuity.destination_context(inbox.entry, nil)
 
           Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
-            set: [pr_state: "open"]
+            set: [pr_state: :open]
           )
 
           {%{input | revision: input.revision + 1, event_ref: input.event_ref <> ":reopened"},
@@ -916,7 +916,7 @@ defmodule Ryker.Publication.FollowupsTest do
         assert replacement.id != event.id
       else
         Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
-          set: [pr_state: "closed"]
+          set: [pr_state: :closed]
         )
 
         assert {:ok, :unmatched} = Followups.observe_github_feedback(changed)
@@ -1037,7 +1037,7 @@ defmodule Ryker.Publication.FollowupsTest do
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id == ^publication.id),
-      set: [merge_sha: merge_sha, pr_state: "merged"]
+      set: [merge_sha: merge_sha, pr_state: :merged]
     )
 
     assert Followups.observe_input(
@@ -1106,14 +1106,14 @@ defmodule Ryker.Publication.FollowupsTest do
       )
 
     assert Enum.map(events, &{&1.kind, &1.state}) == [
-             {"deployment", "failed"},
-             {"deployment", "pending"},
-             {"terraform", "succeeded"}
+             {:deployment, :failed},
+             {:deployment, :pending},
+             {:terraform, :succeeded}
            ]
 
-    assert Enum.find(events, &(&1.kind == "terraform")).summary =~ "Terraform succeeded"
-    assert Enum.find(events, &(&1.state == "failed")).wakeup_state == :pending
-    assert Enum.find(events, &(&1.state == "pending")).wakeup_state == :none
+    assert Enum.find(events, &(&1.kind == :terraform)).summary =~ "Terraform succeeded"
+    assert Enum.find(events, &(&1.state == :failed)).wakeup_state == :pending
+    assert Enum.find(events, &(&1.state == :pending)).wakeup_state == :none
   end
 
   test "lifecycle source scope and repository identity prevent cross-repository branch matches" do
@@ -1137,7 +1137,7 @@ defmodule Ryker.Publication.FollowupsTest do
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id in ^ids),
-      set: [merge_sha: merge_sha, pr_state: "merged"]
+      set: [merge_sha: merge_sha, pr_state: :merged]
     )
 
     signal = typed_lifecycle_input(["release/shared"], "deployment", "succeeded")
@@ -1145,11 +1145,11 @@ defmodule Ryker.Publication.FollowupsTest do
 
     assert Repo.get_by(LifecycleEvent,
              publication_id: ryker.id,
-             kind: "deployment",
-             state: "succeeded"
+             kind: :deployment,
+             state: :succeeded
            )
 
-    refute Repo.get_by(LifecycleEvent, publication_id: other.id, kind: "deployment")
+    refute Repo.get_by(LifecycleEvent, publication_id: other.id, kind: :deployment)
 
     unauthorized =
       put_in(
@@ -1172,8 +1172,8 @@ defmodule Ryker.Publication.FollowupsTest do
     passing = lifecycle_status(publication, "passing", false)
     assert {:ok, _stored} = Followups.store_poll(publication.ref, claim.lease_ref, passing)
 
-    event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "checks")
-    assert event.state == "succeeded"
+    event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :checks)
+    assert event.state == :succeeded
 
     assert {:ok, delivery_claim} =
              Followups.claim_delivery("publication-followup:manual-delivery", 60)
@@ -1248,12 +1248,12 @@ defmodule Ryker.Publication.FollowupsTest do
     assert {:ok, failed} =
              Followups.store_poll(failed_publication.ref, failed_claim.lease_ref, failing)
 
-    assert failed.checks_state == "failing"
+    assert failed.checks_state == :failing
 
-    assert %LifecycleEvent{state: "failed"} =
+    assert %LifecycleEvent{state: :failed} =
              Repo.get_by!(LifecycleEvent,
                publication_id: failed_publication.id,
-               kind: "checks"
+               kind: :checks
              )
 
     Repo.update_all(
@@ -1267,12 +1267,12 @@ defmodule Ryker.Publication.FollowupsTest do
     assert {:ok, closed_followup} =
              Followups.store_poll(failed_publication.ref, close_claim.lease_ref, closed)
 
-    assert closed_followup.pr_state == "closed"
+    assert closed_followup.pr_state == :closed
 
-    assert %LifecycleEvent{state: "stopped"} =
+    assert %LifecycleEvent{state: :stopped} =
              Repo.get_by!(LifecycleEvent,
                publication_id: failed_publication.id,
-               kind: "closed"
+               kind: :closed
              )
 
     %{publication: stale_publication} = PublicationFixture.published!("stale-head")
@@ -1286,7 +1286,7 @@ defmodule Ryker.Publication.FollowupsTest do
     assert {:ok, stale_followup} =
              Followups.store_poll(stale_publication.ref, stale_claim.lease_ref, stale_status)
 
-    assert stale_followup.pr_state == "stale"
+    assert stale_followup.pr_state == :stale
 
     assert Repo.get!(Publication, stale_publication.id).expected_remote_head_sha ==
              stale_status["head_sha"]
@@ -1311,7 +1311,7 @@ defmodule Ryker.Publication.FollowupsTest do
                lifecycle_status(expired_publication, "pending", false)
              )
 
-    assert expired_followup.pr_state == "expired"
+    assert expired_followup.pr_state == :expired
   end
 
   # The agent corrected the failure and the host republished, so the pull request
@@ -1347,20 +1347,20 @@ defmodule Ryker.Publication.FollowupsTest do
     assert Followups.store_poll(publication.ref, in_flight.lease_ref, late) ==
              {:error, :publication_followup_lease_lost}
 
-    assert Repo.get_by!(Followup, publication_id: publication.id).checks_state == "unknown"
+    assert Repo.get_by!(Followup, publication_id: publication.id).checks_state == :unknown
 
     # Even from a live lease, a result describing a head this publication is no
     # longer at cannot record a passing check.
     assert {:ok, fresh} = Followups.claim_poll("publication-followup:late-fresh", 60)
 
     assert {:ok, fenced} = Followups.store_poll(publication.ref, fresh.lease_ref, late)
-    assert fenced.pr_state == "stale"
-    assert fenced.checks_state == "unknown"
+    assert fenced.pr_state == :stale
+    assert fenced.checks_state == :unknown
 
     refute Repo.get_by(LifecycleEvent,
              publication_id: publication.id,
-             kind: "checks",
-             state: "succeeded"
+             kind: :checks,
+             state: :succeeded
            )
   end
 
@@ -1381,7 +1381,7 @@ defmodule Ryker.Publication.FollowupsTest do
     assert refreshed.publication_receipt == nil
     assert refreshed.published_delivery_receipt == nil
     assert refreshed.approval_ref == nil
-    assert Repo.get_by!(Followup, publication_id: refreshed.id).pr_state == "open"
+    assert Repo.get_by!(Followup, publication_id: refreshed.id).pr_state == :open
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id == ^refreshed.id),
@@ -1392,7 +1392,7 @@ defmodule Ryker.Publication.FollowupsTest do
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id == ^refreshed.id),
-      set: [pr_state: "open"]
+      set: [pr_state: :open]
     )
 
     Repo.update_all(
@@ -1523,7 +1523,7 @@ defmodule Ryker.Publication.FollowupsTest do
                Followups.arm_published_in_transaction(republished, Repo.now!())
              end)
 
-    assert rearmed.checks_state == "unknown"
+    assert rearmed.checks_state == :unknown
 
     assert {:ok, claim} = Followups.claim_poll("publication-followup:new-head:second", 60)
     red_again = lifecycle_status(republished, "failing", false)
@@ -1532,8 +1532,8 @@ defmodule Ryker.Publication.FollowupsTest do
     heads =
       from(event in LifecycleEvent,
         where:
-          event.publication_id == ^publication.id and event.kind == "checks" and
-            event.state == "failed"
+          event.publication_id == ^publication.id and event.kind == :checks and
+            event.state == :failed
       )
       |> Repo.all()
       |> Enum.map(& &1.observation["head_sha"])
@@ -1550,7 +1550,7 @@ defmodule Ryker.Publication.FollowupsTest do
     assert {:ok, claim} = Followups.claim_poll("publication-followup:reopened:closed", 60)
     closed = ended_status(publication, "closed")
 
-    assert {:ok, %{pr_state: "closed"}} =
+    assert {:ok, %{pr_state: :closed}} =
              Followups.store_poll(publication.ref, claim.lease_ref, closed)
 
     reopened = %{
@@ -1574,7 +1574,7 @@ defmodule Ryker.Publication.FollowupsTest do
     polled_after = Repo.now!()
     open = lifecycle_status(publication, "pending", false)
     assert {:ok, tracked} = Followups.store_poll(publication.ref, claim.lease_ref, open)
-    assert tracked.pr_state == "open"
+    assert tracked.pr_state == :open
     assert_next_check(tracked, ten_minutes_after: polled_after)
   end
 
@@ -1591,11 +1591,11 @@ defmodule Ryker.Publication.FollowupsTest do
     assert {:ok, ended} =
              Followups.defer_poll(publication.ref, claim.lease_ref, 120, {:github_status, 404})
 
-    assert ended.pr_state == "expired"
+    assert ended.pr_state == :expired
     assert ended.next_poll_at == @never
 
-    assert %LifecycleEvent{state: "failed"} =
-             Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "deadline")
+    assert %LifecycleEvent{state: :failed} =
+             Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :deadline)
   end
 
   test "a poll GitHub does not answer before the deadline is tried again" do
@@ -1606,7 +1606,7 @@ defmodule Ryker.Publication.FollowupsTest do
     assert {:ok, deferred} =
              Followups.defer_poll(publication.ref, claim.lease_ref, 120, {:github_status, 502})
 
-    assert deferred.pr_state == "open"
+    assert deferred.pr_state == :open
     assert deferred.failure_count == 1
     assert DateTime.diff(deferred.next_poll_at, failed_after) in 120..121
   end
@@ -1854,7 +1854,7 @@ defmodule Ryker.Publication.FollowupsTest do
       |> lifecycle_status("pending", false)
       |> Map.put("head_sha", head_sha)
 
-    assert {:ok, %Followup{pr_state: "stale"}} =
+    assert {:ok, %Followup{pr_state: :stale}} =
              Followups.store_poll(publication.ref, claim.lease_ref, status)
   end
 

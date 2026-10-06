@@ -140,7 +140,7 @@ defmodule Ryker.Slack.AppHomeActionsTest do
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id == ^publication.id),
-      set: [pr_state: "stale"]
+      set: [pr_state: :stale]
     )
 
     publication = Repo.get!(Publication, publication.id)

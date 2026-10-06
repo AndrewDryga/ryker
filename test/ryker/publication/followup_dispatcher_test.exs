@@ -84,8 +84,8 @@ defmodule Ryker.Publication.FollowupDispatcherTest do
 
     assert_receive {:publication_status_requested, "acme/ryker", 91}
 
-    assert %LifecycleEvent{delivery_state: :pending, kind: "checks", state: "succeeded"} =
-             Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "checks")
+    assert %LifecycleEvent{delivery_state: :pending, kind: :checks, state: :succeeded} =
+             Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :checks)
 
     assert {:ok, {:executed, %{phase: :delivery}}} = FollowupDispatcher.run_once(options)
     assert_receive {:publication_lifecycle_delivered, request}
@@ -93,7 +93,7 @@ defmodule Ryker.Publication.FollowupDispatcherTest do
     assert request.thread_ref == publication.destination_thread_ref
     assert request.document["message"] =~ "GitHub checks passed"
 
-    event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: "checks")
+    event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :checks)
     assert event.delivery_state == :delivered
     assert Agent.get(effects, &length(&1.deliveries)) == 1
   end
