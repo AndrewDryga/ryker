@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   """
 
   alias Ryker.ControlPlane.Environments
-  alias Ryker.Settings.Environment
+  alias Ryker.Settings
   alias Ryker.Settings.{Learning, PricingRate, Publication, Report, Slack, WebhookSource, Work}
   alias Ryker.Slack.Names
   alias Ryker.Webhooks.Presets
@@ -1264,7 +1264,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   # this installation has to choose, such as its default environment or its
   # only signing credential.
   defp default(%{default: :default_environment} = field, view) do
-    case {Environment.default(view.snapshot), view.snapshot.environments} do
+    case {Settings.default_environment(view.snapshot), view.snapshot.environments} do
       {%{ref: ref}, _environments} -> ref
       {nil, [%{ref: ref}]} -> ref
       {nil, _none_or_several} -> form_value(field, nil)

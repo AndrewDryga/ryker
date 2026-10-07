@@ -1,11 +1,8 @@
 defmodule Ryker.Settings.Slack do
   @moduledoc "Slack connection: verified identity, desired enabled state and access lists."
   use Ecto.Schema
-  import Ecto.Changeset
-  alias Ryker.Settings.Validation
 
   @primary_key {:id, :string, autogenerate: false}
-  @fields ~w(enabled workspace_ref workspace_url workspace_name bot_ref bot_user_ref bot_name channel_prefix incident_private default_participation operators workspace_admins_manage)a
 
   schema "slack_settings" do
     field(:enabled, :boolean, default: false)
@@ -29,51 +26,5 @@ defmodule Ryker.Settings.Slack do
     field(:workspace_admins_manage, :boolean, default: true)
   end
 
-  def fields, do: @fields
-
-  def changeset(current, attributes, _snapshot) do
-    current
-    |> cast(attributes, @fields)
-    |> validate_required([
-      :enabled,
-      :channel_prefix,
-      :incident_private,
-      :default_participation,
-      :workspace_admins_manage
-    ])
-    |> validate_format(:workspace_ref, Validation.slack_id_pattern())
-    # The workspace origin is the only part of a Slack message link the host
-    # cannot derive. It is an origin, never a path, so a card can build a link
-    # from it without ever trusting a stored URL shape.
-    |> validate_format(:workspace_url, ~r/\Ahttps:\/\/[a-z0-9-]{1,64}\.slack\.com\/?\z/)
-    |> validate_length(:workspace_url, max: 256)
-    |> validate_length(:workspace_name, min: 1, max: 256)
-    |> validate_format(:bot_ref, Validation.slack_id_pattern())
-    |> validate_format(:bot_user_ref, Validation.slack_id_pattern())
-    |> validate_length(:bot_name, min: 1, max: 256)
-    |> validate_format(:channel_prefix, ~r/\A[a-z0-9_-]{1,20}\z/)
-    |> Validation.validate_slack_ids(:operators)
-    |> validate_length(:operators, max: 256)
-    |> validate_enabled()
-  end
-
-  defp validate_enabled(changeset) do
-    if get_field(changeset, :enabled) do
-      Enum.reduce(
-        [:workspace_ref, :bot_ref, :bot_user_ref],
-        changeset,
-        &require_to_enable/2
-      )
-    else
-      changeset
-    end
-  end
-
-  defp require_to_enable(field, changeset) do
-    if is_nil(get_field(changeset, field)) do
-      add_error(changeset, field, "is required to enable Slack", validation: :required_to_enable)
-    else
-      changeset
-    end
-  end
+  @type t :: %__MODULE__{}
 end

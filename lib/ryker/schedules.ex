@@ -27,7 +27,6 @@ defmodule Ryker.Schedules do
   alias Ryker.Schedules.ScheduleQuery
   alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.Settings
-  alias Ryker.Settings.Environment
   alias Ryker.UTCDateTime
   alias Ryker.Work.{Custody, SessionQuery, Turn}
 
@@ -284,7 +283,7 @@ defmodule Ryker.Schedules do
   defp schedule_repository(repository, source) do
     with {:ok, snapshot} <- Settings.fetch(),
          true <-
-           repository in Environment.writable_for(
+           repository in Settings.writable_repositories(
              snapshot,
              source.environment_ref,
              source.repository_ref

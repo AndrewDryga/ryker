@@ -433,7 +433,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp incident_repository_scope?(_binding, _session, _repositories, _snapshot), do: false
 
   defp incident_environment_scope?(snapshot, environment_ref, primary, repositories, context?) do
-    case Environment.find(snapshot, :ref, environment_ref) do
+    case Settings.environment(snapshot, environment_ref) do
       %Environment{} = environment ->
         refs = Environment.repository_refs(environment)
 

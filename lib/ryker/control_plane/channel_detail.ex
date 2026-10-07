@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   alias Ryker.ControlPlane.{Activity, ChannelContext, ChannelDetailQuery, ChannelScope}
   alias Ryker.ControlPlane.{Environments, PagedRelation, Paths, RepositoryNames, UsageProjection}
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Settings.Environment
   alias Ryker.Slack.ChannelSettings
 
@@ -223,7 +224,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
     }
 
   defp default_ref(settings) do
-    case Environment.default(settings) do
+    case Settings.default_environment(settings) do
       %Environment{ref: ref} -> ref
       nil -> nil
     end

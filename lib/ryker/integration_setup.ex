@@ -377,20 +377,20 @@ defmodule Ryker.IntegrationSetup do
   # Chat and every conversation without its own setting work in the default
   # environment; when none is chosen, Ryker makes "Default" the default.
   defp ensure_default_environment(snapshot, actor_ref) do
-    case Environment.default(snapshot) do
+    case Settings.default_environment(snapshot) do
       %Environment{} = environment ->
         {:ok, snapshot, environment}
 
       nil ->
         attributes =
-          case Environment.find(snapshot, :ref, "default") do
+          case Settings.environment(snapshot, "default") do
             nil -> %{ref: "default", display_name: "Default", is_default: true}
             _existing -> %{ref: "default", is_default: true}
           end
 
         with {:ok, saved} <-
                Settings.put_environment(attributes, snapshot.installation.revision, actor_ref) do
-          {:ok, saved, Environment.default(saved)}
+          {:ok, saved, Settings.default_environment(saved)}
         end
     end
   end

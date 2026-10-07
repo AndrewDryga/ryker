@@ -1360,7 +1360,7 @@ defmodule Ryker.IntegrationSetupTest do
     assert environments == ["default", "payments"]
     snapshot = Settings.fetch!()
     assert [%{monitoring_enabled: true, enabled_for_new_work: true}] = snapshot.emisar_connections
-    assert %Environment{ref: "default"} = Environment.default(snapshot)
+    assert %Environment{ref: "default"} = Settings.default_environment(snapshot)
 
     for environment <- ["payments", "default"] do
       assert {:ok, %{connection_ref: ^ref}} = Connections.resolve(snapshot, environment)

@@ -19,7 +19,7 @@ defmodule Ryker.Emisar.Connections do
 
   def resolve(snapshot, environment_ref) when is_binary(environment_ref) do
     with %Environment{emisar_connection_ref: ref} when is_binary(ref) <-
-           Environment.find(snapshot, :ref, environment_ref),
+           Settings.environment(snapshot, environment_ref),
          connection when not is_nil(connection) <-
            Enum.find(snapshot.emisar_connections, &(&1.ref == ref)),
          true <- connection.enabled_for_new_work do

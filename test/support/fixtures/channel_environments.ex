@@ -27,7 +27,7 @@ defmodule Ryker.Fixtures.ChannelEnvironments do
         @actor
       )
 
-    Environment.find(saved, :ref, ref)
+    Settings.environment(saved, ref)
   end
 
   @doc "The catalog entry the Slack runtime builds for a saved environment."

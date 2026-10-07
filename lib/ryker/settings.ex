@@ -16,13 +16,17 @@ defmodule Ryker.Settings do
   alias Ryker.Crypto
   alias Ryker.Emisar.ApprovalQuery
   alias Ryker.Repo
-  alias Ryker.Settings.{Edit, EmisarConnection, EmisarConnectionQuery, Environment}
-  alias Ryker.Settings.{EnvironmentQuery, EnvironmentRepository, EnvironmentRepositoryQuery}
-  alias Ryker.Settings.{GitHub, GitHubBinding, GitHubBindingQuery, GitHubQuery, Installation}
-  alias Ryker.Settings.{InstallationQuery, Learning, LearningQuery, PricingRate, PricingRateQuery}
-  alias Ryker.Settings.{Publication, PublicationQuery, Report, ReportQuery, Repository}
+  alias Ryker.Settings.{Edit, EmisarConnection, EmisarConnectionChangeset, EmisarConnectionQuery}
+  alias Ryker.Settings.{Environment, EnvironmentChangeset, EnvironmentQuery}
+  alias Ryker.Settings.{EnvironmentRepository, EnvironmentRepositoryQuery, GitHub, GitHubBinding}
+  alias Ryker.Settings.{GitHubBindingChangeset, GitHubBindingQuery, GitHubChangeset, GitHubQuery}
+  alias Ryker.Settings.{Installation, InstallationQuery, Learning, LearningChangeset}
+  alias Ryker.Settings.{LearningQuery, PricingRate, PricingRateChangeset, PricingRateQuery}
+  alias Ryker.Settings.{Publication, PublicationChangeset, PublicationQuery, Report}
+  alias Ryker.Settings.{ReportChangeset, ReportQuery, Repository, RepositoryChangeset}
   alias Ryker.Settings.{RepositoryQuery, Retention, RetentionImpact, RetentionQuery, Slack}
-  alias Ryker.Settings.{SlackQuery, Validation, WebhookSource, WebhookSourceQuery, Work}
+  alias Ryker.Settings.{SlackChangeset, SlackQuery, Validation, WebhookSource}
+  alias Ryker.Settings.{WebhookSourceChangeset, WebhookSourceQuery, Work, WorkChangeset}
   alias Ryker.Settings.WorkQuery
   alias Ryker.Slack.Operators
   alias Ryker.Work.SessionQuery
@@ -46,6 +50,16 @@ defmodule Ryker.Settings do
   }
   @retention_fields Map.keys(@retention_defaults)
   @application_failures [:assembly_failed, :runtime_start_failed]
+  # Each kind of item a list of settings holds: the snapshot list it is in,
+  # the field that names it, and the changeset module that writes it.
+  @items %{
+    EmisarConnection => {:emisar_connections, :ref, EmisarConnectionChangeset},
+    Environment => {:environments, :ref, EnvironmentChangeset},
+    GitHubBinding => {:github_bindings, :name, GitHubBindingChangeset},
+    PricingRate => {:pricing_rates, :id, PricingRateChangeset},
+    Repository => {:repositories, :ref, RepositoryChangeset},
+    WebhookSource => {:webhook_sources, :name, WebhookSourceChangeset}
+  }
   @type snapshot :: %{
           installation: Installation.t(),
           retention: Retention.t(),
@@ -150,6 +164,45 @@ defmodule Ryker.Settings do
   """
   @spec worker_workspace_ref() :: String.t() | nil
   def worker_workspace_ref, do: Repo.one(WorkQuery.select_workspace_ref())
+
+  @doc "The default environment of a settings snapshot, or nil when none is chosen."
+  @spec default_environment(snapshot()) :: Environment.t() | nil
+  def default_environment(snapshot), do: Enum.find(snapshot.environments, & &1.is_default)
+
+  @doc "The environment `ref` names in a settings snapshot, or nil."
+  @spec environment(snapshot(), String.t() | nil) :: Environment.t() | nil
+  def environment(snapshot, ref), do: find_item(snapshot, Environment, ref)
+
+  @doc """
+  The repositories work pinned to `repository_ref` in the environment `ref`
+  may change: its own, and any other its environment lets it write.
+  """
+  @spec writable_repositories(snapshot(), String.t() | nil, String.t() | nil) :: [String.t()]
+  def writable_repositories(snapshot, ref, repository_ref) do
+    writable =
+      case is_binary(ref) && environment(snapshot, ref) do
+        %Environment{} = environment -> Environment.writable_refs(environment)
+        _none -> []
+      end
+
+    [repository_ref | writable] |> Enum.reject(&is_nil/1) |> Enum.uniq()
+  end
+
+  @doc """
+  The environment GitHub events for a repository run in.
+
+  The first environment (by ref) whose default repository it is, else the
+  first that may change it, else the first that holds it, else nil: the
+  repository then runs on its own.
+  """
+  @spec environment_for_repository([Environment.t()], String.t()) :: Environment.t() | nil
+  def environment_for_repository(environments, repository_ref) do
+    ordered = Enum.sort_by(environments, & &1.ref)
+
+    Enum.find(ordered, &(List.first(Environment.repository_refs(&1)) == repository_ref)) ||
+      Enum.find(ordered, &(repository_ref in Environment.writable_refs(&1))) ||
+      Enum.find(ordered, &(repository_ref in Environment.repository_refs(&1)))
+  end
 
   @doc "Creates the single installation identity and typed defaults exactly once."
   def initialize(actor_ref) do
@@ -330,22 +383,23 @@ defmodule Ryker.Settings do
   # Singleton domains ---------------------------------------------------------
 
   def save_slack(attributes, expected_revision, actor_ref),
-    do: save_singleton(:slack, Slack, attributes, expected_revision, actor_ref)
+    do: save_singleton(:slack, SlackChangeset, attributes, expected_revision, actor_ref)
 
   def save_github(attributes, expected_revision, actor_ref),
-    do: save_singleton(:github, GitHub, attributes, expected_revision, actor_ref)
+    do: save_singleton(:github, GitHubChangeset, attributes, expected_revision, actor_ref)
 
-  def save_publication(attributes, expected_revision, actor_ref),
-    do: save_singleton(:publication, Publication, attributes, expected_revision, actor_ref)
+  def save_publication(attributes, expected_revision, actor_ref) do
+    save_singleton(:publication, PublicationChangeset, attributes, expected_revision, actor_ref)
+  end
 
   def save_report(attributes, expected_revision, actor_ref),
-    do: save_singleton(:report, Report, attributes, expected_revision, actor_ref)
+    do: save_singleton(:report, ReportChangeset, attributes, expected_revision, actor_ref)
 
   def save_learning(attributes, expected_revision, actor_ref),
-    do: save_singleton(:learning, Learning, attributes, expected_revision, actor_ref)
+    do: save_singleton(:learning, LearningChangeset, attributes, expected_revision, actor_ref)
 
   def save_work(attributes, expected_revision, actor_ref),
-    do: save_singleton(:work, Work, attributes, expected_revision, actor_ref)
+    do: save_singleton(:work, WorkChangeset, attributes, expected_revision, actor_ref)
 
   @doc """
   Sets the installation-wide participation default from a Slack operator command.
@@ -360,7 +414,7 @@ defmodule Ryker.Settings do
       save(:slack, :current, actor_ref, fn snapshot ->
         write_changeset(
           snapshot.slack,
-          Slack.changeset(snapshot.slack, %{default_participation: value}, snapshot)
+          SlackChangeset.update(snapshot.slack, %{default_participation: value}, snapshot)
         )
       end)
     end
@@ -369,12 +423,12 @@ defmodule Ryker.Settings do
   def save_default_participation(_value, _actor_ref),
     do: {:error, {:invalid_settings, [{:default_participation, :inclusion}]}}
 
-  defp save_singleton(domain, schema, attributes, expected_revision, actor_ref) do
+  defp save_singleton(domain, section, attributes, expected_revision, actor_ref) do
     with :ok <- authorize(actor_ref),
-         {:ok, attributes} <- Validation.attributes(attributes, schema.fields()) do
+         {:ok, attributes} <- Validation.attributes(attributes, section.fields()) do
       save(domain, expected_revision, actor_ref, fn snapshot ->
         current = Map.fetch!(snapshot, domain)
-        write_changeset(current, schema.changeset(current, attributes, snapshot))
+        write_changeset(current, section.update(current, attributes, snapshot))
       end)
     end
   end
@@ -398,7 +452,7 @@ defmodule Ryker.Settings do
   # Collections ---------------------------------------------------------------
 
   def put_repository(attributes, expected_revision, actor_ref),
-    do: put_item(:repositories, Repository, :ref, attributes, expected_revision, actor_ref)
+    do: put_item(:repositories, Repository, attributes, expected_revision, actor_ref)
 
   @doc """
   Saves a change to a repository that is still added, at whatever revision
@@ -409,15 +463,18 @@ defmodule Ryker.Settings do
   def update_repository(ref, attributes, actor_ref) when is_binary(ref) do
     with :ok <- authorize(actor_ref),
          {:ok, attributes} <-
-           Validation.attributes(Map.put(attributes, :ref, ref), Repository.fields()) do
+           Validation.attributes(Map.put(attributes, :ref, ref), RepositoryChangeset.fields()) do
       save(:repositories, :current, actor_ref, &update_found_repository(&1, ref, attributes))
     end
   end
 
   defp update_found_repository(snapshot, ref, attributes) do
-    case Repository.find(snapshot, :ref, ref) do
-      nil -> Repo.rollback(:repository_removed)
-      current -> write_changeset(current, Repository.changeset(current, attributes, snapshot))
+    case find_item(snapshot, Repository, ref) do
+      nil ->
+        Repo.rollback(:repository_removed)
+
+      current ->
+        write_changeset(current, RepositoryChangeset.update(current, attributes, snapshot))
     end
   end
 
@@ -429,8 +486,8 @@ defmodule Ryker.Settings do
   def delete_repository(ref, expected_revision, actor_ref) do
     with :ok <- authorize(actor_ref) do
       save(:repositories, expected_revision, actor_ref, fn snapshot ->
-        repository = Repository.find(snapshot, :ref, ref)
-        deleted = delete_found(Repository, :ref, repository, snapshot)
+        repository = find_item(snapshot, Repository, ref)
+        deleted = delete_found(Repository, repository, snapshot)
         keep_removed_name!(repository)
         deleted
       end)
@@ -466,71 +523,72 @@ defmodule Ryker.Settings do
   Making an environment the default takes the default from whichever
   environment had it, in the same revision.
   """
-  def put_environment(attributes, expected_revision, actor_ref) do
-    with :ok <- authorize(actor_ref),
-         {:ok, attributes} <- Validation.attributes(attributes, Environment.fields()) do
-      save(:environments, expected_revision, actor_ref, fn snapshot ->
-        current = Environment.find(snapshot, :ref, Map.get(attributes, :ref))
-
-        changeset =
-          Environment.changeset(current || Environment.new(snapshot), attributes, snapshot)
-
-        write_environment(current, changeset)
-      end)
-    end
-  end
+  def put_environment(attributes, expected_revision, actor_ref),
+    do: put_item(:environments, Environment, attributes, expected_revision, actor_ref)
 
   def delete_environment(ref, expected_revision, actor_ref),
-    do: delete_item(:environments, Environment, :ref, ref, expected_revision, actor_ref)
+    do: delete_item(:environments, Environment, ref, expected_revision, actor_ref)
 
-  def put_emisar_connection(attributes, expected_revision, actor_ref) do
-    put_item(
-      :emisar,
-      EmisarConnection,
-      :ref,
-      attributes,
-      expected_revision,
-      actor_ref
-    )
-  end
+  def put_emisar_connection(attributes, expected_revision, actor_ref),
+    do: put_item(:emisar, EmisarConnection, attributes, expected_revision, actor_ref)
 
   def delete_emisar_connection(ref, expected_revision, actor_ref) do
     atomically(fn ->
       with {:ok, snapshot} <-
-             delete_item(:emisar, EmisarConnection, :ref, ref, expected_revision, actor_ref),
+             delete_item(:emisar, EmisarConnection, ref, expected_revision, actor_ref),
            :ok <- Ryker.Credentials.delete(:emisar, ref, actor_ref),
            do: {:ok, snapshot}
     end)
   end
 
   def put_github_binding(attributes, expected_revision, actor_ref),
-    do: put_item(:github, GitHubBinding, :name, attributes, expected_revision, actor_ref)
+    do: put_item(:github, GitHubBinding, attributes, expected_revision, actor_ref)
 
   def delete_github_binding(name, expected_revision, actor_ref),
-    do: delete_item(:github, GitHubBinding, :name, name, expected_revision, actor_ref)
+    do: delete_item(:github, GitHubBinding, name, expected_revision, actor_ref)
 
   def put_webhook_source(attributes, expected_revision, actor_ref),
-    do: put_item(:webhooks, WebhookSource, :name, attributes, expected_revision, actor_ref)
+    do: put_item(:webhooks, WebhookSource, attributes, expected_revision, actor_ref)
 
   def delete_webhook_source(name, expected_revision, actor_ref),
-    do: delete_item(:webhooks, WebhookSource, :name, name, expected_revision, actor_ref)
+    do: delete_item(:webhooks, WebhookSource, name, expected_revision, actor_ref)
 
   def put_pricing_rate(attributes, expected_revision, actor_ref),
-    do: put_item(:pricing, PricingRate, :id, attributes, expected_revision, actor_ref)
+    do: put_item(:pricing, PricingRate, attributes, expected_revision, actor_ref)
 
   def delete_pricing_rate(id, expected_revision, actor_ref),
-    do: delete_item(:pricing, PricingRate, :id, id, expected_revision, actor_ref)
+    do: delete_item(:pricing, PricingRate, id, expected_revision, actor_ref)
 
-  defp put_item(domain, schema, key, attributes, expected_revision, actor_ref) do
+  defp put_item(domain, schema, attributes, expected_revision, actor_ref) do
+    {_collection, key, section} = Map.fetch!(@items, schema)
+
     with :ok <- authorize(actor_ref),
-         {:ok, attributes} <- Validation.attributes(attributes, schema.fields()) do
+         {:ok, attributes} <- Validation.attributes(attributes, section.fields()) do
       save(domain, expected_revision, actor_ref, fn snapshot ->
-        current = schema.find(snapshot, key, Map.get(attributes, key))
-        changeset = schema.changeset(current || schema.new(snapshot), attributes, snapshot)
-        write_changeset(current, changeset)
+        current = find_item(snapshot, schema, Map.get(attributes, key))
+        write_item(current, item_changeset(section, current, attributes, snapshot))
       end)
     end
   end
+
+  defp item_changeset(section, nil, attributes, snapshot),
+    do: section.insert(attributes, snapshot)
+
+  defp item_changeset(section, current, attributes, snapshot),
+    do: section.update(current, attributes, snapshot)
+
+  defp find_item(snapshot, schema, value) do
+    {collection, key, _section} = Map.fetch!(@items, schema)
+    Enum.find(Map.fetch!(snapshot, collection), &(Map.fetch!(&1, key) == value))
+  end
+
+  defp item_key(schema), do: @items |> Map.fetch!(schema) |> elem(1)
+
+  # An environment's repositories are rows of their own, written beside it.
+  defp write_item(current, %Ecto.Changeset{data: %Environment{}} = changeset),
+    do: write_environment(current, changeset)
+
+  defp write_item(current, changeset), do: write_changeset(current, changeset)
 
   defp write_environment(current, changeset) do
     cond do
@@ -563,7 +621,7 @@ defmodule Ryker.Settings do
 
         {:changed,
          environment
-         |> Map.take(Environment.fields() -- [:repositories, :access])
+         |> Map.take(EnvironmentChangeset.fields() -- [:repositories, :access])
          |> Map.put(:repositories, Enum.map(rows, &elem(&1, 0)))
          |> Map.put(:access, Map.new(rows))
          |> stringify()}
@@ -602,25 +660,25 @@ defmodule Ryker.Settings do
     end
   end
 
-  defp delete_item(domain, schema, key, value, expected_revision, actor_ref) do
+  defp delete_item(domain, schema, value, expected_revision, actor_ref) do
     with :ok <- authorize(actor_ref) do
       save(domain, expected_revision, actor_ref, fn snapshot ->
-        delete_found(schema, key, schema.find(snapshot, key, value), snapshot)
+        delete_found(schema, find_item(snapshot, schema, value), snapshot)
       end)
     end
   end
 
-  defp delete_found(_schema, key, nil, _snapshot),
-    do: Repo.rollback({:invalid_settings, [{key, :unknown}]})
+  defp delete_found(schema, nil, _snapshot),
+    do: Repo.rollback({:invalid_settings, [{item_key(schema), :unknown}]})
 
-  defp delete_found(_schema, key, item, snapshot) do
+  defp delete_found(schema, item, snapshot) do
     case deletable(item, snapshot) do
       :ok -> :ok
       {:error, reason} -> Repo.rollback({:invalid_settings, reason})
     end
 
     Repo.delete!(item)
-    {:changed, %{"deleted" => stringify(Map.get(item, key))}}
+    {:changed, %{"deleted" => stringify(Map.fetch!(item, item_key(schema)))}}
   end
 
   @doc """

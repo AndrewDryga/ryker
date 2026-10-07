@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
 
   use Phoenix.LiveComponent
   alias Ryker.ControlPlane.{Components, Environments, SettingsView}
+  alias Ryker.Settings
   alias Ryker.Settings.Environment
 
   @impl true
@@ -88,7 +89,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
       description: "",
       display_name: "",
       emisar_connection_ref: nil,
-      is_default: is_nil(Environment.default(view.snapshot)),
+      is_default: is_nil(Settings.default_environment(view.snapshot)),
       repositories: []
     }
   end

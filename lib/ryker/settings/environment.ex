@@ -12,28 +12,19 @@ defmodule Ryker.Settings.Environment do
   always read and write. It may name one Emisar account. At most one
   environment is the default, which Chat and every conversation without its
   own setting use. Slack channels and webhook sources select an environment;
-  GitHub events run in the environment `for_repository/2` names.
+  GitHub events run in the environment
+  `Ryker.Settings.environment_for_repository/2` names.
 
-  Writes take `repositories` as a list of repository refs, the default first,
-  and `access` as a map of repository ref to `:read_only` or `:read_write`. A
-  repository `access` does not name keeps the access it has; one new to the
-  environment is read and write, as every repository was before access could
-  be limited. The snapshot carries them as
+  The snapshot carries its repositories as
   `%EnvironmentRepository{repository_ref, position, access}` rows, the
-  default first.
+  default first. A save names them as `Ryker.Settings.EnvironmentChangeset`
+  says.
   """
   use Ecto.Schema
-  import Ecto.Changeset
-  alias Ryker.Settings.{EnvironmentRepository, Validation}
+  alias Ryker.Settings.EnvironmentRepository
 
   @primary_key {:ref, :string, autogenerate: false}
-  @fields ~w(ref display_name description emisar_connection_ref is_default parallel_goal_limit repositories access)a
   @ref ~r/\A[a-z0-9][a-z0-9-]{0,63}\z/
-  # Coop mounts a read-only repository under its own name: 1 to 48 characters,
-  # never "primary", and at most 32 of them beside the working copy. A writable
-  # repository needs that name only if another writable one can take its place.
-  @companion ~r/\A[a-z0-9][a-z0-9_-]{0,47}\z/
-  @maximum_repositories 33
 
   @type t :: %__MODULE__{
           ref: String.t(),
@@ -63,14 +54,7 @@ defmodule Ryker.Settings.Environment do
     timestamps(type: :utc_datetime_usec)
   end
 
-  def fields, do: @fields
   def ref_pattern, do: @ref
-  def new(_snapshot), do: %__MODULE__{repositories: []}
-  def find(snapshot, :ref, ref), do: Enum.find(snapshot.environments, &(&1.ref == ref))
-
-  @doc "The default environment of a settings snapshot, or nil when none is chosen."
-  @spec default(map()) :: t() | nil
-  def default(snapshot), do: Enum.find(snapshot.environments, & &1.is_default)
 
   @doc "The environment's repository refs, the default first."
   @spec repository_refs(t()) :: [String.t()]
@@ -82,177 +66,8 @@ defmodule Ryker.Settings.Environment do
   def writable_refs(%__MODULE__{repositories: repositories}),
     do: for(%{access: :read_write} = row <- repositories, do: row.repository_ref)
 
-  @doc """
-  The repositories work pinned to `repository_ref` in the environment `ref`
-  may change: its own, and any other its environment lets it write.
-  """
-  @spec writable_for(map(), String.t() | nil, String.t() | nil) :: [String.t()]
-  def writable_for(snapshot, ref, repository_ref) do
-    writable =
-      case is_binary(ref) && find(snapshot, :ref, ref) do
-        %__MODULE__{} = environment -> writable_refs(environment)
-        _none -> []
-      end
-
-    [repository_ref | writable] |> Enum.reject(&is_nil/1) |> Enum.uniq()
-  end
-
   @doc "The repositories work in the environment only reads."
   @spec read_only_refs(t()) :: [String.t()]
   def read_only_refs(%__MODULE__{repositories: repositories}),
     do: for(%{access: :read_only} = row <- repositories, do: row.repository_ref)
-
-  @doc """
-  The environment GitHub events for a repository run in.
-
-  The first environment (by ref) whose default repository it is, else the
-  first that may change it, else the first that holds it, else nil: the
-  repository then runs on its own.
-  """
-  @spec for_repository([t()], String.t()) :: t() | nil
-  def for_repository(environments, repository_ref) do
-    ordered = Enum.sort_by(environments, & &1.ref)
-
-    Enum.find(ordered, &(List.first(repository_refs(&1)) == repository_ref)) ||
-      Enum.find(ordered, &(repository_ref in writable_refs(&1))) ||
-      Enum.find(ordered, &(repository_ref in repository_refs(&1)))
-  end
-
-  def changeset(current, attributes, snapshot) do
-    {repositories, attributes} = Map.pop(attributes, :repositories)
-    {access, attributes} = Map.pop(attributes, :access)
-
-    current
-    |> cast(attributes, @fields -- [:repositories, :access])
-    |> validate_required([:ref, :display_name, :is_default, :parallel_goal_limit])
-    |> validate_format(:ref, @ref)
-    |> validate_length(:display_name, min: 1, max: 80)
-    |> validate_length(:description, min: 1, max: 500)
-    |> Validation.validate_known(
-      :emisar_connection_ref,
-      Enum.map(snapshot.emisar_connections, & &1.ref),
-      :unknown_connection
-    )
-    |> validate_inclusion(:parallel_goal_limit, 1..3)
-    |> validate_unique_name(snapshot)
-    |> put_repositories(repositories, access, current, snapshot)
-  end
-
-  # Chat's picker, channel settings and every list name an environment by its
-  # name alone, so two with one name could not be told apart (manual testing,
-  # 2026-09-26, found a second "Production" saved beside the first).
-  defp validate_unique_name(changeset, snapshot) do
-    ref = get_field(changeset, :ref)
-    name = comparable_name(get_field(changeset, :display_name))
-
-    taken? =
-      name != nil and
-        Enum.any?(
-          snapshot.environments,
-          &(&1.ref != ref and comparable_name(&1.display_name) == name)
-        )
-
-    if taken? do
-      add_error(changeset, :display_name, "is used by another environment", validation: :taken)
-    else
-      changeset
-    end
-  end
-
-  defp comparable_name(name) when is_binary(name), do: name |> String.trim() |> String.downcase()
-  defp comparable_name(_name), do: nil
-
-  defp put_repositories(changeset, nil, nil, _current, _snapshot), do: changeset
-
-  defp put_repositories(changeset, nil, access, current, snapshot),
-    do: put_repositories(changeset, repository_refs(current), access, current, snapshot)
-
-  defp put_repositories(changeset, refs, access, current, snapshot) do
-    cond do
-      not ordered_list?(refs) ->
-        add_error(changeset, :repositories, "must be a unique ordered list", validation: :list)
-
-      not known_repositories?(refs, snapshot) ->
-        add_error(changeset, :repositories, "names an unknown repository",
-          validation: :unknown_repository
-        )
-
-      true ->
-        put_access(changeset, refs, access, current)
-    end
-  end
-
-  # Each repository's access as the write names it, else as the environment
-  # has it, else read and write; the default has to be read and write.
-  defp put_access(changeset, refs, access, current) do
-    case named_access(access, refs) do
-      {:ok, named} ->
-        held = Map.new(current.repositories, &{&1.repository_ref, &1.access})
-
-        refs
-        |> Enum.map(&{&1, Map.get(named, &1) || Map.get(held, &1) || :read_write})
-        |> put_rows(changeset, current)
-
-      {:error, reason} ->
-        add_error(changeset, :access, "must give each repository of the environment an access",
-          validation: reason
-        )
-    end
-  end
-
-  defp put_rows([{_default, :read_only} | _rest], changeset, _current) do
-    add_error(changeset, :access, "the default repository has to be read and write",
-      validation: :default_read_only
-    )
-  end
-
-  defp put_rows(rows, changeset, current) do
-    cond do
-      not mountable_together?(rows) ->
-        add_error(changeset, :repositories, "names a repository Coop cannot mount read-only",
-          validation: :companion_name
-        )
-
-      rows == Enum.map(current.repositories, &{&1.repository_ref, &1.access}) ->
-        changeset
-
-      true ->
-        put_change(changeset, :repository_rows, rows)
-    end
-  end
-
-  defp named_access(nil, _refs), do: {:ok, %{}}
-
-  defp named_access(access, refs) when is_map(access) do
-    Enum.reduce_while(access, {:ok, %{}}, fn {ref, value}, {:ok, named} ->
-      case {ref in refs, cast_access(value)} do
-        {false, _access} -> {:halt, {:error, :unknown_repository}}
-        {true, nil} -> {:halt, {:error, :access}}
-        {true, access} -> {:cont, {:ok, Map.put(named, ref, access)}}
-      end
-    end)
-  end
-
-  defp named_access(_access, _refs), do: {:error, :access}
-
-  defp cast_access(value) when value in [:read_only, :read_write], do: value
-  defp cast_access("read_only"), do: :read_only
-  defp cast_access("read_write"), do: :read_write
-  defp cast_access(_value), do: nil
-
-  defp ordered_list?(refs),
-    do: is_list(refs) and Enum.uniq(refs) == refs and length(refs) <= @maximum_repositories
-
-  defp known_repositories?(refs, snapshot) do
-    known = MapSet.new(snapshot.repositories, & &1.ref)
-    Enum.all?(refs, &(is_binary(&1) and MapSet.member?(known, &1)))
-  end
-
-  # A repository is a companion only when a different writable one is chosen.
-  defp mountable_together?(rows) do
-    writable = for {ref, :read_write} <- rows, do: ref
-    Enum.all?(rows, fn {ref, _access} -> writable == [ref] or companion?(ref) end)
-  end
-
-  defp companion?(ref), do: ref != "primary" and Regex.match?(@companion, ref)
 end

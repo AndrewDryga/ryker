@@ -58,7 +58,7 @@ defmodule Ryker.Work.Custody.CurrentAuthority do
 
   defp context(snapshot, %Session{environment_ref: ref, repository_ref: primary})
        when is_binary(ref) do
-    with %Environment{} = environment <- Environment.find(snapshot, :ref, ref),
+    with %Environment{} = environment <- Settings.environment(snapshot, ref),
          true <- primary in Environment.writable_refs(environment) do
       {:ok,
        RepositoryContext.document(%{

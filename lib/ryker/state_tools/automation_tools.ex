@@ -5,7 +5,6 @@ defmodule Ryker.StateTools.AutomationTools do
   alias Ryker.Repo
   alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.Settings
-  alias Ryker.Settings.Environment
   alias Ryker.StateTools.RecordWriter
 
   @spec list_automations(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -142,7 +141,11 @@ defmodule Ryker.StateTools.AutomationTools do
     writable =
       case Settings.fetch() do
         {:ok, snapshot} ->
-          Environment.writable_for(snapshot, session.environment_ref, session.repository_ref)
+          Settings.writable_repositories(
+            snapshot,
+            session.environment_ref,
+            session.repository_ref
+          )
 
         {:error, _reason} ->
           [session.repository_ref]

@@ -211,7 +211,7 @@ defmodule Ryker.Settings.EnvironmentsTest do
   # Chat and every conversation without its own setting use the default, so
   # two defaults would make the answer depend on which row a query saw first.
   test "one environment is the default, and choosing another moves it", %{snapshot: snapshot} do
-    assert Environment.default(snapshot) == nil
+    assert Settings.default_environment(snapshot) == nil
 
     {:ok, saved} =
       Settings.put_environment(
@@ -220,7 +220,7 @@ defmodule Ryker.Settings.EnvironmentsTest do
         @actor
       )
 
-    assert %Environment{ref: "production"} = Environment.default(saved)
+    assert %Environment{ref: "production"} = Settings.default_environment(saved)
 
     {:ok, saved} =
       Settings.put_environment(
@@ -229,7 +229,7 @@ defmodule Ryker.Settings.EnvironmentsTest do
         @actor
       )
 
-    assert %Environment{ref: "staging"} = Environment.default(saved)
+    assert %Environment{ref: "staging"} = Settings.default_environment(saved)
 
     assert Enum.map(saved.environments, &{&1.ref, &1.is_default}) == [
              {"production", false},
@@ -243,7 +243,7 @@ defmodule Ryker.Settings.EnvironmentsTest do
         @actor
       )
 
-    assert Environment.default(saved) == nil
+    assert Settings.default_environment(saved) == nil
   end
 
   # Removing an environment a channel or a webhook source selects would move

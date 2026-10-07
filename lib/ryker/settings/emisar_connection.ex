@@ -2,11 +2,8 @@ defmodule Ryker.Settings.EmisarConnection do
   @moduledoc "A verified Emisar account connection; its bearer remains in credential custody."
 
   use Ecto.Schema
-  import Ecto.Changeset
-  alias Ryker.Settings.Validation
 
   @primary_key {:ref, :string, autogenerate: false}
-  @fields ~w(ref display_name rpc_url account_ref account_label enabled_for_new_work monitoring_enabled verified_at)a
 
   schema "emisar_connection_settings" do
     field(:display_name, :string)
@@ -19,26 +16,7 @@ defmodule Ryker.Settings.EmisarConnection do
     timestamps(type: :utc_datetime_usec)
   end
 
-  def fields, do: @fields
-  def new(_snapshot), do: %__MODULE__{}
-
-  def find(snapshot, :ref, ref),
-    do: Enum.find(snapshot.emisar_connections, &(&1.ref == ref))
-
-  def changeset(current, attributes, _snapshot) do
-    current
-    |> cast(attributes, @fields)
-    |> validate_required([:ref, :display_name, :rpc_url, :account_ref, :verified_at])
-    |> Validation.validate_reference(:ref)
-    |> validate_length(:display_name, min: 1, max: 120)
-    |> validate_length(:account_ref, min: 1, max: 256)
-    |> validate_length(:account_label, min: 1, max: 256)
-    |> validate_rpc_url()
-    |> unique_constraint(:account_ref,
-      name: :emisar_connection_endpoint_account_index,
-      message: "is already connected at this endpoint"
-    )
-  end
+  @type t :: %__MODULE__{}
 
   @doc """
   The parts of an Emisar RPC address: the exact HTTPS endpoint, never an
@@ -60,20 +38,4 @@ defmodule Ryker.Settings.EmisarConnection do
   end
 
   def endpoint(_url), do: :error
-
-  defp validate_rpc_url(changeset) do
-    validate_change(changeset, :rpc_url, fn :rpc_url, value ->
-      case endpoint(value) do
-        {:ok, _endpoint} ->
-          []
-
-        :error ->
-          [
-            rpc_url:
-              {"must be an HTTPS endpoint without credentials, query or fragment",
-               [validation: :format]}
-          ]
-      end
-    end)
-  end
 end

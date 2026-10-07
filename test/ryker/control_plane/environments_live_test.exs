@@ -463,7 +463,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert has_element?(view, "#environment-editor-production-default-api[checked]")
 
     assert %{display_name: "Production"} =
-             production = Settings.Environment.default(Settings.fetch!())
+             production = Settings.default_environment(Settings.fetch!())
 
     assert Settings.Environment.repository_refs(production) == ["api"]
 

@@ -31,6 +31,7 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.GitHubStatus
   alias Ryker.Secret
+  alias Ryker.Settings
   alias Ryker.Settings.{EmisarConnection, Environment, GitHubBinding}
   alias Ryker.Slack.ActionTokens
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
@@ -444,15 +445,15 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp saved_default_environment(settings) do
-    case Environment.default(settings) do
+    case Settings.default_environment(settings) do
       %Environment{ref: ref} -> ref
       nil -> nil
     end
   end
 
   # GitHub events for a repository run in the environment
-  # `Environment.for_repository/2` names among those that can run work, else
-  # on the repository alone. An event is about its own repository, so that
+  # `Ryker.Settings.environment_for_repository/2` names among those that can
+  # run work, else on the repository alone. An event is about its own repository, so that
   # repository is the default choice of the work it starts there, unless the
   # environment only reads it: the environment's default then stays the one
   # work changes, and the event's repository is mounted read-only beside it.
@@ -482,7 +483,7 @@ defmodule Ryker.Runtime.Assembly do
   defp repository_environment(repository_ref, settings, environments) do
     usable = Enum.filter(settings.environments, &Map.has_key?(environments, &1.ref))
 
-    case Environment.for_repository(usable, repository_ref) do
+    case Settings.environment_for_repository(usable, repository_ref) do
       %Environment{ref: ref} -> Map.fetch!(environments, ref)
       nil -> nil
     end
