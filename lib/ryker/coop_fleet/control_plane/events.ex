@@ -90,7 +90,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
 
   defp placement_for_batch(worker_id, batch) do
     worker_id
-    |> Placement.Query.of_worker_session(batch["session_ref"], batch["placement_generation"])
+    |> Placement.Query.by_worker_session(batch["session_ref"], batch["placement_generation"])
     |> Placement.Query.lock_for_update()
     |> Repo.one() || Shared.rollback({:coop_session_placement_not_found, batch["session_ref"]})
   end
@@ -263,8 +263,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
     command =
       placement.session_id
       |> Command.Query.by_session_id()
-      |> Command.Query.of_placement_generation(placement.generation)
-      |> Command.Query.of_kind("ensure_workspace")
+      |> Command.Query.by_placement_generation(placement.generation)
+      |> Command.Query.by_kind("ensure_workspace")
       |> Command.Query.succeeded_2xx()
       |> Command.Query.ordered_by_completed_at_desc()
       |> Command.Query.limit_to(1)

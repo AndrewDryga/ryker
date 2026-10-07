@@ -76,7 +76,7 @@ defmodule Ryker.Publication.Followups.Leases do
 
     query =
       publication_ref
-      |> Followup.Query.for_publication_ref()
+      |> Followup.Query.by_publication_ref()
       |> Followup.Query.lock_for_update()
 
     case Repo.one(query) do

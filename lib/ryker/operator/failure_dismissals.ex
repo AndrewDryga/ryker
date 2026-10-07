@@ -72,7 +72,7 @@ defmodule Ryker.Operator.FailureDismissals do
     refs = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
 
     kinds
-    |> FailureDismissal.Query.of_kinds_and_refs(refs)
+    |> FailureDismissal.Query.by_kinds_and_refs(refs)
     |> Repo.all()
     |> Map.new(&{{&1.kind, &1.ref}, &1})
   end

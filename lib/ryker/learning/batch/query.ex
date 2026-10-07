@@ -24,7 +24,7 @@ defmodule Ryker.Learning.Batch.Query do
   def excluding_id(queryable, id),
     do: where(queryable, [conversation_learning_batches: b], b.id != ^id)
 
-  def in_conversation(queryable \\ all(), transport, conversation_ref) do
+  def by_conversation(queryable \\ all(), transport, conversation_ref) do
     where(
       queryable,
       [conversation_learning_batches: b],

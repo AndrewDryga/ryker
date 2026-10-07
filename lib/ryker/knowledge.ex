@@ -33,7 +33,7 @@ defmodule Ryker.Knowledge do
       retention_seconds()
       |> ConversationKnowledge.Query.valid()
       |> ConversationKnowledge.Query.by_ids(ids)
-      |> ConversationKnowledge.Query.in_conversation(scope.transport, scope.conversation_ref)
+      |> ConversationKnowledge.Query.by_conversation(scope.transport, scope.conversation_ref)
       |> ConversationKnowledge.Query.select_ids()
 
     local = LearningSources.eligible(base, %{scope | visibility: :conversation})
@@ -453,7 +453,7 @@ defmodule Ryker.Knowledge do
 
   defp visible_query(scope) do
     valid_query()
-    |> ConversationKnowledge.Query.in_workspace(scope.workspace_ref)
+    |> ConversationKnowledge.Query.by_workspace_ref(scope.workspace_ref)
     |> Visibility.Query.visible_from(scope)
     |> LearningSources.eligible(scope)
   end
@@ -825,7 +825,7 @@ defmodule Ryker.Knowledge do
   defp persist_memberships(item, roots, direct_sources, version) do
     existing =
       item.id
-      |> KnowledgeSource.Query.of_generation(item.source_generation)
+      |> KnowledgeSource.Query.by_generation(item.source_generation)
       |> KnowledgeSource.Query.select_support()
       |> Repo.all()
       |> Map.new(&{&1.receipt_fingerprint, &1})
@@ -856,7 +856,7 @@ defmodule Ryker.Knowledge do
     if promotions != [] do
       Repo.update_all(
         item.id
-        |> KnowledgeSource.Query.of_generation(item.source_generation)
+        |> KnowledgeSource.Query.by_generation(item.source_generation)
         |> KnowledgeSource.Query.indirect(promotions),
         set: [direct_support_version: version]
       )

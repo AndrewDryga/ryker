@@ -11,7 +11,7 @@ defmodule Ryker.Episodes.Origin.Query do
   def by_native_input_id(queryable \\ all(), native_input_id),
     do: where(queryable, [episode_input_origins: o], o.native_input_id == ^native_input_id)
 
-  def in_conversation(queryable \\ all(), transport, conversation_ref) do
+  def by_conversation(queryable \\ all(), transport, conversation_ref) do
     where(
       queryable,
       [episode_input_origins: o],

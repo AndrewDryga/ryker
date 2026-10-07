@@ -140,7 +140,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     # A new read cannot retrospectively attest a pre-custody native transcript.
     # Fresh Work initializes this before submit; old sessions remain unproven.
     begun = session_id |> Turn.Query.by_session_id() |> Turn.Query.begun()
-    not Repo.exists?(begun) and not Repo.exists?(Record.Query.of_session(session_id))
+    not Repo.exists?(begun) and not Repo.exists?(Record.Query.by_session_id(session_id))
   end
 
   defp document_context!(destination, repository, documents) do
@@ -451,7 +451,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
          {:ok, revision} <- Repo.fetch(revision_query) do
       count =
         head.id
-        |> KnowledgeSource.Query.of_generation(revision.source_generation)
+        |> KnowledgeSource.Query.by_generation(revision.source_generation)
         |> KnowledgeSource.Query.direct_through(revision.version)
         |> KnowledgeSource.Query.select_observation_count()
         |> Repo.one()
@@ -509,7 +509,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
          true <- LearningSources.valid?(revision.source_dependencies, scope) do
       sources =
         id
-        |> KnowledgeSource.Query.of_generation(revision.source_generation)
+        |> KnowledgeSource.Query.by_generation(revision.source_generation)
         |> KnowledgeSource.Query.direct_through(version)
         |> KnowledgeSource.Query.ordered_by_observation()
         |> KnowledgeSource.Query.lock_for_share()
@@ -527,7 +527,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp visible_head(id, scope) do
     id
     |> ConversationKnowledge.Query.by_id()
-    |> ConversationKnowledge.Query.in_workspace(scope.workspace_ref)
+    |> ConversationKnowledge.Query.by_workspace_ref(scope.workspace_ref)
     |> Visibility.Query.visible_from(scope)
     |> ConversationKnowledge.Query.lock_for_share()
   end

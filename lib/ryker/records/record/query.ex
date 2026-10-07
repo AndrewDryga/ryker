@@ -31,7 +31,7 @@ defmodule Ryker.Records.Record.Query do
     do: where(queryable, [episode_state_records: r], r.ref in ^refs)
 
   @doc "Records made by the Work turns of session `session_id`."
-  def of_session(session_id) do
+  def by_session_id(session_id) do
     from(r in all(),
       join: t in Turn,
       on: t.id == r.turn_id,
@@ -60,7 +60,7 @@ defmodule Ryker.Records.Record.Query do
   def by_subject_refs(queryable, subject_refs),
     do: where(queryable, [episode_state_records: r], r.subject_ref in ^subject_refs)
 
-  def of_kind(queryable, kind), do: where(queryable, [episode_state_records: r], r.kind == ^kind)
+  def by_kind(queryable, kind), do: where(queryable, [episode_state_records: r], r.kind == ^kind)
 
   def by_payload(queryable, payload),
     do: where(queryable, [episode_state_records: r], r.payload == ^payload)
@@ -205,7 +205,7 @@ defmodule Ryker.Records.Record.Query do
   def select_rows(queryable), do: select(queryable, [episode_state_records: r], r)
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 
-  def of_kinds(queryable \\ all(), kinds),
+  def by_kinds(queryable \\ all(), kinds),
     do: where(queryable, [episode_state_records: r], r.kind in ^kinds)
 
   @doc """
@@ -215,7 +215,7 @@ defmodule Ryker.Records.Record.Query do
   def offer_with_origin(ref, kinds) do
     ref
     |> by_ref()
-    |> of_kinds(kinds)
+    |> by_kinds(kinds)
     |> with_joined_origin()
     |> lock("FOR UPDATE")
   end

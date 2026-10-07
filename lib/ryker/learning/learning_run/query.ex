@@ -32,7 +32,7 @@ defmodule Ryker.Learning.LearningRun.Query do
   end
 
   @doc "Passes of the batches of conversation scope `scope_key`."
-  def in_scope(queryable \\ all(), scope_key) do
+  def by_scope(queryable \\ all(), scope_key) do
     queryable
     |> join(:inner, [conversation_learning_runs: r], b in Batch,
       on: b.id == r.batch_id,

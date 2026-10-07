@@ -78,6 +78,6 @@ defmodule Ryker.ControlPlane.InstructionSettings do
   defp known_channel?(workspace, channel) do
     Repo.exists?(ChannelConfiguration.Query.by_channel(workspace, channel)) or
       Repo.exists?(IncidentRoom.Query.by_channel(workspace, channel)) or
-      Repo.exists?(Episode.Query.in_conversation("slack", "slack:#{workspace}:#{channel}"))
+      Repo.exists?(Episode.Query.by_conversation("slack", "slack:#{workspace}:#{channel}"))
   end
 end

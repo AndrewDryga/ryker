@@ -65,7 +65,7 @@ defmodule Ryker.Episodes do
 
   @spec list_events(String.t()) :: [Event.t()]
   def list_events(key) do
-    key |> Event.Query.for_episode_key() |> Repo.all()
+    key |> Event.Query.by_episode_key() |> Repo.all()
   end
 
   @doc false

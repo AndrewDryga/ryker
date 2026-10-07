@@ -939,7 +939,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   defp owned_session?(run, remote_id) do
     Reference.valid?(remote_id, 1_024) and
       run.id
-      |> Session.Query.for_knowledge_run()
+      |> Session.Query.by_knowledge_run_id()
       |> Session.Query.by_coop_session_id(remote_id)
       |> Repo.exists?()
   end

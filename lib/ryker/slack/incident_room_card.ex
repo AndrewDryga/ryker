@@ -112,7 +112,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
   defp latest_records(episode_id) do
     episode_id
     |> Record.Query.by_episode_id()
-    |> Record.Query.of_kinds(@record_kinds)
+    |> Record.Query.by_kinds(@record_kinds)
     |> Record.Query.in_use()
     |> Record.Query.ordered_by_sequence()
     |> Repo.all()

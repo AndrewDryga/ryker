@@ -19,7 +19,7 @@ defmodule Ryker.Continuity.ConversationSummary.Query do
   def excluding_identity_key(queryable, identity_key),
     do: where(queryable, [conversation_summaries: s], s.identity_key != ^identity_key)
 
-  def in_conversation(queryable \\ all(), workspace_ref, conversation_ref) do
+  def by_conversation(queryable \\ all(), workspace_ref, conversation_ref) do
     where(
       queryable,
       [conversation_summaries: s],

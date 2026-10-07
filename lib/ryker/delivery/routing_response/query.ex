@@ -78,7 +78,7 @@ defmodule Ryker.Delivery.RoutingResponse.Query do
   def by_input_ids(queryable \\ all(), input_ids),
     do: where(queryable, [delivery_routing_responses: r], r.input_id in ^input_ids)
 
-  def in_conversation(queryable \\ all(), transport, conversation_ref) do
+  def by_conversation(queryable \\ all(), transport, conversation_ref) do
     where(
       queryable,
       [delivery_routing_responses: r],

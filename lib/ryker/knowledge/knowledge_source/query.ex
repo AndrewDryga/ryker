@@ -7,7 +7,7 @@ defmodule Ryker.Knowledge.KnowledgeSource.Query do
   def all, do: from(sources in KnowledgeSource, as: :conversation_knowledge_sources)
 
   @doc "The sources of topic `knowledge_id` in its source generation `generation`."
-  def of_generation(knowledge_id, generation) do
+  def by_generation(knowledge_id, generation) do
     where(
       all(),
       [conversation_knowledge_sources: s],

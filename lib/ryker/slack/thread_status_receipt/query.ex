@@ -6,7 +6,7 @@ defmodule Ryker.Slack.ThreadStatusReceipt.Query do
 
   def all, do: from(receipts in ThreadStatusReceipt, as: :slack_thread_status_receipts)
 
-  def in_thread(queryable \\ all(), workspace_ref, channel_ref, thread_ref) do
+  def by_thread(queryable \\ all(), workspace_ref, channel_ref, thread_ref) do
     where(
       queryable,
       [slack_thread_status_receipts: r],
@@ -16,7 +16,7 @@ defmodule Ryker.Slack.ThreadStatusReceipt.Query do
   end
 
   @doc "Receipts of the writes made for `episode_id` or for one of its messages."
-  def of_episode(episode_id) do
+  def by_episode_id(episode_id) do
     inputs = episode_id |> Entry.Query.by_episode_id() |> Entry.Query.select_ids()
 
     where(

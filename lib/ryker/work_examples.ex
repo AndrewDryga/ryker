@@ -394,13 +394,13 @@ defmodule Ryker.WorkExamples do
   # by `Ryker.RoutingExamples` while it holds the lock exclusively.
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
-    conversation_ref |> Example.Query.in_conversation() |> erase()
+    conversation_ref |> Example.Query.by_conversation() |> erase()
   end
 
   defp erase(query) do
     now = Repo.now!()
 
-    query |> Feedback.Query.for_examples() |> Repo.delete_all()
+    query |> Feedback.Query.by_examples() |> Repo.delete_all()
 
     Repo.update_all(
       Example.Query.kept(query),

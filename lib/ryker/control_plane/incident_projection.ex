@@ -74,7 +74,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
     )
     |> Map.put(
       :open,
-      searched |> IncidentReport.Query.in_status(:ready) |> Repo.aggregate(:count)
+      searched |> IncidentReport.Query.by_status(:ready) |> Repo.aggregate(:count)
     )
   end
 
@@ -253,13 +253,13 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp accounting(episode_id) do
     nil
     |> Execution.Query.ledger("all")
-    |> Execution.Query.of_episode(episode_id)
+    |> Execution.Query.by_episode_id(episode_id)
     |> UsageProjection.totals()
   end
 
   defp lifecycle(room) do
     room.id
-    |> IncidentRoomLifecycleEvent.Query.of_room()
+    |> IncidentRoomLifecycleEvent.Query.by_room_id()
     |> IncidentRoomLifecycleEvent.Query.ordered_by_occurred_at()
     |> IncidentRoomLifecycleEvent.Query.limit_to(@detail_limit)
     |> IncidentRoomLifecycleEvent.Query.select_timeline()
@@ -358,7 +358,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   defp incident_status(query, nil), do: query
 
-  defp incident_status(query, status), do: IncidentReport.Query.in_status(query, status)
+  defp incident_status(query, status), do: IncidentReport.Query.by_status(query, status)
 
   defp incident_search(query, nil), do: query
 

@@ -5,7 +5,7 @@ defmodule Ryker.CoopFleet.EnrollmentToken.Query do
 
   def all, do: from(tokens in EnrollmentToken, as: :coop_worker_enrollment_tokens)
 
-  def for_worker(queryable \\ all(), worker_id, workspace_ref) do
+  def by_worker_id_and_workspace_ref(queryable \\ all(), worker_id, workspace_ref) do
     where(
       queryable,
       [coop_worker_enrollment_tokens: t],

@@ -101,14 +101,14 @@ defmodule Ryker.Continuity.Compaction do
 
     {_count, topics} =
       ConversationKnowledge.Query.all()
-      |> ConversationKnowledge.Query.in_workspace(scoped_workspace_ref)
+      |> ConversationKnowledge.Query.by_workspace_ref(scoped_workspace_ref)
       |> ConversationKnowledge.Query.by_conversation_ref(conversation_ref)
       |> ConversationKnowledge.Query.select_ids()
       |> Repo.delete_all()
 
     {_count, notes} =
       scoped_workspace_ref
-      |> ConversationObservation.Query.in_workspace()
+      |> ConversationObservation.Query.by_workspace_ref()
       |> ConversationObservation.Query.by_conversation_ref(conversation_ref)
       |> ConversationObservation.Query.select_ids()
       |> Repo.delete_all()
@@ -119,13 +119,13 @@ defmodule Ryker.Continuity.Compaction do
 
   defp delete_channel_summaries(workspace_ref, conversation_ref) do
     workspace_ref
-    |> ConversationSummary.Query.in_conversation(conversation_ref)
+    |> ConversationSummary.Query.by_conversation(conversation_ref)
     |> Repo.delete_all()
   end
 
   defp delete_channel_drafts(conversation_ref) do
     conversation_ref
-    |> ConversationSummaryDraft.Query.for_slack_conversation()
+    |> ConversationSummaryDraft.Query.by_slack_conversation_ref()
     |> ConversationSummaryDraft.Query.select_ids()
     |> Repo.all()
     |> delete_drafts()
@@ -138,7 +138,7 @@ defmodule Ryker.Continuity.Compaction do
 
   defp delete_channel_rollups(workspace_ref, conversation_ref, slack_workspace_ref, channel_ref) do
     workspace_ref
-    |> ConversationRollup.Query.in_workspace()
+    |> ConversationRollup.Query.by_workspace_ref()
     |> ConversationRollup.Query.lock_for_update()
     |> Repo.all()
     |> Enum.filter(&rollup_uses_channel?(&1, conversation_ref, slack_workspace_ref, channel_ref))

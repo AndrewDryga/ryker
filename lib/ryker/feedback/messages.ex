@@ -169,7 +169,7 @@ defmodule Ryker.Feedback.Messages do
   defp same_place(query, entry) do
     if top_level?(entry),
       do: query,
-      else: Entry.Query.in_thread(query, entry.destination_thread_ref)
+      else: Entry.Query.by_thread_ref(query, entry.destination_thread_ref)
   end
 
   # A Slack message binds its own timestamp as its thread when it starts one;

@@ -387,7 +387,7 @@ defmodule Ryker.Improvement do
   @doc "Erases what candidates hold about a conversation that was deleted, in its transaction."
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
-    conversation_ref |> Candidate.Query.in_conversation() |> erase()
+    conversation_ref |> Candidate.Query.by_conversation_ref() |> erase()
   end
 
   defp erase(query) do

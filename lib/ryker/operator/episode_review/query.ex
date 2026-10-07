@@ -6,7 +6,7 @@ defmodule Ryker.Operator.EpisodeReview.Query do
   def all, do: from(reviews in EpisodeReview, as: :episode_operator_reviews)
 
   @doc "The review of `episode_id` at its `semantic_version`."
-  def of_version(episode_id, semantic_version) do
+  def by_version(episode_id, semantic_version) do
     where(
       all(),
       [episode_operator_reviews: r],

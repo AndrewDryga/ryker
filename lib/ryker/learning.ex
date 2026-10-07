@@ -418,7 +418,7 @@ defmodule Ryker.Learning do
       when phase in [:create, :submit] do
     owned_transaction(id, claim, fn run ->
       method = if phase == :create, do: "CreateRemoteSession", else: "SubmitTurn"
-      session = Repo.one(Session.Query.for_learning_run(id))
+      session = Repo.one(Session.Query.by_learning_run_id(id))
 
       unless session && is_nil(run.coop_turn_id) && valid_remote_ref?(operation_id) &&
                key == operation_key(run, phase) && operation["method"] == method &&
@@ -452,7 +452,7 @@ defmodule Ryker.Learning do
   """
   def record_uncreated_stop(id, claim) do
     owned_transaction(id, claim, fn run ->
-      session = Repo.one(Session.Query.for_learning_run(id))
+      session = Repo.one(Session.Query.by_learning_run_id(id))
 
       unless run.status in [:stale, :rejected] and is_nil(run.submit_revision) and
                is_nil(run.coop_turn_id) and is_nil(session && session.coop_session_id),
@@ -484,7 +484,7 @@ defmodule Ryker.Learning do
                is_nil(run.coop_turn_id),
              do: Repo.rollback(:learning_absence_unconfirmed)
 
-      session = Repo.one(Session.Query.for_learning_run(id))
+      session = Repo.one(Session.Query.by_learning_run_id(id))
 
       store_stop(run, %{
         "kind" => "never_submitted",
@@ -509,7 +509,7 @@ defmodule Ryker.Learning do
                DateTime.diff(Repo.now!(), run.started_at) >= closed_after_seconds,
              do: Repo.rollback(:learning_remote_unresolved)
 
-      session = Repo.one(Session.Query.for_learning_run(id))
+      session = Repo.one(Session.Query.by_learning_run_id(id))
 
       store_stop(run, %{
         "kind" => "attempt_expired",
@@ -567,7 +567,7 @@ defmodule Ryker.Learning do
   defp owned_remote_session?(run, remote_id) do
     valid_remote_ref?(remote_id) and
       run.id
-      |> Session.Query.for_learning_run()
+      |> Session.Query.by_learning_run_id()
       |> Session.Query.by_coop_session_id(remote_id)
       |> Repo.exists?()
   end
@@ -1490,7 +1490,7 @@ defmodule Ryker.Learning do
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
     conversation_ref
-    |> Entry.Query.in_conversation()
+    |> Entry.Query.by_conversation()
     |> Entry.Query.select_ids()
     |> Repo.all()
     |> erase_runs_reading()

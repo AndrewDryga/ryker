@@ -6,7 +6,7 @@ defmodule Ryker.CoopFleet.SessionEvidence.Query do
   def all, do: from(evidence in SessionEvidence, as: :coop_session_evidence)
 
   @doc "Every capture of session `session_id`, oldest state first."
-  def for_session(session_id) do
+  def by_session_id(session_id) do
     all()
     |> where([coop_session_evidence: e], e.session_id == ^session_id)
     |> order_by([coop_session_evidence: e], asc: e.first_captured_at, asc: e.id)

@@ -163,7 +163,7 @@ defmodule Ryker.Operator.SlackReplay do
     event =
       episode_id
       |> Event.Query.by_episode_id()
-      |> Event.Query.of_kind(:result_accepted)
+      |> Event.Query.by_kind(:result_accepted)
       |> Event.Query.ordered_by_sequence_desc()
       |> Event.Query.limit_to(1)
       |> Repo.one()

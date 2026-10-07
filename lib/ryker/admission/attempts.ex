@@ -165,7 +165,7 @@ defmodule Ryker.Admission.Attempts do
     end)
   end
 
-  defp query(entry), do: Attempt.Query.for_generation(entry.id, entry.execution_generation)
+  defp query(entry), do: Attempt.Query.by_generation(entry.id, entry.execution_generation)
 
   defp persist(attempt, attributes, phase, at) do
     # A reconciliation poll must not move the visible phase backwards or reset

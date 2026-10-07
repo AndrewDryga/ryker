@@ -80,7 +80,7 @@ defmodule Ryker.ControlPlane.CurrentInput.Query do
   The messages of an episode, each once, as they read now: the time the
   first revision arrived and everything else from the current one.
   """
-  def for_episode(id) do
+  def by_episode_id(id) do
     first_revisions =
       from(seed in Entry,
         where: seed.episode_id == ^id,

@@ -201,7 +201,7 @@ defmodule Ryker.Records do
     query =
       episode_id
       |> Record.Query.by_episode_id()
-      |> Record.Query.of_kind("input_request")
+      |> Record.Query.by_kind("input_request")
       |> Record.Query.open()
 
     # A retry of the same call is the same question, and `Records.create`
@@ -323,7 +323,7 @@ defmodule Ryker.Records do
       {_count, resolved} =
         wait_ref
         |> Record.Query.by_ref()
-        |> Record.Query.of_kinds(["input_request", "event_wait"])
+        |> Record.Query.by_kinds(["input_request", "event_wait"])
         |> Record.Query.open()
         |> Record.Query.transition(status)
         |> Repo.update_all([])
@@ -350,7 +350,7 @@ defmodule Ryker.Records do
       {_count, dismissed} =
         episode_id
         |> Record.Query.by_episode_id()
-        |> Record.Query.of_kind("input_request")
+        |> Record.Query.by_kind("input_request")
         |> Record.Query.open()
         |> Record.Query.transition(:dismissed)
         |> Repo.update_all([])
@@ -366,7 +366,7 @@ defmodule Ryker.Records do
   def user_resumable_wait?(wait_ref) when is_binary(wait_ref) do
     not (wait_ref
          |> Record.Query.by_ref()
-         |> Record.Query.of_kind("emisar_approval")
+         |> Record.Query.by_kind("emisar_approval")
          |> Record.Query.open()
          |> Repo.exists?())
   end
@@ -589,7 +589,7 @@ defmodule Ryker.Records do
        ) do
     episode_id
     |> Record.Query.by_episode_id()
-    |> Record.Query.of_kind("event_wait")
+    |> Record.Query.by_kind("event_wait")
     |> Record.Query.open()
     |> Record.Query.without_wait_error()
     |> Record.Query.by_payload(payload)
@@ -656,7 +656,7 @@ defmodule Ryker.Records do
     ids =
       episode_id
       |> Record.Query.by_episode_id()
-      |> Record.Query.of_kind("task_offer")
+      |> Record.Query.by_kind("task_offer")
       |> Record.Query.open()
       |> Record.Query.select_ids_and_payloads()
       |> Repo.all()
@@ -780,7 +780,7 @@ defmodule Ryker.Records do
     records =
       episode_id
       |> Record.Query.by_episode_id()
-      |> Record.Query.of_kind("evidence")
+      |> Record.Query.by_kind("evidence")
       |> Record.Query.in_use()
       |> Record.Query.by_refs(refs)
       |> Repo.all()
@@ -821,7 +821,7 @@ defmodule Ryker.Records do
   defp goal_exists?(episode_id, goal_id) do
     episode_id
     |> Record.Query.by_episode_id()
-    |> Record.Query.of_kind("goal")
+    |> Record.Query.by_kind("goal")
     |> Record.Query.by_subject_ref(goal_id)
     |> Record.Query.in_use()
     |> Repo.exists?()
@@ -841,7 +841,7 @@ defmodule Ryker.Records do
     count =
       episode_id
       |> Record.Query.by_episode_id()
-      |> Record.Query.of_kind("goal")
+      |> Record.Query.by_kind("goal")
       |> Record.Query.by_subject_refs(goal_ids)
       |> Record.Query.in_use()
       |> Repo.aggregate(:count)
@@ -1003,7 +1003,7 @@ defmodule Ryker.Records do
   defp goal_records(episode_id) do
     episode_id
     |> Record.Query.by_episode_id()
-    |> Record.Query.of_kinds(["goal", "goal_state"])
+    |> Record.Query.by_kinds(["goal", "goal_state"])
     |> Record.Query.in_use()
     |> Record.Query.ordered_by_sequence()
     |> Repo.all()

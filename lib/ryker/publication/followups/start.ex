@@ -146,7 +146,7 @@ defmodule Ryker.Publication.Followups.Start do
 
     query =
       repository
-      |> Followup.Query.for_pull_request(number, states)
+      |> Followup.Query.by_pull_request(number, states)
       |> Followup.Query.lock_for_update()
 
     case Repo.one(query) do

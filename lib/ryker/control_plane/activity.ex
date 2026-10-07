@@ -26,8 +26,8 @@ defmodule Ryker.ControlPlane.Activity do
       when is_binary(transport) and is_binary(conversation_ref) do
     count =
       transport
-      |> Episode.Query.in_conversation(conversation_ref)
-      |> Episode.Query.in_mode(execution_mode)
+      |> Episode.Query.by_conversation(conversation_ref)
+      |> Episode.Query.by_execution_mode(execution_mode)
       |> Repo.aggregate(:count)
 
     if count > 1,
@@ -156,7 +156,7 @@ defmodule Ryker.ControlPlane.Activity do
     mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
     base_query = Activity.Query.rows(DateTime.utc_now())
     searchable = Repo.exists?(base_query)
-    query = if mode == "all", do: base_query, else: Activity.Query.in_mode(base_query, mode)
+    query = if mode == "all", do: base_query, else: Activity.Query.by_mode(base_query, mode)
 
     query =
       query
@@ -256,7 +256,7 @@ defmodule Ryker.ControlPlane.Activity do
   defp source(_), do: "Integration"
 
   defp filter(query, value) when value in ~w(attention running done),
-    do: Activity.Query.in_bucket(query, value)
+    do: Activity.Query.by_bucket(query, value)
 
   defp filter(query, _), do: query
 
@@ -286,13 +286,13 @@ defmodule Ryker.ControlPlane.Activity do
     end)
   end
 
-  defp criteria_filter(query, "state", value), do: Activity.Query.in_state(query, value)
+  defp criteria_filter(query, "state", value), do: Activity.Query.by_episode_state(query, value)
 
   # The repository the row shows; the filter matched the one the work checked
   # out, though the row showed the one its message came with (2026-10-04
   # review).
   defp criteria_filter(query, "repository", value),
-    do: Activity.Query.in_repository(query, value)
+    do: Activity.Query.by_repository(query, value)
 
   # What a row shows, as it shows it: the name Work gave the request, the
   # repository as owner/repo and the channel by its name. Refs alone missed

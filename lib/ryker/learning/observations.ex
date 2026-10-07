@@ -283,7 +283,7 @@ defmodule Ryker.Learning.Observations do
       notes =
         ids
         |> ConversationObservation.Query.by_ids()
-        |> ConversationObservation.Query.in_workspace(scope.workspace_ref)
+        |> ConversationObservation.Query.by_workspace_ref(scope.workspace_ref)
         |> ConversationObservation.Query.having_note()
         |> Visibility.Query.visible_from(scope)
         |> ConversationObservation.Query.lock_for_share()
@@ -329,7 +329,7 @@ defmodule Ryker.Learning.Observations do
 
   defp recall(scope, search, limit, search_scope) do
     scope.workspace_ref
-    |> ConversationObservation.Query.in_workspace()
+    |> ConversationObservation.Query.by_workspace_ref()
     |> ConversationObservation.Query.having_note()
     |> ConversationObservation.Query.not_among(Knowledge.current_source_ids_query(scope))
     |> Visibility.Query.visible_from(scope)
@@ -358,7 +358,7 @@ defmodule Ryker.Learning.Observations do
     # Explicit history search includes originals even after their topic was
     # consolidated. Otherwise an older source date becomes unreachable.
     scope.workspace_ref
-    |> ConversationObservation.Query.in_workspace()
+    |> ConversationObservation.Query.by_workspace_ref()
     |> ConversationObservation.Query.having_note()
     |> Visibility.Query.visible_from(scope)
     |> ConversationObservation.Query.lock_for_share()

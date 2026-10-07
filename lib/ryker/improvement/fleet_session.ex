@@ -84,11 +84,11 @@ defmodule Ryker.Improvement.FleetSession do
   @spec for_run(AnalysisRun.t() | Ecto.UUID.t()) :: Session.t() | nil
   def for_run(%AnalysisRun{id: id}), do: for_run(id)
 
-  def for_run(id) when is_binary(id), do: Repo.one(Session.Query.for_improvement_run(id))
+  def for_run(id) when is_binary(id), do: Repo.one(Session.Query.by_improvement_run_id(id))
 
   defp locked(run) do
     run.id
-    |> Session.Query.for_improvement_run()
+    |> Session.Query.by_improvement_run_id()
     |> Session.Query.lock_for_update()
     |> Repo.one!()
   end

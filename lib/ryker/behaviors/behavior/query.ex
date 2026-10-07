@@ -25,7 +25,7 @@ defmodule Ryker.Behaviors.Behavior.Query do
   def by_workspace(queryable \\ all(), workspace_ref),
     do: where(queryable, [operator_behaviors: b], b.workspace_ref == ^workspace_ref)
 
-  def of_kind(queryable \\ all(), kind),
+  def by_kind(queryable \\ all(), kind),
     do: where(queryable, [operator_behaviors: b], b.kind == ^kind)
 
   def by_kinds(queryable \\ all(), kinds),
@@ -51,7 +51,7 @@ defmodule Ryker.Behaviors.Behavior.Query do
   end
 
   @doc "Scoped to any one of `scopes`, each a `{scope_kind, scope_ref}`."
-  def in_any_scope(queryable, scopes) do
+  def by_any_scope(queryable, scopes) do
     condition =
       Enum.reduce(scopes, dynamic(false), fn {scope_kind, scope_ref}, condition ->
         dynamic(

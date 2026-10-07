@@ -597,7 +597,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
   defp locked_command_placement!(command) do
     command
-    |> Placement.Query.of_command()
+    |> Placement.Query.by_command()
     |> Placement.Query.lock_for_update()
     |> Repo.one() || Shared.rollback({:coop_session_placement_not_found, command.session_id})
   end

@@ -169,7 +169,7 @@ defmodule Ryker.Improvement.Candidate.Query do
     )
   end
 
-  def in_category(queryable, category),
+  def by_category(queryable, category),
     do: where(queryable, [improvement_candidates: c], c.category == ^category)
 
   def select_statuses(queryable), do: select(queryable, [improvement_candidates: c], c.status)
@@ -218,7 +218,7 @@ defmodule Ryker.Improvement.Candidate.Query do
   end
 
   @doc "Candidates about conversation `conversation_ref` or quoting it."
-  def in_conversation(conversation_ref) do
+  def by_conversation_ref(conversation_ref) do
     where(
       all(),
       [improvement_candidates: c],

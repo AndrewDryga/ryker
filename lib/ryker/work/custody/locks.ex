@@ -118,7 +118,10 @@ defmodule Ryker.Work.Custody.Locks do
 
   @doc false
   def lock_session(episode_id, session_id) do
-    locked = episode_id |> Session.Query.of_episode(session_id) |> Session.Query.lock_for_update()
+    locked =
+      episode_id
+      |> Session.Query.by_episode_id_and_id(session_id)
+      |> Session.Query.lock_for_update()
 
     case Repo.one(locked) do
       nil -> {:error, :work_session_not_found}

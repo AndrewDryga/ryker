@@ -14,7 +14,7 @@ defmodule Ryker.Continuity.ConversationRollup.Query do
   def by_ref(queryable \\ all(), ref),
     do: where(queryable, [conversation_rollups: r], r.ref == ^ref)
 
-  def in_workspace(queryable \\ all(), workspace_ref),
+  def by_workspace_ref(queryable \\ all(), workspace_ref),
     do: where(queryable, [conversation_rollups: r], r.workspace_ref == ^workspace_ref)
 
   @doc "The rollup of one scope's week."
@@ -31,7 +31,7 @@ defmodule Ryker.Continuity.ConversationRollup.Query do
   Unexpired rollups of `context`'s workspace: its conversation's, and, with a
   repository, that repository's.
   """
-  def for_context(%{repository_ref: repository_ref} = context) when is_binary(repository_ref) do
+  def by_context(%{repository_ref: repository_ref} = context) when is_binary(repository_ref) do
     where(
       all(),
       [conversation_rollups: r],
@@ -41,7 +41,7 @@ defmodule Ryker.Continuity.ConversationRollup.Query do
     )
   end
 
-  def for_context(context) do
+  def by_context(context) do
     where(
       all(),
       [conversation_rollups: r],

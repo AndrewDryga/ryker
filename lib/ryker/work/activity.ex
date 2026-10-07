@@ -59,9 +59,11 @@ defmodule Ryker.Work.Activity do
 
   @doc false
   def close_admission(entry, remote_id) do
-    if Repo.exists?(Session.Query.for_admission(entry.id, entry.execution_generation)),
-      do: FleetSession.settle(entry, remote_id),
-      else: :ok
+    if Repo.exists?(
+         Session.Query.by_admission_input_id_and_generation(entry.id, entry.execution_generation)
+       ),
+       do: FleetSession.settle(entry, remote_id),
+       else: :ok
   end
 
   @spec sync(Session.t(), module(), term()) ::
@@ -183,7 +185,7 @@ defmodule Ryker.Work.Activity do
   def page_for_episode(episode_id, pages \\ 1)
 
   def page_for_episode(episode_id, pages) when is_binary(episode_id) do
-    query = episode_id |> ActivityEvent.Query.of_episode() |> ActivityEvent.Query.visible()
+    query = episode_id |> ActivityEvent.Query.by_episode_id() |> ActivityEvent.Query.visible()
     totals = query |> ActivityEvent.Query.select_totals() |> Repo.one!()
 
     events =

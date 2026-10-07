@@ -112,16 +112,16 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
     do: where(queryable, [conversation_knowledge: k], is_nil(k.forgotten_at))
 
   @doc "Topics learned about repository `ref`, or about none for nil."
-  def of_repository(queryable, nil),
+  def by_repository_ref(queryable, nil),
     do: where(queryable, [conversation_knowledge: k], is_nil(k.repository_ref))
 
-  def of_repository(queryable, repository_ref),
+  def by_repository_ref(queryable, repository_ref),
     do: where(queryable, [conversation_knowledge: k], k.repository_ref == ^repository_ref)
 
   def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [conversation_knowledge: k], desc: k.updated_at, desc: k.id)
 
-  def in_workspace(queryable, workspace_ref),
+  def by_workspace_ref(queryable, workspace_ref),
     do: where(queryable, [conversation_knowledge: k], k.workspace_ref == ^workspace_ref)
 
   @doc """
@@ -160,7 +160,7 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   def by_conversation_ref(queryable, conversation_ref),
     do: where(queryable, [conversation_knowledge: k], k.conversation_ref == ^conversation_ref)
 
-  def in_conversation(queryable, transport, conversation_ref) do
+  def by_conversation(queryable, transport, conversation_ref) do
     where(
       queryable,
       [conversation_knowledge: k],

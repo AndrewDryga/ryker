@@ -97,7 +97,7 @@ defmodule Ryker.Records.Outcomes do
   defp trigger_event(episode_id) do
     episode_id
     |> Event.Query.by_episode_id()
-    |> Event.Query.of_kind(:input_admitted)
+    |> Event.Query.by_kind(:input_admitted)
     |> Event.Query.ordered_by_sequence()
     |> Event.Query.limit_to(1)
     |> Repo.one()

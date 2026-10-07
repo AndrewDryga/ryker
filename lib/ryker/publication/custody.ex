@@ -1015,7 +1015,7 @@ defmodule Ryker.Publication.Custody do
 
   defp publication_for_record(record_ref) do
     record_ref
-    |> Publication.Query.for_record_ref()
+    |> Publication.Query.by_record_ref()
     |> Publication.Query.lock_for_update()
     |> Repo.one()
   end

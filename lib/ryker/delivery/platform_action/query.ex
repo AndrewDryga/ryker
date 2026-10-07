@@ -98,7 +98,7 @@ defmodule Ryker.Delivery.PlatformAction.Query do
     )
   end
 
-  def in_conversation(queryable \\ all(), transport, conversation_ref) do
+  def by_conversation(queryable \\ all(), transport, conversation_ref) do
     where(
       queryable,
       [platform_actions: a],

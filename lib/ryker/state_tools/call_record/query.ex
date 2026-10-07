@@ -7,7 +7,7 @@ defmodule Ryker.StateTools.CallRecord.Query do
   def all, do: from(calls in CallRecord, as: :episode_work_state_tool_calls)
 
   @doc "The latest `limit` calls an episode's turns made while the turns keep their bodies, newest first."
-  def for_episode(episode_id, limit) do
+  def latest_by_episode_id(episode_id, limit) do
     all()
     |> join(:inner, [episode_work_state_tool_calls: c], t in Turn,
       on: t.id == c.turn_id,

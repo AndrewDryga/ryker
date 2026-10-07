@@ -30,7 +30,7 @@ defmodule Ryker.ControlPlane.OverviewProjection do
     }
   end
 
-  defp in_states(states), do: Episode.Query.in_states(Episode.Query.all(), states)
+  defp in_states(states), do: Episode.Query.by_states(Episode.Query.all(), states)
 
   @doc """
   The worker fleet's state, all the Activity page shows of the overview: it

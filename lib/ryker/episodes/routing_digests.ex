@@ -152,7 +152,7 @@ defmodule Ryker.Episodes.RoutingDigests do
   defp latest_admission(episode_id) do
     episode_id
     |> Event.Query.by_episode_id()
-    |> Event.Query.of_kind(:input_admitted)
+    |> Event.Query.by_kind(:input_admitted)
     |> Event.Query.ordered_by_sequence_desc()
     |> Event.Query.limit_to(1)
   end
@@ -276,7 +276,7 @@ defmodule Ryker.Episodes.RoutingDigests do
     stored =
       episode_id
       |> Event.Query.by_episode_id()
-      |> Event.Query.of_kind(:input_admitted)
+      |> Event.Query.by_kind(:input_admitted)
       |> Event.Query.excluding_dedupe_key(event.dedupe_key)
       |> Event.Query.ordered_by_sequence()
       |> Repo.all()

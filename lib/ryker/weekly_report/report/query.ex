@@ -9,7 +9,7 @@ defmodule Ryker.WeeklyReport.Report.Query do
     do: where(queryable, [weekly_reports: r], r.delivery_ref == ^delivery_ref)
 
   @doc "The report of the week that starts on `week`; a preview is not it."
-  def for_week(week),
+  def by_week(week),
     do: where(all(), [weekly_reports: r], r.week == ^week and not r.preview)
 
   def by_status(queryable \\ all(), status),

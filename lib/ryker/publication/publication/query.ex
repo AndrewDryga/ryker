@@ -21,7 +21,7 @@ defmodule Ryker.Publication.Publication.Query do
     do: where(queryable, [episode_publications: p], p.ref == ^ref)
 
   @doc "The publication of the offer record `record_ref`."
-  def for_record_ref(record_ref) do
+  def by_record_ref(record_ref) do
     from(p in all(),
       join: r in Record,
       on: r.id == p.record_id,

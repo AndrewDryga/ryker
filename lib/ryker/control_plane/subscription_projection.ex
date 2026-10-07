@@ -52,7 +52,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
 
   defp subscription_view(query, nil), do: query
 
-  defp subscription_view(query, statuses), do: FollowUp.Query.in_statuses(query, statuses)
+  defp subscription_view(query, statuses), do: FollowUp.Query.by_statuses(query, statuses)
 
   defp subscription_search(items, nil), do: items
 

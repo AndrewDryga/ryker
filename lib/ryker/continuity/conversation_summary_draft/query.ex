@@ -16,7 +16,7 @@ defmodule Ryker.Continuity.ConversationSummaryDraft.Query do
     do: where(queryable, [conversation_summary_drafts: d], d.id in ^ids)
 
   @doc "Drafts of the episodes that answer in Slack conversation `conversation_ref`."
-  def for_slack_conversation(conversation_ref) do
+  def by_slack_conversation_ref(conversation_ref) do
     all()
     |> join(:inner, [conversation_summary_drafts: d], e in Episode,
       on: e.id == d.episode_id,

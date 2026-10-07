@@ -6,7 +6,7 @@ defmodule Ryker.Episodes.Event.Query do
   def all, do: from(events in Event, as: :episode_kernel_events)
 
   @doc "The events of the episode keyed `key`, in order."
-  def for_episode_key(key) do
+  def by_episode_key(key) do
     all()
     |> join(:inner, [episode_kernel_events: e], episode in assoc(e, :episode),
       as: :episode_kernel_episodes
@@ -15,7 +15,7 @@ defmodule Ryker.Episodes.Event.Query do
     |> order_by([episode_kernel_events: e], e.sequence)
   end
 
-  def of_kind(queryable, kind), do: where(queryable, [episode_kernel_events: e], e.kind == ^kind)
+  def by_kind(queryable, kind), do: where(queryable, [episode_kernel_events: e], e.kind == ^kind)
 
   @doc """
   The events that started wait `wait_ref`, or confirmed a delivery that went
@@ -164,7 +164,7 @@ defmodule Ryker.Episodes.Event.Query do
     latest =
       episode_id
       |> by_episode_id()
-      |> of_kind(:reaction_recorded)
+      |> by_kind(:reaction_recorded)
       |> before_sequence(next_sequence)
       |> ordered_by_sequence_desc()
       |> limit(^limit)

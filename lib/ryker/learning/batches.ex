@@ -529,7 +529,7 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp outstanding_scope_query(scope_key),
-    do: scope_key |> LearningRun.Query.in_scope() |> LearningRun.Query.unstopped()
+    do: scope_key |> LearningRun.Query.by_scope() |> LearningRun.Query.unstopped()
 
   def latest(batch_id), do: Repo.one(LearningRun.Query.latest_current(batch_id))
 
@@ -576,7 +576,7 @@ defmodule Ryker.Learning.Batches do
   defp assign_scope(scope, pending, settings, now) do
     entries =
       pending
-      |> LearningInput.Query.in_scope(scope)
+      |> LearningInput.Query.by_scope(scope)
       |> Entry.Query.ordered_by_oldest()
       |> Entry.Query.limit_to(settings.batch_size)
       |> Entry.Query.lock_for_update()

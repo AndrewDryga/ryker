@@ -67,7 +67,7 @@ defmodule Ryker.Learning.LearningInput.Query do
   end
 
   @doc "`pending`'s messages of conversation `scope`."
-  def in_scope(pending, scope) do
+  def by_scope(pending, scope) do
     from(e in pending,
       where:
         e.destination_transport == ^scope.transport and

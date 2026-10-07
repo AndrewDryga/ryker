@@ -62,7 +62,7 @@ defmodule Ryker.Learning.Executor do
   # Binding needs only the session's exact identity, so a session this run owns
   # is bound even when its authority is unusable and cleanup can close it.
   defp remote_session(claim, run, settings, mode) do
-    local = Repo.one!(Session.Query.for_learning_run(run.id))
+    local = Repo.one!(Session.Query.by_learning_run_id(run.id))
 
     if mode == :fence and is_nil(local.worker_job_document) and is_nil(local.worker_job_digest) and
          is_nil(local.coop_session_id) and is_nil(run.submit_revision) and
@@ -205,7 +205,7 @@ defmodule Ryker.Learning.Executor do
   # under its input lock.
   defp observe(claim, run, session, turn) do
     Batches.with_lease(claim, fn ->
-      local = Repo.one!(Session.Query.for_learning_run(run.id))
+      local = Repo.one!(Session.Query.by_learning_run_id(run.id))
 
       Ryker.Accounting.observe_learning_in_transaction(
         claim.batch,

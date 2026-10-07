@@ -190,7 +190,7 @@ defmodule Ryker.Improvement.Evidence do
 
   defp offering_episodes(task_episode_id) do
     Record.Query.all()
-    |> Record.Query.of_kind("task_offer")
+    |> Record.Query.by_kind("task_offer")
     |> Record.Query.by_confirmed_episode_id(task_episode_id)
     |> Record.Query.select_episode_ids()
     |> Repo.all()

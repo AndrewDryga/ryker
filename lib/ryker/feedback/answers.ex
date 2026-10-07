@@ -36,7 +36,7 @@ defmodule Ryker.Feedback.Answers do
 
   defp quick_reply(transport, conversation, ref) do
     RoutingResponse.Query.delivered_messages()
-    |> RoutingResponse.Query.in_conversation(transport, conversation)
+    |> RoutingResponse.Query.by_conversation(transport, conversation)
     |> RoutingResponse.Query.by_receipt_message(ref)
     |> RoutingResponse.Query.ordered_by_delivered_at_desc()
     |> RoutingResponse.Query.limit_to(1)
@@ -46,7 +46,7 @@ defmodule Ryker.Feedback.Answers do
 
   defp post(transport, conversation, ref) do
     PlatformAction.Query.delivered_messages()
-    |> PlatformAction.Query.in_conversation(transport, conversation)
+    |> PlatformAction.Query.by_conversation(transport, conversation)
     |> PlatformAction.Query.by_receipt_message(ref)
     |> PlatformAction.Query.ordered_by_delivered_at_desc()
     |> PlatformAction.Query.limit_to(1)

@@ -110,7 +110,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   @doc "Incident rooms the episode requested or was opened from."
   def incident_steps(episode_id) do
     episode_id
-    |> IncidentRoom.Query.of_episode_or_source()
+    |> IncidentRoom.Query.by_episode_or_source()
     |> IncidentRoom.Query.ordered_by_requested_at_desc()
     |> IncidentRoom.Query.limit_to(50)
     |> Repo.all()

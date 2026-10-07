@@ -299,7 +299,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     session_ids = Enum.map(sessions, & &1.id)
 
     session_ids
-    |> CoopEvent.Query.of_sessions()
+    |> CoopEvent.Query.by_session_ids()
     |> CoopEvent.Query.excluding_kind("session_event")
     |> CoopEvent.Query.ordered_by_inserted_at_and_sequence()
     |> CoopEvent.Query.limit_to(500)

@@ -67,7 +67,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
           filter_dimension(selected, field, Map.fetch(params, key))
         end)
 
-      Activity.Query.of_executions(query, selected)
+      Activity.Query.by_executions(query, selected)
     else
       query
     end

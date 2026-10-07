@@ -127,7 +127,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
     totals =
       UsageProjection.since(window)
       |> Execution.Query.ledger(mode)
-      |> Execution.Query.in_conversation("slack", scope.conversation_ref)
+      |> Execution.Query.by_conversation("slack", scope.conversation_ref)
       |> UsageProjection.totals()
 
     %{

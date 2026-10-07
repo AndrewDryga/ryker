@@ -76,7 +76,7 @@ defmodule Ryker.WeeklyReport.Custody do
 
   @doc "Whether the week that starts on `week` (a Monday) has its report on record; a preview is not it."
   @spec recorded?(Date.t()) :: boolean()
-  def recorded?(%Date{} = week), do: Repo.exists?(Report.Query.for_week(week))
+  def recorded?(%Date{} = week), do: Repo.exists?(Report.Query.by_week(week))
 
   @doc """
   The earliest moment after `since` at which a pending report becomes

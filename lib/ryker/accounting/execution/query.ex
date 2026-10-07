@@ -17,7 +17,7 @@ defmodule Ryker.Accounting.Execution.Query do
   def all, do: from(executions in Execution, as: :execution_usage)
 
   @doc "The ledger rows of executions of `kind` made for `source_ids`."
-  def of_sources(queryable \\ all(), kind, source_ids),
+  def by_sources(queryable \\ all(), kind, source_ids),
     do: where(queryable, [execution_usage: e], e.kind == ^kind and e.source_id in ^source_ids)
 
   @doc """
@@ -28,7 +28,7 @@ defmodule Ryker.Accounting.Execution.Query do
     all()
     |> select([execution_usage: e], map(e, ^@fields))
     |> recorded_since(since)
-    |> in_mode(mode)
+    |> by_execution_mode(mode)
     |> priced()
   end
 
@@ -37,9 +37,9 @@ defmodule Ryker.Accounting.Execution.Query do
   def recorded_since(queryable, since),
     do: where(queryable, [execution_usage: e], e.recorded_at >= ^since)
 
-  def in_mode(queryable, "all"), do: queryable
+  def by_execution_mode(queryable, "all"), do: queryable
 
-  def in_mode(queryable, mode),
+  def by_execution_mode(queryable, mode),
     do: where(queryable, [execution_usage: e], e.execution_mode == ^mode)
 
   @doc """
@@ -94,7 +94,7 @@ defmodule Ryker.Accounting.Execution.Query do
   def recorded_before(ledger, to), do: where(ledger, [ledger: e], e.recorded_at < ^to)
 
   @doc "Every execution of conversation `conversation_ref` on `transport`."
-  def in_conversation(ledger, transport, conversation_ref) do
+  def by_conversation(ledger, transport, conversation_ref) do
     where(
       ledger,
       [ledger: e],
@@ -103,7 +103,8 @@ defmodule Ryker.Accounting.Execution.Query do
   end
 
   @doc "Every execution of request `episode_id`."
-  def of_episode(ledger, episode_id), do: where(ledger, [ledger: e], e.episode_id == ^episode_id)
+  def by_episode_id(ledger, episode_id),
+    do: where(ledger, [ledger: e], e.episode_id == ^episode_id)
 
   @doc "Every routing call made for message `input_id`."
   def admission_calls(ledger, input_id),

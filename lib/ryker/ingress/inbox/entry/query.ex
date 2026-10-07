@@ -10,7 +10,7 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
   def by_ids(queryable \\ all(), ids),
     do: where(queryable, [ingress_inbox_entries: e], e.id in ^ids)
 
-  def in_conversation(queryable \\ all(), conversation_ref) do
+  def by_conversation(queryable \\ all(), conversation_ref) do
     where(
       queryable,
       [ingress_inbox_entries: e],
@@ -417,7 +417,7 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
     )
   end
 
-  def in_thread(queryable, thread_ref),
+  def by_thread_ref(queryable, thread_ref),
     do: where(queryable, [ingress_inbox_entries: e], e.destination_thread_ref == ^thread_ref)
 
   @doc "Messages waiting for routing whose routing lease is held at `now`."

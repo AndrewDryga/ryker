@@ -46,7 +46,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
 
           listed =
             if category,
-              do: Candidate.Query.in_category(in_status, category),
+              do: Candidate.Query.by_category(in_status, category),
               else: in_status
 
           {status, category, in_status, listed}

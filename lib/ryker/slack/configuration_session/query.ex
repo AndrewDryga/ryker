@@ -11,7 +11,7 @@ defmodule Ryker.Slack.ConfigurationSession.Query do
   def by_start_event(queryable \\ all(), event_ref),
     do: where(queryable, [slack_configuration_sessions: s], s.start_event_ref == ^event_ref)
 
-  def in_channel(queryable \\ all(), workspace_ref, channel_ref) do
+  def by_channel(queryable \\ all(), workspace_ref, channel_ref) do
     where(
       queryable,
       [slack_configuration_sessions: s],
@@ -22,7 +22,7 @@ defmodule Ryker.Slack.ConfigurationSession.Query do
   @doc "The setup sessions whose current prompt is message `message_ref` of a channel, latest first."
   def by_current_message(workspace_ref, channel_ref, message_ref) do
     all()
-    |> in_channel(workspace_ref, channel_ref)
+    |> by_channel(workspace_ref, channel_ref)
     |> where([slack_configuration_sessions: s], s.current_message_ref == ^message_ref)
     |> order_by([slack_configuration_sessions: s], desc: s.revision, desc: s.updated_at)
   end

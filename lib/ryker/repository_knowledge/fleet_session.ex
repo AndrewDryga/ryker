@@ -97,11 +97,11 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
   def for_run(%Run{id: id}), do: for_run(id)
 
   def for_run(id) when is_binary(id),
-    do: Repo.one(Session.Query.for_knowledge_run(id))
+    do: Repo.one(Session.Query.by_knowledge_run_id(id))
 
   defp locked(run) do
     run.id
-    |> Session.Query.for_knowledge_run()
+    |> Session.Query.by_knowledge_run_id()
     |> Session.Query.lock_for_update()
     |> Repo.one!()
   end

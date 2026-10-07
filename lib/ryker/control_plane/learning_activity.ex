@@ -340,9 +340,9 @@ defmodule Ryker.ControlPlane.LearningActivity do
   defp stale_topics(batch) do
     topics =
       ConversationKnowledge.Query.all()
-      |> ConversationKnowledge.Query.in_conversation(batch.transport, batch.conversation_ref)
+      |> ConversationKnowledge.Query.by_conversation(batch.transport, batch.conversation_ref)
       |> ConversationKnowledge.Query.unforgotten()
-      |> ConversationKnowledge.Query.of_repository(batch.repository_ref)
+      |> ConversationKnowledge.Query.by_repository_ref(batch.repository_ref)
       |> ConversationKnowledge.Query.ordered_by_recently_updated()
       |> ConversationKnowledge.Query.limit_to(20)
       |> Repo.all()
@@ -359,7 +359,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp outstanding_execution?(row) do
     row.scope_key
-    |> LearningRun.Query.in_scope()
+    |> LearningRun.Query.by_scope()
     |> LearningRun.Query.unstopped()
     |> Repo.exists?()
   end

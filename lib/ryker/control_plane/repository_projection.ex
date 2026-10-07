@@ -103,7 +103,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
     executions =
       "knowledge"
-      |> Execution.Query.of_sources(ids)
+      |> Execution.Query.by_sources(ids)
       |> Repo.all()
       |> Map.new(&{&1.source_id, &1})
 

@@ -54,7 +54,7 @@ defmodule Ryker.Memories.Reviews do
         |> Repo.all()
 
       guidance_workspaces =
-        Behavior.Query.of_kind(:guidance)
+        Behavior.Query.by_kind(:guidance)
         |> Behavior.Query.by_status(:active)
         |> Behavior.Query.select_distinct_workspace_refs()
         |> Repo.all()
@@ -276,7 +276,7 @@ defmodule Ryker.Memories.Reviews do
     guidance =
       workspace_ref
       |> Behavior.Query.by_workspace()
-      |> Behavior.Query.of_kind(:guidance)
+      |> Behavior.Query.by_kind(:guidance)
       |> Behavior.Query.by_status(:active)
       |> Behavior.Query.unexpired_at(now)
       |> Behavior.Query.ordered_by_least_recently_updated()
@@ -446,7 +446,7 @@ defmodule Ryker.Memories.Reviews do
       entry_refs
       |> Behavior.Query.by_refs()
       |> Behavior.Query.by_workspace(workspace_ref)
-      |> Behavior.Query.of_kind(:guidance)
+      |> Behavior.Query.by_kind(:guidance)
       |> Behavior.Query.by_status(:active)
       |> Behavior.Query.unexpired()
       |> Behavior.Query.ordered_by_ref()

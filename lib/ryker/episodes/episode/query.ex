@@ -14,7 +14,7 @@ defmodule Ryker.Episodes.Episode.Query do
     do: where(queryable, [episode_kernel_episodes: e], e.id in ^ids)
 
   @doc "Requests in conversation `conversation_ref` on `transport`."
-  def in_conversation(queryable \\ all(), transport, conversation_ref) do
+  def by_conversation(queryable \\ all(), transport, conversation_ref) do
     where(
       queryable,
       [episode_kernel_episodes: e],
@@ -38,7 +38,7 @@ defmodule Ryker.Episodes.Episode.Query do
     )
   end
 
-  def in_mode(queryable, execution_mode),
+  def by_execution_mode(queryable, execution_mode),
     do: where(queryable, [episode_kernel_episodes: e], e.execution_mode == ^execution_mode)
 
   def ordered_by_id(queryable), do: order_by(queryable, [episode_kernel_episodes: e], asc: e.id)
@@ -74,7 +74,7 @@ defmodule Ryker.Episodes.Episode.Query do
   def touching_conversation(transport, conversation_ref) do
     origins =
       transport
-      |> Origin.Query.in_conversation(conversation_ref)
+      |> Origin.Query.by_conversation(conversation_ref)
       |> Origin.Query.select_episode_ids()
 
     where(
@@ -116,7 +116,7 @@ defmodule Ryker.Episodes.Episode.Query do
 
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 
-  def in_thread(queryable \\ all(), transport, conversation_ref, thread_ref) do
+  def by_thread(queryable \\ all(), transport, conversation_ref, thread_ref) do
     where(
       queryable,
       [episode_kernel_episodes: e],
@@ -126,7 +126,7 @@ defmodule Ryker.Episodes.Episode.Query do
     )
   end
 
-  def in_states(queryable, states),
+  def by_states(queryable, states),
     do: where(queryable, [episode_kernel_episodes: e], e.state in ^states)
 
   @doc """

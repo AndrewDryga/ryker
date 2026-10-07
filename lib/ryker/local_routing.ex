@@ -113,7 +113,7 @@ defmodule Ryker.LocalRouting do
 
   defp prompted?(entry) do
     entry.id
-    |> Attempt.Query.for_generation(entry.execution_generation)
+    |> Attempt.Query.by_generation(entry.execution_generation)
     |> Attempt.Query.prompted()
     |> Repo.exists?()
   end
@@ -226,7 +226,7 @@ defmodule Ryker.LocalRouting do
            Repo.one(Entry.Query.by_id(comparison.input_id)),
          %{"action" => _action} = provider <- entry.decision_document,
          %Attempt{operational_pruned_at: nil, submission: %{} = submission} <-
-           Repo.one(Attempt.Query.for_generation(entry.id, comparison.generation)),
+           Repo.one(Attempt.Query.by_generation(entry.id, comparison.generation)),
          prompt when is_binary(prompt) <- submission["prompt"],
          schema when is_map(schema) <- submission["output_schema"],
          {:ok, context} <- Admission.decided_context(entry),

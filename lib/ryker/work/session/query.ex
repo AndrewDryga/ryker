@@ -8,7 +8,7 @@ defmodule Ryker.Work.Session.Query do
   def all, do: from(sessions in Session, as: :episode_work_sessions)
 
   @doc "The session of repository-knowledge run `run_id`."
-  def for_knowledge_run(queryable \\ all(), run_id) do
+  def by_knowledge_run_id(queryable \\ all(), run_id) do
     where(
       queryable,
       [episode_work_sessions: s],
@@ -26,7 +26,7 @@ defmodule Ryker.Work.Session.Query do
   end
 
   @doc "The session of improvement analysis run `run_id`."
-  def for_improvement_run(queryable \\ all(), run_id) do
+  def by_improvement_run_id(queryable \\ all(), run_id) do
     where(
       queryable,
       [episode_work_sessions: s],
@@ -34,7 +34,7 @@ defmodule Ryker.Work.Session.Query do
     )
   end
 
-  def for_improvement_runs(queryable \\ all(), run_ids) do
+  def by_improvement_run_ids(queryable \\ all(), run_ids) do
     where(
       queryable,
       [episode_work_sessions: s],
@@ -42,7 +42,7 @@ defmodule Ryker.Work.Session.Query do
     )
   end
 
-  def for_learning_runs(queryable \\ all(), run_ids) do
+  def by_learning_run_ids(queryable \\ all(), run_ids) do
     where(
       queryable,
       [episode_work_sessions: s],
@@ -51,7 +51,7 @@ defmodule Ryker.Work.Session.Query do
   end
 
   @doc "The session of learning pass `run_id`."
-  def for_learning_run(queryable \\ all(), run_id) do
+  def by_learning_run_id(queryable \\ all(), run_id) do
     where(
       queryable,
       [episode_work_sessions: s],
@@ -60,7 +60,7 @@ defmodule Ryker.Work.Session.Query do
   end
 
   @doc "The routing session of generation `generation` of inbox entry `input_id`."
-  def for_admission(input_id, generation) do
+  def by_admission_input_id_and_generation(input_id, generation) do
     where(
       all(),
       [episode_work_sessions: s],
@@ -150,7 +150,7 @@ defmodule Ryker.Work.Session.Query do
     do: where(queryable, [episode_work_sessions: s], s.id in ^ids)
 
   @doc "Work session `session_id` of episode `episode_id`."
-  def of_episode(episode_id, session_id) do
+  def by_episode_id_and_id(episode_id, session_id) do
     where(
       all(),
       [episode_work_sessions: s],

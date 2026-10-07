@@ -368,7 +368,7 @@ defmodule Ryker.Memories.Cases do
   defp records(episode_id, kind) do
     episode_id
     |> Record.Query.by_episode_id()
-    |> Record.Query.of_kind(kind)
+    |> Record.Query.by_kind(kind)
     |> Record.Query.in_use()
     |> Record.Query.ordered_by_oldest()
     |> Record.Query.limit_to(32)

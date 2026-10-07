@@ -263,7 +263,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
   def learning_status(scope) do
     needs_attention =
       "slack"
-      |> Batch.Query.in_conversation(scope.conversation_ref)
+      |> Batch.Query.by_conversation(scope.conversation_ref)
       |> Batch.Query.by_statuses([:deferred])
       |> Repo.aggregate(:count)
 

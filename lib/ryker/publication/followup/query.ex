@@ -54,7 +54,7 @@ defmodule Ryker.Publication.Followup.Query do
   end
 
   @doc "The follow-up of publication `publication_ref`, with the publication, as `{followup, publication}`."
-  def for_publication_ref(publication_ref) do
+  def by_publication_ref(publication_ref) do
     from(f in all(),
       join: p in Publication,
       as: :episode_publications,
@@ -68,7 +68,7 @@ defmodule Ryker.Publication.Followup.Query do
   The follow-up of pull request `number` in `repository` that a published
   publication recorded, while its state is one of `states`.
   """
-  def for_pull_request(repository, number, states) do
+  def by_pull_request(repository, number, states) do
     from(f in all(),
       join: p in Publication,
       on: p.id == f.publication_id,

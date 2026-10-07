@@ -7,7 +7,7 @@ defmodule Ryker.WorkExamples.Feedback.Query do
   def all, do: from(feedback in Feedback, as: :work_example_feedback)
 
   @doc "The feedback on the examples `examples` selects."
-  def for_examples(queryable \\ all(), examples) do
+  def by_examples(queryable \\ all(), examples) do
     ids = from(example in examples, select: example.id)
     where(queryable, [work_example_feedback: f], f.example_id in subquery(ids))
   end

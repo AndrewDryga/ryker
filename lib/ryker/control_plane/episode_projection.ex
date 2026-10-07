@@ -169,7 +169,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
         accounting =
           nil
           |> Execution.Query.ledger("all")
-          |> Execution.Query.of_episode(episode.id)
+          |> Execution.Query.by_episode_id(episode.id)
           |> UsageProjection.totals()
 
         {:ok,

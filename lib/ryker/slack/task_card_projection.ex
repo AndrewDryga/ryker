@@ -217,7 +217,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp goal_records(episode_id) do
     episode_id
     |> Record.Query.by_episode_id()
-    |> Record.Query.of_kinds(["goal", "goal_state"])
+    |> Record.Query.by_kinds(["goal", "goal_state"])
     |> Record.Query.in_use()
     |> Record.Query.ordered_by_sequence()
     |> Repo.all()
@@ -226,7 +226,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp progress_records(episode_id) do
     episode_id
     |> Record.Query.by_episode_id()
-    |> Record.Query.of_kind("progress")
+    |> Record.Query.by_kind("progress")
     |> Record.Query.in_use()
     |> Record.Query.not_feedback_progress()
     |> Record.Query.ordered_by_sequence_desc()
@@ -427,7 +427,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     progress =
       episode.id
       |> Record.Query.by_episode_id()
-      |> Record.Query.of_kinds(["progress", "goal", "goal_state"])
+      |> Record.Query.by_kinds(["progress", "goal", "goal_state"])
       |> Record.Query.in_use()
       |> Record.Query.not_feedback_progress()
       |> Record.Query.select_latest_insert()
@@ -622,7 +622,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp open_question(episode_id) do
     episode_id
     |> Record.Query.by_episode_id()
-    |> Record.Query.of_kind("input_request")
+    |> Record.Query.by_kind("input_request")
     |> Record.Query.open()
     |> Record.Query.ordered_by_sequence_desc()
     |> Record.Query.limit_to(1)

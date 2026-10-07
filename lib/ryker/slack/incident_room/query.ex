@@ -46,7 +46,7 @@ defmodule Ryker.Slack.IncidentRoom.Query do
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
   @doc "The rooms `episode_id` investigates or was opened from."
-  def of_episode_or_source(queryable \\ all(), episode_id) do
+  def by_episode_or_source(queryable \\ all(), episode_id) do
     where(
       queryable,
       [slack_incident_rooms: r],

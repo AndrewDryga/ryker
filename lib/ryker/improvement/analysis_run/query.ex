@@ -59,7 +59,7 @@ defmodule Ryker.Improvement.AnalysisRun.Query do
     do: select(queryable, [improvement_analysis_runs: r], max(r.generation))
 
   @doc "The analyses of request `episode_id`'s candidates."
-  def of_request(episode_id) do
+  def by_episode_id(episode_id) do
     from(r in all(),
       join: c in Candidate,
       on: c.id == r.candidate_id,
@@ -68,7 +68,7 @@ defmodule Ryker.Improvement.AnalysisRun.Query do
   end
 
   @doc "The analyses of message `input_id`'s candidates, while no request took it."
-  def of_message(input_id) do
+  def by_input_id(input_id) do
     from(r in all(),
       join: c in Candidate,
       on: c.id == r.candidate_id,

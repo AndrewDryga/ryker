@@ -48,7 +48,7 @@ defmodule Ryker.ControlPlane.FollowUp.Query do
     )
   end
 
-  def in_statuses(queryable, statuses),
+  def by_statuses(queryable, statuses),
     do: where(queryable, [episode_event_subscriptions: s], s.status in ^statuses)
 
   def by_ref(queryable, ref),

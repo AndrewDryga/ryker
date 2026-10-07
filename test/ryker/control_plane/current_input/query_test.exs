@@ -54,7 +54,7 @@ defmodule Ryker.ControlPlane.CurrentInput.QueryTest do
     )
 
     assert [%{content: %{"text" => "Deploy failed twice"}}] =
-             Repo.all(CurrentInput.Query.for_episode(episode.id))
+             Repo.all(CurrentInput.Query.by_episode_id(episode.id))
   end
 
   # Ranking every revision in the inbox to find each message's current one
@@ -93,7 +93,7 @@ defmodule Ryker.ControlPlane.CurrentInput.QueryTest do
     assert Repo.aggregate(Entry, :count) > own * 4
 
     {_messages, statements} =
-      QueryWork.statements(fn -> Repo.all(CurrentInput.Query.for_episode(episode.id)) end)
+      QueryWork.statements(fn -> Repo.all(CurrentInput.Query.by_episode_id(episode.id)) end)
 
     assert QueryWork.most_rows_read(statements, @table) <= own * 2
 

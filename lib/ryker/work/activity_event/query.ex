@@ -25,7 +25,7 @@ defmodule Ryker.Work.ActivityEvent.Query do
   end
 
   @doc "Episode `episode_id`'s events, and those of the messages it was routed from."
-  def of_episode(episode_id) do
+  def by_episode_id(episode_id) do
     inputs = episode_id |> Entry.Query.by_episode_id() |> Entry.Query.select_ids()
 
     where(

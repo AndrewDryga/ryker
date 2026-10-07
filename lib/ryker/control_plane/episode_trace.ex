@@ -499,7 +499,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   # is rated on its own. What people said, ratings included, is the Feedback
   # chapter's to show.
   defp rating_state(%Episode{} = episode, events) do
-    rated = Repo.exists?(EpisodeReview.Query.of_version(episode.id, episode.semantic_version))
+    rated = Repo.exists?(EpisodeReview.Query.by_version(episode.id, episode.semantic_version))
 
     back = %{"back" => Paths.request(episode.id)}
 

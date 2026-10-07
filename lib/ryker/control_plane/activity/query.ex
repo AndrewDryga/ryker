@@ -36,12 +36,14 @@ defmodule Ryker.ControlPlane.Activity.Query do
     from(row in subquery(latest), order_by: [desc: row.updated_at], limit: ^limit)
   end
 
-  def in_mode(queryable, mode), do: from(row in queryable, where: row.mode == ^mode)
-  def in_bucket(queryable, bucket), do: from(row in queryable, where: row.bucket == ^bucket)
-  def in_state(queryable, state), do: from(row in queryable, where: row.episode_state == ^state)
+  def by_mode(queryable, mode), do: from(row in queryable, where: row.mode == ^mode)
+  def by_bucket(queryable, bucket), do: from(row in queryable, where: row.bucket == ^bucket)
+
+  def by_episode_state(queryable, state),
+    do: from(row in queryable, where: row.episode_state == ^state)
 
   @doc "Rows showing `repository`, whichever source it came from."
-  def in_repository(queryable, repository),
+  def by_repository(queryable, repository),
     do: from(row in queryable, where: row.repository == ^repository)
 
   @doc "Rows whose `column` (`:conversation`, `:thread` or `:source`) is `value`."
@@ -75,7 +77,7 @@ defmodule Ryker.ControlPlane.Activity.Query do
   The rows of `queryable` whose request one of `executions`, a usage ledger
   query, served: an episode's, or a routed message's that became none.
   """
-  def of_executions(queryable, executions) do
+  def by_executions(queryable, executions) do
     episode_ids = from(e in executions, select: e.episode_id)
     admission_ids = from(e in executions, where: e.kind == "admission", select: e.source_id)
 

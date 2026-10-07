@@ -27,7 +27,7 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
     )
   end
 
-  def in_status(queryable, status),
+  def by_status(queryable, status),
     do: where(queryable, [slack_incident_rooms: r], r.status == ^status)
 
   @doc "Each room as the directory lists it, with its latest publication."

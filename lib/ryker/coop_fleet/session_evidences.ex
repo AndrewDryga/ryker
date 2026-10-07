@@ -50,7 +50,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   @doc false
   @spec for_session(Ecto.UUID.t()) :: [SessionEvidence.t()]
   def for_session(session_id) when is_binary(session_id),
-    do: Repo.all(SessionEvidence.Query.for_session(session_id))
+    do: Repo.all(SessionEvidence.Query.by_session_id(session_id))
 
   def for_session(_session_id), do: []
 

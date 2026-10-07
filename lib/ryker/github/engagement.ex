@@ -40,8 +40,8 @@ defmodule Ryker.GitHub.Engagement do
 
   defp continuation?(input) do
     "github"
-    |> Episode.Query.in_thread(input.destination.conversation_ref, input.destination.thread_ref)
-    |> Episode.Query.in_states(@active_states)
+    |> Episode.Query.by_thread(input.destination.conversation_ref, input.destination.thread_ref)
+    |> Episode.Query.by_states(@active_states)
     |> Repo.exists?()
   end
 

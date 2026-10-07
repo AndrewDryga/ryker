@@ -67,7 +67,7 @@ defmodule Ryker.Schedules.Schedule.Query do
     )
   end
 
-  def in_conversation(queryable \\ all(), transport, conversation_ref) do
+  def by_conversation(queryable \\ all(), transport, conversation_ref) do
     where(
       queryable,
       [episode_schedules: s],

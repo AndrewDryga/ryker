@@ -19,7 +19,7 @@ defmodule Ryker.RoutingExamples.Example.Query do
     do: where(queryable, [routing_examples: x], is_nil(x.forgotten_at))
 
   @doc "Examples answered in `conversation_ref` or quoting it."
-  def in_conversation(queryable \\ all(), conversation_ref) do
+  def by_conversation(queryable \\ all(), conversation_ref) do
     where(
       queryable,
       [routing_examples: x],

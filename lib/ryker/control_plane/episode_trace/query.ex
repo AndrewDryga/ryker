@@ -12,9 +12,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Query do
   alias Ryker.Records.Record
   alias Ryker.Slack.IncidentRoom
 
-  @doc "The messages of `episode_id`, each once, as they read now (`CurrentInput.Query.for_episode/1`)."
+  @doc "The messages of `episode_id`, each once, as they read now (`CurrentInput.Query.by_episode_id/1`)."
   def messages(episode_id),
-    do: from(entry in subquery(CurrentInput.Query.for_episode(episode_id)), as: :messages)
+    do: from(entry in subquery(CurrentInput.Query.by_episode_id(episode_id)), as: :messages)
 
   def ordered_by_occurred_at(queryable),
     do: order_by(queryable, [messages: e], asc: e.occurred_at, asc: e.id)

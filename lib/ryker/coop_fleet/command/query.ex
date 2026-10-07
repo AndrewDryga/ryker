@@ -19,13 +19,13 @@ defmodule Ryker.CoopFleet.Command.Query do
   def by_worker_id(queryable, worker_id),
     do: where(queryable, [coop_worker_commands: c], c.worker_id == ^worker_id)
 
-  def of_kind(queryable, kind), do: where(queryable, [coop_worker_commands: c], c.kind == ^kind)
+  def by_kind(queryable, kind), do: where(queryable, [coop_worker_commands: c], c.kind == ^kind)
 
   @doc "Session `session_id`'s session creates that did not fail."
   def live_creates(session_id) do
     session_id
     |> by_session_id()
-    |> of_kind("create_session")
+    |> by_kind("create_session")
     |> where([coop_worker_commands: c], c.status != :failed)
   end
 
@@ -82,7 +82,7 @@ defmodule Ryker.CoopFleet.Command.Query do
   def checkpoint_restores(session_id) do
     session_id
     |> by_session_id()
-    |> of_kind("ensure_workspace")
+    |> by_kind("ensure_workspace")
     |> where(
       [coop_worker_commands: c],
       fragment("(?::jsonb -> 'checkpoint') IS NOT NULL", c.payload)
@@ -123,7 +123,7 @@ defmodule Ryker.CoopFleet.Command.Query do
     )
   end
 
-  def of_placement_generation(queryable, generation),
+  def by_placement_generation(queryable, generation),
     do: where(queryable, [coop_worker_commands: c], c.placement_generation == ^generation)
 
   def ordered_by_completed_at_desc(queryable),

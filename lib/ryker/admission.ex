@@ -1247,16 +1247,16 @@ defmodule Ryker.Admission do
     destination = input.destination
 
     destination.transport
-    |> Episode.Query.in_conversation(destination.conversation_ref)
-    |> Episode.Query.in_mode(execution_mode)
+    |> Episode.Query.by_conversation(destination.conversation_ref)
+    |> Episode.Query.by_execution_mode(execution_mode)
     |> Repo.aggregate(:count)
   end
 
   defp current_active_episode_ids(destination, execution_mode) do
     destination.transport
-    |> Episode.Query.in_conversation(destination.conversation_ref)
-    |> Episode.Query.in_mode(execution_mode)
-    |> Episode.Query.in_states(@active_states)
+    |> Episode.Query.by_conversation(destination.conversation_ref)
+    |> Episode.Query.by_execution_mode(execution_mode)
+    |> Episode.Query.by_states(@active_states)
     |> Episode.Query.ordered_by_id()
     |> Episode.Query.select_ids()
     |> Repo.all()
@@ -1294,7 +1294,7 @@ defmodule Ryker.Admission do
   end
 
   defp endpoint_row(episode_id, position) do
-    admissions = episode_id |> Event.Query.by_episode_id() |> Event.Query.of_kind(:input_admitted)
+    admissions = episode_id |> Event.Query.by_episode_id() |> Event.Query.by_kind(:input_admitted)
 
     ordered =
       if position == :first,

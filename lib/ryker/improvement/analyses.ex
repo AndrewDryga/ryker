@@ -779,7 +779,7 @@ defmodule Ryker.Improvement.Analyses do
   defp owned_session?(run, remote_id) do
     Reference.valid?(remote_id, 1_024) and
       run.id
-      |> Session.Query.for_improvement_run()
+      |> Session.Query.by_improvement_run_id()
       |> Session.Query.by_coop_session_id(remote_id)
       |> Repo.exists?()
   end

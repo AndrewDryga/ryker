@@ -10,7 +10,7 @@ defmodule Ryker.CoopFleet.Placement.Query do
     do: where(queryable, [coop_session_placements: p], p.id == ^id)
 
   @doc "The placement `command` was queued on: its worker, session and generation."
-  def of_command(command) do
+  def by_command(command) do
     where(
       all(),
       [coop_session_placements: p],
@@ -20,7 +20,7 @@ defmodule Ryker.CoopFleet.Placement.Query do
   end
 
   @doc "Worker `worker_id`'s placement of session `session_id` at `generation`."
-  def of_worker_session(worker_id, session_id, generation) do
+  def by_worker_session(worker_id, session_id, generation) do
     where(
       all(),
       [coop_session_placements: p],

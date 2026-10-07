@@ -153,7 +153,7 @@ defmodule Ryker.Continuity.Recall do
 
   defp searchable_rollups_query(context, scope) do
     context
-    |> ConversationRollup.Query.for_context()
+    |> ConversationRollup.Query.by_context()
     |> ConversationRollup.Query.visible_to(context)
     |> ConversationRollup.Query.within_scope(context, scope)
   end
@@ -197,7 +197,7 @@ defmodule Ryker.Continuity.Recall do
   defp related_rollups(context) do
     query =
       context
-      |> ConversationRollup.Query.for_context()
+      |> ConversationRollup.Query.by_context()
       |> ConversationRollup.Query.ordered_by_period_end_desc()
       |> ConversationRollup.Query.limit_to(@maximum_candidates)
       |> ConversationRollup.Query.visible_to(context)

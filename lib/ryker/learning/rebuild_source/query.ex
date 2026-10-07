@@ -17,7 +17,7 @@ defmodule Ryker.Learning.RebuildSource.Query do
   pagination: a deleted or edited source cannot take a selectable row merely
   because its old inbox entry remains.
   """
-  def of_topic(topic, retention_seconds) do
+  def by_topic(topic, retention_seconds) do
     topic
     |> scoped_originals()
     |> current_originals()

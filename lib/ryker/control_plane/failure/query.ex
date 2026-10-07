@@ -52,7 +52,7 @@ defmodule Ryker.ControlPlane.Failure.Query do
   end
 
   @doc "Rows of `blocked_work/0` or `stalled_stops/1` for request `key`."
-  def of_request(queryable, key), do: where(queryable, [episode: e], e.key == ^key)
+  def by_episode_key(queryable, key), do: where(queryable, [episode: e], e.key == ^key)
 
   @doc """
   Sessions whose cleanup is blocked, with their episode if they have one, as

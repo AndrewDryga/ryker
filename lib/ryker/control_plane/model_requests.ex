@@ -385,7 +385,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     transitions =
       input_ids
       |> InputCustodyTransition.Query.by_input_ids()
-      |> InputCustodyTransition.Query.of_kinds([:retry_scheduled, :blocked])
+      |> InputCustodyTransition.Query.by_kinds([:retry_scheduled, :blocked])
       |> InputCustodyTransition.Query.ordered_by_occurred_at_and_sequence()
       |> Repo.all()
       |> Enum.group_by(& &1.input_id)
@@ -695,7 +695,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # message row's own timestamp moves whenever the row changes again.
   defp decided_at(entry) do
     with %Attempt{milestones: %{"committed" => committed}} <-
-           Repo.one(Attempt.Query.for_generation(entry.id, entry.execution_generation)),
+           Repo.one(Attempt.Query.by_generation(entry.id, entry.execution_generation)),
          {:ok, at, _offset} <- DateTime.from_iso8601(committed) do
       at
     else

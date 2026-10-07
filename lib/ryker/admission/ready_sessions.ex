@@ -96,7 +96,7 @@ defmodule Ryker.Admission.ReadySessions do
 
     generation =
       entry.id
-      |> Session.Query.for_admission(entry.execution_generation)
+      |> Session.Query.by_admission_input_id_and_generation(entry.execution_generation)
       |> Session.Query.lock_for_update()
 
     case Repo.one(generation) do

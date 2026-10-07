@@ -397,7 +397,7 @@ defmodule Ryker.RoutingExamples do
 
   defp forgotten_messages(conversations) do
     conversations
-    |> ConversationObservation.Query.in_conversations()
+    |> ConversationObservation.Query.by_conversation_refs()
     |> ConversationObservation.Query.forgotten()
     |> ConversationObservation.Query.select_messages()
     |> Repo.all()
@@ -731,7 +731,7 @@ defmodule Ryker.RoutingExamples do
     :ok = LocalRouting.forget_conversation_in_transaction(conversation_ref)
     :ok = WorkExamples.forget_conversation_in_transaction(conversation_ref)
 
-    conversation_ref |> Example.Query.in_conversation() |> erase()
+    conversation_ref |> Example.Query.by_conversation() |> erase()
   end
 
   defp erase_in_transaction(identities, keys) do
@@ -746,7 +746,7 @@ defmodule Ryker.RoutingExamples do
   defp erase(query) do
     now = Repo.now!()
 
-    query |> Feedback.Query.for_examples() |> Repo.delete_all()
+    query |> Feedback.Query.by_examples() |> Repo.delete_all()
 
     Repo.update_all(
       Example.Query.kept(query),

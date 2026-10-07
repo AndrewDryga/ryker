@@ -6,7 +6,7 @@ defmodule Ryker.Operator.FailureDismissal.Query do
   def all, do: from(dismissals in FailureDismissal, as: :failure_dismissals)
 
   @doc "Dismissals of any of `kinds` and any of `refs`."
-  def of_kinds_and_refs(kinds, refs),
+  def by_kinds_and_refs(kinds, refs),
     do: where(all(), [failure_dismissals: d], d.kind in ^kinds and d.ref in ^refs)
 
   def count_by_kind(queryable \\ all()) do

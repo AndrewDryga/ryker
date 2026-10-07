@@ -469,7 +469,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     Repo.delete_all(ChannelConfiguration.Query.by_channel(workspace_ref, channel_ref))
 
     workspace_ref
-    |> ConfigurationSession.Query.in_channel(channel_ref)
+    |> ConfigurationSession.Query.by_channel(channel_ref)
     |> ConfigurationSession.Query.active()
     |> Repo.update_all(set: [status: :cancelled, updated_at: Repo.now!()])
 
@@ -482,7 +482,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     expire_active_sessions!(workspace_ref, channel_ref, now)
 
     workspace_ref
-    |> ConfigurationSession.Query.in_channel(channel_ref)
+    |> ConfigurationSession.Query.by_channel(channel_ref)
     |> ConfigurationSession.Query.active()
     |> ConfigurationSession.Query.unexpired_at(now)
     |> ConfigurationSession.Query.ordered_by_recent()
@@ -521,7 +521,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     active =
       attributes.workspace_ref
-      |> ConfigurationSession.Query.in_channel(attributes.channel_ref)
+      |> ConfigurationSession.Query.by_channel(attributes.channel_ref)
       |> ConfigurationSession.Query.active()
       |> ConfigurationSession.Query.lock_for_update()
       |> Repo.one()
@@ -850,7 +850,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp cancel_active_sessions!(membership, status) do
     membership.workspace_ref
-    |> ConfigurationSession.Query.in_channel(membership.channel_ref)
+    |> ConfigurationSession.Query.by_channel(membership.channel_ref)
     |> ConfigurationSession.Query.active()
     |> Repo.update_all(set: [status: status, updated_at: Repo.now!()])
 
@@ -860,7 +860,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp expire_active_sessions!(workspace_ref, channel_ref, now) do
     {expired, _rows} =
       workspace_ref
-      |> ConfigurationSession.Query.in_channel(channel_ref)
+      |> ConfigurationSession.Query.by_channel(channel_ref)
       |> ConfigurationSession.Query.active()
       |> ConfigurationSession.Query.expired_by(now)
       |> Repo.update_all(set: [status: :expired, updated_at: now])
@@ -905,7 +905,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     )
 
     Repo.delete_all(
-      ConfigurationSession.Query.in_channel(membership.workspace_ref, membership.channel_ref)
+      ConfigurationSession.Query.by_channel(membership.workspace_ref, membership.channel_ref)
     )
 
     :ok

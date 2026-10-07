@@ -51,8 +51,8 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
     end
   end
 
-  defp runs_for(episode_id: id) when is_binary(id), do: runs(AnalysisRun.Query.of_request(id))
-  defp runs_for(input_id: id) when is_binary(id), do: runs(AnalysisRun.Query.of_message(id))
+  defp runs_for(episode_id: id) when is_binary(id), do: runs(AnalysisRun.Query.by_episode_id(id))
+  defp runs_for(input_id: id) when is_binary(id), do: runs(AnalysisRun.Query.by_input_id(id))
   defp runs_for(_owner), do: []
 
   defp runs(query) do
@@ -72,12 +72,12 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       totals: Enum.frequencies_by(runs, & &1.candidate_id),
       executions:
         "improvement"
-        |> Execution.Query.of_sources(ids)
+        |> Execution.Query.by_sources(ids)
         |> Repo.all()
         |> Map.new(&{&1.source_id, &1}),
       sessions:
         ids
-        |> Session.Query.for_improvement_runs()
+        |> Session.Query.by_improvement_run_ids()
         |> Repo.all()
         |> Map.new(&{&1.improvement_run_id, &1})
     }

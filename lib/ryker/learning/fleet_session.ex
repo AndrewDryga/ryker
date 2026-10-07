@@ -73,7 +73,7 @@ defmodule Ryker.Learning.FleetSession do
 
   defp locked(run) do
     run.id
-    |> Session.Query.for_learning_run()
+    |> Session.Query.by_learning_run_id()
     |> Session.Query.lock_for_update()
     |> Repo.one!()
   end

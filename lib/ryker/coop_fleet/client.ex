@@ -1151,7 +1151,7 @@ defmodule Ryker.CoopFleet.Client do
   defp turn_submission_attempted?(session_id) do
     session_id
     |> Command.Query.by_session_id()
-    |> Command.Query.of_kind("submit_turn")
+    |> Command.Query.by_kind("submit_turn")
     |> Repo.exists?()
   end
 
@@ -1319,7 +1319,7 @@ defmodule Ryker.CoopFleet.Client do
 
     query =
       if is_integer(placement_generation),
-        do: Command.Query.of_placement_generation(query, placement_generation),
+        do: Command.Query.by_placement_generation(query, placement_generation),
         else: query
 
     query

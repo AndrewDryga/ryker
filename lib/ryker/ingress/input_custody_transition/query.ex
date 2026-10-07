@@ -8,7 +8,7 @@ defmodule Ryker.Ingress.InputCustodyTransition.Query do
   def by_input_ids(queryable \\ all(), input_ids),
     do: where(queryable, [input_custody_transitions: t], t.input_id in ^input_ids)
 
-  def of_kinds(queryable, kinds),
+  def by_kinds(queryable, kinds),
     do: where(queryable, [input_custody_transitions: t], t.kind in ^kinds)
 
   @doc "Each message's transitions together, in the order they were made."

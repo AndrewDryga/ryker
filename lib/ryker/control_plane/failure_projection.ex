@@ -263,7 +263,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     found =
       Cancellation.stalled_after_attempts()
       |> Failure.Query.stalled_stops()
-      |> Failure.Query.of_request(ref)
+      |> Failure.Query.by_episode_key(ref)
       |> Repo.one()
 
     if found, do: {:ok, stopping_item(found)}, else: :not_found
@@ -407,7 +407,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   end
 
   defp blocked_work(ref) do
-    Failure.Query.blocked_work() |> Failure.Query.of_request(ref) |> Repo.one()
+    Failure.Query.blocked_work() |> Failure.Query.by_episode_key(ref) |> Repo.one()
   end
 
   # A row is cheap until the page is cut: its recovery brief (custody reads

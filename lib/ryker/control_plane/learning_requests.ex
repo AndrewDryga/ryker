@@ -135,12 +135,12 @@ defmodule Ryker.ControlPlane.LearningRequests do
       numbers: numbers(runs),
       executions:
         "learning"
-        |> Execution.Query.of_sources(ids)
+        |> Execution.Query.by_sources(ids)
         |> Repo.all()
         |> Map.new(&{&1.source_id, &1}),
       sessions:
         ids
-        |> Session.Query.for_learning_runs()
+        |> Session.Query.by_learning_run_ids()
         |> Repo.all()
         |> Map.new(&{&1.learning_run_id, &1}),
       changes: changes(runs, secrets)

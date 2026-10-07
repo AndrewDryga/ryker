@@ -5,7 +5,7 @@ defmodule Ryker.Admission.Attempt.Query do
 
   def all, do: from(attempts in Attempt, as: :admission_attempts)
 
-  def for_generation(queryable \\ all(), input_id, generation) do
+  def by_generation(queryable \\ all(), input_id, generation) do
     where(
       queryable,
       [admission_attempts: a],

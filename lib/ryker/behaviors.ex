@@ -243,7 +243,7 @@ defmodule Ryker.Behaviors do
     if Reference.valid?(workspace_ref) and Reference.valid?(conversation_ref) do
       now = Repo.now!()
 
-      Behavior.Query.of_kind(:standing_assignment)
+      Behavior.Query.by_kind(:standing_assignment)
       |> Behavior.Query.by_workspace(workspace_ref)
       |> Behavior.Query.scoped_to(:conversation, conversation_ref)
       |> Behavior.Query.by_status([:active, :disabled])
@@ -426,7 +426,7 @@ defmodule Ryker.Behaviors do
     fields = Behavior.Query.search_fields()
 
     Behavior.Query.by_workspace(context.workspace_ref)
-    |> Behavior.Query.of_kind(:guidance)
+    |> Behavior.Query.by_kind(:guidance)
     |> Behavior.Query.by_status(:active)
     |> Behavior.Query.unexpired()
     |> Behavior.Query.in_search_scope(context, page.scope)
@@ -548,7 +548,7 @@ defmodule Ryker.Behaviors do
   # that did not fire and why, and a rule scoped to another channel is a reason,
   # not an absence.
   defp workspace_rules(workspace) do
-    Behavior.Query.of_kind(:standing_assignment)
+    Behavior.Query.by_kind(:standing_assignment)
     |> Behavior.Query.by_workspace(workspace)
     |> Behavior.Query.without_status([:deleted, :superseded])
     |> Behavior.Query.ordered_by_oldest()
@@ -996,11 +996,11 @@ defmodule Ryker.Behaviors do
   defp active_for_context(kind, context) do
     now = Repo.now!()
 
-    Behavior.Query.of_kind(kind)
+    Behavior.Query.by_kind(kind)
     |> Behavior.Query.by_status(:active)
     |> Behavior.Query.by_workspace(context.workspace_ref)
     |> Behavior.Query.unexpired_at(now)
-    |> Behavior.Query.in_any_scope(context_clauses(context))
+    |> Behavior.Query.by_any_scope(context_clauses(context))
     |> Behavior.Query.visible_to(kind, context)
     |> Behavior.Query.ordered_by_scope_precedence()
     |> Behavior.Query.limit_to(100)
@@ -1045,7 +1045,7 @@ defmodule Ryker.Behaviors do
       Scope.workspace_ref(input.destination.transport, input.destination.conversation_ref)
 
     # Every standing rule is confirmed in a conversation and scoped to it.
-    Behavior.Query.of_kind(:standing_assignment)
+    Behavior.Query.by_kind(:standing_assignment)
     |> Behavior.Query.by_status(:active)
     |> Behavior.Query.by_workspace(workspace)
     |> Behavior.Query.scoped_to(:conversation, input.destination.conversation_ref)

@@ -117,7 +117,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   defp going(query, nil), do: query
 
   defp going(query, tone),
-    do: Signal.Query.in_categories(query, Keyword.fetch!(FeedbackChart.tones(), tone))
+    do: Signal.Query.by_categories(query, Keyword.fetch!(FeedbackChart.tones(), tone))
 
   defp counts(query), do: query |> Signal.Query.count_by_category() |> Repo.all() |> Map.new()
 
@@ -154,7 +154,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   defp category_page(query, category, params) do
     page =
       PagedRelation.read(
-        Signal.Query.in_categories(query, [category]),
+        Signal.Query.by_categories(query, [category]),
         [desc: :occurred_at, desc: :inserted_at, desc: :id],
         "page",
         params,

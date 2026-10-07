@@ -157,7 +157,7 @@ defmodule Ryker.Observability.Queues do
   # lease monitoring separate so a stuck executor is still visible.
   defp runnable(query, name, now) when name in [:work, :cancellation, :delivery] do
     phase = if name == :delivery, do: :delivery, else: :work
-    Projection.Query.in_episodes(query, OwningTurn.Query.claimable_episode_ids(now, phase))
+    Projection.Query.by_episode_ids(query, OwningTurn.Query.claimable_episode_ids(now, phase))
   end
 
   # A routing response waits for every earlier one of its message to be

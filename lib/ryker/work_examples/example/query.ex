@@ -12,7 +12,7 @@ defmodule Ryker.WorkExamples.Example.Query do
   def kept(queryable \\ all()), do: where(queryable, [work_examples: x], is_nil(x.forgotten_at))
 
   @doc "Examples answered in `conversation_ref` or quoting it."
-  def in_conversation(queryable \\ all(), conversation_ref) do
+  def by_conversation(queryable \\ all(), conversation_ref) do
     where(
       queryable,
       [work_examples: x],

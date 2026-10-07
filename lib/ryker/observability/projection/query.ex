@@ -31,7 +31,7 @@ defmodule Ryker.Observability.Projection.Query do
     do: from(row in queryable, where: not is_nil(row.lease_ref) and row.lease_expires_at > ^now)
 
   @doc "Rows whose episode is among `episode_ids`, a query of episode ids."
-  def in_episodes(queryable, episode_ids),
+  def by_episode_ids(queryable, episode_ids),
     do: from(row in queryable, where: row.episode_id in subquery(episode_ids))
 
   @doc "Rows that `rows`, another query of the same table, also reads."

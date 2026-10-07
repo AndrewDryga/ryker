@@ -38,7 +38,7 @@ defmodule Ryker.Behaviors.Automations do
     workspace = Scope.workspace_ref(episode)
 
     schedules =
-      Schedule.Query.in_conversation(
+      Schedule.Query.by_conversation(
         episode.destination_transport,
         episode.destination_conversation_ref
       )
@@ -537,7 +537,7 @@ defmodule Ryker.Behaviors.Automations do
   defp visible_schedule_query(episode, automation_id) do
     automation_id
     |> Schedule.Query.by_ref()
-    |> Schedule.Query.in_conversation(
+    |> Schedule.Query.by_conversation(
       episode.destination_transport,
       episode.destination_conversation_ref
     )
@@ -560,7 +560,7 @@ defmodule Ryker.Behaviors.Automations do
 
   # The standing assignments a conversation lists as its automations.
   defp conversation_assignments(workspace, episode) do
-    Behavior.Query.of_kind(:standing_assignment)
+    Behavior.Query.by_kind(:standing_assignment)
     |> Behavior.Query.by_workspace(workspace)
     |> Behavior.Query.scoped_to(:conversation, episode.destination_conversation_ref)
     |> Behavior.Query.by_status([:active, :disabled])

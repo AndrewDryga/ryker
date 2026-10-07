@@ -19,7 +19,7 @@ defmodule Ryker.Learning.ConversationObservation.Query do
 
   def ordered_by_id(queryable), do: order_by(queryable, [conversation_observations: o], asc: o.id)
 
-  def in_workspace(queryable \\ all(), workspace_ref),
+  def by_workspace_ref(queryable \\ all(), workspace_ref),
     do: where(queryable, [conversation_observations: o], o.workspace_ref == ^workspace_ref)
 
   @doc "Observations that still say something: a forgotten or conflicted one keeps no note."
@@ -114,7 +114,7 @@ defmodule Ryker.Learning.ConversationObservation.Query do
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
   def lock_for_share(queryable), do: lock(queryable, "FOR SHARE")
 
-  def in_conversations(queryable \\ all(), conversation_refs),
+  def by_conversation_refs(queryable \\ all(), conversation_refs),
     do: where(queryable, [conversation_observations: o], o.conversation_ref in ^conversation_refs)
 
   def by_conversation_ref(queryable, conversation_ref),

@@ -23,7 +23,7 @@ defmodule Ryker.Slack.Engagement do
         }
       })
       when is_binary(conversation_ref) and is_binary(thread_ref) do
-    Repo.exists?(Episode.Query.in_thread("slack", conversation_ref, thread_ref)) or
+    Repo.exists?(Episode.Query.by_thread("slack", conversation_ref, thread_ref)) or
       Repo.exists?(
         RoutingResponse.Query.messages_in_thread("slack", conversation_ref, thread_ref)
       )

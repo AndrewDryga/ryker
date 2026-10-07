@@ -508,7 +508,7 @@ defmodule Ryker.Work.SubmissionBuilder do
     base =
       episode.id
       |> Event.Query.by_episode_id()
-      |> Event.Query.of_kind(:input_admitted)
+      |> Event.Query.by_kind(:input_admitted)
       |> Event.Query.before_sequence(episode.next_sequence)
 
     active_refs = Enum.uniq(episode.active_input_refs)
@@ -733,7 +733,7 @@ defmodule Ryker.Work.SubmissionBuilder do
     entry_ids =
       linked
       |> Event.Query.by_episode_id()
-      |> Event.Query.of_kind(:input_admitted)
+      |> Event.Query.by_kind(:input_admitted)
       |> Event.Query.inserted_by(started)
       |> Event.Query.select_payloads()
       |> Repo.all()

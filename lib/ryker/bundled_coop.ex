@@ -91,7 +91,7 @@ defmodule Ryker.BundledCoop do
     now = Repo.now!()
 
     worker
-    |> EnrollmentToken.Query.for_worker(workspace)
+    |> EnrollmentToken.Query.by_worker_id_and_workspace_ref(workspace)
     |> EnrollmentToken.Query.by_operator(@actor)
     |> EnrollmentToken.Query.usable_at(now)
     |> Repo.update_all(set: [expires_at: now])
@@ -137,7 +137,7 @@ defmodule Ryker.BundledCoop do
 
     digest
     |> EnrollmentToken.Query.by_digest()
-    |> EnrollmentToken.Query.for_worker(worker, workspace)
+    |> EnrollmentToken.Query.by_worker_id_and_workspace_ref(worker, workspace)
     |> EnrollmentToken.Query.usable_at(now)
     |> Repo.exists?()
   end

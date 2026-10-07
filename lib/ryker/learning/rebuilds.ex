@@ -106,7 +106,7 @@ defmodule Ryker.Learning.Rebuilds do
     do: Repo.exists?(KnowledgeSource.Query.direct_near(topic.id, observation))
 
   defp source_query(topic),
-    do: RebuildSource.Query.of_topic(topic, LearningSources.retention_seconds())
+    do: RebuildSource.Query.by_topic(topic, LearningSources.retention_seconds())
 
   def selections(value) when is_list(value) and length(value) in 1..16 do
     if Enum.all?(value, &selection?/1) and
@@ -382,7 +382,7 @@ defmodule Ryker.Learning.Rebuilds do
   end
 
   defp matching_batches(topic, mode) do
-    query = Batch.Query.in_conversation(topic.transport, topic.conversation_ref)
+    query = Batch.Query.by_conversation(topic.transport, topic.conversation_ref)
     if mode, do: Batch.Query.by_execution_mode(query, mode), else: query
   end
 

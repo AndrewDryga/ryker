@@ -63,7 +63,7 @@ defmodule Ryker.StateTools.CallLog do
   def list_for_episode(episode_id, since \\ nil)
 
   def list_for_episode(episode_id, since) when is_binary(episode_id) do
-    query = CallRecord.Query.for_episode(episode_id, @maximum_listed)
+    query = CallRecord.Query.latest_by_episode_id(episode_id, @maximum_listed)
     query = if since, do: CallRecord.Query.called_since(query, since), else: query
     query |> Repo.all() |> Enum.reverse()
   end
