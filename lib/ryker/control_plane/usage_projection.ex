@@ -1,11 +1,9 @@
 defmodule Ryker.ControlPlane.UsageProjection do
   @moduledoc "Comparable usage breakdowns from the same deduplicated execution ledger."
-  import Ecto.Query
   alias Ryker.Accounting.{ExecutionQuery, Pricing}
-  alias Ryker.ControlPlane.RepositoryNames
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.ControlPlane.{ActivityQuery, RepositoryNames, UsageQuery}
   alias Ryker.Repo
-  alias Ryker.Work.{Measurement, Turn}
+  alias Ryker.Work.Measurement
 
   @filters %{
     "usage_profile" => :profile,
@@ -59,36 +57,28 @@ defmodule Ryker.ControlPlane.UsageProjection do
       window = if Map.has_key?(params, "usage_window"), do: params["usage_window"], else: "all"
 
       executions =
-        ExecutionQuery.ledger(since(window), mode)
-        |> dimensions()
+        window
+        |> since()
+        |> ExecutionQuery.ledger(mode)
+        |> UsageQuery.dimensions()
 
-      ids =
+      selected =
         Enum.reduce(@filters, executions, fn {key, field}, selected ->
           filter_dimension(selected, field, Map.fetch(params, key))
         end)
 
-      episode_ids = from(e in ids, select: e.episode_id)
-      admission_ids = from(e in ids, where: e.kind == "admission", select: e.source_id)
-
-      from(row in query,
-        where:
-          (row.kind == "episode" and row.id in subquery(episode_ids)) or
-            (row.kind == "admission" and row.id in subquery(admission_ids))
-      )
+      ActivityQuery.of_executions(query, selected)
     else
       query
     end
   end
 
-  defp filter_dimension(query, field, {:ok, ""}),
-    do: from(e in query, where: is_nil(field(e, ^field)))
-
   defp filter_dimension(query, field, {:ok, value})
        when is_binary(value) and byte_size(value) <= 512,
-       do: from(e in query, where: field(e, ^field) == ^value)
+       do: UsageQuery.with_dimension(query, field, value)
 
   defp filter_dimension(query, _field, :error), do: query
-  defp filter_dimension(query, _field, _invalid), do: from(e in query, where: false)
+  defp filter_dimension(query, _field, _invalid), do: UsageQuery.none(query)
 
   @doc "The start of a usage window, or nil for all time."
   @spec since(String.t()) :: DateTime.t() | nil
@@ -99,7 +89,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
 
   def snapshot(query) do
     prices = Pricing.used(query)
-    query = dimensions(query)
+    query = UsageQuery.dimensions(query)
 
     targets =
       groups(query, [:execution_target])
@@ -115,17 +105,16 @@ defmodule Ryker.ControlPlane.UsageProjection do
       targets: targets,
       models: groups(query, [:provider, :model, :effort]),
       performance: groups(query, [:work_kind, :provider, :model, :effort]),
-      channels:
-        groups(from(e in query, where: e.transport == "slack"), [:transport, :conversation_ref]),
+      channels: query |> UsageQuery.in_slack() |> groups([:transport, :conversation_ref]),
       repositories: query |> groups([:repository_ref]) |> named_repositories(),
       kinds: groups(query, [:work_kind]),
-      users: groups(people(query), [:source, :workspace, :actor]),
+      users: query |> UsageQuery.people() |> groups([:source, :workspace, :actor]),
       days: days(query),
       prices: prices
     }
   end
 
-  def totals(query), do: query |> aggregate() |> Repo.one!() |> finish()
+  def totals(query), do: query |> UsageQuery.aggregate() |> Repo.one!() |> finish()
 
   # A repository row reads as owner/repo; its ref stays for the filter link.
   defp named_repositories(rows) do
@@ -134,205 +123,27 @@ defmodule Ryker.ControlPlane.UsageProjection do
   end
 
   def filter_options do
-    query = dimensions(ExecutionQuery.ledger(nil, "all"))
-
-    Repo.all(
-      from(e in query,
-        distinct: true,
-        select: map(e, [:source, :workspace, :actor, :actor_kind, :transport, :conversation_ref]),
-        order_by: [e.source, e.workspace, e.actor, e.conversation_ref],
-        limit: 500
-      )
-    )
-  end
-
-  defp people(query) do
-    # Someone in Chat is a person once Tailscale or Cloudflare Access named them
-    # (`Ryker.ControlPlane.Actor.chat_ref/1`); the console reached without either
-    # has one shared operator, who is nobody in particular. Apps, bots, hooks and
-    # missing senders still count toward every overall total.
-    from(e in query,
-      where:
-        e.actor_kind == "user" and not is_nil(e.actor) and e.actor != "" and
-          (e.source != "control_plane" or like(e.actor, "tailscale:%") or
-             like(e.actor, "cloudflare:%"))
-    )
-  end
-
-  # Each execution beside the message it answered: routing's names the
-  # message itself, and a Work turn names the message that started it as
-  # `ingress-turn:<message id>` (`Ryker.Admission`). One equality on the
-  # message's id reads it through its key; two ORed conditions, one on a
-  # reference built from every message, read the whole inbox for each
-  # execution (2026-10-04 review).
-  defp dimensions(query) do
-    from(e in query,
-      left_join: turn in Turn,
-      on: e.kind == "work" and turn.id == e.source_id,
-      left_join: entry in Entry,
-      on:
-        entry.id ==
-          fragment(
-            "CASE WHEN ? = 'admission' THEN ? WHEN ? ~ '^ingress-turn:[0-9a-f-]{36}$' THEN substr(?, 14)::uuid END",
-            e.kind,
-            e.source_id,
-            turn.turn_ref,
-            turn.turn_ref
-          ),
-      select_merge: %{
-        source: entry.source_kind,
-        workspace: entry.source_ref,
-        actor: entry.actor_ref,
-        actor_kind: type(entry.actor_kind, :string),
-        corrections:
-          fragment(
-            "CASE WHEN ? = 'work' AND (? = ? OR (? IS NULL AND ? = ?)) THEN (SELECT count(*) FROM jsonb_array_elements(COALESCE(?::jsonb, '[]'::jsonb)) AS v WHERE v->>'verdict' = 'reject') ELSE 0 END",
-            e.kind,
-            e.remote_ref,
-            turn.coop_turn_id,
-            e.remote_ref,
-            e.id,
-            turn.id,
-            turn.validation_history
-          ),
-        provider:
-          fragment(
-            "COALESCE(NULLIF(split_part(split_part(split_part(?, '@', 1), '/', 1), ':', 1), ''), 'unrecorded')",
-            e.execution_target
-          ),
-        model:
-          fragment(
-            "NULLIF(split_part(split_part(split_part(?, '@', 1), '/', 1), ':', 2), '')",
-            e.execution_target
-          ),
-        effort:
-          fragment(
-            "NULLIF(split_part(split_part(?, '@', 1), '/', 2), '')",
-            e.execution_target
-          ),
-        # Account ladders are configuration, not evidence of which credential ran.
-        profile:
-          fragment(
-            "CASE WHEN ? LIKE '%@%' AND ? NOT LIKE '%@%@%' AND split_part(?, '@', 2) NOT LIKE '%,%' THEN NULLIF(split_part(?, '@', 2), '') END",
-            e.execution_target,
-            e.execution_target,
-            e.execution_target,
-            e.execution_target
-          ),
-        # Follow-on Work turns (continuations, resumes, tasks, waits, schedules,
-        # publication checks, approvals) carry no admission decision. Their turn
-        # family is the work type an operator can act on; "unclassified" hid
-        # most of the spend on the live page behind one unopenable row.
-        work_kind:
-          fragment(
-            "CASE WHEN ? = 'admission' THEN 'admission' WHEN ? = 'learning' THEN 'learning' WHEN ? = 'improvement' THEN 'self_analysis' WHEN ? = 'knowledge' THEN 'repository_knowledge' WHEN ? LIKE 'turn:after:%' THEN 'continuation' WHEN ? LIKE 'turn:resume-%' THEN 'resumed' WHEN ? LIKE 'turn:task:%' THEN 'task' WHEN ? LIKE 'turn:event-wait:%' THEN 'event_wait' WHEN ? LIKE 'turn:schedule:%' THEN 'schedule' WHEN ? LIKE 'turn:publication-%' THEN 'publication' WHEN ? LIKE 'turn:emisar-approval:%' THEN 'approval' ELSE COALESCE(?::jsonb ->> 'work_class', 'unclassified') END",
-            e.kind,
-            e.kind,
-            e.kind,
-            e.kind,
-            turn.turn_ref,
-            turn.turn_ref,
-            turn.turn_ref,
-            turn.turn_ref,
-            turn.turn_ref,
-            turn.turn_ref,
-            turn.turn_ref,
-            entry.decision_document
-          ),
-        conversation_ref:
-          fragment(
-            "CASE WHEN ? = 'control_plane' THEN 'control-plane:lab:' ELSE ? END",
-            e.transport,
-            e.conversation_ref
-          )
-      }
-    )
-    |> subquery()
+    nil
+    |> ExecutionQuery.ledger("all")
+    |> UsageQuery.dimensions()
+    |> UsageQuery.filter_options(500)
+    |> Repo.all()
   end
 
   defp groups(query, fields) do
     query
-    |> group_by([e], ^fields)
-    |> aggregate()
-    |> correction_counts(fields)
-    |> select_merge([e], map(e, ^fields))
-    |> order_by([e],
-      desc:
-        fragment(
-          "COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0)",
-          e.usage_input_tokens,
-          e.usage_cached_input_tokens,
-          e.usage_output_tokens
-        )
-    )
-    |> order_by(^fields)
-    |> limit(501)
+    |> UsageQuery.grouped(fields)
     |> Repo.all()
     |> Enum.map(&finish/1)
     |> Enum.sort_by(&{-&1.tokens, -&1.attempts, inspect(Map.take(&1, fields))})
   end
 
-  defp correction_counts(query, [:work_kind, :provider, :model, :effort]) do
-    select_merge(query, [e], %{
-      corrections: type(fragment("COALESCE(SUM(?), 0)::bigint", e.corrections), :integer)
-    })
-  end
-
-  defp correction_counts(query, _), do: query
-
   defp days(query) do
     query
-    |> group_by([e], fragment("date(?)", e.recorded_at))
-    |> aggregate()
-    |> select_merge([e], %{date: type(fragment("date(?)", e.recorded_at), :date)})
-    |> order_by([e], desc: fragment("date(?)", e.recorded_at))
-    |> limit(366)
+    |> UsageQuery.by_day()
     |> Repo.all()
     |> Enum.map(&finish/1)
     |> Enum.sort_by(&Date.to_gregorian_days(&1.date))
-  end
-
-  defp aggregate(query) do
-    from(e in query,
-      select: %{
-        attempts: count(e.id),
-        # The requests Activity lists for these executions: each episode, and
-        # each message routing read that never became one. Learning belongs
-        # to no request.
-        requests:
-          fragment(
-            "COUNT(DISTINCT COALESCE(?, CASE WHEN ? = 'admission' THEN ? END))",
-            e.episode_id,
-            e.kind,
-            e.source_id
-          ),
-        admission: fragment("COUNT(*) FILTER (WHERE ? = 'admission')", e.kind),
-        work: fragment("COUNT(*) FILTER (WHERE ? = 'work')", e.kind),
-        unsuccessful:
-          fragment(
-            "COUNT(*) FILTER (WHERE ? IN ('failed', 'interrupted', 'budget_exhausted', 'cancelled'))",
-            e.status
-          ),
-        input_tokens:
-          type(fragment("COALESCE(SUM(?), 0)::bigint", e.usage_input_tokens), :integer),
-        cached_input_tokens:
-          type(fragment("COALESCE(SUM(?), 0)::bigint", e.usage_cached_input_tokens), :integer),
-        output_tokens:
-          type(fragment("COALESCE(SUM(?), 0)::bigint", e.usage_output_tokens), :integer),
-        reasoning_tokens:
-          type(fragment("COALESCE(SUM(?), 0)::bigint", e.usage_reasoning_tokens), :integer),
-        cost_usd: fragment("COALESCE(SUM(?), 0)", e.usage_cost_usd),
-        estimated_cost_usd: fragment("COALESCE(SUM(?), 0)", e.estimated_cost_usd),
-        estimated: count(e.estimated_cost_usd),
-        costed: fragment("COUNT(*) FILTER (WHERE ?)", e.usage_cost_recorded),
-        usage_measured: fragment("COUNT(*) FILTER (WHERE ?)", e.usage_recorded),
-        measurement_errors: count(e.measurement_error_code),
-        timed: fragment("COUNT(*) FILTER (WHERE ?)", e.timing_recorded),
-        queued_ms: type(fragment("COALESCE(SUM(?), 0)::bigint", e.usage_queued_ms), :integer),
-        provider_ms: type(fragment("COALESCE(SUM(?), 0)::bigint", e.usage_provider_ms), :integer),
-        host_ms: type(fragment("COALESCE(SUM(?), 0)::bigint", e.usage_host_ms), :integer)
-      }
-    )
   end
 
   defp finish(row) do

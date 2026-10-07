@@ -2,7 +2,6 @@ defmodule Ryker.Checks.IL01NoInlineEctoDsl do
   use Credo.Check,
     base_priority: :higher,
     category: :design,
-    param_defaults: [pending: []],
     explanations: [
       check: """
       Iron Law IL-1: no Ecto query DSL outside Query modules.
@@ -13,22 +12,15 @@ defmodule Ryker.Checks.IL01NoInlineEctoDsl do
       every caller composes it instead of writing its own version. So
       `import Ecto.Query` and a qualified `Ecto.Query.from(...)` belong only in
       a `*_query.ex` module.
-
-      `pending:` lists the paths whose queries have not moved yet. Each change
-      that moves a context's queries removes its path, and the list only
-      shrinks.
-      """,
-      params: [pending: "Paths whose queries have not moved into Query modules yet."]
+      """
     ]
 
   @doc false
   @impl true
   def run(%SourceFile{} = source_file, params) do
     filename = "/" <> source_file.filename
-    pending = Params.get(params, :pending, __MODULE__)
 
-    if String.contains?(filename, "/lib/") and not String.ends_with?(filename, "_query.ex") and
-         not Enum.any?(pending, &String.contains?(filename, "/" <> &1)) do
+    if String.contains?(filename, "/lib/") and not String.ends_with?(filename, "_query.ex") do
       ctx = Context.build(source_file, params, __MODULE__)
       result = Credo.Code.prewalk(source_file, &walk/2, ctx)
       result.issues

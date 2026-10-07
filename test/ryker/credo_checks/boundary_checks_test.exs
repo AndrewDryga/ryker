@@ -53,20 +53,6 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
       assert issues(il01(), query, @query) == []
       assert issues(il01(), spec, @context) == []
     end
-
-    test "skips the paths still pending, and only those" do
-      source = """
-      defmodule Ryker.Sprockets do
-        import Ecto.Query
-      end
-      """
-
-      pending = [pending: ["lib/ryker/sprockets.ex", "lib/ryker/gears/"]]
-      assert issues(il01(), source, @context, pending) == []
-      assert issues(il01(), source, "lib/ryker/gears/gear_worker.ex", pending) == []
-      assert [_issue] = issues(il01(), source, "lib/ryker/sprockets_archive.ex", pending)
-      assert [_issue] = issues(il01(), source, "lib/ryker/gears_archive.ex", pending)
-    end
   end
 
   describe "Ryker.Checks.IL02NoRepoGet" do
@@ -104,17 +90,6 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
       assert issues(il02(), context, @context) == []
       assert issues(il02(), direct, "lib/ryker/repo.ex") == []
       assert issues(il02(), direct, "test/ryker/sprockets_test.exs") == []
-    end
-
-    test "skips the paths still pending" do
-      source = """
-      defmodule Ryker.Sprockets do
-        def one(id), do: Repo.get(Sprocket, id)
-      end
-      """
-
-      assert issues(il02(), source, @context, pending: ["lib/ryker/sprockets.ex"]) == []
-      assert [_issue] = issues(il02(), source, @context)
     end
   end
 

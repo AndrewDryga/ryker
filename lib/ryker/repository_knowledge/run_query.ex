@@ -37,6 +37,33 @@ defmodule Ryker.RepositoryKnowledge.RunQuery do
     )
   end
 
+  def by_ids(queryable \\ all(), ids),
+    do: where(queryable, [repository_knowledge_runs: r], r.id in ^ids)
+
+  def newest_first(queryable),
+    do: order_by(queryable, [repository_knowledge_runs: r], desc: r.inserted_at, desc: r.id)
+
+  # What a run's card reads before its prompt and answer are opened: every
+  # column but the large ones.
+  @card_fields Run.__schema__(:fields) -- [:prompt, :result, :document]
+
+  @doc """
+  Each run as its card reads it, with the size of its prompt and answer, as
+  `{run, prompt_bytes, result_bytes}`.
+  """
+  def select_cards(queryable) do
+    select(
+      queryable,
+      [repository_knowledge_runs: r],
+      {struct(r, ^@card_fields), fragment("octet_length(?)", r.prompt),
+       fragment("octet_length(?)", r.result)}
+    )
+  end
+
+  @doc "Each run's prompt and answer, as `{id, prompt, result}`."
+  def select_texts(queryable),
+    do: select(queryable, [repository_knowledge_runs: r], {r.id, r.prompt, r.result})
+
   def oldest_generation_first(queryable),
     do: order_by(queryable, [repository_knowledge_runs: r], asc: r.generation)
 

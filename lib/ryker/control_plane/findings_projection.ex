@@ -6,9 +6,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   it or marked it explained (`Ryker.Records.Findings`).
   """
 
-  import Ecto.Query
-  alias Ryker.ControlPlane.{PagedRelation, Paths, Search}
-  alias Ryker.Episodes.Episode
+  alias Ryker.ControlPlane.{FindingsQuery, PagedRelation, Paths, Search}
   alias Ryker.InspectionRedactor
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -34,14 +32,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
     text = Search.term(params["q"]) || ""
     view = if params["view"] in @views, do: params["view"]
 
-    findings =
-      from(record in Record,
-        join: episode in Episode,
-        on: episode.id == record.episode_id,
-        where: record.kind == "finding",
-        select: {record, episode.id}
-      )
-      |> search(text)
+    findings = search(FindingsQuery.findings(), text)
 
     page =
       PagedRelation.read(
@@ -79,24 +70,13 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   def fetch(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
          {%Record{kind: "finding"} = record, episode_id} <-
-           Repo.one(
-             from(record in Record,
-               join: episode in Episode,
-               on: episode.id == record.episode_id,
-               where: record.id == ^id,
-               select: {record, episode.id}
-             )
-           ) do
+           Repo.one(FindingsQuery.with_request(id)) do
       refs = Map.get(record.payload, "cause_evidence", [])
 
       evidence =
-        Repo.all(
-          from(item in Record,
-            where:
-              item.kind == "evidence" and item.ref in ^refs and
-                item.episode_id == ^record.episode_id
-          )
-        )
+        record.episode_id
+        |> FindingsQuery.evidence(refs)
+        |> Repo.all()
         |> Map.new(&{{&1.episode_id, &1.ref}, &1})
 
       visible = visible_episode_records([record.episode_id])
@@ -107,35 +87,12 @@ defmodule Ryker.ControlPlane.FindingsProjection do
     end
   end
 
-  # Settled comes first: a finding a person forgot is forgotten, one they
-  # marked explained is explained; an open one is what Ryker classified it.
   defp in_view(query, nil), do: query
-
-  defp in_view(query, "forgotten"),
-    do: from([record, _episode] in query, where: record.status == :dismissed)
-
-  defp in_view(query, "explained") do
-    from([record, _episode] in query,
-      where:
-        record.status == :answered or
-          (record.status == :open and
-             fragment("?::jsonb->>'status' = 'explained'", record.payload))
-    )
-  end
-
-  defp in_view(query, classification) do
-    from([record, _episode] in query,
-      where:
-        record.status == :open and
-          fragment("?::jsonb->>'status' = ?", record.payload, ^classification)
-    )
-  end
+  defp in_view(query, view), do: FindingsQuery.in_view(query, view)
 
   defp view_counts(query) do
-    from([record, _episode] in exclude(query, :select),
-      group_by: [record.status, fragment("?::jsonb->>'status'", record.payload)],
-      select: {record.status, fragment("?::jsonb->>'status'", record.payload), count()}
-    )
+    query
+    |> FindingsQuery.counts()
     |> Repo.all()
     |> Enum.reduce(%{}, fn {status, classification, count}, views ->
       Map.update(views, view_of(status, classification), count, &(&1 + count))
@@ -164,37 +121,12 @@ defmodule Ryker.ControlPlane.FindingsProjection do
 
   defp search(query, ""), do: query
 
-  defp search(query, text) do
-    pattern = Search.contains(text)
-
-    from([record, _episode] in query,
-      where:
-        fragment("?::jsonb->>'what' ILIKE ?", record.payload, ^pattern) or
-          fragment("?::jsonb->>'reason' ILIKE ?", record.payload, ^pattern) or
-          fragment("?::jsonb->>'scope' ILIKE ?", record.payload, ^pattern)
-    )
-  end
+  defp search(query, text), do: FindingsQuery.matching(query, Search.contains(text))
 
   defp visible_episode_records(episode_ids) do
-    ranked =
-      from(record in Record,
-        where: record.episode_id in ^episode_ids,
-        select: %{
-          id: record.id,
-          position:
-            over(row_number(),
-              partition_by: record.episode_id,
-              order_by: [desc: record.sequence, desc: record.id]
-            )
-        }
-      )
-
-    Repo.all(
-      from(record in subquery(ranked),
-        where: record.position <= @timeline_record_limit,
-        select: record.id
-      )
-    )
+    episode_ids
+    |> FindingsQuery.shown_on_timeline(@timeline_record_limit)
+    |> Repo.all()
     |> MapSet.new()
   end
 

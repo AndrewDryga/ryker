@@ -11,38 +11,16 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   and "tomorrow" are the schedule's days, not the server's.
   """
 
-  import Ecto.Query
-  alias Ryker.ControlPlane.{Activity, EpisodeProjection, RepositoryNames, Search}
-  alias Ryker.Episodes.Episode
+  alias Ryker.ControlPlane.{Activity, EpisodeProjection, RepositoryNames}
+  alias Ryker.ControlPlane.{ScheduleDirectoryQuery, Search}
   alias Ryker.Operator.FailureDetail
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Schedules.ScheduleOccurrence
-  alias Ryker.Work.{FailureCause, Turn}
+  alias Ryker.Work.FailureCause
 
   @list_limit 100
   @detail_limit 200
   @statuses ~w(active paused completed expired deleted)a
   @views %{"current" => [:active, :paused], "past" => [:completed, :expired, :deleted]}
-
-  # A stored UTC instant as the wall-clock time in `zone`.
-  defmacrop local(zone, at) do
-    quote do
-      fragment("timezone(?, ? AT TIME ZONE 'UTC')", unquote(zone), unquote(at))
-    end
-  end
-
-  # A one-time schedule's saved moment, in its zone; nothing for the others.
-  defmacrop once_local(zone, recurrence) do
-    quote do
-      fragment(
-        "CASE WHEN ?::jsonb ->> 'kind' = 'once' THEN timezone(?, (?::jsonb ->> 'at')::timestamptz) END",
-        unquote(recurrence),
-        unquote(zone),
-        unquote(recurrence)
-      )
-    end
-  end
 
   @doc """
   The schedule directory: the current view (running, then paused) or the past
@@ -51,45 +29,8 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   """
   def list(params) when is_map(params) do
     query =
-      from(schedule in Schedule,
-        order_by: [
-          asc:
-            fragment(
-              "CASE ? WHEN 'active' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END",
-              schedule.status
-            ),
-          asc_nulls_last:
-            fragment(
-              "CASE WHEN ? = 'active' THEN ? END",
-              schedule.status,
-              schedule.next_occurrence_at
-            ),
-          desc: schedule.updated_at,
-          desc: schedule.id
-        ],
-        limit: @list_limit + 1,
-        select: %{
-          authority: schedule.authority,
-          destination_conversation_ref: schedule.destination_conversation_ref,
-          destination_thread_ref: schedule.destination_thread_ref,
-          destination_transport: schedule.destination_transport,
-          expires_at: schedule.expires_at,
-          expires_local: local(schedule.timezone, schedule.expires_at),
-          failures: schedule.failure_count,
-          next_local: local(schedule.timezone, schedule.next_occurrence_at),
-          next_occurrence_at: schedule.next_occurrence_at,
-          now_local: fragment("timezone(?, now())", schedule.timezone),
-          once_local: once_local(schedule.timezone, schedule.recurrence),
-          recurrence: schedule.recurrence,
-          ref: schedule.ref,
-          repository: schedule.repository,
-          status: schedule.status,
-          task: schedule.task,
-          timezone: schedule.timezone,
-          title: schedule.title,
-          updated_at: schedule.updated_at
-        }
-      )
+      (@list_limit + 1)
+      |> ScheduleDirectoryQuery.directory()
       |> schedule_view(Map.get(@views, params["view"]))
       |> schedule_status(Search.one_of(params["status"], @statuses))
       |> schedule_search(Search.term(params["q"]))
@@ -103,19 +44,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   @doc "One schedule with its recorded occurrences, newest first."
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    query =
-      from(schedule in Schedule,
-        where: schedule.ref == ^ref,
-        limit: 1,
-        select:
-          {schedule,
-           %{
-             expires_local: local(schedule.timezone, schedule.expires_at),
-             next_local: local(schedule.timezone, schedule.next_occurrence_at),
-             now_local: fragment("timezone(?, now())", schedule.timezone),
-             once_local: once_local(schedule.timezone, schedule.recurrence)
-           }}
-      )
+    query = ScheduleDirectoryQuery.with_local_times(ref)
 
     case Repo.one(query) do
       nil -> :not_found
@@ -158,55 +87,9 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
     }
   end
 
-  # Each run beside its latest turn, read for that run's episode alone: ranking
-  # every turn in the database for it read the whole table to show ten runs
-  # (2026-10-04 review).
   defp occurrences(schedule) do
-    latest_turn =
-      from(turn in Turn,
-        where: turn.episode_id == parent_as(:occurrence).child_episode_id,
-        order_by: [desc: turn.inserted_at, desc: turn.id],
-        limit: 1,
-        select: %{
-          accepted_at: turn.accepted_at,
-          delivered_at: turn.delivered_at,
-          last_error_code: turn.last_error_code,
-          last_error_detail: turn.last_error_detail,
-          remote_finished_at: turn.remote_finished_at,
-          remote_started_at: turn.remote_started_at,
-          status: turn.status,
-          work_attempt_count: turn.work_attempt_count
-        }
-      )
-
-    from(occurrence in ScheduleOccurrence,
-      as: :occurrence,
-      left_join: episode in Episode,
-      on: episode.id == occurrence.child_episode_id,
-      left_lateral_join: turn in subquery(latest_turn),
-      on: true,
-      where: occurrence.schedule_id == ^schedule.id,
-      order_by: [desc: occurrence.scheduled_for, desc: occurrence.id],
-      limit: @detail_limit + 1,
-      select: %{
-        accepted_at: turn.accepted_at,
-        delivered_at: turn.delivered_at,
-        due_local: local(^schedule.timezone, occurrence.scheduled_for),
-        episode_id: episode.id,
-        episode_state: episode.state,
-        failure_code: turn.last_error_code,
-        failure_detail: turn.last_error_detail,
-        finished_at: turn.remote_finished_at,
-        missed_reason: occurrence.missed_reason,
-        ref: occurrence.ref,
-        scheduled_for: occurrence.scheduled_for,
-        started_at: turn.remote_started_at,
-        status: occurrence.status,
-        trigger: occurrence.trigger,
-        turn_status: turn.status,
-        work_attempt_count: turn.work_attempt_count
-      }
-    )
+    schedule
+    |> ScheduleDirectoryQuery.occurrences(@detail_limit + 1)
     |> Repo.all()
     |> Enum.map(&sanitize_occurrence/1)
   end
@@ -223,26 +106,16 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   defp schedule_view(query, nil), do: query
 
-  defp schedule_view(query, statuses),
-    do: from(schedule in query, where: schedule.status in ^statuses)
+  defp schedule_view(query, statuses), do: ScheduleDirectoryQuery.in_statuses(query, statuses)
 
   defp schedule_status(query, nil), do: query
 
-  defp schedule_status(query, status),
-    do: from(schedule in query, where: schedule.status == ^status)
+  defp schedule_status(query, status), do: ScheduleDirectoryQuery.with_status(query, status)
 
   defp schedule_search(query, nil), do: query
 
-  defp schedule_search(query, search) do
-    pattern = Search.contains(search)
-
-    from(schedule in query,
-      where:
-        ilike(schedule.ref, ^pattern) or ilike(schedule.title, ^pattern) or
-          ilike(schedule.task, ^pattern) or ilike(schedule.repository, ^pattern) or
-          ilike(schedule.destination_conversation_ref, ^pattern)
-    )
-  end
+  defp schedule_search(query, search),
+    do: ScheduleDirectoryQuery.matching(query, Search.contains(search))
 
   # The saved error is an inspected internal term: the page gets the cause it
   # names in words, when it names one, and a digest for support otherwise.

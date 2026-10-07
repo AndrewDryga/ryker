@@ -133,6 +133,18 @@ defmodule Ryker.Records.RecordQuery do
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
+  @doc "Record `ref` with the episode and the Work turn that made it, as `{record, episode, turn}`."
+  def with_origin_turn(ref) do
+    from(r in all(),
+      join: e in Episode,
+      on: e.id == r.episode_id,
+      join: t in Turn,
+      on: t.id == r.turn_id and t.episode_id == r.episode_id,
+      where: r.ref == ^ref,
+      select: {r, e, t}
+    )
+  end
+
   @doc "The latest offer confirmed as task `episode_id`."
   def task_offer_confirming(episode_id) do
     from(r in all(),

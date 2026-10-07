@@ -4,21 +4,6 @@
 # but not evals/, the development- and test-only home of the model
 # evaluations, nor the checks themselves.
 
-# Where queries have not moved into Query modules yet (IL-1, IL-2). Each change
-# that moves a context's queries removes its paths; the list only shrinks.
-query_modules_pending = [
-  "lib/ryker/control_plane/actions.ex",
-  "lib/ryker/control_plane/behavior_library.ex",
-  "lib/ryker/control_plane/findings_projection.ex",
-  "lib/ryker/control_plane/learning_requests.ex",
-  "lib/ryker/control_plane/local_routing_projection.ex",
-  "lib/ryker/control_plane/overview_projection.ex",
-  "lib/ryker/control_plane/repository_projection.ex",
-  "lib/ryker/control_plane/schedule_projection.ex",
-  "lib/ryker/control_plane/usage_projection.ex",
-  "lib/ryker/control_plane/workspace_projection.ex"
-]
-
 %{
   configs: [
     %{
@@ -36,8 +21,8 @@ query_modules_pending = [
           {Ryker.Checks.ContextCryptoBoundary, []},
           {Ryker.Checks.ContextNoMapTakeDrop, []},
           {Ryker.Checks.EnumOverValidateInclusion, []},
-          {Ryker.Checks.IL01NoInlineEctoDsl, pending: query_modules_pending},
-          {Ryker.Checks.IL02NoRepoGet, pending: query_modules_pending},
+          {Ryker.Checks.IL01NoInlineEctoDsl, []},
+          {Ryker.Checks.IL02NoRepoGet, []},
           {Ryker.Checks.IL06QueryModulePure, []},
           {Ryker.Checks.IL12NoFloatMoney, []},
           {Ryker.Checks.InlineBroadcast, []},

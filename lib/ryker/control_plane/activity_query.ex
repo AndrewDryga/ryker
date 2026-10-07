@@ -71,6 +71,21 @@ defmodule Ryker.ControlPlane.ActivityQuery do
     )
   end
 
+  @doc """
+  The rows of `query` whose request one of `executions`, a usage ledger
+  query, served: an episode's, or a routed message's that became none.
+  """
+  def of_executions(query, executions) do
+    episode_ids = from(e in executions, select: e.episode_id)
+    admission_ids = from(e in executions, where: e.kind == "admission", select: e.source_id)
+
+    from(row in query,
+      where:
+        (row.kind == "episode" and row.id in subquery(episode_ids)) or
+          (row.kind == "admission" and row.id in subquery(admission_ids))
+    )
+  end
+
   @doc "How many rows each bucket holds, as `{bucket, count}`."
   def bucket_counts(query),
     do: from(row in query, group_by: row.bucket, select: {row.bucket, count()})

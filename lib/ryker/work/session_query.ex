@@ -42,6 +42,14 @@ defmodule Ryker.Work.SessionQuery do
     )
   end
 
+  def for_learning_runs(queryable \\ all(), run_ids) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.execution_kind == :learning and s.learning_run_id in ^run_ids
+    )
+  end
+
   @doc "The session of learning pass `run_id`."
   def for_learning_run(queryable \\ all(), run_id) do
     where(
@@ -279,6 +287,14 @@ defmodule Ryker.Work.SessionQuery do
 
   def select_episode_ids(queryable),
     do: select(queryable, [episode_work_sessions: s], s.episode_id)
+
+  @doc "Sessions Work runs tasks in."
+  def for_work(queryable \\ all()),
+    do: where(queryable, [episode_work_sessions: s], s.execution_kind == :work)
+
+  @doc "Sessions Coop has bound to a session of its own."
+  def bound(queryable),
+    do: where(queryable, [episode_work_sessions: s], not is_nil(s.coop_session_id))
 
   def latest_generation_first(queryable),
     do: order_by(queryable, [episode_work_sessions: s], desc: s.generation)

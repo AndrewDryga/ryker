@@ -6,12 +6,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   /instructions, under "Saved from conversations". Both lists show Current
   (on or paused) or Past (expired, deleted or replaced) entries.
   """
-  import Ecto.Query
-  require Ryker.ControlPlane.Search
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Behaviors.StandingAssignmentRun
-  alias Ryker.ControlPlane.{PagedRelation, RepositoryNames, Search}
-  alias Ryker.Episodes.Episode
+  alias Ryker.ControlPlane.{BehaviorLibraryQuery, PagedRelation, RepositoryNames, Search}
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
 
@@ -27,44 +22,13 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   def return_path(kind) when kind in [:preference, :guidance], do: "/instructions#saved"
 
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(from(b in instruction_query(), where: b.ref == ^ref)) do
-      nil -> :not_found
-      item -> {:ok, item |> sanitize() |> List.wrap() |> named() |> hd()}
-    end
+    item = instruction_query() |> BehaviorLibraryQuery.by_ref(ref) |> Repo.one()
+    if item, do: {:ok, item |> sanitize() |> List.wrap() |> named() |> hd()}, else: :not_found
   end
 
   def fetch(_ref), do: :not_found
 
-  defp instruction_query do
-    now = DateTime.utc_now()
-    # Expiry is effective even before a maintenance pass updates the stored status.
-    from(b in Behavior,
-      select: %{
-        id: b.id,
-        ref: b.ref,
-        kind: b.kind,
-        payload: b.payload,
-        status:
-          fragment(
-            "CASE WHEN ? IN ('active', 'disabled') AND ? <= ? THEN 'expired' ELSE ? END",
-            b.status,
-            b.expires_at,
-            ^now,
-            b.status
-          ),
-        workspace_ref: b.workspace_ref,
-        scope_kind: b.scope_kind,
-        scope_ref: b.scope_ref,
-        use_count: b.use_count,
-        last_used_at: b.last_used_at,
-        expires_at: b.expires_at,
-        confirmed_at: b.confirmed_at,
-        source_conversation_ref: b.source_conversation_ref,
-        source_message_ref: b.source_message_ref,
-        updated_at: b.updated_at
-      }
-    )
-  end
+  defp instruction_query, do: BehaviorLibraryQuery.entries(DateTime.utc_now())
 
   @doc """
   One page of confirmed entries of `kinds` (one kind or several) for a page's
@@ -80,18 +44,16 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   def list(kinds, params) when is_list(kinds) do
     show = show(kinds, params["show"])
     shown = if show == "all", do: kinds, else: [@shown[show]]
-    base = from(b in instruction_query(), where: b.kind in ^shown)
-
-    counts =
-      Repo.all(from(b in subquery(base), group_by: b.status, select: {b.status, count(b.id)}))
-      |> Map.new()
+    base = BehaviorLibraryQuery.of_kinds(instruction_query(), shown)
+    counts = base |> BehaviorLibraryQuery.status_counts() |> Repo.all() |> Map.new()
 
     view = if params["view"] == "past", do: "past", else: "current"
     search = params |> scalar("q") |> String.trim() |> String.slice(0, 160)
 
     filtered =
-      from(b in subquery(base))
-      |> filter_status(view)
+      base
+      |> BehaviorLibraryQuery.listed()
+      |> BehaviorLibraryQuery.in_view(view)
       |> filter_search(search)
 
     page = PagedRelation.read(filtered, [desc: :updated_at, desc: :id], "page", params)
@@ -115,31 +77,8 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   defp runs(items) do
     ids = Enum.map(items, & &1.id)
 
-    Repo.all(
-      from(r in StandingAssignmentRun,
-        left_join: e in Episode,
-        on: e.id == r.episode_id,
-        join: b in Behavior,
-        on: b.id == r.assignment_id,
-        where: r.assignment_id in ^ids,
-        order_by: [desc: r.inserted_at, desc: r.id],
-        limit: 25,
-        select: %{
-          rule_ref: b.ref,
-          at: r.inserted_at,
-          outcome: r.outcome,
-          action: r.decision_action,
-          episode_id: e.id
-        }
-      )
-    )
+    ids |> BehaviorLibraryQuery.rule_runs(25) |> Repo.all()
   end
-
-  defp filter_status(query, "past"),
-    do: from(b in query, where: b.status in ["expired", "deleted", "superseded"])
-
-  defp filter_status(query, _current),
-    do: from(b in query, where: b.status in ["active", "disabled"])
 
   defp scalar(params, key) do
     case params[key] do
@@ -150,13 +89,8 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
 
   defp filter_search(query, ""), do: query
 
-  defp filter_search(query, value) do
-    pattern = Search.contains(value)
-
-    from(b in query,
-      where: Search.json_text_matches(b.payload, ^pattern) or ilike(b.scope_ref, ^pattern)
-    )
-  end
+  defp filter_search(query, value),
+    do: BehaviorLibraryQuery.matching(query, Search.contains(value))
 
   @doc false
   # An entry for one repository names it the way GitHub does; it named the

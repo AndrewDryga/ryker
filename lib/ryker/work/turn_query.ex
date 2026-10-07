@@ -381,6 +381,9 @@ defmodule Ryker.Work.TurnQuery do
     )
   end
 
+  def with_status(queryable \\ all(), status),
+    do: where(queryable, [episode_work_turns: t], t.status == ^status)
+
   def select_statuses(queryable), do: select(queryable, [episode_work_turns: t], t.status)
 
   @doc "Each episode's latest Work turn, as an automation's runs show it."

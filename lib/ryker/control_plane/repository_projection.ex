@@ -9,16 +9,16 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   are the channels whose environment holds it.
   """
 
-  import Ecto.Query
-  alias Ryker.Accounting.Execution
-  alias Ryker.ControlPlane.{CallRun, Environments, Search}
+  alias Ryker.Accounting.ExecutionQuery
+  alias Ryker.ControlPlane.{CallRun, Environments, RepositoryPageQuery, Search}
   alias Ryker.GitHub.Events
   alias Ryker.InspectionRedactor, as: Redactor
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication.PublicationQuery
   alias Ryker.{Repo, RepositoryKnowledge}
-  alias Ryker.Schedules.Schedule
+  alias Ryker.RepositoryKnowledge.RunQuery
+  alias Ryker.Schedules.ScheduleQuery
   alias Ryker.Settings
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work.SessionQuery
 
   @list_limit 100
 
@@ -83,9 +83,6 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   defp with_github_health(configured, _ref), do: configured
 
   @knowledge_runs 5
-  # What a run's card reads before its prompt and answer are opened: every
-  # column but the large ones.
-  @run_fields RepositoryKnowledge.Run.__schema__(:fields) -- [:prompt, :result, :document]
 
   # The model runs that wrote this repository's knowledge, newest first, with
   # what each cost from the execution ledger and exactly what it was sent and
@@ -95,21 +92,19 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   # five 2 MB prompts, on every change to any request (2026-10-04 review).
   defp knowledge_runs(ref, disclosed) do
     runs =
-      Repo.all(
-        from(run in RepositoryKnowledge.Run,
-          where: run.repository_ref == ^ref,
-          order_by: [desc: run.inserted_at, desc: run.id],
-          limit: @knowledge_runs,
-          select:
-            {struct(run, ^@run_fields), fragment("octet_length(?)", run.prompt),
-             fragment("octet_length(?)", run.result)}
-        )
-      )
+      ref
+      |> RunQuery.by_repository()
+      |> RunQuery.newest_first()
+      |> RunQuery.limit_to(@knowledge_runs)
+      |> RunQuery.select_cards()
+      |> Repo.all()
 
     ids = Enum.map(runs, fn {run, _prompt, _result} -> run.id end)
 
     executions =
-      Repo.all(from(e in Execution, where: e.kind == "knowledge" and e.source_id in ^ids))
+      "knowledge"
+      |> ExecutionQuery.of_sources(ids)
+      |> Repo.all()
       |> Map.new(&{&1.source_id, &1})
 
     texts = opened_texts(runs, disclosed)
@@ -142,10 +137,10 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     else
       secrets = Redactor.configured_secrets()
 
-      from(run in RepositoryKnowledge.Run,
-        where: run.id in ^Enum.map(opened, &elem(&1, 0)),
-        select: {run.id, run.prompt, run.result}
-      )
+      opened
+      |> Enum.map(&elem(&1, 0))
+      |> RunQuery.by_ids()
+      |> RunQuery.select_texts()
       |> Repo.all()
       |> Enum.flat_map(fn {id, prompt, result} ->
         [{{id, "prompt"}, prompt}, {{id, "answer"}, result}]
@@ -180,16 +175,11 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     channel_counts = Environments.channel_counts()
     freshness = repository_freshness(refs)
     knowledge = RepositoryKnowledge.entries(refs)
-    publications = grouped_count(Publication, :repository, refs)
-    schedules = grouped_count(Schedule, :repository, refs)
+    publications = grouped_count(PublicationQuery.all(), :repository, refs)
+    schedules = grouped_count(ScheduleQuery.all(), :repository, refs)
     # The tasks people asked for: a session that read the repository for its
     # RYKER.md is none of them.
-    sessions =
-      grouped_count(
-        from(session in Session, where: session.execution_kind == :work),
-        :repository_ref,
-        refs
-      )
+    sessions = grouped_count(SessionQuery.for_work(), :repository_ref, refs)
 
     Enum.map(refs, fn ref ->
       environments = Environments.containing(settings, ref)
@@ -241,15 +231,8 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     end)
   end
 
-  defp grouped_count(schema, field, refs) do
-    from(row in schema,
-      where: field(row, ^field) in ^refs,
-      group_by: field(row, ^field),
-      select: {field(row, ^field), count(row.id)}
-    )
-    |> Repo.all()
-    |> Map.new()
-  end
+  defp grouped_count(queryable, field, refs),
+    do: queryable |> RepositoryPageQuery.count_by(field, refs) |> Repo.all() |> Map.new()
 
   defp settings do
     case Settings.fetch() do
@@ -292,51 +275,11 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   # recorded one.
   @primary_receipt ~s|$.context.workspace.freshness ? (@.owner == "coop" && @.status == "recorded").repositories[*] ? (@.name == "primary")|
 
-  # The receipt of the code each repository's tasks last recorded: its tasks
-  # newest first, read until a prompt that recorded one. The list read the 500
-  # newest tasks' whole prompts, up to 640 KB each, to find these, on every
-  # change to any request (2026-10-04 review).
+  # The receipt of the code each repository's tasks last recorded
+  # (`RepositoryPageQuery.freshness/2`).
   defp repository_freshness(refs) do
-    # OFFSET 0 keeps the receipt check above the ordering, so it reads each
-    # prompt in turn and stops at the first with a receipt, instead of
-    # reading every prompt before ordering them.
-    newest_first =
-      from(turn in Turn,
-        join: session in Session,
-        on: session.id == turn.session_id,
-        where:
-          session.repository_ref == parent_as(:repository).ref and not is_nil(turn.submission),
-        order_by: [desc: turn.updated_at, desc: turn.id],
-        offset: 0,
-        select: %{recorded_at: turn.updated_at, submission: turn.submission}
-      )
-
-    last_receipt =
-      from(task in subquery(newest_first),
-        where:
-          fragment(
-            "jsonb_path_exists(?::jsonb, ?::text::jsonpath)",
-            task.submission,
-            ^@primary_receipt
-          ),
-        limit: 1,
-        select: %{
-          recorded_at: task.recorded_at,
-          receipt:
-            fragment(
-              "jsonb_path_query_first(?::jsonb, ?::text::jsonpath)",
-              task.submission,
-              ^@primary_receipt
-            )
-        }
-      )
-
-    from(repository in fragment("SELECT unnest(?::text[]) AS ref", ^refs),
-      as: :repository,
-      inner_lateral_join: freshness in subquery(last_receipt),
-      on: true,
-      select: {repository.ref, freshness.recorded_at, freshness.receipt}
-    )
+    refs
+    |> RepositoryPageQuery.freshness(@primary_receipt)
     |> Repo.all()
     |> Map.new(fn {ref, recorded_at, receipt} -> {ref, receipt_view(receipt, recorded_at)} end)
   end

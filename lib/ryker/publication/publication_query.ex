@@ -14,6 +14,9 @@ defmodule Ryker.Publication.PublicationQuery do
   def by_episode_id(queryable \\ all(), episode_id),
     do: where(queryable, [episode_publications: p], p.episode_id == ^episode_id)
 
+  def by_record_id(queryable \\ all(), record_id),
+    do: where(queryable, [episode_publications: p], p.record_id == ^record_id)
+
   def by_ref(queryable \\ all(), ref),
     do: where(queryable, [episode_publications: p], p.ref == ^ref)
 

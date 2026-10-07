@@ -10,10 +10,8 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   in Elixir whenever a comparison settled (2026-10-04 review).
   """
 
-  import Ecto.Query
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.ControlPlane.LocalRoutingReportQuery
   alias Ryker.LocalRouting
-  alias Ryker.LocalRouting.Comparison
   alias Ryker.Repo
 
   # Why routing's checks refused an answer (`Ryker.LocalRouting.Verdict`),
@@ -49,7 +47,8 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
 
   # What a decision has Ryker do, named the way Usage names work types: a
   # reply is always a conversation, and new or continued work is an
-  # investigation, standard or deep. `decision_kind/1` works it out in SQL.
+  # investigation, standard or deep. `LocalRoutingReportQuery.compared/1` works it
+  # out in SQL.
   @decision_names %{
     "start_deep" => "A deep investigation",
     "start" => "An investigation",
@@ -61,40 +60,6 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
     "ignore" => "Leaving it",
     "unreadable" => "Something unreadable"
   }
-
-  defmacrop decision_kind(document) do
-    quote do
-      fragment(
-        """
-        CASE ?->>'action'
-          WHEN 'start_episode' THEN
-            CASE WHEN ?->>'work_class' = 'deep' THEN 'start_deep' ELSE 'start' END
-          WHEN 'continue_episode' THEN
-            CASE WHEN ?->>'work_class' = 'deep' THEN 'continue_deep' ELSE 'continue' END
-          WHEN 'reply' THEN 'reply'
-          WHEN 'quick_reply' THEN 'quick_reply'
-          WHEN 'react' THEN 'react'
-          WHEN 'ignore' THEN 'ignore'
-          ELSE 'unreadable'
-        END
-        """,
-        unquote(document),
-        unquote(document),
-        unquote(document)
-      )
-    end
-  end
-
-  # An answer as JSON when it is JSON; any other text reads as unreadable.
-  defmacrop answer_document(text) do
-    quote do
-      fragment(
-        "CASE WHEN pg_input_is_valid(?, 'jsonb') THEN ?::jsonb END",
-        unquote(text),
-        unquote(text)
-      )
-    end
-  end
 
   @doc """
   The figures, the three tables and the last settled comparison since `since`
@@ -119,53 +84,12 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
 
   # The period's comparisons in the page's scope, for the model saved now: a
   # model tried earlier is another model's record.
-  defp comparisons(since, scope, model) do
-    Comparison
-    |> in_period(since)
-    |> in_scope(scope)
-    |> of_model(model)
-  end
-
-  defp in_period(query, nil), do: query
-  defp in_period(query, since), do: where(query, [c], c.inserted_at >= ^since)
-
-  defp in_scope(query, "all"), do: query
-  defp in_scope(query, "shadow"), do: where(query, [c], c.execution_mode == :shadow)
-  defp in_scope(query, _live), do: where(query, [c], c.execution_mode == :live)
-
-  defp of_model(query, nil), do: query
-  defp of_model(query, model), do: where(query, [c], c.local_model == ^model)
+  defp comparisons(since, scope, model),
+    do: LocalRoutingReportQuery.comparisons(since, scope, model)
 
   defp figures(comparisons) do
-    from(c in comparisons,
-      select: %{
-        compared: filter(count(c.id), c.status == :compared),
-        valid: filter(count(c.id), c.status == :compared and c.valid),
-        agreed: filter(count(c.id), c.status == :compared and c.agrees),
-        waiting: filter(count(c.id), c.status == :pending),
-        failed: filter(count(c.id), c.status == :failed),
-        local_ms:
-          fragment(
-            "percentile_cont(0.5) WITHIN GROUP (ORDER BY ?) FILTER (WHERE ? = 'compared')",
-            c.local_ms,
-            c.status
-          ),
-        provider_ms:
-          fragment(
-            "percentile_cont(0.5) WITHIN GROUP (ORDER BY ?) FILTER (WHERE ? = 'compared')",
-            c.provider_ms,
-            c.status
-          ),
-        provider_cost: filter(sum(c.provider_cost_usd), c.status == :compared),
-        agreed_cost: filter(sum(c.provider_cost_usd), c.status == :compared and c.agrees),
-        estimated:
-          fragment(
-            "COALESCE(bool_or(?) FILTER (WHERE ? = 'compared'), false)",
-            c.provider_cost_estimated,
-            c.status
-          )
-      }
-    )
+    comparisons
+    |> LocalRoutingReportQuery.figures()
     |> Repo.one()
     |> nothing_agreed()
   end
@@ -179,38 +103,11 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
 
   # The comparison that settled last, compared or given up: whether the
   # local model is answering now.
-  defp last_settled(comparisons) do
-    Repo.one(
-      from(c in comparisons,
-        where: c.status != :pending,
-        order_by: [desc: c.updated_at, desc: c.id],
-        limit: 1,
-        select: %{status: c.status, last_error: c.last_error}
-      )
-    )
-  end
+  defp last_settled(comparisons), do: Repo.one(LocalRoutingReportQuery.last_settled(comparisons))
 
   # The period's compared answers, each with what the provider decided and
   # what the local model decided, as kinds.
-  defp compared(comparisons) do
-    from(c in comparisons,
-      join: entry in Entry,
-      on: entry.id == c.input_id,
-      where: c.status == :compared,
-      select: %{
-        id: c.id,
-        at: c.compared_at,
-        input_id: c.input_id,
-        generation: c.generation,
-        valid: c.valid,
-        agrees: c.agrees,
-        differing: c.differing_fields,
-        invalid_reason: c.invalid_reason,
-        kind: decision_kind(fragment("?::jsonb", entry.decision_document)),
-        local_kind: decision_kind(answer_document(c.local_answer))
-      }
-    )
-  end
+  defp compared(comparisons), do: LocalRoutingReportQuery.compared(comparisons)
 
   # Andrew, 2026-10-03, of the two lists this page had: "the way you built
   # those tables is piece of shit, they are useless, what i am supposed to do
@@ -223,25 +120,15 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   # usable and matched, and what it chose most often when it did not.
   defp decisions(compared) do
     instead =
-      from(c in subquery(compared),
-        where: c.valid and not c.agrees,
-        group_by: [c.kind, c.local_kind],
-        select: {c.kind, c.local_kind, count()}
-      )
+      compared
+      |> LocalRoutingReportQuery.instead()
       |> Repo.all()
       |> Enum.group_by(&elem(&1, 0), &Tuple.delete_at(&1, 0))
 
     latest = latest(compared, :kind)
 
-    from(c in subquery(compared),
-      group_by: c.kind,
-      select: %{
-        kind: c.kind,
-        messages: count(),
-        valid: filter(count(), c.valid),
-        agreed: filter(count(), c.valid and c.agrees)
-      }
-    )
+    compared
+    |> LocalRoutingReportQuery.decisions()
     |> Repo.all()
     |> Enum.map(fn row ->
       %{
@@ -266,27 +153,12 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   # When its answer was usable but not the provider's: what differed, and
   # how often that was the only difference.
   defp differences(compared) do
-    fields =
-      from(c in subquery(compared),
-        inner_lateral_join: field in fragment("SELECT unnest(?) AS name", c.differing),
-        on: true,
-        where: c.valid and not c.agrees,
-        select: %{
-          id: c.id,
-          at: c.at,
-          input_id: c.input_id,
-          generation: c.generation,
-          field: field.name,
-          only: c.differing == fragment("ARRAY[?]", field.name)
-        }
-      )
+    fields = LocalRoutingReportQuery.differing_fields(compared)
 
     latest = latest(fields, :field)
 
-    from(f in subquery(fields),
-      group_by: f.field,
-      select: %{field: f.field, answers: count(), only: filter(count(), f.only)}
-    )
+    fields
+    |> LocalRoutingReportQuery.field_counts()
     |> Repo.all()
     |> Enum.map(fn row ->
       %{
@@ -302,10 +174,11 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   # Why routing could not use its answer, the reasons that read the same
   # counted together.
   defp refusals(compared) do
-    refused = from(c in subquery(compared), where: not c.valid)
+    refused = LocalRoutingReportQuery.refused(compared)
     latest = latest(refused, :invalid_reason)
 
-    from(c in refused, group_by: c.invalid_reason, select: {c.invalid_reason, count()})
+    refused
+    |> LocalRoutingReportQuery.refusal_counts()
     |> Repo.all()
     |> Enum.group_by(fn {reason, _answers} -> refusal(reason) end)
     |> Enum.map(fn {words, reasons} ->
@@ -323,17 +196,8 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
 
   # Each group's newest row, by when it was compared: the message its table
   # row opens.
-  defp latest(rows, group) do
-    from(row in subquery(rows),
-      distinct: field(row, ^group),
-      order_by: [asc: field(row, ^group), desc: row.at, desc: row.id],
-      select:
-        {field(row, ^group),
-         %{id: row.id, at: row.at, input_id: row.input_id, generation: row.generation}}
-    )
-    |> Repo.all()
-    |> Map.new()
-  end
+  defp latest(rows, group),
+    do: rows |> LocalRoutingReportQuery.latest(group) |> Repo.all() |> Map.new()
 
   defp refusal("decision:" <> _field), do: "gave a decision routing could not read"
   defp refusal(reason), do: Map.get(@refusals, reason, "gave an answer routing's checks refused")

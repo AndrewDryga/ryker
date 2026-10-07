@@ -10,11 +10,10 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   custody, so one confirmed action serves both pages.
   """
 
-  import Ecto.Query
   alias Ryker.Config
-  alias Ryker.ControlPlane.{Activity, PagedRelation, RepositoryNames}
+  alias Ryker.ControlPlane.{Activity, PagedRelation, RepositoryNames, WorkingCopyQuery}
   alias Ryker.CoopFleet.Worker, as: FleetWorker
-  alias Ryker.Episodes.Episode
+  alias Ryker.CoopFleet.WorkerQuery
   alias Ryker.Learning.Batch, as: LearningBatch
   alias Ryker.Learning.LearningRun
   alias Ryker.Repo
@@ -37,21 +36,18 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   def copies(params) do
     names = RepositoryNames.all()
 
-    copies =
-      from([session: session] in sessions(),
-        where: session.execution_kind == :work and not is_nil(session.repository_ref)
-      )
+    copies = WorkingCopyQuery.working_copies(WorkingCopyQuery.sessions())
 
     current =
-      from([session: session] in copies,
-        where: session.cleanup_status != :discarded,
-        order_by: [desc: session.updated_at, desc: session.id]
-      )
+      copies
+      |> WorkingCopyQuery.kept()
+      |> WorkingCopyQuery.recently_updated_first()
       |> Repo.all()
       |> items(names)
 
     removed =
-      from([session: session] in copies, where: session.cleanup_status == :discarded)
+      copies
+      |> WorkingCopyQuery.removed()
       |> PagedRelation.read([desc: :updated_at, desc: :id], "page", params)
 
     %{current: current, removed: %{removed | items: items(removed.items, names)}}
@@ -64,29 +60,12 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   """
   @spec learning_sessions() :: [map()]
   def learning_sessions do
-    from([session: session] in sessions(),
-      where: session.execution_kind == :learning and session.cleanup_status != :discarded,
-      order_by: [desc: session.updated_at, desc: session.id]
-    )
+    WorkingCopyQuery.sessions()
+    |> WorkingCopyQuery.learning()
+    |> WorkingCopyQuery.kept()
+    |> WorkingCopyQuery.recently_updated_first()
     |> Repo.all()
     |> items(RepositoryNames.all())
-  end
-
-  # Every session with what its row names: the request it works for, or the
-  # learning run and batch. A learning session has no episode; an inner join
-  # left every learning session, and any blocked cleanup of one, off both
-  # pages. Admission sessions are routing's, and no page lists them.
-  defp sessions do
-    from(session in Session,
-      as: :session,
-      left_join: episode in Episode,
-      on: episode.id == session.episode_id,
-      left_join: learning_run in LearningRun,
-      on: learning_run.id == session.learning_run_id,
-      left_join: learning_batch in LearningBatch,
-      on: learning_batch.id == learning_run.batch_id,
-      select: {session, episode.state, episode.key, learning_run, learning_batch}
-    )
   end
 
   defp items(rows, names),
@@ -94,15 +73,8 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
 
   @doc "One worker session by its external reference."
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(
-           from([session: session] in sessions(),
-             where: session.external_ref == ^ref,
-             where: session.execution_kind in [:work, :learning]
-           )
-         ) do
-      nil -> :not_found
-      row -> {:ok, hd(items([row], RepositoryNames.all()))}
-    end
+    row = WorkingCopyQuery.sessions() |> WorkingCopyQuery.listed(ref) |> Repo.one()
+    if row, do: {:ok, hd(items([row], RepositoryNames.all()))}, else: :not_found
   end
 
   def fetch(_ref), do: :not_found
@@ -132,7 +104,8 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
       preview: Enum.map(next, &preview_item(&1, now, names)),
       preview_total: due,
       workers:
-        from(worker in FleetWorker, order_by: [asc: worker.id])
+        WorkerQuery.all()
+        |> WorkerQuery.ordered_by_id()
         |> Repo.all()
         |> Enum.map(&storage_item(&1, now))
     }
