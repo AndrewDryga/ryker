@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
   use Ryker.DataCase, async: true
   import Phoenix.LiveViewTest, only: [render_component: 2, rendered_to_string: 1]
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, WorkerEvidenceCard}
-  alias Ryker.CoopFleet.SessionEvidence
+  alias Ryker.CoopFleet.SessionEvidences
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Repo
@@ -66,7 +66,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
     session = session!("render")
 
     {:ok, _stored} =
-      SessionEvidence.record(session.id, fixture(@filtered),
+      SessionEvidences.record(session.id, fixture(@filtered),
         worker_id: "worker-a",
         placement_generation: 1
       )
@@ -109,7 +109,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
     session = session!("network-detail")
 
     {:ok, _stored} =
-      SessionEvidence.record(session.id, fixture(@filtered),
+      SessionEvidences.record(session.id, fixture(@filtered),
         worker_id: "worker-a",
         placement_generation: 1
       )
@@ -162,7 +162,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
       })
 
     {:ok, _stored} =
-      SessionEvidence.record(session.id, quiet, worker_id: "worker-a", placement_generation: 1)
+      SessionEvidences.record(session.id, quiet, worker_id: "worker-a", placement_generation: 1)
 
     rendered = html(session.episode_id)
 
@@ -181,7 +181,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
       |> put_in(~w(network observation counters received_bytes), nil)
 
     {:ok, _stored} =
-      SessionEvidence.record(session.id, blank, worker_id: "worker-a", placement_generation: 1)
+      SessionEvidences.record(session.id, blank, worker_id: "worker-a", placement_generation: 1)
 
     rendered = html(session.episode_id)
 
@@ -203,7 +203,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
       |> put_in(~w(network observation denials), [])
 
     {:ok, _stored} =
-      SessionEvidence.record(session.id, uncounted,
+      SessionEvidences.record(session.id, uncounted,
         worker_id: "worker-a",
         placement_generation: 1
       )
@@ -223,7 +223,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
       |> put_in(~w(network observation denials), [])
 
     {:ok, _stored} =
-      SessionEvidence.record(session.id, none, worker_id: "worker-a", placement_generation: 1)
+      SessionEvidences.record(session.id, none, worker_id: "worker-a", placement_generation: 1)
 
     assert fact_value(html(session.episode_id), ".network-summary", "Refusals") == "None"
   end
@@ -232,7 +232,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
     session = session!("open-render")
 
     {:ok, _stored} =
-      SessionEvidence.record(
+      SessionEvidences.record(
         session.id,
         fixture(@open, %{"session_id" => "remote_01j9zq3f8m0c7e6kq9y2s4x1nt"}),
         worker_id: "worker-a",
@@ -254,7 +254,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
       })
 
     {:ok, _stored} =
-      SessionEvidence.record(session.id, capture,
+      SessionEvidences.record(session.id, capture,
         worker_id: "worker-a",
         placement_generation: 1
       )
@@ -283,7 +283,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
     session = session!("page")
 
     {:ok, _stored} =
-      SessionEvidence.record(session.id, fixture(@filtered),
+      SessionEvidences.record(session.id, fixture(@filtered),
         worker_id: "worker-a",
         placement_generation: 1
       )

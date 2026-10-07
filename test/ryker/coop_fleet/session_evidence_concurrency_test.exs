@@ -1,7 +1,7 @@
 defmodule Ryker.CoopFleet.SessionEvidenceConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
   alias Ecto.Adapters.SQL.Sandbox
-  alias Ryker.CoopFleet.SessionEvidence
+  alias Ryker.CoopFleet.{SessionEvidence, SessionEvidences}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -25,7 +25,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceConcurrencyTest do
         tasks =
           Enum.map(1..8, fn index ->
             unboxed_task(fn ->
-              SessionEvidence.record(session.id, evidence(index),
+              SessionEvidences.record(session.id, evidence(index),
                 worker_id: "worker-#{suffix}",
                 placement_generation: 1
               )
@@ -38,7 +38,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceConcurrencyTest do
                "a concurrent capture failed: #{inspect(results)}"
 
         assert Enum.count(results, &match?({:ok, %{recorded: :inserted}}, &1)) == 1
-        assert [stored] = SessionEvidence.for_session(session.id)
+        assert [stored] = SessionEvidences.for_session(session.id)
         assert stored.capture_count == 8
 
         # Every capture observed the same state, so the latest observation is the

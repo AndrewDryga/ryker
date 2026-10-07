@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
   alias Ryker.ControlPlane.WorkerEvidence
-  alias Ryker.CoopFleet.SessionEvidence
+  alias Ryker.CoopFleet.{SessionEvidence, SessionEvidences}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Repo
@@ -55,7 +55,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceTest do
 
   defp record!(session, document) do
     {:ok, %{evidence: stored}} =
-      SessionEvidence.record(session.id, document,
+      SessionEvidences.record(session.id, document,
         worker_id: "worker-a",
         placement_generation: 3
       )

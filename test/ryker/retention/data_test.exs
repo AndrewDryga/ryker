@@ -10,7 +10,8 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Behaviors.StandingAssignmentRunChangeset
   alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Command, ControlPlane, Placement, SessionEvidence, Worker}
+  alias Ryker.CoopFleet.{Command, ControlPlane, Placement}
+  alias Ryker.CoopFleet.{SessionEvidence, SessionEvidences, Worker}
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -142,7 +143,7 @@ defmodule Ryker.Retention.DataTest do
     work = settled_work!("worker-evidence") |> discard_session!()
 
     assert {:ok, %{evidence: stored}} =
-             SessionEvidence.record(work.session.id, worker_evidence(work.session),
+             SessionEvidences.record(work.session.id, worker_evidence(work.session),
                worker_id: "worker-retention",
                placement_generation: 1
              )
@@ -158,13 +159,13 @@ defmodule Ryker.Retention.DataTest do
              Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 86_400))
 
     assert Repo.get(SessionEvidence, stored.id) == nil
-    assert SessionEvidence.for_session(work.session.id) == []
-    assert SessionEvidence.latest_for_episode(work.episode.id) == []
+    assert SessionEvidences.for_session(work.session.id) == []
+    assert SessionEvidences.latest_for_episode(work.episode.id) == []
 
     # A re-capture after expiry records the state observed now; it never revives
     # the expired row, and the page shows an episode with no retained evidence.
     assert {:ok, %{evidence: recaptured, recorded: :inserted}} =
-             SessionEvidence.record(work.session.id, worker_evidence(work.session),
+             SessionEvidences.record(work.session.id, worker_evidence(work.session),
                worker_id: "worker-retention",
                placement_generation: 1
              )
@@ -181,7 +182,7 @@ defmodule Ryker.Retention.DataTest do
     work = settled_work!("worker-evidence-audit") |> discard_session!()
 
     assert {:ok, %{evidence: stored}} =
-             SessionEvidence.record(work.session.id, worker_evidence(work.session),
+             SessionEvidences.record(work.session.id, worker_evidence(work.session),
                worker_id: "worker-audit",
                placement_generation: 1
              )

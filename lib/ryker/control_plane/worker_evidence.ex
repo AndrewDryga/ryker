@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.WorkerEvidence do
   """
 
   alias Ryker.ControlPlane.Evidence
-  alias Ryker.CoopFleet.SessionEvidence
+  alias Ryker.CoopFleet.{SessionEvidence, SessionEvidences}
 
   @doc """
   The evidence for one episode, newest capture per session.
@@ -32,9 +32,9 @@ defmodule Ryker.ControlPlane.WorkerEvidence do
   @spec for_episode(Ecto.UUID.t()) :: [map()]
   def for_episode(episode_id) when is_binary(episode_id) do
     episode_id
-    |> SessionEvidence.latest_for_episode()
+    |> SessionEvidences.latest_for_episode()
     |> Enum.flat_map(fn row ->
-      case SessionEvidence.document(row) do
+      case SessionEvidences.document(row) do
         {:ok, document} -> [project(row, document)]
         # A stored row that no longer decodes is a real absence with a cause,
         # not a session without evidence.

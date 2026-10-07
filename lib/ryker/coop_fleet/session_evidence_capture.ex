@@ -10,7 +10,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
   no network".
   """
 
-  alias Ryker.CoopFleet.{Placement, PlacementQuery, SessionEvidence, Worker, WorkerQuery}
+  alias Ryker.CoopFleet.{Placement, PlacementQuery, SessionEvidences, Worker, WorkerQuery}
   alias Ryker.Repo
   alias Ryker.Work.Session
 
@@ -34,7 +34,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
          {:ok, placement} <- current_placement(session.id),
          :ok <- advertises_export?(placement.worker_id),
          {:ok, document} <- read(api, client, remote) do
-      SessionEvidence.record(session.id, document,
+      SessionEvidences.record(session.id, document,
         worker_id: placement.worker_id,
         placement_generation: placement.generation
       )

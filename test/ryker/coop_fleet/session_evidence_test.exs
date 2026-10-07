@@ -1,7 +1,7 @@
 defmodule Ryker.CoopFleet.SessionEvidenceTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-  alias Ryker.CoopFleet.{ControlPlane, SessionEvidence, SessionEvidenceCapture}
+  alias Ryker.CoopFleet.{ControlPlane, SessionEvidence, SessionEvidenceCapture, SessionEvidences}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
@@ -149,7 +149,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
   end
 
   defp record(session, document \\ nil, options \\ []) do
-    SessionEvidence.record(
+    SessionEvidences.record(
       session.id,
       document || evidence(),
       Keyword.merge([worker_id: "worker-a", placement_generation: 1], options)
@@ -171,7 +171,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
     assert stored.capture_count == 1
     assert stored.first_captured_at == stored.last_captured_at
 
-    assert {:ok, document} = SessionEvidence.document(stored)
+    assert {:ok, document} = SessionEvidences.document(stored)
     assert document["network"]["observation"]["run_id"] == "run-7f3a"
 
     # The counter above 2^53 has to come back out of the database exactly.
@@ -191,7 +191,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
     assert again.capture_count == 2
     assert again.first_captured_at == first.first_captured_at
     assert DateTime.compare(again.last_captured_at, first.last_captured_at) == :gt
-    assert length(SessionEvidence.for_session(session.id)) == 1
+    assert length(SessionEvidences.for_session(session.id)) == 1
 
     # A capture whose clock runs backwards still counts, and never rewinds the
     # latest observation to an earlier one.
@@ -216,11 +216,11 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
     assert {:ok, %{evidence: second, recorded: :inserted}} = record(session, progressed)
 
     assert second.id != first.id
-    assert length(SessionEvidence.for_session(session.id)) == 2
+    assert length(SessionEvidences.for_session(session.id)) == 2
 
     # The earlier snapshot keeps saying what it said: a later capture is not a
     # correction of an earlier one.
-    assert {:ok, old} = SessionEvidence.document(Repo.get!(SessionEvidence, first.id))
+    assert {:ok, old} = SessionEvidences.document(Repo.get!(SessionEvidence, first.id))
     assert old["task"]["snapshot"]["state"] == "in_progress"
   end
 
@@ -232,7 +232,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
     assert {:error, {:coop_session_evidence_session_conflict, "remote_someone_elses_session"}} =
              record(session, stolen)
 
-    assert SessionEvidence.for_session(session.id) == []
+    assert SessionEvidences.for_session(session.id) == []
   end
 
   test "an unbound local session cannot be named by the export it is given" do
@@ -240,7 +240,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
     {:ok, unbound} = session |> Ecto.Changeset.change(coop_session_id: nil) |> Repo.update()
 
     assert {:error, {:coop_session_evidence_session_conflict, _remote}} = record(unbound)
-    assert SessionEvidence.for_session(unbound.id) == []
+    assert SessionEvidences.for_session(unbound.id) == []
   end
 
   test "malformed evidence never reaches the table" do
@@ -255,7 +255,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
     assert {:error, {:invalid_coop_session_evidence, :placement_generation}} =
              record(session, evidence(), placement_generation: 0)
 
-    assert SessionEvidence.for_session(session.id) == []
+    assert SessionEvidences.for_session(session.id) == []
   end
 
   for {label, response} <- [
@@ -280,7 +280,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
         )
 
       assert match?({:error, _reason}, result), "capture returned #{inspect(result)}"
-      assert SessionEvidence.for_session(session.id) == []
+      assert SessionEvidences.for_session(session.id) == []
     end
   end
 
@@ -305,7 +305,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
     assert SessionEvidenceCapture.capture(session, FailingAPI, evidence()) ==
              {:skipped, :export_not_advertised}
 
-    assert SessionEvidence.for_session(session.id) == []
+    assert SessionEvidences.for_session(session.id) == []
   end
 
   test "capture is skipped, never faked, when the worker does not advertise the export" do
@@ -319,7 +319,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
     assert {:skipped, :no_active_placement} =
              SessionEvidenceCapture.capture(session, ExportingAPI, :client)
 
-    assert SessionEvidence.for_session(session.id) == []
+    assert SessionEvidences.for_session(session.id) == []
   end
 
   test "an unbound session is never captured" do
@@ -344,12 +344,12 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
                })
              )
 
-    assert [latest] = SessionEvidence.latest_for_episode(session.episode_id)
+    assert [latest] = SessionEvidences.latest_for_episode(session.episode_id)
     assert latest.id == newest.id
-    assert length(SessionEvidence.for_session(session.id)) == 2
+    assert length(SessionEvidences.for_session(session.id)) == 2
 
     # An episode nobody captured reads as no evidence at all, which the page
     # must render as "not recorded" rather than as a session with no network.
-    assert SessionEvidence.latest_for_episode(Ecto.UUID.generate()) == []
+    assert SessionEvidences.latest_for_episode(Ecto.UUID.generate()) == []
   end
 end
