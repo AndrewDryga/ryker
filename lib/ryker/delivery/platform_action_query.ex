@@ -70,6 +70,12 @@ defmodule Ryker.Delivery.PlatformActionQuery do
     )
   end
 
+  def with_status(queryable, status),
+    do: where(queryable, [platform_actions: a], a.status == ^status)
+
+  def recently_updated_first(queryable),
+    do: order_by(queryable, [platform_actions: a], desc: a.updated_at, desc: a.id)
+
   def oldest_first(queryable),
     do: order_by(queryable, [platform_actions: a], asc: a.inserted_at, asc: a.id)
 
@@ -96,6 +102,10 @@ defmodule Ryker.Delivery.PlatformActionQuery do
   @doc "Messages Work posted that their platform received."
   def delivered_messages(queryable \\ all()),
     do: where(queryable, [platform_actions: a], a.kind == :message and a.status == :delivered)
+
+  @doc "Each delivered action as `{delivered_at, document}`."
+  def select_deliveries(queryable),
+    do: select(queryable, [platform_actions: a], {a.delivered_at, a.document})
 
   @doc "The message its platform named `message_ref` in its receipt."
   def by_receipt_message(queryable, message_ref) do

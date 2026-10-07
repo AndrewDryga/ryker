@@ -6,15 +6,14 @@ defmodule Ryker.Operator.SlackReplay do
   a fresh idempotent event identity and the host-owned shadow execution mode.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.{EpisodeQuery, Event, EventQuery}
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Operator.Actions
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Work.Turn
+  alias Ryker.Work.TurnQuery
 
   @event_prefix "operator-slack-replay:"
 
@@ -62,7 +61,7 @@ defmodule Ryker.Operator.SlackReplay do
   def fetch(replay_input_ref) do
     with {:ok, %Entry{execution_mode: :shadow} = entry} <- fetch_replay(replay_input_ref),
          {:ok, source_id} <- source_id(entry.event_ref) do
-      episode = if entry.episode_id, do: Repo.get(Episode, entry.episode_id), else: nil
+      episode = if entry.episode_id, do: Repo.one(EpisodeQuery.by_id(entry.episode_id)), else: nil
       turn = latest_turn(entry.episode_id)
 
       {:ok,
@@ -149,26 +148,23 @@ defmodule Ryker.Operator.SlackReplay do
   defp latest_turn(nil), do: nil
 
   defp latest_turn(episode_id) do
-    Repo.one(
-      from(turn in Turn,
-        where: turn.episode_id == ^episode_id,
-        order_by: [desc: turn.inserted_at, desc: turn.id],
-        limit: 1
-      )
-    )
+    episode_id
+    |> TurnQuery.by_episode_id()
+    |> TurnQuery.newest_first()
+    |> TurnQuery.limit_to(1)
+    |> Repo.one()
   end
 
   defp replay_outcome(nil), do: nil
 
   defp replay_outcome(episode_id) do
     event =
-      Repo.one(
-        from(event in Event,
-          where: event.episode_id == ^episode_id and event.kind == :result_accepted,
-          order_by: [desc: event.sequence],
-          limit: 1
-        )
-      )
+      episode_id
+      |> EventQuery.by_episode_id()
+      |> EventQuery.of_kind(:result_accepted)
+      |> EventQuery.newest_first()
+      |> EventQuery.limit_to(1)
+      |> Repo.one()
 
     case event do
       %Event{payload: %{"decision_reason" => reason, "delivery" => "none"}}

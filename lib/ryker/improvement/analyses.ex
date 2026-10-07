@@ -17,17 +17,16 @@ defmodule Ryker.Improvement.Analyses do
   (`Ryker.Improvement.subscribe_improvement/0`); a lease renewal is not.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
-  alias Ryker.Delivery.RoutingResponse
   alias Ryker.Improvement
-  alias Ryker.Improvement.{AnalysisRun, Candidate, Evidence, FleetSession, Prompt}
+  alias Ryker.Improvement.{AnalysisRun, AnalysisRunQuery, Candidate, CandidateQuery}
+  alias Ryker.Improvement.{Evidence, FleetSession, Prompt}
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.SessionQuery
 
   @contract_failures ~w(output_contract_failed invalid_improvement_result)
   # Causes another start would meet again: they end the analysis at once.
@@ -61,79 +60,7 @@ defmodule Ryker.Improvement.Analyses do
 
   defp next_candidate(now, quiet_seconds, enabled?) do
     quiet = DateTime.add(now, -quiet_seconds, :second)
-
-    Repo.one(
-      from(candidate in Candidate,
-        as: :candidate,
-        where: ^claimable(now, quiet, enabled?),
-        order_by: [asc: candidate.last_signal_at, asc: candidate.id],
-        limit: 1,
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
-    )
-  end
-
-  # A worker stopped renewing its lease; or it is due, and either a run of it
-  # is still out at Coop, or it is still wanted, quiet and at rest. With
-  # learning off only what is out at Coop is followed, to its stop.
-  defp claimable(now, quiet, true) do
-    dynamic(
-      [candidate: c],
-      ^stale_lease(now) or
-        (^due(now) and (exists(outstanding_parent_run()) or (^wanted(quiet) and ^at_rest())))
-    )
-  end
-
-  defp claimable(now, _quiet, false) do
-    dynamic(
-      [candidate: c],
-      ^stale_lease(now) or (^due(now) and exists(outstanding_parent_run()))
-    )
-  end
-
-  defp stale_lease(now),
-    do: dynamic([candidate: c], c.analysis == :running and c.lease_expires_at <= ^now)
-
-  defp due(now) do
-    dynamic(
-      [candidate: c],
-      c.analysis == :pending and (is_nil(c.next_attempt_at) or c.next_attempt_at <= ^now)
-    )
-  end
-
-  defp wanted(quiet) do
-    dynamic(
-      [candidate: c],
-      is_nil(c.forgotten_at) and c.status != :dismissed and c.last_signal_at <= ^quiet
-    )
-  end
-
-  # The request has nothing still running: its Work has come to rest, or the
-  # quick replies routing chose for the message were delivered or given up.
-  defp at_rest do
-    running_work =
-      from(work in subquery(Custody.work_rest_query()),
-        where: work.episode_id == parent_as(:candidate).episode_id and work.running
-      )
-
-    pending_replies =
-      from(response in RoutingResponse,
-        where: response.input_id == parent_as(:candidate).input_id and response.status == :pending
-      )
-
-    dynamic(
-      [candidate: candidate],
-      (not is_nil(candidate.episode_id) and not exists(running_work)) or
-        (not is_nil(candidate.input_id) and not exists(pending_replies))
-    )
-  end
-
-  defp outstanding_parent_run do
-    from(run in AnalysisRun,
-      where:
-        run.candidate_id == parent_as(:candidate).id and not is_nil(run.started_at) and
-          is_nil(run.remote_stopped_at)
-    )
+    Repo.one(CandidateQuery.next_claimable(now, quiet, enabled?))
   end
 
   @doc """
@@ -145,35 +72,10 @@ defmodule Ryker.Improvement.Analyses do
   """
   @spec next_due_at(DateTime.t(), map()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, settings) do
-    quiet = settings.quiet_seconds
-    enabled? = settings.enabled
-
-    [quiet_due, retry_due, lease_due] =
-      Repo.one(
-        from(candidate in Candidate,
-          as: :candidate,
-          where: candidate.analysis in [:pending, :running],
-          select: [
-            filter(
-              min(datetime_add(candidate.last_signal_at, ^quiet, "second")),
-              ^enabled? and candidate.analysis == :pending and is_nil(candidate.forgotten_at) and
-                candidate.status != :dismissed and
-                datetime_add(candidate.last_signal_at, ^quiet, "second") > ^since
-            ),
-            filter(
-              min(candidate.next_attempt_at),
-              candidate.analysis == :pending and candidate.next_attempt_at > ^since and
-                (^enabled? or exists(outstanding_parent_run()))
-            ),
-            filter(
-              min(candidate.lease_expires_at),
-              candidate.analysis == :running and candidate.lease_expires_at > ^since
-            )
-          ]
-        )
-      )
-
-    UTCDateTime.earliest([quiet_due, retry_due, lease_due])
+    since
+    |> CandidateQuery.next_due_after(settings.quiet_seconds, settings.enabled)
+    |> Repo.one()
+    |> UTCDateTime.earliest()
   end
 
   defp lease(candidate, worker, seconds, now) do
@@ -290,32 +192,26 @@ defmodule Ryker.Improvement.Analyses do
   way, so analysis waits for the policy to change.
   """
   def policy_refused?(%{policy: policy, policy_digest: digest}) do
-    Repo.exists?(
-      from(run in AnalysisRun,
-        where:
-          run.policy == ^policy and run.policy_digest == ^digest and
-            run.error_code == "improvement_session_not_isolated"
-      )
-    )
+    policy
+    |> AnalysisRunQuery.by_policy(digest)
+    |> AnalysisRunQuery.with_error_code("improvement_session_not_isolated")
+    |> Repo.exists?()
   end
 
   # -- Runs -------------------------------------------------------------------------
 
   @doc "The run of a candidate that started and has no stop proof yet, or nil."
   def outstanding(candidate_id) do
-    Repo.one(
-      from(run in AnalysisRun,
-        where:
-          run.candidate_id == ^candidate_id and not is_nil(run.started_at) and
-            is_nil(run.remote_stopped_at),
-        order_by: [asc: run.generation],
-        limit: 1
-      )
-    )
+    candidate_id
+    |> AnalysisRunQuery.by_candidate_id()
+    |> AnalysisRunQuery.unstopped()
+    |> AnalysisRunQuery.in_generation_order()
+    |> AnalysisRunQuery.limit_to(1)
+    |> Repo.one()
   end
 
   @doc "A run as it is stored now."
-  def current(run_id), do: Repo.get!(AnalysisRun, run_id)
+  def current(run_id), do: Repo.one!(AnalysisRunQuery.by_id(run_id))
 
   @doc """
   Freezes the next attempt: the evidence read now, rendered into the exact
@@ -337,12 +233,10 @@ defmodule Ryker.Improvement.Analyses do
       if candidate.start_count >= candidate.start_limit,
         do: Repo.rollback(:improvement_retry_exhausted)
 
-      Repo.update_all(
-        from(run in AnalysisRun,
-          where:
-            run.candidate_id == ^candidate.id and run.status == :prepared and
-              is_nil(run.started_at)
-        ),
+      candidate.id
+      |> AnalysisRunQuery.by_candidate_id()
+      |> AnalysisRunQuery.unstarted()
+      |> Repo.update_all(
         set: [status: :stale, error_code: "improvement_attempt_replaced", updated_at: Repo.now!()]
       )
 
@@ -377,20 +271,20 @@ defmodule Ryker.Improvement.Analyses do
   end
 
   defp retry?(candidate) do
-    Repo.exists?(
-      from(run in AnalysisRun,
-        where: run.candidate_id == ^candidate.id and run.error_code in @contract_failures
-      )
-    )
+    candidate.id
+    |> AnalysisRunQuery.by_candidate_id()
+    |> AnalysisRunQuery.with_error_codes(@contract_failures)
+    |> Repo.exists?()
   end
 
   defp next_generation(candidate_id) do
-    (Repo.one(
-       from(run in AnalysisRun,
-         where: run.candidate_id == ^candidate_id,
-         select: max(run.generation)
-       )
-     ) || 0) + 1
+    generation =
+      candidate_id
+      |> AnalysisRunQuery.by_candidate_id()
+      |> AnalysisRunQuery.select_max_generation()
+      |> Repo.one()
+
+    (generation || 0) + 1
   end
 
   # What went in, by count, and what was left out, beside the frozen prompt.
@@ -872,33 +766,30 @@ defmodule Ryker.Improvement.Analyses do
   end
 
   defp locked_run!(candidate, run_id) do
-    Repo.one(
-      from(run in AnalysisRun,
-        where: run.id == ^run_id and run.candidate_id == ^candidate.id,
-        lock: "FOR UPDATE"
-      )
-    ) || Repo.rollback(:improvement_run_mismatch)
+    run =
+      run_id
+      |> AnalysisRunQuery.by_id()
+      |> AnalysisRunQuery.by_candidate_id(candidate.id)
+      |> AnalysisRunQuery.lock_for_update()
+      |> Repo.one()
+
+    run || Repo.rollback(:improvement_run_mismatch)
   end
 
   defp owned_session?(run, remote_id) do
     Reference.valid?(remote_id, 1_024) and
-      Repo.exists?(
-        from(session in Session,
-          where:
-            session.execution_kind == :improvement and session.improvement_run_id == ^run.id and
-              session.coop_session_id == ^remote_id
-        )
-      )
+      run.id
+      |> SessionQuery.for_improvement_run()
+      |> SessionQuery.by_coop_session_id(remote_id)
+      |> Repo.exists?()
   end
 
   defp owned!(claim) do
     candidate =
-      Repo.one(
-        from(candidate in Candidate,
-          where: candidate.id == ^claim.candidate.id,
-          lock: "FOR UPDATE"
-        )
-      )
+      claim.candidate.id
+      |> CandidateQuery.by_id()
+      |> CandidateQuery.lock_for_update()
+      |> Repo.one()
 
     unless candidate && candidate.analysis == :running && candidate.lease_ref == claim.lease_ref &&
              DateTime.compare(candidate.lease_expires_at, Repo.now!()) == :gt,

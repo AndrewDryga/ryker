@@ -42,6 +42,12 @@ defmodule Ryker.Records.RecordQuery do
   def by_turn_id(queryable \\ all(), turn_id),
     do: where(queryable, [episode_state_records: r], r.turn_id == ^turn_id)
 
+  def by_confirmed_episode_id(queryable, episode_id),
+    do: where(queryable, [episode_state_records: r], r.confirmed_episode_id == ^episode_id)
+
+  def select_episode_ids(queryable),
+    do: select(queryable, [episode_state_records: r], r.episode_id)
+
   def by_operation_id(queryable, operation_id),
     do: where(queryable, [episode_state_records: r], r.operation_id == ^operation_id)
 
@@ -177,6 +183,21 @@ defmodule Ryker.Records.RecordQuery do
           entry.execution_mode == :live and is_nil(entry.operational_pruned_at),
       select: {record, response, entry},
       lock: "FOR UPDATE"
+    )
+  end
+
+  @doc """
+  The open Emisar approval card `record_id` of `episode_id`, while the
+  episode waits on it.
+  """
+  def awaited_approval(record_id, episode_id) do
+    from(r in all(),
+      join: e in Episode,
+      on: e.id == r.episode_id,
+      where:
+        r.id == ^record_id and r.episode_id == ^episode_id and r.kind == "emisar_approval" and
+          r.status == :open and e.state == :waiting_for_event and e.owner_kind == :event and
+          e.owner_ref == r.ref
     )
   end
 

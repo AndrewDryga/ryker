@@ -13,10 +13,9 @@ defmodule Ryker.Admission.FleetSession do
   by the message and generation they serve.
   """
 
-  import Ecto.Query
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.{Custody, Session, SessionQuery}
 
   @spec ensure(Entry.t(), %{name: String.t(), digest: String.t()}) ::
           {:ok, Session.t()} | {:error, term()}
@@ -45,16 +44,6 @@ defmodule Ryker.Admission.FleetSession do
   end
 
   def settle(_entry, _coop_session_id), do: {:error, :invalid_admission_fleet_session}
-
-  @doc false
-  @spec generation_query(Entry.t()) :: Ecto.Query.t()
-  def generation_query(%Entry{id: id, execution_generation: generation}) do
-    from(session in Session,
-      where:
-        session.execution_kind == :admission and session.admission_input_id == ^id and
-          session.generation == ^generation
-    )
-  end
 
   defp ensure_locked(entry, policy, digest) do
     case lock_session(entry) do
@@ -181,8 +170,12 @@ defmodule Ryker.Admission.FleetSession do
     end
   end
 
-  defp lock_session(entry),
-    do: Repo.one(from(session in generation_query(entry), lock: "FOR UPDATE"))
+  defp lock_session(entry) do
+    entry.id
+    |> SessionQuery.for_admission(entry.execution_generation)
+    |> SessionQuery.lock_for_update()
+    |> Repo.one()
+  end
 
   defp external_ref(%Entry{id: id, execution_generation: generation}),
     do: "ryker-admission:#{id}:g#{generation}"

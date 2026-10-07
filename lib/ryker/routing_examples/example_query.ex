@@ -12,6 +12,9 @@ defmodule Ryker.RoutingExamples.ExampleQuery do
   def by_input_id(queryable \\ all(), input_id),
     do: where(queryable, [routing_examples: x], x.input_id == ^input_id)
 
+  def by_input_ids(queryable \\ all(), input_ids),
+    do: where(queryable, [routing_examples: x], x.input_id in ^input_ids)
+
   def kept(queryable \\ all()),
     do: where(queryable, [routing_examples: x], is_nil(x.forgotten_at))
 

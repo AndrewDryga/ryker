@@ -23,6 +23,21 @@ defmodule Ryker.Work.TurnQuery do
     )
   end
 
+  def by_delivery_ref(queryable \\ all(), delivery_ref),
+    do: where(queryable, [episode_work_turns: t], t.delivery_ref == ^delivery_ref)
+
+  @doc "Answers whose delivery is blocked."
+  def blocked_deliveries(queryable \\ all()) do
+    where(
+      queryable,
+      [episode_work_turns: t],
+      t.status == :blocked and not is_nil(t.delivery_ref)
+    )
+  end
+
+  def recently_updated_first(queryable),
+    do: order_by(queryable, [episode_work_turns: t], desc: t.updated_at, desc: t.id)
+
   def by_turn_ref(queryable, turn_ref),
     do: where(queryable, [episode_work_turns: t], t.turn_ref == ^turn_ref)
 
@@ -156,6 +171,13 @@ defmodule Ryker.Work.TurnQuery do
 
   def newest_first(queryable),
     do: order_by(queryable, [episode_work_turns: t], desc: t.inserted_at, desc: t.id)
+
+  def oldest_first(queryable),
+    do: order_by(queryable, [episode_work_turns: t], asc: t.inserted_at, asc: t.id)
+
+  @doc "Each delivered answer as `{delivered_at, delivery_document}`."
+  def select_deliveries(queryable),
+    do: select(queryable, [episode_work_turns: t], {t.delivered_at, t.delivery_document})
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
   def select_statuses(queryable), do: select(queryable, [episode_work_turns: t], t.status)

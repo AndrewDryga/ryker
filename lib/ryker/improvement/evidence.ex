@@ -19,21 +19,20 @@ defmodule Ryker.Improvement.Evidence do
   conversation it quotes, as routing examples name them, for forgetting.
   """
 
-  import Ecto.Query
-  alias Ryker.Admission.Attempt
-  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
-  alias Ryker.Episodes.Episode
+  alias Ryker.Admission.{Attempt, AttemptQuery}
+  alias Ryker.Delivery.{PlatformActionQuery, RoutingResponseQuery}
+  alias Ryker.Episodes.{Episode, EpisodeQuery}
   alias Ryker.Feedback
   alias Ryker.GitHub.Input, as: GitHubInput
   alias Ryker.Improvement.Candidate
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.InspectionRedactor
-  alias Ryker.Records.Record
+  alias Ryker.Records.RecordQuery
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.RoutingExamples.Example
-  alias Ryker.Work.{ActivityEvent, Turn}
+  alias Ryker.RoutingExamples.{Example, ExampleQuery}
+  alias Ryker.Work.{ActivityEventQuery, TurnQuery}
 
   @message_limit 60
   @tool_limit 40
@@ -164,7 +163,7 @@ defmodule Ryker.Improvement.Evidence do
 
   # -- The request ------------------------------------------------------------------
 
-  defp episode({:episode, id}), do: Repo.get(Episode, id)
+  defp episode({:episode, id}), do: Repo.one(EpisodeQuery.by_id(id))
   defp episode(_input), do: nil
 
   # The person's messages of the request, every revision, oldest first: an
@@ -179,27 +178,22 @@ defmodule Ryker.Improvement.Evidence do
   defp entries({:episode, id}) do
     episode_ids = [id | offering_episodes(id)]
 
-    Repo.all(
-      from(entry in Entry,
-        where: entry.episode_id in ^episode_ids,
-        order_by: [desc: entry.occurred_at, desc: entry.revision, desc: entry.inserted_at],
-        limit: @message_limit
-      )
-    )
+    episode_ids
+    |> EntryQuery.by_episode_ids()
+    |> EntryQuery.latest_said_first()
+    |> EntryQuery.limit_to(@message_limit)
+    |> Repo.all()
     |> Enum.reverse()
   end
 
-  defp entries({:input, id}) do
-    Repo.all(from(entry in Entry, where: entry.id == ^id))
-  end
+  defp entries({:input, id}), do: Repo.all(EntryQuery.by_id(id))
 
   defp offering_episodes(task_episode_id) do
-    Repo.all(
-      from(record in Record,
-        where: record.kind == "task_offer" and record.confirmed_episode_id == ^task_episode_id,
-        select: record.episode_id
-      )
-    )
+    RecordQuery.all()
+    |> RecordQuery.of_kind("task_offer")
+    |> RecordQuery.by_confirmed_episode_id(task_episode_id)
+    |> RecordQuery.select_episode_ids()
+    |> Repo.all()
   end
 
   defp request_document(candidate, episode, entries) do
@@ -234,12 +228,10 @@ defmodule Ryker.Improvement.Evidence do
 
     ids = Enum.map(natives, &elem(&1, 2))
 
-    Repo.all(
-      from(entry in Entry,
-        where: entry.event_kind == :delete and entry.native_input_id in ^ids,
-        select: {entry.source_kind, entry.source_ref, entry.native_input_id}
-      )
-    )
+    ids
+    |> EntryQuery.deletions_of_items()
+    |> EntryQuery.select_source_items()
+    |> Repo.all()
     |> Enum.filter(&(&1 in natives))
     |> MapSet.new()
   end
@@ -347,22 +339,19 @@ defmodule Ryker.Improvement.Evidence do
 
   defp answers({:episode, id}, _entries, secrets) do
     replies =
-      Repo.all(
-        from(turn in Turn,
-          where: turn.episode_id == ^id and not is_nil(turn.delivered_at),
-          select: {turn.delivered_at, turn.delivery_document}
-        )
-      )
+      id
+      |> TurnQuery.by_episode_id()
+      |> TurnQuery.delivered()
+      |> TurnQuery.select_deliveries()
+      |> Repo.all()
       |> Enum.map(fn {at, document} -> answer(at, "work_reply", document, secrets) end)
 
     posts =
-      Repo.all(
-        from(action in PlatformAction,
-          where:
-            action.episode_id == ^id and action.kind == :message and action.status == :delivered,
-          select: {action.delivered_at, action.document}
-        )
-      )
+      id
+      |> PlatformActionQuery.by_episode_id()
+      |> PlatformActionQuery.delivered_messages()
+      |> PlatformActionQuery.select_deliveries()
+      |> Repo.all()
       |> Enum.map(fn {at, document} -> answer(at, "posted_update", document, secrets) end)
 
     replies ++ posts
@@ -371,13 +360,12 @@ defmodule Ryker.Improvement.Evidence do
   defp answers({:input, _id}, entries, secrets) do
     ids = Enum.map(entries, & &1.id)
 
-    Repo.all(
-      from(response in RoutingResponse,
-        where: response.input_id in ^ids and response.status == :delivered,
-        order_by: [asc: response.position],
-        select: {response.delivered_at, response.kind, response.document}
-      )
-    )
+    ids
+    |> RoutingResponseQuery.by_input_ids()
+    |> RoutingResponseQuery.delivered()
+    |> RoutingResponseQuery.in_position_order()
+    |> RoutingResponseQuery.select_deliveries()
+    |> Repo.all()
     |> Enum.map(fn
       {at, :message, document} -> answer(at, "quick_reply", document, secrets)
       {at, :reaction, document} -> reaction(at, document)
@@ -422,7 +410,9 @@ defmodule Ryker.Improvement.Evidence do
     ids = Enum.map(decided, & &1.id)
 
     examples =
-      Repo.all(from(example in Example, where: example.input_id in ^ids))
+      ids
+      |> ExampleQuery.by_input_ids()
+      |> Repo.all()
       |> Map.new(&{&1.input_id, &1})
 
     decided
@@ -456,18 +446,9 @@ defmodule Ryker.Improvement.Evidence do
   end
 
   defp attempt_routing(entry, secrets) do
-    attempt =
-      Repo.one(
-        from(attempt in Attempt,
-          where:
-            attempt.input_id == ^entry.id and
-              attempt.generation == ^entry.execution_generation and
-              attempt.phase == "committed" and is_nil(attempt.operational_pruned_at)
-        )
-      )
-
-    case attempt do
-      %Attempt{submission: %{"prompt" => prompt}, response: %{"assistant_message" => answer}}
+    case Repo.one(AttemptQuery.committed_for(entry)) do
+      %Attempt{submission: %{"prompt" => prompt}, response: %{"assistant_message" => answer}} =
+          attempt
       when is_binary(prompt) and is_binary(answer) ->
         {routing_item(
            entry,
@@ -498,13 +479,7 @@ defmodule Ryker.Improvement.Evidence do
   defp work(nil, _secrets), do: []
 
   defp work(%Episode{id: id}, secrets) do
-    turns =
-      Repo.all(
-        from(turn in Turn,
-          where: turn.episode_id == ^id,
-          order_by: [asc: turn.inserted_at, asc: turn.id]
-        )
-      )
+    turns = id |> TurnQuery.by_episode_id() |> TurnQuery.oldest_first() |> Repo.all()
 
     tools = tools(id)
 
@@ -527,16 +502,7 @@ defmodule Ryker.Improvement.Evidence do
   # server's tool by name, or what the worker was doing (such as starting a
   # tool server) when it names no tool.
   defp tools(episode_id) do
-    rows =
-      Repo.all(
-        from(event in ActivityEvent,
-          where:
-            event.episode_id == ^episode_id and event.kind in ["tool.started", "tool.completed"] and
-              is_nil(event.operational_pruned_at),
-          order_by: [asc: event.occurred_at, asc: event.sequence],
-          select: {event.coop_turn_id, event.kind, event.payload}
-        )
-      )
+    rows = Repo.all(ActivityEventQuery.tool_events(episode_id))
 
     endings =
       for {_turn, "tool.completed", %{"tool_call_id" => call} = payload} <- rows,
@@ -600,7 +566,9 @@ defmodule Ryker.Improvement.Evidence do
           {:ok, id} <- [Ecto.UUID.cast(id)],
           do: id
 
-    Repo.all(from(entry in Entry, where: entry.id in ^ids))
+    ids
+    |> EntryQuery.by_ids()
+    |> Repo.all()
     |> Map.new(&{Inbox.ref(&1), &1})
   end
 

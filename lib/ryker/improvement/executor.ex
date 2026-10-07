@@ -26,7 +26,7 @@ defmodule Ryker.Improvement.Executor do
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Improvement.{Analyses, FleetSession, Prompt}
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work.SessionQuery
 
   @terminal ~w(completed failed cancelled interrupted budget_exhausted)
   @pending ~w(reserved running)
@@ -174,13 +174,13 @@ defmodule Ryker.Improvement.Executor do
     case operation(result, "CreateRemoteSession", "session") do
       {:ok, %{"id" => id} = session} when is_binary(id) ->
         with {:ok, _bound} <- bind(claim, run, id),
-             do: located_session({:ok, session}, Repo.get!(Session, local.id))
+             do: located_session({:ok, session}, Repo.one!(SessionQuery.by_id(local.id)))
 
       {:resource, id} ->
         with {:ok, _bound} <- bind(claim, run, id) do
           located_session(
             call(claim, settings, :get_session, [id]),
-            Repo.get!(Session, local.id)
+            Repo.one!(SessionQuery.by_id(local.id))
           )
         end
 

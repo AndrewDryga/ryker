@@ -5,6 +5,44 @@ defmodule Ryker.Improvement.AnalysisRunQuery do
 
   def all, do: from(runs in AnalysisRun, as: :improvement_analysis_runs)
 
+  def by_id(queryable \\ all(), id),
+    do: where(queryable, [improvement_analysis_runs: r], r.id == ^id)
+
+  def by_candidate_id(queryable \\ all(), candidate_id),
+    do: where(queryable, [improvement_analysis_runs: r], r.candidate_id == ^candidate_id)
+
+  def by_policy(queryable \\ all(), policy, policy_digest) do
+    where(
+      queryable,
+      [improvement_analysis_runs: r],
+      r.policy == ^policy and r.policy_digest == ^policy_digest
+    )
+  end
+
+  def with_error_code(queryable, error_code),
+    do: where(queryable, [improvement_analysis_runs: r], r.error_code == ^error_code)
+
+  def with_error_codes(queryable, error_codes),
+    do: where(queryable, [improvement_analysis_runs: r], r.error_code in ^error_codes)
+
+  @doc "Runs started on a worker that has not confirmed their remote execution stopped."
+  def unstopped(queryable) do
+    where(
+      queryable,
+      [improvement_analysis_runs: r],
+      not is_nil(r.started_at) and is_nil(r.remote_stopped_at)
+    )
+  end
+
+  @doc "Prepared runs that never started."
+  def unstarted(queryable) do
+    where(
+      queryable,
+      [improvement_analysis_runs: r],
+      r.status == :prepared and is_nil(r.started_at)
+    )
+  end
+
   @doc "The runs of `candidate_ids` that still keep their bodies."
   def kept_for_candidates(candidate_ids) do
     where(
@@ -13,4 +51,13 @@ defmodule Ryker.Improvement.AnalysisRunQuery do
       r.candidate_id in ^candidate_ids and is_nil(r.pruned_at)
     )
   end
+
+  def in_generation_order(queryable),
+    do: order_by(queryable, [improvement_analysis_runs: r], asc: r.generation)
+
+  def select_max_generation(queryable),
+    do: select(queryable, [improvement_analysis_runs: r], max(r.generation))
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
+  def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 end

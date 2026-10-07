@@ -8,13 +8,12 @@ defmodule Ryker.Operator.Retention do
   eligible operator discard.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.Operator.{Actions, RetentionAction}
+  alias Ryker.Operator.{Actions, RetentionAction, RetentionActionQuery}
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Retention.Custody
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Session, SessionQuery}
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
 
@@ -80,14 +79,12 @@ defmodule Ryker.Operator.Retention do
        ) do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [action_ref])
 
-    case Repo.one(
-           from(entry in RetentionAction,
-             where: entry.action_ref == ^action_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    locked =
+      action_ref |> RetentionActionQuery.by_action_ref() |> RetentionActionQuery.lock_for_update()
+
+    case Repo.one(locked) do
       %RetentionAction{request_fingerprint: ^fingerprint} = entry ->
-        session = Repo.get!(Session, entry.session_id)
+        session = Repo.one!(SessionQuery.by_id(entry.session_id))
         %{action: entry, outcome: :duplicate, session: session}
 
       %RetentionAction{} ->
@@ -95,12 +92,10 @@ defmodule Ryker.Operator.Retention do
 
       nil ->
         session =
-          Repo.one(
-            from(session in Session,
-              where: session.external_ref == ^session_ref,
-              lock: "FOR UPDATE"
-            )
-          ) || Repo.rollback(:retention_session_not_found)
+          session_ref
+          |> SessionQuery.by_external_ref()
+          |> SessionQuery.lock_for_update()
+          |> Repo.one() || Repo.rollback(:retention_session_not_found)
 
         {outcome, previous_status, previous_plan_fingerprint, updated} =
           transition(action, session, expected_plan_fingerprint)

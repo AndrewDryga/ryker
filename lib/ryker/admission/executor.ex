@@ -19,9 +19,9 @@ defmodule Ryker.Admission.Executor do
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Knowledge
   alias Ryker.Learning.Observations
-  alias Ryker.Records.Record
+  alias Ryker.Records.{Record, RecordQuery}
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Session, SessionQuery}
 
   @retryable_terminal_turn_states ~w(failed)
   @stopped_turn_states ~w(cancelled interrupted budget_exhausted)
@@ -116,7 +116,7 @@ defmodule Ryker.Admission.Executor do
        })
        when is_binary(ref) do
     with %Record{kind: "input_request", episode_id: episode_id} <-
-           Repo.get_by(Record, ref: ref),
+           Repo.one(RecordQuery.by_ref(ref)),
          %{ref: candidate_ref} <- Enum.find(candidates, &(&1.episode.id == episode_id)) do
       deletion(
         :continue_episode,
@@ -1154,7 +1154,7 @@ defmodule Ryker.Admission.Executor do
     do: {:error, {:coop_protocol_error, :session_resource}}
 
   defp exact_job_receipt?(remote, settings, purpose) do
-    case Repo.get_by(Session, external_ref: settings.session_external_ref) do
+    case Repo.one(SessionQuery.by_external_ref(settings.session_external_ref)) do
       %Session{policy: policy, policy_digest: digest} = saved
       when policy == settings.policy and digest == settings.policy_digest ->
         if purpose == :cleanup,

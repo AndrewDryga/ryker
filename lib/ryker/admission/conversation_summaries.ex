@@ -12,9 +12,8 @@ defmodule Ryker.Admission.ConversationSummaries do
   manifest says so, and the actual recent messages carry the context.
   """
 
-  import Ecto.Query
   alias Ryker.Continuity
-  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Continuity.{ConversationSummary, ConversationSummaryQuery}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.LearningSources
   alias Ryker.Repo
@@ -56,13 +55,11 @@ defmodule Ryker.Admission.ConversationSummaries do
   end
 
   defp latest(identity_key) do
-    Repo.one(
-      from(summary in ConversationSummary,
-        where: summary.identity_key == ^identity_key,
-        order_by: [desc: summary.updated_at],
-        limit: 1
-      )
-    )
+    identity_key
+    |> ConversationSummaryQuery.by_identity_key()
+    |> ConversationSummaryQuery.recently_updated_first()
+    |> ConversationSummaryQuery.limit_to(1)
+    |> Repo.one()
   end
 
   # When the summary was saved is what bounds what it can know. Its

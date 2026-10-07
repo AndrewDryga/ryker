@@ -25,12 +25,105 @@ defmodule Ryker.Work.SessionQuery do
     )
   end
 
+  @doc "The session of improvement analysis run `run_id`."
+  def for_improvement_run(queryable \\ all(), run_id) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.execution_kind == :improvement and s.improvement_run_id == ^run_id
+    )
+  end
+
   @doc "The session of learning pass `run_id`."
   def for_learning_run(queryable \\ all(), run_id) do
     where(
       queryable,
       [episode_work_sessions: s],
       s.execution_kind == :learning and s.learning_run_id == ^run_id
+    )
+  end
+
+  @doc "The routing session of generation `generation` of inbox entry `input_id`."
+  def for_admission(input_id, generation) do
+    where(
+      all(),
+      [episode_work_sessions: s],
+      s.execution_kind == :admission and s.admission_input_id == ^input_id and
+        s.generation == ^generation
+    )
+  end
+
+  def by_external_ref(queryable \\ all(), external_ref),
+    do: where(queryable, [episode_work_sessions: s], s.external_ref == ^external_ref)
+
+  @doc """
+  The oldest open routing session kept ready for `policy` and inserted after
+  `cutoff`, locked and skipped while another claim holds it. Prepared ones
+  come first: those whose agent will still be running at `running_past`.
+  """
+  def next_ready(policy, digest, cutoff, running_past) do
+    from(s in all(),
+      where: s.execution_kind == :admission and s.ready_state == :ready,
+      where: is_nil(s.admission_input_id) and s.cleanup_status == :active,
+      where: s.policy == ^policy and s.policy_digest == ^digest,
+      where: s.inserted_at > ^cutoff,
+      order_by: [
+        desc: fragment("coalesce(? > ?, false)", s.warm_until, ^running_past),
+        asc: s.inserted_at,
+        asc: s.id
+      ],
+      limit: 1,
+      lock: "FOR UPDATE SKIP LOCKED"
+    )
+  end
+
+  @doc "Sessions of the ready routing pool, whatever their state."
+  def in_ready_pool(queryable \\ all()),
+    do: where(queryable, [episode_work_sessions: s], not is_nil(s.ready_state))
+
+  def with_ready_state(queryable \\ all(), states)
+
+  def with_ready_state(queryable, states) when is_list(states),
+    do: where(queryable, [episode_work_sessions: s], s.ready_state in ^states)
+
+  def with_ready_state(queryable, state),
+    do: where(queryable, [episode_work_sessions: s], s.ready_state == ^state)
+
+  @doc "Ready sessions Coop has not been asked to prepare yet."
+  def unprepared(queryable),
+    do: where(queryable, [episode_work_sessions: s], is_nil(s.warm_until))
+
+  def with_policy(queryable, policy, digest) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.policy == ^policy and s.policy_digest == ^digest
+    )
+  end
+
+  def inserted_after(queryable, at),
+    do: where(queryable, [episode_work_sessions: s], s.inserted_at > ^at)
+
+  def inserted_by(queryable, at),
+    do: where(queryable, [episode_work_sessions: s], s.inserted_at <= ^at)
+
+  def oldest_first(queryable),
+    do: order_by(queryable, [episode_work_sessions: s], asc: s.inserted_at, asc: s.id)
+
+  def newest_first(queryable),
+    do: order_by(queryable, [episode_work_sessions: s], desc: s.inserted_at, desc: s.id)
+
+  @doc """
+  The repository each of `episode_ids`' Work sessions was pinned to, as
+  `{episode_id, repository_ref}`, oldest session first.
+  """
+  def pinned_repositories(episode_ids) do
+    from(s in all(),
+      where:
+        s.episode_id in ^episode_ids and s.execution_kind == :work and
+          not is_nil(s.repository_ref),
+      order_by: [asc: s.inserted_at],
+      select: {s.episode_id, s.repository_ref}
     )
   end
 

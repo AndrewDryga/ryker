@@ -11,9 +11,8 @@ defmodule Ryker.Operator.Actions do
   context that owns it.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.Operator.Action
+  alias Ryker.Operator.{Action, ActionQuery}
   alias Ryker.Reference
   alias Ryker.Repo
 
@@ -52,7 +51,7 @@ defmodule Ryker.Operator.Actions do
   @spec fetch(String.t()) :: {:ok, Action.t()} | :error
   def fetch(action_ref) do
     with :ok <- Reference.check(action_ref, :action_ref, :invalid_operator_action),
-         %Action{} = action <- Repo.get_by(Action, action_ref: action_ref) do
+         %Action{} = action <- Repo.one(ActionQuery.by_action_ref(action_ref)) do
       {:ok, action}
     else
       _unavailable -> :error
@@ -64,12 +63,10 @@ defmodule Ryker.Operator.Actions do
       attributes.action_ref
     ])
 
-    case Repo.one(
-           from(action in Action,
-             where: action.action_ref == ^attributes.action_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    locked =
+      attributes.action_ref |> ActionQuery.by_action_ref() |> ActionQuery.lock_for_update()
+
+    case Repo.one(locked) do
       %Action{request_fingerprint: ^fingerprint} = action ->
         receipt(action, :duplicate)
 

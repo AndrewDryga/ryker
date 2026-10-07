@@ -20,4 +20,18 @@ defmodule Ryker.Work.ActivityEventQuery do
       "payload" => a.payload
     })
   end
+
+  @doc """
+  The tool calls of episode `episode_id` that keep their bodies, started and
+  completed, in order, as `{coop_turn_id, kind, payload}`.
+  """
+  def tool_events(episode_id) do
+    from(a in all(),
+      where:
+        a.episode_id == ^episode_id and a.kind in ["tool.started", "tool.completed"] and
+          is_nil(a.operational_pruned_at),
+      order_by: [asc: a.occurred_at, asc: a.sequence],
+      select: {a.coop_turn_id, a.kind, a.payload}
+    )
+  end
 end

@@ -202,6 +202,36 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
   def newest_first(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], desc: e.inserted_at)
 
+  @doc "The latest said first: by occurrence, then revision, then arrival."
+  def latest_said_first(queryable) do
+    order_by(queryable, [ingress_inbox_entries: e],
+      desc: e.occurred_at,
+      desc: e.revision,
+      desc: e.inserted_at
+    )
+  end
+
+  def by_episode_ids(queryable \\ all(), episode_ids),
+    do: where(queryable, [ingress_inbox_entries: e], e.episode_id in ^episode_ids)
+
+  @doc "The deletions of the source items `native_input_ids` names."
+  def deletions_of_items(native_input_ids) do
+    where(
+      all(),
+      [ingress_inbox_entries: e],
+      e.event_kind == :delete and e.native_input_id in ^native_input_ids
+    )
+  end
+
+  @doc "Each entry's source item, as `{source_kind, source_ref, native_input_id}`."
+  def select_source_items(queryable) do
+    select(
+      queryable,
+      [ingress_inbox_entries: e],
+      {e.source_kind, e.source_ref, e.native_input_id}
+    )
+  end
+
   @doc "Earlier revisions of the message `entry` revises, oldest first, each with what a revision changes."
   def earlier_revisions_of(entry) do
     all()

@@ -77,6 +77,27 @@ defmodule Ryker.Delivery.RoutingResponseQuery do
   end
 
   @doc "Messages routing sent that their platform received."
+  def with_status(queryable, status),
+    do: where(queryable, [delivery_routing_responses: r], r.status == ^status)
+
+  def recently_updated_first(queryable),
+    do: order_by(queryable, [delivery_routing_responses: r], desc: r.updated_at, desc: r.id)
+
+  def delivered(queryable),
+    do: where(queryable, [delivery_routing_responses: r], r.status == :delivered)
+
+  def in_position_order(queryable),
+    do: order_by(queryable, [delivery_routing_responses: r], asc: r.position)
+
+  @doc "Each delivered response as `{delivered_at, kind, document}`."
+  def select_deliveries(queryable) do
+    select(
+      queryable,
+      [delivery_routing_responses: r],
+      {r.delivered_at, r.kind, r.document}
+    )
+  end
+
   def delivered_messages(queryable \\ all()) do
     where(
       queryable,

@@ -10,10 +10,9 @@ defmodule Ryker.Admission.CorrelationScope do
   channels never establishes a common audience.
   """
 
-  import Ecto.Query
   alias Ryker.Ingress.Input
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack.ChannelMembershipQuery
 
   @maximum_conversations 500
 
@@ -80,26 +79,19 @@ defmodule Ryker.Admission.CorrelationScope do
   end
 
   defp membership(workspace_ref, channel_ref) do
-    Repo.one(
-      from(member in ChannelMembership,
-        where: member.workspace_ref == ^workspace_ref and member.channel_ref == ^channel_ref,
-        select: {member.status, member.private, member.external_shared}
-      )
-    )
+    workspace_ref
+    |> ChannelMembershipQuery.by_channel(channel_ref)
+    |> ChannelMembershipQuery.select_audience()
+    |> Repo.one()
   end
 
   defp public_conversation_refs(workspace_ref) do
     refs =
-      Repo.all(
-        from(member in ChannelMembership,
-          where:
-            member.workspace_ref == ^workspace_ref and member.status == :joined and
-              member.private == false and member.external_shared == false,
-          order_by: [asc: member.channel_ref],
-          limit: ^(@maximum_conversations + 1),
-          select: fragment("'slack:' || ? || ':' || ?", member.workspace_ref, member.channel_ref)
-        )
-      )
+      "slack:#{workspace_ref}"
+      |> ChannelMembershipQuery.public_conversation_refs()
+      |> ChannelMembershipQuery.ordered_by_channel()
+      |> ChannelMembershipQuery.limit_to(@maximum_conversations + 1)
+      |> Repo.all()
 
     {Enum.take(refs, @maximum_conversations), length(refs) > @maximum_conversations}
   end

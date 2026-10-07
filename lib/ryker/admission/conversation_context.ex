@@ -15,15 +15,12 @@ defmodule Ryker.Admission.ConversationContext do
   happened, and it never claims coverage it does not have.
   """
 
-  import Ecto.Query
+  alias Ryker.Admission.ConversationContextQuery
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
-  alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
   alias Ryker.Memories.MemorySourceLink
   alias Ryker.Repo
-  alias Ryker.Work.Turn
 
   @default_limit 20
   @minimum_limit 10
@@ -125,26 +122,9 @@ defmodule Ryker.Admission.ConversationContext do
 
   defp validated_limit(_limit), do: @default_limit
 
-  # The cutoff is the triggering occurrence. Equal timestamps fall back to the
-  # captured source item so two messages in the same Slack second stay ordered.
   defp retained_predecessors(entry, kind, limit) do
-    base =
-      from(other in Entry,
-        where:
-          other.destination_transport == ^entry.destination_transport and
-            other.destination_conversation_ref == ^entry.destination_conversation_ref and
-            other.execution_mode == ^entry.execution_mode and
-            other.id != ^entry.id and
-            is_nil(other.operational_pruned_at),
-        where: other.occurred_at < ^entry.occurred_at
-      )
-
-    base = tie_break(base, entry)
-
-    base
-    |> scope(entry, kind)
-    |> order_by([other], desc: other.occurred_at, desc: other.source_item_ref)
-    |> limit(^limit)
+    entry
+    |> ConversationContextQuery.retained_predecessors(kind, limit)
     |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(&message_document(&1, :retained))
@@ -160,8 +140,9 @@ defmodule Ryker.Admission.ConversationContext do
   # was sent as, with the request it belongs to: `previous_answer/2` reads it.
   defp ryker_messages(entry, kind, limit) do
     sent =
-      delivered_replies(entry, kind, limit) ++
-        delivered_posts(entry, kind, limit) ++ delivered_quick_replies(entry, kind, limit)
+      Repo.all(ConversationContextQuery.delivered_replies(entry, kind, limit)) ++
+        Repo.all(ConversationContextQuery.delivered_posts(entry, kind, limit)) ++
+        Repo.all(ConversationContextQuery.delivered_quick_replies(entry, kind, limit))
 
     messages = Enum.flat_map(sent, &ryker_message(&1, entry))
 
@@ -180,115 +161,6 @@ defmodule Ryker.Admission.ConversationContext do
 
     {messages, answers}
   end
-
-  defp delivered_replies(entry, kind, limit) do
-    from(turn in Turn,
-      join: episode in Episode,
-      on: episode.id == turn.episode_id,
-      where:
-        not is_nil(turn.delivered_at) and turn.delivered_at < ^entry.occurred_at and
-          is_nil(turn.operational_pruned_at) and
-          episode.execution_mode == ^entry.execution_mode and
-          fragment("(?::jsonb ->> 'transport')", turn.external_receipt) ==
-            ^entry.destination_transport and
-          fragment("(?::jsonb ->> 'conversation_ref')", turn.external_receipt) ==
-            ^entry.destination_conversation_ref
-    )
-    |> reply_scope(entry, kind)
-    |> order_by([turn], desc: turn.delivered_at)
-    |> limit(^limit)
-    |> select([turn], %{
-      at: turn.delivered_at,
-      document: turn.delivery_document,
-      receipt: turn.external_receipt,
-      request: %{"episode_id" => turn.episode_id}
-    })
-    |> Repo.all()
-  end
-
-  defp delivered_posts(entry, kind, limit) do
-    from(action in PlatformAction,
-      join: episode in Episode,
-      on: episode.id == action.episode_id,
-      where:
-        action.kind == :message and action.status == :delivered and
-          action.delivered_at < ^entry.occurred_at and
-          episode.execution_mode == ^entry.execution_mode and
-          action.transport == ^entry.destination_transport and
-          action.conversation_ref == ^entry.destination_conversation_ref
-    )
-    |> post_scope(entry, kind)
-    |> order_by([action], desc: action.delivered_at)
-    |> limit(^limit)
-    |> select([action], %{
-      at: action.delivered_at,
-      document: action.document,
-      receipt: action.external_receipt,
-      thread_ref: action.thread_ref
-    })
-    |> Repo.all()
-  end
-
-  defp delivered_quick_replies(entry, kind, limit) do
-    from(response in RoutingResponse,
-      join: input in Entry,
-      on: input.id == response.input_id,
-      where:
-        response.kind == :message and response.status == :delivered and
-          response.delivered_at < ^entry.occurred_at and
-          input.execution_mode == ^entry.execution_mode and
-          response.transport == ^entry.destination_transport and
-          response.conversation_ref == ^entry.destination_conversation_ref
-    )
-    |> post_scope(entry, kind)
-    |> order_by([response], desc: response.delivered_at)
-    |> limit(^limit)
-    |> select([response], %{
-      at: response.delivered_at,
-      document: response.document,
-      receipt: response.external_receipt,
-      request: %{"input_id" => response.input_id},
-      thread_ref: response.thread_ref
-    })
-    |> Repo.all()
-  end
-
-  # The place rules the inputs follow: a thread reply sees its own thread, a
-  # channel root sees top-level messages only, anything else its conversation.
-  defp reply_scope(query, entry, :thread_reply) do
-    from(turn in query,
-      where:
-        fragment("(?::jsonb ->> 'thread_ref')", turn.external_receipt) ==
-          ^entry.destination_thread_ref
-    )
-  end
-
-  defp reply_scope(query, _entry, :channel_root) do
-    from(turn in query,
-      where:
-        fragment(
-          "coalesce(?::jsonb ->> 'thread_ref', ?::jsonb ->> 'message_ref') = ?::jsonb ->> 'message_ref'",
-          turn.external_receipt,
-          turn.external_receipt,
-          turn.external_receipt
-        )
-    )
-  end
-
-  defp reply_scope(query, _entry, :conversation), do: query
-
-  defp post_scope(query, entry, :thread_reply),
-    do: from(action in query, where: action.thread_ref == ^entry.destination_thread_ref)
-
-  defp post_scope(query, _entry, :channel_root) do
-    from(action in query,
-      where:
-        is_nil(action.thread_ref) or
-          action.thread_ref == fragment("(?::jsonb ->> 'message_ref')", action.external_receipt)
-    )
-  end
-
-  defp post_scope(query, _entry, :conversation), do: query
 
   defp ryker_message(
          %{at: at, document: %{"message" => text}, receipt: %{} = receipt} = sent,
@@ -317,33 +189,6 @@ defmodule Ryker.Admission.ConversationContext do
   end
 
   defp ryker_message(_sent, _entry), do: []
-
-  # Two Slack messages can share a second. The captured item orders them, but
-  # only when this source has one: a webhook occurrence has no item reference.
-  defp tie_break(query, %Entry{source_item_ref: nil}), do: query
-
-  defp tie_break(query, %Entry{} = entry) do
-    from(other in query,
-      or_where:
-        other.destination_transport == ^entry.destination_transport and
-          other.destination_conversation_ref == ^entry.destination_conversation_ref and
-          other.execution_mode == ^entry.execution_mode and
-          other.id != ^entry.id and
-          is_nil(other.operational_pruned_at) and
-          other.occurred_at == ^entry.occurred_at and
-          other.source_item_ref < ^entry.source_item_ref
-    )
-  end
-
-  defp scope(query, entry, :thread_reply),
-    do: from(other in query, where: other.destination_thread_ref == ^entry.destination_thread_ref)
-
-  # A Slack root binds its own timestamp as its thread, so top-level messages
-  # are exactly the entries whose captured item is their own thread.
-  defp scope(query, _entry, :channel_root),
-    do: from(other in query, where: other.destination_thread_ref == other.source_item_ref)
-
-  defp scope(query, _entry, :conversation), do: query
 
   defp fill(retained, _entry, _kind, limit, nil) when length(retained) >= limit,
     do: {retained, "retained"}
@@ -500,20 +345,8 @@ defmodule Ryker.Admission.ConversationContext do
     end
   end
 
-  defp retained_root(entry, root_ref) do
-    Repo.one(
-      from(other in Entry,
-        where:
-          other.destination_transport == ^entry.destination_transport and
-            other.destination_conversation_ref == ^entry.destination_conversation_ref and
-            other.execution_mode == ^entry.execution_mode and
-            other.source_item_ref == ^root_ref and
-            is_nil(other.operational_pruned_at),
-        order_by: [desc: other.revision],
-        limit: 1
-      )
-    )
-  end
+  defp retained_root(entry, root_ref),
+    do: Repo.one(ConversationContextQuery.retained_root(entry, root_ref))
 
   defp message_document(%Entry{} = entry, origin) do
     %{

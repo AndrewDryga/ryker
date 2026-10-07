@@ -12,8 +12,7 @@ defmodule Ryker.Operator.FailureDismissals do
   same way then shows once more.
   """
 
-  import Ecto.Query
-  alias Ryker.Operator.FailureDismissal
+  alias Ryker.Operator.{FailureDismissal, FailureDismissalQuery}
   alias Ryker.Repo
 
   @doc "Leaves one failure, failing as `summary` says, on `actor_ref`'s behalf."
@@ -42,10 +41,7 @@ defmodule Ryker.Operator.FailureDismissals do
   """
   @spec counts() :: %{String.t() => non_neg_integer()}
   def counts do
-    from(dismissal in FailureDismissal,
-      group_by: dismissal.kind,
-      select: {dismissal.kind, count(dismissal.ref)}
-    )
+    FailureDismissalQuery.count_by_kind()
     |> Repo.all()
     |> Map.new()
   end
@@ -75,9 +71,8 @@ defmodule Ryker.Operator.FailureDismissals do
     kinds = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
     refs = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
 
-    from(dismissal in FailureDismissal,
-      where: dismissal.kind in ^kinds and dismissal.ref in ^refs
-    )
+    kinds
+    |> FailureDismissalQuery.of_kinds_and_refs(refs)
     |> Repo.all()
     |> Map.new(&{{&1.kind, &1.ref}, &1})
   end

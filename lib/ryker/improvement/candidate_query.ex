@@ -1,7 +1,9 @@
 defmodule Ryker.Improvement.CandidateQuery do
   @moduledoc "Requests feedback flagged for review, for every read of `improvement_candidates`."
   import Ecto.Query
-  alias Ryker.Improvement.Candidate
+  alias Ryker.Delivery.RoutingResponse
+  alias Ryker.Improvement.{AnalysisRunQuery, Candidate}
+  alias Ryker.Work.Custody
 
   def all, do: from(candidates in Candidate, as: :improvement_candidates)
 
@@ -35,6 +37,128 @@ defmodule Ryker.Improvement.CandidateQuery do
 
   def with_status(queryable, status),
     do: where(queryable, [improvement_candidates: c], c.status == ^status)
+
+  @doc """
+  The candidate a worker leases next at `now`, skipping any another worker
+  holds: one whose worker stopped renewing its lease, or one that is due and
+  either has a run still out at Coop or, with `enabled?`, is still wanted,
+  quiet since `quiet` and at rest. With analysis off only what is out at
+  Coop is followed, to its stop.
+  """
+  def next_claimable(now, quiet, enabled?) do
+    from(c in all(),
+      where: ^claimable(now, quiet, enabled?),
+      order_by: [asc: c.last_signal_at, asc: c.id],
+      limit: 1,
+      lock: "FOR UPDATE SKIP LOCKED"
+    )
+  end
+
+  defp claimable(now, quiet, true) do
+    dynamic(
+      [improvement_candidates: c],
+      ^stale_lease(now) or
+        (^due(now) and (exists(outstanding_run()) or (^wanted(quiet) and ^at_rest())))
+    )
+  end
+
+  defp claimable(now, _quiet, false) do
+    dynamic(
+      [improvement_candidates: c],
+      ^stale_lease(now) or (^due(now) and exists(outstanding_run()))
+    )
+  end
+
+  defp stale_lease(now) do
+    dynamic(
+      [improvement_candidates: c],
+      c.analysis == :running and c.lease_expires_at <= ^now
+    )
+  end
+
+  defp due(now) do
+    dynamic(
+      [improvement_candidates: c],
+      c.analysis == :pending and (is_nil(c.next_attempt_at) or c.next_attempt_at <= ^now)
+    )
+  end
+
+  defp wanted(quiet) do
+    dynamic(
+      [improvement_candidates: c],
+      is_nil(c.forgotten_at) and c.status != :dismissed and c.last_signal_at <= ^quiet
+    )
+  end
+
+  # The request has nothing still running: its Work has come to rest, or the
+  # quick replies routing chose for the message were delivered or given up.
+  defp at_rest do
+    running_work =
+      from(work in subquery(Custody.work_rest_query()),
+        where: work.episode_id == parent_as(:improvement_candidates).episode_id and work.running
+      )
+
+    pending_replies =
+      from(response in RoutingResponse,
+        where:
+          response.input_id == parent_as(:improvement_candidates).input_id and
+            response.status == :pending
+      )
+
+    dynamic(
+      [improvement_candidates: c],
+      (not is_nil(c.episode_id) and not exists(running_work)) or
+        (not is_nil(c.input_id) and not exists(pending_replies))
+    )
+  end
+
+  # A run of the parent query's candidate still out at Coop.
+  defp outstanding_run do
+    AnalysisRunQuery.all()
+    |> AnalysisRunQuery.unstopped()
+    |> where(
+      [improvement_analysis_runs: r],
+      r.candidate_id == parent_as(:improvement_candidates).id
+    )
+  end
+
+  @doc """
+  When analysis has something to claim by the clock alone after `since`, as
+  `[quiet_due, retry_due, lease_due]`: a candidate's quiet time of `quiet`
+  seconds ends (only with `enabled?`), its retry or hold ends (with analysis
+  off, only for a run still out at Coop), or the lease of a worker that
+  stopped renewing it runs out.
+  """
+  def next_due_after(since, quiet, enabled?) do
+    from(c in all(),
+      where: c.analysis in [:pending, :running],
+      select: [
+        filter(
+          min(datetime_add(c.last_signal_at, ^quiet, "second")),
+          ^enabled? and c.analysis == :pending and is_nil(c.forgotten_at) and
+            c.status != :dismissed and
+            datetime_add(c.last_signal_at, ^quiet, "second") > ^since
+        ),
+        filter(
+          min(c.next_attempt_at),
+          c.analysis == :pending and c.next_attempt_at > ^since and
+            (^enabled? or exists(outstanding_run()))
+        ),
+        filter(
+          min(c.lease_expires_at),
+          c.analysis == :running and c.lease_expires_at > ^since
+        )
+      ]
+    )
+  end
+
+  @doc "Accepted cases still kept with their frozen evidence, oldest decision first."
+  def exportable_cases do
+    from(c in all(),
+      where: c.status == :accepted and is_nil(c.forgotten_at) and not is_nil(c.case_evidence),
+      order_by: [asc: c.decided_at, asc: c.id]
+    )
+  end
 
   @doc "Still to analyze, and not dismissed."
   def awaiting_analysis(queryable) do

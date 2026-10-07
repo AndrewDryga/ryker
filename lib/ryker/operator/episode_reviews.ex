@@ -16,12 +16,12 @@ defmodule Ryker.Operator.EpisodeReviews do
   request's topics too.
   """
 
-  import Ecto.Query
   require Logger
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.{Episode, EpisodeQuery}
   alias Ryker.Feedback
   alias Ryker.Operator.EpisodeReview
   alias Ryker.Operator.EpisodeReviewChangeset
+  alias Ryker.Operator.EpisodeReviewQuery
   alias Ryker.Reference
   alias Ryker.Repo
 
@@ -41,15 +41,12 @@ defmodule Ryker.Operator.EpisodeReviews do
 
   defp review_locked(episode_key, actor_ref, rating, note) do
     episode =
-      Repo.one(from(episode in Episode, where: episode.key == ^episode_key, lock: "FOR UPDATE")) ||
+      episode_key |> EpisodeQuery.by_key() |> EpisodeQuery.lock_for_update() |> Repo.one() ||
         Repo.rollback(:episode_not_found)
 
     if episode.state not in [:complete, :cancelled], do: Repo.rollback(:episode_not_reviewable)
 
-    case Repo.get_by(EpisodeReview,
-           episode_id: episode.id,
-           semantic_version: episode.semantic_version
-         ) do
+    case Repo.one(EpisodeReviewQuery.of_version(episode.id, episode.semantic_version)) do
       %EpisodeReview{actor_ref: ^actor_ref, rating: ^rating, note: ^note} = review ->
         %{review: review, status: :duplicate}
 

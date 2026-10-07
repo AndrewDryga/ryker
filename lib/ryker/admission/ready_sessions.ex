@@ -27,12 +27,10 @@ defmodule Ryker.Admission.ReadySessions do
   create.
   """
 
-  import Ecto.Query
-  alias Ryker.Admission.FleetSession
   alias Ryker.CoopFleet.JobTemplates
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.{Custody, Session, SessionQuery}
 
   @external_ref_prefix "ryker-admission-ready:"
 
@@ -90,13 +88,18 @@ defmodule Ryker.Admission.ReadySessions do
   # The message is locked first, as cleanup locks an owner before its
   # session, so a claim never races the generation it is claiming for.
   defp claim_locked(entry, policy, digest) do
-    current = Repo.one(from(input in Entry, where: input.id == ^entry.id, lock: "FOR UPDATE"))
+    current = entry.id |> EntryQuery.by_id() |> EntryQuery.lock_for_update() |> Repo.one()
 
     if is_nil(current) or current.status != :pending or
          current.execution_generation != entry.execution_generation,
        do: Repo.rollback(:admission_attempt_lease_lost)
 
-    case Repo.one(from(session in FleetSession.generation_query(entry), lock: "FOR UPDATE")) do
+    generation =
+      entry.id
+      |> SessionQuery.for_admission(entry.execution_generation)
+      |> SessionQuery.lock_for_update()
+
+    case Repo.one(generation) do
       %Session{ready_state: :claimed, policy: ^policy, policy_digest: ^digest} = session ->
         {session, :resumed}
 
@@ -147,20 +150,7 @@ defmodule Ryker.Admission.ReadySessions do
     now = Repo.now!()
     cutoff = DateTime.add(now, -maximum_age_seconds(), :second)
     running_past = DateTime.add(now, @claim_margin_seconds, :second)
-
-    from(session in Session,
-      where: session.execution_kind == :admission and session.ready_state == :ready,
-      where: is_nil(session.admission_input_id) and session.cleanup_status == :active,
-      where: session.policy == ^policy and session.policy_digest == ^digest,
-      where: session.inserted_at > ^cutoff,
-      order_by: [
-        desc: fragment("coalesce(? > ?, false)", session.warm_until, ^running_past),
-        asc: session.inserted_at,
-        asc: session.id
-      ],
-      limit: 1,
-      lock: "FOR UPDATE SKIP LOCKED"
-    )
+    SessionQuery.next_ready(policy, digest, cutoff, running_past)
   end
 
   @doc """
@@ -206,14 +196,11 @@ defmodule Ryker.Admission.ReadySessions do
   defp kept_count(policy, digest) do
     cutoff = DateTime.add(Repo.now!(), -maximum_age_seconds(), :second)
 
-    Repo.aggregate(
-      from(session in Session,
-        where:
-          session.ready_state in [:starting, :ready] and session.policy == ^policy and
-            session.policy_digest == ^digest and session.inserted_at > ^cutoff
-      ),
-      :count
-    )
+    [:starting, :ready]
+    |> SessionQuery.with_ready_state()
+    |> SessionQuery.with_policy(policy, digest)
+    |> SessionQuery.inserted_after(cutoff)
+    |> Repo.aggregate(:count)
   end
 
   @doc "Records the open Coop session a reserved one became; a message may claim it now."
@@ -241,14 +228,13 @@ defmodule Ryker.Admission.ReadySessions do
   def unprepared(%{name: policy, digest: digest}) do
     cutoff = DateTime.add(Repo.now!(), -maximum_age_seconds(), :second)
 
-    Repo.all(
-      from(session in Session,
-        where: session.ready_state == :ready and is_nil(session.warm_until),
-        where: session.policy == ^policy and session.policy_digest == ^digest,
-        where: session.inserted_at > ^cutoff,
-        order_by: [asc: session.inserted_at, asc: session.id]
-      )
-    )
+    :ready
+    |> SessionQuery.with_ready_state()
+    |> SessionQuery.unprepared()
+    |> SessionQuery.with_policy(policy, digest)
+    |> SessionQuery.inserted_after(cutoff)
+    |> SessionQuery.oldest_first()
+    |> Repo.all()
   end
 
   @doc """
@@ -306,7 +292,10 @@ defmodule Ryker.Admission.ReadySessions do
 
   defp transition(id, change) do
     Repo.transaction(fn ->
-      Repo.one(from(session in Session, where: session.id == ^id, lock: "FOR UPDATE"))
+      id
+      |> SessionQuery.by_id()
+      |> SessionQuery.lock_for_update()
+      |> Repo.one()
       |> change.()
       |> Ecto.Changeset.unique_constraint(:coop_session_id,
         name: :episode_work_sessions_coop_session_id_index
@@ -340,10 +329,9 @@ defmodule Ryker.Admission.ReadySessions do
     running_past = DateTime.add(now, @claim_margin_seconds, :second)
 
     {usable, unusable} =
-      from(session in Session,
-        where: session.ready_state == :ready,
-        order_by: [desc: session.inserted_at, desc: session.id]
-      )
+      :ready
+      |> SessionQuery.with_ready_state()
+      |> SessionQuery.newest_first()
       |> Repo.all()
       |> Enum.split_with(fn session ->
         session.policy == policy and session.policy_digest == digest and
@@ -364,12 +352,11 @@ defmodule Ryker.Admission.ReadySessions do
   def stranded(seconds) when is_integer(seconds) and seconds >= 0 do
     cutoff = DateTime.add(Repo.now!(), -seconds, :second)
 
-    Repo.all(
-      from(session in Session,
-        where: session.ready_state == :starting and session.inserted_at <= ^cutoff,
-        order_by: [asc: session.inserted_at, asc: session.id]
-      )
-    )
+    :starting
+    |> SessionQuery.with_ready_state()
+    |> SessionQuery.inserted_by(cutoff)
+    |> SessionQuery.oldest_first()
+    |> Repo.all()
   end
 
   @doc """
@@ -378,11 +365,9 @@ defmodule Ryker.Admission.ReadySessions do
   """
   @spec failed_starts() :: [Session.t()]
   def failed_starts do
-    from(session in Session,
-      where: not is_nil(session.ready_state),
-      order_by: [desc: session.inserted_at, desc: session.id],
-      limit: 16
-    )
+    SessionQuery.in_ready_pool()
+    |> SessionQuery.newest_first()
+    |> SessionQuery.limit_to(16)
     |> Repo.all()
     |> Enum.take_while(&(&1.ready_state == :retired and is_nil(&1.coop_session_id)))
   end

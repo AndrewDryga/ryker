@@ -13,13 +13,11 @@ defmodule Ryker.Operator.Emisar do
   (`Ryker.Emisar.Approvals.close_ended/1`).
   """
 
-  import Ecto.Query
   alias Ryker.Credentials
-  alias Ryker.Emisar.{Approval, ApprovalChangeset, Approvals}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Records.Record
+  alias Ryker.Emisar.{Approval, ApprovalChangeset, ApprovalQuery, Approvals}
+  alias Ryker.Records.RecordQuery
   alias Ryker.Repo
-  alias Ryker.Settings.EmisarConnection
+  alias Ryker.Settings.EmisarConnectionQuery
 
   # The Failures page reads as deep as the page it shows (a hundred a page).
   @maximum_list 10_001
@@ -39,32 +37,24 @@ defmodule Ryker.Operator.Emisar do
       unwatched = unwatched_accounts()
 
       blocked =
-        Repo.all(
-          from([approval, record, episode] in watches(),
-            where: approval.status == :blocked,
-            where: record.status == :open and episode.state != :cancelled,
-            order_by: [desc: approval.updated_at, desc: approval.id],
-            limit: ^limit
-          )
-        )
+        ApprovalQuery.all()
+        |> ApprovalQuery.with_origin()
+        |> ApprovalQuery.blocked_on_open_cards()
+        |> ApprovalQuery.recently_updated_first()
+        |> ApprovalQuery.limit_to(limit)
+        |> ApprovalQuery.select_with_origin()
+        |> Repo.all()
 
       stalled_refs = for {ref, stall} <- unwatched, not is_nil(stall), do: ref
 
       stalled =
-        Repo.all(
-          from([approval, record, episode] in watches(),
-            where: approval.status == :monitoring,
-            where: record.status == :open,
-            where:
-              episode.state == :waiting_for_event and episode.owner_kind == :event and
-                episode.owner_ref == record.ref,
-            where:
-              approval.connection_ref in ^stalled_refs or
-                approval.last_error in ^Approvals.token_unavailable_errors(),
-            order_by: [desc: approval.updated_at, desc: approval.id],
-            limit: ^limit
-          )
-        )
+        ApprovalQuery.all()
+        |> ApprovalQuery.with_origin()
+        |> ApprovalQuery.stalled(stalled_refs, Approvals.token_unavailable_errors())
+        |> ApprovalQuery.recently_updated_first()
+        |> ApprovalQuery.limit_to(limit)
+        |> ApprovalQuery.select_with_origin()
+        |> Repo.all()
 
       items =
         (blocked ++ stalled)
@@ -81,19 +71,20 @@ defmodule Ryker.Operator.Emisar do
   @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
   def fetch(ref) do
     with {:ok, connection_ref, request_id} <- split_ref(ref),
-         {_approval, _record, _episode} = row <-
-           Repo.one(
-             from([approval, record, episode] in watches(),
-               where:
-                 approval.connection_ref == ^connection_ref and
-                   approval.request_id == ^request_id
-             )
-           ) do
+         {_approval, _record, _episode} = row <- watch(connection_ref, request_id) do
       {:ok, item(row, unwatched_accounts())}
     else
       nil -> {:error, :emisar_approval_not_found}
       {:error, _reason} = error -> error
     end
+  end
+
+  defp watch(connection_ref, request_id) do
+    connection_ref
+    |> ApprovalQuery.by_request(request_id)
+    |> ApprovalQuery.with_origin()
+    |> ApprovalQuery.select_with_origin()
+    |> Repo.one()
   end
 
   @spec rearm(String.t()) :: {:ok, map()} | {:error, term()}
@@ -106,13 +97,10 @@ defmodule Ryker.Operator.Emisar do
 
   defp rearm_locked(connection_ref, request_id) do
     approval =
-      Repo.one(
-        from(approval in Approval,
-          where:
-            approval.connection_ref == ^connection_ref and approval.request_id == ^request_id,
-          lock: "FOR UPDATE"
-        )
-      )
+      connection_ref
+      |> ApprovalQuery.by_request(request_id)
+      |> ApprovalQuery.lock_for_update()
+      |> Repo.one()
 
     case approval do
       nil ->
@@ -154,30 +142,9 @@ defmodule Ryker.Operator.Emisar do
   end
 
   defp exact_open_wait(approval) do
-    valid =
-      Repo.exists?(
-        from(record in Record,
-          join: episode in Episode,
-          on: episode.id == record.episode_id,
-          where:
-            record.id == ^approval.record_id and record.episode_id == ^approval.episode_id and
-              record.kind == "emisar_approval" and record.status == :open and
-              episode.state == :waiting_for_event and episode.owner_kind == :event and
-              episode.owner_ref == record.ref
-        )
-      )
+    valid = Repo.exists?(RecordQuery.awaited_approval(approval.record_id, approval.episode_id))
 
     if valid, do: :ok, else: {:error, :emisar_approval_wait_stale}
-  end
-
-  defp watches do
-    from(approval in Approval,
-      join: record in Record,
-      on: record.id == approval.record_id and record.episode_id == approval.episode_id,
-      join: episode in Episode,
-      on: episode.id == approval.episode_id,
-      select: {approval, record, episode}
-    )
   end
 
   # Why an account cannot make progress on the approvals waiting on it, if it
@@ -189,11 +156,9 @@ defmodule Ryker.Operator.Emisar do
           into: MapSet.new(),
           do: name
 
-    Repo.all(
-      from(connection in EmisarConnection,
-        select: {connection.ref, connection.monitoring_enabled}
-      )
-    )
+    EmisarConnectionQuery.all()
+    |> EmisarConnectionQuery.select_monitoring()
+    |> Repo.all()
     |> Map.new(fn {ref, monitoring} ->
       cond do
         not monitoring -> {ref, :monitoring_off}

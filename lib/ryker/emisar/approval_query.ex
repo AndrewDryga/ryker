@@ -35,9 +35,11 @@ defmodule Ryker.Emisar.ApprovalQuery do
     do: where(queryable, [episode_emisar_approvals: a], a.status in ^statuses)
 
   @doc "An account's watches, each with the card that asked and its episode."
-  def watches(connection_ref) do
-    connection_ref
-    |> by_connection()
+  def watches(connection_ref), do: connection_ref |> by_connection() |> with_origin()
+
+  @doc "Each watch with the card that asked and its episode."
+  def with_origin(queryable) do
+    queryable
     |> join(:inner, [episode_emisar_approvals: a], r in Record,
       on: r.id == a.record_id and r.episode_id == a.episode_id,
       as: :episode_state_records
@@ -45,6 +47,44 @@ defmodule Ryker.Emisar.ApprovalQuery do
     |> join(:inner, [episode_emisar_approvals: a], e in Episode,
       on: e.id == a.episode_id,
       as: :episode_kernel_episodes
+    )
+  end
+
+  @doc "Of watches `with_origin/1`, the blocked ones whose card is open on a request still going."
+  def blocked_on_open_cards(queryable) do
+    where(
+      queryable,
+      [episode_emisar_approvals: a, episode_state_records: r, episode_kernel_episodes: e],
+      a.status == :blocked and r.status == :open and e.state != :cancelled
+    )
+  end
+
+  @doc """
+  Of watches `with_origin/1`, the ones a task waits for that cannot make
+  progress: monitored, their card open and its episode waiting on it, on an
+  account in `stalled_refs` or failing with one of `token_errors`.
+  """
+  def stalled(queryable, stalled_refs, token_errors) do
+    queryable
+    |> where(
+      [episode_emisar_approvals: a, episode_state_records: r, episode_kernel_episodes: e],
+      a.status == :monitoring and r.status == :open and e.state == :waiting_for_event and
+        e.owner_kind == :event and e.owner_ref == r.ref
+    )
+    |> where(
+      [episode_emisar_approvals: a],
+      a.connection_ref in ^stalled_refs or a.last_error in ^token_errors
+    )
+  end
+
+  def recently_updated_first(queryable),
+    do: order_by(queryable, [episode_emisar_approvals: a], desc: a.updated_at, desc: a.id)
+
+  def select_with_origin(queryable) do
+    select(
+      queryable,
+      [episode_emisar_approvals: a, episode_state_records: r, episode_kernel_episodes: e],
+      {a, r, e}
     )
   end
 

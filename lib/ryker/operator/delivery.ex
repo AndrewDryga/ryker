@@ -6,13 +6,12 @@ defmodule Ryker.Operator.Delivery do
   frozen model output and platform credentials never cross this boundary.
   """
 
-  import Ecto.Query
-  alias Ryker.Delivery.{PlatformAction, PlatformActionCustody, RoutingResponse}
-  alias Ryker.Delivery.RoutingResponseCustody
+  alias Ryker.Delivery.{PlatformAction, PlatformActionCustody, PlatformActionQuery}
+  alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody, RoutingResponseQuery}
   alias Ryker.{Reference, Repo}
   alias Ryker.WeeklyReport.Custody, as: ReportCustody
   alias Ryker.WeeklyReport.Report
-  alias Ryker.Work.{Custody, Turn}
+  alias Ryker.Work.{Custody, Turn, TurnQuery}
 
   # The Failures page reads as deep as the page it shows (a hundred a page).
   @maximum_list 10_001
@@ -28,31 +27,24 @@ defmodule Ryker.Operator.Delivery do
   def list_blocked(limit \\ 100) do
     if is_integer(limit) and limit > 0 and limit <= @maximum_list do
       messages =
-        Repo.all(
-          from(turn in Turn,
-            where: turn.status == :blocked and not is_nil(turn.delivery_ref),
-            order_by: [desc: turn.updated_at, desc: turn.id],
-            limit: ^limit
-          )
-        )
+        TurnQuery.blocked_deliveries()
+        |> TurnQuery.recently_updated_first()
+        |> TurnQuery.limit_to(limit)
+        |> Repo.all()
 
       responses =
-        Repo.all(
-          from(response in RoutingResponse,
-            where: response.status == :blocked,
-            order_by: [desc: response.updated_at, desc: response.id],
-            limit: ^limit
-          )
-        )
+        RoutingResponseQuery.all()
+        |> RoutingResponseQuery.with_status(:blocked)
+        |> RoutingResponseQuery.recently_updated_first()
+        |> RoutingResponseQuery.limit_to(limit)
+        |> Repo.all()
 
       actions =
-        Repo.all(
-          from(action in PlatformAction,
-            where: action.status == :blocked,
-            order_by: [desc: action.updated_at, desc: action.id],
-            limit: ^limit
-          )
-        )
+        PlatformActionQuery.all()
+        |> PlatformActionQuery.with_status(:blocked)
+        |> PlatformActionQuery.recently_updated_first()
+        |> PlatformActionQuery.limit_to(limit)
+        |> Repo.all()
 
       reports = ReportCustody.blocked(limit)
 
@@ -87,9 +79,9 @@ defmodule Ryker.Operator.Delivery do
   end
 
   defp lookup(delivery_ref) do
-    message = Repo.get_by(Turn, delivery_ref: delivery_ref)
-    response = Repo.get_by(RoutingResponse, delivery_ref: delivery_ref)
-    action = Repo.get_by(PlatformAction, action_ref: delivery_ref)
+    message = Repo.one(TurnQuery.by_delivery_ref(delivery_ref))
+    response = Repo.one(RoutingResponseQuery.by_delivery_ref(delivery_ref))
+    action = Repo.one(PlatformActionQuery.by_action_ref(delivery_ref))
     report = ReportCustody.fetch(delivery_ref)
 
     case {message, response, action, report} do

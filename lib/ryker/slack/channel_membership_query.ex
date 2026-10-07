@@ -44,6 +44,20 @@ defmodule Ryker.Slack.ChannelMembershipQuery do
 
   def joined(queryable), do: where(queryable, [slack_channel_memberships: m], m.status == :joined)
 
+  @doc "Each membership's status and who may read its channel: `{status, private, external_shared}`."
+  def select_audience(queryable) do
+    select(
+      queryable,
+      [slack_channel_memberships: m],
+      {m.status, m.private, m.external_shared}
+    )
+  end
+
+  def ordered_by_channel(queryable),
+    do: order_by(queryable, [slack_channel_memberships: m], asc: m.channel_ref)
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
+
   def select_privacy(queryable),
     do: select(queryable, [slack_channel_memberships: m], {m.private, m.external_shared})
 
