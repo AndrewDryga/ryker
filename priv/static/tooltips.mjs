@@ -14,9 +14,11 @@ export function tooltipPosition(point, size, viewport, margin = 12, gap = 12) {
 
 // A hint shows the moment the pointer or focus reaches its element. The
 // browser's own title tooltip waits about a second and cannot be styled, so a
-// title moves to data-tooltip the first time its element is reached, and the
-// native tooltip never doubles ours. A title that was the element's only name
-// becomes its aria-label, so assistive technology still reads it.
+// title moves to data-tooltip each time its element is reached, before the
+// native tooltip shows. A patch that renders the title again while the
+// pointer rests on the element brings the native one back until the element
+// is reached again. A title that was the element's only name becomes its
+// aria-label, so assistive technology still reads it.
 export function claimTitle(element) {
   const title = element.getAttribute("title")
   if (title === null) return
@@ -132,12 +134,21 @@ export function setupTooltips(root = document) {
     tooltip.hidden = true
   }
 
+  // A patch or live navigation can remove the element a hint describes, and a
+  // removed element sends no pointerout or focusout: its hint stayed on
+  // screen, described by a node no longer there (2026-10-04 review).
+  const hideRemoved = () => {
+    if (active && !active.isConnected) hide()
+  }
+
   root.addEventListener("pointerover", event => {
+    hideRemoved()
     const hint = hintFor(event.target)
     if (hint && hint.element !== active) show(hint, {x: event.clientX, y: event.clientY})
   })
 
   root.addEventListener("pointermove", event => {
+    hideRemoved()
     if (active && pointer && active.contains(event.target)) {
       pointer = {x: event.clientX, y: event.clientY}
       place(active, pointer)
@@ -149,6 +160,7 @@ export function setupTooltips(root = document) {
   })
 
   root.addEventListener("focusin", event => {
+    hideRemoved()
     const hint = hintFor(event.target)
     if (hint) show(hint)
   })

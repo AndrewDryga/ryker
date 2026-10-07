@@ -1,3 +1,5 @@
+import {dropDraft} from "./draft-store.mjs"
+
 // The index composer posts to a fresh identity on every visit; keying its
 // draft by that action would strand the text on the next visit. A form may
 // name a stable draft scope instead (data-draft-action="new").
@@ -25,7 +27,7 @@ export const acceptDrafts = (drafts, storage) => {
     // A field no longer on the page still had its sent text stored; storage
     // holding exactly that text is the sent draft (2026-10-04 review).
     try {
-      if (storage.getItem(draft.key) === draft.value) storage.removeItem(draft.key)
+      if (storage.getItem(draft.key) === draft.value) dropDraft(storage, draft.key)
     } catch (_) { /* Storage may be unavailable. */ }
   }
 }

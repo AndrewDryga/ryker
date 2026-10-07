@@ -1,6 +1,6 @@
 import {test} from "node:test"
 import assert from "node:assert/strict"
-import {claimTitle, hintFor, tooltipId, tooltipPosition} from "../../priv/static/tooltips.mjs"
+import {claimTitle, hintFor, setupTooltips, tooltipId, tooltipPosition} from "../../priv/static/tooltips.mjs"
 
 function element({
   title = null,
@@ -108,6 +108,39 @@ test("a hint that repeats text cut off by an ellipsis still shows it in full", (
   const row = chatRow(long, {titleWidth: 180, titleFullWidth: 460})
 
   assert.deepEqual(hintFor(row).lines, [["ryker-tooltip-text", long]])
+})
+
+// A patch or live navigation removed the element under the pointer; it sent
+// no pointerout, and its hint stayed on screen, described by a node no
+// longer there (2026-10-04 review).
+test("a hint whose element a patch removed goes at the next pointer or focus event", () => {
+  const listeners = {}
+  const node = () => ({dataset: {}, style: {}, children: [], hidden: false, offsetWidth: 120, offsetHeight: 20,
+    setAttribute() {}, replaceChildren() { this.children = [] }, appendChild(child) { this.children.push(child) }})
+  const root = {body: node(), createElement: node, addEventListener: (name, listener) => { listeners[name] = listener }}
+  const previousWindow = globalThis.window
+  globalThis.window = {innerWidth: 1200, innerHeight: 800, addEventListener() {}}
+
+  try {
+    const tooltip = setupTooltips(root)
+    const nowhere = {closest: () => null}
+
+    for (const next of ["pointerover", "pointermove", "focusin"]) {
+      const row = element({title: "Deploy the checkout service"})
+      Object.assign(row, {isConnected: true, contains: target => target === row, getBoundingClientRect: () => ({left: 0, bottom: 20})})
+
+      listeners.pointerover({target: row, clientX: 4, clientY: 4})
+      assert.equal(tooltip.hidden, false)
+      assert.equal(row.getAttribute("aria-describedby"), tooltipId)
+
+      row.isConnected = false
+      listeners[next]({target: nowhere, clientX: 8, clientY: 8})
+      assert.equal(tooltip.hidden, true, next)
+      assert.equal(row.getAttribute("aria-describedby"), null, next)
+    }
+  } finally {
+    globalThis.window = previousWindow
+  }
 })
 
 test("an empty title shows nothing", () => {

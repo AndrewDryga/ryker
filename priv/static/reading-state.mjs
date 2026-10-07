@@ -1,4 +1,5 @@
 import {draftKey as keyFor} from "./drafts.mjs"
+import {keepDraft, pruneDrafts} from "./draft-store.mjs"
 import {createRelearnPicker} from "./relearn-selection.mjs"
 import {createConversationControls} from "./conversation.mjs"
 import {createComposer} from "./composer.mjs"
@@ -36,6 +37,7 @@ export function createReadingStateHook(environment = {}) {
   return {
     mounted() {
       this.active = true
+      try { pruneDrafts(storage()) } catch (_) { /* Storage can be disabled. */ }
       this.restoreDrafts()
       this.relearnPicker = createRelearnPicker(this.el, storage)
       const pushEvent = (name, params) => this.pushEvent(name, params)
@@ -51,7 +53,7 @@ export function createReadingStateHook(environment = {}) {
         this.composer.input(event)
         const key = draftKey(event.target)
         if (key) {
-          try { storage().setItem(key, event.target.value) } catch (_) { /* Storage can be disabled. */ }
+          try { keepDraft(storage(), key, event.target.value) } catch (_) { /* Storage can be disabled. */ }
         }
       }
       this.onSubmit = event => {
@@ -157,6 +159,10 @@ export function createReadingStateHook(environment = {}) {
           } catch (_) {}
         }
       })
+    },
+    // A save or reaction sent before the socket dropped never hears back.
+    reconnected() {
+      this.conversation.reconnected()
     },
     destroyed() {
       this.active = false

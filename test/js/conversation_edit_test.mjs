@@ -39,16 +39,12 @@ function page(messages, {pathname = "/conversations/c"} = {}) {
   const root = {querySelector: s => s === "#lab-notices" ? notices : s === "#lab-message" ? composer : null,
     contains: () => true}
   const documentStub = {getElementById: id => byId.get(id) || null, activeElement: null, body: {},
-    createElement: tag => ({tag, children: [], className: "", textContent: "", attributes: {}, setAttribute(n, v) { this.attributes[n] = v }, appendChild(c) { this.children.push(c); this.textContent += c.textContent }, remove() { this.removed = true }, querySelector: () => null, addEventListener() {}})}
+    createElement: tag => ({tag, children: [], className: "", textContent: "", attributes: {}, setAttribute(n, v) { this.attributes[n] = v }, getAttribute(n) { return this.attributes[n] ?? null }, appendChild(c) { this.children.push(c); this.textContent += c.textContent }, remove() { this.removed = true }, querySelector: () => null, addEventListener() {}})}
   const store = new Map()
   const storage = {getItem: k => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, v), removeItem: k => store.delete(k)}
-  const fetches = []
-  let response = {status: 202, json: async () => ({accepted: true})}
-  const fetcher = async (url, options) => { fetches.push({url, options}); if (response instanceof Error) throw response; return response }
   const pushed = []
-  const controls = createConversationControls(root, {window: {location: {pathname}}, document: documentStub, storage: () => storage, fetcher, pushEvent: (n, p) => pushed.push([n, p])})
-  return {controls, root, documentStub, store, storage, fetches, pushed, notices, composer, byId,
-    setResponse(r) { response = r }}
+  const controls = createConversationControls(root, {window: {location: {pathname}}, document: documentStub, storage: () => storage, pushEvent: (n, p) => pushed.push([n, p])})
+  return {controls, root, documentStub, store, storage, pushed, notices, composer, byId}
 }
 
 const uuid = "0f9e8d7c-1234-4abc-8def-0123456789ab"
@@ -66,7 +62,6 @@ test("Edit opens the stored body in place with the caret at the end; Cancel rest
   assert.equal(m.textarea.focused, 1)
   assert.deepEqual(m.textarea.selection, ["Stored body".length, "Stored body".length])
   assert.equal(f.store.get("ryker:editing:/conversations/c"), uuid)
-  assert.equal(f.fetches.length, 0)
 
   m.textarea.value = "Stored body, changed"
   assert.equal(f.controls.click({target: m.cancel}), true)
@@ -76,7 +71,6 @@ test("Edit opens the stored body in place with the caret at the end; Cancel rest
   assert.equal(m.toggle.getAttribute("aria-expanded"), "false")
   assert.equal(m.toggle.focused, 1)
   assert.equal(f.store.size, 0)
-  assert.equal(f.fetches.length, 0)
   assert.equal(f.pushed.length, 0)
 })
 
@@ -93,7 +87,6 @@ test("Escape cancels, Cmd/Ctrl+Enter submits the LiveView form, plain Enter is a
   assert.equal(f.controls.keydown(save), true)
   assert.equal(prevented, 1)
   assert.equal(m.form.submitted, 1)
-  assert.equal(f.fetches.length, 0)
   const again = editableMessage(uuid, "Body")
   const g = page([again])
   g.controls.click({target: again.toggle})
@@ -118,7 +111,6 @@ test("saving leaves the mutation to LiveView and exits only on its acceptance ev
   assert.equal(event.prevented, undefined)
   assert.equal(second, true)
   assert.equal(duplicate.prevented, true)
-  assert.equal(f.fetches.length, 0)
   f.controls.accept({kind: "edit", id: uuid})
   assert.equal(m.form.hidden, true)
   assert.equal(m.article.classList.contains("is-editing"), false)
@@ -155,7 +147,6 @@ test("invalid text never leaves the browser", async () => {
     f.controls.click({target: m.toggle})
     m.textarea.value = value
     await f.controls.submit({target: m.form, preventDefault() {}})
-    assert.equal(f.fetches.length, 0)
     assert.equal(m.error.hidden, false)
     assert.match(m.error.textContent, reason)
     assert.equal(m.form.hidden, false)
@@ -208,3 +199,40 @@ test("edit drafts are keyed by message and never share the composer's key", () =
   const composer = {name: "message", tagName: "TEXTAREA", form: {getAttribute: () => "/conversations/c/messages", matches: s => s === ".composer", dataset: {}}}
   assert.notEqual(draftKey(composer, "/conversations/c"), draftKey(m.textarea, "/conversations/c"))
 })
+
+// The socket dropped while a save was out: its answer never came, and the
+// flag it left held every later Save and Cmd+Enter until a full reload, with
+// no message (2026-10-04 review).
+test("a save whose answer a dropped connection lost does not hold every later save", () => {
+  const m = editableMessage(uuid, "Body")
+  const f = page([m])
+  f.controls.click({target: m.toggle})
+  m.textarea.value = "Body, corrected"
+  assert.equal(f.controls.submit({target: m.form, preventDefault() {}}), false)
+
+  f.controls.reconnected()
+
+  const save = {key: "Enter", metaKey: true, target: m.textarea, preventDefault() {}}
+  assert.equal(f.controls.keydown(save), true)
+  assert.equal(m.form.submitted, 1)
+  const retry = {target: m.form, preventDefault() { this.prevented = true }}
+  assert.equal(f.controls.submit(retry), false)
+  assert.equal(retry.prevented, undefined)
+})
+
+// LiveView leaves the notices alone, so a failure repeated on every retry
+// stacked one alert each, and only a lost edit's could be dismissed
+// (2026-10-04 review).
+test("a repeated failure replaces its notice, and every notice can be dismissed", () => {
+  const m = editableMessage(uuid, "Body")
+  const f = page([m])
+
+  f.controls.reject({kind: "delete", id: uuid, reason: "conflict"})
+  f.controls.reject({kind: "delete", id: uuid, reason: "conflict"})
+  const live = f.notices.children.filter(notice => !notice.removed)
+  assert.equal(live.length, 1)
+  assert.equal(live[0].attributes.role, "alert")
+  assert.match(live[0].textContent, /not deleted/)
+  assert.ok(live[0].children.some(child => child.className === "lab-notice-dismiss" && child.textContent === "Dismiss"))
+})
+

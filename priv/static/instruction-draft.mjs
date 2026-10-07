@@ -1,3 +1,4 @@
+import {dropDraft, keepDraft} from "./draft-store.mjs"
 import {createLeaveGuard} from "./leave-guard.mjs"
 
 const normalize = text => text.trim() === "" ? "" : text.replaceAll("\r\n", "\n")
@@ -12,8 +13,8 @@ export function createInstructionDraft(form, recover, environment = {}) {
   const dirty = () => normalize(text().value) !== form.dataset.savedText
   function sync() {
     try {
-      if (dirty()) storage().setItem(key, JSON.stringify({text: text().value, revision: revision().value}))
-      else storage().removeItem(key)
+      if (dirty()) keepDraft(storage(), key, JSON.stringify({text: text().value, revision: revision().value}))
+      else dropDraft(storage(), key)
     } catch (_) { /* Saving remains possible when browser storage is disabled. */ }
   }
   try {

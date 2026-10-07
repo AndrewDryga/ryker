@@ -4,6 +4,8 @@
 // Nothing here rewrites the transcript: server-owned mutations travel through
 // LiveView and come back through the authoritative live stream.
 
+import {dropDraft, keepDraft} from "./draft-store.mjs"
+
 const conversationAction = /^\/conversations\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/messages$/i
 
 // The identity a composer posts to, or null when its action is not a
@@ -72,27 +74,10 @@ const failureText = error => {
   }
 }
 
-// Posts a form the way the composer does and resolves only on a positive
-// 202 receipt; every other answer, including a lost connection, throws.
-const receipt = async (form, fetcher) => {
-  const body = new URLSearchParams()
-  for (const field of form.elements || []) if (field.name && !field.disabled) body.append(field.name, field.value)
-  // A field named "action" shadows form.action, so read the attribute.
-  const response = await fetcher(form.getAttribute("action"), {
-    method: "POST", body, credentials: "same-origin", redirect: "error",
-    headers: {Accept: "application/json"}
-  })
-  if ([400, 403, 404, 409, 413, 422].includes(response.status)) throw new Error(`rejected:${response.status}`)
-  if (response.status !== 202) throw new Error("not_accepted")
-  const data = await response.json()
-  if (data.accepted !== true) throw new Error("unconfirmed_receipt")
-}
-
 export const createConversationControls = (root, options = {}) => {
   const win = options.window || (typeof window === "undefined" ? {location: {pathname: ""}} : window)
   const doc = options.document || (typeof document === "undefined" ? null : document)
   const storage = options.storage || (() => sessionStorage)
-  const fetcher = options.fetcher || ((...args) => fetch(...args))
   const pushEvent = options.pushEvent || (() => {})
   const path = () => win.location.pathname
   let open = false
@@ -104,8 +89,38 @@ export const createConversationControls = (root, options = {}) => {
     get(key) {
       try { return storage().getItem(key) } catch (_) { return null }
     },
-    set(key, value) { try { storage().setItem(key, value) } catch (_) { /* A storage failure loses nothing typed. */ } },
-    remove(key) { try { storage().removeItem(key) } catch (_) {} }
+    set(key, value) { try { keepDraft(storage(), key, value) } catch (_) { /* A storage failure loses nothing typed. */ } },
+    remove(key) { try { dropDraft(storage(), key) } catch (_) {} }
+  }
+
+  // One notice of each kind, a newer one replacing it, each with Dismiss.
+  // LiveView leaves #lab-notices alone, so a failure repeated for every
+  // retry stacked one paragraph each, and only one kind could be dismissed
+  // (2026-10-04 review). Each lost edit is a kind of its own: its notice
+  // holds the only copy of the text.
+  const notify = (kind, text, kept = null) => {
+    const notices = root.querySelector?.("#lab-notices")
+    if (!notices || !doc) return
+    for (const shown of Array.from(notices.children || [])) if (shown.getAttribute?.("data-notice") === kind) shown.remove()
+    const notice = doc.createElement("div")
+    notice.className = "lab-notice"
+    notice.setAttribute("data-notice", kind)
+    notice.setAttribute("role", "alert")
+    const message = doc.createElement("p")
+    message.textContent = text
+    notice.appendChild(message)
+    if (kept !== null) {
+      const pre = doc.createElement("pre")
+      pre.textContent = kept
+      notice.appendChild(pre)
+    }
+    const dismiss = doc.createElement("button")
+    dismiss.type = "button"
+    dismiss.className = "lab-notice-dismiss"
+    dismiss.textContent = "Dismiss"
+    dismiss.addEventListener("click", () => notice.remove())
+    notice.appendChild(dismiss)
+    notices.appendChild(notice)
   }
 
   const directory = () => root.querySelector?.("#lab-directory") || null
@@ -219,26 +234,11 @@ export const createConversationControls = (root, options = {}) => {
   // the unsaved text kept on screen, instead of the editor silently closing.
   const reportLostEditor = () => {
     const id = editing.id
-    const text = store.get(editDraftKey(id)) || ""
-    const notices = root.querySelector?.("#lab-notices")
-    if (notices && doc) {
-      const notice = doc.createElement("div")
-      notice.className = "lab-notice"
-      notice.setAttribute("role", "alert")
-      const message = doc.createElement("p")
-      message.textContent = "The message you were editing is no longer available to edit. Your unsaved text is kept here:"
-      const kept = doc.createElement("pre")
-      kept.textContent = text
-      const dismiss = doc.createElement("button")
-      dismiss.type = "button"
-      dismiss.className = "lab-notice-dismiss"
-      dismiss.textContent = "Dismiss"
-      dismiss.addEventListener("click", () => notice.remove())
-      notice.appendChild(message)
-      notice.appendChild(kept)
-      notice.appendChild(dismiss)
-      notices.appendChild(notice)
-    }
+    notify(
+      `lost-editor:${id}`,
+      "The message you were editing is no longer available to edit. Your unsaved text is kept here:",
+      store.get(editDraftKey(id)) || ""
+    )
     store.remove(editDraftKey(id))
     store.remove(editingKey())
     editing = null
@@ -322,42 +322,8 @@ export const createConversationControls = (root, options = {}) => {
     const panel = picker && doc?.getElementById(picker.id)
     const form = panel?.querySelector(".lab-reaction-custom")
     if (form) reactionError(form, reactionFailureText(rejectedError(reason)))
-    else {
-      const notices = root.querySelector?.("#lab-notices")
-      if (notices && doc) {
-        const notice = doc.createElement("p")
-        notice.className = "lab-notice"
-        notice.setAttribute("role", "alert")
-        notice.textContent = reactionFailureText(rejectedError(reason))
-        notices.appendChild(notice)
-      }
-    }
+    else notify("reaction", reactionFailureText(rejectedError(reason)))
     clearPendingReactions()
-  }
-
-  const performAction = async form => {
-    if (form.dataset?.pending) return
-    form.dataset.pending = "true"
-    const buttons = Array.from(form.querySelectorAll?.("button") || [])
-    buttons.forEach(button => { button.disabled = true })
-    try {
-      await receipt(form, fetcher)
-      pushEvent("refresh", {})
-    } catch (error) {
-      const notices = root.querySelector?.("#lab-notices")
-      if (notices && doc) {
-        const notice = doc.createElement("p")
-        notice.className = "lab-notice"
-        notice.setAttribute("role", "alert")
-        notice.textContent = error?.message?.startsWith("rejected:")
-          ? "The server did not accept this action. Reload the conversation to see its current state."
-          : "This action was not confirmed. Check the conversation before trying again; nothing was retried."
-        notices.appendChild(notice)
-      }
-    } finally {
-      delete form.dataset.pending
-      buttons.forEach(button => { button.disabled = false })
-    }
   }
 
   return {
@@ -431,10 +397,6 @@ export const createConversationControls = (root, options = {}) => {
         if (!prepareReaction(form)) { event.preventDefault(); return true }
         return false
       }
-      if (form.matches(".lab-action-form")) {
-        event.preventDefault()
-        return performAction(form)
-      }
       return false
     },
     accept({kind, id} = {}) {
@@ -464,14 +426,7 @@ export const createConversationControls = (root, options = {}) => {
         const form = editorFor(id)
         if (form) showError(form, failureText(rejectedError(reason)))
       } else if (kind === "delete") {
-        const notices = root.querySelector?.("#lab-notices")
-        if (notices && doc) {
-          const notice = doc.createElement("p")
-          notice.className = "lab-notice"
-          notice.setAttribute("role", "alert")
-          notice.textContent = "The message was not deleted. Reload the conversation and try again."
-          notices.appendChild(notice)
-        }
+        notify("delete", "The message was not deleted. Reload the conversation and try again.")
       } else if (kind === "reaction") {
         rejectReaction(reason)
       }
@@ -506,6 +461,14 @@ export const createConversationControls = (root, options = {}) => {
         const panel = doc?.getElementById(picker.id)
         if (panel) setPicker(panel, true); else picker = null
       }
+    },
+    // An edit or reaction sent before the socket dropped never hears back, and
+    // its flag held every later Save and Cmd+Enter until a full reload, with
+    // no message (2026-10-04 review). The editor works again; the page's live
+    // render says what the server kept.
+    reconnected() {
+      saving = false
+      clearPendingReactions()
     },
     destroy() {
       closePicker(false)

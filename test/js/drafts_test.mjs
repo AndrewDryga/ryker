@@ -60,7 +60,7 @@ test("a delayed receipt from an unmounted composer cannot erase a remounted draf
   assert.equal(f.values.get(f.drafts[0].key), "A newer draft after navigating back")
 })
 
-test("a submitted edit cannot be restored over a newer server revision", () => {
+test("a form other than the composer or a message editor keeps no draft", () => {
   const f = fixture()
   f.element.form.matches = () => false
   assert.equal(draftKey(f.element, "/conversations/test"), null)

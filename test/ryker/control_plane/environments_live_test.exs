@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
   use Ryker.DataCase, async: false
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
+  alias Plug.Conn.Query
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Credentials
   alias Ryker.Settings
@@ -321,6 +322,64 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert LazyHTML.text(feedback) =~ "Staging was saved. Applying it now…"
   end
 
+  # LiveView handles Back and server-side navigation itself, so the leave
+  # guard could not ask before they threw away an environment's unsaved
+  # changes, which lived only in its component (2026-10-04 review). The
+  # browser keeps the draft (`settings-draft.mjs`) and offers it back when
+  # the form shows again.
+  test "an environment draft the browser kept comes back, and never saves over a change made since" do
+    installation!()
+    environment!("staging", "Staging", ~w(api))
+    form = "#environment-editor-staging form"
+    fields = &%{"environment" => %{"display_name" => "Staging", "description" => &1}}
+
+    {:ok, view, _html} = open("/environments/staging/edit")
+    began = kept_draft(view, form, fields.("Pre-release checks"))
+    environment!("production", "Production", ~w(docs))
+
+    {:ok, view, _html} = open("/environments/staging/edit")
+    view |> with_target("#environment-editor-staging") |> render_hook("restore", began)
+    assert_reply(view, %{restored: true})
+
+    assert has_element?(
+             view,
+             "#environment-editor-staging-description[value='Pre-release checks']"
+           )
+
+    view |> form(form) |> render_submit()
+    assert Settings.environment(Settings.fetch!(), "staging").description == "Pre-release checks"
+
+    # Someone changed the environment since the draft began.
+    {:ok, view, _html} = open("/environments/staging/edit")
+    began = kept_draft(view, form, fields.("Load tests"))
+    environment!("staging", "Staging", ~w(api), description: "Smoke tests")
+
+    {:ok, view, _html} = open("/environments/staging/edit")
+    view |> with_target("#environment-editor-staging") |> render_hook("restore", began)
+    assert_reply(view, %{restored: true})
+    # A refresh after a save elsewhere does not let it catch up either.
+    environment!("production", "Production", ~w(api docs))
+    send(view.pid, :reload_page)
+    view |> form(form) |> render_submit()
+
+    assert has_element?(
+             view,
+             "#environment-editor-staging .settings-error",
+             "changed while you were editing"
+           )
+
+    assert Settings.environment(Settings.fetch!(), "staging").description == "Smoke tests"
+
+    # A draft that reads like the form brings nothing back.
+    {:ok, view, _html} = open("/environments/staging/edit")
+
+    view
+    |> with_target("#environment-editor-staging")
+    |> render_hook("restore", kept_draft(view, form, fields.("Smoke tests")))
+
+    assert_reply(view, %{restored: false})
+  end
+
   # Andrew, 2026-09-27: "can we here limit read or read/write access per
   # repo?", and of the arrows that ordered the repositories to pick the
   # default: "whats the point of ordering them? default can be just a
@@ -518,6 +577,16 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
   end
 
   defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+
+  # What the browser keeps of the form while its page is away
+  # (`settings-draft.mjs`): the revision and saved values it began from, and
+  # its fields as the form sends them.
+  defp kept_draft(view, selector, fields) do
+    html = view |> element(selector) |> render()
+    [_match, revision] = Regex.run(~r/data-revision="(\d+)"/, html)
+    [_match, baseline] = Regex.run(~r/data-baseline="([^"]+)"/, html)
+    %{"revision" => revision, "baseline" => baseline, "form" => Query.encode(fields)}
+  end
 
   defp text(node), do: node |> LazyHTML.text() |> String.split() |> Enum.join(" ")
 

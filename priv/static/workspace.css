@@ -423,6 +423,7 @@
 .lab-notices { display:grid; gap:8px; margin:8px 0 0; }
 .lab-notice { margin:0; padding:12px 16px; border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); font-size:14px; line-height:20px; }
 .lab-notice p { margin:0; }
+.lab-notice p + .lab-notice-dismiss { margin-top:8px; }
 .lab-notice pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0; font:inherit; font-size:16px; line-height:24px; color:var(--ink); }
 .ryker-app .lab-notice-dismiss { background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); border-radius:4px; min-height:36px; padding:6px 10px; font-size:13px; color:var(--ryker-text-secondary); }
 .lab-message-progress { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; margin:8px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }

@@ -3,11 +3,12 @@ import assert from "node:assert/strict"
 import {readFileSync} from "node:fs"
 import vm from "node:vm"
 import {createRelearnPicker} from "../../priv/static/relearn-selection.mjs"
+import {keepDraft, pruneDrafts} from "../../priv/static/draft-store.mjs"
 
 const source = readFileSync(new URL("../../priv/static/reading-state.mjs", import.meta.url), "utf8")
 const retained = JSON.parse(readFileSync(new URL("../ryker/work/fixtures/airflow_candidate_responses.json", import.meta.url), "utf8"))
 
-function fixture(hash = "") {
+function fixture(hash = "", {storage = {getItem() { return null }}} = {}) {
   let hook
   const listeners = new Map(), nodes = new Map(), scrolled = [], documentListeners = new Map()
   const location = {pathname: "/timeline/candidate-ui", search: "?responses_page=1", hash}
@@ -40,6 +41,8 @@ function fixture(hash = "") {
     nodes.set(id, value)
     return value
   }
+  const conversation = {reconnects: 0, click() {}, keydown() { return false }, input() { return false }, submit() { return false },
+    restore() { return false }, refresh() {}, destroy() {}, reconnected() { this.reconnects++ }}
   const outer = node("validation", "DETAILS", root)
   const response = node("response-1", "DETAILS", outer)
   let body = node("response-1-body", "DIV", response)
@@ -47,16 +50,16 @@ function fixture(hash = "") {
   // Evaluate the shipped hook module itself with its sibling modules stubbed.
   // Real LiveView patches are qualified separately in Chromium.
   hook = vm.runInNewContext(source.replace(/^import .*$/gm, "").replace(/^export /gm, "") + "\ncreateReadingStateHook()",
-    {document, window, location, sessionStorage: {getItem() { return null }}, keyFor: () => null,
-      createRelearnPicker,
-      createConversationControls: () => ({click() {}, keydown() { return false }, input() { return false }, submit() { return false }, restore() { return false }, refresh() {}, destroy() {}}),
+    {document, window, location, sessionStorage: storage, keyFor: () => null,
+      createRelearnPicker, keepDraft, pruneDrafts,
+      createConversationControls: () => conversation,
       createComposer: () => ({input() {}, refresh() {}, submit() { return false }}),
       // No transcript on this page: the conversation anchor declines ownership.
       captureReadingAnchor: () => null, restoreReadingAnchor: () => false})
   const pushed = []
   const mounted = Object.assign({el: root, pushEvent: (name, params, reply) => pushed.push([name, params, reply])}, hook)
   return {hook: mounted, document, window, location, root, outer, response, nodes, listeners, scrolled,
-    pushed, rootListeners, documentListeners,
+    pushed, rootListeners, documentListeners, conversation,
     get body() { return body }, replaceFocusedBody() {
       body.isConnected = false
       body = node("response-1-body", "DIV", response)
@@ -227,4 +230,29 @@ test("new local fragment navigation is handled and its listener is removed on un
   assert.equal(f.response.open, true)
   f.hook.destroyed()
   assert.equal(f.listeners.has("hashchange"), false)
+})
+
+// Drafts went only on a confirmed send, a confirmed edit or a cancel, so
+// abandoned text stayed readable for the life of the tab (2026-10-04 review).
+test("a page drops the drafts nobody touched for a day as it mounts", () => {
+  const map = new Map()
+  const storage = {get length() { return map.size }, key: index => [...map.keys()][index] ?? null,
+    getItem: key => map.has(key) ? map.get(key) : null, setItem: (key, value) => map.set(key, String(value)),
+    removeItem: key => map.delete(key)}
+  keepDraft(storage, "ryker:draft:/conversations/old:message", "abandoned", Date.now() - 25 * 60 * 60 * 1000)
+  keepDraft(storage, "ryker:draft:/conversations/new:message", "kept", Date.now())
+
+  fixture("", {storage}).hook.mounted()
+
+  assert.equal(storage.getItem("ryker:draft:/conversations/old:message"), null)
+  assert.equal(storage.getItem("ryker:draft:/conversations/new:message"), "kept")
+})
+
+// An edit sent before the socket dropped never hears back; the flag it left
+// held every later Save and Cmd+Enter until a full reload (2026-10-04 review).
+test("a reconnect reaches the conversation controls", () => {
+  const f = fixture()
+  f.hook.mounted()
+  f.hook.reconnected()
+  assert.equal(f.conversation.reconnects, 1)
 })

@@ -15,12 +15,14 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
 
   A live refresh never overwrites an unsaved draft; a refused save keeps the
   draft and says what to fix in words; a save against settings that changed
-  underneath is refused rather than written over them. The LiveView returns
-  to the list once a save lands.
+  underneath is refused rather than written over them. The browser keeps a
+  draft while the page is away and gives it back when the form shows again
+  (`FormDraft`), still saved against the revision it began from. The
+  LiveView returns to the list once a save lands.
   """
 
   use Phoenix.LiveComponent
-  alias Ryker.ControlPlane.{Components, Environments, SettingsView}
+  alias Ryker.ControlPlane.{Components, Environments, FormDraft, SettingsView}
   alias Ryker.Settings
   alias Ryker.Settings.Environment
 
@@ -101,6 +103,22 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   def handle_event("save", %{"environment" => params}, socket),
     do: {:noreply, socket |> put_draft(params) |> save()}
 
+  # A draft the browser kept while this page was away (`FormDraft`), given
+  # back only to a form with no draft of its own. The reply says whether
+  # anything came back, so the browser drops a draft that reads the same as
+  # the form.
+  def handle_event("restore", kept, %{assigns: %{dirty: false}} = socket) do
+    case FormDraft.read(kept, socket.assigns.baseline) do
+      {:ok, %{"environment" => params}, revision} when is_map(params) ->
+        restore(socket, params, revision)
+
+      _unreadable ->
+        {:reply, %{restored: false}, socket}
+    end
+  end
+
+  def handle_event("restore", _kept, socket), do: {:reply, %{restored: false}, socket}
+
   # Unticking two dozen repositories one by one to keep three (Andrew, 2026-10-03, on tenant:
   # "i need a way to select/deselect each").
   def handle_event("choose-all", _params, socket) do
@@ -110,6 +128,25 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
 
   def handle_event("choose-none", _params, socket),
     do: {:noreply, socket |> choose([]) |> assign(:error, nil)}
+
+  # A draft begun before this environment changed keeps the revision it
+  # began from. What it began from is not known here, so no refresh lets it
+  # follow a newer revision (`update/2`), and its save is refused as changed.
+  defp restore(socket, params, revision) do
+    restored = socket |> put_draft(params) |> assign(:error, nil)
+
+    cond do
+      restored.assigns.draft == socket.assigns.draft ->
+        {:reply, %{restored: false}, socket}
+
+      revision == :current ->
+        {:reply, %{restored: true}, restored}
+
+      true ->
+        {:reply, %{restored: true},
+         assign(restored, baseline: :unknown, expected_revision: revision)}
+    end
+  end
 
   defp choose(socket, refs) do
     draft = socket.assigns.draft
@@ -250,7 +287,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
 
   defp error({:settings_conflict, _current}) do
     "This environment changed while you were editing it, so nothing was saved. " <>
-      "Reload the page to see it now, then make your change again."
+      "Cancel, open it again to see it as it is now, then make your change again."
   end
 
   defp error(:settings_forbidden), do: "This console is not allowed to change settings."
@@ -324,6 +361,9 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
         phx-submit="save"
         phx-target={@myself}
         data-dirty={to_string(@dirty)}
+        data-draft={"environment:" <> (@ref || "new")}
+        data-revision={@expected_revision}
+        data-baseline={FormDraft.digest(@baseline)}
         autocomplete="off"
       >
         <div class="kit-form-section">

@@ -115,7 +115,7 @@ export const createHistory = (el, io) => {
   const doc = io.document || globalThis.document
   const win = io.window || globalThis.window
   const ResizeObserverImpl = io.ResizeObserver || win.ResizeObserver
-  const state = {conversation: null, inflight: false, armed: true, reading: null, settle: null, edgeFocused: false}
+  const state = {conversation: null, inflight: false, reading: null, settle: null, edgeFocused: false}
   let scroller = null
 
   const container = () => el.querySelector("#lab-messages")
@@ -143,7 +143,6 @@ export const createHistory = (el, io) => {
   const load = () => {
     if (!canLoad()) return false
     state.inflight = true
-    state.armed = false
     const finish = () => { state.inflight = false }
     try {
       const result = io.pushEvent("load-older", {conversation: el.dataset.conversation, before: el.dataset.before})
@@ -184,7 +183,6 @@ export const createHistory = (el, io) => {
   const onScroll = () => {
     if (!readerScrolled(scroller)) return
     stopSettling()
-    state.armed = true
     if (scroller.atBottom(FOLLOW_MARGIN)) { const button = latest(); if (button) button.hidden = true }
     if (nearTop()) load()
   }
@@ -197,7 +195,6 @@ export const createHistory = (el, io) => {
     stopSettling()
     state.conversation = el.dataset.conversation
     state.inflight = false
-    state.armed = true
     const button = latest()
     if (button) button.hidden = true
     if (!win.location?.hash) scroller.setTop(scroller.contentHeight())

@@ -31,8 +31,12 @@ const InstructionDraft = {
   updated() { this.draft.sync() },
   destroyed() { this.draft.destroy() }
 }
+// A settings form's component answers whether it took a kept draft back.
 const SettingsDraft = {
-  mounted() { this.guard = createSettingsGuard(this.el) },
+  mounted() {
+    const push = (form, event, payload) => new Promise(resolve => this.pushEventTo(form, event, payload, resolve))
+    this.guard = createSettingsGuard(this.el, push)
+  },
   destroyed() { this.guard.destroy() }
 }
 const PageHelp = createToggleHook(document)

@@ -59,21 +59,18 @@ function reply(reactions = []) {
   return {article, row, pills, pillForms, toggle, picker, quick, custom, error, path}
 }
 
-function page(r, {response = {status: 202, json: async () => ({accepted: true})}} = {}) {
+function page(r) {
   const byId = new Map([[r.picker.id, r.picker], [r.article.id, r.article]])
   const notices = {children: [], textContent: "", appendChild(n) { this.children.push(n); this.textContent += n.textContent }}
   const composer = {value: "composer draft", form: {}}
   const root = {querySelector: s => ({"#lab-notices": notices, "#lab-message": composer})[s] || null}
   const documentStub = {getElementById: id => byId.get(id) || null, activeElement: null, body: {},
     createElement: () => ({children: [], className: "", textContent: "", attributes: {}, setAttribute(n, v) { this.attributes[n] = v }, appendChild(c) { this.children.push(c); this.textContent += c.textContent }, addEventListener() {}})}
-  const fetches = []
-  let current = response
-  const fetcher = async (url, options) => { fetches.push({url, options}); if (current instanceof Error) throw current; return current }
   const pushed = []
   const store = new Map()
   const storage = {getItem: k => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, v), removeItem: k => store.delete(k)}
-  const controls = createConversationControls(root, {window: {location: {pathname: "/conversations/c"}}, document: documentStub, storage: () => storage, fetcher, pushEvent: (n, p) => pushed.push([n, p])})
-  return {controls, fetches, pushed, notices, composer, setResponse(v) { current = v }}
+  const controls = createConversationControls(root, {window: {location: {pathname: "/conversations/c"}}, document: documentStub, storage: () => storage, pushEvent: (n, p) => pushed.push([n, p])})
+  return {controls, pushed, notices, composer}
 }
 
 test("the add-reaction control opens one anchored picker with focus inside; Escape and outside clicks close it and return focus", () => {
@@ -97,7 +94,6 @@ test("the add-reaction control opens one anchored picker with focus inside; Esca
   f.controls.click({target: r.toggle}); f.controls.click({target: r.toggle})
   assert.equal(r.picker.hidden, true)
   assert.equal(f.composer.value, "composer draft")
-  assert.equal(f.fetches.length, 0)
 })
 
 test("clicking a pill leaves the exact add/remove mutation to LiveView, once", () => {
@@ -112,7 +108,6 @@ test("clicking a pill leaves the exact add/remove mutation to LiveView, once", (
   assert.equal(mine.actionField.value, "remove")
   f.controls.accept({kind: "reaction", id: "control-plane-message:r"})
   assert.equal(mine.dataset.pending, undefined)
-  assert.equal(f.fetches.length, 0)
   assert.deepEqual(f.pushed, [])
 
   assert.equal(f.controls.submit({target: theirs, preventDefault() {}}), false)
@@ -130,7 +125,6 @@ test("a quick choice closes the picker only on LiveView acceptance", () => {
   f.controls.accept({kind: "reaction", id: "control-plane-message:r"})
   assert.equal(r.picker.hidden, true)
   assert.equal(r.toggle.focused, 1)
-  assert.equal(f.fetches.length, 0)
 
   const denied = reply()
   const g = page(denied)
@@ -153,14 +147,12 @@ test("a custom name is normalized, validated beside its field, and keeps what wa
   f.controls.click({target: r.toggle})
   r.custom.emojiField.value = "not valid!"
   f.controls.submit({target: r.custom, preventDefault() {}})
-  assert.equal(f.fetches.length, 0)
   assert.equal(r.error.hidden, false)
   assert.match(r.error.textContent, /letters, digits/)
   assert.equal(r.custom.emojiField.getAttribute("aria-invalid"), "true")
 
   r.custom.emojiField.value = ":Rocket_Launch:"
   assert.equal(f.controls.submit({target: r.custom, preventDefault() {}}), false)
-  assert.equal(f.fetches.length, 0)
   f.controls.accept({kind: "reaction", id: "control-plane-message:r"})
   assert.equal(r.custom.emojiField.value, "", "an accepted custom name clears the field")
   assert.equal(r.picker.hidden, true)

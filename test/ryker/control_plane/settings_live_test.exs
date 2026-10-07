@@ -3,6 +3,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   import Ecto.Query, only: [from: 2]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
+  alias Plug.Conn.Query
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SettingsPage, SettingsView, SetupPage}
   alias Ryker.{Credentials, IntegrationSetup}
   alias Ryker.Fixtures.Answers
@@ -2373,6 +2374,68 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     end
   end
 
+  # LiveView handles Back and server-side navigation itself, so the leave
+  # guard could not ask before they threw away a settings form's unsaved
+  # values, which lived only in its component (2026-10-04 review). The
+  # browser keeps the draft (`settings-draft.mjs`) and offers it back when
+  # the form shows again.
+  test "a settings draft the browser kept comes back, and never saves over a change made since" do
+    initialize!()
+    workspace = Settings.fetch!().work.workspace_ref
+    fields = &%{"workspace_ref" => workspace, "ready_routing_sessions" => &1}
+
+    # Another section was saved meanwhile; this one reads the same, so the
+    # draft saves against the newer revision.
+    {:ok, view, _html} = open("/settings/advanced")
+    began = kept_draft(view, "#settings-work-form", fields.("3"))
+    learning!()
+
+    {:ok, view, _html} = open("/settings/advanced")
+    view |> with_target("#settings-work") |> render_hook("restore", began)
+    assert_reply(view, %{restored: true})
+    assert has_element?(view, "#settings-work-form[data-dirty=true] input[value='3']")
+    view |> form("#settings-work-form") |> render_submit()
+    assert Settings.fetch!().work.ready_routing_sessions == 3
+
+    # Someone saved this section since the draft began: its save meets the
+    # conflict and leaves their value.
+    {:ok, view, _html} = open("/settings/advanced")
+    began = kept_draft(view, "#settings-work-form", fields.("4"))
+
+    {:ok, _snapshot} =
+      Settings.save_work(
+        %{workspace_ref: workspace, ready_routing_sessions: 2},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    {:ok, view, _html} = open("/settings/advanced")
+    view |> with_target("#settings-work") |> render_hook("restore", began)
+    assert_reply(view, %{restored: true})
+    # A refresh after a save elsewhere does not let it catch up either.
+    learning!()
+    send(view.pid, :reload_page)
+    view |> form("#settings-work-form") |> render_submit()
+    assert has_element?(view, "[role=alert]", "changed since you started editing")
+    assert Settings.fetch!().work.ready_routing_sessions == 2
+
+    # A draft that reads like what is saved brings nothing back, and one
+    # never lands on a form already being changed.
+    {:ok, view, _html} = open("/settings/advanced")
+
+    view
+    |> with_target("#settings-work")
+    |> render_hook("restore", kept_draft(view, "#settings-work-form", fields.("2")))
+
+    assert_reply(view, %{restored: false})
+    refute has_element?(view, "#settings-work-form[data-dirty=true]")
+
+    view |> form("#settings-work-form", %{"ready_routing_sessions" => "1"}) |> render_change()
+    view |> with_target("#settings-work") |> render_hook("restore", began)
+    assert_reply(view, %{restored: false})
+    assert has_element?(view, "#settings-work-form input[value='1']")
+  end
+
   test "an unreadable settings database is not an installation without settings", %{
     unavailable: unavailable
   } do
@@ -2460,6 +2523,28 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   defp initialize! do
     {:ok, snapshot} = Settings.initialize(@actor)
     snapshot
+  end
+
+  # What the browser keeps of a form while its page is away
+  # (`settings-draft.mjs`): the revision and saved values it began from, and
+  # its fields as the form sends them.
+  defp kept_draft(view, selector, fields) do
+    html = view |> element(selector) |> render()
+    [_match, revision] = Regex.run(~r/data-revision="(\d+)"/, html)
+    [_match, baseline] = Regex.run(~r/data-baseline="([^"]+)"/, html)
+    %{"revision" => revision, "baseline" => baseline, "form" => Query.encode(fields)}
+  end
+
+  # A save to another section, which moves the installation's revision.
+  defp learning! do
+    enabled = Settings.fetch!().learning.enabled
+
+    {:ok, _snapshot} =
+      Settings.save_learning(
+        %{enabled: not enabled},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
   end
 
   defp joined!(channel, environment), do: channel!(channel, environment, :joined)

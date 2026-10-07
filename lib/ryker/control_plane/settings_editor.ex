@@ -7,7 +7,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   A live refresh never overwrites an unsaved draft, a rejected save keeps the
   draft and says which field was refused, and a revision that moved under the
-  editor shows what is saved now instead of quietly overwriting it. Shortening
+  editor shows what is saved now instead of quietly overwriting it. The browser
+  keeps a draft while its page is away and gives it back when the form shows
+  again (`FormDraft`), still saved against the revision it began from. Shortening
   a retention limit asks first, over the page, and names what would age out;
   removing a row asks first the same way and says what removing it does.
 
@@ -28,8 +30,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   """
 
   use Phoenix.LiveComponent
-  alias Ryker.ControlPlane.{Components, Integrations, Kit, Paths, SettingsRows, SettingsSections}
-  alias Ryker.ControlPlane.SettingsView
+  alias Ryker.ControlPlane.{Components, FormDraft, Integrations, Kit, Paths, SettingsRows}
+  alias Ryker.ControlPlane.{SettingsSections, SettingsView}
   alias Ryker.Settings.Work
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget
@@ -63,6 +65,30 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp form_key(%{assigns: %{form: {:form, key}}}), do: key
   defp form_key(_socket), do: nil
 
+  # Where the browser keeps a form's draft: one per section, or per row of a
+  # list, a new row's apart.
+  defp draft_key(section, {:form, key}), do: "settings:#{section.key}:#{key || "new"}"
+  defp draft_key(section, _form), do: "settings:#{section.key}"
+
+  # A draft begun before this section changed keeps the revision it began
+  # from. What it began from is not known here, so no refresh lets it follow
+  # a newer revision (`follow/1`), and its save meets the conflict.
+  defp restore(socket, params, revision) do
+    restored = socket |> draft(params) |> assign(message: "")
+
+    cond do
+      not restored.assigns.dirty ->
+        {:reply, %{restored: false}, socket}
+
+      revision == :current ->
+        {:reply, %{restored: true}, restored}
+
+      true ->
+        {:reply, %{restored: true},
+         assign(restored, baseline: :unknown, expected_revision: revision)}
+    end
+  end
+
   # The installation has one revision, so saving any section moves it. A draft
   # here is only stale if what *this* section holds changed underneath it;
   # otherwise the editor follows the new revision and keeps the draft, instead
@@ -88,6 +114,19 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   end
 
   def handle_event("cancel", _params, socket), do: {:noreply, reset(socket)}
+
+  # A draft the browser kept while this form's page was away (`FormDraft`),
+  # given back only to a form with no draft of its own. The reply says
+  # whether anything came back, so the browser drops a draft that reads the
+  # same as what is saved.
+  def handle_event("restore", kept, %{assigns: %{dirty: false}} = socket) do
+    case FormDraft.read(kept, socket.assigns.baseline) do
+      {:ok, params, revision} -> restore(socket, params, revision)
+      :error -> {:reply, %{restored: false}, socket}
+    end
+  end
+
+  def handle_event("restore", _kept, socket), do: {:reply, %{restored: false}, socket}
 
   def handle_event("review-current", _params, socket),
     do: {:noreply, assign(socket, conflict: nil, expected_revision: socket.assigns.view.revision)}
@@ -496,6 +535,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           refusal={@refusal}
           noun={@noun}
           cancel={@paths.list}
+          draft_key={draft_key(@section, @form)}
+          revision={@expected_revision}
+          baseline={@baseline}
         />
       </Kit.form_card>
       <Kit.remove_card
@@ -626,6 +668,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         refusal={@refusal}
         noun={@noun}
         cancel={nil}
+        draft_key={draft_key(@section, @form)}
+        revision={@expected_revision}
+        baseline={@baseline}
       />
       <.rows_list :if={@collection?} id={@id} rows={@rows} paths={@paths} label={@section.title} />
       <Kit.empty
@@ -716,6 +761,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         phx-submit="save"
         phx-target={@myself}
         data-dirty={to_string(@dirty)}
+        data-draft={@draft_key}
+        data-revision={@revision}
+        data-baseline={FormDraft.digest(@baseline)}
       >
         <input :if={@item_key} type="hidden" name="item_key" value={@item_key} />
         <div
