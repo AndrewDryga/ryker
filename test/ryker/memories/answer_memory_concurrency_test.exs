@@ -11,7 +11,7 @@ defmodule Ryker.Memories.AnswerMemoryConcurrencyTest do
   alias Ryker.Records.Record
   alias Ryker.Records.Response
   alias Ryker.Repo
-  alias Ryker.Slack.Input
+  alias Ryker.Slack.{ChannelMembership, Input}
   alias Ryker.Work.{Session, Turn}
 
   for {first, second} <- [{:save, :revision}, {:revision, :save}] do
@@ -156,5 +156,6 @@ defmodule Ryker.Memories.AnswerMemoryConcurrencyTest do
     Repo.delete_all(from(s in Session, where: s.episode_id == ^episode_id))
     Repo.delete_all(from(e in Event, where: e.episode_id == ^episode_id))
     Repo.delete_all(from(e in Episode, where: e.id == ^episode_id))
+    Repo.delete_all(from(m in ChannelMembership, where: m.workspace_ref == ^workspace))
   end
 end

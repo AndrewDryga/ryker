@@ -21,6 +21,10 @@ defmodule Ryker.ControlPlane.ConfigurationGuide do
   def description(:findings),
     do: "Conclusions Ryker reached in investigations, with the evidence behind them."
 
+  def description(:cases) do
+    "What Ryker kept of finished requests: the problem, the cause and how it ended. Later requests about the same problem read them."
+  end
+
   def description(:people) do
     "What people said about themselves, such as a birthday or the name they go by. Ryker uses it to be considerate to them."
   end

@@ -59,6 +59,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/memory", :facts},
     {"/memory/learned", :learned},
     {"/memory/findings", :findings},
+    {"/memory/cases", :cases},
     {"/memory/people", :people},
     {"/memory/learning", :learning},
     {"/feedback", :feedback},
@@ -471,6 +472,23 @@ defmodule Ryker.ControlPlane.PageHelp do
        [
          "Mark explained settles one Ryker couldn't explain, once you know why it happened. Forget finding is for one that's wrong or no longer matters.",
          "Either way Ryker stops using it in later requests, and it stays in the investigation's history."
+       ]}
+    ])
+  end
+
+  defp help(:cases) do
+    page("How cases work", [
+      {"Where a case comes from",
+       [
+         "When a finished request's history is cleaned up, Ryker keeps a short case of it: the problem, the cause it found, what it checked and how it ended. The case stays after the history is gone."
+       ]},
+      {"Where it's read",
+       [
+         "A later request about the same problem reads the case as an example of what worked, never as proof that this time is the same. A case from a private channel, a direct message or Chat is read only there, and one marked Shadow mode only by requests in shadow mode."
+       ]},
+      {"Forgetting",
+       [
+         "Forget case erases the case's words, and no later request reads it. Editing or deleting a message the case came from, or deleting its channel, does the same."
        ]}
     ])
   end

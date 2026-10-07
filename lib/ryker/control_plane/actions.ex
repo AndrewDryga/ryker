@@ -16,7 +16,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Ingress.WorkProfile
   alias Ryker.IntegrationSetup
   alias Ryker.Memories
-  alias Ryker.Memories.{Forgetting, MemoryReviewItem}
+  alias Ryker.Memories.{Cases, Forgetting, MemoryReviewItem}
   alias Ryker.Operator.{EpisodeReviews, FailureDismissals, Failures}
   alias Ryker.Operator.Learning, as: LearningOperator
   alias Ryker.Operator.Publication, as: PublicationOperator
@@ -96,6 +96,7 @@ defmodule Ryker.ControlPlane.Actions do
       forget_memory: &Memories.forget/1,
       forget_knowledge: &Forgetting.forget_topic/1,
       forget_finding: &Findings.forget/1,
+      forget_case: &Cases.delete/1,
       forget_person: &People.forget_person/1,
       forget_person_fact: &People.forget_fact/1,
       accept_improvement: &Improvement.accept(&1, Actor.of(&2)),

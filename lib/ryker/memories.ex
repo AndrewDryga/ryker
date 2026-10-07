@@ -80,6 +80,7 @@ defmodule Ryker.Memories do
          :ok <- lock_answer_source!(entry),
          :ok <- Reviews.lock_review_maintenance!(),
          :ok <- answerer(authorize, entry),
+         :ok <- public_source(entry),
          {:ok, intent} <- remember_intent(record),
          :ok <- unrevised(entry),
          :ok <- said(value, answer_text(response, entry)) do
@@ -94,6 +95,23 @@ defmodule Ryker.Memories do
 
   defp answerer(authorize, entry),
     do: if(authorize.(entry) == true, do: :ok, else: {:error, :answer_memory_unauthorized})
+
+  # An answer becomes a fact every conversation recalls, so a Slack answer is
+  # kept only from a public channel, as a memory offered for a whole workspace
+  # or repository is (`authorize_wide_offer/2`). One given in a private channel
+  # was recalled everywhere, its source hidden but its words not (2026-10-04
+  # review).
+  defp public_source(%Entry{destination_transport: "slack"} = entry) do
+    case ChannelFence.authorize_public_in_transaction(
+           entry.destination_transport,
+           entry.destination_conversation_ref
+         ) do
+      :ok -> :ok
+      {:error, _not_public} -> {:error, :answer_memory_private_source}
+    end
+  end
+
+  defp public_source(_entry), do: :ok
 
   defp remember_intent(%Record{payload: %{"remember" => %{} = intent}}), do: {:ok, intent}
   defp remember_intent(_record), do: {:error, :answer_memory_not_requested}

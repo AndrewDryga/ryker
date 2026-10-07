@@ -142,6 +142,7 @@ defmodule Ryker.ControlPlane.Paths do
   @prefixes %{
     "admission" => "ingress-input:",
     "behavior" => "behavior:",
+    "case" => "case:",
     "delivery" => "delivery:",
     "memory" => "memory:",
     "publication" => "publication:",

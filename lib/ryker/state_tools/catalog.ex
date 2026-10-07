@@ -375,7 +375,7 @@ defmodule Ryker.StateTools.Catalog do
   defp remember_answer_tool do
     tool(
       "remember_answer",
-      "Save the answer to an explicitly reusable request_input question in this episode: the reply's own words for the fact, trimmed, with nothing added. Call only when the authenticated reply actually supplies that fact; an unrelated or ambiguous reply needs clarification. The host verifies the exact answered question, original revision and operator authority, and derives installation-global applicability from the question. No second memory confirmation is needed. Existing proposals still use propose_memory. Say remembered only after this tool succeeds; saved facts never grant action authority or prove current health.",
+      "Save the answer to an explicitly reusable request_input question in this episode: the reply's own words for the fact, trimmed, with nothing added. Call only when the authenticated reply actually supplies that fact; an unrelated or ambiguous reply needs clarification. The host verifies the exact answered question, original revision and operator authority, and derives installation-global applicability from the question; a Slack answer is kept only from a public channel, since every conversation recalls it. No second memory confirmation is needed. Existing proposals still use propose_memory. Say remembered only after this tool succeeds; saved facts never grant action authority or prove current health.",
       %{"question_ref" => reference(256), "value" => text(4_000)}
     )
   end

@@ -107,6 +107,10 @@ defmodule Ryker.StateTools.ErrorCode do
   def code(:answer_memory_conflict), do: "answer_memory_conflict"
   def code(:invalid_answer_memory), do: "invalid_answer_memory"
 
+  def code(:answer_memory_private_source) do
+    "answer_memory_private_source: an answer is remembered for every conversation, so only one given in a public channel is kept. Nothing was remembered."
+  end
+
   def code(:answer_memory_not_in_answer) do
     "answer_memory_not_in_answer: value must be words the person's answer says, trimmed to the fact, with nothing added. Nothing was remembered."
   end
@@ -191,6 +195,7 @@ defmodule Ryker.StateTools.ErrorCode do
               "answer_memory_unauthorized",
               "answer_memory_conflict",
               "answer_memory_not_in_answer",
+              "answer_memory_private_source",
               "answer_memory_revised",
               "invalid_answer_memory"
             ],

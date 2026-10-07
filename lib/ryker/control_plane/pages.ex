@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.Pages do
   """
 
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{BehaviorPage, ChannelDetail, ChannelPage, ChannelsPage}
+  alias Ryker.ControlPlane.{BehaviorPage, CasesPage, ChannelDetail, ChannelPage, ChannelsPage}
   alias Ryker.ControlPlane.{ConfigurationGuide, FactsPage, FailureExplanation, FailureProjection}
   alias Ryker.ControlPlane.{FailuresPage, FeedbackPage, FeedbackProjection, FindingsPage, HTML}
   alias Ryker.ControlPlane.{ImprovementPage, ImprovementProjection, IncidentProjection}
@@ -349,6 +349,22 @@ defmodule Ryker.ControlPlane.Pages do
     view |> ImprovementPage.heading() |> sub_page(ImprovementPage.html(view))
   end
 
+  # One case is a sub-page of its own, with the way back to all of them.
+  def page(["memory", "cases"], %{"case" => id}, options) when is_binary(id) do
+    case options.projection.case.(id) do
+      {:ok, item} -> sub_page(CasesPage.heading(item), CasesPage.case_html(item))
+      :error -> not_found("Case")
+    end
+  end
+
+  def page(["memory", "cases"], params, options) do
+    ok(
+      "Cases",
+      ConfigurationGuide.description(:cases),
+      CasesPage.html(options.projection.cases.(Map.take(params, CasesPage.query_keys())))
+    )
+  end
+
   # One finding is a sub-page of its own, with the way back to all of them.
   def page(["memory", "findings"], %{"finding" => id}, options) when is_binary(id) do
     case options.projection.finding.(id) do
@@ -420,6 +436,7 @@ defmodule Ryker.ControlPlane.Pages do
   def subscriptions(["memory", "learned"], _params), do: LearnedPage.subscriptions()
   def subscriptions(["memory", "learning"], _params), do: LearningPage.subscriptions()
   def subscriptions(["memory", "findings"], _params), do: FindingsPage.subscriptions()
+  def subscriptions(["memory", "cases"], _params), do: CasesPage.subscriptions()
   def subscriptions(["memory", "people"], _params), do: PeoplePage.subscriptions()
   def subscriptions(["feedback"], _params), do: FeedbackPage.subscriptions()
   def subscriptions(["feedback", "fix"], _params), do: ImprovementPage.subscriptions()

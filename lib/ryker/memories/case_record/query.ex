@@ -43,6 +43,15 @@ defmodule Ryker.Memories.CaseRecord.Query do
   defp visible_to(queryable, scope),
     do: where(queryable, [episode_case_records: r], r.conversation_ref == ^scope.conversation_ref)
 
+  @doc "Cases whose problem, cause or ending contains `pattern`, an `ILIKE` pattern."
+  def mentioning(queryable, pattern) do
+    where(
+      queryable,
+      [episode_case_records: r],
+      ilike(r.problem, ^pattern) or ilike(r.cause, ^pattern) or ilike(r.outcome, ^pattern)
+    )
+  end
+
   @doc "Cases whose words match `terms`, a `to_tsquery` expression, the best matches first."
   def matching_terms(queryable, terms) do
     queryable

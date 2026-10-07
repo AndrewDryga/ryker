@@ -16,12 +16,14 @@ defmodule Ryker.ControlPlane.Router do
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{ActionRefusal, BehaviorLibrary, BehaviorPage, BrowserGuard, CSRF}
+  alias Ryker.ControlPlane.{CasesPage, MemoryFormat}
   alias Ryker.ControlPlane.{FactsPage, FailureExplanation, FailureProjection, FindingsPage, HTML}
   alias Ryker.ControlPlane.{ImprovementPage, IncidentRoomsPage, LabControls, LearningActivity}
   alias Ryker.ControlPlane.{PathRef, Paths, PeoplePage, RelearnPanel, Viewer}
   alias Ryker.HTTPConnection
   alias Ryker.Observability
   alias Ryker.Operator.Learning, as: LearningOperator
+  alias Ryker.Slack.Names
 
   @behaviour Plug
   @maximum_form_bytes 4_096
@@ -798,6 +800,20 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  # Forgetting a case erases what Ryker kept of finished work; the question
+  # says that a later request no longer reads it, and what stays.
+  defp confirmation("case", resource_ref, "forget", options) do
+    case options.projection.case.(Paths.id("case", resource_ref)) do
+      {:ok, %{forgotten?: false} = item} ->
+        {:ok, "Forget \"#{MemoryFormat.excerpt(item.problem, Names.workspace(), 90)}\"?",
+         "Ryker erases this case's words, and later requests about the same problem no longer read it. That a case was kept stays, marked forgotten. You can't undo this.",
+         "case:forget", :danger}
+
+      _unavailable ->
+        {:error, :not_found}
+    end
+  end
+
   # Forgetting a person forgets everything Ryker learned from what they said
   # about themselves; the question says what comes back and what does not.
   defp confirmation("person", resource_ref, "forget", options) do
@@ -1109,6 +1125,9 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("finding", resource_ref, "forget", actions, _viewer),
     do: actions.forget_finding.(resource_ref)
 
+  defp perform("case", resource_ref, "forget", actions, _viewer),
+    do: actions.forget_case.(resource_ref)
+
   defp perform("person", resource_ref, "forget", actions, _viewer),
     do: actions.forget_person.(resource_ref)
 
@@ -1221,6 +1240,10 @@ defmodule Ryker.ControlPlane.Router do
   defp action_return_path("memory-review", _resource_ref), do: "/memory#review"
   defp action_return_path("knowledge", _resource_ref), do: "/memory/learned"
   defp action_return_path("finding", resource_ref), do: FindingsPage.path(resource_ref)
+
+  defp action_return_path("case", resource_ref),
+    do: CasesPage.path(Paths.id("case", resource_ref))
+
   defp action_return_path("improvement", _resource_ref), do: "/feedback/fix"
   defp action_return_path("learning", resource_ref), do: LearningActivity.path(resource_ref)
 

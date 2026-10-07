@@ -9,7 +9,8 @@ defmodule Ryker.ControlPlane.Projection do
   for training, downloaded from Data retention.
   """
 
-  alias Ryker.ControlPlane.{Activity, BehaviorLibrary, ChannelDetail, ChannelDirectory}
+  alias Ryker.ControlPlane.{Activity, BehaviorLibrary, CasesProjection, ChannelDetail}
+  alias Ryker.ControlPlane.ChannelDirectory
   alias Ryker.ControlPlane.{ConversationMemory, ConversationProjection, EpisodeProjection}
   alias Ryker.ControlPlane.{FailureProjection, FeedbackProjection, FindingsProjection}
   alias Ryker.ControlPlane.{ImprovementProjection, IncidentProjection, InstructionSettings}
@@ -41,6 +42,8 @@ defmodule Ryker.ControlPlane.Projection do
       feedback: &FeedbackProjection.page/1,
       findings: &FindingsProjection.list/1,
       finding: &FindingsProjection.fetch/1,
+      cases: &CasesProjection.list/1,
+      case: &CasesProjection.fetch/1,
       people: &PeopleProjection.list/0,
       person: &PeopleProjection.fetch/1,
       person_fact: &PeopleProjection.fetch_fact/1,

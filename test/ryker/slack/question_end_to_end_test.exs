@@ -23,9 +23,9 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
   alias Ryker.Records.Record
   alias Ryker.Records.Response
   alias Ryker.Repo
-  alias Ryker.Slack.{Engagement, Gateway, InteractionHandler, Publisher, Renderer}
+  alias Ryker.Slack.{ChannelMembership, Engagement, Gateway, InteractionHandler, Publisher}
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.Slack.{InteractionAudit, InteractionFeedbackWorker}
+  alias Ryker.Slack.{InteractionAudit, InteractionFeedbackWorker, Renderer}
   alias Ryker.StateTools.{Router, Tools}
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Waits.EventSubscription
@@ -40,6 +40,23 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
     @impl true
     def user_allowed(_client, "U123", "TQUESTIONENDTOEND"), do: {:ok, true}
+  end
+
+  # The answers here are remembered for every conversation, which Ryker keeps
+  # only from a public channel it is in.
+  setup do
+    Repo.insert!(%ChannelMembership{
+      id: Ecto.UUID.generate(),
+      workspace_ref: "TQUESTIONENDTOEND",
+      channel_ref: "C456",
+      private: false,
+      external_shared: false,
+      generation: 1,
+      status: :joined,
+      joined_at: @now
+    })
+
+    :ok
   end
 
   test "an ordinary Slack answer resumes one delivered question in the same Work session" do

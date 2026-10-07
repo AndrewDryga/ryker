@@ -254,6 +254,22 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
   # installation-wide fact credited to the person who answered, without
   # checking that the answer said it (2026-10-04 review). The value may trim
   # the answer to the fact, never add to it.
+  # An answer becomes a fact every conversation recalls. One given in a
+  # private channel was recalled everywhere, its source hidden but its words
+  # not (2026-10-04 review). A memory offered for a whole workspace or
+  # repository was already held to a public channel.
+  test "an answer given in a private channel is not remembered for every conversation" do
+    answer = AnswerMemory.answered!("portal-private", DateTime.utc_now(), private: true)
+
+    assert {:error, :answer_memory_private_source} = remember(answer, "portal-private")
+    assert Repo.aggregate(MemoryEntry, :count) == 0
+
+    public = AnswerMemory.answered!("portal-public", DateTime.utc_now())
+
+    assert {:ok, %{memory: %MemoryEntry{scope_kind: :global}}} =
+             remember(public, "portal-public")
+  end
+
   test "only words the person's answer says can be remembered as their answer" do
     answer =
       AnswerMemory.answered!("It is portal-prod, the one in us-central1.", DateTime.utc_now())

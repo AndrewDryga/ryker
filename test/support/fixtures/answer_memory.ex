@@ -10,15 +10,30 @@ defmodule Ryker.Fixtures.AnswerMemory do
   alias Ryker.Records
   alias Ryker.Records.Response
   alias Ryker.Repo
-  alias Ryker.Slack.Input
+  alias Ryker.Slack.{ChannelMembership, Input}
   alias Ryker.Work.Custody
 
   @remember %{"subject" => "GCP project", "applicability" => "Production portal"}
 
-  @doc "An answered question in a live Work turn; `remember: nil` asks it without the intent."
+  @doc """
+  An answered question in a live Work turn, in a public channel Ryker is in;
+  `remember: nil` asks it without the intent, and `private: true` asks it in
+  a private channel.
+  """
   def answered!(value, occurred_at, options \\ []) do
     id = Ecto.UUID.generate()
     workspace = "TANSWER#{String.replace(id, "-", "")}"
+
+    Repo.insert!(%ChannelMembership{
+      id: Ecto.UUID.generate(),
+      workspace_ref: workspace,
+      channel_ref: "C1",
+      private: Keyword.get(options, :private, false),
+      external_shared: false,
+      generation: 1,
+      status: :joined,
+      joined_at: occurred_at
+    })
 
     destination = %{
       conversation_ref: "slack:#{workspace}:C1",

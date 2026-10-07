@@ -221,8 +221,11 @@ as remembered, and the durable accepted answer remains available to retry.
 
 These facts use explicit installation-global ownership: the customer installation's database,
 not a channel or an alias for workspace scope. Applicability distinguishes workloads and
-environments. Recall may cross conversations but does not expose the private source body or
-navigation. Active global facts have no automatic expiry and survive ordinary transcript
+environments. Because every conversation recalls them, a Slack answer is kept only when it was
+given in a public channel Ryker is in, the rule a memory offered for a whole workspace or
+repository follows; one from a private channel or a direct message is refused with
+`answer_memory_private_source`. Recall crosses conversations but does not expose the source body
+or navigation. Active global facts have no automatic expiry and survive ordinary transcript
 cleanup. Explicit answer edits/deletions and source-channel deletion revoke the saved fact;
 reviewed corrections and Forget use the existing memory controls. A delayed answer cannot override
 a later answer, reviewed correction or explicit Forget. Memory never grants execution access or
