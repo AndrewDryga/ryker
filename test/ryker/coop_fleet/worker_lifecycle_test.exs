@@ -9,6 +9,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.StateTools.Binding
   alias Ryker.Work.{Custody, StateBinding}
 
@@ -188,11 +189,11 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                command.episode_id,
                "work-read-only",
                String.duplicate("b", 64),
-               "ryker"
+               repository_ref: "ryker"
              )
 
     WorkerJob.pin!(session)

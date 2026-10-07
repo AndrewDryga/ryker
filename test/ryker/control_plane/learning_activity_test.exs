@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   alias Ryker.ControlPlane.{Projection, Router}
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeRevision}
@@ -790,11 +791,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     [entry | _] = inputs!()
 
     {:ok, _} =
-      Custody.pin_episode(
-        entry.episode_id,
-        "inspection-policy",
-        @settings.policy_digest
-      )
+      WorkSessions.pin_episode(entry.episode_id, "inspection-policy", @settings.policy_digest)
 
     {:ok, claim} = Custody.claim_next("inspection-handover", 60, :work)
 

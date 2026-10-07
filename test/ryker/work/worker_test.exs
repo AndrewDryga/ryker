@@ -4,6 +4,7 @@ defmodule Ryker.Work.WorkerTest do
   import ExUnit.CaptureLog
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.TestSupport.FakeWorkCoopAPI, as: FakeAPI
   alias Ryker.Work.{Custody, Turn, Worker}
 
@@ -301,7 +302,7 @@ defmodule Ryker.Work.WorkerTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
 
     id
   end

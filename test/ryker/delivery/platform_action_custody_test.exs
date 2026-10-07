@@ -4,6 +4,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
   alias Ryker.Delivery.{PlatformAction, PlatformActionCustody, Request}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Work.{Custody, DeliveryReceipt, Validator}
 
   @now ~U[2026-08-29 12:00:00.000000Z]
@@ -586,7 +587,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
 
   defp pin_and_claim!(episode) do
     assert {:ok, _session} =
-             Custody.pin_episode(episode.id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode.id, "work-read-only", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("platform-action-work", 60)
     assert claim.episode.id == episode.id

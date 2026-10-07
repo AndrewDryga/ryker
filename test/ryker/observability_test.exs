@@ -15,6 +15,7 @@ defmodule Ryker.ObservabilityTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning
@@ -77,7 +78,11 @@ defmodule Ryker.ObservabilityTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(transition.episode.id, "read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               transition.episode.id,
+               "read-only",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, claim} = Custody.claim_next("observability-probes-worker", 3_600, :work)
 
@@ -354,7 +359,11 @@ defmodule Ryker.ObservabilityTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(transition.episode.id, "read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               transition.episode.id,
+               "read-only",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, _claim} = Custody.claim_next("observability-worker", 60, :work)
 
@@ -451,7 +460,11 @@ defmodule Ryker.ObservabilityTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(transition.episode.id, "read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               transition.episode.id,
+               "read-only",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, claim} = Custody.claim_next("observability-active-worker", 3_600, :work)
     old = DateTime.add(DateTime.utc_now(), -3_600, :second)
@@ -1046,7 +1059,11 @@ defmodule Ryker.ObservabilityTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(transition.episode.id, "read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               transition.episode.id,
+               "read-only",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, claim} = Custody.claim_next("observability-retry-worker", 60, :work)
     now = Repo.now!()
@@ -1245,7 +1262,9 @@ defmodule Ryker.ObservabilityTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64), "ryker")
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64),
+               repository_ref: "ryker"
+             )
 
     assert {:ok, _transition} =
              Episodes.apply(

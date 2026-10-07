@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
@@ -181,7 +182,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                source.episode.id,
                profile().policy,
                profile().policy_digest
@@ -911,7 +912,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                transition.episode.id,
                profile().policy,
                profile().policy_digest
@@ -1683,7 +1684,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                transition.episode.id,
                profile().policy,
                profile().policy_digest

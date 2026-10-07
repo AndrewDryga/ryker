@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Work.{Activity, ActivityEvent, Custody, Submission}
 
   @now ~U[2026-09-04 22:51:44.000000Z]
@@ -409,7 +410,7 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
         })
       )
 
-    {:ok, session} = Custody.pin_episode(episode_id, "loading", String.duplicate("a", 64))
+    {:ok, session} = WorkSessions.pin_episode(episode_id, "loading", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("loading:#{suffix}", 120, :work)
 
     {:ok, submission} =

@@ -4,6 +4,7 @@ defmodule Ryker.Slack.InteractionRepaintConcurrencyTest do
   alias Ryker.{CanonicalJSON, Episodes, Repo}
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Slack.{InteractionAudit, InteractionRepaint}
   alias Ryker.Work.{Custody, Session, Turn}
@@ -93,7 +94,7 @@ defmodule Ryker.Slack.InteractionRepaintConcurrencyTest do
         })
       )
 
-    {:ok, _} = Custody.pin_episode(id, "fixture", String.duplicate("a", 64))
+    {:ok, _} = WorkSessions.pin_episode(id, "fixture", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("worker:#{id}", 60)
     assert claim.episode.id == id
     assert :ok = KnowledgeSnapshot.expose(claim, [])

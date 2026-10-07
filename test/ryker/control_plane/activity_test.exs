@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
   alias Ryker.Fixtures.Answers
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Fixtures.SavedEntities
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Operator.FailureDismissals
@@ -217,7 +218,8 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert %{title: "Inspect the slow admission request"} =
              Activity.request_titles([episode.key])[episode.key]
 
-    {:ok, _session} = Custody.pin_episode(episode.id, "label-test", String.duplicate("a", 64))
+    {:ok, _session} =
+      WorkSessions.pin_episode(episode.id, "label-test", String.duplicate("a", 64))
 
     # Direct conversation work has a worker session but no repository checkout.
     assert WorkspaceProjection.copies(%{}).current == []
@@ -444,7 +446,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     {:ok, %{episode: episode}} = Episodes.apply(Fixtures.admit_input())
 
     {:ok, session} =
-      Custody.pin_episode(episode.id, "activity-test", String.duplicate("a", 64))
+      WorkSessions.pin_episode(episode.id, "activity-test", String.duplicate("a", 64))
 
     assert {:ok, _claim} = Custody.claim_next("activity-test", 60, :work)
 
@@ -512,7 +514,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     {:ok, %{episode: episode}} = Episodes.apply(Fixtures.admit_input())
 
     {:ok, session} =
-      Custody.pin_episode(episode.id, "search-repository", String.duplicate("a", 64))
+      WorkSessions.pin_episode(episode.id, "search-repository", String.duplicate("a", 64))
 
     Repo.update_all(from(s in Session, where: s.id == ^session.id),
       set: [repository_ref: "acme/checkout-api"]
@@ -569,7 +571,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
       ]
     )
 
-    {:ok, session} = Custody.pin_episode(episode.id, "row-shows", String.duplicate("a", 64))
+    {:ok, session} = WorkSessions.pin_episode(episode.id, "row-shows", String.duplicate("a", 64))
 
     Repo.update_all(from(s in Session, where: s.id == ^session.id),
       set: [repository_ref: "repo:ledger"]
@@ -684,7 +686,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
   # on a question card has no text either; it reads as the answer.
   test "a task reads as its task, and a card answer as what was chosen" do
     asked = counted_episode!("task-asked")
-    {:ok, _session} = Custody.pin_episode(asked.id, "ryker-read", String.duplicate("a", 64))
+    {:ok, _session} = WorkSessions.pin_episode(asked.id, "ryker-read", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("worker:activity-task", 60, :work)
     task = counted_episode!("task-run")
 
@@ -847,7 +849,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
     blocked = counted_episode!("blocked")
 
     {:ok, _session} =
-      Custody.pin_episode(blocked.id, "counts-test", String.duplicate("a", 64))
+      WorkSessions.pin_episode(blocked.id, "counts-test", String.duplicate("a", 64))
 
     {:ok, _claim} = Custody.claim_next("counts-test", 60, :work)
 

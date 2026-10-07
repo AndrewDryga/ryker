@@ -3,7 +3,8 @@ defmodule Ryker.ControlPlane.WorkspaceProjectionTest do
   alias Ryker.ControlPlane.{Pages, Projection, WorkspaceProjection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Work.Session
 
   @now ~U[2026-10-05 12:00:00.000000Z]
 
@@ -70,7 +71,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjectionTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, session} =
-             Custody.pin_episode(id, "recorded-work-policy", String.duplicate("a", 64))
+             WorkSessions.pin_episode(id, "recorded-work-policy", String.duplicate("a", 64))
 
     session
     |> Ecto.Changeset.change(repository_ref: "acme/checkout-api")

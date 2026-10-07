@@ -5,8 +5,8 @@ defmodule Ryker.ControlPlane.WorkerEvidenceTest do
   alias Ryker.CoopFleet.{SessionEvidence, SessionEvidences}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
-  alias Ryker.Work.Custody
 
   @authority_digest String.duplicate("d", 64)
   @policy_digest String.duplicate("b", 64)
@@ -37,12 +37,9 @@ defmodule Ryker.ControlPlane.WorkerEvidenceTest do
     {:ok, _transition} = Episodes.apply(command)
 
     {:ok, session} =
-      Custody.pin_episode(
-        command.episode_id,
-        "work-read-only",
-        @policy_digest,
-        @authority_digest,
-        "ryker"
+      WorkSessions.pin_episode(command.episode_id, "work-read-only", @policy_digest,
+        authority_digest: @authority_digest,
+        repository_ref: "ryker"
       )
 
     {:ok, bound} =

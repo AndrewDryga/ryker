@@ -7,6 +7,7 @@ defmodule Ryker.Evals.WorldConcurrencyTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Event}
   alias Ryker.Evals.{SlackDeliveryPublisher, WorldCase}
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
   alias Ryker.TestSupport.{FakeWorkCoopAPI, WorldHostReplay}
   alias Ryker.Work.{Custody, Session, Submission, Turn}
@@ -29,11 +30,10 @@ defmodule Ryker.Evals.WorldConcurrencyTest do
                  Episodes.apply(input_command(initial, episode_id, episode_key, 1))
 
         assert {:ok, _session} =
-                 Custody.pin_episode(
+                 WorkSessions.pin_episode(
                    first.episode.id,
                    "world-eval-read-only",
-                   @policy_digest,
-                   nil
+                   @policy_digest
                  )
 
         assert {:ok, first_claim} =

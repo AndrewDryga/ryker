@@ -11,6 +11,7 @@ defmodule Ryker.Continuity.ContinuityConcurrencyTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.KnowledgeExposure
@@ -198,7 +199,7 @@ defmodule Ryker.Continuity.ContinuityConcurrencyTest do
     {:ok, transition} = Episodes.apply(%{command | payload: Input.document(input)})
 
     {:ok, _session} =
-      Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64), nil)
+      WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
 
     {:ok, claim} = Custody.claim_next("worker:continuity-race:#{suffix}", 60, :work)
     {:ok, submission} = SubmissionBuilder.build(claim)

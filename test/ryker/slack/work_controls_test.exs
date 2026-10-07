@@ -4,6 +4,7 @@ defmodule Ryker.Slack.WorkControlsTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, Publication}
@@ -530,7 +531,7 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-contributor", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "ryker-contributor", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("work-controls:#{suffix}", 60, :work)
     # As a live Work turn records, so its records may be shown in the channel.

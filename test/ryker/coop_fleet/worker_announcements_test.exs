@@ -21,7 +21,7 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
-  alias Ryker.Work.Custody
+  alias Ryker.Fixtures.WorkSessions
 
   @authority_digest String.duplicate("d", 64)
   @policy_digest String.duplicate("b", 64)
@@ -209,12 +209,9 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-read-only",
-               @policy_digest,
-               @authority_digest,
-               "ryker"
+             WorkSessions.pin_episode(command.episode_id, "work-read-only", @policy_digest,
+               authority_digest: @authority_digest,
+               repository_ref: "ryker"
              )
 
     WorkerJob.pin!(session)

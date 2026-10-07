@@ -18,7 +18,8 @@ defmodule Ryker.CoopFleet.RetireDiscardedPlacementsMigrationTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Work.Session
 
   @version 20_260_927_110_000
   @authority_digest String.duplicate("d", 64)
@@ -84,12 +85,9 @@ defmodule Ryker.CoopFleet.RetireDiscardedPlacementsMigrationTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-read-only",
-               @policy_digest,
-               @authority_digest,
-               "ryker"
+             WorkSessions.pin_episode(command.episode_id, "work-read-only", @policy_digest,
+               authority_digest: @authority_digest,
+               repository_ref: "ryker"
              )
 
     session = WorkerJob.pin!(session)

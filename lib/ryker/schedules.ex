@@ -479,15 +479,9 @@ defmodule Ryker.Schedules do
          command <- schedule_command(schedule, episode_id, turn_ref, input),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          {:ok, _session} <-
-           Custody.pin_episode_in_transaction(
-             transition.episode.id,
-             policy.name,
-             policy.digest,
-             nil,
-             schedule.repository,
-             nil,
-             nil,
-             schedule.environment_ref
+           Custody.pin_episode_in_transaction(transition.episode.id, policy.name, policy.digest,
+             environment_ref: schedule.environment_ref,
+             repository_ref: schedule.repository
            ),
          {:ok, occurrence} <-
            insert_occurrence(%{

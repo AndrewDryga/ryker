@@ -10,6 +10,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
@@ -2794,15 +2795,10 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     # The alert's conversation runs in the production environment.
     assert {:ok, _session} =
-             Custody.pin_episode(
-               episode_id,
-               "ryker-read",
-               String.duplicate("a", 64),
-               nil,
-               repository,
-               if(repository, do: @source_context),
-               nil,
-               environment
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64),
+               repository_ref: repository,
+               repository_context: if(repository, do: @source_context),
+               environment_ref: environment
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:incident-offer", 60, :work)

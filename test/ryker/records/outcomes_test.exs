@@ -3,6 +3,7 @@ defmodule Ryker.Records.OutcomesTest do
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
   alias Ryker.Records.Outcomes
@@ -169,7 +170,11 @@ defmodule Ryker.Records.OutcomesTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(command.episode_id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               command.episode_id,
+               "work-read-only",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     bind_remote!(claim, context)

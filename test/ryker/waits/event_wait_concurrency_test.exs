@@ -4,6 +4,7 @@ defmodule Ryker.Waits.EventWaitConcurrencyTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -168,7 +169,7 @@ defmodule Ryker.Waits.EventWaitConcurrencyTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:#{episode_key}", 60, :work)
 

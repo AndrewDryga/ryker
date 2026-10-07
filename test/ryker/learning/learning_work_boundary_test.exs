@@ -2,6 +2,7 @@ defmodule Ryker.Learning.LearningWorkBoundaryTest do
   use Ryker.DataCase, async: false
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.LearningSources
@@ -15,11 +16,8 @@ defmodule Ryker.Learning.LearningWorkBoundaryTest do
     [first, second] = LearningFixtures.inputs!()
 
     assert {:ok, _} =
-             Custody.pin_episode(
-               first.episode_id,
-               "read-only",
-               String.duplicate("a", 64),
-               first.repository_ref
+             WorkSessions.pin_episode(first.episode_id, "read-only", String.duplicate("a", 64),
+               repository_ref: first.repository_ref
              )
 
     assert {:ok, claim} = Custody.claim_next("learning-work-boundary", 60)

@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
   alias Ryker.Credentials
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Settings
@@ -374,7 +375,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
         })
       )
 
-    {:ok, _session} = Custody.pin_episode(episode_id, "people", String.duplicate("a", 64))
+    {:ok, _session} = WorkSessions.pin_episode(episode_id, "people", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("people:#{episode_id}", 120, :work)
 
     context = %{

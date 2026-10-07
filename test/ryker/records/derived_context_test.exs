@@ -5,6 +5,7 @@ defmodule Ryker.Records.DerivedContextTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
@@ -551,7 +552,11 @@ defmodule Ryker.Records.DerivedContextTest do
         })
       )
 
-    {:ok, _} = Custody.pin_episode(id, "fixture", String.duplicate("a", 64), nil, "tenant-infra")
+    {:ok, _} =
+      WorkSessions.pin_episode(id, "fixture", String.duplicate("a", 64),
+        repository_ref: "tenant-infra"
+      )
+
     {:ok, claim} = Custody.claim_next("worker:#{id}", 60, :work)
     claim
   end

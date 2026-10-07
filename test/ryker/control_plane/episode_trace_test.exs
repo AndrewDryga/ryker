@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   alias Ryker.ControlPlane.ConsolePeople
   alias Ryker.ControlPlane.EpisodeTrace
   alias Ryker.ControlPlane.ModelRequests
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Slack.Names
   # Starts the globally named Slack names cache, so it cannot share the VM
   # with other running suites the way an async module would.
@@ -26,7 +27,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     # Harvested from the second runner request, not the older Docker-blocked task.
     source = "testdata/work/hosted-runner-not-started.json" |> File.read!() |> Jason.decode!()
     {:ok, %{episode: parent}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, _} = Custody.pin_episode(parent.id, "trace-test", String.duplicate("a", 64))
+    {:ok, _} = WorkSessions.pin_episode(parent.id, "trace-test", String.duplicate("a", 64))
     {:ok, parent_claim} = Custody.claim_next("trace-test", 60, :work)
     {:ok, _} = Episodes.apply(EpisodeFixtures.accept_result())
     {:ok, _} = Episodes.apply(EpisodeFixtures.confirm_delivery())
@@ -43,7 +44,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
         })
       )
 
-    {:ok, session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+    {:ok, session} = WorkSessions.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
     payload = %{"title" => source["title"]}
 
@@ -341,7 +342,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     # model was called. The broken projection resurrected a phantom briefing.
     source = "testdata/work/hosted-runner-not-started.json" |> File.read!() |> Jason.decode!()
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+    {:ok, session} = WorkSessions.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
     turn = block_before_start!(claim.turn, session, source)
 
@@ -392,7 +393,10 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
   test "headline response metrics resolve the selected input and ignore later episode updates" do
     {entry, episode} = admitted_input!()
-    {:ok, _session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+
+    {:ok, _session} =
+      WorkSessions.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+
     {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
 
     [input_ref] =
@@ -442,7 +446,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   test "preparation events do not acquire later admission and cleanup state" do
     # The replay showed admission 'decided' before routing and 'Settled' on turn preparation.
     {_entry, episode} = admitted_input!()
-    {:ok, session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+    {:ok, session} = WorkSessions.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
     {:ok, before} = EpisodeProjection.fetch(episode.key)
 
@@ -548,7 +552,10 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   test "accepting a reply records the decision without repeating the response body" do
     # The OOM reply appeared in candidate, acceptance and delivery cards.
     {_entry, episode} = admitted_input!()
-    {:ok, _session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+
+    {:ok, _session} =
+      WorkSessions.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+
     {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
     document = %{"delivery" => "reply", "message" => "Unique reply body"}
     digest = CanonicalJSON.digest(document)
@@ -725,7 +732,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     {_entry, episode} = admitted_input!()
 
     {:ok, _session} =
-      Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+      WorkSessions.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
 
     {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
 
@@ -850,7 +857,10 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     # the task had stopped, so the page contradicted itself about the one
     # thing a reader opened it to learn.
     {_entry, episode} = admitted_input!()
-    {:ok, _session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+
+    {:ok, _session} =
+      WorkSessions.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+
     {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
 
     Repo.update_all(from(t in Turn, where: t.id == ^claim.turn.id),
@@ -874,7 +884,10 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     # QA re-test, 2026-09-26: Cancel on the retry confirmation opened from a
     # request's timeline led to Failures, a page the person never came from.
     {_entry, episode} = admitted_input!()
-    {:ok, _session} = Custody.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+
+    {:ok, _session} =
+      WorkSessions.pin_episode(episode.id, "trace-test", String.duplicate("a", 64))
+
     {:ok, claim} = Custody.claim_next("trace-test", 60, :work)
 
     Repo.update_all(from(t in Turn, where: t.id == ^claim.turn.id),

@@ -2,6 +2,7 @@ defmodule Ryker.StateTools.BindingTest do
   use Ryker.DataCase, async: true
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.StateTools.Binding
   alias Ryker.Work.{Cancellation, Custody, StateBinding}
 
@@ -18,7 +19,11 @@ defmodule Ryker.StateTools.BindingTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(command.episode_id, "test-policy", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               command.episode_id,
+               "test-policy",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, claim} = Custody.claim_next("worker:state-binding", 60)
 
@@ -76,7 +81,11 @@ defmodule Ryker.StateTools.BindingTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(command.episode_id, "test-policy", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               command.episode_id,
+               "test-policy",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, original} = Custody.claim_next("worker:state-binding-original", 60)
 

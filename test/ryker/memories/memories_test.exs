@@ -9,6 +9,7 @@ defmodule Ryker.Memories.MemoriesTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.MemoryPages
   alias Ryker.Fixtures.SavedEntities
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
@@ -1112,7 +1113,7 @@ defmodule Ryker.Memories.MemoriesTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:memory:#{suffix}", 60, :work)
 

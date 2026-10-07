@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
   use Ryker.DataCase, async: false
   import Phoenix.ConnTest
   alias Ryker.ControlPlane.{Endpoint, Projection}
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Work.{CandidateResponse, Custody, Submission}
 
   @endpoint Endpoint
@@ -103,7 +104,7 @@ defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
         })
       )
 
-    {:ok, _session} = Custody.pin_episode(id, "policy:inspection", String.duplicate("a", 64))
+    {:ok, _session} = WorkSessions.pin_episode(id, "policy:inspection", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("inspection:#{id}", 60, :work)
     assert claim.episode.id == id
     {:ok, submission} = Submission.new(%{}, "Retained host test prompt.", %{}, "inspection-test")

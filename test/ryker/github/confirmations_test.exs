@@ -7,6 +7,7 @@ defmodule Ryker.GitHub.ConfirmationsTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.GitHub.{Binding, Confirmations, Input}
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Records
@@ -226,11 +227,11 @@ defmodule Ryker.GitHub.ConfirmationsTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                episode_id,
                "github-conversation",
                String.duplicate("a", 64),
-               "ryker"
+               repository_ref: "ryker"
              )
 
     assert {:ok, claim} = Custody.claim_next("github-confirmation", 60, :work)

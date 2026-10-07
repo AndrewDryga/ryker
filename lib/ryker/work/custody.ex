@@ -32,257 +32,35 @@ defmodule Ryker.Work.Custody do
         }
 
   @doc """
-  Pins the trusted Coop policy before an episode can enter execution custody.
+  Pins the trusted Coop policy before an episode can enter execution custody,
+  inside the caller's transaction, with the `options`
+  `Ryker.Work.Custody.Sessions.pin_episode_in_transaction/4` takes.
 
   Workers never supply or replace this authority. The argument is the default
   for a new episode; an existing episode keeps its stored policy across config
   deploys. Authority changes require an explicit owner-fenced migration.
   """
-  @spec pin_episode(Ecto.UUID.t(), String.t(), String.t()) ::
+  @spec pin_episode_in_transaction(Ecto.UUID.t(), String.t(), String.t(), keyword()) ::
           {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode(episode_id, policy, policy_digest), to: Sessions
-
-  @spec pin_episode(Ecto.UUID.t(), String.t(), String.t(), String.t() | nil) ::
-          {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode(episode_id, policy, policy_digest, repository_ref), to: Sessions
-
-  @spec pin_episode(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode(episode_id, policy, policy_digest, authority_digest, repository_ref),
+  defdelegate pin_episode_in_transaction(episode_id, policy, policy_digest, options \\ []),
     to: Sessions
 
-  @spec pin_episode(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode(
-                episode_id,
-                policy,
-                policy_digest,
-                authority_digest,
-                repository_ref,
-                repository_context
-              ),
-              to: Sessions
-
-  @spec pin_episode(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil,
-          map() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode(
-                episode_id,
-                policy,
-                policy_digest,
-                authority_digest,
-                repository_ref,
-                repository_context,
-                repository_source
-              ),
-              to: Sessions
-
-  @spec pin_episode(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil,
-          map() | nil,
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode(
-                episode_id,
-                policy,
-                policy_digest,
-                authority_digest,
-                repository_ref,
-                repository_context,
-                repository_source,
-                environment_ref
-              ),
-              to: Sessions
-
-  @doc false
-  @spec pin_episode_in_transaction(Ecto.UUID.t(), String.t(), String.t()) ::
-          {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode_in_transaction(episode_id, policy, policy_digest), to: Sessions
-
-  @spec pin_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode_in_transaction(episode_id, policy, policy_digest, repository_ref),
-    to: Sessions
-
-  @spec pin_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode_in_transaction(
-                episode_id,
-                policy,
-                policy_digest,
-                authority_digest,
-                repository_ref
-              ),
-              to: Sessions
-
-  @spec pin_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode_in_transaction(
-                episode_id,
-                policy,
-                policy_digest,
-                authority_digest,
-                repository_ref,
-                repository_context
-              ),
-              to: Sessions
-
-  @spec pin_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil,
-          map() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode_in_transaction(
-                episode_id,
-                policy,
-                policy_digest,
-                authority_digest,
-                repository_ref,
-                repository_context,
-                repository_source
-              ),
-              to: Sessions
-
-  @spec pin_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil,
-          map() | nil,
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_episode_in_transaction(
-                episode_id,
-                policy,
-                policy_digest,
-                authority_digest,
-                repository_ref,
-                repository_context,
-                repository_source,
-                environment_ref
-              ),
-              to: Sessions
-
   @doc false
   @spec pin_task_episode_in_transaction(
           Ecto.UUID.t(),
           String.t(),
           String.t(),
           String.t(),
-          map()
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_task_episode_in_transaction(
-                episode_id,
-                policy,
-                policy_digest,
-                repository_ref,
-                workspace_task
-              ),
-              to: Sessions
-
-  @doc false
-  @spec pin_task_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t(),
-          map() | nil,
-          map()
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_task_episode_in_transaction(
-                episode_id,
-                policy,
-                policy_digest,
-                repository_ref,
-                repository_context,
-                workspace_task
-              ),
-              to: Sessions
-
-  @doc false
-  @spec pin_task_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t(),
-          map() | nil,
           map(),
-          map() | nil
+          keyword()
         ) :: {:ok, Session.t()} | {:error, term()}
   defdelegate pin_task_episode_in_transaction(
                 episode_id,
                 policy,
                 policy_digest,
                 repository_ref,
-                repository_context,
                 workspace_task,
-                repository_source
-              ),
-              to: Sessions
-
-  @doc false
-  @spec pin_task_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t(),
-          map() | nil,
-          map(),
-          map() | nil,
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  defdelegate pin_task_episode_in_transaction(
-                episode_id,
-                policy,
-                policy_digest,
-                repository_ref,
-                repository_context,
-                workspace_task,
-                repository_source,
-                environment_ref
+                options \\ []
               ),
               to: Sessions
 

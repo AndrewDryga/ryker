@@ -6,6 +6,7 @@ defmodule Ryker.ArtifactsTest do
   alias Ryker.Artifacts.References
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Submission}
@@ -150,7 +151,7 @@ defmodule Ryker.ArtifactsTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "work-read-only", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("input-artifact-custody:worker:#{suffix}", 60)
 
@@ -409,7 +410,7 @@ defmodule Ryker.ArtifactsTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "work-read-only", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("output-artifacts:worker:#{suffix}", 60, :work)
     claim.turn.id

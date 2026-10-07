@@ -5,6 +5,7 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
   alias Ryker.Work.{Activity, ActivityEvent, Cancellation, Custody, OperationKeys, Session}
   alias Ryker.Work.{Submission, Turn}
@@ -210,7 +211,10 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
       })
 
     assert {:ok, _transition} = Episodes.apply(command)
-    assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, _session} =
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
     assert {:ok, claim} = Custody.claim_next("worker:resume", 60)
 
     assert {:ok, submission} =
@@ -349,7 +353,11 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(command.episode_id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               command.episode_id,
+               "work-read-only",
+               String.duplicate("a", 64)
+             )
 
     command
   end

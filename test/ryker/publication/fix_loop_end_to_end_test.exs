@@ -14,6 +14,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.{Dispatcher, Publication}
@@ -303,7 +304,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "conversation-read-only", @read_policy_digest)
+             WorkSessions.pin_episode(episode_id, "conversation-read-only", @read_policy_digest)
 
     assert {:ok, claim} = Custody.claim_next("fix-loop-e2e-parent", 60, :work)
     claim

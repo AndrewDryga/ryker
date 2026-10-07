@@ -17,6 +17,7 @@ defmodule Ryker.Publication.FixLoopTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{GateOutput, Publication}
@@ -748,7 +749,9 @@ defmodule Ryker.Publication.FixLoopTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(id, "work-contributor", String.duplicate("a", 64), "ryker")
+             WorkSessions.pin_episode(id, "work-contributor", String.duplicate("a", 64),
+               repository_ref: "ryker"
+             )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     bind_remote!(claim)

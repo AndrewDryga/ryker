@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
   alias Ryker.ControlPlane.{Endpoint, EpisodePage, EpisodeProjection, ModelRequests, Projection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Work.{ActivityEvent, Custody, Session, Submission, Turn}
 
   @endpoint Endpoint
@@ -248,7 +249,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
         })
       )
 
-    {:ok, _session} = Custody.pin_episode(episode_id, "lazy", String.duplicate("a", 64))
+    {:ok, _session} = WorkSessions.pin_episode(episode_id, "lazy", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("lazy:#{suffix}", 120, :work)
 
     {:ok, submission} =

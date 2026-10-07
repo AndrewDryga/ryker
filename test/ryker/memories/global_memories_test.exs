@@ -7,6 +7,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
   alias Ryker.Fixtures.AnswerMemory
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.MemoryPages
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Memories
@@ -490,7 +491,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
         })
       )
 
-    {:ok, _} = Custody.pin_episode(id, "global-recall", String.duplicate("b", 64))
+    {:ok, _} = WorkSessions.pin_episode(id, "global-recall", String.duplicate("b", 64))
     {:ok, claim} = Custody.claim_next("global-recall:#{id}", 60, :work)
 
     options =

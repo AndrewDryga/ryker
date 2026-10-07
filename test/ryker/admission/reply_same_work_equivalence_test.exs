@@ -11,11 +11,12 @@ defmodule Ryker.Admission.ReplySameWorkEquivalenceTest do
   alias Ryker.Admission.{Candidate, Context, Decision}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.Session
 
   @fixture_path "test/ryker/admission/fixtures/human_thread_reply_reopens_episode.json"
 
@@ -56,11 +57,7 @@ defmodule Ryker.Admission.ReplySameWorkEquivalenceTest do
     assert {:ok, seed} = Episodes.fetch_by_key(episode_key)
 
     assert {:ok, pinned} =
-             Custody.pin_episode(
-               seed.id,
-               "standard-sol-medium",
-               String.duplicate("a", 64)
-             )
+             WorkSessions.pin_episode(seed.id, "standard-sol-medium", String.duplicate("a", 64))
 
     entry =
       current_input

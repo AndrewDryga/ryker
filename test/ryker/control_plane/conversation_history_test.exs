@@ -22,6 +22,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
@@ -678,7 +679,11 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(transition.episode.id, profile().policy, profile().policy_digest)
+             WorkSessions.pin_episode(
+               transition.episode.id,
+               profile().policy,
+               profile().policy_digest
+             )
 
     assert {:ok, claim} = Custody.claim_next("conversation-history", 60, :work)
     assert {:ok, submission} = SubmissionBuilder.build(claim)

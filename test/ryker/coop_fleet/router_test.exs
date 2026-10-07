@@ -11,6 +11,7 @@ defmodule Ryker.CoopFleet.RouterTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
   alias Ryker.Repo
   alias Ryker.Settings
@@ -1138,7 +1139,9 @@ defmodule Ryker.CoopFleet.RouterTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(episode_id, "work-read-only", @policy_digest, "ryker")
+             WorkSessions.pin_episode(episode_id, "work-read-only", @policy_digest,
+               repository_ref: "ryker"
+             )
 
     WorkerJob.pin!(session)
   end

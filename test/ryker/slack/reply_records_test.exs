@@ -3,6 +3,7 @@ defmodule Ryker.Slack.ReplyRecordsTest do
   import Ecto.Query
   alias Ryker.{Episodes, Repo}
   alias Ryker.Fixtures.Episodes, as: Fixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Slack.ReplyRecords
@@ -279,7 +280,7 @@ defmodule Ryker.Slack.ReplyRecordsTest do
       )
 
     {:ok, session} =
-      Custody.pin_episode(started.episode.id, "policy:links", String.duplicate("a", 64))
+      WorkSessions.pin_episode(started.episode.id, "policy:links", String.duplicate("a", 64))
 
     {:ok, claim} = Custody.claim_next("links:#{id}", 60, :work)
     turn = Repo.update!(Ecto.Changeset.change(claim.turn, coop_turn_id: "remote:#{id}"))

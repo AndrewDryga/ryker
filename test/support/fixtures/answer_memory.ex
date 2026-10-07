@@ -4,6 +4,7 @@ defmodule Ryker.Fixtures.AnswerMemory do
   alias Ryker.Admission.Decision
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records
@@ -37,7 +38,7 @@ defmodule Ryker.Fixtures.AnswerMemory do
         })
       )
 
-    {:ok, _} = Custody.pin_episode(id, "answer-memory", String.duplicate("a", 64))
+    {:ok, _} = WorkSessions.pin_episode(id, "answer-memory", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("answer-memory:#{id}", 60, :work)
     true = claim.episode.id == transition.episode.id
 

@@ -7,6 +7,7 @@ defmodule Ryker.Emisar.EndToEndTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
@@ -410,15 +411,8 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(
-               id,
-               "work-read-only",
-               @policy_digest,
-               nil,
-               nil,
-               nil,
-               nil,
-               @environment_ref
+             WorkSessions.pin_episode(id, "work-read-only", @policy_digest,
+               environment_ref: @environment_ref
              )
 
     Episode

@@ -13,7 +13,7 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
-  alias Ryker.Work.Custody
+  alias Ryker.Fixtures.WorkSessions
 
   @version 20_261_004_120_000
   @authority_digest String.duplicate("d", 64)
@@ -98,12 +98,9 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
     assert {:ok, _transition} = Episodes.apply(admitted)
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               admitted.episode_id,
-               "work-read-only",
-               @policy_digest,
-               @authority_digest,
-               "ryker"
+             WorkSessions.pin_episode(admitted.episode_id, "work-read-only", @policy_digest,
+               authority_digest: @authority_digest,
+               repository_ref: "ryker"
              )
 
     session = WorkerJob.pin!(session)

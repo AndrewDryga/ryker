@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, EpisodeRequest}
   alias Ryker.ControlPlane.ModelRequests
   alias Ryker.CoopFleet.JobTemplates
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{InputCustodyTransition, WorkProfile}
   alias Ryker.InspectionRedactor
   alias Ryker.Settings
@@ -775,7 +776,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       )
 
     {:ok, _session} =
-      Custody.pin_episode(episode.id, "policy:inspection", String.duplicate("a", 64))
+      WorkSessions.pin_episode(episode.id, "policy:inspection", String.duplicate("a", 64))
 
     {:ok, claim} = Custody.claim_next("inspection:test", 60, :work)
 

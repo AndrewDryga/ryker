@@ -3,6 +3,7 @@ defmodule Ryker.Work.CancellationTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
   alias Ryker.Work.{Cancellation, Custody, OperationKeys, Submission}
 
@@ -290,7 +291,7 @@ defmodule Ryker.Work.CancellationTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
 
     assert {:ok, settled} =
              Custody.request_cancel(
@@ -319,7 +320,10 @@ defmodule Ryker.Work.CancellationTest do
       })
 
     assert {:ok, _transition} = Episodes.apply(command)
-    assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, _session} =
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
     assert {:ok, _claim} = Custody.claim_next("worker:cancel-unbound", 60)
 
     cancel =
@@ -729,7 +733,9 @@ defmodule Ryker.Work.CancellationTest do
       })
 
     assert {:ok, transition} = Episodes.apply(command)
-    assert {:ok, session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, session} =
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
 
     assert {:ok, paused} =
              Custody.pause_destination(
@@ -788,7 +794,9 @@ defmodule Ryker.Work.CancellationTest do
       })
 
     assert {:ok, transition} = Episodes.apply(command)
-    assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, _session} =
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
 
     assert {:ok, %{status: :settled, turn: parked}} =
              Custody.pause_destination(id, transition.episode.key, pause_ref)
@@ -861,7 +869,7 @@ defmodule Ryker.Work.CancellationTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
 

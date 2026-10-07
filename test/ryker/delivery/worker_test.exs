@@ -11,6 +11,7 @@ defmodule Ryker.Delivery.WorkerTest do
   alias Ryker.Delivery.{RoutingResponseCustody, Worker}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
@@ -357,7 +358,7 @@ defmodule Ryker.Delivery.WorkerTest do
       })
 
     {:ok, _transition} = Episodes.apply(command)
-    {:ok, _session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+    {:ok, _session} = WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("work:delivery-worker:#{suffix}", 60, :work)
     {id, command, claim}
   end

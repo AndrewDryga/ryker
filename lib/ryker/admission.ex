@@ -1110,19 +1110,12 @@ defmodule Ryker.Admission do
          %{digest: policy_digest, name: policy} = work_policy,
          %Decision{} = decision
        ) do
-    authority_digest = Map.get(work_policy, :authority_digest)
-    repository_ref = Map.get(work_policy, :repository_ref)
-    repository_context = Map.get(work_policy, :repository_context)
-
-    case Custody.pin_episode_in_transaction(
-           episode_id,
-           policy,
-           policy_digest,
-           authority_digest,
-           repository_ref,
-           repository_context,
-           decision.repository_source,
-           Map.get(work_policy, :environment_ref)
+    case Custody.pin_episode_in_transaction(episode_id, policy, policy_digest,
+           authority_digest: Map.get(work_policy, :authority_digest),
+           environment_ref: Map.get(work_policy, :environment_ref),
+           repository_context: Map.get(work_policy, :repository_context),
+           repository_ref: Map.get(work_policy, :repository_ref),
+           repository_source: decision.repository_source
          ) do
       {:ok, _session} -> :ok
       {:error, _reason} = error -> error

@@ -3,6 +3,7 @@ defmodule Ryker.Work.RepositorySourceCustodyTest do
   import Ecto.Query
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Session}
 
@@ -14,12 +15,8 @@ defmodule Ryker.Work.RepositorySourceCustodyTest do
     command = create_kernel_episode!("source-default")
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-contributor",
-               @policy_digest,
-               nil,
-               "ryker"
+             WorkSessions.pin_episode(command.episode_id, "work-contributor", @policy_digest,
+               repository_ref: "ryker"
              )
 
     assert session.repository_source == %{"kind" => "default"}
@@ -29,7 +26,7 @@ defmodule Ryker.Work.RepositorySourceCustodyTest do
     command = create_kernel_episode!("source-workspace-free")
 
     assert {:ok, session} =
-             Custody.pin_episode(command.episode_id, "work-read-only", @policy_digest)
+             WorkSessions.pin_episode(command.episode_id, "work-read-only", @policy_digest)
 
     assert session.repository_source == nil
   end
@@ -38,14 +35,9 @@ defmodule Ryker.Work.RepositorySourceCustodyTest do
     command = create_kernel_episode!("source-frozen")
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-contributor",
-               @policy_digest,
-               nil,
-               "ryker",
-               nil,
-               @branch
+             WorkSessions.pin_episode(command.episode_id, "work-contributor", @policy_digest,
+               repository_ref: "ryker",
+               repository_source: @branch
              )
 
     assert session.repository_source == @branch
@@ -57,25 +49,15 @@ defmodule Ryker.Work.RepositorySourceCustodyTest do
     command = create_kernel_episode!("source-no-rebind")
 
     assert {:ok, original} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-contributor",
-               @policy_digest,
-               nil,
-               "ryker",
-               nil,
-               @branch
+             WorkSessions.pin_episode(command.episode_id, "work-contributor", @policy_digest,
+               repository_ref: "ryker",
+               repository_source: @branch
              )
 
     assert {:ok, unchanged} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-contributor",
-               @policy_digest,
-               nil,
-               "ryker",
-               nil,
-               @commit
+             WorkSessions.pin_episode(command.episode_id, "work-contributor", @policy_digest,
+               repository_ref: "ryker",
+               repository_source: @commit
              )
 
     assert unchanged.id == original.id
@@ -86,14 +68,9 @@ defmodule Ryker.Work.RepositorySourceCustodyTest do
     command = create_kernel_episode!("source-rotation")
 
     assert {:ok, _session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-contributor",
-               @policy_digest,
-               nil,
-               "ryker",
-               nil,
-               @commit
+             WorkSessions.pin_episode(command.episode_id, "work-contributor", @policy_digest,
+               repository_ref: "ryker",
+               repository_source: @commit
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:source-rotation", 60)
@@ -124,14 +101,9 @@ defmodule Ryker.Work.RepositorySourceCustodyTest do
     command = create_kernel_episode!("source-failover")
 
     assert {:ok, _session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-contributor",
-               @policy_digest,
-               nil,
-               "ryker",
-               nil,
-               @branch
+             WorkSessions.pin_episode(command.episode_id, "work-contributor", @policy_digest,
+               repository_ref: "ryker",
+               repository_source: @branch
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:source-failover", 60)
@@ -156,12 +128,8 @@ defmodule Ryker.Work.RepositorySourceCustodyTest do
     command = create_kernel_episode!("source-historical")
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-contributor",
-               @policy_digest,
-               nil,
-               "ryker"
+             WorkSessions.pin_episode(command.episode_id, "work-contributor", @policy_digest,
+               repository_ref: "ryker"
              )
 
     {1, nil} =
@@ -197,34 +165,18 @@ defmodule Ryker.Work.RepositorySourceCustodyTest do
   test "a malformed or workspace-free selector is refused before durable custody" do
     command = create_kernel_episode!("source-malformed")
 
-    assert Custody.pin_episode(
-             command.episode_id,
-             "work-contributor",
-             @policy_digest,
-             nil,
-             "ryker",
-             nil,
-             %{"kind" => "branch", "name" => "refs/heads/main"}
+    assert WorkSessions.pin_episode(command.episode_id, "work-contributor", @policy_digest,
+             repository_ref: "ryker",
+             repository_source: %{"kind" => "branch", "name" => "refs/heads/main"}
            ) == {:error, {:invalid_work_custody, :repository_source}}
 
-    assert Custody.pin_episode(
-             command.episode_id,
-             "work-contributor",
-             @policy_digest,
-             nil,
-             "ryker",
-             nil,
-             %{"kind" => "tag", "name" => "v1"}
+    assert WorkSessions.pin_episode(command.episode_id, "work-contributor", @policy_digest,
+             repository_ref: "ryker",
+             repository_source: %{"kind" => "tag", "name" => "v1"}
            ) == {:error, {:invalid_work_custody, :repository_source}}
 
-    assert Custody.pin_episode(
-             command.episode_id,
-             "work-read-only",
-             @policy_digest,
-             nil,
-             nil,
-             nil,
-             @branch
+    assert WorkSessions.pin_episode(command.episode_id, "work-read-only", @policy_digest,
+             repository_source: @branch
            ) == {:error, {:invalid_work_custody, :repository_source}}
 
     assert Repo.aggregate(from(session in Session), :count) == 0
@@ -234,12 +186,8 @@ defmodule Ryker.Work.RepositorySourceCustodyTest do
     command = create_kernel_episode!("source-constraint")
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-contributor",
-               @policy_digest,
-               nil,
-               "ryker"
+             WorkSessions.pin_episode(command.episode_id, "work-contributor", @policy_digest,
+               repository_ref: "ryker"
              )
 
     for invalid <- [
@@ -287,9 +235,8 @@ defmodule Ryker.Work.RepositorySourceCustodyTest do
                  "work-contributor",
                  @policy_digest,
                  "ryker",
-                 nil,
                  workspace_task,
-                 @branch
+                 repository_source: @branch
                )
              end)
 

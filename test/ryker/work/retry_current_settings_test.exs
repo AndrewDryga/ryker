@@ -10,6 +10,7 @@ defmodule Ryker.Work.RetryCurrentSettingsTest do
   alias Ryker.CoopFleet.{JobAuthority, JobTemplates}
   alias Ryker.{Episodes, Repo, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.{Custody, OperationKeys, Session}
   alias Ryker.Work.Custody.CurrentAuthority
@@ -81,12 +82,9 @@ defmodule Ryker.Work.RetryCurrentSettingsTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               id,
-               template.policy_name,
-               template.policy_digest,
-               template.authority_digest,
-               "app"
+             WorkSessions.pin_episode(id, template.policy_name, template.policy_digest,
+               authority_digest: template.authority_digest,
+               repository_ref: "app"
              )
 
     session

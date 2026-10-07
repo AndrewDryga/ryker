@@ -8,6 +8,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Operator.Failures
   alias Ryker.Records
   alias Ryker.Slack.{TaskCard, TaskCards, TaskCardWorker}
@@ -488,7 +489,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
                })
              )
 
-    assert {:ok, _} = Custody.pin_episode(id, "fixture", String.duplicate("a", 64))
+    assert {:ok, _} = WorkSessions.pin_episode(id, "fixture", String.duplicate("a", 64))
     assert {:ok, claim} = Custody.claim_next("worker:#{id}", 60, :work)
     claim
   end

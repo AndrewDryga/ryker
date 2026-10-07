@@ -9,6 +9,7 @@ defmodule Ryker.Publication.CustodyTest do
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Observability
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Publication.Custody, as: PublicationCustody
@@ -2270,7 +2271,9 @@ defmodule Ryker.Publication.CustodyTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(id, "work-contributor", String.duplicate("a", 64), repository)
+             WorkSessions.pin_episode(id, "work-contributor", String.duplicate("a", 64),
+               repository_ref: repository
+             )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     bind_remote!(claim)

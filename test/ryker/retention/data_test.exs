@@ -14,6 +14,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Inspectors
   alias Ryker.Learning
@@ -1341,7 +1342,7 @@ defmodule Ryker.Retention.DataTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "work-read-only", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 120)
     assert claim.episode.id == episode_id

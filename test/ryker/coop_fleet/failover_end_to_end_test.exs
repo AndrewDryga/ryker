@@ -9,6 +9,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Session}
@@ -298,7 +299,9 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(episode_id, @policy, @policy_digest, "ryker")
+             WorkSessions.pin_episode(episode_id, @policy, @policy_digest,
+               repository_ref: "ryker"
+             )
 
     job = WorkerJob.build(session.external_ref, "ryker")
     assert {:ok, job_digest} = JobSpec.digest(job)

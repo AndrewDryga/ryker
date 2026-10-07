@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.ControlPlaneOptions
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Work.{Custody, Turn}
 
   @endpoint Endpoint
@@ -59,7 +60,10 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
     # work stopped, so its page offers every step a request can take, and the
     # crawl opens each one's question: a stopped request's Leave it closes it.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, _session} = Custody.pin_episode(episode.id, "policy:crawl", String.duplicate("a", 64))
+
+    {:ok, _session} =
+      WorkSessions.pin_episode(episode.id, "policy:crawl", String.duplicate("a", 64))
+
     {:ok, claim} = Custody.claim_next("crawl", 60, :work)
 
     Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id),

@@ -6,6 +6,7 @@ defmodule Ryker.Schedules.SchedulesTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -766,15 +767,8 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(
-               episode_id,
-               "ryker-read",
-               String.duplicate("a", 64),
-               nil,
-               nil,
-               nil,
-               nil,
-               Keyword.get(options, :environment_ref)
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64),
+               environment_ref: Keyword.get(options, :environment_ref)
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:schedule-offer:#{suffix}", 60, :work)

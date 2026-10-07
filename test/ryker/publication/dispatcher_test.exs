@@ -8,6 +8,7 @@ defmodule Ryker.Publication.DispatcherTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Dispatcher, Publication}
   alias Ryker.Records
@@ -1143,7 +1144,7 @@ defmodule Ryker.Publication.DispatcherTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(id, "work-contributor", String.duplicate("a", 64))
+             WorkSessions.pin_episode(id, "work-contributor", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     bind_remote!(claim)

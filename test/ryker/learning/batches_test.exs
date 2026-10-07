@@ -6,6 +6,7 @@ defmodule Ryker.Learning.BatchesTest do
   alias Ryker.Defaults
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning
   alias Ryker.Learning.{Batch, Batches, InputMembership}
@@ -584,7 +585,11 @@ defmodule Ryker.Learning.BatchesTest do
   # pinned request.
   defp start_work!(entry) do
     assert {:ok, _session} =
-             Custody.pin_episode(entry.episode_id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               entry.episode_id,
+               "work-read-only",
+               String.duplicate("a", 64)
+             )
   end
 
   defp run_work!(entry) do

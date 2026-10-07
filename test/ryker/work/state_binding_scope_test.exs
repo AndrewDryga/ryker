@@ -7,8 +7,9 @@ defmodule Ryker.Work.StateBindingScopeTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, StateBinding}
+  alias Ryker.Work.StateBinding
 
   @authority_digest String.duplicate("d", 64)
   @policy_digest String.duplicate("b", 64)
@@ -73,12 +74,9 @@ defmodule Ryker.Work.StateBindingScopeTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-read-only",
-               @policy_digest,
-               @authority_digest,
-               "ryker"
+             WorkSessions.pin_episode(command.episode_id, "work-read-only", @policy_digest,
+               authority_digest: @authority_digest,
+               repository_ref: "ryker"
              )
 
     WorkerJob.pin!(session)

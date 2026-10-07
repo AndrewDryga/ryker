@@ -15,6 +15,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Work.{Cancellation, Custody, Dispatcher, OperationKeys, Submission, Turn}
 
   @policy "ryker-chat"
@@ -273,7 +274,10 @@ defmodule Ryker.Work.CancellationWorkerTest do
       })
 
     assert {:ok, _transition} = Episodes.apply(command)
-    assert {:ok, pinned} = Custody.pin_episode(id, @policy, @started, @authority, nil)
+
+    assert {:ok, pinned} =
+             WorkSessions.pin_episode(id, @policy, @started, authority_digest: @authority)
+
     pinned = WorkerJob.pin!(pinned)
     assert {:ok, placement} = ControlPlane.place_session(pinned.id, @requirements, 60)
     assert placement.worker_id == worker

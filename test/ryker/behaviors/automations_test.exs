@@ -8,6 +8,7 @@ defmodule Ryker.Behaviors.AutomationsTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -556,7 +557,7 @@ defmodule Ryker.Behaviors.AutomationsTest do
     assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:automation-offer:#{suffix}", 60, :work)
 

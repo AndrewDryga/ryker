@@ -8,6 +8,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.GitHub.{Auth, Binding, Router}
   alias Ryker.GitHub.Client, as: GitHubClient
   alias Ryker.GitHub.Publisher, as: GitHubPublisher
@@ -619,7 +620,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "conversation-read-only", @read_policy_digest)
+             WorkSessions.pin_episode(episode_id, "conversation-read-only", @read_policy_digest)
 
     assert {:ok, claim} = Custody.claim_next("task-e2e-parent-work", 60, :work)
     claim

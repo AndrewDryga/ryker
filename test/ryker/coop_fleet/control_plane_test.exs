@@ -10,6 +10,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Observability
   alias Ryker.Repo
@@ -2453,12 +2454,9 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-read-only",
-               @policy_digest,
-               @authority_digest,
-               repository_ref
+             WorkSessions.pin_episode(command.episode_id, "work-read-only", @policy_digest,
+               authority_digest: @authority_digest,
+               repository_ref: repository_ref
              )
 
     WorkerJob.pin!(session)

@@ -7,6 +7,7 @@ defmodule Ryker.Knowledge.KnowledgeRebuildConcurrencyTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
@@ -136,7 +137,9 @@ defmodule Ryker.Knowledge.KnowledgeRebuildConcurrencyTest do
       )
 
     {:ok, _} =
-      Custody.pin_episode(id, "fixture", String.duplicate("a", 64), nil, entry.repository_ref)
+      WorkSessions.pin_episode(id, "fixture", String.duplicate("a", 64),
+        repository_ref: entry.repository_ref
+      )
 
     {:ok, claim} = Custody.claim_next("generation-race-worker:#{id}", 60)
     assert claim.episode.id == id

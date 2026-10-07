@@ -8,6 +8,7 @@ defmodule Ryker.StateTools.EmisarToolsTest do
   alias Ryker.Emisar.Approval
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Inspectors
   alias Ryker.Records
   alias Ryker.Records.Record
@@ -316,15 +317,8 @@ defmodule Ryker.StateTools.EmisarToolsTest do
     assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(
-               id,
-               "work-read-only",
-               @policy_digest,
-               nil,
-               nil,
-               nil,
-               nil,
-               environment_ref
+             WorkSessions.pin_episode(id, "work-read-only", @policy_digest,
+               environment_ref: environment_ref
              )
 
     Episode

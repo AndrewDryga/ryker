@@ -5,6 +5,7 @@ defmodule Ryker.Emisar.ConnectionsTest do
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Inspectors
   alias Ryker.Operator.Emisar, as: EmisarOperator
   alias Ryker.Records
@@ -150,15 +151,8 @@ defmodule Ryker.Emisar.ConnectionsTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               episode_id,
-               "test-policy",
-               @digest,
-               nil,
-               nil,
-               nil,
-               nil,
-               environment_ref
+             WorkSessions.pin_episode(episode_id, "test-policy", @digest,
+               environment_ref: environment_ref
              )
 
     session
@@ -180,15 +174,8 @@ defmodule Ryker.Emisar.ConnectionsTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               episode_id,
-               "test-policy",
-               @digest,
-               nil,
-               nil,
-               nil,
-               nil,
-               environment_ref
+             WorkSessions.pin_episode(episode_id, "test-policy", @digest,
+               environment_ref: environment_ref
              )
 
     # This focused suite can run against a shared development test database

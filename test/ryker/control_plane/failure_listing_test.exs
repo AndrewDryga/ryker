@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.FailureListingTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Work.Custody
 
@@ -103,7 +104,11 @@ defmodule Ryker.ControlPlane.FailureListingTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(transition.episode.id, "test-policy", String.duplicate("f", 64))
+             WorkSessions.pin_episode(
+               transition.episode.id,
+               "test-policy",
+               String.duplicate("f", 64)
+             )
 
     # The claimant takes the oldest pending work; make it this episode.
     Episode

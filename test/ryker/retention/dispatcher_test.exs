@@ -10,8 +10,9 @@ defmodule Ryker.Retention.DispatcherTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Retention.{Dispatcher, Executor}
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.Session
 
   @now ~U[2026-08-29 10:00:00.000000Z]
 
@@ -711,11 +712,8 @@ defmodule Ryker.Retention.DispatcherTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               id,
-               "work-read-only",
-               String.duplicate("a", 64),
-               "ryker"
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64),
+               repository_ref: "ryker"
              )
 
     session =

@@ -10,6 +10,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
@@ -343,7 +344,11 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(command.episode_id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               command.episode_id,
+               "work-read-only",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, claim} = Custody.claim_next("worker:reaction-feedback", 60)
     assert {:ok, submission} = SubmissionBuilder.build(claim)
@@ -443,11 +448,11 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                command.episode_id,
                "work-read-only",
                String.duplicate("a", 64),
-               "owner/trusted"
+               repository_ref: "owner/trusted"
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:trusted-repository", 60)
@@ -507,11 +512,11 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                command.episode_id,
                "work-read-only",
                String.duplicate("a", 64),
-               "knowledge-repo"
+               repository_ref: "knowledge-repo"
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:repository-knowledge", 60)
@@ -1757,7 +1762,11 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(command.episode_id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               command.episode_id,
+               "work-read-only",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     claim

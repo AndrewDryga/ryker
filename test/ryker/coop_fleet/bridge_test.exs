@@ -7,8 +7,8 @@ defmodule Ryker.CoopFleet.BridgeTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
-  alias Ryker.Work.Custody
 
   @policy_digest String.duplicate("b", 64)
 
@@ -295,7 +295,9 @@ defmodule Ryker.CoopFleet.BridgeTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(episode_id, "work-read-only", @policy_digest, "ryker")
+             WorkSessions.pin_episode(episode_id, "work-read-only", @policy_digest,
+               repository_ref: "ryker"
+             )
 
     WorkerJob.pin!(session)
   end

@@ -9,6 +9,7 @@ defmodule Ryker.CoopFleet.ClientTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Session, SubmissionBuilder}
@@ -2612,12 +2613,9 @@ defmodule Ryker.CoopFleet.ClientTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               episode_id,
-               @policy,
-               @policy_digest,
-               @authority_digest,
-               "ryker"
+             WorkSessions.pin_episode(episode_id, @policy, @policy_digest,
+               authority_digest: @authority_digest,
+               repository_ref: "ryker"
              )
 
     pin_job!(session)

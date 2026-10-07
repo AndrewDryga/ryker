@@ -16,6 +16,7 @@ defmodule Ryker.Continuity.ContinuityTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeRetention
@@ -802,11 +803,8 @@ defmodule Ryker.Continuity.ContinuityTest do
     )
 
     assert {:ok, _} =
-             Custody.pin_episode(
-               episode.id,
-               "ryker-read",
-               String.duplicate("a", 64),
-               "tenant-infra"
+             WorkSessions.pin_episode(episode.id, "ryker-read", String.duplicate("a", 64),
+               repository_ref: "tenant-infra"
              )
 
     assert {:ok, claim} = Custody.claim_next("raw-source-review", 60, :work)
@@ -1998,11 +1996,8 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(
-               episode_id,
-               "ryker-read",
-               String.duplicate("a", 64),
-               repository_ref
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64),
+               repository_ref: repository_ref
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:continuity:#{suffix}", 60, :work)

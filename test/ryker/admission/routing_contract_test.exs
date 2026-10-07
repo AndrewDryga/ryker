@@ -5,6 +5,7 @@ defmodule Ryker.Admission.RoutingContractTest do
   alias Ryker.Admission.{Candidate, Context, Decision, Prompt}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Origin, Origins}
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
@@ -243,7 +244,7 @@ defmodule Ryker.Admission.RoutingContractTest do
       )
 
     {:ok, _session} =
-      Custody.pin_episode(incident.id, "routing-outcome", String.duplicate("a", 64))
+      WorkSessions.pin_episode(incident.id, "routing-outcome", String.duplicate("a", 64))
 
     {:ok, claim} = Custody.claim_next("routing-outcome:#{incident.id}", 60, :work)
 

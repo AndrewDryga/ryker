@@ -9,6 +9,7 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Memories
   alias Ryker.Memories.{CaseRecord, MemoryEntry}
   alias Ryker.Memories.MemoryReviewItem
@@ -221,7 +222,11 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "confirm-concurrency", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               episode_id,
+               "confirm-concurrency",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, claim} = Custody.claim_next("worker:confirm-concurrency:#{suffix}", 60, :work)
 
@@ -465,7 +470,7 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "review-concurrency", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "review-concurrency", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:review-concurrency:#{suffix}", 60, :work)
 

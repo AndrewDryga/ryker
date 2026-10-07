@@ -10,6 +10,7 @@ defmodule Ryker.StateTools.MemorySearchTest do
   alias Ryker.Episodes.Scope, as: WorkspaceScope
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.{Knowledge, Learning}
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
@@ -44,11 +45,8 @@ defmodule Ryker.StateTools.MemorySearchTest do
     [first | _] = entries = Learning.inputs!()
 
     assert {:ok, _} =
-             Custody.pin_episode(
-               first.episode_id,
-               "read-only",
-               String.duplicate("a", 64),
-               first.repository_ref
+             WorkSessions.pin_episode(first.episode_id, "read-only", String.duplicate("a", 64),
+               repository_ref: first.repository_ref
              )
 
     assert {:ok, claim} = Custody.claim_next("memory-search-test", 300)
@@ -602,7 +600,7 @@ defmodule Ryker.StateTools.MemorySearchTest do
                })
              )
 
-    assert {:ok, _session} = Custody.pin_episode(id, "read-only", String.duplicate("a", 64))
+    assert {:ok, _session} = WorkSessions.pin_episode(id, "read-only", String.duplicate("a", 64))
     assert {:ok, shadow} = Custody.claim_next("memory-search-shadow", 300)
     assert shadow.episode.execution_mode == :shadow
 

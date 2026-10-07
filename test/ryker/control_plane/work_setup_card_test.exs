@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
   alias Ryker.ControlPlane.{ConversationLab, EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
@@ -715,15 +716,11 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
       end)
 
     {:ok, session} =
-      Custody.pin_episode(
-        episode.id,
-        "setup-policy",
-        String.duplicate("a", 64),
-        String.duplicate("c", 64),
-        Keyword.get(pin, :repository, "ryker"),
-        Keyword.get(pin, :context),
-        nil,
-        Keyword.get(pin, :environment)
+      WorkSessions.pin_episode(episode.id, "setup-policy", String.duplicate("a", 64),
+        authority_digest: String.duplicate("c", 64),
+        repository_ref: Keyword.get(pin, :repository, "ryker"),
+        repository_context: Keyword.get(pin, :context),
+        environment_ref: Keyword.get(pin, :environment)
       )
 
     %{episode: episode, session: session, turn: nil}

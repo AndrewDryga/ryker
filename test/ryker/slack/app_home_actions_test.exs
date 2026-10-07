@@ -4,11 +4,11 @@ defmodule Ryker.Slack.AppHomeActionsTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
   alias Ryker.Slack.{AppHomeActions, AppHomeProjection, HomeInteraction}
-  alias Ryker.Work.Custody
 
   @now ~U[2026-09-04 12:00:00.000000Z]
 
@@ -329,11 +329,8 @@ defmodule Ryker.Slack.AppHomeActionsTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               episode_id,
-               "work-contributor",
-               String.duplicate("a", 64),
-               "ryker"
+             WorkSessions.pin_episode(episode_id, "work-contributor", String.duplicate("a", 64),
+               repository_ref: "ryker"
              )
 
     plan = %{

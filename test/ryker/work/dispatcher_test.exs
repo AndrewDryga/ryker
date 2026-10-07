@@ -4,6 +4,7 @@ defmodule Ryker.Work.DispatcherTest do
   import Ecto.Query
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Work.{Cancellation, Custody, Dispatcher, OperationKeys, Result, Submission, Turn}
   alias Ryker.Work.ValidationIntent
 
@@ -532,7 +533,7 @@ defmodule Ryker.Work.DispatcherTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
 
     command
   end

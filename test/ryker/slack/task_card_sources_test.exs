@@ -5,6 +5,7 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.Observations
@@ -284,7 +285,9 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
                })
              )
 
-    assert {:ok, _} = Custody.pin_episode(id, "fixture", digest(), nil, "tenant-infra")
+    assert {:ok, _} =
+             WorkSessions.pin_episode(id, "fixture", digest(), repository_ref: "tenant-infra")
+
     assert {:ok, claim} = Custody.claim_next("worker:#{id}", 60, :work)
     claim
   end

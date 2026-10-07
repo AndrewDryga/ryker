@@ -9,8 +9,9 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.Session
 
   @policy_digest String.duplicate("b", 64)
   @sandbox_digest String.duplicate("a", 64)
@@ -510,11 +511,8 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-read-only",
-               @policy_digest,
-               "ryker"
+             WorkSessions.pin_episode(command.episode_id, "work-read-only", @policy_digest,
+               repository_ref: "ryker"
              )
 
     session

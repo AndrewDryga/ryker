@@ -6,6 +6,7 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Inspectors
   alias Ryker.Records
   alias Ryker.Settings
@@ -263,15 +264,8 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(
-               transition.episode.id,
-               "test-policy",
-               @policy_digest,
-               nil,
-               nil,
-               nil,
-               nil,
-               @environment_ref
+             WorkSessions.pin_episode(transition.episode.id, "test-policy", @policy_digest,
+               environment_ref: @environment_ref
              )
 
     Episode

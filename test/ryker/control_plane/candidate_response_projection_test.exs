@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
   import Phoenix.LiveViewTest
   import Ecto.Query
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, EpisodeRequest, ModelRequests}
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.InspectionRedactor
   alias Ryker.Work.{CandidateResponse, Custody, Submission, Turn}
 
@@ -489,7 +490,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
         })
       )
 
-    {:ok, _session} = Custody.pin_episode(id, "policy:inspection", String.duplicate("a", 64))
+    {:ok, _session} = WorkSessions.pin_episode(id, "policy:inspection", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("inspection:#{id}", 60, :work)
     assert claim.episode.id == id
     {:ok, submission} = Submission.new(%{}, "Retained host test prompt.", %{}, "inspection-test")

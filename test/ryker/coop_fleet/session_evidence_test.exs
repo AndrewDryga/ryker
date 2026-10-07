@@ -6,9 +6,9 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Inspectors
   alias Ryker.Repo
-  alias Ryker.Work.Custody
 
   defmodule FailingAPI do
     @moduledoc false
@@ -68,12 +68,9 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
     {:ok, _transition} = Episodes.apply(command)
 
     {:ok, session} =
-      Custody.pin_episode(
-        command.episode_id,
-        "work-read-only",
-        @policy_digest,
-        @authority_digest,
-        "ryker"
+      WorkSessions.pin_episode(command.episode_id, "work-read-only", @policy_digest,
+        authority_digest: @authority_digest,
+        repository_ref: "ryker"
       )
 
     {:ok, bound} =

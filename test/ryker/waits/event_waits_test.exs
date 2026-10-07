@@ -5,6 +5,7 @@ defmodule Ryker.Waits.EventWaitsTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Waits.EventSubscription
@@ -77,7 +78,7 @@ defmodule Ryker.Waits.EventWaitsTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:two-watches", 60, :work)
 
@@ -598,7 +599,7 @@ defmodule Ryker.Waits.EventWaitsTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:event-wait", 60, :work)
 
@@ -813,7 +814,7 @@ defmodule Ryker.Waits.EventWaitsTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:event-subscription:#{suffix}", 60, :work)
 

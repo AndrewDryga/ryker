@@ -8,6 +8,7 @@ defmodule Ryker.Records.TaskOffersTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.Publication
   alias Ryker.Records
@@ -1112,7 +1113,7 @@ defmodule Ryker.Records.TaskOffersTest do
     assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:task-offer:#{suffix}", 60, :work)
 

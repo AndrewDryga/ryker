@@ -3,6 +3,7 @@ defmodule Ryker.Waits.EventWaitWorkerTest do
   import Ryker.TestHelpers, only: [beats: 1, eventually: 2, settled: 1]
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Waits.EventWaitWorker
@@ -73,7 +74,9 @@ defmodule Ryker.Waits.EventWaitWorkerTest do
         })
       )
 
-    {:ok, _session} = Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+    {:ok, _session} =
+      WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+
     {:ok, claim} = Custody.claim_next("worker:event-wait-worker:#{suffix}", 60, :work)
 
     {:ok, record} =

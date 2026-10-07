@@ -3,6 +3,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshotCapacityTest do
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
@@ -17,11 +18,8 @@ defmodule Ryker.Knowledge.KnowledgeSnapshotCapacityTest do
     [first | _] = Fixtures.inputs!()
 
     assert {:ok, _} =
-             Custody.pin_episode(
-               first.episode_id,
-               "read-only",
-               String.duplicate("a", 64),
-               first.repository_ref
+             WorkSessions.pin_episode(first.episode_id, "read-only", String.duplicate("a", 64),
+               repository_ref: first.repository_ref
              )
 
     assert {:ok, claim} = Custody.claim_next("exposure-cumulative", 60)
@@ -104,11 +102,8 @@ defmodule Ryker.Knowledge.KnowledgeSnapshotCapacityTest do
     [first | _] = Fixtures.inputs!()
 
     assert {:ok, _} =
-             Custody.pin_episode(
-               first.episode_id,
-               "read-only",
-               String.duplicate("a", 64),
-               first.repository_ref
+             WorkSessions.pin_episode(first.episode_id, "read-only", String.duplicate("a", 64),
+               repository_ref: first.repository_ref
              )
 
     assert {:ok, claim} = Custody.claim_next("exposure-scale", 60)

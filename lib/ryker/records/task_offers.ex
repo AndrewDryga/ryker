@@ -113,10 +113,10 @@ defmodule Ryker.Records.TaskOffers do
              attributes.policy.name,
              attributes.policy.digest,
              repository_ref,
-             Map.get(attributes.policy, :repository_context),
              workspace_task(record),
-             repository_source,
-             Map.get(attributes.policy, :environment_ref)
+             environment_ref: Map.get(attributes.policy, :environment_ref),
+             repository_context: Map.get(attributes.policy, :repository_context),
+             repository_source: repository_source
            ),
          {:ok, record} <- persist_confirmation(record, transition.episode, attributes) do
       %{

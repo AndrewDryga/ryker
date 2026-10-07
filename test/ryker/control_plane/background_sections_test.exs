@@ -26,6 +26,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
   alias Ryker.FakeRetentionCoopAPI
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.ConversationKnowledge
@@ -33,7 +34,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
   alias Ryker.Learning.LearningRun
   alias Ryker.Retention.Dispatcher, as: Cleanup
   alias Ryker.Slack.Input
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.Session
 
   @now ~U[2026-09-04 22:51:44.000000Z]
 
@@ -606,7 +607,9 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
       )
 
     {:ok, _session} =
-      Custody.pin_episode(episode.id, "background", String.duplicate("a", 64), "ryker")
+      WorkSessions.pin_episode(episode.id, "background", String.duplicate("a", 64),
+        repository_ref: "ryker"
+      )
 
     decision = %{"action" => "reply", "reason" => "A direct reply."}
 

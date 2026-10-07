@@ -10,6 +10,7 @@ defmodule Ryker.Work.ExecutorTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Inspectors
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
@@ -4470,13 +4471,10 @@ defmodule Ryker.Work.ExecutorTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(
-               id,
-               "work-read-only",
-               String.duplicate("a", 64),
-               authority_digest,
-               repository_ref,
-               repository_context
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64),
+               authority_digest: authority_digest,
+               repository_ref: repository_ref,
+               repository_context: repository_context
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)
@@ -4825,14 +4823,9 @@ defmodule Ryker.Work.ExecutorTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(
-               id,
-               "work-read-only",
-               String.duplicate("a", 64),
-               nil,
-               repository_ref,
-               nil,
-               source
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64),
+               repository_ref: repository_ref,
+               repository_source: source
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)

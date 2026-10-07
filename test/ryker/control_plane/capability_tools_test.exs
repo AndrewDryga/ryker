@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.CapabilityToolsTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemorySourceLink
   alias Ryker.Records
@@ -1003,11 +1004,8 @@ defmodule Ryker.ControlPlane.CapabilityToolsTest do
       )
 
     assert {:ok, _session} =
-             Custody.pin_episode(
-               episode.id,
-               "conversation-read",
-               @policy_digest,
-               "emisar"
+             WorkSessions.pin_episode(episode.id, "conversation-read", @policy_digest,
+               repository_ref: "emisar"
              )
 
     assert {:ok, claim} = Custody.claim_next("lab-capabilities:#{suffix}", 60, :work)

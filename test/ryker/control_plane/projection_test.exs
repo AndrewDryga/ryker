@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input, as: GenericInput
@@ -1135,7 +1136,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     working = start_episode!("working")
 
     assert {:ok, session} =
-             Custody.pin_episode(working.episode.id, "policy:read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               working.episode.id,
+               "policy:read",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, claim} = Custody.claim_next("control-plane:test", 60, :work)
 
@@ -1651,11 +1656,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     source = start_episode!("removed-repository")
 
     assert {:ok, session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                source.episode.id,
                "policy:operator",
                String.duplicate("a", 64),
-               "gone"
+               repository_ref: "gone"
              )
 
     assert session.repository_ref == "gone"
@@ -1681,11 +1686,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     source = start_episode!("operator-workbench")
 
     assert {:ok, session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                source.episode.id,
                "policy:operator",
                String.duplicate("a", 64),
-               "ryker"
+               repository_ref: "ryker"
              )
 
     assert {:ok, claim} = Custody.claim_next("operator-workbench", 60, :work)
@@ -2426,7 +2431,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     completed = start_episode!("storage-preview")
 
     assert {:ok, session} =
-             Custody.pin_episode(completed.episode.id, "policy:read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               completed.episode.id,
+               "policy:read",
+               String.duplicate("a", 64)
+             )
 
     # A copy: the session holds a checkout of a repository.
     session =
@@ -2576,7 +2585,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     completed = start_episode!("retention-failure")
 
     assert {:ok, session} =
-             Custody.pin_episode(completed.episode.id, "policy:read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               completed.episode.id,
+               "policy:read",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, _complete} =
              Episodes.apply(
@@ -2758,7 +2771,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     transition = start_episode!("usage-#{suffix}")
 
     assert {:ok, session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                transition.episode.id,
                "policy:usage",
                String.duplicate("a", 64)

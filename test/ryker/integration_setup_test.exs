@@ -5,11 +5,11 @@ defmodule Ryker.IntegrationSetupTest do
   alias Ryker.{Credentials, Episodes, IntegrationSetup, Repo, Settings}
   alias Ryker.Emisar.Connections
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.GitHub.{Access, Auth, Binding, Router}
   alias Ryker.Settings.{Environment, GitHubBinding}
   alias Ryker.Slack.Names
   alias Ryker.TestSupport.EmisarMCP
-  alias Ryker.Work.Custody
 
   @actor "control-plane:local"
   @scopes ~w(
@@ -1533,11 +1533,8 @@ defmodule Ryker.IntegrationSetupTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               episode_id,
-               "test-policy",
-               String.duplicate("d", 64),
-               repository_ref
+             WorkSessions.pin_episode(episode_id, "test-policy", String.duplicate("d", 64),
+               repository_ref: repository_ref
              )
 
     session
@@ -1558,15 +1555,8 @@ defmodule Ryker.IntegrationSetupTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               episode_id,
-               "test-policy",
-               String.duplicate("d", 64),
-               nil,
-               nil,
-               nil,
-               nil,
-               environment_ref
+             WorkSessions.pin_episode(episode_id, "test-policy", String.duplicate("d", 64),
+               environment_ref: environment_ref
              )
 
     session

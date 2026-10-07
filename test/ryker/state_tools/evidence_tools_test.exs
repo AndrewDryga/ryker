@@ -9,6 +9,7 @@ defmodule Ryker.StateTools.EvidenceToolsTest do
   use Ryker.DataCase, async: true
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: Fixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.StateTools.Tools
@@ -68,11 +69,11 @@ defmodule Ryker.StateTools.EvidenceToolsTest do
              )
 
     assert {:ok, _} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                transition.episode.id,
                "test-policy",
                String.duplicate("a", 64),
-               "ryker"
+               repository_ref: "ryker"
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)

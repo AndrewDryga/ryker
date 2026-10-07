@@ -4,6 +4,7 @@ defmodule Ryker.Records.SlackPostOffersTest do
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.SlackPostOffers
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission}
@@ -68,7 +69,7 @@ defmodule Ryker.Records.SlackPostOffersTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:slack-post-offer:#{suffix}", 60, :work)
 

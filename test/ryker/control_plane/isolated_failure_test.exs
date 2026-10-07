@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.IsolatedFailureTest do
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Slack.Input
@@ -126,7 +127,7 @@ defmodule Ryker.ControlPlane.IsolatedFailureTest do
         })
       )
 
-    {:ok, _pinned} = Custody.pin_episode(episode.id, "isolated", String.duplicate("a", 64))
+    {:ok, _pinned} = WorkSessions.pin_episode(episode.id, "isolated", String.duplicate("a", 64))
     {:ok, _claim} = Custody.claim_next("isolated:#{suffix}", 120, :work)
     session = Repo.one!(from(s in Session, where: s.episode_id == ^episode.id))
 

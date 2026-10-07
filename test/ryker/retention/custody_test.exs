@@ -5,6 +5,7 @@ defmodule Ryker.Retention.CustodyTest do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Operator.RetentionAction
   alias Ryker.Retention.{Custody, Plan}
@@ -558,11 +559,11 @@ defmodule Ryker.Retention.CustodyTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, rotated} =
-             Ryker.Work.Custody.pin_episode(
+             WorkSessions.pin_episode(
                session.episode_id,
                "changed-default",
                String.duplicate("f", 64),
-               "changed-repository"
+               repository_ref: "changed-repository"
              )
 
     assert rotated.generation == session.generation + 1
@@ -588,11 +589,8 @@ defmodule Ryker.Retention.CustodyTest do
              )
 
     assert {:ok, session} =
-             Ryker.Work.Custody.pin_episode(
-               id,
-               "work-read-only",
-               String.duplicate("a", 64),
-               "ryker"
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64),
+               repository_ref: "ryker"
              )
 
     session

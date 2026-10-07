@@ -1341,11 +1341,9 @@ defmodule Ryker.Slack.IncidentRooms do
              transition.episode.id,
              room.policy,
              room.policy_digest,
-             nil,
-             room.repository_ref,
-             room.repository_context,
-             nil,
-             room.environment_ref
+             environment_ref: room.environment_ref,
+             repository_context: room.repository_context,
+             repository_ref: room.repository_ref
            ),
          %Record{} = record <- Repo.one(locked_record(room.record_id)),
          :ok <- confirmable_record(record),

@@ -3,6 +3,7 @@ defmodule Ryker.Memories.CasesTest do
   import Ecto.Query
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Event, Origin}
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Memories.CaseRecord
   alias Ryker.Memories.Cases
@@ -363,7 +364,7 @@ defmodule Ryker.Memories.CasesTest do
       })
 
     episode = transition.episode
-    {:ok, _session} = Custody.pin_episode(id, "cases", String.duplicate("a", 64))
+    {:ok, _session} = WorkSessions.pin_episode(id, "cases", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("cases:#{id}", 60, :work)
 
     {:ok, settled} =

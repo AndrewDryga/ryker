@@ -11,6 +11,7 @@ defmodule Ryker.Fixtures.SavedEntities do
   alias Ryker.Behaviors.Behavior
   alias Ryker.{Episodes, Repo}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Records
   alias Ryker.Schedules.Schedule
@@ -46,7 +47,9 @@ defmodule Ryker.Fixtures.SavedEntities do
         })
       )
 
-    {:ok, _session} = Custody.pin_episode(id, "policy:collections", String.duplicate("a", 64))
+    {:ok, _session} =
+      WorkSessions.pin_episode(id, "policy:collections", String.duplicate("a", 64))
+
     {:ok, claim} = Custody.claim_next("collections:#{id}", 60, :work)
 
     %{conversation_ref: conversation_ref, episode: started.episode, turn: claim.turn}

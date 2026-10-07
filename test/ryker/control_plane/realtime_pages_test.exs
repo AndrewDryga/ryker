@@ -23,6 +23,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.WorkProfile
   alias Ryker.{Inspectors, Memories, Records, Settings}
   alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRooms}
@@ -151,7 +152,11 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     assert has_element?(view, ".kit-empty-title", "No working copies right now")
 
     episode = episode!("working-copy")
-    assert {:ok, _session} = Custody.pin_episode(episode.id, "policy:realtime", digest(), "ryker")
+
+    assert {:ok, _session} =
+             WorkSessions.pin_episode(episode.id, "policy:realtime", digest(),
+               repository_ref: "ryker"
+             )
 
     assert shows?(fn ->
              not has_element?(view, ".kit-empty-title", "No working copies right now")
@@ -410,7 +415,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
 
   defp work_claim!(suffix) do
     episode = episode!(suffix)
-    assert {:ok, _session} = Custody.pin_episode(episode.id, "policy:realtime", digest())
+    assert {:ok, _session} = WorkSessions.pin_episode(episode.id, "policy:realtime", digest())
     assert {:ok, claim} = Custody.claim_next("worker:realtime:#{suffix}", 60)
     claim
   end

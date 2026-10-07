@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning
@@ -714,7 +715,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(id, "recorded-work-policy", String.duplicate("a", 64))
+             WorkSessions.pin_episode(id, "recorded-work-policy", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)
 

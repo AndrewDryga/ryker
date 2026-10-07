@@ -5,6 +5,7 @@ defmodule Ryker.Delivery.PresentationTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -203,7 +204,10 @@ defmodule Ryker.Delivery.PresentationTest do
       })
 
     assert {:ok, transition} = Episodes.apply(command)
-    assert {:ok, _session} = Custody.pin_episode(transition.episode.id, "test", @policy_digest)
+
+    assert {:ok, _session} =
+             WorkSessions.pin_episode(transition.episode.id, "test", @policy_digest)
+
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     claim
   end

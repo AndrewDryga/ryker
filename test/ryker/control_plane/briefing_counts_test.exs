@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Slack.Input
@@ -434,7 +435,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
         })
       )
 
-    {:ok, _session} = Custody.pin_episode(episode_id, "counts", String.duplicate("a", 64))
+    {:ok, _session} = WorkSessions.pin_episode(episode_id, "counts", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("counts:#{suffix}", 120, :work)
 
     context =

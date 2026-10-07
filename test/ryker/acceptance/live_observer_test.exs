@@ -4,6 +4,7 @@ defmodule Ryker.Acceptance.LiveObserverTest do
   alias Ryker.Acceptance.Live
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Repo
   alias Ryker.Slack.Input
@@ -118,7 +119,7 @@ defmodule Ryker.Acceptance.LiveObserverTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                command.episode_id,
                "work-read-only",
                String.duplicate("a", 64)

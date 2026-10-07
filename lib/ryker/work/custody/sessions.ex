@@ -19,248 +19,33 @@ defmodule Ryker.Work.Custody.Sessions do
   alias Ryker.Work.{OperationKeys, RepositoryContext, RepositorySource, Session}
   alias Ryker.Work.Turn
 
-  @doc false
-  @spec pin_episode(Ecto.UUID.t(), String.t(), String.t()) ::
-          {:ok, Session.t()} | {:error, term()}
-  def pin_episode(episode_id, policy, policy_digest) do
-    pin_episode(episode_id, policy, policy_digest, nil, nil, nil)
-  end
-
-  @spec pin_episode(Ecto.UUID.t(), String.t(), String.t(), String.t() | nil) ::
-          {:ok, Session.t()} | {:error, term()}
-  def pin_episode(episode_id, policy, policy_digest, repository_ref) do
-    pin_episode(episode_id, policy, policy_digest, nil, repository_ref, nil)
-  end
-
-  @spec pin_episode(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_episode(episode_id, policy, policy_digest, authority_digest, repository_ref) do
-    pin_episode(episode_id, policy, policy_digest, authority_digest, repository_ref, nil)
-  end
-
-  @spec pin_episode(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_episode(
-        episode_id,
-        policy,
-        policy_digest,
-        authority_digest,
-        repository_ref,
-        repository_context
-      ) do
-    pin_episode(
-      episode_id,
-      policy,
-      policy_digest,
-      authority_digest,
-      repository_ref,
-      repository_context,
-      nil
-    )
-  end
-
-  @spec pin_episode(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil,
-          map() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_episode(
-        episode_id,
-        policy,
-        policy_digest,
-        authority_digest,
-        repository_ref,
-        repository_context,
-        repository_source
-      ) do
-    pin_episode(
-      episode_id,
-      policy,
-      policy_digest,
-      authority_digest,
-      repository_ref,
-      repository_context,
-      repository_source,
-      nil
-    )
-  end
+  @pin_options [
+    :authority_digest,
+    :environment_ref,
+    :repository_context,
+    :repository_ref,
+    :repository_source
+  ]
 
   @doc """
   Pins an episode's first session with the environment it runs in.
 
   The session records the environment; the Emisar account is resolved from
   that environment once, here, and every later generation copies the pin.
+  `options` name what else the session holds, each absent unless given:
+  `authority_digest`, `repository_ref` with its `repository_context` and
+  `repository_source`, and `environment_ref`. An eight-place ladder of
+  arities stood here, one a value longer each (2026-10-04 review).
   """
-  @spec pin_episode(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil,
-          map() | nil,
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_episode(
-        episode_id,
-        policy,
-        policy_digest,
-        authority_digest,
-        repository_ref,
-        repository_context,
-        repository_source,
-        environment_ref
-      ) do
-    Repo.transaction(fn ->
-      case pin_episode_in_transaction(
-             episode_id,
-             policy,
-             policy_digest,
-             authority_digest,
-             repository_ref,
-             repository_context,
-             repository_source,
-             environment_ref
-           ) do
-        {:ok, session} -> session
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
-  end
-
-  @doc false
-  @spec pin_episode_in_transaction(Ecto.UUID.t(), String.t(), String.t()) ::
+  @spec pin_episode_in_transaction(Ecto.UUID.t(), String.t(), String.t(), keyword()) ::
           {:ok, Session.t()} | {:error, term()}
-  def pin_episode_in_transaction(episode_id, policy, policy_digest) do
-    pin_episode_in_transaction(episode_id, policy, policy_digest, nil, nil, nil)
-  end
+  def pin_episode_in_transaction(episode_id, policy, policy_digest, options \\ []) do
+    options = Keyword.validate!(options, @pin_options)
+    authority_digest = options[:authority_digest]
+    environment_ref = options[:environment_ref]
+    repository_context = options[:repository_context]
+    repository_ref = options[:repository_ref]
 
-  @spec pin_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_episode_in_transaction(episode_id, policy, policy_digest, repository_ref) do
-    pin_episode_in_transaction(episode_id, policy, policy_digest, nil, repository_ref, nil)
-  end
-
-  @spec pin_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_episode_in_transaction(
-        episode_id,
-        policy,
-        policy_digest,
-        authority_digest,
-        repository_ref
-      ) do
-    pin_episode_in_transaction(
-      episode_id,
-      policy,
-      policy_digest,
-      authority_digest,
-      repository_ref,
-      nil
-    )
-  end
-
-  @spec pin_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_episode_in_transaction(
-        episode_id,
-        policy,
-        policy_digest,
-        authority_digest,
-        repository_ref,
-        repository_context
-      ) do
-    pin_episode_in_transaction(
-      episode_id,
-      policy,
-      policy_digest,
-      authority_digest,
-      repository_ref,
-      repository_context,
-      nil
-    )
-  end
-
-  @spec pin_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil,
-          map() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_episode_in_transaction(
-        episode_id,
-        policy,
-        policy_digest,
-        authority_digest,
-        repository_ref,
-        repository_context,
-        repository_source
-      ) do
-    pin_episode_in_transaction(
-      episode_id,
-      policy,
-      policy_digest,
-      authority_digest,
-      repository_ref,
-      repository_context,
-      repository_source,
-      nil
-    )
-  end
-
-  @spec pin_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t() | nil,
-          map() | nil,
-          map() | nil,
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_episode_in_transaction(
-        episode_id,
-        policy,
-        policy_digest,
-        authority_digest,
-        repository_ref,
-        repository_context,
-        repository_source,
-        environment_ref
-      ) do
     with :ok <- transaction_open(),
          {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(policy, :policy),
@@ -268,7 +53,8 @@ defmodule Ryker.Work.Custody.Sessions do
          :ok <- optional_sha256(authority_digest, :authority_digest),
          :ok <- optional_reference(repository_ref, :repository_ref),
          :ok <- repository_context(repository_context, repository_ref),
-         {:ok, repository_source} <- repository_source(repository_source, repository_ref),
+         {:ok, repository_source} <-
+           repository_source(options[:repository_source], repository_ref),
          :ok <- environment_ref(environment_ref) do
       {:ok,
        pin_episode_locked(episode_id, %{
@@ -283,122 +69,34 @@ defmodule Ryker.Work.Custody.Sessions do
     end
   end
 
-  @doc false
+  @doc """
+  Pins a task's episode as `pin_episode_in_transaction/4` does, in
+  `repository_ref`, and binds the session to `workspace_task`. `options` are
+  `repository_context`, `repository_source` and `environment_ref`.
+  """
   @spec pin_task_episode_in_transaction(
           Ecto.UUID.t(),
           String.t(),
           String.t(),
           String.t(),
-          map()
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_task_episode_in_transaction(
-        episode_id,
-        policy,
-        policy_digest,
-        repository_ref,
-        workspace_task
-      ) do
-    pin_task_episode_in_transaction(
-      episode_id,
-      policy,
-      policy_digest,
-      repository_ref,
-      nil,
-      workspace_task
-    )
-  end
-
-  @doc false
-  @spec pin_task_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t(),
-          map() | nil,
-          map()
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_task_episode_in_transaction(
-        episode_id,
-        policy,
-        policy_digest,
-        repository_ref,
-        repository_context,
-        workspace_task
-      ) do
-    pin_task_episode_in_transaction(
-      episode_id,
-      policy,
-      policy_digest,
-      repository_ref,
-      repository_context,
-      workspace_task,
-      nil
-    )
-  end
-
-  @doc false
-  @spec pin_task_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t(),
-          map() | nil,
           map(),
-          map() | nil
+          keyword()
         ) :: {:ok, Session.t()} | {:error, term()}
   def pin_task_episode_in_transaction(
         episode_id,
         policy,
         policy_digest,
         repository_ref,
-        repository_context,
         workspace_task,
-        repository_source
+        options \\ []
       ) do
-    pin_task_episode_in_transaction(
-      episode_id,
-      policy,
-      policy_digest,
-      repository_ref,
-      repository_context,
-      workspace_task,
-      repository_source,
-      nil
-    )
-  end
+    options =
+      options
+      |> Keyword.validate!([:environment_ref, :repository_context, :repository_source])
+      |> Keyword.put(:repository_ref, repository_ref)
 
-  @doc false
-  @spec pin_task_episode_in_transaction(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t(),
-          map() | nil,
-          map(),
-          map() | nil,
-          String.t() | nil
-        ) :: {:ok, Session.t()} | {:error, term()}
-  def pin_task_episode_in_transaction(
-        episode_id,
-        policy,
-        policy_digest,
-        repository_ref,
-        repository_context,
-        workspace_task,
-        repository_source,
-        environment_ref
-      ) do
     with {:ok, session} <-
-           pin_episode_in_transaction(
-             episode_id,
-             policy,
-             policy_digest,
-             nil,
-             repository_ref,
-             repository_context,
-             repository_source,
-             environment_ref
-           ) do
+           pin_episode_in_transaction(episode_id, policy, policy_digest, options) do
       case session.workspace_task do
         nil ->
           session

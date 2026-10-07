@@ -1,6 +1,7 @@
 defmodule Ryker.Work.ActivityTest do
   alias Ryker.Config
   alias Ryker.ControlPlane.{EpisodeProjection, ToolCard}
+  alias Ryker.Fixtures.WorkSessions
   use Ryker.DataCase, async: false
   import Phoenix.LiveViewTest
 
@@ -40,7 +41,7 @@ defmodule Ryker.Work.ActivityTest do
     {:ok, started} = Episodes.apply(EpisodeFixtures.admit_input())
 
     {:ok, session} =
-      Custody.pin_episode(started.episode.id, "policy:paths", String.duplicate("a", 64))
+      WorkSessions.pin_episode(started.episode.id, "policy:paths", String.duplicate("a", 64))
 
     {:ok, claim} = Custody.claim_next("path-redaction", 60, :work)
 
@@ -112,7 +113,7 @@ defmodule Ryker.Work.ActivityTest do
     {:ok, started} = Episodes.apply(EpisodeFixtures.admit_input())
 
     {:ok, session} =
-      Custody.pin_episode(started.episode.id, "policy:activity", String.duplicate("a", 64))
+      WorkSessions.pin_episode(started.episode.id, "policy:activity", String.duplicate("a", 64))
 
     {:ok, claim} = Custody.claim_next("activity-evidence", 60, :work)
 
@@ -238,7 +239,11 @@ defmodule Ryker.Work.ActivityTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(started.episode.id, "policy:activity", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               started.episode.id,
+               "policy:activity",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, claim} = Custody.claim_next("activity-recorder", 60, :work)
 
@@ -450,7 +455,11 @@ defmodule Ryker.Work.ActivityTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(started.episode.id, "policy:activity", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               started.episode.id,
+               "policy:activity",
+               String.duplicate("a", 64)
+             )
 
     assert {:ok, claim} = Custody.claim_next("activity-window-recorder", 60, :work)
 
@@ -505,7 +514,7 @@ defmodule Ryker.Work.ActivityTest do
     {:ok, started} = Episodes.apply(EpisodeFixtures.admit_input())
 
     {:ok, session} =
-      Custody.pin_episode(started.episode.id, "policy:network", String.duplicate("a", 64))
+      WorkSessions.pin_episode(started.episode.id, "policy:network", String.duplicate("a", 64))
 
     {:ok, claim} = Custody.claim_next("network-activity", 60, :work)
 

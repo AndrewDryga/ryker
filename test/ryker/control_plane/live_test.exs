@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   alias Ryker.Episodes.Reactions
   alias Ryker.Feedback
   alias Ryker.Fixtures.{Answers, SavedEntities}
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
 
@@ -2555,7 +2556,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     )
     |> Repo.update!()
 
-    {:ok, _session} = Custody.pin_episode(episode.id, profile.policy, profile.policy_digest)
+    {:ok, _session} = WorkSessions.pin_episode(episode.id, profile.policy, profile.policy_digest)
     {:ok, claim} = Custody.claim_next("live-test:#{episode_id}", 60, :work)
     {:ok, submission} = SubmissionBuilder.build(claim)
 
@@ -2661,7 +2662,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     )
     |> Repo.update!()
 
-    {:ok, _session} = Custody.pin_episode(episode.id, profile.policy, profile.policy_digest)
+    {:ok, _session} = WorkSessions.pin_episode(episode.id, profile.policy, profile.policy_digest)
     {:ok, claim} = Custody.claim_next("live-test:#{episode_id}", 60, :work)
     {:ok, submission} = SubmissionBuilder.build(claim)
 

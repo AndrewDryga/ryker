@@ -4,6 +4,7 @@ defmodule Ryker.Records.DerivedContextConcurrencyTest do
   alias Ryker.{Episodes, Repo}
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Work.{Custody, Session, Turn}
 
@@ -83,7 +84,7 @@ defmodule Ryker.Records.DerivedContextConcurrencyTest do
         })
       )
 
-    {:ok, _} = Custody.pin_episode(id, "fixture", String.duplicate("a", 64))
+    {:ok, _} = WorkSessions.pin_episode(id, "fixture", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("worker:#{id}", 60)
     assert claim.episode.id == id
     assert :ok = KnowledgeSnapshot.expose(claim, [])

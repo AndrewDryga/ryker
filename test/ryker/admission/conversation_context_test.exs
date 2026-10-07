@@ -8,6 +8,7 @@ defmodule Ryker.Admission.ConversationContextTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Scope
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
@@ -519,7 +520,9 @@ defmodule Ryker.Admission.ConversationContextTest do
         })
       )
 
-    {:ok, _session} = Custody.pin_episode(episode_id, "reply-context", String.duplicate("a", 64))
+    {:ok, _session} =
+      WorkSessions.pin_episode(episode_id, "reply-context", String.duplicate("a", 64))
+
     {:ok, claim} = Custody.claim_next("reply-context:#{episode_id}", 60, :work)
 
     Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id),

@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
   alias Ryker.ControlPlane.{Endpoint, Projection, SubscriptionProjection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records
@@ -70,7 +71,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
       ]
     )
 
-    {:ok, _} = Custody.pin_episode(id, "read-only", String.duplicate("a", 64))
+    {:ok, _} = WorkSessions.pin_episode(id, "read-only", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("subscription-projection", 60, :work)
     matcher = %{"attachments" => [Map.take(hd(message["attachments"]), ~w(title title_link))]}
 

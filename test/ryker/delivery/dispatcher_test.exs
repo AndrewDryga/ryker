@@ -17,6 +17,7 @@ defmodule Ryker.Delivery.DispatcherTest do
   alias Ryker.Episodes.Command
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Input, as: IngressInput
   alias Ryker.Operator.Delivery, as: DeliveryOperator
@@ -1066,7 +1067,9 @@ defmodule Ryker.Delivery.DispatcherTest do
     selected_input_refs =
       joined_question_refs(command, options) || transition.episode.active_input_refs
 
-    assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+    assert {:ok, _session} =
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
     assert {:ok, claim} = Custody.claim_next("work:prepare:#{suffix}", 60, :work)
 
     record =
@@ -1275,7 +1278,10 @@ defmodule Ryker.Delivery.DispatcherTest do
       })
 
     assert {:ok, _transition} = Episodes.apply(command)
-    assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, _session} =
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
     assert {:ok, claim} = Custody.claim_next("work:platform-action:#{suffix}", 60, :work)
     claim
   end
@@ -1298,7 +1304,10 @@ defmodule Ryker.Delivery.DispatcherTest do
       })
 
     assert {:ok, _transition} = Episodes.apply(command)
-    assert {:ok, _session} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, _session} =
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
     assert {:ok, claim} = Custody.claim_next("work:platform-action:#{suffix}", 60, :work)
 
     assert {:ok, %{action: action, status: :created}} =

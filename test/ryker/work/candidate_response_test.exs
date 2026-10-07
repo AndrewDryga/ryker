@@ -5,6 +5,7 @@ defmodule Ryker.Work.CandidateResponseTest do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Retention.Data
   alias Ryker.Work.{CandidateResponse, Custody, Result, Session, Submission, Turn}
 
@@ -222,7 +223,7 @@ defmodule Ryker.Work.CandidateResponseTest do
       })
 
     assert {:ok, _} = Episodes.apply(command)
-    assert {:ok, _} = Custody.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+    assert {:ok, _} = WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
     assert {:ok, claim} = Custody.claim_next("candidate-worker:#{id}", 120)
     assert claim.episode.id == id
 

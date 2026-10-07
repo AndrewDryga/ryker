@@ -6,6 +6,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, Followups, LifecycleEvent}
   alias Ryker.Records
@@ -20,7 +21,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     # is required could not point at the question, because a Slack message link
     # needs the workspace origin and the host stored every part of it but that.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, _} = Custody.pin_episode(episode.id, "read-only", String.duplicate("a", 64))
+    {:ok, _} = WorkSessions.pin_episode(episode.id, "read-only", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("question-link", 60, :work)
 
     {:ok, _record} =
@@ -162,7 +163,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     # goal list, so a subtask moving under its stage never refreshed the pinned
     # Slack card and a plan of nine read as one anonymous "N of M completed".
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
-    {:ok, _} = Custody.pin_episode(episode.id, "read-only", String.duplicate("a", 64))
+    {:ok, _} = WorkSessions.pin_episode(episode.id, "read-only", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("card-details", 60, :work)
 
     {:ok, _session} =

@@ -7,6 +7,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.MemoryPages
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemorySearch
@@ -14,7 +15,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
   alias Ryker.Records.Record
   alias Ryker.Slack.{ChannelFence, SourceRef}
   alias Ryker.StateTools.LookupContext
-  alias Ryker.Work.{Custody, Session, Turn}
+  alias Ryker.Work.{Session, Turn}
 
   @captured "testdata/learning/retained-draft-ai-suggestions-learning.json"
   @search_secret "memory-search-concurrency-host-secret"
@@ -469,7 +470,11 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
              )
 
     assert {:ok, session} =
-             Custody.pin_episode(episode.id, "structural-memory-race", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               episode.id,
+               "structural-memory-race",
+               String.duplicate("a", 64)
+             )
 
     turn =
       Repo.insert!(%Turn{

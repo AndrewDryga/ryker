@@ -9,7 +9,8 @@ defmodule Ryker.Admission.ReadySessionWarmMigrationTest do
   alias Ryker.Admission.ReadySessions
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Work.Session
 
   @version 20_260_927_160_000
   @policy %{name: "admission-read-only", digest: String.duplicate("a", 64)}
@@ -49,12 +50,12 @@ defmodule Ryker.Admission.ReadySessionWarmMigrationTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                command.episode_id,
                "work-read-only",
                String.duplicate("b", 64),
-               String.duplicate("d", 64),
-               "ryker"
+               authority_digest: String.duplicate("d", 64),
+               repository_ref: "ryker"
              )
 
     session

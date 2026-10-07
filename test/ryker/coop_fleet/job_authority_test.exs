@@ -4,10 +4,11 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
   alias Ryker.CoopFleet.{Command, JobAuthority, JobSpec, JobTemplates, Placement, Worker}
   alias Ryker.{Episodes, Repo, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.GitHub.RepositoryFiles
   alias Ryker.TestSupport.RecordedGitHub
-  alias Ryker.Work.{Custody, Session}
   alias Ryker.Work.Custody.Sessions
+  alias Ryker.Work.Session
 
   @actor "control-plane:local"
 
@@ -67,12 +68,9 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
       )
 
     {:ok, session} =
-      Custody.pin_episode(
-        episode_id,
-        template.policy_name,
-        template.policy_digest,
-        template.authority_digest,
-        "app"
+      WorkSessions.pin_episode(episode_id, template.policy_name, template.policy_digest,
+        authority_digest: template.authority_digest,
+        repository_ref: "app"
       )
 
     %{session: session, snapshot: snapshot}

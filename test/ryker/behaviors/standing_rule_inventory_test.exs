@@ -16,6 +16,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
   alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Input
   alias Ryker.Inspectors
@@ -263,7 +264,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
         })
       )
 
-    {:ok, _session} = Custody.pin_episode(episode_id, "inventory", String.duplicate("a", 64))
+    {:ok, _session} = WorkSessions.pin_episode(episode_id, "inventory", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("inventory:#{suffix}", 60, :work)
     %{episode_id: episode_id, turn_id: claim.turn.id}
   end

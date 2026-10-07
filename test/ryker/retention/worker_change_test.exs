@@ -17,8 +17,9 @@ defmodule Ryker.Retention.WorkerChangeTest do
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Retention.Dispatcher
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.Session
 
   # The live shapes of 2026-09-23: ryker-chat sessions pinned to a8d0aa03…,
   # the worker moved to 3fd0d64f… by a Settings › Models change, authority
@@ -446,7 +447,9 @@ defmodule Ryker.Retention.WorkerChangeTest do
                })
              )
 
-    assert {:ok, session} = Custody.pin_episode(id, @policy, @started, @authority, nil)
+    assert {:ok, session} =
+             WorkSessions.pin_episode(id, @policy, @started, authority_digest: @authority)
+
     session = WorkerJob.pin!(session)
 
     assert {:ok, placement} =

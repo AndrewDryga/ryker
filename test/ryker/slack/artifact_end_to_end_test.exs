@@ -6,6 +6,7 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
   alias Ryker.Delivery.{Adapters, Dispatcher}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
   alias Ryker.Slack.Publisher
   alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI}
@@ -114,7 +115,7 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "conversation-read-only", @policy_digest)
+             WorkSessions.pin_episode(episode_id, "conversation-read-only", @policy_digest)
 
     assert {:ok, claim} = Custody.claim_next("artifact-e2e-work", 60, :work)
     claim

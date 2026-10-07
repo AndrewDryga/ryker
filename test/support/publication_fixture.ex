@@ -5,6 +5,7 @@ defmodule Ryker.Fixtures.Publication do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Records
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission}
@@ -289,7 +290,9 @@ defmodule Ryker.Fixtures.Publication do
       )
 
     {:ok, _session} =
-      Custody.pin_episode(id, "work-contributor", String.duplicate("a", 64), repository)
+      WorkSessions.pin_episode(id, "work-contributor", String.duplicate("a", 64),
+        repository_ref: repository
+      )
 
     {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     bind_remote!(claim)

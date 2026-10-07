@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
   alias Ryker.ControlPlane.{EpisodeCausality, EpisodePage, EpisodeProjection, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records
@@ -219,7 +220,7 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
   defp started_work do
     episode = admit!(nil, "Ev1", @now)
 
-    {:ok, session} = Custody.pin_episode(episode.id, "causality", String.duplicate("a", 64))
+    {:ok, session} = WorkSessions.pin_episode(episode.id, "causality", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("causality", 60, :work)
     {:ok, submission} = SubmissionBuilder.build(claim)
 

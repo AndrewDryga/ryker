@@ -3,6 +3,7 @@ defmodule Ryker.Records.RecordsTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Slack.Event
   alias Ryker.Slack.Input, as: SlackInput
@@ -1090,7 +1091,7 @@ defmodule Ryker.Records.RecordsTest do
     assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(transition.episode.id, "test-policy", @policy_digest)
+             WorkSessions.pin_episode(transition.episode.id, "test-policy", @policy_digest)
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     claim

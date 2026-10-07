@@ -15,6 +15,7 @@ defmodule Ryker.Fixtures.Answers do
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.GitHub.Binding
   alias Ryker.GitHub.Input, as: GitHubInput
   alias Ryker.Ingress.Inbox
@@ -205,7 +206,7 @@ defmodule Ryker.Fixtures.Answers do
              )
 
     decide!(entry, "start_episode", id)
-    assert {:ok, _session} = Custody.pin_episode(id, "answers", String.duplicate("a", 64))
+    assert {:ok, _session} = WorkSessions.pin_episode(id, "answers", String.duplicate("a", 64))
     assert {:ok, claim} = Custody.claim_next(owner, 60, :work)
     assert claim.episode.id == id
 

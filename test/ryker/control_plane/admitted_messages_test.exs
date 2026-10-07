@@ -15,7 +15,8 @@ defmodule Ryker.ControlPlane.AdmittedMessagesTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Work.Session
 
   @fixture "testdata/control_plane/admitted-task-and-pr-feedback.json"
 
@@ -79,7 +80,7 @@ defmodule Ryker.ControlPlane.AdmittedMessagesTest do
     episode = Repo.get_by!(Episode, key: key)
 
     assert {:ok, first} =
-             Custody.pin_episode(episode.id, "work", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode.id, "work", String.duplicate("a", 64))
 
     %Session{} =
       first =

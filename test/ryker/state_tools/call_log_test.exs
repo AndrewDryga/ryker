@@ -9,6 +9,7 @@ defmodule Ryker.StateTools.CallLogTest do
   alias Ryker.ControlPlane.{EpisodeProjection, ToolCard}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.StateTools.{CallLog, ErrorCode, Router}
   alias Ryker.Work.{Activity, Custody, Turn}
@@ -226,7 +227,7 @@ defmodule Ryker.StateTools.CallLogTest do
       )
 
     {:ok, session} =
-      Custody.pin_episode(started.episode.id, "policy:call-log", String.duplicate("a", 64))
+      WorkSessions.pin_episode(started.episode.id, "policy:call-log", String.duplicate("a", 64))
 
     {:ok, claim} = Custody.claim_next("call-log:#{suffix}", 60, :work)
 

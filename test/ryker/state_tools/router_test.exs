@@ -12,6 +12,7 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Scope}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
   alias Ryker.Records.Record
@@ -3207,15 +3208,9 @@ defmodule Ryker.StateTools.RouterTest do
     assert {:ok, transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(
-               transition.episode.id,
-               "test-policy",
-               @policy_digest,
-               nil,
-               "ryker",
-               nil,
-               nil,
-               "ryker"
+             WorkSessions.pin_episode(transition.episode.id, "test-policy", @policy_digest,
+               repository_ref: "ryker",
+               environment_ref: "ryker"
              )
 
     Episode

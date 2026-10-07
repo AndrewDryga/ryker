@@ -11,6 +11,7 @@ defmodule Ryker.Admission.CommitTest do
   alias Ryker.ControlPlane.EpisodeProjection
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Records
   alias Ryker.Repo
@@ -27,7 +28,7 @@ defmodule Ryker.Admission.CommitTest do
     original = create_episode!(thread_ref: "1787830000.000001")
 
     assert {:ok, _} =
-             Custody.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("project-question", 60, :work)
 
@@ -93,7 +94,7 @@ defmodule Ryker.Admission.CommitTest do
       original = create_episode!(thread_ref: "1787830000.000001", actor: actor, content: message)
 
       assert {:ok, session} =
-               Custody.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
+               WorkSessions.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
 
       assert {:ok, claim} = Custody.claim_next("tfc-watch", 60, :work)
       run = message["attachments"] |> hd() |> Map.take(["title", "title_link"])
@@ -181,7 +182,7 @@ defmodule Ryker.Admission.CommitTest do
         )
 
       assert {:ok, _session} =
-               Custody.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
+               WorkSessions.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
 
       assert {:ok, claim} = Custody.claim_next("question-edit", 60, :work)
 
@@ -462,11 +463,8 @@ defmodule Ryker.Admission.CommitTest do
     original_digest = String.duplicate("a", 64)
 
     assert {:ok, original_session} =
-             Custody.pin_episode(
-               active.id,
-               "conversation-terra-medium",
-               original_digest,
-               "service"
+             WorkSessions.pin_episode(active.id, "conversation-terra-medium", original_digest,
+               repository_ref: "service"
              )
 
     entry =
@@ -506,7 +504,7 @@ defmodule Ryker.Admission.CommitTest do
     policy = %{digest: String.duplicate("a", 64), name: "work-read-only"}
 
     assert {:ok, _session} =
-             Custody.pin_episode(active.id, policy.name, policy.digest)
+             WorkSessions.pin_episode(active.id, policy.name, policy.digest)
 
     assert {:ok, claim} = Custody.claim_next("worker:block-before-correction", 60)
 

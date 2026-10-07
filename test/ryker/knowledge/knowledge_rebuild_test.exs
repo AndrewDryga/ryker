@@ -6,6 +6,7 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -298,7 +299,9 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
       )
 
     {:ok, _} =
-      Custody.pin_episode(id, "fixture", String.duplicate("a", 64), nil, entry.repository_ref)
+      WorkSessions.pin_episode(id, "fixture", String.duplicate("a", 64),
+        repository_ref: entry.repository_ref
+      )
 
     {:ok, claim} = Custody.claim_next("generation-reader:#{id}", 60)
     assert :ok = KnowledgeSnapshot.expose(claim, [document])

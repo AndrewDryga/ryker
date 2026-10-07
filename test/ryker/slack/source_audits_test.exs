@@ -2,6 +2,7 @@ defmodule Ryker.Slack.SourceAuditsTest do
   use Ryker.DataCase, async: true
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Slack.{ActionTokens, CapabilityTools, SourceAudit, SourceAudits, SourceRef}
   alias Ryker.Work.Custody
 
@@ -65,7 +66,7 @@ defmodule Ryker.Slack.SourceAuditsTest do
                })
              )
 
-    assert {:ok, _} = Custody.pin_episode(episode_id, "read-only", String.duplicate("a", 64))
+    assert {:ok, _} = WorkSessions.pin_episode(episode_id, "read-only", String.duplicate("a", 64))
     assert {:ok, claim} = Custody.claim_next("bot-source-audit", 60)
     binding = %{episode: transition.episode, turn: claim.turn}
 
@@ -118,7 +119,7 @@ defmodule Ryker.Slack.SourceAuditsTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "work-read-only", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("slack-source-audit-worker", 60)
 

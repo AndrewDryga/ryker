@@ -6,6 +6,7 @@ defmodule Ryker.Improvement.AnalysesTest do
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Improvement
   alias Ryker.Improvement.{Analyses, AnalysisRun, Candidate, Dispatcher, Prompt}
   alias Ryker.Inspectors
@@ -13,7 +14,7 @@ defmodule Ryker.Improvement.AnalysesTest do
   alias Ryker.Retention.Cleanup
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.TestSupport.FakeCoopAPI
-  alias Ryker.Work.{Custody, Session, Turn}
+  alias Ryker.Work.{Session, Turn}
 
   @workspace "TIMPROVEANALYSES"
   @now ~U[2026-09-27 12:00:00.000000Z]
@@ -739,7 +740,7 @@ defmodule Ryker.Improvement.AnalysesTest do
                })
              )
 
-    assert {:ok, _session} = Custody.pin_episode(id, "answers", String.duplicate("a", 64))
+    assert {:ok, _session} = WorkSessions.pin_episode(id, "answers", String.duplicate("a", 64))
     {:episode, id}
   end
 

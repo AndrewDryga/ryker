@@ -16,6 +16,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.MemoryPages
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Records
   alias Ryker.Records.Record
@@ -1280,7 +1281,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:behavior:#{suffix}", 60, :work)
 

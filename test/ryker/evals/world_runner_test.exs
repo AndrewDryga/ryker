@@ -13,6 +13,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
   alias Ryker.Episodes.Command
   alias Ryker.Evals.{SlackDeliveryPublisher, WorldCase, WorldCassette, WorldCoverage}
   alias Ryker.Evals.{WorldDatabase, WorldJudgeCase, WorldReport, WorldRunner}
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -261,7 +262,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
                  turn_ref: "eval:other-turn:" <> other_id
                })
 
-      assert {:ok, _} = Custody.pin_episode(other_id, "world-eval-read-only", @policy_digest)
+      assert {:ok, _} = WorkSessions.pin_episode(other_id, "world-eval-read-only", @policy_digest)
       assert {:ok, other} = Custody.claim_next("other-eval-worker", 300, :work)
       assert other.episode.id != claim.episode.id
 
@@ -1781,11 +1782,10 @@ defmodule Ryker.Evals.WorldRunnerTest do
              })
 
     assert {:ok, _session} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                transition.episode.id,
                "world-eval-read-only",
-               @policy_digest,
-               nil
+               @policy_digest
              )
 
     assert {:ok, claim} = Custody.claim_next("world-worker:lost", 300, :work)

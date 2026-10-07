@@ -8,6 +8,7 @@ defmodule Ryker.Work.CustodyTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.Publication
   alias Ryker.Repo
@@ -96,24 +97,24 @@ defmodule Ryker.Work.CustodyTest do
     command = create_kernel_episode!("policy-default-evolves")
 
     assert {:ok, pinned} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                command.episode_id,
                "work-read-only",
                String.duplicate("a", 64),
-               @authority_digest,
-               "infrastructure"
+               authority_digest: @authority_digest,
+               repository_ref: "infrastructure"
              )
 
     assert pinned.repository_ref == "infrastructure"
     assert pinned.authority_digest == @authority_digest
 
     assert {:ok, original} =
-             Custody.pin_episode(
+             WorkSessions.pin_episode(
                command.episode_id,
                "work-read-only-v2",
                String.duplicate("b", 64),
-               String.duplicate("e", 64),
-               "backend"
+               authority_digest: String.duplicate("e", 64),
+               repository_ref: "backend"
              )
 
     assert original.policy == "work-read-only"
@@ -130,12 +131,8 @@ defmodule Ryker.Work.CustodyTest do
     command = create_kernel_episode!("model-moved")
 
     assert {:ok, pinned} =
-             Custody.pin_episode(
-               command.episode_id,
-               "ryker-chat",
-               @policy_digest,
-               @authority_digest,
-               nil
+             WorkSessions.pin_episode(command.episode_id, "ryker-chat", @policy_digest,
+               authority_digest: @authority_digest
              )
 
     pinned = WorkerJob.pin!(pinned)
@@ -1135,10 +1132,9 @@ defmodule Ryker.Work.CustodyTest do
                  "work-writable",
                  String.duplicate("a", 64),
                  "ryker",
-                 repository_context,
                  workspace_task,
-                 nil,
-                 "platform"
+                 environment_ref: "platform",
+                 repository_context: repository_context
                )
              end)
 
@@ -1179,10 +1175,10 @@ defmodule Ryker.Work.CustodyTest do
     assert Custody.pin_episode_in_transaction(episode_id, ref, digest) ==
              {:error, :work_transaction_required}
 
-    assert Custody.pin_episode(episode_id, ref, digest) == {:error, :episode_not_found}
+    assert WorkSessions.pin_episode(episode_id, ref, digest) == {:error, :episode_not_found}
 
     assert {:error, {:invalid_work_custody, :repository_ref}} =
-             Custody.pin_episode(episode_id, ref, digest, <<0>>)
+             WorkSessions.pin_episode(episode_id, ref, digest, repository_ref: <<0>>)
 
     assert {:error, {:invalid_work_submission, :fields}} =
              Custody.freeze_submission(episode_id, ref, ref, :invalid)
@@ -1650,12 +1646,9 @@ defmodule Ryker.Work.CustodyTest do
     command = create_kernel_episode!("portable")
 
     assert {:ok, session} =
-             Custody.pin_episode(
-               command.episode_id,
-               "work-read-only",
-               @policy_digest,
-               @authority_digest,
-               "ryker"
+             WorkSessions.pin_episode(command.episode_id, "work-read-only", @policy_digest,
+               authority_digest: @authority_digest,
+               repository_ref: "ryker"
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:portable", 60)
@@ -1779,7 +1772,11 @@ defmodule Ryker.Work.CustodyTest do
     command = create_kernel_episode!(suffix, turn_ref)
 
     assert {:ok, _session} =
-             Custody.pin_episode(command.episode_id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               command.episode_id,
+               "work-read-only",
+               String.duplicate("a", 64)
+             )
 
     command
   end

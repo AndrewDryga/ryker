@@ -5,6 +5,7 @@ defmodule Ryker.Work.ResultCustodyTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{RoutingDigest, RoutingDigests}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Waits.EventSubscription
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, SubmissionBuilder, Turn}
@@ -889,7 +890,11 @@ defmodule Ryker.Work.ResultCustodyTest do
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
-             Custody.pin_episode(command.episode_id, "work-read-only", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               command.episode_id,
+               "work-read-only",
+               String.duplicate("a", 64)
+             )
 
     command
   end

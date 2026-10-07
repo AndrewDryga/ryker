@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.Publication
@@ -540,7 +541,11 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
              )
 
     assert {:ok, _session} =
-             Custody.pin_episode(transition.episode.id, profile().policy, profile().policy_digest)
+             WorkSessions.pin_episode(
+               transition.episode.id,
+               profile().policy,
+               profile().policy_digest
+             )
 
     assert {:ok, claim} = Custody.claim_next("lab-task-offer", 60, :work)
     claim = bind_claim!(claim, "task-offer")

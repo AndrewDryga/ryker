@@ -5,8 +5,9 @@ defmodule Ryker.Evals.ClientJobTest do
   alias Ryker.Evals.{Job, WorldSource}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Learning.FleetSession
-  alias Ryker.Work.{Custody, OperationKeys, RepositorySource, Session}
+  alias Ryker.Work.{OperationKeys, RepositorySource, Session}
 
   setup do
     {:ok, job} = Job.new(:world, "codex:fixture/high@eval")
@@ -175,7 +176,9 @@ defmodule Ryker.Evals.ClientJobTest do
         })
       )
 
-    {:ok, session} = Custody.pin_episode(id, job.name, job.digest, nil, repository_ref)
+    {:ok, session} =
+      WorkSessions.pin_episode(id, job.name, job.digest, repository_ref: repository_ref)
+
     session
   end
 end
