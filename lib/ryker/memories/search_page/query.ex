@@ -4,6 +4,8 @@ defmodule Ryker.Memories.SearchPage.Query do
   the next row a cursor reaches, matching the words searched for, and
   related to the messages a search names. Each memory's Query module says
   which of its fields a page reads (its text, when it changed, its source).
+  The row itself is the query's first binding, the only one a search over
+  any kind of memory can name.
   """
   import Ecto.Query
   alias Ryker.CanonicalJSON
@@ -21,10 +23,9 @@ defmodule Ryker.Memories.SearchPage.Query do
       from(item in queryable,
         where: item.inserted_at <= ^page.cutoff,
         where: item.id not in ^excluded_ids,
-        where: ^dynamic([item], ^changed <= ^page.cutoff),
+        where: ^dynamic(^changed <= ^page.cutoff),
         where:
           ^dynamic(
-            [item],
             fragment(
               "position(lower(?) in lower(?)) > 0 OR to_tsvector('simple', ?) @@ plainto_tsquery('simple', ?)",
               ^search,
@@ -96,19 +97,19 @@ defmodule Ryker.Memories.SearchPage.Query do
         source_conversation = target["conversation_ref"]
         source_thread = target["thread_ref"]
         source_message = target["message_ref"]
-        identity = dynamic([item], false)
+        identity = dynamic(false)
 
         identity =
           if source_thread,
-            do: dynamic([item], ^identity or ^thread == ^source_thread),
+            do: dynamic(^identity or ^thread == ^source_thread),
             else: identity
 
         identity =
           if source_message,
-            do: dynamic([item], ^identity or ^message == ^source_message),
+            do: dynamic(^identity or ^message == ^source_message),
             else: identity
 
-        dynamic([item], ^selected or (^conversation == ^source_conversation and ^identity))
+        dynamic(^selected or (^conversation == ^source_conversation and ^identity))
       end)
 
     from(item in queryable, where: ^selected)
@@ -122,11 +123,11 @@ defmodule Ryker.Memories.SearchPage.Query do
   defp date_filter(queryable, page, date) do
     queryable =
       if page.after,
-        do: from(item in queryable, where: ^dynamic([item], ^date >= ^page.after)),
+        do: from(item in queryable, where: ^dynamic(^date >= ^page.after)),
         else: queryable
 
     if page.before,
-      do: from(item in queryable, where: ^dynamic([item], ^date < ^page.before)),
+      do: from(item in queryable, where: ^dynamic(^date < ^page.before)),
       else: queryable
   end
 end

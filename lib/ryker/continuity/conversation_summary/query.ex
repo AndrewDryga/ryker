@@ -57,15 +57,15 @@ defmodule Ryker.Continuity.ConversationSummary.Query do
 
     matching_scope =
       dynamic(
-        [rollup],
-        (^repository_scope and rollup.scope_kind == :repository and
-           rollup.scope_ref == parent_as(:conversation_summaries).repository_ref) or
-          (not (^repository_scope) and rollup.scope_kind == :conversation and
-             rollup.scope_ref == parent_as(:conversation_summaries).conversation_ref)
+        [conversation_rollups: r],
+        (^repository_scope and r.scope_kind == :repository and
+           r.scope_ref == parent_as(:conversation_summaries).repository_ref) or
+          (not (^repository_scope) and r.scope_kind == :conversation and
+             r.scope_ref == parent_as(:conversation_summaries).conversation_ref)
       )
 
     blocked =
-      from(rollup in ConversationRollup,
+      from([conversation_rollups: rollup] in ConversationRollup.Query.all(),
         where: rollup.workspace_ref == parent_as(:conversation_summaries).workspace_ref,
         where: rollup.state != ^%{"retention" => "pruned"},
         where:

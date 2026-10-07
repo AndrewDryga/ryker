@@ -102,7 +102,10 @@ defmodule Ryker.Slack.IncidentRoom.Query do
   `{record, turn, episode}`, the earliest delivered first; at most 25.
   """
   def automatic_candidates(workspace_ref, refused) do
-    from([record, turn, episode] in offers_with_channel(workspace_ref),
+    offers = offers_with_channel(workspace_ref)
+
+    from(
+      [episode_state_records: record, episode_work_turns: turn, episode_kernel_episodes: episode] in offers,
       where: ^open_incident_offer(refused),
       where: ^delivered_in_slack(),
       where: ^automatic_without_room(workspace_ref),
@@ -115,43 +118,46 @@ defmodule Ryker.Slack.IncidentRoom.Query do
   # Each offer with the turn that delivered it, its episode, the setup of the
   # channel it was delivered to in `workspace_ref`, and its room if it has one.
   defp offers_with_channel(workspace_ref) do
-    from(record in Record,
+    from([episode_state_records: record] in Record.Query.all(),
       join: turn in Turn,
+      as: :episode_work_turns,
       on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
       join: episode in Episode,
+      as: :episode_kernel_episodes,
       on: episode.id == record.episode_id,
       join: configuration in ChannelConfiguration,
+      as: :slack_channel_configurations,
       on:
         configuration.workspace_ref == ^workspace_ref and
           configuration.channel_ref ==
             fragment("split_part(?, ':', 3)", episode.destination_conversation_ref),
       left_join: room in IncidentRoom,
+      as: :slack_incident_rooms,
       on: room.record_id == record.id
     )
   end
 
   defp open_incident_offer(refused) do
     dynamic(
-      [record],
-      record.kind == "task_offer" and record.status == :open and
-        fragment("(?::jsonb ->> 'kind') = 'incident'", record.payload) and
-        record.ref not in ^refused
+      [episode_state_records: r],
+      r.kind == "task_offer" and r.status == :open and
+        fragment("(?::jsonb ->> 'kind') = 'incident'", r.payload) and r.ref not in ^refused
     )
   end
 
   defp delivered_in_slack do
     dynamic(
-      [_record, turn, episode],
-      turn.status == :settled and not is_nil(turn.external_receipt) and
-        episode.destination_transport == "slack"
+      [episode_work_turns: t, episode_kernel_episodes: e],
+      t.status == :settled and not is_nil(t.external_receipt) and
+        e.destination_transport == "slack"
     )
   end
 
   defp automatic_without_room(workspace_ref) do
     dynamic(
-      [_record, _turn, episode, configuration, room],
-      fragment("split_part(?, ':', 2)", episode.destination_conversation_ref) == ^workspace_ref and
-        configuration.alert_policy == :automatic and is_nil(room.id)
+      [episode_kernel_episodes: e, slack_channel_configurations: c, slack_incident_rooms: i],
+      fragment("split_part(?, ':', 2)", e.destination_conversation_ref) == ^workspace_ref and
+        c.alert_policy == :automatic and is_nil(i.id)
     )
   end
 
@@ -260,7 +266,8 @@ defmodule Ryker.Slack.IncidentRoom.Query do
   """
   def next_claimable(now) do
     from(room in all(),
-      where: ^dynamic([room], ^next_step() and ^unleased_and_due(now)),
+      where: ^next_step(),
+      where: ^unleased_and_due(now),
       order_by: [
         asc_nulls_last: room.close_requested_at,
         asc: fragment("CASE WHEN ? = 'ready' THEN 0 ELSE 1 END", room.status),
@@ -274,18 +281,18 @@ defmodule Ryker.Slack.IncidentRoom.Query do
 
   defp next_step do
     dynamic(
-      [room],
-      (room.status == :requested and room.channel_state in [:pending, :active]) or
-        (room.status == :ready and room.channel_state != room.reconciled_channel_state) or
-        (room.status in [:requested, :ready] and not is_nil(room.close_requested_at))
+      [slack_incident_rooms: r],
+      (r.status == :requested and r.channel_state in [:pending, :active]) or
+        (r.status == :ready and r.channel_state != r.reconciled_channel_state) or
+        (r.status in [:requested, :ready] and not is_nil(r.close_requested_at))
     )
   end
 
   defp unleased_and_due(now) do
     dynamic(
-      [room],
-      (is_nil(room.next_attempt_at) or room.next_attempt_at <= ^now) and
-        (is_nil(room.lease_expires_at) or room.lease_expires_at <= ^now)
+      [slack_incident_rooms: r],
+      (is_nil(r.next_attempt_at) or r.next_attempt_at <= ^now) and
+        (is_nil(r.lease_expires_at) or r.lease_expires_at <= ^now)
     )
   end
 
@@ -344,11 +351,11 @@ defmodule Ryker.Slack.IncidentRoom.Query do
   # asked for, and unleased at `now`.
   defp pinned_in_live_channel(now) do
     dynamic(
-      [room],
-      room.status == :ready and room.channel_state == :active and
-        room.reconciled_channel_state == :active and not is_nil(room.root_message_ref) and
-        is_nil(room.close_requested_at) and
-        (is_nil(room.lease_expires_at) or room.lease_expires_at <= ^now)
+      [slack_incident_rooms: r],
+      r.status == :ready and r.channel_state == :active and
+        r.reconciled_channel_state == :active and not is_nil(r.root_message_ref) and
+        is_nil(r.close_requested_at) and
+        (is_nil(r.lease_expires_at) or r.lease_expires_at <= ^now)
     )
   end
 

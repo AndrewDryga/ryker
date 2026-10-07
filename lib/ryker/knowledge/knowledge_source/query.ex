@@ -128,13 +128,14 @@ defmodule Ryker.Knowledge.KnowledgeSource.Query do
   def direct_near(knowledge_id, observation) do
     thread =
       if observation.thread_ref,
-        do: dynamic([_s, previous], previous.thread_ref == ^observation.thread_ref),
+        do: dynamic([conversation_observations: o], o.thread_ref == ^observation.thread_ref),
         else: dynamic(false)
 
-    connected = dynamic([_s, previous], previous.id == ^observation.id or ^thread)
+    connected = dynamic([conversation_observations: o], o.id == ^observation.id or ^thread)
 
     from(s in all(),
       join: previous in ConversationObservation,
+      as: :conversation_observations,
       on: previous.id == s.observation_id,
       where: s.knowledge_id == ^knowledge_id and not is_nil(s.direct_support_version),
       where: ^connected

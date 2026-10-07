@@ -18,7 +18,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "Active, unexpired behaviors of `workspace_ref` that `actor_ref` may see."
   def active_behaviors(workspace_ref, actor_ref, now) do
-    from(behavior in Behavior,
+    from([operator_behaviors: behavior] in Behavior.Query.all(),
       where:
         behavior.workspace_ref == ^workspace_ref and behavior.status == :active and
           (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
@@ -28,7 +28,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "The `limit` latest active or paused, unexpired behaviors `actor_ref` may see."
   def listed_behaviors(workspace_ref, actor_ref, now, limit) do
-    from(behavior in Behavior,
+    from([operator_behaviors: behavior] in Behavior.Query.all(),
       where:
         behavior.workspace_ref == ^workspace_ref and behavior.status in [:active, :disabled] and
           (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
@@ -43,7 +43,7 @@ defmodule Ryker.Slack.AppHome.Query do
   # the whole workspace; any other behavior when it is theirs or the workspace's.
   defp behavior_visibility(actor_ref) do
     dynamic(
-      [behavior],
+      [operator_behaviors: b],
       fragment(
         """
         CASE WHEN ? = 'guidance' THEN
@@ -53,17 +53,17 @@ defmodule Ryker.Slack.AppHome.Query do
           ((? = 'operator' AND ? = ?) OR ? IN ('repository', 'workspace'))
         END
         """,
-        behavior.kind,
-        behavior.scope_kind,
-        behavior.scope_ref,
+        b.kind,
+        b.scope_kind,
+        b.scope_ref,
         ^actor_ref,
-        behavior.payload,
-        behavior.scope_kind,
-        behavior.payload,
-        behavior.scope_kind,
-        behavior.scope_ref,
+        b.payload,
+        b.scope_kind,
+        b.payload,
+        b.scope_kind,
+        b.scope_ref,
         ^actor_ref,
-        behavior.scope_kind
+        b.scope_kind
       )
     )
   end
@@ -123,8 +123,9 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "Working episodes of the person's conversations whose owning turn is blocked."
   def blocked_turns(destination_refs) do
-    from(turn in Turn,
+    from([episode_work_turns: turn] in Turn.Query.all(),
       join: episode in Episode,
+      as: :episode_kernel_episodes,
       on:
         episode.id == turn.episode_id and episode.owner_kind == :turn and
           episode.owner_ref == turn.turn_ref,
@@ -137,7 +138,10 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "The `limit` latest of `blocked_turns/1`, as `{episode, blocked_at}`."
   def listed_blocked_turns(destination_refs, limit) do
-    from([turn, episode] in blocked_turns(destination_refs),
+    from(
+      [episode_work_turns: turn, episode_kernel_episodes: episode] in blocked_turns(
+        destination_refs
+      ),
       order_by: [desc: turn.updated_at, desc: turn.id],
       limit: ^limit,
       select: {episode, turn.updated_at}
@@ -200,43 +204,44 @@ defmodule Ryker.Slack.AppHome.Query do
   def publication_attention(destination_refs, conflicts, limit) do
     conflict =
       dynamic(
-        [publication],
-        publication.status == :publish_pending and publication.last_error_code in ^conflicts
+        [episode_publications: p],
+        p.status == :publish_pending and p.last_error_code in ^conflicts
       )
 
     failed =
       dynamic(
-        [publication],
-        publication.status in [:review_pending, :review_ready, :publish_pending, :published_ready] and
-          not is_nil(publication.last_error_code)
+        [episode_publications: p],
+        p.status in [:review_pending, :review_ready, :publish_pending, :published_ready] and
+          not is_nil(p.last_error_code)
       )
 
     unapproved =
       dynamic(
-        [publication],
-        publication.status in [:reviewed, :blocked] and is_nil(publication.approval_ref)
+        [episode_publications: p],
+        p.status in [:reviewed, :blocked] and is_nil(p.approval_ref)
       )
 
     stale =
       dynamic(
-        [publication],
-        publication.status == :published and not is_nil(publication.expected_remote_head_sha)
+        [episode_publications: p],
+        p.status == :published and not is_nil(p.expected_remote_head_sha)
       )
 
-    from(publication in Publication,
+    from([episode_publications: p] in Publication.Query.all(),
       where:
-        publication.destination_transport == "slack" and
-          publication.destination_conversation_ref in ^destination_refs,
-      where: ^dynamic([publication], ^conflict or ^failed or ^unapproved or ^stale),
-      order_by: [desc: publication.updated_at, desc: publication.id],
+        p.destination_transport == "slack" and
+          p.destination_conversation_ref in ^destination_refs,
+      where: ^dynamic(^conflict or ^failed or ^unapproved or ^stale),
+      order_by: [desc: p.updated_at, desc: p.id],
       limit: ^limit
     )
   end
 
   @doc "Retained working copies of the person's conversations."
   def retained_workspaces(destination_refs) do
-    from(session in Session,
+    from([episode_work_sessions: session] in Session.Query.all(),
       join: episode in Episode,
+      as: :episode_kernel_episodes,
       on: episode.id == session.episode_id,
       where:
         episode.destination_transport == "slack" and
@@ -251,7 +256,10 @@ defmodule Ryker.Slack.AppHome.Query do
   episode}`.
   """
   def unmerged_workspaces(destination_refs, limit) do
-    from([session, episode] in retained_workspaces(destination_refs),
+    from(
+      [episode_work_sessions: session, episode_kernel_episodes: episode] in retained_workspaces(
+        destination_refs
+      ),
       where:
         session.retained_reason == "unpublished_unmerged" and not is_nil(session.external_ref) and
           not is_nil(session.discard_plan_fingerprint) and

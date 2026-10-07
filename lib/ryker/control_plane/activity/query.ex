@@ -124,6 +124,7 @@ defmodule Ryker.ControlPlane.Activity.Query do
       left_join: scheduled in subquery(scheduled_runs()),
       on: scheduled.episode_id == episode.id,
       left_join: turn in Turn,
+      as: :turn,
       on: ^holding_turn(),
       left_join: left in FailureDismissal,
       on:
@@ -177,10 +178,10 @@ defmodule Ryker.ControlPlane.Activity.Query do
   # on Failures changed nothing here (2026-10-04 review).
   defp holding_turn do
     dynamic(
-      [episode, _input, _checkout, _scheduled, turn],
-      turn.episode_id == episode.id and
-        ((episode.owner_kind == :turn and turn.turn_ref == episode.owner_ref) or
-           (episode.owner_kind == :delivery and turn.delivery_ref == episode.owner_ref))
+      [episode: e, turn: t],
+      t.episode_id == e.id and
+        ((e.owner_kind == :turn and t.turn_ref == e.owner_ref) or
+           (e.owner_kind == :delivery and t.delivery_ref == e.owner_ref))
     )
   end
 

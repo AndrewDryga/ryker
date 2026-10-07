@@ -22,8 +22,8 @@ defmodule Ryker.Work.CandidateResponse.Query do
     chosen =
       Enum.reduce(attempts, dynamic(false), fn {turn_id, numbers}, chosen ->
         dynamic(
-          [response],
-          ^chosen or (response.turn_id == ^turn_id and response.candidate_attempt in ^numbers)
+          [work_candidate_responses: r],
+          ^chosen or (r.turn_id == ^turn_id and r.candidate_attempt in ^numbers)
         )
       end)
 

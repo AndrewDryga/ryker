@@ -432,7 +432,9 @@ defmodule Ryker.ControlPlane.Conversation.Query do
       )
 
     from(entry in subquery(latest),
+      as: :inputs,
       join: first in subquery(positions),
+      as: :positions,
       on: first.native_input_id == entry.native_input_id,
       where: ^inputs_filter(filter),
       order_by: [desc: first.position, desc: fragment("? COLLATE \"C\"", entry.native_input_id)],
@@ -464,22 +466,21 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   defp inputs_filter(:all), do: dynamic(true)
   defp inputs_filter(:none), do: dynamic(false)
-  defp inputs_filter({:before_or_at, at}), do: dynamic([entry, first], first.position <= ^at)
-  defp inputs_filter({:before, at}), do: dynamic([entry, first], first.position < ^at)
+  defp inputs_filter({:before_or_at, at}), do: dynamic([positions: p], p.position <= ^at)
+  defp inputs_filter({:before, at}), do: dynamic([positions: p], p.position < ^at)
 
   defp inputs_filter({:before_or_tie, at, native_input_id}) do
     dynamic(
-      [entry, first],
-      first.position < ^at or
-        (first.position == ^at and
-           fragment("? COLLATE \"C\"", entry.native_input_id) < ^native_input_id)
+      [inputs: e, positions: p],
+      p.position < ^at or
+        (p.position == ^at and fragment("? COLLATE \"C\"", e.native_input_id) < ^native_input_id)
     )
   end
 
   defp inputs_filter({:inputs, native_input_ids, source_item_refs}) do
     dynamic(
-      [entry, first],
-      entry.native_input_id in ^native_input_ids or entry.source_item_ref in ^source_item_refs
+      [inputs: e],
+      e.native_input_id in ^native_input_ids or e.source_item_ref in ^source_item_refs
     )
   end
 
@@ -489,7 +490,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   only an unaccepted or invisible result is absent.
   """
   def replies(ref, filter, limit) do
-    from(turn in Turn,
+    from([episode_work_turns: turn] in Turn.Query.all(),
       join: episode in Episode,
       on: episode.id == turn.episode_id,
       where:
@@ -520,18 +521,21 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   defp replies_filter(:all), do: dynamic(true)
   defp replies_filter(:none), do: dynamic(false)
-  defp replies_filter({:before_or_at, at}), do: dynamic([turn], turn.accepted_at <= ^at)
-  defp replies_filter({:before, at}), do: dynamic([turn], turn.accepted_at < ^at)
+
+  defp replies_filter({:before_or_at, at}),
+    do: dynamic([episode_work_turns: t], t.accepted_at <= ^at)
+
+  defp replies_filter({:before, at}), do: dynamic([episode_work_turns: t], t.accepted_at < ^at)
 
   defp replies_filter({:before_or_tie, at, turn_id}) do
     dynamic(
-      [turn],
-      turn.accepted_at < ^at or (turn.accepted_at == ^at and turn.id < ^turn_id)
+      [episode_work_turns: t],
+      t.accepted_at < ^at or (t.accepted_at == ^at and t.id < ^turn_id)
     )
   end
 
   defp replies_filter({:replies, turn_ids, delivery_refs}),
-    do: dynamic([turn], turn.id in ^turn_ids or turn.delivery_ref in ^delivery_refs)
+    do: dynamic([episode_work_turns: t], t.id in ^turn_ids or t.delivery_ref in ^delivery_refs)
 
   @doc """
   Publications of conversation `ref` that show a delivery, each with its
@@ -540,7 +544,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   published; its position is the delivery it currently shows.
   """
   def publications(ref, filter, limit) do
-    from(publication in Publication,
+    from([episode_publications: publication] in Publication.Query.all(),
       join: record in Record,
       on: record.id == publication.record_id and record.episode_id == publication.episode_id,
       where:
@@ -560,19 +564,19 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   defp publications_filter(:all), do: dynamic(true)
   defp publications_filter(:none), do: dynamic(false)
-  defp publications_filter({:ids, ids}), do: dynamic([publication], publication.id in ^ids)
+  defp publications_filter({:ids, ids}), do: dynamic([episode_publications: p], p.id in ^ids)
 
   defp publications_filter({:before_or_at, at}),
-    do: dynamic([publication], PublicationPosition.Query.sql(publication) <= ^at)
+    do: dynamic([episode_publications: p], PublicationPosition.Query.sql(p) <= ^at)
 
   defp publications_filter({:before, at}),
-    do: dynamic([publication], PublicationPosition.Query.sql(publication) < ^at)
+    do: dynamic([episode_publications: p], PublicationPosition.Query.sql(p) < ^at)
 
   defp publications_filter({:before_or_tie, at, publication_id}) do
     dynamic(
-      [publication],
-      PublicationPosition.Query.sql(publication) < ^at or
-        (PublicationPosition.Query.sql(publication) == ^at and publication.id < ^publication_id)
+      [episode_publications: p],
+      PublicationPosition.Query.sql(p) < ^at or
+        (PublicationPosition.Query.sql(p) == ^at and p.id < ^publication_id)
     )
   end
 
@@ -581,7 +585,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   the latest first, `limit` at most.
   """
   def actions(ref, filter, limit) do
-    from(action in PlatformAction,
+    from([platform_actions: action] in PlatformAction.Query.all(),
       join: episode in Episode,
       on: episode.id == action.episode_id,
       where:
@@ -610,14 +614,17 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   defp actions_filter(:all), do: dynamic(true)
   defp actions_filter(:none), do: dynamic(false)
-  defp actions_filter({:ids, ids}), do: dynamic([action], action.id in ^ids)
-  defp actions_filter({:before_or_at, at}), do: dynamic([action], action.delivered_at <= ^at)
-  defp actions_filter({:before, at}), do: dynamic([action], action.delivered_at < ^at)
+  defp actions_filter({:ids, ids}), do: dynamic([platform_actions: a], a.id in ^ids)
+
+  defp actions_filter({:before_or_at, at}),
+    do: dynamic([platform_actions: a], a.delivered_at <= ^at)
+
+  defp actions_filter({:before, at}), do: dynamic([platform_actions: a], a.delivered_at < ^at)
 
   defp actions_filter({:before_or_tie, at, action_id}) do
     dynamic(
-      [action],
-      action.delivered_at < ^at or (action.delivered_at == ^at and action.id < ^action_id)
+      [platform_actions: a],
+      a.delivered_at < ^at or (a.delivered_at == ^at and a.id < ^action_id)
     )
   end
 
@@ -626,7 +633,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   at delivery like a platform message, the latest first, `limit` at most.
   """
   def quick_replies(ref, filter, limit) do
-    from(response in RoutingResponse,
+    from([delivery_routing_responses: response] in RoutingResponse.Query.all(),
       where:
         response.kind == :message and response.transport == "control_plane" and
           response.conversation_ref == ^ref and response.thread_ref == ^ref and
@@ -648,17 +655,20 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   defp quick_replies_filter(:all), do: dynamic(true)
   defp quick_replies_filter(:none), do: dynamic(false)
-  defp quick_replies_filter({:ids, ids}), do: dynamic([response], response.id in ^ids)
+
+  defp quick_replies_filter({:ids, ids}),
+    do: dynamic([delivery_routing_responses: r], r.id in ^ids)
 
   defp quick_replies_filter({:before_or_at, at}),
-    do: dynamic([response], response.delivered_at <= ^at)
+    do: dynamic([delivery_routing_responses: r], r.delivered_at <= ^at)
 
-  defp quick_replies_filter({:before, at}), do: dynamic([response], response.delivered_at < ^at)
+  defp quick_replies_filter({:before, at}),
+    do: dynamic([delivery_routing_responses: r], r.delivered_at < ^at)
 
   defp quick_replies_filter({:before_or_tie, at, response_id}) do
     dynamic(
-      [response],
-      response.delivered_at < ^at or (response.delivered_at == ^at and response.id < ^response_id)
+      [delivery_routing_responses: r],
+      r.delivered_at < ^at or (r.delivered_at == ^at and r.id < ^response_id)
     )
   end
 

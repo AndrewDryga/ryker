@@ -12,8 +12,9 @@ defmodule Ryker.ControlPlane.Overview.Query do
 
   @doc "Turns that own their working request and stopped."
   def blocked_work do
-    from(turn in Turn,
+    from([episode_work_turns: turn] in Turn.Query.all(),
       join: episode in Episode,
+      as: :episode_kernel_episodes,
       on:
         episode.id == turn.episode_id and episode.owner_kind == :turn and
           episode.owner_ref == turn.turn_ref,
@@ -118,7 +119,7 @@ defmodule Ryker.ControlPlane.Overview.Query do
 
   @doc "The `limit` latest stopped work, as the attention list shows it."
   def stopped_work(limit) do
-    from([turn, episode] in blocked_work(),
+    from([episode_work_turns: turn, episode_kernel_episodes: episode] in blocked_work(),
       order_by: [desc: turn.updated_at, desc: turn.id],
       limit: ^limit,
       select: %{

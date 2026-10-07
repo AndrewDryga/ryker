@@ -145,7 +145,8 @@ defmodule Ryker.Learning.SourceDependency.Query do
 
   @doc """
   When the latest message a row learned from was said: a summary's or a
-  rollup's source clock, not the time maintenance last rewrote it.
+  rollup's source clock, not the time maintenance last rewrote it. It reads
+  the row through the query's first binding, whichever memory that is.
   """
   def latest_source_at do
     dynamic(
