@@ -65,6 +65,38 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-07.
   `Ryker.Inspectors` (`test/support/inspectors.ex`); tests may read rows
   through Query modules directly.
 
+## Writes
+
+Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker follows:
+
+- A function that reads a row and then writes it locks it first
+  (`Schema.Query.lock_for_update/1` inside the transaction), so no write
+  lands between the read and the lock.
+- A row whose identity is a unique key is written with one upsert
+  (`on_conflict: {:replace, fields}, conflict_target: key`), and a
+  fetch-or-create inserts with `on_conflict: :nothing` and reads the winner.
+- A write hands back what it changed (`returning: true`, `select` on
+  `update_all`) instead of reading it again; N rows go in one `insert_all`
+  unless each must fail alone, which the call says.
+- Fields are chosen by the changeset's `cast`, never by `Map.take/2` or
+  `Map.drop/2` in a context (`ContextNoMapTakeDrop`). Crypto goes through
+  `Ryker.Crypto` (`ContextCryptoBoundary`); runtime configuration a test
+  changes goes through `Ryker.Config` (`NoApplicationPutEnv`).
+
+Not adopted:
+
+- **`Ecto.Multi` with `Repo.commit_multi` for every transaction.** Ryker's
+  custody composes deep transactions that call each other in fixed lock
+  orders (a memory write takes the answer source, then the review lock, then
+  the channel), and each refusal is a `Repo.rollback/1` reason its callers
+  match on. Rewriting them as `Multi`
+  steps would change every custody contract for no change in behaviour.
+- **`Repo.transact/2` instead of `Repo.transaction/2`.** Ecto 3.14
+  deprecates `transaction/2` in its documentation only, and Emisar still
+  calls it. `transact/2` commits on `{:ok, _}` and rolls back on
+  `{:error, _}`, so moving 264 calls means rewriting each body's contract.
+  Revisit when Ecto warns.
+
 ## Migrations
 
 - A migration is frozen once a deploy has run it; a change is a new migration.
