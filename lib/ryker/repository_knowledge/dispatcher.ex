@@ -215,21 +215,18 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
 
   defp attempt(entry, repository, binding, policy, head, entries) do
     tree = Document.tree(entries)
-    facts = Document.outline_facts(tree)
 
     # What Ryker wrote last is worth keeping in the words it has only when a
     # model wrote it; the outline would only teach the model its gaps.
     kept = if entry.document_by == :model, do: entry.document
 
     request =
-      Prompt.build(
+      Prompt.for_tree(
+        tree,
         %{
           name: repository.github_repository,
           default_branch: repository.base_branch,
           commit: head,
-          top_level: facts.top_level,
-          key_files: facts.key_files,
-          more: facts.more,
           current_document: kept
         },
         Custody.retry?(entry)

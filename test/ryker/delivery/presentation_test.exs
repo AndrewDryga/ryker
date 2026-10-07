@@ -21,7 +21,6 @@ defmodule Ryker.Delivery.PresentationTest do
     assert :ok = Presentation.validate(episode("slack"), turn(), final)
     assert :ok = Presentation.validate(episode("github"), turn(), final)
     assert :ok = Presentation.validate(episode("control_plane"), turn(), final)
-    assert :ok = Presentation.validate(episode("eval"), turn(), final)
 
     assert Presentation.validate(episode("webhook"), turn(), final) ==
              {:error, {:invalid_delivery_presentation, {:unsupported_transport, "webhook"}}}

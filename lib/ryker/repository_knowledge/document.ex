@@ -354,6 +354,21 @@ defmodule Ryker.RepositoryKnowledge.Document do
   # -- Writing it ------------------------------------------------------------------
 
   @doc """
+  What Ryker keeps of an answer and the RYKER.md it writes from that: the
+  answer checked against the tree and the files it cites (`verify/3`), then
+  rendered at `commit` on `date` (`render/3`), with how many items were
+  dropped. The lane and `Ryker.Evals.KnowledgeJudge` both go through it, so a
+  recorded answer is judged the way the lane keeps one (2026-10-04 review).
+  """
+  @spec keep(map(), map(), map(), String.t(), Date.t()) ::
+          {:ok, map(), non_neg_integer(), String.t()} | {:error, atom()}
+  def keep(answer, tree, sources, commit, %Date{} = date) do
+    with {:ok, kept, dropped} <- verify(answer, tree, sources),
+         {:ok, document} <- render(kept, commit, date),
+         do: {:ok, kept, dropped, document}
+  end
+
+  @doc """
   RYKER.md from a checked answer (`verify/3`): the provenance line, then a
   section for each part the answer holds, every path a plain relative link.
   Ryker keeps at most #{@maximum_bytes} bytes of it, and an answer that

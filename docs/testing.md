@@ -126,6 +126,13 @@ export RYKER_EVAL_WORLD_TARGET='<provider:model/effort@account>'
 export RYKER_EVAL_BASELINE_TARGET='<provider:model/effort@account>'
 ```
 
+The world eval also serves the worker gateway the evaluation worker connects to, so it reads that
+gateway's settings and nothing else of an installation's: `RYKER_WORKER_PUBLIC_URL`, the four TLS
+files (`RYKER_WORKER_CA_FILE`, `RYKER_WORKER_CA_KEY_FILE`, `RYKER_WORKER_CERT_FILE`,
+`RYKER_WORKER_KEY_FILE`), `RYKER_STATE_TOOLS_TOKEN`, `RYKER_CHECKPOINT_KEY`, and optionally
+`RYKER_WORKER_IP`, `RYKER_WORKER_PORT` and `RYKER_STATE_DIR`. Its databases are on Ryker's test
+server (`scripts/test-database.sh`).
+
 The world evaluation exercises the real episode kernel, Work executor, lease-scoped state tools,
 semantic repair, and inert evaluation delivery against checked-in deterministic worlds:
 

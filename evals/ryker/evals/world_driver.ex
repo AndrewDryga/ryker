@@ -355,7 +355,7 @@ defmodule Ryker.Evals.WorldDriver do
         {:error, {:world_eval_failed, {:work_retry_exhausted, reason}}}
 
       {:ok, {:deferred, _reason}} ->
-        make_work_claimable(claim.turn.id)
+        make_turn_claimable(claim.turn.id)
 
         with {:ok, retried} <-
                Custody.claim_next("#{settings.worker_ref}:work:#{index}:#{6 - left}", 300, :work),
@@ -373,7 +373,9 @@ defmodule Ryker.Evals.WorldDriver do
     end
   end
 
-  defp make_work_claimable(turn_id) do
+  # A retried turn is claimable at its next attempt time; the world does not wait
+  # for it. Work and delivery retries both read the turn's next_attempt_at.
+  defp make_turn_claimable(turn_id) do
     Repo.query!(
       "UPDATE episode_work_turns SET next_attempt_at = clock_timestamp() - interval '1 second' WHERE id = $1",
       [Ecto.UUID.dump!(turn_id)]
@@ -402,7 +404,7 @@ defmodule Ryker.Evals.WorldDriver do
         :ok
 
       {:ok, {:deferred, :message, _delivery_ref, _reason}} ->
-        make_delivery_claimable(execution.turn.id)
+        make_turn_claimable(execution.turn.id)
         deliver_message(execution, adapters, settings, index, left - 1)
 
       {:error, _reason} = error ->
@@ -411,14 +413,5 @@ defmodule Ryker.Evals.WorldDriver do
       other ->
         {:error, {:world_eval_failed, {:delivery_result, other}}}
     end
-  end
-
-  defp make_delivery_claimable(turn_id) do
-    Repo.query!(
-      "UPDATE episode_work_turns SET next_attempt_at = clock_timestamp() - interval '1 second' WHERE id = $1",
-      [Ecto.UUID.dump!(turn_id)]
-    )
-
-    :ok
   end
 end

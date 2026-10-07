@@ -2,14 +2,15 @@ defmodule Mix.Tasks.Ryker.LearningEval do
   @moduledoc """
   Runs a harvested conversation through production learning in an empty DB.
 
-      MIX_ENV=test PGDATABASE=ryker_learning_eval_example mix ryker.learning_eval \
-        --database ryker_learning_eval_example --socket /absolute/coop.sock \
+      RYKER_EVAL_SOCKET=/absolute/coop.sock MIX_ENV=test \
+        PGDATABASE=ryker_learning_eval_example mix ryker.learning_eval \
+        --database ryker_learning_eval_example \
         --target <provider:model/effort@account> \
         --results /absolute/new-report.json --scenario haproxy
 
-  Scenarios: haproxy (default), auth-memory-recurrence, draft-keep, unoffered-draft-match,
-  starfall-correction, chatter, one-off-request, people.
-  Each needs its own empty database.
+  The eval worker is the one `RYKER_EVAL_SOCKET` names, as for `mix ryker.eval`.
+  Scenarios are `Ryker.Evals.LearningRunner.scenarios/0`, haproxy by default;
+  each needs its own empty database.
 
   Create and migrate the explicitly disposable database first. This task starts
   only Repo and Finch, not Ryker workers or transports. It refuses nonempty
@@ -19,6 +20,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
   use Mix.Task
   alias Ryker.Coop.Client
   alias Ryker.Evals.{Job, LearningRunner}
+  alias Ryker.Evals.Runtime, as: EvalRuntime
   alias Ryker.Repo
 
   @shortdoc "Runs isolated longitudinal learning; never publishes messages"
@@ -44,7 +46,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
   end
 
   defp parse_options!(arguments) do
-    keys = [:database, :socket, :target, :results]
+    keys = [:database, :target, :results]
 
     {options, rest, invalid} =
       OptionParser.parse(arguments,
@@ -58,7 +60,8 @@ defmodule Mix.Tasks.Ryker.LearningEval do
     unless rest == [] and invalid == [] and supplied -- (keys ++ [:scenario, :probe]) == [] and
              keys -- supplied == [] and length(Enum.uniq(supplied)) == length(supplied) do
       Mix.raise(
-        "provide each required flag once: --database --socket --target --results; optional --scenario haproxy|auth-memory-recurrence|draft-keep|unoffered-draft-match|starfall-correction|chatter|one-off-request|people --probe"
+        "provide each required flag once: --database --target --results; optional --scenario " <>
+          Enum.join(LearningRunner.scenarios(), "|") <> " --probe"
       )
     end
 
@@ -66,17 +69,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
   end
 
   defp validate_options!(options, scenario) do
-    unless scenario in [
-             "haproxy",
-             "auth-memory-recurrence",
-             "draft-keep",
-             "unoffered-draft-match",
-             "starfall-correction",
-             "chatter",
-             "one-off-request",
-             "people"
-           ],
-           do: Mix.raise("unknown learning scenario")
+    unless scenario in LearningRunner.scenarios(), do: Mix.raise("unknown learning scenario")
 
     if scenario in ["chatter", "one-off-request", "people"] and options[:probe],
       do: Mix.raise("#{scenario} has no learned topic to probe")
@@ -101,15 +94,20 @@ defmodule Mix.Tasks.Ryker.LearningEval do
     {:ok, _} = Finch.start_link(name: Ryker.LearningEvalFinch)
     {:ok, job} = Job.new(:learning, options[:target])
 
-    {:ok, client} =
-      Client.new(
-        socket: options[:socket],
-        job: job,
-        finch: Ryker.LearningEvalFinch,
-        receive_timeout: 30_000
-      )
-
-    client
+    # The worker and the receive timeout `mix ryker.eval` uses: this took a
+    # --socket of its own and waited a hard-coded 30 s (2026-10-04 review).
+    with {:ok, socket} <- Job.socket(),
+         {:ok, client} <-
+           Client.new(
+             socket: socket,
+             job: job,
+             finch: Ryker.LearningEvalFinch,
+             receive_timeout: EvalRuntime.receive_timeout_ms()
+           ) do
+      client
+    else
+      {:error, reason} -> Mix.raise("learning evaluation failed: #{inspect(reason)}")
+    end
   end
 
   defp execute(options, scenario, settings) do

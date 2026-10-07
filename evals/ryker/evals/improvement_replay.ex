@@ -13,34 +13,14 @@ defmodule Ryker.Evals.ImprovementReplay do
   request's own page open.
   """
 
-  alias Ryker.Evals.{CoopRunner, ImprovementReplayCase}
+  alias Ryker.Evals.{CoopRunner, ImprovementReplayCase, JsonLines}
 
   @doc "The cases in an export file, oldest first, and the lines that could not be read with why."
   @spec cases(String.t()) :: {:ok, [ImprovementReplayCase.t()], [map()]} | {:error, term()}
   def cases(path) when is_binary(path) do
-    if File.regular?(path) do
-      {cases, skipped} =
-        path
-        |> File.stream!(:line)
-        |> Stream.map(&String.trim/1)
-        |> Stream.reject(&(&1 == ""))
-        |> Stream.with_index(1)
-        |> Enum.map(fn {line, number} -> {number, replay(line)} end)
-        |> Enum.split_with(&match?({_number, {:ok, _replay}}, &1))
-
-      {:ok, Enum.map(cases, fn {_number, {:ok, replay}} -> replay end),
-       Enum.map(skipped, fn {number, {:error, reason}} ->
-         %{line: number, reason: inspect(reason)}
-       end)}
-    else
-      {:error, {:improvement_runs_not_found, path}}
-    end
-  end
-
-  defp replay(line) do
-    case Jason.decode(line) do
-      {:ok, run} -> ImprovementReplayCase.new(run)
-      {:error, _reason} -> {:error, :unreadable_line}
+    case JsonLines.read(path, &ImprovementReplayCase.new/1) do
+      {:ok, _cases, _skipped} = read -> read
+      {:error, :not_found} -> {:error, {:improvement_runs_not_found, path}}
     end
   end
 

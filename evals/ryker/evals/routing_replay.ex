@@ -14,7 +14,7 @@ defmodule Ryker.Evals.RoutingReplay do
   person to read, with the request's own page open.
   """
 
-  alias Ryker.Evals.{CoopRunner, RoutingReplayCase}
+  alias Ryker.Evals.{CoopRunner, JsonLines, RoutingReplayCase}
   alias Ryker.LocalRouting.Client
 
   @doc """
@@ -24,36 +24,11 @@ defmodule Ryker.Evals.RoutingReplay do
   @spec cases(String.t(), pos_integer() | nil) ::
           {:ok, [RoutingReplayCase.t()], [map()]} | {:error, term()}
   def cases(path, limit \\ nil) when is_binary(path) do
-    if File.regular?(path) do
-      {cases, skipped} = read(path)
-      {:ok, if(limit, do: Enum.take(cases, limit), else: cases), skipped}
-    else
-      {:error, {:routing_examples_not_found, path}}
+    case JsonLines.read(path, &RoutingReplayCase.new/1) do
+      {:ok, cases, skipped} -> {:ok, if(limit, do: Enum.take(cases, limit), else: cases), skipped}
+      {:error, :not_found} -> {:error, {:routing_examples_not_found, path}}
     end
   end
-
-  defp read(path) do
-    {cases, skipped} =
-      path
-      |> File.stream!(:line)
-      |> Stream.map(&String.trim/1)
-      |> Stream.reject(&(&1 == ""))
-      |> Stream.with_index(1)
-      |> Enum.map(fn {line, number} -> {number, replay(line)} end)
-      |> Enum.split_with(&match?({_number, {:ok, _replay}}, &1))
-
-    {Enum.map(cases, fn {_number, {:ok, replay}} -> replay end),
-     Enum.map(skipped, fn {number, {:error, reason}} -> skipped(number, reason) end)}
-  end
-
-  defp replay(line) do
-    case Jason.decode(line) do
-      {:ok, document} -> RoutingReplayCase.new(document)
-      {:error, _reason} -> {:error, :unreadable_line}
-    end
-  end
-
-  defp skipped(line, reason), do: %{line: line, reason: inspect(reason)}
 
   @doc "Runs the cases on the eval worker (`Ryker.Evals.CoopRunner`)."
   @spec run([RoutingReplayCase.t()], keyword()) :: {:ok, map()} | {:error, term()}

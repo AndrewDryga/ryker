@@ -252,7 +252,7 @@ dedicated lane drives the actual durable dispatcher, current prompt/schema, sour
 topic application, and proof-bearing cleanup:
 
 ```console
-MIX_ENV=test PGDATABASE=ryker_learning_eval_haproxy scripts/elixir-mix.sh ryker.learning_eval --database ryker_learning_eval_haproxy --socket /absolute/evaluation-coop/control.sock --target '<provider:model/effort@account>' --results /absolute/new-learning-report.json --scenario haproxy
+RYKER_EVAL_SOCKET=/absolute/evaluation-coop/control.sock MIX_ENV=test PGDATABASE=ryker_learning_eval_haproxy scripts/elixir-mix.sh ryker.learning_eval --database ryker_learning_eval_haproxy --target '<provider:model/effort@account>' --results /absolute/new-learning-report.json --scenario haproxy
 ```
 
 Create and migrate the named disposable database first; configure its PostgreSQL connection with

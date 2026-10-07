@@ -3,7 +3,6 @@ defmodule Mix.Tasks.Ryker.Eval do
   Exports or executes the versioned model-world scenarios.
 
       mix ryker.eval world-pack
-      mix ryker.eval world --results /absolute/world-results.json
       mix ryker.eval world --results /absolute/shard-2.json --shard 2/4
       mix ryker.eval world-shards --shards 4
       mix ryker.eval world-merge --results /absolute/world-results.json \\
@@ -47,18 +46,15 @@ defmodule Mix.Tasks.Ryker.Eval do
   """
 
   use Mix.Task
-  import Ecto.Query
   alias Ecto.Adapters.Postgres
   alias Ryker.Coop.Client
   alias Ryker.CoopFleet.Server, as: FleetServer
   alias Ryker.Evals.{CoopRunner, ImprovementReplay, Job, RoutingReplay, WorldCase, WorldCassette}
-  alias Ryker.Evals.PrivateFile
+  alias Ryker.Evals.{PrivateFile, SessionCleanup}
   alias Ryker.Evals.Runtime, as: EvalRuntime
   alias Ryker.Evals.{WorldCoverage, WorldDatabase, WorldJudgeCase, WorldReport, WorldRunner}
   alias Ryker.Evals.{WorldSource, WorldSuite, WorldTools}
   alias Ryker.Repo
-  alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
-  alias Ryker.Work.Session, as: WorkSession
 
   @shortdoc "Exports or runs the versioned model-world scenarios"
 
@@ -98,7 +94,7 @@ defmodule Mix.Tasks.Ryker.Eval do
   def run(_arguments) do
     Mix.raise(
       "usage: mix ryker.eval world-pack" <>
-        " | world --results /absolute/world-results.json [--shard I/N]" <>
+        " | world --results /absolute/shard.json --shard I/N" <>
         " | world-shards --shards N" <>
         " | world-merge --results /absolute/world-results.json /absolute/shard.json..." <>
         " | routing-replay --examples /absolute/routing-examples.jsonl" <>
@@ -301,11 +297,10 @@ defmodule Mix.Tasks.Ryker.Eval do
          {:ok, plan} <- shard_plan(plan, world.shard),
          :ok <- stop_repo(),
          reports <- run_world_plan(plan, runtime, eval_policies, eval_client),
-         {:ok, summary} <- world_summary(reports, world),
-         :ok <- WorldReport.write(results_path, reports, summary: summary) do
+         :ok <- WorldReport.write(results_path, reports, summary: nil) do
       Enum.each(reports, &info(Jason.encode!(printable_world_report(&1))))
       announce_preserved_databases(reports)
-      conclude_world(world, reports, summary)
+      announce_shard(world.shard, reports)
     else
       {:error, {:invalid_shard, value}} ->
         Mix.raise(
@@ -313,12 +308,16 @@ defmodule Mix.Tasks.Ryker.Eval do
             " got #{inspect(value)}"
         )
 
+      {:error, :world_needs_a_shard} ->
+        Mix.raise(
+          "world eval failed: --shard I/N is required (1/1 for one VM); world-merge applies" <>
+            " the thresholds, and scripts/elixir-world-eval.sh runs both"
+        )
+
       {:error, reason} ->
         Mix.raise("world eval failed: #{inspect(reason)}")
     end
   end
-
-  defp shard_plan(plan, nil), do: {:ok, plan}
 
   defp shard_plan(plan, {index, count}) do
     case WorldSuite.shard(plan, index, count) do
@@ -329,13 +328,10 @@ defmodule Mix.Tasks.Ryker.Eval do
 
   # A shard's results carry no verdict: its per-case rates would be over the
   # one or two repeats it happened to be dealt, and the paired comparison over
-  # a fraction of the matrix. The thresholds are applied once, to the merge.
-  defp world_summary(_reports, %{shard: {_index, _count}}), do: {:ok, nil}
-
-  defp world_summary(reports, world),
-    do: WorldSuite.summarize(reports, summary_options(world))
-
-  defp conclude_world(%{shard: {index, count}}, reports, nil) do
+  # a fraction of the matrix. The thresholds are applied once, to the merge. A
+  # run without --shard was a second verdict path nothing took: the wrapper
+  # always deals shards (2026-10-04 review).
+  defp announce_shard({index, count}, reports) do
     candidates = Enum.filter(reports, &(&1.lane == :candidate))
     passed = Enum.count(candidates, &(&1.status == :passed))
 
@@ -344,8 +340,6 @@ defmodule Mix.Tasks.Ryker.Eval do
         " passed; thresholds apply to the merged report"
     )
   end
-
-  defp conclude_world(_world, _reports, summary), do: qualify_world(summary)
 
   defp qualify_world(summary) do
     info(Jason.encode!(%{"world_summary" => summary}))
@@ -490,18 +484,30 @@ defmodule Mix.Tasks.Ryker.Eval do
     end
   end
 
+  # A passed observation whose database would not drop kept it too, and was announced as
+  # failed; the hint named a bare `mix` that the pinned toolchain does not guarantee
+  # (2026-10-04 review).
   defp announce_preserved_databases(reports) do
     reports
     |> Enum.filter(&Map.get(&1, :database))
     |> Enum.each(fn report ->
       info(
-        "preserving failed world database #{report.database} for custody inspection" <>
+        preserved(report) <>
           " (#{report.scenario_id} #{report.lane} repeat #{report.repeat_index})"
       )
 
-      info("drop after inspection with: PGDATABASE=#{report.database} MIX_ENV=test mix ecto.drop")
+      info(
+        "drop after inspection with: PGDATABASE=#{report.database} MIX_ENV=test" <>
+          " scripts/elixir-mix.sh ecto.drop"
+      )
     end)
   end
+
+  defp preserved(%{status: :passed, database: database}),
+    do: "keeping world database #{database}, which a passed observation could not drop"
+
+  defp preserved(%{database: database}),
+    do: "preserving failed world database #{database} for custody inspection"
 
   defp run_world_observation(observation, runtime, eval_policies, eval_client) do
     policy = observation_policy(eval_policies, observation.lane)
@@ -713,9 +719,12 @@ defmodule Mix.Tasks.Ryker.Eval do
     strict = Keyword.merge(@plan_flags, @threshold_flags) ++ [results: :string, shard: :string]
 
     with {:ok, parsed, []} <- parse_flags(arguments, strict),
-         {:ok, shard} <- parse_shard(Keyword.get(parsed, :shard)) do
-      prepare_world_arguments(parsed, shard)
+         {:ok, shard} <- parse_shard(Keyword.get(parsed, :shard)),
+         {:ok, world} <- prepare_world_arguments(parsed, shard),
+         %{shard: {_index, _count}} <- world do
+      {:ok, world}
     else
+      %{shard: nil} -> {:error, :world_needs_a_shard}
       {:ok, _parsed, _positional} -> {:error, :invalid_arguments}
       {:error, _reason} = error -> error
     end
@@ -892,7 +901,6 @@ defmodule Mix.Tasks.Ryker.Eval do
     options = [
       api: work.api,
       client: work.client,
-      closed_session_grace_seconds: 0,
       lease_seconds: 60,
       max_attempts: 1,
       retry_base_seconds: 1,
@@ -901,33 +909,8 @@ defmodule Mix.Tasks.Ryker.Eval do
         "model-world-cleanup:#{observation.lane}:#{observation.scenario.id}:#{observation.repeat_index}"
     ]
 
-    with :ok <- WorldDatabase.terminalize_waiting_episodes() do
-      drain_world_cleanup(options, 16)
-    end
-  end
-
-  defp drain_world_cleanup(_options, 0), do: {:error, :world_cleanup_did_not_drain}
-
-  defp drain_world_cleanup(options, left) do
-    case RetentionDispatcher.run_once(options) do
-      {:ok, :idle} -> world_sessions_discarded()
-      {:ok, {:executed, _execution}} -> drain_world_cleanup(options, left - 1)
-      {:ok, {:deferred, reason}} -> {:error, {:world_cleanup_deferred, reason}}
-      {:ok, {:blocked, reason}} -> {:error, {:world_cleanup_blocked, reason}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp world_sessions_discarded do
-    pending =
-      Repo.aggregate(
-        from(session in WorkSession, where: session.cleanup_status != :discarded),
-        :count
-      )
-
-    if pending == 0,
-      do: :ok,
-      else: {:error, {:world_cleanup_incomplete, pending}}
+    with :ok <- WorldDatabase.terminalize_waiting_episodes(),
+         do: SessionCleanup.drain(options, 16)
   end
 
   defp start_finch do

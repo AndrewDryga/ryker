@@ -49,7 +49,11 @@ defmodule Ryker.Evals.WorldConcurrencyTest do
         assert MapSet.new(stored.queued_input_refs) == MapSet.new(queued_refs)
 
         {:ok, fake} = FakeWorkCoopAPI.start_link([])
-        {:ok, deliveries} = Agent.start_link(fn -> [] end)
+
+        {:ok, deliveries} =
+          Agent.start_link(fn ->
+            %{deliveries: %{}, lose_next_response: 0, order: [], receipts: %{}}
+          end)
 
         FakeWorkCoopAPI.update(
           fake,
@@ -114,7 +118,7 @@ defmodule Ryker.Evals.WorldConcurrencyTest do
 
           assert FakeWorkCoopAPI.state(fake).create_count == 1
           assert FakeWorkCoopAPI.state(fake).submit_count == 2
-          assert length(Agent.get(deliveries, & &1)) == 2
+          assert length(Agent.get(deliveries, & &1.order)) == 2
         after
           if Process.alive?(fake), do: Agent.stop(fake)
           if Process.alive?(deliveries), do: Agent.stop(deliveries)

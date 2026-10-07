@@ -1819,7 +1819,10 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
     assert execution.turn.status == :delivery_pending
 
-    {:ok, delivery_agent} = Agent.start_link(fn -> [] end)
+    {:ok, delivery_agent} =
+      Agent.start_link(fn ->
+        %{deliveries: %{}, lose_next_response: 0, order: [], receipts: %{}}
+      end)
 
     assert {:ok, adapters} =
              Adapters.new(%{
@@ -1841,7 +1844,10 @@ defmodule Ryker.Evals.WorldRunnerTest do
                worker_ref: "world-worker:delivery"
              )
 
-    assert [{:message, request, receipt}] = Agent.get(delivery_agent, & &1)
+    assert %{order: [^delivery_ref], deliveries: %{^delivery_ref => delivery}} =
+             Agent.get(delivery_agent, & &1)
+
+    assert %{kind: :message, request: request, receipt: receipt} = delivery
     assert request.ref == delivery_ref
     assert receipt["delivery_ref"] == delivery_ref
     assert request.document["message"] == "Your request was received."

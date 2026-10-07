@@ -10,9 +10,8 @@ defmodule Ryker.Evals.WorldTools do
       when is_list(capabilities) do
     fixed = Tools.list(tool_options(configured))
     scenario_fixed = WorldCase.state_tools(scenario)
-    platform = Map.get(configured, :additional_tools) || []
     fabricated = WorldCase.fabricated_tools(scenario)
-    all = fixed ++ platform ++ fabricated
+    all = fixed ++ fabricated
     names = Enum.map(all, & &1["name"])
 
     cond do
@@ -25,17 +24,11 @@ defmodule Ryker.Evals.WorldTools do
           }}}
 
       Enum.all?(all, &valid_tool?/1) and names == Enum.uniq(names) ->
-        platform_names = MapSet.new(platform, & &1["name"])
-        fabricated_names = MapSet.new(fabricated, & &1["name"])
-
-        callback =
-          if platform == [] and fabricated == [],
-            do: nil,
-            else: tool_callback(cassette, fabricated_names, platform_names)
+        callback = if fabricated == [], do: nil, else: tool_callback(cassette, fabricated)
 
         state_tools =
           configured
-          |> Map.put(:additional_tools, platform ++ fabricated)
+          |> Map.put(:additional_tools, fabricated)
           |> Map.put(:additional_call, callback)
           |> Map.put(:answer_authorizer, WorldCase.answer_authorizer(scenario))
 
@@ -48,7 +41,7 @@ defmodule Ryker.Evals.WorldTools do
          %{
            catalog: catalog,
            catalog_sha256: CanonicalJSON.digest(catalog),
-           source_and_action_tools: platform ++ fabricated,
+           source_and_action_tools: fabricated,
            state_tools: state_tools,
            tool_names: names
          }}
@@ -69,18 +62,14 @@ defmodule Ryker.Evals.WorldTools do
 
   defp valid_tool?(_tool), do: false
 
-  defp tool_callback(cassette, fabricated_names, platform_names) do
+  # The scenario's recorded world answers its own tools; anything else is refused.
+  defp tool_callback(cassette, fabricated) do
+    names = MapSet.new(fabricated, & &1["name"])
+
     fn name, arguments, _binding ->
-      cond do
-        MapSet.member?(fabricated_names, name) ->
-          WorldCassette.call(cassette, name, arguments)
-
-        MapSet.member?(platform_names, name) ->
-          WorldCassette.inert_call(cassette, name, arguments)
-
-        true ->
-          {:error, %{"code" => "unknown_model_world_tool"}}
-      end
+      if MapSet.member?(names, name),
+        do: WorldCassette.call(cassette, name, arguments),
+        else: {:error, %{"code" => "unknown_model_world_tool"}}
     end
   end
 end

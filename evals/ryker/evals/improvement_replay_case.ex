@@ -69,8 +69,7 @@ defmodule Ryker.Evals.ImprovementReplayCase do
          }}
 
       {:error, _invalid} ->
-        {:reject,
-         ["Return exactly the five fields, each with a value from its own list where it has one."]}
+        {:reject, [Prompt.correction()]}
     end
   end
 

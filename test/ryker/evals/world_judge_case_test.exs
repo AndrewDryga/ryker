@@ -53,6 +53,20 @@ defmodule Ryker.Evals.WorldJudgeCaseTest do
     assert applied["payload"]["run_id"] == "run-5gvASLsVavas4TRg"
   end
 
+  # 2026-10-04 review: va1's scenario records a host correction from the run it was harvested
+  # from. The runner drives input events alone, yet the judge was shown every event as trusted
+  # evidence, so it could credit the judged run with a correction that run never made.
+  test "the judge is shown only the events the run was driven by" do
+    {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
+    assert Enum.any?(scenario.events, &(&1["kind"] == "semantic_correction"))
+    {:ok, judge} = WorldJudgeCase.new(scenario, report())
+
+    events = Jason.decode!(judge.prompt)["evidence"]["source_events"]
+
+    assert events != []
+    assert Enum.all?(events, &(&1["kind"] == "input"))
+  end
+
   test "the judge sees sanitized trusted state-tool outcomes" do
     {:ok, scenario} = WorldCase.fetch("missing-project-answer-is-remembered")
     {:ok, judge} = WorldJudgeCase.new(scenario, report())

@@ -12,7 +12,7 @@ defmodule Ryker.Evals.LearningRunner do
   alias Ryker.CanonicalJSON
   alias Ryker.Config
   alias Ryker.Crypto
-  alias Ryker.Evals.{Job, LearningProbe}
+  alias Ryker.Evals.{Evidence, Job, LearningProbe, SessionCleanup}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
@@ -29,6 +29,13 @@ defmodule Ryker.Evals.LearningRunner do
   @terminal [:applied, :no_change, :deferred, :superseded]
   @runtime_keys ~w(admission learning work retention delivery publication slack github webhooks
     schedules event_waits state_tools coop_worker_gateway)a
+
+  @scenarios ~w(haproxy auth-memory-recurrence draft-keep unoffered-draft-match
+    starfall-correction chatter one-off-request people)
+
+  @doc "The recorded scenarios `recorded_sequence/1` reads, the first the default."
+  @spec scenarios() :: [String.t()]
+  def scenarios, do: @scenarios
 
   @doc "Loads exact harvested sources, never the fixture's recorded model answers."
   def recorded_sequence(scenario \\ "haproxy")
@@ -438,6 +445,11 @@ defmodule Ryker.Evals.LearningRunner do
       offered["can_update"] == true
   end
 
+  # Not Inbox.record/2: the fixtures are recorded entries, not the provider inputs it
+  # takes, and a silent learning replay must not be routed. Learning reads an entry and
+  # its excerpt, which this writes as the inbox does; what else recording writes (rule
+  # inventories, feedback on answers) serves routing and answers, never learning
+  # (checked 2026-10-07 against Ryker.Learning.LearningSources).
   defp persist!(raw, settings) do
     # Import source fields only. Recorded routing, work authority and model results
     # are intentionally not accepted as authority by this silent learning replay.
@@ -525,7 +537,7 @@ defmodule Ryker.Evals.LearningRunner do
 
     cond do
       batch && batch.status in @terminal ->
-        document(batch)
+        Evidence.record(batch)
 
       match?({:error, _}, result) ->
         %{"status" => "failed", "error_code" => inspect(result)}
@@ -536,23 +548,12 @@ defmodule Ryker.Evals.LearningRunner do
     end
   end
 
-  defp cleanup(_settings, 0), do: :unfinished
+  defp cleanup(settings, passes) do
+    options = [api: settings.api, client: settings.client, worker_ref: "learning-eval-cleanup"]
 
-  defp cleanup(settings, left) do
-    sessions = Repo.all(Session)
-
-    if Enum.all?(sessions, &(&1.cleanup_status == :discarded)) do
-      :discarded
-    else
-      case Ryker.Retention.Dispatcher.run_once(
-             api: settings.api,
-             client: settings.client,
-             worker_ref: "learning-eval-cleanup",
-             closed_session_grace_seconds: 0
-           ) do
-        {:ok, {:executed, _}} -> cleanup(settings, left - 1)
-        _ -> :unfinished
-      end
+    case SessionCleanup.drain(options, passes) do
+      :ok -> :discarded
+      {:error, _reason} -> :unfinished
     end
   end
 
@@ -629,18 +630,9 @@ defmodule Ryker.Evals.LearningRunner do
   defp semantic_review(_expectation),
     do: "required; structural checks do not prove the model's factual interpretation"
 
-  defp documents(schema),
-    do: Repo.all(from(item in schema, order_by: [asc: item.inserted_at])) |> Enum.map(&document/1)
-
-  defp document(record) do
-    Map.take(record, record.__struct__.__schema__(:fields))
-    |> Map.new(fn {key, value} -> {Atom.to_string(key), printable(value)} end)
+  defp documents(schema) do
+    from(item in schema, order_by: [asc: item.inserted_at])
+    |> Repo.all()
+    |> Enum.map(&Evidence.record/1)
   end
-
-  defp printable(%DateTime{} = value), do: DateTime.to_iso8601(value)
-
-  defp printable(value) when is_atom(value) and value not in [nil, true, false],
-    do: Atom.to_string(value)
-
-  defp printable(value), do: value
 end

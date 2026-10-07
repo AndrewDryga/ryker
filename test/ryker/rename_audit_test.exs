@@ -36,7 +36,7 @@ defmodule Ryker.RenameAuditTest do
   # the token is a deliberate reference; `~r//` on `path` means any file.
   @allowed_tokens [
     # --- contracts with another party
-    {~r{^(lib/ryker/(control_plane/(tool_card|saved_records|episode_trace/tool_activity)|work/activity_event/query|state_tools/record_writer)|evals/ryker/evals/(world_case|world_evidence)|test/ryker/slack/reply_records_test)\.exs?$},
+    {~r{^(lib/ryker/(control_plane/(tool_card|saved_records|episode_trace/tool_activity)|work/activity_event/query|state_tools/record_writer)|test/ryker/slack/reply_records_test)\.exs?$},
      ~r/responder-state(?![A-Za-z0-9_])|responder-state:v1/,
      "read-only historical activity and immutable state-record idempotency namespace; new execution uses controller-tools"},
     {~r{^(lib/ryker/control_plane/(model_requests|request_context_html)\.ex|test/ryker/control_plane/request_context_html_test\.exs)$},

@@ -23,9 +23,10 @@ defmodule Ryker.Evals.Runtime do
   @doc "The worker gateway and state tools an isolated world evaluation serves."
   @spec world() :: {:ok, world()} | {:error, atom()}
   def world do
-    bootstrap = Bootstrap.load!()
-
-    case bootstrap.worker_gateway do
+    # Only what the world uses: the whole bootstrap demanded a database URL, a
+    # credential key and a console listener an eval never touches (2026-10-04
+    # review).
+    case Bootstrap.worker_gateway!() do
       nil ->
         {:error, :model_world_gateway_not_configured}
 
@@ -44,7 +45,7 @@ defmodule Ryker.Evals.Runtime do
              |> Map.put(
                :body_root,
                Path.join([
-                 bootstrap.storage_root,
+                 Bootstrap.storage_root!(),
                  "worker-bodies",
                  Integer.to_string(gateway.port)
                ])

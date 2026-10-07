@@ -156,7 +156,7 @@ defmodule Ryker.Evals.WorldCase do
   @spec state_tools(t()) :: [map()]
   def state_tools(%__MODULE__{tool_catalog: %{"servers" => servers}}) do
     Enum.find_value(servers, [], fn
-      %{"name" => name, "tools" => tools} when name in ["controller-tools", "responder-state"] ->
+      %{"name" => "controller-tools", "tools" => tools} ->
         tools
 
       _other ->
@@ -413,6 +413,10 @@ defmodule Ryker.Evals.WorldCase do
     end
   end
 
+  # A host correction recorded in the run the scenario was harvested from. It is
+  # provenance: the runner drives input events alone, and the judge is shown only
+  # those (`Ryker.Evals.WorldJudgeCase`), since the judged run may never have made
+  # that correction (2026-10-04 review). The harvested bytes stay as they were.
   defp event(%{"kind" => "semantic_correction"} = value, _actors) do
     with :ok <- exact_fields(value, ~w(actor_ref kind occurred_at payload), :events),
          :ok <- reference(value["actor_ref"], :events),

@@ -25,6 +25,25 @@ defmodule Ryker.Evals.Evidence do
     end
   end
 
+  @doc """
+  A stored row as a report shows it: every schema field under its name, times
+  in ISO 8601 and enum values as strings. The learning eval and its probe each
+  had a copy (2026-10-04 review).
+  """
+  @spec record(struct()) :: %{String.t() => term()}
+  def record(%{__struct__: schema} = row) do
+    row
+    |> Map.take(schema.__schema__(:fields))
+    |> Map.new(fn {key, value} -> {Atom.to_string(key), printable(value)} end)
+  end
+
+  defp printable(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp printable(value) when is_atom(value) and value not in [nil, true, false],
+    do: Atom.to_string(value)
+
+  defp printable(value), do: value
+
   defp scrub(%{} = value) do
     Map.new(value, fn {key, item} ->
       key = to_string(key)

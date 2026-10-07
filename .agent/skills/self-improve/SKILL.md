@@ -94,9 +94,9 @@ mistake, not a problem or unclear, the step, what went wrong and what it should 
 - `make eval-trend` for the recorded corpus history; if a case flaps run-to-run,
   either fix the prompt ambiguity it exposes or mark the flake with evidence —
   never let a flaky case train everyone to ignore the gate.
-- Chronic failures in the recorded eval cases (`testdata/eval/admission.json` and
-  the worlds under `testdata/scenarios/`): decide prompt-side vs host-side and
-  open the task on the right side.
+- Chronic failures in the worlds under `testdata/scenarios/`: decide prompt-side
+  vs host-side and open the task on the right side. Routing has no recorded
+  corpus of its own; a routing change is checked with `make eval-routing-replay`.
 
 ## 5. Episodes with fresh eyes — the unprompted review
 

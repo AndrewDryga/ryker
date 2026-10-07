@@ -661,8 +661,6 @@ defmodule Ryker.Evals.LearningRunnerTest do
     flags = [
       "--database",
       "ryker_learning_eval_command",
-      "--socket",
-      "/fixture/coop.sock",
       "--target",
       "codex:fixture/high@eval",
       "--results",
@@ -683,8 +681,6 @@ defmodule Ryker.Evals.LearningRunnerTest do
       LearningEval.run([
         "--database",
         "ryker_learning_eval_chatter",
-        "--socket",
-        "/not-opened.sock",
         "--target",
         "codex:fixture/high@eval",
         "--results",
@@ -796,8 +792,6 @@ defmodule Ryker.Evals.LearningRunnerTest do
       LearningEval.run([
         "--database",
         "ryker_learning_eval_one_off",
-        "--socket",
-        "/not-opened.sock",
         "--target",
         "codex:fixture/high@eval",
         "--results",

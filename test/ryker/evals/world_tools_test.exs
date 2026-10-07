@@ -57,28 +57,11 @@ defmodule Ryker.Evals.WorldToolsTest do
            )
   end
 
-  test "the model world exposes production schemas with inert platform authority" do
+  test "the model world exposes production schemas and answers its own tools from the cassette" do
     assert {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
     assert {:ok, cassette} = start_supervised({WorldCassette, scenario})
-    parent = self()
-
-    platform_tool = %{
-      "description" => "A production-shaped action that must remain inert in evals.",
-      "inputSchema" => %{
-        "additionalProperties" => false,
-        "properties" => %{"message_ref" => %{"type" => "string"}},
-        "required" => ["message_ref"],
-        "type" => "object"
-      },
-      "name" => "set_slack_reaction"
-    }
 
     configured = %{
-      additional_call: fn _name, _arguments, _binding ->
-        send(parent, :production_callback_called)
-        {:ok, %{"mutated" => true}}
-      end,
-      additional_tools: [platform_tool],
       capabilities: [:event_waits, :publication, :schedules],
       token_secret: "eval-state-secret"
     }
@@ -89,18 +72,15 @@ defmodule Ryker.Evals.WorldToolsTest do
     names = Enum.map(prepared.catalog["servers"] |> hd() |> Map.fetch!("tools"), & &1["name"])
 
     assert Enum.all?(expected_fixed, &(&1["name"] in names))
-    assert "set_slack_reaction" in names
     assert "monitoring.query" in names
     assert prepared.catalog_sha256 =~ ~r/\A[0-9a-f]{64}\z/
 
-    assert {:error, %{"code" => "model_world_external_tool_disabled"}} =
+    assert {:error, %{"code" => "unknown_model_world_tool"}} =
              prepared.state_tools.additional_call.(
                "set_slack_reaction",
                %{"message_ref" => "1710000000.000100"},
-               %{turn: "inert"}
+               %{turn: "eval"}
              )
-
-    refute_receive :production_callback_called
 
     assert {:ok,
             %{
@@ -110,12 +90,10 @@ defmodule Ryker.Evals.WorldToolsTest do
              prepared.state_tools.additional_call.(
                "monitoring.query",
                %{"environment" => "va1", "query" => "firing_alerts"},
-               %{turn: "inert"}
+               %{turn: "eval"}
              )
 
-    assert [platform_call, source_call] = WorldCassette.calls(cassette)
-    assert platform_call.outcome == :inert
-    assert platform_call.result == %{"error" => "model_world_external_tool_disabled"}
+    assert [source_call] = WorldCassette.calls(cassette)
     assert source_call.outcome == :result
 
     assert source_call.result == %{
@@ -124,19 +102,28 @@ defmodule Ryker.Evals.WorldToolsTest do
            }
   end
 
-  test "configured and fabricated tool names may never collide" do
+  test "a recorded tool may never share a name with a state tool" do
     assert {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
     assert {:ok, cassette} = start_supervised({WorldCassette, scenario})
-    [fabricated | _rest] = WorldCase.fabricated_tools(scenario)
+    [state_tool | _rest] = WorldCase.state_tools(scenario)
+
+    colliding =
+      update_in(scenario.tool_catalog["servers"], fn servers ->
+        Enum.map(servers, fn
+          %{"name" => "fabricated-world"} = server ->
+            Map.update!(server, "tools", &[Map.put(hd(&1), "name", state_tool["name"]) | &1])
+
+          server ->
+            server
+        end)
+      end)
 
     configured = %{
-      additional_call: fn _name, _arguments -> {:error, "disabled"} end,
-      additional_tools: [fabricated],
       capabilities: [:event_waits, :publication, :schedules],
       token_secret: "eval-state-secret"
     }
 
-    assert WorldTools.prepare(configured, scenario, cassette) ==
+    assert WorldTools.prepare(configured, colliding, cassette) ==
              {:error, :model_world_tool_name_conflict}
   end
 
@@ -151,11 +138,7 @@ defmodule Ryker.Evals.WorldToolsTest do
                scenario: scenario_names
              }}} =
              WorldTools.prepare(
-               %{
-                 additional_tools: [],
-                 capabilities: [:publication, :schedules],
-                 token_secret: "eval-state-secret"
-               },
+               %{capabilities: [:publication, :schedules], token_secret: "eval-state-secret"},
                scenario,
                cassette
              )
@@ -171,24 +154,23 @@ defmodule Ryker.Evals.WorldToolsTest do
     assert WorldTools.prepare(%{}, scenario, cassette) ==
              {:error, :model_world_state_tools_not_configured}
 
-    assert WorldTools.prepare(
-             %{
-               additional_tools: [%{"name" => "missing-schema"}],
-               capabilities: [:event_waits, :publication, :schedules]
-             },
-             scenario,
-             cassette
-           ) == {:error, :model_world_tool_name_conflict}
+    without_schema =
+      update_in(scenario.tool_catalog["servers"], fn servers ->
+        Enum.map(servers, fn
+          %{"name" => "fabricated-world"} = server ->
+            Map.update!(server, "tools", &[%{"name" => "missing-schema"} | &1])
 
-    assert {:ok, prepared} =
-             WorldTools.prepare(
-               %{
-                 additional_tools: [],
-                 capabilities: [:event_waits, :publication, :schedules]
-               },
-               scenario,
-               cassette
-             )
+          server ->
+            server
+        end)
+      end)
+
+    configured = %{capabilities: [:event_waits, :publication, :schedules]}
+
+    assert WorldTools.prepare(configured, without_schema, cassette) ==
+             {:error, :model_world_tool_name_conflict}
+
+    assert {:ok, prepared} = WorldTools.prepare(configured, scenario, cassette)
 
     assert prepared.state_tools.additional_call.("unknown.tool", %{}, %{}) ==
              {:error, %{"code" => "unknown_model_world_tool"}}

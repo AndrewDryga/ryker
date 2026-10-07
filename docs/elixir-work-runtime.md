@@ -555,8 +555,8 @@ by deterministic host replay and real-model execution. Its production Ryker stat
 and lease-authorized against an empty disposable PostgreSQL database; its metrics, scheduler, GitHub,
 and similar external tools are a strict recorded cassette. Calls match important normalized
 arguments rather than a global order, controlled failures are replayed per rule, and unmatched calls
-return a bounded error instead of fabricated data. Visible output goes only to the inert `eval`
-transport. Hard checks run first, then an isolated judge session scores every human-language rubric
+return a bounded error instead of fabricated data. Visible output goes to inert Slack, GitHub and
+Chat publishers that record each delivery and send nothing. Hard checks run first, then an isolated judge session scores every human-language rubric
 criterion exactly once. Missing judge evidence remains `UNRUN`, never green.
 Production has no Coop socket for the eval socket to be confused with: product builds reach Coop
 only through the enrolled worker fleet, and the local socket client lives in `evals/`, which no

@@ -54,6 +54,18 @@ defmodule Ryker.Evals.RuntimeTest do
     refute Map.has_key?(world.gateway, :checkpoint_secrets)
   end
 
+  # 2026-10-04 review: the world read the whole installation bootstrap, so an eval needed
+  # DATABASE_URL, RYKER_CREDENTIAL_KEY and a console listener it never used, none of which
+  # docs/testing.md listed. It reads the worker gateway, the state tools' secret, the
+  # checkpoint key and the state directory, and nothing else.
+  test "an evaluation world needs only the settings it uses" do
+    for unused <- ~w(DATABASE_URL RYKER_CREDENTIAL_KEY RYKER_CONTROL_BIND RYKER_CONTAINER),
+        do: put_variable(unused, nil)
+
+    assert {:ok, world} = Runtime.world()
+    assert world.gateway.public_url == "https://eval-worker.example"
+  end
+
   # No eval had run since the v2 worker protocol, which gave the gateway a body
   # store for transferred request and response bodies; the eval world never got
   # one, and every observation of the first run (2026-09-29) stopped with "Coop
@@ -103,7 +115,7 @@ defmodule Ryker.Evals.RuntimeTest do
 
   defp put_variable(name, value) do
     previous = System.get_env(name)
-    System.put_env(name, value)
+    if value, do: System.put_env(name, value), else: System.delete_env(name)
     on_exit(fn -> restore_variable(name, previous) end)
   end
 

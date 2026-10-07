@@ -154,7 +154,10 @@ defmodule Ryker.Bootstrap do
   # Any RYKER_WORKER_* variable means the operator wants the gateway, and the
   # gateway needs all of them: an address without the TLS material used to be
   # validated and then silently dropped, leaving a listener nobody started.
-  defp worker_gateway!(env) do
+  # Public for the world eval, which serves a gateway and needs nothing else of
+  # the installation's bootstrap.
+  @doc false
+  def worker_gateway!(env \\ &System.fetch_env/1) do
     names = [
       "RYKER_WORKER_IP",
       "RYKER_WORKER_PORT",

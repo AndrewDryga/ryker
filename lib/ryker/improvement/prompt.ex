@@ -69,9 +69,10 @@ defmodule Ryker.Improvement.Prompt do
   When evidence is missing, say so in what_went_wrong and lower confidence rather than guessing.
   """
 
+  @correction "Return exactly the five fields, each with a value from its own list where it has one."
+
   @retry """
-  The previous answer to this request did not match the output contract. Return exactly the five
-  fields, each with a value from its own list where it has one.
+  The previous answer to this request did not match the output contract. #{@correction}
   """
 
   @doc "The contract version every analysis turn is submitted under."
@@ -81,6 +82,13 @@ defmodule Ryker.Improvement.Prompt do
   @doc "The instructions every analysis turn starts with."
   @spec instructions() :: String.t()
   def instructions, do: @instructions
+
+  @doc """
+  What an answer that missed the output contract is told to do. The improvement
+  replay corrects an answer with it too, so the two cannot drift apart.
+  """
+  @spec correction() :: String.t()
+  def correction, do: @correction
 
   @doc """
   The request for one analysis: instructions and the evidence as context,

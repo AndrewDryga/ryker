@@ -22,10 +22,6 @@ defmodule Ryker.Evals.WorldCassette do
   @spec calls(GenServer.server()) :: [map()]
   def calls(server), do: GenServer.call(server, :calls)
 
-  @spec inert_call(GenServer.server(), String.t(), map()) :: {:error, map()}
-  def inert_call(server, tool, arguments),
-    do: GenServer.call(server, {:inert_call, tool, arguments})
-
   @impl GenServer
   def init(%WorldCase{} = scenario) do
     rules = Map.new(scenario.world["tool_rules"], &{&1["id"], Map.put(&1, :offset, 0)})
@@ -56,21 +52,6 @@ defmodule Ryker.Evals.WorldCassette do
         recorded = call |> Map.put(:outcome, outcome) |> Map.put(:result, result(reply))
         {:reply, reply, %{state | calls: [recorded | state.calls], rules: rules}}
     end
-  end
-
-  def handle_call({:inert_call, tool, arguments}, _from, state)
-      when is_binary(tool) and is_map(arguments) do
-    reply = {:error, %{"code" => "model_world_external_tool_disabled"}}
-
-    call = %{
-      arguments: Evidence.sanitize(arguments),
-      arguments_sha256: CanonicalJSON.digest(arguments),
-      outcome: :inert,
-      result: %{"error" => "model_world_external_tool_disabled"},
-      tool: tool
-    }
-
-    {:reply, reply, %{state | calls: [call | state.calls]}}
   end
 
   def handle_call({:call, _tool, _arguments}, _from, state) do

@@ -162,7 +162,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
     })
 
     assert_raise Mix.Error, ~r/model_world_database_not_disposable/, fn ->
-      Eval.run(["world", "--results", "/absolute/world.json"])
+      Eval.run(["world", "--results", "/absolute/world.json", "--shard", "1/1"])
     end
   end
 
@@ -175,7 +175,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
     results_path = Path.join(root, "world-results.json")
 
     assert_raise Mix.Error, ~r/model_eval_targets_not_configured/, fn ->
-      Eval.run(["world", "--results", results_path])
+      Eval.run(["world", "--results", results_path, "--shard", "1/1"])
     end
 
     # A configuration path is no longer an argument the eval command accepts.

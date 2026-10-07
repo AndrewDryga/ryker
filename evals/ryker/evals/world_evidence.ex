@@ -137,7 +137,7 @@ defmodule Ryker.Evals.WorldEvidence do
     )
     |> Enum.flat_map(fn
       %{"input" => %{"server" => server, "tool" => tool}} = payload
-      when server in ["controller-tools", "responder-state"] and is_binary(tool) and tool != "" ->
+      when server == "controller-tools" and is_binary(tool) and tool != "" ->
         outcome =
           if payload["status"] == "completed" and get_in(payload, ["output", "error"]) == nil,
             do: "succeeded",
@@ -306,10 +306,6 @@ defmodule Ryker.Evals.WorldEvidence do
     }
   end
 
-  defp delivery({kind, request, receipt}) do
-    delivery(%{attempts: 1, kind: kind, receipt: receipt, request: request})
-  end
-
   defp delivery_artifact(artifact) do
     %{
       bytes: artifact["bytes"],
@@ -322,6 +318,4 @@ defmodule Ryker.Evals.WorldEvidence do
 
   defp delivery_attempts(%{deliveries: deliveries, order: order}),
     do: Enum.map(order, &Map.fetch!(deliveries, &1))
-
-  defp delivery_attempts(deliveries) when is_list(deliveries), do: Enum.reverse(deliveries)
 end

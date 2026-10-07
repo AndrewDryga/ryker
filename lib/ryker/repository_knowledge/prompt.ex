@@ -15,6 +15,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   """
 
   alias Ryker.CanonicalJSON
+  alias Ryker.RepositoryKnowledge.Document
 
   @contract_version "repository-knowledge-v1"
   @max_encoded_bytes 65_536
@@ -87,6 +88,23 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   @doc "The instructions every knowledge turn starts with."
   @spec instructions() :: String.t()
   def instructions, do: @instructions
+
+  @doc """
+  The request for a repository from its tree (`Document.tree/1`): its outline
+  (`Document.outline_facts/1`) beside `repository`'s `name`, `default_branch`,
+  `commit` and the `current_document` worth keeping, if any (`build/2`). The
+  lane and `Ryker.Evals.KnowledgeJudge` both build it here, so a recorded case
+  is asked the way the lane asks (2026-10-04 review).
+  """
+  @spec for_tree(map(), map(), boolean()) :: map()
+  def for_tree(tree, repository, retry? \\ false) do
+    facts = Document.outline_facts(tree)
+
+    repository
+    |> Map.take([:name, :default_branch, :commit, :current_document])
+    |> Map.merge(%{top_level: facts.top_level, key_files: facts.key_files, more: facts.more})
+    |> build(retry?)
+  end
 
   @doc """
   The request for one knowledge turn: instructions and the repository's

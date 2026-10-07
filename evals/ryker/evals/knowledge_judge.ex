@@ -75,18 +75,13 @@ defmodule Ryker.Evals.KnowledgeJudge do
   """
   @spec prompt(map()) :: String.t()
   def prompt(%{run: run, tree: tree}) do
-    facts = Document.outline_facts(tree)
-
-    %{
+    tree
+    |> Prompt.for_tree(%{
       name: run["repository"],
       default_branch: run["default_branch"],
       commit: run["commit"],
-      top_level: facts.top_level,
-      key_files: facts.key_files,
-      more: facts.more,
       current_document: Jason.decode!(run["prompt"])["context"]["current_document"]
-    }
-    |> Prompt.build()
+    })
     |> Prompt.render()
   end
 
@@ -104,8 +99,8 @@ defmodule Ryker.Evals.KnowledgeJudge do
   def check(recorded, result, %Date{} = date) do
     with {:ok, answer} <- Prompt.parse(result),
          sources = Map.take(recorded.sources, Document.cited_sources(answer, recorded.tree)),
-         {:ok, kept, dropped} <- Document.verify(answer, recorded.tree, sources),
-         {:ok, document} <- Document.render(kept, recorded.run["commit"], date) do
+         {:ok, kept, dropped, document} <-
+           Document.keep(answer, recorded.tree, sources, recorded.run["commit"], date) do
       {:ok, %{answer: answer, kept: kept, dropped: dropped, document: document}}
     end
   end

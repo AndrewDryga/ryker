@@ -1,21 +1,13 @@
 defmodule Ryker.Evals.DeliveryPublisher do
-  @moduledoc false
-
-  @behaviour Ryker.Delivery.Platform
-  @behaviour Ryker.Delivery.MessagePublisher
-  @behaviour Ryker.Delivery.ReactionPublisher
+  @moduledoc """
+  What the model world's Slack, GitHub and Chat publishers share: a delivery
+  recorded in the run's agent, with a receipt, and nothing sent anywhere. The
+  world's inputs arrive on those three transports, so those are the ones it
+  delivers to; an "eval" transport of its own was never registered.
+  """
 
   alias Ryker.Crypto
   alias Ryker.Work.DeliveryReceipt
-
-  @impl true
-  def transport, do: "eval"
-
-  @impl true
-  def publish_message(request, agent), do: publish(:message, request, agent)
-
-  @impl true
-  def publish_reaction(request, agent), do: publish(:reaction, request, agent)
 
   @doc false
   def publish(kind, request, agent) when kind in [:message, :reaction] do
@@ -49,9 +41,6 @@ defmodule Ryker.Evals.DeliveryPublisher do
         store_delivery(state, kind, request, receipt, deliveries, order, receipts)
     end
   end
-
-  defp publish_state(deliveries, kind, request, receipt) when is_list(deliveries),
-    do: {{:ok, receipt}, [{kind, request, receipt} | deliveries]}
 
   defp digest(value) do
     Crypto.sha256_hex(value)

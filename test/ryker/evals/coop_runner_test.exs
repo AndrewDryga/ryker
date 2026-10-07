@@ -380,11 +380,11 @@ defmodule Ryker.Evals.CoopRunnerTest do
   end
 
   test "unexpected adapter exceptions and throws stay inside one failed eval case" do
-    assert %{reason: {:world_judge_runner_exception, "adapter exploded"}, status: :failed} =
+    assert %{reason: {:eval_runner_exception, "adapter exploded"}, status: :failed} =
              run_with_faults(%{create_session: {:raise, "adapter exploded"}})
 
     assert %{
-             reason: {:world_judge_runner_caught, :throw, ":adapter_threw"},
+             reason: {:eval_runner_caught, :throw, ":adapter_threw"},
              status: :failed
            } = run_with_faults(%{create_session: {:throw, :adapter_threw}})
   end

@@ -26,8 +26,14 @@ defmodule Ryker.Evals.MixTaskTest do
       Eval.run(["world", "--results", "relative.json"])
     end
 
-    assert_raise Mix.Error, ~r/world eval failed: :model_eval_targets_not_configured/, fn ->
+    # A run without --shard was a second verdict path nothing took (2026-10-04 review): the
+    # wrapper deals shards, and world-merge alone applies the thresholds.
+    assert_raise Mix.Error, ~r/world eval failed: --shard I\/N is required/, fn ->
       Eval.run(["world", "--results", "/absolute/world.json"])
+    end
+
+    assert_raise Mix.Error, ~r/world eval failed: :model_eval_targets_not_configured/, fn ->
+      Eval.run(["world", "--results", "/absolute/world.json", "--shard", "1/1"])
     end
 
     assert_raise Mix.Error, ~r/usage: mix ryker.eval/, fn ->
@@ -238,7 +244,10 @@ defmodule Ryker.Evals.MixTaskTest do
     first = [
       merge_report("case-a", 1, :candidate, :failed)
       |> Map.put(:database, "ryker_world_eval_1_o7"),
-      merge_report("case-b", 1, :candidate, :passed) |> Map.put(:database, nil)
+      merge_report("case-b", 1, :candidate, :passed) |> Map.put(:database, nil),
+      # A pass whose database would not drop keeps it, and is not called failed.
+      merge_report("case-c", 1, :candidate, :passed)
+      |> Map.put(:database, "ryker_world_eval_1_o9")
     ]
 
     second = [
@@ -263,8 +272,16 @@ defmodule Ryker.Evals.MixTaskTest do
              "preserving failed world database ryker_world_eval_1_o7 for custody inspection" <>
                " (case-a candidate repeat 1)"
 
-    assert output =~ "PGDATABASE=ryker_world_eval_1_o7 MIX_ENV=test mix ecto.drop"
+    assert output =~
+             "PGDATABASE=ryker_world_eval_1_o7 MIX_ENV=test scripts/elixir-mix.sh ecto.drop"
+
     assert output =~ "preserving failed world database ryker_world_eval_2_o3"
+
+    assert output =~
+             "keeping world database ryker_world_eval_1_o9, which a passed observation could not" <>
+               " drop (case-c candidate repeat 1)"
+
+    refute output =~ "preserving failed world database ryker_world_eval_1_o9"
 
     results = merged |> File.read!() |> Jason.decode!() |> Map.fetch!("results")
 
@@ -272,7 +289,8 @@ defmodule Ryker.Evals.MixTaskTest do
              {"case-a", 1, "ryker_world_eval_1_o7"},
              {"case-a", 2, "ryker_world_eval_2_o3"},
              {"case-b", 1, nil},
-             {"case-b", 2, nil}
+             {"case-b", 2, nil},
+             {"case-c", 1, "ryker_world_eval_1_o9"}
            ]
 
     refute Enum.any?(results, &(&1["scenario_id"] == "case-b" and Map.has_key?(&1, "database")))

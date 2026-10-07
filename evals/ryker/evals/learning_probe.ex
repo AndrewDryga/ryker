@@ -11,7 +11,7 @@ defmodule Ryker.Evals.LearningProbe do
   alias Ryker.{Admission, CanonicalJSON, Repo}
   alias Ryker.Admission.Decision
   alias Ryker.Delivery.Adapters
-  alias Ryker.Evals.SlackDeliveryPublisher
+  alias Ryker.Evals.{Evidence, SessionCleanup, SlackDeliveryPublisher}
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.KnowledgeExposure
@@ -22,7 +22,11 @@ defmodule Ryker.Evals.LearningProbe do
   def run(question, settings, source_id) do
     source = Repo.get!(Entry, source_id)
     before_runs = Repo.aggregate(LearningRun, :count)
-    {:ok, publisher} = Agent.start_link(fn -> [] end)
+    # The state the world's inert publishers keep (`Ryker.Evals.DeliveryPublisher`).
+    {:ok, publisher} =
+      Agent.start_link(fn ->
+        %{deliveries: %{}, lose_next_response: 0, order: [], receipts: %{}}
+      end)
 
     try do
       {:ok, episode} = admit(source, question, settings)
@@ -50,9 +54,9 @@ defmodule Ryker.Evals.LearningProbe do
         outcome: inspect(outcome, printable_limit: 4000),
         delivery: inspect(delivery),
         cleanup: cleanup,
-        turn: document(turn),
-        session: document(session),
-        knowledge_exposures: Enum.map(exposures, &document/1),
+        turn: Evidence.record(turn),
+        session: Evidence.record(session),
+        knowledge_exposures: Enum.map(exposures, &Evidence.record/1),
         semantic_review: "required; inspect the answer against the original source chronology",
         passed:
           turn.status == :settled and turn.delivered_at != nil and exposures != [] and
@@ -184,35 +188,12 @@ defmodule Ryker.Evals.LearningProbe do
     )
   end
 
-  defp cleanup(_settings, 0), do: :unfinished
+  defp cleanup(settings, passes) do
+    options = [api: settings.api, client: settings.client, worker_ref: "learning-probe-cleanup"]
 
-  defp cleanup(settings, left) do
-    if Repo.exists?(from(s in Session, where: s.cleanup_status != :discarded)) do
-      case Ryker.Retention.Dispatcher.run_once(
-             api: settings.api,
-             client: settings.client,
-             worker_ref: "learning-probe-cleanup",
-             closed_session_grace_seconds: 0
-           ) do
-        {:ok, {:executed, _}} -> cleanup(settings, left - 1)
-        _ -> :unfinished
-      end
-    else
-      :discarded
+    case SessionCleanup.drain(options, passes) do
+      :ok -> :discarded
+      {:error, _reason} -> :unfinished
     end
-  end
-
-  defp document(record) do
-    Map.take(record, record.__struct__.__schema__(:fields))
-    |> Map.new(fn
-      {key, %DateTime{} = value} ->
-        {Atom.to_string(key), DateTime.to_iso8601(value)}
-
-      {key, value} when is_atom(value) and value not in [nil, true, false] ->
-        {Atom.to_string(key), Atom.to_string(value)}
-
-      {key, value} ->
-        {Atom.to_string(key), value}
-    end)
   end
 end

@@ -54,11 +54,6 @@ defmodule Ryker.Delivery.Presentation do
   # too so an invalid presentation repairs in the same Coop turn.
   defp render("control_plane", _episode, _document), do: :ok
 
-  # The fabricated model world has a deterministic inert publisher rather
-  # than an external platform renderer. It still exercises the real final,
-  # state-record, custody, and delivery contracts end to end.
-  defp render("eval", _episode, _document), do: :ok
-
   defp render(transport, _episode, _document),
     do: {:error, {:invalid_delivery_presentation, {:unsupported_transport, transport}}}
 

@@ -95,7 +95,9 @@ defmodule Ryker.Evals.WorldJudgeCase do
       "deliveries" => sanitize(report[:deliveries]),
       "records" => sanitize(report[:records]),
       "input_clocks" => sanitize(input_clocks(report)),
-      "source_events" => sanitize(scenario.events),
+      # The events the run was driven by: a recorded host correction is provenance of
+      # the harvested run, not something this run did (2026-10-04 review).
+      "source_events" => sanitize(Enum.filter(scenario.events, &(&1["kind"] == "input"))),
       "source_calls" => sanitize(report[:source_calls]),
       "state_calls" => sanitize(state_calls(report))
     }

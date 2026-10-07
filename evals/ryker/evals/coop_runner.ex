@@ -1,8 +1,9 @@
 defmodule Ryker.Evals.CoopRunner do
   @moduledoc """
   Executes isolated one-turn eval cases against a real Coop job: a model-world
-  quality judgment (`Ryker.Evals.WorldJudgeCase`) or a recorded routing
-  decision asked again (`Ryker.Evals.RoutingReplayCase`).
+  quality judgment (`Ryker.Evals.WorldJudgeCase`), a recorded routing
+  decision asked again (`Ryker.Evals.RoutingReplayCase`), or a recorded
+  improvement analysis asked again (`Ryker.Evals.ImprovementReplayCase`).
 
   A case carries its prompt and exact output schema and no controller or
   project tools. Each case gets a fresh empty-workspace session and unique
@@ -91,9 +92,9 @@ defmodule Ryker.Evals.CoopRunner do
       {:error, reason} -> failed(eval, reason)
     end
   rescue
-    error -> failed(eval, {:world_judge_runner_exception, Exception.message(error)})
+    error -> failed(eval, {:eval_runner_exception, Exception.message(error)})
   catch
-    kind, reason -> failed(eval, {:world_judge_runner_caught, kind, inspect(reason)})
+    kind, reason -> failed(eval, {:eval_runner_caught, kind, inspect(reason)})
   end
 
   defp create_session(key, external_ref, settings) do
