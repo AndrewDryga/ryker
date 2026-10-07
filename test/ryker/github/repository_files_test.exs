@@ -5,7 +5,7 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
   # module reads GitHub's statuses and bodies. The replies follow GitHub's
   # REST API: its documented error bodies, and the archived refusal GitHub
   # gave andrewdryga.github.com on 2026-09-27.
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   alias Ryker.GitHub.RepositoryFiles
   alias Ryker.Settings
   alias Ryker.TestSupport.RecordedGitHub

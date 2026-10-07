@@ -1,5 +1,5 @@
 defmodule Ryker.Work.ExecutorTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [clocks_past!: 2, digest: 1, eventually: 2]
   import Ecto.Query
   alias Ryker.Artifacts

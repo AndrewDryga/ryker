@@ -1,5 +1,5 @@
 defmodule Ryker.CoopFleet.PublicationGrantsTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Changeset, only: [change: 2]
   import Plug.Conn

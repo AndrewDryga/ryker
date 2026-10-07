@@ -1,5 +1,5 @@
 defmodule Ryker.Slack.RuntimeTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   alias Ryker.Delivery.{BinaryClient, JSONClient}
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Ingress.WorkProfile

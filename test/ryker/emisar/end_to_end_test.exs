@@ -1,5 +1,5 @@
 defmodule Ryker.Emisar.EndToEndTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import Ecto.Query
   alias Ryker.Delivery.Adapters
   alias Ryker.Emisar.{Approval, ApprovalDispatcher, ApprovalPresenter, Approvals, Review}

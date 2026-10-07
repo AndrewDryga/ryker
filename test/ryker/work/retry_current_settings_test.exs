@@ -6,7 +6,7 @@ defmodule Ryker.Work.RetryCurrentSettingsTest do
   longer matched it, so the retry stopped too. Andrew: a retry of a task that never started
   should pick up the environment as it is now.
   """
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   alias Ryker.CoopFleet.{JobAuthority, JobTemplates}
   alias Ryker.{Episodes, Repo, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

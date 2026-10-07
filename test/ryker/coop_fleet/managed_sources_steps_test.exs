@@ -1,5 +1,5 @@
 defmodule Ryker.CoopFleet.ManagedSourcesStepsTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import ExUnit.CaptureLog
   alias Ryker.CoopFleet.ManagedSources
   alias Ryker.Settings

@@ -1,5 +1,5 @@
 defmodule Ryker.CoopFleet.JobAuthorityTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.CoopFleet.{Command, JobAuthority, JobSpec, JobTemplates, Placement, Worker}
   alias Ryker.{Episodes, Repo, Settings}

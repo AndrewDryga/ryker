@@ -1,5 +1,5 @@
 defmodule Ryker.Slack.ChannelConfigurationsTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import Ecto.Query
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Repo

@@ -1,5 +1,5 @@
 defmodule Ryker.Slack.MembershipReconcilerTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import ExUnit.CaptureLog
   import Ryker.TestHelpers, only: [settled: 1]
   alias Ryker.Fixtures.ChannelEnvironments

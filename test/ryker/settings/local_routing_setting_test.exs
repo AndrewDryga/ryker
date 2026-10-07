@@ -1,5 +1,5 @@
 defmodule Ryker.Settings.LocalRoutingSettingTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   alias Ryker.Settings
 
   @actor "control-plane:local"

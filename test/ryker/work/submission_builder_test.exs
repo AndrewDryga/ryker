@@ -1,5 +1,5 @@
 defmodule Ryker.Work.SubmissionBuilderTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.{Artifacts, Episodes, Settings}

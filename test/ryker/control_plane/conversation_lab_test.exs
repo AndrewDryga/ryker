@@ -1,5 +1,5 @@
 defmodule Ryker.ControlPlane.ConversationLabTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
 
   @moduletag isolation: "REPEATABLE READ"

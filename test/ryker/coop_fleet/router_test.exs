@@ -1,5 +1,5 @@
 defmodule Ryker.CoopFleet.RouterTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   import ExUnit.CaptureLog
   import Plug.Conn

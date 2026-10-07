@@ -1,5 +1,5 @@
 defmodule Ryker.Admission.ContextTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
 
   @moduletag isolation: "REPEATABLE READ"
 

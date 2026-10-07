@@ -1,5 +1,5 @@
 defmodule Ryker.Emisar.ApprovalsTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, Pages, Projection}
   alias Ryker.{Credentials, IntegrationSetup}
   alias Ryker.Emisar.{Approval, ApprovalDispatcher, Approvals, Connections, RunState}

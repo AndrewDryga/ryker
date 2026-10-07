@@ -6,7 +6,7 @@ defmodule Ryker.WeeklyReportTest do
   before, and holds the report to the exact words it must say. The model
   never writes a word of it.
   """
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import Ecto.Query
   import Ryker.TestHelpers, only: [clocks_past!: 2]
   alias Ryker.Accounting.Execution

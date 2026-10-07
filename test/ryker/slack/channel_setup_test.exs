@@ -1,5 +1,5 @@
 defmodule Ryker.Slack.ChannelSetupTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurations, ChannelSettings, ChannelSetup}
   alias Ryker.Slack.{ConfigurationSession, Input, Interaction, MembershipTransition, Operators}
