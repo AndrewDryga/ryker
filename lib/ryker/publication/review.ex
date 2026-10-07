@@ -3,13 +3,13 @@ defmodule Ryker.Publication.Review do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
+  alias Ryker.GitObject
 
   @required ~w(candidate_head candidate_retained candidate_tree creation_base gate job_digest not_publishable_reasons operation_id parent_head parent_tree patch_truncated policy_findings publishable rebase session_id session_revision source_head source_tree)
   @optional ~w(gate_error gate_output pull_request)
   # What Coop says of the gate's output beside the review; the output itself is
   # read page by page (`Ryker.Publication.GateOutput`).
   @gate_output_keys ~w(bytes command complete exit_code incomplete lost)
-  @git_identity ~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
   # Every code Coop refuses a candidate with (internal/sessionsvc/review.go),
@@ -404,7 +404,7 @@ defmodule Ryker.Publication.Review do
   defp git_identities(document) do
     if Enum.all?(
          ~w(candidate_head candidate_tree creation_base parent_head parent_tree source_head source_tree),
-         &(is_binary(document[&1]) and Regex.match?(@git_identity, document[&1]))
+         &GitObject.id?(document[&1])
        ) do
       :ok
     else
@@ -430,7 +430,7 @@ defmodule Ryker.Publication.Review do
 
   defp pull_request(%{"head_commit" => head, "number" => number, "ref" => ref} = pull_request)
        when map_size(pull_request) == 3 and is_binary(head) and is_integer(number) and number > 0 do
-    if Regex.match?(@git_identity, head) and bounded_text?(ref, 256),
+    if GitObject.id?(head) and bounded_text?(ref, 256),
       do: :ok,
       else: {:error, {:invalid_publication_review, :pull_request}}
   end

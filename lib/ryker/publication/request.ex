@@ -8,6 +8,7 @@ defmodule Ryker.Publication.Request do
 
   alias Ryker.CanonicalJSON
   alias Ryker.GitHub.InertText
+  alias Ryker.GitObject
   alias Ryker.Publication.{Publication, Review}
 
   @enforce_keys [
@@ -185,7 +186,7 @@ defmodule Ryker.Publication.Request do
          } = pull_request
        )
        when map_size(pull_request) == 4 and is_integer(number) and number > 0 do
-    with true <- git_identity?(head_commit),
+    with true <- GitObject.id?(head_commit),
          true <- branch_ref?(ref),
          true <- github_pull_url?(url, number) do
       :ok
@@ -214,9 +215,6 @@ defmodule Ryker.Publication.Request do
       "url" => publication.pull_request_url
     }
   end
-
-  defp git_identity?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/, value)
 
   defp branch_ref?(value) do
     is_binary(value) and

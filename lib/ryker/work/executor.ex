@@ -15,6 +15,7 @@ defmodule Ryker.Work.Executor do
   is the Coop call layer they all share.
   """
 
+  alias Ryker.GitObject
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.StateTools.Capabilities
   alias Ryker.Work.{Custody, PlatformTools, StateBinding, SubmissionBuilder}
@@ -403,7 +404,7 @@ defmodule Ryker.Work.Executor do
       Enum.map(requirements, fn
         %{"base_commit" => base_commit, "name" => name} = requirement
         when map_size(requirement) == 2 ->
-          if Workspace.companion_name?(name) and Remote.git_commit?(base_commit),
+          if Workspace.companion_name?(name) and GitObject.id?(base_commit),
             do: name,
             else: nil
 

@@ -22,6 +22,8 @@ defmodule Ryker.Work.RepositorySource do
   any binding that answers a different request.
   """
 
+  alias Ryker.GitObject
+
   @kinds ~w(default branch pull_request commit)
   @maximum_branch_bytes 255
   @maximum_pull_request_number 10_000_000
@@ -34,7 +36,6 @@ defmodule Ryker.Work.RepositorySource do
   # Checked under their own names after the field set: `admitted_tree` must be
   # present, the pull-request fields only when the request is a pull request.
   @binding_optional_fields ~w(admitted_tree pull_request_expected_head pull_request_number)
-  @object_id_regex ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
   @branch_charset_regex ~r/\A[\x21-\x7E]+\z/
   @branch_schema_pattern "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
 
@@ -233,7 +234,7 @@ defmodule Ryker.Work.RepositorySource do
   end
 
   defp parse_kind("commit", %{"sha" => sha}) do
-    if object_id?(sha),
+    if GitObject.id?(sha),
       do: {:ok, %{"kind" => "commit", "sha" => sha}},
       else: invalid(:sha)
   end
@@ -264,8 +265,6 @@ defmodule Ryker.Work.RepositorySource do
     component != "" and not String.starts_with?(component, ".") and
       not String.ends_with?(component, ".lock")
   end
-
-  defp object_id?(value), do: is_binary(value) and Regex.match?(@object_id_regex, value)
 
   defp exact_binding_fields(value) do
     keys = Map.keys(value)
@@ -317,7 +316,7 @@ defmodule Ryker.Work.RepositorySource do
   end
 
   defp binding_object_id(value, field) do
-    if object_id?(value), do: :ok, else: invalid_binding(field)
+    if GitObject.id?(value), do: :ok, else: invalid_binding(field)
   end
 
   defp binding_timestamp(value) when is_binary(value) and byte_size(value) <= 64 do
@@ -377,7 +376,7 @@ defmodule Ryker.Work.RepositorySource do
           {:cont, :ok}
 
         expected, :ok ->
-          if object_id?(expected) and expected == binding["selected_commit"],
+          if GitObject.id?(expected) and expected == binding["selected_commit"],
             do: {:cont, :ok},
             else: {:halt, invalid_binding(:pull_request_expected_head)}
       end

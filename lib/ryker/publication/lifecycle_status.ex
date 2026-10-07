@@ -1,10 +1,10 @@
 defmodule Ryker.Publication.LifecycleStatus do
   @moduledoc false
 
+  alias Ryker.GitObject
   alias Ryker.Reference
 
   @fields ~w(base_ref checks_failed checks_passed checks_state checks_total checks_url draft head_ref head_sha merge_sha merged merged_at number state url)
-  @git_identity ~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/
 
   @spec prepare(map()) :: {:ok, map()} | {:error, term()}
   def prepare(%{} = status) do
@@ -13,7 +13,7 @@ defmodule Ryker.Publication.LifecycleStatus do
          true <- status["checks_state"] in ~w(none pending passing failing),
          true <- is_boolean(status["draft"]) and is_boolean(status["merged"]),
          true <- positive(status["number"]),
-         true <- git_identity(status["head_sha"]),
+         true <- GitObject.id?(status["head_sha"]),
          true <- reference(status["head_ref"], 240),
          true <- reference(status["base_ref"], 240),
          true <- github_url(status["url"]),
@@ -32,7 +32,7 @@ defmodule Ryker.Publication.LifecycleStatus do
   defp merge(%{"merged" => false, "merge_sha" => nil, "merged_at" => nil}), do: :ok
 
   defp merge(%{"merged" => true, "merge_sha" => sha, "merged_at" => at}) do
-    with true <- git_identity(sha),
+    with true <- GitObject.id?(sha),
          {:ok, _datetime, 0} <- DateTime.from_iso8601(at || "") do
       :ok
     else
@@ -62,7 +62,6 @@ defmodule Ryker.Publication.LifecycleStatus do
   end
 
   defp github_url(_value), do: false
-  defp git_identity(value), do: is_binary(value) and Regex.match?(@git_identity, value)
   defp positive(value), do: is_integer(value) and value > 0
 
   defp reference(value, maximum), do: Reference.valid?(value, maximum)

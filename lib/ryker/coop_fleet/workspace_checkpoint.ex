@@ -8,6 +8,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   """
 
   alias Ryker.CoopFleet.Protocol
+  alias Ryker.GitObject
 
   @version 2
   @maximum_bundle_bytes 9_223_372_036_854_775_806
@@ -27,7 +28,6 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   @task_states ~w(todo in_progress blocked done)
   @gate_states ~w(not_run passed failed startup_error)
   @identity ~r/\A[0-9a-f]{32}\z/
-  @revision ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
 
   def bundle_media_type, do: "application/vnd.coop.workspace-checkpoint.v#{@version}+tar"
 
@@ -217,7 +217,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   defp positive(_value, field), do: {:error, {:invalid_workspace_checkpoint, field}}
 
   defp revision(value, field) do
-    if is_binary(value) and Regex.match?(@revision, value),
+    if GitObject.id?(value),
       do: :ok,
       else: {:error, {:invalid_workspace_checkpoint, field}}
   end
@@ -387,7 +387,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   end
 
   defp manifest_revision(value) do
-    if is_binary(value) and Regex.match?(@revision, value),
+    if GitObject.id?(value),
       do: :ok,
       else: bundle_error(:revision)
   end

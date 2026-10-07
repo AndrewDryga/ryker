@@ -18,7 +18,6 @@ defmodule Ryker.Work.Executor.Remote do
   alias Ryker.Reference
   alias Ryker.Work.{Custody, Session, StateBinding}
 
-  @git_commit_regex ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
   @operation_waiting_states ~w(reserved running)
   @session_states ~w(open exhausted closed discarded)
   @terminal_turn_states ~w(cancelled completed failed interrupted budget_exhausted)
@@ -423,8 +422,4 @@ defmodule Ryker.Work.Executor.Remote do
 
   @doc false
   def reference?(value), do: Reference.valid?(value)
-
-  @doc false
-  def git_commit?(value),
-    do: is_binary(value) and Regex.match?(@git_commit_regex, value)
 end

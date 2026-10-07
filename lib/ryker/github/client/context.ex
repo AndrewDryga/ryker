@@ -12,6 +12,7 @@ defmodule Ryker.GitHub.Client.Context do
   """
 
   alias Ryker.GitHub.Client.{Fields, Transport}
+  alias Ryker.GitObject
 
   @maximum_review_parents 4
   @context_fields ~w(limit number page repository review_root_id section subject_kind)a
@@ -136,8 +137,8 @@ defmodule Ryker.GitHub.Client.Context do
              is_boolean(merged),
          true <- Enum.all?([additions, changed_files, deletions], &(is_integer(&1) and &1 >= 0)),
          true <-
-           ref_value?(base_ref) and ref_value?(head_ref) and Fields.git_identity?(base_sha) and
-             Fields.git_identity?(head_sha),
+           ref_value?(base_ref) and ref_value?(head_ref) and GitObject.id?(base_sha) and
+             GitObject.id?(head_sha),
          {:ok, author} <- Fields.context_actor(user),
          {:ok, title, _title_truncated} <- Fields.context_text(title, false),
          {:ok, body, truncated} <- Fields.context_text(Map.get(item, "body"), true),

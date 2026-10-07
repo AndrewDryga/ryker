@@ -7,6 +7,8 @@ defmodule Ryker.Publication.ConflictReceipt do
   observed head as the operator update's compare-and-swap fence.
   """
 
+  alias Ryker.GitObject
+
   @fields ~w(branch_ref candidate_commit_sha github_repository observed_head_sha pull_request_number pull_request_url repository)
 
   @spec prepare(map(), String.t()) :: {:ok, map()} | {:error, term()}
@@ -15,8 +17,8 @@ defmodule Ryker.Publication.ConflictReceipt do
          true <- receipt["repository"] == expected_repository,
          true <- repository?(receipt["github_repository"]),
          true <- branch_ref?(receipt["branch_ref"]),
-         true <- git_identity?(receipt["candidate_commit_sha"]),
-         true <- git_identity?(receipt["observed_head_sha"]),
+         true <- GitObject.id?(receipt["candidate_commit_sha"]),
+         true <- GitObject.id?(receipt["observed_head_sha"]),
          true <- receipt["candidate_commit_sha"] != receipt["observed_head_sha"],
          true <- is_integer(receipt["pull_request_number"]) and receipt["pull_request_number"] > 0,
          true <- exact_pull_url?(receipt) do
@@ -36,9 +38,6 @@ defmodule Ryker.Publication.ConflictReceipt do
     is_binary(value) and
       Regex.match?(~r/\Arefs\/heads\/[A-Za-z0-9._\/-]{1,240}\z/, value)
   end
-
-  defp git_identity?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/, value)
 
   defp exact_pull_url?(receipt) do
     receipt["pull_request_url"] ==

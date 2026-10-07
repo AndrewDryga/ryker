@@ -10,6 +10,7 @@ defmodule Ryker.GitHub.Client.PullRequests do
   """
 
   alias Ryker.GitHub.Client.{Checks, Fields, Transport}
+  alias Ryker.GitObject
 
   def get_pull_request(client, repository, number) do
     with :ok <- Fields.target(repository, number),
@@ -135,7 +136,7 @@ defmodule Ryker.GitHub.Client.PullRequests do
          true <- state in ["open", "closed"],
          :ok <- Fields.ref_component(base_ref),
          :ok <- Fields.ref_component(head_ref),
-         true <- Fields.git_identity?(head_sha),
+         true <- GitObject.id?(head_sha),
          true <- github_pull_url?(url) do
       with {:ok, merge_sha, merged_at} <- merge_identity(pull) do
         {:ok,
@@ -165,7 +166,7 @@ defmodule Ryker.GitHub.Client.PullRequests do
   defp merge_identity(%{"merged" => true} = pull) do
     sha = pull["merge_commit_sha"]
 
-    with true <- Fields.git_identity?(sha),
+    with true <- GitObject.id?(sha),
          {:ok, merged_at} <- github_datetime(pull["merged_at"]) do
       {:ok, sha, DateTime.to_iso8601(merged_at)}
     else

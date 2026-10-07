@@ -11,6 +11,8 @@ defmodule Ryker.GitHub.Client.Fields do
   and leave the error to their caller.
   """
 
+  alias Ryker.GitObject
+
   @repository ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
   @maximum_context_pages 10
   @maximum_context_page_size 20
@@ -62,7 +64,7 @@ defmodule Ryker.GitHub.Client.Fields do
 
   @spec sha(term()) :: :ok | {:error, {:invalid_github_api_request, :sha}}
   def sha(value) do
-    if git_identity?(value),
+    if GitObject.id?(value),
       do: :ok,
       else: {:error, {:invalid_github_api_request, :sha}}
   end
@@ -155,10 +157,6 @@ defmodule Ryker.GitHub.Client.Fields do
       _invalid -> {:error, {:github_protocol_error, :datetime}}
     end
   end
-
-  @spec git_identity?(term()) :: boolean()
-  def git_identity?(value),
-    do: is_binary(value) and Regex.match?(~r/\A(?:[a-f0-9]{40}|[a-f0-9]{64})\z/, value)
 
   @spec positive_id?(term()) :: boolean()
   def positive_id?(value), do: is_integer(value) and value > 0

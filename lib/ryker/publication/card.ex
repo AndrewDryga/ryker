@@ -1,6 +1,7 @@
 defmodule Ryker.Publication.Card do
   @moduledoc false
 
+  alias Ryker.GitObject
   alias Ryker.Publication.{Publication, Review}
 
   @review_fields ~w(candidate_tree draft_authorized gate policy_findings publishable reasons rebase repository title)
@@ -62,7 +63,7 @@ defmodule Ryker.Publication.Card do
          true <- is_map(payload) and Map.keys(payload) |> Enum.sort() == @review_fields,
          true <- bounded_text?(payload["title"], 120),
          true <- bounded_text?(payload["repository"], 256),
-         true <- git_identity?(payload["candidate_tree"]),
+         true <- GitObject.id?(payload["candidate_tree"]),
          true <- payload["gate"] in ~w(passed failed startup_error not_run none),
          true <- payload["rebase"] in ~w(clean conflict),
          true <- is_boolean(payload["publishable"]),
@@ -89,7 +90,7 @@ defmodule Ryker.Publication.Card do
          true <- bounded_text?(payload["title"], 120),
          true <- bounded_text?(payload["repository"], 256),
          true <- bounded_text?(payload["branch_ref"], 256),
-         true <- git_identity?(payload["commit_sha"]),
+         true <- GitObject.id?(payload["commit_sha"]),
          true <- is_integer(payload["pull_request_number"]) and payload["pull_request_number"] > 0,
          true <- bounded_text?(payload["pull_request_url"], 2_048) do
       {:ok, payload}
@@ -102,9 +103,6 @@ defmodule Ryker.Publication.Card do
 
   defp reference?(value),
     do: is_binary(value) and Regex.match?(~r/\Apublication:[A-Za-z0-9_.:-]{1,240}\z/, value)
-
-  defp git_identity?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/, value)
 
   defp bounded_list?(values, count, bytes) when is_list(values) and length(values) <= count,
     do: Enum.all?(values, &bounded_text?(&1, bytes))

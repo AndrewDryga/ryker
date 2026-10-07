@@ -10,6 +10,7 @@ defmodule Ryker.Work.Executor.Workspace do
   document the submission builder receives.
   """
 
+  alias Ryker.GitObject
   alias Ryker.Work.Executor.Remote
   alias Ryker.Work.RepositorySource
 
@@ -72,7 +73,7 @@ defmodule Ryker.Work.Executor.Workspace do
        when is_boolean(read_only) do
     name = session.repository_ref || "primary"
 
-    if Remote.reference?(name) and Remote.git_commit?(base_commit) do
+    if Remote.reference?(name) and GitObject.id?(base_commit) do
       {:ok,
        %{
          "base_commit" => base_commit,
@@ -154,7 +155,7 @@ defmodule Ryker.Work.Executor.Workspace do
        )
        when map_size(companion) == 3 do
     if is_binary(name) and Regex.match?(@companion_name_regex, name) and
-         path == "/coop/repositories/#{name}" and Remote.git_commit?(base_commit) do
+         path == "/coop/repositories/#{name}" and GitObject.id?(base_commit) do
       {:ok,
        %{
          "base_commit" => base_commit,
@@ -238,8 +239,8 @@ defmodule Ryker.Work.Executor.Workspace do
     with true <- repository_name?(name),
          true <- bounded_text?(remote_identity, 256),
          true <- bounded_text?(requested_revision, 512),
-         true <- Remote.git_commit?(resolved_revision),
-         true <- is_nil(workspace_base_revision) or Remote.git_commit?(workspace_base_revision),
+         true <- GitObject.id?(resolved_revision),
+         true <- is_nil(workspace_base_revision) or GitObject.id?(workspace_base_revision),
          {:ok, fetched_at} <- repository_timestamp(fetched_at),
          :ok <- stale_base_receipt(stale_base_status, stale_base_revision, resolved_revision) do
       {:ok,
@@ -353,7 +354,7 @@ defmodule Ryker.Work.Executor.Workspace do
 
   defp stale_base_receipt("stale", revision, resolved_revision)
        when revision != resolved_revision,
-       do: if(Remote.git_commit?(revision), do: :ok, else: :error)
+       do: if(GitObject.id?(revision), do: :ok, else: :error)
 
   defp stale_base_receipt(status, nil, _resolved_revision)
        when status in ~w(unknown not_applicable),
