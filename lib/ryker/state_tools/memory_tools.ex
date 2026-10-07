@@ -1,12 +1,11 @@
 defmodule Ryker.StateTools.MemoryTools do
   @moduledoc false
 
-  import Ecto.Query
   alias Ryker.Continuity
   alias Ryker.Memories
   alias Ryker.Memories.MemorySearch
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack.ChannelMembershipQuery
   alias Ryker.StateTools.RecordWriter
 
   @spec search_memory(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -146,14 +145,10 @@ defmodule Ryker.StateTools.MemoryTools do
   defp public_slack_destination?(%{destination_conversation_ref: conversation_ref}) do
     case String.split(conversation_ref, ":", parts: 3) do
       ["slack", workspace_ref, channel_ref] ->
-        Repo.exists?(
-          from(membership in ChannelMembership,
-            where:
-              membership.workspace_ref == ^workspace_ref and
-                membership.channel_ref == ^channel_ref and membership.status == :joined and
-                membership.private == false and membership.external_shared == false
-          )
-        )
+        workspace_ref
+        |> ChannelMembershipQuery.by_channel(channel_ref)
+        |> ChannelMembershipQuery.joined_public()
+        |> Repo.exists?()
 
       _invalid ->
         false

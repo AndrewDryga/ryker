@@ -22,18 +22,17 @@ defmodule Ryker.WeeklyReport.Facts do
   private channel, a shared channel, Chat or GitHub is counted, never named.
   """
 
-  import Ecto.Query
   alias Ryker.Accounting.ExecutionQuery
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, Paths}
-  alias Ryker.Episodes.{Episode, Event, RoutingDigests}
-  alias Ryker.Feedback.Signal
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes.{EpisodeQuery, RoutingDigests}
+  alias Ryker.Feedback.SignalQuery
+  alias Ryker.Ingress.Inbox.EntryQuery
   alias Ryker.InspectionRedactor
-  alias Ryker.Knowledge.ConversationKnowledge
-  alias Ryker.Memories.MemoryEntry
-  alias Ryker.Publication.{Followup, Publication}
+  alias Ryker.Knowledge.ConversationKnowledgeQuery
+  alias Ryker.Memories.MemoryEntryQuery
+  alias Ryker.Publication.FollowupQuery
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelMembership, Names}
+  alias Ryker.Slack.{ChannelMembershipQuery, Names}
 
   @negative [:frustrated, :asked_again, :edited]
   # A message routing left alone was not handled; a reply or a reaction
@@ -73,14 +72,10 @@ defmodule Ryker.WeeklyReport.Facts do
   def public?("slack:" <> rest) do
     case String.split(rest, ":") do
       [workspace, "C" <> _ = channel] ->
-        Repo.exists?(
-          from(membership in ChannelMembership,
-            where:
-              membership.workspace_ref == ^workspace and membership.channel_ref == ^channel and
-                membership.status == :joined and membership.private == false and
-                membership.external_shared == false
-          )
-        )
+        workspace
+        |> ChannelMembershipQuery.by_channel(channel)
+        |> ChannelMembershipQuery.joined_public()
+        |> Repo.exists?()
 
       _direct_or_thread ->
         false
@@ -95,44 +90,8 @@ defmodule Ryker.WeeklyReport.Facts do
   # as it stands now, with how much Ryker answered in it that week. A request
   # is stuck while one of its turns waits on Failures.
   defp requests(from, to) do
-    {naive_from, naive_to} = {DateTime.to_naive(from), DateTime.to_naive(to)}
-
-    week_events =
-      from(event in Event,
-        where:
-          event.episode_id == parent_as(:episode).id and
-            event.kind in [:input_admitted, :result_accepted] and
-            event.occurred_at >= ^from and event.occurred_at < ^to
-      )
-
-    from(episode in Episode,
-      as: :episode,
-      where: episode.execution_mode == :live and exists(week_events),
-      select: %{
-        id: episode.id,
-        key: episode.key,
-        state: episode.state,
-        conversation: episode.destination_conversation_ref,
-        stuck:
-          fragment(
-            "EXISTS (SELECT 1 FROM episode_work_turns AS turn WHERE turn.episode_id = ? AND turn.status = 'blocked')",
-            episode.id
-          ),
-        answers:
-          fragment(
-            "(SELECT count(*) FROM episode_kernel_events AS event WHERE event.episode_id = ? AND event.kind = 'result_accepted' AND event.occurred_at >= ? AND event.occurred_at < ?)",
-            episode.id,
-            ^naive_from,
-            ^naive_to
-          ),
-        last_at:
-          fragment(
-            "(SELECT max(event.occurred_at) FROM episode_kernel_events AS event WHERE event.episode_id = ? AND event.occurred_at < ?)",
-            episode.id,
-            ^naive_to
-          )
-      }
-    )
+    from
+    |> EpisodeQuery.asked_or_answered_between(to)
     |> Repo.all()
     |> Enum.map(&Map.put(&1, :standing, standing(&1)))
   end
@@ -183,13 +142,8 @@ defmodule Ryker.WeeklyReport.Facts do
   # request behind it. The rest started or joined a request.
   defp messages(from, to) do
     counts =
-      from(entry in Entry,
-        where:
-          entry.execution_mode == :live and entry.decision_action in ^@handled and
-            entry.inserted_at >= ^from and entry.inserted_at < ^to,
-        group_by: entry.decision_action,
-        select: {entry.decision_action, count()}
-      )
+      from
+      |> EntryQuery.decision_counts_between(to, @handled)
       |> Repo.all()
       |> Map.new()
 
@@ -244,16 +198,10 @@ defmodule Ryker.WeeklyReport.Facts do
   # priced; `estimated` when any of it is an estimate.
   defp cost(from, to) do
     row =
-      from(execution in ExecutionQuery.ledger(from, "live"),
-        where: execution.recorded_at < ^to,
-        select: %{
-          calls: count(execution.id),
-          reported: fragment("COALESCE(SUM(?), 0)", execution.usage_cost_usd),
-          estimated: fragment("COALESCE(SUM(?), 0)", execution.estimated_cost_usd),
-          priced: fragment("COUNT(*) FILTER (WHERE ?)", execution.usage_cost_recorded),
-          estimates: count(execution.estimated_cost_usd)
-        }
-      )
+      from
+      |> ExecutionQuery.ledger("live")
+      |> ExecutionQuery.recorded_before(to)
+      |> ExecutionQuery.select_cost_totals()
       |> Repo.one!()
 
     %{
@@ -270,28 +218,7 @@ defmodule Ryker.WeeklyReport.Facts do
   # out, which is when its follow-up starts; a follow-up rearmed later keeps
   # that time.
   defp pull_requests(from, to) do
-    rows =
-      from(followup in Followup,
-        join: publication in Publication,
-        on: publication.id == followup.publication_id,
-        join: episode in Episode,
-        on: episode.id == followup.episode_id and episode.execution_mode == :live,
-        where:
-          (followup.inserted_at >= ^from and followup.inserted_at < ^to) or
-            followup.pr_state in [:open, :stale],
-        order_by: [desc: followup.inserted_at, desc: followup.id],
-        select: %{
-          state: followup.pr_state,
-          opened_at: followup.inserted_at,
-          merged_at: followup.merged_at,
-          number: publication.pull_request_number,
-          url: publication.pull_request_url,
-          title: publication.title,
-          repository: publication.github_repository,
-          conversation: episode.destination_conversation_ref
-        }
-      )
-      |> Repo.all()
+    rows = from |> FollowupQuery.pull_requests(to) |> Repo.all()
 
     this_week = Enum.filter(rows, &within?(&1.opened_at, from, to))
 
@@ -361,11 +288,9 @@ defmodule Ryker.WeeklyReport.Facts do
 
   defp feedback(from, to) do
     counts =
-      from(signal in Signal,
-        where: signal.occurred_at >= ^from and signal.occurred_at < ^to,
-        group_by: signal.category,
-        select: {signal.category, count()}
-      )
+      from
+      |> SignalQuery.occurred_between(to)
+      |> SignalQuery.count_by_category()
       |> Repo.all()
       |> Map.new()
 
@@ -379,21 +304,11 @@ defmodule Ryker.WeeklyReport.Facts do
   # the newest topic from a public channel, the one the report may name.
   defp learned(from, to) do
     facts =
-      Repo.aggregate(
-        from(fact in MemoryEntry,
-          where: fact.status == :active and fact.confirmed_at >= ^from and fact.confirmed_at < ^to
-        ),
-        :count
-      )
+      MemoryEntryQuery.active()
+      |> MemoryEntryQuery.confirmed_between(from, to)
+      |> Repo.aggregate(:count)
 
-    topics =
-      from(topic in ConversationKnowledge,
-        where:
-          is_nil(topic.forgotten_at) and topic.inserted_at >= ^from and topic.inserted_at < ^to,
-        order_by: [desc: topic.inserted_at, desc: topic.id],
-        select: %{conversation: topic.conversation_ref, state: topic.state}
-      )
-      |> Repo.all()
+    topics = from |> ConversationKnowledgeQuery.learned_between(to) |> Repo.all()
 
     %{
       count: facts + length(topics),

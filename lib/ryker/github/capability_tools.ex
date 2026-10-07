@@ -6,9 +6,8 @@ defmodule Ryker.GitHub.CapabilityTools do
   repository bindings, discussion routing, and delivery retries remain host-owned.
   """
 
-  import Ecto.Query
   alias Ryker.Delivery.PlatformActionCustody
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.{Episode, EventQuery}
   alias Ryker.GitHub.SourceRef
   alias Ryker.{Options, Repo, Rescued}
 
@@ -844,14 +843,11 @@ defmodule Ryker.GitHub.CapabilityTools do
     if refs == [] do
       []
     else
-      Repo.all(
-        from(event in Event,
-          where:
-            event.episode_id == ^episode_id and event.kind == :input_admitted and
-              event.dedupe_key in ^refs,
-          order_by: [desc: event.sequence]
-        )
-      )
+      episode_id
+      |> EventQuery.by_episode_id()
+      |> EventQuery.admitted_inputs(refs)
+      |> EventQuery.newest_first()
+      |> Repo.all()
     end
   end
 

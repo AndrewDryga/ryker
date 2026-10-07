@@ -10,6 +10,20 @@ defmodule Ryker.Schedules.ScheduleOccurrenceQuery do
   def by_schedule_id(queryable \\ all(), schedule_id),
     do: where(queryable, [episode_schedule_occurrences: o], o.schedule_id == ^schedule_id)
 
+  @doc "A schedule's dispatched runs whose request has not ended."
+  def running(schedule_id) do
+    schedule_id
+    |> by_schedule_id()
+    |> join(:inner, [episode_schedule_occurrences: o], e in Episode,
+      on: e.id == o.child_episode_id,
+      as: :episode_kernel_episodes
+    )
+    |> where(
+      [episode_schedule_occurrences: o, episode_kernel_episodes: e],
+      o.status == :dispatched and e.state not in [:complete, :cancelled]
+    )
+  end
+
   @doc """
   A schedule's latest `limit` runs, each with its episode's state and its
   latest Work turn, as an automation's page shows them.

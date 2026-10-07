@@ -9,7 +9,6 @@ defmodule Ryker.GitHub.Confirmations do
   services used by Slack and Chat.
   """
 
-  import Ecto.Query
   require Logger
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Automations
@@ -17,7 +16,7 @@ defmodule Ryker.GitHub.Confirmations do
   alias Ryker.Ingress.Input
   alias Ryker.Memories
   alias Ryker.Options
-  alias Ryker.Records.Record
+  alias Ryker.Records.{Record, RecordQuery}
   alias Ryker.Records.TaskOffers
   alias Ryker.Repo
   alias Ryker.Schedules
@@ -121,15 +120,7 @@ defmodule Ryker.GitHub.Confirmations do
   end
 
   defp offer(record_ref) do
-    query =
-      from(record in Record,
-        join: episode in Episode,
-        on: episode.id == record.episode_id,
-        join: turn in Turn,
-        on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-        where: record.ref == ^record_ref,
-        select: {record, episode, turn}
-      )
+    query = record_ref |> RecordQuery.by_ref() |> RecordQuery.with_origin()
 
     case Repo.one(query) do
       {%Record{} = record, %Episode{} = episode, %Turn{} = turn} ->

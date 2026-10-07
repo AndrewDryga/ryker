@@ -11,9 +11,8 @@ defmodule Ryker.Schedules do
   `subscribe_schedule/1`), on the topics of the request that offered it too.
   """
 
-  import Ecto.Query
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode}
+  alias Ryker.Episodes.Command
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Input
   alias Ryker.Operator.Actions
@@ -23,13 +22,14 @@ defmodule Ryker.Schedules do
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleChangeset
-  alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Schedules.ScheduleOccurrenceChangeset
+  alias Ryker.Schedules.ScheduleOccurrenceQuery
+  alias Ryker.Schedules.ScheduleQuery
   alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.Settings
   alias Ryker.Settings.Environment
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{Custody, Session, Turn}
+  alias Ryker.Work.{Custody, SessionQuery, Turn}
 
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
@@ -56,30 +56,7 @@ defmodule Ryker.Schedules do
   """
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
-    due =
-      from(schedule in Schedule,
-        where: schedule.status == :active and not is_nil(schedule.next_occurrence_at),
-        select: %{
-          due_at:
-            type(
-              fragment(
-                "GREATEST(?, ?, CASE WHEN ? IS NOT NULL THEN ? END)",
-                schedule.next_occurrence_at,
-                schedule.next_attempt_at,
-                schedule.lease_ref,
-                schedule.lease_expires_at
-              ),
-              :utc_datetime_usec
-            )
-        }
-      )
-
-    Repo.one(
-      from(schedule in subquery(due),
-        where: schedule.due_at > ^since,
-        select: min(schedule.due_at)
-      )
-    )
+    since |> ScheduleQuery.next_due_after() |> Repo.one()
   end
 
   @spec claim_due(String.t(), pos_integer()) :: {:ok, map() | nil} | {:error, term()}
@@ -248,7 +225,7 @@ defmodule Ryker.Schedules do
   defp confirm_locked(attributes) do
     with {:ok, record, source_episode, source_turn} <- lock_offer(attributes.record_ref),
          :ok <- delivered_from?(source_episode, source_turn, attributes.target) do
-      case Repo.one(from(schedule in Schedule, where: schedule.offer_record_id == ^record.id)) do
+      case Repo.one(ScheduleQuery.by_offer_record_id(record.id)) do
         %Schedule{} = schedule ->
           %{schedule: schedule, status: :duplicate}
 
@@ -296,15 +273,7 @@ defmodule Ryker.Schedules do
   # The work that offered the schedule ran in its conversation's environment;
   # the schedule keeps running there.
   defp source_session(%Turn{session_id: session_id}) do
-    Repo.one(
-      from(session in Session,
-        where: session.id == ^session_id,
-        select: %{
-          environment_ref: session.environment_ref,
-          repository_ref: session.repository_ref
-        }
-      )
-    )
+    session_id |> SessionQuery.by_id() |> SessionQuery.select_placement() |> Repo.one()
   end
 
   # A schedule runs with write access to the repository it names, so it may
@@ -378,20 +347,12 @@ defmodule Ryker.Schedules do
     now = Repo.now!()
 
     schedule =
-      Repo.one(
-        from(schedule in Schedule,
-          where: schedule.status == :active and schedule.next_occurrence_at <= ^now,
-          where: is_nil(schedule.next_attempt_at) or schedule.next_attempt_at <= ^now,
-          where: is_nil(schedule.lease_ref) or schedule.lease_expires_at <= ^now,
-          order_by: [
-            asc: schedule.next_occurrence_at,
-            asc: schedule.inserted_at,
-            asc: schedule.id
-          ],
-          limit: 1,
-          lock: "FOR UPDATE SKIP LOCKED"
-        )
-      )
+      now
+      |> ScheduleQuery.due_at()
+      |> ScheduleQuery.soonest_first()
+      |> ScheduleQuery.limit_to(1)
+      |> ScheduleQuery.lock_next_free()
+      |> Repo.one()
 
     case schedule do
       nil ->
@@ -675,15 +636,7 @@ defmodule Ryker.Schedules do
   end
 
   defp active_occurrence?(schedule_id) do
-    Repo.exists?(
-      from(occurrence in ScheduleOccurrence,
-        join: episode in Episode,
-        on: episode.id == occurrence.child_episode_id,
-        where:
-          occurrence.schedule_id == ^schedule_id and occurrence.status == :dispatched and
-            episode.state not in [:complete, :cancelled]
-      )
-    )
+    schedule_id |> ScheduleOccurrenceQuery.running() |> Repo.exists?()
   end
 
   defp lock_offer(record_ref) do
@@ -718,7 +671,7 @@ defmodule Ryker.Schedules do
   end
 
   defp lock_schedule(schedule_ref) do
-    Repo.one(from(schedule in Schedule, where: schedule.ref == ^schedule_ref, lock: "FOR UPDATE"))
+    schedule_ref |> ScheduleQuery.by_ref() |> ScheduleQuery.lock_for_update() |> Repo.one()
   end
 
   defp set_status_locked(schedule_ref, status) do
@@ -1022,7 +975,7 @@ defmodule Ryker.Schedules do
 
   def broadcast_schedule_updated(schedule_id) when is_binary(schedule_id) do
     Repo.after_commit(fn ->
-      case Repo.one(from(schedule in Schedule, where: schedule.id == ^schedule_id)) do
+      case Repo.one(ScheduleQuery.by_id(schedule_id)) do
         %Schedule{ref: ref} -> broadcast_committed_schedule(schedule_id, ref)
         nil -> :ok
       end

@@ -41,16 +41,15 @@ defmodule Ryker.LocalRouting do
   (`subscribe_comparisons/0`).
   """
 
-  import Ecto.Query
   alias Ryker.Accounting.ExecutionQuery
   alias Ryker.Admission
-  alias Ryker.Admission.Attempt
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Admission.{Attempt, AttemptQuery}
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.Learning.Observations
-  alias Ryker.LocalRouting.{Client, Comparison, Verdict}
+  alias Ryker.LocalRouting.{Client, Comparison, ComparisonQuery, Verdict}
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Settings.Work
+  alias Ryker.Settings.WorkQuery
   alias Ryker.UTCDateTime
 
   @topic "local_routing"
@@ -65,15 +64,7 @@ defmodule Ryker.LocalRouting do
   @doc "The saved setting; off before an installation has settings."
   @spec setting() :: setting()
   def setting do
-    Repo.one(
-      from(work in Work,
-        select: %{
-          mode: work.local_routing_mode,
-          endpoint: work.local_routing_endpoint,
-          model: work.local_routing_model
-        }
-      )
-    ) || %{mode: :off, endpoint: nil, model: nil}
+    Repo.one(WorkQuery.select_local_routing()) || %{mode: :off, endpoint: nil, model: nil}
   end
 
   @doc """
@@ -121,13 +112,10 @@ defmodule Ryker.LocalRouting do
   def queue_in_transaction(%Entry{}), do: :ok
 
   defp prompted?(entry) do
-    Repo.exists?(
-      from(attempt in Attempt,
-        where:
-          attempt.input_id == ^entry.id and attempt.generation == ^entry.execution_generation and
-            not is_nil(attempt.submission)
-      )
-    )
+    entry.id
+    |> AttemptQuery.for_generation(entry.execution_generation)
+    |> AttemptQuery.prompted()
+    |> Repo.exists?()
   end
 
   @doc """
@@ -160,14 +148,11 @@ defmodule Ryker.LocalRouting do
 
     {:ok, claimed} =
       Repo.transaction(fn ->
-        from(comparison in Comparison,
-          where:
-            comparison.status == :pending and
-              (is_nil(comparison.next_attempt_at) or comparison.next_attempt_at <= ^now),
-          order_by: [asc: comparison.inserted_at, asc: comparison.id],
-          limit: 1,
-          lock: "FOR UPDATE SKIP LOCKED"
-        )
+        now
+        |> ComparisonQuery.due_at()
+        |> ComparisonQuery.oldest_first()
+        |> ComparisonQuery.limit_to(1)
+        |> ComparisonQuery.lock_next_free()
         |> Repo.one()
         |> case do
           nil ->
@@ -224,7 +209,7 @@ defmodule Ryker.LocalRouting do
         :ok = RoutingExamples.copy_lock_in_transaction()
 
         with :forgotten <- material(comparison) do
-          :ok = erase(from(forgotten in Comparison, where: forgotten.id == ^comparison.id))
+          :ok = erase(ComparisonQuery.by_id(comparison.id))
           :forgotten
         end
       end)
@@ -238,10 +223,10 @@ defmodule Ryker.LocalRouting do
   # deleted anything it quotes.
   defp material(comparison) do
     with %Entry{status: :decided, operational_pruned_at: nil} = entry <-
-           Repo.get(Entry, comparison.input_id),
+           Repo.one(EntryQuery.by_id(comparison.input_id)),
          %{"action" => _action} = provider <- entry.decision_document,
          %Attempt{operational_pruned_at: nil, submission: %{} = submission} <-
-           Repo.get_by(Attempt, input_id: entry.id, generation: comparison.generation),
+           Repo.one(AttemptQuery.for_generation(entry.id, comparison.generation)),
          prompt when is_binary(prompt) <- submission["prompt"],
          schema when is_map(schema) <- submission["output_schema"],
          {:ok, context} <- Admission.decided_context(entry),
@@ -297,18 +282,9 @@ defmodule Ryker.LocalRouting do
   defp provider_call(comparison) do
     generation = Integer.to_string(comparison.generation)
 
-    from(execution in ExecutionQuery.ledger(nil, "all"),
-      where:
-        execution.kind == "admission" and execution.source_id == ^comparison.input_id and
-          execution.generation == ^generation,
-      limit: 1,
-      select: %{
-        recorded: execution.usage_cost_recorded,
-        reported: execution.usage_cost_usd,
-        estimate: execution.estimated_cost_usd,
-        ms: execution.usage_provider_ms
-      }
-    )
+    nil
+    |> ExecutionQuery.ledger("all")
+    |> ExecutionQuery.admission_call(comparison.input_id, generation)
     |> Repo.one()
     |> case do
       %{recorded: true, reported: %Decimal{} = cost} = call ->
@@ -374,10 +350,8 @@ defmodule Ryker.LocalRouting do
   """
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
-    from(comparison in Comparison,
-      where: comparison.status == :pending,
-      select: filter(min(comparison.next_attempt_at), comparison.next_attempt_at > ^since)
-    )
+    since
+    |> ComparisonQuery.next_due_after()
     |> Repo.one()
     |> List.wrap()
     |> UTCDateTime.earliest()
@@ -395,13 +369,7 @@ defmodule Ryker.LocalRouting do
   """
   @spec forget_in_transaction([String.t()], [String.t()]) :: :ok
   def forget_in_transaction(identities, keys) when is_list(identities) and is_list(keys) do
-    erase(
-      from(comparison in Comparison,
-        where:
-          comparison.source_identity in ^identities or
-            fragment("? && ?::text[]", comparison.message_keys, ^keys)
-      )
-    )
+    identities |> ComparisonQuery.from_sources_or_messages(keys) |> erase()
   end
 
   @doc """
@@ -411,16 +379,12 @@ defmodule Ryker.LocalRouting do
   """
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
-    erase(
-      from(comparison in Comparison,
-        where: fragment("? @> ARRAY[?]::text[]", comparison.conversation_refs, ^conversation_ref)
-      )
-    )
+    conversation_ref |> ComparisonQuery.quoting_conversation() |> erase()
   end
 
   # An erased comparison is gone, never asked and never counted.
   defp erase(query) do
-    {_count, input_ids} = Repo.delete_all(select(query, [comparison], comparison.input_id))
+    {_count, input_ids} = query |> ComparisonQuery.select_input_ids() |> Repo.delete_all()
     input_ids |> Enum.uniq() |> Enum.each(&broadcast/1)
   end
 

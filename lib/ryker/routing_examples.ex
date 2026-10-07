@@ -43,26 +43,24 @@ defmodule Ryker.RoutingExamples do
   those were recorded (2026-09-28) names none, so its previews stay untraced.
   """
 
-  import Ecto.Query
   require Logger
   alias Ryker.Accounting.Pricing
-  alias Ryker.Admission.{Attempt, Prompt}
+  alias Ryker.Admission.{Attempt, AttemptQuery, Prompt}
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.RoutingResponse
-  alias Ryker.Episodes.Episode
-  alias Ryker.Feedback.Signal
+  alias Ryker.Delivery.RoutingResponseQuery
+  alias Ryker.Episodes.EpisodeQuery
   alias Ryker.Improvement
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.InspectionRedactor
-  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Knowledge.ConversationKnowledgeQuery
   alias Ryker.Learning
-  alias Ryker.Learning.{ConversationObservation, Observations}
+  alias Ryker.Learning.{ConversationObservationQuery, Observations}
   alias Ryker.LocalRouting
   alias Ryker.Repo
-  alias Ryker.RoutingExamples.{Example, Feedback}
-  alias Ryker.Settings.Retention
-  alias Ryker.Slack.ChannelMembership
-  alias Ryker.Work.{Custody, Turn}
+  alias Ryker.RoutingExamples.{Example, ExampleQuery, Feedback, FeedbackQuery}
+  alias Ryker.Settings.RetentionQuery
+  alias Ryker.Slack.ChannelMembershipQuery
+  alias Ryker.Work.TurnQuery
   alias Ryker.WorkExamples
 
   @lock "ryker-routing-examples"
@@ -121,24 +119,7 @@ defmodule Ryker.RoutingExamples do
         :ok = lock(:shared)
 
         {count, _rows} =
-          Repo.insert_all(
-            Feedback,
-            from(signal in Signal,
-              join: example in Example,
-              on:
-                is_nil(example.forgotten_at) and
-                  ((not is_nil(signal.episode_id) and signal.episode_id == example.episode_id) or
-                     (not is_nil(signal.input_id) and signal.input_id == example.input_id)),
-              select: %{
-                id: fragment("gen_random_uuid()"),
-                example_id: example.id,
-                signal_id: signal.id,
-                kind: type(signal.kind, :string),
-                value: fragment("NULLIF(left(?, 256), '')", signal.value),
-                category: type(signal.category, :string),
-                occurred_at: signal.occurred_at
-              }
-            ),
+          Repo.insert_all(Feedback, FeedbackQuery.copies_of_signals(),
             on_conflict: :nothing,
             conflict_target: [:example_id, :signal_id]
           )
@@ -153,44 +134,8 @@ defmodule Ryker.RoutingExamples do
   # A decided message whose routing turn completed and was committed, whose
   # bodies are still kept, with no example yet, and with nothing it started
   # still running. Taken oldest first.
-  defp settled_inputs(limit, window_seconds) do
-    Repo.all(
-      from(input in Entry,
-        as: :input,
-        join: attempt in Attempt,
-        on: attempt.input_id == input.id and attempt.generation == input.execution_generation,
-        where: input.status == :decided and is_nil(input.operational_pruned_at),
-        where:
-          fragment(
-            "? > clock_timestamp() - (? * interval '1 second')",
-            input.updated_at,
-            ^window_seconds
-          ),
-        where: attempt.phase == "committed" and is_nil(attempt.operational_pruned_at),
-        where: fragment("(?::jsonb)->>'state' = 'completed'", attempt.response),
-        where: fragment("(?::jsonb)->>'assistant_message' IS NOT NULL", attempt.response),
-        where: fragment("(?::jsonb)->>'prompt' IS NOT NULL", attempt.submission),
-        where: fragment("(?::jsonb)->'output_schema' IS NOT NULL", attempt.submission),
-        where:
-          not exists(from(example in Example, where: example.input_id == parent_as(:input).id)),
-        where:
-          not exists(
-            from(work in subquery(Custody.work_rest_query()),
-              where: work.episode_id == parent_as(:input).episode_id and work.running
-            )
-          ),
-        where:
-          not exists(
-            from(response in RoutingResponse,
-              where: response.input_id == parent_as(:input).id and response.status == :pending
-            )
-          ),
-        order_by: [asc: input.updated_at, asc: input.id],
-        limit: ^limit,
-        select: input.id
-      )
-    )
-  end
+  defp settled_inputs(limit, window_seconds),
+    do: limit |> ExampleQuery.settled_decisions(window_seconds) |> Repo.all()
 
   # One decision that cannot be copied is logged and left for the next pass,
   # never allowed to stop the copy of every decision after it; only losing the
@@ -219,7 +164,7 @@ defmodule Ryker.RoutingExamples do
            %Entry{} = entry <- held_input(input_id),
            %Attempt{} = attempt <- committed_attempt(entry),
            :ok <- lock(:shared),
-           false <- Repo.exists?(from(example in Example, where: example.input_id == ^input_id)) do
+           false <- Repo.exists?(ExampleQuery.by_input_id(input_id)) do
         entry |> example(attempt, secrets) |> insert!()
       else
         _nothing_to_copy -> :skipped
@@ -228,31 +173,23 @@ defmodule Ryker.RoutingExamples do
   end
 
   defp enabled? do
-    Repo.one(
-      from(retention in Retention, select: retention.routing_examples_enabled, lock: "FOR SHARE")
-    ) == true
+    enabled =
+      RetentionQuery.select_routing_examples_enabled()
+      |> RetentionQuery.lock_for_share()
+      |> Repo.one()
+
+    enabled == true
   end
 
   defp held_input(input_id) do
-    Repo.one(
-      from(input in Entry,
-        where:
-          input.id == ^input_id and input.status == :decided and
-            is_nil(input.operational_pruned_at),
-        lock: "FOR SHARE"
-      )
-    )
+    input_id
+    |> EntryQuery.by_id()
+    |> EntryQuery.decided_with_bodies()
+    |> EntryQuery.lock_for_share()
+    |> Repo.one()
   end
 
-  defp committed_attempt(entry) do
-    Repo.one(
-      from(attempt in Attempt,
-        where:
-          attempt.input_id == ^entry.id and attempt.generation == ^entry.execution_generation and
-            attempt.phase == "committed" and is_nil(attempt.operational_pruned_at)
-      )
-    )
-  end
+  defp committed_attempt(entry), do: entry |> AttemptQuery.committed_for() |> Repo.one()
 
   defp insert!(%{forgotten_at: nil} = example) do
     Repo.insert!(example, on_conflict: :nothing, conflict_target: [:input_id])
@@ -269,7 +206,7 @@ defmodule Ryker.RoutingExamples do
     prompt = attempt.submission["prompt"]
     document = decoded(prompt)
     quoted = quoted(entry)
-    episode = entry.episode_id && Repo.get(Episode, entry.episode_id)
+    episode = entry.episode_id && Repo.one(EpisodeQuery.by_id(entry.episode_id))
 
     identity = %Example{
       id: Ecto.UUID.generate(),
@@ -436,13 +373,10 @@ defmodule Ryker.RoutingExamples do
   defp forgotten?(example, quoted) do
     keys = MapSet.new(example.message_keys)
 
-    Repo.exists?(
-      from(observation in ConversationObservation,
-        where:
-          observation.identity_key == ^example.source_identity and
-            not is_nil(observation.forgotten_at)
-      )
-    ) or
+    example.source_identity
+    |> ConversationObservationQuery.by_identity()
+    |> ConversationObservationQuery.forgotten()
+    |> Repo.exists?() or
       forgotten_messages(quoted.conversations) |> Enum.any?(&MapSet.member?(keys, &1)) or
       deleted_messages(quoted.conversations) |> Enum.any?(&MapSet.member?(keys, &1)) or
       edited_messages(quoted.messages) != [] or
@@ -454,35 +388,25 @@ defmodule Ryker.RoutingExamples do
     ids = for id <- ids, {:ok, id} <- [Ecto.UUID.cast(id)], do: id
 
     ids != [] and
-      Repo.exists?(
-        from(topic in ConversationKnowledge,
-          where: topic.id in ^ids and not is_nil(topic.forgotten_at)
-        )
-      )
+      ids
+      |> ConversationKnowledgeQuery.by_ids()
+      |> ConversationKnowledgeQuery.forgotten()
+      |> Repo.exists?()
   end
 
   defp forgotten_messages(conversations) do
-    Repo.all(
-      from(observation in ConversationObservation,
-        where:
-          observation.conversation_ref in ^conversations and
-            not is_nil(observation.forgotten_at),
-        select: {observation.conversation_ref, observation.source_message_ref}
-      )
-    )
+    conversations
+    |> ConversationObservationQuery.in_conversations()
+    |> ConversationObservationQuery.forgotten()
+    |> ConversationObservationQuery.select_messages()
+    |> Repo.all()
     |> Enum.map(fn {c, m} -> message_key(c, m) end)
   end
 
   defp deleted_messages(conversations) do
-    Repo.all(
-      from(input in Entry,
-        where:
-          input.event_kind == :delete and input.destination_conversation_ref in ^conversations,
-        select:
-          {input.destination_conversation_ref,
-           fragment("COALESCE(?, ?)", input.source_item_ref, input.native_input_id)}
-      )
-    )
+    conversations
+    |> EntryQuery.deletions_in()
+    |> Repo.all()
     |> Enum.map(fn {c, m} -> message_key(c, m) end)
   end
 
@@ -555,29 +479,9 @@ defmodule Ryker.RoutingExamples do
     refs = messages |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
     wanted = MapSet.new(messages)
 
-    Repo.all(
-      from(edit in Entry,
-        join: revision in Entry,
-        on:
-          revision.source_kind == edit.source_kind and revision.source_ref == edit.source_ref and
-            revision.native_input_id == edit.native_input_id,
-        where:
-          edit.event_kind == :edit and edit.destination_conversation_ref in ^conversations and
-            fragment("COALESCE(?, ?)", edit.source_item_ref, edit.native_input_id) in ^refs,
-        distinct: revision.id,
-        select: %{
-          id: revision.id,
-          message:
-            {edit.destination_conversation_ref,
-             fragment("COALESCE(?, ?)", edit.source_item_ref, edit.native_input_id)},
-          revision: revision.revision,
-          inserted_at: revision.inserted_at,
-          event_kind: revision.event_kind,
-          actor_kind: revision.actor_kind,
-          text: fragment("(?::jsonb)->>'text'", revision.content)
-        }
-      )
-    )
+    conversations
+    |> EntryQuery.edit_histories(refs)
+    |> Repo.all()
     |> Enum.filter(&MapSet.member?(wanted, &1.message))
     |> Enum.group_by(& &1.message)
     |> Map.new(fn {message, history} ->
@@ -596,12 +500,9 @@ defmodule Ryker.RoutingExamples do
     workspaces = channels |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
 
     channels != [] and
-      Repo.all(
-        from(membership in ChannelMembership,
-          where: membership.workspace_ref in ^workspaces and membership.status == :deleted,
-          select: {membership.workspace_ref, membership.channel_ref}
-        )
-      )
+      workspaces
+      |> ChannelMembershipQuery.deleted_in_workspaces()
+      |> Repo.all()
       |> Enum.any?(&(&1 in channels))
   end
 
@@ -692,23 +593,18 @@ defmodule Ryker.RoutingExamples do
   defp outcome(entry, episode) do
     turn =
       episode &&
-        Repo.one(
-          from(turn in Turn,
-            where: turn.episode_id == ^episode.id,
-            order_by: [desc: turn.inserted_at, desc: turn.id],
-            limit: 1,
-            select: turn.status
-          )
-        )
+        episode.id
+        |> TurnQuery.by_episode_id()
+        |> TurnQuery.newest_first()
+        |> TurnQuery.limit_to(1)
+        |> TurnQuery.select_statuses()
+        |> Repo.one()
 
     sent =
-      Repo.all(
-        from(response in RoutingResponse,
-          where: response.input_id == ^entry.id,
-          group_by: response.status,
-          select: {response.status, count(response.id)}
-        )
-      )
+      entry.id
+      |> RoutingResponseQuery.by_input_id()
+      |> RoutingResponseQuery.count_by_status()
+      |> Repo.all()
 
     %{
       "request" => episode && Atom.to_string(episode.state),
@@ -834,13 +730,7 @@ defmodule Ryker.RoutingExamples do
     :ok = LocalRouting.forget_conversation_in_transaction(conversation_ref)
     :ok = WorkExamples.forget_conversation_in_transaction(conversation_ref)
 
-    erase(
-      from(example in Example,
-        where:
-          example.conversation_ref == ^conversation_ref or
-            fragment("? @> ARRAY[?]::text[]", example.conversation_refs, ^conversation_ref)
-      )
-    )
+    conversation_ref |> ExampleQuery.in_conversation() |> erase()
   end
 
   defp erase_in_transaction(identities, keys) do
@@ -849,26 +739,16 @@ defmodule Ryker.RoutingExamples do
     :ok = LocalRouting.forget_in_transaction(identities, keys)
     :ok = WorkExamples.forget_in_transaction(identities, keys)
 
-    erase(
-      from(example in Example,
-        where:
-          example.source_identity in ^identities or
-            fragment("? && ?::text[]", example.message_keys, ^keys)
-      )
-    )
+    identities |> ExampleQuery.from_sources_or_messages(keys) |> erase()
   end
 
   defp erase(query) do
     now = Repo.now!()
 
-    Repo.delete_all(
-      from(feedback in Feedback,
-        where: feedback.example_id in subquery(from(example in query, select: example.id))
-      )
-    )
+    query |> FeedbackQuery.for_examples() |> Repo.delete_all()
 
     Repo.update_all(
-      from(example in query, where: is_nil(example.forgotten_at)),
+      ExampleQuery.kept(query),
       set: [
         prompt: nil,
         output_schema: nil,

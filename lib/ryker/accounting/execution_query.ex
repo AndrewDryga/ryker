@@ -84,7 +84,39 @@ defmodule Ryker.Accounting.ExecutionQuery do
         }
       )
 
-    from(e in subquery(priced))
+    from(e in subquery(priced), as: :ledger)
+  end
+
+  def recorded_before(ledger, to), do: where(ledger, [ledger: e], e.recorded_at < ^to)
+
+  @doc "The routing call for generation `generation` of message `input_id`, with what it cost and how long it took."
+  def admission_call(ledger, input_id, generation) do
+    ledger
+    |> where(
+      [ledger: e],
+      e.kind == "admission" and e.source_id == ^input_id and e.generation == ^generation
+    )
+    |> limit(1)
+    |> select([ledger: e], %{
+      recorded: e.usage_cost_recorded,
+      reported: e.usage_cost_usd,
+      estimate: e.estimated_cost_usd,
+      ms: e.usage_provider_ms
+    })
+  end
+
+  @doc """
+  How many calls the ledger holds and what they cost: what providers reported,
+  Ryker's estimates, and how many of each.
+  """
+  def select_cost_totals(ledger) do
+    select(ledger, [ledger: e], %{
+      calls: count(e.id),
+      reported: fragment("COALESCE(SUM(?), 0)", e.usage_cost_usd),
+      estimated: fragment("COALESCE(SUM(?), 0)", e.estimated_cost_usd),
+      priced: fragment("COUNT(*) FILTER (WHERE ?)", e.usage_cost_recorded),
+      estimates: count(e.estimated_cost_usd)
+    })
   end
 
   @doc "The saved prices that made at least one estimate in a priced ledger."

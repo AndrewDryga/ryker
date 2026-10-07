@@ -1,12 +1,11 @@
 defmodule Ryker.GitHub.Engagement do
   @moduledoc "Host-owned quiet-default eligibility for authenticated GitHub inputs."
 
-  import Ecto.Query
   alias Ryker.Behaviors
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.EpisodeQuery
   alias Ryker.GitHub.Binding
   alias Ryker.GitHub.Input, as: GitHubInput
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.EntryQuery
   alias Ryker.Ingress.Input
   alias Ryker.Repo
 
@@ -34,26 +33,16 @@ defmodule Ryker.GitHub.Engagement do
   # reach the same durable input lineage even before Admission has opened an
   # episode. This is deliberately limited to the exact source item.
   defp engaged_input?(input) do
-    Repo.exists?(
-      from(entry in Entry,
-        where:
-          entry.source_kind == "github" and entry.source_ref == ^input.source.ref and
-            entry.source_item_ref == ^input.source_item_ref and
-            not is_nil(entry.engagement_receipt)
-      )
-    )
+    input.source.ref
+    |> EntryQuery.engaged_github_item(input.source_item_ref)
+    |> Repo.exists?()
   end
 
   defp continuation?(input) do
-    Repo.exists?(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == "github" and
-            episode.destination_conversation_ref == ^input.destination.conversation_ref and
-            episode.destination_thread_ref == ^input.destination.thread_ref and
-            episode.state in ^@active_states
-      )
-    )
+    "github"
+    |> EpisodeQuery.in_thread(input.destination.conversation_ref, input.destination.thread_ref)
+    |> EpisodeQuery.in_states(@active_states)
+    |> Repo.exists?()
   end
 
   # Only text this event wrote can ask: an item opened or edited, a comment or a

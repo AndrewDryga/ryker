@@ -41,10 +41,9 @@ defmodule Ryker.WeeklyReport do
   one still posts.
   """
 
-  import Ecto.Query
   alias Ryker.Config
   alias Ryker.Repo
-  alias Ryker.Settings.{Report, Slack}
+  alias Ryker.Settings.{Report, ReportQuery, SlackQuery}
   alias Ryker.WeeklyReport.{Custody, Digest, Facts, Schedule}
 
   @week_seconds 7 * 86_400
@@ -78,7 +77,7 @@ defmodule Ryker.WeeklyReport do
     now = Keyword.get_lazy(options, :now, &Repo.now!/0)
 
     zone =
-      case Repo.one(from(report in Report, select: report.timezone)) do
+      case Repo.one(ReportQuery.select_timezone()) do
         zone when is_binary(zone) -> zone
         nil -> "Etc/UTC"
       end
@@ -158,9 +157,10 @@ defmodule Ryker.WeeklyReport do
   # Where the report goes, on or not: its channel, while Slack is connected
   # to a workspace.
   defp destination do
-    with %Report{channel_ref: channel} = report when is_binary(channel) <- Repo.one(Report),
+    with %Report{channel_ref: channel} = report when is_binary(channel) <-
+           Repo.one(ReportQuery.all()),
          %{enabled: true, workspace_ref: workspace} when is_binary(workspace) <-
-           Repo.one(from(slack in Slack, select: map(slack, [:enabled, :workspace_ref]))) do
+           Repo.one(SlackQuery.select_connection()) do
       {:ok,
        %{
          conversation_ref: "slack:#{workspace}:#{channel}",

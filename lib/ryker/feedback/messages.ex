@@ -34,15 +34,14 @@ defmodule Ryker.Feedback.Messages do
   runs in a short transaction of its own, and a failure is logged.
   """
 
-  import Ecto.Query
   require Logger
-  alias Ryker.Delivery.RoutingResponse
+  alias Ryker.Delivery.RoutingResponseQuery
   alias Ryker.Feedback
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Work.Turn
+  alias Ryker.Work.TurnQuery
 
   @people_sources ["slack", "control_plane"]
   @reask_seconds 10 * 60
@@ -98,20 +97,7 @@ defmodule Ryker.Feedback.Messages do
   defp revision_kind(:edit), do: :message_edited
   defp revision_kind(:delete), do: :message_deleted
 
-  defp earlier_revisions(entry) do
-    Repo.all(
-      from(earlier in Entry,
-        where:
-          earlier.source_kind == ^entry.source_kind and earlier.source_ref == ^entry.source_ref and
-            earlier.native_input_id == ^entry.native_input_id and
-            earlier.execution_mode == ^entry.execution_mode and
-            earlier.revision < ^entry.revision and earlier.id != ^entry.id,
-        order_by: [asc: earlier.revision, asc: earlier.inserted_at, asc: earlier.id],
-        select:
-          struct(earlier, [:id, :actor_ref, :episode_id, :occurred_at, :revision, :event_kind])
-      )
-    )
-  end
+  defp earlier_revisions(entry), do: entry |> EntryQuery.earlier_revisions_of() |> Repo.all()
 
   # The request that answered the message: the latest request any of its
   # revisions joined, once one of its Work replies was delivered after the
@@ -133,27 +119,24 @@ defmodule Ryker.Feedback.Messages do
   end
 
   defp work_reply_between?(episode_id, from, before) do
-    Repo.exists?(
-      from(turn in Turn,
-        where:
-          turn.episode_id == ^episode_id and not is_nil(turn.delivered_at) and
-            turn.delivered_at > ^from and turn.delivered_at < ^before
-      )
-    )
+    episode_id
+    |> TurnQuery.by_episode_id()
+    |> TurnQuery.delivered()
+    |> TurnQuery.delivered_after(from)
+    |> TurnQuery.delivered_before(before)
+    |> Repo.exists?()
   end
 
   defp quick_replied(input_ids, from, before) do
-    Repo.one(
-      from(response in RoutingResponse,
-        where:
-          response.input_id in ^input_ids and response.kind == :message and
-            response.status == :delivered and response.delivered_at > ^from and
-            response.delivered_at < ^before,
-        order_by: [desc: response.delivered_at, desc: response.id],
-        limit: 1,
-        select: response.input_id
-      )
-    )
+    input_ids
+    |> RoutingResponseQuery.by_input_ids()
+    |> RoutingResponseQuery.delivered_messages()
+    |> RoutingResponseQuery.delivered_after(from)
+    |> RoutingResponseQuery.delivered_before(before)
+    |> RoutingResponseQuery.latest_delivered_first()
+    |> RoutingResponseQuery.limit_to(1)
+    |> RoutingResponseQuery.select_input_ids()
+    |> Repo.one()
   end
 
   # -- Asked again ----------------------------------------------------------------
@@ -177,28 +160,8 @@ defmodule Ryker.Feedback.Messages do
   defp earlier_questions(entry) do
     since = DateTime.add(entry.occurred_at, -@question_lookback_seconds, :second)
 
-    from(question in Entry,
-      where:
-        question.source_kind == ^entry.source_kind and question.source_ref == ^entry.source_ref and
-          question.occurred_at >= ^since and question.occurred_at < ^entry.occurred_at,
-      where: question.actor_kind == :user and question.actor_ref == ^entry.actor_ref,
-      where:
-        question.destination_transport == ^entry.destination_transport and
-          question.destination_conversation_ref == ^entry.destination_conversation_ref and
-          question.execution_mode == ^entry.execution_mode,
-      where: question.event_kind in [:message, :edit] and question.id != ^entry.id,
-      where: is_nil(question.operational_pruned_at),
-      order_by: [desc: question.occurred_at, desc: question.id],
-      limit: @question_limit,
-      select:
-        struct(question, [
-          :id,
-          :content,
-          :episode_id,
-          :occurred_at,
-          :destination_thread_ref
-        ])
-    )
+    entry
+    |> EntryQuery.earlier_questions(since, @question_limit)
     |> same_place(entry)
     |> Repo.all()
   end
@@ -206,10 +169,7 @@ defmodule Ryker.Feedback.Messages do
   defp same_place(query, entry) do
     if top_level?(entry),
       do: query,
-      else:
-        from(question in query,
-          where: question.destination_thread_ref == ^entry.destination_thread_ref
-        )
+      else: EntryQuery.in_thread(query, entry.destination_thread_ref)
   end
 
   # A Slack message binds its own timestamp as its thread when it starts one;
@@ -247,27 +207,24 @@ defmodule Ryker.Feedback.Messages do
   defp work_replies([], _from, _before), do: %{}
 
   defp work_replies(episode_ids, from, before) do
-    Repo.all(
-      from(turn in Turn,
-        where:
-          turn.episode_id in ^episode_ids and not is_nil(turn.delivered_at) and
-            turn.delivered_at >= ^from and turn.delivered_at < ^before,
-        select: {turn.episode_id, turn.delivered_at}
-      )
-    )
+    episode_ids
+    |> TurnQuery.by_episode_ids()
+    |> TurnQuery.delivered()
+    |> TurnQuery.delivered_since(from)
+    |> TurnQuery.delivered_before(before)
+    |> TurnQuery.select_episode_deliveries()
+    |> Repo.all()
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
   end
 
   defp quick_replies(input_ids, from, before) do
-    Repo.all(
-      from(response in RoutingResponse,
-        where:
-          response.input_id in ^input_ids and response.kind == :message and
-            response.status == :delivered and response.delivered_at >= ^from and
-            response.delivered_at < ^before,
-        select: {response.input_id, response.delivered_at}
-      )
-    )
+    input_ids
+    |> RoutingResponseQuery.by_input_ids()
+    |> RoutingResponseQuery.delivered_messages()
+    |> RoutingResponseQuery.delivered_since(from)
+    |> RoutingResponseQuery.delivered_before(before)
+    |> RoutingResponseQuery.select_input_deliveries()
+    |> Repo.all()
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
   end
 

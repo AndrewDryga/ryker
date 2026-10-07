@@ -10,10 +10,9 @@ defmodule Ryker.StateTools.CallLog do
   The records go when their turn's bodies expire.
   """
 
-  import Ecto.Query
   alias Ryker.Repo
-  alias Ryker.StateTools.CallRecord
-  alias Ryker.Work.{Activity, Custody, Turn}
+  alias Ryker.StateTools.{CallRecord, CallRecordQuery}
+  alias Ryker.Work.{Activity, Custody}
 
   @maximum_listed 5_000
 
@@ -64,16 +63,8 @@ defmodule Ryker.StateTools.CallLog do
   def list_for_episode(episode_id, since \\ nil)
 
   def list_for_episode(episode_id, since) when is_binary(episode_id) do
-    query =
-      from(call in CallRecord,
-        join: turn in Turn,
-        on: turn.id == call.turn_id,
-        where: turn.episode_id == ^episode_id and is_nil(turn.operational_pruned_at),
-        order_by: [desc: call.called_at, desc: call.id],
-        limit: @maximum_listed
-      )
-
-    query = if since, do: from(call in query, where: call.called_at >= ^since), else: query
+    query = CallRecordQuery.for_episode(episode_id, @maximum_listed)
+    query = if since, do: CallRecordQuery.called_since(query, since), else: query
     query |> Repo.all() |> Enum.reverse()
   end
 

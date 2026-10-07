@@ -1,0 +1,109 @@
+defmodule Ryker.Episodes.EpisodeQuery do
+  @moduledoc "Requests (episodes), for every read of `episode_kernel_episodes`."
+  import Ecto.Query
+  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Work.Turn
+
+  def all, do: from(episodes in Episode, as: :episode_kernel_episodes)
+
+  def by_id(queryable \\ all(), id),
+    do: where(queryable, [episode_kernel_episodes: e], e.id == ^id)
+
+  def in_thread(queryable \\ all(), transport, conversation_ref, thread_ref) do
+    where(
+      queryable,
+      [episode_kernel_episodes: e],
+      e.destination_transport == ^transport and
+        e.destination_conversation_ref == ^conversation_ref and
+        e.destination_thread_ref == ^thread_ref
+    )
+  end
+
+  def in_states(queryable, states),
+    do: where(queryable, [episode_kernel_episodes: e], e.state in ^states)
+
+  @doc """
+  The episode working on turn `turn_id` of session `session_id`, with that
+  turn, while the turn is pending under lease `lease_ref`.
+  """
+  def working_on_turn(episode_id, turn_id, session_id, lease_ref) do
+    episode_id
+    |> by_id()
+    |> join(:inner, [episode_kernel_episodes: e], t in Turn,
+      on: t.episode_id == e.id,
+      as: :episode_work_turns
+    )
+    |> where([episode_work_turns: t], t.id == ^turn_id and t.session_id == ^session_id)
+    |> where(
+      [episode_kernel_episodes: e, episode_work_turns: t],
+      e.state == :working and e.owner_kind == :turn and e.owner_ref == t.turn_ref
+    )
+    |> where(
+      [episode_work_turns: t],
+      t.status == :pending and t.lease_ref == ^lease_ref and
+        t.lease_expires_at > fragment("clock_timestamp()")
+    )
+    |> select([episode_kernel_episodes: e, episode_work_turns: t], {e, t})
+  end
+
+  @doc """
+  Each live request someone asked something in or Ryker answered in between
+  `from` and `to`, as it stands now: whether a turn of it waits on Failures,
+  how many answers Ryker gave in it then, and when it last changed by `to`.
+  """
+  def asked_or_answered_between(from, to) do
+    {naive_from, naive_to} = {DateTime.to_naive(from), DateTime.to_naive(to)}
+
+    week_events =
+      from(event in Event,
+        where:
+          event.episode_id == parent_as(:episode_kernel_episodes).id and
+            event.kind in [:input_admitted, :result_accepted] and
+            event.occurred_at >= ^from and event.occurred_at < ^to
+      )
+
+    from(episode in all(),
+      where: episode.execution_mode == :live and exists(week_events),
+      select: %{
+        id: episode.id,
+        key: episode.key,
+        state: episode.state,
+        conversation: episode.destination_conversation_ref,
+        stuck:
+          fragment(
+            "EXISTS (SELECT 1 FROM episode_work_turns AS turn WHERE turn.episode_id = ? AND turn.status = 'blocked')",
+            episode.id
+          ),
+        answers:
+          fragment(
+            "(SELECT count(*) FROM episode_kernel_events AS event WHERE event.episode_id = ? AND event.kind = 'result_accepted' AND event.occurred_at >= ? AND event.occurred_at < ?)",
+            episode.id,
+            ^naive_from,
+            ^naive_to
+          ),
+        last_at:
+          fragment(
+            "(SELECT max(event.occurred_at) FROM episode_kernel_events AS event WHERE event.episode_id = ? AND event.occurred_at < ?)",
+            episode.id,
+            ^naive_to
+          )
+      }
+    )
+  end
+
+  @doc "The earliest hard deadline after `since` of an episode waiting for an event."
+  def next_event_deadline_after(since) do
+    all()
+    |> where(
+      [episode_kernel_episodes: e],
+      e.state == :waiting_for_event and e.owner_kind == :event and e.owner_deadline_at > ^since
+    )
+    |> select([episode_kernel_episodes: e], min(e.owner_deadline_at))
+  end
+
+  def select_ids(queryable), do: select(queryable, [episode_kernel_episodes: e], e.id)
+
+  # Keeps the episode from being deleted until the transaction ends, without
+  # blocking anything that only updates it.
+  def lock_for_key_share(queryable), do: lock(queryable, "FOR KEY SHARE")
+end

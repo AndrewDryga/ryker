@@ -16,11 +16,10 @@ defmodule Ryker.WeeklyReport.Custody do
   after the outermost commit (`subscribe_reports/0`).
   """
 
-  import Ecto.Query
   alias Ryker.Delivery.Request
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.WeeklyReport.Report
+  alias Ryker.WeeklyReport.{Report, ReportQuery}
   alias Ryker.Work.DeliveryReceipt
 
   @type claim :: %{report: Report.t(), lease_ref: Ecto.UUID.t()}
@@ -79,8 +78,7 @@ defmodule Ryker.WeeklyReport.Custody do
 
   @doc "Whether the week that starts on `week` (a Monday) has its report on record; a preview is not it."
   @spec recorded?(Date.t()) :: boolean()
-  def recorded?(%Date{} = week),
-    do: Repo.exists?(from(report in Report, where: report.week == ^week and not report.preview))
+  def recorded?(%Date{} = week), do: Repo.exists?(ReportQuery.for_week(week))
 
   @doc """
   The earliest moment after `since` at which a pending report becomes
@@ -89,13 +87,8 @@ defmodule Ryker.WeeklyReport.Custody do
   """
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
-    from(report in Report,
-      where: report.status == :pending,
-      select: [
-        filter(min(report.next_attempt_at), report.next_attempt_at > ^since),
-        filter(min(report.lease_expires_at), report.lease_expires_at > ^since)
-      ]
-    )
+    since
+    |> ReportQuery.next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -214,34 +207,29 @@ defmodule Ryker.WeeklyReport.Custody do
   @doc "Blocked reports, newest first, at most `limit`, for Failures."
   @spec blocked(pos_integer()) :: [Report.t()]
   def blocked(limit) do
-    Repo.all(
-      from(report in Report,
-        where: report.status == :blocked,
-        order_by: [desc: report.updated_at, desc: report.id],
-        limit: ^limit
-      )
-    )
+    ReportQuery.with_status(:blocked)
+    |> ReportQuery.recently_updated_first()
+    |> ReportQuery.limit_to(limit)
+    |> Repo.all()
   end
 
   @doc "One report by its delivery reference, or nil."
   @spec fetch(String.t()) :: Report.t() | nil
   def fetch(delivery_ref) when is_binary(delivery_ref),
-    do: Repo.get_by(Report, delivery_ref: delivery_ref)
+    do: Repo.one(ReportQuery.by_delivery_ref(delivery_ref))
 
   defp claim_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    case Repo.one(
-           from(report in Report,
-             where:
-               report.status == :pending and
-                 (is_nil(report.next_attempt_at) or report.next_attempt_at <= ^now) and
-                 (is_nil(report.lease_expires_at) or report.lease_expires_at <= ^now),
-             order_by: [asc: report.due_at, asc: report.id],
-             limit: 1,
-             lock: "FOR UPDATE SKIP LOCKED"
-           )
-         ) do
+    next =
+      now
+      |> ReportQuery.claimable_at()
+      |> ReportQuery.soonest_due_first()
+      |> ReportQuery.limit_to(1)
+      |> ReportQuery.lock_next_free()
+      |> Repo.one()
+
+    case next do
       nil ->
         nil
 
@@ -359,9 +347,10 @@ defmodule Ryker.WeeklyReport.Custody do
   end
 
   defp lock(delivery_ref) do
-    Repo.one(
-      from(report in Report, where: report.delivery_ref == ^delivery_ref, lock: "FOR UPDATE")
-    )
+    delivery_ref
+    |> ReportQuery.by_delivery_ref()
+    |> ReportQuery.lock_for_update()
+    |> Repo.one()
   end
 
   defp current_lease(report, lease_ref, now) do

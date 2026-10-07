@@ -21,15 +21,16 @@ defmodule Ryker.Waits.EventSubscriptions do
   every poll, and one that kept failing held up every other.
   """
 
-  import Ecto.Query
   require Logger
   alias Ryker.Episodes.Episode
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
+  alias Ryker.Records.RecordQuery
   alias Ryker.Repo
   alias Ryker.Waits.EventSubscription
   alias Ryker.Waits.EventSubscriptionChangeset
+  alias Ryker.Waits.EventSubscriptionQuery
   alias Ryker.Waits.EventWaitTiming
 
   @reconcile_limit 100
@@ -62,34 +63,10 @@ defmodule Ryker.Waits.EventSubscriptions do
   end
 
   defp unsubscribed_waits do
-    retained = retained_wait([:waiting_for_input])
-    retry_before = failure_retried_before(Repo.now!())
-
-    Repo.all(
-      from(episode in Episode,
-        as: :episode,
-        join: record in Record,
-        as: :record,
-        on: record.episode_id == episode.id,
-        left_join: subscription in EventSubscription,
-        on: subscription.record_id == record.id,
-        where: ^retained,
-        where: record.kind == "event_wait" and record.status == :open,
-        where:
-          is_nil(record.wait_error) or
-            (record.wait_error == "schedule_failed" and record.updated_at <= ^retry_before),
-        where: is_nil(subscription.id),
-        where:
-          fragment("?::jsonb->'event_matcher'->>'type'", record.payload) in [
-            "after",
-            "at",
-            "source_event"
-          ],
-        order_by: [asc: episode.owner_deadline_at, asc: episode.id],
-        limit: @reconcile_limit,
-        select: %{episode: episode, record_id: record.id}
-      )
-    )
+    Repo.now!()
+    |> failure_retried_before()
+    |> EventSubscriptionQuery.unsubscribed_waits(@reconcile_limit)
+    |> Repo.all()
   end
 
   defp subscribe(%{episode: episode, record_id: record_id}, count) do
@@ -115,12 +92,10 @@ defmodule Ryker.Waits.EventSubscriptions do
   # A wait whose scheduling failed ten minutes ago is tried as if new; the mark comes back if it
   # fails again.
   defp subscribe_locked(episode, record_id) do
-    Repo.update_all(
-      from(record in Record,
-        where: record.id == ^record_id and record.wait_error == "schedule_failed"
-      ),
-      set: [wait_error: nil]
-    )
+    record_id
+    |> RecordQuery.by_id()
+    |> RecordQuery.with_wait_error("schedule_failed")
+    |> Repo.update_all(set: [wait_error: nil])
 
     case ensure_locked(episode) do
       {:ok, result} -> result
@@ -137,13 +112,11 @@ defmodule Ryker.Waits.EventSubscriptions do
   @spec fail(Ecto.UUID.t(), String.t()) :: :ok
   def fail(record_id, code) when is_binary(record_id) and is_binary(code) do
     {_count, failed} =
-      Repo.update_all(
-        from(record in Record,
-          where: record.id == ^record_id and record.status == :open,
-          select: record
-        ),
-        set: [wait_error: code, updated_at: Repo.now!()]
-      )
+      record_id
+      |> RecordQuery.by_id()
+      |> RecordQuery.open()
+      |> RecordQuery.select_rows()
+      |> Repo.update_all(set: [wait_error: code, updated_at: Repo.now!()])
 
     Enum.each(failed, &Records.broadcast_record_updated/1)
   end
@@ -154,40 +127,17 @@ defmodule Ryker.Waits.EventSubscriptions do
     do: DateTime.add(now, -@failure_retry_seconds, :second)
 
   defp cancel_stale_in_transaction do
-    retained = retained_wait([:waiting_for_input, :working])
-    stale_wait = dynamic([record: record], not (^retained) or record.status != :open)
-
-    stale =
-      Repo.all(
-        from(subscription in EventSubscription,
-          join: episode in Episode,
-          as: :episode,
-          on: episode.id == subscription.episode_id,
-          join: record in Record,
-          as: :record,
-          on: record.id == subscription.record_id,
-          where: subscription.status == :active,
-          where: ^stale_wait,
-          order_by: [asc: subscription.id],
-          limit: @reconcile_limit,
-          select: %{
-            episode_id: subscription.episode_id,
-            record_id: record.id,
-            ref: record.ref,
-            subscription_id: subscription.id
-          }
-        )
-      )
+    stale = @reconcile_limit |> EventSubscriptionQuery.stale() |> Repo.all()
 
     now = Repo.now!()
 
     Enum.each(stale, fn item ->
       broadcast_follow_up_updated(item.subscription_id, item.episode_id)
 
-      Repo.update_all(
-        from(subscription in EventSubscription,
-          where: subscription.id == ^item.subscription_id and subscription.status == :active
-        ),
+      item.subscription_id
+      |> EventSubscriptionQuery.by_id()
+      |> EventSubscriptionQuery.active()
+      |> Repo.update_all(
         set: [
           last_observation: %{"event_wait_ref" => item.ref, "kind" => "cancelled"},
           last_observed_at: now,
@@ -199,38 +149,16 @@ defmodule Ryker.Waits.EventSubscriptions do
       )
 
       {_count, dismissed} =
-        Repo.update_all(
-          from(record in Record,
-            where: record.id == ^item.record_id and record.status == :open,
-            select: record
-          ),
-          set: [status: :dismissed, updated_at: now]
-        )
+        item.record_id
+        |> RecordQuery.by_id()
+        |> RecordQuery.open()
+        |> RecordQuery.select_rows()
+        |> Repo.update_all(set: [status: :dismissed, updated_at: now])
 
       Enum.each(dismissed, &Records.broadcast_record_updated/1)
     end)
 
     length(stale)
-  end
-
-  defp retained_wait(parked_states) do
-    event_only = event_only_record()
-
-    dynamic(
-      [episode: episode, record: record],
-      (episode.state == :waiting_for_event and episode.owner_kind == :event and
-         episode.owner_ref == record.ref) or
-        (episode.state in ^parked_states and ^event_only)
-    )
-  end
-
-  defp event_only_record do
-    dynamic(
-      [record: record],
-      record.kind == "event_wait" and
-        fragment("?::jsonb->'event_matcher'->>'type' = 'source_event'", record.payload) and
-        fragment("?::jsonb->>'deadline_at' IS NULL", record.payload)
-    )
   end
 
   @doc false
@@ -242,25 +170,11 @@ defmodule Ryker.Waits.EventSubscriptions do
       now = Repo.now!()
       {status, observation} = resolution(resolution_kind, wait_ref)
 
-      query =
-        from(subscription in EventSubscription,
-          join: record in Record,
-          on: record.id == subscription.record_id,
-          where: record.ref == ^wait_ref and subscription.status == :active,
-          update: [
-            set: [
-              status: ^status,
-              resolution_kind: ^resolution_kind,
-              last_observation: ^observation,
-              last_observed_at: ^now,
-              updated_at: ^now
-            ],
-            inc: [revision: 1]
-          ],
-          select: {subscription.id, subscription.episode_id}
-        )
+      {_count, resolved} =
+        wait_ref
+        |> EventSubscriptionQuery.resolving(status, resolution_kind, observation, now)
+        |> Repo.update_all([])
 
-      {_count, resolved} = Repo.update_all(query, [])
       Enum.each(resolved, fn {id, episode_id} -> broadcast_follow_up_updated(id, episode_id) end)
     else
       {:error, :event_subscription_transaction_required}
@@ -271,54 +185,19 @@ defmodule Ryker.Waits.EventSubscriptions do
     do: {:error, :event_subscription_not_found}
 
   @spec due(DateTime.t()) :: nil | map()
-  def due(%DateTime{} = now) do
-    retry_before = failure_retried_before(now)
-
-    Repo.one(
-      from(subscription in EventSubscription,
-        join: episode in Episode,
-        on: episode.id == subscription.episode_id,
-        join: record in Record,
-        on: record.id == subscription.record_id,
-        where:
-          subscription.status == :active and subscription.poll_after <= ^now and
-            subscription.deadline_at > ^now,
-        where: episode.state == :waiting_for_event and episode.owner_kind == :event,
-        where: episode.owner_ref == record.ref and record.episode_id == episode.id,
-        where: record.status == :open,
-        where:
-          is_nil(record.wait_error) or
-            (record.wait_error == "resume_failed" and record.updated_at <= ^retry_before),
-        where: subscription.deadline_at == episode.owner_deadline_at,
-        where:
-          fragment(
-            "CASE WHEN pg_input_is_valid(?::jsonb->>'deadline_at', 'timestamptz') THEN (?::jsonb->>'deadline_at')::timestamptz = ? ELSE false END",
-            record.payload,
-            record.payload,
-            episode.owner_deadline_at
-          ),
-        order_by: [asc: subscription.poll_after, asc: subscription.id],
-        limit: 1,
-        select: %{
-          episode_id: episode.id,
-          record_id: record.id,
-          subscription_id: subscription.id
-        }
-      )
-    )
-  end
+  def due(%DateTime{} = now),
+    do: now |> EventSubscriptionQuery.due(failure_retried_before(now)) |> Repo.one()
 
   defp ensure_locked(
          %Episode{owner_kind: :event, owner_ref: wait_ref, state: :waiting_for_event} = episode
        ) do
-    case Repo.one(
-           from(record in Record,
-             where:
-               record.episode_id == ^episode.id and record.ref == ^wait_ref and
-                 record.kind == "event_wait" and record.status == :open,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    wait =
+      episode.id
+      |> RecordQuery.open_wait(wait_ref)
+      |> RecordQuery.lock_for_update()
+      |> Repo.one()
+
+    case wait do
       %Record{} = record -> ensure_record(episode, record)
       nil -> {:ok, :not_source_event}
     end
@@ -328,18 +207,14 @@ defmodule Ryker.Waits.EventSubscriptions do
   # (episode 0b0c3590, 2026-09-13). An episode keeps one active subscription, so
   # the watch that already holds it keeps it, and otherwise the oldest gets it.
   defp ensure_locked(%Episode{state: :waiting_for_input, owner_kind: :input} = episode) do
-    event_only = event_only_record()
-
     records =
-      Repo.all(
-        from(record in Record,
-          as: :record,
-          where: record.episode_id == ^episode.id and record.status == :open,
-          where: ^event_only,
-          order_by: [asc: record.inserted_at, asc: record.id],
-          lock: "FOR UPDATE"
-        )
-      )
+      episode.id
+      |> RecordQuery.by_episode_id()
+      |> RecordQuery.open()
+      |> RecordQuery.event_only_waits()
+      |> RecordQuery.oldest_first()
+      |> RecordQuery.lock_for_update()
+      |> Repo.all()
 
     case Enum.find(records, &active_subscription?/1) || List.first(records) do
       %Record{} = record -> ensure_record(episode, record)
@@ -350,11 +225,10 @@ defmodule Ryker.Waits.EventSubscriptions do
   defp ensure_locked(%Episode{}), do: {:ok, :not_source_event}
 
   defp active_subscription?(%Record{id: record_id}) do
-    Repo.exists?(
-      from(subscription in EventSubscription,
-        where: subscription.record_id == ^record_id and subscription.status == :active
-      )
-    )
+    record_id
+    |> EventSubscriptionQuery.by_record_id()
+    |> EventSubscriptionQuery.active()
+    |> Repo.exists?()
   end
 
   defp ensure_record(_episode, %Record{wait_error: error}) when not is_nil(error),
@@ -362,7 +236,7 @@ defmodule Ryker.Waits.EventSubscriptions do
 
   defp ensure_record(episode, %Record{payload: %{"event_matcher" => trigger}} = record) do
     if trigger["type"] in ["source_event", "after", "at"] do
-      case Repo.get_by(EventSubscription, record_id: record.id) do
+      case Repo.one(EventSubscriptionQuery.by_record_id(record.id)) do
         %EventSubscription{} = subscription ->
           {:ok, subscription}
 

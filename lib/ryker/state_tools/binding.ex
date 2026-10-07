@@ -1,13 +1,11 @@
 defmodule Ryker.StateTools.Binding do
   @moduledoc false
 
-  import Ecto.Query
-  alias Ryker.CoopFleet.Placement
   alias Ryker.Crypto
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.{Episode, EpisodeQuery}
   alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.{Session, StateBinding, Turn}
+  alias Ryker.Work.{Session, SessionQuery, StateBinding, Turn}
 
   @spec resolve(binary()) ::
           {:ok,
@@ -21,14 +19,7 @@ defmodule Ryker.StateTools.Binding do
   def resolve(token) when is_binary(token) and byte_size(token) in 32..256 do
     token_sha256 = Crypto.sha256_hex(token)
 
-    binding =
-      token_sha256
-      |> binding_query()
-      |> active_session()
-      |> active_episode()
-      |> active_turn()
-      |> select([session, episode, turn, _placement], {session, episode, turn})
-      |> Repo.one()
+    binding = token_sha256 |> SessionQuery.state_tools_binding() |> Repo.one()
 
     case binding do
       {%Session{} = session, %Episode{} = episode, %Turn{} = turn} ->
@@ -59,12 +50,11 @@ defmodule Ryker.StateTools.Binding do
     Repo.query!("SET LOCAL lock_timeout = '1000ms'")
 
     session =
-      Repo.one(
-        from(s in Session,
-          where: s.id == ^binding.session.id and s.episode_id == ^binding.episode.id,
-          lock: "FOR UPDATE"
-        )
-      )
+      binding.session.id
+      |> SessionQuery.by_id()
+      |> SessionQuery.by_episode_id(binding.episode.id)
+      |> SessionQuery.lock_for_update()
+      |> Repo.one()
 
     with %Session{cleanup_status: :active} <- session,
          true <-
@@ -80,21 +70,7 @@ defmodule Ryker.StateTools.Binding do
              :emisar_rpc_url
            ]),
          true <- is_binary(binding.turn.lease_ref),
-         {episode, turn} <-
-           Repo.one(
-             from(e in Episode,
-               join: t in Turn,
-               on: t.episode_id == e.id,
-               where:
-                 e.id == ^binding.episode.id and t.id == ^binding.turn.id and
-                   t.session_id == ^session.id,
-               where: e.state == :working and e.owner_kind == :turn and e.owner_ref == t.turn_ref,
-               where:
-                 t.status == :pending and t.lease_ref == ^binding.turn.lease_ref and
-                   t.lease_expires_at > fragment("clock_timestamp()"),
-               select: {e, t}
-             )
-           ),
+         {episode, turn} <- Repo.one(working_on_turn(binding, session)),
          true <-
            same_fields?(episode, binding.episode, [
              :destination_transport,
@@ -108,43 +84,14 @@ defmodule Ryker.StateTools.Binding do
     end
   end
 
+  defp working_on_turn(binding, session) do
+    EpisodeQuery.working_on_turn(
+      binding.episode.id,
+      binding.turn.id,
+      session.id,
+      binding.turn.lease_ref
+    )
+  end
+
   defp same_fields?(left, right, fields), do: Map.take(left, fields) == Map.take(right, fields)
-
-  defp binding_query(token_sha256) do
-    from(session in Session,
-      join: episode in Episode,
-      on: episode.id == session.episode_id,
-      join: turn in Turn,
-      on: turn.session_id == session.id and turn.episode_id == episode.id,
-      left_join: placement in Placement,
-      on: placement.session_id == session.id,
-      where: turn.state_tools_token_sha256 == ^token_sha256
-    )
-  end
-
-  defp active_session(query) do
-    from([session, _episode, _turn, placement] in query,
-      where:
-        session.cleanup_status == :active and
-          (is_nil(placement.id) or
-             (placement.state == :active and
-                placement.lease_expires_at > fragment("clock_timestamp()")))
-    )
-  end
-
-  defp active_episode(query) do
-    from([_session, episode, turn, _placement] in query,
-      where:
-        episode.state == :working and episode.owner_kind == :turn and
-          turn.turn_ref == episode.owner_ref
-    )
-  end
-
-  defp active_turn(query) do
-    from([_session, _episode, turn, _placement] in query,
-      where:
-        turn.status == :pending and not is_nil(turn.lease_ref) and
-          turn.lease_expires_at > fragment("clock_timestamp()")
-    )
-  end
 end

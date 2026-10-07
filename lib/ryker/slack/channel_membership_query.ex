@@ -13,6 +13,16 @@ defmodule Ryker.Slack.ChannelMembershipQuery do
     )
   end
 
+  @doc "Each deleted channel in `workspace_refs`, as `{workspace, channel}`."
+  def deleted_in_workspaces(workspace_refs) do
+    all()
+    |> where(
+      [slack_channel_memberships: m],
+      m.workspace_ref in ^workspace_refs and m.status == :deleted
+    )
+    |> select([slack_channel_memberships: m], {m.workspace_ref, m.channel_ref})
+  end
+
   @doc "Joined channels anyone in the workspace can read: public and not shared with another organisation."
   def joined_public(queryable \\ all()) do
     where(

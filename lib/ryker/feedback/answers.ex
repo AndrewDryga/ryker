@@ -11,8 +11,7 @@ defmodule Ryker.Feedback.Answers do
   message, found by the receipt its platform returned, is one Ryker sent.
   """
 
-  import Ecto.Query
-  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
+  alias Ryker.Delivery.{PlatformActionQuery, RoutingResponseQuery}
   alias Ryker.Repo
 
   @type target :: %{transport: String.t(), conversation_ref: String.t(), message_ref: String.t()}
@@ -36,30 +35,22 @@ defmodule Ryker.Feedback.Answers do
   def message_request(_target), do: :error
 
   defp quick_reply(transport, conversation, ref) do
-    Repo.one(
-      from(response in RoutingResponse,
-        where:
-          response.kind == :message and response.status == :delivered and
-            response.transport == ^transport and response.conversation_ref == ^conversation and
-            fragment("(?::jsonb)->>'message_ref' = ?", response.external_receipt, ^ref),
-        order_by: [desc: response.delivered_at, desc: response.id],
-        limit: 1,
-        select: response.input_id
-      )
-    )
+    RoutingResponseQuery.delivered_messages()
+    |> RoutingResponseQuery.in_conversation(transport, conversation)
+    |> RoutingResponseQuery.by_receipt_message(ref)
+    |> RoutingResponseQuery.latest_delivered_first()
+    |> RoutingResponseQuery.limit_to(1)
+    |> RoutingResponseQuery.select_input_ids()
+    |> Repo.one()
   end
 
   defp post(transport, conversation, ref) do
-    Repo.one(
-      from(action in PlatformAction,
-        where:
-          action.kind == :message and action.status == :delivered and
-            action.transport == ^transport and action.conversation_ref == ^conversation and
-            fragment("(?::jsonb)->>'message_ref' = ?", action.external_receipt, ^ref),
-        order_by: [desc: action.delivered_at, desc: action.id],
-        limit: 1,
-        select: action.episode_id
-      )
-    )
+    PlatformActionQuery.delivered_messages()
+    |> PlatformActionQuery.in_conversation(transport, conversation)
+    |> PlatformActionQuery.by_receipt_message(ref)
+    |> PlatformActionQuery.latest_delivered_first()
+    |> PlatformActionQuery.limit_to(1)
+    |> PlatformActionQuery.select_episode_ids()
+    |> Repo.one()
   end
 end

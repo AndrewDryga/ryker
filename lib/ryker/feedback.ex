@@ -30,13 +30,12 @@ defmodule Ryker.Feedback do
   (`Ryker.Retention.Data`), and with its request when that goes first.
   """
 
-  import Ecto.Query
   alias Ryker.Episodes
-  alias Ryker.Episodes.Episode
-  alias Ryker.Feedback.Signal
+  alias Ryker.Episodes.EpisodeQuery
+  alias Ryker.Feedback.{Signal, SignalQuery}
   alias Ryker.Improvement
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.EntryQuery
   alias Ryker.Repo
 
   @type request :: {:episode, Ecto.UUID.t()} | {:input, Ecto.UUID.t()}
@@ -123,20 +122,17 @@ defmodule Ryker.Feedback do
   def for_request(request, limit \\ 100)
 
   def for_request({:episode, id}, limit) when is_binary(id),
-    do: newest(from(signal in Signal, where: signal.episode_id == ^id), limit)
+    do: id |> SignalQuery.by_episode_id() |> newest(limit)
 
   def for_request({:input, id}, limit) when is_binary(id),
-    do: newest(from(signal in Signal, where: signal.input_id == ^id), limit)
+    do: id |> SignalQuery.by_input_id() |> newest(limit)
 
   def for_request(_request, _limit), do: []
 
-  # Two signals the source says happened at the same moment read in the order
-  # Ryker recorded them.
   defp newest(query, limit) do
-    from(signal in query,
-      order_by: [desc: signal.occurred_at, desc: signal.inserted_at, desc: signal.id],
-      limit: ^limit
-    )
+    query
+    |> SignalQuery.newest_first()
+    |> SignalQuery.limit_to(limit)
     |> Repo.all()
     |> Enum.reverse()
   end
@@ -157,12 +153,11 @@ defmodule Ryker.Feedback do
 
   def current_reactions(conversation_ref, message_refs)
       when is_binary(conversation_ref) and is_list(message_refs) do
-    from([signal] in reactions_in(conversation_ref),
-      where: signal.message_ref in ^Enum.uniq(message_refs),
-      order_by: [asc: signal.occurred_at, asc: signal.inserted_at, asc: signal.id],
-      select:
-        {signal.message_ref, signal.kind, signal.actor_ref, signal.value, signal.occurred_at}
-    )
+    conversation_ref
+    |> SignalQuery.reactions_in()
+    |> SignalQuery.on_messages(Enum.uniq(message_refs))
+    |> SignalQuery.oldest_first()
+    |> SignalQuery.select_reactions()
     |> Repo.all()
     |> Enum.reduce(%{}, fn
       {message, :reaction_added, actor, emoji, at}, current ->
@@ -192,31 +187,12 @@ defmodule Ryker.Feedback do
   @spec reacted_messages(String.t(), DateTime.t(), pos_integer()) :: [String.t()]
   def reacted_messages(conversation_ref, %DateTime{} = since, limit)
       when is_binary(conversation_ref) and is_integer(limit) and limit > 0 do
-    Repo.all(
-      from([signal] in reactions_in(conversation_ref),
-        where: signal.inserted_at >= ^since,
-        distinct: true,
-        select: signal.message_ref,
-        limit: ^limit
-      )
-    )
-  end
-
-  # A message's name is its platform's, unique only within its conversation
-  # (a Slack timestamp), so a reaction is read through its request's
-  # conversation.
-  defp reactions_in(conversation_ref) do
-    from(signal in Signal,
-      left_join: input in Entry,
-      on: input.id == signal.input_id,
-      left_join: episode in Episode,
-      on: episode.id == signal.episode_id,
-      where:
-        signal.kind in [:reaction_added, :reaction_removed] and not is_nil(signal.message_ref),
-      where:
-        input.destination_conversation_ref == ^conversation_ref or
-          episode.destination_conversation_ref == ^conversation_ref
-    )
+    conversation_ref
+    |> SignalQuery.reactions_in()
+    |> SignalQuery.recorded_since(since)
+    |> SignalQuery.select_message_refs()
+    |> SignalQuery.limit_to(limit)
+    |> Repo.all()
   end
 
   # -- Recording ---------------------------------------------------------------
@@ -270,14 +246,24 @@ defmodule Ryker.Feedback do
 
   # FOR KEY SHARE keeps the request from being deleted until this transaction
   # ends, without blocking anything that only updates it.
-  defp hold_request(%Signal{episode_id: id}) when is_binary(id),
-    do: held(from(episode in Episode, where: episode.id == ^id, select: episode.id))
+  defp hold_request(%Signal{episode_id: id}) when is_binary(id) do
+    id
+    |> EpisodeQuery.by_id()
+    |> EpisodeQuery.select_ids()
+    |> EpisodeQuery.lock_for_key_share()
+    |> held()
+  end
 
-  defp hold_request(%Signal{input_id: id}) when is_binary(id),
-    do: held(from(entry in Entry, where: entry.id == ^id, select: entry.id))
+  defp hold_request(%Signal{input_id: id}) when is_binary(id) do
+    id
+    |> EntryQuery.by_id()
+    |> EntryQuery.select_ids()
+    |> EntryQuery.lock_for_key_share()
+    |> held()
+  end
 
   defp held(query) do
-    case Repo.one(from(row in query, lock: "FOR KEY SHARE")) do
+    case Repo.one(query) do
       nil -> {:error, :feedback_request_not_found}
       _id -> :ok
     end
@@ -312,7 +298,7 @@ defmodule Ryker.Feedback do
       {0, []} ->
         {:ok,
          %{
-           signal: Repo.get_by!(Signal, kind: signal.kind, source_ref: signal.source_ref),
+           signal: Repo.one!(SignalQuery.by_source(signal.kind, signal.source_ref)),
            status: :duplicate
          }}
     end

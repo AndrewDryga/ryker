@@ -5,7 +5,55 @@ defmodule Ryker.Schedules.ScheduleQuery do
 
   def all, do: from(schedules in Schedule, as: :episode_schedules)
 
+  def by_id(queryable \\ all(), id), do: where(queryable, [episode_schedules: s], s.id == ^id)
   def by_ref(queryable \\ all(), ref), do: where(queryable, [episode_schedules: s], s.ref == ^ref)
+
+  def by_offer_record_id(queryable \\ all(), record_id),
+    do: where(queryable, [episode_schedules: s], s.offer_record_id == ^record_id)
+
+  @doc """
+  Active and due at `now`: its occurrence has come, with no retry backoff or
+  unrenewed lease left.
+  """
+  def due_at(now) do
+    all()
+    |> where(
+      [episode_schedules: s],
+      s.status == :active and s.next_occurrence_at <= ^now
+    )
+    |> where([episode_schedules: s], is_nil(s.next_attempt_at) or s.next_attempt_at <= ^now)
+    |> where([episode_schedules: s], is_nil(s.lease_ref) or s.lease_expires_at <= ^now)
+  end
+
+  @doc """
+  The earliest moment after `since` at which an active schedule becomes
+  claimable by the clock alone: its next occurrence, the end of its retry's
+  backoff or the end of an unrenewed lease, whichever it waits on last.
+  """
+  def next_due_after(since) do
+    due =
+      from(schedule in all(),
+        where: schedule.status == :active and not is_nil(schedule.next_occurrence_at),
+        select: %{
+          due_at:
+            type(
+              fragment(
+                "GREATEST(?, ?, CASE WHEN ? IS NOT NULL THEN ? END)",
+                schedule.next_occurrence_at,
+                schedule.next_attempt_at,
+                schedule.lease_ref,
+                schedule.lease_expires_at
+              ),
+              :utc_datetime_usec
+            )
+        }
+      )
+
+    from(schedule in subquery(due),
+      where: schedule.due_at > ^since,
+      select: min(schedule.due_at)
+    )
+  end
 
   def in_conversation(queryable \\ all(), transport, conversation_ref) do
     where(
@@ -26,5 +74,7 @@ defmodule Ryker.Schedules.ScheduleQuery do
     )
   end
 
+  def limit_to(queryable, count), do: limit(queryable, ^count)
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+  def lock_next_free(queryable), do: lock(queryable, "FOR UPDATE SKIP LOCKED")
 end

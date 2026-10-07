@@ -31,9 +31,8 @@ defmodule Ryker.WorkExamples.Export do
   on as it is encoded, so an export never holds the whole set in memory.
   """
 
-  import Ecto.Query
   alias Ryker.Repo
-  alias Ryker.WorkExamples.{Example, Feedback}
+  alias Ryker.WorkExamples.{Example, ExampleQuery, Feedback, FeedbackQuery}
 
   # A work example's briefing is about fifty times a routing prompt.
   @batch 10
@@ -48,10 +47,8 @@ defmodule Ryker.WorkExamples.Export do
   def reduce(acc, fun) when is_function(fun, 2) do
     Repo.transaction(
       fn ->
-        from(example in Example,
-          where: is_nil(example.forgotten_at),
-          order_by: [asc: example.settled_at, asc: example.id]
-        )
+        ExampleQuery.kept()
+        |> ExampleQuery.oldest_settled_first()
         |> Repo.stream(max_rows: @batch)
         |> Stream.chunk_every(@batch)
         |> Stream.flat_map(&Repo.preload(&1, feedback: feedback_order()))
@@ -69,7 +66,7 @@ defmodule Ryker.WorkExamples.Export do
     [Jason.encode_to_iodata!(document(example)), ?\n]
   end
 
-  defp feedback_order, do: from(feedback in Feedback, order_by: [asc: :occurred_at, asc: :id])
+  defp feedback_order, do: FeedbackQuery.oldest_first(FeedbackQuery.all())
 
   defp document(example) do
     Jason.OrderedObject.new([
