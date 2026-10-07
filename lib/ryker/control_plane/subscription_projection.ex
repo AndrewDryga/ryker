@@ -6,14 +6,10 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   boundary.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{Activity, Search, SubscriptionPresentation}
-  alias Ryker.Episodes.Episode
+  alias Ryker.ControlPlane.{Activity, FollowUpQuery, Search, SubscriptionPresentation}
   alias Ryker.InspectionRedactor
-  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Waits.EventSubscription
 
   @list_limit 100
   @views %{"current" => [:active], "past" => [:resolved, :timed_out, :cancelled]}
@@ -27,41 +23,8 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   """
   def list(params) when is_map(params) do
     query =
-      from(subscription in EventSubscription,
-        left_join: episode in Episode,
-        on: episode.id == subscription.episode_id,
-        join: record in Record,
-        on: record.id == subscription.record_id,
-        order_by: [
-          asc: fragment("CASE WHEN ? = 'active' THEN 0 ELSE 1 END", subscription.status),
-          asc_nulls_last:
-            fragment(
-              "CASE WHEN ? = 'active' THEN coalesce(?, ?) END",
-              subscription.status,
-              subscription.poll_after,
-              subscription.deadline_at
-            ),
-          desc: subscription.updated_at,
-          desc: subscription.id
-        ],
-        limit: @list_limit + 1,
-        select: %{
-          cursor: subscription.cursor,
-          deadline_at: subscription.deadline_at,
-          episode_ref: episode.key,
-          last_observation: subscription.last_observation,
-          last_observed_at: subscription.last_observed_at,
-          matcher: subscription.matcher,
-          poll_after: subscription.poll_after,
-          ref: subscription.ref,
-          resolution_kind: subscription.resolution_kind,
-          revision: subscription.revision,
-          source_kind: subscription.source_kind,
-          status: subscription.status,
-          trigger_type: fragment("?::jsonb -> 'event_matcher' ->> 'type'", record.payload),
-          updated_at: subscription.updated_at
-        }
-      )
+      (@list_limit + 1)
+      |> FollowUpQuery.follow_ups()
       |> subscription_view(Map.get(@views, params["view"]))
 
     search = Search.term(params["q"])
@@ -83,16 +46,13 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   defp subscription_rows(query, nil), do: Repo.all(query)
 
   defp subscription_rows(query, search) do
-    case Repo.all(from(subscription in query, where: subscription.ref == ^search)) do
-      [] -> Repo.all(query)
-      exact -> exact
-    end
+    exact = query |> FollowUpQuery.by_ref(search) |> Repo.all()
+    if exact == [], do: Repo.all(query), else: exact
   end
 
   defp subscription_view(query, nil), do: query
 
-  defp subscription_view(query, statuses),
-    do: from(subscription in query, where: subscription.status in ^statuses)
+  defp subscription_view(query, statuses), do: FollowUpQuery.in_statuses(query, statuses)
 
   defp subscription_search(items, nil), do: items
 

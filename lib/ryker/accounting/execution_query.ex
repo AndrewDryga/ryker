@@ -16,6 +16,10 @@ defmodule Ryker.Accounting.ExecutionQuery do
 
   def all, do: from(executions in Execution, as: :execution_usage)
 
+  @doc "The ledger rows of executions of `kind` made for `source_ids`."
+  def of_sources(queryable \\ all(), kind, source_ids),
+    do: where(queryable, [execution_usage: e], e.kind == ^kind and e.source_id in ^source_ids)
+
   @doc """
   The priced ledger since `since` (all of it for nil) in `mode` ("live",
   "shadow" or "all"), one map an execution.
@@ -88,6 +92,15 @@ defmodule Ryker.Accounting.ExecutionQuery do
   end
 
   def recorded_before(ledger, to), do: where(ledger, [ledger: e], e.recorded_at < ^to)
+
+  @doc "Every execution of conversation `conversation_ref` on `transport`."
+  def in_conversation(ledger, transport, conversation_ref) do
+    where(
+      ledger,
+      [ledger: e],
+      e.transport == ^transport and e.conversation_ref == ^conversation_ref
+    )
+  end
 
   @doc "Every execution of request `episode_id`."
   def of_episode(ledger, episode_id), do: where(ledger, [ledger: e], e.episode_id == ^episode_id)

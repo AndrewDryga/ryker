@@ -1,7 +1,7 @@
 defmodule Ryker.Improvement.AnalysisRunQuery do
   @moduledoc "Each analysis of a flagged request, for every read of `improvement_analysis_runs`."
   import Ecto.Query
-  alias Ryker.Improvement.AnalysisRun
+  alias Ryker.Improvement.{AnalysisRun, Candidate}
 
   def all, do: from(runs in AnalysisRun, as: :improvement_analysis_runs)
 
@@ -57,6 +57,27 @@ defmodule Ryker.Improvement.AnalysisRunQuery do
 
   def select_max_generation(queryable),
     do: select(queryable, [improvement_analysis_runs: r], max(r.generation))
+
+  @doc "The analyses of request `episode_id`'s candidates."
+  def of_request(episode_id) do
+    from(r in all(),
+      join: c in Candidate,
+      on: c.id == r.candidate_id,
+      where: c.episode_id == ^episode_id
+    )
+  end
+
+  @doc "The analyses of message `input_id`'s candidates, while no request took it."
+  def of_message(input_id) do
+    from(r in all(),
+      join: c in Candidate,
+      on: c.id == r.candidate_id,
+      where: c.input_id == ^input_id and is_nil(c.episode_id)
+    )
+  end
+
+  def newest_first(queryable),
+    do: order_by(queryable, [improvement_analysis_runs: r], desc: r.inserted_at, desc: r.id)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")

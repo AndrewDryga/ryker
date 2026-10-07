@@ -1,11 +1,10 @@
 defmodule Ryker.ControlPlane.InstructionSettings do
   @moduledoc "Instruction controls for a console person, never a model tool."
-  import Ecto.Query
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.EpisodeQuery
   alias Ryker.Instructions
-  alias Ryker.Instructions.Setting
+  alias Ryker.Instructions.SettingQuery
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, IncidentRoom}
+  alias Ryker.Slack.{ChannelConfigurationQuery, ChannelMembershipQuery, IncidentRoomQuery}
 
   @doc """
   The saved instructions for `scope`. The global view also carries every
@@ -27,13 +26,12 @@ defmodule Ryker.ControlPlane.InstructionSettings do
   # A cleared channel has nothing to add, so it is not listed.
   @channel_limit 500
   defp channels do
-    Repo.all(
-      from(s in Setting,
-        where: like(s.scope_ref, "slack:%") and s.text != "",
-        order_by: s.scope_ref,
-        limit: @channel_limit
-      )
-    )
+    SettingQuery.all()
+    |> SettingQuery.for_slack_channels()
+    |> SettingQuery.with_text()
+    |> SettingQuery.ordered_by_scope()
+    |> SettingQuery.limit_to(@channel_limit)
+    |> Repo.all()
     |> Enum.flat_map(fn setting ->
       case String.split(setting.scope_ref, ":") do
         ["slack", workspace, channel] ->
@@ -65,12 +63,10 @@ defmodule Ryker.ControlPlane.InstructionSettings do
        when is_binary(workspace) and is_binary(channel) and
               byte_size(workspace) <= 256 and byte_size(channel) <= 256 do
     membership =
-      Repo.one(
-        from(m in ChannelMembership,
-          where: m.workspace_ref == ^workspace and m.channel_ref == ^channel,
-          select: m.status
-        )
-      )
+      workspace
+      |> ChannelMembershipQuery.by_channel(channel)
+      |> ChannelMembershipQuery.select_statuses()
+      |> Repo.one()
 
     if membership || known_channel?(workspace, channel),
       do: {:ok, membership},
@@ -80,22 +76,8 @@ defmodule Ryker.ControlPlane.InstructionSettings do
   defp available(_), do: {:error, :instructions_scope_unavailable}
 
   defp known_channel?(workspace, channel) do
-    configured =
-      Enum.any?([ChannelConfiguration, IncidentRoom], fn schema ->
-        Repo.exists?(
-          from(c in schema,
-            where: c.workspace_ref == ^workspace and c.channel_ref == ^channel
-          )
-        )
-      end)
-
-    configured or
-      Repo.exists?(
-        from(e in Episode,
-          where:
-            e.destination_transport == "slack" and
-              e.destination_conversation_ref == ^"slack:#{workspace}:#{channel}"
-        )
-      )
+    Repo.exists?(ChannelConfigurationQuery.by_channel(workspace, channel)) or
+      Repo.exists?(IncidentRoomQuery.by_channel(workspace, channel)) or
+      Repo.exists?(EpisodeQuery.in_conversation("slack", "slack:#{workspace}:#{channel}"))
   end
 end

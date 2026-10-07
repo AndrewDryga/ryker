@@ -18,8 +18,6 @@ defmodule Ryker.ControlPlane.ConversationLab do
   topics (`Ryker.Episodes.subscribe_conversations/1`).
   """
 
-  import Ecto.Query
-
   # Direct-conversation input enters the inbox directly; the Slack engagement
   # gate never runs for it, and the receipt says that instead of inventing
   # Slack checks.
@@ -34,13 +32,13 @@ defmodule Ryker.ControlPlane.ConversationLab do
   }
 
   alias Ryker.Artifacts
-  alias Ryker.ControlPlane.Actor
+  alias Ryker.ControlPlane.{Actor, ConversationQuery}
   alias Ryker.Episodes
   alias Ryker.Episodes.Reactions
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Settings.Environment
+  alias Ryker.Settings.{Environment, EnvironmentQuery}
   alias Ryker.Transcription
 
   @maximum_message_bytes 20_000
@@ -93,19 +91,12 @@ defmodule Ryker.ControlPlane.ConversationLab do
   def environments(conversation_ids) do
     ids = for id <- conversation_ids, {:ok, id} <- [conversation_id(id)], uniq: true, do: id
 
-    stored =
-      Repo.all(
-        from(conversation in "control_plane_conversations",
-          where: conversation.id in type(^ids, {:array, Ecto.UUID}),
-          select: {type(conversation.id, Ecto.UUID), conversation.environment_ref}
-        )
-      )
-      |> Map.new()
+    stored = ids |> ConversationQuery.environments() |> Repo.all() |> Map.new()
 
     default =
       if Enum.all?(ids, &Map.has_key?(stored, &1)),
         do: nil,
-        else: Repo.one(default_environment_query())
+        else: Repo.one(EnvironmentQuery.default_ref())
 
     Map.new(ids, &{&1, Map.get(stored, &1, default)})
   end
@@ -310,27 +301,16 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
   # A person edits and deletes only what they sent.
   defp current_message(conversation_id, source_item_ref, actor) do
-    case Repo.one(current_message_query(conversation_id, source_item_ref, actor)) do
+    current =
+      conversation_id
+      |> ref()
+      |> ConversationQuery.current_message(source_item_ref, actor)
+      |> Repo.one()
+
+    case current do
       %Entry{} = entry -> {:ok, entry}
       nil -> {:error, {:invalid_conversation_lab, :message_not_found}}
     end
-  end
-
-  defp current_message_query(conversation_id, source_item_ref, actor) do
-    conversation_ref = ref(conversation_id)
-
-    from(entry in Entry,
-      where:
-        entry.source_kind == "control_plane" and entry.source_ref == "local" and
-          entry.actor_kind == :user and entry.actor_ref == ^actor and
-          entry.destination_transport == "control_plane" and
-          entry.destination_conversation_ref == ^conversation_ref and
-          entry.destination_thread_ref == ^conversation_ref and
-          entry.source_item_ref == ^source_item_ref,
-      order_by: [desc: entry.revision, desc: entry.inserted_at, desc: entry.id],
-      limit: 1,
-      lock: "FOR UPDATE"
-    )
   end
 
   defp editable_message(%Entry{event_kind: :delete}),
@@ -436,9 +416,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
   defp selectable_environment(environment_ref) do
     if is_binary(environment_ref) and Regex.match?(Environment.ref_pattern(), environment_ref) and
-         Repo.exists?(
-           from(environment in Environment, where: environment.ref == ^environment_ref)
-         ),
+         Repo.exists?(EnvironmentQuery.by_ref(environment_ref)),
        do: :ok,
        else: {:error, {:invalid_conversation_lab, :environment_ref}}
   end
@@ -465,10 +443,6 @@ defmodule Ryker.ControlPlane.ConversationLab do
       {:error, reason} ->
         Repo.rollback({:conversation_lab_persistence_failed, :environment, reason})
     end
-  end
-
-  defp default_environment_query do
-    from(environment in Environment, where: environment.is_default, select: environment.ref)
   end
 
   @doc "The durable conversation reference for a validated conversation id."

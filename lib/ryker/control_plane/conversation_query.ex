@@ -143,6 +143,99 @@ defmodule Ryker.ControlPlane.ConversationQuery do
     )
   end
 
+  @doc """
+  The environment each of `conversation_ids` chose, as `{id, environment_ref}`;
+  a conversation that chose none has no row.
+  """
+  def environments(conversation_ids) do
+    from(conversation in "control_plane_conversations",
+      where: conversation.id in type(^conversation_ids, {:array, Ecto.UUID}),
+      select: {type(conversation.id, Ecto.UUID), conversation.environment_ref}
+    )
+  end
+
+  @doc """
+  The current revision of the local message `source_item_ref` that `actor`
+  sent in conversation `ref`, locked for its edit or deletion.
+  """
+  def current_message(ref, source_item_ref, actor) do
+    from(entry in Entry,
+      where:
+        entry.source_kind == "control_plane" and entry.source_ref == "local" and
+          entry.actor_kind == :user and entry.actor_ref == ^actor and
+          entry.destination_transport == "control_plane" and
+          entry.destination_conversation_ref == ^ref and
+          entry.destination_thread_ref == ^ref and
+          entry.source_item_ref == ^source_item_ref,
+      order_by: [desc: entry.revision, desc: entry.inserted_at, desc: entry.id],
+      limit: 1,
+      lock: "FOR UPDATE"
+    )
+  end
+
+  @doc """
+  The `limit` latest replies of conversation `ref` that were accepted and
+  reached it, the latest first.
+  """
+  def delivered_replies(ref, limit) do
+    from(turn in Turn,
+      join: episode in Episode,
+      on: episode.id == turn.episode_id,
+      where:
+        episode.destination_transport == "control_plane" and
+          episode.destination_conversation_ref == ^ref and
+          episode.destination_thread_ref == ^ref and
+          turn.status == :settled and not is_nil(turn.accepted_at) and
+          not is_nil(turn.delivery_document) and not is_nil(turn.external_receipt),
+      order_by: [desc: turn.accepted_at, desc: turn.id],
+      limit: ^limit
+    )
+  end
+
+  @doc """
+  The `limit` latest messages of conversation `ref` as their latest admitted
+  revision says them, the latest first, leaving out what `current`, the
+  request asking, has not taken in yet.
+  """
+  def admitted_messages(ref, current, limit) do
+    latest =
+      from(event in Event,
+        join: episode in Episode,
+        on: episode.id == event.episode_id,
+        where:
+          episode.destination_transport == "control_plane" and
+            episode.destination_conversation_ref == ^ref and
+            episode.destination_thread_ref == ^ref and
+            event.kind == :input_admitted,
+        distinct: fragment("(?::jsonb ->> 'native_input_id')", event.payload),
+        order_by: [
+          asc: fragment("(?::jsonb ->> 'native_input_id')", event.payload),
+          desc: fragment("((?::jsonb ->> 'revision')::bigint)", event.payload),
+          desc: event.occurred_at,
+          desc: event.id
+        ],
+        select: %{
+          dedupe_key: event.dedupe_key,
+          episode_id: event.episode_id,
+          sequence: event.sequence,
+          id: event.id,
+          occurred_at: event.occurred_at,
+          payload: event.payload
+        }
+      )
+
+    from(event in subquery(latest),
+      # Select the latest revision BEFORE excluding pending inputs, otherwise
+      # an edit queued for the next turn could resurrect its superseded text.
+      where:
+        event.episode_id != ^current.id or
+          (event.sequence < ^current.next_sequence and
+             event.dedupe_key not in ^current.queued_input_refs),
+      order_by: [desc: event.occurred_at, desc: event.id],
+      limit: ^limit
+    )
+  end
+
   @doc "Every revision of every message of conversation `ref`."
   def messages(ref) do
     from(entry in Entry,

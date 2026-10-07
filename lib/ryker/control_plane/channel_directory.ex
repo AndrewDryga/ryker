@@ -6,12 +6,10 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   channel's detail is `ChannelDetail`.
   """
 
-  import Ecto.Query
-  alias Ryker.ControlPlane.{ChannelsPage, PagedRelation, Search}
-  alias Ryker.Episodes.Episode
+  alias Ryker.ControlPlane.{ChannelDirectoryQuery, ChannelsPage, PagedRelation, Search}
   alias Ryker.Repo
-  alias Ryker.Settings
-  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, IncidentRoom}
+  alias Ryker.Settings.{EnvironmentQuery, SlackQuery}
+  alias Ryker.Slack.{ChannelConfigurationQuery, ChannelMembershipQuery}
   alias Ryker.Slack.Names
 
   @doc """
@@ -36,8 +34,8 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   """
   @spec rows(map()) :: [map()]
   def rows(params) when is_map(params) do
-    configurations = Repo.all(ChannelConfiguration)
-    memberships = Repo.all(ChannelMembership)
+    configurations = Repo.all(ChannelConfigurationQuery.all())
+    memberships = Repo.all(ChannelMembershipQuery.all())
 
     rooms = incident_rooms()
     episode_counts = slack_episode_counts()
@@ -125,21 +123,8 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
 
   # The newest room per channel decides whether an incident is open there.
   defp incident_rooms do
-    Repo.all(
-      from(room in IncidentRoom,
-        where: not is_nil(room.channel_ref),
-        distinct: [room.workspace_ref, room.channel_ref],
-        order_by: [
-          asc: room.workspace_ref,
-          asc: room.channel_ref,
-          desc: room.updated_at,
-          desc: room.id
-        ],
-        select:
-          {{room.workspace_ref, room.channel_ref}, room.status, room.channel_state,
-           room.channel_name}
-      )
-    )
+    ChannelDirectoryQuery.latest_rooms()
+    |> Repo.all()
     |> Map.new(fn {key, status, channel_state, channel_name} ->
       {key,
        %{
@@ -164,37 +149,27 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   end
 
   defp defaults do
-    environments =
-      Repo.all(
-        from(environment in Settings.Environment,
-          select: {environment.ref, environment.display_name, environment.is_default}
-        )
-      )
+    environments = Repo.all(EnvironmentQuery.select_names())
 
     %{
       environment:
         Enum.find_value(environments, fn {ref, _name, default} -> if default, do: ref end),
       names: Map.new(environments, fn {ref, name, _default} -> {ref, name} end),
-      participation:
-        Repo.one(from(slack in Settings.Slack, select: slack.default_participation, limit: 1)) ||
-          :mentions
+      participation: default_participation()
     }
   end
 
+  # How a channel takes part unless set otherwise: the installation's choice.
+  defp default_participation do
+    case Repo.one(SlackQuery.select_default_participation()) do
+      {_workspace_ref, participation} when not is_nil(participation) -> participation
+      _unset -> :mentions
+    end
+  end
+
   defp slack_episode_counts do
-    Repo.all(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == "slack" and
-            like(episode.destination_conversation_ref, "slack:%"),
-        group_by: episode.destination_conversation_ref,
-        select: %{
-          conversation_ref: episode.destination_conversation_ref,
-          episodes: count(episode.id),
-          last_at: max(episode.updated_at)
-        }
-      )
-    )
+    ChannelDirectoryQuery.episode_counts()
+    |> Repo.all()
     |> Enum.reduce(%{}, fn row, found ->
       case String.split(row.conversation_ref, ":", parts: 3) do
         ["slack", workspace_ref, channel_ref] ->

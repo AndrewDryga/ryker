@@ -34,6 +34,14 @@ defmodule Ryker.Work.SessionQuery do
     )
   end
 
+  def for_improvement_runs(queryable \\ all(), run_ids) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.execution_kind == :improvement and s.improvement_run_id in ^run_ids
+    )
+  end
+
   @doc "The session of learning pass `run_id`."
   def for_learning_run(queryable \\ all(), run_id) do
     where(

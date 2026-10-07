@@ -7,13 +7,12 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   conversation. No call in this module owns or receives Slack credentials.
   """
 
-  import Ecto.Query
   require Logger
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.SourcePage
+  alias Ryker.ControlPlane.{ConversationQuery, SourcePage}
   alias Ryker.Delivery.PlatformActionCustody
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.{Episode, Event, EventQuery}
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
@@ -435,20 +434,9 @@ defmodule Ryker.ControlPlane.CapabilityTools do
       |> Enum.flat_map(&input_message(&1, context))
 
     replies =
-      Repo.all(
-        from(turn in Turn,
-          join: episode in Episode,
-          on: episode.id == turn.episode_id,
-          where:
-            episode.destination_transport == "control_plane" and
-              episode.destination_conversation_ref == ^context.conversation_ref and
-              episode.destination_thread_ref == ^context.conversation_ref and
-              turn.status == :settled and not is_nil(turn.accepted_at) and
-              not is_nil(turn.delivery_document) and not is_nil(turn.external_receipt),
-          order_by: [desc: turn.accepted_at, desc: turn.id],
-          limit: @maximum_messages
-        )
-      )
+      context.conversation_ref
+      |> ConversationQuery.delivered_replies(@maximum_messages)
+      |> Repo.all()
       |> Enum.flat_map(&reply_message(&1, context))
 
     inputs
@@ -584,44 +572,9 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   end
 
   defp input_events(context) do
-    latest =
-      from(event in Event,
-        join: episode in Episode,
-        on: episode.id == event.episode_id,
-        where:
-          episode.destination_transport == "control_plane" and
-            episode.destination_conversation_ref == ^context.conversation_ref and
-            episode.destination_thread_ref == ^context.conversation_ref and
-            event.kind == :input_admitted,
-        distinct: fragment("(?::jsonb ->> 'native_input_id')", event.payload),
-        order_by: [
-          asc: fragment("(?::jsonb ->> 'native_input_id')", event.payload),
-          desc: fragment("((?::jsonb ->> 'revision')::bigint)", event.payload),
-          desc: event.occurred_at,
-          desc: event.id
-        ],
-        select: %{
-          dedupe_key: event.dedupe_key,
-          episode_id: event.episode_id,
-          sequence: event.sequence,
-          id: event.id,
-          occurred_at: event.occurred_at,
-          payload: event.payload
-        }
-      )
-
-    Repo.all(
-      from(event in subquery(latest),
-        # Select the latest revision BEFORE excluding pending inputs, otherwise
-        # an edit queued for the next turn could resurrect its superseded text.
-        where:
-          event.episode_id != ^context.episode.id or
-            (event.sequence < ^context.episode.next_sequence and
-               event.dedupe_key not in ^context.episode.queued_input_refs),
-        order_by: [desc: event.occurred_at, desc: event.id],
-        limit: @maximum_messages
-      )
-    )
+    context.conversation_ref
+    |> ConversationQuery.admitted_messages(context.episode, @maximum_messages)
+    |> Repo.all()
   end
 
   defp input_files(%{payload: payload} = event, context) do
@@ -759,14 +712,14 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp active_input(_context, _source_ref), do: {:error, :invalid_arguments}
 
   defp load_active_input(episode_id, source_ref) do
-    case Repo.one(
-           from(event in Event,
-             where:
-               event.episode_id == ^episode_id and event.kind == :input_admitted and
-                 event.dedupe_key == ^source_ref,
-             limit: 1
-           )
-         ) do
+    admitted =
+      episode_id
+      |> EventQuery.by_episode_id()
+      |> EventQuery.admitted_inputs([source_ref])
+      |> EventQuery.limit_to(1)
+      |> Repo.one()
+
+    case admitted do
       %Event{payload: %{"payload" => %{} = input}} -> {:ok, input}
       _missing -> {:error, :unauthorized}
     end
@@ -816,16 +769,15 @@ defmodule Ryker.ControlPlane.CapabilityTools do
 
   defp active_input_ref(context, input) do
     Enum.find(context.episode.active_input_refs, fn ref ->
-      case Repo.one(
-             from(event in Event,
-               where: event.episode_id == ^context.episode.id and event.dedupe_key == ^ref,
-               select: event.payload,
-               limit: 1
-             )
-           ) do
-        %{"payload" => ^input} -> true
-        _other -> false
-      end
+      payload =
+        context.episode.id
+        |> EventQuery.by_episode_id()
+        |> EventQuery.by_dedupe_key(ref)
+        |> EventQuery.select_payloads()
+        |> EventQuery.limit_to(1)
+        |> Repo.one()
+
+      match?(%{"payload" => ^input}, payload)
     end)
   end
 

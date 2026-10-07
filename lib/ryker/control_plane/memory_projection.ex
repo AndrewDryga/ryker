@@ -11,11 +11,10 @@ defmodule Ryker.ControlPlane.MemoryProjection do
   existed (2026-10-04 review).
   """
 
-  import Ecto.Query
   alias Ryker.ControlPlane.{PagedRelation, RepositoryNames}
   alias Ryker.InspectionRedactor
   alias Ryker.Memories
-  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Memories.MemoryEntryQuery
   alias Ryker.Repo
 
   @reviews_shown 100
@@ -48,10 +47,10 @@ defmodule Ryker.ControlPlane.MemoryProjection do
 
   @doc "One active fact as the page shows it, by reference, or nil."
   def fact(ref) when is_binary(ref) do
-    case Repo.one(from(memory in fact_rows(), where: memory.ref == ^ref)) do
-      nil -> nil
-      fact -> fact |> redact(InspectionRedactor.configured_secrets()) |> named(names([fact], []))
-    end
+    fact = fact_rows() |> MemoryEntryQuery.by_ref(ref) |> Repo.one()
+
+    if fact,
+      do: fact |> redact(InspectionRedactor.configured_secrets()) |> named(names([fact], []))
   end
 
   @doc "One pending review as the page shows it, by reference, or nil."
@@ -92,30 +91,9 @@ defmodule Ryker.ControlPlane.MemoryProjection do
     end)
   end
 
-  defp active do
-    from(memory in MemoryEntry,
-      where:
-        memory.status == :active and
-          (is_nil(memory.expires_at) or memory.expires_at > fragment("clock_timestamp()"))
-    )
-  end
+  defp active, do: MemoryEntryQuery.active() |> MemoryEntryQuery.unexpired_now()
 
-  defp fact_rows do
-    from(memory in active(),
-      select: %{
-        kind: memory.kind,
-        ref: memory.ref,
-        scope: memory.scope_kind,
-        scope_ref: memory.scope_ref,
-        applicability: fragment("?::jsonb->>'applicability'", memory.payload),
-        value: fragment("?::jsonb->>'value'", memory.payload),
-        status: memory.status,
-        subject: memory.subject,
-        recall_count: memory.recall_count,
-        confirmed_at: memory.confirmed_at
-      }
-    )
-  end
+  defp fact_rows, do: MemoryEntryQuery.select_facts(active())
 
   # A memory is a person's own words, confirmed as a fact; they are redacted
   # here exactly as the channel page and the behavior library redact them.
@@ -123,18 +101,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
 
   defp search(query, ""), do: query
 
-  defp search(query, text) do
-    from(memory in query,
-      where:
-        fragment(
-          "position(lower(?) in lower(concat_ws(' ', ?, ?::jsonb->>'value', ?::jsonb->>'applicability'))) > 0",
-          ^text,
-          memory.subject,
-          memory.payload,
-          memory.payload
-        )
-    )
-  end
+  defp search(query, text), do: MemoryEntryQuery.saying(query, text)
 
   defp search_text(value) when is_binary(value), do: String.slice(String.trim(value), 0, 200)
   defp search_text(_value), do: ""

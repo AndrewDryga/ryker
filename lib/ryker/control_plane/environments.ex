@@ -12,10 +12,9 @@ defmodule Ryker.ControlPlane.Environments do
   the channel counts is derived from the settings snapshot.
   """
 
-  import Ecto.Query
   alias Ryker.ControlPlane.Integrations
   alias Ryker.Repo
-  alias Ryker.Settings.Environment
+  alias Ryker.Settings.{Environment, EnvironmentQuery}
 
   @doc """
   How many Slack channels choose each environment, by environment ref, and
@@ -27,13 +26,7 @@ defmodule Ryker.ControlPlane.Environments do
   """
   @spec channel_counts() :: %{(String.t() | nil) => non_neg_integer()}
   def channel_counts do
-    Repo.all(
-      from(configuration in "slack_channel_configurations",
-        group_by: configuration.environment_ref,
-        select: {configuration.environment_ref, count()}
-      )
-    )
-    |> Map.new()
+    EnvironmentQuery.channel_counts() |> Repo.all() |> Map.new()
   end
 
   @doc "The default first, then the rest by name, the way every list shows them."

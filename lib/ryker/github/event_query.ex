@@ -60,4 +60,14 @@ defmodule Ryker.GitHub.EventQuery do
     do: select(queryable, [github_repository_events: e], e.delivery_ref)
 
   def select_rows(queryable), do: select(queryable, [github_repository_events: e], e)
+
+  def inserted_since(queryable \\ all(), since),
+    do: where(queryable, [github_repository_events: e], e.inserted_at >= ^since)
+
+  @doc "How many events each disposition holds, as `{disposition, count}`."
+  def count_by_disposition(queryable) do
+    queryable
+    |> group_by([github_repository_events: e], e.disposition)
+    |> select([github_repository_events: e], {e.disposition, count(e.id)})
+  end
 end

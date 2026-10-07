@@ -12,21 +12,19 @@ defmodule Ryker.ControlPlane.SettingsView do
   (`subscriptions/0`).
   """
 
-  import Ecto.Query
   alias Ryker.Config
   alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, PageRead}
   alias Ryker.ControlPlane.ProductReadiness
   alias Ryker.CoopFleet.ControlPlane.Workers
-  alias Ryker.CoopFleet.Worker
+  alias Ryker.CoopFleet.WorkerQuery
   alias Ryker.Credentials
   alias Ryker.Episodes
-  alias Ryker.Episodes.Episode
   alias Ryker.GitHub.AppJWT
-  alias Ryker.GitHub.Event, as: GitHubEvent
+  alias Ryker.GitHub.EventQuery, as: GitHubEventQuery
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.{ChannelConfigurations, Gateway, Names}
-  alias Ryker.Work.Turn
+  alias Ryker.Work.TurnQuery
 
   @type t :: %{
           snapshot: Settings.snapshot(),
@@ -179,11 +177,9 @@ defmodule Ryker.ControlPlane.SettingsView do
     since = DateTime.add(DateTime.utc_now(), -86_400, :second)
 
     counts =
-      from(event in GitHubEvent,
-        where: event.inserted_at >= ^since,
-        group_by: event.disposition,
-        select: {event.disposition, count(event.id)}
-      )
+      since
+      |> GitHubEventQuery.inserted_since()
+      |> GitHubEventQuery.count_by_disposition()
       |> Repo.all()
       |> Map.new()
 
@@ -216,20 +212,7 @@ defmodule Ryker.ControlPlane.SettingsView do
     end
   end
 
-  defp worker_installs do
-    Repo.all(
-      from(worker in Worker,
-        where: worker.state != :revoked and is_nil(worker.revoked_at),
-        group_by: worker.workspace_ref,
-        order_by: worker.workspace_ref,
-        select: %{
-          ref: worker.workspace_ref,
-          workers: count(worker.id),
-          eligible: filter(count(worker.id), worker.state == :eligible)
-        }
-      )
-    )
-  end
+  defp worker_installs, do: Repo.all(WorkerQuery.installs())
 
   defp registered_secret_names(credentials) do
     credentials
@@ -307,16 +290,7 @@ defmodule Ryker.ControlPlane.SettingsView do
   # asked the person something waits for their answer, and the step stayed open on tenant while
   # it did (2026-10-04).
   defp successful_channel_request?(conversations) do
-    Repo.exists?(
-      from(episode in Episode,
-        join: turn in Turn,
-        on: turn.episode_id == episode.id,
-        where:
-          episode.destination_transport == "slack" and
-            episode.destination_conversation_ref in ^conversations and
-            not is_nil(turn.external_receipt)
-      )
-    )
+    Repo.exists?(TurnQuery.delivered_in_conversations("slack", conversations))
   end
 
   defp verified?(credentials, kinds) do

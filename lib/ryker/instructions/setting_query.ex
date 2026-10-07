@@ -13,6 +13,15 @@ defmodule Ryker.Instructions.SettingQuery do
 
   def with_text(queryable), do: where(queryable, [model_instruction_settings: s], s.text != "")
 
+  @doc "Instructions saved for a Slack channel, by their `slack:` scope."
+  def for_slack_channels(queryable),
+    do: where(queryable, [model_instruction_settings: s], like(s.scope_ref, "slack:%"))
+
+  def ordered_by_scope(queryable),
+    do: order_by(queryable, [model_instruction_settings: s], s.scope_ref)
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
+
   def select_scope_refs(queryable),
     do: select(queryable, [model_instruction_settings: s], s.scope_ref)
 end

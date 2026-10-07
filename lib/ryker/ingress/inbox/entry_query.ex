@@ -404,6 +404,19 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
     |> order_by([ingress_inbox_entries: e], asc: e.inserted_at, asc: e.id)
   end
 
+  @doc "The other messages of `entry`'s thread, in its execution mode."
+  def others_in_thread(entry) do
+    where(
+      all(),
+      [ingress_inbox_entries: e],
+      e.destination_transport == ^entry.destination_transport and
+        e.destination_conversation_ref == ^entry.destination_conversation_ref and
+        e.destination_thread_ref == ^entry.destination_thread_ref and
+        e.execution_mode == ^entry.execution_mode and
+        e.native_input_id != ^entry.native_input_id
+    )
+  end
+
   def in_thread(queryable, thread_ref),
     do: where(queryable, [ingress_inbox_entries: e], e.destination_thread_ref == ^thread_ref)
 

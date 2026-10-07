@@ -9,9 +9,8 @@ defmodule Ryker.ControlPlane.ThreadContext do
   show all messages in thread too".
   """
 
-  import Ecto.Query
   alias Ryker.ControlPlane.Activity
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.Repo
 
   @label "All messages in this thread"
@@ -23,17 +22,7 @@ defmodule Ryker.ControlPlane.ThreadContext do
   @spec link(Entry.t()) :: %{href: String.t(), label: String.t()} | nil
   def link(%Entry{destination_transport: "slack", destination_thread_ref: thread} = entry)
       when is_binary(thread) do
-    others? =
-      Repo.exists?(
-        from(message in Entry,
-          where:
-            message.destination_transport == ^entry.destination_transport and
-              message.destination_conversation_ref == ^entry.destination_conversation_ref and
-              message.destination_thread_ref == ^thread and
-              message.execution_mode == ^entry.execution_mode and
-              message.native_input_id != ^entry.native_input_id
-        )
-      )
+    others? = Repo.exists?(EntryQuery.others_in_thread(entry))
 
     if others?, do: thread_link("slack", entry.destination_conversation_ref, thread)
   end

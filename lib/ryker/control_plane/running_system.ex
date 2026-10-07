@@ -14,10 +14,9 @@ defmodule Ryker.ControlPlane.RunningSystem do
   """
 
   use Phoenix.Component
-  import Ecto.Query
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, ShortTime, Units}
-  alias Ryker.CoopFleet.Worker
+  alias Ryker.CoopFleet.{Worker, WorkerQuery}
   alias Ryker.Repo
   alias Ryker.Work.CodeEditingSetup
 
@@ -26,7 +25,7 @@ defmodule Ryker.ControlPlane.RunningSystem do
   def fetch do
     %{
       version: to_string(Application.spec(:ryker, :vsn) || "unknown"),
-      workers: Repo.all(from(worker in Worker, order_by: [asc: worker.id])),
+      workers: WorkerQuery.all() |> WorkerQuery.ordered_by_id() |> Repo.all(),
       supported: CodeEditingSetup.checkpoint_supported?(),
       now: Repo.now!()
     }

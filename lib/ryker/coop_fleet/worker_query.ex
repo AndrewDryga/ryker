@@ -39,6 +39,25 @@ defmodule Ryker.CoopFleet.WorkerQuery do
     do: where(queryable, [coop_workers: w], w.last_seen_at >= ^cutoff)
 
   def select_ids(queryable), do: select(queryable, [coop_workers: w], w.id)
+  def ordered_by_id(queryable), do: order_by(queryable, [coop_workers: w], asc: w.id)
+
+  @doc """
+  Each install the enrolled workers report, by workspace: how many workers
+  and how many of them take work, as `%{ref, workers, eligible}`.
+  """
+  def installs do
+    from(w in all(),
+      where: w.state != :revoked and is_nil(w.revoked_at),
+      group_by: w.workspace_ref,
+      order_by: w.workspace_ref,
+      select: %{
+        ref: w.workspace_ref,
+        workers: count(w.id),
+        eligible: filter(count(w.id), w.state == :eligible)
+      }
+    )
+  end
+
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
   def lock_next_free(queryable), do: lock(queryable, "FOR UPDATE SKIP LOCKED")
 end

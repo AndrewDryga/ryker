@@ -21,16 +21,8 @@ defmodule Ryker.ControlPlane.ConsolePeople do
   with `local-operator` (or `control-plane:local`) in place of the person, and
   a page calls it "You", as before.
   """
-  use Ecto.Schema
-  import Ecto.Query
-  alias Ryker.ControlPlane.{Actor, PageRead}
+  alias Ryker.ControlPlane.{Actor, ConsolePerson, ConsolePersonQuery, PageRead}
   alias Ryker.Repo
-
-  @primary_key {:login, :string, autogenerate: false}
-  schema "control_plane_people" do
-    field(:name, :string)
-    timestamps(type: :utc_datetime_usec)
-  end
 
   @local %{name: "You", href: nil}
 
@@ -45,14 +37,10 @@ defmodule Ryker.ControlPlane.ConsolePeople do
     name = Ryker.Text.characters(name, 120)
 
     Repo.insert_all(
-      __MODULE__,
+      ConsolePerson,
       [%{login: login, name: name, inserted_at: now, updated_at: now}],
       conflict_target: :login,
-      on_conflict:
-        from(person in __MODULE__,
-          where: person.name != ^name,
-          update: [set: [name: ^name, updated_at: ^now]]
-        )
+      on_conflict: ConsolePersonQuery.rename(name, now)
     )
 
     :ok
@@ -96,7 +84,7 @@ defmodule Ryker.ControlPlane.ConsolePeople do
   # are the few who sign in to the console.
   defp every_name do
     PageRead.memo({__MODULE__, :names}, fn ->
-      Repo.all(from(person in __MODULE__, select: {person.login, person.name})) |> Map.new()
+      ConsolePersonQuery.select_names() |> Repo.all() |> Map.new()
     end)
   end
 
@@ -105,12 +93,11 @@ defmodule Ryker.ControlPlane.ConsolePeople do
   def names([]), do: %{}
 
   def names(logins) do
-    Repo.all(
-      from(person in __MODULE__,
-        where: person.login in ^Enum.uniq(logins),
-        select: {person.login, person.name}
-      )
-    )
+    logins
+    |> Enum.uniq()
+    |> ConsolePersonQuery.by_logins()
+    |> ConsolePersonQuery.select_names()
+    |> Repo.all()
     |> Map.new()
   end
 

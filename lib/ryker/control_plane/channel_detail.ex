@@ -8,15 +8,12 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   stored status: expiry and visibility are applied at read time instead.
   """
 
-  import Ecto.Query
   alias Ryker.Accounting.ExecutionQuery
-  alias Ryker.ControlPlane.{Activity, ChannelContext, ChannelScope, Environments, PagedRelation}
-  alias Ryker.ControlPlane.{Paths, RepositoryNames, UsageProjection}
-  alias Ryker.Episodes.Episode
+  alias Ryker.ControlPlane.{Activity, ChannelContext, ChannelDetailQuery, ChannelScope}
+  alias Ryker.ControlPlane.{Environments, PagedRelation, Paths, RepositoryNames, UsageProjection}
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
   alias Ryker.Settings.Environment
-  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, ChannelSettings, IncidentRoom}
+  alias Ryker.Slack.ChannelSettings
 
   @type collection :: PagedRelation.t()
 
@@ -129,7 +126,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
     totals =
       UsageProjection.since(window)
       |> ExecutionQuery.ledger(mode)
-      |> where([e], e.transport == "slack" and e.conversation_ref == ^scope.conversation_ref)
+      |> ExecutionQuery.in_conversation("slack", scope.conversation_ref)
       |> UsageProjection.totals()
 
     %{
@@ -154,73 +151,11 @@ defmodule Ryker.ControlPlane.ChannelDetail do
     }
   end
 
-  defp configuration(scope) do
-    Repo.one(
-      from(configuration in ChannelConfiguration,
-        where:
-          configuration.workspace_ref == ^scope.workspace_ref and
-            configuration.channel_ref == ^scope.channel_ref,
-        limit: 1,
-        select: %{
-          # The page's choices name the revision they were drawn from.
-          id: configuration.id,
-          actor_ref: configuration.actor_ref,
-          alert_policy: configuration.alert_policy,
-          invite_user_group_refs: configuration.invite_user_group_refs,
-          invite_user_refs: configuration.invite_user_refs,
-          participation: configuration.participation,
-          environment_ref: configuration.environment_ref,
-          revision: configuration.revision,
-          saved_at: configuration.saved_at
-        }
-      )
-    )
-  end
+  defp configuration(scope), do: Repo.one(ChannelDetailQuery.configuration(scope))
 
-  defp membership(scope) do
-    Repo.one(
-      from(membership in ChannelMembership,
-        where:
-          membership.workspace_ref == ^scope.workspace_ref and
-            membership.channel_ref == ^scope.channel_ref,
-        limit: 1,
-        select: %{
-          deleted_at: membership.deleted_at,
-          external_shared: membership.external_shared,
-          generation: membership.generation,
-          joined_at: membership.joined_at,
-          left_at: membership.left_at,
-          private: membership.private,
-          status: membership.status,
-          updated_at: membership.updated_at
-        }
-      )
-    )
-  end
+  defp membership(scope), do: Repo.one(ChannelDetailQuery.membership(scope))
 
-  defp incident_room(scope) do
-    Repo.one(
-      from(room in IncidentRoom,
-        left_join: episode in Episode,
-        on: episode.id == room.episode_id,
-        where:
-          room.workspace_ref == ^scope.workspace_ref and room.channel_ref == ^scope.channel_ref,
-        order_by: [desc: room.updated_at, desc: room.id],
-        limit: 1,
-        select: %{
-          channel_name: room.channel_name,
-          channel_state: room.channel_state,
-          episode_id: room.episode_id,
-          private: room.private,
-          ref: room.ref,
-          repository_ref: room.repository_ref,
-          status: room.status,
-          title: room.title,
-          updated_at: room.updated_at
-        }
-      )
-    )
-  end
+  defp incident_room(scope), do: Repo.one(ChannelDetailQuery.incident_room(scope))
 
   defp settings do
     case Ryker.Settings.fetch() do
@@ -323,19 +258,8 @@ defmodule Ryker.ControlPlane.ChannelDetail do
 
   defp episodes(scope, params) do
     relation =
-      from(episode in Episode,
-        where:
-          episode.destination_transport == "slack" and
-            episode.destination_conversation_ref == ^scope.conversation_ref,
-        select: %{
-          execution_mode: episode.execution_mode,
-          id: episode.id,
-          ref: episode.key,
-          state: episode.state,
-          thread_ref: episode.destination_thread_ref,
-          updated_at: episode.updated_at
-        }
-      )
+      scope
+      |> ChannelDetailQuery.episodes()
       |> read("episode_page", [desc: :updated_at, desc: :id], params)
 
     # An episode is named by what was asked, the way the Activity page names
@@ -352,17 +276,8 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   end
 
   defp schedules(scope, params) do
-    from(schedule in Schedule,
-      where:
-        schedule.destination_transport == "slack" and
-          schedule.destination_conversation_ref == ^scope.conversation_ref,
-      select: %{
-        next_occurrence_at: schedule.next_occurrence_at,
-        ref: schedule.ref,
-        status: schedule.status,
-        title: schedule.title
-      }
-    )
+    scope
+    |> ChannelDetailQuery.schedules()
     |> read("schedule_page", [asc_nulls_last: :next_occurrence_at, desc: :id], params)
   end
 

@@ -13,8 +13,6 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
   into; nothing is rebuilt from today's evidence, and retention says what it
   removed.
   """
-  import Ecto.Query
-
   import Ryker.ControlPlane.BackgroundCards,
     only: [
       artifact_options: 2,
@@ -28,13 +26,13 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       timestamp: 1
     ]
 
-  alias Ryker.Accounting.Execution
+  alias Ryker.Accounting.ExecutionQuery
   alias Ryker.ControlPlane.{BackgroundCards, CallRun, ImprovementPage, Paths}
   alias Ryker.Improvement
-  alias Ryker.Improvement.{AnalysisRun, Candidate}
+  alias Ryker.Improvement.{AnalysisRun, AnalysisRunQuery, Candidate}
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work.SessionQuery
 
   @limit 20
 
@@ -53,25 +51,15 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
     end
   end
 
-  defp runs_for(episode_id: id) when is_binary(id),
-    do: runs(dynamic([candidate: c], c.episode_id == ^id))
-
-  defp runs_for(input_id: id) when is_binary(id),
-    do: runs(dynamic([candidate: c], c.input_id == ^id and is_nil(c.episode_id)))
-
+  defp runs_for(episode_id: id) when is_binary(id), do: runs(AnalysisRunQuery.of_request(id))
+  defp runs_for(input_id: id) when is_binary(id), do: runs(AnalysisRunQuery.of_message(id))
   defp runs_for(_owner), do: []
 
-  defp runs(owned) do
-    Repo.all(
-      from(run in AnalysisRun,
-        join: candidate in Candidate,
-        as: :candidate,
-        on: candidate.id == run.candidate_id,
-        where: ^owned,
-        order_by: [desc: run.inserted_at, desc: run.id],
-        limit: @limit
-      )
-    )
+  defp runs(query) do
+    query
+    |> AnalysisRunQuery.newest_first()
+    |> AnalysisRunQuery.limit_to(@limit)
+    |> Repo.all()
     |> Enum.reverse()
   end
 
@@ -83,14 +71,14 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       disclosed: Keyword.get(options, :disclosed),
       totals: Enum.frequencies_by(runs, & &1.candidate_id),
       executions:
-        Repo.all(from(e in Execution, where: e.kind == "improvement" and e.source_id in ^ids))
+        "improvement"
+        |> ExecutionQuery.of_sources(ids)
+        |> Repo.all()
         |> Map.new(&{&1.source_id, &1}),
       sessions:
-        Repo.all(
-          from(s in Session,
-            where: s.execution_kind == :improvement and s.improvement_run_id in ^ids
-          )
-        )
+        ids
+        |> SessionQuery.for_improvement_runs()
+        |> Repo.all()
         |> Map.new(&{&1.improvement_run_id, &1})
     }
 

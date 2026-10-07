@@ -133,6 +133,15 @@ defmodule Ryker.Records.RecordQuery do
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
+  @doc "The latest offer confirmed as task `episode_id`."
+  def task_offer_confirming(episode_id) do
+    from(r in all(),
+      where: r.kind == "task_offer" and r.confirmed_episode_id == ^episode_id,
+      order_by: [desc: r.confirmed_at],
+      limit: 1
+    )
+  end
+
   @doc "An episode's latest `limit` findings and evidence still in use, as a later outcome recalls them."
   def outcome_records(episode_id, limit) do
     from(r in all(),

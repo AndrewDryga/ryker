@@ -10,10 +10,9 @@ defmodule Ryker.ControlPlane.RepositoryNames do
   A ref known by neither is its own name.
   """
 
-  import Ecto.Query
   alias Ryker.ControlPlane.PageRead
   alias Ryker.Repo
-  alias Ryker.Settings.Repository
+  alias Ryker.Settings.RepositoryQuery
 
   @doc """
   Every known name, keyed by ref; a repository still added wins over one
@@ -24,16 +23,8 @@ defmodule Ryker.ControlPlane.RepositoryNames do
   def all, do: PageRead.memo({__MODULE__, :all}, &read/0)
 
   defp read do
-    removed = Repo.all(from(row in "removed_repository_names", select: {row.ref, row.name}))
-
-    current =
-      Repo.all(
-        from(repository in Repository,
-          where: coalesce(repository.github_repository, repository.display_name) != "",
-          select:
-            {repository.ref, coalesce(repository.github_repository, repository.display_name)}
-        )
-      )
+    removed = Repo.all(RepositoryQuery.removed_names())
+    current = Repo.all(RepositoryQuery.named())
 
     Map.new(removed ++ current)
   end

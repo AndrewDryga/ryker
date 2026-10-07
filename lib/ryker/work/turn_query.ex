@@ -370,6 +370,17 @@ defmodule Ryker.Work.TurnQuery do
     })
   end
 
+  @doc "Turns whose reply reached one of `conversations` on `transport`."
+  def delivered_in_conversations(transport, conversations) do
+    from(t in all(),
+      join: e in Episode,
+      on: e.id == t.episode_id,
+      where:
+        e.destination_transport == ^transport and e.destination_conversation_ref in ^conversations and
+          not is_nil(t.external_receipt)
+    )
+  end
+
   def select_statuses(queryable), do: select(queryable, [episode_work_turns: t], t.status)
 
   @doc "Each episode's latest Work turn, as an automation's runs show it."

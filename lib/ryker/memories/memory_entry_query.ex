@@ -266,6 +266,46 @@ defmodule Ryker.Memories.MemoryEntryQuery do
   def active(queryable \\ all()),
     do: where(queryable, [operational_memory_entries: m], m.status == :active)
 
+  @doc "Facts that have not expired by the database clock."
+  def unexpired_now(queryable) do
+    where(
+      queryable,
+      [operational_memory_entries: m],
+      is_nil(m.expires_at) or m.expires_at > fragment("clock_timestamp()")
+    )
+  end
+
+  @doc "Facts whose subject, value or applicability says `text`, whatever the case."
+  def saying(queryable, text) do
+    where(
+      queryable,
+      [operational_memory_entries: m],
+      fragment(
+        "position(lower(?) in lower(concat_ws(' ', ?, ?::jsonb->>'value', ?::jsonb->>'applicability'))) > 0",
+        ^text,
+        m.subject,
+        m.payload,
+        m.payload
+      )
+    )
+  end
+
+  @doc "Each fact as the Facts page lists it."
+  def select_facts(queryable) do
+    select(queryable, [operational_memory_entries: m], %{
+      kind: m.kind,
+      ref: m.ref,
+      scope: m.scope_kind,
+      scope_ref: m.scope_ref,
+      applicability: fragment("?::jsonb->>'applicability'", m.payload),
+      value: fragment("?::jsonb->>'value'", m.payload),
+      status: m.status,
+      subject: m.subject,
+      recall_count: m.recall_count,
+      confirmed_at: m.confirmed_at
+    })
+  end
+
   def confirmed_between(queryable, from, to) do
     where(
       queryable,
