@@ -6,6 +6,7 @@ defmodule Ryker.Credentials do
   credential's plaintext; discovery and inspection return status metadata only.
   """
 
+  require Logger
   alias Ryker.AdvisoryLock
   alias Ryker.Config
   alias Ryker.Credential
@@ -82,8 +83,18 @@ defmodule Ryker.Credentials do
     statuses()
     |> Enum.flat_map(fn credential ->
       case fetch(credential.kind, credential.name) do
-        {:ok, value} -> [value]
-        {:error, _reason} -> []
+        {:ok, value} ->
+          [value]
+
+        # One that no longer decrypts, after a key change, dropped out without a
+        # word, so its value could reach worker output unmasked (2026-10-04 review).
+        {:error, reason} ->
+          Logger.warning(
+            "credential #{credential.kind}/#{credential.name} could not be read (#{reason}), " <>
+              "so its value is not redacted"
+          )
+
+          []
       end
     end)
     |> Enum.uniq()
@@ -252,12 +263,27 @@ defmodule Ryker.Credentials do
   end
 
   defp seal(key, kind, name, plaintext) when byte_size(key) == 32 do
-    sealed = Crypto.seal(key, plaintext, associated_data(kind, name, @key_version))
+    data = associated_data(kind, name, @key_version)
+    sealed = Crypto.seal(key, plaintext, data)
 
     {:ok,
-     Map.merge(sealed, %{key_version: @key_version, fingerprint: Crypto.sha256_hex(plaintext)})}
+     Map.merge(sealed, %{
+       key_version: @key_version,
+       fingerprint: fingerprint(key, data, plaintext)
+     })}
   rescue
     _error -> {:error, :credential_encryption_failed}
+  end
+
+  # Whether a credential's value changed, for its history, and nothing more: keyed by
+  # a subkey of the root and bound to the credential's identity. A plain SHA-256 of
+  # the secret, beside the ciphertext, let anyone with a dump or a backup check a
+  # guess offline and showed two credentials holding one value (2026-10-04 review).
+  defp fingerprint(key, associated_data, plaintext) do
+    key
+    |> Crypto.hmac_sha256("ryker-integration-credential-fingerprint")
+    |> Crypto.hmac_sha256([associated_data, <<0>>, plaintext])
+    |> Base.encode16(case: :lower)
   end
 
   defp open(key, %Credential{} = credential) when byte_size(key) == 32 do

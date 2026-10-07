@@ -86,6 +86,42 @@ defmodule Ryker.CredentialsTest do
     refute inspect(status) =~ @secret
   end
 
+  # 2026-10-04 review: the fingerprint was a plain SHA-256 of the secret, stored beside the
+  # ciphertext, so anyone holding a database dump or backup could check a guessed secret
+  # against it offline, and two credentials holding one value showed it. It is keyed by the
+  # credential root and bound to the credential's identity; the same value saved again keeps it.
+  test "a fingerprint lets no one with the database check a guessed secret" do
+    assert {:ok, _metadata} = Credentials.put(:webhook, "alerts", @secret, @actor)
+    assert {:ok, _metadata} = Credentials.put(:webhook, "deploys", @secret, @actor)
+
+    alerts = Credentials.status(:webhook, "alerts")
+    deploys = Credentials.status(:webhook, "deploys")
+
+    refute alerts.fingerprint == Ryker.Crypto.sha256_hex(@secret)
+    refute alerts.fingerprint == deploys.fingerprint
+
+    assert {:ok, _metadata} = Credentials.put(:webhook, "alerts", @secret, @actor)
+    assert Credentials.status(:webhook, "alerts").fingerprint == alerts.fingerprint
+
+    Config.put_override(:credential_key, :binary.copy(<<23>>, 32))
+    assert {:ok, _metadata} = Credentials.put(:webhook, "rotated", @secret, @actor)
+    refute Credentials.status(:webhook, "rotated").fingerprint == alerts.fingerprint
+  end
+
+  # 2026-10-04 review: a credential that no longer decrypted, after a key change, dropped out
+  # of redaction without a word, so its value could reach worker output and examples unmasked.
+  test "a credential redaction cannot read is named in the log" do
+    assert {:ok, _metadata} = Credentials.put(:webhook, "alerts", @secret, @actor)
+    Config.put_override(:credential_key, :binary.copy(<<22>>, 32))
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn -> assert Credentials.redaction_values() == [] end)
+
+    assert log =~ "webhook/alerts"
+    assert log =~ "not redacted"
+    refute log =~ @secret
+  end
+
   # Removing a credential that was never saved changed nothing, yet announced
   # a change, and the runtime reassembled every lane for it (2026-10-04
   # review).

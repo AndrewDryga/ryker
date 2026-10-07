@@ -15,9 +15,20 @@ defmodule Ryker.CanonicalJSON do
     |> Crypto.sha256_hex()
   end
 
-  @doc "SHA-256 over the sorted-key JSON representation used by Go's encoding/json."
+  @doc """
+  SHA-256 over the sorted-key JSON representation used by Go's encoding/json.
+
+  Go writes the float 1.0 as `1` where Jason writes `1.0`, so a float would
+  give a digest the worker cannot reproduce (2026-10-04 review). Nothing Ryker
+  sends a worker holds one, and a float here raises rather than mismatch.
+  """
   @spec worker_digest(Jason.Encoder.t()) :: String.t()
   def worker_digest(value) do
+    case float_path(value, "$") do
+      nil -> :ok
+      path -> raise ArgumentError, "a worker digest cannot hold a float at #{path}"
+    end
+
     value
     |> encode!()
     |> String.replace("&", "\\u0026")
@@ -27,6 +38,23 @@ defmodule Ryker.CanonicalJSON do
     |> String.replace(<<0x2029::utf8>>, "\\u2029")
     |> Crypto.sha256_hex()
   end
+
+  defp float_path(value, path) when is_float(value), do: path
+
+  # A struct is no JSON object; encode!/1 refuses it with its own error.
+  defp float_path(%_{}, _path), do: nil
+
+  defp float_path(%{} = value, path) do
+    Enum.find_value(value, fn {key, nested} -> float_path(nested, "#{path}.#{key}") end)
+  end
+
+  defp float_path(value, path) when is_list(value) do
+    value
+    |> Enum.with_index()
+    |> Enum.find_value(fn {nested, index} -> float_path(nested, "#{path}[#{index}]") end)
+  end
+
+  defp float_path(_value, _path), do: nil
 
   @truncation_marker "...<truncated>..."
 
@@ -105,7 +133,7 @@ defmodule Ryker.CanonicalJSON do
         end
 
       invalid_key ->
-        {:error, {:invalid_json_key, path, invalid_key}}
+        {:error, {:invalid_json_key, path, kind(invalid_key)}}
     end
   end
 
@@ -127,14 +155,27 @@ defmodule Ryker.CanonicalJSON do
   defp order(value, path) when is_binary(value) do
     if jsonb_string?(value),
       do: {:ok, value},
-      else: {:error, {:invalid_json_value, path, value}}
+      else: {:error, {:invalid_json_value, path, kind(value)}}
   end
 
   defp order(value, _path)
        when is_integer(value) or is_float(value) or is_boolean(value) or is_nil(value),
        do: {:ok, value}
 
-  defp order(value, path), do: {:error, {:invalid_json_value, path, value}}
+  defp order(value, path), do: {:error, {:invalid_json_value, path, kind(value)}}
+
+  # An error says what kind of value it refused, never the value: one carried
+  # it, and the raised message printed it, so a secret with a NUL byte or
+  # invalid UTF-8 in it reached the logs whole (2026-10-04 review).
+  defp kind(value) when is_binary(value),
+    do: if(String.valid?(value), do: :string_with_nul, else: :invalid_utf8)
+
+  defp kind(value) when is_atom(value), do: :atom
+  defp kind(value) when is_tuple(value), do: :tuple
+  defp kind(value) when is_pid(value), do: :pid
+  defp kind(value) when is_reference(value), do: :reference
+  defp kind(value) when is_function(value), do: :function
+  defp kind(_value), do: :unsupported
 
   defp order_entries(entries, path) do
     entries
@@ -153,7 +194,7 @@ defmodule Ryker.CanonicalJSON do
 
   defp order_entry(_normalized_key, original_key, _nested, path)
        when not is_binary(original_key),
-       do: {:error, {:invalid_json_key, path, original_key}}
+       do: {:error, {:invalid_json_key, path, kind(original_key)}}
 
   defp order_entry(normalized_key, _original_key, nested, path),
     do: order(nested, "#{path}.#{normalized_key}")
@@ -179,11 +220,17 @@ defmodule Ryker.CanonicalJSON do
   defp format_error({:duplicate_key, path, key}),
     do: "duplicate JSON key #{inspect(key)} at #{path}"
 
-  defp format_error({:invalid_json_key, path, key}),
-    do: "invalid JSON key #{inspect(key)} at #{path}"
+  defp format_error({:invalid_json_key, path, kind}),
+    do: "invalid JSON key (#{described(kind)}) at #{path}"
 
-  defp format_error({:invalid_json_value, path, value}),
-    do: "invalid JSON value #{inspect(value)} at #{path}"
+  defp format_error({:invalid_json_value, path, kind}),
+    do: "invalid JSON value (#{described(kind)}) at #{path}"
 
   defp format_error({:encoding_failed, message}), do: "JSON encoding failed: #{message}"
+
+  defp described(:string_with_nul), do: "a string with a NUL byte"
+  defp described(:invalid_utf8), do: "a string that is not UTF-8"
+  defp described(:atom), do: "an atom"
+  defp described(:unsupported), do: "a value JSON has no form for"
+  defp described(kind), do: "a #{kind}"
 end
