@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.Server do
   """
 
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
+  alias Ryker.Crypto
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Observability
   alias Ryker.Schedules.ScheduleRuntime
@@ -41,7 +42,7 @@ defmodule Ryker.ControlPlane.Server do
       http: [ip: options.ip, port: options.port],
       url: [host: "localhost", port: options.port],
       check_origin: origins(options.port, options.public_url),
-      secret_key_base: Base.encode64(:crypto.hash(:sha512, options.csrf_secret)),
+      secret_key_base: Base.encode64(Crypto.sha512(options.csrf_secret)),
       control_plane: %{
         access: options.access,
         cloudflare_access: options.cloudflare_access,
@@ -92,7 +93,7 @@ defmodule Ryker.ControlPlane.Server do
     access = Map.get(configuration, :access, :loopback)
 
     csrf_secret =
-      Map.get_lazy(configuration, :csrf_secret, fn -> :crypto.strong_rand_bytes(32) end)
+      Map.get_lazy(configuration, :csrf_secret, fn -> Crypto.random_bytes(32) end)
 
     task_policies = Map.get(configuration, :task_policies, %{})
 

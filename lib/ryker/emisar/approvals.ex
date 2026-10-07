@@ -13,6 +13,7 @@ defmodule Ryker.Emisar.Approvals do
   """
 
   import Ecto.Query
+  alias Ryker.Crypto
   alias Ryker.Emisar.{Approval, ApprovalChangeset, Review, RunState}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
@@ -741,7 +742,7 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp turn_ref(request_id) do
-    digest = :crypto.hash(:sha256, request_id) |> Base.encode16(case: :lower)
+    digest = Crypto.sha256_hex(request_id)
     "turn:emisar-approval:#{binary_part(digest, 0, 32)}"
   end
 

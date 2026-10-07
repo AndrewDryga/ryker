@@ -15,6 +15,7 @@ defmodule Ryker.Work.Custody.Locks do
   """
 
   import Ecto.Query
+  alias Ryker.Crypto
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Session, Turn}
@@ -290,12 +291,10 @@ defmodule Ryker.Work.Custody.Locks do
 
   @doc false
   def exact_sha256(value, digest) do
-    if digest == digest(value),
+    if digest == Crypto.sha256_hex(value),
       do: :ok,
       else: {:error, {:invalid_work_custody, :candidate_sha256}}
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   @doc false
   def uuid(value, field) do

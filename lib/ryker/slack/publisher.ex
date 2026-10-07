@@ -11,6 +11,7 @@ defmodule Ryker.Slack.Publisher do
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
 
+  alias Ryker.Crypto
   alias Ryker.Delivery.Request
   alias Ryker.Slack.Client.Messages
   alias Ryker.Slack.{Mentions, Target}
@@ -220,7 +221,7 @@ defmodule Ryker.Slack.Publisher do
   defp extension("image/webp"), do: "webp"
 
   defp digest(value),
-    do: value |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+    do: value |> Crypto.sha256_hex()
 
   defp post_message(api, client, request, target) do
     client

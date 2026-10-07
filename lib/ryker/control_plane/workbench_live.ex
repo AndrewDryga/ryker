@@ -24,6 +24,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   alias Ryker.ControlPlane.{LabControls, LabPage, Navigation, PageCost, PageHelp, PageRead, Pages}
   alias Ryker.ControlPlane.{PathRef, Paths, RepositoriesPage, RequestFilters, Router}
   alias Ryker.ControlPlane.{RunningSystem, SettingsPage, SettingsView, UsageProjection, Viewer}
+  alias Ryker.Crypto
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.Retention.Data, as: RetentionData
   alias Ryker.Slack.{ChannelConfigurations, Names}
@@ -2314,8 +2315,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # retention prune or a delivery confirmation updates the row in place.
   defp lab_dom_id(message) do
     digest =
-      :crypto.hash(:sha256, message[:identity] || "#{message.actor}:#{message.ref}")
-      |> Base.encode16(case: :lower)
+      Crypto.sha256_hex(message[:identity] || "#{message.actor}:#{message.ref}")
 
     "lab-message-" <> digest
   end
@@ -2508,7 +2508,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       |> Map.get(message[:native_input_id], [])
       |> Enum.map(&Map.take(&1, [:href, :id, :phase]))
 
-    :crypto.hash(:sha256, :erlang.term_to_binary({message, visible_progress}))
+    Crypto.sha256(:erlang.term_to_binary({message, visible_progress}))
   end
 
   defp lab_progress_by_input(snapshot) do

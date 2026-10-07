@@ -1,5 +1,6 @@
 defmodule Ryker.Work.StateBindingTest do
   use ExUnit.Case, async: true
+  alias Ryker.Crypto
   alias Ryker.Work.{Session, StateBinding, Turn}
 
   test "state-tool authority is exact to one logical turn and one session placement" do
@@ -34,7 +35,7 @@ defmodule Ryker.Work.StateBindingTest do
     assert StateBinding.scope_matches?(binding.token, scope)
     refute StateBinding.scope_matches?(binding.token, "placement:replacement")
     assert StateBinding.document(binding) == %{"endpoint" => endpoint, "token" => binding.token}
-    assert binding.token_sha256 == StateBinding.sha256(binding.token)
+    assert binding.token_sha256 == Crypto.sha256_hex(binding.token)
 
     bound = %Turn{
       state_tools_endpoint: endpoint,
@@ -42,7 +43,7 @@ defmodule Ryker.Work.StateBindingTest do
     }
 
     assert StateBinding.binding_digest(bound) ==
-             StateBinding.sha256(endpoint <> <<0>> <> binding.token_sha256)
+             Crypto.sha256_hex(endpoint <> <<0>> <> binding.token_sha256)
 
     assert StateBinding.binding_digest(%Turn{}) == nil
 

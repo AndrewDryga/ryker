@@ -12,6 +12,7 @@ defmodule Ryker.GitHub.Publisher do
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
 
+  alias Ryker.Crypto
   alias Ryker.Delivery.Request
   alias Ryker.GitHub.{Renderer, Target}
   alias Ryker.Work.DeliveryReceipt
@@ -81,7 +82,7 @@ defmodule Ryker.GitHub.Publisher do
   @doc false
   @spec marker(String.t()) :: String.t()
   def marker(delivery_ref) when is_binary(delivery_ref) do
-    digest = :crypto.hash(:sha256, delivery_ref) |> Base.encode16(case: :lower)
+    digest = Crypto.sha256_hex(delivery_ref)
     "<!-- ryker-delivery:#{digest} -->"
   end
 

@@ -36,23 +36,24 @@ defmodule Ryker.ModelLoginTest do
     %{root: root, auth: Path.join(profile, "auth.json"), bin: bin}
   end
 
-  test "a login that does not finish puts the previous sign-in back", context do
-    assert {out, 130} = login(context, "aborted")
+  test "a login that does not finish puts the previous sign-in back",
+       %{auth: auth, bin: bin, root: root} do
+    assert {out, 130} = login(root, bin, "aborted")
     assert out =~ "the previous one was put back"
-    assert File.read!(context.auth) == ~s({"token":"previous"})
+    assert File.read!(auth) == ~s({"token":"previous"})
   end
 
-  test "a login that finishes keeps the new sign-in", context do
-    assert {_out, 0} = login(context, "finished")
-    assert File.read!(context.auth) == ~s({"token":"new"})
+  test "a login that finishes keeps the new sign-in", %{auth: auth, bin: bin, root: root} do
+    assert {_out, 0} = login(root, bin, "finished")
+    assert File.read!(auth) == ~s({"token":"new"})
   end
 
-  defp login(context, outcome) do
+  defp login(root, bin, outcome) do
     System.cmd("sh", [@script, "codex"],
       env: [
-        {"COOP_CONFIG_DIR", Path.join(context.root, "agents")},
+        {"COOP_CONFIG_DIR", Path.join(root, "agents")},
         {"LOGIN_OUTCOME", outcome},
-        {"PATH", context.bin <> ":" <> System.get_env("PATH")}
+        {"PATH", bin <> ":" <> System.get_env("PATH")}
       ],
       stderr_to_stdout: true
     )

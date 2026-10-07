@@ -8,6 +8,7 @@ defmodule Ryker.Emisar.Client do
 
   @behaviour Ryker.Emisar.API
 
+  alias Ryker.Crypto
   alias Ryker.Emisar.{Review, RunState}
   alias Ryker.Text
 
@@ -67,7 +68,7 @@ defmodule Ryker.Emisar.Client do
   # Emisar answers a wait at once for a finished run, or when the run changes,
   # or after the wait.
   defp request_document(run_id, wait_seconds) do
-    digest = :crypto.hash(:sha256, run_id) |> Base.encode16(case: :lower)
+    digest = Crypto.sha256_hex(run_id)
 
     %{
       "id" => "ryker-wait-for-run-#{digest}",

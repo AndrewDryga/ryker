@@ -21,6 +21,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   import Ecto.Query
   alias Ryker.CoopFleet.{Certificate, Protocol, Worker}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Events, Placements, Shared}
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Repo
   alias Ryker.Work.Session
@@ -297,7 +298,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   end
 
   defp certificate_digest(certificate),
-    do: :crypto.hash(:sha256, certificate) |> Base.encode16(case: :lower)
+    do: Crypto.sha256_hex(certificate)
 
   defp active_certificate_worker(certificate_sha256) do
     Repo.one(

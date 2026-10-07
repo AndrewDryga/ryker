@@ -4,6 +4,7 @@ defmodule Ryker.Memories.MemorySearch do
   alias Ryker.Behaviors
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Continuity.Recall, as: ContinuityRecall
+  alias Ryker.Crypto
   alias Ryker.Episodes.Event
   alias Ryker.Episodes.Scope
   alias Ryker.Knowledge
@@ -433,7 +434,7 @@ defmodule Ryker.Memories.MemorySearch do
     body = document |> CanonicalJSON.encode!() |> Base.url_encode64(padding: false)
 
     signature =
-      :crypto.mac(:hmac, :sha256, secret, "memory-search:" <> body)
+      Crypto.hmac_sha256(secret, "memory-search:" <> body)
       |> Base.url_encode64(padding: false)
 
     body <> "." <> signature
@@ -442,7 +443,7 @@ defmodule Ryker.Memories.MemorySearch do
   defp unseal(cursor, secret) when is_binary(cursor) and byte_size(cursor) <= 4096 do
     with [body, signature] <- String.split(cursor, ".", parts: 2),
          expected =
-           :crypto.mac(:hmac, :sha256, secret, "memory-search:" <> body)
+           Crypto.hmac_sha256(secret, "memory-search:" <> body)
            |> Base.url_encode64(padding: false),
          true <-
            byte_size(signature) == byte_size(expected) and

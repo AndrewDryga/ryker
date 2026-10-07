@@ -325,6 +325,85 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     end
   end
 
+  describe "Ryker.Checks.ContextNoMapTakeDrop" do
+    test "flags Map.take/Map.drop pre-filtering the input attrs, piped or not" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def update(sprocket, attrs), do: SprocketChangeset.update(sprocket, Map.take(attrs, [:name]))
+        def scrub(params), do: Map.drop(params, [:id])
+        def rename(sprocket, attrs), do: SprocketChangeset.update(sprocket, attrs |> Map.take([:name]))
+      end
+      """
+
+      assert triggers(map_take_drop(), source, @context) == [
+               "Map.drop(params, …)",
+               "Map.take(attrs, …)",
+               "attrs |> Map.take(…)"
+             ]
+
+      assert [issue | _] = issues(map_take_drop(), source, @context)
+      assert issue.check == map_take_drop()
+      assert issue.message =~ "cast/3"
+    end
+
+    test "allows Map.take/drop on a payload, and ignores the console" do
+      payloads = """
+      defmodule Ryker.Sprockets do
+        def summarize(payload), do: Map.take(payload, [:status])
+        def redact(config), do: Map.drop(config, [:secret])
+      end
+      """
+
+      console = """
+      defmodule Ryker.ControlPlane.SprocketsPage do
+        def scrub(params), do: Map.drop(params, [:id])
+      end
+      """
+
+      assert issues(map_take_drop(), payloads, @context) == []
+      assert issues(map_take_drop(), console, @console) == []
+    end
+  end
+
+  describe "Ryker.Checks.ContextCryptoBoundary" do
+    test "flags inline :crypto and Base.url_encode64 in a context" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def mint, do: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+      end
+      """
+
+      assert triggers(crypto_boundary(), source, @context) == [
+               ":crypto.strong_rand_bytes",
+               "Base.url_encode64"
+             ]
+
+      assert [issue | _] = issues(crypto_boundary(), source, @context)
+      assert issue.check == crypto_boundary()
+      assert issue.message =~ "Ryker.Crypto"
+    end
+
+    test "allows Ryker.Crypto and non-secret encoding, and ignores Ryker.Crypto itself" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def mint, do: Ryker.Crypto.random_secret(32)
+        def fingerprint(bytes), do: Base.encode16(bytes, case: :lower)
+      end
+      """
+
+      crypto = """
+      defmodule Ryker.Crypto do
+        def random_bytes(size), do: :crypto.strong_rand_bytes(size)
+      end
+      """
+
+      assert issues(crypto_boundary(), source, @context) == []
+      assert issues(crypto_boundary(), crypto, "lib/ryker/crypto.ex") == []
+    end
+  end
+
+  defp map_take_drop, do: check("ContextNoMapTakeDrop")
+  defp crypto_boundary, do: check("ContextCryptoBoundary")
   defp il06, do: check("IL06QueryModulePure")
   defp il12, do: check("IL12NoFloatMoney")
   defp preload_opts, do: check("NoPreloadInRepoOpts")

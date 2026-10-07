@@ -8,6 +8,7 @@ defmodule Ryker.Waits.EventWaits do
   """
 
   import Ecto.Query
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, ConversationLock, Episode}
   alias Ryker.Ingress.Input
@@ -335,7 +336,7 @@ defmodule Ryker.Waits.EventWaits do
   end
 
   defp turn_ref(wait_ref) do
-    digest = :crypto.hash(:sha256, wait_ref) |> Base.encode16(case: :lower)
+    digest = Crypto.sha256_hex(wait_ref)
     "turn:event-wait:#{binary_part(digest, 0, 32)}"
   end
 

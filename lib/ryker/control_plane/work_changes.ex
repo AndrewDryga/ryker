@@ -7,6 +7,8 @@ defmodule Ryker.ControlPlane.WorkChanges do
   never pages a patch itself.
   """
 
+  alias Ryker.Crypto
+
   @path_groups ~w(committed staged unstaged untracked conflicts)
   @maximum_paths 20
   @maximum_patch_characters 2_200
@@ -145,7 +147,7 @@ defmodule Ryker.ControlPlane.WorkChanges do
       not valid ->
         {:error, :work_diff_invalid}
 
-      offset == 0 and not more and digest != sha256(patch) ->
+      offset == 0 and not more and digest != Crypto.sha256_hex(patch) ->
         {:error, :work_diff_digest_mismatch}
 
       true ->
@@ -181,6 +183,4 @@ defmodule Ryker.ControlPlane.WorkChanges do
       do: value,
       else: graphemes |> Enum.take(maximum - 1) |> Enum.join() |> Kernel.<>("…")
   end
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

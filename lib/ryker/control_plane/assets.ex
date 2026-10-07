@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.Assets do
   @moduledoc false
   import Plug.Conn
+  alias Ryker.Crypto
 
   @assets %{
     "phoenix.mjs" => {:phoenix, "priv/static/phoenix.mjs", "text/javascript"},
@@ -112,7 +113,7 @@ defmodule Ryker.ControlPlane.Assets do
     case :persistent_term.get(key, nil) do
       nil ->
         plain = File.read!(file)
-        digest = :crypto.hash(:sha256, plain) |> Base.encode16(case: :lower) |> binary_part(0, 32)
+        digest = Crypto.sha256_hex(plain) |> binary_part(0, 32)
 
         prepared = %{
           etag: ~s("#{digest}"),

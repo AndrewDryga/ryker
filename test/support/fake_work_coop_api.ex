@@ -4,8 +4,8 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   import Ryker.TestHelpers, only: [digest: 1]
   @behaviour Ryker.Coop.API
 
+  alias Ryker.Crypto
   alias Ryker.Fixtures.WorkerJob
-  alias Ryker.Work.StateBinding
 
   def start_link(candidates, options \\ []) do
     Agent.start_link(fn ->
@@ -655,12 +655,12 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   defp maybe_put_binding_digest(turn, nil), do: turn
 
   defp maybe_put_binding_digest(turn, binding) do
-    token_sha256 = StateBinding.sha256(binding["token"])
+    token_sha256 = Crypto.sha256_hex(binding["token"])
 
     Map.put(
       turn,
       "controller_tools_digest",
-      StateBinding.sha256(binding["endpoint"] <> <<0>> <> token_sha256)
+      Crypto.sha256_hex(binding["endpoint"] <> <<0>> <> token_sha256)
     )
   end
 

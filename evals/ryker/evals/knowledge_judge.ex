@@ -28,6 +28,7 @@ defmodule Ryker.Evals.KnowledgeJudge do
   one: every eval job has an empty workspace.
   """
 
+  alias Ryker.Crypto
   alias Ryker.RepositoryKnowledge.{Document, Prompt}
 
   @root "testdata/repository_knowledge"
@@ -54,8 +55,8 @@ defmodule Ryker.Evals.KnowledgeJudge do
   def load!(directory) do
     run = directory |> Path.join("run.json") |> File.read!() |> Jason.decode!()
 
-    unless sha256(run["result"]) == run["result_sha256"] and
-             sha256(run["prompt"]) == run["prompt_sha256"],
+    unless Crypto.sha256_hex(run["result"]) == run["result_sha256"] and
+             Crypto.sha256_hex(run["prompt"]) == run["prompt_sha256"],
            do: raise(ArgumentError, "#{directory} no longer holds the recorded answer and prompt")
 
     %{
@@ -248,6 +249,4 @@ defmodule Ryker.Evals.KnowledgeJudge do
     |> Enum.filter(&File.regular?/1)
     |> Map.new(&{Path.relative_to(&1, root), File.read!(&1)})
   end
-
-  defp sha256(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
 end

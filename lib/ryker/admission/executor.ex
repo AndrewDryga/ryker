@@ -1,4 +1,5 @@
 defmodule Ryker.Admission.Executor do
+  alias Ryker.Crypto
   alias Ryker.Work.Activity
 
   @moduledoc """
@@ -601,7 +602,7 @@ defmodule Ryker.Admission.Executor do
        when is_binary(message) and is_integer(validation_attempt) and validation_attempt > 0 and
               is_binary(candidate_sha256) and
               is_binary(validation_receipt) do
-    if valid_ref?(validation_receipt) and sha256(message) == candidate_sha256 do
+    if valid_ref?(validation_receipt) and Crypto.sha256_hex(message) == candidate_sha256 do
       case parse_and_validate(message, context) do
         {:ok, decision} -> {:ok, decision, candidate_sha256}
         {:error, reason} -> generation_spent(reason)
@@ -824,7 +825,7 @@ defmodule Ryker.Admission.Executor do
        })
        when is_integer(candidate_attempt) and candidate_attempt > 0 and is_binary(message) and
               is_binary(candidate_sha256) do
-    if sha256(message) == candidate_sha256,
+    if Crypto.sha256_hex(message) == candidate_sha256,
       do: {:ok, message, candidate_sha256, candidate_attempt},
       else: {:error, {:coop_protocol_error, :candidate_digest}}
   end
@@ -1270,7 +1271,6 @@ defmodule Ryker.Admission.Executor do
   end
 
   defp positive?(value), do: is_integer(value) and value > 0
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp claim_ready_session(entry, settings) do
     case settings.claim_ready_session.(entry, %{

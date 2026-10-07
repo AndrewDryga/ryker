@@ -8,6 +8,7 @@ defmodule Ryker.Evals.WorldEvidence do
   """
 
   import Ecto.Query
+  alias Ryker.Crypto
   alias Ryker.Evals.{Evidence, WorldCase, WorldCassette, WorldInputs}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records
@@ -263,7 +264,7 @@ defmodule Ryker.Evals.WorldEvidence do
   defp candidate_evidence(candidate) when is_binary(candidate) do
     case Jason.decode(candidate) do
       {:ok, document} -> Evidence.sanitize(document, 64 * 1_024)
-      _invalid -> %{"sha256" => sha256(candidate), "unparseable" => true}
+      _invalid -> %{"sha256" => Crypto.sha256_hex(candidate), "unparseable" => true}
     end
   end
 
@@ -277,20 +278,18 @@ defmodule Ryker.Evals.WorldEvidence do
     }
   end
 
-  defp optional_sha256(value) when is_binary(value), do: sha256(value)
+  defp optional_sha256(value) when is_binary(value), do: Crypto.sha256_hex(value)
   defp optional_sha256(_value), do: nil
 
   defp catalog_tool_names(%{"servers" => servers}) do
     for %{"tools" => tools} <- servers, %{"name" => name} <- tools, do: name
   end
 
-  defp prompt_sha256(%{"prompt" => prompt}) when is_binary(prompt), do: sha256(prompt)
+  defp prompt_sha256(%{"prompt" => prompt}) when is_binary(prompt), do: Crypto.sha256_hex(prompt)
   defp prompt_sha256(_submission), do: nil
 
   defp decimal_string(%Decimal{} = value), do: Decimal.to_string(value, :normal)
   defp decimal_string(nil), do: nil
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp delivery(%{attempts: attempts, kind: kind, receipt: receipt, request: request}) do
     %{

@@ -6,6 +6,7 @@ defmodule Ryker.Work.ExecutorTest do
   alias Ryker.Artifacts.Outputs
   alias Ryker.ControlPlane.{EpisodeProjection, FailureProjection, ModelRequests}
   alias Ryker.CoopFleet.SessionEvidence
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
@@ -1428,7 +1429,7 @@ defmodule Ryker.Work.ExecutorTest do
     assert persisted.state_tools_endpoint == binding["endpoint"]
 
     assert persisted.state_tools_token_sha256 ==
-             StateBinding.sha256(binding["token"])
+             Crypto.sha256_hex(binding["token"])
 
     [submitted] = state.submissions
     assert submitted.controller_tools == binding
@@ -2801,7 +2802,7 @@ defmodule Ryker.Work.ExecutorTest do
     assert [binding] = FakeAPI.state(fake).bindings
     assert binding["endpoint"] == endpoint
     assert StateBinding.scope_matches?(binding["token"], StateBinding.placement_scope(placement))
-    assert turn.state_tools_token_sha256 == StateBinding.sha256(binding["token"])
+    assert turn.state_tools_token_sha256 == Crypto.sha256_hex(binding["token"])
   end
 
   test "changing model settings does not rotate a running immutable job" do

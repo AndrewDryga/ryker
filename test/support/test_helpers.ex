@@ -7,13 +7,14 @@ defmodule Ryker.TestHelpers do
   """
 
   import ExUnit.Assertions, only: [flunk: 1]
+  alias Ryker.Crypto
   alias Ryker.Evals.Job
   alias Ryker.Observability.Progress
   alias Ryker.Repo
 
-  @doc "Lowercase hex SHA-256 of a binary, as fixtures and receipts write it."
+  @doc "`Ryker.Crypto.sha256_hex/1`, by the short name ninety suites use for it."
   @spec digest(iodata()) :: String.t()
-  def digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+  def digest(value), do: Crypto.sha256_hex(value)
 
   @doc """
   Whether `check` becomes true within `within_ms`, polling every 10 ms.

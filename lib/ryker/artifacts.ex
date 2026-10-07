@@ -12,6 +12,7 @@ defmodule Ryker.Artifacts do
   import Ecto.Query
   alias Ryker.Artifacts.{Artifact, ArtifactChangeset}
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Repo
 
   @maximum_bytes 8 * 1_024 * 1_024
@@ -179,7 +180,7 @@ defmodule Ryker.Artifacts do
            :ok <- name(attributes.name),
            :ok <- media_type(attributes.media_type),
            :ok <- data(attributes.data, attributes.media_type) do
-        sha256 = digest(attributes.data)
+        sha256 = Crypto.sha256_hex(attributes.data)
 
         {:ok,
          %{
@@ -215,7 +216,8 @@ defmodule Ryker.Artifacts do
     do: {value.name, value.media_type, value.sha256, value.byte_size}
 
   defp stored_artifact_valid?(artifact) do
-    byte_size(artifact.data) == artifact.byte_size and digest(artifact.data) == artifact.sha256 and
+    byte_size(artifact.data) == artifact.byte_size and
+      Crypto.sha256_hex(artifact.data) == artifact.sha256 and
       valid_name?(artifact.name) and model_media_type?(artifact.media_type) and
       media_matches?(artifact.media_type, artifact.data)
   end
@@ -315,5 +317,4 @@ defmodule Ryker.Artifacts do
   end
 
   defp valid_ref?(value), do: is_binary(value) and byte_size(value) in 1..128
-  defp digest(data), do: :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
 end

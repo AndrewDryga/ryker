@@ -5,6 +5,8 @@ defmodule Ryker.ControlPlane.CSRF do
   so a confirmation of an earlier revision can be told from a forged one.
   """
 
+  alias Ryker.Crypto
+
   @spec token(binary(), String.t(), String.t()) :: String.t()
   def token(secret, action, resource_ref)
       when is_binary(secret) and is_binary(action) and is_binary(resource_ref) do
@@ -33,7 +35,7 @@ defmodule Ryker.ControlPlane.CSRF do
   def signed_action(_secret, _resource_ref, _submitted), do: :error
 
   defp mac(secret, action, resource_ref) do
-    :crypto.mac(:hmac, :sha256, secret, action <> "\n" <> resource_ref)
+    Crypto.hmac_sha256(secret, action <> "\n" <> resource_ref)
     |> Base.url_encode64(padding: false)
   end
 end

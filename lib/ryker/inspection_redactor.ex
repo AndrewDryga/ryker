@@ -1,6 +1,7 @@
 defmodule Ryker.InspectionRedactor do
   @moduledoc "Sanitized inspection artifacts. Original bytes never cross the browser boundary."
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
 
   @marker "[redacted]"
   @withheld "[partial structured content withheld]"
@@ -23,7 +24,7 @@ defmodule Ryker.InspectionRedactor do
 
   def artifact(value, options) do
     original = if is_binary(value), do: value, else: CanonicalJSON.encode!(value)
-    base = %{state: :retained, sha256: digest(original), bytes: byte_size(original)}
+    base = %{state: :retained, sha256: Crypto.sha256_hex(original), bytes: byte_size(original)}
 
     cond do
       Keyword.get(options, :disclosed, true) == false ->
@@ -331,6 +332,4 @@ defmodule Ryker.InspectionRedactor do
       do: text,
       else: text |> binary_part(0, byte_size(text) - 1) |> valid_prefix()
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

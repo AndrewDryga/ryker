@@ -5,6 +5,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
   alias Ryker.CoopFleet.{Bodies, Bridge, Command, ControlPlane, Placement, WorkspaceCheckpoint}
   alias Ryker.CoopFleet.{WorkspaceCheckpointBundle, WorkspaceCheckpointTransfer}
   alias Ryker.{Credentials, Repo, Secret}
+  alias Ryker.Crypto
   alias Ryker.Work.{RepositorySource, Session}
 
   def capture(session_id, key, response, options) do
@@ -93,7 +94,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
         descriptor: checkpoint,
         bundle_sha256: reference["sha256"],
         bundle_byte_size: reference["byte_size"],
-        encryption_key_sha256: digest(Ryker.Secret.reveal(key))
+        encryption_key_sha256: Crypto.sha256_hex(Ryker.Secret.reveal(key))
       }
 
       persist_transfer(prepared)
@@ -236,6 +237,4 @@ defmodule Ryker.CoopFleet.Checkpoints do
 
   defp reference(transfer),
     do: %{"sha256" => transfer.bundle_sha256, "byte_size" => transfer.bundle_byte_size}
-
-  defp digest(bytes), do: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
 end

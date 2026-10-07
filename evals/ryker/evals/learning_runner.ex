@@ -10,6 +10,7 @@ defmodule Ryker.Evals.LearningRunner do
   import Ecto.Query
   alias Ryker.Admission.Decision
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Evals.{Job, LearningProbe}
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
   alias Ryker.Knowledge
@@ -53,7 +54,7 @@ defmodule Ryker.Evals.LearningRunner do
       Map.merge(first, %{
         expectation: :matched_topic,
         concurrent_fixture: path,
-        concurrent_fixture_sha256: path |> File.read!() |> sha()
+        concurrent_fixture_sha256: path |> File.read!() |> Crypto.sha256_hex()
       })
     ]
   end
@@ -105,7 +106,12 @@ defmodule Ryker.Evals.LearningRunner do
 
     Enum.zip(inputs, expectations)
     |> Enum.map(fn {input, expectation} ->
-      %{input: input, expectation: expectation, fixture: path, fixture_sha256: sha(bytes)}
+      %{
+        input: input,
+        expectation: expectation,
+        fixture: path,
+        fixture_sha256: Crypto.sha256_hex(bytes)
+      }
     end)
   end
 
@@ -260,7 +266,7 @@ defmodule Ryker.Evals.LearningRunner do
 
   defp harvested?(step) do
     with {:ok, bytes} <- File.read(step.fixture),
-         true <- sha(bytes) == step.fixture_sha256,
+         true <- Crypto.sha256_hex(bytes) == step.fixture_sha256,
          {:ok, fixture} <- Jason.decode(bytes) do
       step.input in Map.get(fixture, "inputs", [fixture["input"]])
     else
@@ -270,7 +276,7 @@ defmodule Ryker.Evals.LearningRunner do
 
   defp concurrent_fixture_valid?(%{expectation: :matched_topic} = step) do
     with {:ok, bytes} <- File.read(step.concurrent_fixture),
-         true <- sha(bytes) == step.concurrent_fixture_sha256,
+         true <- Crypto.sha256_hex(bytes) == step.concurrent_fixture_sha256,
          {:ok, %{"result" => %{"updates" => [update]}}} <- Jason.decode(bytes) do
       update["action"] == "create" and
         update["source_input_ids"] == [step.input["source_input_id"] || step.input["id"]]
@@ -364,7 +370,7 @@ defmodule Ryker.Evals.LearningRunner do
       fixture_sha256: step.concurrent_fixture_sha256,
       recorded_run_id: original_run_id,
       frozen_run_id: run.id,
-      frozen_prompt_sha256: sha(run.prompt),
+      frozen_prompt_sha256: Crypto.sha256_hex(run.prompt),
       source_ref: "knowledge:" <> topic.id,
       version: topic.version
     }
@@ -636,5 +642,4 @@ defmodule Ryker.Evals.LearningRunner do
     do: Atom.to_string(value)
 
   defp printable(value), do: value
-  defp sha(bytes), do: :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)
 end

@@ -20,6 +20,7 @@ defmodule Ryker.Transcription.Local do
   @behaviour Ryker.Transcription
 
   alias Ryker.ChildEnvironment
+  alias Ryker.Crypto
   alias Ryker.Transcription
   alias Ryker.Transcription.Parts
 
@@ -262,7 +263,7 @@ defmodule Ryker.Transcription.Local do
   end
 
   defp in_directory(base, function) do
-    suffix = Base.encode32(:crypto.strong_rand_bytes(10), case: :lower)
+    suffix = Base.encode32(Crypto.random_bytes(10), case: :lower)
     directory = Path.join(base, "ryker-transcription-" <> suffix)
 
     case File.mkdir_p(directory) do

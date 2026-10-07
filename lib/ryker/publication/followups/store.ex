@@ -12,6 +12,7 @@ defmodule Ryker.Publication.Followups.Store do
 
   import Ecto.Query
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Publication.Custody
   alias Ryker.Publication.{Followup, FollowupChangeset, LifecycleEvent, LifecycleEventChangeset}
   alias Ryker.Repo
@@ -151,7 +152,7 @@ defmodule Ryker.Publication.Followups.Store do
   defp deterministic_uuid(key) do
     <<a::binary-size(8), b::binary-size(4), c::binary-size(4), d::binary-size(4),
       e::binary-size(12), _rest::binary>> =
-      :crypto.hash(:sha256, key) |> Base.encode16(case: :lower)
+      Crypto.sha256_hex(key)
 
     Enum.join([a, b, c, d, e], "-")
   end

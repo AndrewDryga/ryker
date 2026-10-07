@@ -358,6 +358,46 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
     end
   end
 
+  describe "Ryker.Checks.NoIfOnArgField" do
+    test "flags a closure dispatching on its argument's field truthiness" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def labels(sprockets) do
+          Enum.map(sprockets, fn sprocket ->
+            if sprocket.name, do: sprocket.name, else: "unnamed"
+          end)
+        end
+      end
+      """
+
+      assert [issue] = issues(if_on_arg_field(), source, @context)
+      assert issue.check == if_on_arg_field()
+      assert issue.trigger == "if sprocket.name"
+      assert issue.line_no == 3
+      assert issue.message =~ "function clause heads"
+    end
+
+    test "allows a captured two-clause function and a genuinely computed condition" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def labels(sprockets), do: Enum.map(sprockets, &label/1)
+
+        def sizes(sprockets) do
+          Enum.map(sprockets, fn sprocket ->
+            if Enum.empty?(sprocket.tags), do: 0, else: length(sprocket.tags)
+          end)
+        end
+
+        defp label(%Sprocket{name: nil}), do: "unnamed"
+        defp label(%Sprocket{name: name}), do: name
+      end
+      """
+
+      assert issues(if_on_arg_field(), source, @context) == []
+    end
+  end
+
+  defp if_on_arg_field, do: check("NoIfOnArgField")
   defp acronym, do: check("AcronymModuleCase")
   defp alias_group, do: check("MultilineAliasGroup")
   defp do_colon, do: check("MultilineDoColon")

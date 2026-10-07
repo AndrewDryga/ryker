@@ -6,12 +6,13 @@ defmodule Ryker.CanonicalJSON do
   caller-supplied idempotency token.
   """
 
+  alias Ryker.Crypto
+
   @spec digest(Jason.Encoder.t()) :: String.t()
   def digest(value) do
     value
     |> encode!()
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
+    |> Crypto.sha256_hex()
   end
 
   @doc "SHA-256 over the sorted-key JSON representation used by Go's encoding/json."
@@ -24,8 +25,7 @@ defmodule Ryker.CanonicalJSON do
     |> String.replace(">", "\\u003e")
     |> String.replace(<<0x2028::utf8>>, "\\u2028")
     |> String.replace(<<0x2029::utf8>>, "\\u2029")
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
+    |> Crypto.sha256_hex()
   end
 
   @truncation_marker "...<truncated>..."
@@ -58,7 +58,7 @@ defmodule Ryker.CanonicalJSON do
           String.byte_slice(encoded, 0, head_bytes) <>
             @truncation_marker <> String.byte_slice(encoded, -tail_bytes, tail_bytes),
         "original_bytes" => byte_size(encoded),
-        "sha256" => :crypto.hash(:sha256, encoded) |> Base.encode16(case: :lower),
+        "sha256" => Crypto.sha256_hex(encoded),
         "truncated" => true
       }
     end

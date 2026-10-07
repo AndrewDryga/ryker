@@ -15,7 +15,10 @@
       checks: %{
         extra: [
           {Ryker.Checks.AcronymModuleCase, []},
+          {Ryker.Checks.BroadcastEventAsData, []},
           {Ryker.Checks.ChangesetNoTruncate, []},
+          {Ryker.Checks.ContextCryptoBoundary, []},
+          {Ryker.Checks.ContextNoMapTakeDrop, []},
           {Ryker.Checks.EnumOverValidateInclusion, []},
           {Ryker.Checks.IL06QueryModulePure, []},
           {Ryker.Checks.IL12NoFloatMoney, []},
@@ -24,6 +27,7 @@
           {Ryker.Checks.MultilineAliasGroup, []},
           {Ryker.Checks.MultilineDoColon, []},
           {Ryker.Checks.NoBlankBetweenDirectives, []},
+          {Ryker.Checks.NoIfOnArgField, []},
           {Ryker.Checks.NoHashPrefixSlice, []},
           {Ryker.Checks.NoPipeInBranchHead, []},
           {Ryker.Checks.NoPreloadInRepoOpts, []},
@@ -33,6 +37,7 @@
           {Ryker.Checks.RepoExistsOverCount, []},
           {Ryker.Checks.ShortBindings, []},
           {Ryker.Checks.SubscribeNeedsConnected, []},
+          {Ryker.Checks.TestContextPattern, []},
           {Ryker.Checks.TestNoProcessSleep, []},
           {Ryker.Checks.VendorViaWrapper, []},
           # IL-14: no String.to_atom on input; the atom table is never collected.

@@ -2,6 +2,7 @@ defmodule Ryker.Publication.Receipt do
   @moduledoc false
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
 
   @fields ~w(branch_ref candidate_tree commit_sha pull_request_number pull_request_url repository)
   @git_identity ~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/
@@ -29,7 +30,7 @@ defmodule Ryker.Publication.Receipt do
   def prepare(_receipt, _review, _repository),
     do: {:error, {:invalid_publication_receipt, :document}}
 
-  def fingerprint(receipt), do: receipt |> CanonicalJSON.encode!() |> digest()
+  def fingerprint(receipt), do: receipt |> CanonicalJSON.encode!() |> Crypto.sha256_hex()
 
   defp git_identity?(value), do: is_binary(value) and Regex.match?(@git_identity, value)
 
@@ -49,5 +50,4 @@ defmodule Ryker.Publication.Receipt do
   end
 
   defp pull_url?(_value, _number), do: false
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

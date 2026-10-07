@@ -4,6 +4,7 @@ defmodule Ryker.CoopFleet.Bodies do
   import Ecto.Query
   alias Ryker.{CanonicalJSON, Defaults, Repo}
   alias Ryker.CoopFleet.{BodyCrypto, Command, ControlPlane, Placement, Protocol}
+  alias Ryker.Crypto
 
   @chunk_bytes 256 * 1_024
   # A worker could upload any size it declared, for any command, up to 2^63
@@ -21,7 +22,7 @@ defmodule Ryker.CoopFleet.Bodies do
     if byte_size(bytes) <= @chunk_bytes do
       {:ok, request}
     else
-      reference = %{"byte_size" => byte_size(bytes), "sha256" => digest(bytes)}
+      reference = %{"byte_size" => byte_size(bytes), "sha256" => Crypto.sha256_hex(bytes)}
 
       with :ok <- ensure_request(root, command_id, reference, bytes, key) do
         {:ok, request |> Map.delete("body") |> Map.put("body_ref", reference)}
@@ -456,6 +457,5 @@ defmodule Ryker.CoopFleet.Bodies do
     end
   end
 
-  defp digest(bytes), do: hex(:crypto.hash(:sha256, bytes))
   defp hex(bytes), do: Base.encode16(bytes, case: :lower)
 end

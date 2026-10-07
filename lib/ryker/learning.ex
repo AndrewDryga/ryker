@@ -8,6 +8,7 @@ defmodule Ryker.Learning do
   """
   import Ecto.Query
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
   alias Ryker.Knowledge
@@ -257,7 +258,7 @@ defmodule Ryker.Learning do
              is_integer(attempt) and attempt > 0 do
     with :ok <- CanonicalJSON.validate(producer, max_bytes: 4096),
          :ok <- CanonicalJSON.validate(result, max_bytes: @max_result * 6 + 2),
-         true <- raw_sha256(result) == digest do
+         true <- Crypto.sha256_hex(result) == digest do
       owned_transaction(id, claim, fn _run ->
         id |> save_result(result, producer) |> bind_candidate!(session_id, turn_id, attempt)
       end)
@@ -339,7 +340,7 @@ defmodule Ryker.Learning do
     turn["state"] == "completed" and turn["id"] == run.coop_turn_id and
       owned_remote_session?(run, turn["session_id"]) and turn["assistant_message"] == run.result and
       turn["validation_attempt"] == run.candidate_attempt and
-      turn["validation_candidate_sha256"] == raw_sha256(run.result) and
+      turn["validation_candidate_sha256"] == Crypto.sha256_hex(run.result) and
       valid_remote_ref?(turn["validation_receipt"])
   end
 
@@ -577,8 +578,6 @@ defmodule Ryker.Learning do
   end
 
   defp valid_remote_ref?(value), do: Reference.valid?(value)
-
-  defp raw_sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   @doc "Record an owned terminal execution failure without accepting or reconstructing a result."
   def fail(id, reason, receipt, claim \\ nil)
@@ -1446,7 +1445,7 @@ defmodule Ryker.Learning do
   end
 
   defp lock_batch(key) do
-    <<lock::signed-64, _::binary>> = :crypto.hash(:sha256, "learning:" <> key)
+    lock = Crypto.lock_key("learning:" <> key)
     Repo.query!("SELECT pg_advisory_xact_lock($1)", [lock])
   end
 

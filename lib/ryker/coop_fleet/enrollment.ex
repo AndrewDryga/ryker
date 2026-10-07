@@ -10,6 +10,7 @@ defmodule Ryker.CoopFleet.Enrollment do
   import Ecto.Changeset
   import Ecto.Query
   alias Ryker.CoopFleet.{Certificate, CertificateAuthority, EnrollmentToken, Protocol, Worker}
+  alias Ryker.Crypto
   alias Ryker.Repo
 
   @maximum_token_ttl_seconds 3_600
@@ -29,8 +30,8 @@ defmodule Ryker.CoopFleet.Enrollment do
          :ok <- reference(workspace_ref, :workspace_ref),
          :ok <- reference(operator_ref, :operator_ref),
          :ok <- token_ttl(ttl_seconds) do
-      token = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
-      token_sha256 = sha256(token)
+      token = Crypto.random_secret(32)
+      token_sha256 = Crypto.sha256_hex(token)
 
       Repo.transaction(fn ->
         now = Repo.now!()
@@ -84,7 +85,7 @@ defmodule Ryker.CoopFleet.Enrollment do
       when is_binary(certificate_der) and is_map(document) do
     with {:ok, request} <- renewal_request(document),
          {:ok, signer} <- authority(authority) do
-      certificate_sha256 = sha256(certificate_der)
+      certificate_sha256 = Crypto.sha256_hex(certificate_der)
       Repo.transaction(fn -> renew_locked(certificate_sha256, request, signer) end)
     end
   end
@@ -94,7 +95,7 @@ defmodule Ryker.CoopFleet.Enrollment do
 
   defp enroll_locked(request, signer) do
     now = Repo.now!()
-    token_sha256 = sha256(request.token)
+    token_sha256 = Crypto.sha256_hex(request.token)
 
     token =
       Repo.one(
@@ -372,8 +373,6 @@ defmodule Ryker.CoopFleet.Enrollment do
        do: :ok
 
   defp certificate_ttl(_value), do: {:error, :invalid_coop_worker_certificate_ttl}
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp unwrap_write({:ok, value}), do: value
 

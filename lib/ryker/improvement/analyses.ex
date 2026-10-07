@@ -19,6 +19,7 @@ defmodule Ryker.Improvement.Analyses do
 
   import Ecto.Query
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Improvement
   alias Ryker.Improvement.{AnalysisRun, Candidate, Evidence, FleetSession, Prompt}
@@ -368,7 +369,7 @@ defmodule Ryker.Improvement.Analyses do
         policy: settings.policy,
         policy_digest: settings.policy_digest,
         prompt: prompt,
-        prompt_sha256: sha256(prompt),
+        prompt_sha256: Crypto.sha256_hex(prompt),
         output_schema: Prompt.output_schema(),
         manifest: manifest(evidence, request, prompt)
       })
@@ -512,9 +513,10 @@ defmodule Ryker.Improvement.Analyses do
       candidate_attempt: attempt
     }
 
-    if sha256(result) == digest and CanonicalJSON.validate(producer, max_bytes: 4_096) == :ok,
-      do: run_transaction(claim, run_id, &save_candidate(&1, turn_id, session_id, answer)),
-      else: {:error, :invalid_improvement_result}
+    if Crypto.sha256_hex(result) == digest and
+         CanonicalJSON.validate(producer, max_bytes: 4_096) == :ok,
+       do: run_transaction(claim, run_id, &save_candidate(&1, turn_id, session_id, answer)),
+       else: {:error, :invalid_improvement_result}
   end
 
   def record_candidate(_claim, _run_id, _turn, _producer),
@@ -914,6 +916,4 @@ defmodule Ryker.Improvement.Analyses do
     |> Repo.update!()
     |> tap(&Improvement.broadcast_improvement_updated(&1.id))
   end
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

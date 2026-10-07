@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.Publisher do
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
 
+  alias Ryker.Crypto
   alias Ryker.Work.DeliveryReceipt
 
   @impl true
@@ -49,8 +50,7 @@ defmodule Ryker.ControlPlane.Publisher do
   end
 
   defp digest(value) do
-    :crypto.hash(:sha256, value)
-    |> Base.encode16(case: :lower)
+    Crypto.sha256_hex(value)
     |> binary_part(0, 24)
   end
 end

@@ -12,6 +12,7 @@ defmodule Ryker.Delivery.Request do
   """
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
 
   @enforce_keys [
     :conversation_ref,
@@ -199,7 +200,7 @@ defmodule Ryker.Delivery.Request do
       safe_name?(name),
       reference?(ref),
       Regex.match?(~r/\A[0-9a-f]{64}\z/, sha256),
-      digest(data) == sha256,
+      Crypto.sha256_hex(data) == sha256,
       media_matches?(media_type, data)
     ])
   end
@@ -230,8 +231,6 @@ defmodule Ryker.Delivery.Request do
   defp media_matches?("image/gif", <<"GIF89a", _::binary>>), do: true
   defp media_matches?("image/webp", <<"RIFF", _::binary-size(4), "WEBP", _::binary>>), do: true
   defp media_matches?(_media_type, _data), do: false
-
-  defp digest(data), do: :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
 
   defp transport(value) do
     if is_binary(value) and Regex.match?(~r/\A[a-z][a-z0-9_-]{0,63}\z/, value),

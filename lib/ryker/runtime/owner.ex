@@ -26,6 +26,7 @@ defmodule Ryker.Runtime.Owner do
   use GenServer
   require Logger
   alias Ryker.{Bootstrap, Credentials, Settings}
+  alias Ryker.Crypto
   alias Ryker.Runtime.{Assembly, Child}
   alias Ryker.Slack.Client.Users, as: SlackUsers
   alias Ryker.Slack.Names
@@ -78,7 +79,7 @@ defmodule Ryker.Runtime.Owner do
 
     state = %{
       bootstrap: Keyword.get_lazy(options, :bootstrap, &bootstrap/0),
-      csrf_secret: :crypto.strong_rand_bytes(32),
+      csrf_secret: Crypto.random_bytes(32),
       revision: nil,
       supervisor: supervisor,
       running: %{},

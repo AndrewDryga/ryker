@@ -37,19 +37,22 @@ defmodule Ryker.BundledCoopTest do
     %{shared: shared, token: Path.join(shared, "enrollment-token")}
   end
 
-  test "installation selects the worker workspace without policies or checkouts", context do
+  test "installation selects the worker workspace without policies or checkouts", %{
+    shared: shared,
+    token: token
+  } do
     assert BundledCoop.distribution?()
     assert :ok = BundledCoop.prepare_distribution!()
     assert Settings.fetch!().work.workspace_ref == "ryker-compose"
     refute Map.has_key?(Settings.fetch!(), :policy_bindings)
-    assert File.ls!(context.shared) == ["enrollment-token"]
-    assert Bitwise.band(File.stat!(context.token).mode, 0o777) == 0o600
-    assert Bitwise.band(File.stat!(context.shared).mode, 0o777) == 0o700
+    assert File.ls!(shared) == ["enrollment-token"]
+    assert Bitwise.band(File.stat!(token).mode, 0o777) == 0o600
+    assert Bitwise.band(File.stat!(shared).mode, 0o777) == 0o700
 
     revision = Settings.fetch!().installation.revision
-    original = File.read!(context.token)
+    original = File.read!(token)
     assert :ok = BundledCoop.prepare_distribution!()
-    assert File.read!(context.token) == original
+    assert File.read!(token) == original
     assert Settings.fetch!().installation.revision == revision
     assert Repo.aggregate(EnrollmentToken, :count) == 1
   end
@@ -76,14 +79,16 @@ defmodule Ryker.BundledCoopTest do
     end
   end
 
-  test "an expired or consumed token is replaced and the replacement stays stable", context do
+  test "an expired or consumed token is replaced and the replacement stays stable", %{
+    token: token
+  } do
     assert :ok = BundledCoop.prepare_distribution!()
 
     for attributes <- [
           [expires_at: DateTime.add(Repo.now!(), -1, :second)],
           [consumed_at: Repo.now!(), certificate_sha256: @digest]
         ] do
-      original = File.read!(context.token)
+      original = File.read!(token)
       record = Repo.get_by!(EnrollmentToken, token_sha256: hash(original))
 
       Repo.update_all(from(token in EnrollmentToken, where: token.id == ^record.id),
@@ -91,19 +96,19 @@ defmodule Ryker.BundledCoopTest do
       )
 
       assert :ok = BundledCoop.ensure_enrollment_file!()
-      replacement = File.read!(context.token)
+      replacement = File.read!(token)
       refute replacement == original
       assert :ok = BundledCoop.ensure_enrollment_file!()
-      assert File.read!(context.token) == replacement
+      assert File.read!(token) == replacement
       assert Repo.get!(EnrollmentToken, record.id)
     end
   end
 
-  test "a token for a different worker or workspace is never reused", context do
+  test "a token for a different worker or workspace is never reused", %{token: token} do
     assert :ok = BundledCoop.prepare_distribution!()
 
     for attributes <- [[worker_id: "other"], [workspace_ref: "other"]] do
-      original = File.read!(context.token)
+      original = File.read!(token)
       digest = hash(original)
 
       Repo.update_all(from(token in EnrollmentToken, where: token.token_sha256 == ^digest),
@@ -111,59 +116,65 @@ defmodule Ryker.BundledCoopTest do
       )
 
       assert :ok = BundledCoop.ensure_enrollment_file!()
-      refute File.read!(context.token) == original
+      refute File.read!(token) == original
     end
   end
 
   test "a persisted identity retires a spare token without deleting enrollment history",
-       context do
+       %{shared: shared, token: token} do
     assert :ok = BundledCoop.prepare_distribution!()
-    token = Repo.get_by!(EnrollmentToken, token_sha256: hash(File.read!(context.token)))
-    marker = Path.join(context.shared, "enrolled")
+    enrollment = Repo.get_by!(EnrollmentToken, token_sha256: hash(File.read!(token)))
+    marker = Path.join(shared, "enrolled")
     File.touch!(marker)
     assert :ok = BundledCoop.ensure_enrollment_file!()
-    refute File.exists?(context.token)
-    assert DateTime.compare(Repo.get!(EnrollmentToken, token.id).expires_at, Repo.now!()) != :gt
+    refute File.exists?(token)
+
+    assert DateTime.compare(Repo.get!(EnrollmentToken, enrollment.id).expires_at, Repo.now!()) !=
+             :gt
+
     assert :ok = BundledCoop.ensure_enrollment_file!()
     assert Repo.aggregate(EnrollmentToken, :count) == 1
 
     File.rm!(marker)
     assert :ok = BundledCoop.ensure_enrollment_file!()
     assert Repo.aggregate(EnrollmentToken, :count) == 2
-    assert File.exists?(context.token)
+    assert File.exists?(token)
   end
 
-  test "a revoked worker cannot get another enrollment token", context do
+  test "a revoked worker cannot get another enrollment token", %{token: token} do
     assert :ok = BundledCoop.prepare_distribution!()
     authorize!()
     update_worker!(state: :revoked, revoked_at: Repo.now!(), revoked_by: @actor)
     assert :ok = BundledCoop.ensure_enrollment_file!()
-    refute File.exists?(context.token)
+    refute File.exists?(token)
     assert Repo.aggregate(EnrollmentToken, :count) == 1
   end
 
-  test "nonprivate, oversized and symlink token files fail closed", context do
+  test "nonprivate, oversized and symlink token files fail closed", %{
+    shared: shared,
+    token: token
+  } do
     assert :ok = BundledCoop.prepare_distribution!()
-    File.chmod!(context.token, 0o644)
+    File.chmod!(token, 0o644)
     assert_raise RuntimeError, fn -> BundledCoop.ensure_enrollment_file!() end
-    File.chmod!(context.token, 0o600)
-    File.write!(context.token, String.duplicate("x", 130))
+    File.chmod!(token, 0o600)
+    File.write!(token, String.duplicate("x", 130))
     assert_raise RuntimeError, fn -> BundledCoop.ensure_enrollment_file!() end
-    File.rm!(context.token)
-    target = Path.join(context.shared, "untouched")
+    File.rm!(token)
+    target = Path.join(shared, "untouched")
     File.write!(target, String.duplicate("y", 43))
-    File.ln_s!(target, context.token)
+    File.ln_s!(target, token)
     assert_raise RuntimeError, fn -> BundledCoop.ensure_enrollment_file!() end
     assert File.read!(target) == String.duplicate("y", 43)
     assert Repo.aggregate(EnrollmentToken, :count) == 1
   end
 
   test "the reconciler repairs missing token delivery without waiting for certificate expiry",
-       context do
+       %{token: token} do
     assert :ok = BundledCoop.prepare_distribution!()
-    File.rm!(context.token)
+    File.rm!(token)
     start_supervised!({BundledCoop.Reconciler, name: :bundled_identity_test, interval_ms: 10})
-    assert eventually(fn -> File.exists?(context.token) end)
+    assert eventually(fn -> File.exists?(token) end)
     assert Repo.aggregate(EnrollmentToken, :count) == 2
   end
 

@@ -23,6 +23,7 @@ defmodule Ryker.Emisar.Tools do
 
   import Bitwise
   alias Ryker.{Credentials, Rescued}
+  alias Ryker.Crypto
   alias Ryker.Delivery.JSONClient
   alias Ryker.Emisar.ToolCache
 
@@ -64,7 +65,7 @@ defmodule Ryker.Emisar.Tools do
   def catalog(%{connection_ref: ref, rpc_url: url}) when is_binary(ref) and is_binary(url) do
     with {:ok, key} <- key(ref),
          {:ok, client} <- client(url, key, @catalog_budget_ms),
-         do: cached_catalog({ref, url, fingerprint(key)}, client, key)
+         do: cached_catalog({ref, url, Crypto.sha256_hex(key)}, client, key)
   end
 
   def catalog(_pin), do: {:error, :not_configured}
@@ -272,15 +273,13 @@ defmodule Ryker.Emisar.Tools do
     end
   end
 
-  defp fingerprint(key), do: :crypto.hash(:sha256, key) |> Base.encode16(case: :lower)
-
-  defp random_ref, do: :crypto.strong_rand_bytes(12) |> Base.encode16(case: :lower)
+  defp random_ref, do: Crypto.random_hex(12)
 
   # An `op_` ULID, the form Emisar accepts: 48 bits of time, 80 of chance.
   defp operation_id do
     <<value::unsigned-integer-size(128)>> =
       <<System.system_time(:millisecond)::unsigned-integer-size(48),
-        :crypto.strong_rand_bytes(10)::binary>>
+        Crypto.random_bytes(10)::binary>>
 
     "op_" <>
       for(shift <- 25..0//-1, into: "", do: <<Enum.at(@alphabet, value >>> (5 * shift) &&& 31)>>)

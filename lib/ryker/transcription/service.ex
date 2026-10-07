@@ -29,6 +29,7 @@ defmodule Ryker.Transcription.Service do
   @behaviour Ryker.Transcription
 
   require Logger
+  alias Ryker.Crypto
   alias Ryker.Delivery.HTTPClient
   alias Ryker.Transcription
   alias Ryker.Transcription.{Languages, Local}
@@ -146,7 +147,7 @@ defmodule Ryker.Transcription.Service do
   @spec request(String.t(), [{String.t(), String.t()}], binary(), pos_integer()) ::
           {:ok, map()} | {:error, {:service, String.t()}}
   def request(url, fields, audio, timeout_ms) do
-    boundary = "ryker-" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
+    boundary = "ryker-" <> Crypto.random_hex(12)
 
     request =
       HTTPClient.build(

@@ -231,8 +231,10 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     assert shown =~ "I'll automatically create an incident room"
   end
 
-  test "a slow Slack never holds up the save, and the page says the card may be stale", context do
-    Agent.update(context.slow, fn _fast -> true end)
+  test "a slow Slack never holds up the save, and the page says the card may be stale", %{
+    slow: slow
+  } do
+    Agent.update(slow, fn _fast -> true end)
 
     {:ok, view, _html} =
       live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
@@ -260,7 +262,10 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
            end)
   end
 
-  test "a change the Slack card cannot show yet says so beside the saved choice", context do
+  test "a change the Slack card cannot show yet says so beside the saved choice", %{
+    agent: agent,
+    running: running
+  } do
     # The runtime answers at once when Slack has not started: there is no
     # runtime or task supervisor to redraw anything with.
     assert Application.get_env(:ryker, :slack) == nil
@@ -268,7 +273,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     assert SlackRuntime.redraw_welcome(@workspace, "C456", self()) ==
              {:error, :slack_not_running}
 
-    Agent.update(context.running, fn _running -> false end)
+    Agent.update(running, fn _running -> false end)
 
     {:ok, view, _html} =
       live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
@@ -284,9 +289,9 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
            )
 
     # Choosing what the channel already uses changes nothing to redraw.
-    Agent.update(context.running, fn _running -> true end)
+    Agent.update(running, fn _running -> true end)
     view |> form("#channel-environment", environment: "staging") |> render_change()
-    refute eventually(fn -> FakeSlackAPI.state(context.agent).updates != [] end, 100)
+    refute eventually(fn -> FakeSlackAPI.state(agent).updates != [] end, 100)
   end
 
   # The people chosen to manage Ryker, with the workspace's admins left out.

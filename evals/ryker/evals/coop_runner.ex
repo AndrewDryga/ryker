@@ -11,6 +11,7 @@ defmodule Ryker.Evals.CoopRunner do
   the case, never on explanatory prose.
   """
 
+  alias Ryker.Crypto
   alias Ryker.Evals.{ImprovementReplayCase, Job, RoutingReplayCase, WorldJudgeCase}
   alias Ryker.Reference
   alias Ryker.Retention.Plan
@@ -684,7 +685,7 @@ defmodule Ryker.Evals.CoopRunner do
   defp reference(_value, field), do: {:error, {:invalid_eval_runner, field}}
 
   defp sha256(value),
-    do: :sha256 |> :crypto.hash(value) |> Base.encode16(case: :lower)
+    do: Crypto.sha256_hex(value)
 
   defp failed(eval, reason) do
     %{decision: nil, eval_id: eval.eval_id, reason: reason, status: :failed}

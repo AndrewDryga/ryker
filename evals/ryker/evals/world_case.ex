@@ -9,6 +9,7 @@ defmodule Ryker.Evals.WorldCase do
   """
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Evals.WorldMatch
   alias Ryker.Ingress.Input
 
@@ -686,7 +687,7 @@ defmodule Ryker.Evals.WorldCase do
       "bytes" => byte_size(bytes),
       "data" => bytes,
       "path" => Path.relative_to(path, root),
-      "sha256" => sha256(bytes)
+      "sha256" => Crypto.sha256_hex(bytes)
     }
 
     next = [entry | collected]
@@ -854,7 +855,7 @@ defmodule Ryker.Evals.WorldCase do
          true <- is_binary(value["data_base64"]) or {:error, :output_artifacts},
          {:ok, data} <- Base.decode64(value["data_base64"]),
          true <- byte_size(data) == value["bytes"] or {:error, :output_artifacts},
-         true <- sha256(data) == value["sha256"] or {:error, :output_artifacts},
+         true <- Crypto.sha256_hex(data) == value["sha256"] or {:error, :output_artifacts},
          true <-
            artifact_media_matches?(value["media_type"], data) or
              {:error, :output_artifacts} do
@@ -1061,6 +1062,4 @@ defmodule Ryker.Evals.WorldCase do
       do: {:ok, cases},
       else: {:error, {:invalid_world_cases, :duplicate_id}}
   end
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

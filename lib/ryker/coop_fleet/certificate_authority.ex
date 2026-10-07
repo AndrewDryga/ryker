@@ -2,6 +2,7 @@ defmodule Ryker.CoopFleet.CertificateAuthority do
   @moduledoc false
 
   require Record
+  alias Ryker.Crypto
 
   Record.defrecordp(
     :otp_certificate,
@@ -91,7 +92,7 @@ defmodule Ryker.CoopFleet.CertificateAuthority do
          {:ok, ca_key} <- pem_value(ca_key_pem, :RSAPrivateKey),
          {:ok, certificate_der, serial_number, not_before, expires_at} <-
            sign(public_key, worker_id, ca_certificate_der, ca_key, now, ttl_seconds) do
-      sha256 = :crypto.hash(:sha256, certificate_der) |> Base.encode16(case: :lower)
+      sha256 = Crypto.sha256_hex(certificate_der)
 
       {:ok,
        %{
@@ -116,7 +117,7 @@ defmodule Ryker.CoopFleet.CertificateAuthority do
     issuer = ca_certificate |> otp_certificate(:tbsCertificate) |> otp_tbs_certificate(:subject)
     not_before = now |> DateTime.add(-60, :second) |> normalize()
     expires_at = now |> DateTime.add(ttl_seconds, :second) |> normalize()
-    serial_integer = :crypto.strong_rand_bytes(16) |> :binary.decode_unsigned()
+    serial_integer = Crypto.random_bytes(16) |> :binary.decode_unsigned()
     serial_number = Integer.to_string(serial_integer)
 
     signature =

@@ -9,6 +9,7 @@ defmodule Ryker.Artifacts.Outputs do
 
   import Ecto.Query
   alias Ryker.Artifacts.{OutputArtifact, OutputArtifactChangeset}
+  alias Ryker.Crypto
   alias Ryker.Repo
   alias Ryker.Work.Custody
 
@@ -137,7 +138,7 @@ defmodule Ryker.Artifacts.Outputs do
 
     with {:ok, metadata} <- prepare_metadata_item(metadata),
          true <- byte_size(data) == metadata["bytes"],
-         true <- digest(data) == metadata["sha256"],
+         true <- Crypto.sha256_hex(data) == metadata["sha256"],
          true <- media_matches?(metadata["media_type"], data) do
       {:ok,
        %{
@@ -207,6 +208,4 @@ defmodule Ryker.Artifacts.Outputs do
   defp media_matches?("image/gif", <<"GIF89a", _::binary>>), do: true
   defp media_matches?("image/webp", <<"RIFF", _::binary-size(4), "WEBP", _::binary>>), do: true
   defp media_matches?(_media_type, _data), do: false
-
-  defp digest(data), do: :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
 end

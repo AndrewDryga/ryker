@@ -429,7 +429,4 @@ defmodule Ryker.Work.Executor.Remote do
   @doc false
   def git_commit?(value),
     do: is_binary(value) and Regex.match?(@git_commit_regex, value)
-
-  @doc false
-  def digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

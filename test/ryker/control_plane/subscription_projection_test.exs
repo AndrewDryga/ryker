@@ -107,20 +107,20 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
   end
 
   test "the bounded projection searches the words the page shows without exposing raw matchers",
-       context do
+       %{episode: episode, subscription: subscription} do
     for query <- [
           "run-k9CpPp3nWjQrkCMG",
           "Slack channel",
           "update on run",
-          context.subscription.ref,
-          context.episode.key
+          subscription.ref,
+          episode.key
         ] do
       assert [item] = SubscriptionProjection.list(%{"q" => query, "view" => "current"})
       assert item.title == "An update on Run run-k9CpPp3nWjQrkCMG"
       assert item.episode_title == "Run run-k9CpPp3nWjQrkCMG"
       assert item.condition == nil
       assert item.target_url =~ "https://app.terraform.io/"
-      assert item.episode_href == "/timeline/#{context.episode.id}"
+      assert item.episode_href == "/timeline/#{episode.id}"
       assert item.place =~ "Slack channel"
       refute Map.has_key?(item, :matcher)
       refute inspect(item) =~ "never-display-this-body"
@@ -128,40 +128,40 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
 
     assert SubscriptionProjection.list(%{"q" => "never-display-this-body"}) == []
     assert SubscriptionProjection.list(%{"view" => "past"}) == []
-    assert Repo.get!(EventSubscription, context.subscription.id) == context.subscription
+    assert Repo.get!(EventSubscription, subscription.id) == subscription
   end
 
   test "retention and deletion remove stale source titles and matcher targets from search",
-       context do
+       %{entry: entry, subscription: subscription} do
     for changes <- [
           [operational_pruned_at: DateTime.utc_now(), content: %{}],
           [operational_pruned_at: nil, event_kind: :delete, content: %{}]
         ] do
-      Repo.update_all(from(e in Entry, where: e.id == ^context.entry.id), set: changes)
+      Repo.update_all(from(e in Entry, where: e.id == ^entry.id), set: changes)
       assert [item] = SubscriptionProjection.list(%{})
       assert item.title == "A matching Slack update"
       assert item.target_url == nil
       assert item.place == nil
       assert item.repository == nil
       assert SubscriptionProjection.list(%{"q" => "run-k9CpPp3nWjQrkCMG"}) == []
-      assert item.ref == context.subscription.ref
+      assert item.ref == subscription.ref
     end
   end
 
   test "a follow-up still waiting is never hidden behind newer history",
-       context do
+       %{episode: episode, record: record, subscription: subscription} do
     # A busy channel can resolve 100 follow-ups while one older deployment
     # still waits. Current holds only what still waits, and the unfiltered
     # list puts it first.
-    insert_resolved_history!(context)
+    insert_resolved_history!(episode, record, subscription)
 
     assert [current] = SubscriptionProjection.list(%{"view" => "current"})
-    assert current.ref == context.subscription.ref
+    assert current.ref == subscription.ref
 
     # The list reads one row past its 100, so the page can say there are more.
     items = SubscriptionProjection.list(%{})
     assert length(items) == 101
-    assert hd(items).ref == context.subscription.ref
+    assert hd(items).ref == subscription.ref
     assert hd(items).status == :active
 
     past = SubscriptionProjection.list(%{"view" => "past"})
@@ -170,8 +170,8 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
   end
 
   test "exact follow-up references remain findable outside the bounded recent search window",
-       context do
-    Repo.update_all(from(s in EventSubscription, where: s.id == ^context.subscription.id),
+       %{episode: episode, record: record, subscription: subscription} do
+    Repo.update_all(from(s in EventSubscription, where: s.id == ^subscription.id),
       set: [
         status: :resolved,
         resolution_kind: :input,
@@ -180,28 +180,28 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
       ]
     )
 
-    insert_resolved_history!(context, 101)
+    insert_resolved_history!(episode, record, subscription, 101)
     items = SubscriptionProjection.list(%{"view" => "past"})
     assert length(items) == 101
-    refute Enum.any?(items, &(&1.ref == context.subscription.ref))
+    refute Enum.any?(items, &(&1.ref == subscription.ref))
 
     assert [exact] =
-             SubscriptionProjection.list(%{"q" => context.subscription.ref, "view" => "past"})
+             SubscriptionProjection.list(%{"q" => subscription.ref, "view" => "past"})
 
-    assert exact.ref == context.subscription.ref
+    assert exact.ref == subscription.ref
 
     assert SubscriptionProjection.list(%{
-             "q" => context.subscription.ref,
+             "q" => subscription.ref,
              "view" => "current"
            }) == []
   end
 
-  defp insert_resolved_history!(context, count \\ 100) do
+  defp insert_resolved_history!(episode, record, subscription, count \\ 100) do
     now = DateTime.utc_now()
 
     for index <- 1..count do
       record = %{
-        context.record
+        record
         | id: Ecto.UUID.generate(),
           ref: "record:history:#{index}",
           operation_id: "history:#{index}",
@@ -212,13 +212,13 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
 
       Repo.insert!(%EventSubscription{
         id: Ecto.UUID.generate(),
-        episode_id: context.episode.id,
+        episode_id: episode.id,
         record_id: record.id,
         ref: "event-subscription:history:#{index}",
         status: :resolved,
         revision: 1,
         source_kind: "slack",
-        matcher: context.subscription.matcher,
+        matcher: subscription.matcher,
         resolution_kind: :input,
         last_observed_at: now,
         inserted_at: now,
@@ -228,7 +228,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
   end
 
   test "a live refresh keeps the search, the view and an open Details disclosure without executing work",
-       context do
+       %{subscription: subscription} do
     observer = self()
 
     options = %{
@@ -263,7 +263,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
 
     assert has_element?(
              view,
-             "details[id='follow-up-details-#{context.subscription.ref}']:not([open])"
+             "details[id='follow-up-details-#{subscription.ref}']:not([open])"
            )
 
     assert has_element?(view, "input[name=q][value=run-k9]")
@@ -273,11 +273,11 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
     assert_receive {:subscriptions_projected, [_]}
     send(view.pid, :reload_page)
     assert_receive {:subscriptions_projected, [_]}
-    assert has_element?(view, "details[id='follow-up-details-#{context.subscription.ref}']")
+    assert has_element?(view, "details[id='follow-up-details-#{subscription.ref}']")
     assert has_element?(view, "input[name=q][value=run-k9]")
-    assert Repo.get!(EventSubscription, context.subscription.id) == context.subscription
+    assert Repo.get!(EventSubscription, subscription.id) == subscription
 
-    Repo.update_all(from(s in EventSubscription, where: s.id == ^context.subscription.id),
+    Repo.update_all(from(s in EventSubscription, where: s.id == ^subscription.id),
       set: [
         poll_after: DateTime.add(DateTime.utc_now(), -180),
         deadline_at: DateTime.add(DateTime.utc_now(), 600)

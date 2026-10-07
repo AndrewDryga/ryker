@@ -310,6 +310,37 @@ defmodule Ryker.CredoChecks.RuntimeSafetyChecksTest do
     end
   end
 
+  describe "Ryker.Checks.BroadcastEventAsData" do
+    test "flags an event name passed to a broadcast helper as data" do
+      source = """
+      defmodule Ryker.Feedback do
+        def record(entry), do: broadcast_change(entry, "feedback.recorded")
+      end
+      """
+
+      assert [issue] = issues(event_as_data(), source, "lib/ryker/feedback.ex")
+      assert issue.check == event_as_data()
+      assert issue.trigger == "broadcast_change"
+      assert issue.line_no == 2
+      assert issue.message =~ "dedicated broadcast_"
+    end
+
+    test "allows a per-event broadcast function owning its literal topic" do
+      source = """
+      defmodule Ryker.Feedback do
+        def record(entry), do: broadcast_feedback_recorded(entry)
+
+        defp broadcast_feedback_recorded(entry) do
+          Ryker.PubSub.broadcast(topic(entry), {:feedback_recorded, entry.id})
+        end
+      end
+      """
+
+      assert issues(event_as_data(), source, "lib/ryker/feedback.ex") == []
+    end
+  end
+
+  defp event_as_data, do: check("BroadcastEventAsData")
   defp process_dictionary, do: check("NoProcessDictionary")
   defp unsafe_deserialization, do: check("NoUnsafeDeserialization")
   defp match_on_value, do: check("MatchOnMapFieldValue")

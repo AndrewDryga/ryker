@@ -12,6 +12,7 @@ defmodule Ryker.Work.Executor.Turns do
 
   alias Ryker.Artifacts.Outputs
   alias Ryker.CoopFleet.SessionEvidenceCapture
+  alias Ryker.Crypto
   alias Ryker.Records
   alias Ryker.Work.{Activity, Custody, Measurement, OperationKeys, StateBinding, ValidationIntent}
   alias Ryker.Work.Executor.{Remote, Validation}
@@ -537,7 +538,7 @@ defmodule Ryker.Work.Executor.Turns do
         "sha256" => sha256
       })
       when is_integer(attempt) and attempt > 0 and is_binary(message) and is_binary(sha256) do
-    if Remote.digest(message) == sha256,
+    if Crypto.sha256_hex(message) == sha256,
       do: {:ok, message, sha256, attempt},
       else: {:error, {:coop_protocol_error, :candidate_digest}}
   end
@@ -552,7 +553,7 @@ defmodule Ryker.Work.Executor.Turns do
        })
        when is_binary(message) and is_integer(attempt) and attempt > 0 and is_binary(sha256) and
               is_binary(receipt) do
-    if Remote.digest(message) == sha256 and Remote.reference?(receipt),
+    if Crypto.sha256_hex(message) == sha256 and Remote.reference?(receipt),
       do: {:ok, message, sha256, attempt, receipt},
       else: {:error, {:coop_protocol_error, :validation_receipt}}
   end

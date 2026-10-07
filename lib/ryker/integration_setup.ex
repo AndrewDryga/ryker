@@ -11,6 +11,7 @@ defmodule Ryker.IntegrationSetup do
   require Logger
   alias Ryker.{Bootstrap, Credentials}
   alias Ryker.CoopFleet.ManagedSources
+  alias Ryker.Crypto
   alias Ryker.Delivery.JSONClient
   alias Ryker.Emisar.Approvals
   alias Ryker.GitHub.AppJWT
@@ -973,7 +974,7 @@ defmodule Ryker.IntegrationSetup do
   end
 
   defp key_fingerprint(token),
-    do: "key-" <> binary_part(Base.encode16(:crypto.hash(:sha256, token), case: :lower), 0, 32)
+    do: "key-" <> binary_part(Crypto.sha256_hex(token), 0, 32)
 
   defp not_connected(account_ref) do
     case Enum.find(Settings.fetch!().emisar_connections, &(&1.account_ref == account_ref)) do
@@ -1369,7 +1370,7 @@ defmodule Ryker.IntegrationSetup do
   end
 
   defp emisar_connection_ref("", account_ref) do
-    digest = :crypto.hash(:sha256, account_ref) |> Base.encode16(case: :lower)
+    digest = Crypto.sha256_hex(account_ref)
     "account-" <> binary_part(digest, 0, 16)
   end
 
@@ -1420,7 +1421,7 @@ defmodule Ryker.IntegrationSetup do
   end
 
   defp name_digest(full_name),
-    do: :crypto.hash(:sha256, full_name) |> Base.encode16(case: :lower) |> String.slice(0, 8)
+    do: Crypto.sha256_hex(full_name) |> String.slice(0, 8)
 
   defp repository_ref(full_name) do
     normalized =
@@ -1437,5 +1438,5 @@ defmodule Ryker.IntegrationSetup do
       else: String.slice(normalized, 0, 54) <> "-" <> name_digest(full_name)
   end
 
-  defp generate_secret, do: :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+  defp generate_secret, do: Crypto.random_secret(32)
 end

@@ -2,6 +2,7 @@ defmodule Ryker.Evals.Evidence do
   @moduledoc false
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
 
   @default_maximum_bytes 32 * 1_024
   @sensitive_key ~r/(?:authorization|cookie|credential|password|private.?key|secret|token)/i
@@ -18,7 +19,7 @@ defmodule Ryker.Evals.Evidence do
     else
       %{
         "bytes" => byte_size(encoded),
-        "sha256" => sha256(encoded),
+        "sha256" => Crypto.sha256_hex(encoded),
         "truncated" => true
       }
     end
@@ -37,6 +38,4 @@ defmodule Ryker.Evals.Evidence do
     do: Atom.to_string(value)
 
   defp scrub(value), do: value
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

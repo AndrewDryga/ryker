@@ -3,6 +3,7 @@ defmodule Ryker.Work.StateBinding do
 
   import Ecto.Query
   alias Ryker.CoopFleet.Placement
+  alias Ryker.Crypto
   alias Ryker.{Repo, Secret}
   alias Ryker.Work.{Session, Turn}
 
@@ -26,11 +27,11 @@ defmodule Ryker.Work.StateBinding do
     with :ok <- endpoint(endpoint),
          :ok <- scope(scope),
          :ok <- secret(secret) do
-      scope_sha256 = sha256(scope)
+      scope_sha256 = Crypto.sha256_hex(scope)
 
       token =
         (@context <> session_id <> ":" <> turn_id <> ":" <> scope_sha256)
-        |> then(&:crypto.mac(:hmac, :sha256, secret, &1))
+        |> then(&Crypto.hmac_sha256(secret, &1))
         |> Base.url_encode64(padding: false)
         |> then(&(scope_sha256 <> &1))
 
@@ -38,7 +39,7 @@ defmodule Ryker.Work.StateBinding do
        %{
          endpoint: endpoint,
          token: token,
-         token_sha256: sha256(token)
+         token_sha256: Crypto.sha256_hex(token)
        }}
     end
   end
@@ -100,7 +101,7 @@ defmodule Ryker.Work.StateBinding do
   @spec scope_matches?(String.t(), String.t()) :: boolean()
   def scope_matches?(<<scope_sha256::binary-size(64), _mac::binary-size(43)>>, scope)
       when is_binary(scope),
-      do: scope_sha256 == sha256(scope)
+      do: scope_sha256 == Crypto.sha256_hex(scope)
 
   def scope_matches?(_token, _scope), do: false
 
@@ -115,13 +116,10 @@ defmodule Ryker.Work.StateBinding do
         state_tools_token_sha256: token_sha256
       })
       when is_binary(endpoint) and is_binary(token_sha256) do
-    sha256(endpoint <> <<0>> <> token_sha256)
+    Crypto.sha256_hex(endpoint <> <<0>> <> token_sha256)
   end
 
   def binding_digest(%Turn{}), do: nil
-
-  @spec sha256(binary()) :: String.t()
-  def sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   defp endpoint(value)
        when is_binary(value) and byte_size(value) > 0 and

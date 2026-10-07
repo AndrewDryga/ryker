@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.PromptDocument do
   alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.RequestContextHTML
+  alias Ryker.Crypto
 
   @moduledoc """
   The retained prompt, formatted and read one briefing section at a time.
@@ -297,7 +298,7 @@ defmodule Ryker.ControlPlane.PromptDocument do
   defp whitespace?(token), do: String.trim(token) == ""
 
   defp digest(text),
-    do: :sha256 |> :crypto.hash(text) |> Base.encode16(case: :lower) |> binary_part(0, 16)
+    do: Crypto.sha256_hex(text) |> binary_part(0, 16)
 
   defp pre(text) do
     Components.copy_block_html(

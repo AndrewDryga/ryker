@@ -3,6 +3,7 @@ defmodule Ryker.StateTools.Binding do
 
   import Ecto.Query
   alias Ryker.CoopFleet.Placement
+  alias Ryker.Crypto
   alias Ryker.Episodes.Episode
   alias Ryker.Records
   alias Ryker.Repo
@@ -18,7 +19,7 @@ defmodule Ryker.StateTools.Binding do
            }}
           | {:error, :state_tools_binding_not_authorized}
   def resolve(token) when is_binary(token) and byte_size(token) in 32..256 do
-    token_sha256 = StateBinding.sha256(token)
+    token_sha256 = Crypto.sha256_hex(token)
 
     binding =
       token_sha256

@@ -151,9 +151,12 @@ defmodule Ryker.ObservabilityTest do
 
     # The inbox entry, the Work turn and the progress heartbeat are stored
     # without a zone, read back naive and aged by whole-second boundaries
-    # (`Query.age_seconds/2`), so they are bracketed by the same rule. Bracketed
+    # (`Reads.age_seconds/2`), so they are bracketed by the same rule. Bracketed
     # as zoned times, a scrape that crossed a second boundary after the fixture
-    # read one second older than the bracket allowed (gate, 2026-10-05).
+    # read one second older than the bracket allowed (gate, 2026-10-05). The
+    # lower bound gives a second back: the database's clock runs in the Docker
+    # VM, which steps it back when it resyncs, and twice a scrape after `before`
+    # read the lease a second younger than `before` did (2026-10-06).
     timed = %{
       ~s(ryker_queue_oldest_age_seconds{queue="ingress"}) => DateTime.to_naive(ingress_at),
       ~s(ryker_queue_oldest_active_age_seconds{queue="work"}) => DateTime.to_naive(lease_at),
@@ -167,7 +170,7 @@ defmodule Ryker.ObservabilityTest do
       |> Enum.map_join("\n", fn line ->
         with [series, value] <- String.split(line, " "),
              %{} = at <- Map.get(timed, series),
-             true <- String.to_integer(value) in age(before, at)..age(later, at) do
+             true <- String.to_integer(value) in (age(before, at) - 1)..age(later, at) do
           series <> " <age>"
         else
           _exact -> line

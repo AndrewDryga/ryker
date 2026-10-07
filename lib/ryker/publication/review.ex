@@ -2,6 +2,7 @@ defmodule Ryker.Publication.Review do
   @moduledoc false
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
 
   @required ~w(candidate_head candidate_retained candidate_tree creation_base gate job_digest not_publishable_reasons operation_id parent_head parent_tree patch_truncated policy_findings publishable rebase session_id session_revision source_head source_tree)
   @optional ~w(gate_error gate_output pull_request)
@@ -89,7 +90,7 @@ defmodule Ryker.Publication.Review do
   def prepare(_document, _expected), do: {:error, {:invalid_publication_review, :document}}
 
   def fingerprint(document),
-    do: document |> CanonicalJSON.encode!() |> digest()
+    do: document |> CanonicalJSON.encode!() |> Crypto.sha256_hex()
 
   def publishable?(%{"publishable" => true}), do: true
   def publishable?(_document), do: false
@@ -465,5 +466,4 @@ defmodule Ryker.Publication.Review do
   end
 
   defp digest?(value), do: is_binary(value) and Regex.match?(~r/\A[a-f0-9]{64}\z/, value)
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

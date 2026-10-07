@@ -21,6 +21,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   import Ecto.Query
   require Logger
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge
@@ -502,7 +503,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
          transport: attempt.transport,
          conversation_ref: attempt.conversation_ref,
          prompt: attempt.prompt,
-         prompt_sha256: sha256(attempt.prompt),
+         prompt_sha256: Crypto.sha256_hex(attempt.prompt),
          output_schema: attempt.output_schema,
          manifest: attempt.manifest
        })}
@@ -629,9 +630,10 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       candidate_attempt: attempt
     }
 
-    if sha256(result) == digest and CanonicalJSON.validate(producer, max_bytes: 4_096) == :ok,
-      do: run_transaction(claim, run_id, &save_candidate(&1, turn_id, session_id, answer)),
-      else: {:error, :invalid_repository_knowledge_candidate}
+    if Crypto.sha256_hex(result) == digest and
+         CanonicalJSON.validate(producer, max_bytes: 4_096) == :ok,
+       do: run_transaction(claim, run_id, &save_candidate(&1, turn_id, session_id, answer)),
+       else: {:error, :invalid_repository_knowledge_candidate}
   end
 
   def record_candidate(_claim, _run_id, _turn, _producer),
@@ -755,7 +757,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   defp document_fields(document, commit, by, run_id, dropped, now),
     do: [
       document: document,
-      document_sha256: sha256(document),
+      document_sha256: Crypto.sha256_hex(document),
       document_commit: commit,
       document_by: by,
       document_run_id: run_id,
@@ -1053,6 +1055,4 @@ defmodule Ryker.RepositoryKnowledge.Custody do
     text = String.trim(text)
     if String.length(text) <= maximum, do: text, else: String.slice(text, 0, maximum - 1) <> "…"
   end
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

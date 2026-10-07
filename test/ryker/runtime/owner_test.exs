@@ -38,12 +38,15 @@ defmodule Ryker.Runtime.OwnerTest do
     %{supervisor: supervisor, bootstrap: bootstrap()}
   end
 
-  test "a database with no settings starts a reachable console and nothing else", context do
-    owner = start_owner(context)
+  test "a database with no settings starts a reachable console and nothing else", %{
+    supervisor: supervisor,
+    bootstrap: bootstrap
+  } do
+    owner = start_owner(supervisor, bootstrap)
 
     assert Owner.reconcile(owner) == {:ok, :not_initialized}
     assert Owner.applied_revision(owner) == nil
-    assert console_running?(context)
+    assert console_running?(supervisor)
     assert Application.get_env(:ryker, :work) == nil
     assert Application.get_env(:ryker, :slack) == nil
   end
@@ -52,9 +55,8 @@ defmodule Ryker.Runtime.OwnerTest do
   # container's own port, rendered and never went live. Setup runs on this console, before any
   # settings exist.
   test "a console started before any settings accepts the browser at its published address",
-       context do
-    bootstrap = %{context.bootstrap | control_public_url: "http://127.0.0.1:14321"}
-    owner = start_owner(%{context | bootstrap: bootstrap})
+       %{supervisor: supervisor, bootstrap: bootstrap} do
+    owner = start_owner(supervisor, %{bootstrap | control_public_url: "http://127.0.0.1:14321"})
 
     assert Owner.reconcile(owner) == {:ok, :not_initialized}
     assert "//127.0.0.1:14321" in Endpoint.config(:check_origin)
@@ -66,11 +68,14 @@ defmodule Ryker.Runtime.OwnerTest do
   # connected the account lost its way back to the accounts and reloaded on the empty form
   # (Andrew: "after new emisar account connected i see form again"), and open pages came back late
   # ("it took a while for them to activate themselves").
-  test "a change the console can take in place leaves its open pages connected", context do
-    owner = start_owner(context)
+  test "a change the console can take in place leaves its open pages connected", %{
+    supervisor: supervisor,
+    bootstrap: bootstrap
+  } do
+    owner = start_owner(supervisor, bootstrap)
     {:ok, saved} = initialize()
     assert applied(owner, saved)
-    console = console_pids(context)
+    console = console_pids(supervisor)
 
     {:ok, added} =
       Settings.put_environment(
@@ -81,14 +86,14 @@ defmodule Ryker.Runtime.OwnerTest do
 
     assert applied(owner, added)
     assert Map.has_key?(Application.get_env(:ryker, :control_plane).environments, "staging")
-    assert console_pids(context) == console
+    assert console_pids(supervisor) == console
   end
 
   test "an unavailable settings database is retried, never mistaken for a fresh install",
-       context do
+       %{supervisor: supervisor, bootstrap: bootstrap} do
     # Falling back to fresh setup here would generate a second installation
     # identity and re-key every lease owner the existing deployment recorded.
-    owner = start_owner(context)
+    owner = start_owner(supervisor, bootstrap)
     {:ok, saved} = initialize()
     assert applied(owner, saved)
 
@@ -96,14 +101,17 @@ defmodule Ryker.Runtime.OwnerTest do
 
     assert Owner.reconcile(owner) == {:error, :settings_unavailable}
     assert Owner.applied_revision(owner) == saved.installation.revision
-    assert console_running?(context)
+    assert console_running?(supervisor)
 
     assert %{rows: [[1]]} =
              Repo.query!("SELECT count(*) FROM unavailable_installation_settings")
   end
 
-  test "applying is idempotent and records exactly the revision it applied", context do
-    owner = start_owner(context)
+  test "applying is idempotent and records exactly the revision it applied", %{
+    supervisor: supervisor,
+    bootstrap: bootstrap
+  } do
+    owner = start_owner(supervisor, bootstrap)
     {:ok, saved} = initialize()
 
     assert applied(owner, saved)
@@ -132,8 +140,11 @@ defmodule Ryker.Runtime.OwnerTest do
   # the next deploy restarted the release; the settings page and docs promised
   # the opposite. Every save so far happened to be followed by a deploy, which
   # is the only reason the live revision was ever applied.
-  test "a saved revision is applied by the running owner without anyone asking", context do
-    owner = start_owner(context)
+  test "a saved revision is applied by the running owner without anyone asking", %{
+    supervisor: supervisor,
+    bootstrap: bootstrap
+  } do
+    owner = start_owner(supervisor, bootstrap)
     assert Owner.reconcile(owner) == {:ok, :not_initialized}
 
     {:ok, created} = initialize()
@@ -156,12 +167,15 @@ defmodule Ryker.Runtime.OwnerTest do
   # record the revision as applied and never try again: the settings page said
   # "the running configuration matches" against a console nobody could open,
   # and a later reconcile answered :unchanged.
-  test "a runtime that fails to start leaves its revision unapplied until it starts", context do
+  test "a runtime that fails to start leaves its revision unapplied until it starts", %{
+    supervisor: supervisor,
+    bootstrap: bootstrap
+  } do
     {:ok, _saved} = initialize()
-    port = context.bootstrap.control_plane.port
+    port = bootstrap.control_plane.port
     {:ok, blocker} = :gen_tcp.listen(port, [:binary, ip: {127, 0, 0, 1}, reuseaddr: true])
 
-    owner = start_owner(context)
+    owner = start_owner(supervisor, bootstrap)
 
     assert {:error, {:runtime_start_failed, :control_plane, _reason}} = Owner.reconcile(owner)
     assert Owner.applied_revision(owner) == nil
@@ -184,15 +198,18 @@ defmodule Ryker.Runtime.OwnerTest do
   # (already started, or its port still taken): the restarted child kept its old configuration
   # until the container restarted, and the revision stayed unapplied (2026-10-04 review; for
   # retention that means pruning at a horizon the operator had already lengthened).
-  test "a runtime restarted after a crash is still replaced when its settings change", context do
-    owner = start_owner(context)
+  test "a runtime restarted after a crash is still replaced when its settings change", %{
+    supervisor: supervisor,
+    bootstrap: bootstrap
+  } do
+    owner = start_owner(supervisor, bootstrap)
     {:ok, saved} = initialize()
     assert applied(owner, saved)
 
-    crashed = retention_pid(context)
+    crashed = retention_pid(supervisor)
     Process.exit(crashed, :kill)
-    assert eventually(fn -> retention_pid(context) not in [nil, crashed] end)
-    restarted = retention_pid(context)
+    assert eventually(fn -> retention_pid(supervisor) not in [nil, crashed] end)
+    restarted = retention_pid(supervisor)
 
     # A longer audit horizon is a new retention configuration.
     {:ok, lengthened} =
@@ -203,7 +220,7 @@ defmodule Ryker.Runtime.OwnerTest do
       )
 
     assert applied(owner, lengthened)
-    assert eventually(fn -> retention_pid(context) not in [nil, restarted] end)
+    assert eventually(fn -> retention_pid(supervisor) not in [nil, restarted] end)
     assert :retention in Owner.running_keys(owner)
   end
 
@@ -211,30 +228,30 @@ defmodule Ryker.Runtime.OwnerTest do
   # limit, so one runtime that kept crashing used it up and took every runtime down with it, the
   # console included, and nothing started them again until a person saved settings.
   test "a runtime that keeps crashing comes back on its own and takes nothing else down",
-       context do
-    owner = start_owner(Map.put(context, :retry_ms, 20))
+       %{supervisor: supervisor, bootstrap: bootstrap} do
+    owner = start_owner(supervisor, bootstrap, retry_ms: 20)
     {:ok, saved} = initialize()
     assert applied(owner, saved)
-    console = console_pids(context)
+    console = console_pids(supervisor)
 
     # Six crashes, each of a runtime that came back: a loop that found none
     # between restarts crashed it fewer times than it said.
     Enum.reduce(1..6, nil, fn _crash, killed ->
-      assert eventually(fn -> event_waits_pid(context) not in [nil, killed] end, 5_000)
-      pid = event_waits_pid(context)
+      assert eventually(fn -> event_waits_pid(supervisor) not in [nil, killed] end, 5_000)
+      pid = event_waits_pid(supervisor)
       kill_between_messages(pid)
       pid
     end)
 
-    assert eventually(fn -> is_pid(event_waits_pid(context)) end, 5_000)
+    assert eventually(fn -> is_pid(event_waits_pid(supervisor)) end, 5_000)
     assert eventually(fn -> :event_waits in Owner.running_keys(owner) end, 5_000)
-    assert Process.alive?(context.supervisor)
-    assert console_pids(context) == console
+    assert Process.alive?(supervisor)
+    assert console_pids(supervisor) == console
   end
 
   test "a revision that cannot be assembled is recorded failed and keeps the running one",
-       context do
-    owner = start_owner(context)
+       %{supervisor: supervisor, bootstrap: bootstrap} do
+    owner = start_owner(supervisor, bootstrap)
     {:ok, saved} = initialize()
     assert applied(owner, saved)
 
@@ -259,8 +276,11 @@ defmodule Ryker.Runtime.OwnerTest do
   # the children were started one line before that configuration was published.
   # It declined with `:ignore`, which is permanent: nothing restarts a runtime
   # whose own configuration never changed again.
-  test "a child reads the configuration it is being started for", context do
-    owner = start_owner(context)
+  test "a child reads the configuration it is being started for", %{
+    supervisor: supervisor,
+    bootstrap: bootstrap
+  } do
+    owner = start_owner(supervisor, bootstrap)
     {:ok, saved} = initialize()
 
     slack_tokens!()
@@ -289,8 +309,8 @@ defmodule Ryker.Runtime.OwnerTest do
   # had nowhere to go, and switching Slack on, like every later Slack setting,
   # restarted the console with an empty cache.
   test "the Slack name cache runs once the tokens are verified and keeps its names as people are chosen",
-       context do
-    owner = start_owner(context)
+       %{supervisor: supervisor, bootstrap: bootstrap} do
+    owner = start_owner(supervisor, bootstrap)
     {:ok, saved} = initialize()
 
     slack_tokens!()
@@ -329,13 +349,13 @@ defmodule Ryker.Runtime.OwnerTest do
     assert Names.name("T0123456789", "U1111111111") == "@Andrew"
   end
 
-  defp start_owner(context) do
+  defp start_owner(supervisor, bootstrap, options \\ []) do
     options =
       [
         name: {:global, {Owner, System.unique_integer([:positive])}},
-        supervisor: context.supervisor,
-        bootstrap: context.bootstrap
-      ] ++ if(retry_ms = Map.get(context, :retry_ms), do: [retry_ms: retry_ms], else: [])
+        supervisor: supervisor,
+        bootstrap: bootstrap
+      ] ++ Keyword.take(options, [:retry_ms])
 
     owner = start_supervised!({Owner, options})
 
@@ -365,16 +385,16 @@ defmodule Ryker.Runtime.OwnerTest do
     Owner.applied_revision(owner) == revision
   end
 
-  defp console_pids(context) do
-    for {_id, pid, _type, [Ryker.ControlPlane.Endpoint]} <- runtime_children(context), do: pid
+  defp console_pids(supervisor) do
+    for {_id, pid, _type, [Ryker.ControlPlane.Endpoint]} <- runtime_children(supervisor), do: pid
   end
 
-  defp console_running?(context) do
-    Enum.any?(runtime_children(context), fn {_id, pid, _type, _modules} -> is_pid(pid) end)
+  defp console_running?(supervisor) do
+    Enum.any?(runtime_children(supervisor), fn {_id, pid, _type, _modules} -> is_pid(pid) end)
   end
 
-  defp retention_pid(context) do
-    Enum.find_value(runtime_children(context), fn
+  defp retention_pid(supervisor) do
+    Enum.find_value(runtime_children(supervisor), fn
       {Ryker.Retention.Runtime, pid, _type, _modules} when is_pid(pid) -> pid
       _child -> nil
     end)
@@ -391,8 +411,8 @@ defmodule Ryker.Runtime.OwnerTest do
     :exit, _gone -> :ok
   end
 
-  defp event_waits_pid(context) do
-    Enum.find_value(runtime_children(context), fn
+  defp event_waits_pid(supervisor) do
+    Enum.find_value(runtime_children(supervisor), fn
       {Ryker.Waits.EventWaitWorker, pid, _type, _modules} when is_pid(pid) -> pid
       _child -> nil
     end)
@@ -400,9 +420,9 @@ defmodule Ryker.Runtime.OwnerTest do
 
   # Each runtime key runs under its own supervisor; these are the processes inside them. A key's
   # supervisor that gave up on its crashing runtime may be gone by the time it is asked.
-  defp runtime_children(context) do
+  defp runtime_children(supervisor) do
     for {_id, key_supervisor, :supervisor, _modules} <-
-          DynamicSupervisor.which_children(context.supervisor),
+          DynamicSupervisor.which_children(supervisor),
         is_pid(key_supervisor),
         child <- children(key_supervisor),
         do: child

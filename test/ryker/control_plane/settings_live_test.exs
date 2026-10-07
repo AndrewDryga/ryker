@@ -95,7 +95,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   end
 
   test "each settings page is titled with its sidebar name and what is running folds nothing away",
-       context do
+       %{unavailable: unavailable} do
     for {prepare, path, title} <- [
           {fn -> :ok end, "/setup", "Set up Ryker"},
           {fn -> initialize!() end, "/setup", "Set up Ryker"},
@@ -143,11 +143,11 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              )
            )
 
-    Agent.update(context.unavailable, fn _ -> true end)
+    Agent.update(unavailable, fn _ -> true end)
     {:ok, _view, html} = open()
     assert html =~ "Settings unavailable"
-    unavailable = LazyHTML.from_document(html)
-    assert LazyHTML.query(unavailable, "main h1") |> LazyHTML.text() == "Settings unavailable"
+    page = LazyHTML.from_document(html)
+    assert LazyHTML.query(page, "main h1") |> LazyHTML.text() == "Settings unavailable"
   end
 
   test "an unconnected integration says so, and GitHub access is derived from the repository" do
@@ -2373,9 +2373,11 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     end
   end
 
-  test "an unreadable settings database is not an installation without settings", context do
+  test "an unreadable settings database is not an installation without settings", %{
+    unavailable: unavailable
+  } do
     initialize!()
-    Agent.update(context.unavailable, fn _ -> true end)
+    Agent.update(unavailable, fn _ -> true end)
 
     {:ok, view, html} = open()
 

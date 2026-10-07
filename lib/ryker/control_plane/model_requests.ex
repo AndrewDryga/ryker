@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   alias Ryker.ControlPlane.{LearningRequests, PagedRelation, Paths, RepositoryNames}
   alias Ryker.ControlPlane.{RoutingReason, ThreadContext, Units, UsageProjection}
   alias Ryker.CoopFleet.JobTemplates
+  alias Ryker.Crypto
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.{Inbox, InputCustodyTransition}
@@ -1159,7 +1160,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
          digest
        )
        when is_binary(body),
-       do: :crypto.hash(:sha256, body) |> Base.encode16(case: :lower) == digest
+       do: Crypto.sha256_hex(body) == digest
 
   defp current_response?(_turn, _attempt, _digest), do: false
 

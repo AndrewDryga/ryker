@@ -13,6 +13,7 @@ defmodule Ryker.Settings do
   import Ecto.Query
   alias Ryker.Accounting.Pricing
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Repo
   alias Ryker.Settings.{Edit, EmisarConnection, Environment, EnvironmentRepository, GitHub}
   alias Ryker.Settings.{GitHubBinding, Installation, Learning, PricingRate, Publication, Report}
@@ -759,7 +760,7 @@ defmodule Ryker.Settings do
   end
 
   defp generate_host_ref do
-    "installation:" <> (:crypto.strong_rand_bytes(32) |> Base.encode16(case: :lower))
+    "installation:" <> Crypto.random_hex(32)
   end
 
   defp lock! do

@@ -8,6 +8,7 @@ defmodule Ryker.BundledCoop do
 
   import Ecto.Query
   alias Ryker.CoopFleet.{Enrollment, EnrollmentToken, Worker}
+  alias Ryker.Crypto
   alias Ryker.{Repo, Settings}
 
   @actor "control-plane:local"
@@ -132,7 +133,7 @@ defmodule Ryker.BundledCoop do
   end
 
   defp token_authorized?(token) do
-    digest = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+    digest = Crypto.sha256_hex(token)
     worker = configured_worker_id()
     workspace = configured_workspace_ref()
     now = Repo.now!()

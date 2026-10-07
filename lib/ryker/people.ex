@@ -30,6 +30,7 @@ defmodule Ryker.People do
   """
 
   import Ecto.Query
+  alias Ryker.Crypto
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.People.PersonFact
   alias Ryker.Repo
@@ -440,7 +441,7 @@ defmodule Ryker.People do
   # still finds the row, so nothing said before the forgetting teaches it
   # again. `forget_where/1` computes the same digest in SQL.
   defp forgotten_key(person, key) do
-    digest = :crypto.hash(:sha256, person <> "\n" <> key) |> Base.encode16(case: :lower)
+    digest = Crypto.sha256_hex(person <> "\n" <> key)
     "f" <> binary_part(digest, 0, 47)
   end
 end

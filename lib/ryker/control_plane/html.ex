@@ -3,6 +3,7 @@ defmodule Ryker.ControlPlane.HTML do
 
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Emoji, Kit, Layouts, SlackMarkdown}
+  alias Ryker.Crypto
   alias Ryker.Delivery.ChatCard
 
   # The title and description are the shell's header, led by the way back
@@ -362,7 +363,7 @@ defmodule Ryker.ControlPlane.HTML do
   defp lab_emoji_glyph(emoji_name), do: Emoji.glyph(emoji_name)
 
   defp lab_short_digest(value) do
-    :crypto.hash(:sha256, value) |> Base.encode16(case: :lower) |> binary_part(0, 16)
+    Crypto.sha256_hex(value) |> binary_part(0, 16)
   end
 
   # Ryker's reactions on a person's message read as the emoji, as in Slack;

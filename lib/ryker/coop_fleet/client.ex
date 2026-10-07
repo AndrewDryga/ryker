@@ -13,8 +13,9 @@ defmodule Ryker.CoopFleet.Client do
   alias Ryker.CoopFleet.{Bodies, Bridge, Checkpoints, Command, ControlPlane, JobAuthority}
   alias Ryker.CoopFleet.ControlPlane.Commands
   alias Ryker.CoopFleet.{Placement, Worker, WorkspaceCheckpointTransfer}
+  alias Ryker.Crypto
   alias Ryker.Repo
-  alias Ryker.Work.{RepositorySource, Session, StateBinding}
+  alias Ryker.Work.{RepositorySource, Session}
 
   @fields [:bridge, :bridge_options, :source_root]
   @option_keys [
@@ -998,7 +999,7 @@ defmodule Ryker.CoopFleet.Client do
            ),
          true <-
            byte_size(bytes) == reference["byte_size"] and
-             Base.encode16(:crypto.hash(:sha256, bytes), case: :lower) == reference["sha256"] do
+             Crypto.sha256_hex(bytes) == reference["sha256"] do
       {:ok,
        %{
          "id" => artifact_id,
@@ -1620,6 +1621,6 @@ defmodule Ryker.CoopFleet.Client do
   defp operation_method("submit_turn"), do: "SubmitTurn"
 
   defp controller_tools_descriptor(%{"endpoint" => endpoint, "token" => token}) do
-    %{"endpoint" => endpoint, "token_sha256" => StateBinding.sha256(token)}
+    %{"endpoint" => endpoint, "token_sha256" => Crypto.sha256_hex(token)}
   end
 end

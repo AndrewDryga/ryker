@@ -9,11 +9,10 @@ defmodule Ryker.Credentials do
   import Ecto.Query
   alias Ryker.Credential
   alias Ryker.Credential.Event
+  alias Ryker.Crypto
   alias Ryker.Repo
 
   @key_version 1
-  @nonce_bytes 12
-  @tag_bytes 16
   @minimum_bytes 8
   @maximum_bytes 1_048_576
   @kinds [:slack_app, :slack_bot, :github_private_key, :github_webhook, :emisar, :webhook]
@@ -256,43 +255,21 @@ defmodule Ryker.Credentials do
   end
 
   defp seal(key, kind, name, plaintext) when byte_size(key) == 32 do
-    nonce = :crypto.strong_rand_bytes(@nonce_bytes)
-
-    {ciphertext, tag} =
-      :crypto.crypto_one_time_aead(
-        :aes_256_gcm,
-        key,
-        nonce,
-        plaintext,
-        associated_data(kind, name, @key_version),
-        @tag_bytes,
-        true
-      )
+    sealed = Crypto.seal(key, plaintext, associated_data(kind, name, @key_version))
 
     {:ok,
-     %{
-       key_version: @key_version,
-       ciphertext: ciphertext,
-       nonce: nonce,
-       tag: tag,
-       fingerprint: digest(plaintext)
-     }}
+     Map.merge(sealed, %{key_version: @key_version, fingerprint: Crypto.sha256_hex(plaintext)})}
   rescue
     _error -> {:error, :credential_encryption_failed}
   end
 
   defp open(key, %Credential{} = credential) when byte_size(key) == 32 do
-    case :crypto.crypto_one_time_aead(
-           :aes_256_gcm,
-           key,
-           credential.nonce,
-           credential.ciphertext,
-           associated_data(credential.kind, credential.name, credential.key_version),
-           credential.tag,
-           false
-         ) do
-      plaintext when is_binary(plaintext) -> {:ok, plaintext}
-      _error -> {:error, :credential_decryption_failed}
+    sealed = Map.take(credential, [:nonce, :ciphertext, :tag])
+    data = associated_data(credential.kind, credential.name, credential.key_version)
+
+    case Crypto.open(key, sealed, data) do
+      {:ok, plaintext} -> {:ok, plaintext}
+      :error -> {:error, :credential_decryption_failed}
     end
   rescue
     _error -> {:error, :credential_decryption_failed}
@@ -336,8 +313,6 @@ defmodule Ryker.Credentials do
       _missing_or_invalid -> raise "RYKER_CREDENTIAL_KEY is missing or invalid"
     end
   end
-
-  defp digest(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 
   # -- PubSub ------------------------------------------------------------------
 

@@ -5,11 +5,12 @@ defmodule Ryker.CoopFleet.ClientTest do
   alias Ryker.{Artifacts, CanonicalJSON, Instructions}
   alias Ryker.CoopFleet.{Client, Command, ControlPlane, JobSpec, Placement, Worker}
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, SessionChangeset, StateBinding, SubmissionBuilder}
+  alias Ryker.Work.{Custody, SessionChangeset, SubmissionBuilder}
 
   @authority_digest String.duplicate("d", 64)
   @policy "work-read-only"
@@ -1040,7 +1041,7 @@ defmodule Ryker.CoopFleet.ClientTest do
              "expected_revision" => 4,
              "controller_tools" => %{
                "endpoint" => binding["endpoint"],
-               "token_sha256" => StateBinding.sha256(binding["token"])
+               "token_sha256" => Crypto.sha256_hex(binding["token"])
              },
              "submission" => submission,
              "submission_sha256" =>

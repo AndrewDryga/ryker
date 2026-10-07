@@ -153,60 +153,64 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
   end
 
   test "exact manual approval mints a fresh single-repository write token, including after accepted 202",
-       context do
+       %{certificate: certificate, command: command, request: request, session: session} do
     provider = provider!()
 
     for status <- [:delivered, :succeeded] do
-      if status == :succeeded, do: complete!(context.command, 202)
+      if status == :succeeded, do: complete!(command, 202)
 
-      {task, minter} = begin_mint(context, provider)
+      {task, minter} = begin_mint(certificate, session, request, provider)
       send(minter, :complete)
       assert {:ok, grant} = Task.await(task)
       assert grant["token"] == "host-only-publication-token"
       assert grant["github_repository_id"] == 17
       assert grant["actor_id"] == 30
-      refute Map.has_key?(context.request, "token")
+      refute Map.has_key?(request, "token")
     end
   end
 
   test "changed command, candidate, job, review, approval or owner cannot obtain a grant",
-       context do
-    assert {:ok, _authority} = authority(context)
+       %{
+         certificate: certificate,
+         publication: publication,
+         request: request,
+         review: review,
+         session: session
+       } do
+    assert {:ok, _authority} = authority(certificate, session, request)
 
     for request <- [
-          Map.put(context.request, "command_key", "wrong"),
-          Map.put(context.request, "review_operation_id", "wrong"),
-          Map.put(context.request, "job_digest", String.duplicate("f", 64)),
-          put_in(context.request, ["request", "authorization_ref"], "wrong"),
-          put_in(context.request, ["request", "candidate_head"], String.duplicate("f", 40)),
-          put_in(context.request, ["request", "body"], "Changed after approval")
+          Map.put(request, "command_key", "wrong"),
+          Map.put(request, "review_operation_id", "wrong"),
+          Map.put(request, "job_digest", String.duplicate("f", 64)),
+          put_in(request, ["request", "authorization_ref"], "wrong"),
+          put_in(request, ["request", "candidate_head"], String.duplicate("f", 40)),
+          put_in(request, ["request", "body"], "Changed after approval")
         ] do
-      assert {:error, :publication_grant_denied} = authority(%{context | request: request})
+      assert {:error, :publication_grant_denied} = authority(certificate, session, request)
     end
 
     assert {:error, :publication_grant_denied} =
-             authority(%{context | certificate: "another-worker"})
+             authority("another-worker", session, request)
 
-    context.review
-    |> change(payload: Map.put(context.review.payload, "expected_revision", 8))
+    review
+    |> change(payload: Map.put(review.payload, "expected_revision", 8))
     |> Repo.update!()
 
-    assert {:error, :publication_grant_denied} = authority(context)
+    assert {:error, :publication_grant_denied} = authority(certificate, session, request)
 
-    context.review.__struct__
-    |> Repo.get!(context.review.id)
-    |> change(payload: context.review.payload)
+    review.__struct__
+    |> Repo.get!(review.id)
+    |> change(payload: review.payload)
     |> Repo.update!()
 
-    assert {:ok, _authority} = authority(context)
+    assert {:ok, _authority} = authority(certificate, session, request)
 
-    context.publication
-    |> change(
-      review_document: Map.put(context.publication.review_document, "candidate_retained", false)
-    )
+    publication
+    |> change(review_document: Map.put(publication.review_document, "candidate_retained", false))
     |> Repo.update!()
 
-    assert {:error, :publication_grant_denied} = authority(context)
+    assert {:error, :publication_grant_denied} = authority(certificate, session, request)
   end
 
   # A review waits for a person; its placement's lease does not. Once a publish could follow the
@@ -214,32 +218,38 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
   # the review's own placement, so both waiting publications came back as
   # publication_authorization_revoked.
   test "a review from an earlier placement on the same worker grants the publish that follows it",
-       context do
-    context.placement
+       %{
+         certificate: certificate,
+         command: command,
+         placement: placement,
+         request: request,
+         session: session
+       } do
+    placement
     |> change(state: :replaced, lease_expires_at: DateTime.add(Repo.now!(), -60))
     |> Repo.update!()
 
     {:ok, replaced} =
       ControlPlane.place_session(
-        context.session.id,
+        session.id,
         %{capability_names: [], repository_ref: "ryker", workspace_ref: "workspace-main"},
         60
       )
 
-    assert replaced.worker_id == context.placement.worker_id
-    assert replaced.generation > context.placement.generation
-    Repo.delete!(context.command)
+    assert replaced.worker_id == placement.worker_id
+    assert replaced.generation > placement.generation
+    Repo.delete!(command)
 
     {:ok, command} =
       ControlPlane.enqueue_command(
         replaced.id,
         "api_request",
-        context.command.payload,
-        context.command.idempotency_key
+        command.payload,
+        command.idempotency_key
       )
 
     command |> change(status: :delivered) |> Repo.update!()
-    assert {:ok, %{placement: {id, _generation}}} = authority(context)
+    assert {:ok, %{placement: {id, _generation}}} = authority(certificate, session, request)
     assert id == replaced.id
   end
 
@@ -248,8 +258,9 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
   # held the publication's lease for a second at :48 to check on it, so every retry was refused
   # and the publish never finished: the card said it was updating the PR for as long as anyone
   # looked. The grant rests on the exact command Ryker sent; Ryker's own checks need no lease.
-  test "a worker retrying an in-flight publish gets its grant between Ryker's checks", context do
-    context.publication
+  test "a worker retrying an in-flight publish gets its grant between Ryker's checks",
+       %{certificate: certificate, publication: publication, request: request, session: session} do
+    publication
     |> change(
       lease_ref: nil,
       lease_owner: nil,
@@ -258,31 +269,32 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     )
     |> Repo.update!()
 
-    assert {:ok, _authority} = authority(context)
+    assert {:ok, _authority} = authority(certificate, session, request)
   end
 
   test "placement lease expiry is temporary but a retired placement is a terminal denial",
-       context do
-    context.placement |> change(lease_expires_at: DateTime.add(Repo.now!(), -1)) |> Repo.update!()
-    assert route(context).status == 503
-    assert {:error, :publication_grant_unavailable} = authority(context)
-    context.placement |> change(state: :retired) |> Repo.update!()
-    assert {:error, :publication_grant_denied} = authority(context)
-    assert route(context).status == 403
+       %{certificate: certificate, placement: placement, request: request, session: session} do
+    placement |> change(lease_expires_at: DateTime.add(Repo.now!(), -1)) |> Repo.update!()
+    assert route(certificate, session, request).status == 503
+    assert {:error, :publication_grant_unavailable} = authority(certificate, session, request)
+    placement |> change(state: :retired) |> Repo.update!()
+    assert {:error, :publication_grant_denied} = authority(certificate, session, request)
+    assert route(certificate, session, request).status == 403
   end
 
-  test "a placement revoked while GitHub mints the token never receives it", context do
+  test "a placement revoked while GitHub mints the token never receives it",
+       %{certificate: certificate, placement: placement, request: request, session: session} do
     provider = provider!()
-    {task, minter} = begin_mint(context, provider)
-    context.placement |> change(state: :revoking) |> Repo.update!()
+    {task, minter} = begin_mint(certificate, session, request, provider)
+    placement |> change(state: :revoking) |> Repo.update!()
     send(minter, :complete)
     assert {:error, :publication_grant_denied} = Task.await(task)
   end
 
   test "a binding changed during token minting never receives the old repository credential",
-       context do
+       %{certificate: certificate, request: request, session: session} do
     provider = provider!()
-    {task, minter} = begin_mint(context, provider)
+    {task, minter} = begin_mint(certificate, session, request, provider)
     {:ok, snapshot} = Settings.fetch()
 
     {:ok, _snapshot} =
@@ -302,12 +314,8 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     assert {:error, :publication_grant_unavailable} = Task.await(task)
   end
 
-  defp authority(context) do
-    PublicationGrants.publication_grant_authority(
-      context.certificate,
-      context.session.external_ref,
-      context.request
-    )
+  defp authority(certificate, session, request) do
+    PublicationGrants.publication_grant_authority(certificate, session.external_ref, request)
   end
 
   defp complete!(command, status) do
@@ -336,15 +344,15 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     )
   end
 
-  defp begin_mint(context, provider) do
+  defp begin_mint(certificate, session, request, provider) do
     task =
       Task.async(fn ->
         receive do
           :begin ->
             PublicationGrants.publication_grant(
-              context.certificate,
-              context.session.external_ref,
-              context.request,
+              certificate,
+              session.external_ref,
+              request,
               provider
             )
         end
@@ -364,14 +372,14 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     {task, minter}
   end
 
-  defp route(context) do
+  defp route(certificate, session, request) do
     :post
     |> conn(
-      "/v1/coop-workers/jobs/#{context.session.external_ref}/publication-grants",
-      Jason.encode!(context.request)
+      "/v1/coop-workers/jobs/#{session.external_ref}/publication-grants",
+      Jason.encode!(request)
     )
     |> put_req_header("content-type", "application/json")
-    |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: context.certificate})
+    |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
     |> Router.call([])
   end
 end

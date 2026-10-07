@@ -16,6 +16,7 @@ defmodule Ryker.Records do
 
   import Ecto.Query
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Emisar.Approvals
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Input
@@ -618,8 +619,7 @@ defmodule Ryker.Records do
 
   defp record_ref(turn_id, operation_id, kind) do
     digest =
-      :crypto.hash(:sha256, turn_id <> <<0>> <> operation_id <> <<0>> <> kind)
-      |> Base.encode16(case: :lower)
+      Crypto.sha256_hex(turn_id <> <<0>> <> operation_id <> <<0>> <> kind)
       |> binary_part(0, 32)
 
     "record:#{kind}:#{digest}"

@@ -16,6 +16,8 @@ defmodule Ryker.Evals.WorldSource do
   offers could never pass.
   """
 
+  alias Ryker.Crypto
+
   @github_owner "ryker-eval"
   @identity [
     {"GIT_AUTHOR_NAME", "Ryker eval"},
@@ -83,7 +85,7 @@ defmodule Ryker.Evals.WorldSource do
   """
   @spec staging_key(map()) :: String.t()
   def staging_key(source),
-    do: source |> go_json() |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+    do: source |> go_json() |> Crypto.sha256_hex()
 
   @doc false
   def go_json(%{"binding" => binding} = source) do
@@ -166,7 +168,7 @@ defmodule Ryker.Evals.WorldSource do
     path =
       Path.join(
         parent,
-        ".ryker-eval-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+        ".ryker-eval-" <> Crypto.random_hex(8)
       )
 
     with :ok <- File.mkdir(path), :ok <- File.chmod(path, 0o700), do: {:ok, path}

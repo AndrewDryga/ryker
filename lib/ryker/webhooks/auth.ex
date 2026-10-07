@@ -2,6 +2,7 @@ defmodule Ryker.Webhooks.Auth do
   @moduledoc false
 
   alias Plug.Conn
+  alias Ryker.Crypto
   alias Ryker.Secret
   alias Ryker.Webhooks.{Headers, Route}
 
@@ -18,7 +19,7 @@ defmodule Ryker.Webhooks.Auth do
          :ok <- fresh(timestamp, now, route.max_clock_skew_seconds),
          {:ok, submitted} <- signature(conn),
          {:ok, signed} <- signed_message(conn, timestamp.raw, body),
-         expected <- :crypto.mac(:hmac, :sha256, secret, signed) do
+         expected <- Crypto.hmac_sha256(secret, signed) do
       secure_equal(submitted, expected)
     else
       _error -> {:error, :unauthorized}

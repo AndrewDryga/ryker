@@ -7,6 +7,7 @@ defmodule Ryker.Knowledge do
   """
   import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.Crypto
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeAnchors
@@ -830,7 +831,7 @@ defmodule Ryker.Knowledge do
   defp lock_scope(key) do
     # Matching is a scope decision, not a title/key decision. Keep the unique
     # key index as the final fence while serializing differently named creates.
-    <<lock::signed-64, _::binary>> = :crypto.hash(:sha256, "knowledge-scope:" <> key)
+    lock = Crypto.lock_key("knowledge-scope:" <> key)
     Repo.query!("SELECT pg_advisory_xact_lock($1)", [lock])
   end
 

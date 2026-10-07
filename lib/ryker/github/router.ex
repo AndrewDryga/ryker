@@ -9,6 +9,7 @@ defmodule Ryker.GitHub.Router do
 
   @behaviour Plug
 
+  alias Ryker.Crypto
   alias Ryker.GitHub.{Access, Auth, Binding, Confirmations, Engagement, Events}
   alias Ryker.HTTPConnection
   alias Ryker.Ingress.{Adapters, InboundHTTP, Inbox}
@@ -452,7 +453,7 @@ defmodule Ryker.GitHub.Router do
   defp binding_for_payload(_index, _payload), do: {:error, :binding}
 
   defp authenticated_event_ref(body) do
-    digest = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
+    digest = Crypto.sha256_hex(body)
     "github-body:#{digest}"
   end
 

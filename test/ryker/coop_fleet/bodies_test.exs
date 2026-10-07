@@ -11,7 +11,7 @@ defmodule Ryker.CoopFleet.BodiesTest do
   end
 
   test "a body larger than the former checkpoint cap streams into immutable command custody",
-       context do
+       %{command_id: command_id, root: root} do
     chunk = :binary.copy("b", 256 * 1_024)
     chunks = Stream.repeatedly(fn -> chunk end) |> Stream.take(272)
     hash = Enum.reduce(chunks, :crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
@@ -21,12 +21,12 @@ defmodule Ryker.CoopFleet.BodiesTest do
       "sha256" => Base.encode16(:crypto.hash_final(hash), case: :lower)
     }
 
-    assert :ok = Bodies.put(context.root, context.command_id, :response, reference, chunks, @key)
+    assert :ok = Bodies.put(root, command_id, :response, reference, chunks, @key)
 
     assert {:ok, body, ^reference} =
-             Bodies.fetch(context.root, context.command_id, :response, reference)
+             Bodies.fetch(root, command_id, :response, reference)
 
-    path = Path.join([context.root, context.command_id, "response", "data"])
+    path = Path.join([root, command_id, "response", "data"])
 
     assert File.stat!(path).size == 68 * 1_024 * 1_024
     assert Bitwise.band(File.stat!(path).mode, 0o777) == 0o600
@@ -34,12 +34,12 @@ defmodule Ryker.CoopFleet.BodiesTest do
 
     # Heartbeats check the atomic receipt and stat, never reopen a multi-GB payload.
     File.chmod!(path, 0o000)
-    assert {:ok, ^body, ^reference} = Bodies.fetch(context.root, context.command_id, :response)
+    assert {:ok, ^body, ^reference} = Bodies.fetch(root, command_id, :response)
     File.chmod!(path, 0o600)
 
     # A lost upload acknowledgement reuses the exact file. A changed retry never overwrites it.
     receipt = File.read!(Path.join(Path.dirname(path), "receipt"))
-    assert :ok = Bodies.put(context.root, context.command_id, :response, reference, chunks, @key)
+    assert :ok = Bodies.put(root, command_id, :response, reference, chunks, @key)
     assert File.read!(Path.join(Path.dirname(path), "receipt")) == receipt
 
     assert :ok =
@@ -61,8 +61,8 @@ defmodule Ryker.CoopFleet.BodiesTest do
 
     assert {:error, :body_conflict} =
              Bodies.put(
-               context.root,
-               context.command_id,
+               root,
+               command_id,
                :response,
                reference("changed"),
                [
@@ -71,56 +71,62 @@ defmodule Ryker.CoopFleet.BodiesTest do
                @key
              )
 
-    assert {:ok, ^body, ^reference} = Bodies.fetch(context.root, context.command_id, :response)
+    assert {:ok, ^body, ^reference} = Bodies.fetch(root, command_id, :response)
   end
 
-  test "bad hashes, lengths, directions and ids leave no published body", context do
+  test "bad hashes, lengths, directions and ids leave no published body", %{
+    command_id: command_id,
+    root: root
+  } do
     for {reference, chunks} <- [
           {reference("expected"), ["wrong"]},
           {reference("same"), ["size"]},
           {reference("small"), ["too large"]}
         ] do
       assert {:error, _} =
-               Bodies.put(context.root, context.command_id, :response, reference, chunks, @key)
+               Bodies.put(root, command_id, :response, reference, chunks, @key)
 
-      assert File.ls!(Path.join(context.root, context.command_id)) == []
+      assert File.ls!(Path.join(root, command_id)) == []
     end
 
     assert {:error, _} =
-             Bodies.put(context.root, "../escaped", :request, reference("x"), ["x"], @key)
+             Bodies.put(root, "../escaped", :request, reference("x"), ["x"], @key)
 
     assert {:error, _} =
-             Bodies.put(context.root, context.command_id, :other, reference("x"), ["x"], @key)
+             Bodies.put(root, command_id, :other, reference("x"), ["x"], @key)
 
-    assert {:error, _} = Bodies.fetch(context.root, context.command_id, :response)
+    assert {:error, _} = Bodies.fetch(root, command_id, :response)
   end
 
-  test "only oversized JSON moves off the command envelope", context do
+  test "only oversized JSON moves off the command envelope", %{command_id: command_id, root: root} do
     small = %{
       "method" => "POST",
       "path" => "/v1/sessions/s/turns",
       "body" => %{"prompt" => "short"}
     }
 
-    assert {:ok, ^small} = Bodies.prepare_request(small, nil, context.command_id, @key)
+    assert {:ok, ^small} = Bodies.prepare_request(small, nil, command_id, @key)
 
     large = put_in(small, ["body", "prompt"], :binary.copy("p", 300 * 1_024))
-    assert {:ok, request} = Bodies.prepare_request(large, context.root, context.command_id, @key)
+    assert {:ok, request} = Bodies.prepare_request(large, root, command_id, @key)
     refute Map.has_key?(request, "body")
     assert request["method"] == "POST"
-    assert {:ok, body, reference} = Bodies.fetch(context.root, context.command_id, :request)
+    assert {:ok, body, reference} = Bodies.fetch(root, command_id, :request)
     assert reference == request["body_ref"]
     assert {:ok, bytes} = Bodies.read(body, @key, 512 * 1_024)
     assert Jason.decode!(bytes) == large["body"]
-    assert {:error, _} = Bodies.fetch(context.root, Ecto.UUID.generate(), :request, reference)
+    assert {:error, _} = Bodies.fetch(root, Ecto.UUID.generate(), :request, reference)
   end
 
-  test "no plaintext is stored and tampering never reaches a consumer", context do
+  test "no plaintext is stored and tampering never reaches a consumer", %{
+    command_id: command_id,
+    root: root
+  } do
     bytes = :binary.copy("private body", 100)
     ref = reference(bytes)
-    assert :ok = Bodies.put(context.root, context.command_id, :response, ref, [bytes], @key)
-    assert {:ok, body, ^ref} = Bodies.fetch(context.root, context.command_id, :response)
-    path = Path.join([context.root, context.command_id, "response"])
+    assert :ok = Bodies.put(root, command_id, :response, ref, [bytes], @key)
+    assert {:ok, body, ^ref} = Bodies.fetch(root, command_id, :response)
+    path = Path.join([root, command_id, "response"])
     ciphertext = File.read!(Path.join(path, "data"))
     refute String.contains?(ciphertext, "private body")
     assert {:ok, ^bytes} = Bodies.read(body, @key, byte_size(bytes))
@@ -144,25 +150,25 @@ defmodule Ryker.CoopFleet.BodiesTest do
   end
 
   test "canonical IDs and an open authenticated file survive spelling and pathname changes",
-       context do
+       %{command_id: command_id, root: root} do
     bytes = "immutable private bytes"
     ref = reference(bytes)
 
     assert :ok =
              Bodies.put(
-               context.root,
-               String.upcase(context.command_id),
+               root,
+               String.upcase(command_id),
                :response,
                ref,
                [bytes],
                @key
              )
 
-    assert {:ok, body, ^ref} = Bodies.fetch(context.root, context.command_id, :response)
+    assert {:ok, body, ^ref} = Bodies.fetch(root, command_id, :response)
 
     assert :ok =
              Bodies.with_stream(body, @key, fn stream ->
-               path = Path.join([context.root, context.command_id, "response", "data"])
+               path = Path.join([root, command_id, "response", "data"])
                File.rename!(path, path <> ".old")
                File.write!(path, :binary.copy("x", byte_size(bytes)))
 

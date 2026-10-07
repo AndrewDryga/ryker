@@ -4,6 +4,7 @@ defmodule Ryker.GitHub.Auth do
   """
 
   import Plug.Conn, only: [get_req_header: 2]
+  alias Ryker.Crypto
 
   @spec authorize(Plug.Conn.t(), binary(), binary()) :: :ok | {:error, :unauthorized}
   def authorize(conn, secret, body) when is_binary(secret) and is_binary(body) do
@@ -25,7 +26,7 @@ defmodule Ryker.GitHub.Auth do
   @doc false
   @spec signature(binary(), binary()) :: String.t()
   def signature(secret, body) when is_binary(secret) and is_binary(body) do
-    digest = :crypto.mac(:hmac, :sha256, secret, body)
+    digest = Crypto.hmac_sha256(secret, body)
     "sha256=" <> Base.encode16(digest, case: :lower)
   end
 end

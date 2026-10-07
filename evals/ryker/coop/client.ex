@@ -15,6 +15,7 @@ defmodule Ryker.Coop.Client do
   @behaviour Ryker.Coop.API
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   import Ecto.Query
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Evals.Job
@@ -496,7 +497,7 @@ defmodule Ryker.Coop.Client do
        })
        when is_binary(data) and is_binary(media_type) and is_binary(name) and is_binary(sha256) do
     if byte_size(data) > 0 and byte_size(data) <= 8 * 1_024 * 1_024 and
-         sha256(data) == sha256 do
+         Crypto.sha256_hex(data) == sha256 do
       {:ok,
        %{
          "data" => Base.encode64(data),
@@ -601,7 +602,7 @@ defmodule Ryker.Coop.Client do
          {:ok, expected_bytes} <- artifact_content_length(headers["content-length"]),
          true <- expected_bytes == byte_size(body),
          {:ok, expected_sha256} <- artifact_etag(headers["etag"]),
-         true <- sha256(body) == expected_sha256 do
+         true <- Crypto.sha256_hex(body) == expected_sha256 do
       {:ok,
        %{
          "bytes" => byte_size(body),
@@ -712,7 +713,7 @@ defmodule Ryker.Coop.Client do
          %{
            "json_schema" => schema,
            "require_semantic_validation" => true,
-           "sha256" => sha256(encoded)
+           "sha256" => Crypto.sha256_hex(encoded)
          }}
 
       {:error, reason} ->
@@ -831,6 +832,4 @@ defmodule Ryker.Coop.Client do
     is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
       String.trim(value) != "" and byte_size(value) <= maximum
   end
-
-  defp sha256(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
 end

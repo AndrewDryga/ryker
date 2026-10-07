@@ -13,6 +13,7 @@ defmodule Ryker.Slack.InteractionAudits do
 
   import Ecto.Query
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records.Record
@@ -351,7 +352,7 @@ defmodule Ryker.Slack.InteractionAudits do
   end
 
   defp digest(value),
-    do: value |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+    do: value |> Crypto.sha256_hex()
 
   defp byte_slice(value, maximum) do
     if byte_size(value) <= maximum,
