@@ -17,7 +17,7 @@ defmodule Ryker.Slack.ChannelSettings do
   alias Ryker.Settings.Slack
   alias Ryker.Slack.ChannelConfiguration
   alias Ryker.Slack.ChannelConfigurations
-  alias Ryker.Slack.{ChannelSetting, ChannelSettingAudit}
+  alias Ryker.Slack.ChannelSettingAudit
 
   @fields [
     :actor_ref,
@@ -177,7 +177,7 @@ defmodule Ryker.Slack.ChannelSettings do
       request_fingerprint: fingerprint,
       workspace_ref: attributes.workspace_ref
     }
-    |> ChannelSetting.Changeset.insert_audit()
+    |> ChannelSettingAudit.Changeset.insert()
     |> Repo.insert!()
   end
 

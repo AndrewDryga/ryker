@@ -3,7 +3,7 @@ defmodule Ryker.ProductContractsTest do
   alias Ryker.ControlPlane.CSRF
   alias Ryker.Ingress.{Projections, WorkProfile}
   alias Ryker.Publication.{LifecycleStatus, Receipt}
-  alias Ryker.Slack.{ChannelSetting, IncidentRoom, Supervisor}
+  alias Ryker.Slack.{ChannelSettingAudit, IncidentRoom, Supervisor}
   alias Ryker.Work.{RepositoryContext, Session}
 
   @digest String.duplicate("a", 64)
@@ -423,7 +423,7 @@ defmodule Ryker.ProductContractsTest do
   end
 
   test "the channel setting audit changeset accepts the durable form" do
-    assert ChannelSetting.Changeset.insert_audit(%{
+    assert ChannelSettingAudit.Changeset.insert(%{
              actor_ref: "slack:user:U123",
              conversation_ref: "slack:T123:C456",
              detail: %{"setting" => "watch_mode"},

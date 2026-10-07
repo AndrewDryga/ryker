@@ -1,5 +1,5 @@
-defmodule Ryker.Slack.ChannelSetting.Changeset do
-  @moduledoc false
+defmodule Ryker.Slack.ChannelSettingAudit.Changeset do
+  @moduledoc "How a channel setting change is audited (`Ryker.Slack.ChannelSettingAudit`)."
 
   import Ecto.Changeset
   alias Ryker.Slack.ChannelSettingAudit
@@ -16,7 +16,8 @@ defmodule Ryker.Slack.ChannelSetting.Changeset do
     :workspace_ref
   ]
 
-  def insert_audit(attributes) do
+  @doc "The audit of one channel setting change, whatever its outcome."
+  def insert(attributes) do
     %ChannelSettingAudit{}
     |> cast(attributes, @audit_fields)
     |> validate_required(@audit_fields)
