@@ -211,6 +211,20 @@ defmodule Ryker.ComposeDistributionTest do
     refute dockerfile =~ "npm install"
   end
 
+  # 2026-10-07: the release became root's so a compromised Ryker cannot rewrite it, and the
+  # first such deploy failed: scripts/deploy.sh builds from a worktree made under umask 077,
+  # the release carried its runtime.exs and migrations owner-only, and the ryker user could
+  # not read them. The image makes the release readable whatever the builder's umask was.
+  test "the root-owned release is readable by the user that runs it" do
+    dockerfile = read("Dockerfile")
+    [build | _runtime_stages] = String.split(dockerfile, ~r/^FROM .* AS ffmpeg$/m)
+
+    assert build =~ ~r/mix release ryker \\\n && chmod -R u=rwX,go=rX _build\/prod\/rel\/ryker$/m
+    assert dockerfile =~ "COPY --from=build /build/_build/prod/rel/ryker ./"
+    refute dockerfile =~ "--chown=ryker"
+    assert dockerfile =~ ~r/^USER ryker$/m
+  end
+
   # Every deploy downloaded the build packages and compiled every dependency
   # again: sixteen minutes on 2026-10-01, where a warm cache takes about one.
   # The version was named before them, and a changed value starts the cache

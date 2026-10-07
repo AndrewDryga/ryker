@@ -41,7 +41,9 @@ RUN coop version \
 # Root's, so a compromised worker cannot rewrite the entrypoint it restarts into.
 COPY deploy/compose/coop/entrypoint.sh /usr/local/bin/ryker-coop-entrypoint
 COPY deploy/compose/coop/Box.Dockerfile /usr/local/share/ryker/Box.Dockerfile
-RUN chmod 0755 /usr/local/bin/ryker-coop-entrypoint
+# Readable by the coop user whatever umask the build context was made under.
+RUN chmod 0755 /usr/local/bin/ryker-coop-entrypoint \
+ && chmod 0644 /usr/local/share/ryker/Box.Dockerfile
 
 USER coop
 ENV HOME=/var/lib/coop \

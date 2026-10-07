@@ -38,9 +38,14 @@ COPY LICENSE ./
 ARG RYKER_VERSION
 ENV RYKER_ELIXIR_VERSION=${RYKER_VERSION}
 
+# The release belongs to root in the image, so everyone must be able to read it:
+# scripts/deploy.sh builds from a worktree made under umask 077, its files reached
+# the release owner-only, and the first root-owned release could not read its own
+# runtime.exs (2026-10-07). The image does not depend on the builder's umask.
 RUN test -n "$RYKER_VERSION" \
  && mix compile --warnings-as-errors \
- && mix release ryker
+ && mix release ryker \
+ && chmod -R u=rwX,go=rX _build/prod/rel/ryker
 
 # Voice messages are transcribed inside the container (Ryker.Transcription.Local):
 # ffmpeg turns a recording into 16 kHz mono WAV and whisper.cpp's CLI reads it
