@@ -197,11 +197,10 @@ defmodule Ryker.GitHub.RepositoryFiles do
   end
 
   defp client(binding_name) do
-    settings = Ryker.Settings.fetch!()
     defaults = Ryker.Defaults.fetch!(:github)
 
     JSONClient.new(%{
-      base_url: settings.github.api_url,
+      base_url: Ryker.Settings.github_api_url(),
       finch: Ryker.CoopFinch,
       receive_timeout: defaults.receive_timeout_ms,
       token_provider: fn -> InstallationTokens.token(binding_name, :source_read) end

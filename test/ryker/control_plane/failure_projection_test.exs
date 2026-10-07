@@ -127,6 +127,67 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     refute inspect(row) =~ "private reaction diagnostic"
   end
 
+  # A blocked reaction or quick reply holds back the later responses to the
+  # same message, which never showed anywhere, and its page said nothing
+  # waited on it (2026-10-04 review).
+  test "a blocked response says the later responses to its message wait behind it" do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Please acknowledge this twice."},
+               event_kind: :message,
+               event_ref: "Ev-held-reaction",
+               message_ref: "1787832001.000300",
+               occurred_at: @now,
+               revision: 1,
+               thread_ref: "1787832000.000100",
+               workspace_ref: "THELDREACTION"
+             })
+
+    assert {:ok, %{entry: entry, status: :recorded}} = Inbox.record(input, execution_mode: :live)
+
+    assert {:ok, context} =
+             Admission.context(Inbox.ref(entry),
+               now: @now,
+               continuation_window: 30 * 60,
+               history_window: 30 * 24 * 60 * 60,
+               candidate_limit: 8,
+               lease_ref: nil
+             )
+
+    assert {:ok, decision} =
+             Decision.parse(%{
+               "action" => "react",
+               "episode_ref" => nil,
+               "messages" => nil,
+               "reactions" => ["eyes", "white_check_mark"],
+               "relation" => "unrelated",
+               "repository" => nil,
+               "repository_source" => nil,
+               "reason" => "Acknowledge the source item without starting work.",
+               "work_class" => nil
+             })
+
+    assert {:ok, _applied} = Admission.commit(context, decision, "decision:held-reaction")
+    assert {:ok, claim} = RoutingResponseCustody.claim_next("delivery:reaction:held", 60)
+
+    assert {:ok, _blocked} =
+             RoutingResponseCustody.block(
+               claim.response.delivery_ref,
+               claim.lease_ref,
+               "slack_reaction_rejected",
+               "reaction refused"
+             )
+
+    assert {:ok, failures} = FailureProjection.list(%{})
+    assert %{held: 1} = row = Enum.find(failures, &(&1.ref == claim.response.delivery_ref))
+
+    words = inspect(FailureExplanation.explain(row))
+    assert words =~ "One later response to the same message waits behind it"
+    refute words =~ "Nothing else waits on it."
+  end
+
   # A routing session started ahead of time and retired unused never served a
   # message. When its cleanup stops, the page must not tell the reader that a
   # message was read or that a request is behind it: nobody is.

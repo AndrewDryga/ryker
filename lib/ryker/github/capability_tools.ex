@@ -8,7 +8,7 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   alias Ryker.Delivery.PlatformActionCustody
   alias Ryker.Episodes.{Episode, Event}
-  alias Ryker.GitHub.SourceRef
+  alias Ryker.GitHub.{InertText, SourceRef}
   alias Ryker.{Options, Repo, Rescued}
 
   @emoji_names ~w(+1 -1 confused eyes heart hooray laugh rocket)
@@ -382,10 +382,13 @@ defmodule Ryker.GitHub.CapabilityTools do
          sha when is_binary(sha) and byte_size(sha) == 40 <- arguments["head_sha"],
          true <- Regex.match?(~r/\A[a-f0-9]{40}\z/, sha),
          number when is_integer(number) and number > 0 <- arguments["number"] do
+      # The review is the model's own words, so it mentions nobody and links
+      # no issue (`InertText`); it went to GitHub as written.
       {:ok,
        %{
-         body: body,
-         comments: comments,
+         body: InertText.inert(body),
+         comments:
+           Enum.map(comments, &Map.update!(&1, "body", fn text -> InertText.inert(text) end)),
          event: event,
          head_sha: sha,
          number: number,

@@ -1354,7 +1354,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       lede: "#{parts.affected} #{outlook_short(cause.outlook)}",
       summary: "#{parts.affected} #{cause.short}",
       happened: [parts.happened <> place_words(row) <> "."],
-      affects: parts.affects,
+      affects: parts.affects ++ held_words(kind, Map.get(row, :held, 0)),
       tried: [
         tried(row, now),
         "Ryker retries Slack or network trouble up to eight times over about two minutes, and stops at once when Slack refuses in a way a retry cannot change."
@@ -1372,15 +1372,33 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     }
   end
 
+  # What waits behind a stopped reaction, reply or step: the later ones of its
+  # kind, sent only in order. The page said nothing waited on a reaction or a
+  # quick reply while later ones sat behind it (2026-10-04 review).
+  defp held_words(kind, 0) when kind in [:reaction, :quick_reply],
+    do: ["Nothing else waits on it."]
+
+  defp held_words(kind, 1) when kind in [:reaction, :quick_reply],
+    do: ["One later response to the same message waits behind it and goes out once it does."]
+
+  defp held_words(kind, held) when kind in [:reaction, :quick_reply] and held > 1,
+    do: ["#{held} later responses to the same message wait behind it and go out once it does."]
+
+  defp held_words(:platform_action, 1),
+    do: ["One later step of the same kind waits behind it and runs once it does."]
+
+  defp held_words(:platform_action, held) when held > 1,
+    do: ["#{held} later steps of the same kind wait behind it and run once it does."]
+
+  defp held_words(_kind, _held), do: []
+
   defp delivery_parts(:reaction),
     do: %{
       title: "Adding a reaction stopped",
       affected: "The person got no acknowledgement.",
       happened:
         "Ryker decided to acknowledge a message with a reaction instead of a reply, and adding the reaction stopped",
-      affects: [
-        "The person who wrote the message saw no reply and no reaction. Nothing else waits on it."
-      ],
+      affects: ["The person who wrote the message saw no reply and no reaction."],
       left: "The reaction is never added.",
       label: "Add the reaction again",
       question: "Add this reaction again?",
@@ -1394,9 +1412,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       affected: "The person has not received Ryker's answer.",
       happened:
         "Ryker answered a simple message itself, without starting work, and sending that answer stopped",
-      affects: [
-        "The person who wrote the message saw no reply. Nothing else waits on it."
-      ],
+      affects: ["The person who wrote the message saw no reply."],
       left: "The answer is never sent.",
       label: "Send the reply again",
       question: "Send this reply again?",

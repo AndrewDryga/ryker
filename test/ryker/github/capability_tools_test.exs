@@ -285,6 +285,54 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
     assert_received {:rerun_ci, "octo/example", 91, 1}
   end
 
+  # A review went to GitHub in the model's own words, so it could notify
+  # anyone and link or backlink any issue; replies already stopped `@`
+  # (2026-10-04 review).
+  test "a review the model submits mentions nobody and links no issue" do
+    options = context_options()
+    binding = slack_work_binding()
+    sha = String.duplicate("a", 40)
+
+    assert {:ok, _pull} =
+             CapabilityTools.call(
+               "read_github_pull_request",
+               %{
+                 "cursor" => nil,
+                 "limit" => 20,
+                 "number" => 51,
+                 "review_root_id" => nil,
+                 "section" => "subject"
+               },
+               binding,
+               options
+             )
+
+    assert {:ok, %{"review_id" => 77}} =
+             CapabilityTools.call(
+               "submit_github_review",
+               %{
+                 "body" => "@octocat this fixes #12",
+                 "comments" => [
+                   %{
+                     "body" => "Same as acme/api#7",
+                     "line" => 3,
+                     "path" => "a.ex",
+                     "side" => "RIGHT"
+                   }
+                 ],
+                 "event" => "comment",
+                 "head_sha" => sha,
+                 "number" => 51
+               },
+               binding,
+               options
+             )
+
+    assert_received {:submit_review, "octo/example", 51, ^sha, "COMMENT", body, [comment]}
+    assert body == "@\u200Boctocat this fixes #\u200B12"
+    assert comment["body"] == "Same as acme/api#\u200B7"
+  end
+
   # emisar#87, 2026-09-30: the model asked for 50 review comments, was refused with
   # invalid_arguments, and asked again for 20 three seconds later; the timeline showed the refusal
   # as a failed call. A page size grants nothing: more than one page reads one full page, with the

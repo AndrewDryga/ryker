@@ -49,6 +49,19 @@ defmodule Ryker.Delivery.PlatformAction.Query do
   end
 
   @doc """
+  The actions of `action`'s kind and turn after it and not yet delivered: the
+  ones that wait behind it when its tool is numbered (`next_claimable/2`).
+  """
+  def held_behind(queryable \\ all(), %PlatformAction{} = action) do
+    where(
+      queryable,
+      [platform_actions: a],
+      a.turn_id == ^action.turn_id and a.tool == ^action.tool and
+        a.host_slot > ^action.host_slot and a.status != :delivered
+    )
+  end
+
+  @doc """
   The oldest action a worker may send at `now`. A reaction or an update of
   `numbered_tools` waits until every earlier one of its kind in its turn is
   delivered, so they arrive in the order the model asked for them.

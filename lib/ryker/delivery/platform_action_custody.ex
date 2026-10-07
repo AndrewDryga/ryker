@@ -41,6 +41,10 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   # its kind. Single digits: the slots order by their text.
   @numbered %{set_slack_reaction: "reaction", post_slack_update: "update"}
   @numbered_tools Map.keys(@numbered)
+
+  @doc "The tools whose actions are sent in the order the model asked for them."
+  @spec numbered_tools() :: [atom()]
+  def numbered_tools, do: @numbered_tools
   @maximum_per_turn 3
 
   @type claim :: %{action: PlatformAction.t(), lease_ref: Ecto.UUID.t()}

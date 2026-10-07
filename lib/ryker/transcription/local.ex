@@ -158,8 +158,11 @@ defmodule Ryker.Transcription.Local do
     end
   end
 
+  # ffmpeg reads the recording as whatever format its bytes claim, and some
+  # formats (a playlist) name other sources it would then fetch; it may read
+  # the local file and nothing else (2026-10-04 review).
   defp convert(recording, wav, settings) do
-    ~w(-nostdin -hide_banner -loglevel error -i) ++
+    ~w(-nostdin -hide_banner -loglevel error -protocol_whitelist file -i) ++
       [recording, "-t", Integer.to_string(settings.maximum_seconds + 1)] ++
       ~w(-vn -ac 1 -ar 16000 -c:a pcm_s16le -f wav -y) ++ [wav]
   end

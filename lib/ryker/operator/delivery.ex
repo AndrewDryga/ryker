@@ -128,6 +128,7 @@ defmodule Ryker.Operator.Delivery do
       delivery_ref: response.delivery_ref,
       error_code: response.last_error_code,
       error_detail: response.last_error_detail,
+      held: response |> RoutingResponse.Query.held_behind() |> Repo.aggregate(:count),
       input_id: response.input_id,
       kind: if(response.kind == :message, do: :quick_reply, else: :reaction),
       retry_generation: response.retry_generation,
@@ -143,6 +144,7 @@ defmodule Ryker.Operator.Delivery do
       episode_id: action.episode_id,
       error_code: action.last_error_code,
       error_detail: action.last_error_detail,
+      held: held_behind(action),
       kind: :platform_action,
       retry_generation: action.retry_generation,
       status: action.status,
@@ -150,6 +152,14 @@ defmodule Ryker.Operator.Delivery do
       turn_id: action.turn_id,
       updated_at: action.updated_at
     }
+  end
+
+  # A blocked reaction or update holds back the later ones of its kind in its
+  # turn, which wait in order behind it; other actions hold back nothing.
+  defp held_behind(%PlatformAction{tool: tool} = action) do
+    if tool in PlatformActionCustody.numbered_tools(),
+      do: action |> PlatformAction.Query.held_behind() |> Repo.aggregate(:count),
+      else: 0
   end
 
   # A weekly report belongs to no request: it names the channel it was for.

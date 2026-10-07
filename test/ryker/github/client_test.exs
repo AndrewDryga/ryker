@@ -550,7 +550,7 @@ defmodule Ryker.GitHub.ClientTest do
           ],
           "total_count" => 2
         }),
-        response(200, %{"statuses" => [%{"state" => "success"}]})
+        response(200, %{"statuses" => [%{"state" => "success"}], "total_count" => 1})
       ])
 
     assert {:ok, status} =
@@ -574,7 +574,42 @@ defmodule Ryker.GitHub.ClientTest do
     assert check_path ==
              "/repos/octo/example/commits/#{head_sha}/check-runs?per_page=100&page=1"
 
-    assert status_path == "/repos/octo/example/commits/#{head_sha}/status?per_page=100"
+    assert status_path == "/repos/octo/example/commits/#{head_sha}/status?per_page=100&page=1"
+  end
+
+  # The first page alone counted at most a hundred statuses, so a failing one
+  # past them read as passing (2026-10-04 review).
+  test "a failing commit status past the first page fails the checks" do
+    pull = %{
+      "base" => %{"ref" => "main"},
+      "draft" => false,
+      "head" => %{"ref" => "ryker/fix-124", "sha" => String.duplicate("c", 40)},
+      "html_url" => "https://github.com/octo/example/pull/43",
+      "merge_commit_sha" => nil,
+      "merged" => false,
+      "merged_at" => nil,
+      "number" => 43,
+      "state" => "open",
+      "user" => %{"id" => 99, "type" => "Bot"}
+    }
+
+    {:ok, requester} =
+      FakeRequester.start([
+        response(200, pull),
+        response(200, %{"check_runs" => [], "total_count" => 0}),
+        response(200, %{
+          "statuses" => List.duplicate(%{"state" => "success"}, 100),
+          "total_count" => 101
+        }),
+        response(200, %{"statuses" => [%{"state" => "failure"}], "total_count" => 101})
+      ])
+
+    assert {:ok, status} =
+             Client.get_publication_status(client(requester), "octo/example", 43)
+
+    assert status["checks_state"] == "failing"
+    assert status["checks_total"] == 101
+    assert status["checks_failed"] == 1
   end
 
   test "never turns malformed or failed GitHub responses into successful delivery" do
@@ -699,7 +734,7 @@ defmodule Ryker.GitHub.ClientTest do
     status =
       publication_status([
         response(200, %{"check_runs" => [], "total_count" => 0}),
-        response(200, %{"statuses" => []})
+        response(200, %{"statuses" => [], "total_count" => 0})
       ])
 
     assert {:ok, ^status} = LifecycleStatus.prepare(status)
@@ -709,7 +744,7 @@ defmodule Ryker.GitHub.ClientTest do
     none =
       publication_status([
         response(200, %{"check_runs" => [], "total_count" => 0}),
-        response(200, %{"statuses" => []})
+        response(200, %{"statuses" => [], "total_count" => 0})
       ])
 
     assert none["checks_state"] == "none"
@@ -720,7 +755,7 @@ defmodule Ryker.GitHub.ClientTest do
           "check_runs" => [%{"conclusion" => "neutral", "status" => "completed"}],
           "total_count" => 1
         }),
-        response(200, %{"statuses" => [%{"state" => "success"}]})
+        response(200, %{"statuses" => [%{"state" => "success"}], "total_count" => 1})
       ])
 
     assert passing["checks_state"] == "passing"
@@ -731,7 +766,7 @@ defmodule Ryker.GitHub.ClientTest do
           "check_runs" => [%{"conclusion" => "failure", "status" => "completed"}],
           "total_count" => 1
         }),
-        response(200, %{"statuses" => [%{"state" => "error"}]})
+        response(200, %{"statuses" => [%{"state" => "error"}], "total_count" => 1})
       ])
 
     assert failing["checks_state"] == "failing"
@@ -756,7 +791,7 @@ defmodule Ryker.GitHub.ClientTest do
 
     assert publication_status_error([
              response(200, %{"check_runs" => [], "total_count" => 0}),
-             response(200, %{"statuses" => [%{}]})
+             response(200, %{"statuses" => [%{}], "total_count" => 1})
            ]) == {:error, {:github_protocol_error, :commit_statuses}}
 
     assert publication_status_error([

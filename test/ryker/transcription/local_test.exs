@@ -31,6 +31,25 @@ defmodule Ryker.Transcription.LocalTest do
     assert File.ls!(work_dir(dir)) == []
   end
 
+  # ffmpeg reads the recording as whatever format its bytes claim, and some
+  # formats name other sources it would then fetch (2026-10-04 review).
+  test "ffmpeg may read the uploaded file and nothing it names", %{tmp_dir: dir} do
+    options =
+      options(dir,
+        ffmpeg: converter(dir, 2 * @second),
+        whisper: recognizer(dir, "Words.")
+      )
+
+    assert {:ok, "Words."} = Local.transcribe("ID3 bytes", options)
+
+    arguments = dir |> Path.join("ffmpeg-arguments") |> File.read!() |> String.split("\n")
+    input = Enum.find_index(arguments, &(&1 == "-i"))
+    whitelist = Enum.find_index(arguments, &(&1 == "-protocol_whitelist"))
+
+    assert whitelist < input
+    assert Enum.at(arguments, whitelist + 1) == "file"
+  end
+
   # Andrew's voice message of 2026-09-28 switched from Ukrainian to English
   # to Spanish and came back as 160 bytes of Russian: whisper hears a
   # recording's language once, from its first seconds, and the English
@@ -184,6 +203,7 @@ defmodule Ryker.Transcription.LocalTest do
 
     program(dir, "ffmpeg", """
     touch '#{Path.join(dir, "ffmpeg-ran")}'
+    printf '%s\\n' "$@" > '#{Path.join(dir, "ffmpeg-arguments")}'
     for last; do :; done
     cp '#{prepared}' "$last"
     """)

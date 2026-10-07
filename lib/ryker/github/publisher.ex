@@ -14,7 +14,7 @@ defmodule Ryker.GitHub.Publisher do
 
   alias Ryker.Crypto
   alias Ryker.Delivery.Request
-  alias Ryker.GitHub.{Renderer, Target}
+  alias Ryker.GitHub.{InertText, Renderer, Target}
   alias Ryker.Work.DeliveryReceipt
 
   @impl true
@@ -45,7 +45,7 @@ defmodule Ryker.GitHub.Publisher do
          {:ok, kind, comment_id} <- message_identity(message_ref),
          :ok <- message_kind_matches_thread(kind, target.thread),
          {:ok, rendered} <- Renderer.render(document),
-         body <- neutralize_mentions(rendered) <> "\n\n" <> marker(request.ref) do
+         body <- InertText.inert(rendered) <> "\n\n" <> marker(request.ref) do
       update_comment(api, client, repository, kind, comment_id, body, target.thread)
     end
   end
@@ -126,7 +126,7 @@ defmodule Ryker.GitHub.Publisher do
   end
 
   defp create_rendered_message(api, client, repository, thread, marker, rendered) do
-    body = neutralize_mentions(rendered) <> "\n\n" <> marker
+    body = InertText.inert(rendered) <> "\n\n" <> marker
 
     result =
       case thread do
@@ -219,10 +219,6 @@ defmodule Ryker.GitHub.Publisher do
          _thread
        ),
        do: api.update_review_comment(client, repository, comment_id, body)
-
-  # A future typed mention operation can reinsert host-authorized identities.
-  # Unstructured model text must never page a person or an organization team.
-  defp neutralize_mentions(message), do: String.replace(message, "@", "@\u200B")
 
   defp react(api, client, repository, %{kind: "issue_comment", id: id}, emoji_name),
     do: api.add_issue_comment_reaction(client, repository, id, emoji_name)

@@ -377,6 +377,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       diagnosis: FailureDetail.facts(item.error_detail),
       episode_id: Map.get(item, :episode_id),
       delivery_kind: item.kind,
+      held: Map.get(item, :held, 0),
       input_id: Map.get(item, :input_id),
       kind: "delivery",
       provider_error: provider_error(item.error_detail),
@@ -576,7 +577,9 @@ defmodule Ryker.ControlPlane.FailureProjection do
       source: "#{item.connection_ref} · #{item.runner_ref} · #{item.action_id}",
       stall: item.stall,
       status: item.status,
-      summary: emisar_stall_code(item.stall) || emisar_reason(item.last_error),
+      summary:
+        emisar_stall_code(item.stall) || item.last_error_code ||
+          "emisar_approval_monitoring_blocked",
       updated_at: item.updated_at
     }
   end
@@ -1164,36 +1167,6 @@ defmodule Ryker.ControlPlane.FailureProjection do
         MapSet.new()
     end
   end
-
-  # What kind of refusal stopped an approval watch, as a code: Emisar's HTTP
-  # status, a protocol mismatch, or a message Ryker could not update. The
-  # saved term itself stays in the row.
-  defp emisar_reason(error) when is_binary(error) do
-    cond do
-      String.starts_with?(error, ":emisar_approval_identity_mismatch") ->
-        "emisar_approval_identity_mismatch"
-
-      match = Regex.run(~r/\A\{:emisar_http_error, ([1-5]\d{2})/, error) ->
-        "emisar_http_" <> List.last(match)
-
-      String.starts_with?(error, "{:emisar_protocol_error, :review") ->
-        "emisar_review_unreadable"
-
-      String.starts_with?(error, "{:emisar_protocol_error") ->
-        "emisar_protocol_error"
-
-      String.starts_with?(error, "{:invalid_emisar_client") ->
-        "invalid_emisar_client"
-
-      String.starts_with?(error, "{:emisar_approval_presentation_permanent") ->
-        "emisar_approval_presentation_failed"
-
-      true ->
-        "emisar_approval_monitoring_blocked"
-    end
-  end
-
-  defp emisar_reason(_error), do: "emisar_approval_monitoring_blocked"
 
   defp failure_defaults(item) do
     Map.merge(

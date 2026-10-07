@@ -32,6 +32,7 @@ defmodule Ryker.Emisar.Approval do
     field(:closed_reason, Ecto.Enum, values: [:wait_ended])
     field(:failure_count, :integer, default: 0)
     field(:last_error, :string)
+    field(:last_error_code, :string)
     field(:next_attempt_at, :utc_datetime_usec)
     field(:lease_ref, :string)
     field(:lease_owner, :string)

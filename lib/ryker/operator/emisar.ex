@@ -50,7 +50,7 @@ defmodule Ryker.Operator.Emisar do
       stalled =
         Approval.Query.all()
         |> Approval.Query.with_joined_origin()
-        |> Approval.Query.stalled(stalled_refs, Approvals.token_unavailable_errors())
+        |> Approval.Query.stalled(stalled_refs, Approvals.token_unavailable_codes())
         |> Approval.Query.ordered_by_recently_updated()
         |> Approval.Query.limit_to(limit)
         |> Approval.Query.select_with_origin()
@@ -112,6 +112,7 @@ defmodule Ryker.Operator.Emisar do
                Approval.Changeset.update(approval, %{
                  failure_count: 0,
                  last_error: nil,
+                 last_error_code: nil,
                  lease_expires_at: nil,
                  lease_owner: nil,
                  lease_ref: nil,
@@ -181,6 +182,7 @@ defmodule Ryker.Operator.Emisar do
       expires_at: approval.expires_at,
       failure_count: approval.failure_count,
       last_error: approval.last_error,
+      last_error_code: approval.last_error_code,
       operation_id: approval.operation_id,
       pack_ref: approval.pack_ref,
       remote_status: approval.remote_status,
@@ -215,7 +217,7 @@ defmodule Ryker.Operator.Emisar do
   defp stall(%Approval{status: :monitoring} = approval, :open, unwatched) do
     cond do
       stall = Map.get(unwatched, approval.connection_ref) -> stall
-      approval.last_error in Approvals.token_unavailable_errors() -> :token_unavailable
+      approval.last_error_code in Approvals.token_unavailable_codes() -> :token_unavailable
       true -> nil
     end
   end

@@ -162,14 +162,34 @@ defmodule Ryker.Emisar.Approvals do
   # What the monitor saves when it has no usable token for the account: the
   # credential is gone, or it can no longer be decrypted. A transient failure
   # to read it is saved differently and is retried like any outage.
-  @token_unavailable_errors [
-    "{:delivery_credentials_unavailable, :credential_missing}",
-    "{:delivery_credentials_unavailable, :credential_decryption_failed}"
-  ]
+  @token_unavailable_codes ["credential_missing", "credential_decryption_failed"]
 
   @doc false
-  @spec token_unavailable_errors() :: [String.t()]
-  def token_unavailable_errors, do: @token_unavailable_errors
+  @spec token_unavailable_codes() :: [String.t()]
+  def token_unavailable_codes, do: @token_unavailable_codes
+
+  # What stopped a watch, as a code queries and the Failures page match on.
+  # They matched the printed term instead (`{:emisar_http_error, 401, ...`),
+  # so a change to how a reason prints would have stopped them matching
+  # (2026-10-04 review).
+  @doc false
+  @spec error_code(term()) :: String.t()
+  def error_code({:delivery_credentials_unavailable, reason})
+      when reason in [:credential_missing, :credential_decryption_failed],
+      do: Atom.to_string(reason)
+
+  def error_code({:emisar_http_error, status, _body}) when status in 100..599,
+    do: "emisar_http_#{status}"
+
+  def error_code({:emisar_protocol_error, :review}), do: "emisar_review_unreadable"
+  def error_code({:emisar_protocol_error, _detail}), do: "emisar_protocol_error"
+  def error_code({:invalid_emisar_client, _detail}), do: "invalid_emisar_client"
+  def error_code(:emisar_approval_identity_mismatch), do: "emisar_approval_identity_mismatch"
+
+  def error_code({:emisar_approval_presentation_permanent, _detail}),
+    do: "emisar_approval_presentation_failed"
+
+  def error_code(_reason), do: "emisar_approval_monitoring_blocked"
 
   @doc """
   Closes this account's approval watches that nothing waits for any more.
@@ -250,6 +270,7 @@ defmodule Ryker.Emisar.Approvals do
       update!(approval, %{
         failure_count: 0,
         last_error: nil,
+        last_error_code: nil,
         lease_expires_at: nil,
         lease_owner: nil,
         lease_ref: nil,
@@ -271,7 +292,7 @@ defmodule Ryker.Emisar.Approvals do
   defp unreadable_watches(connection_ref) do
     connection_ref
     |> Approval.Query.waited_for()
-    |> Approval.Query.failed_with(@token_unavailable_errors)
+    |> Approval.Query.failed_with(@token_unavailable_codes)
     |> Approval.Query.select_ids()
     |> Repo.all()
   end
@@ -414,6 +435,7 @@ defmodule Ryker.Emisar.Approvals do
       observed = %{
         failure_count: 0,
         last_error: nil,
+        last_error_code: nil,
         remote_error: state.error_message,
         remote_status: state.status,
         review_digest: Review.digest(state.review),
@@ -467,6 +489,7 @@ defmodule Ryker.Emisar.Approvals do
            update!(locked_approval, %{
              failure_count: 0,
              last_error: nil,
+             last_error_code: nil,
              last_observed_at: now,
              lease_expires_at: nil,
              lease_owner: nil,
@@ -498,6 +521,7 @@ defmodule Ryker.Emisar.Approvals do
         update!(approval, %{
           failure_count: approval.failure_count + 1,
           last_error: ErrorDetail.detail(reason),
+          last_error_code: error_code(reason),
           lease_expires_at: nil,
           lease_owner: nil,
           lease_ref: nil,
@@ -516,6 +540,7 @@ defmodule Ryker.Emisar.Approvals do
       {:ok, approval} ->
         update!(approval, %{
           last_error: ErrorDetail.detail(reason),
+          last_error_code: error_code(reason),
           lease_expires_at: nil,
           lease_owner: nil,
           lease_ref: nil,

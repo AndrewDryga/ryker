@@ -163,6 +163,15 @@ defmodule Ryker.Settings do
   @spec worker_workspace_ref() :: String.t() | nil
   def worker_workspace_ref, do: Repo.one(Work.Query.select_workspace_ref())
 
+  @doc """
+  The GitHub API the installation's App talks to.
+
+  Every repository file Ryker reads asks this; it read the whole settings
+  snapshot for this one string on each file (2026-10-04 review).
+  """
+  @spec github_api_url() :: String.t()
+  def github_api_url, do: Repo.one(GitHub.Query.select_api_url()) || %GitHub{}.api_url
+
   @doc "The default environment of a settings snapshot, or nil when none is chosen."
   @spec default_environment(snapshot()) :: Environment.t() | nil
   def default_environment(snapshot), do: Enum.find(snapshot.environments, & &1.is_default)

@@ -42,6 +42,18 @@ defmodule Ryker.Delivery.RoutingResponse.Query do
     )
   end
 
+  @doc """
+  The responses to the same message that wait behind `response`: later in
+  its order and not yet delivered (`in_order/1`).
+  """
+  def held_behind(queryable \\ all(), %RoutingResponse{input_id: input_id, position: position}) do
+    where(
+      queryable,
+      [delivery_routing_responses: r],
+      r.input_id == ^input_id and r.position > ^position and r.status != :delivered
+    )
+  end
+
   @doc "Pending and due at `now`: no retry backoff and no live claim left."
   def claimable_at(queryable, now) do
     queryable

@@ -6,4 +6,6 @@ defmodule Ryker.Settings.GitHub.Query do
   def all, do: from(rows in GitHub, as: :github_settings)
 
   def by_id(queryable \\ all(), id), do: where(queryable, [github_settings: g], g.id == ^id)
+
+  def select_api_url(queryable \\ all()), do: select(queryable, [github_settings: g], g.api_url)
 end

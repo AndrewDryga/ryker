@@ -64,11 +64,21 @@ defmodule Ryker.WeeklyReport.Custody do
     {:ok, report}
   end
 
+  # A unique conflict on the week, or on the delivery reference made from it,
+  # is that week's report saved before. Any refusal naming the week read as
+  # one, the check on a report's own dates included, and the week's own
+  # conflict was reported on its delivery reference and read as an error
+  # (2026-10-04 review).
   defp queued({:error, %Ecto.Changeset{errors: errors}}) do
-    if Keyword.has_key?(errors, :week),
+    if Enum.any?(errors, &week_taken?/1),
       do: {:ok, :already_queued},
       else: {:error, {:weekly_report_persistence_failed, :enqueue, errors}}
   end
+
+  defp week_taken?({field, {_message, details}}) when field in [:week, :delivery_ref],
+    do: details[:constraint] == :unique
+
+  defp week_taken?(_error), do: false
 
   @doc "The delivery reference of one week's report: the week it was for."
   @spec delivery_ref(Date.t()) :: String.t()

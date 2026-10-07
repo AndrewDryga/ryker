@@ -7,6 +7,7 @@ defmodule Ryker.Publication.Request do
   """
 
   alias Ryker.CanonicalJSON
+  alias Ryker.GitHub.InertText
   alias Ryker.Publication.{Publication, Review}
 
   @enforce_keys [
@@ -158,7 +159,7 @@ defmodule Ryker.Publication.Request do
   defp safe_text(value) do
     value
     |> String.replace(~r/[\x00-\x1f\x7f]/u, " ")
-    |> String.replace("@", "@\u200B")
+    |> InertText.inert()
     |> String.split()
     |> Enum.join(" ")
   end
@@ -169,7 +170,7 @@ defmodule Ryker.Publication.Request do
     value
     |> String.replace("\r\n", "\n")
     |> String.replace(~r/[\x00-\x08\x0b-\x1f\x7f]/u, " ")
-    |> String.replace("@", "@\u200B")
+    |> InertText.inert()
     |> String.trim()
   end
 

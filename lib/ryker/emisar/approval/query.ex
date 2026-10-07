@@ -62,9 +62,9 @@ defmodule Ryker.Emisar.Approval.Query do
   @doc """
   Of watches `with_joined_origin/1`, the ones a task waits for that cannot make
   progress: monitored, their card open and its episode waiting on it, on an
-  account in `stalled_refs` or failing with one of `token_errors`.
+  account in `stalled_refs` or failing with one of `token_codes`.
   """
-  def stalled(queryable, stalled_refs, token_errors) do
+  def stalled(queryable, stalled_refs, token_codes) do
     queryable
     |> where(
       [episode_emisar_approvals: a, episode_state_records: r, episode_kernel_episodes: e],
@@ -73,7 +73,7 @@ defmodule Ryker.Emisar.Approval.Query do
     )
     |> where(
       [episode_emisar_approvals: a],
-      a.connection_ref in ^stalled_refs or a.last_error in ^token_errors
+      a.connection_ref in ^stalled_refs or a.last_error_code in ^token_codes
     )
   end
 
@@ -120,16 +120,15 @@ defmodule Ryker.Emisar.Approval.Query do
     |> by_status(:blocked)
     |> where(
       [episode_emisar_approvals: a],
-      like(a.last_error, "{:emisar_http_error, 401,%") or
-        like(a.last_error, "{:emisar_http_error, 403,%")
+      a.last_error_code in ["emisar_http_401", "emisar_http_403"]
     )
   end
 
-  @doc "Watched, and last stopped by one of `errors`."
-  def failed_with(queryable, errors) do
+  @doc "Watched, and last stopped by one of the error `codes`."
+  def failed_with(queryable, codes) do
     queryable
     |> by_status(:monitoring)
-    |> where([episode_emisar_approvals: a], a.last_error in ^errors)
+    |> where([episode_emisar_approvals: a], a.last_error_code in ^codes)
   end
 
   def unleased_at(queryable, now) do

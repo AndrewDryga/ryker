@@ -3,9 +3,9 @@ defmodule Ryker.GitHub.Client.Checks do
   The check state of one commit: every check run and every commit status
   GitHub holds for it, summarized as none, pending, passing or failing.
 
-  Check runs are read across every bounded page until GitHub's own total is
-  reached; a short page before that total, or a page GitHub cannot describe,
-  is an error rather than a smaller count.
+  Check runs and commit statuses are each read across every bounded page
+  until GitHub's own total is reached; a short page before that total, or a
+  page GitHub cannot describe, is an error rather than a smaller count.
   """
 
   alias Ryker.GitHub.Client
@@ -67,25 +67,41 @@ defmodule Ryker.GitHub.Client.Checks do
 
   defp valid_check_run?(_run), do: false
 
-  defp commit_statuses(client, repository, sha) do
-    path = "/repos/#{repository}/commits/#{sha}/status?per_page=#{@page_size}"
+  # The first page alone counted at most a hundred statuses, and a failing
+  # one past them read as passing (2026-10-04 review).
+  defp commit_statuses(client, repository, sha, page \\ 1, accumulated \\ []) do
+    path = "/repos/#{repository}/commits/#{sha}/status?per_page=#{@page_size}&page=#{page}"
 
-    with {:ok, response} <- Transport.request(client, :get, path, nil) do
-      commit_status_response(response)
+    with {:ok, response} <- Transport.request(client, :get, path, nil),
+         {:ok, statuses, total} <- commit_status_page(response),
+         values <- accumulated ++ statuses do
+      cond do
+        length(values) >= total ->
+          {:ok, Enum.take(values, total)}
+
+        length(statuses) < @page_size ->
+          {:error, {:github_protocol_error, :commit_statuses_count}}
+
+        page >= @maximum_pages ->
+          {:error, {:github_reconciliation_incomplete, :commit_statuses}}
+
+        true ->
+          commit_statuses(client, repository, sha, page + 1, values)
+      end
     end
   end
 
-  defp commit_status_response(%{body: %{"statuses" => statuses}, status: 200})
-       when is_list(statuses) do
+  defp commit_status_page(%{body: %{"statuses" => statuses, "total_count" => total}, status: 200})
+       when is_list(statuses) and is_integer(total) and total >= 0 do
     if Enum.all?(statuses, &valid_commit_status?/1),
-      do: {:ok, statuses},
+      do: {:ok, statuses, total},
       else: {:error, {:github_protocol_error, :commit_statuses}}
   end
 
-  defp commit_status_response(%{status: 200}),
+  defp commit_status_page(%{status: 200}),
     do: {:error, {:github_protocol_error, :commit_statuses}}
 
-  defp commit_status_response(response), do: Transport.error(response)
+  defp commit_status_page(response), do: Transport.error(response)
 
   defp valid_commit_status?(%{"state" => state}),
     do: state in ~w(error failure pending success)

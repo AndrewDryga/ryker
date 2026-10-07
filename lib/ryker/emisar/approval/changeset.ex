@@ -15,6 +15,7 @@ defmodule Ryker.Emisar.Approval.Changeset do
     :failure_count,
     :id,
     :last_error,
+    :last_error_code,
     :last_observed_at,
     :lease_expires_at,
     :lease_owner,
@@ -85,11 +86,13 @@ defmodule Ryker.Emisar.Approval.Changeset do
     |> validate_length(:remote_error, min: 1, max: 1_000)
     |> validate_length(:review_digest, is: 64)
     |> validate_length(:last_error, min: 1, max: 4_096)
+    |> validate_length(:last_error_code, min: 1, max: 128)
     |> validate_number(:failure_count, greater_than_or_equal_to: 0)
     |> validate_inclusion(:remote_status, RunState.statuses())
     |> check_constraint(:status, name: :episode_emisar_approval_identity_valid)
     |> check_constraint(:status, name: :episode_emisar_approval_closure_valid)
     |> check_constraint(:lease_ref, name: :episode_emisar_approval_lease_valid)
     |> check_constraint(:review_digest, name: :episode_emisar_approval_review_valid)
+    |> check_constraint(:last_error_code, name: :episode_emisar_approval_error_valid)
   end
 end
