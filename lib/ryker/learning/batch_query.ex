@@ -11,6 +11,16 @@ defmodule Ryker.Learning.BatchQuery do
   def by_scope_key(queryable \\ all(), scope_key),
     do: where(queryable, [conversation_learning_batches: b], b.scope_key == ^scope_key)
 
+  def with_statuses(queryable \\ all(), statuses),
+    do: where(queryable, [conversation_learning_batches: b], b.status in ^statuses)
+
+  @doc "How many batches each status holds, as `{status, count}`."
+  def counts_by_status(queryable \\ all()) do
+    queryable
+    |> group_by([conversation_learning_batches: b], b.status)
+    |> select([conversation_learning_batches: b], {b.status, count(b.id)})
+  end
+
   def excluding_id(queryable, id),
     do: where(queryable, [conversation_learning_batches: b], b.id != ^id)
 

@@ -15,6 +15,24 @@ defmodule Ryker.Admission.AttemptQuery do
 
   def prompted(queryable), do: where(queryable, [admission_attempts: a], not is_nil(a.submission))
 
+  def by_input_id(queryable \\ all(), input_id),
+    do: where(queryable, [admission_attempts: a], a.input_id == ^input_id)
+
+  def by_input_ids(queryable \\ all(), input_ids),
+    do: where(queryable, [admission_attempts: a], a.input_id in ^input_ids)
+
+  def newest_first(queryable),
+    do: order_by(queryable, [admission_attempts: a], desc: a.inserted_at, desc: a.id)
+
+  def latest_generation_first(queryable),
+    do: order_by(queryable, [admission_attempts: a], desc: a.generation)
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
+
+  @doc "The messages that kept a routing attempt, each once."
+  def select_input_ids(queryable),
+    do: queryable |> distinct(true) |> select([admission_attempts: a], a.input_id)
+
   @doc "The committed attempt of `entry`'s current routing, while it keeps its bodies."
   def committed_for(entry) do
     where(

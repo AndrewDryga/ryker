@@ -304,6 +304,28 @@ defmodule Ryker.Work.TurnQuery do
 
   def current(%Episode{id: id}), do: id |> by_episode_id() |> newest_first() |> limit_to(1)
 
+  @doc """
+  The title each of `episode_id`'s accepted answers gave, in the order they
+  were accepted, `limit` at most, as `{turn_id, title}`; an answer that set
+  none reads nil.
+  """
+  def accepted_titles(episode_id, limit) do
+    from(turn in all(),
+      where:
+        turn.episode_id == ^episode_id and not is_nil(turn.accepted_at) and
+          not is_nil(turn.candidate),
+      order_by: [asc: turn.accepted_at, asc: turn.id],
+      limit: ^limit,
+      # An accepted answer is a JSON object (`Ryker.Work.Validator`), and JSON
+      # may escape a NUL, which Postgres refuses to read in any JSON value: one
+      # anywhere in an answer failed the page (2026-10-05). It is read as a
+      # space instead, which keeps the JSON valid.
+      select:
+        {turn.id,
+         fragment(~S"(replace(?, '\u0000', '\u0020')::jsonb) ->> 'title'", turn.candidate)}
+    )
+  end
+
   def select_statuses(queryable), do: select(queryable, [episode_work_turns: t], t.status)
 
   @doc "Each episode's latest Work turn, as an automation's runs show it."

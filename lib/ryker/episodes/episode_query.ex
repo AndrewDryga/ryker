@@ -226,6 +226,11 @@ defmodule Ryker.Episodes.EpisodeQuery do
   end
 
   def select_ids(queryable), do: select(queryable, [episode_kernel_episodes: e], e.id)
+  def select_keys(queryable), do: select(queryable, [episode_kernel_episodes: e], e.key)
+
+  @doc "Each episode as `{id, key}`."
+  def select_id_keys(queryable),
+    do: select(queryable, [episode_kernel_episodes: e], {e.id, e.key})
 
   def select_execution_modes(queryable),
     do: select(queryable, [episode_kernel_episodes: e], e.execution_mode)

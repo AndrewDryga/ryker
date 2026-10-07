@@ -1,25 +1,23 @@
 defmodule Ryker.ControlPlane.ModelRequests do
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
-  import Ecto.Query
-  require Ryker.ControlPlane.CurrentInputQuery
   alias Ryker.Accounting.ExecutionQuery
-  alias Ryker.Admission.Attempt
-  alias Ryker.ControlPlane.{Activity, CallRun, ContextSearch, ContextSelection, CurrentInputQuery}
+  alias Ryker.Admission.{Attempt, AttemptQuery}
+  alias Ryker.ControlPlane.{Activity, ActivityQuery, CallRun, ContextSearch, ContextSelection}
   alias Ryker.ControlPlane.{EpisodeTrace, FeedbackProjection, ImprovementRequests}
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Step}
   alias Ryker.ControlPlane.{LearningRequests, PagedRelation, Paths, RepositoryNames}
   alias Ryker.ControlPlane.{RoutingReason, ThreadContext, Units, UsageProjection}
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Crypto
-  alias Ryker.Delivery.RoutingResponse
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.{Inbox, InputCustodyTransition}
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Delivery.{RoutingResponse, RoutingResponseQuery}
+  alias Ryker.Episodes.{Episode, EpisodeQuery}
+  alias Ryker.Ingress.{Inbox, InputCustodyTransitionQuery}
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.Names
-  alias Ryker.Work.{CandidateResponse, Recovery, Session, Turn}
+  alias Ryker.Work.{CandidateResponseQuery, Recovery, SessionQuery, Turn, TurnQuery}
   alias Ryker.Work.FailureCause
 
   @page_size 20
@@ -30,8 +28,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # routed into an existing conversation rather than starting a new episode.
   def episode_ref("ingress-input:" <> id = ref) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %Entry{episode_id: episode_id} when not is_nil(episode_id) <- Repo.get(Entry, id),
-         %Episode{key: key} <- Repo.get(Episode, episode_id) do
+         %Entry{episode_id: episode_id} when not is_nil(episode_id) <-
+           Repo.one(EntryQuery.by_id(id)),
+         %Episode{key: key} <- Repo.one(EpisodeQuery.by_id(episode_id)) do
       key
     else
       _ -> ref
@@ -42,7 +41,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   @doc "A bounded chronological document, with bulk-loaded custody and no per-request tool queries."
   def timeline(ref, params) do
-    case Repo.get_by(Episode, key: episode_ref(ref)) do
+    case Repo.one(EpisodeQuery.by_key(episode_ref(ref))) do
       nil -> :not_found
       episode -> timeline_for(episode, params)
     end
@@ -66,13 +65,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
     limit = page * @page_size
 
     turn_window =
-      Repo.all(
-        from(t in Turn,
-          where: t.episode_id == ^episode.id,
-          order_by: [desc: t.inserted_at, desc: t.id],
-          limit: ^(limit + 1)
-        )
-      )
+      episode.id
+      |> TurnQuery.by_episode_id()
+      |> TurnQuery.newest_first()
+      |> TurnQuery.limit_to(limit + 1)
+      |> Repo.all()
 
     turns =
       turn_window
@@ -80,25 +77,21 @@ defmodule Ryker.ControlPlane.ModelRequests do
       |> include_selected_turn(selected_timeline_turn(episode, params))
 
     entry_window =
-      Repo.all(
-        from(e in Entry,
-          where: e.episode_id == ^episode.id,
-          order_by: [desc: e.inserted_at, desc: e.id],
-          limit: ^(limit + 1)
-        )
-      )
+      episode.id
+      |> EntryQuery.by_episode_id()
+      |> EntryQuery.newest_first()
+      |> EntryQuery.limit_to(limit + 1)
+      |> Repo.all()
 
     entries = Enum.take(entry_window, limit)
     ids = Enum.map(entries, & &1.id)
 
     attempt_window =
-      Repo.all(
-        from(a in Attempt,
-          where: a.input_id in ^ids,
-          order_by: [desc: a.inserted_at, desc: a.id],
-          limit: ^(limit + 1)
-        )
-      )
+      ids
+      |> AttemptQuery.by_input_ids()
+      |> AttemptQuery.newest_first()
+      |> AttemptQuery.limit_to(limit + 1)
+      |> Repo.all()
 
     attempts = Enum.take(attempt_window, limit)
 
@@ -112,7 +105,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
     session_ids = Enum.map(turns, & &1.session_id)
 
     sessions =
-      Repo.all(from(s in Session, where: s.episode_id == ^episode.id and s.id in ^session_ids))
+      episode.id
+      |> SessionQuery.by_episode_id()
+      |> SessionQuery.by_ids(session_ids)
+      |> Repo.all()
       |> Map.new(&{&1.id, &1})
 
     title_updates = title_updates(episode.id)
@@ -152,7 +148,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
     by_input = Enum.group_by(attempts, & &1.input_id)
 
     retained_inputs =
-      Repo.all(from(a in Attempt, where: a.input_id in ^ids, distinct: true, select: a.input_id))
+      ids
+      |> AttemptQuery.by_input_ids()
+      |> AttemptQuery.select_input_ids()
+      |> Repo.all()
       |> MapSet.new()
 
     admission =
@@ -164,14 +163,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
     # Background learning over this request's messages: the same model-request
     # cards, filed in the Learning chapter.
     learning =
-      Repo.all(
-        from(e in Entry,
-          where: e.episode_id == ^episode.id,
-          order_by: [desc: e.occurred_at, desc: e.id],
-          limit: 200,
-          select: e.id
-        )
-      )
+      episode.id
+      |> EntryQuery.by_episode_id()
+      |> EntryQuery.latest_occurred_first()
+      |> EntryQuery.limit_to(200)
+      |> EntryQuery.select_ids()
+      |> Repo.all()
       |> Enum.reverse()
       |> LearningRequests.entries(
         secrets: options[:secrets],
@@ -200,20 +197,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # is adopted from the accepted answer the same way
   # (`Ryker.Episodes.RoutingDigests.accept_title_in_transaction/2`).
   defp title_updates(episode_id) do
-    from(turn in Turn,
-      where:
-        turn.episode_id == ^episode_id and not is_nil(turn.accepted_at) and
-          not is_nil(turn.candidate),
-      order_by: [asc: turn.accepted_at, asc: turn.id],
-      limit: 500,
-      # An accepted answer is a JSON object (`Ryker.Work.Validator`), and JSON
-      # may escape a NUL, which Postgres refuses to read in any JSON value: one
-      # anywhere in an answer failed the page (2026-10-05). It is read as a
-      # space instead, which keeps the JSON valid.
-      select:
-        {turn.id,
-         fragment(~S"(replace(?, '\u0000', '\u0020')::jsonb) ->> 'title'", turn.candidate)}
-    )
+    episode_id
+    |> TurnQuery.accepted_titles(500)
     |> Repo.all()
     |> Enum.reduce({%{}, nil}, fn
       {id, title}, {updates, current} when is_binary(title) and title != current ->
@@ -261,7 +246,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   defp selected_timeline_turn(episode, %{"attempt" => id}) when is_binary(id) do
     case Ecto.UUID.cast(id) do
       {:ok, id} ->
-        Repo.one(from(t in Turn, where: t.id == ^id and t.episode_id == ^episode.id))
+        id |> TurnQuery.by_id() |> TurnQuery.by_episode_id(episode.id) |> Repo.one()
 
       :error ->
         nil
@@ -398,14 +383,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp admission_failures(input_ids, attempts) do
     transitions =
-      Repo.all(
-        from(transition in InputCustodyTransition,
-          where:
-            transition.input_id in ^input_ids and
-              transition.kind in [:retry_scheduled, :blocked],
-          order_by: [asc: transition.occurred_at, asc: transition.sequence]
-        )
-      )
+      input_ids
+      |> InputCustodyTransitionQuery.by_input_ids()
+      |> InputCustodyTransitionQuery.of_kinds([:retry_scheduled, :blocked])
+      |> InputCustodyTransitionQuery.in_order()
+      |> Repo.all()
       |> Enum.group_by(& &1.input_id)
 
     # The failure that ended an attempt is the first retry or stop after its
@@ -557,7 +539,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   request's reference instead.
   """
   def project_input(id, params) when is_map(params) do
-    with {:ok, id} <- Ecto.UUID.cast(id), %Entry{} = entry <- Repo.get(Entry, id) do
+    with {:ok, id} <- Ecto.UUID.cast(id), %Entry{} = entry <- Repo.one(EntryQuery.by_id(id)) do
       options = [
         secrets: Redactor.configured_secrets(),
         candidate_episodes: candidate_episodes(entry.admission_context)
@@ -567,19 +549,14 @@ defmodule Ryker.ControlPlane.ModelRequests do
       message = CaseFile.input_message(entry, disclosed(params))
 
       responses =
-        Repo.all(
-          from(response in RoutingResponse,
-            where: response.input_id == ^id,
-            order_by: [asc: response.position]
-          )
-        )
+        id
+        |> RoutingResponseQuery.by_input_id()
+        |> RoutingResponseQuery.in_position_order()
+        |> Repo.all()
 
       {:ok,
        %{
-         episode_ref:
-           if(entry.episode_id,
-             do: Repo.one(from(e in Episode, where: e.id == ^entry.episode_id, select: e.key))
-           ),
+         episode_ref: episode_key(entry.episode_id),
          # What people said about the answer routing sent by itself.
          feedback: FeedbackProjection.for_request({:input, id}),
          self_analysis:
@@ -625,14 +602,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
     end
   end
 
-  defp input_state(entry, now) do
-    Repo.one!(
-      from(message in Entry,
-        where: message.id == ^entry.id,
-        select: CurrentInputQuery.input_state(message, ^now)
-      )
-    )
-  end
+  defp episode_key(nil), do: nil
+
+  defp episode_key(episode_id),
+    do: episode_id |> EpisodeQuery.by_id() |> EpisodeQuery.select_keys() |> Repo.one()
+
+  defp input_state(entry, now), do: Repo.one!(ActivityQuery.input_state(entry.id, now))
 
   # From the message to the first answer or reaction reaching the
   # conversation, as a request's response time is measured.
@@ -651,8 +626,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # Routing is the only spend a message without a request has.
   defp routing_cost(%Entry{id: id}) do
     totals =
-      ExecutionQuery.ledger(nil, "all")
-      |> where([execution], execution.kind == "admission" and execution.source_id == ^id)
+      nil
+      |> ExecutionQuery.ledger("all")
+      |> ExecutionQuery.admission_calls(id)
       |> UsageProjection.totals()
 
     if totals.costed + totals.estimated > 0, do: Units.cost(totals)
@@ -719,7 +695,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # message row's own timestamp moves whenever the row changes again.
   defp decided_at(entry) do
     with %Attempt{milestones: %{"committed" => committed}} <-
-           Repo.get_by(Attempt, input_id: entry.id, generation: entry.execution_generation),
+           Repo.one(AttemptQuery.for_generation(entry.id, entry.execution_generation)),
          {:ok, at, _offset} <- DateTime.from_iso8601(committed) do
       at
     else
@@ -764,13 +740,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp input_request_events(entry, params, shared_options) do
     attempts =
-      Repo.all(
-        from(attempt in Attempt,
-          where: attempt.input_id == ^entry.id,
-          order_by: [desc: attempt.generation],
-          limit: @page_size
-        )
-      )
+      entry.id
+      |> AttemptQuery.by_input_id()
+      |> AttemptQuery.latest_generation_first()
+      |> AttemptQuery.limit_to(@page_size)
+      |> Repo.all()
       |> Enum.reverse()
 
     # A card stands for a routing attempt that ran. The next attempt of a
@@ -985,9 +959,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
     if refs == %{},
       do: %{},
       else:
-        Repo.all(
-          from(episode in Episode, where: episode.id in ^Map.keys(refs), select: episode.id)
-        )
+        refs
+        |> Map.keys()
+        |> EpisodeQuery.by_ids()
+        |> EpisodeQuery.select_ids()
+        |> Repo.all()
         |> Map.new(&{refs[&1], Paths.request(&1)})
   end
 
@@ -998,40 +974,17 @@ defmodule Ryker.ControlPlane.ModelRequests do
   defp with_responses(options, turns, params) do
     windows = Map.new(turns, &{&1.id, response_window(&1, params)})
 
-    predicate =
-      Enum.reduce(turns, dynamic(false), fn turn, predicate ->
-        attempts =
-          for %{"candidate_attempt" => attempt} <- windows[turn.id],
-              is_integer(attempt),
-              do: attempt
-
-        if is_nil(turn.operational_pruned_at) && attempts != [] do
-          dynamic(
-            [response],
-            ^predicate or
-              (response.turn_id == ^turn.id and response.candidate_attempt in ^attempts)
-          )
-        else
-          predicate
-        end
-      end)
+    attempts =
+      for turn <- turns,
+          is_nil(turn.operational_pruned_at),
+          numbers = window_attempts(windows[turn.id]),
+          numbers != [],
+          do: {turn.id, numbers}
 
     rows =
-      Repo.all(
-        from(response in CandidateResponse,
-          join: owner in Turn,
-          on: owner.id == response.turn_id,
-          where: ^predicate,
-          where: is_nil(owner.operational_pruned_at),
-          order_by: [
-            desc: response.recorded_at,
-            desc: response.turn_id,
-            desc: response.candidate_attempt
-          ],
-          limit: @response_page_size,
-          select: response
-        )
-      )
+      attempts
+      |> CandidateResponseQuery.latest_of_attempts(@response_page_size)
+      |> Repo.all()
 
     Keyword.merge(options,
       response_windows: windows,
@@ -1039,6 +992,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
       responses_limited: length(rows) == @response_page_size
     )
   end
+
+  defp window_attempts(window),
+    do: for(%{"candidate_attempt" => attempt} <- window, is_integer(attempt), do: attempt)
 
   # The checks whose responses a turn's card loads: the latest page of them,
   # or the page an older response's link names.

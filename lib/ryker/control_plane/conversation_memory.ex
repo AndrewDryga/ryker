@@ -6,25 +6,16 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   behind a record, and the relearning picker for a topic whose sources are
   gone.
   """
-  import Ecto.Query
-  require Ryker.ControlPlane.Search
   alias Ryker.Continuity
-  alias Ryker.Continuity.ConversationSummary
-  alias Ryker.ControlPlane.{Activity, LearningActivity, LearningRequests, PagedRelation, Paths}
-  alias Ryker.ControlPlane.{RepositoryNames, Search}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Continuity.{ConversationSummary, ConversationSummaryQuery}
+  alias Ryker.ControlPlane.{Activity, LearnedQuery, LearningActivity, LearningRequests}
+  alias Ryker.ControlPlane.{PagedRelation, Paths, RepositoryNames}
+  alias Ryker.Episodes.EpisodeQuery
   alias Ryker.InspectionRedactor
   alias Ryker.Knowledge
-  alias Ryker.Knowledge.ConversationKnowledge
-  alias Ryker.Knowledge.KnowledgeRevision
-  alias Ryker.Knowledge.KnowledgeSource
-  alias Ryker.Learning.ConversationObservation
-  alias Ryker.Learning.LearningRun
-  alias Ryker.Learning.LearningSources
-  alias Ryker.Learning.Rebuilds
-  alias Ryker.Memories.Forgetting
-  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Knowledge.{ConversationKnowledge, ConversationKnowledgeQuery}
+  alias Ryker.Learning.{ConversationObservation, LearningRunQuery, LearningSources, Rebuilds}
+  alias Ryker.Memories.{Forgetting, MemoryEntry, MemoryEntryQuery}
   alias Ryker.Repo
   alias Ryker.Slack.Names
 
@@ -50,7 +41,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     secrets = InspectionRedactor.configured_secrets()
 
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %ConversationKnowledge{forgotten_at: nil} = topic <- Repo.get(ConversationKnowledge, id) do
+         %ConversationKnowledge{forgotten_at: nil} = topic <-
+           Repo.one(ConversationKnowledgeQuery.by_id(id)) do
       outcome = Forgetting.preview_topic(id)
 
       {:ok,
@@ -67,7 +59,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   def forgetting({:memory, ref}) when is_binary(ref) do
     secrets = InspectionRedactor.configured_secrets()
 
-    case Repo.get_by(MemoryEntry, ref: ref, status: :active) do
+    active = ref |> MemoryEntryQuery.by_ref() |> MemoryEntryQuery.active() |> Repo.one()
+
+    case active do
       %MemoryEntry{} = fact ->
         outcome = Forgetting.preview_fact(fact)
 
@@ -87,29 +81,30 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp topic_titles([], _secrets), do: []
 
   defp topic_titles(ids, secrets) do
-    from(k in ConversationKnowledge, where: k.id in ^ids, order_by: [desc: k.updated_at])
+    ids
+    |> ConversationKnowledgeQuery.by_ids()
+    |> ConversationKnowledgeQuery.recently_updated_first()
     |> Repo.all()
     |> Enum.map(&knowledge_title(&1, secrets))
   end
 
   def project(params) do
-    sources = from(source in ConversationObservation, where: not is_nil(source.note))
     secrets = InspectionRedactor.configured_secrets()
     source_parent = source_parent(params["related_to"], secrets)
 
     counts = %{
-      context: Repo.aggregate(ConversationSummary, :count),
-      knowledge: Repo.aggregate(ConversationKnowledge, :count)
+      context: Repo.aggregate(ConversationSummaryQuery.all(), :count),
+      knowledge: Repo.aggregate(ConversationKnowledgeQuery.all(), :count)
     }
 
     kind = selected_kind(params["kind"], source_parent)
     search = search_text(params["q"])
-    query = kind_query(kind, sources, source_parent) |> search(kind, search)
+    query = kind |> kind_query(source_parent) |> search(kind, search)
     selected = selected_id(params["item"])
 
     query =
       if selected && kind in ["knowledge", "context"],
-        do: from(item in query, where: item.id == ^selected),
+        do: LearnedQuery.only(query, selected),
         else: query
 
     page =
@@ -210,13 +205,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp episode_keys([]), do: %{}
 
   defp episode_keys(ids) do
-    Repo.all(
-      from(episode in Episode,
-        where: episode.id in ^ids,
-        select: {episode.id, episode.key}
-      )
-    )
-    |> Map.new()
+    ids |> EpisodeQuery.by_ids() |> EpisodeQuery.select_id_keys() |> Repo.all() |> Map.new()
   end
 
   # A forgotten topic is not offered for relearning: the person asked Ryker to
@@ -238,9 +227,10 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp rebuild(_, _, _, _), do: nil
 
   defp forgotten?(id) do
-    Repo.exists?(
-      from(k in ConversationKnowledge, where: k.id == ^id and not is_nil(k.forgotten_at))
-    )
+    id
+    |> ConversationKnowledgeQuery.by_id()
+    |> ConversationKnowledgeQuery.forgotten()
+    |> Repo.exists?()
   end
 
   # The operator can inspect withdrawn history, but its recall label must apply
@@ -274,7 +264,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp source_parent("knowledge:" <> id, secrets) do
     with id when is_binary(id) <- selected_id(id),
-         %ConversationKnowledge{} = knowledge <- Repo.get(ConversationKnowledge, id) do
+         %ConversationKnowledge{} = knowledge <- Repo.one(ConversationKnowledgeQuery.by_id(id)) do
       title = knowledge_title(knowledge, secrets)
 
       %{
@@ -291,7 +281,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp source_parent("context:" <> id, secrets) do
     with id when is_binary(id) <- selected_id(id),
-         %ConversationSummary{} = summary <- Repo.get(ConversationSummary, id) do
+         %ConversationSummary{} = summary <- Repo.one(ConversationSummaryQuery.by_id(id)) do
       %{
         back_label: "Conversation summaries",
         back_path: "/memory/learned?kind=context#summary-#{id}",
@@ -341,31 +331,11 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp search_text(value) when is_binary(value), do: String.slice(String.trim(value), 0, 200)
   defp search_text(_), do: ""
 
-  defp kind_query("knowledge", _sources, _parent), do: from(item in ConversationKnowledge)
-  defp kind_query("context", _sources, _parent), do: from(summary in ConversationSummary)
+  defp kind_query("sources", %{source_ids: ids}), do: LearnedQuery.notes(ids)
+  defp kind_query(kind, _parent), do: LearnedQuery.items(kind)
 
-  defp kind_query("sources", sources, %{source_ids: ids}),
-    do: from(source in sources, where: source.id in ^ids)
-
-  defp search(query, _, ""), do: query
-
-  # What a topic or a summary says, not its field names: searching the state as
-  # JSON text matched every row with a field of the name searched for
-  # (2026-10-04 review).
-  defp search(query, "knowledge", text),
-    do: from(item in query, where: Search.json_text_matches(item.state, ^Search.contains(text)))
-
-  defp search(query, "sources", text) do
-    from(source in query,
-      where: fragment("position(lower(?) in lower(?)) > 0", ^text, source.note)
-    )
-  end
-
-  defp search(query, "context", text) do
-    from(summary in query,
-      where: Search.json_text_matches(summary.state, ^Search.contains(text))
-    )
-  end
+  defp search(query, _kind, ""), do: query
+  defp search(query, kind, text), do: LearnedQuery.matching(query, kind, text)
 
   # The requests rows came from, and the names of the repositories they used.
   defp lookup(rows, episode_ids),
@@ -435,19 +405,10 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp summary_source_at(dependencies) do
     # Read original event time only from the exact retained revision. A source
     # edited since the handover must not substitute today's message timestamp.
-    Repo.one(
-      from(o in ConversationObservation,
-        where:
-          fragment(
-            "EXISTS (SELECT 1 FROM ryker_learning_roots(?::text) r WHERE r->>'observation_id' = ?::text AND r->>'revision' = ?::text AND r->>'fingerprint' = ?)",
-            ^Ryker.CanonicalJSON.encode!(dependencies),
-            o.id,
-            o.revision,
-            o.source_fingerprint
-          ),
-        select: max(o.occurred_at)
-      )
-    )
+    dependencies
+    |> Ryker.CanonicalJSON.encode!()
+    |> LearnedQuery.latest_source_at()
+    |> Repo.one()
   end
 
   defp summary_groups(state) do
@@ -471,19 +432,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp source_counts([]), do: %{}
 
-  defp source_counts(ids) do
-    Repo.all(
-      from(s in KnowledgeSource,
-        join: k in ConversationKnowledge,
-        on: k.id == s.knowledge_id and k.source_generation == s.generation,
-        where: k.id in ^ids,
-        group_by: k.id,
-        select:
-          {k.id, {count(s.observation_id), count(s.direct_support_version), min(s.retained_at)}}
-      )
-    )
-    |> Map.new()
-  end
+  defp source_counts(ids), do: ids |> LearnedQuery.source_counts() |> Repo.all() |> Map.new()
 
   defp selected_id(value) when is_binary(value) do
     case Ecto.UUID.cast(value) do
@@ -501,14 +450,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
     page =
       PagedRelation.read(
-        from(r in KnowledgeRevision,
-          left_join: entry in Entry,
-          on: entry.id == r.source_input_id,
-          where: r.knowledge_id == ^id,
-          select:
-            {r, entry.destination_transport, entry.destination_conversation_ref,
-             entry.source_item_ref}
-        ),
+        LearnedQuery.history(id),
         [desc: :version],
         "history_page",
         params,
@@ -559,18 +501,11 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       if ids == [],
         do: [],
         else:
-          Repo.all(
-            from(run in LearningRun,
-              where: run.id in ^ids and run.status == :applied,
-              select: %{
-                id: run.id,
-                status: run.status,
-                inputs: run.inputs,
-                remote_stopped_at: run.remote_stopped_at,
-                result_sha256: run.result_sha256
-              }
-            )
-          )
+          ids
+          |> LearningRunQuery.by_ids()
+          |> LearningRunQuery.with_status(:applied)
+          |> LearningRunQuery.select_result_digests()
+          |> Repo.all()
 
     paths = LearningRequests.paths(runs)
     digests = Map.new(runs, &{&1.id, &1.result_sha256})

@@ -107,6 +107,19 @@ defmodule Ryker.Knowledge.ConversationKnowledgeQuery do
   def forgotten(queryable),
     do: where(queryable, [conversation_knowledge: k], not is_nil(k.forgotten_at))
 
+  def unforgotten(queryable),
+    do: where(queryable, [conversation_knowledge: k], is_nil(k.forgotten_at))
+
+  @doc "Topics learned about repository `ref`, or about none for nil."
+  def of_repository(queryable, nil),
+    do: where(queryable, [conversation_knowledge: k], is_nil(k.repository_ref))
+
+  def of_repository(queryable, repository_ref),
+    do: where(queryable, [conversation_knowledge: k], k.repository_ref == ^repository_ref)
+
+  def recently_updated_first(queryable),
+    do: order_by(queryable, [conversation_knowledge: k], desc: k.updated_at, desc: k.id)
+
   def in_workspace(queryable, workspace_ref),
     do: where(queryable, [conversation_knowledge: k], k.workspace_ref == ^workspace_ref)
 

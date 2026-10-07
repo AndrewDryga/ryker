@@ -106,6 +106,54 @@ defmodule Ryker.Learning.LearningRunQuery do
   def select_error_codes(queryable),
     do: select(queryable, [conversation_learning_runs: r], %{error_code: r.error_code})
 
+  def by_ids(queryable \\ all(), ids),
+    do: where(queryable, [conversation_learning_runs: r], r.id in ^ids)
+
+  @doc "What links a knowledge update to the attempt that wrote it."
+  def select_result_digests(queryable) do
+    select(queryable, [conversation_learning_runs: r], %{
+      id: r.id,
+      status: r.status,
+      inputs: r.inputs,
+      remote_stopped_at: r.remote_stopped_at,
+      result_sha256: r.result_sha256
+    })
+  end
+
+  def by_batch_ids(queryable \\ all(), batch_ids),
+    do: where(queryable, [conversation_learning_runs: r], r.batch_id in ^batch_ids)
+
+  def unpruned(queryable),
+    do: where(queryable, [conversation_learning_runs: r], is_nil(r.pruned_at))
+
+  @doc "The batches the runs belong to, each once."
+  def select_batch_ids(queryable),
+    do: queryable |> distinct(true) |> select([conversation_learning_runs: r], r.batch_id)
+
+  @doc "What each run returned: `%{id, result, inputs}`."
+  def select_results(queryable) do
+    select(queryable, [conversation_learning_runs: r], %{
+      id: r.id,
+      result: r.result,
+      inputs: r.inputs
+    })
+  end
+
+  @doc "What a batch's page shows of each attempt."
+  def select_attempts(queryable) do
+    select(queryable, [conversation_learning_runs: r], %{
+      id: r.id,
+      status: r.status,
+      at: r.inserted_at,
+      error_code: r.error_code,
+      pruned_at: r.pruned_at,
+      result: r.result,
+      stop_receipt: r.stop_receipt,
+      inputs: r.inputs,
+      remote_stopped_at: r.remote_stopped_at
+    })
+  end
+
   def limit_to(queryable, count), do: limit(queryable, ^count)
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
   def lock_for_share(queryable), do: lock(queryable, "FOR SHARE")

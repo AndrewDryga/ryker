@@ -63,6 +63,14 @@ defmodule Ryker.ControlPlane.ActivityQuery do
     )
   end
 
+  @doc "What message `entry_id` reads as at `now`, as its Activity row says it."
+  def input_state(entry_id, now) do
+    from(message in Entry,
+      where: message.id == ^entry_id,
+      select: CurrentInputQuery.input_state(message, ^now)
+    )
+  end
+
   @doc "How many rows each bucket holds, as `{bucket, count}`."
   def bucket_counts(query),
     do: from(row in query, group_by: row.bucket, select: {row.bucket, count()})

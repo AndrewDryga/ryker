@@ -227,7 +227,7 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
   end
 
   def newest_first(queryable),
-    do: order_by(queryable, [ingress_inbox_entries: e], desc: e.inserted_at)
+    do: order_by(queryable, [ingress_inbox_entries: e], desc: e.inserted_at, desc: e.id)
 
   @doc "The latest said first: by occurrence, then revision, then arrival."
   def latest_said_first(queryable) do
