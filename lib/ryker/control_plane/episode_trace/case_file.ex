@@ -5,15 +5,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   went out, and the heading the whole page carries.
   """
 
-  import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
-  alias Ryker.ControlPlane.{ConsolePeople, CurrentInputQuery, Paths, ProviderMessage}
+  alias Ryker.ControlPlane.{ConsolePeople, EpisodeTraceQuery, Paths, ProviderMessage}
   alias Ryker.ControlPlane.{SlackMarkdown, SourceText}
-  alias Ryker.Delivery.PlatformAction
-  alias Ryker.Episodes.{Episode, RoutingDigests}
+  alias Ryker.Delivery.PlatformActionQuery
+  alias Ryker.Episodes.RoutingDigests
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
-  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.Names
   alias Ryker.Work.{Session, Turn}
@@ -29,17 +27,21 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       disclosed: disclosed
     ]
 
-    base = from(entry in subquery(CurrentInputQuery.for_episode(episode_id)))
+    base = EpisodeTraceQuery.messages(episode_id)
 
     first =
-      Repo.one(from(entry in base, order_by: [asc: entry.occurred_at, asc: entry.id], limit: 1))
+      base
+      |> EpisodeTraceQuery.first_said()
+      |> EpisodeTraceQuery.limit_to(1)
+      |> Repo.one()
 
     first = if first, do: case_message(first, options)
 
     messages =
-      Repo.all(
-        from(entry in base, order_by: [desc: entry.occurred_at, desc: entry.id], limit: 20)
-      )
+      base
+      |> EpisodeTraceQuery.last_said()
+      |> EpisodeTraceQuery.limit_to(20)
+      |> Repo.all()
       |> Enum.reverse()
       |> Enum.map(&case_message(&1, options))
 
@@ -99,15 +101,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   # conversation: before the answer of their turn, which is accepted only once
   # every update is delivered.
   defp case_updates(episode_id, options) do
-    Repo.all(
-      from(action in PlatformAction,
-        where:
-          action.episode_id == ^episode_id and action.tool == :post_slack_update and
-            action.status == :delivered and not is_nil(action.delivered_at),
-        order_by: [desc: action.delivered_at, desc: action.id],
-        limit: 20
-      )
-    )
+    episode_id
+    |> PlatformActionQuery.by_episode_id()
+    |> PlatformActionQuery.by_tool(:post_slack_update)
+    |> PlatformActionQuery.with_status(:delivered)
+    |> PlatformActionQuery.with_delivery_time()
+    |> PlatformActionQuery.latest_delivered_first()
+    |> PlatformActionQuery.limit_to(20)
+    |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(fn action ->
       artifact = InspectionRedactor.artifact(action.document["message"], options)
@@ -131,17 +132,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   # Every revision this episode admitted, newest twenty, each beside the
   # current revision of its message, which may have arrived anywhere.
   defp revisions(episode_id) do
-    Repo.all(
-      from(entry in Entry,
-        as: :revision,
-        inner_lateral_join: current in subquery(CurrentInputQuery.current()),
-        on: true,
-        where: entry.episode_id == ^episode_id,
-        order_by: [desc: entry.occurred_at, desc: entry.id],
-        limit: 20,
-        select: {entry, {current.id, current.event_kind}}
-      )
-    )
+    episode_id
+    |> EpisodeTraceQuery.revisions(20)
+    |> Repo.all()
     |> Enum.reverse()
   end
 
@@ -216,23 +209,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   @doc "The proposal, approval and failed start of a task that never ran, for a collapsed page."
   def task_start(episode, turn) do
-    offer =
-      Repo.one(
-        from(record in Record,
-          join: source in Episode,
-          on: source.id == record.episode_id,
-          where: record.kind == "task_offer" and record.status == :confirmed,
-          where: record.confirmed_episode_id == ^episode.id,
-          where: record.episode_id == ^(episode.linked_episode_id || episode.id),
-          select: %{
-            inserted_at: record.inserted_at,
-            confirmed_at: record.confirmed_at,
-            episode_id: source.id
-          },
-          order_by: [desc: record.confirmed_at, desc: record.id],
-          limit: 1
-        )
-      )
+    offer = Repo.one(EpisodeTraceQuery.task_offer(episode))
 
     %{
       confirmed: not is_nil(offer) and not is_nil(offer.confirmed_at),

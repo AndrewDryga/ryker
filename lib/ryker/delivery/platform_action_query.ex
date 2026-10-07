@@ -121,6 +121,12 @@ defmodule Ryker.Delivery.PlatformActionQuery do
     )
   end
 
+  def with_delivery_time(queryable),
+    do: where(queryable, [platform_actions: a], not is_nil(a.delivered_at))
+
+  def newest_first(queryable),
+    do: order_by(queryable, [platform_actions: a], desc: a.inserted_at, desc: a.id)
+
   def latest_delivered_first(queryable),
     do: order_by(queryable, [platform_actions: a], desc: a.delivered_at, desc: a.id)
 

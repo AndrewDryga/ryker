@@ -105,6 +105,15 @@ defmodule Ryker.Episodes.EpisodeQuery do
     )
   end
 
+  @doc "Each episode as `{id, destination_transport, destination_conversation_ref}`."
+  def select_id_destinations(queryable) do
+    select(
+      queryable,
+      [episode_kernel_episodes: e],
+      {e.id, e.destination_transport, e.destination_conversation_ref}
+    )
+  end
+
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 
   def in_thread(queryable \\ all(), transport, conversation_ref, thread_ref) do

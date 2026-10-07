@@ -6,6 +6,8 @@ defmodule Ryker.Work.ActivityEventQuery do
 
   def all, do: from(events in ActivityEvent, as: :episode_work_activity)
 
+  def by_id(queryable \\ all(), id), do: where(queryable, [episode_work_activity: a], a.id == ^id)
+
   @doc "A Coop turn's events of `kinds` that keep their bodies, oldest first, as training reads them."
   def trajectory(episode_id, coop_turn_id, kinds) do
     all()

@@ -6,17 +6,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   in and what it gave the work, and the session it actually ran on.
   """
 
-  import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.Behaviors
-  alias Ryker.ControlPlane.{Activity, Paths, RepositoryNames}
-  alias Ryker.CoopFleet.Placement
-  alias Ryker.Episodes.Episode
+  alias Ryker.ControlPlane.{Activity, EpisodeTraceQuery, Paths, RepositoryNames}
+  alias Ryker.CoopFleet.{Placement, PlacementQuery}
+  alias Ryker.Episodes.{Episode, EpisodeQuery}
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Ingress.InputCustodyTransition
+  alias Ryker.Ingress.{InputCustodyTransition, InputCustodyTransitionQuery}
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.Slack.IncidentRoom
   alias Ryker.Work.{FailureCause, Session, Turn}
 
   @doc """
@@ -73,12 +71,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp custody_transitions(input_rows) do
     ids = Enum.map(input_rows, & &1.id)
 
-    Repo.all(
-      from(transition in InputCustodyTransition,
-        where: transition.input_id in ^ids,
-        order_by: [asc: transition.input_id, asc: transition.sequence]
-      )
-    )
+    ids
+    |> InputCustodyTransitionQuery.by_input_ids()
+    |> InputCustodyTransitionQuery.per_input_in_sequence()
+    |> Repo.all()
     |> Enum.group_by(& &1.input_id)
   end
 
@@ -691,12 +687,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp placements(sessions) do
     ids = Enum.map(sessions, & &1.id)
 
-    Repo.all(
-      from(placement in Placement,
-        where: placement.session_id in ^ids,
-        order_by: [asc: placement.session_id, desc: placement.generation, desc: placement.id]
-      )
-    )
+    ids
+    |> PlacementQuery.by_session_ids()
+    |> PlacementQuery.latest_per_session_first()
+    |> Repo.all()
     |> Enum.uniq_by(& &1.session_id)
     |> Map.new(&{&1.session_id, &1})
   end
@@ -919,7 +913,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp linked_request(%Episode{linked_episode_id: nil}), do: nil
 
   defp linked_request(%Episode{linked_episode_id: id}) do
-    case Repo.one(from(episode in Episode, where: episode.id == ^id, select: episode.key)) do
+    key = id |> EpisodeQuery.by_id() |> EpisodeQuery.select_keys() |> Repo.one()
+
+    case key do
       nil -> nil
       key -> get_in(Activity.request_titles([key]), [key, :title])
     end
@@ -979,22 +975,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp direct_message?(_ref), do: false
 
   # The room's own investigation, or a request that began in the room's channel.
-  defp incident_room?(%Episode{id: id, destination_conversation_ref: ref}) do
-    rooms =
-      case slack_channel(ref) do
-        {workspace, channel} ->
-          from(room in IncidentRoom,
-            where:
-              room.episode_id == ^id or
-                (room.workspace_ref == ^workspace and room.channel_ref == ^channel)
-          )
-
-        nil ->
-          from(room in IncidentRoom, where: room.episode_id == ^id)
-      end
-
-    Repo.exists?(rooms)
-  end
+  defp incident_room?(%Episode{id: id, destination_conversation_ref: ref}),
+    do: Repo.exists?(EpisodeTraceQuery.incident_rooms(id, slack_channel(ref)))
 
   defp slack_channel("slack:" <> scope) do
     case String.split(scope, ":", parts: 2) do

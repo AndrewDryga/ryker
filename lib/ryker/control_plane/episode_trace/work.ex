@@ -6,9 +6,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   Slack status updates that accompanied them.
   """
 
-  import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
-  alias Ryker.CoopFleet.Event, as: CoopEvent
+  alias Ryker.CoopFleet.EventQuery, as: CoopEventQuery
   alias Ryker.Delivery.ChatCard
   alias Ryker.InspectionRedactor
   alias Ryker.Records.Record
@@ -299,13 +298,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   def coop_steps(sessions) do
     session_ids = Enum.map(sessions, & &1.id)
 
-    Repo.all(
-      from(event in CoopEvent,
-        where: event.session_id in ^session_ids and event.kind != "session_event",
-        order_by: [asc: event.inserted_at, asc: event.sequence],
-        limit: 500
-      )
-    )
+    session_ids
+    |> CoopEventQuery.of_sessions()
+    |> CoopEventQuery.excluding_kind("session_event")
+    |> CoopEventQuery.in_order()
+    |> CoopEventQuery.limit_to(500)
+    |> Repo.all()
     |> Enum.map(fn event ->
       step(
         "coop-event-#{event.id}",

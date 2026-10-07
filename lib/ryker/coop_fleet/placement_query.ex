@@ -116,6 +116,21 @@ defmodule Ryker.CoopFleet.PlacementQuery do
 
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 
+  def by_session_ids(queryable \\ all(), session_ids),
+    do: where(queryable, [coop_session_placements: p], p.session_id in ^session_ids)
+
+  @doc "Each session's placements together, its latest generation first."
+  def latest_per_session_first(queryable) do
+    order_by(queryable, [coop_session_placements: p],
+      asc: p.session_id,
+      desc: p.generation,
+      desc: p.id
+    )
+  end
+
+  def select_session_workers(queryable),
+    do: select(queryable, [coop_session_placements: p], {p.session_id, p.worker_id})
+
   def by_session_id(queryable \\ all(), session_id),
     do: where(queryable, [coop_session_placements: p], p.session_id == ^session_id)
 

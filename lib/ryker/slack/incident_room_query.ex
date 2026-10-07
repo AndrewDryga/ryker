@@ -45,6 +45,18 @@ defmodule Ryker.Slack.IncidentRoomQuery do
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
+  @doc "The rooms `episode_id` investigates or was opened from."
+  def of_episode_or_source(queryable \\ all(), episode_id) do
+    where(
+      queryable,
+      [slack_incident_rooms: r],
+      r.episode_id == ^episode_id or r.source_episode_id == ^episode_id
+    )
+  end
+
+  def newest_requested_first(queryable),
+    do: order_by(queryable, [slack_incident_rooms: r], desc: r.requested_at, desc: r.id)
+
   def blocked(queryable \\ all()),
     do: where(queryable, [slack_incident_rooms: r], r.status == :blocked)
 

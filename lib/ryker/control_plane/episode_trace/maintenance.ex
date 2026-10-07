@@ -13,10 +13,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   tries and errors on the way.
   """
 
-  import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.RepositoryNames
-  alias Ryker.CoopFleet.Placement
+  alias Ryker.CoopFleet.PlacementQuery
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Retention.Custody
@@ -66,13 +65,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   defp workers(sessions) do
     ids = Enum.map(sessions, & &1.id)
 
-    Repo.all(
-      from(placement in Placement,
-        where: placement.session_id in ^ids,
-        order_by: [asc: placement.session_id, desc: placement.generation],
-        select: {placement.session_id, placement.worker_id}
-      )
-    )
+    ids
+    |> PlacementQuery.by_session_ids()
+    |> PlacementQuery.latest_per_session_first()
+    |> PlacementQuery.select_session_workers()
+    |> Repo.all()
     |> Enum.uniq_by(&elem(&1, 0))
     |> Map.new()
   end

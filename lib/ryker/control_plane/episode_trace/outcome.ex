@@ -5,26 +5,23 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   follow-through on anything still outstanding.
   """
 
-  import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.Emoji
   alias Ryker.ControlPlane.Paths
-  alias Ryker.Delivery.PlatformAction
+  alias Ryker.Delivery.{PlatformAction, PlatformActionQuery}
   alias Ryker.InspectionRedactor
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication.PublicationQuery
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Slack.IncidentRoom
+  alias Ryker.Schedules.ScheduleQuery
+  alias Ryker.Slack.IncidentRoomQuery
 
   @doc "The episode's newest 200 platform actions, oldest first."
   def platform_actions(episode_id) do
-    Repo.all(
-      from(action in PlatformAction,
-        where: action.episode_id == ^episode_id,
-        order_by: [desc: action.inserted_at, desc: action.id],
-        limit: 200
-      )
-    )
+    episode_id
+    |> PlatformActionQuery.by_episode_id()
+    |> PlatformActionQuery.newest_first()
+    |> PlatformActionQuery.limit_to(200)
+    |> Repo.all()
     |> Enum.reverse()
   end
 
@@ -112,13 +109,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
 
   @doc "Incident rooms the episode requested or was opened from."
   def incident_steps(episode_id) do
-    Repo.all(
-      from(room in IncidentRoom,
-        where: room.episode_id == ^episode_id or room.source_episode_id == ^episode_id,
-        order_by: [desc: room.requested_at, desc: room.id],
-        limit: 50
-      )
-    )
+    episode_id
+    |> IncidentRoomQuery.of_episode_or_source()
+    |> IncidentRoomQuery.newest_requested_first()
+    |> IncidentRoomQuery.limit_to(50)
+    |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(fn room ->
       step(
@@ -145,13 +140,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
 
   @doc "The episode's newest 50 publications, oldest first."
   def publications(episode_id) do
-    Repo.all(
-      from(publication in Publication,
-        where: publication.episode_id == ^episode_id,
-        order_by: [desc: publication.inserted_at, desc: publication.id],
-        limit: 50
-      )
-    )
+    episode_id
+    |> PublicationQuery.by_episode_id()
+    |> PublicationQuery.newest_first()
+    |> PublicationQuery.limit_to(50)
+    |> Repo.all()
     |> Enum.reverse()
   end
 
@@ -241,13 +234,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
 
   @doc "Schedules the episode created."
   def schedule_steps(episode_id) do
-    Repo.all(
-      from(schedule in Schedule,
-        where: schedule.source_episode_id == ^episode_id,
-        order_by: [desc: schedule.confirmed_at, desc: schedule.id],
-        limit: 50
-      )
-    )
+    episode_id
+    |> ScheduleQuery.by_source_episode_id()
+    |> ScheduleQuery.newest_confirmed_first()
+    |> ScheduleQuery.limit_to(50)
+    |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(fn schedule ->
       step(

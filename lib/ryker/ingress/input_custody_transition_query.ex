@@ -11,6 +11,10 @@ defmodule Ryker.Ingress.InputCustodyTransitionQuery do
   def of_kinds(queryable, kinds),
     do: where(queryable, [input_custody_transitions: t], t.kind in ^kinds)
 
+  @doc "Each message's transitions together, in the order they were made."
+  def per_input_in_sequence(queryable),
+    do: order_by(queryable, [input_custody_transitions: t], asc: t.input_id, asc: t.sequence)
+
   def in_order(queryable),
     do: order_by(queryable, [input_custody_transitions: t], asc: t.occurred_at, asc: t.sequence)
 

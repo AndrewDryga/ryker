@@ -10,6 +10,17 @@ defmodule Ryker.CoopFleet.EventQuery do
   or with `session_event?` false, any other kind. Session events and the
   coarse ones number their sequences apart.
   """
+  def of_sessions(queryable \\ all(), session_ids),
+    do: where(queryable, [coop_worker_events: e], e.session_id in ^session_ids)
+
+  def excluding_kind(queryable, kind),
+    do: where(queryable, [coop_worker_events: e], e.kind != ^kind)
+
+  def in_order(queryable),
+    do: order_by(queryable, [coop_worker_events: e], asc: e.inserted_at, asc: e.sequence)
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
+
   def stored(placement_id, sequence, true) do
     where(
       all(),

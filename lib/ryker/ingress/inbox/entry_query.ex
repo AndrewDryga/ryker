@@ -421,6 +421,18 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
   def select_pruned_at(queryable),
     do: select(queryable, [ingress_inbox_entries: e], e.operational_pruned_at)
 
+  @doc "Each message as `{episode_id, destination_transport, destination_conversation_ref}`."
+  def select_episode_destinations(queryable) do
+    select(
+      queryable,
+      [ingress_inbox_entries: e],
+      {e.episode_id, e.destination_transport, e.destination_conversation_ref}
+    )
+  end
+
+  def select_earliest_insert(queryable),
+    do: select(queryable, [ingress_inbox_entries: e], min(e.inserted_at))
+
   def select_destinations(queryable) do
     select(
       queryable,

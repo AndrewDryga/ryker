@@ -326,6 +326,50 @@ defmodule Ryker.Work.TurnQuery do
     )
   end
 
+  @doc """
+  What the turns of `queryable` used, summed: their reported cost and how
+  many reported one, how many reported usage, their repairs, tokens, count and
+  Work claims.
+  """
+  def select_usage_totals(queryable) do
+    select(queryable, [episode_work_turns: t], %{
+      cost:
+        type(
+          fragment(
+            "COALESCE(SUM(CASE WHEN ? THEN COALESCE(?, 0) ELSE 0 END), 0)",
+            t.usage_cost_recorded,
+            t.usage_cost_usd
+          ),
+          :decimal
+        ),
+      costed:
+        type(fragment("COUNT(*) FILTER (WHERE ?)::bigint", t.usage_cost_recorded), :integer),
+      measured: type(fragment("COUNT(*) FILTER (WHERE ?)::bigint", t.usage_recorded), :integer),
+      repairs:
+        type(
+          fragment(
+            "COALESCE(SUM(GREATEST(COALESCE(?, 1) - 1, 0)), 0)::bigint",
+            t.candidate_attempt
+          ),
+          :integer
+        ),
+      tokens:
+        type(
+          fragment(
+            "COALESCE(SUM(CASE WHEN ? THEN COALESCE(?, 0) + COALESCE(?, 0) + COALESCE(?, 0) + COALESCE(?, 0) ELSE 0 END), 0)::bigint",
+            t.usage_recorded,
+            t.usage_input_tokens,
+            t.usage_cached_input_tokens,
+            t.usage_output_tokens,
+            t.usage_reasoning_tokens
+          ),
+          :integer
+        ),
+      turns: count(t.id),
+      work_claims: type(fragment("COALESCE(SUM(?), 0)::bigint", t.work_attempt_count), :integer)
+    })
+  end
+
   def select_statuses(queryable), do: select(queryable, [episode_work_turns: t], t.status)
 
   @doc "Each episode's latest Work turn, as an automation's runs show it."

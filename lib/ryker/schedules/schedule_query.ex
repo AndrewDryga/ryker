@@ -81,6 +81,13 @@ defmodule Ryker.Schedules.ScheduleQuery do
   end
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
+
+  def by_source_episode_id(queryable \\ all(), episode_id),
+    do: where(queryable, [episode_schedules: s], s.source_episode_id == ^episode_id)
+
+  def newest_confirmed_first(queryable),
+    do: order_by(queryable, [episode_schedules: s], desc: s.confirmed_at, desc: s.id)
+
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
   def lock_next_free(queryable), do: lock(queryable, "FOR UPDATE SKIP LOCKED")
 end

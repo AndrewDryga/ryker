@@ -5,13 +5,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   the source message.
   """
 
-  import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.ConsolePeople
   alias Ryker.Episodes.{Episode, Origins}
   alias Ryker.Episodes.Words
   alias Ryker.GitHub.Input, as: GitHubInput
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Slack.Names
@@ -24,15 +23,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   """
   @spec rows(Ecto.UUID.t()) :: [Entry.t()]
   def rows(episode_id) do
-    in_episode = from(entry in Entry, where: entry.episode_id == ^episode_id)
+    in_episode = EntryQuery.by_episode_id(episode_id)
 
     first =
-      Repo.one(
-        from(entry in in_episode, order_by: [asc: entry.occurred_at, asc: entry.id], limit: 1)
-      )
+      in_episode
+      |> EntryQuery.oldest_occurred_first()
+      |> EntryQuery.limit_to(1)
+      |> Repo.one()
 
     newest =
-      from(entry in in_episode, order_by: [desc: entry.occurred_at, desc: entry.id], limit: 200)
+      in_episode
+      |> EntryQuery.latest_occurred_first()
+      |> EntryQuery.limit_to(200)
       |> Repo.all()
       |> Enum.reverse()
 
@@ -66,12 +68,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   @doc "When the first input arrived, which can precede the episode itself."
   def first_received_at(episode) do
     received_at =
-      Repo.one(
-        from(entry in Entry,
-          where: entry.episode_id == ^episode.id,
-          select: min(entry.inserted_at)
-        )
-      )
+      episode.id
+      |> EntryQuery.by_episode_id()
+      |> EntryQuery.select_earliest_insert()
+      |> Repo.one()
 
     case received_at do
       %DateTime{} = at ->
