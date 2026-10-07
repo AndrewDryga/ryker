@@ -1,7 +1,7 @@
 defmodule Ryker.Work.SessionQuery do
   @moduledoc "Work sessions, for every read of `episode_work_sessions`."
   import Ecto.Query
-  alias Ryker.CoopFleet.Placement
+  alias Ryker.CoopFleet.{Command, Placement}
   alias Ryker.Episodes.Episode
   alias Ryker.Work.{Session, Turn}
 
@@ -188,6 +188,87 @@ defmodule Ryker.Work.SessionQuery do
   def select_last_discarded(queryable \\ all()),
     do: select(queryable, [episode_work_sessions: s], max(s.discarded_at))
 
+  @doc "Sessions that task `task_ref` names: by external ref or by the offer it set up; at most two."
+  def by_task_ref(task_ref) do
+    from(s in all(),
+      where:
+        s.external_ref == ^task_ref or
+          fragment("(?::jsonb ->> 'offer_ref') = ?", s.workspace_task, ^task_ref),
+      limit: 2
+    )
+  end
+
+  @doc "The latest earlier generation of `session`'s episode."
+  def previous_generation(session) do
+    from(s in all(),
+      where: s.episode_id == ^session.episode_id and s.generation < ^session.generation,
+      order_by: [desc: s.generation],
+      limit: 1
+    )
+  end
+
+  @doc """
+  Unbound sessions whose create command a succeeded reconciliation proved
+  became Coop session `coop_session_id`; at most two, so a caller can tell
+  one from several.
+  """
+  def reconciled_into(coop_session_id) do
+    from(s in all(),
+      join: create in Command,
+      on: create.session_id == s.id and create.kind == "create_session",
+      join: reconciliation in Command,
+      on:
+        reconciliation.session_id == s.id and reconciliation.kind == "reconcile_operation" and
+          fragment(
+            "(?::jsonb ->> 'operation_key') = ?",
+            reconciliation.payload,
+            create.idempotency_key
+          ),
+      where: is_nil(s.coop_session_id) and reconciliation.status == :succeeded,
+      where:
+        fragment(
+          "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
+          reconciliation.result
+        ),
+      where:
+        fragment(
+          "(?::jsonb -> 'body' ->> 'resource_id') = ?",
+          reconciliation.result,
+          ^coop_session_id
+        ),
+      where:
+        fragment("(?::jsonb -> 'body' ->> 'resource_type') = 'session'", reconciliation.result),
+      where:
+        fragment(
+          "(?::jsonb -> 'body' ->> 'method') = 'CreateRemoteSession'",
+          reconciliation.result
+        ),
+      where: fragment("(?::jsonb -> 'body' ->> 'state') = 'succeeded'", reconciliation.result),
+      distinct: true,
+      select: s,
+      limit: 2
+    )
+  end
+
+  @doc """
+  The sessions of job `job_ref` placed on worker `worker_id`, active and leased
+  at `now`; at most two, so a caller can tell one from several.
+  """
+  def placed_job(job_ref, worker_id, now) do
+    from(s in all(),
+      join: p in Placement,
+      on: p.session_id == s.id,
+      where:
+        s.external_ref == ^job_ref and p.worker_id == ^worker_id and p.state == :active and
+          p.lease_expires_at > ^now,
+      limit: 2,
+      select: s
+    )
+  end
+
+  def select_episode_ids(queryable),
+    do: select(queryable, [episode_work_sessions: s], s.episode_id)
+
   def latest_generation_first(queryable),
     do: order_by(queryable, [episode_work_sessions: s], desc: s.generation)
 
@@ -239,6 +320,7 @@ defmodule Ryker.Work.SessionQuery do
   end
 
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+  def lock_for_no_key_update(queryable), do: lock(queryable, "FOR NO KEY UPDATE")
   def lock_for_share_skip_locked(queryable), do: lock(queryable, "FOR SHARE SKIP LOCKED")
 
   def by_id(queryable \\ all(), id), do: where(queryable, [episode_work_sessions: s], s.id == ^id)

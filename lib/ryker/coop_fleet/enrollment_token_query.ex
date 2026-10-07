@@ -19,6 +19,14 @@ defmodule Ryker.CoopFleet.EnrollmentTokenQuery do
   def by_operator(queryable \\ all(), operator_ref),
     do: where(queryable, [coop_worker_enrollment_tokens: t], t.operator_ref == ^operator_ref)
 
+  def by_worker_id(queryable \\ all(), worker_id),
+    do: where(queryable, [coop_worker_enrollment_tokens: t], t.worker_id == ^worker_id)
+
+  def unconsumed(queryable),
+    do: where(queryable, [coop_worker_enrollment_tokens: t], is_nil(t.consumed_at))
+
+  def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+
   @doc "Not yet used and not yet expired at `now`."
   def usable_at(queryable, now) do
     where(

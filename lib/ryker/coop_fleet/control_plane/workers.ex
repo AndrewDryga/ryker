@@ -18,13 +18,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   """
 
   import Ecto.Changeset
-  import Ecto.Query
-  alias Ryker.CoopFleet.{Certificate, Protocol, Worker}
+  alias Ryker.CoopFleet.{Certificate, CertificateQuery, Protocol, Worker, WorkerQuery}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Events, Placements, Shared}
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work.SessionQuery
 
   # Registers a worker under a certificate digest the operator vouches for
   # directly, without an enrollment token. No operator surface calls this;
@@ -301,30 +300,15 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     do: Crypto.sha256_hex(certificate)
 
   defp active_certificate_worker(certificate_sha256) do
-    Repo.one(
-      from(certificate in Certificate,
-        join: worker in Worker,
-        on: worker.id == certificate.worker_id,
-        where:
-          certificate.sha256 == ^certificate_sha256 and is_nil(certificate.revoked_at) and
-            certificate.not_before <= fragment("clock_timestamp()") and
-            certificate.expires_at > fragment("clock_timestamp()") and
-            worker.state != :revoked,
-        select: worker.id
-      )
-    )
+    Repo.one(CertificateQuery.active_worker_id(certificate_sha256))
   end
 
   defp active_certificate_for_worker?(certificate_sha256, worker_id) do
-    Repo.exists?(
-      from(certificate in Certificate,
-        where:
-          certificate.sha256 == ^certificate_sha256 and certificate.worker_id == ^worker_id and
-            is_nil(certificate.revoked_at) and
-            certificate.not_before <= fragment("clock_timestamp()") and
-            certificate.expires_at > fragment("clock_timestamp()")
-      )
-    )
+    certificate_sha256
+    |> CertificateQuery.by_sha256()
+    |> CertificateQuery.by_worker_id(worker_id)
+    |> CertificateQuery.in_force()
+    |> Repo.exists?()
   end
 
   defp ensure_manual_certificate!(worker_id, certificate_sha256) do
@@ -388,7 +372,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     cutoff = DateTime.add(Repo.now!(), -Worker.heartbeat_seconds(), :second)
 
     current =
-      from(worker in Worker, where: worker.last_seen_at >= ^cutoff, select: worker.id)
+      cutoff
+      |> WorkerQuery.seen_since()
+      |> WorkerQuery.select_ids()
       |> Repo.all()
       |> MapSet.new()
 
@@ -427,7 +413,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
         :ok
 
       session_ids ->
-        from(session in Session, where: session.id in ^session_ids, select: session.episode_id)
+        session_ids
+        |> SessionQuery.by_ids()
+        |> SessionQuery.select_episode_ids()
         |> Repo.all()
         |> Enum.each(&Episodes.broadcast_episode_updated/1)
     end

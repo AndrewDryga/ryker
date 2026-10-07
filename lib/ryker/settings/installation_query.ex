@@ -7,4 +7,6 @@ defmodule Ryker.Settings.InstallationQuery do
 
   def select_revision(queryable \\ all()),
     do: select(queryable, [installation_settings: i], i.revision)
+
+  def lock_for_share(queryable), do: lock(queryable, "FOR SHARE")
 end

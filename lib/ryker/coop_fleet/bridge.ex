@@ -8,8 +8,7 @@ defmodule Ryker.CoopFleet.Bridge do
   the outbound poll protocol.
   """
 
-  import Ecto.Query
-  alias Ryker.CoopFleet.{Bodies, Checkpoints, Command, ControlPlane, Placement}
+  alias Ryker.CoopFleet.{Bodies, Checkpoints, Command, CommandQuery, ControlPlane, PlacementQuery}
   alias Ryker.CoopFleet.ControlPlane.Commands
   alias Ryker.Repo
   alias Ryker.Work.Session
@@ -135,7 +134,7 @@ defmodule Ryker.CoopFleet.Bridge do
   end
 
   defp await(command_id, settings, left) when left > 0 do
-    case Repo.get(Command, command_id) do
+    case Repo.one(CommandQuery.by_id(command_id)) do
       %Command{placement_id: nil, status: :failed, error: %{"code" => "operation_not_enqueued"}} =
           command ->
         await_result(command, command_id, settings, left)
@@ -240,7 +239,7 @@ defmodule Ryker.CoopFleet.Bridge do
   def response(_response), do: {:error, {:invalid_coop_worker_bridge, :response}}
 
   defp current_placement(command) do
-    placement = Repo.one(from(value in Placement, where: value.id == ^command.placement_id))
+    placement = Repo.one(PlacementQuery.by_id(command.placement_id))
     now = Repo.now!()
 
     cond do

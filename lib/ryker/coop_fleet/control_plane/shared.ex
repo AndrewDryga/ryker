@@ -4,8 +4,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Shared do
   part needs.
   """
 
-  import Ecto.Query
-  alias Ryker.CoopFleet.{Protocol, Worker}
+  alias Ryker.CoopFleet.{Protocol, WorkerQuery}
   alias Ryker.Repo
 
   @maximum_lease_seconds 3_600
@@ -19,7 +18,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Shared do
 
   @doc false
   def locked_worker(worker_id) do
-    Repo.one(from(worker in Worker, where: worker.id == ^worker_id, lock: "FOR UPDATE"))
+    worker_id |> WorkerQuery.by_id() |> WorkerQuery.lock_for_update() |> Repo.one()
   end
 
   @doc false

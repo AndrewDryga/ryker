@@ -1,9 +1,8 @@
 defmodule Ryker.CoopFleet.Bodies do
   @moduledoc false
 
-  import Ecto.Query
   alias Ryker.{CanonicalJSON, Defaults, Repo}
-  alias Ryker.CoopFleet.{BodyCrypto, Command, ControlPlane, Placement, Protocol}
+  alias Ryker.CoopFleet.{BodyCrypto, Command, CommandQuery, ControlPlane, Protocol}
   alias Ryker.Crypto
 
   @chunk_bytes 256 * 1_024
@@ -56,21 +55,8 @@ defmodule Ryker.CoopFleet.Bodies do
     end
   end
 
-  defp authorized_command(worker_id, command_id, now) do
-    Repo.one(
-      from(command in Command,
-        join: placement in Placement,
-        on: placement.id == command.placement_id,
-        where:
-          command.id == ^command_id and command.worker_id == ^worker_id and
-            command.command_version == 2 and command.status in [:delivered, :acknowledged] and
-            placement.worker_id == ^worker_id and placement.state == :active and
-            placement.generation == command.placement_generation and
-            placement.lease_expires_at > ^now,
-        select: command
-      )
-    )
-  end
+  defp authorized_command(worker_id, command_id, now),
+    do: Repo.one(CommandQuery.uploadable(worker_id, command_id, now))
 
   defdelegate reference?(reference), to: Protocol, as: :body_reference?
 
@@ -138,7 +124,7 @@ defmodule Ryker.CoopFleet.Bodies do
     with {:ok, ^name} <- Ecto.UUID.cast(name),
          {:ok, %File.Stat{type: :directory, mtime: modified}} when modified < cutoff <-
            File.lstat(path, time: :posix),
-         false <- Repo.exists?(from(command in Command, where: command.id == ^name)) do
+         false <- Repo.exists?(CommandQuery.by_id(name)) do
       # A command is committed before any writer starts. Its row remains
       # while a checkpoint needs its body; UUIDs are never reused. Removing
       # an orphan cannot authorize an in-flight upload to publish or ACK.

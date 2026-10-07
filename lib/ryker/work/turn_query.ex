@@ -87,6 +87,19 @@ defmodule Ryker.Work.TurnQuery do
     )
   end
 
+  @doc "Session `session_id`'s turn the state-tools binding `endpoint`/`token_sha256` was made for."
+  def state_tools_bound(session_id, endpoint, token_sha256) do
+    where(
+      all(),
+      [episode_work_turns: t],
+      t.session_id == ^session_id and t.state_tools_endpoint == ^endpoint and
+        t.state_tools_token_sha256 == ^token_sha256
+    )
+  end
+
+  def cancelling(queryable),
+    do: where(queryable, [episode_work_turns: t], t.status == :cancel_pending)
+
   @doc "Turns still to start, run, stop or deliver."
   def unfinished(queryable) do
     where(

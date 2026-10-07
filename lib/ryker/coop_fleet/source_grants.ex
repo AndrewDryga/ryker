@@ -1,12 +1,11 @@
 defmodule Ryker.CoopFleet.SourceGrants do
   @moduledoc false
 
-  import Ecto.Query
   require Logger
-  alias Ryker.CoopFleet.{ControlPlane, JobSpec, Placement}
+  alias Ryker.CoopFleet.{ControlPlane, JobSpec}
   alias Ryker.GitHub.InstallationTokens
   alias Ryker.{Repo, Settings}
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Session, SessionQuery}
 
   @identity ~w(repository_ref github_repository github_repository_id)
 
@@ -162,16 +161,6 @@ defmodule Ryker.CoopFleet.SourceGrants do
 
     # Job references identify an execution generation, not its reusable task.
     # Refuse ambiguous authority even if two current sessions have the same ref.
-    Repo.all(
-      from(session in Session,
-        join: placement in Placement,
-        on: placement.session_id == session.id,
-        where:
-          session.external_ref == ^job_ref and placement.worker_id == ^worker_id and
-            placement.state == :active and placement.lease_expires_at > ^now,
-        limit: 2,
-        select: session
-      )
-    )
+    Repo.all(SessionQuery.placed_job(job_ref, worker_id, now))
   end
 end

@@ -14,12 +14,12 @@ defmodule Ryker.CoopFleet.SessionEvidence do
   """
 
   use Ecto.Schema
-  import Ecto.Query
   alias Ecto.Changeset
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.SessionEvidenceDocument, as: Document
+  alias Ryker.CoopFleet.SessionEvidenceQuery
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Session, SessionQuery}
 
   @primary_key {:id, :binary_id, autogenerate: false}
   @foreign_key_type :binary_id
@@ -76,14 +76,8 @@ defmodule Ryker.CoopFleet.SessionEvidence do
   # ledger back through this.
   @doc false
   @spec for_session(Ecto.UUID.t()) :: [t()]
-  def for_session(session_id) when is_binary(session_id) do
-    Repo.all(
-      from(evidence in __MODULE__,
-        where: evidence.session_id == ^session_id,
-        order_by: [asc: evidence.first_captured_at, asc: evidence.id]
-      )
-    )
-  end
+  def for_session(session_id) when is_binary(session_id),
+    do: Repo.all(SessionEvidenceQuery.for_session(session_id))
 
   def for_session(_session_id), do: []
 
@@ -95,16 +89,8 @@ defmodule Ryker.CoopFleet.SessionEvidence do
   must render as "not recorded" -- never as a session with no network.
   """
   @spec latest_for_episode(Ecto.UUID.t()) :: [t()]
-  def latest_for_episode(episode_id) when is_binary(episode_id) do
-    latest =
-      from(evidence in __MODULE__,
-        where: evidence.episode_id == ^episode_id,
-        distinct: evidence.session_id,
-        order_by: [asc: evidence.session_id, desc: evidence.last_captured_at, desc: evidence.id]
-      )
-
-    Repo.all(from(row in subquery(latest), order_by: [asc: row.last_captured_at, asc: row.id]))
-  end
+  def latest_for_episode(episode_id) when is_binary(episode_id),
+    do: Repo.all(SessionEvidenceQuery.latest_for_episode(episode_id))
 
   def latest_for_episode(_episode_id), do: []
 
@@ -116,7 +102,7 @@ defmodule Ryker.CoopFleet.SessionEvidence do
   defp unwrap!({:error, reason}), do: Repo.rollback(reason)
 
   defp insert_locked(session_id, evidence, worker_id, generation) do
-    case Repo.get(Session, session_id) do
+    case Repo.one(SessionQuery.by_id(session_id)) do
       nil ->
         {:error, :work_session_not_found}
 
@@ -136,7 +122,7 @@ defmodule Ryker.CoopFleet.SessionEvidence do
   end
 
   defp upsert(session_id, evidence, worker_id, generation) do
-    session = Repo.get!(Session, session_id)
+    session = Repo.one!(SessionQuery.by_id(session_id))
     fingerprint = Document.content_fingerprint(evidence)
     captured_at = captured_at(evidence)
 
@@ -187,18 +173,7 @@ defmodule Ryker.CoopFleet.SessionEvidence do
   defp observe_again(session_id, fingerprint, captured_at) do
     {count, rows} =
       Repo.update_all(
-        from(evidence in __MODULE__,
-          where:
-            evidence.session_id == ^session_id and evidence.content_fingerprint == ^fingerprint,
-          update: [
-            set: [
-              last_captured_at:
-                fragment("GREATEST(?, ?)", ^captured_at, field(evidence, :last_captured_at))
-            ],
-            inc: [capture_count: 1]
-          ],
-          select: evidence
-        ),
+        SessionEvidenceQuery.observed_again(session_id, fingerprint, captured_at),
         []
       )
 

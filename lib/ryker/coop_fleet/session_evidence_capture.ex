@@ -10,8 +10,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
   no network".
   """
 
-  import Ecto.Query
-  alias Ryker.CoopFleet.{Placement, SessionEvidence, Worker}
+  alias Ryker.CoopFleet.{Placement, PlacementQuery, SessionEvidence, Worker, WorkerQuery}
   alias Ryker.Repo
   alias Ryker.Work.Session
 
@@ -61,13 +60,12 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
   end
 
   defp current_placement(session_id) do
-    Repo.one(
-      from(placement in Placement,
-        where: placement.session_id == ^session_id and placement.state == :active,
-        order_by: [desc: placement.generation],
-        limit: 1
-      )
-    )
+    session_id
+    |> PlacementQuery.by_session_id()
+    |> PlacementQuery.active()
+    |> PlacementQuery.latest_generation_first()
+    |> PlacementQuery.limit_to(1)
+    |> Repo.one()
     |> case do
       %Placement{} = placement -> {:ok, placement}
       nil -> {:skipped, :no_active_placement}
@@ -78,7 +76,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
   # worker that stops advertising it stops being asked, rather than producing a
   # failure the operator has to read past.
   defp advertises_export?(worker_id) do
-    case Repo.get(Worker, worker_id) do
+    case Repo.one(WorkerQuery.by_id(worker_id)) do
       %Worker{capabilities: capabilities} when is_list(capabilities) ->
         if Enum.any?(capabilities, &(&1["name"] == @capability and &1["version"] == @version)),
           do: :ok,

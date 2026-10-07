@@ -8,8 +8,8 @@ defmodule Ryker.CoopFleet.Enrollment do
   """
 
   import Ecto.Changeset
-  import Ecto.Query
-  alias Ryker.CoopFleet.{Certificate, CertificateAuthority, EnrollmentToken, Protocol, Worker}
+  alias Ryker.CoopFleet.{Certificate, CertificateAuthority, CertificateQuery}
+  alias Ryker.CoopFleet.{EnrollmentToken, EnrollmentTokenQuery, Protocol, Worker, WorkerQuery}
   alias Ryker.Crypto
   alias Ryker.Repo
 
@@ -98,12 +98,10 @@ defmodule Ryker.CoopFleet.Enrollment do
     token_sha256 = Crypto.sha256_hex(request.token)
 
     token =
-      Repo.one(
-        from(token in EnrollmentToken,
-          where: token.token_sha256 == ^token_sha256,
-          lock: "FOR UPDATE"
-        )
-      ) || rollback(:coop_worker_enrollment_not_authorized)
+      token_sha256
+      |> EnrollmentTokenQuery.by_digest()
+      |> EnrollmentTokenQuery.lock_for_update()
+      |> Repo.one() || rollback(:coop_worker_enrollment_not_authorized)
 
     ensure_token_usable!(token, now)
     issued = issue_certificate!(request.public_key_pem, token.worker_id, signer, now)
@@ -127,12 +125,10 @@ defmodule Ryker.CoopFleet.Enrollment do
     now = Repo.now!()
 
     certificate =
-      Repo.one(
-        from(certificate in Certificate,
-          where: certificate.sha256 == ^certificate_sha256,
-          lock: "FOR UPDATE"
-        )
-      ) || rollback(:coop_worker_certificate_not_authorized)
+      certificate_sha256
+      |> CertificateQuery.by_sha256()
+      |> CertificateQuery.lock_for_update()
+      |> Repo.one() || rollback(:coop_worker_certificate_not_authorized)
 
     if certificate.revoked_at || DateTime.compare(certificate.not_before, now) == :gt ||
          DateTime.compare(certificate.expires_at, now) != :gt,
@@ -162,14 +158,11 @@ defmodule Ryker.CoopFleet.Enrollment do
   end
 
   defp revoke_others!(worker_id, kept, now, revoked_by) do
-    Repo.update_all(
-      from(certificate in Certificate,
-        where:
-          certificate.worker_id == ^worker_id and is_nil(certificate.revoked_at) and
-            certificate.sha256 not in ^kept
-      ),
-      set: [revoked_at: now, revoked_by: revoked_by]
-    )
+    worker_id
+    |> CertificateQuery.by_worker_id()
+    |> CertificateQuery.unrevoked()
+    |> CertificateQuery.excluding_sha256s(kept)
+    |> Repo.update_all(set: [revoked_at: now, revoked_by: revoked_by])
 
     :ok
   end
@@ -188,7 +181,7 @@ defmodule Ryker.CoopFleet.Enrollment do
   end
 
   defp ensure_worker_enrollable!(worker_id) do
-    case Repo.one(from(worker in Worker, where: worker.id == ^worker_id, lock: "FOR UPDATE")) do
+    case locked_worker(worker_id) do
       %Worker{state: :revoked} -> rollback(:coop_worker_enrollment_not_authorized)
       %Worker{} -> :ok
       nil -> :ok
@@ -196,7 +189,7 @@ defmodule Ryker.CoopFleet.Enrollment do
   end
 
   defp upsert_enrolled_worker!(worker_id, workspace_ref, certificate_sha256) do
-    case Repo.one(from(worker in Worker, where: worker.id == ^worker_id, lock: "FOR UPDATE")) do
+    case locked_worker(worker_id) do
       nil ->
         %Worker{}
         |> cast(
@@ -341,8 +334,7 @@ defmodule Ryker.CoopFleet.Enrollment do
   end
 
   defp locked_worker!(worker_id) do
-    Repo.one(from(worker in Worker, where: worker.id == ^worker_id, lock: "FOR UPDATE")) ||
-      rollback(:coop_worker_certificate_not_authorized)
+    locked_worker(worker_id) || rollback(:coop_worker_certificate_not_authorized)
   end
 
   defp token(value) when is_binary(value) and byte_size(value) in 32..128 do
@@ -380,4 +372,7 @@ defmodule Ryker.CoopFleet.Enrollment do
     do: rollback({:coop_worker_enrollment_store_error, changeset})
 
   defp rollback(reason), do: Repo.rollback(reason)
+
+  defp locked_worker(worker_id),
+    do: worker_id |> WorkerQuery.by_id() |> WorkerQuery.lock_for_update() |> Repo.one()
 end

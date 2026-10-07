@@ -99,6 +99,14 @@ defmodule Ryker.Publication.PublicationQuery do
     )
   end
 
+  @doc "Session `session_id`'s publications approved by `approval_ref`; at most two."
+  def by_approval(session_id, approval_ref) do
+    from(p in all(),
+      where: p.session_id == ^session_id and p.approval_ref == ^approval_ref,
+      limit: 2
+    )
+  end
+
   def select_episode_ids(queryable),
     do: select(queryable, [episode_publications: p], p.episode_id)
 

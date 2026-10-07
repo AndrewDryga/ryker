@@ -9,14 +9,14 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   """
 
   import Ecto.Changeset
-  import Ecto.Query
   require Logger
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Bodies, Command, Placement, Protocol, Requests}
+  alias Ryker.CoopFleet.{Bodies, Command, CommandQuery, Placement, PlacementQuery, Protocol}
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
+  alias Ryker.CoopFleet.Requests
   alias Ryker.Repo
   alias Ryker.StateTools.Binding
-  alias Ryker.Work.{Session, StateBinding, Turn}
+  alias Ryker.Work.{Session, SessionQuery, StateBinding, Turn, TurnQuery}
 
   @purposes ~w(
     api_request
@@ -62,16 +62,17 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
          :ok <- Shared.reference(key, 512, :idempotency_key) do
       Repo.transaction(fn ->
         session =
-          Repo.one(
-            from(session in Session, where: session.id == ^session_id, lock: "FOR NO KEY UPDATE")
-          ) ||
+          session_id
+          |> SessionQuery.by_id()
+          |> SessionQuery.lock_for_no_key_update()
+          |> Repo.one() ||
             Shared.rollback({:coop_session_not_found, session_id})
 
         Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
           "coop-command:" <> key
         ])
 
-        callback.(session, Repo.get_by(Command, idempotency_key: key))
+        callback.(session, Repo.one(CommandQuery.by_idempotency_key(key)))
       end)
     end
   end
@@ -164,7 +165,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   end
 
   defp enqueue_on_placement(placement_id, kind, payload, idempotency_key) do
-    case Repo.get(Placement, placement_id) do
+    case Repo.one(PlacementQuery.by_id(placement_id)) do
       %Placement{session_id: session_id} ->
         with_session_command(session_id, idempotency_key, fn session, _command ->
           enqueue_command_locked(session, placement_id, kind, payload, idempotency_key)
@@ -185,7 +186,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         "version" => Protocol.version()
       })
 
-    case Repo.one(from(command in Command, where: command.idempotency_key == ^idempotency_key)) do
+    case Repo.one(CommandQuery.by_idempotency_key(idempotency_key)) do
       %Command{payload_fingerprint: ^fingerprint} = command ->
         command
 
@@ -197,12 +198,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         now = Repo.now!()
 
         placement =
-          Repo.one(
-            from(placement in Placement,
-              where: placement.id == ^placement_id,
-              lock: "FOR UPDATE"
-            )
-          ) || Shared.rollback({:coop_session_placement_not_found, placement_id})
+          placement_id |> PlacementQuery.by_id() |> PlacementQuery.lock_for_update() |> Repo.one() ||
+            Shared.rollback({:coop_session_placement_not_found, placement_id})
 
         unless Placements.current?(placement, now),
           do: Shared.rollback({:coop_session_placement_not_current, placement_id})
@@ -279,7 +276,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
        ) do
     with {:ok, request} <- Requests.encode(kind, payload, placement),
          %Session{coop_session_id: id} when is_binary(id) <-
-           Repo.get(Session, placement.session_id),
+           Repo.one(SessionQuery.by_id(placement.session_id)),
          true <- cleanup_request?(request, id) do
       :ok
     else
@@ -323,12 +320,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   @doc false
   def fail_undelivered_commands(placement, now) do
     commands =
-      Repo.all(
-        from(command in Command,
-          where: command.placement_id == ^placement.id and command.status == :queued,
-          lock: "FOR UPDATE"
-        )
-      )
+      placement.id
+      |> CommandQuery.by_placement_id()
+      |> CommandQuery.queued()
+      |> CommandQuery.lock_for_update()
+      |> Repo.all()
 
     Enum.each(commands, fn command ->
       error = %{
@@ -493,23 +489,13 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     prepare_cutoff = DateTime.add(now, -@prepare_redelivery_seconds, :second)
 
     commands =
-      Repo.all(
-        from(command in Command,
-          join: placement in Placement,
-          on: placement.id == command.placement_id,
-          where:
-            command.worker_id == ^worker_id and
-              command.status in [:queued, :delivered, :acknowledged] and
-              placement.state == :active and placement.lease_expires_at > ^now,
-          where:
-            command.kind != "prepare_session" or is_nil(command.delivered_at) or
-              command.delivered_at > ^prepare_cutoff,
-          order_by: [asc: command.inserted_at, asc: command.id],
-          limit: 100,
-          lock: "FOR UPDATE SKIP LOCKED",
-          select: {command, placement}
-        )
-      )
+      worker_id
+      |> CommandQuery.waiting_on(now, prepare_cutoff)
+      |> CommandQuery.oldest_first()
+      |> CommandQuery.limit_to(100)
+      |> CommandQuery.lock_next_free()
+      |> CommandQuery.select_with_placements()
+      |> Repo.all()
 
     {delivered, _bytes} =
       Enum.reduce(commands, {[], 0}, fn {command, placement}, acc ->
@@ -619,19 +605,14 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
          state_tools_secret
        )
        when map_size(descriptor) == 2 and is_struct(state_tools_secret, Ryker.Secret) do
-    session = Repo.get(Session, command.session_id)
+    session = Repo.one(SessionQuery.by_id(command.session_id))
 
     turn =
-      Repo.one(
-        from(turn in Turn,
-          where:
-            turn.session_id == ^command.session_id and
-              turn.state_tools_endpoint == ^endpoint and
-              turn.state_tools_token_sha256 == ^token_sha256,
-          limit: 1,
-          lock: "FOR UPDATE"
-        )
-      )
+      command.session_id
+      |> TurnQuery.state_tools_bound(endpoint, token_sha256)
+      |> TurnQuery.limit_to(1)
+      |> TurnQuery.lock_for_update()
+      |> Repo.one()
 
     with %Session{} <- session,
          %Turn{} <- turn,
@@ -655,25 +636,18 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     do: {:error, {:coop_worker_state_binding_not_current, command.id}}
 
   defp locked_command!(command_id, worker_id) do
-    Repo.one(
-      from(command in Command,
-        where: command.id == ^command_id and command.worker_id == ^worker_id,
-        lock: "FOR UPDATE"
-      )
-    ) || Shared.rollback({:coop_worker_command_not_found, command_id})
+    command_id
+    |> CommandQuery.by_id()
+    |> CommandQuery.by_worker_id(worker_id)
+    |> CommandQuery.lock_for_update()
+    |> Repo.one() || Shared.rollback({:coop_worker_command_not_found, command_id})
   end
 
   defp locked_command_placement!(command) do
-    Repo.one(
-      from(placement in Placement,
-        where:
-          placement.id == ^command.placement_id and
-            placement.worker_id == ^command.worker_id and
-            placement.session_id == ^command.session_id and
-            placement.generation == ^command.placement_generation,
-        lock: "FOR UPDATE"
-      )
-    ) || Shared.rollback({:coop_session_placement_not_found, command.session_id})
+    command
+    |> PlacementQuery.of_command()
+    |> PlacementQuery.lock_for_update()
+    |> Repo.one() || Shared.rollback({:coop_session_placement_not_found, command.session_id})
   end
 
   defp enum(value, allowed, field) do

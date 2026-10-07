@@ -1,14 +1,14 @@
 defmodule Ryker.CoopFleet.JobAuthority do
   @moduledoc "Freezes controller settings and exact sources before a session can be placed."
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Config
-  alias Ryker.CoopFleet.{Command, JobCheck, JobSpec, JobTemplates, ManagedSources, Placement}
+  alias Ryker.CoopFleet.{CommandQuery, JobCheck, JobSpec, JobTemplates, ManagedSources}
+  alias Ryker.CoopFleet.PlacementQuery
   alias Ryker.GitHub.RepositoryFiles
   alias Ryker.{Repo, Settings}
-  alias Ryker.Settings.{Environment, Installation}
-  alias Ryker.Work.{RepositoryContext, RepositorySource, Session, SessionChangeset}
+  alias Ryker.Settings.{Environment, InstallationQuery}
+  alias Ryker.Work.{RepositoryContext, RepositorySource, Session, SessionChangeset, SessionQuery}
 
   @identity ~w(id execution_kind generation create_generation external_ref policy policy_digest authority_digest repository_ref repository_context repository_source environment_ref workspace_task)a
 
@@ -161,7 +161,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   defp repin_locked(original, job, digest) do
     session =
-      Repo.one(from(session in Session, where: session.id == ^original.id, lock: "FOR UPDATE"))
+      original.id |> SessionQuery.by_id() |> SessionQuery.lock_for_update() |> Repo.one()
 
     cond do
       is_nil(session) or Map.take(session, @identity) != Map.take(original, @identity) or
@@ -180,14 +180,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   # anywhere: the placements its failed creates took do not bind it. That was
   # the woken task's case, placed eight times and created none.
   defp uncreated(%Session{coop_session_id: nil, cleanup_status: :active} = session) do
-    live =
-      Repo.exists?(
-        from(command in Command,
-          where:
-            command.session_id == ^session.id and command.kind == "create_session" and
-              command.status != :failed
-        )
-      )
+    live = Repo.exists?(CommandQuery.live_creates(session.id))
 
     if live, do: {:error, :coop_worker_job_requires_new_session}, else: :ok
   end
@@ -294,7 +287,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   """
   @spec prepared(Session.t()) :: {:ok, Session.t()} | {:error, term()}
   def prepared(%Session{id: id} = expected) when is_binary(id) do
-    case Repo.get(Session, id) do
+    case Repo.one(SessionQuery.by_id(id)) do
       %Session{} = saved ->
         cond do
           Map.take(saved, @identity) != Map.take(expected, @identity) ->
@@ -368,7 +361,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp cleanup_receipt?(_session, _remote), do: false
 
   defp stored_session(expected) do
-    case Repo.get(Session, expected.id) do
+    case Repo.one(SessionQuery.by_id(expected.id)) do
       %Session{} = saved ->
         if Map.take(saved, @identity) == Map.take(expected, @identity) and
              (is_nil(expected.worker_job_digest) or
@@ -525,10 +518,10 @@ defmodule Ryker.CoopFleet.JobAuthority do
     Repo.transaction(fn ->
       # Settings writers update this row in the same transaction as their
       # changes. A shared lock holds the checked revision through the pin.
-      installation = Repo.one(from(installation in Installation, lock: "FOR SHARE"))
+      installation = InstallationQuery.all() |> InstallationQuery.lock_for_share() |> Repo.one()
 
       session =
-        Repo.one(from(session in Session, where: session.id == ^original.id, lock: "FOR UPDATE"))
+        original.id |> SessionQuery.by_id() |> SessionQuery.lock_for_update() |> Repo.one()
 
       unless session && Map.take(session, @identity) == Map.take(original, @identity),
         do: Repo.rollback(:coop_worker_job_identity_changed)
@@ -570,7 +563,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   """
   @spec unstarted?(Session.t()) :: boolean()
   def unstarted?(%Session{coop_session_id: nil, cleanup_status: :active} = session),
-    do: not Repo.exists?(from(placement in Placement, where: placement.session_id == ^session.id))
+    do: not Repo.exists?(PlacementQuery.by_session_id(session.id))
 
   def unstarted?(_session), do: false
 end

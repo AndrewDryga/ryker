@@ -9,8 +9,8 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   """
 
   import Ecto.Changeset
-  import Ecto.Query
-  alias Ryker.CoopFleet.{Certificate, EnrollmentToken, Placement, Protocol, Worker}
+  alias Ryker.CoopFleet.{CertificateQuery, EnrollmentTokenQuery, PlacementQuery, Protocol}
+  alias Ryker.CoopFleet.{Worker, WorkerQuery}
   alias Ryker.Repo
 
   @type result :: %{status: :draining | :duplicate | :resumed | :revoked, worker: Worker.t()}
@@ -101,27 +101,20 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
     else
       now = Repo.now!()
 
-      Repo.update_all(
-        from(certificate in Certificate,
-          where: certificate.worker_id == ^worker.id and is_nil(certificate.revoked_at)
-        ),
-        set: [revoked_at: now, revoked_by: operator_ref]
-      )
+      worker.id
+      |> CertificateQuery.by_worker_id()
+      |> CertificateQuery.unrevoked()
+      |> Repo.update_all(set: [revoked_at: now, revoked_by: operator_ref])
 
-      Repo.delete_all(
-        from(token in EnrollmentToken,
-          where: token.worker_id == ^worker.id and is_nil(token.consumed_at)
-        )
-      )
+      worker.id
+      |> EnrollmentTokenQuery.by_worker_id()
+      |> EnrollmentTokenQuery.unconsumed()
+      |> Repo.delete_all()
 
-      Repo.update_all(
-        from(placement in Placement,
-          where:
-            placement.worker_id == ^worker.id and
-              placement.state in ^Placement.current_states()
-        ),
-        set: [lease_expires_at: now, state: :revoking, updated_at: now]
-      )
+      worker.id
+      |> PlacementQuery.by_worker_id()
+      |> PlacementQuery.current()
+      |> Repo.update_all(set: [lease_expires_at: now, state: :revoking, updated_at: now])
 
       updated =
         worker
@@ -141,7 +134,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   end
 
   defp locked_worker!(worker_id) do
-    Repo.one(from(worker in Worker, where: worker.id == ^worker_id, lock: "FOR UPDATE")) ||
+    worker_id |> WorkerQuery.by_id() |> WorkerQuery.lock_for_update() |> Repo.one() ||
       rollback(:coop_worker_not_found)
   end
 

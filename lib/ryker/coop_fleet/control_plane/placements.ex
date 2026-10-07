@@ -10,13 +10,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   """
 
   import Ecto.Changeset
-  import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Bodies, Command, JobAuthority, Placement, Worker}
+  alias Ryker.CoopFleet.{Bodies, CommandQuery, JobAuthority, Placement, PlacementQuery, Worker}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Shared}
-  alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
+  alias Ryker.CoopFleet.{WorkerQuery, WorkspaceCheckpointTransferQuery}
   alias Ryker.Repo
-  alias Ryker.Work.{RepositorySource, Session, Turn}
+  alias Ryker.Work.{RepositorySource, Session, SessionQuery, TurnQuery}
 
   @creating_seconds 300
   @cleanup_phases [:close_pending, :plan_pending, :discard_pending]
@@ -90,7 +89,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
     with %Placement{} = placement <- active_placement(session_id),
          true <- current?(placement, now),
-         %Worker{} = worker <- Repo.get(Worker, placement.worker_id),
+         %Worker{} = worker <- Repo.one(WorkerQuery.by_id(placement.worker_id)),
          true <- worker_current?(worker, placement.requirements["workspace_ref"], now),
          true <- every_slot_free?(worker),
          false <- session_being_created?(worker.id, now) do
@@ -100,13 +99,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     end
   end
 
-  defp active_placement(session_id) do
-    Repo.one(
-      from(placement in Placement,
-        where: placement.session_id == ^session_id and placement.state == :active
-      )
-    )
-  end
+  defp active_placement(session_id),
+    do: session_id |> PlacementQuery.by_session_id() |> PlacementQuery.active() |> Repo.one()
 
   defp every_slot_free?(worker) do
     worker.capacity["state"] == "eligible" and
@@ -122,17 +116,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # stop every prepare on its worker.
   defp session_being_created?(worker_id, now) do
     since = DateTime.add(now, -@creating_seconds, :second)
-
-    Repo.exists?(
-      from(placement in Placement,
-        join: session in Session,
-        on: session.id == placement.session_id,
-        where:
-          placement.worker_id == ^worker_id and
-            placement.state in ^Placement.current_states() and
-            placement.inserted_at > ^since and is_nil(session.coop_session_id)
-      )
-    )
+    Repo.exists?(PlacementQuery.unbound_since(worker_id, since))
   end
 
   # A command waits only while the worker can still act on it: one the next poll
@@ -142,20 +126,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # again (2026-10-04 review).
   defp commands_waiting?(worker_id, now) do
     prepare_cutoff = DateTime.add(now, -Commands.prepare_redelivery_seconds(), :second)
-
-    Repo.exists?(
-      from(command in Command,
-        join: placement in Placement,
-        on: placement.id == command.placement_id,
-        where:
-          command.worker_id == ^worker_id and
-            command.status in [:queued, :delivered, :acknowledged] and
-            placement.state == :active and placement.lease_expires_at > ^now,
-        where:
-          command.kind != "prepare_session" or is_nil(command.delivered_at) or
-            command.delivered_at > ^prepare_cutoff
-      )
-    )
+    Repo.exists?(CommandQuery.waiting_on(worker_id, now, prepare_cutoff))
   end
 
   @doc """
@@ -183,30 +154,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   defp portable_checkpoint(%Session{repository_ref: nil}, _root), do: nil
 
   defp portable_checkpoint(%Session{} = session, root) do
-    from(transfer in WorkspaceCheckpointTransfer,
-      join: command in Command,
-      on: command.id == transfer.command_id,
-      join: source in Session,
-      on: source.id == command.session_id,
-      where:
-        source.episode_id == ^session.episode_id and
-          source.generation <= ^session.generation and
-          source.repository_ref == ^session.repository_ref and command.status == :succeeded and
-          fragment("(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb", command.result),
-      order_by: [desc: transfer.inserted_at, desc: transfer.id],
-      limit: 1,
-      select: {
-        %{
-          byte_size: transfer.bundle_byte_size,
-          checkpoint_ref: transfer.checkpoint_ref,
-          repository_ref: transfer.repository_ref,
-          sha256: transfer.bundle_sha256,
-          body_command_id: transfer.body_command_id,
-          descriptor: transfer.descriptor
-        },
-        source.repository_source
-      }
-    )
+    session
+    |> WorkspaceCheckpointTransferQuery.latest_portable()
     |> Repo.one()
     |> checkpoint_offer(session.repository_source, root)
   end
@@ -233,12 +182,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     lock_holding_workers(session_id)
 
     session =
-      Repo.one(
-        from(session in Session,
-          where: session.id == ^session_id,
-          lock: "FOR NO KEY UPDATE"
-        )
-      ) || Shared.rollback({:coop_session_not_found, session_id})
+      session_id |> SessionQuery.by_id() |> SessionQuery.lock_for_no_key_update() |> Repo.one() ||
+        Shared.rollback({:coop_session_not_found, session_id})
 
     validate_job_for_placement!(session)
     now = Repo.now!()
@@ -419,11 +364,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   defp cancelling_bound_session?(%Session{id: session_id, coop_session_id: remote_id})
        when is_binary(remote_id) do
-    Repo.exists?(
-      from(turn in Turn,
-        where: turn.session_id == ^session_id and turn.status == :cancel_pending
-      )
-    )
+    session_id |> TurnQuery.by_session_id() |> TurnQuery.cancelling() |> Repo.exists?()
   end
 
   defp cancelling_bound_session?(_session), do: false
@@ -506,13 +447,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # expired one stayed current forever and readiness stayed red with
   # :expired_current_placements. Retire it on the same poll that observed it.
   defp retire_expired_placements(worker, now) do
-    from(placement in Placement,
-      where:
-        placement.worker_id == ^worker.id and
-          placement.state in ^(Placement.current_states() -- [:active]) and
-          placement.lease_expires_at <= ^now,
-      lock: "FOR UPDATE"
-    )
+    worker.id
+    |> PlacementQuery.expired_inactive(now)
+    |> PlacementQuery.lock_for_update()
     |> Repo.all()
     |> Enum.each(fn placement ->
       retired = placement |> change(%{state: :replaced}) |> Repo.update!()
@@ -531,12 +468,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   def retire_session_placements(session_id, now) do
     lock_holding_workers(session_id)
 
-    from(placement in Placement,
-      where:
-        placement.session_id == ^session_id and
-          placement.state in ^Placement.current_states(),
-      lock: "FOR UPDATE"
-    )
+    session_id
+    |> PlacementQuery.by_session_id()
+    |> PlacementQuery.current()
+    |> PlacementQuery.lock_for_update()
     |> Repo.all()
     |> Enum.each(fn placement ->
       retired = placement |> change(%{state: :retired}) |> Repo.update!()
@@ -560,13 +495,14 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   def retire_abandoned_placements(now, up_since) do
     cutoff = DateTime.add(now, -@abandoned_seconds, :second)
     judge_vanished? = DateTime.compare(up_since, cutoff) != :gt
-    query = abandoned_query(cutoff, judge_vanished?)
-    workers = Repo.all(from(placement in query, distinct: true, select: placement.worker_id))
+    query = PlacementQuery.abandoned(cutoff, judge_vanished?)
+    workers = query |> PlacementQuery.select_worker_ids() |> Repo.all()
 
     Repo.transaction(fn ->
       Enum.each(Enum.sort(workers), &Shared.locked_worker/1)
 
-      from(placement in query, lock: "FOR UPDATE")
+      query
+      |> PlacementQuery.lock_for_update()
       |> Repo.all()
       |> Enum.map(fn placement ->
         retired = placement |> change(%{state: :replaced}) |> Repo.update!()
@@ -576,38 +512,17 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     end)
   end
 
-  defp abandoned_query(cutoff, judge_vanished?) do
-    abandoned =
-      if judge_vanished? do
-        dynamic(
-          [placement, worker],
-          worker.state == :revoked or
-            (placement.lease_expires_at <= ^cutoff and worker.last_seen_at <= ^cutoff)
-        )
-      else
-        dynamic([_placement, worker], worker.state == :revoked)
-      end
-
-    from(placement in Placement,
-      join: worker in Worker,
-      on: worker.id == placement.worker_id,
-      where: placement.state in ^Placement.current_states(),
-      where: ^abandoned
-    )
-  end
-
   @doc false
   def renew_worker_placements(worker, now, lease_seconds) do
     expires_at = DateTime.add(now, lease_seconds, :second)
     retire_expired_placements(worker, now)
 
     placements =
-      Repo.all(
-        from(placement in Placement,
-          where: placement.worker_id == ^worker.id and placement.state == :active,
-          lock: "FOR UPDATE"
-        )
-      )
+      worker.id
+      |> PlacementQuery.by_worker_id()
+      |> PlacementQuery.active()
+      |> PlacementQuery.lock_for_update()
+      |> Repo.all()
 
     # A lease that ran out with nothing placed in its stead is the worker's
     # still: this poll shows the worker holds it. Replacing it here disrupted
@@ -698,40 +613,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # while it runs, and skipping it left a task that arrived mid-poll with no
   # worker at all, stopped for a person (2026-10-04 review).
   defp worker_candidate(requirements, cutoff, excluded_ids) do
-    query = candidate_query(requirements, cutoff, excluded_ids)
-
-    Repo.one(lock(query, "FOR UPDATE SKIP LOCKED")) || Repo.one(lock(query, "FOR UPDATE"))
-  end
-
-  defp candidate_query(requirements, cutoff, excluded_ids) do
-    current_states = Enum.map(Placement.current_states(), &Atom.to_string/1)
-
-    from(worker in Worker,
-      where:
-        worker.workspace_ref == ^requirements.workspace_ref and worker.state == :eligible and
-          is_nil(worker.drain_requested_at) and is_nil(worker.revoked_at) and
-          worker.last_seen_at >= ^cutoff and worker.id not in ^excluded_ids,
-      order_by: [
-        asc:
-          fragment(
-            "(SELECT count(*) FROM coop_session_placements AS placement WHERE placement.worker_id = ? AND placement.state = ANY(?))",
-            worker.id,
-            type(^current_states, {:array, :string})
-          ),
-        desc:
-          fragment(
-            "COALESCE((?::jsonb ->> 'turn_slots_free')::integer, 0)",
-            worker.capacity
-          ),
-        desc:
-          fragment(
-            "COALESCE((?::jsonb ->> 'session_slots_free')::integer, 0)",
-            worker.capacity
-          ),
-        asc: worker.id
-      ],
-      limit: 1
-    )
+    query = WorkerQuery.placement_candidate(requirements, cutoff, excluded_ids)
+    Repo.one(WorkerQuery.lock_next_free(query)) || Repo.one(WorkerQuery.lock_for_update(query))
   end
 
   defp worker_has_capacity?(worker, now) do
@@ -754,40 +637,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   defp reserved_placement_slots(worker_id, now) do
     since = DateTime.add(now, -@creating_seconds, :second)
 
-    Repo.aggregate(
-      from(placement in Placement,
-        as: :placement,
-        join: session in Session,
-        on: session.id == placement.session_id,
-        where:
-          placement.worker_id == ^worker_id and
-            is_nil(session.coop_session_id) and
-            placement.state in ^Placement.current_states() and
-            placement.inserted_at > ^since and
-            not exists(subquery(closed_through_placement()))
-      ),
-      :count
-    )
-  end
-
-  # A session the worker closed through this placement holds no slot.
-  defp closed_through_placement do
-    from(command in Command,
-      where:
-        command.placement_id == parent_as(:placement).id and
-          command.kind == "close_session" and command.status == :succeeded and
-          fragment(
-            "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
-            command.result
-          ) and
-          fragment("?::jsonb #>> '{body,session,state}' = 'closed'", command.result) and
-          fragment(
-            "(?::jsonb #>> '{body,session,id}') = (?::jsonb ->> 'coop_session_id')",
-            command.result,
-            command.payload
-          ),
-      select: 1
-    )
+    worker_id
+    |> PlacementQuery.unbound_since(since)
+    |> PlacementQuery.without_closed_session()
+    |> Repo.aggregate(:count)
   end
 
   defp worker_eligible?(worker, requirements, now) do
@@ -837,12 +690,13 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   defp capacity_slot(worker, name), do: Map.get(worker.capacity, name, 0)
 
   defp next_placement_generation(session_id) do
-    Repo.one(
-      from(placement in Placement,
-        where: placement.session_id == ^session_id,
-        select: coalesce(max(placement.generation), 0)
-      )
-    ) + 1
+    generation =
+      session_id
+      |> PlacementQuery.by_session_id()
+      |> PlacementQuery.select_max_generation()
+      |> Repo.one()
+
+    generation + 1
   end
 
   # A poll locks its worker and then that worker's commands and placements.
@@ -851,36 +705,28 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # (2026-10-04 review). They lock the workers holding the session's
   # placements first, in one order, as the poll does.
   defp lock_holding_workers(session_id) do
-    from(placement in Placement,
-      where: placement.session_id == ^session_id,
-      distinct: true,
-      order_by: placement.worker_id,
-      select: placement.worker_id
-    )
+    session_id
+    |> PlacementQuery.by_session_id()
+    |> PlacementQuery.select_worker_ids()
     |> Repo.all()
     |> Enum.each(&Shared.locked_worker/1)
   end
 
   defp current_placement(session_id) do
-    Repo.one(
-      from(placement in Placement,
-        where:
-          placement.session_id == ^session_id and
-            placement.state in ^Placement.current_states(),
-        lock: "FOR UPDATE"
-      )
-    )
+    session_id
+    |> PlacementQuery.by_session_id()
+    |> PlacementQuery.current()
+    |> PlacementQuery.lock_for_update()
+    |> Repo.one()
   end
 
   defp latest_placement(session_id) do
-    Repo.one(
-      from(placement in Placement,
-        where: placement.session_id == ^session_id,
-        order_by: [desc: placement.generation],
-        limit: 1,
-        lock: "FOR UPDATE"
-      )
-    )
+    session_id
+    |> PlacementQuery.by_session_id()
+    |> PlacementQuery.latest_generation_first()
+    |> PlacementQuery.limit_to(1)
+    |> PlacementQuery.lock_for_update()
+    |> Repo.one()
   end
 
   defp requirements(%{} = requirements) do
