@@ -23,7 +23,7 @@ defmodule Ryker.WeeklyReport.Facts do
   """
 
   import Ecto.Query
-  alias Ryker.Accounting.Query, as: Ledger
+  alias Ryker.Accounting.ExecutionQuery
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, Paths}
   alias Ryker.Episodes.{Episode, Event, RoutingDigests}
   alias Ryker.Feedback.Signal
@@ -238,13 +238,13 @@ defmodule Ryker.WeeklyReport.Facts do
   end
 
   # What the week's model calls cost, as the Usage page adds it up
-  # (`Ryker.Accounting.Query`): what the provider reported, plus Ryker's
+  # (`Ryker.Accounting.ExecutionQuery`): what the provider reported, plus Ryker's
   # estimate at the saved API prices for calls it reported no price for, as
   # a ChatGPT sign-in never does. Nil when calls ran but none could be
   # priced; `estimated` when any of it is an estimate.
   defp cost(from, to) do
     row =
-      from(execution in Ledger.executions(from, "live"),
+      from(execution in ExecutionQuery.ledger(from, "live"),
         where: execution.recorded_at < ^to,
         select: %{
           calls: count(execution.id),

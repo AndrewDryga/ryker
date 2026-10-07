@@ -6,8 +6,7 @@ defmodule Ryker.BundledCoop do
   enrollment state and the controller CA, never policies or repository checkouts.
   """
 
-  import Ecto.Query
-  alias Ryker.CoopFleet.{Enrollment, EnrollmentToken, Worker}
+  alias Ryker.CoopFleet.{Enrollment, EnrollmentTokenQuery, Worker, WorkerQuery}
   alias Ryker.Crypto
   alias Ryker.{Repo, Settings}
 
@@ -83,21 +82,20 @@ defmodule Ryker.BundledCoop do
     end
   end
 
-  defp revoked?, do: match?(%Worker{state: :revoked}, Repo.get(Worker, configured_worker_id()))
+  defp revoked?, do: match?(%Worker{state: :revoked}, configured_worker())
+
+  defp configured_worker, do: Repo.one(WorkerQuery.by_id(configured_worker_id()))
 
   defp retire_tokens!(path) do
     worker = configured_worker_id()
     workspace = configured_workspace_ref()
     now = Repo.now!()
 
-    Repo.update_all(
-      from(token in EnrollmentToken,
-        where:
-          token.worker_id == ^worker and token.workspace_ref == ^workspace and
-            token.operator_ref == @actor and is_nil(token.consumed_at) and token.expires_at > ^now
-      ),
-      set: [expires_at: now]
-    )
+    worker
+    |> EnrollmentTokenQuery.for_worker(workspace)
+    |> EnrollmentTokenQuery.by_operator(@actor)
+    |> EnrollmentTokenQuery.usable_at(now)
+    |> Repo.update_all(set: [expires_at: now])
 
     case File.rm(path) do
       :ok ->
@@ -138,19 +136,16 @@ defmodule Ryker.BundledCoop do
     workspace = configured_workspace_ref()
     now = Repo.now!()
 
-    Repo.exists?(
-      from(token in EnrollmentToken,
-        where:
-          token.token_sha256 == ^digest and token.worker_id == ^worker and
-            token.workspace_ref == ^workspace and is_nil(token.consumed_at) and
-            token.expires_at > ^now
-      )
-    )
+    digest
+    |> EnrollmentTokenQuery.by_digest()
+    |> EnrollmentTokenQuery.for_worker(worker, workspace)
+    |> EnrollmentTokenQuery.usable_at(now)
+    |> Repo.exists?()
   end
 
   @doc false
   def ready? do
-    worker = Repo.get(Worker, configured_worker_id())
+    worker = configured_worker()
     snapshot = Settings.fetch!()
 
     worker_ready?(worker) and snapshot.work.workspace_ref == configured_workspace_ref()

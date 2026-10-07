@@ -7,28 +7,27 @@ defmodule Ryker.Behaviors.Automations do
   remains in the immutable episode state-record history.
   """
 
-  import Ecto.Query
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.BehaviorChangeset
-  alias Ryker.Behaviors.StandingAssignmentRun
+  alias Ryker.Behaviors.BehaviorQuery
+  alias Ryker.Behaviors.StandingAssignmentRunQuery
   alias Ryker.Episodes.Episode
   alias Ryker.Episodes.Scope
   alias Ryker.Ingress.Adapters
   alias Ryker.Operator.FailureDetail
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
-  alias Ryker.Records.Record
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleChangeset
-  alias Ryker.Schedules.ScheduleOccurrence
+  alias Ryker.Schedules.ScheduleOccurrenceQuery
+  alias Ryker.Schedules.ScheduleQuery
   alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.Slack.ChannelFence
   alias Ryker.UTCDateTime
-  alias Ryker.Work.Turn
 
   @actions ~w(update pause resume delete)
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
@@ -43,32 +42,19 @@ defmodule Ryker.Behaviors.Automations do
     workspace = Scope.workspace_ref(episode)
 
     schedules =
-      Repo.all(
-        from(schedule in Schedule,
-          where:
-            schedule.destination_transport == ^episode.destination_transport and
-              schedule.destination_conversation_ref == ^episode.destination_conversation_ref and
-              schedule.status != :deleted,
-          order_by: [
-            asc: schedule.next_occurrence_at,
-            asc: schedule.inserted_at,
-            asc: schedule.id
-          ]
-        )
+      ScheduleQuery.in_conversation(
+        episode.destination_transport,
+        episode.destination_conversation_ref
       )
+      |> ScheduleQuery.not_deleted()
+      |> ScheduleQuery.soonest_first()
+      |> Repo.all()
 
     behaviors =
-      Repo.all(
-        from(behavior in Behavior,
-          where:
-            behavior.kind == :standing_assignment and
-              behavior.scope_kind == :conversation and
-              behavior.scope_ref == ^episode.destination_conversation_ref and
-              behavior.workspace_ref == ^workspace and
-              behavior.status in [:active, :disabled],
-          order_by: [asc: behavior.inserted_at, asc: behavior.id]
-        )
-      )
+      workspace
+      |> conversation_assignments(episode)
+      |> BehaviorQuery.oldest_first()
+      |> Repo.all()
 
     Enum.map(schedules ++ behaviors, &document/1)
   end
@@ -170,53 +156,10 @@ defmodule Ryker.Behaviors.Automations do
 
   @spec detail(Schedule.t() | Behavior.t(), pos_integer()) :: map()
   def detail(%Schedule{} = schedule, limit) when is_integer(limit) and limit in 1..20 do
-    latest_turns =
-      from(turn in Turn,
-        distinct: turn.episode_id,
-        order_by: [asc: turn.episode_id, desc: turn.inserted_at, desc: turn.id],
-        select: %{
-          accepted_at: turn.accepted_at,
-          delivered_at: turn.delivered_at,
-          episode_id: turn.episode_id,
-          failure_code: turn.last_error_code,
-          failure_detail: turn.last_error_detail,
-          finished_at: turn.remote_finished_at,
-          started_at: turn.remote_started_at,
-          turn_status: turn.status,
-          work_attempt_count: turn.work_attempt_count
-        }
-      )
-
     runs =
-      Repo.all(
-        from(occurrence in ScheduleOccurrence,
-          left_join: episode in Episode,
-          on: episode.id == occurrence.child_episode_id,
-          left_join: turn in subquery(latest_turns),
-          on: turn.episode_id == occurrence.child_episode_id,
-          where: occurrence.schedule_id == ^schedule.id,
-          order_by: [desc: occurrence.scheduled_for, desc: occurrence.id],
-          limit: ^limit,
-          select: %{
-            "accepted_at" => turn.accepted_at,
-            "delivered_at" => turn.delivered_at,
-            "episode_id" => occurrence.child_episode_id,
-            "episode_state" => episode.state,
-            "event_ref" => occurrence.event_ref,
-            "failure_code" => turn.failure_code,
-            "failure_detail" => turn.failure_detail,
-            "finished_at" => turn.finished_at,
-            "missed_reason" => occurrence.missed_reason,
-            "outcome" => occurrence.status,
-            "run_ref" => occurrence.ref,
-            "scheduled_for" => occurrence.scheduled_for,
-            "started_at" => turn.started_at,
-            "trigger" => occurrence.trigger,
-            "turn_status" => turn.turn_status,
-            "work_attempt_count" => turn.work_attempt_count
-          }
-        )
-      )
+      schedule.id
+      |> ScheduleOccurrenceQuery.recent_runs(limit)
+      |> Repo.all()
       |> Enum.map(&sanitize_run/1)
       |> Enum.map(&run_document/1)
 
@@ -225,25 +168,9 @@ defmodule Ryker.Behaviors.Automations do
 
   def detail(%Behavior{} = behavior, limit) when is_integer(limit) and limit in 1..20 do
     runs =
-      Repo.all(
-        from(run in StandingAssignmentRun,
-          left_join: episode in Episode,
-          on: episode.id == run.episode_id,
-          where: run.assignment_id == ^behavior.id,
-          order_by: [desc: run.inserted_at, desc: run.id],
-          limit: ^limit,
-          select: %{
-            "decision_action" => run.decision_action,
-            "decision_ref" => run.decision_ref,
-            "episode_id" => run.episode_id,
-            "episode_state" => episode.state,
-            "outcome" => run.outcome,
-            "run_ref" => run.ref,
-            "source_event_ref" => run.source_event_ref,
-            "source_input_ref" => run.source_input_ref
-          }
-        )
-      )
+      behavior.id
+      |> StandingAssignmentRunQuery.recent_for_assignment(limit)
+      |> Repo.all()
       |> Enum.map(&run_document/1)
 
     document(behavior) |> Map.put("recent_runs", runs)
@@ -566,20 +493,9 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp lock_offer(record_ref) do
-    query =
-      from(record in Record,
-        join: episode in Episode,
-        on: episode.id == record.episode_id,
-        join: turn in Turn,
-        on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-        where: record.ref == ^record_ref and record.kind == "automation_change_offer",
-        select: {record, episode, turn},
-        lock: "FOR UPDATE"
-      )
-
-    case Repo.one(query) do
-      nil -> {:error, :automation_change_offer_not_found}
-      {record, episode, turn} -> {:ok, record, episode, turn}
+    case Records.lock_offer(record_ref, ["automation_change_offer"]) do
+      {:error, :not_found} -> {:error, :automation_change_offer_not_found}
+      found -> found
     end
   end
 
@@ -592,14 +508,26 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp lock_visible_automation(episode, automation_id) do
-    case Repo.one(visible_schedule_query(episode, automation_id) |> lock("FOR UPDATE")) do
+    schedule =
+      episode
+      |> visible_schedule_query(automation_id)
+      |> ScheduleQuery.lock_for_update()
+      |> Repo.one()
+
+    case schedule do
       %Schedule{} = schedule -> {:ok, schedule}
       nil -> lock_visible_behavior(episode, automation_id)
     end
   end
 
   defp lock_visible_behavior(episode, automation_id) do
-    case Repo.one(visible_behavior_query(episode, automation_id) |> lock("FOR UPDATE")) do
+    behavior =
+      episode
+      |> visible_behavior_query(automation_id)
+      |> BehaviorQuery.lock_for_update()
+      |> Repo.one()
+
+    case behavior do
       %Behavior{} = behavior -> {:ok, behavior}
       nil -> :error
     end
@@ -611,13 +539,13 @@ defmodule Ryker.Behaviors.Automations do
   # One automation is found exactly where the list finds it: a deleted one is
   # gone from both, so it can be neither read nor changed.
   defp visible_schedule_query(episode, automation_id) do
-    from(schedule in Schedule,
-      where:
-        schedule.ref == ^automation_id and
-          schedule.destination_transport == ^episode.destination_transport and
-          schedule.destination_conversation_ref == ^episode.destination_conversation_ref and
-          schedule.status != :deleted
+    automation_id
+    |> ScheduleQuery.by_ref()
+    |> ScheduleQuery.in_conversation(
+      episode.destination_transport,
+      episode.destination_conversation_ref
     )
+    |> ScheduleQuery.not_deleted()
   end
 
   defp visible_behavior_result(episode, automation_id) do
@@ -628,15 +556,18 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp visible_behavior_query(episode, automation_id) do
-    workspace = Scope.workspace_ref(episode)
+    episode
+    |> Scope.workspace_ref()
+    |> conversation_assignments(episode)
+    |> BehaviorQuery.by_ref(automation_id)
+  end
 
-    from(behavior in Behavior,
-      where:
-        behavior.ref == ^automation_id and behavior.kind == :standing_assignment and
-          behavior.workspace_ref == ^workspace and behavior.scope_kind == :conversation and
-          behavior.scope_ref == ^episode.destination_conversation_ref and
-          behavior.status in [:active, :disabled]
-    )
+  # The standing assignments a conversation lists as its automations.
+  defp conversation_assignments(workspace, episode) do
+    BehaviorQuery.of_kind(:standing_assignment)
+    |> BehaviorQuery.by_workspace(workspace)
+    |> BehaviorQuery.scoped_to(:conversation, episode.destination_conversation_ref)
+    |> BehaviorQuery.with_status([:active, :disabled])
   end
 
   defp idle_schedule(%Schedule{lease_ref: nil}, _occurred_at), do: :ok

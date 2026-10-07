@@ -41,9 +41,10 @@ defmodule Ryker.CredoCheckProbe do
   @spec check(String.t()) :: module()
   def check(name), do: Module.safe_concat([:Ryker, :Checks, name])
 
-  @doc "Every issue `check` reports for `source` parsed at `filename`."
-  @spec issues(module(), String.t(), String.t()) :: [Credo.Issue.t()]
-  def issues(check, source, filename), do: source |> SourceFile.parse(filename) |> check.run([])
+  @doc "Every issue `check` reports for `source` parsed at `filename`, given the check's `params`."
+  @spec issues(module(), String.t(), String.t(), keyword()) :: [Credo.Issue.t()]
+  def issues(check, source, filename, params \\ []),
+    do: source |> SourceFile.parse(filename) |> check.run(params)
 
   @doc "The sorted triggers `check` reports for `source` at `filename`."
   @spec triggers(module(), String.t(), String.t()) :: [String.t()]

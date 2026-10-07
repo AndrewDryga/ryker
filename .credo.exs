@@ -3,6 +3,55 @@
 # test/ryker/credo_checks/). Credo's default file list covers lib/ and test/
 # but not evals/, the development- and test-only home of the model
 # evaluations, nor the checks themselves.
+
+# Where queries have not moved into Query modules yet (IL-1, IL-2). Each change
+# that moves a context's queries removes its paths; the list only shrinks.
+query_modules_pending = [
+  "lib/ryker/admission.ex",
+  "lib/ryker/admission/",
+  "lib/ryker/continuity/",
+  "lib/ryker/control_plane/",
+  "lib/ryker/coop_fleet/",
+  "lib/ryker/delivery/",
+  "lib/ryker/emisar/",
+  "lib/ryker/episodes.ex",
+  "lib/ryker/episodes/",
+  "lib/ryker/feedback.ex",
+  "lib/ryker/feedback/",
+  "lib/ryker/github/",
+  "lib/ryker/improvement.ex",
+  "lib/ryker/improvement/",
+  "lib/ryker/ingress/",
+  "lib/ryker/knowledge.ex",
+  "lib/ryker/knowledge/",
+  "lib/ryker/learning.ex",
+  "lib/ryker/learning/",
+  "lib/ryker/local_routing.ex",
+  "lib/ryker/memories.ex",
+  "lib/ryker/memories/",
+  "lib/ryker/observability/",
+  "lib/ryker/operator/",
+  "lib/ryker/publication/",
+  "lib/ryker/records.ex",
+  "lib/ryker/records/",
+  "lib/ryker/repository_knowledge.ex",
+  "lib/ryker/repository_knowledge/",
+  "lib/ryker/retention/",
+  "lib/ryker/routing_examples.ex",
+  "lib/ryker/routing_examples/",
+  "lib/ryker/schedules.ex",
+  "lib/ryker/settings.ex",
+  "lib/ryker/settings/",
+  "lib/ryker/slack/",
+  "lib/ryker/state_tools/",
+  "lib/ryker/waits/",
+  "lib/ryker/weekly_report.ex",
+  "lib/ryker/weekly_report/",
+  "lib/ryker/work_examples.ex",
+  "lib/ryker/work_examples/",
+  "lib/ryker/work/"
+]
+
 %{
   configs: [
     %{
@@ -20,6 +69,8 @@
           {Ryker.Checks.ContextCryptoBoundary, []},
           {Ryker.Checks.ContextNoMapTakeDrop, []},
           {Ryker.Checks.EnumOverValidateInclusion, []},
+          {Ryker.Checks.IL01NoInlineEctoDsl, pending: query_modules_pending},
+          {Ryker.Checks.IL02NoRepoGet, pending: query_modules_pending},
           {Ryker.Checks.IL06QueryModulePure, []},
           {Ryker.Checks.IL12NoFloatMoney, []},
           {Ryker.Checks.InlineBroadcast, []},

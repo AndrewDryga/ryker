@@ -9,8 +9,7 @@ defmodule Ryker.Artifacts do
   """
 
   import Bitwise
-  import Ecto.Query
-  alias Ryker.Artifacts.{Artifact, ArtifactChangeset}
+  alias Ryker.Artifacts.{Artifact, ArtifactChangeset, ArtifactQuery}
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Repo
@@ -73,13 +72,11 @@ defmodule Ryker.Artifacts do
 
   @spec fetch_source(String.t(), String.t()) :: {:ok, Artifact.t()} | {:error, term()}
   def fetch_source(source_kind, source_ref) do
-    case Repo.one(
-           from(artifact in Artifact,
-             where: artifact.source_kind == ^source_kind and artifact.source_ref == ^source_ref
-           )
-         ) do
-      %Artifact{} = artifact -> {:ok, artifact}
-      nil -> {:error, :input_artifact_not_found}
+    ArtifactQuery.by_source(source_kind, source_ref)
+    |> Repo.fetch()
+    |> case do
+      {:ok, artifact} -> {:ok, artifact}
+      {:error, :not_found} -> {:error, :input_artifact_not_found}
     end
   end
 
@@ -94,7 +91,7 @@ defmodule Ryker.Artifacts do
         if unique == [] do
           []
         else
-          Repo.all(from(artifact in Artifact, where: artifact.ref in ^unique))
+          Repo.all(ArtifactQuery.by_refs(unique))
         end
 
       by_ref = Map.new(artifacts, &{&1.ref, &1})

@@ -1,9 +1,10 @@
 defmodule Ryker.CredoChecks.BoundaryChecksTest do
-  # Fixture coverage for the checks that keep each layer to its job: pure query
-  # modules (IL-6), money never in a float (IL-12), preloads named by query
-  # helpers, an `Ecto.Enum` for a fixed set of strings, whole hashes on the
-  # console, and LiveView subscriptions only once connected (IL-18). Each gets
-  # a probe it must flag and a compliant probe it must not.
+  # Fixture coverage for the checks that keep each layer to its job: queries
+  # only in query modules (IL-1, IL-2), pure query modules (IL-6), money never
+  # in a float (IL-12), preloads named by query helpers, an `Ecto.Enum` for a
+  # fixed set of strings, whole hashes on the console, and LiveView
+  # subscriptions only once connected (IL-18). Each gets a probe it must flag
+  # and a compliant probe it must not.
   use ExUnit.Case, async: true
   import Ryker.CredoCheckProbe
 
@@ -15,6 +16,106 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
 
   setup_all do
     load()
+  end
+
+  describe "Ryker.Checks.IL01NoInlineEctoDsl" do
+    test "flags the query DSL outside a query module" do
+      source = """
+      defmodule Ryker.Sprockets do
+        import Ecto.Query
+
+        def recent, do: Ecto.Query.from(s in Sprocket, limit: 5)
+      end
+      """
+
+      assert triggers(il01(), source, @context) == ["Ecto.Query.from", "import Ecto.Query"]
+      assert [issue | _] = issues(il01(), source, @context)
+      assert issue.check == il01()
+      assert issue.message =~ "IL-1"
+    end
+
+    test "allows the DSL in a query module and a query type in any spec" do
+      query = """
+      defmodule Ryker.Sprockets.SprocketQuery do
+        import Ecto.Query
+
+        def all, do: from(sprockets in Sprocket, as: :sprockets)
+      end
+      """
+
+      spec = """
+      defmodule Ryker.Sprockets do
+        @spec recent() :: Ecto.Query.t()
+        def recent, do: SprocketQuery.all()
+      end
+      """
+
+      assert issues(il01(), query, @query) == []
+      assert issues(il01(), spec, @context) == []
+    end
+
+    test "skips the paths still pending, and only those" do
+      source = """
+      defmodule Ryker.Sprockets do
+        import Ecto.Query
+      end
+      """
+
+      pending = [pending: ["lib/ryker/sprockets.ex", "lib/ryker/gears/"]]
+      assert issues(il01(), source, @context, pending) == []
+      assert issues(il01(), source, "lib/ryker/gears/gear_worker.ex", pending) == []
+      assert [_issue] = issues(il01(), source, "lib/ryker/sprockets_archive.ex", pending)
+      assert [_issue] = issues(il01(), source, "lib/ryker/gears_archive.ex", pending)
+    end
+  end
+
+  describe "Ryker.Checks.IL02NoRepoGet" do
+    test "flags every Repo.get form in lib" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def one(id), do: Repo.get(Sprocket, id)
+        def one!(id), do: Repo.get!(Sprocket, id)
+        def named(name), do: Ryker.Repo.get_by(Sprocket, name: name)
+        def named!(name), do: Repo.get_by!(Sprocket, name: name)
+      end
+      """
+
+      assert triggers(il02(), source, @context) ==
+               ["Repo.get", "Repo.get!", "Repo.get_by", "Repo.get_by!"]
+
+      assert [issue | _] = issues(il02(), source, @context)
+      assert issue.check == il02()
+      assert issue.message =~ "IL-2"
+    end
+
+    test "allows a lookup through a query module, Repo itself, and tests" do
+      context = """
+      defmodule Ryker.Sprockets do
+        def one(id), do: id |> SprocketQuery.by_id() |> Repo.fetch()
+      end
+      """
+
+      direct = """
+      defmodule Ryker.Repo do
+        def lookup(schema, id), do: Ryker.Repo.get(schema, id)
+      end
+      """
+
+      assert issues(il02(), context, @context) == []
+      assert issues(il02(), direct, "lib/ryker/repo.ex") == []
+      assert issues(il02(), direct, "test/ryker/sprockets_test.exs") == []
+    end
+
+    test "skips the paths still pending" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def one(id), do: Repo.get(Sprocket, id)
+      end
+      """
+
+      assert issues(il02(), source, @context, pending: ["lib/ryker/sprockets.ex"]) == []
+      assert [_issue] = issues(il02(), source, @context)
+    end
   end
 
   describe "Ryker.Checks.IL06QueryModulePure" do
@@ -404,6 +505,8 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
 
   defp map_take_drop, do: check("ContextNoMapTakeDrop")
   defp crypto_boundary, do: check("ContextCryptoBoundary")
+  defp il01, do: check("IL01NoInlineEctoDsl")
+  defp il02, do: check("IL02NoRepoGet")
   defp il06, do: check("IL06QueryModulePure")
   defp il12, do: check("IL12NoFloatMoney")
   defp preload_opts, do: check("NoPreloadInRepoOpts")

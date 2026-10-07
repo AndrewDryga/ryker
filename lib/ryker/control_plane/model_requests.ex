@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
   import Ecto.Query
   require Ryker.ControlPlane.CurrentInputs
+  alias Ryker.Accounting.ExecutionQuery
   alias Ryker.Admission.Attempt
   alias Ryker.ControlPlane.{Activity, CallRun, ContextSearch, ContextSelection, CurrentInputs}
   alias Ryker.ControlPlane.{EpisodeTrace, FeedbackProjection, ImprovementRequests}
@@ -650,7 +651,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # Routing is the only spend a message without a request has.
   defp routing_cost(%Entry{id: id}) do
     totals =
-      Ryker.Accounting.Query.executions(nil, "all")
+      ExecutionQuery.ledger(nil, "all")
       |> where([execution], execution.kind == "admission" and execution.source_id == ^id)
       |> UsageProjection.totals()
 

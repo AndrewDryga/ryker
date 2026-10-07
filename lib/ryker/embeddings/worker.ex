@@ -14,11 +14,10 @@ defmodule Ryker.Embeddings.Worker do
   """
 
   use Ryker.PollingWorker, lane: :embeddings, interval: :poll_interval_ms
-  import Ecto.Query
   require Logger
   alias Ryker.Embeddings
   alias Ryker.Episodes
-  alias Ryker.Episodes.{RoutingDigest, RoutingDigests}
+  alias Ryker.Episodes.{RoutingDigestQuery, RoutingDigests}
   alias Ryker.PollingWorker
   alias Ryker.Repo
 
@@ -87,13 +86,10 @@ defmodule Ryker.Embeddings.Worker do
     options = Map.new(options)
 
     digests =
-      Repo.all(
-        from(digest in RoutingDigest,
-          where: is_nil(digest.embedding_model),
-          order_by: [desc: digest.updated_at, asc: digest.episode_id],
-          limit: @batch
-        )
-      )
+      RoutingDigestQuery.without_embedding()
+      |> RoutingDigestQuery.recently_updated_first()
+      |> RoutingDigestQuery.limit_to(@batch)
+      |> Repo.all()
 
     case digests do
       [] -> :idle
@@ -134,14 +130,11 @@ defmodule Ryker.Embeddings.Worker do
   # for a vector of its new text.
   defp write(digest, vector, model, now) do
     {count, _rows} =
-      Repo.update_all(
-        from(stored in RoutingDigest,
-          where:
-            stored.episode_id == ^digest.episode_id and stored.updated_at == ^digest.updated_at and
-              is_nil(stored.embedding_model)
-        ),
-        set: [embedding: vector, embedding_model: model, embedded_at: now]
-      )
+      digest.episode_id
+      |> RoutingDigestQuery.by_episode_id()
+      |> RoutingDigestQuery.unchanged_since(digest)
+      |> RoutingDigestQuery.without_embedding()
+      |> Repo.update_all(set: [embedding: vector, embedding_model: model, embedded_at: now])
 
     count
   end

@@ -25,6 +25,7 @@ defmodule Ryker.Records do
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
   alias Ryker.Records.RecordPayload
+  alias Ryker.Records.RecordQuery
   alias Ryker.Repo
   alias Ryker.Waits.EventSubscriptions
   alias Ryker.Waits.EventWaitTiming
@@ -1098,6 +1099,20 @@ defmodule Ryker.Records do
   def subscribe_records, do: Ryker.PubSub.subscribe(records_topic())
 
   def unsubscribe_records, do: Ryker.PubSub.unsubscribe(records_topic())
+
+  @doc """
+  The offer `ref` of one of `kinds` with the episode and Work turn that made
+  it, all three locked until the caller's transaction ends, for its
+  confirmation. Six offers kept a copy of this.
+  """
+  @spec lock_offer(String.t(), [String.t()]) ::
+          {:ok, Record.t(), Episode.t(), Turn.t()} | {:error, :not_found}
+  def lock_offer(ref, kinds) do
+    case Repo.fetch(RecordQuery.offer_with_origin(ref, kinds)) do
+      {:ok, {record, episode, turn}} -> {:ok, record, episode, turn}
+      {:error, :not_found} -> {:error, :not_found}
+    end
+  end
 
   @doc """
   Marks the offer `record` confirmed by a person's answer (its `occurred_at`,

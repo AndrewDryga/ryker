@@ -135,9 +135,9 @@ defmodule Ryker.AccountingTest do
 
     Repo.delete!(claim.turn)
     assert Repo.aggregate(Execution, :count) == 2
-    assert Repo.aggregate(Accounting.Query.executions(nil), :count) == 1
-    assert Repo.aggregate(Accounting.Query.executions(nil, "shadow"), :count) == 1
-    assert Repo.aggregate(Accounting.Query.executions(nil, "all"), :count) == 2
+    assert Repo.aggregate(Accounting.ExecutionQuery.ledger(nil), :count) == 1
+    assert Repo.aggregate(Accounting.ExecutionQuery.ledger(nil, "shadow"), :count) == 1
+    assert Repo.aggregate(Accounting.ExecutionQuery.ledger(nil, "all"), :count) == 2
   end
 
   # Every lease custody writes comes from the database's clock, and every other

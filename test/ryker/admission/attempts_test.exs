@@ -1,6 +1,6 @@
 defmodule Ryker.Admission.AttemptsTest do
   use Ryker.DataCase, async: true
-  alias Ryker.Accounting.Query
+  alias Ryker.Accounting.ExecutionQuery
   alias Ryker.Admission.{Attempt, Attempts}
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
@@ -77,7 +77,7 @@ defmodule Ryker.Admission.AttemptsTest do
     assert row.status == "failed"
     assert row.usage_input_tokens == 1200
     assert row.usage_cost_recorded
-    assert Repo.aggregate(Query.executions(nil), :count) == 1
+    assert Repo.aggregate(ExecutionQuery.ledger(nil), :count) == 1
   end
 
   # Activity says "Routing" while a message is being routed, and its page

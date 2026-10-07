@@ -59,7 +59,7 @@ defmodule Ryker.ControlPlane.Units do
   end
 
   @doc """
-  What a set of model calls cost, from usage totals (`Ryker.Accounting.Query`):
+  What a set of model calls cost, from usage totals (`Ryker.Accounting.ExecutionQuery`):
   reported cost plus what is estimated from saved prices, and "Not measured"
   when no call was priced. It reads "≈" when any of it is an estimate, unless
   the page says so its own way, as Usage does beside its rates.

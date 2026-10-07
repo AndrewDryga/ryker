@@ -7,8 +7,7 @@ defmodule Ryker.Artifacts.Outputs do
   can reference the artifact.
   """
 
-  import Ecto.Query
-  alias Ryker.Artifacts.{OutputArtifact, OutputArtifactChangeset}
+  alias Ryker.Artifacts.{OutputArtifact, OutputArtifactChangeset, OutputArtifactQuery}
   alias Ryker.Crypto
   alias Ryker.Repo
   alias Ryker.Work.Custody
@@ -76,11 +75,9 @@ defmodule Ryker.Artifacts.Outputs do
         if refs == [] do
           []
         else
-          Repo.all(
-            from(artifact in OutputArtifact,
-              where: artifact.turn_id == ^turn_id and artifact.ref in ^refs
-            )
-          )
+          OutputArtifactQuery.by_turn_id(turn_id)
+          |> OutputArtifactQuery.by_refs(refs)
+          |> Repo.all()
         end
 
       by_ref = Map.new(artifacts, &{&1.ref, &1})
@@ -174,11 +171,9 @@ defmodule Ryker.Artifacts.Outputs do
 
   defp reconcile_existing!(attributes, changeset) do
     artifact =
-      Repo.one(
-        from(artifact in OutputArtifact,
-          where: artifact.turn_id == ^attributes.turn_id and artifact.ref == ^attributes.ref
-        )
-      )
+      OutputArtifactQuery.by_turn_id(attributes.turn_id)
+      |> OutputArtifactQuery.by_ref(attributes.ref)
+      |> Repo.one()
 
     if artifact && identity(artifact) == identity(attributes),
       do: artifact,

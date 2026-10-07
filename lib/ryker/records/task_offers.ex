@@ -17,7 +17,7 @@ defmodule Ryker.Records.TaskOffers do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{Custody, RepositoryContext, RepositorySource, Session, Turn}
+  alias Ryker.Work.{Custody, RepositoryContext, RepositorySource, Session}
 
   @fields [:actor_ref, :confirmation_ref, :occurred_at, :policy, :record_ref, :target]
   @policy_fields [:digest, :environment_ref, :name, :repository_context, :repository_ref]
@@ -64,20 +64,9 @@ defmodule Ryker.Records.TaskOffers do
   end
 
   defp lock_offer(record_ref) do
-    query =
-      from(record in Record,
-        join: episode in Episode,
-        on: episode.id == record.episode_id,
-        join: turn in Turn,
-        on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-        where: record.ref == ^record_ref and record.kind == "task_offer",
-        select: {record, episode, turn},
-        lock: "FOR UPDATE"
-      )
-
-    case Repo.one(query) do
-      nil -> {:error, :task_offer_not_found}
-      {record, episode, turn} -> {:ok, record, episode, turn}
+    case Records.lock_offer(record_ref, ["task_offer"]) do
+      {:error, :not_found} -> {:error, :task_offer_not_found}
+      found -> found
     end
   end
 

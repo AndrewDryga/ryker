@@ -9,8 +9,7 @@ defmodule Ryker.Artifacts.References do
   searching serialized JSON.
   """
 
-  import Ecto.Query
-  alias Ryker.Artifacts.{Artifact, IngressReference, WorkReference}
+  alias Ryker.Artifacts.{ArtifactQuery, IngressReference, WorkReference}
   alias Ryker.Ingress.Input
   alias Ryker.Repo
 
@@ -83,13 +82,10 @@ defmodule Ryker.Artifacts.References do
   defp lock_artifacts(refs) do
     if Enum.all?(refs, &artifact_ref?/1) do
       artifacts =
-        Repo.all(
-          from(artifact in Artifact,
-            where: artifact.ref in ^refs,
-            order_by: artifact.ref,
-            lock: "FOR KEY SHARE"
-          )
-        )
+        ArtifactQuery.by_refs(refs)
+        |> ArtifactQuery.ordered_by_ref()
+        |> ArtifactQuery.lock_for_key_share()
+        |> Repo.all()
 
       if length(artifacts) == length(refs),
         do: {:ok, artifacts},

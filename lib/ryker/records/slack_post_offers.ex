@@ -8,16 +8,13 @@ defmodule Ryker.Records.SlackPostOffers do
   idempotent outbox action.
   """
 
-  import Ecto.Query
   alias Ryker.Delivery.{PlatformAction, PlatformActionCustody}
-  alias Ryker.Episodes.Episode
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.Turn
 
   @fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
@@ -99,20 +96,9 @@ defmodule Ryker.Records.SlackPostOffers do
   def host_slot(record), do: "confirmed-post:#{record.id}"
 
   defp lock_offer(record_ref) do
-    query =
-      from(record in Record,
-        join: episode in Episode,
-        on: episode.id == record.episode_id,
-        join: turn in Turn,
-        on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-        where: record.ref == ^record_ref and record.kind == "slack_post_offer",
-        select: {record, episode, turn},
-        lock: "FOR UPDATE"
-      )
-
-    case Repo.one(query) do
-      nil -> {:error, :slack_post_offer_not_found}
-      {record, episode, turn} -> {:ok, record, episode, turn}
+    case Records.lock_offer(record_ref, ["slack_post_offer"]) do
+      {:error, :not_found} -> {:error, :slack_post_offer_not_found}
+      found -> found
     end
   end
 

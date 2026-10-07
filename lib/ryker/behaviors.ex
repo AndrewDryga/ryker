@@ -11,12 +11,14 @@ defmodule Ryker.Behaviors do
   its commit (`subscribe_behaviors/0`).
   """
 
-  import Ecto.Query
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Behaviors.BehaviorQuery
   alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.Behaviors.StandingAssignmentRunChangeset
+  alias Ryker.Behaviors.StandingAssignmentRunQuery
   alias Ryker.Behaviors.StandingRuleInventory
+  alias Ryker.Behaviors.StandingRuleInventoryQuery
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Episodes.Scope
@@ -208,7 +210,7 @@ defmodule Ryker.Behaviors do
          workspace_ref,
          conversation_ref \\ nil
        ) do
-    case Repo.one(from(behavior in Behavior, where: behavior.ref == ^ref, lock: "FOR UPDATE")) do
+    case lock_behavior(ref) do
       nil ->
         {:error, :behavior_not_found}
 
@@ -245,18 +247,14 @@ defmodule Ryker.Behaviors do
     if Reference.valid?(workspace_ref) and Reference.valid?(conversation_ref) do
       now = Repo.now!()
 
-      Repo.all(
-        from(behavior in Behavior,
-          where:
-            behavior.kind == :standing_assignment and
-              behavior.workspace_ref == ^workspace_ref and
-              behavior.scope_kind == :conversation and behavior.scope_ref == ^conversation_ref and
-              behavior.status in [:active, :disabled] and
-              (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
-          order_by: [asc: behavior.inserted_at, asc: behavior.id],
-          limit: 100
-        )
-      )
+      BehaviorQuery.of_kind(:standing_assignment)
+      |> BehaviorQuery.by_workspace(workspace_ref)
+      |> BehaviorQuery.scoped_to(:conversation, conversation_ref)
+      |> BehaviorQuery.with_status([:active, :disabled])
+      |> BehaviorQuery.unexpired_at(now)
+      |> BehaviorQuery.oldest_first()
+      |> BehaviorQuery.limit_to(100)
+      |> Repo.all()
     else
       []
     end
@@ -279,9 +277,7 @@ defmodule Ryker.Behaviors do
     do: {:error, {:invalid_behavior, :assignment}}
 
   defp manage_assignment_locked(ref, status, workspace_ref, conversation_ref) do
-    query = from(behavior in Behavior, where: behavior.ref == ^ref, lock: "FOR UPDATE")
-
-    case Repo.one(query) do
+    case lock_behavior(ref) do
       %Behavior{
         kind: :standing_assignment,
         scope_kind: :conversation,
@@ -368,24 +364,11 @@ defmodule Ryker.Behaviors do
   defp account_guidance([], _context), do: []
 
   defp account_guidance(behaviors, context) do
-    unchanged =
-      Enum.reduce(behaviors, dynamic(false), fn behavior, condition ->
-        dynamic(
-          [current],
-          ^condition or
-            (current.id == ^behavior.id and current.payload == ^behavior.payload and
-               current.revision == ^behavior.revision)
-        )
-      end)
-
     current =
-      from(behavior in Behavior,
-        where: ^unchanged,
-        where:
-          behavior.status == :active and
-            (is_nil(behavior.expires_at) or behavior.expires_at > fragment("clock_timestamp()")),
-        select: behavior.id
-      )
+      BehaviorQuery.unchanged(behaviors)
+      |> BehaviorQuery.with_status(:active)
+      |> BehaviorQuery.unexpired()
+      |> BehaviorQuery.select_ids()
 
     retained = current |> charge_use(context) |> MapSet.new()
     behaviors |> Enum.filter(&MapSet.member?(retained, &1.id)) |> Enum.map(&guidance_document/1)
@@ -444,54 +427,23 @@ defmodule Ryker.Behaviors do
   end
 
   defp search_visible_page(context, page) do
-    scoped = search_scope(context, page.scope)
-    visible = behavior_visibility_filter(:guidance, context)
+    fields = BehaviorQuery.search_fields()
 
-    query =
-      from(b in Behavior,
-        where:
-          b.workspace_ref == ^context.workspace_ref and b.kind == :guidance and
-            b.status == :active and
-            (is_nil(b.expires_at) or b.expires_at > fragment("clock_timestamp()")),
-        where: ^scoped,
-        where: ^visible
-      )
-
-    changed =
-      dynamic(
-        [b],
-        type(fragment("COALESCE(?, ?)", b.edited_at, b.confirmed_at), :utc_datetime_usec)
-      )
-
-    query
+    BehaviorQuery.by_workspace(context.workspace_ref)
+    |> BehaviorQuery.of_kind(:guidance)
+    |> BehaviorQuery.with_status(:active)
+    |> BehaviorQuery.unexpired()
+    |> BehaviorQuery.in_search_scope(context, page.scope)
+    |> BehaviorQuery.visible_to(:guidance, context)
     |> MemorySearchPage.related_originals(
       page,
-      dynamic([b], b.source_conversation_ref),
-      dynamic([b], b.source_thread_ref),
-      dynamic([b], b.source_message_ref)
+      fields.conversation,
+      fields.thread,
+      fields.message
     )
-    |> MemorySearchPage.one(
-      page,
-      dynamic([b], b.payload),
-      changed,
-      dynamic([b], b.confirmed_at)
-    )
+    |> MemorySearchPage.one(page, fields.text, fields.changed, fields.source)
     |> account_search_result(context)
   end
-
-  defp search_scope(context, "current_channel"),
-    do: dynamic([b], b.scope_kind == :conversation and b.scope_ref == ^context.conversation_ref)
-
-  defp search_scope(%{repository: repository}, "repository") when is_binary(repository),
-    do: dynamic([b], b.scope_kind == :repository and b.scope_ref == ^repository)
-
-  defp search_scope(context, "workspace"),
-    do: dynamic([b], b.scope_kind == :workspace and b.scope_ref == ^context.workspace_ref)
-
-  defp search_scope(%{operator_ref: operator}, "mine") when is_binary(operator),
-    do: dynamic([b], b.scope_kind == :operator and b.scope_ref == ^operator)
-
-  defp search_scope(_context, _scope), do: dynamic([b], false)
 
   defp account_search_result({:ok, behavior, position}, context) do
     case account_guidance([behavior], context) do
@@ -550,7 +502,7 @@ defmodule Ryker.Behaviors do
     considered =
       input
       |> runtime_candidates(now)
-      |> select([behavior], behavior.id)
+      |> BehaviorQuery.select_ids()
       |> Repo.all()
       |> MapSet.new()
 
@@ -579,7 +531,7 @@ defmodule Ryker.Behaviors do
   @doc "The recorded rule inventory for one input, or nil when none was recorded."
   @spec rule_inventory(String.t()) :: StandingRuleInventory.t() | nil
   def rule_inventory(input_ref) when is_binary(input_ref),
-    do: Repo.one(from(row in StandingRuleInventory, where: row.source_input_ref == ^input_ref))
+    do: input_ref |> StandingRuleInventoryQuery.by_source_input_ref() |> Repo.one()
 
   def rule_inventory(_input_ref), do: nil
 
@@ -590,7 +542,8 @@ defmodule Ryker.Behaviors do
   def rule_inventories(input_refs) when is_list(input_refs) do
     refs = Enum.filter(input_refs, &is_binary/1)
 
-    from(row in StandingRuleInventory, where: row.source_input_ref in ^refs)
+    refs
+    |> StandingRuleInventoryQuery.by_source_input_refs()
     |> Repo.all()
     |> Map.new(&{&1.source_input_ref, &1})
   end
@@ -599,14 +552,11 @@ defmodule Ryker.Behaviors do
   # that did not fire and why, and a rule scoped to another channel is a reason,
   # not an absence.
   defp workspace_rules(workspace) do
-    Repo.all(
-      from(behavior in Behavior,
-        where:
-          behavior.kind == :standing_assignment and behavior.workspace_ref == ^workspace and
-            behavior.status not in [:deleted, :superseded],
-        order_by: [asc: behavior.inserted_at, asc: behavior.id]
-      )
-    )
+    BehaviorQuery.of_kind(:standing_assignment)
+    |> BehaviorQuery.by_workspace(workspace)
+    |> BehaviorQuery.without_status([:deleted, :superseded])
+    |> BehaviorQuery.oldest_first()
+    |> Repo.all()
   end
 
   defp inventory_entry(behavior, input, now, considered) do
@@ -752,17 +702,13 @@ defmodule Ryker.Behaviors do
 
     if Reference.valid?(workspace_ref) and (is_nil(status) or status in @statuses) and
          is_integer(limit) and limit in 1..100 do
-      query = from(behavior in Behavior, where: behavior.workspace_ref == ^workspace_ref)
+      query = BehaviorQuery.by_workspace(workspace_ref)
+      query = if status, do: BehaviorQuery.with_status(query, status), else: query
 
-      query =
-        if status, do: from(behavior in query, where: behavior.status == ^status), else: query
-
-      Repo.all(
-        from(behavior in query,
-          order_by: [desc: behavior.updated_at, desc: behavior.id],
-          limit: ^limit
-        )
-      )
+      query
+      |> BehaviorQuery.recently_updated_first()
+      |> BehaviorQuery.limit_to(limit)
+      |> Repo.all()
     else
       []
     end
@@ -778,7 +724,7 @@ defmodule Ryker.Behaviors do
          :ok <- authorize_wide_offer(record, episode),
          :ok <- authorize_personal_offer(record, turn, attributes.actor_ref),
          :ok <- delivered_from?(episode, turn, attributes.target) do
-      case Repo.one(from(behavior in Behavior, where: behavior.offer_record_id == ^record.id)) do
+      case Repo.one(BehaviorQuery.by_offer_record_id(record.id)) do
         %Behavior{} = behavior ->
           %{behavior: behavior, status: :duplicate}
 
@@ -930,51 +876,33 @@ defmodule Ryker.Behaviors do
   end
 
   defp existing_behavior?(prepared) do
-    Repo.exists?(
-      from(behavior in Behavior,
-        where:
-          behavior.kind == ^prepared.kind and behavior.workspace_ref == ^prepared.workspace_ref and
-            behavior.scope_kind == ^prepared.scope_kind and
-            behavior.scope_ref == ^prepared.scope_ref and
-            behavior.identity_key == ^prepared.identity_key and behavior.status == :active
-      )
-    )
+    prepared
+    |> BehaviorQuery.same_identity()
+    |> BehaviorQuery.with_status(:active)
+    |> Repo.exists?()
   end
 
   defp active_behavior_count(workspace_ref, now) do
-    Repo.aggregate(
-      from(behavior in Behavior,
-        where:
-          behavior.workspace_ref == ^workspace_ref and behavior.status == :active and
-            (is_nil(behavior.expires_at) or behavior.expires_at > ^now)
-      ),
-      :count
-    )
+    BehaviorQuery.by_workspace(workspace_ref)
+    |> BehaviorQuery.with_status(:active)
+    |> BehaviorQuery.unexpired_at(now)
+    |> Repo.aggregate(:count)
   end
 
   defp scoped_behavior_count(prepared, now) do
-    Repo.aggregate(
-      from(behavior in Behavior,
-        where:
-          behavior.workspace_ref == ^prepared.workspace_ref and
-            behavior.scope_kind == ^prepared.scope_kind and
-            behavior.scope_ref == ^prepared.scope_ref and behavior.status == :active and
-            (is_nil(behavior.expires_at) or behavior.expires_at > ^now)
-      ),
-      :count
-    )
+    BehaviorQuery.by_workspace(prepared.workspace_ref)
+    |> BehaviorQuery.scoped_to(prepared.scope_kind, prepared.scope_ref)
+    |> BehaviorQuery.with_status(:active)
+    |> BehaviorQuery.unexpired_at(now)
+    |> Repo.aggregate(:count)
   end
 
   defp supersede_existing(prepared) do
-    from(behavior in Behavior,
-      where:
-        behavior.kind == ^prepared.kind and behavior.workspace_ref == ^prepared.workspace_ref and
-          behavior.scope_kind == ^prepared.scope_kind and
-          behavior.scope_ref == ^prepared.scope_ref and
-          behavior.identity_key == ^prepared.identity_key and behavior.status == :active,
-      order_by: [asc: behavior.id],
-      lock: "FOR UPDATE"
-    )
+    prepared
+    |> BehaviorQuery.same_identity()
+    |> BehaviorQuery.with_status(:active)
+    |> BehaviorQuery.in_id_order()
+    |> BehaviorQuery.lock_for_update()
     |> Repo.all()
     |> Enum.each(&redact!(&1, :superseded, "replaced_payload_sha256"))
   end
@@ -1011,8 +939,11 @@ defmodule Ryker.Behaviors do
     end
   end
 
+  defp lock_behavior(ref),
+    do: ref |> BehaviorQuery.by_ref() |> BehaviorQuery.lock_for_update() |> Repo.one()
+
   defp set_status_locked(ref, status, workspace_ref) do
-    case Repo.one(from(behavior in Behavior, where: behavior.ref == ^ref, lock: "FOR UPDATE")) do
+    case lock_behavior(ref) do
       nil ->
         Repo.rollback(:behavior_not_found)
 
@@ -1069,84 +1000,21 @@ defmodule Ryker.Behaviors do
   defp active_for_context(kind, context) do
     now = Repo.now!()
 
-    scope_filter =
-      Enum.reduce(context_clauses(context), dynamic([behavior], false), fn {scope_kind, scope_ref},
-                                                                           dynamic ->
-        dynamic(
-          [behavior],
-          ^dynamic or (behavior.scope_kind == ^scope_kind and behavior.scope_ref == ^scope_ref)
-        )
-      end)
-
-    visibility_filter = behavior_visibility_filter(kind, context)
-
-    query =
-      from(behavior in Behavior,
-        where:
-          behavior.kind == ^kind and behavior.status == :active and
-            behavior.workspace_ref == ^context.workspace_ref and
-            (is_nil(behavior.expires_at) or behavior.expires_at > ^now)
-      )
-
-    Repo.all(
-      from(behavior in query,
-        where: ^scope_filter,
-        where: ^visibility_filter,
-        order_by: [
-          asc:
-            fragment(
-              "CASE ? WHEN 'operator' THEN 0 WHEN 'conversation' THEN 1 WHEN 'repository' THEN 2 WHEN 'workspace' THEN 3 ELSE 4 END",
-              behavior.scope_kind
-            ),
-          desc: behavior.updated_at,
-          desc: behavior.id
-        ],
-        limit: 100
-      )
-    )
+    BehaviorQuery.of_kind(kind)
+    |> BehaviorQuery.with_status(:active)
+    |> BehaviorQuery.by_workspace(context.workspace_ref)
+    |> BehaviorQuery.unexpired_at(now)
+    |> BehaviorQuery.in_any_scope(context_clauses(context))
+    |> BehaviorQuery.visible_to(kind, context)
+    |> BehaviorQuery.narrowest_scope_first()
+    |> BehaviorQuery.limit_to(100)
+    |> Repo.all()
   end
-
-  # A person's private guidance is theirs alone; a turn answering nobody in
-  # particular reads the rest.
-  defp behavior_visibility_filter(:guidance, %{operator_ref: nil} = context) do
-    dynamic(
-      [behavior],
-      fragment("(?::jsonb)->>'visibility'", behavior.payload) == "workspace" or
-        (fragment("(?::jsonb)->>'visibility'", behavior.payload) == "conversation" and
-           behavior.source_conversation_ref == ^context.conversation_ref)
-    )
-  end
-
-  defp behavior_visibility_filter(:guidance, context) do
-    dynamic(
-      [behavior],
-      fragment("(?::jsonb)->>'visibility'", behavior.payload) == "workspace" or
-        (behavior.scope_kind == :operator and
-           fragment("(?::jsonb)->>'visibility'", behavior.payload) == "private" and
-           behavior.scope_ref == ^context.operator_ref) or
-        (fragment(
-           "(?::jsonb)->>'visibility' IN ('conversation', 'private')",
-           behavior.payload
-         ) and
-           behavior.source_conversation_ref == ^context.conversation_ref)
-    )
-  end
-
-  defp behavior_visibility_filter(_kind, _context), do: dynamic([_behavior], true)
 
   defp assignment_context(episode_id) do
-    Repo.all(
-      from(run in StandingAssignmentRun,
-        join: behavior in Behavior,
-        on: behavior.id == run.assignment_id,
-        where:
-          run.episode_id == ^episode_id and run.outcome == :decided and
-            behavior.kind == :standing_assignment,
-        order_by: [desc: run.inserted_at],
-        limit: 5,
-        select: {run, behavior}
-      )
-    )
+    episode_id
+    |> StandingAssignmentRunQuery.decided_for_episode()
+    |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(fn {_run, behavior} ->
       %{
@@ -1166,7 +1034,7 @@ defmodule Ryker.Behaviors do
 
   defp matching_assignments(input, lock?) do
     query = runtime_candidates(input, Repo.now!())
-    query = if lock?, do: from(behavior in query, lock: "FOR SHARE"), else: query
+    query = if lock?, do: BehaviorQuery.lock_for_share(query), else: query
 
     query
     |> Repo.all()
@@ -1181,15 +1049,13 @@ defmodule Ryker.Behaviors do
       Scope.workspace_ref(input.destination.transport, input.destination.conversation_ref)
 
     # Every standing rule is confirmed in a conversation and scoped to it.
-    from(behavior in Behavior,
-      where:
-        behavior.kind == :standing_assignment and behavior.status == :active and
-          behavior.workspace_ref == ^workspace and behavior.scope_kind == :conversation and
-          behavior.scope_ref == ^input.destination.conversation_ref and
-          (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
-      order_by: [asc: behavior.inserted_at],
-      limit: @runtime_candidate_limit
-    )
+    BehaviorQuery.of_kind(:standing_assignment)
+    |> BehaviorQuery.with_status(:active)
+    |> BehaviorQuery.by_workspace(workspace)
+    |> BehaviorQuery.scoped_to(:conversation, input.destination.conversation_ref)
+    |> BehaviorQuery.unexpired_at(now)
+    |> BehaviorQuery.oldest_first()
+    |> BehaviorQuery.limit_to(@runtime_candidate_limit)
   end
 
   defp observe_input_locked(input, input_ref) do
@@ -1200,12 +1066,13 @@ defmodule Ryker.Behaviors do
   end
 
   defp insert_assignment_run!(assignment, input, input_ref) do
-    case Repo.one(
-           from(run in StandingAssignmentRun,
-             where: run.assignment_id == ^assignment.id and run.source_input_ref == ^input_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    existing =
+      StandingAssignmentRunQuery.by_assignment_id(assignment.id)
+      |> StandingAssignmentRunQuery.by_source_input_ref(input_ref)
+      |> StandingAssignmentRunQuery.lock_for_update()
+      |> Repo.one()
+
+    case existing do
       %StandingAssignmentRun{source_event_ref: event_ref}
       when event_ref == input.event_ref ->
         :ok
@@ -1239,13 +1106,10 @@ defmodule Ryker.Behaviors do
     now = Repo.now!()
     episode_id = if action in [:start_episode, :continue_episode, :reply], do: episode.id
 
-    Repo.all(
-      from(run in StandingAssignmentRun,
-        where: run.source_input_ref == ^input_ref,
-        order_by: [asc: run.inserted_at],
-        lock: "FOR UPDATE"
-      )
-    )
+    StandingAssignmentRunQuery.by_source_input_ref(input_ref)
+    |> StandingAssignmentRunQuery.oldest_first()
+    |> StandingAssignmentRunQuery.lock_for_update()
+    |> Repo.all()
     |> Enum.each(fn run ->
       desired = %{
         decision_action: action,
@@ -1277,11 +1141,9 @@ defmodule Ryker.Behaviors do
 
   defp increment_assignment_use(assignment_id, now) do
     _count =
-      Repo.update_all(
-        from(behavior in Behavior, where: behavior.id == ^assignment_id),
-        inc: [use_count: 1],
-        set: [last_used_at: now]
-      )
+      assignment_id
+      |> BehaviorQuery.by_id()
+      |> Repo.update_all(inc: [use_count: 1], set: [last_used_at: now])
 
     broadcast_behavior_updated(assignment_id)
   end
@@ -1360,20 +1222,9 @@ defmodule Ryker.Behaviors do
   end
 
   defp lock_offer(record_ref) do
-    query =
-      from(record in Record,
-        join: episode in Episode,
-        on: episode.id == record.episode_id,
-        join: turn in Turn,
-        on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-        where: record.ref == ^record_ref and record.kind in ^@offer_kinds,
-        select: {record, episode, turn},
-        lock: "FOR UPDATE"
-      )
-
-    case Repo.one(query) do
-      nil -> {:error, :behavior_offer_not_found}
-      {record, episode, turn} -> {:ok, record, episode, turn}
+    case Records.lock_offer(record_ref, @offer_kinds) do
+      {:error, :not_found} -> {:error, :behavior_offer_not_found}
+      found -> found
     end
   end
 

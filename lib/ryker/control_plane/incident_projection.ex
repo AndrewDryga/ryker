@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   import Ecto.Query
   require Ryker.ControlPlane.CurrentInputs
+  alias Ryker.Accounting.ExecutionQuery
   alias Ryker.ControlPlane.{ConsolePeople, CurrentInputs, Environments, PagedRelation}
   alias Ryker.ControlPlane.{RepositoryNames, Search, UsageProjection}
   alias Ryker.Delivery.ChatCard
@@ -324,7 +325,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp accounting(nil), do: nil
 
   defp accounting(episode_id) do
-    Ryker.Accounting.Query.executions(nil, "all")
+    ExecutionQuery.ledger(nil, "all")
     |> where([execution], execution.episode_id == ^episode_id)
     |> UsageProjection.totals()
   end

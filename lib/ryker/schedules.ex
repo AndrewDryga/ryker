@@ -19,7 +19,6 @@ defmodule Ryker.Schedules do
   alias Ryker.Operator.Actions
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
-  alias Ryker.Records.Record
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
@@ -688,20 +687,9 @@ defmodule Ryker.Schedules do
   end
 
   defp lock_offer(record_ref) do
-    query =
-      from(record in Record,
-        join: episode in Episode,
-        on: episode.id == record.episode_id,
-        join: turn in Turn,
-        on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-        where: record.ref == ^record_ref and record.kind == "schedule_offer",
-        select: {record, episode, turn},
-        lock: "FOR UPDATE"
-      )
-
-    case Repo.one(query) do
-      nil -> {:error, :schedule_offer_not_found}
-      {record, episode, turn} -> {:ok, record, episode, turn}
+    case Records.lock_offer(record_ref, ["schedule_offer"]) do
+      {:error, :not_found} -> {:error, :schedule_offer_not_found}
+      found -> found
     end
   end
 

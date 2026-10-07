@@ -42,7 +42,7 @@ defmodule Ryker.LocalRouting do
   """
 
   import Ecto.Query
-  alias Ryker.Accounting.Query, as: Ledger
+  alias Ryker.Accounting.ExecutionQuery
   alias Ryker.Admission
   alias Ryker.Admission.Attempt
   alias Ryker.Ingress.Inbox.Entry
@@ -297,7 +297,7 @@ defmodule Ryker.LocalRouting do
   defp provider_call(comparison) do
     generation = Integer.to_string(comparison.generation)
 
-    from(execution in Ledger.executions(nil, "all"),
+    from(execution in ExecutionQuery.ledger(nil, "all"),
       where:
         execution.kind == "admission" and execution.source_id == ^comparison.input_id and
           execution.generation == ^generation,

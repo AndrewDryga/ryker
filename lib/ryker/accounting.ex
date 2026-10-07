@@ -5,11 +5,10 @@ defmodule Ryker.Accounting do
   Each snapshot recorded or revised is announced after the outermost commit
   (`subscribe_usage/0`), on its request's and its conversation's topics too.
   """
-  import Ecto.Query
   alias Ecto.Changeset
-  alias Ryker.Accounting.Execution
+  alias Ryker.Accounting.{Execution, ExecutionQuery}
   alias Ryker.Repo
-  alias Ryker.Work.{Measurement, Turn}
+  alias Ryker.Work.{Measurement, SessionQuery, TurnQuery}
 
   @terminal ~w(completed failed interrupted budget_exhausted cancelled)
   @states ~w(requested queued starting running awaiting_validation completed failed interrupted budget_exhausted cancelled)
@@ -23,18 +22,19 @@ defmodule Ryker.Accounting do
 
   def observe_work(claim, remote_turn, remote_session \\ %{}) do
     Repo.transaction(fn ->
-      current = Repo.one(from(t in Turn, where: t.id == ^claim.turn.id, lock: "FOR UPDATE"))
+      current =
+        TurnQuery.by_id(claim.turn.id)
+        |> TurnQuery.lock_for_update()
+        |> Repo.one()
+
       # The lease was written with the database's clock; only that clock can
       # say whether it still holds.
       now = Repo.now!()
 
       session_generation =
-        Repo.one(
-          from(s in Ryker.Work.Session,
-            where: s.id == ^claim.session.id,
-            select: s.generation
-          )
-        )
+        SessionQuery.by_id(claim.session.id)
+        |> SessionQuery.select_generation()
+        |> Repo.one()
 
       if is_nil(current) or current.lease_ref != claim.lease_ref or
            current.session_id != claim.session.id or
@@ -191,13 +191,9 @@ defmodule Ryker.Accounting do
 
   def attach_admission_in_transaction(entry) do
     {_count, attached} =
-      Repo.update_all(
-        from(e in Execution,
-          where: e.kind == "admission" and e.source_id == ^entry.id and is_nil(e.episode_id),
-          select: e
-        ),
-        set: [episode_id: entry.episode_id]
-      )
+      ExecutionQuery.unattached_admission(entry.id)
+      |> ExecutionQuery.select_rows()
+      |> Repo.update_all(set: [episode_id: entry.episode_id])
 
     Enum.each(attached, &broadcast_usage_recorded/1)
   end
@@ -221,14 +217,9 @@ defmodule Ryker.Accounting do
       do: raise(ArgumentError, "accounting requires an owner transaction")
 
     existing =
-      Repo.one(
-        from(e in Execution,
-          where:
-            e.kind == ^identity.kind and e.source_id == ^identity.source_id and
-              e.generation == ^identity.generation,
-          lock: "FOR UPDATE"
-        )
-      )
+      ExecutionQuery.by_execution(identity.kind, identity.source_id, identity.generation)
+      |> ExecutionQuery.lock_for_update()
+      |> Repo.one()
 
     current = existing || struct!(Execution, Map.put(identity, :recorded_at, now))
 

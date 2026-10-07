@@ -10,9 +10,8 @@ defmodule Ryker.Instructions do
   (`subscribe_instructions/0`).
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.Instructions.{Edit, Setting}
+  alias Ryker.Instructions.{Edit, Setting, SettingQuery}
   alias Ryker.Repo
 
   @max_characters 2_000
@@ -46,9 +45,11 @@ defmodule Ryker.Instructions do
   def configured_channels(items) do
     refs = Enum.map(items, &"slack:#{&1.workspace_ref}:#{&1.channel_ref}")
 
-    Repo.all(
-      from(s in Setting, where: s.scope_ref in ^refs and s.text != "", select: s.scope_ref)
-    )
+    refs
+    |> SettingQuery.by_scope_refs()
+    |> SettingQuery.with_text()
+    |> SettingQuery.select_scope_refs()
+    |> Repo.all()
     |> MapSet.new()
   end
 
@@ -77,7 +78,9 @@ defmodule Ryker.Instructions do
     refs = Enum.reject(["global", channel], &is_nil/1)
 
     settings =
-      Repo.all(from(setting in Setting, where: setting.scope_ref in ^refs))
+      refs
+      |> SettingQuery.by_scope_refs()
+      |> Repo.all()
       |> Map.new(&{&1.scope_ref, &1})
 
     %{
@@ -126,7 +129,12 @@ defmodule Ryker.Instructions do
 
   def normalize_text(_), do: {:error, {:invalid_instructions, :text}}
 
-  defp get_ref(ref), do: Repo.get(Setting, ref) || %Setting{scope_ref: ref}
+  defp get_ref(ref) do
+    case Repo.fetch(SettingQuery.by_scope_ref(ref)) do
+      {:ok, setting} -> setting
+      {:error, :not_found} -> %Setting{scope_ref: ref}
+    end
+  end
 
   defp save_edit(current, text, actor_ref) do
     now = DateTime.utc_now()

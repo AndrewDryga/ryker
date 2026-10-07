@@ -127,6 +127,19 @@ defmodule Ryker.Repo do
   end
 
   @doc """
+  The one row `queryable` selects, as `{:ok, row}`, or `{:error, :not_found}`
+  when there is none; raises when more than one matches. The query comes from
+  the schema's Query module (`Ryker.Checks.IL02NoRepoGet`).
+  """
+  @spec fetch(Ecto.Queryable.t(), keyword()) :: {:ok, struct()} | {:error, :not_found}
+  def fetch(queryable, opts \\ []) do
+    case one(queryable, opts) do
+      nil -> {:error, :not_found}
+      row -> {:ok, row}
+    end
+  end
+
+  @doc """
   The database's own clock at this instant, microsecond precision.
 
   Custody compares leases, placements and receipts against this rather than

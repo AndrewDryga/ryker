@@ -42,7 +42,6 @@ defmodule Ryker.Memories do
   alias Ryker.Slack.ChannelFence
   alias Ryker.StateTools.Binding
   alias Ryker.UTCDateTime
-  alias Ryker.Work.Turn
 
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
@@ -651,20 +650,9 @@ defmodule Ryker.Memories do
   end
 
   defp lock_offer(record_ref) do
-    query =
-      from(record in Record,
-        join: episode in Episode,
-        on: episode.id == record.episode_id,
-        join: turn in Turn,
-        on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-        where: record.ref == ^record_ref and record.kind == "memory_offer",
-        select: {record, episode, turn},
-        lock: "FOR UPDATE"
-      )
-
-    case Repo.one(query) do
-      nil -> {:error, :memory_offer_not_found}
-      {record, episode, turn} -> {:ok, record, episode, turn}
+    case Records.lock_offer(record_ref, ["memory_offer"]) do
+      {:error, :not_found} -> {:error, :memory_offer_not_found}
+      found -> found
     end
   end
 

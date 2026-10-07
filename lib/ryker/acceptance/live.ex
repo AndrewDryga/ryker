@@ -8,16 +8,15 @@ defmodule Ryker.Acceptance.Live do
   state tools, and Delivery. This process only observes their durable PostgreSQL custody.
   """
 
-  import Ecto.Query
   alias Ryker.{Bootstrap, Settings}
-  alias Ryker.CoopFleet.Placement
+  alias Ryker.CoopFleet.{Placement, PlacementQuery}
   alias Ryker.Delivery.HTTPClient
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Runtime.Assembly
   alias Ryker.Slack.{Client, Gateway, Runtime}
-  alias Ryker.Work.Turn
+  alias Ryker.Work.{Turn, TurnQuery}
 
   @default_timeout_ms 10 * 60 * 1_000
   @poll_interval_ms 500
@@ -404,13 +403,11 @@ defmodule Ryker.Acceptance.Live do
   @spec observe(String.t(), [Ecto.UUID.t()]) :: :pending | {:ok, map()} | {:error, term()}
   def observe(event_ref, previous_turn_ids) do
     entry =
-      Repo.one(
-        from(value in Entry,
-          where: value.source_kind == "slack" and value.event_ref == ^event_ref,
-          order_by: [desc: value.inserted_at],
-          limit: 1
-        )
-      )
+      "slack"
+      |> EntryQuery.by_source_event(event_ref)
+      |> EntryQuery.newest_first()
+      |> EntryQuery.limit_to(1)
+      |> Repo.one()
 
     observe_entry(entry, previous_turn_ids)
   end
@@ -429,13 +426,12 @@ defmodule Ryker.Acceptance.Live do
 
   defp observe_entry(%Entry{status: :decided, episode_id: episode_id}, previous_turn_ids) do
     turn =
-      Repo.one(
-        from(value in Turn,
-          where: value.episode_id == ^episode_id and value.id not in ^previous_turn_ids,
-          order_by: [desc: value.inserted_at, desc: value.id],
-          limit: 1
-        )
-      )
+      episode_id
+      |> TurnQuery.by_episode_id()
+      |> TurnQuery.excluding_ids(previous_turn_ids)
+      |> TurnQuery.newest_first()
+      |> TurnQuery.limit_to(1)
+      |> Repo.one()
 
     observe_turn(turn, episode_id)
   end
@@ -514,13 +510,14 @@ defmodule Ryker.Acceptance.Live do
   defp execution_mode(_configuration), do: {:error, {:invalid_live_acceptance, :execution_mode}}
 
   defp worker_placement(session_id) do
-    case Repo.one(
-           from(value in Placement,
-             where: value.session_id == ^session_id,
-             order_by: [desc: value.generation, desc: value.inserted_at],
-             limit: 1
-           )
-         ) do
+    placement =
+      session_id
+      |> PlacementQuery.by_session_id()
+      |> PlacementQuery.latest_generation_first()
+      |> PlacementQuery.limit_to(1)
+      |> Repo.one()
+
+    case placement do
       %Placement{} = placement ->
         %{
           generation: placement.generation,

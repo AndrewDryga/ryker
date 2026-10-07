@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.UsageProjection do
   @moduledoc "Comparable usage breakdowns from the same deduplicated execution ledger."
   import Ecto.Query
-  alias Ryker.Accounting.Pricing
+  alias Ryker.Accounting.{ExecutionQuery, Pricing}
   alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
@@ -41,7 +41,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
 
     window
     |> since()
-    |> Ryker.Accounting.Query.executions(mode)
+    |> ExecutionQuery.ledger(mode)
     |> snapshot()
     |> Map.merge(%{mode: mode, window: window})
   end
@@ -59,7 +59,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
       window = if Map.has_key?(params, "usage_window"), do: params["usage_window"], else: "all"
 
       executions =
-        Ryker.Accounting.Query.executions(since(window), mode)
+        ExecutionQuery.ledger(since(window), mode)
         |> dimensions()
 
       ids =
@@ -134,7 +134,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
   end
 
   def filter_options do
-    query = dimensions(Ryker.Accounting.Query.executions(nil, "all"))
+    query = dimensions(ExecutionQuery.ledger(nil, "all"))
 
     Repo.all(
       from(e in query,

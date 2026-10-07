@@ -29,12 +29,11 @@ defmodule Ryker.People do
   the ninety days conversation memory keeps.
   """
 
-  import Ecto.Query
   alias Ryker.Crypto
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.People.PersonFact
+  alias Ryker.People.{PersonFact, PersonFactQuery}
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack.ChannelMembershipQuery
 
   @key ~r/\A[a-z][a-z0-9-]{0,47}\z/
   @maximum_fact 280
@@ -125,12 +124,11 @@ defmodule Ryker.People do
     ])
 
     existing =
-      Repo.one(
-        from(f in PersonFact,
-          where: f.person_ref == ^person and f.key in ^[key, forgotten_key(person, key)],
-          lock: "FOR UPDATE"
-        )
-      )
+      person
+      |> PersonFactQuery.by_person()
+      |> PersonFactQuery.by_keys([key, forgotten_key(person, key)])
+      |> PersonFactQuery.lock_for_update()
+      |> Repo.one()
 
     case change(existing, entry, fact, person) do
       :none -> :ok
@@ -167,10 +165,10 @@ defmodule Ryker.People do
     do: DateTime.compare(entry.occurred_at, existing.said_at) != :lt
 
   defp kept_count(person) do
-    Repo.aggregate(
-      from(f in PersonFact, where: f.person_ref == ^person and f.status == :kept),
-      :count
-    )
+    person
+    |> PersonFactQuery.by_person()
+    |> PersonFactQuery.kept()
+    |> Repo.aggregate(:count)
   end
 
   defp insert!(person, key, fact, entry) do
@@ -233,13 +231,10 @@ defmodule Ryker.People do
   defp private?("slack:" <> rest) do
     case String.split(rest, ":", parts: 2) do
       [workspace, channel] ->
-        not Repo.exists?(
-          from(m in ChannelMembership,
-            where:
-              m.workspace_ref == ^workspace and m.channel_ref == ^channel and
-                m.status == :joined and m.private == false and m.external_shared == false
-          )
-        )
+        not (workspace
+             |> ChannelMembershipQuery.by_channel(channel)
+             |> ChannelMembershipQuery.joined_public()
+             |> Repo.exists?())
 
       _other ->
         true
@@ -257,7 +252,7 @@ defmodule Ryker.People do
       when is_binary(person_ref) and person_ref != "" do
     person_ref
     |> usable(conversation_ref)
-    |> select([f], f.fact)
+    |> PersonFactQuery.select_facts()
     |> Repo.all()
   end
 
@@ -300,7 +295,7 @@ defmodule Ryker.People do
       facts =
         person
         |> usable(conversation)
-        |> select([f], %{"key" => f.key, "fact" => f.fact})
+        |> PersonFactQuery.select_keyed_facts()
         |> Repo.all()
         |> Enum.take(left)
 
@@ -316,13 +311,12 @@ defmodule Ryker.People do
   def known_about_authors(_entries), do: []
 
   defp usable(person_ref, conversation_ref) do
-    from(f in PersonFact,
-      where:
-        f.person_ref == ^person_ref and f.status == :kept and
-          (f.private == false or f.conversation_ref == ^(conversation_ref || "")),
-      order_by: [asc: f.key],
-      limit: @maximum_recalled
-    )
+    person_ref
+    |> PersonFactQuery.by_person()
+    |> PersonFactQuery.kept()
+    |> PersonFactQuery.usable_in(conversation_ref)
+    |> PersonFactQuery.ordered_by_key()
+    |> PersonFactQuery.limit_to(@maximum_recalled)
   end
 
   @doc """
@@ -337,35 +331,20 @@ defmodule Ryker.People do
             conversation_ref: String.t()
           }
         ]
-  def people do
-    Repo.all(
-      from(f in PersonFact,
-        where: f.status == :kept,
-        group_by: f.person_ref,
-        order_by: [desc: max(f.said_at), asc: f.person_ref],
-        select: %{
-          person_ref: f.person_ref,
-          facts: count(f.id),
-          last_said_at: max(f.said_at),
-          conversation_ref: max(f.conversation_ref)
-        }
-      )
-    )
-  end
+  def people, do: Repo.all(PersonFactQuery.people())
 
   @doc "One thing Ryker learned about someone, kept or forgotten, or nil."
   @spec get_fact(Ecto.UUID.t()) :: PersonFact.t() | nil
-  def get_fact(id) when is_binary(id), do: Repo.get(PersonFact, id)
+  def get_fact(id) when is_binary(id), do: Repo.one(PersonFactQuery.by_id(id))
 
   @doc "What Ryker knows about one person, by kind."
   @spec facts(String.t()) :: [PersonFact.t()]
   def facts(person_ref) when is_binary(person_ref) do
-    Repo.all(
-      from(f in PersonFact,
-        where: f.person_ref == ^person_ref and f.status == :kept,
-        order_by: [asc: f.key]
-      )
-    )
+    person_ref
+    |> PersonFactQuery.by_person()
+    |> PersonFactQuery.kept()
+    |> PersonFactQuery.ordered_by_key()
+    |> Repo.all()
   end
 
   @doc """
@@ -375,7 +354,7 @@ defmodule Ryker.People do
   @spec forget_person(String.t()) :: {:ok, non_neg_integer()}
   def forget_person(person_ref) when is_binary(person_ref) do
     Repo.transaction(fn ->
-      forget_where(dynamic([f], f.person_ref == ^person_ref))
+      forget_where(PersonFactQuery.by_person(person_ref))
     end)
   end
 
@@ -386,7 +365,7 @@ defmodule Ryker.People do
   @spec forget_fact(Ecto.UUID.t()) :: {:ok, non_neg_integer()}
   def forget_fact(fact_id) when is_binary(fact_id) do
     case Ecto.UUID.cast(fact_id) do
-      {:ok, id} -> Repo.transaction(fn -> forget_where(dynamic([f], f.id == ^id)) end)
+      {:ok, id} -> Repo.transaction(fn -> forget_where(PersonFactQuery.by_id(id)) end)
       :error -> {:ok, 0}
     end
   end
@@ -394,7 +373,7 @@ defmodule Ryker.People do
   @doc "Forgets what one message taught, when its author edits or deletes it."
   @spec forget_message_in_transaction(String.t() | nil) :: :ok
   def forget_message_in_transaction(message_ref) when is_binary(message_ref) do
-    forget_where(dynamic([f], f.source_message_ref == ^message_ref))
+    forget_where(PersonFactQuery.by_source_message(message_ref))
     :ok
   end
 
@@ -403,35 +382,18 @@ defmodule Ryker.People do
   @doc "Forgets what was said in a conversation that is gone."
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
-    forget_where(dynamic([f], f.conversation_ref == ^conversation_ref))
+    forget_where(PersonFactQuery.by_conversation(conversation_ref))
     :ok
   end
 
-  defp forget_where(condition) do
+  defp forget_where(facts) do
     now = Repo.now!()
 
     {count, _rows} =
-      Repo.update_all(
-        from(f in PersonFact,
-          where: f.status == :kept,
-          where: ^condition,
-          update: [
-            set: [
-              key:
-                fragment(
-                  "'f' || left(encode(sha256(convert_to(? || chr(10) || ?, 'UTF8')), 'hex'), 47)",
-                  f.person_ref,
-                  f.key
-                ),
-              status: :forgotten,
-              fact: nil,
-              forgotten_at: ^now,
-              updated_at: ^now
-            ]
-          ]
-        ),
-        []
-      )
+      facts
+      |> PersonFactQuery.kept()
+      |> PersonFactQuery.forget_at(now)
+      |> Repo.update_all([])
 
     count
   end

@@ -1,7 +1,7 @@
 defmodule Ryker.Learning.AccountingTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
-  alias Ryker.Accounting.Execution
+  alias Ryker.Accounting.{Execution, ExecutionQuery}
   alias Ryker.ControlPlane.UsageProjection
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
@@ -108,11 +108,11 @@ defmodule Ryker.Learning.AccountingTest do
     assert is_integer(row.usage_host_ms) and row.usage_host_ms >= 0
     assert row.measurement_error_code == nil
 
-    ledger = Ryker.Accounting.Query.executions(nil, "all")
+    ledger = ExecutionQuery.ledger(nil, "all")
     assert Repo.aggregate(ledger, :count) == 1
 
     assert Repo.aggregate(
-             Ryker.Accounting.Query.executions(nil, to_string(batch.execution_mode)),
+             ExecutionQuery.ledger(nil, to_string(batch.execution_mode)),
              :count
            ) == 1
 

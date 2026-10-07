@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   """
 
   import Ecto.Query
-  alias Ryker.Accounting.Query, as: AccountingQuery
+  alias Ryker.Accounting.ExecutionQuery
   alias Ryker.ControlPlane.{Activity, ChannelContext, ChannelScope, Environments, PagedRelation}
   alias Ryker.ControlPlane.{Paths, RepositoryNames, UsageProjection}
   alias Ryker.Episodes.Episode
@@ -128,7 +128,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
 
     totals =
       UsageProjection.since(window)
-      |> AccountingQuery.executions(mode)
+      |> ExecutionQuery.ledger(mode)
       |> where([e], e.transport == "slack" and e.conversation_ref == ^scope.conversation_ref)
       |> UsageProjection.totals()
 

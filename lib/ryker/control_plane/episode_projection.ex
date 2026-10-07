@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   """
 
   import Ecto.Query
+  alias Ryker.Accounting.ExecutionQuery
   alias Ryker.ControlPlane.{Activity, EpisodeTrace, FeedbackProjection, ImprovementRequests}
   alias Ryker.ControlPlane.{ModelRequests, Paths, TaskProgress, UsageProjection}
   alias Ryker.Episodes
@@ -180,7 +181,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
           )
 
         accounting =
-          Ryker.Accounting.Query.executions(nil, "all")
+          ExecutionQuery.ledger(nil, "all")
           |> where([execution], execution.episode_id == ^episode.id)
           |> UsageProjection.totals()
 

@@ -6,10 +6,10 @@ defmodule Ryker.Credentials do
   credential's plaintext; discovery and inspection return status metadata only.
   """
 
-  import Ecto.Query
   alias Ryker.Config
   alias Ryker.Credential
   alias Ryker.Credential.Event
+  alias Ryker.CredentialQuery
   alias Ryker.Crypto
   alias Ryker.Repo
 
@@ -36,7 +36,7 @@ defmodule Ryker.Credentials do
   @spec fetch(kind(), String.t()) :: {:ok, binary()} | {:error, term()}
   def fetch(kind, name) do
     with :ok <- validate_identity(kind, name),
-         %Credential{} = credential <- Repo.get_by(Credential, kind: kind, name: name),
+         %Credential{} = credential <- Repo.one(CredentialQuery.by_identity(kind, name)),
          {:ok, plaintext} <- open(root_key(), credential) do
       {:ok, plaintext}
     else
@@ -52,7 +52,7 @@ defmodule Ryker.Credentials do
   def status(kind, name) do
     case validate_identity(kind, name) do
       :ok ->
-        case Repo.get_by(Credential, kind: kind, name: name) do
+        case Repo.one(CredentialQuery.by_identity(kind, name)) do
           nil -> %{kind: kind, name: name, status: :missing}
           %Credential{} = credential -> metadata(credential)
         end
@@ -64,8 +64,8 @@ defmodule Ryker.Credentials do
 
   @spec statuses() :: [map()]
   def statuses do
-    Credential
-    |> order_by([credential], asc: credential.kind, asc: credential.name)
+    CredentialQuery.all()
+    |> CredentialQuery.ordered_by_identity()
     |> Repo.all()
     |> Enum.map(&metadata/1)
   end
@@ -139,7 +139,7 @@ defmodule Ryker.Credentials do
     lock!(kind, name)
     now = Repo.now!()
 
-    case Repo.get_by(Credential, kind: kind, name: name) do
+    case Repo.one(CredentialQuery.by_identity(kind, name)) do
       nil ->
         credential =
           %Credential{
@@ -182,7 +182,7 @@ defmodule Ryker.Credentials do
   defp verify_locked(kind, name, verification_status, actor_ref) do
     lock!(kind, name)
 
-    case Repo.get_by(Credential, kind: kind, name: name) do
+    case Repo.one(CredentialQuery.by_identity(kind, name)) do
       nil ->
         Repo.rollback(:credential_missing)
 
@@ -208,7 +208,7 @@ defmodule Ryker.Credentials do
   defp delete_locked(kind, name, actor_ref) do
     lock!(kind, name)
 
-    case Repo.get_by(Credential, kind: kind, name: name) do
+    case Repo.one(CredentialQuery.by_identity(kind, name)) do
       nil ->
         :ok
 
