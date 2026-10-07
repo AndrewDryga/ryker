@@ -825,19 +825,16 @@ defmodule Ryker.Settings do
       Repo.insert!(struct!(schema, id: host_ref))
     end
 
-    for attributes <- Pricing.settings_defaults() do
-      Repo.insert!(
-        struct!(
-          PricingRate,
-          attributes
-          |> Map.put(:id, Ecto.UUID.generate())
-          |> Map.put(:revision, 1)
-          |> Map.put(:inserted_at, now)
-        ),
-        on_conflict: :nothing,
-        conflict_target: [:execution_target, :effective_from]
+    prices =
+      Enum.map(
+        Pricing.settings_defaults(),
+        &Map.merge(&1, %{id: Ecto.UUID.generate(), revision: 1, inserted_at: now})
       )
-    end
+
+    Repo.insert_all(PricingRate, prices,
+      on_conflict: :nothing,
+      conflict_target: [:execution_target, :effective_from]
+    )
 
     Repo.insert!(%Edit{
       id: Ecto.UUID.generate(),

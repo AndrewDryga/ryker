@@ -58,14 +58,16 @@ defmodule Ryker.CoopFleet.PrepareSessionTest do
     Sandbox.allow(Repo, self(), task.pid)
     send(task.pid, :start)
 
-    # Coop is asked for the session's current revision first.
-    assert_receive :bridge_waiting, 1_000
+    # Coop is asked for the session's current revision first. The task writes
+    # and reads the database before it waits, which took over a second while a
+    # gate ran at load 30 (2026-10-08).
+    assert_receive :bridge_waiting, 5_000
     assert %{"payload" => %{"method" => "GET", "path" => path}} = read = deliver!("read")
     assert path == "/v1/sessions/#{@coop_session_id}"
     complete!("read", read, %{"id" => @coop_session_id, "revision" => 3, "state" => "open"})
     send(task.pid, :bridge_continue)
 
-    assert_receive :bridge_waiting, 1_000
+    assert_receive :bridge_waiting, 5_000
     assert %{"payload" => request} = prepare = deliver!("prepare")
     assert request["method"] == "POST"
     assert request["path"] == "/v1/sessions/#{@coop_session_id}/prepare"
