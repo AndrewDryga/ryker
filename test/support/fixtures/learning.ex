@@ -103,6 +103,62 @@ defmodule Ryker.Fixtures.Learning do
     entry
   end
 
+  @doc """
+  A message in `episode`'s conversation that routing ignored, kept as a
+  learned note the way admission keeps one
+  (`Observations.record_excerpt_in_transaction/1`): its text is the note, and
+  a briefing in that conversation recalls it.
+  """
+  def noted_message!(episode, text, occurred_at, repository_ref \\ nil) do
+    id = Ecto.UUID.generate()
+
+    {:ok, decision} =
+      Decision.parse(%{
+        "action" => "ignore",
+        "episode_ref" => nil,
+        "messages" => nil,
+        "reactions" => nil,
+        "relation" => "unrelated",
+        "repository" => nil,
+        "repository_source" => nil,
+        "reason" => "A side remark that needs no work.",
+        "work_class" => nil
+      })
+
+    entry =
+      %Entry{
+        id: id,
+        status: :pending,
+        dedupe_key: "noted:#{id}",
+        event_ref: "noted:#{id}",
+        event_fingerprint: CanonicalJSON.digest(["noted", id]),
+        source_kind: "slack",
+        source_ref: "noted",
+        native_input_id: "noted:#{id}",
+        source_item_ref: "noted:#{id}",
+        actor_kind: :user,
+        actor_ref: "slack:user:U1",
+        revision: 1,
+        event_kind: :message,
+        content: %{"text" => text},
+        occurred_at: occurred_at,
+        occurred_at_source: :source,
+        execution_mode: episode.execution_mode,
+        destination_transport: episode.destination_transport,
+        destination_conversation_ref: episode.destination_conversation_ref,
+        destination_thread_ref: episode.destination_thread_ref,
+        repository_ref: repository_ref,
+        source_capabilities: %{},
+        work_policy: "work-read-only",
+        work_policy_digest: String.duplicate("a", 64)
+      }
+      |> Entry.Changeset.decide(decision, "noted:#{id}", nil)
+      |> Repo.insert!()
+
+    {:ok, _note} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(entry) end)
+    entry
+  end
+
   @doc "Rebind only replay custody identities; retain captured content and source clocks unchanged."
   def isolate_retained_input(raw, workspace \\ nil) do
     id = Ecto.UUID.generate()

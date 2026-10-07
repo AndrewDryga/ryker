@@ -4,8 +4,9 @@ defmodule Ryker.CoopFleet.Bridge do
 
   Work remains the caller-facing state machine. This bridge places its exact
   immutable session, enqueues one idempotent API request, and waits only on
-  the durable command row. Network delivery and worker retries happen through
-  the outbound poll protocol.
+  the durable command row: woken when it settles, and reading it again each
+  `poll_interval_ms` for an end nothing announces. Network delivery and worker
+  retries happen through the outbound poll protocol.
   """
 
   alias Ryker.CoopFleet.{Bodies, Checkpoints, Command, ControlPlane, Placement}
@@ -32,7 +33,7 @@ defmodule Ryker.CoopFleet.Bridge do
          {:ok, command} <-
            enqueue(session, kind, payload, idempotency_key, settings),
          :ok <- Checkpoints.prepare_restore(command, options) do
-      await(command.id, settings, settings.max_waits)
+      await_settled(command.id, settings)
     end
   end
 
@@ -129,11 +130,37 @@ defmodule Ryker.CoopFleet.Bridge do
   @spec await_command(Ecto.UUID.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def await_command(command_id, options) do
     with {:ok, settings} <- settings(options) do
-      await(command_id, settings, settings.max_waits)
+      await_settled(command_id, settings)
     end
   end
 
-  defp await(command_id, settings, left) when left > 0 do
+  # Subscribed before the first read: a result that lands before it, that
+  # read finds, and one after, its message wakes the wait.
+  defp await_settled(command_id, settings) do
+    alias = Commands.subscribe_settled(command_id)
+    settings = %{settings | wait: settings.wait || settled_wait(command_id, settings)}
+
+    try do
+      await(command_id, settings, settings.max_waits)
+    after
+      Commands.unsubscribe_settled(command_id, alias)
+    end
+  end
+
+  defp settled_wait(command_id, %{poll_interval_ms: interval}) do
+    fn ->
+      receive do
+        {:coop_command_settled, ^command_id} -> :ok
+      after
+        interval -> :ok
+      end
+    end
+  end
+
+  # `left` is how many more waits the caller allows. The row is read after
+  # each, the last too: the result that ended the last wait was never read,
+  # and the caller timed out holding it.
+  defp await(command_id, settings, left) do
     case Repo.one(Command.Query.by_id(command_id)) do
       %Command{placement_id: nil, status: :failed, error: %{"code" => "operation_not_enqueued"}} =
           command ->
@@ -148,9 +175,6 @@ defmodule Ryker.CoopFleet.Bridge do
         await_result(nil, command_id, settings, left)
     end
   end
-
-  defp await(command_id, _settings, 0),
-    do: {:error, {:coop_worker_command_timeout, command_id}}
 
   defp await_result(%Command{status: :succeeded} = command, _id, settings, _left),
     do: command_response(command, settings.body_root, settings.checkpoint_key)
@@ -167,13 +191,17 @@ defmodule Ryker.CoopFleet.Bridge do
        do: {:error, {:coop_unavailable, error["detail"] || "worker command outcome is uncertain"}}
 
   defp await_result(%Command{status: status}, command_id, settings, left)
-       when status in [:queued, :delivered, :acknowledged] do
+       when status in [:queued, :delivered, :acknowledged] and left > 0 do
     case settings.wait.() do
       :ok -> await(command_id, settings, left - 1)
       {:error, reason} -> {:error, reason}
       other -> {:error, {:invalid_coop_worker_bridge_wait, other}}
     end
   end
+
+  defp await_result(%Command{status: status}, command_id, _settings, 0)
+       when status in [:queued, :delivered, :acknowledged],
+       do: {:error, {:coop_worker_command_timeout, command_id}}
 
   defp await_result(nil, command_id, _settings, _left),
     do: {:error, {:coop_worker_command_not_found, command_id}}
@@ -291,14 +319,14 @@ defmodule Ryker.CoopFleet.Bridge do
       lease_seconds: Keyword.get(options, :lease_seconds, 60),
       max_waits: Keyword.get(options, :max_waits, 3_000),
       poll_interval_ms: poll_interval_ms,
-      wait: Keyword.get(options, :wait, fn -> Process.sleep(poll_interval_ms) end),
+      wait: Keyword.get(options, :wait),
       workspace_ref: Keyword.get(options, :workspace_ref)
     }
   end
 
   defp validate_settings(settings) do
     if valid_settings?(settings) do
-      {:ok, Map.delete(settings, :poll_interval_ms)}
+      {:ok, settings}
     else
       invalid_options()
     end
@@ -318,7 +346,7 @@ defmodule Ryker.CoopFleet.Bridge do
       settings.poll_interval_ms in 1..60_000,
       is_binary(settings.workspace_ref),
       settings.workspace_ref != "",
-      is_function(settings.wait, 0)
+      is_nil(settings.wait) or is_function(settings.wait, 0)
     ])
   end
 

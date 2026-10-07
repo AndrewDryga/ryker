@@ -4,16 +4,15 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   import Ecto.Query
   alias Ryker.{Artifacts, Episodes, Settings}
   alias Ryker.Behaviors.Behavior
-  alias Ryker.Continuity
   alias Ryker.Episodes.Scope
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
+  alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
   alias Ryker.Knowledge.KnowledgeSnapshot
-  alias Ryker.Learning.ConversationObservation
   alias Ryker.Memories
   alias Ryker.Memories.Cases
   alias Ryker.Memories.MemoryEntry
@@ -1124,7 +1123,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   end
 
   test "optional learned notes cannot crowd the exact current input out of a full briefing" do
-    text = String.duplicate("CURRENT_REQUEST ", 3_000)
+    text = String.duplicate("CURRENT_REQUEST ", 4_000)
     claim = claim_episode!("notes-full-budget", text)
     seed_large_observations!(claim)
     assert_bounded_with_notes(claim, "inputs", text)
@@ -1236,11 +1235,125 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert Repo.get!(MemoryEntry, fact.id).recall_count == 1
   end
 
+  # The whole briefing, up to 160 KiB, was encoded again for every note it
+  # dropped, and every note was fitted again for every earlier message it
+  # dropped, so a long conversation over budget paid the product of the two
+  # (2026-10-04 review).
+  test "fitting a long briefing encodes it a few times, not once per note or message it drops" do
+    claim = long_conversation!("fit-cost", "slack:TFITCOST:CFIT")
+    seed_large_observations!(claim)
+    workspace = %{"description" => String.duplicate("w", 15_000)}
+
+    {result, encodes} =
+      briefing_encodes(fn -> SubmissionBuilder.build(claim, workspace: workspace) end)
+
+    assert {:ok, submission} = result
+    context = submission["context"]
+
+    assert context["inputs"]["omitted_count"] > 1
+    assert length(get_in(context, ["operator_context", "continuity", "observations"]) || []) < 16
+    assert encodes <= 10
+  end
+
+  test "a long briefing drops only the oldest earlier messages it has to" do
+    claim = long_conversation!("fit-fewest", "slack:TFITFEWEST:CFIT")
+    workspace = %{"description" => String.duplicate("w", 15_000)}
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim, workspace: workspace)
+    context = submission["context"]
+    [first_kept | _] = earlier = Enum.reject(context["inputs"]["items"], & &1["current"])
+
+    # The newest are kept, and the next older one, about 2 KB, would not fit.
+    assert first_kept["content"]["json_preview"] =~ "Consumed history #{21 - length(earlier)}:"
+    assert byte_size(Ryker.CanonicalJSON.encode!(context)) + 2_000 > 160 * 1_024
+  end
+
+  test "a briefing keeps the most learned notes that fit, oldest first" do
+    claim = claim_episode!("notes-exact-fit", String.duplicate("CURRENT_REQUEST ", 4_000))
+    seed_large_observations!(claim)
+    workspace = %{"description" => String.duplicate("w", 15_000)}
+
+    assert {:ok, _} =
+             Ryker.Instructions.save(:global, String.duplicate("🌱", 2_000), 0, "operator:test")
+
+    assert {:ok, submission} = SubmissionBuilder.build(claim, workspace: workspace)
+    context = submission["context"]
+    path = ["operator_context", "continuity", "observations"]
+    [note | _] = notes = get_in(context, path)
+    size = &byte_size(Ryker.CanonicalJSON.encode!(&1))
+
+    assert length(notes) in 1..15
+    assert size.(context) <= 160 * 1_024
+    assert size.(put_in(context, path, notes ++ [note])) > 160 * 1_024
+  end
+
+  defp long_conversation!(name, conversation) do
+    destination = %{
+      transport: "slack",
+      conversation_ref: conversation,
+      thread_ref: "1787832000.000100"
+    }
+
+    first = claim_episode_payload!(name, %{"text" => "Initial history"}, destination: destination)
+
+    historical =
+      Enum.reduce(1..20, first, fn index, claim ->
+        next_claim!(claim, ["Consumed history #{index}: " <> String.duplicate("h", 2_000)])
+      end)
+
+    next = next_claim!(historical, [String.duplicate("A", 60_000), String.duplicate("B", 60_000)])
+
+    assert {:ok, rotated} =
+             Custody.rotate_session(
+               next.episode.id,
+               next.turn.turn_ref,
+               next.lease_ref,
+               next.session.generation
+             )
+
+    %{next | session: rotated.session, turn: rotated.turn}
+  end
+
+  # How many times the whole briefing was encoded while `fun` ran. A process
+  # cannot trace itself, so a collector counts the calls.
+  defp briefing_encodes(fun) do
+    collector = spawn_link(fn -> count_briefing_encodes(0) end)
+    :erlang.trace_pattern({Ryker.CanonicalJSON, :encode!, 1}, true, [:local])
+    :erlang.trace(self(), true, [:call, {:tracer, collector}])
+
+    result =
+      try do
+        fun.()
+      after
+        :erlang.trace(self(), false, [:call])
+        :erlang.trace_pattern({Ryker.CanonicalJSON, :encode!, 1}, false, [:local])
+      end
+
+    delivered = :erlang.trace_delivered(self())
+    assert_receive {:trace_delivered, _pid, ^delivered}
+    send(collector, {:count, self()})
+    assert_receive {:briefing_encodes, count}
+    {result, count}
+  end
+
+  defp count_briefing_encodes(count) do
+    receive do
+      {:trace, _pid, :call, {Ryker.CanonicalJSON, :encode!, [%{"mode" => _mode}]}} ->
+        count_briefing_encodes(count + 1)
+
+      {:trace, _pid, :call, _other} ->
+        count_briefing_encodes(count)
+
+      {:count, from} ->
+        send(from, {:briefing_encodes, count})
+    end
+  end
+
   test "optional learned notes leave room for the current continuation and final workspace metadata" do
     first = claim_episode!("notes-continuation-budget", "initial")
     {:ok, submission} = SubmissionBuilder.build(first)
     bind_remote_turn!(first, submission)
-    text = String.duplicate("CURRENT_REQUEST ", 3_000)
+    text = String.duplicate("CURRENT_REQUEST ", 4_000)
 
     {:ok, _} =
       Episodes.apply(
@@ -1323,36 +1436,16 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert byte_size(submission["prompt"]) <= 256 * 1_024
   end
 
+  # Sixteen side remarks routing ignored in the claim's conversation, each
+  # kept as a learned note of about 4.8 KB: legal multibyte text, recalled the
+  # way a real conversation's notes are. The notes this seeded before
+  # 2026-10-07 had no source a briefing could recall, so the tests using them
+  # never had a note to fit.
   defp seed_large_observations!(claim) do
-    # Structural boundary mutation: legal multibyte notes, not a manufactured model behavior fixture.
-    {:ok, scope} = Continuity.destination_context(claim.episode, claim.session.repository_ref)
-
-    note = %{
-      "summary" => String.duplicate("😀", 1_200),
-      "topics" => Enum.map(1..8, &(to_string(&1) <> String.duplicate("😀", 79)))
-    }
-
-    for _ <- 1..16 do
-      id = Ecto.UUID.generate()
-
-      Repo.insert!(
-        struct!(
-          ConversationObservation,
-          Map.merge(scope, %{
-            id: id,
-            identity_key: id,
-            source_input_id: id,
-            source_message_ref: "1787832000.000100",
-            source_result_ref: "budget-test",
-            source_fingerprint: String.duplicate("a", 64),
-            actor_ref: "U123",
-            execution_mode: :shadow,
-            revision: 1,
-            occurred_at: @now,
-            note: note
-          })
-        )
-      )
+    for index <- 1..16 do
+      text = "Side note #{index}: " <> String.duplicate("😀", 1_200)
+      at = DateTime.add(@now, index - 3_600, :second)
+      LearningFixtures.noted_message!(claim.episode, text, at, claim.session.repository_ref)
     end
   end
 

@@ -8,6 +8,7 @@ defmodule Ryker.PubSubTest do
   open page redrew for.
   """
   use ExUnit.Case, async: true
+  alias Ryker.PubSub.AliasDispatcher
 
   @root Path.expand("../..", __DIR__)
 
@@ -31,5 +32,21 @@ defmodule Ryker.PubSubTest do
     :ok = Ryker.PubSub.unsubscribe("pubsub-test:one")
     :ok = Ryker.PubSub.broadcast("pubsub-test:one", {:changed, 3})
     refute_received {:changed, 3}
+  end
+
+  # A worker command's caller waits on it, then goes on to other work in the
+  # same process, often a polling worker that logs a message it did not expect.
+  # A result announced while it was unsubscribing must not follow it there.
+  test "a message on its way to a subscription that ended is dropped, not delivered late" do
+    topic = "pubsub-test:alias"
+    alias = Ryker.PubSub.subscribe_alias(topic)
+    assert :ok = Ryker.PubSub.broadcast_to_aliases(topic, {:settled, 1})
+    assert_received {:settled, 1}
+
+    # A broadcast that had already found the subscription, delivered after it ended.
+    :ok = Ryker.PubSub.unsubscribe_alias(topic, alias)
+    AliasDispatcher.dispatch([{self(), alias}], self(), {:settled, 2})
+    assert :ok = Ryker.PubSub.broadcast_to_aliases(topic, {:settled, 3})
+    refute_receive {:settled, _late}, 50
   end
 end

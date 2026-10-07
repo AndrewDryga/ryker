@@ -3278,6 +3278,32 @@ defmodule Ryker.Work.ExecutorTest do
              {:error, {:coop_protocol_error, :turn_authority}}
   end
 
+  # Each check before a turn's submit asked the worker for the session again,
+  # about 0.8 s through the worker each time: 13.5 reads per Work session in
+  # the week to 2026-10-07, and four before a writable task's first turn,
+  # four seconds before the model saw anything (2026-10-04 review).
+  test "a turn reads its worker session once to check it and once to submit it" do
+    claim = claim_with_bound_empty_session!("one-session-read")
+    {:ok, fake} = fake_for(claim, [reply("Read once.")])
+    reads = make_ref()
+
+    get_session = fn fallback ->
+      if FakeAPI.state(fake).submit_count == 0,
+        do: Process.put(reads, Process.get(reads, 0) + 1)
+
+      fallback.()
+    end
+
+    run_options =
+      fake
+      |> protocol_options(%{get_session: get_session})
+      |> Keyword.put(:require_project_isolation, true)
+      |> Keyword.put(:require_repository_read_only, true)
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
+    assert Process.get(reads) == 2
+  end
+
   test "an evaluation turn cannot start in a repository-writable Coop session" do
     claim = claim_with_bound_empty_session!("eval-session-must-be-read-only")
     {:ok, fake} = fake_for(claim, [reply("must not run")])

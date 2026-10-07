@@ -535,7 +535,7 @@ defmodule Ryker.Runtime.Assembly do
           settings.work.workspace_ref,
           defaults.capability_names,
           coop.receive_timeout_ms,
-          defaults.poll_interval_ms,
+          coop.command_recheck_ms,
           Path.join(storage_root, "worker-bodies")
         )
 

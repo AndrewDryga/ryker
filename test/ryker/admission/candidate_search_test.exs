@@ -5,6 +5,7 @@ defmodule Ryker.Admission.CandidateSearchTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, CorrelationClaims, Episode, RoutingDigests}
   alias Ryker.Ingress.{Input, RecallText}
+  alias Ryker.QueryWork
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
   alias Ryker.Slack.Input, as: SlackInput
@@ -170,6 +171,34 @@ defmodule Ryker.Admission.CandidateSearchTest do
 
     assert match.id in Enum.map(result.selected, & &1.episode.id)
     assert result.receipt["words"] == ~w(payment probe failing)
+  end
+
+  # Each word's rarity was counted by a query of its own, so a long message
+  # added a round trip per word to every routing decision (2026-10-04 review).
+  test "a search counts how rare its words are in one query, however many words it has" do
+    episode!("routing:word-count",
+      channel_ref: "CDEVOPS",
+      text: "Readiness probes failed on the payments service during the rollout"
+    )
+
+    reads = fn text ->
+      {result, statements} =
+        QueryWork.statements(fn -> search!(channel_ref: "CALERTS", text: text) end)
+
+      {result, QueryWork.count(statements, "episode_routing_digests")}
+    end
+
+    {short, few} = reads.("Why is the payment probe failing?")
+
+    {long, many} =
+      reads.(
+        "Why is the payment probe failing again after the rollout of the checkout " <>
+          "service, the readiness gate and the canary deploy in production?"
+      )
+
+    assert length(long.receipt["words"]) > length(short.receipt["words"]) + 5
+    assert few > 0
+    assert many == few
   end
 
   test "work whose title names the subject ranks above work that only mentions it" do

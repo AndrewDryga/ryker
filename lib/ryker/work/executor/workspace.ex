@@ -17,14 +17,8 @@ defmodule Ryker.Work.Executor.Workspace do
   @companion_name_regex ~r/\A[a-z0-9][a-z0-9_-]{0,63}\z/
 
   @doc false
-  def session_workspace(claim, settings) do
-    with {:ok, remote_session} <-
-           Remote.api_call(settings, fn ->
-             settings.api.get_session(settings.client, claim.session.coop_session_id)
-           end),
-         :ok <-
-           Remote.exact_remote_session_state(claim.session, remote_session),
-         {:ok, primary} <- primary_workspace(claim.session, remote_session),
+  def session_workspace(claim, remote_session, settings) do
+    with {:ok, primary} <- primary_workspace(claim.session, remote_session),
          {:ok, companions} <- companion_workspaces(Map.get(remote_session, "companions", [])),
          :ok <- repository_context_workspace(claim.session, companions),
          :ok <- required_workspaces(companions, settings.workspace_requirements),

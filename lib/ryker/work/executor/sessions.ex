@@ -7,6 +7,8 @@ defmodule Ryker.Work.Executor.Sessions do
   stale, replaces one whose placement was lost, and otherwise creates a new
   session under the persisted create key. Creation is keyed and reconciled
   through the operation so a lost response never creates a second session.
+  It returns the session as the worker last described it, so the checks
+  before a turn's submit read it once instead of asking again each.
   """
 
   alias Ryker.Coop.API
@@ -126,13 +128,13 @@ defmodule Ryker.Work.Executor.Sessions do
     end
   end
 
-  defp use_or_rotate_session(%{turn: %{coop_turn_id: id}} = claim, _remote, _settings)
+  defp use_or_rotate_session(%{turn: %{coop_turn_id: id}} = claim, remote, _settings)
        when is_binary(id),
-       do: {:ok, claim}
+       do: {:ok, claim, remote}
 
-  defp use_or_rotate_session(claim, %{"state" => "open"}, settings) do
+  defp use_or_rotate_session(claim, %{"state" => "open"} = remote, settings) do
     case KnowledgeSnapshot.authorize_session(claim.episode, claim.session) do
-      :ok -> {:ok, claim}
+      :ok -> {:ok, claim, remote}
       {:error, :work_knowledge_context_stale} -> rotate_session(claim, settings)
     end
   end
@@ -230,7 +232,7 @@ defmodule Ryker.Work.Executor.Sessions do
     case result do
       {:ok, %{"session" => remote_session}} when is_map(remote_session) ->
         case bind_session(claim, remote_session) do
-          {:ok, _claim} = success -> success
+          {:ok, _claim, _remote} = success -> success
           {:error, reason} -> reconcile_create_response(claim, key, reason, settings)
         end
 
@@ -334,7 +336,7 @@ defmodule Ryker.Work.Executor.Sessions do
              claim.session.create_generation,
              remote_session_id
            ) do
-      {:ok, %{claim | session: session}}
+      {:ok, %{claim | session: session}, remote_session}
     end
   end
 

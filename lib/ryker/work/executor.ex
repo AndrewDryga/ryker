@@ -75,16 +75,20 @@ defmodule Ryker.Work.Executor do
     Turns.completion_result(result, proof)
   end
 
+  # The session as the worker last described it while it was ensured serves
+  # every check before the submit; the submit reads it again for the revision
+  # it writes against.
   defp execute_turn(claim, settings) do
     with :ok <- require_workspace_checkpoint_api(claim, settings),
-         {:ok, claim} <- Sessions.ensure_session(claim, settings),
-         :ok <- require_workspace_task_binding(claim, settings),
-         :ok <- require_repository_read_only(claim, settings),
-         :ok <- require_project_isolation(claim, settings),
+         {:ok, claim, remote_session} <- Sessions.ensure_session(claim, settings),
+         :ok <- Remote.exact_remote_session_state(claim.session, remote_session),
+         :ok <- require_workspace_task_binding(claim, remote_session),
+         :ok <- require_repository_read_only(remote_session, settings),
+         :ok <- require_project_isolation(remote_session, settings),
          {:ok, claim} <- ensure_state_binding(claim, settings),
-         {:ok, claim} <- ensure_submission(claim, settings),
+         {:ok, claim} <- ensure_submission(claim, remote_session, settings),
          :ok <- KnowledgeSnapshot.authorize_session(claim.episode, claim.session),
-         {:ok, claim} <- authorize_or_rebuild(claim, settings),
+         {:ok, claim} <- authorize_or_rebuild(claim, remote_session, settings),
          {:ok, claim, remote_turn} <- Turns.ensure_turn(claim, settings) do
       Turns.await_turn(claim, remote_turn, settings, settings.max_polls)
     end
@@ -96,7 +100,7 @@ defmodule Ryker.Work.Executor do
   # "Model work stopped" instead of a reply. A turn Coop has not seen is built
   # again from what is current, once; withdrawn knowledge never reaches the
   # model either way.
-  defp authorize_or_rebuild(claim, settings, rebuilt? \\ false) do
+  defp authorize_or_rebuild(claim, remote_session, settings, rebuilt? \\ false) do
     case KnowledgeSnapshot.authorize_submission(
            claim.episode,
            claim.session.repository_ref,
@@ -114,8 +118,8 @@ defmodule Ryker.Work.Executor do
                  claim.turn.turn_ref,
                  claim.lease_ref
                ),
-             {:ok, claim} <- ensure_submission(%{claim | turn: turn}, settings) do
-          authorize_or_rebuild(claim, settings, true)
+             {:ok, claim} <- ensure_submission(%{claim | turn: turn}, remote_session, settings) do
+          authorize_or_rebuild(claim, remote_session, settings, true)
         end
 
       {:error, _reason} = error ->
@@ -141,15 +145,11 @@ defmodule Ryker.Work.Executor do
   defp require_workspace_checkpoint_api(_claim, _settings), do: :ok
 
   defp require_workspace_task_binding(
-         %{turn: %{coop_turn_id: nil}, session: %{workspace_task: task}} = claim,
-         settings
+         %{turn: %{coop_turn_id: nil}, session: %{workspace_task: task}},
+         remote
        )
        when is_map(task) do
-    with {:ok, remote} <-
-           Remote.api_call(settings, fn ->
-             settings.api.get_session(settings.client, claim.session.coop_session_id)
-           end),
-         %{
+    with %{
            "offer_ref" => offer_ref,
            "id" => id,
            "queue_id" => queue_id,
@@ -162,41 +162,26 @@ defmodule Ryker.Work.Executor do
          true <- is_binary(sha) and Regex.match?(~r/\A[0-9a-f]{64}\z/, sha) do
       :ok
     else
-      {:error, _reason} = error -> error
       _invalid -> {:error, {:coop_protocol_error, :workspace_task_binding}}
     end
   end
 
-  defp require_workspace_task_binding(_claim, _settings), do: :ok
+  defp require_workspace_task_binding(_claim, _remote), do: :ok
 
-  defp require_project_isolation(_claim, %{require_project_isolation: false}), do: :ok
+  defp require_project_isolation(_remote, %{require_project_isolation: false}), do: :ok
 
-  defp require_project_isolation(claim, %{require_project_isolation: true} = settings) do
-    with {:ok, remote_session} <-
-           Remote.api_call(settings, fn ->
-             settings.api.get_session(settings.client, claim.session.coop_session_id)
-           end),
-         :ok <-
-           Remote.exact_remote_session_state(claim.session, remote_session) do
-      if remote_session["project_env"] == false and remote_session["project_mcp"] == false,
-        do: :ok,
-        else: {:error, {:coop_protocol_error, :session_project_authority}}
-    end
+  defp require_project_isolation(remote, %{require_project_isolation: true}) do
+    if remote["project_env"] == false and remote["project_mcp"] == false,
+      do: :ok,
+      else: {:error, {:coop_protocol_error, :session_project_authority}}
   end
 
-  defp require_repository_read_only(_claim, %{require_repository_read_only: false}), do: :ok
+  defp require_repository_read_only(_remote, %{require_repository_read_only: false}), do: :ok
 
-  defp require_repository_read_only(claim, %{require_repository_read_only: true} = settings) do
-    with {:ok, remote_session} <-
-           Remote.api_call(settings, fn ->
-             settings.api.get_session(settings.client, claim.session.coop_session_id)
-           end),
-         :ok <-
-           Remote.exact_remote_session_state(claim.session, remote_session) do
-      if remote_session["repository_read_only"] == true,
-        do: :ok,
-        else: {:error, {:coop_protocol_error, :session_repository_write_authority}}
-    end
+  defp require_repository_read_only(remote, %{require_repository_read_only: true}) do
+    if remote["repository_read_only"] == true,
+      do: :ok,
+      else: {:error, {:coop_protocol_error, :session_repository_write_authority}}
   end
 
   @doc false
@@ -225,8 +210,8 @@ defmodule Ryker.Work.Executor do
     end
   end
 
-  defp ensure_submission(%{turn: %{submission: nil}} = claim, settings) do
-    with {:ok, workspace} <- Workspace.session_workspace(claim, settings),
+  defp ensure_submission(%{turn: %{submission: nil}} = claim, remote_session, settings) do
+    with {:ok, workspace} <- Workspace.session_workspace(claim, remote_session, settings),
          submission_options =
            [state_tool_capabilities: settings.state_tool_capabilities, workspace: workspace]
            |> maybe_submission_option(:platform_tools, settings.platform_tools)
@@ -248,11 +233,11 @@ defmodule Ryker.Work.Executor do
     end
   end
 
-  defp ensure_submission(%{turn: %{submission: submission}} = claim, _settings)
+  defp ensure_submission(%{turn: %{submission: submission}} = claim, _remote, _settings)
        when is_map(submission),
        do: {:ok, claim}
 
-  defp ensure_submission(_claim, _settings), do: {:error, :work_submission_missing}
+  defp ensure_submission(_claim, _remote, _settings), do: {:error, :work_submission_missing}
 
   defp maybe_submission_option(options, _key, nil), do: options
   defp maybe_submission_option(options, key, value), do: Keyword.put(options, key, value)

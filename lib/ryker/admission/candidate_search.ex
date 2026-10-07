@@ -169,10 +169,10 @@ defmodule Ryker.Admission.CandidateSearch do
     searchable = CandidateSearch.Query.searchable(request, scope)
     total = Repo.aggregate(searchable, :count)
 
-    counts =
-      Map.new(lexemes, fn lexeme ->
-        {lexeme, Repo.aggregate(CandidateSearch.Query.by_lexeme(searchable, lexeme), :count)}
-      end)
+    # One query for every word: one each added a round trip per word to
+    # every routing decision (2026-10-04 review).
+    held = searchable |> CandidateSearch.Query.lexeme_counts(lexemes) |> Repo.all() |> Map.new()
+    counts = Map.new(lexemes, &{&1, Map.get(held, &1, 0)})
 
     idf = Map.new(counts, fn {lexeme, count} -> {lexeme, idf(total, count)} end)
     common = max(@common_floor, total * @common_share)

@@ -30,4 +30,37 @@ defmodule Ryker.PubSub do
     _ = Phoenix.PubSub.broadcast(@pubsub, topic, payload)
     :ok
   end
+
+  @doc """
+  Subscribes the calling process to `topic` through a process alias, for a
+  process that waits on one thing and goes on to other work. What
+  `broadcast_to_aliases/2` sends reaches the alias, and once
+  `unsubscribe_alias/2` drops it, a message still on its way is discarded by
+  the runtime instead of reaching a process that stopped waiting.
+  """
+  @spec subscribe_alias(String.t()) :: reference()
+  def subscribe_alias(topic) when is_binary(topic) do
+    alias = :erlang.alias()
+    :ok = Phoenix.PubSub.subscribe(@pubsub, topic, metadata: alias)
+    alias
+  end
+
+  @spec unsubscribe_alias(String.t(), reference()) :: :ok
+  def unsubscribe_alias(topic, alias) when is_binary(topic) and is_reference(alias) do
+    :ok = Phoenix.PubSub.unsubscribe(@pubsub, topic)
+    _active? = :erlang.unalias(alias)
+    :ok
+  end
+
+  @doc "Sends `payload` to every alias subscribed to `topic` (`subscribe_alias/1`)."
+  def broadcast_to_aliases(topic, payload) when is_binary(topic) do
+    _ = Phoenix.PubSub.broadcast(@pubsub, topic, payload, __MODULE__.AliasDispatcher)
+    :ok
+  end
+
+  defmodule AliasDispatcher do
+    @moduledoc false
+    def dispatch(entries, _from, message),
+      do: Enum.each(entries, fn {_pid, alias} -> send(alias, message) end)
+  end
 end

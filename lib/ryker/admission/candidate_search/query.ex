@@ -98,11 +98,21 @@ defmodule Ryker.Admission.CandidateSearch.Query do
     )
   end
 
-  @doc "Of `searchable`'s digests, those whose words hold `lexeme`."
-  def by_lexeme(searchable, lexeme) do
+  @doc """
+  Of `searchable`'s digests, how many hold each of `lexemes` in their words,
+  as `{lexeme, count}`; a lexeme none holds is left out.
+  """
+  def lexeme_counts(searchable, lexemes) do
     from(digest in searchable,
+      cross_join: word in fragment("SELECT unnest(?::text[]) AS lexeme", ^lexemes),
       where:
-        fragment("? @@ to_tsquery('simple', quote_literal(?))", digest.search_vector, ^lexeme)
+        fragment(
+          "? @@ to_tsquery('simple', quote_literal(?))",
+          digest.search_vector,
+          word.lexeme
+        ),
+      group_by: word.lexeme,
+      select: {word.lexeme, count()}
     )
   end
 

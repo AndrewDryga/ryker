@@ -1,8 +1,8 @@
 defmodule Ryker.CoopFleet.BridgeTest do
   use Ryker.DataCase, async: true
-  import Ryker.TestHelpers, only: [digest: 1]
+  import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
   alias Ecto.Adapters.SQL.Sandbox
-  alias Ryker.CoopFleet.{Bridge, ControlPlane, Placement}
+  alias Ryker.CoopFleet.{Bridge, Command, ControlPlane, Placement}
   alias Ryker.Episodes
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -88,6 +88,68 @@ defmodule Ryker.CoopFleet.BridgeTest do
     send(task.pid, :bridge_continue)
 
     assert {:ok, %{"operation" => %{"id" => "operation-1"}}} = Task.await(task)
+  end
+
+  # The caller read its command's row every 250 ms, two queries a tick, and
+  # heard of a result up to a tick late (2026-10-04 review).
+  test "a caller waiting on a command hears its result at once, not at its next check" do
+    worker_id = "worker-woken"
+
+    assert {:ok, _worker} =
+             CoopWorkers.authorize(worker_id, "workspace-main", digest(worker_id))
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll_certificate(worker_id, poll(worker_id, "hello"))
+
+    session = session!()
+
+    task =
+      Task.async(fn ->
+        receive do
+          :start -> :ok
+        end
+
+        Bridge.execute(
+          session,
+          "create_session",
+          %{
+            "external_ref" => session.external_ref,
+            "job" => session.worker_job_document,
+            "job_digest" => session.worker_job_digest
+          },
+          "ryker:work:create:#{session.id}:g1",
+          capability_names: ["controller-tools"],
+          max_waits: 1,
+          poll_interval_ms: 60_000,
+          workspace_ref: "workspace-main"
+        )
+      end)
+
+    Sandbox.allow(Repo, self(), task.pid)
+    send(task.pid, :start)
+    assert eventually(fn -> Repo.exists?(Command.Query.by_session_id(session.id)) end)
+
+    assert {:ok, %{"commands" => [command]}} =
+             ControlPlane.handle_poll_certificate(worker_id, poll(worker_id, "command"))
+
+    result = %{
+      "command_id" => command["command_id"],
+      "error" => nil,
+      "operation_key" => command["idempotency_key"],
+      "resource" => %{
+        "status" => 202,
+        "body" => %{"operation" => %{"id" => "operation-woken", "state" => "running"}}
+      },
+      "state" => "succeeded"
+    }
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll_certificate(
+               worker_id,
+               poll(worker_id, "result", command_results: [result])
+             )
+
+    assert {:ok, {:ok, %{"operation" => %{"id" => "operation-woken"}}}} = Task.yield(task, 5_000)
   end
 
   test "bridge waits preserve typed terminal worker outcomes and bounded retry custody" do

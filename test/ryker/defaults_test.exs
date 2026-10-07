@@ -19,7 +19,9 @@ defmodule Ryker.DefaultsTest do
              poll_interval_ms: 250
            }
 
-    assert Defaults.fetch!(:coop) == %{receive_timeout_ms: 30_000}
+    # A command's caller is woken when it settles; the recheck is only for an
+    # end nothing announces (2026-10-04 review).
+    assert Defaults.fetch!(:coop) == %{command_recheck_ms: 1_000, receive_timeout_ms: 30_000}
     assert Defaults.fetch!(:event_waits) == %{poll_interval_ms: 1_000}
     assert Defaults.fetch!(:coop_worker_gateway) == %{certificate_ttl_seconds: 86_400}
     # Raised from 40,000, which refused a Grafana group of about sixty alerts

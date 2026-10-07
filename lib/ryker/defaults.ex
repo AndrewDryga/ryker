@@ -12,7 +12,11 @@ defmodule Ryker.Defaults do
   alias Ryker.Admission.Runtime, as: AdmissionRuntime
   alias Ryker.Config
 
-  @coop %{receive_timeout_ms: 30_000}
+  # A caller waiting on a worker command hears when it settles
+  # (`Ryker.CoopFleet.ControlPlane.Commands.subscribe_settled/1`), and reads it
+  # again this often for an end nothing announces, such as its placement being
+  # revoked.
+  @coop %{command_recheck_ms: 1_000, receive_timeout_ms: 30_000}
   @admission %{concurrency: 4, decision_timeout_ms: 30_000, poll_interval_ms: 250}
   @work %{capability_names: ["controller-tools"], concurrency: 4, poll_interval_ms: 250}
   # Learning reads a conversation once it has been quiet for five minutes, or

@@ -266,17 +266,35 @@ defmodule Ryker.Work.SubmissionBuilder do
     {context |> fit_memory("observations") |> fit_memory("knowledge"), eligible}
   end
 
+  # The notes kept are the longest head of the list that fits. Canonical JSON
+  # puts only a comma between a list's items, so the briefing with its first
+  # k notes is the briefing with none, plus each of theirs, plus k - 1 commas,
+  # and each note is measured once. The whole briefing, up to 160 KiB, was
+  # encoded again for every note dropped (2026-10-04 review).
   defp fit_memory(context, key) do
-    notes = get_in(context, ["operator_context", "continuity", key]) || []
+    path = ["operator_context", "continuity", key]
 
-    if notes != [] and byte_size(CanonicalJSON.encode!(context)) > @maximum_context_bytes do
-      context
-      |> put_in(["operator_context", "continuity", key], Enum.drop(notes, -1))
-      |> fit_memory(key)
-    else
-      context
+    case get_in(context, path) do
+      [_ | _] = notes ->
+        room = @maximum_context_bytes - encoded_size(put_in(context, path, []))
+        put_in(context, path, fitting_head(notes, room))
+
+      _none ->
+        context
     end
   end
+
+  defp fitting_head(notes, room) do
+    notes
+    |> Enum.reduce_while({[], -1}, fn note, {kept, used} ->
+      used = used + 1 + encoded_size(note)
+      if used <= room, do: {:cont, {[note | kept], used}}, else: {:halt, {kept, used}}
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+  end
+
+  defp encoded_size(value), do: value |> CanonicalJSON.encode!() |> byte_size()
 
   defp submission_context(episode, session, snapshot, records, nil, metadata),
     do: fit_full_context(episode, session, snapshot, records, nil, metadata)
@@ -341,36 +359,82 @@ defmodule Ryker.Work.SubmissionBuilder do
     end
   end
 
+  # The earlier messages go oldest first until the briefing fits with no
+  # optional notes, and then as many notes as fit go back in: a note never
+  # costs a message. Dropping a message never makes the briefing bigger, so
+  # the fewest to drop is found by halving. They were dropped one at a time,
+  # each try fitting every note again, so a long conversation over budget
+  # encoded the whole briefing once per message per note (2026-10-04 review).
   defp fit_inputs(context, snapshot, document) do
+    %{active: active, historical: historical} = snapshot
+
+    documents =
+      (active ++ historical) |> Enum.uniq_by(& &1.id) |> Map.new(&{&1.id, document.(&1)})
+
+    bare = Enum.reduce(["observations", "knowledge"], context, &without_notes/2)
+    measure = &measure_inputs(bare, snapshot, documents, &1)
+
+    dropped =
+      if fits?(measure.(0)), do: 0, else: fewest_dropped(1, length(historical), measure)
+
+    case measure.(dropped) do
+      %{bytes: bytes, artifacts: artifacts} = fit
+      when bytes <= @maximum_context_bytes and artifacts <= 5 ->
+        {fitted, eligible} =
+          context |> Map.put("inputs", fit.inputs) |> fit_optional_observations()
+
+        {:ok, fitted, eligible}
+
+      %{artifacts: artifacts} when artifacts > 5 ->
+        {:error, {:work_active_artifact_overflow, artifacts, 5}}
+
+      %{bytes: bytes} ->
+        {:error, {:work_active_input_bytes_overflow, bytes, @maximum_context_bytes}}
+    end
+  end
+
+  defp without_notes(key, context) do
+    path = ["operator_context", "continuity", key]
+    if is_list(get_in(context, path)), do: put_in(context, path, []), else: context
+  end
+
+  # The briefing's size and artifacts with the oldest `dropped` earlier
+  # messages left out and no optional notes.
+  defp measure_inputs(bare, snapshot, documents, dropped) do
     %{active: active, historical: historical, total_count: total_count} = snapshot
 
     selected =
-      (active ++ historical)
+      (active ++ Enum.drop(historical, dropped))
       |> Enum.uniq_by(& &1.id)
       |> Enum.sort_by(& &1.sequence)
 
     inputs = %{
-      "items" => Enum.map(selected, document),
+      "items" => Enum.map(selected, &Map.fetch!(documents, &1.id)),
       "omitted_count" => total_count - length(selected)
     }
 
-    {fitted, eligible} = context |> Map.put("inputs", inputs) |> fit_optional_observations()
-    context_bytes = fitted |> CanonicalJSON.encode!() |> byte_size()
-    artifact_count = fitted |> model_artifact_refs() |> length()
+    measured = Map.put(bare, "inputs", inputs)
 
-    cond do
-      context_bytes <= @maximum_context_bytes and artifact_count <= 5 ->
-        {:ok, fitted, eligible}
+    %{
+      artifacts: measured |> model_artifact_refs() |> length(),
+      bytes: encoded_size(measured),
+      inputs: inputs
+    }
+  end
 
-      historical != [] ->
-        fit_inputs(context, %{snapshot | historical: tl(historical)}, document)
+  defp fits?(%{bytes: bytes, artifacts: artifacts}),
+    do: bytes <= @maximum_context_bytes and artifacts <= 5
 
-      artifact_count > 5 ->
-        {:error, {:work_active_artifact_overflow, artifact_count, 5}}
+  # The fewest of `low..high` earlier messages to drop for the briefing to
+  # fit; `high`, all of them, when none is enough.
+  defp fewest_dropped(low, high, _measure) when low >= high, do: high
 
-      true ->
-        {:error, {:work_active_input_bytes_overflow, context_bytes, @maximum_context_bytes}}
-    end
+  defp fewest_dropped(low, high, measure) do
+    middle = div(low + high, 2)
+
+    if fits?(measure.(middle)),
+      do: fewest_dropped(low, middle, measure),
+      else: fewest_dropped(middle + 1, high, measure)
   end
 
   defp continuation_context(episode, session, snapshot, records, previous, metadata) do
