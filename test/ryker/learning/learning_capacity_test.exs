@@ -5,6 +5,7 @@ defmodule Ryker.Learning.LearningCapacityTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
+  alias Ryker.Inspectors
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -34,7 +35,7 @@ defmodule Ryker.Learning.LearningCapacityTest do
     # Learning must preserve history at the 129th-root boundary, not get stuck
     # retrying or retain old prose without the roots disclosed with that prose.
     %{entry: entry, head: before, candidate: candidate} = saturated_topic!()
-    history = Knowledge.history("knowledge:#{before.id}")
+    history = Inspectors.knowledge_history("knowledge:#{before.id}")
     old_sources = source_rows(before)
 
     assert {:ok, run} = Learning.prepare([entry.id], @policy)
@@ -84,7 +85,7 @@ defmodule Ryker.Learning.LearningCapacityTest do
     assert length(source_rows(before)) == length(old_sources) + 1
     assert Enum.all?(old_sources, &(&1 in source_rows(before)))
 
-    assert [old, latest] = Knowledge.history("knowledge:#{before.id}")
+    assert [old, latest] = Inspectors.knowledge_history("knowledge:#{before.id}")
     assert [old] == history
     assert length(old.source_dependencies) == 1
     assert length(latest.source_dependencies) == 1
@@ -259,14 +260,14 @@ defmodule Ryker.Learning.LearningCapacityTest do
   end
 
   defp assert_rejected_without_replacing!(run, candidate, head) do
-    history = Knowledge.history("knowledge:#{head.id}")
+    history = Inspectors.knowledge_history("knowledge:#{head.id}")
     sources = source_rows(head)
 
     assert {:error, :learning_match_required} =
              Ryker.Fixtures.Learning.accept(run.id, candidate, %{})
 
     assert Repo.get!(ConversationKnowledge, head.id) == head
-    assert Knowledge.history("knowledge:#{head.id}") == history
+    assert Inspectors.knowledge_history("knowledge:#{head.id}") == history
     assert source_rows(head) == sources
     assert Repo.aggregate(KnowledgeRevision, :count) == length(history)
 

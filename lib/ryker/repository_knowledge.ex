@@ -141,6 +141,7 @@ defmodule Ryker.RepositoryKnowledge do
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Ryker.PubSub.subscribe(topic())
 
+  # A page leaves a topic by its subscription's `un` twin (`WorkbenchLive`).
   def unsubscribe, do: Ryker.PubSub.unsubscribe(topic())
 
   @doc false

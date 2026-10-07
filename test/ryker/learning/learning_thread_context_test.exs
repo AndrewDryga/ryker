@@ -5,6 +5,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Inspectors
   alias Ryker.Knowledge
   alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeAnchors, KnowledgeSource}
   alias Ryker.Learning
@@ -44,7 +45,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
 
       result = Jason.encode!(%{"updates" => [update], "reason" => "Exercise the offered update."})
       assert {:ok, %{status: :applied}} = Fixtures.accept(run.id, result, %{})
-      assert length(Knowledge.history(topic["source_ref"])) == 2
+      assert length(Inspectors.knowledge_history(topic["source_ref"])) == 2
     end
   end
 

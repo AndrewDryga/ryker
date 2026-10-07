@@ -4,6 +4,8 @@ defmodule Ryker.RepositoryKnowledge.PromptTest do
   alias Ryker.RepositoryKnowledge.{Document, Prompt}
 
   @fixtures "test/ryker/repository_knowledge/fixtures"
+  # The most one knowledge turn's request may hold, encoded.
+  @maximum_bytes 65_536
   @commit "783fc4801d274d5ee05feb3fbc5c70981b1bbd7a"
 
   # Andrew, 2026-09-27, of the RYKER.md setup proposed for emisar: "those are
@@ -49,7 +51,7 @@ defmodule Ryker.RepositoryKnowledge.PromptTest do
     assert "portal/mix.exs" in context["key_files"]
     assert ".github/workflows/cd.yml" in context["key_files"]
     assert context["omitted"] == []
-    assert byte_size(CanonicalJSON.encode!(request)) <= Prompt.maximum_bytes()
+    assert byte_size(CanonicalJSON.encode!(request)) <= @maximum_bytes
 
     rendered = Prompt.render(request)
     assert String.starts_with?(rendered, ~s({"instructions":))
@@ -72,10 +74,10 @@ defmodule Ryker.RepositoryKnowledge.PromptTest do
     current =
       "# RYKER.md\n\nWritten by Ryker from `abc1234` on 2026-09-20.\n\n## Purpose\n\nOld words.\n"
 
-    context = Prompt.build(Map.put(facts(), :current_document, current))["context"]
+    request = Prompt.build(Map.put(facts(), :current_document, current))
 
-    assert context["current_document"] == current
-    assert Prompt.instructions() =~ "Keep what is still true"
+    assert request["context"]["current_document"] == current
+    assert request["instructions"] =~ "Keep what is still true"
   end
 
   test "facts too long for one prompt give up the current document first, and say so" do
@@ -88,7 +90,7 @@ defmodule Ryker.RepositoryKnowledge.PromptTest do
           current_document: long
       })
 
-    assert byte_size(CanonicalJSON.encode!(request)) <= Prompt.maximum_bytes()
+    assert byte_size(CanonicalJSON.encode!(request)) <= @maximum_bytes
     context = request["context"]
     assert "The end of the current document, cut for length." in context["omitted"]
     assert String.ends_with?(context["current_document"], "…[cut]")

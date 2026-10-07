@@ -153,14 +153,14 @@ defmodule Ryker.Knowledge do
   @doc "Learn from retained raw inputs without changing their earlier observations or decisions."
   def record_sources_in_transaction(entries, proposal, offered, context) do
     with {:ok, scope, source, proposal} <- source_update(entries, proposal, offered, context) do
-      apply_update(scope, source, proposal, offered, context.omissions)
+      apply_update(scope, source, proposal, offered)
     end
   end
 
   @doc "Check the same source/update contract without creating a topic or a revision."
   def check_sources_in_transaction(entries, proposal, offered, context) do
     with {:ok, scope, source, proposal} <- source_update(entries, proposal, offered, context),
-         {:ok, _plan} <- plan_update(scope, source, proposal, offered, context.omissions) do
+         {:ok, _plan} <- plan_update(scope, source, proposal, offered) do
       :ok
     end
   end
@@ -416,27 +416,12 @@ defmodule Ryker.Knowledge do
 
       {:ok,
        Map.merge(Map.from_struct(primary), %{
-         # Raw learning never disclosed old derived notes. Do not copy their
-         # prose into this generation without their inherited retention roots.
-         direct_sources: Enum.map(sources, &%{&1 | note: nil}),
+         direct_sources: sources,
          source_dependencies: dependencies,
          source_result_ref: result_ref
        })}
     else
       _ -> @stale
-    end
-  end
-
-  def history(reference) do
-    case id(reference) do
-      nil ->
-        []
-
-      id ->
-        id
-        |> KnowledgeRevision.Query.by_knowledge_id()
-        |> KnowledgeRevision.Query.ordered_by_version()
-        |> Repo.all()
     end
   end
 
@@ -617,13 +602,13 @@ defmodule Ryker.Knowledge do
       source.source_fingerprint == entry.event_fingerprint
   end
 
-  defp apply_update(scope, source, proposal, offered, omissions) do
-    with {:ok, plan} <- plan_update(scope, source, proposal, offered, omissions) do
+  defp apply_update(scope, source, proposal, offered) do
+    with {:ok, plan} <- plan_update(scope, source, proposal, offered) do
       save_bounded_update(plan, scope, source)
     end
   end
 
-  defp plan_update(scope, source, proposal, offered, omissions) do
+  defp plan_update(scope, source, proposal, offered) do
     scope_key = scope_key(scope)
     lock_scope(scope_key)
 
@@ -643,7 +628,7 @@ defmodule Ryker.Knowledge do
                |> Repo.exists?()) ->
         {:error, :knowledge_target_unavailable}
 
-      allowed_update?(existing, proposal, offered, omissions, scope) ->
+      allowed_update?(existing, proposal, offered) ->
         bounded_plan(existing, scope_key, source, proposal)
 
       true ->
@@ -691,31 +676,20 @@ defmodule Ryker.Knowledge do
     AdvisoryLock.hold!(Crypto.lock_key("knowledge-scope:" <> key))
   end
 
-  defp allowed_update?(nil, %{"target_ref" => nil, "expected_version" => 0}, _, [], _), do: true
+  # A new topic: no row of this conversation has its key. A topic left out of
+  # the offer for its sources' capacity would be that row, so the clause that
+  # checked omissions (by the repository topics were once keyed by) could not
+  # refuse anything (2026-10-04 review).
+  defp allowed_update?(nil, %{"target_ref" => nil, "expected_version" => 0}, _offered), do: true
 
-  defp allowed_update?(
-         nil,
-         %{"target_ref" => nil, "expected_version" => 0} = proposal,
-         _,
-         omissions,
-         scope
-       ) do
-    not Enum.any?(
-      omissions,
-      &(&1["topic_key"] == proposal["topic_key"] and
-          &1["conversation_ref"] == scope.conversation_ref and
-          &1["repository_ref"] == scope.repository_ref and &1["reason"] == "source_capacity")
-    )
-  end
-
-  defp allowed_update?(%{id: key, version: version}, proposal, offered, _, _) do
+  defp allowed_update?(%{id: key, version: version}, proposal, offered) do
     reference = "knowledge:" <> key
 
     proposal["target_ref"] == reference and proposal["expected_version"] == version and
       Enum.any?(offered, &(&1["source_ref"] == reference and &1["version"] == version))
   end
 
-  defp allowed_update?(_, _, _, _, _), do: false
+  defp allowed_update?(_existing, _proposal, _offered), do: false
 
   defp bounded_plan(existing, scope_key, source, proposal) do
     state =
@@ -876,8 +850,7 @@ defmodule Ryker.Knowledge do
       source_fingerprint: receipt["fingerprint"],
       retained_at: retained_at,
       introduced_version: version,
-      direct_support_version: if(support, do: version),
-      source_note: if(support, do: support.note)
+      direct_support_version: if(support, do: version)
     }
   end
 
@@ -989,6 +962,7 @@ defmodule Ryker.Knowledge do
   """
   def subscribe_knowledge, do: Ryker.PubSub.subscribe(knowledge_topic())
 
+  # A page leaves a topic by its subscription's `un` twin (`WorkbenchLive`).
   def unsubscribe_knowledge, do: Ryker.PubSub.unsubscribe(knowledge_topic())
 
   @doc """

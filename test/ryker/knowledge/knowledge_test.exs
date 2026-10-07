@@ -10,6 +10,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.RecallText
+  alias Ryker.Inspectors
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRetention
@@ -177,7 +178,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     assert after_update["version"] == 2
     assert after_update["source_count"] == 2
     assert after_update["summary"] == @resolved["summary"]
-    assert [old, new] = Knowledge.history(after_update["source_ref"])
+    assert [old, new] = Inspectors.knowledge_history(after_update["source_ref"])
     assert old.state["summary"] == @firing["summary"]
     assert new.state["summary"] == @resolved["summary"]
     assert old.source_input_id == first.id
@@ -302,7 +303,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     assert {:error, {:admission_rejected, :context_stale}} =
              Knowledge.reauthorize(second, "tenant-infra", [current])
 
-    assert length(Knowledge.history(item["source_ref"])) == 2
+    assert length(Inspectors.knowledge_history(item["source_ref"])) == 2
   end
 
   test "expired or removed supporting sources cannot be recalled through a newer aggregate" do
@@ -454,7 +455,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
              )
 
     assert Knowledge.context(fresh, "tenant-infra") == []
-    assert length(Knowledge.history(before["source_ref"])) == 1
+    assert length(Inspectors.knowledge_history(before["source_ref"])) == 1
   end
 
   for boundary <- [:text, :attachments, :batch] do
@@ -882,12 +883,13 @@ defmodule Ryker.Knowledge.KnowledgeTest do
 
     assert {:ok, _} = Data.prune(settings)
     assert Knowledge.context(first, "tenant-infra") == []
-    assert [%{state: %{"retention" => "pruned"}}] = Knowledge.history(item["source_ref"])
+
+    assert [%{state: %{"retention" => "pruned"}}] =
+             Inspectors.knowledge_history(item["source_ref"])
 
     assert [%{state: %{"retention" => "pruned"}}] =
              Repo.all(ConversationKnowledge)
 
-    assert [%{source_note: nil}] = Repo.all(KnowledgeSource)
     assert [%{note: nil, revision: 1, updated_at: ^old}] = Repo.all(ConversationObservation)
     {:ok, decided} = Inbox.fetch(Inbox.ref(first))
 
@@ -965,7 +967,6 @@ defmodule Ryker.Knowledge.KnowledgeTest do
              &(&1.state == %{"retention" => "pruned"})
            )
 
-    assert Enum.all?(Repo.all(KnowledgeSource), &is_nil(&1.source_note))
     assert is_nil(Repo.get!(ConversationObservation, first.id).note)
     # The later original message has its own lifetime; unlike the derived topic,
     # it did not copy or inherit the expired message's prose.

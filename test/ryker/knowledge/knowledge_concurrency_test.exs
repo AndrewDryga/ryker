@@ -6,6 +6,7 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
+  alias Ryker.Inspectors
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -74,7 +75,7 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
         rejected = Repo.get!(LearningRun, second_run.id)
         assert rejected.status == :rejected
         assert rejected.match_refs == [head["source_ref"]]
-        assert length(Knowledge.history(head["source_ref"])) == 1
+        assert length(Inspectors.knowledge_history(head["source_ref"])) == 1
         assert {:ok, retried} = Learning.prepare([second_entry.id], @policy)
         assert retried.knowledge == [head]
       after
@@ -348,7 +349,6 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
           direct_support_version: 1,
           source_revision: 1,
           source_fingerprint: source.source_fingerprint,
-          source_note: note,
           retained_at: source.updated_at,
           introduced_version: 1
         })

@@ -85,10 +85,6 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   @spec contract_version() :: String.t()
   def contract_version, do: @contract_version
 
-  @doc "The instructions every knowledge turn starts with."
-  @spec instructions() :: String.t()
-  def instructions, do: @instructions
-
   @doc """
   The request for a repository from its tree (`Document.tree/1`): its outline
   (`Document.outline_facts/1`) beside `repository`'s `name`, `default_branch`,
@@ -449,8 +445,4 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
       do: context,
       else: Map.update!(context, "omitted", &(&1 ++ [text]))
   end
-
-  @doc "The largest request `build/2` returns, in encoded bytes."
-  @spec maximum_bytes() :: pos_integer()
-  def maximum_bytes, do: @max_encoded_bytes
 end

@@ -146,9 +146,6 @@ defmodule Ryker.RepositoryKnowledge.Custody do
     end)
   end
 
-  @doc "The entry as it is stored now, under the claim's lease."
-  def owned(claim), do: Repo.transaction(fn -> owned!(claim) end)
-
   @doc """
   Gives the lease back and asks to be claimed again after `delay_seconds`:
   the step waits, whatever it was, and nothing else changes.

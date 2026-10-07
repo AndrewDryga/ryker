@@ -136,8 +136,7 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     raw_item =
       Enum.find(Repo.all(ConversationKnowledge), &(&1.topic_key == proposal()["topic_key"]))
 
-    copies = Repo.all(KnowledgeSource) |> Enum.filter(&(&1.knowledge_id == raw_item.id))
-    assert Enum.all?(copies, &is_nil(&1.source_note))
+    assert Enum.any?(Repo.all(KnowledgeSource), &(&1.knowledge_id == raw_item.id))
 
     assert {:ok, _} =
              Repo.transaction(fn ->

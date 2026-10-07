@@ -145,7 +145,6 @@ defmodule Ryker.Memories.Forgetting do
   defp erase!(ids) do
     now = Repo.now!()
 
-    Repo.update_all(KnowledgeSource.Query.by_knowledge_ids(ids), set: [source_note: nil])
     Repo.update_all(KnowledgeRevision.Query.by_knowledge_ids(ids), set: [state: @erased])
 
     # Its key and anchors named what was forgotten until a later topic took

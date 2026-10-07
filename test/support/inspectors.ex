@@ -12,9 +12,18 @@ defmodule Ryker.Inspectors do
   alias Ryker.Emisar.Approval
   alias Ryker.Episodes.{CorrelationClaim, RoutingDigest}
   alias Ryker.Improvement.Candidate
+  alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.Entry
   alias Ryker.Slack.{ChannelConfiguration, ChannelMembership}
+
+  @doc "A learned topic's revisions, oldest first, by its `knowledge:` source ref."
+  def knowledge_history("knowledge:" <> id) do
+    id
+    |> KnowledgeRevision.Query.by_knowledge_id()
+    |> KnowledgeRevision.Query.ordered_by_version()
+    |> Repo.all()
+  end
 
   @doc "The self-analysis candidate about a request, or nil."
   def improvement_candidate({:episode, id}), do: Repo.one(Candidate.Query.by_episode_id(id))

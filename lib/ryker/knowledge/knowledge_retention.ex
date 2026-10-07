@@ -15,12 +15,12 @@ defmodule Ryker.Knowledge.KnowledgeRetention do
             SELECT 1 FROM conversation_knowledge_sources s
             WHERE s.knowledge_id = k.id
               AND s.retained_at < clock_timestamp() - ($1 * interval '1 second')
-              AND (s.source_note IS NOT NULL OR EXISTS (
+              AND EXISTS (
                 SELECT 1 FROM conversation_knowledge_revisions r
                 WHERE r.knowledge_id = s.knowledge_id AND r.source_generation = s.generation
                   AND r.version >= s.introduced_version
                   AND r.state::jsonb <> '{"retention":"pruned"}'::jsonb
-              ))
+              )
           )
           ORDER BY k.id LIMIT 100 FOR UPDATE SKIP LOCKED
         ), expired AS MATERIALIZED (
@@ -28,10 +28,6 @@ defmodule Ryker.Knowledge.KnowledgeRetention do
           FROM conversation_knowledge_sources s JOIN candidates c ON c.id = s.knowledge_id
           WHERE s.retained_at < clock_timestamp() - ($1 * interval '1 second')
           GROUP BY s.knowledge_id, s.generation
-        ), sources AS (
-          UPDATE conversation_knowledge_sources s SET source_note = NULL
-          FROM expired e WHERE s.knowledge_id = e.knowledge_id AND s.generation = e.generation
-          RETURNING s.knowledge_id
         ), revisions AS (
           UPDATE conversation_knowledge_revisions r SET state = '{"retention":"pruned"}'
           FROM expired e WHERE r.knowledge_id = e.knowledge_id AND r.source_generation = e.generation

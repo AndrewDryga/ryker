@@ -11,7 +11,6 @@ defmodule Ryker.Knowledge.KnowledgeSource do
     field(:direct_support_version, :integer)
     field(:source_revision, :integer)
     field(:source_fingerprint, :string)
-    field(:source_note, Ryker.CanonicalJSON.Type)
     field(:retained_at, :utc_datetime_usec)
     field(:introduced_version, :integer)
   end
