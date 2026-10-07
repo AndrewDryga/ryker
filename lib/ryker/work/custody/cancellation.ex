@@ -72,7 +72,7 @@ defmodule Ryker.Work.Custody.Cancellation do
          :ok <- reference(episode_key, :episode_key),
          :ok <- reference(turn_ref, :turn_ref),
          :ok <- reference(stop_ref, :stop_ref),
-         {:ok, intent} <- WorkCancellation.new_block("#{reason} Control: #{stop_ref}.") do
+         {:ok, intent} <- WorkCancellation.new_stop(stop_ref, reason) do
       request_cancellation(episode_id, episode_key, turn_ref, intent)
     end
   end
@@ -903,6 +903,12 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   defp cancellation_error_code(%{"action" => "cancel"}), do: "operator_cancelled"
   defp cancellation_error_code(%{"action" => "transfer"}), do: "owner_transferred"
+
+  # A person's Stop names the control that pressed it (`WorkCancellation.new_stop/2`).
+  defp cancellation_error_code(%{"action" => "block", "cancel_ref" => stop_ref})
+       when is_binary(stop_ref),
+       do: "operator_stop"
+
   defp cancellation_error_code(%{"action" => "block"}), do: "work_execution_blocked"
 
   defp cancellation_error_detail(%{"action" => "block", "reason" => reason}), do: reason

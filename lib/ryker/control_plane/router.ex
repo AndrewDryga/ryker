@@ -1157,8 +1157,8 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("improvement", resource_ref, "dismiss", actions, viewer),
     do: actions.dismiss_improvement.(resource_ref, viewer)
 
-  defp perform("episode", resource_ref, "resolve", actions, _viewer),
-    do: actions.resolve_episode.(resource_ref)
+  defp perform("episode", resource_ref, "resolve", actions, viewer),
+    do: actions.resolve_episode.(resource_ref, viewer)
 
   defp perform("episode", resource_ref, "rate-good", actions, viewer),
     do: actions.rate_episode.(resource_ref, :good, viewer)

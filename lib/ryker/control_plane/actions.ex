@@ -101,7 +101,7 @@ defmodule Ryker.ControlPlane.Actions do
       accept_improvement: &Improvement.accept(&1, Actor.of(&2)),
       dismiss_improvement: &Improvement.dismiss(&1, Actor.of(&2)),
       mark_finding_explained: &Findings.mark_explained/1,
-      resolve_episode: &resolve_episode/1,
+      resolve_episode: &resolve_episode/2,
       resolve_memory_review: &resolve_memory_review/4,
       rearm_admission: &retry_failure("admission", &1, &2),
       rearm_delivery: &retry_failure("delivery", &1, &2),
@@ -208,21 +208,27 @@ defmodule Ryker.ControlPlane.Actions do
     )
   end
 
-  defp resolve_episode(episode_key),
-    do: episode_key |> Episode.Query.by_key() |> Repo.one() |> resolve_episode_record()
+  defp resolve_episode(episode_key, viewer) do
+    episode_key
+    |> Episode.Query.by_key()
+    |> Repo.one()
+    |> resolve_episode_record("Closed by #{Actor.of(viewer)} as no longer needed.")
+  end
 
   defp resolve_episode_record(
-         %Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode
+         %Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode,
+         reason
        ) do
     episode.id
     |> Turn.Query.by_episode_id()
     |> Turn.Query.by_turn_ref(turn_ref)
     |> Repo.one()
-    |> resolve_blocked_episode(episode, turn_ref)
+    |> resolve_blocked_episode(episode, turn_ref, reason)
   end
 
   defp resolve_episode_record(
-         %Episode{state: state, owner_kind: owner_kind, owner_ref: owner_ref} = episode
+         %Episode{state: state, owner_kind: owner_kind, owner_ref: owner_ref} = episode,
+         reason
        )
        when state in [:waiting_for_input, :waiting_for_event] and owner_kind in [:input, :event] do
     %Command.CancelEpisode{
@@ -230,26 +236,19 @@ defmodule Ryker.ControlPlane.Actions do
       episode_key: episode.key,
       expected_owner: %{kind: owner_kind, ref: owner_ref},
       occurred_at: now(),
-      reason: "Closed by the local operator as no longer needed."
+      reason: reason
     }
     |> Episodes.apply()
     |> resolved_episode_result()
   end
 
-  defp resolve_episode_record(%Episode{}), do: {:error, :episode_not_resolvable}
-  defp resolve_episode_record(nil), do: {:error, :episode_not_found}
+  defp resolve_episode_record(%Episode{}, _reason), do: {:error, :episode_not_resolvable}
+  defp resolve_episode_record(nil, _reason), do: {:error, :episode_not_found}
 
-  defp resolve_blocked_episode(%Turn{status: :blocked}, episode, turn_ref) do
-    Custody.request_cancel(
-      episode.id,
-      episode.key,
-      turn_ref,
-      resolve_action_ref(),
-      "Closed by the local operator as no longer needed."
-    )
-  end
+  defp resolve_blocked_episode(%Turn{status: :blocked}, episode, turn_ref, reason),
+    do: Custody.request_cancel(episode.id, episode.key, turn_ref, resolve_action_ref(), reason)
 
-  defp resolve_blocked_episode(_not_blocked, _episode, _turn_ref),
+  defp resolve_blocked_episode(_not_blocked, _episode, _turn_ref, _reason),
     do: {:error, :episode_not_resolvable}
 
   defp resolved_episode_result({:ok, transition}), do: {:ok, transition.episode}
@@ -675,7 +674,7 @@ defmodule Ryker.ControlPlane.Actions do
              episode.key,
              episode.owner_ref,
              request.ref,
-             "The local operator stopped the current run. Reply in this conversation to continue."
+             "#{stopper(request.viewer)} stopped this run. Reply in this conversation to continue."
            ) do
       {:ok, result}
     else
@@ -762,7 +761,7 @@ defmodule Ryker.ControlPlane.Actions do
          request
        ) do
     case task_episode(record, target) do
-      {:ok, episode} -> close_task_episode(episode, request.ref)
+      {:ok, episode} -> close_task_episode(episode, request)
       {:error, _reason} = error -> error
     end
   end
@@ -827,34 +826,34 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
-  defp close_task_episode(%Episode{state: state} = episode, _action_ref)
+  defp close_task_episode(%Episode{state: state} = episode, _request)
        when state in [:complete, :cancelled],
        do: {:ok, %{episode: episode, status: :settled}}
 
   defp close_task_episode(
          %Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode,
-         action_ref
+         request
        ) do
     Custody.request_cancel(
       episode.id,
       episode.key,
       turn_ref,
-      action_ref,
-      "Closed by the local operator from the exact conversation task card."
+      request.ref,
+      close_task_reason(request.viewer)
     )
   end
 
   defp close_task_episode(
          %Episode{state: state, owner_kind: owner_kind, owner_ref: owner_ref} = episode,
-         action_ref
+         request
        )
        when state in [:waiting_for_input, :waiting_for_event] and owner_kind in [:input, :event] do
     command = %Command.CancelEpisode{
-      cancel_ref: action_ref,
+      cancel_ref: request.ref,
       episode_key: episode.key,
       expected_owner: %{kind: owner_kind, ref: owner_ref},
       occurred_at: now(),
-      reason: "Closed by the local operator from the exact conversation task card."
+      reason: close_task_reason(request.viewer)
     }
 
     case Episodes.apply(command) do
@@ -863,8 +862,15 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
-  defp close_task_episode(_episode, _action_ref),
+  defp close_task_episode(_episode, _request),
     do: {:error, :conversation_lab_task_control_stale}
+
+  defp close_task_reason(viewer), do: "Closed by #{Actor.of(viewer)} from its task card in Chat."
+
+  # A stopped task's card says who stopped it, by the name their sign-in gave
+  # them; the console reached without one has nobody in particular.
+  defp stopper(%{name: name}), do: name
+  defp stopper(nil), do: "Someone"
 
   defp lab_publication(record, source_target, expected_status, receipt_kind) do
     case Repo.one(Publication.Query.by_record_id(record.id)) do

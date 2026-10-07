@@ -551,8 +551,9 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
            "work_retry_exhausted:coop_unavailable"},
           {~S|coop_worker_capacity_unavailable: {:coop_worker_capacity_unavailable, "8faf8d81"}|,
            "coop_worker_capacity_unavailable"},
-          {"The operator stopped the current run. Reply in the same thread to continue this work. Control: control:1.",
-           "operator_stop"},
+          # A person's Stop saves its own code; its words alone name no stop.
+          {"The operator stopped the current run. Reply in the same thread to continue this work.",
+           nil},
           # A run paused mid-flight for its incident room read as a stop with
           # no known cause, so the page could not tell a room that will come
           # back from one Slack deleted for good.
@@ -562,9 +563,12 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
       assert FailureProjection.stop_code(%{blocked | last_error_detail: detail}) == code
     end
 
-    # A stopped completion saves its own code, and that is the code.
+    # A stopped completion saves its own code, and that is the code; so does
+    # a person's Stop (`Cancellation.new_stop/2`).
     assert FailureProjection.stop_code(%Turn{last_error_code: "coop_unavailable"}) ==
              "coop_unavailable"
+
+    assert FailureProjection.stop_code(%Turn{last_error_code: "operator_stop"}) == "operator_stop"
   end
 
   test "Slack's own refusal is named only from a closed list of its words" do

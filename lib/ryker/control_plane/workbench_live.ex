@@ -23,7 +23,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
   alias Ryker.ControlPlane.{LabControls, LabPage, Navigation, PageCost, PageHelp, PageRead, Pages}
   alias Ryker.ControlPlane.{PathRef, Paths, RepositoriesPage, RequestFilters, Router}
-  alias Ryker.ControlPlane.{RunningSystem, SettingsPage, SettingsView, UsageProjection, Viewer}
+  alias Ryker.ControlPlane.{SettingsPage, SettingsView, UsageProjection, Viewer}
   alias Ryker.Crypto
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.Retention.Data, as: RetentionData
@@ -86,6 +86,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        path: "/",
        params: %{},
        body: "",
+       running_system: nil,
        page_title: "Activity",
        page_description: nil,
        page_action: nil,
@@ -173,6 +174,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        native: :loading,
        page_status: 200,
        body: "",
+       running_system: nil,
        page_title: "Workspace",
        page_description: nil,
        page_back: nil,
@@ -1686,11 +1688,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             socket.assigns.params["preview"] == "week",
           do: options.projection.weekly_report_preview.()
         ),
-      body:
-        if(section == :system and is_nil(form),
-          do: configuration_evidence(options, settings),
-          else: ""
-        )
+      running_system:
+        if(section == :system and is_nil(form), do: running_system(options, settings))
     )
   end
 
@@ -2207,10 +2206,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # so a saved-but-unapplied revision is visibly not in it. The integrations in
   # it read the same state as their own pages; settings that cannot be read
   # show no page at all, so there is nothing to render them into.
-  defp configuration_evidence(options, {:ok, _view}),
-    do: options.projection.running_system.() |> RunningSystem.html()
-
-  defp configuration_evidence(_options, _unavailable), do: ""
+  defp running_system(options, {:ok, _view}), do: options.projection.running_system.()
+  defp running_system(_options, _unavailable), do: nil
 
   # A secondary page is prepared whole by Pages from the path as the browser
   # sent it; a 503 keeps the last observed page on screen rather than
@@ -2621,7 +2618,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             :if={@native == :settings}
             view={@settings}
             commands={@settings_commands}
-            body={@body}
+            running_system={@running_system}
             error={@settings_error}
             section={@settings_section}
             notice={@setup_notice}

@@ -27,7 +27,6 @@ defmodule Ryker.ControlPlane.ConversationLinksTest do
 
   test "the direct-conversation transport is named without Lab phrasing" do
     assert Names.destination("control-plane:lab:uuid") == "Direct conversation"
-    assert Names.destination("control_plane:control-plane:lab:uuid") == "Direct conversation"
     refute Names.destination("control-plane:lab:uuid") =~ "Lab"
   end
 end

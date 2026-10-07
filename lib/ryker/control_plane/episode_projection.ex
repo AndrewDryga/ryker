@@ -176,7 +176,6 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
          %{
            episode: %{
              created_at: episode.inserted_at,
-             destination: destination(episode),
              conversation_ref: episode.destination_conversation_ref,
              thread_ref: episode.destination_thread_ref,
              # Set once retention removed the kernel events and closed records;
@@ -252,16 +251,6 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
           }
         end)
     }
-  end
-
-  defp destination(episode) do
-    case episode.destination_thread_ref do
-      nil ->
-        "#{episode.destination_transport}:#{episode.destination_conversation_ref}"
-
-      thread ->
-        "#{episode.destination_transport}:#{episode.destination_conversation_ref}:#{thread}"
-    end
   end
 
   defp event_summary(kind) do

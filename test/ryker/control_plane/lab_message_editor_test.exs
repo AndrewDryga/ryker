@@ -27,4 +27,44 @@ defmodule Ryker.ControlPlane.LabMessageEditorTest do
              "lab-edit-#{item_id}-text"
            ]
   end
+
+  # These controls are HTML built by hand, so their safety rests on each value
+  # being escaped where it is written (IL-16). A body, the conversation's id,
+  # the form tokens and a reaction's name all come from people or Slack.
+  test "no field of a message can write markup into its controls" do
+    hostile = ~s{x"><script>alert(1)</script><b onfocus="y}
+    body = "</textarea><script>alert(2)</script>"
+
+    controls = %{conversation_id: hostile, item_id: "item", token: hostile}
+
+    message = %{
+      message_controls: %{edit: controls, delete: controls},
+      item_id: "item",
+      text: body,
+      ref: hostile,
+      reaction_controls: %{
+        conversation_id: hostile,
+        message_ref: hostile,
+        mine: "slack:user:U1",
+        token: hostile
+      },
+      feedback_reactions: [%{emoji_name: hostile, actor_ref: "slack:user:U2"}]
+    }
+
+    html =
+      [
+        HTML.lab_message_editor(message),
+        HTML.lab_message_actions(message),
+        HTML.lab_message_reactions(message)
+      ]
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(html, "script") |> Enum.count() == 0
+    assert LazyHTML.query(html, "[onfocus]") |> Enum.count() == 0
+    assert LazyHTML.query(html, "textarea") |> LazyHTML.text() == body
+
+    tokens = html |> LazyHTML.query("input[name=_token]") |> LazyHTML.attribute("value")
+    assert tokens != [] and Enum.uniq(tokens) == [hostile]
+  end
 end

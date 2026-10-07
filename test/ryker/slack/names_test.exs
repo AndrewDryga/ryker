@@ -302,7 +302,6 @@ defmodule Ryker.Slack.NamesTest do
     assert html =~ ~s(title="C789")
     assert html =~ "<code>literal &lt;@U456&gt;</code>"
     refute html =~ "<admin>"
-    assert Names.destination("control_plane:control-plane:lab:uuid") == "Direct conversation"
     assert Names.destination("control-plane:lab:uuid") == "Direct conversation"
 
     artifact =

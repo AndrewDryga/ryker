@@ -110,7 +110,6 @@ defmodule Ryker.Slack.Names do
     end
   end
 
-  def destination("control_plane:" <> _), do: "Direct conversation"
   def destination("control-plane:lab:" <> _), do: "Direct conversation"
   def destination(value), do: value
 

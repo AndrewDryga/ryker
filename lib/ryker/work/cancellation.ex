@@ -73,6 +73,27 @@ defmodule Ryker.Work.Cancellation do
     prepare(intent)
   end
 
+  @doc """
+  A person's Stop: a block, so the task waits for a reply, that names the
+  control which stopped it as its `cancel_ref`. A block Ryker requests names
+  none, so a stop is told apart by what it is, not by its words: the
+  Failures page read it from one sentence, and a Stop pressed in Chat, worded
+  its own way, was listed as a task that stopped for no known reason.
+  """
+  @spec new_stop(String.t(), String.t()) :: {:ok, intent()} | {:error, term()}
+  def new_stop(stop_ref, reason) do
+    intent = %{
+      "action" => "block",
+      "cancel_ref" => stop_ref,
+      "new_turn_ref" => nil,
+      "reason" => reason,
+      "required_input_ref" => nil,
+      "transfer_ref" => nil
+    }
+
+    prepare(intent)
+  end
+
   @spec prepare(term()) :: {:ok, intent()} | {:error, term()}
   def prepare(%{} = intent) do
     if Map.keys(intent) |> Enum.sort() == @intent_fields do
@@ -278,14 +299,14 @@ defmodule Ryker.Work.Cancellation do
   defp prepare_shape(
          %{
            "action" => "block",
-           "cancel_ref" => nil,
+           "cancel_ref" => stop_ref,
            "new_turn_ref" => nil,
            "reason" => reason,
            "required_input_ref" => nil,
            "transfer_ref" => nil
          } = intent
        ) do
-    if bounded_text?(reason, 4_096),
+    if optional_reference?(stop_ref) and bounded_text?(reason, 4_096),
       do: {:ok, intent},
       else: {:error, {:invalid_work_cancellation, :block}}
   end

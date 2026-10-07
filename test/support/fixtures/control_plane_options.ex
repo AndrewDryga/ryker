@@ -52,7 +52,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {:forgot_knowledge, id})
           {:ok, %{forgotten: [id], relearn: []}}
         end,
-        resolve_episode: fn ref ->
+        resolve_episode: fn ref, _viewer ->
           send(parent, {:resolved_episode, ref})
           {:ok, %{key: ref}}
         end,

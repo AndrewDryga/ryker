@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.RunningSystemTest do
   line where it stops taking new work.
   """
   use ExUnit.Case, async: true
+  import Phoenix.LiveViewTest, only: [render_component: 2]
   alias Ryker.ControlPlane.RunningSystem
   alias Ryker.CoopFleet.Worker
 
@@ -92,9 +93,11 @@ defmodule Ryker.ControlPlane.RunningSystemTest do
 
   defp render(supported, workers) do
     %{version: "0.1.0-g6816a614", workers: workers, supported: supported, now: @now}
-    |> RunningSystem.html()
+    |> card()
     |> LazyHTML.from_fragment()
   end
 
   defp text(document), do: document |> LazyHTML.text() |> String.replace(~r/\s+/, " ")
+
+  defp card(view), do: render_component(&RunningSystem.card/1, view)
 end

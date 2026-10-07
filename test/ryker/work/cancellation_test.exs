@@ -159,6 +159,39 @@ defmodule Ryker.Work.CancellationTest do
     assert settled.turn.last_error_detail =~ "operator stopped"
   end
 
+  # The Failures page told a person's Stop from Ryker's own block by Slack's
+  # sentence, so a Stop pressed in Chat, worded its own way, was listed as a
+  # task that stopped for no known reason. The saved words also ended in the
+  # control's reference, which the Slack card printed under "Action needed".
+  test "a run a person stopped is saved as their stop, whatever the control's words" do
+    work = bound_turn!("chat-stop")
+    reason = "Andrew Example stopped this run. Reply in this conversation to continue."
+
+    assert {:ok, %{status: :pending}} =
+             Custody.request_stop(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               "control-plane-action:#{work.turn.id}",
+               reason
+             )
+
+    assert {:ok, claim} = Custody.claim_next("worker:chat-stop", 60)
+
+    assert {:ok, settled} =
+             Custody.settle_cancellation(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               claim.lease_ref,
+               terminal_receipt!(work, "closed")
+             )
+
+    assert settled.turn.status == :blocked
+    assert settled.turn.last_error_code == "operator_stop"
+    assert settled.turn.last_error_detail == reason
+  end
+
   test "an exact pending transfer retry preserves the cancellation worker lease" do
     work = bound_turn!("pending-transfer-retry")
     new_turn_ref = "turn:replacement:#{work.turn.id}"

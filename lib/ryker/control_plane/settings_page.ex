@@ -23,7 +23,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
   use Phoenix.Component
   alias Ryker.BundledCoop
   alias Ryker.ControlPlane.{Components, Environments, EnvironmentsPage, Integrations, Kit, Paths}
-  alias Ryker.ControlPlane.{SettingsEditor, SettingsRows, SettingsSections, SetupPage}
+  alias Ryker.ControlPlane.{RunningSystem, SettingsEditor, SettingsRows, SettingsSections}
+  alias Ryker.ControlPlane.SetupPage
   alias Ryker.ControlPlane.{SlackMarkdown, WebhookPreview}
   alias Ryker.Settings
   alias Ryker.Slack.Names
@@ -47,7 +48,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:view, :any, required: true)
   attr(:commands, :map, required: true)
   attr(:section, :atom, required: true)
-  attr(:body, :string, default: "")
+  attr(:running_system, :map, default: nil)
   attr(:error, :string, default: nil)
   attr(:notice, :string, default: nil)
   attr(:failure, :string, default: nil)
@@ -239,8 +240,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
           show_header={titled?(@section)}
           paths={paths(key)}
         />
-        <div :if={@section == :system} class="settings-running">
-          {Phoenix.HTML.raw(@body)}
+        <div :if={@section == :system and @running_system} class="settings-running">
+          <RunningSystem.card {@running_system} />
         </div>
         <.weekly_preview
           :if={@section == :report}

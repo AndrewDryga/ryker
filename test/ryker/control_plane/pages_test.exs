@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.PagesTest do
   live routes won, so the page body prepared here is the whole contract now.
   """
   use ExUnit.Case, async: true
+  import Phoenix.LiveViewTest, only: [render_component: 2]
   alias Ryker.ControlPlane.{HTML, Pages, RunningSystem}
   alias Ryker.Fixtures.ControlPlaneOptions
 
@@ -77,7 +78,7 @@ defmodule Ryker.ControlPlane.PagesTest do
     end
 
     # What is running is part of Settings › Advanced.
-    evidence = options().projection.running_system.() |> RunningSystem.html()
+    evidence = render_component(&RunningSystem.card/1, options().projection.running_system.())
 
     assert evidence =~ "Running now"
     refute evidence =~ "<script"

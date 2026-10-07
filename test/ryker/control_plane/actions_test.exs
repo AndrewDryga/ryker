@@ -2,7 +2,7 @@ defmodule Ryker.ControlPlane.ActionsTest do
   use Ryker.DataCase, async: false
   alias Ryker.ControlPlane.{Actions, EpisodeProjection}
   alias Ryker.Episodes
-  alias Ryker.Episodes.Command
+  alias Ryker.Episodes.{Command, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
 
   test "local retention callbacks fail closed while preserving audited action identity" do
@@ -56,9 +56,9 @@ defmodule Ryker.ControlPlane.ActionsTest do
                })
              )
 
-    assert {:ok, %{state: :cancelled}} = callbacks.resolve_episode.(waiting.episode.key)
+    assert {:ok, %{state: :cancelled}} = callbacks.resolve_episode.(waiting.episode.key, nil)
 
-    assert callbacks.resolve_episode.(waiting.episode.key) ==
+    assert callbacks.resolve_episode.(waiting.episode.key, nil) ==
              {:error, :episode_not_resolvable}
 
     complete = start_episode!("review")
@@ -114,6 +114,30 @@ defmodule Ryker.ControlPlane.ActionsTest do
              Actions.callbacks().rate_episode.(complete.episode.key, :good, viewer)
 
     assert review.actor_ref == "control-plane:tailscale:andrew@example.com"
+
+    # Closing a request recorded "the local operator" whoever closed it.
+    waiting = start_episode!("tailnet-close")
+
+    assert {:ok, _waiting} =
+             Episodes.apply(
+               EpisodeFixtures.start_wait(%{
+                 episode_key: waiting.episode.key,
+                 expected_turn_ref: waiting.episode.owner_ref,
+                 kind: :input,
+                 wait_ref: "wait:tailnet-close:#{waiting.episode.id}"
+               })
+             )
+
+    assert {:ok, %{state: :cancelled}} =
+             Actions.callbacks().resolve_episode.(waiting.episode.key, viewer)
+
+    assert waiting.episode.key
+           |> Event.Query.by_episode_key()
+           |> Event.Query.by_kind(:episode_cancelled)
+           |> Event.Query.select_payloads()
+           |> Repo.one!()
+           |> Map.fetch!("reason") ==
+             "Closed by control-plane:tailscale:andrew@example.com as no longer needed."
   end
 
   test "closing a request does not ask its closer to rate the ending they chose" do
@@ -132,7 +156,7 @@ defmodule Ryker.ControlPlane.ActionsTest do
                })
              )
 
-    assert {:ok, %{state: :cancelled}} = callbacks.resolve_episode.(waiting.episode.key)
+    assert {:ok, %{state: :cancelled}} = callbacks.resolve_episode.(waiting.episode.key, nil)
     refute awaiting_review?(waiting.episode.key)
 
     # A stopped task's close settles later, as this cancel with the close's

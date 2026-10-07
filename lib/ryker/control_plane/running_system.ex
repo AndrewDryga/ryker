@@ -14,24 +14,15 @@ defmodule Ryker.ControlPlane.RunningSystem do
   """
 
   use Phoenix.Component
-  alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, ShortTime, Units}
   alias Ryker.CoopFleet.Worker
 
   @doc """
-  The card as HTML, ready for the settings page's body, from what
-  `Ryker.ControlPlane.RunningSystemProjection.fetch/0` read.
+  The card at the bottom of Settings › Advanced, from what
+  `Ryker.ControlPlane.RunningSystemProjection.fetch/0` read: its `version`,
+  `workers`, `supported` and `now`.
   """
-  @spec html(map()) :: String.t()
-  def html(view) do
-    view
-    |> Map.put(:__changed__, nil)
-    |> render()
-    |> Safe.to_iodata()
-    |> IO.iodata_to_binary()
-  end
-
-  defp render(assigns) do
+  def card(assigns) do
     ~H"""
     <Kit.section_card
       :if={!@supported}

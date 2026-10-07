@@ -950,16 +950,14 @@ defmodule Ryker.ControlPlane.FailureProjection do
   The code a stopped task's saved error names, never the term around it.
 
   A block the dispatcher requested saves "<code>: <term>" under the generic
-  code work_execution_blocked, and an operator's Stop saves its own sentence,
-  so every stopped task read "work_execution_blocked" on the Failures page.
+  code work_execution_blocked, so every stopped task read
+  "work_execution_blocked" on the Failures page. A person's Stop saves
+  operator_stop itself (`Ryker.Work.Cancellation.new_stop/2`).
   """
   @spec stop_code(Turn.t()) :: String.t() | nil
   def stop_code(%Turn{last_error_code: "work_execution_blocked", last_error_detail: detail})
       when is_binary(detail) do
     cond do
-      String.starts_with?(detail, "The operator stopped the current run") ->
-        "operator_stop"
-
       # A run paused for its incident room saves the pause's own reason.
       String.starts_with?(detail, "destination_paused:") ->
         "destination_paused"
