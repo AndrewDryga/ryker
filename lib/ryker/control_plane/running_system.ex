@@ -16,22 +16,12 @@ defmodule Ryker.ControlPlane.RunningSystem do
   use Phoenix.Component
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, ShortTime, Units}
-  alias Ryker.CoopFleet.{Worker, WorkerQuery}
-  alias Ryker.Repo
-  alias Ryker.Work.CodeEditingSetup
+  alias Ryker.CoopFleet.Worker
 
-  @doc "What the page shows, read afresh."
-  @spec fetch() :: map()
-  def fetch do
-    %{
-      version: to_string(Application.spec(:ryker, :vsn) || "unknown"),
-      workers: WorkerQuery.all() |> WorkerQuery.ordered_by_id() |> Repo.all(),
-      supported: CodeEditingSetup.checkpoint_supported?(),
-      now: Repo.now!()
-    }
-  end
-
-  @doc "The card as HTML, ready for the settings page's body."
+  @doc """
+  The card as HTML, ready for the settings page's body, from what
+  `Ryker.ControlPlane.RunningSystemProjection.fetch/0` read.
+  """
   @spec html(map()) :: String.t()
   def html(view) do
     view

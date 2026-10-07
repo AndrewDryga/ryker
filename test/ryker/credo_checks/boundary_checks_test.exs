@@ -1,11 +1,12 @@
 defmodule Ryker.CredoChecks.BoundaryChecksTest do
   # Fixture coverage for the checks that keep each layer to its job: queries
   # only in query modules (IL-1, IL-2), pure query modules (IL-6), schemas of
-  # fields only (IL-7), pure changeset modules (IL-8), money never
-  # in a float (IL-12), preloads named by query helpers, an `Ecto.Enum` for a
-  # fixed set of strings, whole hashes on the console, and LiveView
-  # subscriptions only once connected (IL-18). Each gets a probe it must flag
-  # and a compliant probe it must not.
+  # fields only (IL-7), pure changeset modules (IL-8), web modules that
+  # neither query nor build changesets, money never in a float (IL-12),
+  # preloads named by query helpers, an `Ecto.Enum` for a fixed set of
+  # strings, whole hashes on the console, and LiveView subscriptions only once
+  # connected (IL-18). Each gets a probe it must flag and a compliant probe it
+  # must not.
   use ExUnit.Case, async: true
   import Ryker.CredoCheckProbe
 
@@ -255,6 +256,87 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
 
       assert issues(il08(), grouped, @changeset) == []
       assert issues(il08(), context, @context) == []
+    end
+  end
+
+  describe "Ryker.Checks.WebNoRepoCalls" do
+    # The running-system card read workers and the clock itself until
+    # 2026-10-07; every other page reads through a projection.
+    test "flags a Repo call in a module that uses a Phoenix web behaviour" do
+      source = """
+      defmodule Ryker.ControlPlane.SprocketsPage do
+        use Phoenix.Component
+        alias Ryker.Repo
+
+        def fetch, do: %{sprockets: SprocketQuery.all() |> Repo.all(), now: Repo.now!()}
+      end
+      """
+
+      assert triggers(web_repo(), source, @console) == ["Repo.all", "Repo.now!"]
+      assert [issue | _] = issues(web_repo(), source, @console)
+      assert issue.message =~ "projection"
+    end
+
+    test "allows a projection's reads and a grouped Repo alias in a component" do
+      projection = """
+      defmodule Ryker.ControlPlane.SprocketsProjection do
+        def fetch, do: SprocketQuery.all() |> Repo.all()
+      end
+      """
+
+      component = """
+      defmodule Ryker.ControlPlane.SprocketsPage do
+        use Phoenix.Component
+        alias Ryker.Repo.{Filter, Paginator}
+        def render(assigns), do: assigns
+      end
+      """
+
+      assert issues(web_repo(), projection, "lib/ryker/control_plane/sprockets_projection.ex") ==
+               []
+
+      assert issues(web_repo(), component, @console) == []
+    end
+  end
+
+  describe "Ryker.Checks.WebNoChangesetConstruction" do
+    test "flags a web module that builds or imports a changeset" do
+      source = """
+      defmodule Ryker.ControlPlane.SprocketsLive do
+        use Phoenix.LiveView
+        import Ecto.Changeset, only: [cast: 3]
+
+        def handle_event("save", params, socket) do
+          changeset = SprocketChangeset.insert(params)
+          {:noreply, assign(socket, :form, Ecto.Changeset.add_error(changeset, :name, "taken"))}
+        end
+      end
+      """
+
+      assert triggers(web_changeset(), source, @live) == [
+               "Ecto.Changeset.add_error",
+               "SprocketChangeset.insert",
+               "import Ecto.Changeset"
+             ]
+    end
+
+    test "allows reading a changeset in a web module and building one in a context" do
+      component = """
+      defmodule Ryker.ControlPlane.SprocketsPage do
+        use Phoenix.Component
+        def name(changeset), do: Ecto.Changeset.get_field(changeset, :name)
+      end
+      """
+
+      context = """
+      defmodule Ryker.Sprockets do
+        import Ecto.Changeset
+        def create(attributes), do: attributes |> SprocketChangeset.insert() |> Repo.insert()
+      end
+      """
+
+      assert issues(web_changeset(), component, @console) == []
+      assert issues(web_changeset(), context, @context) == []
     end
   end
 
@@ -609,6 +691,8 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   defp il06, do: check("IL06QueryModulePure")
   defp il07, do: check("IL07SchemaFieldsOnly")
   defp il08, do: check("IL08ChangesetPure")
+  defp web_repo, do: check("WebNoRepoCalls")
+  defp web_changeset, do: check("WebNoChangesetConstruction")
   defp il12, do: check("IL12NoFloatMoney")
   defp preload_opts, do: check("NoPreloadInRepoOpts")
   defp enum_over_inclusion, do: check("EnumOverValidateInclusion")

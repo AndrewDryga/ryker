@@ -15,7 +15,8 @@ defmodule Ryker.ControlPlane.Projection do
   alias Ryker.ControlPlane.{ImprovementProjection, IncidentProjection, InstructionSettings}
   alias Ryker.ControlPlane.{LearningActivity, LocalRoutingProjection, MemoryProjection}
   alias Ryker.ControlPlane.{ModelRequests, OverviewProjection, PeopleProjection, ProductReadiness}
-  alias Ryker.ControlPlane.{RepositoryProjection, RunningSystem, ScheduleProjection, SettingsView}
+  alias Ryker.ControlPlane.{RepositoryProjection, RunningSystemProjection, ScheduleProjection}
+  alias Ryker.ControlPlane.SettingsView
   alias Ryker.ControlPlane.{SubscriptionProjection, UsageProjection, WorkspaceProjection}
   alias Ryker.Improvement.Export, as: EvalCases
   alias Ryker.RoutingExamples.Export
@@ -61,7 +62,7 @@ defmodule Ryker.ControlPlane.Projection do
       memory_fact: &MemoryProjection.fact/1,
       memory_review: &MemoryProjection.review/1,
       model_timeline: &ModelRequests.timeline/2,
-      running_system: &RunningSystem.fetch/0,
+      running_system: &RunningSystemProjection.fetch/0,
       fleet: &OverviewProjection.fleet/0,
       readiness: &ProductReadiness.current/0,
       repositories: &RepositoryProjection.list/1,

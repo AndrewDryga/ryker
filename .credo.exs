@@ -46,6 +46,8 @@
           {Ryker.Checks.TestContextPattern, []},
           {Ryker.Checks.TestNoProcessSleep, []},
           {Ryker.Checks.VendorViaWrapper, []},
+          {Ryker.Checks.WebNoChangesetConstruction, []},
+          {Ryker.Checks.WebNoRepoCalls, []},
           # IL-14: no String.to_atom on input; the atom table is never collected.
           {Credo.Check.Warning.UnsafeToAtom, []}
         ]
