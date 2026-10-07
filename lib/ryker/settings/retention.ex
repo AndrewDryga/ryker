@@ -19,4 +19,6 @@ defmodule Ryker.Settings.Retention do
     field(:work_examples_enabled, :boolean, default: false)
     field(:work_examples_seconds, :integer)
   end
+
+  @type t :: %__MODULE__{}
 end

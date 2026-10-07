@@ -32,4 +32,6 @@ defmodule Ryker.CoopFleet.Command do
 
     timestamps(type: :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{}
 end

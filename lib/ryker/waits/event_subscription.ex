@@ -27,4 +27,6 @@ defmodule Ryker.Waits.EventSubscription do
     field(:revision, :integer, default: 1)
     timestamps(type: :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{}
 end

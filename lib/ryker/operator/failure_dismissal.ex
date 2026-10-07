@@ -10,4 +10,6 @@ defmodule Ryker.Operator.FailureDismissal do
     field(:left_by, :string)
     field(:left_at, :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{}
 end

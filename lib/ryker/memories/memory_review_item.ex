@@ -19,4 +19,6 @@ defmodule Ryker.Memories.MemoryReviewItem do
     field(:replacement, Ryker.CanonicalJSON.Type)
     timestamps(type: :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{}
 end

@@ -25,6 +25,8 @@ defmodule Ryker.Bootstrap do
     :log_level
   ]
 
+  @type t :: %__MODULE__{}
+
   @machine_secrets [state_tools: "RYKER_STATE_TOOLS_TOKEN"]
   @loopback [{127, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 1}]
   @worker_files [

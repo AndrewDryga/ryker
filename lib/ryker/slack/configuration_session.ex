@@ -22,4 +22,6 @@ defmodule Ryker.Slack.ConfigurationSession do
     field(:expires_at, :utc_datetime_usec)
     timestamps(type: :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{}
 end

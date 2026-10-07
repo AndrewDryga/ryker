@@ -22,4 +22,6 @@ defmodule Ryker.Slack.ChannelConfiguration do
     field(:welcome_message_ref, :string)
     timestamps(type: :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{}
 end

@@ -32,6 +32,8 @@ defmodule Ryker.CoopFleet.Worker do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   @doc """
   How long a worker may go without polling before Ryker stops counting on it:
   placement gives it no work, the console says it is not connected, and the

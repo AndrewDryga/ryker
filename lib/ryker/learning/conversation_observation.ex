@@ -25,4 +25,6 @@ defmodule Ryker.Learning.ConversationObservation do
     field(:forgotten_at, :utc_datetime_usec)
     timestamps(type: :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{}
 end

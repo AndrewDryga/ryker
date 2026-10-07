@@ -13,4 +13,6 @@ defmodule Ryker.Settings.Installation do
     field(:saved_at, :utc_datetime_usec)
     field(:inserted_at, :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{}
 end
