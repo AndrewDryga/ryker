@@ -6,6 +6,7 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
   import Plug.Test
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CoopFleet.{ControlPlane, PublicationGrants, Router}
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.GitHub.InstallationTokens
   alias Ryker.Publication.{Custody, Executor, Request}
@@ -68,7 +69,7 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     # A shared worker ID deadlocked async fixtures that took the settings lock
     # after enrollment; sandbox rollback does not isolate unique-index locks.
     worker_id = "worker:#{suffix}"
-    {:ok, _worker} = ControlPlane.authorize_worker(worker_id, "workspace-main", hash)
+    {:ok, _worker} = CoopWorkers.authorize(worker_id, "workspace-main", hash)
 
     poll =
       @fixture

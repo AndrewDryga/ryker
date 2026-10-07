@@ -12,10 +12,10 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Actions, ConversationMemory, FailureExplanation, FailureProjection}
   alias Ryker.ControlPlane.{FailuresPage, Pages, Projection, WorkspaceProjection}
-  alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
   alias Ryker.CoopFleet.Placement
   alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
@@ -777,7 +777,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   defp place_on_worker!(session) do
     worker_id = "failures-worker-#{System.unique_integer([:positive])}"
     certificate = digest(worker_id)
-    assert {:ok, worker} = FleetControlPlane.authorize_worker(worker_id, "failures", certificate)
+    assert {:ok, worker} = CoopWorkers.authorize(worker_id, "failures", certificate)
     now = DateTime.utc_now()
 
     worker =

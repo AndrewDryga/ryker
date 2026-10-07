@@ -165,8 +165,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   defp enqueue_on_placement(placement_id, kind, payload, idempotency_key) do
     case Repo.one(Placement.Query.by_id(placement_id)) do
       %Placement{session_id: session_id} ->
-        with_session_command(session_id, idempotency_key, fn session, _command ->
-          enqueue_command_locked(session, placement_id, kind, payload, idempotency_key)
+        with_session_command(session_id, idempotency_key, fn session, existing ->
+          enqueue_command_locked(session, existing, placement_id, kind, payload, idempotency_key)
         end)
 
       nil ->
@@ -174,7 +174,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     end
   end
 
-  defp enqueue_command_locked(session, placement_id, kind, payload, idempotency_key) do
+  # `existing` is the command already under `idempotency_key`, read under the
+  # same locks (`with_session_command/3`).
+  defp enqueue_command_locked(session, existing, placement_id, kind, payload, idempotency_key) do
     fingerprint =
       CanonicalJSON.digest(%{
         "idempotency_key" => idempotency_key,
@@ -184,7 +186,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         "version" => Protocol.version()
       })
 
-    case Repo.one(Command.Query.by_idempotency_key(idempotency_key)) do
+    case existing do
       %Command{payload_fingerprint: ^fingerprint} = command ->
         command
 
@@ -505,7 +507,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         command |> Command.Changeset.deliver(now) |> Repo.update!()
       end
 
-      placement |> Placement.Changeset.deliver_command(command.id) |> Repo.update!()
       {[envelope | delivered], bytes + size}
     else
       acc

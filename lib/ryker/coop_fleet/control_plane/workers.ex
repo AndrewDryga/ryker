@@ -25,23 +25,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   alias Ryker.Repo
   alias Ryker.Work.Session
 
-  # Registers a worker under a certificate digest the operator vouches for
-  # directly, without an enrollment token. No operator surface calls this;
-  # production workers enroll through `Ryker.CoopFleet.Enrollment`, and the
-  # fleet tests use this to bind a worker to a digest they mint themselves.
-  @doc false
-  @spec authorize_worker(String.t(), String.t(), String.t()) ::
-          {:ok, Worker.t()} | {:error, term()}
-  def authorize_worker(worker_id, workspace_ref, certificate_sha256) do
-    with :ok <- Shared.reference(worker_id, 256, :worker_id),
-         :ok <- Shared.reference(workspace_ref, 256, :workspace_ref),
-         :ok <- digest(certificate_sha256, :certificate_sha256) do
-      Repo.transaction(fn ->
-        authorize_worker_locked(worker_id, workspace_ref, certificate_sha256)
-      end)
-    end
-  end
-
   @spec handle_poll_certificate(binary(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def handle_poll_certificate(certificate, document, options \\ [])
@@ -54,11 +37,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
         {:error, :coop_worker_certificate_not_authorized}
 
       worker_id ->
-        handle_poll(
-          worker_id,
-          document,
-          Keyword.put(options, :certificate_sha256, certificate_sha256)
-        )
+        handle_poll(worker_id, certificate_sha256, document, options)
     end
   end
 
@@ -79,10 +58,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   def authenticate_certificate(_certificate),
     do: {:error, :coop_worker_certificate_not_authorized}
 
-  @spec handle_poll(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def handle_poll(authenticated_worker_id, document, options \\ []) do
+  # The worker the certificate named polls; its heartbeat checks the
+  # certificate again under the worker's lock, so one revoked meanwhile stops
+  # it there. A poll with no certificate skipped that check, and only tests
+  # ever sent one (2026-10-04 review).
+  defp handle_poll(authenticated_worker_id, certificate_sha256, document, options) do
     lease_seconds = Keyword.get(options, :lease_seconds, 60)
-    certificate_sha256 = Keyword.get(options, :certificate_sha256)
     state_tools_secret = Keyword.get(options, :state_tools_secret)
 
     with :ok <- Shared.reference(authenticated_worker_id, 256, :worker_id),
@@ -145,35 +126,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     end
   end
 
-  defp authorize_worker_locked(worker_id, workspace_ref, certificate_sha256) do
-    worker =
-      case Shared.lock_worker(worker_id) do
-        {:error, :not_found} ->
-          %{
-            certificate_sha256: certificate_sha256,
-            id: worker_id,
-            workspace_ref: workspace_ref,
-            state: :offline
-          }
-          |> Worker.Changeset.insert()
-          |> Repo.insert()
-          |> Shared.unwrap_write()
-
-        {:ok,
-         %Worker{workspace_ref: ^workspace_ref, certificate_sha256: ^certificate_sha256} = worker} ->
-          worker
-
-        {:ok, %Worker{workspace_ref: ^workspace_ref, certificate_sha256: stored}} ->
-          Shared.rollback({:coop_worker_certificate_conflict, stored, certificate_sha256})
-
-        {:ok, %Worker{workspace_ref: stored}} ->
-          Shared.rollback({:coop_worker_workspace_conflict, stored, workspace_ref})
-      end
-
-    ensure_manual_certificate!(worker_id, certificate_sha256)
-    worker
-  end
-
   # The worker says it is alive: its heartbeat is saved, its placements are
   # renewed and the commands it acknowledged are marked, before anything it
   # reported is applied.
@@ -220,13 +172,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
       {:ok, %Worker{state: :revoked}} ->
         Shared.rollback({:coop_worker_revoked, worker_id})
 
-      {:ok, %Worker{} = worker} when is_binary(certificate_sha256) ->
+      {:ok, worker} ->
         unless active_certificate_for_worker?(certificate_sha256, worker_id),
           do: Shared.rollback(:coop_worker_certificate_not_authorized)
 
-        worker
-
-      {:ok, worker} ->
         worker
     end
   end
@@ -253,12 +202,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
       do: :ok,
       else:
         {:error, {:coop_worker_identity_mismatch, authenticated_worker_id, reported_worker_id}}
-  end
-
-  defp digest(value, field) do
-    if Protocol.digest?(value),
-      do: :ok,
-      else: {:error, {:invalid_coop_worker_control_plane, field}}
   end
 
   defp parse_timestamp!(value) do
@@ -291,23 +234,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     |> Certificate.Query.by_worker_id(worker_id)
     |> Certificate.Query.in_force()
     |> Repo.exists?()
-  end
-
-  defp ensure_manual_certificate!(worker_id, certificate_sha256) do
-    now = Repo.now!()
-
-    %{
-      expires_at: DateTime.add(now, 10 * 365 * 24 * 60 * 60, :second),
-      issued_by: "manual-authorization",
-      not_before: now,
-      serial_number: "manual-#{String.slice(certificate_sha256, 0, 16)}",
-      sha256: certificate_sha256,
-      source: :manual,
-      worker_id: worker_id
-    }
-    |> Certificate.Changeset.insert()
-    |> Repo.insert(on_conflict: :nothing, conflict_target: :sha256)
-    |> Shared.unwrap_write()
   end
 
   # -- PubSub ------------------------------------------------------------------

@@ -188,8 +188,8 @@ defmodule Ryker.CoopFleet.Protocol do
 
   defp worker(_document), do: {:error, {:invalid_coop_worker_poll, :worker}}
 
-  # Workspace bytes are measured by the worker that owns the filesystem. The
-  # object is optional so an older worker still polls; absent means unknown, and
+  # Workspace bytes are measured by the worker that owns the filesystem. A
+  # worker with no measurement leaves the object out; absent means unknown, and
   # unknown must never be read as zero by anything downstream.
   defp storage(nil), do: {:ok, nil}
 
@@ -346,22 +346,21 @@ defmodule Ryker.CoopFleet.Protocol do
     allowed = ~w(id session_id sequence turn_id type version occurred_at payload)
     required = ~w(id session_id sequence type version occurred_at)
 
-    with true <- Map.keys(document) -- allowed == [],
-         true <- Enum.all?(required, &Map.has_key?(document, &1)),
+    # Each refusal names its own cause: every one of them was reported as a
+    # sequence mismatch, which hid what was wrong while a stall was diagnosed
+    # (2026-10-04 review).
+    with :ok <- holds(Map.keys(document) -- allowed == [], :session_event_fields),
+         :ok <- holds(Enum.all?(required, &Map.has_key?(document, &1)), :session_event_fields),
          :ok <- reference(document["id"], 1_024, :session_event_id),
          :ok <- reference(document["session_id"], 1_024, :session_event_session_id),
          :ok <- optional_reference(document["turn_id"], 1_024, :session_event_turn_id),
          :ok <- reference(document["type"], 128, :session_event_type),
          :ok <- positive(document["version"], :session_event_version),
-         true <- document["version"] <= 65_535,
+         :ok <- holds(document["version"] <= 65_535, :session_event_version),
          {:ok, _occurred_at} <- timestamp(document["occurred_at"], :session_event_occurred_at),
          :ok <-
-           session_event_payload(document["type"], Map.get(document, "payload")),
-         true <- document["sequence"] == sequence do
-      :ok
-    else
-      false -> {:error, {:invalid_coop_worker_protocol, :session_event_sequence}}
-      {:error, _reason} = error -> error
+           session_event_payload(document["type"], Map.get(document, "payload")) do
+      holds(document["sequence"] == sequence, :session_event_sequence)
     end
   end
 
@@ -369,6 +368,9 @@ defmodule Ryker.CoopFleet.Protocol do
     do: {:error, {:invalid_coop_worker_protocol, :session_event}}
 
   defp session_event(_kind, _sequence, _document), do: :ok
+
+  defp holds(true, _reason), do: :ok
+  defp holds(false, reason), do: {:error, {:invalid_coop_worker_protocol, reason}}
 
   defp session_event_payload(kind, value) when kind in @activity_event_kinds,
     do: optional_payload(value, :session_event_payload)

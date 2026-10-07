@@ -10,6 +10,7 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.CoopFleet.ControlPlane
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Work.Custody
@@ -82,8 +83,8 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
   defp command! do
     worker = "migration-worker-#{System.unique_integer([:positive])}"
     certificate = digest(worker)
-    assert {:ok, _worker} = ControlPlane.authorize_worker(worker, "workspace-main", certificate)
-    assert {:ok, _response} = ControlPlane.handle_poll(worker, poll(worker))
+    assert {:ok, _worker} = CoopWorkers.authorize(worker, "workspace-main", certificate)
+    assert {:ok, _response} = ControlPlane.handle_poll_certificate(worker, poll(worker))
 
     admitted =
       EpisodeFixtures.admit_input(%{

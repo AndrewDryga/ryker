@@ -2,7 +2,8 @@ defmodule Ryker.CoopFleet.OperatorTaskTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   alias Mix.Tasks.Ryker.CoopWorker
-  alias Ryker.CoopFleet.{ControlPlane, Worker}
+  alias Ryker.CoopFleet.Worker
+  alias Ryker.Fixtures.CoopWorkers
 
   setup do
     previous_shell = Mix.shell()
@@ -46,7 +47,7 @@ defmodule Ryker.CoopFleet.OperatorTaskTest do
     digest = digest(certificate)
 
     assert {:ok, %Worker{}} =
-             ControlPlane.authorize_worker("worker-ops", "workspace-main", digest)
+             CoopWorkers.authorize("worker-ops", "workspace-main", digest)
 
     CoopWorker.run(["drain", "worker-ops", "operator:andrew"])
     assert {:mix_shell, :info, [drain_json]} = receive_shell!()

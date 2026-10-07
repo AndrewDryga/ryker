@@ -15,6 +15,7 @@ defmodule Ryker.CoopFleet.RetireDiscardedPlacementsMigrationTest do
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Command, ControlPlane, Placement}
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Work.{Custody, Session}
@@ -27,8 +28,8 @@ defmodule Ryker.CoopFleet.RetireDiscardedPlacementsMigrationTest do
   test "a discarded session's leftover placement is retired and its queued command failed, a live one is kept" do
     worker = "migration-worker-#{System.unique_integer([:positive])}"
     certificate = digest(worker)
-    assert {:ok, _worker} = ControlPlane.authorize_worker(worker, "workspace-main", certificate)
-    assert {:ok, _response} = ControlPlane.handle_poll(worker, poll(worker))
+    assert {:ok, _worker} = CoopWorkers.authorize(worker, "workspace-main", certificate)
+    assert {:ok, _response} = ControlPlane.handle_poll_certificate(worker, poll(worker))
 
     leaked = place!("leaked")
     live = place!("live")

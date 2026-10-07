@@ -3,7 +3,8 @@ defmodule Ryker.BundledCoopTest do
   import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
   alias Ryker.BundledCoop
-  alias Ryker.CoopFleet.{ControlPlane, EnrollmentToken, Worker}
+  alias Ryker.CoopFleet.{EnrollmentToken, Worker}
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Settings
 
   @actor "control-plane:local"
@@ -180,7 +181,7 @@ defmodule Ryker.BundledCoopTest do
 
   defp authorize! do
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker("ryker-compose", "ryker-compose", @digest)
+             CoopWorkers.authorize("ryker-compose", "ryker-compose", @digest)
   end
 
   defp advertise! do

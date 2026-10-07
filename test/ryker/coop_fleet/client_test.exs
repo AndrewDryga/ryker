@@ -7,6 +7,7 @@ defmodule Ryker.CoopFleet.ClientTest do
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Crypto
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
   alias Ryker.Repo
@@ -555,14 +556,14 @@ defmodule Ryker.CoopFleet.ClientTest do
     certificate_sha256 = digest(upgraded_worker_id)
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(
+             CoopWorkers.authorize(
                upgraded_worker_id,
                "workspace-main",
                certificate_sha256
              )
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                upgraded_worker_id,
                poll(upgraded_worker_id, "upgraded-unplaced", true)
              )
@@ -571,7 +572,7 @@ defmodule Ryker.CoopFleet.ClientTest do
              Client.capabilities(client, session)
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                command.worker_id,
                poll(command.worker_id, "upgraded-placed", true)
              )
@@ -1325,7 +1326,7 @@ defmodule Ryker.CoopFleet.ClientTest do
                poll_interval_ms: 1,
                wait: fn ->
                  {:ok, %{"commands" => [request]}} =
-                   ControlPlane.handle_poll(
+                   ControlPlane.handle_poll_certificate(
                      owner.worker_id,
                      poll(owner.worker_id, Ecto.UUID.generate())
                    )
@@ -1359,7 +1360,7 @@ defmodule Ryker.CoopFleet.ClientTest do
                  }
 
                  {:ok, acknowledgement} =
-                   ControlPlane.handle_poll(
+                   ControlPlane.handle_poll_certificate(
                      owner.worker_id,
                      Map.put(poll(owner.worker_id, Ecto.UUID.generate()), "command_results", [
                        result
@@ -1621,7 +1622,7 @@ defmodule Ryker.CoopFleet.ClientTest do
                poll_interval_ms: 1,
                wait: fn ->
                  assert {:ok, %{"commands" => [read]}} =
-                          ControlPlane.handle_poll(
+                          ControlPlane.handle_poll_certificate(
                             command.worker_id,
                             poll(command.worker_id, "read")
                           )
@@ -1657,7 +1658,9 @@ defmodule Ryker.CoopFleet.ClientTest do
                    |> poll("result")
                    |> Map.put("command_results", [result])
 
-                 assert {:ok, acknowledgement} = ControlPlane.handle_poll(command.worker_id, poll)
+                 assert {:ok, acknowledgement} =
+                          ControlPlane.handle_poll_certificate(command.worker_id, poll)
+
                  assert acknowledgement["acknowledged_result_command_ids"] == [read["command_id"]]
                  :ok
                end
@@ -1864,7 +1867,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert_receive {:fleet_command, ^session, "submit_turn", payload, "submit-artifact", _options}
 
     assert payload["submission"] == submission
-    assert payload["submission_sha256"] == CanonicalJSON.digest(submission)
+    assert payload["submission_sha256"] == CanonicalJSON.worker_digest(submission)
     refute inspect(payload) =~ data
 
     fence_command =
@@ -1874,7 +1877,7 @@ defmodule Ryker.CoopFleet.ClientTest do
           "coop_session_id" => session.coop_session_id,
           "expected_revision" => 3,
           "submission" => submission,
-          "submission_sha256" => CanonicalJSON.digest(submission),
+          "submission_sha256" => CanonicalJSON.worker_digest(submission),
           "turn_ref" => "turn-artifact"
         },
         key: "submit-artifact"
@@ -2561,7 +2564,7 @@ defmodule Ryker.CoopFleet.ClientTest do
           "coop_session_id" => session.coop_session_id,
           "expected_revision" => 1,
           "submission" => submission,
-          "submission_sha256" => CanonicalJSON.digest(submission),
+          "submission_sha256" => CanonicalJSON.worker_digest(submission),
           "turn_ref" => "logical-turn"
         },
         key: key
@@ -2770,9 +2773,10 @@ defmodule Ryker.CoopFleet.ClientTest do
     certificate_sha256 = digest(worker_id)
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(worker_id, "workspace-main", certificate_sha256)
+             CoopWorkers.authorize(worker_id, "workspace-main", certificate_sha256)
 
-    assert {:ok, _response} = ControlPlane.handle_poll(worker_id, poll(worker_id, suffix))
+    assert {:ok, _response} =
+             ControlPlane.handle_poll_certificate(worker_id, poll(worker_id, suffix))
 
     assert {:ok, placement} =
              ControlPlane.place_session(

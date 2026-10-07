@@ -155,7 +155,7 @@ defmodule Ryker.Retention.DataTest do
              Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 86_400))
 
     assert Repo.get(SessionEvidence, stored.id) == nil
-    assert SessionEvidences.for_session(work.session.id) == []
+    assert Inspectors.session_evidences(work.session.id) == []
     assert SessionEvidences.latest_for_episode(work.episode.id) == []
 
     # A re-capture after expiry records the state observed now; it never revives

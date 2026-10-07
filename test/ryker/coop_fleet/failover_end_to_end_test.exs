@@ -6,6 +6,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
   alias Ryker.CoopFleet.{Bodies, Checkpoints, Client, Command, ControlPlane, JobSpec, Placement}
   alias Ryker.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
@@ -333,7 +334,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
     fingerprint = digest(certificate)
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(worker_id, "workspace-main", fingerprint)
+             CoopWorkers.authorize(worker_id, "workspace-main", fingerprint)
 
     assert {:ok, _response} =
              ControlPlane.handle_poll_certificate(

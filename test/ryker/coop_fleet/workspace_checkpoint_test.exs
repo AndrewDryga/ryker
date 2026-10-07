@@ -11,7 +11,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
 
   test "a real Coop capture binds portable task and workspace identity" do
     assert {:ok, checkpoint} =
-             golden_checkpoint() |> Jason.encode!() |> WorkspaceCheckpoint.decode()
+             golden_checkpoint() |> WorkspaceCheckpoint.validate()
 
     assert checkpoint["session_ref"] == "golden-source"
     assert checkpoint["placement_generation"] == 1
@@ -68,12 +68,6 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
       assert {:error, {:invalid_workspace_checkpoint, :branch_ref}} =
                fixture |> Map.put("branch_ref", branch) |> WorkspaceCheckpoint.validate()
     end
-
-    assert {:error, {:invalid_workspace_checkpoint, :json}} =
-             WorkspaceCheckpoint.decode("not-json")
-
-    assert {:error, {:invalid_workspace_checkpoint, :document}} =
-             WorkspaceCheckpoint.decode(String.duplicate("x", 1_048_577))
 
     for {field, value, reason} <- [
           {"placement_generation", 0, :placement_generation},
@@ -216,19 +210,19 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
     {checkpoint, bundle} = WorkspaceCheckpointFixture.build(%{session_ref: "session-1"})
 
     assert {:ok, _manifest} =
-             WorkspaceCheckpointBundle.validate(checkpoint, bundle, Ryker.Secret.new([]))
+             WorkspaceCheckpointBundle.validate_stream(checkpoint, [bundle], Ryker.Secret.new([]))
 
-    assert {:ok, _manifest} = WorkspaceCheckpointBundle.validate(checkpoint, bundle)
+    assert {:ok, _manifest} = WorkspaceCheckpointBundle.validate_stream(checkpoint, [bundle])
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :identity}} =
              checkpoint
              |> put_in(["bundle", "sha256"], String.duplicate("0", 64))
-             |> WorkspaceCheckpointBundle.validate(bundle)
+             |> WorkspaceCheckpointBundle.validate_stream([bundle])
 
     assert {:error, {:invalid_workspace_checkpoint, :version}} =
              checkpoint
              |> Map.put("version", 3)
-             |> WorkspaceCheckpointBundle.validate(bundle)
+             |> WorkspaceCheckpointBundle.validate_stream([bundle])
 
     <<name::binary-size(100), _mode::binary-size(8), rest::binary>> = bundle
     changed_bundle = name <> "0000777\0" <> rest
@@ -239,18 +233,18 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
       |> put_in(["bundle", "byte_size"], byte_size(changed_bundle))
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :header}} =
-             WorkspaceCheckpointBundle.validate(
+             WorkspaceCheckpointBundle.validate_stream(
                changed_checkpoint,
-               changed_bundle,
+               [changed_bundle],
                Ryker.Secret.new([])
              )
 
     invalid_octal = name <> "zzzzzzz\0" <> rest
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :header}} =
-             WorkspaceCheckpointBundle.validate(
+             WorkspaceCheckpointBundle.validate_stream(
                rebind_bundle(checkpoint, invalid_octal),
-               invalid_octal,
+               [invalid_octal],
                Ryker.Secret.new([])
              )
 
@@ -261,24 +255,28 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
       })
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} =
-             WorkspaceCheckpointBundle.validate(
+             WorkspaceCheckpointBundle.validate_stream(
                secret_checkpoint,
-               secret_bundle,
+               [secret_bundle],
                Ryker.Secret.new([])
              )
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} =
-             WorkspaceCheckpointBundle.validate(
+             WorkspaceCheckpointBundle.validate_stream(
                checkpoint,
-               bundle,
+               [bundle],
                Ryker.Secret.new(["Status: in_progress"])
              )
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} =
-             WorkspaceCheckpointBundle.validate(checkpoint, bundle, Ryker.Secret.new(["short"]))
+             WorkspaceCheckpointBundle.validate_stream(
+               checkpoint,
+               [bundle],
+               Ryker.Secret.new(["short"])
+             )
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :secret_configuration}} =
-             WorkspaceCheckpointBundle.validate(checkpoint, bundle, :not_a_secret_list)
+             WorkspaceCheckpointBundle.validate_stream(checkpoint, [bundle], :not_a_secret_list)
 
     malformed = "not-a-tar"
 
@@ -288,9 +286,9 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
       |> put_in(["bundle", "byte_size"], byte_size(malformed))
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :tar}} =
-             WorkspaceCheckpointBundle.validate(
+             WorkspaceCheckpointBundle.validate_stream(
                malformed_checkpoint,
-               malformed,
+               [malformed],
                Ryker.Secret.new([])
              )
 
@@ -298,36 +296,36 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
       :binary.replace(bundle, "Status: in_progress\n", "Status: in_progresX\n")
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :members}} =
-             WorkspaceCheckpointBundle.validate(
+             WorkspaceCheckpointBundle.validate_stream(
                rebind_bundle(checkpoint, changed_member),
-               changed_member,
+               [changed_member],
                Ryker.Secret.new([])
              )
 
     invalid_terminator = binary_part(bundle, 0, byte_size(bundle) - 1) <> <<1>>
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :terminator}} =
-             WorkspaceCheckpointBundle.validate(
+             WorkspaceCheckpointBundle.validate_stream(
                rebind_bundle(checkpoint, invalid_terminator),
-               invalid_terminator,
+               [invalid_terminator],
                Ryker.Secret.new([])
              )
 
     truncated_member = binary_part(bundle, 0, byte_size(bundle) - 1_535)
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :member_length}} =
-             WorkspaceCheckpointBundle.validate(
+             WorkspaceCheckpointBundle.validate_stream(
                rebind_bundle(checkpoint, truncated_member),
-               truncated_member,
+               [truncated_member],
                Ryker.Secret.new([])
              )
 
     missing_manifest = rename_first_tar_member(bundle, "missing.json")
 
     assert {:error, {:invalid_workspace_checkpoint_bundle, :manifest}} =
-             WorkspaceCheckpointBundle.validate(
+             WorkspaceCheckpointBundle.validate_stream(
                rebind_bundle(checkpoint, missing_manifest),
-               missing_manifest,
+               [missing_manifest],
                Ryker.Secret.new([])
              )
   end

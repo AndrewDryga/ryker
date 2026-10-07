@@ -563,7 +563,6 @@ defmodule Ryker.Runtime.Assembly do
         policy: policy.name,
         policy_digest: policy.digest,
         poll_interval_ms: defaults.poll_interval_ms,
-        receive_timeout_ms: Defaults.fetch!(:coop).receive_timeout_ms,
         worker_ref: "#{settings.installation.host_ref}:admission"
       }
     else

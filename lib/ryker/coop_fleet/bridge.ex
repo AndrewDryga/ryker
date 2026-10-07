@@ -140,7 +140,7 @@ defmodule Ryker.CoopFleet.Bridge do
         await_result(command, command_id, settings, left)
 
       %Command{} = command ->
-        with :ok <- current_placement(command) do
+        with :ok <- current_command_placement(command) do
           await_result(command, command_id, settings, left)
         end
 
@@ -238,7 +238,13 @@ defmodule Ryker.CoopFleet.Bridge do
 
   def response(_response), do: {:error, {:invalid_coop_worker_bridge, :response}}
 
-  defp current_placement(command) do
+  @doc """
+  Whether the placement a command was sent on still carries it: `:ok` while
+  it is active, a pending replacement while it is being revoked, and a
+  required replacement once it is gone or its lease ran out.
+  """
+  @spec current_command_placement(Command.t()) :: :ok | {:error, term()}
+  def current_command_placement(command) do
     placement = Repo.one(Placement.Query.by_id(command.placement_id))
     now = Repo.now!()
 
@@ -247,7 +253,7 @@ defmodule Ryker.CoopFleet.Bridge do
           DateTime.compare(placement.lease_expires_at, now) == :gt ->
         :ok
 
-      placement && placement.state in [:assigning, :draining, :revoking] &&
+      placement && placement.state == :revoking &&
           DateTime.compare(placement.lease_expires_at, now) == :gt ->
         {:error,
          {:coop_session_replacement_pending, command.session_id, command.placement_generation,

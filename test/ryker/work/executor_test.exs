@@ -5,12 +5,12 @@ defmodule Ryker.Work.ExecutorTest do
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Outputs
   alias Ryker.ControlPlane.{EpisodeProjection, FailureProjection, ModelRequests}
-  alias Ryker.CoopFleet.SessionEvidences
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.WorkerJob
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
@@ -934,7 +934,7 @@ defmodule Ryker.Work.ExecutorTest do
       # done, and no failure mode records an absence as an observation.
       assert state.session_evidence_reads == 0
 
-      assert SessionEvidences.for_session(claim.session.id) == []
+      assert Inspectors.session_evidences(claim.session.id) == []
     end
   end
 

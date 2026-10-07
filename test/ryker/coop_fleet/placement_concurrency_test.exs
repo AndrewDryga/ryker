@@ -6,6 +6,7 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
   alias Ryker.CoopFleet.ControlPlane.Commands
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Repo
@@ -255,7 +256,7 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
                  from(placement in Placement,
                    where:
                      placement.worker_id == ^worker_id and
-                       placement.state in [:assigning, :active, :draining, :revoking]
+                       placement.state in ^Placement.current_states()
                  ),
                  :count
                ) == 1
@@ -460,14 +461,14 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
     certificate = "certificate-#{worker_id}"
     digest = digest(certificate)
 
-    assert {:ok, _worker} = ControlPlane.authorize_worker(worker_id, workspace_ref, digest)
+    assert {:ok, _worker} = CoopWorkers.authorize(worker_id, workspace_ref, digest)
 
     poll_worker!(worker_id, workspace_ref)
   end
 
   defp poll_worker!(worker_id, workspace_ref) do
     assert {:ok, _response} =
-             ControlPlane.handle_poll(worker_id, %{
+             ControlPlane.handle_poll_certificate("certificate-#{worker_id}", %{
                "acknowledged_command_ids" => [],
                "command_results" => [],
                "event_batches" => [],

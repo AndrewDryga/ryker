@@ -5,6 +5,7 @@ defmodule Ryker.CoopFleet.PrepareSessionTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Admission.ReadySessions
   alias Ryker.CoopFleet.{Client, Command, ControlPlane}
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Repo
 
@@ -148,12 +149,12 @@ defmodule Ryker.CoopFleet.PrepareSessionTest do
     certificate = digest(@worker)
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(@worker, "workspace-main", certificate)
+             CoopWorkers.authorize(@worker, "workspace-main", certificate)
   end
 
   defp poll!(suffix, capacity, options \\ []) do
     assert {:ok, response} =
-             ControlPlane.handle_poll(@worker, %{
+             ControlPlane.handle_poll_certificate(@worker, %{
                "acknowledged_command_ids" => [],
                "command_results" => Keyword.get(options, :command_results, []),
                "event_batches" => [],

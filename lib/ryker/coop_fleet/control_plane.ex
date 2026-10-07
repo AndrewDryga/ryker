@@ -9,21 +9,16 @@ defmodule Ryker.CoopFleet.ControlPlane do
   `Ryker.CoopFleet.ControlPlane.Events`; the helpers more than one of them
   needs sit in `Ryker.CoopFleet.ControlPlane.Shared`.
 
-  The caller authenticates the worker transport before `handle_poll/3`. The
-  poll then binds that identity to an enrolled worker row, applies the whole
-  poll transactionally, and returns only commands for current leased
-  placements. It records remote events before later runtime projection; a
+  A poll names the worker by the client certificate it came with
+  (`handle_poll_certificate/3`): the certificate's digest must be one the
+  worker holds now. The poll then applies the whole poll transactionally and
+  returns only commands for current leased placements. It records remote events before later runtime projection; a
   network acknowledgement never outruns durable receipt.
   """
 
-  alias Ryker.CoopFleet.{Command, Placement, Worker}
+  alias Ryker.CoopFleet.{Command, Placement}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Placements, Workers}
   alias Ryker.Work.Session
-
-  @doc false
-  @spec authorize_worker(String.t(), String.t(), String.t()) ::
-          {:ok, Worker.t()} | {:error, term()}
-  defdelegate authorize_worker(worker_id, workspace_ref, certificate_sha256), to: Workers
 
   @spec handle_poll_certificate(binary(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -31,9 +26,6 @@ defmodule Ryker.CoopFleet.ControlPlane do
 
   @spec authenticate_certificate(binary()) :: {:ok, String.t()} | {:error, term()}
   defdelegate authenticate_certificate(certificate), to: Workers
-
-  @spec handle_poll(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  defdelegate handle_poll(authenticated_worker_id, document, options \\ []), to: Workers
 
   @spec place_session(Ecto.UUID.t(), map(), pos_integer()) ::
           {:ok, Placement.t()} | {:error, term()}

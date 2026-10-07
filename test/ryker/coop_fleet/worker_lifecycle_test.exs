@@ -6,6 +6,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
   alias Ryker.CoopFleet.Worker
   alias Ryker.CoopFleet.WorkerLifecycle
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.StateTools.Binding
@@ -135,16 +136,17 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
     digest = digest(certificate)
 
     assert {:ok, %Worker{}} =
-             ControlPlane.authorize_worker(worker_id, "workspace-main", digest)
+             CoopWorkers.authorize(worker_id, "workspace-main", digest)
 
     digest
   end
 
+  # Each worker here holds the certificate named after it (`enroll_manual!/2`).
   defp heartbeat!(worker_id) do
     now = Ryker.Repo.now!()
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(worker_id, %{
+             ControlPlane.handle_poll_certificate("#{worker_id}-certificate", %{
                "acknowledged_command_ids" => [],
                "command_results" => [],
                "event_batches" => [],

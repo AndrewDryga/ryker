@@ -34,16 +34,6 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   @spec maximum_bundle_bytes() :: pos_integer()
   def maximum_bundle_bytes, do: @maximum_bundle_bytes
 
-  @spec decode(binary()) :: {:ok, map()} | {:error, term()}
-  def decode(document) when is_binary(document) and byte_size(document) <= 1_048_576 do
-    case Jason.decode(document) do
-      {:ok, value} -> validate(value)
-      {:error, _reason} -> {:error, {:invalid_workspace_checkpoint, :json}}
-    end
-  end
-
-  def decode(_document), do: {:error, {:invalid_workspace_checkpoint, :document}}
-
   @spec decode_bundle_manifest(binary()) :: {:ok, map()} | {:error, term()}
   def decode_bundle_manifest(document)
       when is_binary(document) and byte_size(document) in 1..@maximum_manifest_bytes do

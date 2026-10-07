@@ -9,6 +9,7 @@ defmodule Ryker.Defaults do
   independently settable into an inconsistent combination.
   """
 
+  alias Ryker.Admission.Runtime, as: AdmissionRuntime
   alias Ryker.Config
 
   @coop %{receive_timeout_ms: 30_000}
@@ -191,7 +192,12 @@ defmodule Ryker.Defaults do
          @delivery.report_concurrency + @delivery.routing_concurrency <= 32,
        "delivery lanes must fit the total pool"},
       {@emisar.receive_timeout_ms <= @emisar.lease_seconds * 1_000,
-       "an Emisar request must fit inside its lease"}
+       "an Emisar request must fit inside its lease"},
+      # Admission talks to Coop through the Work fleet client. One call longer
+      # than its heartbeat window, a third of its lease, could let another
+      # worker claim the same input while the first is still waiting.
+      {@coop.receive_timeout_ms <= div(AdmissionRuntime.lease_seconds() * 1_000, 3),
+       "a Coop call must fit inside the admission heartbeat window"}
     ]
 
     increasing =

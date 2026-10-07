@@ -8,6 +8,7 @@ defmodule Ryker.Inspectors do
   """
 
   alias Ryker.Behaviors.StandingRuleInventory
+  alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.Emisar.Approval
   alias Ryker.Episodes.{CorrelationClaim, RoutingDigest}
   alias Ryker.Improvement.Candidate
@@ -40,6 +41,10 @@ defmodule Ryker.Inspectors do
   @doc "Ryker's membership of a Slack channel, or nil."
   def channel_membership(workspace_ref, channel_ref),
     do: Repo.one(ChannelMembership.Query.by_channel(workspace_ref, channel_ref))
+
+  @doc "Every Coop evidence capture recorded for a session."
+  def session_evidences(session_id),
+    do: Repo.all(SessionEvidence.Query.by_session_id(session_id))
 
   @doc "The active claim on one occurrence, or nil."
   def correlation_owner(scope_ref, namespace, occurrence_ref) do

@@ -2,7 +2,7 @@ defmodule Ryker.ReleaseTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
-  alias Ryker.CoopFleet.ControlPlane
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Release
 
   @root Path.expand("../..", __DIR__)
@@ -374,7 +374,7 @@ defmodule Ryker.ReleaseTest do
   # revoked there, however compromised (2026-10-04 review).
   test "a Compose install drains, resumes and revokes its workers through the release" do
     hash = digest("certificate:release-lifecycle")
-    {:ok, _worker} = ControlPlane.authorize_worker("worker-own-2", "workspace-own", hash)
+    {:ok, _worker} = CoopWorkers.authorize("worker-own-2", "workspace-own", hash)
 
     for {action, status, state} <- [
           {:drain, "draining", "draining"},

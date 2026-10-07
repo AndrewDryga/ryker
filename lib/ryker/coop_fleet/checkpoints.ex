@@ -223,8 +223,8 @@ defmodule Ryker.CoopFleet.Checkpoints do
       "source_placement_generation" => transfer.placement_generation
     }
 
-  # Only a version 2 checkpoint is restored, and every one was stored as an
-  # encrypted file: the rows kept in PostgreSQL are all version 1.
+  # Only a version 2 checkpoint is restored, and every one is stored as an
+  # encrypted file.
   defp with_checkpoint(transfer, options, consume) do
     with {:ok, body, _} <-
            Bodies.fetch(

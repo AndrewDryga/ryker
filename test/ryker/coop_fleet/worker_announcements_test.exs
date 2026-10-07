@@ -18,6 +18,7 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
   alias Ryker.CoopFleet.{ControlPlane, Worker}
   alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Work.Custody
@@ -31,16 +32,23 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
     :ok = Workers.subscribe_workers()
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(worker_id, "workspace-main", digest(worker_id))
+             CoopWorkers.authorize(worker_id, "workspace-main", digest(worker_id))
 
-    assert {:ok, _response} = ControlPlane.handle_poll(worker_id, poll(worker_id, "hello"))
+    assert {:ok, _response} =
+             ControlPlane.handle_poll_certificate(worker_id, poll(worker_id, "hello"))
+
     assert_received {:coop_worker_updated, ^worker_id}
 
-    assert {:ok, _response} = ControlPlane.handle_poll(worker_id, poll(worker_id, "heartbeat"))
+    assert {:ok, _response} =
+             ControlPlane.handle_poll_certificate(worker_id, poll(worker_id, "heartbeat"))
+
     refute_received {:coop_worker_updated, ^worker_id}
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(worker_id, poll(worker_id, "busy", capacity: capacity(0)))
+             ControlPlane.handle_poll_certificate(
+               worker_id,
+               poll(worker_id, "busy", capacity: capacity(0))
+             )
 
     assert_received {:coop_worker_updated, ^worker_id}
   end
@@ -54,17 +62,20 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
     :ok = Workers.subscribe_workers()
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(worker_id, "workspace-main", digest(worker_id))
+             CoopWorkers.authorize(worker_id, "workspace-main", digest(worker_id))
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(worker_id, poll(worker_id, "measured", storage: storage()))
+             ControlPlane.handle_poll_certificate(
+               worker_id,
+               poll(worker_id, "measured", storage: storage())
+             )
 
     assert_received {:coop_worker_updated, ^worker_id}
 
     remeasured = storage(free_bytes: 3_221_225_472, measured_at: "2026-09-11T09:31:00Z")
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                worker_id,
                poll(worker_id, "remeasured", storage: remeasured)
              )
@@ -74,7 +85,10 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
     refused = storage(allocation: "refused", refusal_reason: "reserve_exhausted")
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(worker_id, poll(worker_id, "refused", storage: refused))
+             ControlPlane.handle_poll_certificate(
+               worker_id,
+               poll(worker_id, "refused", storage: refused)
+             )
 
     assert_received {:coop_worker_updated, ^worker_id}
   end
@@ -83,9 +97,11 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
     worker_id = unique("worker")
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(worker_id, "workspace-main", digest(worker_id))
+             CoopWorkers.authorize(worker_id, "workspace-main", digest(worker_id))
 
-    assert {:ok, _response} = ControlPlane.handle_poll(worker_id, poll(worker_id, "hello"))
+    assert {:ok, _response} =
+             ControlPlane.handle_poll_certificate(worker_id, poll(worker_id, "hello"))
+
     session = session!()
     episode_id = session.episode_id
 
@@ -110,7 +126,7 @@ defmodule Ryker.CoopFleet.WorkerAnnouncementsTest do
     }
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                worker_id,
                poll(worker_id, "events", event_batches: [batch])
              )

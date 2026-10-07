@@ -3,9 +3,10 @@ defmodule Ryker.Retention.DispatcherTest do
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{ControlPlane, Placement}
+  alias Ryker.CoopFleet.Placement
   alias Ryker.Episodes
   alias Ryker.FakeRetentionCoopAPI, as: FakeAPI
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.WorkerJob
@@ -604,7 +605,7 @@ defmodule Ryker.Retention.DispatcherTest do
 
   defp place!(session, worker_id) do
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(
+             CoopWorkers.authorize(
                worker_id,
                "workspace-retention",
                digest(worker_id)

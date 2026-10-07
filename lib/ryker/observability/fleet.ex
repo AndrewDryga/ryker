@@ -36,7 +36,7 @@ defmodule Ryker.Observability.Fleet do
     FROM coop_worker_events AS event
     WHERE event.placement_id = placement.id
   ) AS events ON TRUE
-  WHERE placement.state IN ('assigning', 'active', 'draining', 'revoking')
+  WHERE placement.state IN ('active', 'revoking')
   """
 
   @doc "The fleet at the database clock reading `now`."

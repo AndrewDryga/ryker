@@ -2,6 +2,7 @@ defmodule Ryker.ObservabilityTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Plug.Test
+  import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.Config
@@ -11,6 +12,7 @@ defmodule Ryker.ObservabilityTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.ControlPlaneOptions
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.Inbox
@@ -92,14 +94,14 @@ defmodule Ryker.ObservabilityTest do
 
     # One worker whose volume refuses workspaces, measured ten minutes ago.
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(
+             CoopWorkers.authorize(
                "worker-probes",
                "workspace-probes",
-               String.duplicate("e", 64)
+               digest("worker-probes")
              )
 
     assert {:ok, _poll} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-probes",
                "worker-probes"
                |> storage_poll("workspace-probes", 9_663_676_416, "refused")
@@ -573,14 +575,14 @@ defmodule Ryker.ObservabilityTest do
              ]
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(
+             CoopWorkers.authorize(
                "worker-observability",
                workspace_ref,
-               String.duplicate("c", 64)
+               digest("worker-observability")
              )
 
     assert {:ok, _poll} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-observability",
                fleet_poll("worker-observability", workspace_ref)
              )
@@ -1085,14 +1087,14 @@ defmodule Ryker.ObservabilityTest do
     Config.put_override(:work, %{api: Client, client: client})
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(
+             CoopWorkers.authorize(
                "worker-refused",
                "workspace-refused",
-               String.duplicate("e", 64)
+               digest("worker-refused")
              )
 
     assert {:ok, _poll} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-refused",
                storage_poll("worker-refused", "workspace-refused", 0, "refused")
              )
@@ -1116,27 +1118,27 @@ defmodule Ryker.ObservabilityTest do
     # Reporting a missing measurement as zero would have said the fleet had no
     # disposable bytes at the exact moment nobody could see how many it had.
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(
+             CoopWorkers.authorize(
                "worker-storage",
                "workspace-storage",
-               String.duplicate("e", 64)
+               digest("worker-storage")
              )
 
     assert {:ok, _unknown} =
-             ControlPlane.authorize_worker(
+             CoopWorkers.authorize(
                "worker-silent",
                "workspace-storage",
-               String.duplicate("f", 64)
+               digest("worker-silent")
              )
 
     assert {:ok, _poll} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-storage",
                storage_poll("worker-storage", "workspace-storage", 9_663_676_416)
              )
 
     assert {:ok, _poll} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-silent",
                fleet_poll("worker-silent", "workspace-storage")
              )
@@ -1158,7 +1160,7 @@ defmodule Ryker.ObservabilityTest do
     refute metrics =~ "worker-storage"
 
     assert {:ok, _poll} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-storage",
                "worker-storage"
                |> storage_poll("workspace-storage", 1_073_741_824)

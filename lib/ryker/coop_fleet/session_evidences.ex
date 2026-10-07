@@ -45,15 +45,6 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   def record(_session_id, _document, _options),
     do: {:error, {:invalid_coop_session_evidence, :document}}
 
-  # Every recorded capture for one session, oldest state first; tests read the
-  # ledger back through this.
-  @doc false
-  @spec for_session(Ecto.UUID.t()) :: [SessionEvidence.t()]
-  def for_session(session_id) when is_binary(session_id),
-    do: Repo.all(SessionEvidence.Query.by_session_id(session_id))
-
-  def for_session(_session_id), do: []
-
   @doc """
   The latest capture per session for one episode, newest last.
 

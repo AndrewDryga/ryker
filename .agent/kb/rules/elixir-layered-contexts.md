@@ -49,6 +49,41 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-07.
   `Memories.SearchPage.Query`.
 - The transition that creates a row is `insert`. Emisar calls it `create`.
 
+## Return shapes
+
+- A public function that reads one row answers `{:ok, row}` or
+  `{:error, :not_found}` (IL-5) and reads it with `Repo.fetch/2`. Custody
+  locks keep their `lock_` names, and a module whose errors already name the
+  missing thing keeps that reason (`{:error, :work_turn_not_found}`).
+- A value a query selects (a due time, one column) stays a value or nil. Its
+  pipeline names a `select_*` helper (`select_next_due_after`,
+  `select_coop_session_ids`), which is how `IL05TaggedReads` tells it from a
+  row.
+- Lists stay plain lists: Ryker has no paginated `Repo.list/3` and no
+  metadata to return beside them.
+- No context function exists only for tests. A read only tests make is in
+  `Ryker.Inspectors` (`test/support/inspectors.ex`); tests may read rows
+  through Query modules directly.
+
+## Phoenix safety
+
+- IL-14: no `String.to_atom/1` on outside input (none in `lib`).
+- IL-15: the console's trust is reach plus the identity Tailscale Serve or
+  Cloudflare Access names (`Ryker.ControlPlane.Viewer`). There are no roles to
+  check per event. An Access sign-in has an end: the socket checks it when
+  it connects, and an open page reloads the moment it ends, so no event runs
+  past it (`WorkbenchLive`, `:sign_in_ended`).
+- IL-16: `raw/1` only on HTML Ryker's own builders produced with every value
+  escaped, and each builder has a test that feeds it markup.
+- IL-17: every long-lived process is under a supervisor.
+- IL-18: `mount` reads nothing (one `connected?`-guarded write names the
+  viewer), subscriptions wait for `connected?` (`SubscribeNeedsConnected`),
+  Activity and Chat stream their rows, and no per-mount value uses
+  `assign_new`. A page is read for its first render and again when its
+  socket connects; the first paint shows the page instead of a blank one
+  (decided 2026-10-04).
+- IL-19: vendor APIs go through Ryker's own modules (`VendorViaWrapper`).
+
 ## Enforced
 
 `credo/checks/`, each with fixture tests in `test/ryker/credo_checks/`:
@@ -56,6 +91,8 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-07.
 - `IL01NoInlineEctoDsl`: the Ecto DSL appears only in Query modules, and a
   read never starts at a schema (`Repo.all(Schema)`).
 - `IL02NoRepoGet`: no `Repo.get`, `get!` or `get_by`.
+- `IL05TaggedReads`: a public function's result is never a bare `Repo.one`
+  of whole rows.
 - `IL06QueryModulePure`: Query modules never call `Repo`.
 - `IL07SchemaFieldsOnly`: no changeset code in a schema module.
 - `IL08ChangesetPure`: changeset modules never call `Repo`.

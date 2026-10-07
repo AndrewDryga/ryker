@@ -187,10 +187,19 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     assert {:ok, _prepared} =
              Protocol.poll(%{poll | "event_batches" => [%{batch | "events" => [session_event]}]})
 
-    mismatched = put_in(session_event, ["payload", "sequence"], 2)
+    # Each refusal names its own cause; every one read as a sequence mismatch.
+    for {change, reason} <- [
+          {&put_in(&1, ["payload", "sequence"], 2), :session_event_sequence},
+          {&put_in(&1, ["payload", "extra"], true), :session_event_fields},
+          {&update_in(&1, ["payload"], fn event -> Map.delete(event, "type") end),
+           :session_event_fields},
+          {&put_in(&1, ["payload", "version"], 65_536), :session_event_version}
+        ] do
+      refused = change.(session_event)
 
-    assert {:error, {:invalid_coop_worker_protocol, :session_event_sequence}} =
-             Protocol.poll(%{poll | "event_batches" => [%{batch | "events" => [mismatched]}]})
+      assert {:error, {:invalid_coop_worker_protocol, ^reason}} =
+               Protocol.poll(%{poll | "event_batches" => [%{batch | "events" => [refused]}]})
+    end
 
     raw_lifecycle =
       session_event

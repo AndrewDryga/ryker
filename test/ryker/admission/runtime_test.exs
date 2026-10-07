@@ -15,10 +15,7 @@ defmodule Ryker.Admission.RuntimeTest do
 
   test "builds a bounded admission pool on the trusted fleet adapter" do
     child =
-      Runtime.child_spec(
-        [api: FleetAPI, client: @client, poll_interval_ms: 500, receive_timeout_ms: 2_000] ++
-          @identity
-      )
+      Runtime.child_spec([api: FleetAPI, client: @client, poll_interval_ms: 500] ++ @identity)
 
     assert child.id == Runtime
     assert {Runtime, :start_link, [configuration]} = child.start
@@ -57,16 +54,6 @@ defmodule Ryker.Admission.RuntimeTest do
           [api: nil, client: @client] ++ @identity
         ] do
       assert_raise ArgumentError, fn -> Runtime.child_spec(configuration) end
-    end
-  end
-
-  test "refuses a Coop timeout that can outlive the admission lease heartbeat" do
-    # A single blocking HTTP call longer than the heartbeat safety window can
-    # let another worker reclaim the same input while the first is still live.
-    assert_raise ArgumentError, ~r/receive_timeout_ms/, fn ->
-      Runtime.child_spec(
-        [api: FleetAPI, client: @client, receive_timeout_ms: 100_001] ++ @identity
-      )
     end
   end
 

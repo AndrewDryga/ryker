@@ -12,6 +12,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
   import Ecto.Query
   alias Ryker.CoopFleet.{Client, Command, ControlPlane, Placement, WorkerLifecycle}
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Work.{Cancellation, Custody, Dispatcher, OperationKeys, Submission, Turn}
@@ -222,14 +223,14 @@ defmodule Ryker.Work.CancellationWorkerTest do
   defp enroll!(suffix) do
     worker = "stop-#{suffix}-#{System.unique_integer([:positive])}"
     certificate = digest(worker)
-    assert {:ok, _worker} = ControlPlane.authorize_worker(worker, @workspace, certificate)
+    assert {:ok, _worker} = CoopWorkers.authorize(worker, @workspace, certificate)
     poll!(worker, @started)
     worker
   end
 
   defp poll!(worker, digest) do
     assert {:ok, _response} =
-             ControlPlane.handle_poll(worker, %{
+             ControlPlane.handle_poll_certificate(worker, %{
                "acknowledged_command_ids" => [],
                "command_results" => [],
                "event_batches" => [],

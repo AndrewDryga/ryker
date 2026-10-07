@@ -8,6 +8,7 @@ defmodule Ryker.CoopFleet.RouterTest do
   alias Ryker.CoopFleet.{Bodies, Checkpoints, ControlPlane, Enrollment, JobSpec, Placement}
   alias Ryker.CoopFleet.{Router, SourceGrants, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
@@ -44,7 +45,13 @@ defmodule Ryker.CoopFleet.RouterTest do
   test "generic bodies bind streaming custody to the current command before result acknowledgement" do
     key = Ryker.Secret.new(:binary.copy(<<7>>, 32))
     certificate = authorize_and_poll!()
-    command = command!("api_request", %{"method" => "GET", "path" => "/v1/sessions/s/changes"})
+
+    command =
+      command!(certificate, "api_request", %{
+        "method" => "GET",
+        "path" => "/v1/sessions/s/changes"
+      })
+
     root = Path.join(System.tmp_dir!(), "coop-route-bodies-#{Ecto.UUID.generate()}")
     on_exit(fn -> File.rm_rf!(root) end)
     bytes = :binary.copy("test bytes", 40_000)
@@ -167,7 +174,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     fingerprint = digest(certificate)
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker("worker-a", "workspace-main", fingerprint)
+             CoopWorkers.authorize("worker-a", "workspace-main", fingerprint)
 
     conn =
       :post
@@ -666,7 +673,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     certificate = authorize_and_poll!()
 
     command =
-      command!("checkpoint_workspace", %{
+      command!(certificate, "checkpoint_workspace", %{
         "coop_session_id" => "coop-session-1",
         "expected_revision" => 4,
         "repository_ref" => "ryker"
@@ -766,8 +773,8 @@ defmodule Ryker.CoopFleet.RouterTest do
 
     # Enqueue is durable, but no command goes out while its large body is absent.
     assert {:ok, %{"commands" => []}} =
-             ControlPlane.handle_poll(
-               "worker-a",
+             ControlPlane.handle_poll_certificate(
+               certificate,
                Map.put(poll(), "poll_ref", Ecto.UUID.generate()),
                options
              )
@@ -775,8 +782,8 @@ defmodule Ryker.CoopFleet.RouterTest do
     assert :ok = Checkpoints.prepare_restore(restore, options)
 
     assert {:ok, %{"commands" => [wire]}} =
-             ControlPlane.handle_poll(
-               "worker-a",
+             ControlPlane.handle_poll_certificate(
+               certificate,
                Map.put(poll(), "poll_ref", Ecto.UUID.generate()),
                options
              )
@@ -823,7 +830,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     certificate = authorize_and_poll!()
 
     command =
-      command!("checkpoint_workspace", %{
+      command!(certificate, "checkpoint_workspace", %{
         "coop_session_id" => "coop-session-1",
         "expected_revision" => 4,
         "repository_ref" => "ryker"
@@ -869,7 +876,9 @@ defmodule Ryker.CoopFleet.RouterTest do
         |> Map.put("poll_ref", Ecto.UUID.generate())
         |> Map.put("command_results", [result])
 
-      assert {:ok, _} = ControlPlane.handle_poll("worker-a", document, body_root: root)
+      assert {:ok, _} =
+               ControlPlane.handle_poll_certificate(certificate, document, body_root: root)
+
       :ok
     end
 
@@ -883,8 +892,8 @@ defmodule Ryker.CoopFleet.RouterTest do
       poll_interval_ms: 1,
       wait: fn ->
         assert {:ok, %{"commands" => [get]}} =
-                 ControlPlane.handle_poll(
-                   "worker-a",
+                 ControlPlane.handle_poll_certificate(
+                   certificate,
                    Map.put(poll(), "poll_ref", Ecto.UUID.generate())
                  )
 
@@ -963,7 +972,10 @@ defmodule Ryker.CoopFleet.RouterTest do
 
     root = Path.join(System.tmp_dir!(), "coop-body-errors-#{Ecto.UUID.generate()}")
     on_exit(fn -> File.rm_rf!(root) end)
-    command = command!("api_request", %{"method" => "GET", "path" => "/v1/sessions/s"})
+
+    command =
+      command!(certificate, "api_request", %{"method" => "GET", "path" => "/v1/sessions/s"})
+
     path = "/v1/coop-workers/commands/#{command.id}/response-body"
 
     for {hash, length} <- [
@@ -1006,7 +1018,10 @@ defmodule Ryker.CoopFleet.RouterTest do
   # artifacts back with an 8 MiB limit; only a checkpoint bundle is larger.
   test "a worker uploads no more for a command than Ryker reads back" do
     certificate = authorize_and_poll!()
-    document = command!("api_request", %{"method" => "GET", "path" => "/v1/sessions/s"})
+
+    document =
+      command!(certificate, "api_request", %{"method" => "GET", "path" => "/v1/sessions/s"})
+
     {root, refused} = upload_over_document_limit(document, certificate)
 
     assert refused.status == 413
@@ -1016,7 +1031,10 @@ defmodule Ryker.CoopFleet.RouterTest do
 
   test "a checkpoint bundle may be larger than any document" do
     certificate = authorize_and_poll!()
-    bundle = command!("get_checkpoint_bundle", %{"operation_id" => "checkpoint-limits"})
+
+    bundle =
+      command!(certificate, "get_checkpoint_bundle", %{"operation_id" => "checkpoint-limits"})
+
     {root, stored} = upload_over_document_limit(bundle, certificate)
 
     assert stored.status == 200
@@ -1053,13 +1071,13 @@ defmodule Ryker.CoopFleet.RouterTest do
     fingerprint = digest(certificate)
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker("worker-a", "workspace-main", fingerprint)
+             CoopWorkers.authorize("worker-a", "workspace-main", fingerprint)
 
     assert {:ok, _response} = ControlPlane.handle_poll_certificate(certificate, poll())
     certificate
   end
 
-  defp command!(kind, payload) do
+  defp command!(certificate, kind, payload) do
     session = session!()
 
     session =
@@ -1096,8 +1114,8 @@ defmodule Ryker.CoopFleet.RouterTest do
              )
 
     assert {:ok, %{"commands" => [%{"command_id" => command_id}]}} =
-             ControlPlane.handle_poll(
-               "worker-a",
+             ControlPlane.handle_poll_certificate(
+               certificate,
                Map.put(poll(), "poll_ref", "poll:worker-a:command")
              )
 

@@ -4,6 +4,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CoopFleet.{Bridge, ControlPlane, Placement}
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Repo
@@ -16,9 +17,11 @@ defmodule Ryker.CoopFleet.BridgeTest do
     certificate_sha256 = digest(worker_id)
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(worker_id, "workspace-main", certificate_sha256)
+             CoopWorkers.authorize(worker_id, "workspace-main", certificate_sha256)
 
-    assert {:ok, _response} = ControlPlane.handle_poll(worker_id, poll(worker_id, "hello"))
+    assert {:ok, _response} =
+             ControlPlane.handle_poll_certificate(worker_id, poll(worker_id, "hello"))
+
     session = session!()
     parent = self()
 
@@ -55,7 +58,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
     assert_receive :bridge_waiting, 1_000
 
     assert {:ok, %{"commands" => [command]}} =
-             ControlPlane.handle_poll(worker_id, poll(worker_id, "command"))
+             ControlPlane.handle_poll_certificate(worker_id, poll(worker_id, "command"))
 
     assert command["kind"] == "api_request"
     assert command["command_version"] == 2
@@ -76,7 +79,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
     }
 
     assert {:ok, response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                worker_id,
                poll(worker_id, "result", command_results: [result])
              )
@@ -302,9 +305,11 @@ defmodule Ryker.CoopFleet.BridgeTest do
     certificate_sha256 = digest(worker_id)
 
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(worker_id, "workspace-main", certificate_sha256)
+             CoopWorkers.authorize(worker_id, "workspace-main", certificate_sha256)
 
-    assert {:ok, _response} = ControlPlane.handle_poll(worker_id, poll(worker_id, "ready"))
+    assert {:ok, _response} =
+             ControlPlane.handle_poll_certificate(worker_id, poll(worker_id, "ready"))
+
     session = session!()
 
     assert {:ok, placement} =

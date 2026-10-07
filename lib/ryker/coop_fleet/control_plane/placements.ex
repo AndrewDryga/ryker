@@ -113,10 +113,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # takes seconds, a repository's at most a few minutes; an unbound placement
   # older than that is left over, not a session being created, and must not
   # stop every prepare on its worker.
-  defp session_being_created?(worker_id, now) do
-    since = DateTime.add(now, -@creating_seconds, :second)
-    Repo.exists?(Placement.Query.unbound_since(worker_id, since))
-  end
+  defp session_being_created?(worker_id, now),
+    do: Repo.exists?(Placement.Query.unbound_since(worker_id, creating_since(now)))
+
+  # The oldest a placement can be and still be a create under way.
+  defp creating_since(now), do: DateTime.add(now, -@creating_seconds, :second)
 
   # A command waits only while the worker can still act on it: one the next poll
   # would deliver. Coop answers neither a command whose placement ended nor a
@@ -588,21 +589,18 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # active and unbound and the worker renews the placement on every poll, so
   # counted it would hold its slot until retention retired the session.
   defp reserved_placement_slots(worker_id, now) do
-    since = DateTime.add(now, -@creating_seconds, :second)
-
     worker_id
-    |> Placement.Query.unbound_since(since)
+    |> Placement.Query.unbound_since(creating_since(now))
     |> Placement.Query.without_closed_session()
     |> Repo.aggregate(:count)
   end
 
   defp worker_eligible?(worker, requirements, now) do
-    worker.protocol_version == "2" and
-      capabilities_available?(
-        worker.capabilities,
-        requirements.capability_names,
-        requirements.capability_versions
-      ) and
+    capabilities_available?(
+      worker.capabilities,
+      requirements.capability_names,
+      requirements.capability_versions
+    ) and
       match?(%DateTime{}, worker.clock_at) and
       DateTime.diff(now, worker.clock_at, :second) |> abs() <= Shared.maximum_clock_skew_seconds()
   end

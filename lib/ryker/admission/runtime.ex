@@ -19,12 +19,14 @@ defmodule Ryker.Admission.Runtime do
     :policy,
     :policy_digest,
     :poll_interval_ms,
-    :receive_timeout_ms,
     :worker_ref
   ]
   @lease_seconds 300
   @maximum_decision_timeout_ms @lease_seconds * 1_000
-  @maximum_receive_timeout_ms div(@lease_seconds * 1_000, 3)
+
+  @doc "How long a claim on an input holds without a heartbeat."
+  @spec lease_seconds() :: pos_integer()
+  def lease_seconds, do: @lease_seconds
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
@@ -78,7 +80,6 @@ defmodule Ryker.Admission.Runtime do
     concurrency = Map.get(configuration, :concurrency, 4)
     decision_timeout_ms = Map.get(configuration, :decision_timeout_ms, 30_000)
     poll_interval_ms = Map.get(configuration, :poll_interval_ms, 250)
-    receive_timeout_ms = Map.get(configuration, :receive_timeout_ms, 30_000)
 
     validate_positive!(poll_interval_ms, :poll_interval_ms)
 
@@ -87,8 +88,6 @@ defmodule Ryker.Admission.Runtime do
 
     validate_positive!(decision_timeout_ms, :decision_timeout_ms)
     validate_decision_timeout!(decision_timeout_ms)
-    validate_positive!(receive_timeout_ms, :receive_timeout_ms)
-    validate_receive_timeout!(receive_timeout_ms)
     validate_ref!(policy, :policy)
     validate_digest!(policy_digest)
     validate_ref!(worker_ref, :worker_ref)
@@ -122,13 +121,6 @@ defmodule Ryker.Admission.Runtime do
 
   defp validate_positive!(_value, field) do
     raise ArgumentError, "admission #{field} must be a positive integer"
-  end
-
-  defp validate_receive_timeout!(value) when value <= @maximum_receive_timeout_ms, do: :ok
-
-  defp validate_receive_timeout!(_value) do
-    raise ArgumentError,
-          "admission receive_timeout_ms must fit within the durable lease heartbeat window"
   end
 
   defp validate_decision_timeout!(value) when value <= @maximum_decision_timeout_ms, do: :ok

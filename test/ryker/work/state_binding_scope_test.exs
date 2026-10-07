@@ -4,6 +4,7 @@ defmodule Ryker.Work.StateBindingScopeTest do
   import Ecto.Query
   alias Ryker.CoopFleet.{ControlPlane, Placement}
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Repo
@@ -85,14 +86,14 @@ defmodule Ryker.Work.StateBindingScopeTest do
 
   defp authorize_and_poll!(worker_id) do
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(
+             CoopWorkers.authorize(
                worker_id,
                "workspace-main",
                digest(worker_id)
              )
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(worker_id, %{
+             ControlPlane.handle_poll_certificate(worker_id, %{
                "acknowledged_command_ids" => [],
                "command_results" => [],
                "event_batches" => [],

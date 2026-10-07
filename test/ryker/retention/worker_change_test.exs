@@ -14,6 +14,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
   import Ecto.Query
   alias Ryker.CoopFleet.{Client, Command, ControlPlane, Placement, Worker, WorkerLifecycle}
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Retention.Dispatcher
@@ -117,13 +118,19 @@ defmodule Ryker.Retention.WorkerChangeTest do
     }
 
     assert {:ok, %{"event_acknowledgements" => [acknowledged]}} =
-             ControlPlane.handle_poll(worker, poll(worker, @started, event_batches: [batch]))
+             ControlPlane.handle_poll_certificate(
+               worker,
+               poll(worker, @started, event_batches: [batch])
+             )
 
     assert acknowledged["sequence"] == retired.last_acked_event_sequence + 1
 
     # The same batch again, as a worker that lost the answer re-sends it.
     assert {:ok, %{"event_acknowledgements" => [_again]}} =
-             ControlPlane.handle_poll(worker, poll(worker, @started, event_batches: [batch]))
+             ControlPlane.handle_poll_certificate(
+               worker,
+               poll(worker, @started, event_batches: [batch])
+             )
   end
 
   # The same trap, one step later: the worker removed from Ryker can never
@@ -259,7 +266,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
 
   defp serve(worker, digest, answer) do
     assert {:ok, %{"commands" => commands}} =
-             ControlPlane.handle_poll(worker, poll(worker, digest))
+             ControlPlane.handle_poll_certificate(worker, poll(worker, digest))
 
     results =
       Enum.map(commands, fn command ->
@@ -289,7 +296,10 @@ defmodule Ryker.Retention.WorkerChangeTest do
 
     if results != [] do
       assert {:ok, _response} =
-               ControlPlane.handle_poll(worker, poll(worker, digest, command_results: results))
+               ControlPlane.handle_poll_certificate(
+                 worker,
+                 poll(worker, digest, command_results: results)
+               )
     end
 
     :ok
@@ -380,13 +390,13 @@ defmodule Ryker.Retention.WorkerChangeTest do
   defp enroll!(suffix) do
     worker = "retention-#{suffix}-#{System.unique_integer([:positive])}"
     certificate = digest(worker)
-    assert {:ok, _worker} = ControlPlane.authorize_worker(worker, @workspace, certificate)
+    assert {:ok, _worker} = CoopWorkers.authorize(worker, @workspace, certificate)
     poll!(worker, @started)
     worker
   end
 
   defp poll!(worker, digest) do
-    assert {:ok, _response} = ControlPlane.handle_poll(worker, poll(worker, digest))
+    assert {:ok, _response} = ControlPlane.handle_poll_certificate(worker, poll(worker, digest))
   end
 
   defp poll(worker, digest, options \\ []) do

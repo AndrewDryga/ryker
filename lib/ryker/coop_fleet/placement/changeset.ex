@@ -46,10 +46,6 @@ defmodule Ryker.CoopFleet.Placement.Changeset do
   @doc "The worker session is gone, so nothing addresses the placement again."
   def retire(%Placement{} = placement), do: change(placement, state: :retired)
 
-  @doc "The last command a poll delivered on the placement."
-  def deliver_command(%Placement{} = placement, command_id),
-    do: change(placement, last_command_id: command_id)
-
   @doc """
   The worker's events are recorded through `sequence`: its Coop session's
   events when `session_events?`, else its own.

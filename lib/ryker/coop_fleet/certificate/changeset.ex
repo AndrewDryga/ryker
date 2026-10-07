@@ -13,10 +13,10 @@ defmodule Ryker.CoopFleet.Certificate.Changeset do
     :source,
     :worker_id
   ]
-  # An operator's vouched-for certificate came from no enrollment token.
+  # A renewal comes from the certificate it renews, not an enrollment token.
   @required @fields -- [:enrollment_token_id]
 
-  @doc "A certificate issued at enrollment or renewal, or vouched for by an operator."
+  @doc "A certificate issued at enrollment or renewal."
   def insert(attributes) do
     %Certificate{}
     |> cast(attributes, @fields)

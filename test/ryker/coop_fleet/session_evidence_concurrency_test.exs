@@ -5,6 +5,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceConcurrencyTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Inspectors
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Session}
 
@@ -38,7 +39,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceConcurrencyTest do
                "a concurrent capture failed: #{inspect(results)}"
 
         assert Enum.count(results, &match?({:ok, %{recorded: :inserted}}, &1)) == 1
-        assert [stored] = SessionEvidences.for_session(session.id)
+        assert [stored] = Inspectors.session_evidences(session.id)
         assert stored.capture_count == 8
 
         # Every capture observed the same state, so the latest observation is the

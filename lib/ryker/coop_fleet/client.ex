@@ -218,7 +218,7 @@ defmodule Ryker.CoopFleet.Client do
              Commands.create_intent(session, task),
              key
            ) do
-      fenced_command(client, command, key, "create_session", payload)
+      fenced_command(client, command, key, payload)
     end
   end
 
@@ -1023,12 +1023,12 @@ defmodule Ryker.CoopFleet.Client do
 
   defp fence_durable_operation(client, session, key, kind, payload) do
     with {:ok, command} <- ControlPlane.fence_command(session, kind, payload, key) do
-      fenced_command(client, command, key, kind, payload)
+      fenced_command(client, command, key, payload)
     end
   end
 
-  defp fenced_command(client, command, key, kind, payload) do
-    if Commands.local_fence?(command) or durable_payload_match?(kind, command.payload, payload),
+  defp fenced_command(client, command, key, payload) do
+    if Commands.local_fence?(command) or command.payload == payload,
       do: operation_by_key(client, key),
       else: {:error, {:coop_worker_command_conflict, key}}
   end
@@ -1200,7 +1200,7 @@ defmodule Ryker.CoopFleet.Client do
         {:ok, terminal}
 
       :not_found ->
-        with :ok <- current_command_placement(command),
+        with :ok <- Bridge.current_command_placement(command),
              %Session{} = session <- Repo.one(Session.Query.by_id(command.session_id)),
              {:ok, result} <-
                execute_read(client, session, "reconcile_operation", %{
@@ -1260,7 +1260,7 @@ defmodule Ryker.CoopFleet.Client do
          coop_session_id,
          create_key
        ) do
-    with :ok <- current_command_placement(command),
+    with :ok <- Bridge.current_command_placement(command),
          {:ok, remote} <-
            execute_read(client, session, "get_session", %{
              "coop_session_id" => coop_session_id
@@ -1347,27 +1347,6 @@ defmodule Ryker.CoopFleet.Client do
   defp durable_ensured_session(_session, _coop_session_id, _placement_generation),
     do: :not_found
 
-  defp current_command_placement(command) do
-    placement = Repo.one(Placement.Query.by_id(command.placement_id))
-    now = Repo.now!()
-
-    cond do
-      placement && placement.state == :active &&
-          DateTime.compare(placement.lease_expires_at, now) == :gt ->
-        :ok
-
-      placement && placement.state in [:assigning, :draining, :revoking] &&
-          DateTime.compare(placement.lease_expires_at, now) == :gt ->
-        {:error,
-         {:coop_session_replacement_pending, command.session_id, command.placement_generation,
-          placement.lease_expires_at}}
-
-      true ->
-        {:error,
-         {:coop_session_replacement_required, command.session_id, command.placement_generation}}
-    end
-  end
-
   defp prepare_verdict(:accept), do: {:ok, "accept", []}
 
   defp prepare_verdict({:reject, violations}) when is_list(violations),
@@ -1446,27 +1425,10 @@ defmodule Ryker.CoopFleet.Client do
       "coop_session_id" => coop_session_id,
       "expected_revision" => revision,
       "submission" => submission,
-      "submission_sha256" => worker_submission_digest(submission),
+      "submission_sha256" => CanonicalJSON.worker_digest(submission),
       "turn_ref" => submission["context"]["turn_ref"] || "logical-turn"
     }
     |> maybe_put_controller_tools(controller_tools)
-  end
-
-  defp durable_payload_match?("submit_turn", durable, expected)
-       when is_map(durable) and is_map(expected) do
-    submission = durable["submission"]
-
-    Map.delete(durable, "submission_sha256") == Map.delete(expected, "submission_sha256") and
-      durable["submission_sha256"] in [
-        CanonicalJSON.digest(submission),
-        worker_submission_digest(submission)
-      ]
-  end
-
-  defp durable_payload_match?(_kind, durable, expected), do: durable == expected
-
-  defp worker_submission_digest(submission) do
-    CanonicalJSON.worker_digest(submission)
   end
 
   defp worker_rejected_operation(command) do

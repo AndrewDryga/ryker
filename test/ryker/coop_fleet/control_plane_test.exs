@@ -7,6 +7,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   alias Ryker.CoopFleet.{Bodies, Client, Command, ControlPlane, Event, Placement, Worker}
   alias Ryker.CoopFleet.{WorkerLifecycle, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Ingress.Inbox
@@ -25,7 +26,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     certificate = "worker-a-client-certificate"
 
     assert {:ok, enrolled} =
-             ControlPlane.authorize_worker(
+             CoopWorkers.authorize(
                "worker-a",
                "workspace-main",
                certificate_digest(certificate)
@@ -35,7 +36,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     poll = poll("worker-a", "workspace-main", "poll:worker-a:1")
 
-    assert {:ok, response} = ControlPlane.handle_poll("worker-a", poll)
+    assert {:ok, response} = ControlPlane.handle_poll_certificate(certificate, poll)
     assert response["poll_ref"] == "poll:worker-a:1"
     assert response["commands"] == []
 
@@ -54,12 +55,16 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert ControlPlane.handle_poll_certificate("wrong-certificate", poll) ==
              {:error, :coop_worker_certificate_not_authorized}
 
-    assert ControlPlane.handle_poll("worker-b", poll) ==
+    # A worker's certificate speaks only for that worker.
+    assert {:ok, _other} =
+             CoopWorkers.authorize("worker-b", "workspace-main", certificate_digest("worker-b"))
+
+    assert ControlPlane.handle_poll_certificate("worker-b", poll) ==
              {:error, {:coop_worker_identity_mismatch, "worker-b", "worker-a"}}
 
     wrong_workspace = put_in(poll, ["worker", "workspace_ref"], "workspace-other")
 
-    assert ControlPlane.handle_poll("worker-a", wrong_workspace) ==
+    assert ControlPlane.handle_poll_certificate(certificate, wrong_workspace) ==
              {:error, {:coop_worker_workspace_mismatch, "workspace-main", "workspace-other"}}
   end
 
@@ -118,7 +123,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert placement.worker_id == "worker-freshness-v2"
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-freshness-v2",
                poll(
                  "worker-freshness-v2",
@@ -222,7 +227,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert first_placement.worker_id == "worker-a"
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:one-free",
                  capacity: capacity(1, 4)
@@ -237,7 +242,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     first |> Ecto.Changeset.change(coop_session_id: "coop-free-capacity-first") |> Repo.update!()
 
     assert {:ok, _} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:bound-one-free",
                  capacity: capacity(1, 4)
@@ -315,7 +320,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     first |> Ecto.Changeset.change(coop_session_id: "coop-reflected-first") |> Repo.update!()
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:first-reflected",
                  capacity: capacity(1, 2)
@@ -327,7 +332,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     second |> Ecto.Changeset.change(coop_session_id: "coop-reflected-second") |> Repo.update!()
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:both-parked",
                  capacity: capacity(2, 2)
@@ -360,7 +365,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert command.kind == "get_session_evidence"
 
     assert {:ok, %{"commands" => [delivered]}} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:session-evidence")
              )
@@ -386,7 +391,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              )
 
     assert {:ok, %{"commands" => [_]}} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "body:deliver")
              )
@@ -419,7 +424,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     # An unavailable body root affects only the command which needs that storage.
     assert {:ok, response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "body:outage", command_results: [result]),
                body_root: nil
@@ -450,7 +455,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              )
 
     assert {:ok, %{"commands" => [%{"command_id" => command_id}]}} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:close-capacity:deliver",
                  capacity: capacity(0, 1)
@@ -460,7 +465,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert command_id == command.id
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:close-capacity:complete",
                  capacity: capacity(1, 1),
@@ -670,7 +675,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         String.duplicate("e", 64)
       )
 
-    assert {:ok, %{"commands" => []}} = ControlPlane.handle_poll("worker-a", changed)
+    assert {:ok, %{"commands" => []}} = ControlPlane.handle_poll_certificate("worker-a", changed)
     assert Repo.get!(Placement, placement.id).state == :revoking
 
     assert Repo.get_by!(Command, idempotency_key: "ryker:work:create:authority-drift:g1").status ==
@@ -686,7 +691,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     )
 
     assert {:ok, %{"commands" => []}} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:authority-drift-expired")
              )
@@ -840,7 +845,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       |> put_in(["worker", "state"], "busy")
       |> put_in(["worker", "capacity"], %{capacity(0, 4) | "state" => "busy"})
 
-    assert {:ok, _} = ControlPlane.handle_poll("worker-a", busy)
+    assert {:ok, _} = ControlPlane.handle_poll_certificate("worker-a", busy)
 
     assert {:ok, stranded} =
              ControlPlane.enqueue_command(
@@ -1026,7 +1031,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       poll("worker-a", "workspace-main", "poll:worker-a:clock-skew")
       |> put_in(["worker", "clock_at"], "2000-01-01T00:00:00Z")
 
-    assert ControlPlane.handle_poll("worker-a", skewed) ==
+    assert ControlPlane.handle_poll_certificate("worker-a", skewed) ==
              {:error, {:coop_worker_clock_skew, "worker-a"}}
 
     assert Repo.get!(Placement, placement.id).lease_expires_at == before
@@ -1045,7 +1050,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              )
 
     assert {:ok, first} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:command:1")
              )
@@ -1056,7 +1061,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert delivered["lease_ref"] == placement.lease_ref
 
     assert {:ok, repeated} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:command:2")
              )
@@ -1074,7 +1079,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       )
 
     assert {:ok, %{"commands" => [acknowledged_redelivery]}} =
-             ControlPlane.handle_poll("worker-a", acknowledged)
+             ControlPlane.handle_poll_certificate("worker-a", acknowledged)
 
     assert acknowledged_redelivery["command_id"] == command.id
     assert Repo.get!(Command, command.id).status == :acknowledged
@@ -1097,10 +1102,14 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         ]
       )
 
-    assert {:ok, first_result_response} = ControlPlane.handle_poll("worker-a", completed)
+    assert {:ok, first_result_response} =
+             ControlPlane.handle_poll_certificate("worker-a", completed)
+
     assert first_result_response["acknowledged_result_command_ids"] == [command.id]
 
-    assert {:ok, replayed_result_response} = ControlPlane.handle_poll("worker-a", completed)
+    assert {:ok, replayed_result_response} =
+             ControlPlane.handle_poll_certificate("worker-a", completed)
+
     assert replayed_result_response["acknowledged_result_command_ids"] == [command.id]
 
     settled = Repo.get!(Command, command.id)
@@ -1112,7 +1121,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     command_id = command.id
 
-    assert refused(fn -> ControlPlane.handle_poll("worker-a", changed) end) =~
+    assert refused(fn -> ControlPlane.handle_poll_certificate("worker-a", changed) end) =~
              "{:coop_worker_command_result_conflict, #{inspect(command_id)}}"
   end
 
@@ -1173,7 +1182,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     body_root = body_root!()
 
     assert {:ok, response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-missing-body",
                poll("worker-missing-body", "workspace-main", "missing-body:results",
                  command_results: results
@@ -1201,7 +1210,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     # The worker reports it again until acknowledged; the same result is.
     assert {:ok, replay} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-missing-body",
                poll("worker-missing-body", "workspace-main", "missing-body:replay",
                  command_results: results
@@ -1227,7 +1236,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              )
 
     assert {:ok, %{"commands" => [%{"command_id" => command_id}]}} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:expired-result:1")
              )
@@ -1251,7 +1260,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     }
 
     assert {:ok, response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:expired-result:2",
                  command_results: [result]
@@ -1274,7 +1283,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
            }
 
     assert {:ok, replay} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:expired-result:3",
                  command_results: [result]
@@ -1302,7 +1311,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              )
 
     assert {:ok, %{"commands" => [%{"command_id" => command_id}]}} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:away:1")
              )
@@ -1324,7 +1333,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     }
 
     assert {:ok, response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:away:2",
                  command_results: [result]
@@ -1395,7 +1404,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       end
 
     assert {:ok, %{"commands" => [_one, _two]}} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:isolation:1")
              )
@@ -1415,7 +1424,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     log =
       capture_log(fn ->
         assert {:ok, response} =
-                 ControlPlane.handle_poll(
+                 ControlPlane.handle_poll_certificate(
                    "worker-a",
                    poll("worker-a", "workspace-main", "poll:worker-a:isolation:2",
                      command_results: results
@@ -1486,7 +1495,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     refute inspect(persisted.payload) =~ binding.token
 
     assert {:ok, %{"commands" => [delivered]}} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:state-binding"),
                state_tools_secret: secret
@@ -1537,7 +1546,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     event_poll =
       poll("worker-a", "workspace-main", "poll:worker-a:events:1", event_batches: [batch])
 
-    assert {:ok, response} = ControlPlane.handle_poll("worker-a", event_poll)
+    assert {:ok, response} = ControlPlane.handle_poll_certificate("worker-a", event_poll)
 
     assert response["event_acknowledgements"] == [
              %{
@@ -1550,7 +1559,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert Repo.aggregate(Event, :count) == 2
     assert Repo.get!(Placement, placement.id).last_acked_event_sequence == 2
 
-    assert {:ok, replayed} = ControlPlane.handle_poll("worker-a", event_poll)
+    assert {:ok, replayed} = ControlPlane.handle_poll_certificate("worker-a", event_poll)
     assert replayed["event_acknowledgements"] == response["event_acknowledgements"]
     assert Repo.aggregate(Event, :count) == 2
 
@@ -1561,7 +1570,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         "completed"
       )
 
-    assert refused(fn -> ControlPlane.handle_poll("worker-a", changed) end) =~
+    assert refused(fn -> ControlPlane.handle_poll_certificate("worker-a", changed) end) =~
              "{:coop_worker_event_replay_conflict, 2}"
   end
 
@@ -1584,7 +1593,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         ]
       )
 
-    assert {:ok, _response} = ControlPlane.handle_poll("worker-a", coarse_poll)
+    assert {:ok, _response} = ControlPlane.handle_poll_certificate("worker-a", coarse_poll)
 
     {1, nil} =
       Repo.update_all(
@@ -1627,7 +1636,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     event_poll =
       poll("worker-a", "workspace-main", "poll:worker-a:session-activity", event_batches: [batch])
 
-    assert {:ok, response} = ControlPlane.handle_poll("worker-a", event_poll)
+    assert {:ok, response} = ControlPlane.handle_poll_certificate("worker-a", event_poll)
     assert [%{"sequence" => 2}] = response["event_acknowledgements"]
     assert Repo.get!(Session, placement.session_id).activity_cursor == 0
     assert Repo.get!(Placement, placement.id).last_acked_session_event_sequence == 2
@@ -1643,7 +1652,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     assert byte_size(fingerprint) == 64
 
-    assert {:ok, _replayed} = ControlPlane.handle_poll("worker-a", event_poll)
+    assert {:ok, _replayed} = ControlPlane.handle_poll_certificate("worker-a", event_poll)
     assert Repo.aggregate(ActivityEvent, :count) == 1
   end
 
@@ -1690,7 +1699,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     # Covers the production worker redacting progress text from two active runs;
     # one rejected event then returned HTTP 400 for every heartbeat and stopped all work.
     assert {:ok, response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:redacted-progress",
                  event_batches: [batch]
@@ -1733,7 +1742,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     # A real asynchronous create emitted this lifecycle event before Work could
     # bind its session id. Every later worker heartbeat then failed with HTTP 400.
     assert {:ok, response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:pre-bind-created",
                  event_batches: [batch]
@@ -1765,7 +1774,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       )
 
     assert {:ok, replay} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:post-bind-replay",
                  event_batches: [batch]
@@ -1790,7 +1799,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     }
 
     assert {:ok, continued} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:post-bind-activity",
                  event_batches: [%{batch | "after_sequence" => 1, "events" => [activity]}]
@@ -1838,7 +1847,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     }
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:pre-bind-task-created",
                  event_batches: [
@@ -1865,7 +1874,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              )
 
     assert {:ok, %{"commands" => [%{"command_id" => command_id}]}} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:pre-bind-task-deliver")
              )
@@ -1906,7 +1915,9 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         ]
       )
 
-    assert refused(fn -> ControlPlane.handle_poll("worker-a", unproven_event_poll) end) =~
+    assert refused(fn ->
+             ControlPlane.handle_poll_certificate("worker-a", unproven_event_poll)
+           end) =~
              "{:coop_activity_session_conflict, #{inspect(coop_session_id)}}"
 
     remote = %{
@@ -1917,7 +1928,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     }
 
     assert {:ok, %{"acknowledged_result_command_ids" => [^command_id]}} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:pre-bind-task-result",
                  command_results: [
@@ -1940,7 +1951,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     # local session ID was stored and outlived its short placement lease. Rejecting that event
     # returned HTTP 400 on every later poll.
     assert {:ok, response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:pre-bind-task-event",
                  event_batches: [
@@ -1974,7 +1985,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         event_batches: [batch]
       )
 
-    assert {:ok, _response} = ControlPlane.handle_poll("worker-a", first)
+    assert {:ok, _response} = ControlPlane.handle_poll_certificate("worker-a", first)
 
     placement |> Ecto.Changeset.change(state: :revoking) |> Repo.update!()
 
@@ -1983,7 +1994,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         event_batches: [batch]
       )
 
-    assert {:ok, _response} = ControlPlane.handle_poll("worker-a", replay)
+    assert {:ok, _response} = ControlPlane.handle_poll_certificate("worker-a", replay)
 
     fresh =
       batch
@@ -1999,7 +2010,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     placement_id = placement.id
 
-    assert refused(fn -> ControlPlane.handle_poll("worker-a", rejected) end) =~
+    assert refused(fn -> ControlPlane.handle_poll_certificate("worker-a", rejected) end) =~
              "{:coop_worker_event_placement_not_authorized, #{inspect(placement_id)}}"
   end
 
@@ -2047,7 +2058,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     # The two repaired Slack runs completed locally but their activity backlog
     # arrived after the one-minute lease; rejecting it wedged every later heartbeat.
     assert {:ok, response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-a",
                poll("worker-a", "workspace-main", "poll:worker-a:late-bound-activity",
                  event_batches: [batch]
@@ -2106,12 +2117,12 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
         "coop-session-owned-by-someone-else"
       )
 
-    assert refused(fn -> ControlPlane.handle_poll("worker-a", wrong_session) end) =~
+    assert refused(fn -> ControlPlane.handle_poll_certificate("worker-a", wrong_session) end) =~
              "coop_worker_event_placement_not_authorized"
 
     # One discarded workspace event blocked every later heartbeat in production,
     # taking the only editing worker and the whole service out of readiness.
-    assert {:ok, response} = ControlPlane.handle_poll("worker-a", terminal_poll)
+    assert {:ok, response} = ControlPlane.handle_poll_certificate("worker-a", terminal_poll)
 
     assert response["event_acknowledgements"] == [
              %{
@@ -2284,14 +2295,14 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
   defp authorize_and_poll!(worker_id, options \\ []) do
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(
+             CoopWorkers.authorize(
                worker_id,
                "workspace-main",
                certificate_digest(worker_id)
              )
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                worker_id,
                poll(worker_id, "workspace-main", "poll:#{worker_id}:hello", options)
              )
@@ -2302,7 +2313,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
   defp idle_poll!(worker_id, suffix, capacity) do
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                worker_id,
                poll(worker_id, "workspace-main", "poll:#{worker_id}:#{suffix}",
                  capacity: capacity
@@ -2315,7 +2326,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
   defp delivered!(worker_id, suffix) do
     assert {:ok, %{"commands" => commands}} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                worker_id,
                poll(worker_id, "workspace-main", "poll:#{worker_id}:#{suffix}",
                  capacity: capacity(4, 4)
@@ -2380,7 +2391,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     # The worker's own return to `open` is the only recovery signal.
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-full",
                poll("worker-full", "workspace-main", "poll:worker-full:2",
                  storage: storage(allocation: "open", refusal_reason: nil)
@@ -2397,7 +2408,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert Repo.get!(Worker, "worker-measured").storage_reclaimed_bytes == 0
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-measured",
                poll("worker-measured", "workspace-main", "poll:worker-measured:2",
                  storage: storage(disposable_bytes: 1_073_741_824)
@@ -2408,7 +2419,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert reclaimed.storage_reclaimed_bytes == 8_589_934_592
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-measured",
                poll("worker-measured", "workspace-main", "poll:worker-measured:3",
                  storage: storage(disposable_bytes: 5_368_709_120)
@@ -2419,7 +2430,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     # An older worker reports nothing. Unknown is not zero and is not reclamation.
     assert {:ok, _response} =
-             ControlPlane.handle_poll(
+             ControlPlane.handle_poll_certificate(
                "worker-measured",
                poll("worker-measured", "workspace-main", "poll:worker-measured:4")
              )

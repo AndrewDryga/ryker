@@ -21,9 +21,10 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
   import Phoenix.LiveViewTest
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
-  alias Ryker.CoopFleet.{ControlPlane, Placement}
+  alias Ryker.CoopFleet.Placement
   alias Ryker.Episodes
   alias Ryker.FakeRetentionCoopAPI
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
@@ -411,7 +412,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
 
   defp place!(session, worker_id) do
     assert {:ok, _worker} =
-             ControlPlane.authorize_worker(
+             CoopWorkers.authorize(
                worker_id,
                "workspace-background",
                digest(worker_id)

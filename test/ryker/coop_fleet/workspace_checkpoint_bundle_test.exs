@@ -23,7 +23,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundleTest do
     {checkpoint, bytes} =
       Fixture.build(%{session_ref: "source", patch: :binary.copy("change", 100)})
 
-    assert {:ok, expected} = Bundle.validate(checkpoint, bytes)
+    assert {:ok, expected} = Bundle.validate_stream(checkpoint, [bytes])
 
     for size <- [1, 7, 511, 512, 513, 1024, 4096] do
       assert {:ok, ^expected} = Bundle.validate_stream(checkpoint, chunks(bytes, size))
@@ -99,13 +99,13 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundleTest do
 
     for field <- [<<255::96>>, <<128, 0::88>>, <<128, 1::1, 0::87>>, <<255, 0::88>>] do
       assert {:error, {:invalid_workspace_checkpoint_bundle, :header}} =
-               Bundle.validate(checkpoint, prefix <> field <> rest)
+               Bundle.validate_stream(checkpoint, [prefix <> field <> rest])
     end
   end
 
   test "GNU large-file headers parse without allocating the declared member" do
     {checkpoint, bytes} = Fixture.build(%{session_ref: "source"})
-    assert {:ok, manifest} = Bundle.validate(checkpoint, bytes)
+    assert {:ok, manifest} = Bundle.validate_stream(checkpoint, [bytes])
     size = 8_589_934_592
     manifest = put_in(manifest, ["repository", "byte_size"], size)
 
