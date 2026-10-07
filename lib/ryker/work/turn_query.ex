@@ -1,6 +1,7 @@
 defmodule Ryker.Work.TurnQuery do
   @moduledoc "Work turns, for every read of `episode_work_turns`."
   import Ecto.Query
+  alias Ryker.Episodes.Episode
   alias Ryker.Work.{Session, Turn}
 
   def all, do: from(turns in Turn, as: :episode_work_turns)
@@ -41,6 +42,29 @@ defmodule Ryker.Work.TurnQuery do
 
   def select_sessions(queryable),
     do: select(queryable, [episode_work_turns: t], {t.id, t.session_id})
+
+  @doc """
+  The latest delivered replies (at most eight) the platform named `target`
+  in their receipts, each with its episode and delivery reference.
+  """
+  def delivered_as(target) do
+    from(t in all(),
+      join: e in Episode,
+      on: e.id == t.episode_id,
+      where:
+        t.status == :settled and not is_nil(t.delivered_at) and not is_nil(t.external_receipt) and
+          fragment("(?::jsonb)->>'transport' = ?", t.external_receipt, ^target.transport) and
+          fragment(
+            "(?::jsonb)->>'conversation_ref' = ?",
+            t.external_receipt,
+            ^target.conversation_ref
+          ) and
+          fragment("(?::jsonb)->>'message_ref' = ?", t.external_receipt, ^target.message_ref),
+      order_by: [desc: t.delivered_at, desc: t.id],
+      limit: 8,
+      select: {e, t.delivery_ref}
+    )
+  end
 
   @doc "An episode's latest settled turn that has a result."
   def latest_settled_with_result(episode_id) do

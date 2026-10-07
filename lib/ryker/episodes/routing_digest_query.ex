@@ -8,6 +8,26 @@ defmodule Ryker.Episodes.RoutingDigestQuery do
   def by_episode_id(queryable \\ all(), episode_id),
     do: where(queryable, [episode_routing_digests: d], d.episode_id == ^episode_id)
 
+  def by_episode_ids(queryable \\ all(), episode_ids),
+    do: where(queryable, [episode_routing_digests: d], d.episode_id in ^episode_ids)
+
+  def select_episode_ids(queryable \\ all()),
+    do: select(queryable, [episode_routing_digests: d], d.episode_id)
+
+  def select_titles(queryable) do
+    queryable
+    |> where([episode_routing_digests: d], not is_nil(d.title))
+    |> select([episode_routing_digests: d], {d.episode_id, d.title})
+  end
+
+  def without_title(queryable, title) do
+    where(
+      queryable,
+      [episode_routing_digests: d],
+      is_nil(d.title) or d.title != ^title
+    )
+  end
+
   def without_embedding(queryable \\ all()),
     do: where(queryable, [episode_routing_digests: d], is_nil(d.embedding_model))
 

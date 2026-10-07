@@ -5,6 +5,15 @@ defmodule Ryker.Work.CandidateResponseQuery do
 
   def all, do: from(responses in CandidateResponse, as: :work_candidate_responses)
 
+  @doc "Result `attempt` of turn `turn_id`."
+  def by_attempt(turn_id, attempt) do
+    where(
+      all(),
+      [work_candidate_responses: r],
+      r.turn_id == ^turn_id and r.candidate_attempt == ^attempt
+    )
+  end
+
   @doc "A turn's results that keep their bodies, in the order the turn returned them."
   def kept_for_turn(turn_id) do
     all()

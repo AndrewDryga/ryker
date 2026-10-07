@@ -16,13 +16,13 @@ defmodule Ryker.Episodes.RoutingDigests do
   evidence for it.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.{Episode, Event, Origins, RoutingDigest}
+  alias Ryker.Episodes.{Episode, EpisodeQuery, Event, EventQuery, Origins, RoutingDigest}
+  alias Ryker.Episodes.RoutingDigestQuery
   alias Ryker.Ingress.RecallText
   alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Repo
-  alias Ryker.Work.{CandidateResponse, Final, Turn}
+  alias Ryker.Work.{CandidateResponse, CandidateResponseQuery, Final, Turn}
 
   @objective_bytes 1_024
   @development_bytes 1_024
@@ -133,22 +133,16 @@ defmodule Ryker.Episodes.RoutingDigests do
   """
   @spec refresh_all() :: non_neg_integer()
   def refresh_all do
-    Repo.all(from(digest in RoutingDigest, select: digest.episode_id))
+    RoutingDigestQuery.select_episode_ids()
+    |> Repo.all()
     |> Enum.count(fn episode_id ->
       match?({:ok, :ok}, Repo.transaction(fn -> refresh(episode_id) end))
     end)
   end
 
   defp refresh(episode_id) do
-    with %Episode{} = episode <- Repo.get(Episode, episode_id),
-         %Event{} = latest <-
-           Repo.one(
-             from(event in Event,
-               where: event.episode_id == ^episode_id and event.kind == :input_admitted,
-               order_by: [desc: event.sequence],
-               limit: 1
-             )
-           ),
+    with %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(episode_id)),
+         %Event{} = latest <- Repo.one(latest_admission(episode_id)),
          :ok <- refresh_in_transaction(episode, latest) do
       :ok
     else
@@ -156,14 +150,24 @@ defmodule Ryker.Episodes.RoutingDigests do
     end
   end
 
+  defp latest_admission(episode_id) do
+    episode_id
+    |> EventQuery.by_episode_id()
+    |> EventQuery.of_kind(:input_admitted)
+    |> EventQuery.newest_first()
+    |> EventQuery.limit_to(1)
+  end
+
   @spec fetch(Ecto.UUID.t()) :: RoutingDigest.t() | nil
-  def fetch(episode_id), do: Repo.get_by(RoutingDigest, episode_id: episode_id)
+  def fetch(episode_id), do: Repo.one(RoutingDigestQuery.by_episode_id(episode_id))
 
   @spec fetch_many([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => RoutingDigest.t()}
   def fetch_many([]), do: %{}
 
   def fetch_many(episode_ids) do
-    Repo.all(from(digest in RoutingDigest, where: digest.episode_id in ^episode_ids))
+    episode_ids
+    |> RoutingDigestQuery.by_episode_ids()
+    |> Repo.all()
     |> Map.new(&{&1.episode_id, &1})
   end
 
@@ -172,12 +176,10 @@ defmodule Ryker.Episodes.RoutingDigests do
   def titles([]), do: %{}
 
   def titles(episode_ids) do
-    Repo.all(
-      from(digest in RoutingDigest,
-        where: digest.episode_id in ^episode_ids and not is_nil(digest.title),
-        select: {digest.episode_id, digest.title}
-      )
-    )
+    episode_ids
+    |> RoutingDigestQuery.by_episode_ids()
+    |> RoutingDigestQuery.select_titles()
+    |> Repo.all()
     |> Map.new()
   end
 
@@ -199,10 +201,9 @@ defmodule Ryker.Episodes.RoutingDigests do
         Ryker.Episodes.broadcast_episode_updated(episode)
 
         Repo.update_all(
-          from(digest in RoutingDigest,
-            where: digest.episode_id == ^episode_id,
-            where: is_nil(digest.title) or digest.title != ^title
-          ),
+          episode_id
+          |> RoutingDigestQuery.by_episode_id()
+          |> RoutingDigestQuery.without_title(title),
           set: [
             title: title,
             title_turn_id: turn.id,
@@ -220,7 +221,7 @@ defmodule Ryker.Episodes.RoutingDigests do
 
   defp accepted_title(%Turn{id: turn_id, candidate_attempt: attempt}) when is_integer(attempt) do
     with %CandidateResponse{body: body} when is_binary(body) <-
-           Repo.get_by(CandidateResponse, turn_id: turn_id, candidate_attempt: attempt),
+           Repo.one(CandidateResponseQuery.by_attempt(turn_id, attempt)),
          {:ok, %{} = document} <- Jason.decode(body),
          {:ok, %Final{title: title}} <- Final.parse(document) do
       title
@@ -274,14 +275,12 @@ defmodule Ryker.Episodes.RoutingDigests do
 
   defp admitted_events(episode_id, %Event{} = event) do
     stored =
-      Repo.all(
-        from(stored in Event,
-          where:
-            stored.episode_id == ^episode_id and stored.kind == :input_admitted and
-              stored.dedupe_key != ^event.dedupe_key,
-          order_by: [asc: stored.sequence]
-        )
-      )
+      episode_id
+      |> EventQuery.by_episode_id()
+      |> EventQuery.of_kind(:input_admitted)
+      |> EventQuery.excluding_dedupe_key(event.dedupe_key)
+      |> EventQuery.oldest_first()
+      |> Repo.all()
 
     Enum.sort_by(stored ++ [event], & &1.sequence)
   end

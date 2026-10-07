@@ -12,8 +12,7 @@ defmodule Ryker.Observability.Queues do
   alias Ryker.Delivery.RoutingResponseQuery
   alias Ryker.Emisar.Approval
   alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.Observability.Reads
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, Followups, LifecycleEvent, Publication}
@@ -86,7 +85,7 @@ defmodule Ryker.Observability.Queues do
             entry.lease_expires_at > ^now
       )
 
-    projection(Inbox.claimable_query(now), active, :ingress, :inserted_at, now)
+    projection(EntryQuery.claimable_at(now), active, :ingress, :inserted_at, now)
   end
 
   defp status_queue(schema, name, statuses, age_field, now) do

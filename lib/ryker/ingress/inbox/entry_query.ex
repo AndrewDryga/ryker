@@ -71,6 +71,124 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
   def oldest_received_first(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], asc: e.inserted_at, asc: e.id)
 
+  def by_dedupe_key(queryable \\ all(), dedupe_key),
+    do: where(queryable, [ingress_inbox_entries: e], e.dedupe_key == ^dedupe_key)
+
+  def pending(queryable \\ all()),
+    do: where(queryable, [ingress_inbox_entries: e], e.status == :pending)
+
+  @doc """
+  The pending input that keeps `entry` out of the claimable set at `now`: an
+  earlier pending input of its transport, conversation and execution mode,
+  or one whose routing lease is still live.
+  """
+  def queue_predecessor(entry, now) do
+    from(other in pending(),
+      where: other.id != ^entry.id,
+      where:
+        other.destination_transport == ^entry.destination_transport and
+          other.destination_conversation_ref == ^entry.destination_conversation_ref and
+          other.execution_mode == ^entry.execution_mode,
+      where:
+        other.inserted_at < ^entry.inserted_at or
+          (other.inserted_at == ^entry.inserted_at and other.id < ^entry.id) or
+          (not is_nil(other.lease_ref) and other.lease_expires_at > ^now),
+      order_by: [asc: other.inserted_at, asc: other.id],
+      limit: 1
+    )
+  end
+
+  @doc "Voice messages still waiting for their transcript."
+  def awaiting_transcript(queryable \\ all()) do
+    queryable
+    |> pending()
+    |> where([ingress_inbox_entries: e], not is_nil(e.awaiting_transcript_until))
+  end
+
+  @doc """
+  The inputs routing may claim at `now`. Admission's candidates cover the
+  whole destination conversation, so that boundary is serialized, not the
+  whole inbox: a backoff must not let a later message overtake its missing
+  context, nor a voice message's transcript.
+  """
+  def claimable_at(now) do
+    from(e in pending(),
+      where: is_nil(e.next_attempt_at) or e.next_attempt_at <= ^now,
+      where: is_nil(e.lease_ref) or e.lease_expires_at <= ^now,
+      where: is_nil(e.awaiting_transcript_until) or e.awaiting_transcript_until <= ^now,
+      where: not exists(subquery(conversation_predecessor(now)))
+    )
+  end
+
+  # An earlier pending input of the claimed one's lane, or one whose routing
+  # lease is still live at `now`.
+  defp conversation_predecessor(now) do
+    from(other in Entry,
+      where: other.status == :pending and other.id != parent_as(:ingress_inbox_entries).id,
+      where:
+        other.destination_transport == parent_as(:ingress_inbox_entries).destination_transport and
+          other.destination_conversation_ref ==
+            parent_as(:ingress_inbox_entries).destination_conversation_ref and
+          other.execution_mode == parent_as(:ingress_inbox_entries).execution_mode,
+      where:
+        other.inserted_at < parent_as(:ingress_inbox_entries).inserted_at or
+          (other.inserted_at == parent_as(:ingress_inbox_entries).inserted_at and
+             other.id < parent_as(:ingress_inbox_entries).id) or
+          (not is_nil(other.lease_ref) and other.lease_expires_at > ^now),
+      select: 1
+    )
+  end
+
+  @doc "The next retry, lease expiry and transcript wait end after `since` among pending inputs."
+  def next_due_after(since) do
+    select(pending(), [ingress_inbox_entries: e], [
+      filter(min(e.next_attempt_at), e.next_attempt_at > ^since),
+      filter(min(e.lease_expires_at), not is_nil(e.lease_ref) and e.lease_expires_at > ^since),
+      filter(min(e.awaiting_transcript_until), e.awaiting_transcript_until > ^since)
+    ])
+  end
+
+  @doc "The recorded revision of `input`'s source item: same revision and event."
+  def same_revision(input) do
+    from(e in all(),
+      where:
+        e.source_kind == ^input.source.kind and e.source_ref == ^input.source.ref and
+          e.native_input_id == ^input.native_input_id and e.revision == ^input.revision and
+          e.event_kind == ^input.event_kind,
+      order_by: [asc: e.inserted_at],
+      limit: 1
+    )
+  end
+
+  @doc "The revisions recorded of `input`'s source item."
+  def revisions_of(input) do
+    where(
+      all(),
+      [ingress_inbox_entries: e],
+      e.source_kind == ^input.source.kind and e.source_ref == ^input.source.ref and
+        e.native_input_id == ^input.native_input_id
+    )
+  end
+
+  def revision_between(queryable, low, high) do
+    where(
+      queryable,
+      [ingress_inbox_entries: e],
+      e.revision >= ^low and e.revision <= ^high
+    )
+  end
+
+  def select_latest_revision(queryable),
+    do: select(queryable, [ingress_inbox_entries: e], max(e.revision))
+
+  def select_broadcast_fields(queryable) do
+    select(
+      queryable,
+      [ingress_inbox_entries: e],
+      struct(e, [:id, :episode_id, :destination_transport, :destination_conversation_ref])
+    )
+  end
+
   def by_source_event(queryable \\ all(), source_kind, event_ref) do
     where(
       queryable,
@@ -243,6 +361,7 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
 
   def lock_for_share(queryable), do: lock(queryable, "FOR SHARE")
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+  def lock_next_free(queryable), do: lock(queryable, "FOR UPDATE SKIP LOCKED")
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 end

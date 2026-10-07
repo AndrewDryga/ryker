@@ -80,6 +80,49 @@ defmodule Ryker.Episodes.EventQuery do
 
   def by_id(queryable \\ all(), id), do: where(queryable, [episode_kernel_events: e], e.id == ^id)
 
+  def by_episode_ids(queryable \\ all(), episode_ids),
+    do: where(queryable, [episode_kernel_events: e], e.episode_id in ^episode_ids)
+
+  def before_sequence(queryable, sequence),
+    do: where(queryable, [episode_kernel_events: e], e.sequence < ^sequence)
+
+  def excluding_dedupe_key(queryable, dedupe_key),
+    do: where(queryable, [episode_kernel_events: e], e.dedupe_key != ^dedupe_key)
+
+  @doc "The latest `limit` reactions of `episode_id` before `next_sequence`, in order."
+  def reactions_before(episode_id, next_sequence, limit) do
+    latest =
+      episode_id
+      |> by_episode_id()
+      |> of_kind(:reaction_recorded)
+      |> before_sequence(next_sequence)
+      |> newest_first()
+      |> limit(^limit)
+      |> select([episode_kernel_events: e], %{payload: e.payload, sequence: e.sequence})
+
+    from(e in subquery(latest), order_by: e.sequence)
+  end
+
+  @doc "The latest `limit` reactions recorded on any of `episode_ids`, in the order recorded."
+  def recent_reactions(episode_ids, limit) do
+    latest =
+      from(e in by_episode_ids(episode_ids),
+        where: e.kind == :reaction_recorded,
+        order_by: [desc: e.inserted_at, desc: e.id],
+        limit: ^limit,
+        select: %{
+          episode_id: e.episode_id,
+          id: e.id,
+          inserted_at: e.inserted_at,
+          occurred_at: e.occurred_at,
+          payload: e.payload,
+          sequence: e.sequence
+        }
+      )
+
+    from(e in subquery(latest), order_by: [asc: e.inserted_at, asc: e.id])
+  end
+
   def oldest_first(queryable),
     do: order_by(queryable, [episode_kernel_events: e], asc: e.sequence)
 

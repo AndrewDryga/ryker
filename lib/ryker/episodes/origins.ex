@@ -9,8 +9,7 @@ defmodule Ryker.Episodes.Origins do
   are told apart from the retained identities alone.
   """
 
-  import Ecto.Query
-  alias Ryker.Episodes.{Episode, Event, Origin}
+  alias Ryker.Episodes.{Episode, Event, Origin, OriginQuery}
   alias Ryker.Repo
 
   @type destination :: %{
@@ -96,12 +95,7 @@ defmodule Ryker.Episodes.Origins do
   """
   @spec for_episode(Ecto.UUID.t()) :: [Origin.t()]
   def for_episode(episode_id) do
-    Repo.all(
-      from(origin in Origin,
-        where: origin.episode_id == ^episode_id,
-        order_by: [asc: origin.occurred_at, asc: origin.sequence]
-      )
-    )
+    episode_id |> OriginQuery.by_episode_id() |> OriginQuery.in_occurrence_order() |> Repo.all()
   end
 
   @doc """
@@ -115,11 +109,7 @@ defmodule Ryker.Episodes.Origins do
   """
   @spec person_participated?(Ecto.UUID.t()) :: boolean()
   def person_participated?(episode_id) when is_binary(episode_id) do
-    Repo.exists?(
-      from(origin in Origin,
-        where: origin.episode_id == ^episode_id and like(origin.actor_ref, "%:user:%")
-      )
-    )
+    episode_id |> OriginQuery.by_episode_id() |> OriginQuery.from_people() |> Repo.exists?()
   end
 
   def person_participated?(_episode_id), do: false
@@ -144,18 +134,7 @@ defmodule Ryker.Episodes.Origins do
   @spec current_owner(String.t(), String.t(), :live | :shadow) ::
           {Episode.t(), pos_integer()} | nil
   def current_owner(native_input_id, transport, execution_mode) do
-    Repo.one(
-      from(origin in Origin,
-        join: episode in Episode,
-        on: episode.id == origin.episode_id,
-        where:
-          origin.native_input_id == ^native_input_id and origin.transport == ^transport and
-            episode.execution_mode == ^execution_mode,
-        order_by: [desc: origin.revision, asc: episode.id],
-        limit: 1,
-        select: {episode, origin.revision}
-      )
-    )
+    native_input_id |> OriginQuery.current_owner(transport, execution_mode) |> Repo.one()
   end
 
   defp origin_kind("slack", source_item_ref, thread_ref)

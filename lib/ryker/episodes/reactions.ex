@@ -14,14 +14,13 @@ defmodule Ryker.Episodes.Reactions do
   (`Ryker.Feedback.Answers`), and it wakes nothing.
   """
 
-  import Ecto.Query
   require Logger
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode, Event}
+  alias Ryker.Episodes.{Command, EventQuery}
   alias Ryker.Feedback
   alias Ryker.Feedback.Answers
   alias Ryker.Repo
-  alias Ryker.Work.Turn
+  alias Ryker.Work.TurnQuery
 
   @fields [:action, :actor_ref, :emoji_name, :event_ref, :occurred_at, :source, :target]
   @source_fields [:kind, :ref]
@@ -180,17 +179,7 @@ defmodule Ryker.Episodes.Reactions do
     do: %{"current" => [], "events" => []}
 
   defp model_event_rows(episode_id, next_sequence, limit) do
-    latest =
-      from(event in Event,
-        where:
-          event.episode_id == ^episode_id and event.kind == :reaction_recorded and
-            event.sequence < ^next_sequence,
-        order_by: [desc: event.sequence],
-        limit: ^limit,
-        select: %{payload: event.payload, sequence: event.sequence}
-      )
-
-    Repo.all(from(event in subquery(latest), order_by: event.sequence))
+    episode_id |> EventQuery.reactions_before(next_sequence, limit) |> Repo.all()
   end
 
   defp model_event_document(event) do
@@ -251,30 +240,7 @@ defmodule Ryker.Episodes.Reactions do
   defp apply_model_event(_invalid, current), do: current
 
   defp resolve_target(target) do
-    candidates =
-      Repo.all(
-        from(turn in Turn,
-          join: episode in Episode,
-          on: episode.id == turn.episode_id,
-          where:
-            turn.status == :settled and not is_nil(turn.delivered_at) and
-              not is_nil(turn.external_receipt) and
-              fragment("(?::jsonb)->>'transport' = ?", turn.external_receipt, ^target.transport) and
-              fragment(
-                "(?::jsonb)->>'conversation_ref' = ?",
-                turn.external_receipt,
-                ^target.conversation_ref
-              ) and
-              fragment(
-                "(?::jsonb)->>'message_ref' = ?",
-                turn.external_receipt,
-                ^target.message_ref
-              ),
-          order_by: [desc: turn.delivered_at, desc: turn.id],
-          limit: 8,
-          select: {episode, turn.delivery_ref}
-        )
-      )
+    candidates = target |> TurnQuery.delivered_as() |> Repo.all()
 
     case candidates do
       [] ->
@@ -288,26 +254,9 @@ defmodule Ryker.Episodes.Reactions do
   end
 
   defp reaction_events(episode_ids) do
-    latest =
-      from(event in Event,
-        where: event.episode_id in ^episode_ids and event.kind == :reaction_recorded,
-        order_by: [desc: event.inserted_at, desc: event.id],
-        limit: @maximum_projected_events,
-        select: %{
-          episode_id: event.episode_id,
-          id: event.id,
-          inserted_at: event.inserted_at,
-          occurred_at: event.occurred_at,
-          payload: event.payload,
-          sequence: event.sequence
-        }
-      )
-
-    Repo.all(
-      from(event in subquery(latest),
-        order_by: [asc: event.inserted_at, asc: event.id]
-      )
-    )
+    episode_ids
+    |> EventQuery.recent_reactions(@maximum_projected_events)
+    |> Repo.all()
   end
 
   defp apply_current_event(

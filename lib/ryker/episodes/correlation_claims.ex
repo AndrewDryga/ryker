@@ -8,8 +8,7 @@ defmodule Ryker.Episodes.CorrelationClaims do
   claims, because two genuine incidents can share them.
   """
 
-  import Ecto.Query
-  alias Ryker.Episodes.CorrelationClaim
+  alias Ryker.Episodes.{CorrelationClaim, CorrelationClaimQuery}
   alias Ryker.Repo
 
   @type attributes :: %{
@@ -77,23 +76,18 @@ defmodule Ryker.Episodes.CorrelationClaims do
 
   @spec owner(String.t(), String.t(), String.t()) :: CorrelationClaim.t() | nil
   def owner(scope_ref, namespace, occurrence_ref) do
-    Repo.one(
-      from(claim in CorrelationClaim,
-        where:
-          claim.scope_ref == ^scope_ref and claim.namespace == ^namespace and
-            claim.occurrence_ref == ^occurrence_ref and claim.status == :active
-      )
-    )
+    scope_ref
+    |> CorrelationClaimQuery.by_occurrence(namespace, occurrence_ref)
+    |> CorrelationClaimQuery.active()
+    |> Repo.one()
   end
 
   @spec for_episode(Ecto.UUID.t()) :: [CorrelationClaim.t()]
   def for_episode(episode_id) do
-    Repo.all(
-      from(claim in CorrelationClaim,
-        where: claim.episode_id == ^episode_id,
-        order_by: [asc: claim.established_at, asc: claim.occurrence_ref]
-      )
-    )
+    episode_id
+    |> CorrelationClaimQuery.by_episode_id()
+    |> CorrelationClaimQuery.in_established_order()
+    |> Repo.all()
   end
 
   @doc "Active occurrence identities owned by the given episodes, grouped by episode."
@@ -101,36 +95,31 @@ defmodule Ryker.Episodes.CorrelationClaims do
   def active_by_episode([]), do: %{}
 
   def active_by_episode(episode_ids) do
-    Repo.all(
-      from(claim in CorrelationClaim,
-        where: claim.episode_id in ^episode_ids and claim.status == :active,
-        order_by: [asc: claim.established_at, asc: claim.occurrence_ref]
-      )
-    )
+    episode_ids
+    |> CorrelationClaimQuery.by_episode_ids()
+    |> CorrelationClaimQuery.active()
+    |> CorrelationClaimQuery.in_established_order()
+    |> Repo.all()
     |> Enum.group_by(& &1.episode_id)
   end
 
   @spec all_terminal?(Ecto.UUID.t()) :: boolean()
   def all_terminal?(episode_id) do
-    not Repo.exists?(
-      from(claim in CorrelationClaim,
-        where:
-          claim.episode_id == ^episode_id and claim.status == :active and
-            claim.lifecycle_state == :active
-      )
-    )
+    not (episode_id
+         |> CorrelationClaimQuery.by_episode_id()
+         |> CorrelationClaimQuery.active()
+         |> CorrelationClaimQuery.lifecycle_active()
+         |> Repo.exists?())
   end
 
   @doc "Retires every active claim of a finished or cancelled episode; rows are kept."
   @spec retire_in_transaction(Ecto.UUID.t()) :: {:ok, non_neg_integer()}
   def retire_in_transaction(episode_id) do
     {count, _} =
-      Repo.update_all(
-        from(claim in CorrelationClaim,
-          where: claim.episode_id == ^episode_id and claim.status == :active
-        ),
-        set: [status: :retired, updated_at: DateTime.utc_now()]
-      )
+      episode_id
+      |> CorrelationClaimQuery.by_episode_id()
+      |> CorrelationClaimQuery.active()
+      |> Repo.update_all(set: [status: :retired, updated_at: DateTime.utc_now()])
 
     {:ok, count}
   end
