@@ -23,6 +23,14 @@ legacy fallbacks, temporary dual paths, or staged compatibility migrations.
 Preserve user data; removing an old interface does not authorize deleting history.
 
 
+## Layered contexts
+
+Before writing a context, query, schema, changeset or web module, read
+`.agent/kb/rules/elixir-layered-contexts.md`. Ryker follows Emisar's layers
+and names: alias the schema and call `Session.Query` and `Session.Changeset`,
+in `session/query.ex` and `session/changeset.ex`. The Credo checks it lists
+hold the rules.
+
 ## The gate
 
 Use the narrowest validation that proves the current edit while iterating:
