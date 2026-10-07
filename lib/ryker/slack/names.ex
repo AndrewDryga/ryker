@@ -21,6 +21,8 @@ defmodule Ryker.Slack.Names do
 
   @table __MODULE__
   @ttl 900_000
+  # One name a tick. A test that looks names up itself passes a longer
+  # `interval`, so the cache never asks between its steps.
   @interval 1600
   @maximum_names 2000
   @workspace_url ~r/\Ahttps:\/\/[a-z0-9-]{1,64}\.slack\.com\z/
@@ -188,12 +190,14 @@ defmodule Ryker.Slack.Names do
         :ets.new(@table, [:named_table, :protected, :set, read_concurrency: true])
         :ets.insert(@table, {:origin, workspace, workspace_url})
         keep_known(workspace, Keyword.get(options, :known, []))
-        Process.send_after(self(), :tick, @interval)
+        interval = Keyword.get(options, :interval, @interval)
+        Process.send_after(self(), :tick, interval)
 
         {:ok,
          %{
            workspace: workspace,
            fetch: fetch,
+           interval: interval,
            queue: :queue.new(),
            pending: MapSet.new(),
            blocked_until: now()
@@ -220,7 +224,7 @@ defmodule Ryker.Slack.Names do
   @impl true
   def handle_info(:tick, state) do
     state = refresh_one(state)
-    Process.send_after(self(), :tick, @interval)
+    Process.send_after(self(), :tick, state.interval)
     {:noreply, state}
   end
 

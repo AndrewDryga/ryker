@@ -259,10 +259,15 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
   defp names!(directory) do
     known = start_supervised!(Supervisor.child_spec({Agent, fn -> directory end}, id: :directory))
 
+    # Slack is asked only when a test refreshes the cache. Its own tick, every
+    # 1.6 s, looked a person up before the test's directory knew them once a
+    # Timeline took a second to render under gate load, and the miss stayed
+    # cached (2026-10-07).
     start_supervised!(
       {Names,
        workspace: @workspace,
        workspace_url: "https://acme.slack.com",
+       interval: :timer.hours(1),
        fetch: fn ref -> {:ok, Agent.get(known, &Map.get(&1, ref))} end}
     )
 
