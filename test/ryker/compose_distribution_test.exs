@@ -117,7 +117,7 @@ defmodule Ryker.ComposeDistributionTest do
     # config and restricted-run seed unreadable inside the box.
     assert read("Dockerfile") =~ "useradd --uid 1000 --gid"
     assert worker_image =~ "useradd --uid 1000 --gid"
-    assert read("compose.yml") =~ "chown -R 1000:1000 /var/lib/ryker"
+    assert read("compose.yml") =~ "-exec chown -h 1000:1000 {} +"
 
     assert read("deploy/compose/entrypoint.sh") =~
              ~S(ryker-gateway-pki "$pki" "${RYKER_COMPOSE_WORKER_IP:-127.0.0.1}")
@@ -202,9 +202,9 @@ defmodule Ryker.ComposeDistributionTest do
 
     assert dockerfile =~ "mix release ryker"
     assert dockerfile =~ "RYKER_ELIXIR_VERSION=${RYKER_VERSION}"
-    assert dockerfile =~ "COPY Dockerfile compose.yml install.sh ./"
-    assert dockerfile =~ "COPY deploy/nginx deploy/nginx"
-    assert dockerfile =~ "FROM debian:bookworm-slim AS runtime"
+    # The image carries the release, not an install kit beside it.
+    refute dockerfile =~ "COPY Dockerfile compose.yml install.sh ./"
+    assert dockerfile =~ ~r/^FROM debian:bookworm-slim@sha256:[0-9a-f]{64} AS runtime$/m
     assert dockerfile =~ "LANG=C.UTF-8"
     refute dockerfile =~ ~r/^FROM node:/m
     refute dockerfile =~ ~r/apt-get install[^\n]*(nodejs|npm)/
@@ -275,23 +275,6 @@ defmodule Ryker.ComposeDistributionTest do
     end
   end
 
-  test "the shipped release points operators to Compose rather than host service managers" do
-    manifest = read("release-assets.txt")
-
-    assert read("mix.exs") =~ "release-assets.txt"
-    assert manifest =~ "compose.yml"
-    assert manifest =~ "install.sh"
-    assert manifest =~ "scripts/compose.sh"
-    # compose.sh sources it: a shipped compose.sh without it stops at once.
-    assert manifest =~ "scripts/compose-lifecycle.sh"
-    assert manifest =~ "deploy/compose/gateway-pki.sh"
-    assert manifest =~ "deploy/compose/coop/Box.Dockerfile"
-    assert manifest =~ "deploy/compose/coop/Dockerfile"
-    assert manifest =~ "deploy/compose/coop/entrypoint.sh"
-    refute manifest =~ "deploy/systemd"
-    refute manifest =~ "deploy/launchd"
-  end
-
   # emisar's draft-PR reviews, 2026-10-01: its review stack (PostgreSQL) never started, and once
   # Coop starts a review's declared stack, it does so with `docker compose`, which Debian's
   # docker.io in the worker image does not include ("'compose' is not a docker command"). The
@@ -305,6 +288,21 @@ defmodule Ryker.ComposeDistributionTest do
     assert worker_image =~ "c372e512a36e67716b0b3a1264ccdc461dec7a7beff601b81f7c5fb008e3511e"
     assert worker_image =~ "sha256sum -c -"
     assert worker_image =~ "docker compose version"
+  end
+
+  # 2026-10-04 review: volume-init re-owned all of the worker's state on every start, about 13 GB
+  # of Coop caches it walked and rewrote while Ryker waited. It changes only what the runtime
+  # user does not already own (the command was run against a scratch tree in alpine: owned files
+  # are left alone, the rest, symlinks included, are re-owned).
+  test "volume-init re-owns only what the runtime user does not already own" do
+    services = YamlElixir.read_from_string!(read("compose.yml"))["services"]
+    ["sh", "-c", command] = services["volume-init"]["command"]
+
+    refute command =~ "chown -R"
+    assert command =~ ~S"\( ! -user 1000 -o ! -group 1000 \) -exec chown -h 1000:1000 {} +"
+
+    for volume <- ~w(/var/lib/ryker /var/lib/coop /var/lib/ryker-coop),
+        do: assert(command =~ volume)
   end
 
   # emisar's draft-PR reviews, 2026-10-02, once the worker had Docker Compose: Coop still refused

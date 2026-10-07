@@ -1,9 +1,12 @@
 # Releasing Ryker
 
-Ryker releases are public, tag-driven GitHub Releases. The canonical service artifact is the
-self-contained Linux amd64 Elixir release archive. The workflow builds and structurally checks it,
-signs `checksums.txt` through GitHub OIDC and cosign, and publishes the finalized changelog
-section. GitHub records build provenance for the archive.
+Ryker releases are public, tag-driven GitHub Releases. The signed artifact is the self-contained
+Linux amd64 Elixir release archive: the compiled release the image runs, with its license, published
+so anyone can check what a version is. Installing builds from a checkout of the tag
+([`operations.md`](operations.md), "Upgrade"); the archive carries no install kit. The workflow
+builds and structurally checks it in a job without signing rights, then a separate job signs
+`checksums.txt` through GitHub OIDC and cosign, records build provenance and publishes the
+finalized changelog section.
 
 Pushing a version tag is the release-publication boundary. All release preparation before that
 push is reversible without rewriting a published release.
@@ -20,8 +23,8 @@ make elixir-release-check
 
 The release identity is the semantic tag for a public release and otherwise the exact Git commit.
 The check builds the archive, verifies it against its trusted digest before listing or extracting
-it, requires safe paths, the executable, every migration in the tree and every operator asset in
-`release-assets.txt`, refuses development dependencies and eval-only modules (anything built from
+it, requires safe paths, the executable, every migration in the tree and the license
+`release-assets.txt` names, refuses development dependencies and eval-only modules (anything built from
 `evals/`), and starts the archive to load its migration module, `Ryker.Release`.
 `make release-dist` then lays the archive and its checksum manifest out under `dist/` the way
 CI publishes them. Production deployment is the Docker Compose project described in

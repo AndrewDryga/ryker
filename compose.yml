@@ -2,17 +2,22 @@ name: ryker
 
 services:
   volume-init:
-    image: alpine:3.21.3
+    image: alpine:3.21.3@sha256:a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c
     restart: "no"
     user: root
-    command: ["sh", "-c", "chown -R 1000:1000 /var/lib/ryker /var/lib/coop /var/lib/ryker-coop"]
+    # Only what the runtime user does not already own: re-owning everything walked and
+    # rewrote about 13 GB of the worker's caches on every start (2026-10-04 review).
+    command:
+      - sh
+      - -c
+      - find /var/lib/ryker /var/lib/coop /var/lib/ryker-coop \( ! -user 1000 -o ! -group 1000 \) -exec chown -h 1000:1000 {} +
     volumes:
       - ryker-state:/var/lib/ryker
       - ryker-coop-state:/var/lib/coop
       - ryker-coop-config:/var/lib/ryker-coop
 
   database:
-    image: postgres:18.4-bookworm
+    image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
     restart: unless-stopped
     environment:
       POSTGRES_DB: ryker
@@ -118,7 +123,7 @@ services:
         max-file: "3"
 
   ryker-coop-docker:
-    image: docker:27.5.1-dind-alpine3.21
+    image: docker:27.5.1-dind-alpine3.21@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
     privileged: true
     restart: unless-stopped
     depends_on:

@@ -1,4 +1,5 @@
-# Keep SHA-pinned Actions current without floating anything in the trusted build path.
+# Keep SHA-pinned Actions and digest-pinned images current without floating anything in the
+# trusted build path: each update is a pull request that runs the full gate.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -7,3 +8,17 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /deploy/compose/coop
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build

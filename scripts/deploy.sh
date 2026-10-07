@@ -195,8 +195,19 @@ report_failure() {
   exit 1
 }
 
-say "replacing the ryker container with $image (migrations run when it boots)"
+# --- migrate, while the previous release is stopped -------------------------
+# Migrations ran as the container booted, inside the healthcheck's three
+# minutes, so a longer data migration failed every deploy and started over
+# (2026-10-04 review). They run as a step of their own with the new image; the
+# container's boot then finds nothing left to run.
+say "migrating the database with $image"
 restart_controller=0
+if ! env RYKER_VERSION="$version" RYKER_IMAGE="$image" "${compose[@]}" run --rm --no-deps -T \
+  --entrypoint /opt/ryker/bin/ryker ryker eval 'Ryker.Release.migrate()'; then
+  report_failure "$version did not migrate the database"
+fi
+
+say "replacing the ryker container with $image"
 if ! env RYKER_VERSION="$version" RYKER_IMAGE="$image" \
   "${compose[@]}" up --detach --no-build --wait --wait-timeout "$ready_timeout" --no-deps ryker; then
   report_failure "the ryker container did not become healthy as $version"

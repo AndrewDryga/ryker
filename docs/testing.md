@@ -256,8 +256,8 @@ make release-check
 
 This runs the deterministic gate, then builds the immutable Elixir release archive and checks it
 structurally: the bytes match their trusted digest before anything is listed or extracted, every
-path is safe, the executable, every migration in the tree and every operator asset in
-`release-assets.txt` are present, no development dependency ships, and the archive starts and
+path is safe, the executable, every migration in the tree and the license `release-assets.txt`
+names are present, no development dependency ships, and the archive starts and
 loads its migration module, `Ryker.Release`. Signing remains CI-only because keyless Sigstore uses GitHub's OIDC identity. Neither
 qualifies nor deploys the running installation; `scripts/deploy.sh` does that (see the project
 instructions, "Finish by deploying").

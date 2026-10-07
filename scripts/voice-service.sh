@@ -18,7 +18,9 @@ set -euo pipefail
 
 model_dir=${RYKER_WHISPER_MODEL_DIR:-$HOME/.local/share/ryker/whisper}
 model=$model_dir/ggml-large-v3.bin
-model_url=https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
+# The revision and digest are pinned: a moved branch or a replaced file is refused.
+model_url=https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3.bin
+model_sha256=64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2
 log_dir=$HOME/.local/state/ryker/whisper
 agents=$HOME/Library/LaunchAgents
 write_label=ai.emisar.ryker.whisper
@@ -26,6 +28,8 @@ detect_label=ai.emisar.ryker.whisper-detect
 write_port=${RYKER_WHISPER_PORT:-8178}
 detect_port=${RYKER_WHISPER_DETECT_PORT:-8179}
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=scripts/model-download.sh
+. "$here/model-download.sh"
 
 usage() {
   echo "usage: scripts/voice-service.sh install|status|uninstall" >&2
@@ -90,11 +94,7 @@ install() {
   }
   command -v whisper-server >/dev/null || brew install whisper-cpp
   mkdir -p "$model_dir" "$log_dir" "$agents"
-  if [ ! -s "$model" ]; then
-    echo "Downloading whisper large-v3 (3.1 GB) to $model_dir"
-    curl -fL --retry 3 -o "$model.partial" "$model_url"
-    mv "$model.partial" "$model"
-  fi
+  download_model "$model_url" "$model_sha256" "$model" "whisper large-v3 (3.1 GB)"
 
   write_plist "$write_label" "$write_port"
   write_plist "$detect_label" "$detect_port" -dl

@@ -151,6 +151,11 @@ case " $* " in
     [[ -f $fake/worker.changed ]] && { echo "tar: coop/agents: file changed as we read it" >&2; exit 1; }
     [[ -f $fake/worker.unreadable ]] && { echo "tar: coop: Cannot open: Permission denied" >&2; exit 2; }
     ;;
+  *" run --rm --no-deps -T --entrypoint /opt/ryker/bin/ryker ryker eval Ryker.Release.migrate() "*)
+    printf 'RYKER_IMAGE=%s\n' "${RYKER_IMAGE:-}" >>"$fake/migrate.env"
+    [[ -f $fake/migrate.migrates ]] && printf '20261006000000\n' >"$fake/schema"
+    [[ -f $fake/migrate.fail ]] && { echo "fake: a migration failed" >&2; exit 1; }
+    ;;
   *" build ryker "*)
     printf 'RYKER_VERSION=%s RYKER_IMAGE=%s\n' "${RYKER_VERSION:-}" "${RYKER_IMAGE:-}" >>"$fake/build.env"
     [[ -f $fake/build.fail ]] && { echo "fake: the image did not build" >&2; exit 1; }
@@ -191,7 +196,8 @@ seed() {
   # The installation as the previous deploy left it, and a fake project that
   # still serves the previous version until the fake Docker "starts" a new one.
   rm -f "$fake/calls" "$fake/build.env" "$fake/build.fail" "$fake/up.env" "$fake/up.fail" "$fake/up.stale" "$fake/database.down" \
-    "$fake/schema" "$fake/up.migrates" "$fake/image.missing" "$fake/volume.exists"
+    "$fake/schema" "$fake/up.migrates" "$fake/image.missing" "$fake/volume.exists" \
+    "$fake/migrate.env" "$fake/migrate.migrates" "$fake/migrate.fail"
   touch "$fake/controller.running"
   rm -rf "$state/backups" "$state/lifecycle.lock"
   printf '%s\n' "$old_version" >"$fake/version"
@@ -418,6 +424,37 @@ check "an unmigrated failure says the previous version can start again" "was not
 check "the backup was taken before the failed replacement" "1" "$(backups)"
 check "the worktree is removed after a failed deploy" "1" "$(worktrees)"
 check_controller_stopped "an unhealthy replacement is stopped"
+
+# 2026-10-04 review: migrations ran as the container booted, inside the healthcheck's three
+# minutes, so a longer data migration failed every deploy and started over. They run as a step
+# of their own, with the new image, while the previous release is stopped.
+seed
+out=$(run)
+check "a deploy that migrates succeeds" "exit=0" "$out"
+calls=$(cat "$fake/calls")
+stop_line=$(grep -n ' stop ryker' <<<"$calls" | head -n 1 | cut -d: -f1)
+migrate_line=$(grep -n 'eval Ryker.Release.migrate()' <<<"$calls" | head -n 1 | cut -d: -f1)
+up_line=$(grep -n 'up --detach --no-build --wait' <<<"$calls" | head -n 1 | cut -d: -f1)
+if [[ -n $stop_line && -n $migrate_line && -n $up_line && $stop_line -lt $migrate_line && $migrate_line -lt $up_line ]]; then
+  printf 'ok   migrations run on their own after the previous release stops and before the new one starts\n'
+else
+  printf 'FAIL migrations run on their own after the previous release stops and before the new one starts\n     calls:\n%s\n' "$calls"
+  failures=$((failures + 1))
+fi
+check "the migration runs the new image" "RYKER_IMAGE=ryker:$version" "$(cat "$fake/migrate.env" 2>/dev/null)"
+
+seed
+touch "$fake/migrate.fail"
+out=$(run)
+check "a migration that fails fails the deploy" "exit=1" "$out"
+check "a failed migration says so" "did not migrate the database" "$out"
+refute "a failed migration starts no new release" "up --detach --no-build --wait" "$(cat "$fake/calls")"
+check "a failed migration keeps the previous pin" "RYKER_VERSION=$old_version" "$(cat "$state/compose.env")"
+
+seed
+touch "$fake/migrate.fail" "$fake/migrate.migrates"
+out=$(run)
+check "a migration that failed part way says to restore first" "scripts/compose.sh restore before starting $old_version" "$out"
 
 # A release that migrated the database before it failed: starting the
 # previous version on that schema is refused, so the backup comes first.
@@ -728,6 +765,20 @@ seed
 out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
 check "upgrade without a supplied worker image succeeds" "exit=0" "$out"
 check "upgrade builds the worker from the pin" "build --pull ryker ryker-coop" "$(cat "$fake/calls")"
+calls=$(cat "$fake/calls")
+migrate_line=$(grep -n 'eval Ryker.Release.migrate()' <<<"$calls" | head -n 1 | cut -d: -f1)
+up_line=$(grep -n 'up --detach --wait' <<<"$calls" | head -n 1 | cut -d: -f1)
+if [[ -n $migrate_line && -n $up_line && $migrate_line -lt $up_line ]]; then
+  printf 'ok   upgrade migrates on its own before it starts the new release\n'
+else
+  printf 'FAIL upgrade migrates on its own before it starts the new release\n     calls:\n%s\n' "$calls"
+  failures=$((failures + 1))
+fi
+seed
+touch "$fake/migrate.fail"
+out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
+check "an upgrade whose migration fails says to restore" "The database did not migrate" "$out"
+refute "an upgrade whose migration fails starts nothing new" "up --detach --wait" "$(cat "$fake/calls")"
 
 # ---------------------------------------------------------------------------
 # One lifecycle command at a time (2026-10-04 review): two deploys, or a backup

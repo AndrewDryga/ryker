@@ -136,11 +136,18 @@ changes. `start`, `restart` and `restore` never build: they run the pinned image
 is missing.
 
 Upgrade pulls the pinned third-party images (such as PostgreSQL and the worker's Docker daemon), rebuilds
-the Ryker image from the checkout, starts the replacements, runs migrations through the container
-entrypoint, and verifies health, readiness and the exact version header. It rebuilds the bundled
+the Ryker image from the checkout, stops Ryker and runs the migrations with the new image as a step of
+their own, as a deploy does, then starts the replacements and verifies health, readiness and the exact
+version header. A migration that fails leaves Ryker stopped; restore the backup taken before. It rebuilds the bundled
 worker's image from the Dockerfile's Coop pin only when `RYKER_COOP_IMAGE` is unset: an image named
 there is a supplied build, and its Coop may keep the worker's state in a schema the pinned one
 refuses. Enrolled remote workers are not restarted or modified.
+
+A supplied worker image is built and swapped by hand, and nothing removes the ones before it: 18
+of them held 8.5 GB here on 2026-10-04. After a swap, keep the running image and the one before
+it, which is the way back, and remove the rest (`docker image ls ryker-coop` lists them,
+`docker image rm ryker-coop:TAG` removes one). Inside the worker's own Docker, the entrypoint
+removes the box bases of older Coop builds and the images nothing is tagged as.
 
 For a worker-protocol change, first verify that the bundled-worker build pin or supplied image
 actually speaks the new protocol, and plan the worker and controller cutover together. The normal

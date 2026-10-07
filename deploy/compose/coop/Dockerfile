@@ -1,4 +1,5 @@
-FROM golang:1.27.1-bookworm AS build
+# Base images are pinned by digest as well as tag (2026-10-04 review).
+FROM golang:1.27.1-bookworm@sha256:8d48e12ec56735e9358640898b9d9b9fcca110612ed8a5567438c0a1baa24e66 AS build
 
 ARG COOP_VERSION=v10.1.2-24-gd019c807
 ARG COOP_REVISION=d019c807ea6373b25ec7d145441bd9163f637564
@@ -10,7 +11,7 @@ RUN git clone https://github.com/AndrewDryga/coop.git /build/coop \
       -ldflags "-s -w -X github.com/AndrewDryga/coop/internal/cli.Version=$COOP_VERSION" \
       -o /out/coop .
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl docker.io git git-lfs jq openssl \
@@ -37,7 +38,8 @@ COPY --from=build /out/coop /usr/local/bin/coop
 RUN coop version \
  && coop help sessions connect >/dev/null
 
-COPY --chown=coop:coop deploy/compose/coop/entrypoint.sh /usr/local/bin/ryker-coop-entrypoint
+# Root's, so a compromised worker cannot rewrite the entrypoint it restarts into.
+COPY deploy/compose/coop/entrypoint.sh /usr/local/bin/ryker-coop-entrypoint
 COPY deploy/compose/coop/Box.Dockerfile /usr/local/share/ryker/Box.Dockerfile
 RUN chmod 0755 /usr/local/bin/ryker-coop-entrypoint
 

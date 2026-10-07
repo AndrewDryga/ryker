@@ -1,7 +1,7 @@
 defmodule Ryker.MixProject do
   use Mix.Project
 
-  # The operator assets copied into the release under share/ryker, listed once
+  # What ships beside the release under share/ryker (its license), listed once
   # in release-assets.txt for this build step, the archive check and the image
   # build alike.
   @release_assets Path.expand("release-assets.txt", __DIR__)

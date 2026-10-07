@@ -24,36 +24,25 @@ defmodule Ryker.ReleaseTest do
     assert List.last(release[:steps]) == :tar
     assert Enum.any?(release[:steps], &is_function(&1, 1))
 
-    # One manifest names the operator assets: the build step copies it, the
-    # archive check reads it, and the image build has to carry it. Three
-    # hand-kept copies of that list once drifted apart silently.
+    # One manifest names what ships beside the release under share/ryker: the
+    # build step copies it, the archive check reads it, and the image build has
+    # to carry it. Three hand-kept copies of that list once drifted apart.
     assets =
       "release-assets.txt"
       |> read!()
       |> String.split("\n", trim: true)
       |> Enum.reject(&String.starts_with?(&1, "#"))
 
-    assert assets != []
-
     for path <- assets do
       assert File.exists?(Path.join(@root, path)),
              "#{path} is listed in release-assets.txt but does not exist"
     end
 
-    for path <- ~w(
-      README.md
-      compose.yml
-      install.sh
-      Dockerfile
-      deploy/compose/entrypoint.sh
-      deploy/nginx/ryker.conf
-      docs/elixir-ingress-admission.md
-      docs/operations.md
-      docs/releasing.md
-      scripts/compose.sh
-    ) do
-      assert path in assets
-    end
+    # The release is distributed under its license. It carried an install kit
+    # too (install.sh, compose.yml, the Dockerfile, scripts and docs) that could
+    # not build from the archive, which has no sources, and went into every
+    # image besides (2026-10-04 review): installing builds from a checkout.
+    assert assets == ["LICENSE"]
 
     assert read!("mix.exs") =~ "release-assets.txt"
     assert read!("Dockerfile") =~ "release-assets.txt"
@@ -97,13 +86,24 @@ defmodule Ryker.ReleaseTest do
       content = read!(workflow)
       assert content =~ "erlef/setup-beam@"
       assert content =~ "make release-dist"
-      assert content =~ "scripts/check-release.sh dist"
+      assert content =~ ~r{scripts/check-release\.sh (built/)?dist}
       refute content =~ "install-elixir-release.sh"
     end
 
     release_workflow = read!(".github/workflows/release.yml")
     assert release_workflow =~ "_elixir_linux_amd64.tar.gz"
-    assert release_workflow =~ "cosign sign-blob"
+
+    # The build runs Ryker's code and its dependencies' Mix tasks and macros, so it
+    # holds no signing rights: the publish job signs what the build handed it
+    # (2026-10-04 review).
+    jobs = YamlElixir.read_from_string!(release_workflow)["jobs"]
+    refute Map.has_key?(jobs["build"], "permissions")
+    assert Enum.any?(jobs["build"]["steps"], &((&1["run"] || "") =~ "make release-dist"))
+    refute Enum.any?(jobs["build"]["steps"], &((&1["run"] || "") =~ "cosign"))
+    assert jobs["publish"]["needs"] == "build"
+    assert jobs["publish"]["permissions"]["id-token"] == "write"
+    assert Enum.any?(jobs["publish"]["steps"], &((&1["run"] || "") =~ "cosign sign-blob"))
+    refute Enum.any?(jobs["publish"]["steps"], &((&1["run"] || "") =~ ~r/\bmake\b|\bmix\b/))
 
     mixfile = read!("mix.exs")
     assert mixfile =~ "System.get_env(\"RYKER_ELIXIR_VERSION\")"

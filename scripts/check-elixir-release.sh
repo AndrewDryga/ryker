@@ -2,7 +2,7 @@
 # Structural check of one Elixir release archive. The bytes must match the
 # trusted digest before anything is listed or extracted; every path must be
 # safe; the release must carry its executable, its runtime configuration,
-# every migration in this tree and every operator asset in release-assets.txt,
+# every migration in this tree and every file release-assets.txt ships,
 # no development dependency, no eval-only module, the expected version, and it
 # must start and load its migration module, Ryker.Release.
 set -euo pipefail
@@ -92,7 +92,7 @@ done
 while IFS= read -r asset; do
   [[ -z $asset || $asset == \#* ]] && continue
   if [[ ! -f $scratch/share/ryker/$asset ]]; then
-    echo "release is missing operator asset share/ryker/$asset" >&2
+    echo "release is missing share/ryker/$asset" >&2
     exit 1
   fi
 done <"$manifest"

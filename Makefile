@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck watchdog-check launch-agent-check deploy-check test-db-ready dev-check check release-check clean
+.PHONY: retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-pack eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck watchdog-check launch-agent-check model-download-check deploy-check test-db-ready dev-check check release-check clean
 
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
@@ -163,6 +163,9 @@ watchdog-check:
 launch-agent-check:
 	scripts/launch-agent_test.sh
 
+model-download-check:
+	scripts/model-download_test.sh
+
 deploy-check:
 	scripts/deploy_test.sh
 
@@ -185,7 +188,7 @@ dev-check:
 
 check: test-db-ready
 	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) \
-		elixir-check control-plane-js-check shellcheck eval-replay watchdog-check launch-agent-check live-acceptance-wrapper-check deploy-check
+		elixir-check control-plane-js-check shellcheck eval-replay watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check
 	+$(MAKE) --no-print-directory retention-simulation
 	scripts/test-eval-trend.sh
 

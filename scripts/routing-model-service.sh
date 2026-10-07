@@ -15,12 +15,16 @@ set -euo pipefail
 
 model_dir=${RYKER_ROUTING_MODEL_DIR:-$HOME/.local/share/ryker/routing-model}
 model=$model_dir/qwen2.5-3b-instruct-q4_k_m.gguf
-model_url=https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf
+# The revision and digest are pinned: a moved branch or a replaced file is refused.
+model_url=https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/7dabda4d13d513e3e842b20f0d435c732f172cbe/qwen2.5-3b-instruct-q4_k_m.gguf
+model_sha256=626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d
 log_dir=$HOME/.local/state/ryker/routing-model
 agents=$HOME/Library/LaunchAgents
 label=ai.emisar.ryker.routing-model
 port=${RYKER_ROUTING_MODEL_PORT:-8181}
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=scripts/model-download.sh
+. "$here/model-download.sh"
 
 usage() {
   echo "usage: scripts/routing-model-service.sh install|status|uninstall" >&2
@@ -79,11 +83,7 @@ install() {
   }
   command -v llama-server >/dev/null || brew install llama.cpp
   mkdir -p "$model_dir" "$log_dir" "$agents"
-  if [ ! -s "$model" ]; then
-    echo "Downloading Qwen2.5 3B Instruct (2.1 GB) to $model_dir"
-    curl -fL --retry 3 -o "$model.partial" "$model_url"
-    mv "$model.partial" "$model"
-  fi
+  download_model "$model_url" "$model_sha256" "$model" "Qwen2.5 3B Instruct (2.1 GB)"
 
   write_plist
   "$here/launch-agent.sh" load "$label" "$agents/$label.plist"

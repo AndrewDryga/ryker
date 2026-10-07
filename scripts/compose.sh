@@ -390,6 +390,14 @@ case "$command" in
     else
       compose build --pull ryker ryker-coop
     fi
+    # As a deploy does: migrations run on their own, with the new image and the
+    # running release stopped, not inside the container's healthcheck budget.
+    compose stop ryker
+    compose run --rm --no-deps -T --entrypoint /opt/ryker/bin/ryker ryker \
+      eval 'Ryker.Release.migrate()' || {
+      echo "The database did not migrate, and Ryker is stopped. Restore the backup you took before upgrading: scripts/compose.sh restore FILE" >&2
+      exit 1
+    }
     compose up --detach --wait
     wait_ready
     ;;

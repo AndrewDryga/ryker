@@ -130,9 +130,10 @@ lifecycle. Commit the change, then run `scripts/deploy.sh`. It refuses a dirty t
 that is not `main`'s (pass `--allow-not-main` only on purpose), builds `ryker:0.1.0-g<commit>`
 (or the tag's version when HEAD carries an annotated `v` tag) from a clean git worktree of HEAD,
 then pauses Ryker and backs up the database and encrypted state
-into `.ryker/backups/pre-deploy-<time>.tar.gz`, and replaces only the `ryker` container with
-`docker compose up --detach --no-build --wait --no-deps ryker` (migrations run when the container
-boots), waits from the host's side for `/healthz`, `/readyz` and the exact `x-ryker-version`
+into `.ryker/backups/pre-deploy-<time>.tar.gz`, runs the migrations with the new image as a step
+of their own, and replaces only the `ryker` container with
+`docker compose up --detach --no-build --wait --no-deps ryker`, waits from the host's side for
+`/healthz`, `/readyz` and the exact `x-ryker-version`
 header, and only then pins the new version in `.ryker/compose.env` and keeps the newest ten
 pre-deploy backups and the newest of each of the last seven days. On failure it prints the
 container's log tail, stops the unverified replacement and leaves the previous version pinned.

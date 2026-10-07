@@ -529,7 +529,8 @@ scripts/deploy.sh
 
 `scripts/deploy.sh` deploys HEAD to the Docker Compose installation in this checkout: it refuses
 a dirty tree or a HEAD that is not `main`'s, builds the image from a clean worktree of HEAD, then
-backs the database up into `.ryker/backups/` before replacing only the `ryker` container. It waits for health,
+backs the database up into `.ryker/backups/`, runs the migrations with the new image, and replaces only
+the `ryker` container. It waits for health,
 readiness and the exact version header, and only then pins the version in `.ryker/compose.env`.
 If verification fails, it stops the unverified container and leaves the previous version pinned;
 check for database migrations before restarting the previous image.

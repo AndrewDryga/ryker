@@ -18,12 +18,16 @@ set -euo pipefail
 
 model_dir=${RYKER_EMBEDDINGS_MODEL_DIR:-$HOME/.local/share/ryker/embeddings}
 model=$model_dir/bge-m3-q8_0.gguf
-model_url=https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF/resolve/main/bge-m3-q8_0.gguf
+# The revision and digest are pinned: a moved branch or a replaced file is refused.
+model_url=https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF/resolve/9eba04c5d75ba5a1595e45de734d36bef4e5cb98/bge-m3-q8_0.gguf
+model_sha256=aa473d51f451a22f0fcf39ba3330c14bed38a385712b1113440f69df4047a173
 log_dir=$HOME/.local/state/ryker/embeddings
 agents=$HOME/Library/LaunchAgents
 label=ai.emisar.ryker.embeddings
 port=${RYKER_EMBEDDINGS_PORT:-8180}
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=scripts/model-download.sh
+. "$here/model-download.sh"
 
 usage() {
   echo "usage: scripts/embedding-service.sh install|status|uninstall" >&2
@@ -82,11 +86,7 @@ install() {
   }
   command -v llama-server >/dev/null || brew install llama.cpp
   mkdir -p "$model_dir" "$log_dir" "$agents"
-  if [ ! -s "$model" ]; then
-    echo "Downloading bge-m3 (635 MB) to $model_dir"
-    curl -fL --retry 3 -o "$model.partial" "$model_url"
-    mv "$model.partial" "$model"
-  fi
+  download_model "$model_url" "$model_sha256" "$model" "bge-m3 (635 MB)"
 
   write_plist
   "$here/launch-agent.sh" load "$label" "$agents/$label.plist"

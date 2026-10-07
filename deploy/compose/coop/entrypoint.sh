@@ -113,6 +113,14 @@ prepare_ryker_box() {
       "$context"
   fi
 
+  # Each Coop version left its base behind in this Docker, and each rebuild the
+  # box it replaced (2026-10-04 review). Docker keeps whatever a container uses.
+  docker image ls --format '{{.Repository}}:{{.Tag}}' ryker-coop-base 2>/dev/null |
+    while read -r image; do
+      [ "$image" = "$base_image" ] || docker image rm "$image" >/dev/null 2>&1 || true
+    done
+  docker image prune --force >/dev/null 2>&1 || true
+
   export COOP_BASE_IMAGE=ryker-coop-box
 }
 

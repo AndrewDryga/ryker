@@ -135,6 +135,20 @@ defmodule Ryker.BundledCoopIdentityTest do
 
     File.write!(docker, """
     #!/bin/sh
+    case "$1 $2" in
+      'image ls')
+        for image in "$state"/ryker-coop-base:*; do
+          [ -e "$image" ] && basename "$image"
+        done
+        exit 0 ;;
+      'image rm')
+        printf '%s\\n' "$3" >> "$state/removed"
+        rm -f "$state/$3"
+        exit 0 ;;
+      'image prune')
+        printf '%s\\n' "$*" >> "$state/pruned"
+        exit 0 ;;
+    esac
     case "$1 $2 $3" in
       'image inspect ryker-coop-base:'*)
         [ -f "$state/$3" ] || exit 1
@@ -166,6 +180,14 @@ defmodule Ryker.BundledCoopIdentityTest do
              String.split(File.read!(Path.join(root, "builds")), "\n", trim: true)
 
     refute second == tag
+
+    # Each Coop version left its base behind in the worker's Docker, and each rebuild the box it
+    # replaced (2026-10-04 review): the base an older binary built goes once this one has its
+    # own, and images nothing is tagged as are pruned.
+    assert File.read!(Path.join(root, "removed")) == tag <> "\n"
+    refute File.exists?(Path.join(root, tag))
+    assert File.exists?(Path.join(root, second))
+    assert File.read!(Path.join(root, "pruned")) =~ "image prune --force"
 
     overlay_receipt = File.read!(Path.join(root, "overlays"))
     File.write!(coop, "#!/bin/sh\nexit 7\n")

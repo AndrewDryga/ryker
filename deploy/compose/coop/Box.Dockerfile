@@ -1,7 +1,7 @@
 ARG COOP_BASE_IMAGE=coop-box
 # The image the release builds with (Dockerfile ELIXIR_IMAGE), so a job or review
 # of Ryker's own repository builds and tests it with the release's toolchain.
-ARG ELIXIR_IMAGE=hexpm/elixir:1.19.5-erlang-28.4.1-debian-bookworm-20260610-slim
+ARG ELIXIR_IMAGE=hexpm/elixir:1.19.5-erlang-28.4.1-debian-bookworm-20260610-slim@sha256:b6b08eda454de9015ec8a5e20e9a7f873c6459ce8150cee1ce071ccd9a1d6436
 
 FROM ${ELIXIR_IMAGE} AS elixir
 
@@ -24,9 +24,12 @@ RUN apt-get update \
 # The PostgreSQL server compose.test.yml pins. A job or review gets neither
 # Docker nor sidecar services, so Ryker's scripts/elixir-test.sh starts a private
 # server from these binaries; without one every review of Ryker failed its gate.
+# The signing key is checked against its digest (key B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8).
 RUN install -d /usr/share/postgresql-common/pgdg \
  && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
       https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+ && echo "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76  /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc" \
+      | sha256sum -c - \
  && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
       > /etc/apt/sources.list.d/pgdg.list \
  && apt-get update \
