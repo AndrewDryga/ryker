@@ -18,7 +18,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.{PlatformAction, PlatformActionQuery, Request}
+  alias Ryker.Delivery.{PlatformAction, PlatformActionChangeset, PlatformActionQuery, Request}
   alias Ryker.Episodes.{Episode, EpisodeQuery, Event, EventQuery}
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -189,7 +189,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       mutate_claim(action_ref, lease_ref, fn action, now ->
         requested = DateTime.add(now, lease_seconds, :second)
         expiry = later_datetime(action.lease_expires_at, requested)
-        update!(action, %{lease_expires_at: expiry}, :renew)
+        action |> PlatformActionChangeset.renew(expiry) |> write!(:renew)
       end)
     end
   end
@@ -203,18 +203,13 @@ defmodule Ryker.Delivery.PlatformActionCustody do
          :ok <- bounded(error_code, 128, :error_code),
          :ok <- bounded(error_detail, 4_096, :error_detail) do
       mutate_claim(action_ref, lease_ref, fn action, now ->
-        update!(
-          action,
-          %{
-            last_error_code: error_code,
-            last_error_detail: error_detail,
-            lease_expires_at: nil,
-            lease_owner: nil,
-            lease_ref: nil,
-            next_attempt_at: DateTime.add(now, retry_seconds, :second)
-          },
-          :defer
+        action
+        |> PlatformActionChangeset.defer(
+          DateTime.add(now, retry_seconds, :second),
+          error_code,
+          error_detail
         )
+        |> write!(:defer)
       end)
     end
   end
@@ -227,19 +222,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
          :ok <- bounded(error_code, 128, :error_code),
          :ok <- bounded(error_detail, 4_096, :error_detail) do
       mutate_claim(action_ref, lease_ref, fn action, _now ->
-        update!(
-          action,
-          %{
-            last_error_code: error_code,
-            last_error_detail: error_detail,
-            lease_expires_at: nil,
-            lease_owner: nil,
-            lease_ref: nil,
-            next_attempt_at: nil,
-            status: :blocked
-          },
-          :block
-        )
+        action |> PlatformActionChangeset.block(error_code, error_detail) |> write!(:block)
       end)
     end
   end
@@ -254,18 +237,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp retry_locked(action_ref) do
     case lock_action(action_ref) do
       %PlatformAction{status: :blocked} = action ->
-        update!(
-          action,
-          %{
-            attempt_count: 0,
-            last_error_code: nil,
-            last_error_detail: nil,
-            next_attempt_at: nil,
-            retry_generation: action.retry_generation + 1,
-            status: :pending
-          },
-          :retry
-        )
+        action |> PlatformActionChangeset.retry() |> write!(:retry)
 
       %PlatformAction{status: :pending} = action ->
         action
@@ -483,10 +455,8 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       turn_id: turn_id
     }
 
-    %PlatformAction{}
-    |> Ecto.Changeset.cast(values, Map.keys(values))
-    |> Ecto.Changeset.validate_required(Map.keys(values) -- [:source_item_ref, :thread_ref])
-    |> constraints()
+    values
+    |> PlatformActionChangeset.insert()
     |> Repo.insert()
     |> unwrap_or_rollback(:insert)
   end
@@ -502,19 +472,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
         lease_ref = Ecto.UUID.generate()
 
         action =
-          update!(
-            action,
-            %{
-              attempt_count: action.attempt_count + 1,
-              last_error_code: nil,
-              last_error_detail: nil,
-              lease_expires_at: DateTime.add(now, lease_seconds, :second),
-              lease_owner: worker_ref,
-              lease_ref: lease_ref,
-              next_attempt_at: nil
-            },
-            :claim
-          )
+          action
+          |> PlatformActionChangeset.claim(now, lease_seconds, worker_ref, lease_ref)
+          |> write!(:claim)
 
         %{action: action, lease_ref: lease_ref}
     end
@@ -544,22 +504,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       %PlatformAction{} = action ->
         with :ok <- current_lease(action, lease_ref, now),
              :ok <- exact_receipt(action, receipt) do
-          update!(
-            action,
-            %{
-              delivered_at: now,
-              external_receipt: receipt,
-              external_receipt_fingerprint: fingerprint,
-              last_error_code: nil,
-              last_error_detail: nil,
-              lease_expires_at: nil,
-              lease_owner: nil,
-              lease_ref: nil,
-              next_attempt_at: nil,
-              status: :delivered
-            },
-            :confirm
-          )
+          action
+          |> PlatformActionChangeset.confirm(now, receipt, fingerprint)
+          |> write!(:confirm)
         else
           {:error, reason} -> Repo.rollback(reason)
         end
@@ -686,24 +633,8 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     "platform-action:#{digest}"
   end
 
-  defp update!(action, attributes, operation) do
-    action
-    |> Ecto.Changeset.change(attributes)
-    |> constraints()
-    |> Repo.update()
-    |> unwrap_or_rollback(operation)
-  end
-
-  defp constraints(changeset) do
-    changeset
-    |> Ecto.Changeset.check_constraint(:action_ref, name: :platform_actions_identity_valid)
-    |> Ecto.Changeset.check_constraint(:document, name: :platform_actions_document_valid)
-    |> Ecto.Changeset.check_constraint(:status, name: :platform_actions_custody_valid)
-    |> Ecto.Changeset.unique_constraint(:action_ref)
-    |> Ecto.Changeset.unique_constraint([:turn_id, :host_slot])
-    |> Ecto.Changeset.foreign_key_constraint(:episode_id)
-    |> Ecto.Changeset.foreign_key_constraint(:turn_id)
-  end
+  defp write!(changeset, operation),
+    do: changeset |> Repo.update() |> unwrap_or_rollback(operation)
 
   defp later_datetime(nil, requested), do: requested
 

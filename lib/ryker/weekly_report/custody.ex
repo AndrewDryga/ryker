@@ -19,7 +19,7 @@ defmodule Ryker.WeeklyReport.Custody do
   alias Ryker.Delivery.Request
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.WeeklyReport.{Report, ReportQuery}
+  alias Ryker.WeeklyReport.{Report, ReportChangeset, ReportQuery}
   alias Ryker.Work.DeliveryReceipt
 
   @type claim :: %{report: Report.t(), lease_ref: Ecto.UUID.t()}
@@ -50,10 +50,8 @@ defmodule Ryker.WeeklyReport.Custody do
     }
 
     with {:ok, _request} <- request_for(values) do
-      %Report{}
-      |> Ecto.Changeset.cast(values, Map.keys(values))
-      |> Ecto.Changeset.validate_required(Map.keys(values))
-      |> constraints()
+      values
+      |> ReportChangeset.insert()
       |> Repo.insert()
       |> queued()
     end
@@ -131,7 +129,7 @@ defmodule Ryker.WeeklyReport.Custody do
       mutate_claim(delivery_ref, lease_ref, fn report, now ->
         requested = DateTime.add(now, lease_seconds, :second)
         expiry = later(report.lease_expires_at, requested)
-        update!(report, %{lease_expires_at: expiry}, :renew)
+        report |> ReportChangeset.renew(expiry) |> write!(:renew)
       end)
     end
   end
@@ -145,18 +143,13 @@ defmodule Ryker.WeeklyReport.Custody do
          :ok <- bounded(error_code, 128, :error_code),
          :ok <- bounded(error_detail, 4_096, :error_detail) do
       mutate_claim(delivery_ref, lease_ref, fn report, now ->
-        update!(
-          report,
-          %{
-            last_error_code: error_code,
-            last_error_detail: error_detail,
-            lease_expires_at: nil,
-            lease_owner: nil,
-            lease_ref: nil,
-            next_attempt_at: DateTime.add(now, retry_seconds, :second)
-          },
-          :defer
+        report
+        |> ReportChangeset.defer(
+          DateTime.add(now, retry_seconds, :second),
+          error_code,
+          error_detail
         )
+        |> write!(:defer)
       end)
     end
   end
@@ -169,19 +162,7 @@ defmodule Ryker.WeeklyReport.Custody do
          :ok <- bounded(error_code, 128, :error_code),
          :ok <- bounded(error_detail, 4_096, :error_detail) do
       mutate_claim(delivery_ref, lease_ref, fn report, _now ->
-        update!(
-          report,
-          %{
-            last_error_code: error_code,
-            last_error_detail: error_detail,
-            lease_expires_at: nil,
-            lease_owner: nil,
-            lease_ref: nil,
-            next_attempt_at: nil,
-            status: :blocked
-          },
-          :block
-        )
+        report |> ReportChangeset.block(error_code, error_detail) |> write!(:block)
       end)
     end
   end
@@ -237,19 +218,9 @@ defmodule Ryker.WeeklyReport.Custody do
         lease_ref = Ecto.UUID.generate()
 
         report =
-          update!(
-            report,
-            %{
-              attempt_count: report.attempt_count + 1,
-              last_error_code: nil,
-              last_error_detail: nil,
-              lease_expires_at: DateTime.add(now, lease_seconds, :second),
-              lease_owner: worker_ref,
-              lease_ref: lease_ref,
-              next_attempt_at: nil
-            },
-            :claim
-          )
+          report
+          |> ReportChangeset.claim(now, lease_seconds, worker_ref, lease_ref)
+          |> write!(:claim)
 
         %{report: report, lease_ref: lease_ref}
     end
@@ -258,18 +229,7 @@ defmodule Ryker.WeeklyReport.Custody do
   defp retry_locked(delivery_ref) do
     case lock(delivery_ref) do
       %Report{status: :blocked} = report ->
-        update!(
-          report,
-          %{
-            attempt_count: 0,
-            last_error_code: nil,
-            last_error_detail: nil,
-            next_attempt_at: nil,
-            retry_generation: report.retry_generation + 1,
-            status: :pending
-          },
-          :retry
-        )
+        report |> ReportChangeset.retry() |> write!(:retry)
 
       %Report{status: :pending} = report ->
         report
@@ -295,22 +255,9 @@ defmodule Ryker.WeeklyReport.Custody do
       %Report{} = report ->
         with :ok <- current_lease(report, lease_ref, now),
              :ok <- exact_receipt(report, receipt) do
-          update!(
-            report,
-            %{
-              delivered_at: now,
-              external_receipt: receipt,
-              external_receipt_fingerprint: fingerprint,
-              last_error_code: nil,
-              last_error_detail: nil,
-              lease_expires_at: nil,
-              lease_owner: nil,
-              lease_ref: nil,
-              next_attempt_at: nil,
-              status: :delivered
-            },
-            :confirm
-          )
+          report
+          |> ReportChangeset.confirm(now, receipt, fingerprint)
+          |> write!(:confirm)
         else
           {:error, reason} -> Repo.rollback(reason)
         end
@@ -372,12 +319,8 @@ defmodule Ryker.WeeklyReport.Custody do
        else: {:error, :weekly_report_receipt_mismatch}
   end
 
-  defp update!(report, attributes, operation) do
-    report
-    |> Ecto.Changeset.change(attributes)
-    |> constraints()
-    |> Repo.update()
-    |> case do
+  defp write!(changeset, operation) do
+    case Repo.update(changeset) do
       # A renewal only moves the lease's expiry, which no page shows.
       {:ok, updated} when operation == :renew ->
         updated
@@ -389,15 +332,6 @@ defmodule Ryker.WeeklyReport.Custody do
       {:error, changeset} ->
         Repo.rollback({:weekly_report_persistence_failed, operation, changeset.errors})
     end
-  end
-
-  defp constraints(changeset) do
-    changeset
-    |> Ecto.Changeset.unique_constraint(:week)
-    |> Ecto.Changeset.unique_constraint(:delivery_ref)
-    |> Ecto.Changeset.check_constraint(:week, name: :weekly_report_identity_valid)
-    |> Ecto.Changeset.check_constraint(:document, name: :weekly_report_document_valid)
-    |> Ecto.Changeset.check_constraint(:status, name: :weekly_report_custody_valid)
   end
 
   defp later(nil, requested), do: requested

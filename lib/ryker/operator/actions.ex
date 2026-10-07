@@ -13,7 +13,7 @@ defmodule Ryker.Operator.Actions do
 
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
-  alias Ryker.Operator.{Action, ActionQuery}
+  alias Ryker.Operator.{Action, ActionChangeset, ActionQuery}
   alias Ryker.Reference
   alias Ryker.Repo
 
@@ -84,51 +84,18 @@ defmodule Ryker.Operator.Actions do
       now = Repo.now!()
 
       action =
-        %Action{}
-        |> Ecto.Changeset.cast(
-          %{
-            action: attributes.action,
-            action_ref: attributes.action_ref,
-            actor_ref: attributes.actor_ref,
-            kind: attributes.kind,
-            occurred_at: now,
-            outcome: outcome,
-            previous: previous,
-            request_fingerprint: fingerprint,
-            resource_ref: attributes.resource_ref
-          },
-          [
-            :action,
-            :action_ref,
-            :actor_ref,
-            :kind,
-            :occurred_at,
-            :outcome,
-            :previous,
-            :request_fingerprint,
-            :resource_ref
-          ]
-        )
-        |> Ecto.Changeset.validate_required([
-          :action,
-          :action_ref,
-          :actor_ref,
-          :kind,
-          :occurred_at,
-          :outcome,
-          :previous,
-          :request_fingerprint,
-          :resource_ref
-        ])
-        |> Ecto.Changeset.validate_length(:action_ref, min: 1, max: 1_024)
-        |> Ecto.Changeset.validate_length(:actor_ref, min: 1, max: 1_024)
-        |> Ecto.Changeset.validate_length(:kind, min: 1, max: 64)
-        |> Ecto.Changeset.validate_length(:resource_ref, min: 1, max: 1_024)
-        |> Ecto.Changeset.validate_format(:request_fingerprint, ~r/\A[0-9a-f]{64}\z/)
-        |> Ecto.Changeset.unique_constraint(:action_ref)
-        |> Ecto.Changeset.check_constraint(:action_ref,
-          name: :ryker_operator_action_valid
-        )
+        %{
+          action: attributes.action,
+          action_ref: attributes.action_ref,
+          actor_ref: attributes.actor_ref,
+          kind: attributes.kind,
+          occurred_at: now,
+          outcome: outcome,
+          previous: previous,
+          request_fingerprint: fingerprint,
+          resource_ref: attributes.resource_ref
+        }
+        |> ActionChangeset.insert()
         |> Repo.insert!()
 
       broadcast_action_recorded(action.id)

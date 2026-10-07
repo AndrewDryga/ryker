@@ -10,7 +10,7 @@ defmodule Ryker.Operator.Retention do
 
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
-  alias Ryker.Operator.{Actions, RetentionAction, RetentionActionQuery}
+  alias Ryker.Operator.{Actions, RetentionAction, RetentionActionChangeset, RetentionActionQuery}
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Retention.Custody
@@ -207,50 +207,19 @@ defmodule Ryker.Operator.Retention do
        ) do
     occurred_at = Repo.now!()
 
-    %RetentionAction{}
-    |> Ecto.Changeset.cast(
-      %{
-        id: Ecto.UUID.generate(),
-        session_id: session.id,
-        action_ref: action_ref,
-        request_fingerprint: fingerprint,
-        actor_ref: actor_ref,
-        action: action,
-        previous_status: previous_status,
-        result_status: session.cleanup_status,
-        previous_plan_fingerprint: previous_plan_fingerprint,
-        occurred_at: occurred_at
-      },
-      [
-        :id,
-        :session_id,
-        :action_ref,
-        :request_fingerprint,
-        :actor_ref,
-        :action,
-        :previous_status,
-        :result_status,
-        :previous_plan_fingerprint,
-        :occurred_at
-      ]
-    )
-    |> Ecto.Changeset.validate_required([
-      :id,
-      :session_id,
-      :action_ref,
-      :request_fingerprint,
-      :actor_ref,
-      :action,
-      :previous_status,
-      :result_status,
-      :occurred_at
-    ])
-    |> Ecto.Changeset.validate_length(:action_ref, min: 1, max: 1_024)
-    |> Ecto.Changeset.validate_length(:actor_ref, min: 1, max: 1_024)
-    |> Ecto.Changeset.validate_format(:request_fingerprint, ~r/\A[0-9a-f]{64}\z/)
-    |> Ecto.Changeset.unique_constraint(:action_ref)
-    |> Ecto.Changeset.foreign_key_constraint(:session_id)
-    |> Ecto.Changeset.check_constraint(:action_ref, name: :retention_operator_action_valid)
+    %{
+      id: Ecto.UUID.generate(),
+      session_id: session.id,
+      action_ref: action_ref,
+      request_fingerprint: fingerprint,
+      actor_ref: actor_ref,
+      action: action,
+      previous_status: previous_status,
+      result_status: session.cleanup_status,
+      previous_plan_fingerprint: previous_plan_fingerprint,
+      occurred_at: occurred_at
+    }
+    |> RetentionActionChangeset.insert()
     |> Repo.insert!()
     |> tap(&Actions.broadcast_action_recorded(&1.id))
   end
