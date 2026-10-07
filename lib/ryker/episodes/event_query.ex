@@ -78,6 +78,10 @@ defmodule Ryker.Episodes.EventQuery do
 
   def select_payloads(queryable), do: select(queryable, [episode_kernel_events: e], e.payload)
 
+  @doc "Each admission as `{episode_id, dedupe_key, payload}`."
+  def select_admissions(queryable),
+    do: select(queryable, [episode_kernel_events: e], {e.episode_id, e.dedupe_key, e.payload})
+
   def select_actor_refs(queryable) do
     select(
       queryable,

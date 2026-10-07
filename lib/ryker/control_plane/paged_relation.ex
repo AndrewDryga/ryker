@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.PagedRelation do
   here" from "not on this page".
   """
 
-  import Ecto.Query
+  alias Ryker.ControlPlane.PageQuery
   alias Ryker.Repo
 
   @page_size 25
@@ -67,14 +67,7 @@ defmodule Ryker.ControlPlane.PagedRelation do
     pages = max(div(total + page_size - 1, page_size), 1)
     page = min(requested_page, pages)
 
-    items =
-      Repo.all(
-        from(row in query,
-          order_by: ^order,
-          limit: ^page_size,
-          offset: ^((page - 1) * page_size)
-        )
-      )
+    items = query |> PageQuery.page(order, page_size, (page - 1) * page_size) |> Repo.all()
 
     %{key: key, items: items, total: total, page: page, pages: pages}
   end

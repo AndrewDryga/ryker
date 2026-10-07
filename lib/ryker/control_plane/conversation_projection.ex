@@ -9,22 +9,14 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   private.
   """
 
-  import Ecto.Query
-  require Ryker.ControlPlane.ConversationTranscript
-  require Ryker.ControlPlane.CurrentInputs
   alias Ryker.Artifacts.OutputArtifact
-  alias Ryker.ControlPlane.{AdmissionProgress, ConversationLab, ConversationTranscript}
-  alias Ryker.ControlPlane.{CurrentInputs, ShortTime, TranscriptCursor}
-  alias Ryker.Delivery.PlatformAction
-  alias Ryker.Delivery.{RoutingResponse, RoutingResponseQuery}
-  alias Ryker.Episodes.{Episode, Event, RoutingDigest}
+  alias Ryker.ControlPlane.{AdmissionProgress, ConversationLab, ConversationQuery}
+  alias Ryker.ControlPlane.{ConversationTranscript, PublicationPositionQuery, ShortTime}
+  alias Ryker.ControlPlane.TranscriptCursor
+  alias Ryker.Episodes.Episode
   alias Ryker.Feedback
-  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
-  alias Ryker.Publication.Publication
-  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Work.Turn
 
   @prefix "control-plane:lab:"
   # One transcript page. A page is a window onto retained history, not a cap:
@@ -44,21 +36,9 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   filter (9 of 109 live, 2026-10-05).
   """
   def index do
-    Repo.all(
-      from(entry in Entry,
-        where:
-          entry.destination_transport == "control_plane" and
-            like(entry.destination_conversation_ref, ^"#{@prefix}%") and
-            entry.destination_thread_ref == entry.destination_conversation_ref,
-        group_by: entry.destination_conversation_ref,
-        order_by: [desc: max(entry.inserted_at), desc: entry.destination_conversation_ref],
-        select: %{
-          message_count: count(entry.native_input_id, :distinct),
-          ref: entry.destination_conversation_ref,
-          updated_at: max(entry.inserted_at)
-        }
-      )
-    )
+    @prefix
+    |> ConversationQuery.directory()
+    |> Repo.all()
     |> Enum.flat_map(fn item ->
       case conversation_id(item.ref) do
         {:ok, id} -> [Map.put(item, :id, id)]
@@ -102,34 +82,11 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   def titles([]), do: %{}
 
   def titles(refs) do
-    # Each conversation's first message, then that message as it reads now.
-    first_messages =
-      from(entry in Entry,
-        where:
-          entry.destination_conversation_ref in ^refs and entry.source_kind == "control_plane",
-        distinct: entry.destination_conversation_ref,
-        order_by: [asc: entry.destination_conversation_ref, asc: entry.inserted_at, asc: entry.id]
-      )
-
-    opening =
-      Repo.all(
-        from(entry in subquery(first_messages),
-          as: :revision,
-          inner_lateral_join: current in subquery(CurrentInputs.current()),
-          on: true,
-          select:
-            {entry.destination_conversation_ref,
-             CurrentInputs.visible_text(
-               current.operational_pruned_at,
-               current.event_kind,
-               current.content
-             )}
-        )
-      )
-
     secrets = InspectionRedactor.configured_secrets()
 
-    opening
+    refs
+    |> ConversationQuery.opening_texts()
+    |> Repo.all()
     |> Enum.flat_map(fn {ref, text} ->
       case InspectionRedactor.artifact(text, secrets: secrets, max_bytes: 600).text do
         text when text in [nil, ""] -> []
@@ -137,27 +94,9 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       end
     end)
     |> Map.new()
-    |> Map.merge(episode_titles(refs))
-  end
-
-  # Once Ryker has named its latest work in a conversation, that name is the
-  # conversation's; until then its opening message is.
-  defp episode_titles(refs) do
-    Repo.all(
-      from(entry in Entry,
-        join: digest in RoutingDigest,
-        on: digest.episode_id == entry.episode_id,
-        where: entry.destination_conversation_ref in ^refs and not is_nil(digest.title),
-        distinct: entry.destination_conversation_ref,
-        order_by: [
-          asc: entry.destination_conversation_ref,
-          desc: digest.title_updated_at,
-          desc: digest.episode_id
-        ],
-        select: {entry.destination_conversation_ref, digest.title}
-      )
-    )
-    |> Map.new()
+    # Once Ryker has named its latest work in a conversation, that name is the
+    # conversation's; until then its opening message is.
+    |> Map.merge(refs |> ConversationQuery.work_titles() |> Repo.all() |> Map.new())
   end
 
   # What a conversation needs from the reader, from its inputs and their work:
@@ -170,34 +109,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     refs = Enum.map(items, & &1.ref)
 
     states =
-      from(entry in Entry,
-        left_join: episode in Episode,
-        on: episode.id == entry.episode_id,
-        where:
-          entry.destination_transport == "control_plane" and
-            entry.destination_conversation_ref in ^refs,
-        group_by: entry.destination_conversation_ref,
-        select:
-          {entry.destination_conversation_ref,
-           %{
-             attention:
-               fragment(
-                 "coalesce(bool_or(? = 'blocked' OR (? <> 'complete' AND EXISTS (SELECT 1 FROM episode_work_turns AS turn WHERE turn.episode_id = ? AND turn.status = 'blocked'))), false)",
-                 entry.status,
-                 episode.state,
-                 episode.id
-               ),
-             working:
-               fragment(
-                 "coalesce(bool_or(? = 'pending' OR ? = 'working'), false)",
-                 entry.status,
-                 episode.state
-               ),
-             waiting_for_you:
-               fragment("coalesce(bool_or(? = 'waiting_for_input'), false)", episode.state),
-             waiting: fragment("coalesce(bool_or(? = 'waiting_for_event'), false)", episode.state)
-           }}
-      )
+      refs
+      |> ConversationQuery.needs()
       |> Repo.all()
       |> Map.new(fn {ref, needs} -> {ref, conversation_status(needs)} end)
 
@@ -262,22 +175,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
          {:ok, turn_id} <- Ecto.UUID.cast(turn_id),
          true <- Regex.match?(~r/\A[A-Za-z0-9_.:-]{1,256}\z/, artifact_ref),
          %OutputArtifact{} = artifact <-
-           Repo.one(
-             from(artifact in OutputArtifact,
-               join: turn in Turn,
-               on: turn.id == artifact.turn_id,
-               join: episode in Episode,
-               on: episode.id == turn.episode_id,
-               where:
-                 artifact.turn_id == ^turn_id and artifact.ref == ^artifact_ref and
-                   episode.destination_transport == "control_plane" and
-                   episode.destination_conversation_ref == ^(@prefix <> conversation_id) and
-                   episode.destination_thread_ref == ^(@prefix <> conversation_id) and
-                   not is_nil(turn.accepted_at) and not is_nil(turn.delivery_document) and
-                   is_nil(turn.operational_pruned_at),
-               select: artifact
-             )
-           ) do
+           Repo.one(ConversationQuery.artifact(@prefix <> conversation_id, turn_id, artifact_ref)) do
       {:ok,
        %{
          byte_size: artifact.byte_size,
@@ -326,21 +224,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   end
 
   defp conversation_exists?(ref) do
-    Repo.exists?(
-      from(entry in Entry,
-        where:
-          entry.destination_transport == "control_plane" and
-            entry.destination_conversation_ref == ^ref and entry.destination_thread_ref == ^ref
-      )
-    ) or
-      Repo.exists?(
-        from(episode in Episode,
-          where:
-            episode.destination_transport == "control_plane" and
-              episode.destination_conversation_ref == ^ref and
-              episode.destination_thread_ref == ^ref
-        )
-      )
+    Repo.exists?(ConversationQuery.messages(ref)) or
+      Repo.exists?(ConversationQuery.episodes(ref))
   end
 
   # The boundary a cursor names, or nil for the latest page. The identity in
@@ -380,11 +265,11 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       candidates(
         ref,
         %{
-          input: inputs_older(page_boundary(boundary, :input)),
-          reply: replies_older(page_boundary(boundary, :reply)),
-          action: actions_older(page_boundary(boundary, :action)),
-          publication: publications_older(page_boundary(boundary, :publication)),
-          quick_reply: quick_replies_older(page_boundary(boundary, :quick_reply))
+          input: page_boundary(boundary, :input),
+          reply: page_boundary(boundary, :reply),
+          action: page_boundary(boundary, :action),
+          publication: page_boundary(boundary, :publication),
+          quick_reply: page_boundary(boundary, :quick_reply)
         },
         lookahead
       )
@@ -409,15 +294,17 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   # that places it in the merged transcript.
   defp candidates(ref, filters, limit) do
     Enum.concat([
-      ref |> page_inputs(filters.input, limit) |> Enum.map(&{:input, &1}),
-      ref |> page_replies(filters.reply, limit) |> Enum.map(&{:reply, &1}),
-      ref |> page_actions(filters.action, limit) |> Enum.map(&{:action, &1}),
-      ref |> page_publications(filters.publication, limit) |> Enum.map(&{:publication, &1}),
-      ref |> page_quick_replies(filters.quick_reply, limit) |> Enum.map(&{:quick_reply, &1})
+      ref |> ConversationQuery.inputs(filters.input, limit) |> rows(:input),
+      ref |> ConversationQuery.replies(filters.reply, limit) |> rows(:reply),
+      ref |> ConversationQuery.actions(filters.action, limit) |> rows(:action),
+      ref |> ConversationQuery.publications(filters.publication, limit) |> rows(:publication),
+      ref |> ConversationQuery.quick_replies(filters.quick_reply, limit) |> rows(:quick_reply)
     ])
     |> Enum.map(fn {kind, row} -> {candidate_key(kind, row), kind, row} end)
     |> Enum.sort_by(&elem(&1, 0), :desc)
   end
+
+  defp rows(query, kind), do: query |> Repo.all() |> Enum.map(&{kind, &1})
 
   @doc """
   The current representation of every transcript row that changed at or
@@ -464,187 +351,53 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   def changes(_conversation_id, _since, _limit), do: :not_found
 
   defp changed_inputs(ref, revised, since, limit) do
-    reacted = reacted_item_refs(ref, since, limit)
+    reacted =
+      Repo.all(ConversationQuery.routing_reacted_items(ref, since, limit)) ++
+        Repo.all(ConversationQuery.work_reacted_items(ref, since, limit))
 
-    if revised == [] and reacted == [],
-      do: dynamic(false),
-      else:
-        dynamic(
-          [entry, first],
-          entry.native_input_id in ^revised or entry.source_item_ref in ^reacted
-        )
+    if revised == [] and reacted == [], do: :none, else: {:inputs, revised, reacted}
   end
 
-  defp revised_input_ids(ref, since, limit) do
-    Repo.all(
-      from(entry in Entry,
-        where:
-          entry.destination_transport == "control_plane" and
-            entry.destination_conversation_ref == ^ref and
-            entry.destination_thread_ref == ^ref and
-            (entry.inserted_at >= ^since or entry.operational_pruned_at >= ^since),
-        distinct: true,
-        select: entry.native_input_id,
-        limit: ^limit
-      )
-    )
-  end
-
-  defp reacted_item_refs(ref, since, limit) do
-    Repo.all(
-      from(reaction in RoutingResponse,
-        where:
-          reaction.kind == :reaction and reaction.transport == "control_plane" and
-            reaction.conversation_ref == ^ref and reaction.updated_at >= ^since and
-            not is_nil(reaction.source_item_ref),
-        distinct: true,
-        select: reaction.source_item_ref,
-        limit: ^limit
-      )
-    ) ++
-      Repo.all(
-        from(action in PlatformAction,
-          where:
-            action.transport == "control_plane" and action.conversation_ref == ^ref and
-              action.kind == :reaction and action.updated_at >= ^since and
-              not is_nil(action.source_item_ref),
-          distinct: true,
-          select: action.source_item_ref,
-          limit: ^limit
-        )
-      )
-  end
+  defp revised_input_ids(ref, since, limit),
+    do: Repo.all(ConversationQuery.revised_message_ids(ref, since, limit))
 
   defp changed_replies(ref, revised, since, limit) do
     turn_ids =
-      updated_turn_ids(ref, since, limit) ++
-        moved_record_turn_ids(ref, since, limit) ++ revised_answer_turn_ids(revised, limit)
+      Repo.all(ConversationQuery.updated_turn_ids(ref, since, limit)) ++
+        Repo.all(ConversationQuery.moved_record_turn_ids(ref, since, limit)) ++
+        revised_answer_turn_ids(revised, limit)
 
-    delivery_refs = reacted_delivery_refs(ref, since, limit)
+    delivery_refs =
+      ref
+      |> ConversationQuery.reacted_delivery_refs(since, limit)
+      |> Repo.all()
+      |> Enum.filter(&is_binary/1)
 
     if turn_ids == [] and delivery_refs == [],
-      do: dynamic(false),
-      else: dynamic([turn], turn.id in ^turn_ids or turn.delivery_ref in ^delivery_refs)
-  end
-
-  defp updated_turn_ids(ref, since, limit) do
-    Repo.all(
-      from(turn in Turn,
-        join: episode in Episode,
-        on: episode.id == turn.episode_id,
-        where:
-          episode.destination_transport == "control_plane" and
-            episode.destination_conversation_ref == ^ref and
-            episode.destination_thread_ref == ^ref and turn.updated_at >= ^since,
-        select: turn.id,
-        limit: ^limit
-      )
-    )
+      do: :none,
+      else: {:replies, turn_ids, delivery_refs}
   end
 
   # An edit changes what the earlier replies to that message say about
   # themselves ("Answered your earlier wording"), though their own rows did not.
   defp revised_answer_turn_ids([], _limit), do: []
 
-  defp revised_answer_turn_ids(native_ids, limit) do
-    Repo.all(
-      from(turn in Turn,
-        join: entry in Entry,
-        on: entry.episode_id == turn.episode_id,
-        where:
-          entry.source_kind == "control_plane" and entry.source_ref == "local" and
-            entry.native_input_id in ^native_ids,
-        distinct: true,
-        select: turn.id,
-        limit: ^limit
-      )
-    )
-  end
+  defp revised_answer_turn_ids(native_ids, limit),
+    do: Repo.all(ConversationQuery.answering_turn_ids(native_ids, limit))
 
-  defp moved_record_turn_ids(ref, since, limit) do
-    Repo.all(
-      from(record in Record,
-        join: episode in Episode,
-        on: episode.id == record.episode_id,
-        where:
-          episode.destination_transport == "control_plane" and
-            episode.destination_conversation_ref == ^ref and
-            episode.destination_thread_ref == ^ref and record.updated_at >= ^since and
-            not is_nil(record.turn_id),
-        distinct: true,
-        select: record.turn_id,
-        limit: ^limit
-      )
-    )
-  end
+  defp changed_actions(ref, since, limit, reacted),
+    do: ref |> ConversationQuery.changed_action_ids(since, reacted, limit) |> exact_rows()
 
-  defp reacted_delivery_refs(ref, since, limit) do
-    Repo.all(
-      from(event in Event,
-        join: episode in Episode,
-        on: episode.id == event.episode_id,
-        where:
-          episode.destination_transport == "control_plane" and
-            episode.destination_conversation_ref == ^ref and
-            episode.destination_thread_ref == ^ref and event.kind == :reaction_recorded and
-            event.inserted_at >= ^since,
-        select: fragment("?::jsonb ->> 'target_delivery_ref'", event.payload),
-        limit: ^limit
-      )
-    )
-    |> Enum.filter(&is_binary/1)
-  end
+  defp changed_publications(ref, since, limit),
+    do: ref |> ConversationQuery.changed_publication_ids(since, limit) |> exact_rows()
 
-  defp changed_actions(ref, since, limit, reacted) do
-    case Repo.all(
-           from(action in PlatformAction,
-             where:
-               action.transport == "control_plane" and action.conversation_ref == ^ref and
-                 action.kind == :message,
-             where:
-               action.updated_at >= ^since or
-                 fragment("(?::jsonb ->> 'message_ref')", action.external_receipt) in ^reacted,
-             select: action.id,
-             limit: ^limit
-           )
-         ) do
-      [] -> dynamic(false)
-      ids -> dynamic([action], action.id in ^ids)
-    end
-  end
+  defp changed_quick_replies(ref, since, limit, reacted),
+    do: ref |> ConversationQuery.changed_quick_reply_ids(since, reacted, limit) |> exact_rows()
 
-  defp changed_publications(ref, since, limit) do
-    case Repo.all(
-           from(publication in Publication,
-             where:
-               publication.destination_transport == "control_plane" and
-                 publication.destination_conversation_ref == ^ref and
-                 publication.destination_thread_ref == ^ref and
-                 publication.updated_at >= ^since,
-             select: publication.id,
-             limit: ^limit
-           )
-         ) do
-      [] -> dynamic(false)
-      ids -> dynamic([publication], publication.id in ^ids)
-    end
-  end
-
-  defp changed_quick_replies(ref, since, limit, reacted) do
-    case Repo.all(
-           from(response in RoutingResponse,
-             where:
-               response.kind == :message and response.transport == "control_plane" and
-                 response.conversation_ref == ^ref,
-             where:
-               response.updated_at >= ^since or
-                 fragment("(?::jsonb ->> 'message_ref')", response.external_receipt) in ^reacted,
-             select: response.id,
-             limit: ^limit
-           )
-         ) do
-      [] -> dynamic(false)
-      ids -> dynamic([response], response.id in ^ids)
+  defp exact_rows(query) do
+    case Repo.all(query) do
+      [] -> :none
+      ids -> {:ids, ids}
     end
   end
 
@@ -662,7 +415,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   defp candidate_key(:publication, {publication, _record_ref}) do
     TranscriptCursor.key(
-      ConversationTranscript.publication_position(publication),
+      PublicationPositionQuery.at(publication),
       :publication,
       "publication:" <> publication.id
     )
@@ -690,125 +443,12 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     end
   end
 
-  # One row per logical input: its current revision, positioned where its
-  # first revision entered the conversation. An edit or delete changes what
-  # the row says and records `edited_at`; it never moves the row.
-  defp page_inputs(ref, filter, limit) do
-    latest =
-      from(entry in Entry,
-        where:
-          entry.destination_transport == "control_plane" and
-            entry.destination_conversation_ref == ^ref and entry.destination_thread_ref == ^ref,
-        distinct: entry.native_input_id,
-        order_by: [
-          asc: entry.native_input_id,
-          desc: entry.revision,
-          desc: entry.inserted_at,
-          desc: entry.id
-        ],
-        select: %{
-          actor_ref: entry.actor_ref,
-          content: entry.content,
-          decision_action: entry.decision_action,
-          episode_id: entry.episode_id,
-          event_kind: entry.event_kind,
-          id: entry.id,
-          inserted_at: entry.inserted_at,
-          native_input_id: entry.native_input_id,
-          pruned_at: entry.operational_pruned_at,
-          ref: entry.event_ref,
-          revision: entry.revision,
-          source_kind: entry.source_kind,
-          source_ref: entry.source_ref,
-          source_item_ref: entry.source_item_ref,
-          status: entry.status
-        }
-      )
-
-    positions =
-      from(entry in Entry,
-        where:
-          entry.destination_transport == "control_plane" and
-            entry.destination_conversation_ref == ^ref and entry.destination_thread_ref == ^ref,
-        group_by: entry.native_input_id,
-        select: %{native_input_id: entry.native_input_id, position: min(entry.inserted_at)}
-      )
-
-    Repo.all(
-      from(entry in subquery(latest),
-        join: first in subquery(positions),
-        on: first.native_input_id == entry.native_input_id,
-        where: ^filter,
-        order_by: [desc: first.position, desc: fragment("? COLLATE \"C\"", entry.native_input_id)],
-        limit: ^limit,
-        # The current revision's own row identity, episode link and decision
-        # travel with the message: an inspection link built from them opens
-        # exactly this revision's admission, never the original's or the
-        # newest episode's.
-        select: %{
-          actor_ref: entry.actor_ref,
-          content: entry.content,
-          decision_action: entry.decision_action,
-          edited_at: entry.inserted_at,
-          episode_id: entry.episode_id,
-          event_kind: entry.event_kind,
-          id: entry.id,
-          native_input_id: entry.native_input_id,
-          position: first.position,
-          pruned_at: entry.pruned_at,
-          ref: entry.ref,
-          revision: entry.revision,
-          source_kind: entry.source_kind,
-          source_ref: entry.source_ref,
-          source_item_ref: entry.source_item_ref,
-          status: entry.status
-        }
-      )
-    )
-  end
-
-  defp inputs_older(:all), do: dynamic(true)
-  defp inputs_older({:before_or_at, at}), do: dynamic([entry, first], first.position <= ^at)
-  defp inputs_older({:before, at}), do: dynamic([entry, first], first.position < ^at)
-
-  defp inputs_older({:before_or_tie, at, native_input_id}) do
-    dynamic(
-      [entry, first],
-      first.position < ^at or
-        (first.position == ^at and
-           fragment("? COLLATE \"C\"", entry.native_input_id) < ^native_input_id)
-    )
-  end
-
   defp input_queue(ref) do
-    entries =
-      Repo.one(
-        from(entry in Entry,
-          where:
-            entry.destination_transport == "control_plane" and
-              entry.destination_conversation_ref == ^ref and
-              entry.destination_thread_ref == ^ref,
-          select: %{
-            blocked: filter(count(entry.id), entry.status == :blocked),
-            pending: filter(count(entry.id), entry.status == :pending)
-          }
-        )
-      )
+    entries = Repo.one(ConversationQuery.message_counts(ref))
 
     # A response waiting behind a stopped earlier one of its message is not
     # being sent: the stopped one says so, and the conversation is not live.
-    responses =
-      Repo.one(
-        from(response in RoutingResponseQuery.in_order(),
-          where:
-            response.transport == "control_plane" and response.conversation_ref == ^ref and
-              response.thread_ref == ^ref,
-          select: %{
-            blocked: filter(count(response.id), response.status == :blocked),
-            pending: filter(count(response.id), response.status == :pending)
-          }
-        )
-      )
+    responses = Repo.one(ConversationQuery.response_counts(ref))
 
     %{
       blocked: entries.blocked,
@@ -824,62 +464,18 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     %{
       actions_blocked: action_status?(ref, :blocked),
       actions_pending: action_status?(ref, :pending),
-      publications_pending:
-        Repo.exists?(
-          from(publication in Publication,
-            where:
-              publication.destination_transport == "control_plane" and
-                publication.destination_conversation_ref == ^ref and
-                publication.destination_thread_ref == ^ref and
-                publication.status in [
-                  :review_pending,
-                  :review_ready,
-                  :publish_pending,
-                  :published_ready
-                ]
-          )
-        ),
-      replies_pending:
-        Repo.exists?(
-          from(turn in Turn,
-            join: episode in Episode,
-            on: episode.id == turn.episode_id,
-            where:
-              episode.destination_transport == "control_plane" and
-                episode.destination_conversation_ref == ^ref and
-                episode.destination_thread_ref == ^ref and
-                turn.status == :delivery_pending and not is_nil(turn.delivery_document)
-          )
-        )
+      publications_pending: Repo.exists?(ConversationQuery.publications_under_way(ref)),
+      replies_pending: Repo.exists?(ConversationQuery.replies_waiting(ref))
     }
   end
 
-  defp action_status?(ref, status) do
-    Repo.exists?(
-      from(action in PlatformAction,
-        where:
-          action.transport == "control_plane" and action.conversation_ref == ^ref and
-            action.status == ^status
-      )
-    )
-  end
+  defp action_status?(ref, status),
+    do: Repo.exists?(ConversationQuery.actions_in_status(ref, status))
 
   defp episodes(ref) do
-    Repo.all(
-      from(episode in Episode,
-        left_join: turn in Turn,
-        on:
-          turn.episode_id == episode.id and episode.owner_kind == :turn and
-            episode.owner_ref == turn.turn_ref,
-        where:
-          episode.destination_transport == "control_plane" and
-            episode.destination_conversation_ref == ^ref and
-            episode.destination_thread_ref == ^ref,
-        order_by: [desc: episode.updated_at, desc: episode.id],
-        limit: 20,
-        select: {episode, turn.status, turn.coop_turn_id}
-      )
-    )
+    ref
+    |> ConversationQuery.latest_episodes(20)
+    |> Repo.all()
     |> Enum.map(fn {episode, turn_status, coop_turn_id} ->
       %{
         id: episode.id,
@@ -890,176 +486,6 @@ defmodule Ryker.ControlPlane.ConversationProjection do
         work_status: turn_status
       }
     end)
-  end
-
-  # Accepted replies, positioned at acceptance. A pruned reply keeps its row
-  # and reads as expired; only an unaccepted or invisible result is absent.
-  defp page_replies(ref, filter, limit) do
-    Repo.all(
-      from(turn in Turn,
-        join: episode in Episode,
-        on: episode.id == turn.episode_id,
-        where:
-          episode.destination_transport == "control_plane" and
-            episode.destination_conversation_ref == ^ref and
-            episode.destination_thread_ref == ^ref and
-            not is_nil(turn.delivery_document) and not is_nil(turn.accepted_at) and
-            fragment(
-              "(jsonb_typeof(?::jsonb -> 'message') = 'string' OR ?::jsonb ->> 'retention' = 'pruned')",
-              turn.delivery_document,
-              turn.delivery_document
-            ),
-        where: ^filter,
-        order_by: [desc: turn.accepted_at, desc: turn.id],
-        limit: ^limit,
-        select: %{
-          document: turn.delivery_document,
-          episode_id: turn.episode_id,
-          external_receipt: turn.external_receipt,
-          occurred_at: turn.accepted_at,
-          pruned_at: turn.operational_pruned_at,
-          ref: turn.delivery_ref,
-          status: turn.status,
-          turn_id: turn.id
-        }
-      )
-    )
-  end
-
-  defp replies_older(:all), do: dynamic(true)
-  defp replies_older({:before_or_at, at}), do: dynamic([turn], turn.accepted_at <= ^at)
-  defp replies_older({:before, at}), do: dynamic([turn], turn.accepted_at < ^at)
-
-  defp replies_older({:before_or_tie, at, turn_id}) do
-    dynamic(
-      [turn],
-      turn.accepted_at < ^at or (turn.accepted_at == ^at and turn.id < ^turn_id)
-    )
-  end
-
-  # A publication is one logical row that advances from reviewed to
-  # published; its position is the delivery it currently shows.
-  defp page_publications(ref, filter, limit) do
-    Repo.all(
-      from(publication in Publication,
-        join: record in Record,
-        on: record.id == publication.record_id and record.episode_id == publication.episode_id,
-        where:
-          publication.destination_transport == "control_plane" and
-            publication.destination_conversation_ref == ^ref and
-            publication.destination_thread_ref == ^ref and
-            ((publication.status in [:reviewed, :blocked] and
-                not is_nil(publication.review_delivery_receipt)) or
-               (publication.status == :published and
-                  not is_nil(publication.published_delivery_receipt))),
-        where: ^filter,
-        order_by: [
-          desc: ConversationTranscript.publication_position_sql(publication),
-          desc: publication.id
-        ],
-        limit: ^limit,
-        select: {publication, record.ref}
-      )
-    )
-  end
-
-  defp publications_older(:all), do: dynamic(true)
-
-  defp publications_older({:before_or_at, at}) do
-    dynamic([publication], ConversationTranscript.publication_position_sql(publication) <= ^at)
-  end
-
-  defp publications_older({:before, at}),
-    do: dynamic([publication], ConversationTranscript.publication_position_sql(publication) < ^at)
-
-  defp publications_older({:before_or_tie, at, publication_id}) do
-    dynamic(
-      [publication],
-      ConversationTranscript.publication_position_sql(publication) < ^at or
-        (ConversationTranscript.publication_position_sql(publication) == ^at and
-           publication.id < ^publication_id)
-    )
-  end
-
-  # Delivered platform messages, positioned at delivery.
-  defp page_actions(ref, filter, limit) do
-    Repo.all(
-      from(action in PlatformAction,
-        join: episode in Episode,
-        on: episode.id == action.episode_id,
-        where:
-          action.transport == "control_plane" and action.conversation_ref == ^ref and
-            episode.destination_transport == "control_plane" and
-            episode.destination_conversation_ref == ^ref and
-            action.kind == :message and action.status == :delivered and
-            action.tool in [:post_slack_message, :post_slack_update] and
-            not is_nil(action.delivered_at),
-        where: ^filter,
-        order_by: [desc: action.delivered_at, desc: action.id],
-        limit: ^limit,
-        select: %{
-          action_ref: action.action_ref,
-          delivered_at: action.delivered_at,
-          document: action.document,
-          episode_id: episode.id,
-          external_receipt: action.external_receipt,
-          id: action.id,
-          kind: action.kind,
-          status: action.status,
-          tool: action.tool
-        }
-      )
-    )
-  end
-
-  defp actions_older(:all), do: dynamic(true)
-  defp actions_older({:before_or_at, at}), do: dynamic([action], action.delivered_at <= ^at)
-  defp actions_older({:before, at}), do: dynamic([action], action.delivered_at < ^at)
-
-  defp actions_older({:before_or_tie, at, action_id}) do
-    dynamic(
-      [action],
-      action.delivered_at < ^at or (action.delivered_at == ^at and action.id < ^action_id)
-    )
-  end
-
-  # Quick replies routing sent without Work, positioned at delivery like a
-  # platform message.
-  defp page_quick_replies(ref, filter, limit) do
-    Repo.all(
-      from(response in RoutingResponse,
-        where:
-          response.kind == :message and response.transport == "control_plane" and
-            response.conversation_ref == ^ref and response.thread_ref == ^ref and
-            response.status == :delivered and not is_nil(response.delivered_at),
-        where: ^filter,
-        order_by: [desc: response.delivered_at, desc: response.id],
-        limit: ^limit,
-        select: %{
-          delivered_at: response.delivered_at,
-          delivery_ref: response.delivery_ref,
-          document: response.document,
-          external_receipt: response.external_receipt,
-          id: response.id,
-          input_id: response.input_id,
-          status: response.status
-        }
-      )
-    )
-  end
-
-  defp quick_replies_older(:all), do: dynamic(true)
-
-  defp quick_replies_older({:before_or_at, at}),
-    do: dynamic([response], response.delivered_at <= ^at)
-
-  defp quick_replies_older({:before, at}), do: dynamic([response], response.delivered_at < ^at)
-
-  defp quick_replies_older({:before_or_tie, at, response_id}) do
-    dynamic(
-      [response],
-      response.delivered_at < ^at or (response.delivered_at == ^at and response.id < ^response_id)
-    )
   end
 
   defp live?(input_queue, episodes, deliveries) do

@@ -8,9 +8,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   """
 
   import Ecto.Query
-  require Ryker.ControlPlane.CurrentInputs
+  require Ryker.ControlPlane.CurrentInputQuery
   alias Ryker.Accounting.ExecutionQuery
-  alias Ryker.ControlPlane.{ConsolePeople, CurrentInputs, Environments, PagedRelation}
+  alias Ryker.ControlPlane.{ConsolePeople, CurrentInputQuery, Environments, PagedRelation}
   alias Ryker.ControlPlane.{RepositoryNames, Search, UsageProjection}
   alias Ryker.Delivery.ChatCard
   alias Ryker.{Episodes, InspectionRedactor, Settings}
@@ -266,7 +266,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
         source_kind: entry.source_kind,
         source_ref: entry.source_ref,
         text:
-          CurrentInputs.visible_preview(
+          CurrentInputQuery.visible_preview(
             entry.operational_pruned_at,
             entry.event_kind,
             entry.content

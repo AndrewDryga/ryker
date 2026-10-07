@@ -1,4 +1,4 @@
-defmodule Ryker.ControlPlane.CurrentInputsTest do
+defmodule Ryker.ControlPlane.CurrentInputQueryTest do
   @moduledoc """
   A message as the console shows it: its current revision, read for each
   message a page shows rather than by ranking every revision in the inbox.
@@ -6,7 +6,8 @@ defmodule Ryker.ControlPlane.CurrentInputsTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{Activity, AdmissionProgress, ConversationProjection, CurrentInputs}
+  alias Ryker.ControlPlane.{Activity, AdmissionProgress, ConversationProjection}
+  alias Ryker.ControlPlane.CurrentInputQuery
   alias Ryker.Episodes
   alias Ryker.Fixtures.Answers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -53,7 +54,7 @@ defmodule Ryker.ControlPlane.CurrentInputsTest do
     )
 
     assert [%{content: %{"text" => "Deploy failed twice"}}] =
-             Repo.all(CurrentInputs.for_episode(episode.id))
+             Repo.all(CurrentInputQuery.for_episode(episode.id))
   end
 
   # Ranking every revision in the inbox to find each message's current one
@@ -92,7 +93,7 @@ defmodule Ryker.ControlPlane.CurrentInputsTest do
     assert Repo.aggregate(Entry, :count) > own * 4
 
     {_messages, statements} =
-      QueryWork.statements(fn -> Repo.all(CurrentInputs.for_episode(episode.id)) end)
+      QueryWork.statements(fn -> Repo.all(CurrentInputQuery.for_episode(episode.id)) end)
 
     assert QueryWork.most_rows_read(statements, @table) <= own * 2
 

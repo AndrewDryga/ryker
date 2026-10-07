@@ -10,17 +10,16 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   what each row shows, with the sort key and cursor that place it.
   """
 
-  import Ecto.Query
-  alias Ryker.Artifacts.OutputArtifact
-  alias Ryker.ControlPlane.{ConsolePeople, Paths, TranscriptCursor}
-  alias Ryker.Delivery.{ChatCard, PlatformAction, RoutingResponse}
-  alias Ryker.Episodes.{Episode, Event, Reactions}
+  alias Ryker.Artifacts.OutputArtifactQuery
+  alias Ryker.ControlPlane.{ConsolePeople, ConversationTranscriptQuery, Paths}
+  alias Ryker.ControlPlane.{PublicationPositionQuery, TranscriptCursor}
+  alias Ryker.Delivery.ChatCard
+  alias Ryker.Episodes.{EventQuery, Reactions}
   alias Ryker.Feedback
-  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Publication.Publication
-  alias Ryker.Records.Record
+  alias Ryker.Records.RecordQuery
   alias Ryker.Repo
-  alias Ryker.Work.Turn
+  alias Ryker.Work.TurnQuery
 
   @page_maximum 200
   @record_limit 64
@@ -152,25 +151,9 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp executions([]), do: %{}
 
   defp executions(episode_ids) do
-    Repo.all(
-      from(episode in Episode,
-        left_join: turn in Turn,
-        on:
-          turn.episode_id == episode.id and turn.turn_ref == episode.owner_ref and
-            episode.owner_kind == :turn,
-        where: episode.id in ^episode_ids,
-        select: %{
-          id: episode.id,
-          active_input_refs: episode.active_input_refs,
-          state:
-            fragment(
-              "CASE WHEN ? = 'blocked' THEN 'blocked' ELSE ?::text END",
-              turn.status,
-              episode.state
-            )
-        }
-      )
-    )
+    episode_ids
+    |> ConversationTranscriptQuery.executions()
+    |> Repo.all()
     |> Map.new(fn row -> {row.id, Map.delete(row, :id)} end)
   end
 
@@ -205,14 +188,12 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp admission_events(refs_by_episode, refs) do
-    Repo.all(
-      from(event in Event,
-        where:
-          event.episode_id in ^Map.keys(refs_by_episode) and event.kind == :input_admitted and
-            event.dedupe_key in ^refs,
-        select: {event.episode_id, event.dedupe_key, event.payload}
-      )
-    )
+    refs_by_episode
+    |> Map.keys()
+    |> EventQuery.by_episode_ids()
+    |> EventQuery.admitted_inputs(refs)
+    |> EventQuery.select_admissions()
+    |> Repo.all()
   end
 
   defp admitted_input({episode_id, ref, payload}, refs_by_episode) do
@@ -250,12 +231,11 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp earlier_answer_turns(turn_ids) do
     turns =
-      Repo.all(
-        from(turn in Turn,
-          where: turn.id in ^turn_ids and not is_nil(turn.selected_input_refs),
-          select: {turn.id, turn.episode_id, turn.selected_input_refs}
-        )
-      )
+      turn_ids
+      |> TurnQuery.by_ids()
+      |> TurnQuery.with_selected_inputs()
+      |> TurnQuery.select_selected_inputs()
+      |> Repo.all()
 
     answered =
       turns
@@ -295,42 +275,18 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp current_revisions([]), do: %{}
 
   defp current_revisions(native_ids) do
-    Repo.all(
-      from(entry in Entry,
-        where:
-          entry.source_kind == "control_plane" and entry.source_ref == "local" and
-            entry.native_input_id in ^native_ids,
-        distinct: entry.native_input_id,
-        order_by: [
-          asc: entry.native_input_id,
-          desc: entry.revision,
-          desc: entry.inserted_at,
-          desc: entry.id
-        ],
-        select: {entry.native_input_id, {entry.revision, entry.event_kind}}
-      )
-    )
+    native_ids
+    |> ConversationTranscriptQuery.current_revisions()
+    |> Repo.all()
     |> Map.new()
   end
 
   defp routing_reactions([]), do: %{}
 
   defp routing_reactions(item_refs) do
-    Repo.all(
-      from(reaction in RoutingResponse,
-        where:
-          reaction.kind == :reaction and reaction.transport == "control_plane" and
-            reaction.source_item_ref in ^item_refs,
-        order_by: [asc: reaction.inserted_at, asc: reaction.id],
-        limit: ^(@page_maximum * 4),
-        select: %{
-          delivery_ref: reaction.delivery_ref,
-          emoji_name: fragment("(?::jsonb ->> 'emoji_name')", reaction.document),
-          source_item_ref: reaction.source_item_ref,
-          status: reaction.status
-        }
-      )
-    )
+    item_refs
+    |> ConversationTranscriptQuery.routing_reactions(@page_maximum * 4)
+    |> Repo.all()
     |> Enum.filter(&(is_binary(&1.emoji_name) and is_binary(&1.source_item_ref)))
     |> Enum.group_by(& &1.source_item_ref, &Map.delete(&1, :source_item_ref))
   end
@@ -338,21 +294,9 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp input_reaction_actions([]), do: %{}
 
   defp input_reaction_actions(item_refs) do
-    Repo.all(
-      from(action in PlatformAction,
-        where:
-          action.transport == "control_plane" and action.kind == :reaction and
-            action.source_item_ref in ^item_refs,
-        order_by: [asc: action.inserted_at, asc: action.id],
-        limit: ^(@page_maximum * 4),
-        select: %{
-          action_ref: action.action_ref,
-          document: action.document,
-          source_item_ref: action.source_item_ref,
-          status: action.status
-        }
-      )
-    )
+    item_refs
+    |> ConversationTranscriptQuery.work_reactions(@page_maximum * 4)
+    |> Repo.all()
     |> Enum.filter(&(is_map(&1.document) and is_binary(&1.document["emoji_name"])))
     |> Enum.group_by(& &1.source_item_ref, fn action ->
       %{
@@ -390,14 +334,8 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp card_records([]), do: []
 
-  defp card_records(refs) do
-    Repo.all(
-      from(record in Record,
-        where: record.ref in ^refs,
-        limit: @record_limit
-      )
-    )
-  end
+  defp card_records(refs),
+    do: refs |> RecordQuery.by_refs() |> RecordQuery.limit_to(@record_limit) |> Repo.all()
 
   defp put_card(record, cards, allowed) do
     key = {record.turn_id, record.ref}
@@ -425,14 +363,12 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   # Names, types and sizes only: a file's bytes are read when someone opens it.
   defp project_output_artifacts(turn_ids, conversation_id) do
-    Repo.all(
-      from(artifact in OutputArtifact,
-        where: artifact.turn_id in ^turn_ids,
-        order_by: [asc: artifact.name, asc: artifact.ref],
-        limit: ^(@page_maximum * 5),
-        select: struct(artifact, [:turn_id, :ref, :name, :media_type, :byte_size])
-      )
-    )
+    turn_ids
+    |> OutputArtifactQuery.by_turn_ids()
+    |> OutputArtifactQuery.ordered_by_name()
+    |> OutputArtifactQuery.limit_to(@page_maximum * 5)
+    |> OutputArtifactQuery.select_listing()
+    |> Repo.all()
     |> Map.new(&{{&1.turn_id, &1.ref}, output_artifact(&1, conversation_id)})
   end
 
@@ -741,7 +677,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp build_publication_message(publication, receipt, card, message) do
-    occurred_at = publication_position(publication)
+    occurred_at = PublicationPositionQuery.at(publication)
     identity = "publication:" <> publication.id
 
     %{
@@ -924,32 +860,4 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp bounded_refs(_values), do: []
-
-  @doc """
-  `publication_position/1` as SQL, for the pages that read publications in the
-  order the cursor places them. The two lived in different modules and
-  disagreed for a published draft without a published time, which then stood
-  at its review on a page and at its update in the cursor (2026-10-04 review).
-  """
-  defmacro publication_position_sql(publication) do
-    quote do
-      fragment(
-        "CASE WHEN ? = 'published' THEN COALESCE(?, ?, ?) ELSE COALESCE(?, ?, ?) END",
-        unquote(publication).status,
-        unquote(publication).published_at,
-        unquote(publication).updated_at,
-        unquote(publication).inserted_at,
-        unquote(publication).reviewed_at,
-        unquote(publication).updated_at,
-        unquote(publication).inserted_at
-      )
-    end
-  end
-
-  @doc "The delivery a publication currently shows; the cursor is placed at it."
-  def publication_position(publication) do
-    if publication.status == :published,
-      do: publication.published_at || publication.updated_at || publication.inserted_at,
-      else: publication.reviewed_at || publication.updated_at || publication.inserted_at
-  end
 end

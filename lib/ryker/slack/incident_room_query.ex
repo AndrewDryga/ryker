@@ -45,6 +45,12 @@ defmodule Ryker.Slack.IncidentRoomQuery do
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
+  def blocked(queryable \\ all()),
+    do: where(queryable, [slack_incident_rooms: r], r.status == :blocked)
+
+  def recently_updated_first(queryable),
+    do: order_by(queryable, [slack_incident_rooms: r], desc: r.updated_at, desc: r.id)
+
   @doc "Rooms of `workspace_ref` not closed yet."
   def open_in_workspace(workspace_ref) do
     where(

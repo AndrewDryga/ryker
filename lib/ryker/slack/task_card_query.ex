@@ -41,6 +41,12 @@ defmodule Ryker.Slack.TaskCardQuery do
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
+  def blocked(queryable \\ all()),
+    do: where(queryable, [slack_task_cards: c], c.status == :blocked)
+
+  def recently_updated_first(queryable),
+    do: order_by(queryable, [slack_task_cards: c], desc: c.updated_at, desc: c.id)
+
   @doc "The active card of `episode_id` whose last check is recorded."
   def checked_for(episode_id) do
     where(

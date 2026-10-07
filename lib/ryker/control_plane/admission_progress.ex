@@ -1,12 +1,8 @@
 defmodule Ryker.ControlPlane.AdmissionProgress do
   @moduledoc "Observed admission state for the current conversation, without model bodies or private diagnostics."
-  import Ecto.Query
-  require Ryker.ControlPlane.CurrentInputs
-  alias Ryker.Admission.Attempt
-  alias Ryker.ControlPlane.{CurrentInputs, Paths}
+  alias Ryker.ControlPlane.{ConversationQuery, Paths}
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Work.FailureCause
@@ -26,43 +22,9 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
     now = DateTime.utc_now()
     secrets = InspectionRedactor.configured_secrets()
 
-    Repo.all(
-      from(entry in Entry,
-        as: :revision,
-        inner_lateral_join: current in subquery(CurrentInputs.current()),
-        on: true,
-        left_join: attempt in Attempt,
-        on: attempt.input_id == entry.id and attempt.generation == entry.execution_generation,
-        left_join: retried in subquery(latest_retries()),
-        on: retried.input_id == entry.id,
-        where:
-          entry.destination_transport == "control_plane" and
-            entry.destination_conversation_ref == ^ref and entry.status in [:pending, :blocked],
-        order_by: [asc: entry.inserted_at, asc: entry.id],
-        limit: 20,
-        select: %{
-          id: entry.id,
-          native_input_id: entry.native_input_id,
-          status: entry.status,
-          received_at: entry.inserted_at,
-          retried_at: retried.at,
-          retry_at: entry.next_attempt_at,
-          leased: not is_nil(entry.lease_ref),
-          claims: entry.attempt_count,
-          generation: entry.execution_generation,
-          phase: attempt.phase,
-          observed_at: attempt.updated_at,
-          target: attempt.execution_target,
-          error_detail: entry.last_error_detail,
-          text:
-            CurrentInputs.visible_text(
-              current.operational_pruned_at,
-              current.event_kind,
-              current.content
-            )
-        }
-      )
-    )
+    ref
+    |> ConversationQuery.waiting_messages(20)
+    |> Repo.all()
     |> Enum.map(fn row ->
       %{
         id: row.id,
@@ -82,17 +44,6 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
         cause: stopped_cause(row)
       }
     end)
-  end
-
-  # A retried message is routed again from the retry: counting from when it
-  # first arrived read "Routing your message 307m 29s" on the live install
-  # (2026-09-26) for a message retried five hours after it stopped.
-  defp latest_retries do
-    from(transition in InputCustodyTransition,
-      where: transition.kind == :rearmed,
-      group_by: transition.input_id,
-      select: %{input_id: transition.input_id, at: max(transition.occurred_at)}
-    )
   end
 
   defp started_at(%{retried_at: %DateTime{} = retried}), do: retried

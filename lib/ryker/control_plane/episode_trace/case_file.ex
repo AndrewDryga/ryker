@@ -7,8 +7,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   import Ecto.Query
   import Ryker.ControlPlane.EpisodeTrace.Step
-  alias Ryker.ControlPlane.{ConsolePeople, CurrentInputs, Paths, ProviderMessage, SlackMarkdown}
-  alias Ryker.ControlPlane.SourceText
+  alias Ryker.ControlPlane.{ConsolePeople, CurrentInputQuery, Paths, ProviderMessage}
+  alias Ryker.ControlPlane.{SlackMarkdown, SourceText}
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.{Episode, RoutingDigests}
   alias Ryker.Ingress.Inbox.Entry
@@ -29,7 +29,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       disclosed: disclosed
     ]
 
-    base = from(entry in subquery(CurrentInputs.for_episode(episode_id)))
+    base = from(entry in subquery(CurrentInputQuery.for_episode(episode_id)))
 
     first =
       Repo.one(from(entry in base, order_by: [asc: entry.occurred_at, asc: entry.id], limit: 1))
@@ -134,7 +134,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     Repo.all(
       from(entry in Entry,
         as: :revision,
-        inner_lateral_join: current in subquery(CurrentInputs.current()),
+        inner_lateral_join: current in subquery(CurrentInputQuery.current()),
         on: true,
         where: entry.episode_id == ^episode_id,
         order_by: [desc: entry.occurred_at, desc: entry.id],

@@ -38,5 +38,12 @@ defmodule Ryker.Slack.InteractionAuditQuery do
     )
   end
 
+  def repaint_blocked(queryable \\ all()),
+    do: where(queryable, [slack_interaction_audit: a], a.repaint_status == :blocked)
+
+  def recently_updated_first(queryable),
+    do: order_by(queryable, [slack_interaction_audit: a], desc: a.updated_at, desc: a.id)
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 end

@@ -97,6 +97,12 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
   def by_dedupe_key(queryable \\ all(), dedupe_key),
     do: where(queryable, [ingress_inbox_entries: e], e.dedupe_key == ^dedupe_key)
 
+  def blocked(queryable \\ all()),
+    do: where(queryable, [ingress_inbox_entries: e], e.status == :blocked)
+
+  def recently_updated_first(queryable),
+    do: order_by(queryable, [ingress_inbox_entries: e], desc: e.updated_at, desc: e.id)
+
   def pending(queryable \\ all()),
     do: where(queryable, [ingress_inbox_entries: e], e.status == :pending)
 

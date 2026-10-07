@@ -17,7 +17,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   """
 
   import Ecto.Query
-  alias Ryker.ControlPlane.{Activity, ConsolePeople, CurrentInputs, FeedbackChart}
+  alias Ryker.ControlPlane.{Activity, ConsolePeople, CurrentInputQuery, FeedbackChart}
   alias Ryker.ControlPlane.{ImprovementProjection, PagedRelation, Paths, Search, SlackMarkdown}
   alias Ryker.Episodes.{Episode, RoutingDigest}
   alias Ryker.Feedback.Signal
@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Slack.Names
-  require CurrentInputs
+  require CurrentInputQuery
 
   @overview_rows 5
   @page_size 50
@@ -289,7 +289,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
         where: entry.id in ^ids,
         select:
           {entry.id, entry.destination_transport, entry.destination_conversation_ref,
-           CurrentInputs.visible_preview(
+           CurrentInputQuery.visible_preview(
              entry.operational_pruned_at,
              entry.event_kind,
              entry.content

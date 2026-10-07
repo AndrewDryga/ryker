@@ -1,10 +1,10 @@
 defmodule Ryker.ControlPlane.ModelRequests do
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
   import Ecto.Query
-  require Ryker.ControlPlane.CurrentInputs
+  require Ryker.ControlPlane.CurrentInputQuery
   alias Ryker.Accounting.ExecutionQuery
   alias Ryker.Admission.Attempt
-  alias Ryker.ControlPlane.{Activity, CallRun, ContextSearch, ContextSelection, CurrentInputs}
+  alias Ryker.ControlPlane.{Activity, CallRun, ContextSearch, ContextSelection, CurrentInputQuery}
   alias Ryker.ControlPlane.{EpisodeTrace, FeedbackProjection, ImprovementRequests}
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Step}
   alias Ryker.ControlPlane.{LearningRequests, PagedRelation, Paths, RepositoryNames}
@@ -629,7 +629,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     Repo.one!(
       from(message in Entry,
         where: message.id == ^entry.id,
-        select: CurrentInputs.input_state(message, ^now)
+        select: CurrentInputQuery.input_state(message, ^now)
       )
     )
   end

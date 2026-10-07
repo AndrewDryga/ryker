@@ -152,6 +152,13 @@ defmodule Ryker.Work.TurnQuery do
 
   def select_ids(queryable), do: select(queryable, [episode_work_turns: t], t.id)
 
+  def with_selected_inputs(queryable),
+    do: where(queryable, [episode_work_turns: t], not is_nil(t.selected_input_refs))
+
+  @doc "The inputs each turn chose to answer, as `{id, episode_id, selected_input_refs}`."
+  def select_selected_inputs(queryable),
+    do: select(queryable, [episode_work_turns: t], {t.id, t.episode_id, t.selected_input_refs})
+
   @doc "Each turn's Coop turn and when it was pruned, as `{coop_turn_id, operational_pruned_at}`."
   def select_pruning(queryable),
     do: select(queryable, [episode_work_turns: t], {t.coop_turn_id, t.operational_pruned_at})

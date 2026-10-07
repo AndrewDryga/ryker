@@ -1,19 +1,11 @@
 defmodule Ryker.ControlPlane.Activity do
   @moduledoc "A bounded conversation-first inbox, including work not yet admitted."
-  import Ecto.Query
-  require Ryker.ControlPlane.CurrentInputs
-  alias Ryker.ControlPlane.{ConversationProjection, CurrentInputs, PagedRelation, Paths}
+  alias Ryker.ControlPlane.{ActivityQuery, ConversationProjection, PagedRelation, Paths}
   alias Ryker.ControlPlane.{RepositoryNames, Search, ShortTime, SlackMarkdown, UsageProjection}
-  alias Ryker.Episodes.{Episode, RoutingDigest, Words}
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes.{EpisodeQuery, Words}
   alias Ryker.InspectionRedactor
-  alias Ryker.Operator.FailureDismissal
-  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Slack.Names
-  alias Ryker.Work.{Session, Turn}
 
   @page_size 30
 
@@ -33,15 +25,10 @@ defmodule Ryker.ControlPlane.Activity do
   def conversation_link(transport, conversation_ref, execution_mode)
       when is_binary(transport) and is_binary(conversation_ref) do
     count =
-      Repo.aggregate(
-        from(episode in Episode,
-          where:
-            episode.destination_transport == ^transport and
-              episode.destination_conversation_ref == ^conversation_ref and
-              episode.execution_mode == ^execution_mode
-        ),
-        :count
-      )
+      transport
+      |> EpisodeQuery.in_conversation(conversation_ref)
+      |> EpisodeQuery.in_mode(execution_mode)
+      |> Repo.aggregate(:count)
 
     if count > 1,
       do: %{
@@ -68,17 +55,7 @@ defmodule Ryker.ControlPlane.Activity do
   def conversation_filter_options do
     secrets = InspectionRedactor.configured_secrets()
 
-    # Each conversation's newest row, then the newest 500 of those: a limit
-    # beside DISTINCT ON kept the alphabetically first 500.
-    latest =
-      from(row in subquery(rows()),
-        distinct: [row.source, row.conversation],
-        order_by: [row.source, row.conversation, desc: row.updated_at]
-      )
-
-    rows =
-      from(row in subquery(latest), order_by: [desc: row.updated_at], limit: 500)
-      |> Repo.all()
+    rows = DateTime.utc_now() |> ActivityQuery.latest_per_conversation(500) |> Repo.all()
 
     chats =
       rows
@@ -136,8 +113,7 @@ defmodule Ryker.ControlPlane.Activity do
     refs = refs |> Enum.uniq() |> Enum.take(100)
     secrets = InspectionRedactor.configured_secrets()
 
-    rows =
-      Repo.all(from(row in subquery(rows()), where: row.kind == "episode" and row.ref in ^refs))
+    rows = DateTime.utc_now() |> ActivityQuery.requests(refs) |> Repo.all()
 
     names = repository_names(rows)
     Map.new(rows, fn row -> {row.ref, row |> present(secrets) |> named(names)} end)
@@ -178,10 +154,9 @@ defmodule Ryker.ControlPlane.Activity do
   """
   def list(params) do
     mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
-    base_query = from(row in subquery(rows()))
+    base_query = ActivityQuery.rows(DateTime.utc_now())
     searchable = Repo.exists?(base_query)
-    query = base_query
-    query = if mode == "all", do: query, else: from(row in query, where: row.mode == ^mode)
+    query = if mode == "all", do: base_query, else: ActivityQuery.in_mode(base_query, mode)
 
     query =
       query
@@ -214,200 +189,9 @@ defmodule Ryker.ControlPlane.Activity do
   end
 
   defp view_counts(query) do
-    counted =
-      from(row in query, group_by: row.bucket, select: {row.bucket, count()})
-      |> Repo.all()
-      |> Map.new()
+    counted = query |> ActivityQuery.bucket_counts() |> Repo.all() |> Map.new()
 
     Map.merge(%{"attention" => 0, "running" => 0, "done" => 0}, counted)
-  end
-
-  defp rows, do: union_all(episode_rows(), ^admission_rows(DateTime.utc_now()))
-
-  # The message that opened each request, as it reads now, read for that
-  # request alone.
-  defp first_input do
-    first =
-      from(entry in Entry,
-        where: entry.episode_id == parent_as(:episode).id,
-        order_by: [asc: entry.inserted_at, asc: entry.id],
-        limit: 1
-      )
-
-    from(entry in subquery(first),
-      as: :revision,
-      inner_lateral_join: current in subquery(CurrentInputs.current()),
-      on: true,
-      select: %{
-        content: current.content,
-        event_kind: current.event_kind,
-        pruned_at: current.operational_pruned_at,
-        repository: entry.repository_ref,
-        inserted_at: entry.inserted_at
-      }
-    )
-  end
-
-  defp episode_rows do
-    from(episode in Episode,
-      as: :episode,
-      left_lateral_join: input in subquery(first_input()),
-      on: true,
-      left_join: checkout in subquery(checkouts()),
-      on: checkout.episode_id == episode.id,
-      left_join: scheduled in subquery(scheduled_runs()),
-      on: scheduled.episode_id == episode.id,
-      left_join: turn in Turn,
-      on: ^holding_turn(),
-      left_join: left in FailureDismissal,
-      on:
-        left.kind == "delivery" and left.ref == turn.delivery_ref and
-          left.failure_summary == coalesce(turn.last_error_code, "delivery blocked"),
-      left_join: digest in RoutingDigest,
-      on: digest.episode_id == episode.id,
-      left_join: task in subquery(confirmed_tasks()),
-      on: task.episode_id == episode.id,
-      select: %{
-        id: episode.id,
-        kind: type(^"episode", :string),
-        episode_title: fragment("COALESCE(?, ?)", task.title, digest.title),
-        task_kind: task.kind,
-        schedule_title: scheduled.title,
-        ref: episode.key,
-        conversation: episode.destination_conversation_ref,
-        thread: episode.destination_thread_ref,
-        episode_state: fragment("?::text", episode.state),
-        mode: fragment("?::text", episode.execution_mode),
-        state:
-          fragment(
-            "CASE WHEN ? = 'blocked' THEN 'blocked' WHEN ? = 'delivery' THEN 'delivery_pending' ELSE ?::text END",
-            turn.status,
-            episode.owner_kind,
-            episode.state
-          ),
-        bucket:
-          fragment(
-            "CASE WHEN (? = 'blocked' AND ? IS NULL) OR ? = 'waiting_for_input' THEN 'attention' WHEN ? = 'blocked' OR ? IN ('complete','cancelled') THEN 'done' ELSE 'running' END",
-            turn.status,
-            left.kind,
-            episode.state,
-            turn.status,
-            episode.state
-          ),
-        source: episode.destination_transport,
-        repository: fragment("COALESCE(?, ?)", input.repository, checkout.repository),
-        source_available:
-          not is_nil(input.content) and is_nil(input.pruned_at) and input.event_kind != :delete,
-        text: CurrentInputs.visible_preview(input.pruned_at, input.event_kind, input.content),
-        started_at: fragment("LEAST(?, ?)", episode.inserted_at, input.inserted_at),
-        updated_at: episode.updated_at
-      }
-    )
-  end
-
-  # The turn that holds the request, or whose reply it is delivering: a reply
-  # Slack refused read as running, though it waited for a person, and leaving it
-  # on Failures changed nothing here (2026-10-04 review).
-  defp holding_turn do
-    dynamic(
-      [episode, _input, _checkout, _scheduled, turn],
-      turn.episode_id == episode.id and
-        ((episode.owner_kind == :turn and turn.turn_ref == episode.owner_ref) or
-           (episode.owner_kind == :delivery and turn.delivery_ref == episode.owner_ref))
-    )
-  end
-
-  # A deletion is a revision of a message that already has its row, which
-  # reads "Message deleted" from then on; as a row of its own it was a
-  # second "Message deleted" counted as one more request (manual testing,
-  # 2026-09-26). Routing settles deletions without a model, so no spend
-  # loses its row.
-  #
-  # A stopped message a person left as it is on Failures needs nobody now.
-  defp admission_rows(now) do
-    from(entry in Entry,
-      as: :revision,
-      inner_lateral_join: current in subquery(CurrentInputs.current()),
-      on: true,
-      left_join: left in FailureDismissal,
-      on:
-        left.kind == "admission" and
-          left.ref == fragment("'ingress-input:' || ?::text", entry.id) and
-          left.failure_summary == coalesce(entry.last_error_code, "admission blocked"),
-      where: is_nil(entry.episode_id),
-      where: entry.event_kind != :delete,
-      select: %{
-        id: entry.id,
-        kind: type(^"admission", :string),
-        episode_title: type(^nil, :string),
-        task_kind: type(^nil, :string),
-        schedule_title: type(^nil, :string),
-        ref: fragment("?::text", entry.id),
-        conversation: entry.destination_conversation_ref,
-        thread: entry.destination_thread_ref,
-        episode_state: type(^nil, :string),
-        mode: fragment("?::text", entry.execution_mode),
-        state: CurrentInputs.input_state(entry, ^now),
-        bucket:
-          fragment(
-            "CASE WHEN ? = 'blocked' AND ? IS NULL THEN 'attention' WHEN ? = 'pending' THEN 'running' ELSE 'done' END",
-            entry.status,
-            left.kind,
-            entry.status
-          ),
-        source: entry.destination_transport,
-        repository: entry.repository_ref,
-        source_available:
-          not is_nil(current.content) and is_nil(current.operational_pruned_at) and
-            current.event_kind != :delete,
-        text:
-          CurrentInputs.visible_preview(
-            current.operational_pruned_at,
-            current.event_kind,
-            current.content
-          ),
-        started_at: entry.inserted_at,
-        updated_at: entry.updated_at
-      }
-    )
-  end
-
-  # The repository the latest working copy checked out, for work whose
-  # message named none.
-  defp checkouts do
-    from(session in Session,
-      where: not is_nil(session.episode_id) and not is_nil(session.repository_ref),
-      distinct: session.episode_id,
-      order_by: [asc: session.episode_id, desc: session.generation],
-      select: %{episode_id: session.episode_id, repository: session.repository_ref}
-    )
-  end
-
-  # A task starts from its confirmation, not from a message: its row reads as the task, and says
-  # what kind of task it is (Andrew, 2026-10-01).
-  defp confirmed_tasks do
-    from(record in Record,
-      where:
-        record.kind == "task_offer" and record.status == :confirmed and
-          not is_nil(record.confirmed_episode_id),
-      select: %{
-        episode_id: record.confirmed_episode_id,
-        title: fragment("(?::jsonb)->>'title'", record.payload),
-        kind: fragment("(?::jsonb)->>'kind'", record.payload)
-      }
-    )
-  end
-
-  # A scheduled run starts from its schedule, not from a message.
-  defp scheduled_runs do
-    from(occurrence in ScheduleOccurrence,
-      join: schedule in Schedule,
-      on: schedule.id == occurrence.schedule_id,
-      where: not is_nil(occurrence.child_episode_id),
-      distinct: occurrence.child_episode_id,
-      order_by: [asc: occurrence.child_episode_id, asc: occurrence.scheduled_for],
-      select: %{episode_id: occurrence.child_episode_id, title: schedule.title}
-    )
   end
 
   # An episode reads as the name Work gave it; before any turn has named it,
@@ -472,7 +256,7 @@ defmodule Ryker.ControlPlane.Activity do
   defp source(_), do: "Integration"
 
   defp filter(query, value) when value in ~w(attention running done),
-    do: from(row in query, where: row.bucket == ^value)
+    do: ActivityQuery.in_bucket(query, value)
 
   defp filter(query, _), do: query
 
@@ -484,7 +268,7 @@ defmodule Ryker.ControlPlane.Activity do
         {key, column}, query ->
           case params[key] do
             value when is_binary(value) and byte_size(value) in 1..512 ->
-              from(row in query, where: field(row, ^column) == ^value)
+              ActivityQuery.with_column(query, column, value)
 
             _ ->
               query
@@ -502,46 +286,34 @@ defmodule Ryker.ControlPlane.Activity do
     end)
   end
 
-  defp criteria_filter(query, "state", value),
-    do: from(row in query, where: row.episode_state == ^value)
+  defp criteria_filter(query, "state", value), do: ActivityQuery.in_state(query, value)
 
   # The repository the row shows; the filter matched the one the work checked
   # out, though the row showed the one its message came with (2026-10-04
   # review).
   defp criteria_filter(query, "repository", value),
-    do: from(row in query, where: row.repository == ^value)
+    do: ActivityQuery.in_repository(query, value)
 
   # What a row shows, as it shows it: the name Work gave the request, the
   # repository as owner/repo and the channel by its name. Refs alone missed
   # all three (2026-10-04 review).
   defp search(query, text) when is_binary(text) and byte_size(text) > 0 do
-    shown = dynamic(^written(text) or ^named(text))
-    from(row in query, where: ^shown)
+    ActivityQuery.matching(
+      query,
+      Search.contains(text),
+      repositories_named(text),
+      Names.conversations_named(text)
+    )
   end
 
   defp search(query, _), do: query
 
-  defp written(text) do
-    pattern = Search.contains(text)
-
-    dynamic(
-      [row],
-      ilike(row.text, ^pattern) or ilike(row.episode_title, ^pattern) or
-        ilike(row.schedule_title, ^pattern) or ilike(row.ref, ^pattern) or
-        ilike(row.repository, ^pattern) or ilike(row.conversation, ^pattern)
-    )
-  end
-
   # The names a row shows for its refs: a repository as owner/repo, a channel by its name.
-  defp named(text) do
+  defp repositories_named(text) do
     needle = String.downcase(text)
 
-    repositories =
-      for {ref, name} <- RepositoryNames.all(),
-          String.contains?(String.downcase(name), needle),
-          do: ref
-
-    conversations = Names.conversations_named(text)
-    dynamic([row], row.repository in ^repositories or row.conversation in ^conversations)
+    for {ref, name} <- RepositoryNames.all(),
+        String.contains?(String.downcase(name), needle),
+        do: ref
   end
 end
