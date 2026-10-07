@@ -1113,7 +1113,7 @@ defmodule Ryker.Learning do
          :ok <- Rebuilds.authorize_run(run),
          {:ok, scope} <- Observations.locked_scope(first, first.repository_ref),
          true <- LearningSources.valid?(run.source_dependencies, scope),
-         :ok <- Knowledge.reauthorize(first, first.repository_ref, run.knowledge) do
+         :ok <- Knowledge.still_current(first, first.repository_ref, run.knowledge) do
       {:ok, entries, thread}
     else
       {:error, {:admission_rejected, :context_stale}} -> {:error, :learning_context_stale}

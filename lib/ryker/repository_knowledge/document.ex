@@ -21,8 +21,11 @@ defmodule Ryker.RepositoryKnowledge.Document do
   @guidance_names ~w(AGENTS.md CLAUDE.md GEMINI.md)
   @build_names ~w(Makefile GNUmakefile mix.exs go.mod go.work package.json Cargo.toml pyproject.toml Gemfile Dockerfile)
   @shell_operators ["&&", "||", ";", "|", ">", "<", "`", "$("]
-  # What `repository_knowledge` and its runs keep of a document.
-  @maximum_bytes 128_000
+  # What `repository_knowledge` and its runs keep of a document: what a Work
+  # turn's briefing carries whole (`Ryker.Work.SubmissionBuilder`). A document
+  # was kept up to 128,000 bytes and cut in the middle to 48 KiB there
+  # (2026-10-04 review); the largest live one was 16,473 bytes on 2026-10-07.
+  @maximum_bytes 48 * 1_024
   # The most entries of the tree the prompt and the outline list at once.
   @listed 200
 

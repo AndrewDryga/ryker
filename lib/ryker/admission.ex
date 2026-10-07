@@ -717,7 +717,7 @@ defmodule Ryker.Admission do
 
         with :ok <- Observations.reauthorize(entry, entry.repository_ref, context.observations),
              :ok <-
-               Knowledge.reauthorize(
+               Knowledge.still_current(
                  entry,
                  entry.repository_ref,
                  context.knowledge

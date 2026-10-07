@@ -255,7 +255,7 @@ defmodule Ryker.Admission.Executor do
 
   defp reauthorize_context(entry, context) do
     with :ok <- Observations.reauthorize(entry, entry.repository_ref, context.observations),
-         do: Knowledge.reauthorize(entry, entry.repository_ref, context.knowledge)
+         do: Knowledge.still_current(entry, entry.repository_ref, context.knowledge)
   end
 
   defp work_policy(_entry, %Decision{work_class: nil}, _settings), do: {:ok, nil}

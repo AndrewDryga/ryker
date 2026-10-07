@@ -235,7 +235,7 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
 
   # Review of the knowledge lane, 2026-09-28: the outline linked every
   # directory at the root. A repository with thousands of them got an
-  # outline past the 128,000 bytes Ryker keeps of a document, which the
+  # outline past the bytes Ryker keeps of a document, which the
   # database refused on every pass, so the repository never had one.
   test "the outline of a root with thousands of directories links 200 and says how many more" do
     entries =
@@ -249,12 +249,12 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
 
     assert length(Regex.scan(~r/^- \[/m, components)) == 200
     assert String.ends_with?(components, "\n\n…and 5,800 more.")
-    assert byte_size(outline) <= 128_000
+    assert byte_size(outline) <= 48 * 1_024
   end
 
   # Two hundred links still fit only while names are short: long non-Latin
   # names are escaped three bytes to one in a link, and an outline past the
-  # 128,000 bytes Ryker keeps was refused on every pass, so the repository
+  # bytes Ryker keeps was refused on every pass, so the repository
   # never had one.
   test "an outline of long names shows fewer of them and still fits" do
     name = String.duplicate("ü", 120)
@@ -265,7 +265,7 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
 
     outline = Document.outline(Document.tree(entries), nil, @commit, @date)
 
-    assert byte_size(outline) <= 128_000
+    assert byte_size(outline) <= 48 * 1_024
 
     [components] =
       Regex.run(~r/## Components\n\n(.*?)(?:\n\n## |\z)/s, outline, capture: :all_but_first)

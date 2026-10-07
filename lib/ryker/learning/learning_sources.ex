@@ -620,10 +620,15 @@ defmodule Ryker.Learning.LearningSources do
       source.repository_ref == receipt["repository_ref"]
   end
 
-  # What the conversation-memory horizon still keeps, by the database clock
-  # retention prunes by: judged by the host's, a source the database had
-  # expired stayed valid to learning (2026-10-04 review). Nil keeps all.
-  defp horizon_cutoff do
+  @doc """
+  What the conversation-memory horizon still keeps: anything retained after
+  this moment, by the database clock retention prunes by. Judged by the
+  host's, a source the database had expired stayed valid to learning
+  (2026-10-04 review). Nil keeps all. Learning, recall and a Work session's
+  snapshot all ask here.
+  """
+  @spec horizon_cutoff() :: DateTime.t() | nil
+  def horizon_cutoff do
     case retention_seconds() do
       seconds when is_integer(seconds) and seconds > 0 -> DateTime.add(Repo.now!(), -seconds)
       _unbounded -> nil

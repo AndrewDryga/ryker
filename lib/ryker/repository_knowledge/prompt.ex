@@ -372,7 +372,11 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
       &trim_list(&1, "key_files", 60, totals),
       &trim_list(&1, "top_level", 80, totals),
       &trim_list(&1, "key_files", 10, totals),
-      &trim_list(&1, "top_level", 20, totals)
+      &trim_list(&1, "top_level", 20, totals),
+      # Paths long enough to fill the request with thirty of them leave none:
+      # the bound held only while names were short (2026-10-04 review).
+      &trim_list(&1, "key_files", 0, totals),
+      &trim_list(&1, "top_level", 0, totals)
     ]
     |> Enum.reduce(context, fn step, context -> until_fits(instructions, context, step) end)
   end
@@ -426,6 +430,9 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   end
 
   @list_names %{"top_level" => "top-level entries", "key_files" => "key files"}
+
+  defp cut(key, 0, total),
+    do: "None of the #{number(total)} #{@list_names[key]}, cut for length."
 
   defp cut(key, shown, total),
     do: "Only the first #{shown} of #{number(total)} #{@list_names[key]}, cut for length."

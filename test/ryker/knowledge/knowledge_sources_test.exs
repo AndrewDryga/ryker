@@ -36,7 +36,7 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     assert revision.source_result_ref == "learning-result:host-contract-test"
     assert LearningSources.expand(revision.source_dependencies) == dependencies
     assert revision.source_input_id == List.last(entries).id
-    assert :ok = KnowledgeSnapshot.reauthorize(hd(entries), "tenant-infra", [item])
+    assert :ok = KnowledgeSnapshot.still_valid(hd(entries), "tenant-infra", [item])
 
     # Filling a derived observation later does not change the raw source.
     assert {:ok, :ok} =
@@ -45,7 +45,7 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
              end)
 
     assert [^item] = Knowledge.context(hd(entries), "tenant-infra")
-    assert :ok = KnowledgeSnapshot.reauthorize(hd(entries), "tenant-infra", [item])
+    assert :ok = KnowledgeSnapshot.still_valid(hd(entries), "tenant-infra", [item])
   end
 
   test "raw learning cannot reduce disclosed lineage to the claimed supporting sources" do
@@ -166,7 +166,7 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     assert Knowledge.context(hd(entries), "tenant-infra") == []
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.reauthorize(hd(entries), "tenant-infra", [item])
+             KnowledgeSnapshot.still_valid(hd(entries), "tenant-infra", [item])
   end
 
   test "an edit to a raw supporting input invalidates both recall and frozen Work" do
@@ -197,7 +197,7 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     assert Knowledge.context(List.last(entries), "tenant-infra") == []
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.reauthorize(List.last(entries), "tenant-infra", [item])
+             KnowledgeSnapshot.still_valid(List.last(entries), "tenant-infra", [item])
   end
 
   defp sources! do

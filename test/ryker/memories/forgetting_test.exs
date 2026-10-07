@@ -155,7 +155,7 @@ defmodule Ryker.Memories.ForgettingTest do
       )
 
     assert :ok =
-             KnowledgeSnapshot.reauthorize(second, second.repository_ref, [
+             KnowledgeSnapshot.still_valid(second, second.repository_ref, [
                document
              ])
 
@@ -164,7 +164,7 @@ defmodule Ryker.Memories.ForgettingTest do
     # The message stays a valid input Ryker answers (its own receipt still
     # holds); only the topic that rests on what learning took from it goes.
     assert {:error, _stale} =
-             KnowledgeSnapshot.reauthorize(second, second.repository_ref, [
+             KnowledgeSnapshot.still_valid(second, second.repository_ref, [
                document
              ])
   end

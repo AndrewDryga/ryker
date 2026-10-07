@@ -201,11 +201,15 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
   # What a row says of the repository's knowledge: what is under way, the
   # document Ryker keeps and who wrote it, why the last step failed, and when
-  # the next check is due. Ryker is the only place the document can be read.
+  # the next check is due. Ryker is the only place the document can be read,
+  # redacted as the run's prompt and answer are: it was shown whole, and it
+  # quotes the repository's own files (2026-10-04 review).
   defp knowledge_view(nil), do: nil
 
   defp knowledge_view(entry) do
-    Map.take(entry, [
+    entry
+    |> Map.update!(:document, &exact(&1, Redactor.configured_secrets()))
+    |> Map.take([
       :phase,
       :reason,
       :document,

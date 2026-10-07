@@ -88,6 +88,28 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
                 to: API
   end
 
+  # A GitHub that answers one read slowly, once armed: longer than the test's
+  # one-second lease. Halfway through, a rival worker tries to take the run.
+  defmodule SlowReadRemote do
+    alias Ryker.RepositoryKnowledge.Custody
+    alias Ryker.TestSupport.FakeGitHubRepository
+
+    defdelegate head(binding, repository), to: FakeGitHubRepository
+    defdelegate tree(binding, repository, commit), to: FakeGitHubRepository
+    defdelegate changes(binding, repository, base, head), to: FakeGitHubRepository
+
+    def read(binding, repository, path, ref) do
+      if Agent.get_and_update(__MODULE__, &{&1, false}) do
+        # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
+        Process.sleep(1_600)
+        rival = Custody.claim("knowledge-rival", %{lease_seconds: 60}, ["emisar"])
+        send(self(), {:rival_claim, rival})
+      end
+
+      FakeGitHubRepository.read(binding, repository, path, ref)
+    end
+  end
+
   # The fleet as a run's stop paths meet it: a source that could not be
   # prepared, a worker that cannot address the session it just created, a
   # submit whose answer was lost before Coop took it, and a submit Coop
@@ -296,6 +318,24 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     assert_received {:rival_claim, {:ok, :idle}}
     assert {:ok, :written} in results
+    assert Inspectors.repository_knowledge("emisar").document_by == :model
+  end
+
+  # Checking an answer reads the repository's tree and every file it cites
+  # from GitHub, which can outlast the lease. The lease was renewed once before
+  # the reads, so a slow read let another worker take the run halfway
+  # (2026-10-04 review); it is kept throughout, as a source preparation's is.
+  test "reading the files an answer cites keeps the run" do
+    github!()
+    ready!()
+    {:ok, _slow} = Agent.start_link(fn -> false end, name: SlowReadRemote)
+    coop = coop!([answer_json()])
+    step_until_submitted!(coop)
+    Agent.update(SlowReadRemote, fn _ -> true end)
+
+    drain(settings(coop, remote: SlowReadRemote, lease_seconds: 1))
+
+    assert_received {:rival_claim, {:ok, :idle}}
     assert Inspectors.repository_knowledge("emisar").document_by == :model
   end
 
@@ -565,7 +605,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   end
 
   # Review of the knowledge lane, 2026-09-28: the rendered RYKER.md had no
-  # bound of its own, but both tables keep at most 128,000 bytes of it. An
+  # bound of its own, but both tables keep at most 48 KiB of it. An
   # answer within every limit of the contract can render larger, since each
   # path is written twice in its link, once percent-encoded, and keeping it
   # raised at the database on every step. It is refused as unusable first.

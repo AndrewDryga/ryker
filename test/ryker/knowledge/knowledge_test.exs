@@ -301,7 +301,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     assert Knowledge.context(second, "tenant-infra") == []
 
     assert {:error, {:admission_rejected, :context_stale}} =
-             Knowledge.reauthorize(second, "tenant-infra", [current])
+             Knowledge.still_current(second, "tenant-infra", [current])
 
     assert length(Inspectors.knowledge_history(item["source_ref"])) == 2
   end
@@ -346,7 +346,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     assert Knowledge.context(target, "tenant-infra") == []
 
     assert {:error, {:admission_rejected, :context_stale}} =
-             Knowledge.reauthorize(target, "tenant-infra", [item])
+             Knowledge.still_current(target, "tenant-infra", [item])
 
     assert Knowledge.context(
              %{target | destination_conversation_ref: "slack:OTHER:C2"},
@@ -908,11 +908,11 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     [frozen] = Knowledge.context(first, "tenant-infra")
     second = input!(2, @resolved)
     learn!(second, @resolved, frozen)
-    assert :ok = KnowledgeSnapshot.reauthorize(first, "tenant-infra", [frozen])
+    assert :ok = KnowledgeSnapshot.still_valid(first, "tenant-infra", [frozen])
     _edit = input!(1, @resolved, revision: 2, kind: :delete)
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.reauthorize(first, "tenant-infra", [frozen])
+             KnowledgeSnapshot.still_valid(first, "tenant-infra", [frozen])
   end
 
   test "copying into a fresh topic cannot retain expired source prose or refresh its displayed expiry" do

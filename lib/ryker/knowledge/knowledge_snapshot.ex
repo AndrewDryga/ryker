@@ -1,6 +1,5 @@
 defmodule Ryker.Knowledge.KnowledgeSnapshot do
   @moduledoc "Reauthorize the sources of an exact retained knowledge revision used by Work."
-  alias Ryker.Config
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeExposure
   alias Ryker.Knowledge.KnowledgeRevision
@@ -57,7 +56,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
     with true <- turn.session_id == session.id,
          true <- session_valid?(destination, session),
-         :ok <- reauthorize(destination, session.repository_ref, knowledge),
+         :ok <- still_valid(destination, session.repository_ref, knowledge),
          references <- lock_dependency_heads!(sources),
          true <- sources_valid?(destination, session.repository_ref, sources) do
       Enum.each(references, &record_knowledge(&1, session, turn))
@@ -223,7 +222,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
         turn_id: turn.id,
         knowledge_id: reference["knowledge_id"],
         version: reference["through_version"],
-        inserted_at: DateTime.utc_now()
+        inserted_at: Repo.now!()
       },
       on_conflict: :nothing
     )
@@ -403,7 +402,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
            {knowledge, sources, _inherited} =
              document_context!(destination, repository, documents)
 
-           reauthorize(destination, repository, knowledge) == :ok and
+           still_valid(destination, repository, knowledge) == :ok and
              sources_valid?(destination, repository, sources)
          end) do
       {:ok, true} -> :ok
@@ -472,11 +471,18 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     end
   end
 
-  def reauthorize(_destination, _repository, []), do: :ok
+  @doc """
+  Whether each topic version in `documents` is still valid for `destination`:
+  visible, of the generation it was learned in, not pruned, and resting on
+  sources nobody forgot or edited. A Work session keeps a version it saw while
+  that holds, even after a newer one; routing and learning need the current
+  one (`Knowledge.still_current/3`).
+  """
+  def still_valid(_destination, _repository, []), do: :ok
 
-  def reauthorize(destination, repository, documents)
+  def still_valid(destination, repository, documents)
       when is_list(documents) and length(documents) <= 32 do
-    case Repo.transaction(fn -> reauthorize_locked(destination, repository, documents) end) do
+    case Repo.transaction(fn -> still_valid_locked(destination, repository, documents) end) do
       {:ok, true} -> :ok
       _ -> @stale
     end
@@ -485,9 +491,9 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       if Repo.conflict?(error), do: @stale, else: reraise(error, __STACKTRACE__)
   end
 
-  def reauthorize(_, _, _), do: @stale
+  def still_valid(_, _, _), do: @stale
 
-  defp reauthorize_locked(destination, repository, documents) do
+  defp still_valid_locked(destination, repository, documents) do
     case Observations.locked_scope(destination, repository) do
       {:ok, scope} -> Enum.all?(documents, &valid_document?(&1, scope))
       _ -> false
@@ -552,47 +558,29 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       |> Repo.all()
       |> Map.new(&{&1.id, &1})
 
+    cutoff = LearningSources.horizon_cutoff()
+
     document["topic_key"] == head.topic_key and
       document["conversation_ref"] == head.conversation_ref and
       document["repository_ref"] == head.repository_ref and
       document["source_count"] == length(sources) and
-      Enum.all?(sources, &source_valid?(&1, observations[&1.observation_id], head))
+      Enum.all?(sources, &source_valid?(&1, observations[&1.observation_id], head, cutoff))
   end
 
-  defp source_valid?(_source, nil, _head), do: false
+  defp source_valid?(_source, nil, _head, _cutoff), do: false
 
   # Forgetting keeps a message's revision and fingerprint, so the message stays a
   # valid input Ryker answers; what learning took from it does not. A topic
   # resting on a forgotten message passed this check and an open session kept
   # using it (2026-10-04 review).
-  defp source_valid?(source, observation, head) do
+  # Each source is judged against one horizon (`LearningSources.horizon_cutoff/0`):
+  # every source asked the database on its own, ten queries a topic on every
+  # turn (2026-10-04 review).
+  defp source_valid?(source, observation, head, cutoff) do
     is_nil(observation.forgotten_at) and source.source_revision == observation.revision and
       source.source_fingerprint == observation.source_fingerprint and
       observation.conversation_ref == head.conversation_ref and
       observation.workspace_ref == head.workspace_ref and
-      unexpired?(source.retained_at)
-  end
-
-  defp unexpired?(at) do
-    settings = Config.get_env(:retention) || %{}
-
-    seconds =
-      if is_list(settings),
-        do: Keyword.get(settings, :conversation_memory_seconds),
-        else: Map.get(settings, :conversation_memory_seconds)
-
-    case seconds do
-      seconds when is_integer(seconds) and seconds > 0 ->
-        %{rows: [[valid]]} =
-          Repo.query!("SELECT $1::timestamptz > clock_timestamp() - ($2 * interval '1 second')", [
-            at,
-            seconds
-          ])
-
-        valid
-
-      _ ->
-        true
-    end
+      (is_nil(cutoff) or DateTime.after?(source.retained_at, cutoff))
   end
 end

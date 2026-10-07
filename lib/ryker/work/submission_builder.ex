@@ -941,7 +941,7 @@ defmodule Ryker.Work.SubmissionBuilder do
       {:ok, %{document: content, document_sha256: sha256, document_commit: commit}}
       when is_binary(content) ->
         Map.put(context, "repository_knowledge", %{
-          "content" => CanonicalJSON.bounded(content, 48 * 1_024),
+          "content" => content,
           "sha256" => sha256,
           "source_commit" => commit
         })

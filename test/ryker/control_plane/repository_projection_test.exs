@@ -123,6 +123,26 @@ defmodule Ryker.ControlPlane.RepositoryProjectionTest do
     assert QueryWork.bytes_returned(statements, "repository_knowledge_runs") < 1_500_000
   end
 
+  # RYKER.md quotes the repository's own files, and its page showed it whole
+  # while the run that wrote it was redacted (2026-10-04 review). A token in
+  # it is shown redacted, as in the run's prompt and answer.
+  test "a repository's RYKER.md is shown redacted" do
+    token = "ghp_" <> String.duplicate("a1B2", 9)
+
+    Repo.insert!(%Ryker.RepositoryKnowledge.Entry{
+      repository_ref: "billing",
+      document: "# RYKER.md\n\nRun `TOKEN=#{token} make deploy`.\n",
+      document_sha256: String.duplicate("d", 64),
+      document_commit: String.duplicate("a", 40),
+      document_by: :model,
+      document_at: ~U[2026-10-01 08:00:00.000000Z]
+    })
+
+    assert {:ok, %{knowledge: %{document: document}}} = RepositoryProjection.fetch("billing")
+    assert document =~ "make deploy"
+    refute document =~ token
+  end
+
   defp knowledge_run!(repository, generation) do
     at = DateTime.add(~U[2026-10-01 08:00:00.000000Z], generation, :hour)
 

@@ -225,14 +225,18 @@ defmodule Ryker.RepositoryKnowledge.Executor do
     end
   end
 
+  # A lease another worker holds comes back as an error, never an exception.
+  # Every exception was read as a lost lease, so a dropped database
+  # connection was logged as another worker taking the run (2026-10-04
+  # review).
   defp renew_lease(claim, settings) do
     case Custody.renew(claim, settings.lease_seconds) do
       {:ok, _renewed} -> :ok
       {:error, reason} -> {:error, reason}
     end
   rescue
-    # A lease another worker holds now is not ours to renew.
-    _lost -> {:error, :repository_knowledge_lease_lost}
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, {:repository_knowledge_lease_renewal_failed, error.__struct__}}
   end
 
   defp located_session(
@@ -435,16 +439,10 @@ defmodule Ryker.RepositoryKnowledge.Executor do
 
   defp checked_document(claim, run, {repository, binding}, settings) do
     with {:ok, answer} <- Prompt.parse(run.result),
-         {:ok, _renewed} <- Custody.renew(claim, settings.lease_seconds),
-         {:ok, tree} <- remote_tree(settings, binding, repository, run.source_commit),
-         {:ok, sources} <-
-           sources(
-             settings,
-             binding,
-             repository,
-             run.source_commit,
-             Document.cited_sources(answer, tree)
-           ),
+         {:ok, tree, sources} <-
+           with_lease_kept(claim, settings, fn ->
+             read_cited(settings, binding, repository, run.source_commit, answer)
+           end),
          {:ok, _kept, dropped, document} <-
            Document.keep(answer, tree, sources, run.source_commit, Date.utc_today()) do
       with {:ok, _run} <- Custody.record_document(claim, run.id, document, dropped),
@@ -457,6 +455,15 @@ defmodule Ryker.RepositoryKnowledge.Executor do
       {:error, reason} ->
         {:retry, reason}
     end
+  end
+
+  # Reading the tree and every cited file can outlast the lease, which is
+  # kept meanwhile, as a source preparation's is (2026-10-04 review).
+  defp read_cited(settings, binding, repository, commit, answer) do
+    with {:ok, tree} <- remote_tree(settings, binding, repository, commit),
+         {:ok, sources} <-
+           sources(settings, binding, repository, commit, Document.cited_sources(answer, tree)),
+         do: {:ok, tree, sources}
   end
 
   defp remote_tree(settings, binding, repository, commit) do

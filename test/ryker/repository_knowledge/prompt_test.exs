@@ -190,6 +190,27 @@ defmodule Ryker.RepositoryKnowledge.PromptTest do
 
   # What the tree shows the prompt (`Document.outline_facts/1`), for emisar
   # unless other entries are given.
+  # Thirty paths fill a request when they are long enough: the bound held only
+  # while names were short, and a request past it went to Coop as it was
+  # (2026-10-04 review). The lists give way entirely, and say so.
+  test "paths long enough to fill a request leave none of their lists, and say so" do
+    request =
+      Prompt.build(%{
+        facts()
+        | key_files: Enum.map(1..60, &long_path/1),
+          top_level: Enum.map(1..90, &long_path/1),
+          more: %{key_files: 0, top_level: 0}
+      })
+
+    assert byte_size(CanonicalJSON.encode!(request)) <= @maximum_bytes
+    assert request["context"]["key_files"] == []
+    assert request["context"]["top_level"] == []
+    assert "None of the 60 key files, cut for length." in request["context"]["omitted"]
+    assert "None of the 90 top-level entries, cut for length." in request["context"]["omitted"]
+  end
+
+  defp long_path(n), do: String.duplicate("deeply/nested/", 280) <> "file-#{n}.md"
+
   defp facts(entries \\ entries!("emisar")) do
     entries
     |> Document.tree()

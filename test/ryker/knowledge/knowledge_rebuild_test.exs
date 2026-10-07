@@ -207,7 +207,7 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
         "updated_at" => DateTime.to_iso8601(summary.updated_at)
       })
 
-    assert :ok = KnowledgeSnapshot.reauthorize(first, first.repository_ref, [first_document])
+    assert :ok = KnowledgeSnapshot.still_valid(first, first.repository_ref, [first_document])
     assert :ok = KnowledgeSnapshot.authorize_session(warm.episode, warm.session)
 
     assert :ok =
@@ -222,7 +222,7 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
     Repo.update!(Ecto.Changeset.change(head, source_generation: head.source_generation + 1))
 
     assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.reauthorize(first, first.repository_ref, [first_document])
+             KnowledgeSnapshot.still_valid(first, first.repository_ref, [first_document])
 
     assert {:error, :work_knowledge_context_stale} =
              KnowledgeSnapshot.authorize_session(warm.episode, warm.session)

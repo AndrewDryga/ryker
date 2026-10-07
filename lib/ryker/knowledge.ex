@@ -7,7 +7,6 @@ defmodule Ryker.Knowledge do
   """
   alias Ryker.AdvisoryLock
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Config
   alias Ryker.Crypto
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.ConversationKnowledge
@@ -113,11 +112,18 @@ defmodule Ryker.Knowledge do
     end
   end
 
-  def reauthorize(_destination, _repository_ref, []), do: :ok
+  @doc """
+  Whether the topics `frozen` holds are still exactly what `destination` sees
+  now, version for version: what routing and learning were offered must be
+  current when they act, or the decision is made again. A Work session keeps
+  what it saw while it stays valid instead (`KnowledgeSnapshot.still_valid/3`);
+  both were called `reauthorize/3` (2026-10-04 review).
+  """
+  def still_current(_destination, _repository_ref, []), do: :ok
 
-  def reauthorize(destination, repository_ref, frozen)
+  def still_current(destination, repository_ref, frozen)
       when is_list(frozen) and length(frozen) <= 32 do
-    case Repo.transaction(fn -> reauthorize_locked(destination, repository_ref, frozen) end) do
+    case Repo.transaction(fn -> still_current_locked(destination, repository_ref, frozen) end) do
       {:ok, true} -> :ok
       _ -> @stale
     end
@@ -126,9 +132,9 @@ defmodule Ryker.Knowledge do
       if Repo.conflict?(error), do: @stale, else: reraise(error, __STACKTRACE__)
   end
 
-  def reauthorize(_, _, _), do: @stale
+  def still_current(_, _, _), do: @stale
 
-  defp reauthorize_locked(destination, repository_ref, frozen) do
+  defp still_current_locked(destination, repository_ref, frozen) do
     with {:ok, scope} <- Observations.locked_scope(destination, repository_ref),
          ids = Enum.map(frozen, &id(&1["source_ref"])),
          true <- Enum.all?(ids, &is_binary/1) do
@@ -262,7 +268,7 @@ defmodule Ryker.Knowledge do
          :ok <- validate_anchors(entries, proposal, offered),
          {:ok, scope} <- Observations.locked_scope(entry, entry.repository_ref),
          {:ok, source} <- raw_sources(entries, dependencies, result_ref, scope, offered),
-         :ok <- reauthorize(entry, entry.repository_ref, offered) do
+         :ok <- still_current(entry, entry.repository_ref, offered) do
       {:ok, scope, source, proposal}
     else
       {:error, :knowledge_anchor_not_sourced} = error -> error
@@ -942,16 +948,7 @@ defmodule Ryker.Knowledge do
   defp id("knowledge:" <> id), do: if(Ecto.UUID.cast(id) == {:ok, id}, do: id)
   defp id(_), do: nil
 
-  defp retention_seconds do
-    settings = Config.get_env(:retention) || %{}
-
-    value =
-      if is_list(settings),
-        do: Keyword.get(settings, :conversation_memory_seconds),
-        else: Map.get(settings, :conversation_memory_seconds)
-
-    if is_integer(value) and value > 0, do: value
-  end
+  defp retention_seconds, do: LearningSources.retention_seconds()
 
   # -- PubSub ------------------------------------------------------------------
 

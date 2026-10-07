@@ -220,7 +220,7 @@ defmodule Ryker.Continuity.ContinuityTest do
              end)
 
     assert :ok = KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
-    assert :ok = KnowledgeSnapshot.reauthorize(work.episode, "ryker", [topic])
+    assert :ok = KnowledgeSnapshot.still_valid(work.episode, "ryker", [topic])
     KnowledgeFixtures.revoke!(original)
 
     assert {:error, :work_knowledge_context_stale} =

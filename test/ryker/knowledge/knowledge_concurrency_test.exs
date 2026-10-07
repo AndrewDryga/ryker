@@ -214,7 +214,7 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
       first =
         unboxed_task(fn ->
           safely_update(fn ->
-            :ok = Knowledge.reauthorize(entry_a, nil, offered_a)
+            :ok = Knowledge.still_current(entry_a, nil, offered_a)
             send(parent, {:first_locked, backend_pid()})
 
             receive do: (:update ->
@@ -233,7 +233,7 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
           safely_update(fn ->
             send(parent, {:second_started, backend_pid()})
 
-            with :ok <- Knowledge.reauthorize(entry_b, nil, offered_b) do
+            with :ok <- Knowledge.still_current(entry_b, nil, offered_b) do
               Ryker.Fixtures.Knowledge.record_topic(entry_b, proposal(item_b), offered_b)
             end
           end)
@@ -400,7 +400,7 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
 
               if unquote(boundary) == :recall,
                 do: Knowledge.context(target, nil),
-                else: Knowledge.reauthorize(target, nil, frozen)
+                else: Knowledge.still_current(target, nil, frozen)
             end)
           end)
 
