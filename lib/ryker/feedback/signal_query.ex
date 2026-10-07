@@ -56,6 +56,9 @@ defmodule Ryker.Feedback.SignalQuery do
     )
   end
 
+  def in_categories(queryable, categories),
+    do: where(queryable, [answer_feedback: s], s.category in ^categories)
+
   def count_by_category(queryable) do
     queryable
     |> group_by([answer_feedback: s], s.category)

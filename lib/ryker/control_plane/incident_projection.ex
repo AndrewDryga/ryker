@@ -7,21 +7,17 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   its investigation changes (`subscriptions/1`).
   """
 
-  import Ecto.Query
-  require Ryker.ControlPlane.CurrentInputQuery
   alias Ryker.Accounting.ExecutionQuery
-  alias Ryker.ControlPlane.{ConsolePeople, CurrentInputQuery, Environments, PagedRelation}
+  alias Ryker.ControlPlane.{ConsolePeople, Environments, IncidentReportQuery, PagedRelation}
   alias Ryker.ControlPlane.{RepositoryNames, Search, UsageProjection}
   alias Ryker.Delivery.ChatCard
   alias Ryker.{Episodes, InspectionRedactor, Settings}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes.EpisodeQuery
   alias Ryker.Operator.FailureDetail
-  alias Ryker.Publication.Publication
-  alias Ryker.Records.Record
+  alias Ryker.Records.{Record, RecordQuery}
   alias Ryker.Repo
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, IncidentRooms, Names}
-  alias Ryker.Work.Turn
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEventQuery, IncidentRoomQuery}
+  alias Ryker.Slack.{IncidentRooms, Names}
 
   @detail_limit 200
   @statuses ~w(requested ready blocked closed)a
@@ -34,11 +30,10 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   it names.
   """
   def subscriptions(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    investigation =
-      case Repo.one(from(room in IncidentRoom, where: room.ref == ^ref, select: room.episode_id)) do
-        nil -> []
-        episode_id -> [{Episodes, :subscribe_episode, [episode_id]}]
-      end
+    episode_id =
+      ref |> IncidentRoomQuery.by_ref() |> IncidentRoomQuery.select_episode_ids() |> Repo.one()
+
+    investigation = if episode_id, do: [{Episodes, :subscribe_episode, [episode_id]}], else: []
 
     [{IncidentRooms, :subscribe_room, [ref]}, {Settings, :subscribe, []}] ++ investigation
   end
@@ -54,48 +49,12 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   review).
   """
   def list(params) when is_map(params) do
-    latest_publications =
-      from(publication in Publication,
-        distinct: publication.episode_id,
-        order_by: [
-          asc: publication.episode_id,
-          desc: publication.updated_at,
-          desc: publication.id
-        ],
-        select: %{
-          episode_id: publication.episode_id,
-          ref: publication.ref,
-          status: publication.status
-        }
-      )
-
-    searched = incident_search(IncidentRoom, Search.term(params["q"]))
+    searched = incident_search(IncidentRoomQuery.all(), Search.term(params["q"]))
     filtered = incident_status(searched, Search.one_of(params["status"], @statuses))
 
     page =
-      from(room in filtered,
-        left_join: episode in Episode,
-        on: episode.id == room.episode_id,
-        left_join: publication in subquery(latest_publications),
-        on: publication.episode_id == room.episode_id,
-        select: %{
-          channel_name: room.channel_name,
-          channel_ref: room.channel_ref,
-          channel_state: room.channel_state,
-          closing: not is_nil(room.close_requested_at) and room.status != :closed,
-          episode_id: room.episode_id,
-          private: room.private,
-          publication_ref: publication.ref,
-          publication_status: publication.status,
-          ref: room.ref,
-          repository_ref: room.repository_ref,
-          requested_at: room.requested_at,
-          status: room.status,
-          title: room.title,
-          updated_at: room.updated_at,
-          workspace_ref: room.workspace_ref
-        }
-      )
+      filtered
+      |> IncidentReportQuery.directory()
       # Newest opened first: the page heads each day with when rooms opened.
       |> PagedRelation.read(
         [desc_nulls_last: :requested_at, desc: :updated_at, desc: :id],
@@ -113,10 +72,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
         &Map.put(&1, :repository_name, RepositoryNames.name(names, &1.repository_ref))
       )
     )
-    |> Map.put(
-      :open,
-      Repo.aggregate(from(room in searched, where: room.status == :ready), :count)
-    )
+    |> Map.put(:open, searched |> IncidentReportQuery.in_status(:ready) |> Repo.aggregate(:count))
   end
 
   def list(_params), do: list(%{})
@@ -135,12 +91,14 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   Message text is redacted before it leaves here.
   """
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(from(room in IncidentRoom, where: room.ref == ^ref, limit: 1)) do
+    found = ref |> IncidentRoomQuery.by_ref() |> IncidentRoomQuery.limit_to(1) |> Repo.one()
+
+    case found do
       nil ->
         :not_found
 
       room ->
-        episode = if room.episode_id, do: Repo.get(Episode, room.episode_id)
+        episode = if room.episode_id, do: Repo.one(EpisodeQuery.by_id(room.episode_id))
         names = RepositoryNames.all()
         secrets = InspectionRedactor.configured_secrets()
         alert = alert(room, secrets)
@@ -206,12 +164,10 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp alert(%IncidentRoom{source_episode_id: nil}, _secrets), do: nil
 
   defp alert(room, secrets) do
-    from(entry in Entry,
-      where: entry.episode_id == ^room.source_episode_id and entry.event_kind == :message,
-      order_by: [asc: entry.occurred_at, asc: entry.id],
-      limit: 1
-    )
-    |> said()
+    room.source_episode_id
+    |> IncidentReportQuery.messages()
+    |> IncidentReportQuery.first_said()
+    |> IncidentReportQuery.limit_to(1)
     |> Repo.one()
     |> message(secrets)
   end
@@ -223,56 +179,23 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   defp conversation(episode_id, alert, secrets) do
     people =
-      from(entry in Entry,
-        where: entry.episode_id == ^episode_id and entry.event_kind == :message,
-        order_by: [desc: entry.occurred_at, desc: entry.id],
-        limit: @detail_limit
-      )
-      |> said()
+      episode_id
+      |> IncidentReportQuery.messages()
+      |> IncidentReportQuery.last_said()
+      |> IncidentReportQuery.limit_to(@detail_limit)
       |> Repo.all()
       |> Enum.reject(&(alert && &1.id == alert.id))
       |> Enum.map(&message(&1, secrets))
 
     ryker =
-      Repo.all(
-        from(turn in Turn,
-          where:
-            turn.episode_id == ^episode_id and not is_nil(turn.delivered_at) and
-              fragment("?::jsonb->>'delivery' = 'reply'", turn.delivery_document),
-          order_by: [desc: turn.delivered_at, desc: turn.id],
-          limit: @detail_limit,
-          select: %{
-            at: turn.delivered_at,
-            id: turn.id,
-            text: fragment("left(?::jsonb->>'message', 12000)", turn.delivery_document)
-          }
-        )
-      )
+      episode_id
+      |> IncidentReportQuery.replies(@detail_limit)
+      |> Repo.all()
       |> Enum.map(
         &%{at: &1.at, from: :ryker, id: &1.id, text: redacted(&1.text, secrets), workspace: nil}
       )
 
     Enum.sort_by(people ++ ryker, &DateTime.to_unix(&1.at, :microsecond))
-  end
-
-  defp said(query) do
-    from(entry in query,
-      select: %{
-        actor_kind: entry.actor_kind,
-        actor_ref: entry.actor_ref,
-        at: entry.occurred_at,
-        conversation_ref: entry.destination_conversation_ref,
-        id: entry.id,
-        source_kind: entry.source_kind,
-        source_ref: entry.source_ref,
-        text:
-          CurrentInputQuery.visible_preview(
-            entry.operational_pruned_at,
-            entry.event_kind,
-            entry.content
-          )
-      }
-    )
   end
 
   # Who said it, as the request page's thread says it: a Slack person by name,
@@ -325,24 +248,19 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp accounting(nil), do: nil
 
   defp accounting(episode_id) do
-    ExecutionQuery.ledger(nil, "all")
-    |> where([execution], execution.episode_id == ^episode_id)
+    nil
+    |> ExecutionQuery.ledger("all")
+    |> ExecutionQuery.of_episode(episode_id)
     |> UsageProjection.totals()
   end
 
   defp lifecycle(room) do
-    Repo.all(
-      from(event in IncidentRoomLifecycleEvent,
-        where: event.room_id == ^room.id,
-        order_by: [asc: event.occurred_at, asc: event.id],
-        limit: @detail_limit,
-        select: %{
-          kind: event.kind,
-          occurred_at: event.occurred_at,
-          channel_ref: event.channel_ref
-        }
-      )
-    )
+    room.id
+    |> IncidentRoomLifecycleEventQuery.of_room()
+    |> IncidentRoomLifecycleEventQuery.in_order()
+    |> IncidentRoomLifecycleEventQuery.limit_to(@detail_limit)
+    |> IncidentRoomLifecycleEventQuery.select_timeline()
+    |> Repo.all()
   end
 
   # The newest records, oldest first: the page leads with the latest update,
@@ -350,13 +268,11 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp records(nil), do: []
 
   defp records(episode_id) do
-    Repo.all(
-      from(record in Record,
-        where: record.episode_id == ^episode_id,
-        order_by: [desc: record.sequence, desc: record.id],
-        limit: @detail_limit
-      )
-    )
+    episode_id
+    |> RecordQuery.by_episode_id()
+    |> RecordQuery.latest_sequence_first()
+    |> RecordQuery.limit_to(@detail_limit)
+    |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(&record/1)
   end
@@ -364,24 +280,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp publication(nil, _names), do: nil
 
   defp publication(episode_id, names) do
-    Repo.one(
-      from(publication in Publication,
-        where: publication.episode_id == ^episode_id,
-        order_by: [desc: publication.updated_at, desc: publication.id],
-        limit: 1,
-        select: %{
-          branch_ref: publication.branch_ref,
-          commit_sha: publication.commit_sha,
-          last_error: publication.last_error_detail,
-          pr_number: publication.pull_request_number,
-          pr_url: publication.pull_request_url,
-          ref: publication.ref,
-          repository: publication.repository,
-          status: publication.status,
-          updated_at: publication.updated_at
-        }
-      )
-    )
+    episode_id
+    |> IncidentReportQuery.latest_publication()
+    |> Repo.one()
     |> sanitize_publication()
     |> then(&(&1 && %{&1 | repository: RepositoryNames.name(names, &1.repository)}))
   end
@@ -454,21 +355,12 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   defp incident_status(query, nil), do: query
 
-  defp incident_status(query, status),
-    do: from(room in query, where: room.status == ^status)
+  defp incident_status(query, status), do: IncidentReportQuery.in_status(query, status)
 
   defp incident_search(query, nil), do: query
 
-  defp incident_search(query, search) do
-    pattern = Search.contains(search)
-
-    from(room in query,
-      where:
-        ilike(room.ref, ^pattern) or ilike(room.title, ^pattern) or
-          ilike(room.repository_ref, ^pattern) or ilike(room.workspace_ref, ^pattern) or
-          ilike(room.source_channel_ref, ^pattern) or ilike(room.channel_ref, ^pattern)
-    )
-  end
+  defp incident_search(query, search),
+    do: IncidentReportQuery.matching(query, Search.contains(search))
 
   defp sanitize_publication(nil), do: nil
 

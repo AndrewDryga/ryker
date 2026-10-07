@@ -89,6 +89,9 @@ defmodule Ryker.Accounting.ExecutionQuery do
 
   def recorded_before(ledger, to), do: where(ledger, [ledger: e], e.recorded_at < ^to)
 
+  @doc "Every execution of request `episode_id`."
+  def of_episode(ledger, episode_id), do: where(ledger, [ledger: e], e.episode_id == ^episode_id)
+
   @doc "Every routing call made for message `input_id`."
   def admission_calls(ledger, input_id),
     do: where(ledger, [ledger: e], e.kind == "admission" and e.source_id == ^input_id)

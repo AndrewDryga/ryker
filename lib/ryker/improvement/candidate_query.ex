@@ -169,6 +169,39 @@ defmodule Ryker.Improvement.CandidateQuery do
     )
   end
 
+  def in_category(queryable, category),
+    do: where(queryable, [improvement_candidates: c], c.category == ^category)
+
+  def select_statuses(queryable), do: select(queryable, [improvement_candidates: c], c.status)
+
+  @doc "How many candidates each decision holds, as `{status, count}`."
+  def count_by_status(queryable) do
+    queryable
+    |> group_by([improvement_candidates: c], c.status)
+    |> select([improvement_candidates: c], {c.status, count()})
+  end
+
+  @doc """
+  The order What to fix lists candidates in: newest day first, and within a
+  day the surest diagnosis first, then the newest; the id breaks ties so no
+  row repeats or goes missing between pages.
+  """
+  def review_order do
+    [
+      desc: dynamic([improvement_candidates: c], fragment("date(?)", c.last_signal_at)),
+      desc:
+        dynamic(
+          [improvement_candidates: c],
+          fragment(
+            "CASE ? WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END",
+            c.confidence
+          )
+        ),
+      desc: dynamic([improvement_candidates: c], c.last_signal_at),
+      desc: dynamic([improvement_candidates: c], c.id)
+    ]
+  end
+
   def count_by_category(queryable) do
     queryable
     |> where([improvement_candidates: c], not is_nil(c.category))

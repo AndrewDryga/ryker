@@ -8,20 +8,11 @@ defmodule Ryker.ControlPlane.ChannelContext do
   accounts a recall or starts learning.
   """
 
-  import Ecto.Query
-  alias Ryker.Behaviors.Behavior
   alias Ryker.Config
-  alias Ryker.Continuity.ConversationSummary
-  alias Ryker.Continuity.ConversationSummaryDraft
-  alias Ryker.ControlPlane.{BehaviorLibrary, BehaviorPage, ChannelScope, ConversationMemory}
-  alias Ryker.ControlPlane.PagedRelation
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Knowledge.ConversationKnowledge
-  alias Ryker.Learning.{Batch, InputMembership}
-  alias Ryker.Memories.MemoryEntry
+  alias Ryker.ControlPlane.{BehaviorLibrary, BehaviorPage, ChannelContextQuery, ChannelScope}
+  alias Ryker.ControlPlane.{ConversationMemory, LearningActivityQuery, PagedRelation}
+  alias Ryker.Learning.BatchQuery
   alias Ryker.Repo
-  alias Ryker.Work.Turn
 
   @doc """
   Standing rules that target exactly this conversation and are current.
@@ -33,15 +24,8 @@ defmodule Ryker.ControlPlane.ChannelContext do
   @spec rules(ChannelScope.t(), map()) :: PagedRelation.t()
   def rules(scope, params) do
     relation =
-      from(behavior in Behavior,
-        where:
-          behavior.kind == :standing_assignment and
-            behavior.workspace_ref == ^scope.canonical_workspace_ref and
-            behavior.scope_kind == :conversation and
-            behavior.scope_ref == ^scope.conversation_ref and
-            behavior.status in [:active, :disabled] and
-            (is_nil(behavior.expires_at) or behavior.expires_at > fragment("clock_timestamp()"))
-      )
+      scope
+      |> ChannelContextQuery.rules()
       |> read("rule_page", [desc: :updated_at, desc: :id], params)
 
     items =
@@ -68,8 +52,8 @@ defmodule Ryker.ControlPlane.ChannelContext do
   def preferences(scope, params) do
     relation =
       :preference
-      |> effective_behaviors(scope)
-      |> read("preference_page", inherited_order(), params)
+      |> ChannelContextQuery.effective_behaviors(scope)
+      |> read("preference_page", ChannelContextQuery.inherited_order(), params)
 
     items =
       Enum.map(relation.items, fn behavior ->
@@ -97,15 +81,9 @@ defmodule Ryker.ControlPlane.ChannelContext do
   @spec guidance(ChannelScope.t(), map()) :: PagedRelation.t()
   def guidance(scope, params) do
     relation =
-      :guidance
-      |> effective_behaviors(scope)
-      |> where(
-        [behavior],
-        fragment("(?::jsonb)->>'visibility'", behavior.payload) == "workspace" or
-          (fragment("(?::jsonb)->>'visibility' IN ('conversation', 'private')", behavior.payload) and
-             behavior.source_conversation_ref == ^scope.conversation_ref)
-      )
-      |> read("guidance_page", inherited_order(), params)
+      scope
+      |> ChannelContextQuery.recalled_guidance()
+      |> read("guidance_page", ChannelContextQuery.inherited_order(), params)
 
     items =
       Enum.map(relation.items, fn behavior ->
@@ -133,17 +111,9 @@ defmodule Ryker.ControlPlane.ChannelContext do
   @spec memory(ChannelScope.t(), map()) :: PagedRelation.t()
   def memory(scope, params) do
     relation =
-      from(entry in MemoryEntry,
-        where:
-          entry.status == :active and
-            (is_nil(entry.expires_at) or entry.expires_at > fragment("clock_timestamp()")),
-        where: ^memory_scope(scope),
-        where:
-          entry.visibility in [:workspace, :global] or
-            (entry.visibility == :conversation and
-               entry.source_conversation_ref == ^scope.conversation_ref)
-      )
-      |> read("memory_page", inherited_order(), params)
+      scope
+      |> ChannelContextQuery.memory()
+      |> read("memory_page", ChannelContextQuery.inherited_order(), params)
 
     items =
       Enum.map(relation.items, fn entry ->
@@ -168,60 +138,6 @@ defmodule Ryker.ControlPlane.ChannelContext do
       end)
 
     %{relation | items: items}
-  end
-
-  defp memory_scope(scope) do
-    dynamic(
-      [entry],
-      entry.scope_kind == :global or
-        (entry.workspace_ref == ^scope.canonical_workspace_ref and ^scoped(scope))
-    )
-  end
-
-  defp effective_behaviors(kind, scope) do
-    from(behavior in Behavior,
-      where:
-        behavior.kind == ^kind and behavior.status == :active and
-          behavior.workspace_ref == ^scope.canonical_workspace_ref and
-          (is_nil(behavior.expires_at) or behavior.expires_at > fragment("clock_timestamp()")),
-      where: ^scoped(scope)
-    )
-  end
-
-  # Exact conversation, the repository the channel's environment changes
-  # when there is one, or the workspace. Operator scope needs an actor
-  # context the page does not have.
-  defp scoped(%ChannelScope{repository_ref: repository} = scope) when is_binary(repository) do
-    dynamic(
-      [row],
-      (row.scope_kind == :conversation and row.scope_ref == ^scope.conversation_ref) or
-        (row.scope_kind == :repository and row.scope_ref == ^repository) or
-        (row.scope_kind == :workspace and row.scope_ref == ^scope.canonical_workspace_ref)
-    )
-  end
-
-  defp scoped(scope) do
-    dynamic(
-      [row],
-      (row.scope_kind == :conversation and row.scope_ref == ^scope.conversation_ref) or
-        (row.scope_kind == :workspace and row.scope_ref == ^scope.canonical_workspace_ref)
-    )
-  end
-
-  # Most specific first, as the runtime resolves precedence; then newest.
-  defp inherited_order do
-    [
-      asc:
-        dynamic(
-          [row],
-          fragment(
-            "CASE ? WHEN 'conversation' THEN 0 WHEN 'repository' THEN 1 WHEN 'workspace' THEN 2 ELSE 3 END",
-            row.scope_kind
-          )
-        ),
-      desc: :updated_at,
-      desc: :id
-    ]
   end
 
   defp safe_payload(behavior), do: BehaviorLibrary.sanitize(%{payload: behavior.payload}).payload
@@ -250,12 +166,8 @@ defmodule Ryker.ControlPlane.ChannelContext do
   @spec summaries(ChannelScope.t(), map()) :: PagedRelation.t()
   def summaries(scope, params) do
     relation =
-      from(summary in ConversationSummary,
-        where:
-          summary.transport == "slack" and
-            summary.workspace_ref == ^scope.canonical_workspace_ref and
-            summary.conversation_ref == ^scope.conversation_ref
-      )
+      scope
+      |> ChannelContextQuery.summaries()
       |> read("summary_page", [desc: :updated_at, desc: :id], params)
 
     items =
@@ -293,43 +205,18 @@ defmodule Ryker.ControlPlane.ChannelContext do
           handover_failures: non_neg_integer()
         }
   def continuity(scope) do
-    drafts =
-      from(draft in ConversationSummaryDraft,
-        join: episode in Episode,
-        on: episode.id == draft.episode_id
-      )
-
-    failures =
-      from(turn in Turn,
-        join: episode in Episode,
-        on: episode.id == turn.episode_id,
-        where: not is_nil(turn.summary_error_code)
-      )
-
     %{
-      drafts: Repo.aggregate(delivered_to(drafts, scope), :count),
-      handover_failures: Repo.aggregate(delivered_to(failures, scope), :count)
+      drafts: Repo.aggregate(ChannelContextQuery.summary_drafts(scope), :count),
+      handover_failures: Repo.aggregate(ChannelContextQuery.failed_handovers(scope), :count)
     }
-  end
-
-  defp delivered_to(query, scope) do
-    from([_row, episode] in query,
-      where:
-        episode.destination_transport == "slack" and
-          episode.destination_conversation_ref == ^scope.conversation_ref
-    )
   end
 
   @doc "Learned knowledge scoped to exactly this conversation, with its recall availability."
   @spec knowledge(ChannelScope.t(), map()) :: PagedRelation.t()
   def knowledge(scope, params) do
     relation =
-      from(item in ConversationKnowledge,
-        where:
-          item.transport == "slack" and
-            item.workspace_ref == ^scope.canonical_workspace_ref and
-            item.conversation_ref == ^scope.conversation_ref
-      )
+      scope
+      |> ChannelContextQuery.knowledge()
       |> read("knowledge_page", [desc: :updated_at, desc: :id], params)
 
     available = ConversationMemory.available_ids(relation.items)
@@ -367,14 +254,10 @@ defmodule Ryker.ControlPlane.ChannelContext do
         }
   def learning_status(scope) do
     needs_attention =
-      Repo.aggregate(
-        from(batch in Batch,
-          where:
-            batch.transport == "slack" and batch.conversation_ref == ^scope.conversation_ref and
-              batch.status == :deferred
-        ),
-        :count
-      )
+      "slack"
+      |> BatchQuery.in_conversation(scope.conversation_ref)
+      |> BatchQuery.with_statuses([:deferred])
+      |> Repo.aggregate(:count)
 
     %{
       enabled: not is_nil(Config.get_env(:learning)),
@@ -386,36 +269,13 @@ defmodule Ryker.ControlPlane.ChannelContext do
   # Retained messages from this conversation that no settled batch has learned
   # from yet: not yet grouped, or grouped into a batch still in progress.
   defp waiting_inputs(scope) do
-    pending =
-      from(entry in Entry,
-        as: :input,
-        where:
-          entry.destination_transport == "slack" and
-            entry.destination_conversation_ref == ^scope.conversation_ref and
-            entry.status in [:decided, :superseded],
-        where:
-          not exists(
-            from(membership in InputMembership,
-              where: membership.input_id == parent_as(:input).id
-            )
-          )
-      )
-
-    assigned =
-      from(entry in Entry,
-        join: membership in InputMembership,
-        on: membership.input_id == entry.id,
-        join: batch in Batch,
-        on: batch.id == membership.batch_id,
-        where:
-          entry.destination_transport == "slack" and
-            entry.destination_conversation_ref == ^scope.conversation_ref and
-            batch.status in [:queued, :running, :deferred] and
-            (is_nil(membership.terminal_reason) or
-               membership.terminal_reason != "source_unavailable")
-      )
-
-    Repo.aggregate(pending, :count) + Repo.aggregate(assigned, :count)
+    [LearningActivityQuery.unassigned_messages(), LearningActivityQuery.assigned_messages()]
+    |> Enum.map(fn query ->
+      query
+      |> LearningActivityQuery.sent_to("slack", scope.conversation_ref)
+      |> Repo.aggregate(:count)
+    end)
+    |> Enum.sum()
   end
 
   defp read(query, key, order, params),

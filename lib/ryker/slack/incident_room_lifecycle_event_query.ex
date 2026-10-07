@@ -15,5 +15,26 @@ defmodule Ryker.Slack.IncidentRoomLifecycleEventQuery do
     )
   end
 
+  def of_room(queryable \\ all(), room_id),
+    do: where(queryable, [slack_incident_room_lifecycle_events: e], e.room_id == ^room_id)
+
+  def in_order(queryable) do
+    order_by(queryable, [slack_incident_room_lifecycle_events: e],
+      asc: e.occurred_at,
+      asc: e.id
+    )
+  end
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
+
+  @doc "What a room's report lists of each change: `%{kind, occurred_at, channel_ref}`."
+  def select_timeline(queryable) do
+    select(queryable, [slack_incident_room_lifecycle_events: e], %{
+      kind: e.kind,
+      occurred_at: e.occurred_at,
+      channel_ref: e.channel_ref
+    })
+  end
+
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 end

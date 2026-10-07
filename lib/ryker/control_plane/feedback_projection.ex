@@ -16,16 +16,13 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   it and opens its Timeline.
   """
 
-  import Ecto.Query
-  alias Ryker.ControlPlane.{Activity, ConsolePeople, CurrentInputQuery, FeedbackChart}
+  alias Ryker.ControlPlane.{Activity, ConsolePeople, FeedbackChart, FeedbackQuery}
   alias Ryker.ControlPlane.{ImprovementProjection, PagedRelation, Paths, Search, SlackMarkdown}
-  alias Ryker.Episodes.{Episode, RoutingDigest}
-  alias Ryker.Feedback.Signal
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes.EpisodeQuery
+  alias Ryker.Feedback.{Signal, SignalQuery}
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Slack.Names
-  require CurrentInputQuery
 
   @overview_rows 5
   @page_size 50
@@ -60,14 +57,14 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
     category = category(params["category"])
     # One kind's page lists that kind, whichever way it went.
     tone = if category, do: nil, else: tone(params["tone"])
-    matching = from(signal in Signal, as: :signal) |> search(text) |> going(tone)
+    matching = SignalQuery.all() |> search(text) |> going(tone)
     counts = counts(matching)
 
     view = %{
       category: category,
       counts: counts,
       # By day is all feedback, whatever the search or Negative and Positive.
-      days: days(from(signal in Signal, as: :signal)),
+      days: days(SignalQuery.all()),
       q: text,
       tone: tone,
       total: counts |> Map.values() |> Enum.sum()
@@ -92,18 +89,17 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   """
   @spec for_request(Ryker.Feedback.request()) :: [map()]
   def for_request({:episode, id}) when is_binary(id),
-    do: from(signal in Signal, where: signal.episode_id == ^id) |> timeline_rows()
+    do: id |> SignalQuery.by_episode_id() |> timeline_rows()
 
   def for_request({:input, id}) when is_binary(id),
-    do: from(signal in Signal, where: signal.input_id == ^id) |> timeline_rows()
+    do: id |> SignalQuery.by_input_id() |> timeline_rows()
 
   def for_request(_request), do: []
 
   defp timeline_rows(query) do
-    from(signal in query,
-      order_by: [desc: signal.occurred_at, desc: signal.inserted_at, desc: signal.id],
-      limit: 100
-    )
+    query
+    |> SignalQuery.newest_first()
+    |> SignalQuery.limit_to(100)
     |> Repo.all()
     |> Enum.reverse()
     |> present()
@@ -116,43 +112,19 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   # answered by itself.
   defp search(query, ""), do: query
 
-  defp search(query, text) do
-    pattern = Search.contains(text)
-
-    from([signal: signal] in query,
-      left_join: digest in RoutingDigest,
-      on: digest.episode_id == signal.episode_id,
-      left_join: input in Entry,
-      on: input.id == signal.input_id,
-      where:
-        ilike(signal.note, ^pattern) or ilike(signal.value, ^pattern) or
-          ilike(digest.title, ^pattern) or
-          fragment("(?::jsonb ->> 'text') ILIKE ?", input.content, ^pattern)
-    )
-  end
+  defp search(query, text), do: FeedbackQuery.matching(query, Search.contains(text))
 
   defp going(query, nil), do: query
 
-  defp going(query, tone) do
-    categories = Keyword.fetch!(FeedbackChart.tones(), tone)
-    from([signal: signal] in query, where: signal.category in ^categories)
-  end
+  defp going(query, tone),
+    do: SignalQuery.in_categories(query, Keyword.fetch!(FeedbackChart.tones(), tone))
 
-  defp counts(query) do
-    from([signal: signal] in query, group_by: signal.category, select: {signal.category, count()})
-    |> Repo.all()
-    |> Map.new()
-  end
+  defp counts(query), do: query |> SignalQuery.count_by_category() |> Repo.all() |> Map.new()
 
   # The latest days that have any feedback, newest first, with how many of
   # each category came in on each. Days are UTC, like every time here.
   defp days(query) do
-    rows =
-      from([signal: signal] in query,
-        group_by: [fragment("date(?)", signal.occurred_at), signal.category],
-        select: {fragment("date(?)", signal.occurred_at), signal.category, count()}
-      )
-      |> Repo.all()
+    rows = query |> FeedbackQuery.counts_by_day() |> Repo.all()
 
     rows
     |> Enum.group_by(&elem(&1, 0), fn {_day, category, count} -> {category, count} end)
@@ -163,25 +135,9 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
 
   # The newest few of each category that has any, frustrated first.
   defp groups(query, counts) do
-    ranked =
-      from([signal: signal] in query,
-        select: %{
-          id: signal.id,
-          rank:
-            over(row_number(),
-              partition_by: signal.category,
-              order_by: [desc: signal.occurred_at, desc: signal.inserted_at, desc: signal.id]
-            )
-        }
-      )
-
     newest =
-      from(signal in Signal,
-        join: ranked in subquery(ranked),
-        on: ranked.id == signal.id,
-        where: ranked.rank <= @overview_rows,
-        order_by: [desc: signal.occurred_at, desc: signal.inserted_at, desc: signal.id]
-      )
+      query
+      |> FeedbackQuery.newest_per_category(@overview_rows)
       |> Repo.all()
       |> present()
       |> Enum.group_by(& &1.category)
@@ -198,7 +154,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   defp category_page(query, category, params) do
     page =
       PagedRelation.read(
-        from([signal: signal] in query, where: signal.category == ^category),
+        SignalQuery.in_categories(query, [category]),
         [desc: :occurred_at, desc: :inserted_at, desc: :id],
         "page",
         params,
@@ -258,13 +214,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   defp episode_requests(signals) do
     ids = signals |> Enum.map(& &1.episode_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    keys =
-      Repo.all(
-        from(episode in Episode,
-          where: episode.id in ^ids,
-          select: {episode.id, episode.key, episode.destination_conversation_ref}
-        )
-      )
+    keys = ids |> EpisodeQuery.by_ids() |> EpisodeQuery.select_key_conversations() |> Repo.all()
 
     titles = keys |> Enum.map(&elem(&1, 1)) |> Activity.request_titles()
 
@@ -284,18 +234,9 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   defp input_requests(signals) do
     ids = signals |> Enum.map(& &1.input_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    Repo.all(
-      from(entry in Entry,
-        where: entry.id in ^ids,
-        select:
-          {entry.id, entry.destination_transport, entry.destination_conversation_ref,
-           CurrentInputQuery.visible_preview(
-             entry.operational_pruned_at,
-             entry.event_kind,
-             entry.content
-           )}
-      )
-    )
+    ids
+    |> FeedbackQuery.message_previews()
+    |> Repo.all()
     |> Map.new(fn {id, transport, conversation, preview} ->
       {id,
        %{

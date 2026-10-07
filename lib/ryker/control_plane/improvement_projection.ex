@@ -11,10 +11,9 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   can be accepted as an eval case or dismissed.
   """
 
-  import Ecto.Query
   alias Ryker.ControlPlane.{FeedbackProjection, PagedRelation, PathRef}
   alias Ryker.Improvement
-  alias Ryker.Improvement.Candidate
+  alias Ryker.Improvement.{Candidate, CandidateQuery}
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
 
@@ -32,30 +31,31 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   """
   @spec page(map()) :: map()
   def page(params) when is_map(params) do
-    visible = from(candidate in Candidate, as: :candidate, where: is_nil(candidate.forgotten_at))
+    visible = CandidateQuery.kept()
 
     {status, category, in_status, listed} =
       case linked(visible, params["candidate"]) do
         {id, status} ->
-          {status, nil, in_status(visible, status),
-           from([candidate: candidate] in visible, where: candidate.id == ^id)}
+          {status, nil, CandidateQuery.with_status(visible, status),
+           CandidateQuery.by_id(visible, id)}
 
         nil ->
           status = pick(params["status"], @statuses) || :open
           category = pick(params["category"], Candidate.categories())
-          in_status = in_status(visible, status)
+          in_status = CandidateQuery.with_status(visible, status)
 
           listed =
-            if category do
-              from([candidate: candidate] in in_status, where: candidate.category == ^category)
-            else
-              in_status
-            end
+            if category,
+              do: CandidateQuery.in_category(in_status, category),
+              else: in_status
 
           {status, category, in_status, listed}
       end
 
-    paged = PagedRelation.read(listed, order(), "page", params, page_size: @page_size)
+    paged =
+      PagedRelation.read(listed, CandidateQuery.review_order(), "page", params,
+        page_size: @page_size
+      )
 
     %{
       status: status,
@@ -77,12 +77,11 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   """
   @spec summary() :: map()
   def summary do
-    visible = from(candidate in Candidate, as: :candidate, where: is_nil(candidate.forgotten_at))
+    visible = CandidateQuery.kept()
 
     %{
       counts: status_counts(visible),
-      categories:
-        category_counts(from([candidate: candidate] in visible, where: candidate.status == :open))
+      categories: category_counts(CandidateQuery.with_status(visible, :open))
     }
   end
 
@@ -90,7 +89,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   @spec fetch(String.t()) :: {:ok, map()} | :error
   def fetch(id) do
     with {:ok, id} <- PathRef.uuid(id),
-         %Candidate{forgotten_at: nil} = candidate <- Repo.get(Candidate, id) do
+         %Candidate{forgotten_at: nil} = candidate <- Repo.one(CandidateQuery.by_id(id)) do
       [item] = present([candidate])
       {:ok, item}
     else
@@ -98,44 +97,20 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
     end
   end
 
-  defp in_status(visible, status),
-    do: from([candidate: candidate] in visible, where: candidate.status == ^status)
-
   # One finding's own link (`?candidate=`) lists just it, under its own decision: an anchor into
   # the first page of To decide missed one on a later page or already decided (2026-10-04
   # review).
   defp linked(visible, value) do
     with {:ok, id} <- PathRef.uuid(value),
-         status when not is_nil(status) <-
-           Repo.one(
-             from([candidate: candidate] in visible,
-               where: candidate.id == ^id,
-               select: candidate.status
-             )
-           ) do
+         status when not is_nil(status) <- candidate_status(visible, id) do
       {id, status}
     else
       _unlinked -> nil
     end
   end
 
-  # Newest day first, and within a day the surest diagnosis first, then the
-  # newest; the id breaks ties so no row repeats or goes missing between pages.
-  defp order do
-    [
-      desc: dynamic([candidate], fragment("date(?)", candidate.last_signal_at)),
-      desc:
-        dynamic(
-          [candidate],
-          fragment(
-            "CASE ? WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END",
-            candidate.confidence
-          )
-        ),
-      desc: dynamic([candidate], candidate.last_signal_at),
-      desc: dynamic([candidate], candidate.id)
-    ]
-  end
+  defp candidate_status(visible, id),
+    do: visible |> CandidateQuery.by_id(id) |> CandidateQuery.select_statuses() |> Repo.one()
 
   defp pick(value, allowed) when is_binary(value),
     do: Enum.find(allowed, &(Atom.to_string(&1) == value))
@@ -143,26 +118,13 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   defp pick(_value, _allowed), do: nil
 
   defp status_counts(query) do
-    counts =
-      from([candidate: candidate] in query,
-        group_by: candidate.status,
-        select: {candidate.status, count()}
-      )
-      |> Repo.all()
-      |> Map.new()
+    counts = query |> CandidateQuery.count_by_status() |> Repo.all() |> Map.new()
 
     Map.new(@statuses, &{&1, Map.get(counts, &1, 0)})
   end
 
-  defp category_counts(query) do
-    from([candidate: candidate] in query,
-      where: not is_nil(candidate.category),
-      group_by: candidate.category,
-      select: {candidate.category, count()}
-    )
-    |> Repo.all()
-    |> Map.new()
-  end
+  defp category_counts(query),
+    do: query |> CandidateQuery.count_by_category() |> Repo.all() |> Map.new()
 
   # What the last seven days brought, by the database clock that stamps a
   # candidate and its decision: the candidates found, by what Ryker made of
@@ -173,16 +135,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
     Improvement.week(DateTime.add(now, -@week_seconds, :second), DateTime.add(now, 1, :second))
   end
 
-  defp exportable do
-    Repo.aggregate(
-      from(candidate in Candidate,
-        where:
-          candidate.status == :accepted and is_nil(candidate.forgotten_at) and
-            not is_nil(candidate.case_evidence)
-      ),
-      :count
-    )
-  end
+  defp exportable, do: Repo.aggregate(CandidateQuery.exportable_cases(), :count)
 
   # Each candidate with the request it is about, named as Activity names it.
   defp present([]), do: []

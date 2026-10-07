@@ -341,6 +341,10 @@ defmodule Ryker.Slack.IncidentRoomQuery do
   end
 
   def select_titles(queryable), do: select(queryable, [slack_incident_rooms: r], r.title)
+
+  def select_episode_ids(queryable),
+    do: select(queryable, [slack_incident_rooms: r], r.episode_id)
+
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 
   @doc "Each room with its investigation's episode, as `{room, episode}`."
