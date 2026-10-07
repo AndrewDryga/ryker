@@ -111,7 +111,6 @@ defmodule Ryker.Improvement.AnalysesTest do
     [run] = Repo.all(from(run in AnalysisRun, where: run.candidate_id == ^candidate.id))
     assert run.status == :applied
     assert %DateTime{} = run.remote_stopped_at
-    assert candidate.analysis_run_id == run.id
 
     session = Repo.get_by!(Session, execution_kind: :improvement, improvement_run_id: run.id)
 

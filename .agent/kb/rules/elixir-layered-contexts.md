@@ -65,6 +65,23 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-07.
   `Ryker.Inspectors` (`test/support/inspectors.ex`); tests may read rows
   through Query modules directly.
 
+## Migrations
+
+- A migration is frozen once a deploy has run it; a change is a new migration.
+  Ryker has no rollback command: a failed deploy restores the backup taken
+  before it (`docs/operations.md`).
+- A migration that rewrites rows carries frozen copies of the code it needs
+  and calls no application module, which a later clean cut could rename. The
+  data migrations of 2026-09-27 to 2026-09-29 call `Ryker.CanonicalJSON` and
+  `KnowledgeAnchors.keys/2` once per row; every install has run them, a new
+  one has no rows for them, and the next baseline removes them.
+- A migration runs while Ryker is paused, so its locks are downtime. Rewrite
+  a large table in batches, add a check to one `NOT VALID` and validate it
+  after, and build its index `CONCURRENTLY` with `@disable_ddl_transaction`.
+- Each migration has its own test (`Ryker.MigrationCase`): a scratch schema
+  for one that rewrites rows, the test's transaction for one that changes a
+  table's shape. Write the rows in the shape they had before the migration.
+
 ## Phoenix safety
 
 - IL-14: no `String.to_atom/1` on outside input (none in `lib`).

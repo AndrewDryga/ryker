@@ -64,7 +64,6 @@ defmodule Ryker.Improvement.Candidate do
     field(:confidence, Ecto.Enum, values: @confidences)
     field(:analysis_target, :string)
     field(:analyzed_at, :utc_datetime_usec)
-    field(:analysis_run_id, :binary_id)
     timestamps(type: :utc_datetime_usec)
   end
 

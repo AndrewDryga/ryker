@@ -499,7 +499,6 @@ defmodule Ryker.Improvement.Analyses do
         expected: if(forgotten?, do: nil, else: diagnosis.expected),
         analyzed_at: Repo.now!(),
         analysis_target: target(run.producer),
-        analysis_run_id: run.id,
         error_code: nil,
         lease_ref: nil,
         lease_owner: nil,

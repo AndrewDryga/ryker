@@ -14,6 +14,11 @@ defmodule Ryker.Settings.EnvironmentRepositoryAccessMigrationTest do
   # it did: every repository it holds arrives read and write, in the order it
   # had. Nothing may arrive read only, which would quietly stop work there
   # from changing code it changed the day before.
+  #
+  # The repositories are written after the rollback, in the shape they had
+  # before access existed; written before it, they carried an access the
+  # rollback threw away, and the test read as if it asserted that loss
+  # (2026-10-04 review).
   test "an environment saved before access existed keeps every repository read and write" do
     {:ok, snapshot} = Settings.initialize(@actor)
 
@@ -25,18 +30,20 @@ defmodule Ryker.Settings.EnvironmentRepositoryAccessMigrationTest do
 
     {:ok, _saved} =
       Settings.put_environment(
-        %{
-          ref: "production",
-          display_name: "Production",
-          repositories: ["docs", "api", "infra"],
-          access: %{"infra" => :read_only}
-        },
+        %{ref: "production", display_name: "Production", repositories: ["docs"]},
         snapshot.installation.revision,
         @actor
       )
 
     assert :ok = migrate_down(@version)
     assert Enum.all?(rows(), &(not Map.has_key?(&1, "access")))
+
+    SQL.query!(
+      Repo,
+      "INSERT INTO environment_repository_settings (environment_ref, repository_ref, position) " <>
+        "VALUES ('production', 'api', 1), ('production', 'infra', 2)",
+      []
+    )
 
     assert :ok = migrate_up(@version)
 
