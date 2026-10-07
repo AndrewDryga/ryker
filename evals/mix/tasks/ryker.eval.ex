@@ -9,8 +9,8 @@ defmodule Mix.Tasks.Ryker.Eval do
       mix ryker.eval world-merge --results /absolute/world-results.json \\
         /absolute/shard-1.json /absolute/shard-2.json
       mix ryker.eval routing-replay --examples /absolute/routing-examples.jsonl \\
-        --results /absolute/routing-replay.json [--limit N] [--concurrency N] \\
-        [--local-endpoint http://127.0.0.1:8181/v1 --local-model qwen2.5:3b]
+        --results /absolute/routing-replay.json [--limit N] \\
+        [--concurrency N | --local-endpoint http://127.0.0.1:8181/v1 --local-model qwen2.5:3b]
       mix ryker.eval improvement-replay --runs /absolute/analysis-runs.jsonl \\
         --results /absolute/improvement-replay.json [--concurrency N]
 
@@ -18,8 +18,9 @@ defmodule Mix.Tasks.Ryker.Eval do
   without calling a model. `world` runs the same scenarios through the
   dedicated worker named by `RYKER_EVAL_SOCKET`. `RYKER_EVAL_WORLD_TARGET`,
   `RYKER_EVAL_JUDGE_TARGET` and optional `RYKER_EVAL_BASELINE_TARGET` select
-  models explicitly. Every job has an empty workspace and no project tools;
-  only subject turns receive the scenario's controller tools. No production
+  models explicitly. A job has no project tools, and an empty workspace unless
+  its scenario captured a repository, which it reads as its read-only
+  checkout; only subject turns receive the scenario's controller tools. No production
   settings or operator-supplied policy digests are used.
 
   A world matrix is every scenario × 3 repeats × 2 lanes, at about 93 seconds
@@ -51,6 +52,7 @@ defmodule Mix.Tasks.Ryker.Eval do
   alias Ryker.Coop.Client
   alias Ryker.CoopFleet.Server, as: FleetServer
   alias Ryker.Evals.{CoopRunner, ImprovementReplay, Job, RoutingReplay, WorldCase, WorldCassette}
+  alias Ryker.Evals.PrivateFile
   alias Ryker.Evals.Runtime, as: EvalRuntime
   alias Ryker.Evals.{WorldCoverage, WorldDatabase, WorldJudgeCase, WorldReport, WorldRunner}
   alias Ryker.Evals.{WorldSource, WorldSuite, WorldTools}
@@ -100,7 +102,8 @@ defmodule Mix.Tasks.Ryker.Eval do
         " | world-shards --shards N" <>
         " | world-merge --results /absolute/world-results.json /absolute/shard.json..." <>
         " | routing-replay --examples /absolute/routing-examples.jsonl" <>
-        " --results /absolute/routing-replay.json [--limit N] [--concurrency N]" <>
+        " --results /absolute/routing-replay.json [--limit N]" <>
+        " [--concurrency N | --local-endpoint URL --local-model NAME]" <>
         " | improvement-replay --runs /absolute/analysis-runs.jsonl" <>
         " --results /absolute/improvement-replay.json [--concurrency N]"
     )
@@ -133,12 +136,14 @@ defmodule Mix.Tasks.Ryker.Eval do
              finch: finch
            }),
          summary = RoutingReplay.summary(cases, result, skipped),
-         :ok <- File.write(replay.results, Jason.encode!(summary, pretty: true)) do
+         :ok <- write_report(replay.results, summary) do
       info(
         "local routing replay: #{summary.same} of #{summary.total} decisions kept, " <>
           "#{summary.changed} changed, #{summary.not_answered} not usable, " <>
           "#{length(skipped)} examples skipped; report at #{replay.results}"
       )
+
+      answered!(summary, "routing replay", "decisions", replay.results)
     else
       {:error, reason} -> Mix.raise("routing replay failed: #{inspect(reason)}")
     end
@@ -152,12 +157,14 @@ defmodule Mix.Tasks.Ryker.Eval do
          {:ok, result} <-
            RoutingReplay.run(cases, client: client, concurrency: replay.concurrency, job: job),
          summary = RoutingReplay.summary(cases, result, skipped),
-         :ok <- File.write(replay.results, Jason.encode!(summary, pretty: true)) do
+         :ok <- write_report(replay.results, summary) do
       info(
         "routing replay: #{summary.same} of #{summary.total} decisions stayed the same, " <>
           "#{summary.changed} changed, #{summary.not_answered} not answered, " <>
           "#{length(skipped)} examples skipped; report at #{replay.results}"
       )
+
+      answered!(summary, "routing replay", "decisions", replay.results)
     else
       {:error, reason} -> Mix.raise("routing replay failed: #{inspect(reason)}")
     end
@@ -172,12 +179,14 @@ defmodule Mix.Tasks.Ryker.Eval do
          {:ok, result} <-
            ImprovementReplay.run(cases, client: client, concurrency: replay.concurrency, job: job),
          summary = ImprovementReplay.summary(cases, result, skipped),
-         :ok <- File.write(replay.results, Jason.encode!(summary, pretty: true)) do
+         :ok <- write_report(replay.results, summary) do
       info(
         "improvement replay: #{summary.same} of #{summary.total} diagnoses stayed the same, " <>
           "#{summary.changed} changed, #{summary.not_answered} not answered, " <>
           "#{length(skipped)} runs skipped; report at #{replay.results}"
       )
+
+      answered!(summary, "improvement replay", "diagnoses", replay.results)
     else
       {:error, reason} -> Mix.raise("improvement replay failed: #{inspect(reason)}")
     end
@@ -186,15 +195,14 @@ defmodule Mix.Tasks.Ryker.Eval do
   defp improvement_replay_arguments(arguments) do
     case parse_flags(arguments, runs: :string, results: :string, concurrency: :integer) do
       {:ok, parsed, []} ->
-        concurrency = parsed[:concurrency] || @replay_concurrency
-
-        with runs when is_binary(runs) <- parsed[:runs],
-             results when is_binary(results) <- parsed[:results],
-             true <- Path.type(runs) == :absolute and Path.type(results) == :absolute,
-             true <- concurrency in 1..16 do
-          {:ok, %{runs: runs, results: results, concurrency: concurrency}}
-        else
-          _invalid -> {:error, :improvement_replay_needs_absolute_runs_and_results}
+        with :ok <-
+               absolute_paths(
+                 parsed[:runs],
+                 parsed[:results],
+                 :improvement_replay_needs_absolute_runs_and_results
+               ),
+             {:ok, concurrency} <- replay_concurrency(parsed[:concurrency]) do
+          {:ok, %{runs: parsed[:runs], results: parsed[:results], concurrency: concurrency}}
         end
 
       _invalid ->
@@ -202,6 +210,8 @@ defmodule Mix.Tasks.Ryker.Eval do
     end
   end
 
+  # Each argument that is wrong is named: every one was reported as needing absolute paths, a
+  # bad --limit or --concurrency included (2026-10-04 review).
   defp routing_replay_arguments(arguments) do
     case parse_flags(arguments,
            examples: :string,
@@ -212,31 +222,68 @@ defmodule Mix.Tasks.Ryker.Eval do
            local_model: :string
          ) do
       {:ok, parsed, []} ->
-        concurrency = parsed[:concurrency] || @replay_concurrency
-
-        with examples when is_binary(examples) <- parsed[:examples],
-             results when is_binary(results) <- parsed[:results],
-             true <- Path.type(examples) == :absolute and Path.type(results) == :absolute,
-             limit when is_nil(limit) or (is_integer(limit) and limit > 0) <- parsed[:limit],
-             true <- concurrency in 1..16,
-             true <- is_nil(parsed[:local_endpoint]) == is_nil(parsed[:local_model]) do
+        with :ok <-
+               absolute_paths(
+                 parsed[:examples],
+                 parsed[:results],
+                 :routing_replay_needs_absolute_examples_and_results
+               ),
+             :ok <- replay_limit(parsed[:limit]),
+             {:ok, concurrency} <- replay_concurrency(parsed[:concurrency]),
+             :ok <-
+               local_replay(parsed[:local_endpoint], parsed[:local_model], parsed[:concurrency]) do
           {:ok,
            %{
-             examples: examples,
-             results: results,
-             limit: limit,
+             examples: parsed[:examples],
+             results: parsed[:results],
+             limit: parsed[:limit],
              concurrency: concurrency,
              local_endpoint: parsed[:local_endpoint],
              local_model: parsed[:local_model]
            }}
-        else
-          _invalid -> {:error, :routing_replay_needs_absolute_examples_and_results}
         end
 
       _invalid ->
         {:error, :invalid_arguments}
     end
   end
+
+  defp absolute_paths(first, second, error) do
+    if is_binary(first) and is_binary(second) and Path.type(first) == :absolute and
+         Path.type(second) == :absolute,
+       do: :ok,
+       else: {:error, error}
+  end
+
+  defp replay_limit(nil), do: :ok
+  defp replay_limit(limit) when is_integer(limit) and limit > 0, do: :ok
+  defp replay_limit(_limit), do: {:error, :invalid_limit}
+
+  defp replay_concurrency(nil), do: {:ok, @replay_concurrency}
+  defp replay_concurrency(concurrency) when concurrency in 1..16, do: {:ok, concurrency}
+  defp replay_concurrency(_concurrency), do: {:error, :invalid_concurrency}
+
+  # A local model is asked one decision at a time, as routing's own comparison asks it;
+  # --concurrency was accepted there and ignored.
+  defp local_replay(nil, nil, _concurrency), do: :ok
+  defp local_replay(nil, _model, _concurrency), do: {:error, :local_model_needs_an_endpoint}
+  defp local_replay(_endpoint, nil, _concurrency), do: {:error, :local_endpoint_needs_a_model}
+  defp local_replay(_endpoint, _model, nil), do: :ok
+
+  defp local_replay(_endpoint, _model, _concurrency),
+    do: {:error, :local_replay_asks_one_at_a_time}
+
+  # A replay that reached no model (a dead socket, a spent account, a local server not
+  # running) printed "0 of N" and exited 0, which reads as a finished replay (2026-10-04
+  # review). Its report is written first, so the reason is on disk.
+  defp answered!(%{total: total, not_answered: total}, replay, noun, results) when total > 0 do
+    Mix.raise("#{replay}: none of the #{total} #{noun} got a usable answer; report at #{results}")
+  end
+
+  defp answered!(_summary, _replay, _noun, _results), do: :ok
+
+  defp write_report(path, summary),
+    do: PrivateFile.write(path, Jason.encode!(summary, pretty: true))
 
   defp run_world(arguments) do
     with {:ok, world} <- world_arguments(arguments),
@@ -528,6 +575,7 @@ defmodule Mix.Tasks.Ryker.Eval do
       {:ok, []} ->
         {:ok, policy, nil}
 
+      # A scenario has one repository at most (`Ryker.Evals.WorldCase`).
       {:ok, [capture]} ->
         {:ok, at, 0} = DateTime.from_iso8601(scenario.clock["start"])
 
@@ -535,9 +583,6 @@ defmodule Mix.Tasks.Ryker.Eval do
                WorldSource.stage(capture, Path.dirname(eval_client.socket), at),
              {:ok, sourced} <- Job.with_source(policy, source),
              do: {:ok, sourced, capture["repository"]}
-
-      {:ok, _several} ->
-        {:error, :world_scenario_has_several_repositories}
 
       {:error, _reason} = error ->
         error

@@ -17,7 +17,12 @@ defmodule Ryker.Evals.WorldCase do
   @maximum_scenario_bytes 512 * 1_024
   @maximum_catalog_bytes 256 * 1_024
   @maximum_repository_bytes 2 * 1_024 * 1_024
-  @maximum_repository_files 256
+  # What a run can give a turn: one read-only checkout, whose captured files also
+  # reach the model as input artifacts, five at most (the eval client's limit).
+  # Validation allowed sixteen repositories and 256 files, and the runner refused
+  # them only before the turn, stopping the shard (2026-10-04 review).
+  @maximum_repositories 1
+  @maximum_repository_files 5
   @git_commit_regex ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
   @reference_regex ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
   @sha256_regex ~r/\A[0-9a-f]{64}\z/
@@ -575,7 +580,7 @@ defmodule Ryker.Evals.WorldCase do
   defp wait_wakeup(_value), do: {:error, :scheduled_events}
 
   defp repositories(repositories, directory)
-       when is_list(repositories) and length(repositories) <= 16 do
+       when is_list(repositories) and length(repositories) <= @maximum_repositories do
     Enum.reduce_while(repositories, :ok, fn repository, :ok ->
       case repository_entry(repository, directory) do
         :ok -> {:cont, :ok}

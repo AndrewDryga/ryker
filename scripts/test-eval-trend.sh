@@ -85,7 +85,12 @@ printf 'not json at all' >"$work/history/broken-20260808T010000Z.json"
 printf '{"total":30,"same":28,"changed":2,"not_answered":0,"skipped":[],"fields":{},"examples":[]}\n' \
   >"$work/history/routing-replay-20260802T000000Z.json"
 
-report=$("$trend" "$work/history")
+# 2026-10-04 review: a world report jq cannot read through (a result that is not an object)
+# lost its row with a line on stderr, and when it sorted last the whole table never printed.
+printf '{"summary":{"candidate":{"passed":1,"total":1}},"results":[1]}\n' \
+  >"$work/history/world-smoke-20260809T000000Z.json"
+
+report=$("$trend" "$work/history") || fail 'a malformed world report sorted last stopped the table'
 
 grep -Eq '27/30 +90\.0% +judge +83\.3%' <<<"$report" || fail 'the first run is not summarized from summary.candidate and the judge decisions'
 grep -Eq '30/30 +100\.0% +judge +96\.7% +regressions 0' <<<"$report" || fail 'the paired run does not report its regressions'
@@ -95,12 +100,13 @@ grep -Eq '\+10\.0 +\+13\.3' <<<"$report" || fail 'the change between two runs is
 # read as a collapse in quality.
 grep -Eq '9/9 +100\.0% +judge +n/a' <<<"$report" || fail 'an unjudged run did not report n/a'
 grep -Fq 'UNREADABLE' <<<"$report" || fail 'a corrupt result was skipped silently'
+grep -Eq '20260809T000000Z +UNREADABLE' <<<"$report" || fail 'a world report jq cannot read was skipped silently'
 # Labels carry suffixes; grouping must not fold world-smoke into world.
 grep -Eq '^world$' <<<"$report" || fail 'runs are not grouped by label'
 grep -Eq '^world-smoke$' <<<"$report" || fail 'the smoke label was folded into world'
 # A file that is not a world report is named, once, and never counted as a run.
 grep -Fq 'not world reports: routing-replay-20260802T000000Z' <<<"$report" || fail 'a non-world report was not named'
-if grep -Eq '^prompts$' <<<"$report"; then
+if grep -Eq '^routing-replay$' <<<"$report"; then
   fail 'a non-world report was listed as a run'
 fi
 if grep -Fq '0/0' <<<"$report"; then

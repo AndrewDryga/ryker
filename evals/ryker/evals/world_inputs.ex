@@ -129,7 +129,6 @@ defmodule Ryker.Evals.WorldInputs do
   defp fixture_content(content, scenario, source_kind) do
     with false <- Map.has_key?(content, "world_fixture_context"),
          {:ok, captures} <- WorldCase.fixture_context(scenario),
-         true <- Enum.sum(Enum.map(captures, &length(&1["files"]))) <= 5,
          true <-
            captures |> Enum.flat_map(& &1["files"]) |> Enum.map(& &1["bytes"]) |> Enum.sum() <=
              Artifacts.maximum_bytes(),

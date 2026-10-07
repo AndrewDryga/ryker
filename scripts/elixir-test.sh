@@ -56,31 +56,19 @@ start_private_postgres() {
   exit 1
 }
 
-if command -v docker >/dev/null 2>&1; then
-  compose=(docker compose --project-name ryker-kernel --file "$root/compose.test.yml")
+# shellcheck source=scripts/test-database.sh
+. "$root/scripts/test-database.sh"
 
-  # `up` is a no-op when the healthy container already matches compose.test.yml
-  # and recreates it when the file changed, so a capacity change lands on the
-  # next run instead of after someone remembers to down it.
-  "${compose[@]}" up --detach --wait episode-db >/dev/null
-
-  address=$("${compose[@]}" port episode-db 5432)
-
-  export PGHOST=127.0.0.1
-  export PGPORT=${address##*:}
-elif [[ -n ${PGHOST:-} ]]; then
-  # A Coop box has no Docker: Coop starts compose.test.yml as the box's sidecar
-  # and names it in PGHOST (.agent/project.yaml).
-  :
-elif command -v pg_ctl >/dev/null 2>&1; then
-  start_private_postgres
-else
-  echo "no docker, no PGHOST and no pg_ctl: nothing can serve a test PostgreSQL" >&2
-  exit 1
+if ! use_test_database_server; then
+  if command -v pg_ctl >/dev/null 2>&1; then
+    start_private_postgres
+    export PGPASSWORD=postgres
+    export PGUSER=postgres
+  else
+    echo "no docker, no PGHOST and no pg_ctl: nothing can serve a test PostgreSQL" >&2
+    exit 1
+  fi
 fi
-
-export PGPASSWORD=postgres
-export PGUSER=postgres
 
 if [[ ${RYKER_TEST_ISOLATED:-0} == 1 ]]; then
   export PGDATABASE="ryker_test_$$_${RANDOM}"

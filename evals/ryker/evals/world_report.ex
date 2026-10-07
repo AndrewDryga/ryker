@@ -2,6 +2,7 @@ defmodule Ryker.Evals.WorldReport do
   @moduledoc false
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Evals.PrivateFile
 
   @required_fields ~w(deliveries episode_id failures lane quality record_history records repeat_index runtime scenario_id source_calls status turn_id)a
   @diagnostic_fields ~w(execution_error cleanup_error)a
@@ -207,17 +208,9 @@ defmodule Ryker.Evals.WorldReport do
   defp absolute_path(_path), do: {:error, :path}
 
   defp atomic_write(path, bytes) do
-    temporary = path <> ".tmp"
-
-    with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(temporary, bytes, [:binary]),
-         :ok <- File.chmod(temporary, 0o600),
-         :ok <- File.rename(temporary, path) do
-      :ok
-    else
-      {:error, reason} ->
-        File.rm(temporary)
-        {:error, {:world_report_write_failed, reason}}
+    case PrivateFile.write(path, bytes) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:world_report_write_failed, reason}}
     end
   end
 

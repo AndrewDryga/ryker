@@ -107,12 +107,10 @@ recorded no messages for their previews, so forgetting cannot trace those previe
 
 ## Getting the examples out
 
-**Download routing examples** on Settings › Data retention saves a JSON Lines file, or from a source
-checkout:
-
-```bash
-MIX_ENV=prod mix ryker.routing_examples --output routing-examples.jsonl
-```
+**Download routing examples** on Settings › Data retention saves a JSON Lines file. From a source
+checkout whose database settings (`PGHOST`, `PGDATABASE` and the rest) reach Ryker's database,
+`mix ryker.routing_examples --output routing-examples.jsonl` writes the same file; a Compose
+install's database is reachable only inside the project's network, so there use the download.
 
 Each line is one chat fine-tuning example, oldest decision first, forgotten ones left out. The
 refused answers beside `messages` pair with the accepted one for preference training:
@@ -182,12 +180,9 @@ forgetting a fact or topic, deleting or editing a message, or deleting a Slack c
 work example whose request was asked in that message or whose routing quoted it, and a turn whose
 message was forgotten first is kept as identity only.
 
-**Getting them out.** **Download work examples** on Settings › Data retention, or from a source
-checkout:
-
-```bash
-MIX_ENV=prod mix ryker.work_examples --output work-examples.jsonl
-```
+**Getting them out.** **Download work examples** on Settings › Data retention, or, from a source
+checkout that reaches Ryker's database as above, `mix ryker.work_examples --output
+work-examples.jsonl`.
 
 Each line is one chat example like a routing example's: `messages` holds the briefing as the user
 turn and the accepted result as the assistant turn, with `trajectory`, `rejected_results`,

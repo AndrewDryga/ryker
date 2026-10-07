@@ -594,6 +594,61 @@ defmodule Ryker.Evals.WorldCaseTest do
              WorldCase.all(fixture)
   end
 
+  # 2026-10-04 review: validation allowed 16 repositories and 256 captured files, but a run
+  # gives a turn one read-only checkout and at most five captured files, and it refused the
+  # rest before any remote turn: the observation went unrun and every later one in its shard
+  # stopped, while world-pack and eval-replay stayed green. Validation refuses them now.
+  test "a world the runner cannot give a turn is refused when the scenario is read" do
+    fixture =
+      Path.join(System.tmp_dir!(), "ryker-world-limits-#{System.unique_integer([:positive])}")
+
+    case_id = "rivals-engineering-task-offer"
+    source = Path.join(@scenario_root, case_id)
+    scenario_dir = Path.join(fixture, case_id)
+    on_exit(fn -> File.rm_rf!(fixture) end)
+
+    repository = fn name, files ->
+      directory = Path.join(scenario_dir, name)
+      File.mkdir_p!(directory)
+
+      for index <- 1..files,
+          do: File.write!(Path.join(directory, "file_#{index}.py"), "VALUE = #{index}\n")
+
+      %{
+        "base_commit" => "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7",
+        "path" => name,
+        "ref" => "tenant-#{name}",
+        "sha256" => repository_digest(directory)
+      }
+    end
+
+    write_world = fn repositories ->
+      File.mkdir_p!(scenario_dir)
+
+      File.cp!(
+        Path.join(source, "tool-catalog.json"),
+        Path.join(scenario_dir, "tool-catalog.json")
+      )
+
+      scenario =
+        Path.join(source, "scenario.json")
+        |> File.read!()
+        |> Jason.decode!()
+        |> put_in(["world", "repositories"], repositories)
+
+      File.write!(Path.join(scenario_dir, "scenario.json"), Jason.encode!(scenario))
+    end
+
+    write_world.([repository.("one", 5)])
+    assert {:ok, [_scenario]} = WorldCase.all(fixture)
+
+    write_world.([repository.("six", 6)])
+    assert {:error, {:invalid_world_case, ^case_id, :repository_digest}} = WorldCase.all(fixture)
+
+    write_world.([repository.("first", 1), repository.("second", 1)])
+    assert {:error, {:invalid_world_case, ^case_id, :repositories}} = WorldCase.all(fixture)
+  end
+
   test "rejects malformed scenario contracts at each authority boundary" do
     cases = [
       {&Map.put(&1, "version", 2), :version},

@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Ryker.RoutingExamples do
   per line (`Ryker.RoutingExamples.Export`), the file the Data retention page
   downloads.
 
-      MIX_ENV=prod mix ryker.routing_examples --output routing-examples.jsonl
+      mix ryker.routing_examples --output routing-examples.jsonl
 
   Without `--output` the lines are written to standard output.
   """

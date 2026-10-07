@@ -70,9 +70,10 @@ RYKER.md from `repository_knowledge_runs`, the tree at its commit (`git ls-tree 
 files its commands cite, as the lane read them; the host must write the same RYKER.md byte for
 byte. `Ryker.Evals.KnowledgeJudge` scores each answer: every path exists, every command is
 written in the file it cites, nothing is pinned to a commit, and it says what the repository is
-for, what is in it, where to start and how to build it. The knowledge prompt has no live eval
-yet: that needs a Coop session with the repository checked out, and eval jobs have an empty
-workspace.
+for, what is in it, where to start and how to build it. The knowledge prompt has no live eval:
+one would stage a case's repository as the job's read-only checkout, as a world scenario that
+captured a repository is staged (`Ryker.Evals.WorldSource`), and nothing stages the knowledge
+cases.
 
 For customer-facing Slack, incident, memory, or response-contract changes, run:
 
@@ -185,10 +186,10 @@ Passing deterministic and model gates does not deploy the runtime.
 The world evaluation routes with a deterministic stand-in, so a change to routing's instructions
 or answer contract needs a routing replay. It asks the routing decisions Ryker kept for training
 again, each with the instructions today's routing gives its recorded context and under the
-contract its source was offered, rebuilt with today's shapes, on the eval worker:
+contract its source was offered, rebuilt with today's shapes, on the eval worker. Download the
+examples with **Download routing examples** on Settings › Data retention, then:
 
 ```bash
-MIX_ENV=prod mix ryker.routing_examples --output /absolute/routing-examples.jsonl
 export RYKER_EVAL_ROUTING_TARGET='<provider:model/effort@account>'
 make eval-routing-replay EXAMPLES=/absolute/routing-examples.jsonl
 ```
@@ -231,7 +232,7 @@ diagnosis of what went wrong (`Ryker.Improvement`), and says what the last seven
 requests found, by diagnosis, and how many were accepted or dismissed. Accepting one keeps it as an
 eval case. GitHub requests are analyzed too but cannot be accepted yet: a world scenario replays
 Slack and Chat messages, and the export does not write GitHub events.
-**Download eval cases** there, or `MIX_ENV=prod mix ryker.eval_cases --output DIR`, writes each
+**Download eval cases** there writes each
 accepted case as a world scenario directory: `scenario.json`, `tool-catalog.json` (the standard
 catalog, by reference), `routing.json` (each routing decision's exact prompt and answer) and
 `PROVENANCE.md` (what happened, the diagnosis, and what is still to fill in).

@@ -16,6 +16,9 @@
 # preview decides how many actually start: `--repeat 1 --case X` is one pair,
 # so it runs one shard, never an empty VM.
 set -euo pipefail
+# The shard logs carry each shard's whole report, prompts and answers included,
+# and were written readable by everyone (2026-10-04 review).
+umask 077
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # Every mix call runs on the pinned toolchain. The wrapper's own tests put a
@@ -136,6 +139,13 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+# shellcheck source=scripts/test-database.sh
+. "$root/scripts/test-database.sh"
+use_test_database_server || {
+  echo "no docker and no PGHOST: nothing serves the evaluation's databases" >&2
+  exit 1
+}
 
 export RYKER_WORLD_EVAL=1
 

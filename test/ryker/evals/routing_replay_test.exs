@@ -6,6 +6,7 @@ defmodule Ryker.Evals.RoutingReplayTest do
   # the host itself and the model's answers stand in, so these tests hold the
   # host to what it does with any answer; none calls a model.
   use ExUnit.Case, async: true
+  alias Mix.Tasks.Ryker.Eval
   alias Ryker.Admission.{Candidate, Context, Decision, Prompt}
   alias Ryker.Episodes.Episode
   alias Ryker.Evals.{CoopRunner, Job, RoutingReplay, RoutingReplayCase}
@@ -111,6 +112,45 @@ defmodule Ryker.Evals.RoutingReplayTest do
 
     assert %{count: 2, median: median} = summary.latency_ms
     assert is_integer(median)
+  end
+
+  # 2026-10-04 review: a replay that reached no model (a dead socket, a spent account, a
+  # local server not running) printed "0 of N kept, N not usable" and exited 0, which reads
+  # as a finished replay; and its report was written readable by everyone.
+  test "a replay that got no answer at all fails, after writing an owner-only report",
+       %{example: line} do
+    directory =
+      Path.join(System.tmp_dir!(), "routing-replay-none-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(directory)
+    on_exit(fn -> File.rm_rf!(directory) end)
+    examples = Path.join(directory, "examples.jsonl")
+    results = Path.join(directory, "results.json")
+    File.write!(examples, Jason.encode!(line) <> "\n")
+
+    # A port nothing listens on: the local model is not running.
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false])
+    {:ok, port} = :inet.port(socket)
+    :ok = :gen_tcp.close(socket)
+
+    assert_raise Mix.Error, ~r/none of the 1 decisions got a usable answer/, fn ->
+      ExUnit.CaptureIO.capture_io(fn ->
+        Eval.run([
+          "routing-replay",
+          "--examples",
+          examples,
+          "--results",
+          results,
+          "--local-endpoint",
+          "http://127.0.0.1:#{port}/v1",
+          "--local-model",
+          "qwen2.5:3b"
+        ])
+      end)
+    end
+
+    assert %{"not_answered" => 1, "total" => 1} = results |> File.read!() |> Jason.decode!()
+    assert Bitwise.band(File.stat!(results).mode, 0o777) == 0o600
   end
 
   test "an answer that makes Ryker do the same passes, whatever its words",

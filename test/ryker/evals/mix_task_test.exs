@@ -35,6 +35,50 @@ defmodule Ryker.Evals.MixTaskTest do
     end
   end
 
+  # 2026-10-04 review: every bad routing-replay argument was reported as
+  # :routing_replay_needs_absolute_examples_and_results, a bad --limit and an out-of-range
+  # --concurrency included, and --concurrency was read and then ignored on the local path.
+  test "a replay's arguments name what is wrong with them" do
+    paths = ["--examples", "/absolute/examples.jsonl", "--results", "/absolute/results.json"]
+    local = ["--local-endpoint", "http://127.0.0.1:8181/v1", "--local-model", "qwen2.5:3b"]
+
+    for {extra, cause} <- [
+          {["--limit", "0"], ":invalid_limit"},
+          {["--concurrency", "17"], ":invalid_concurrency"},
+          {["--local-endpoint", "http://127.0.0.1:8181/v1"], ":local_endpoint_needs_a_model"},
+          {["--local-model", "qwen2.5:3b"], ":local_model_needs_an_endpoint"},
+          {local ++ ["--concurrency", "2"], ":local_replay_asks_one_at_a_time"}
+        ] do
+      assert_raise Mix.Error, ~r/routing replay failed: #{Regex.escape(cause)}/, fn ->
+        Eval.run(["routing-replay" | paths ++ extra])
+      end
+    end
+
+    assert_raise Mix.Error,
+                 ~r/routing replay failed: :routing_replay_needs_absolute_examples_and_results/,
+                 fn ->
+                   Eval.run([
+                     "routing-replay",
+                     "--examples",
+                     "examples.jsonl",
+                     "--results",
+                     "/r.json"
+                   ])
+                 end
+
+    assert_raise Mix.Error, ~r/improvement replay failed: :invalid_concurrency/, fn ->
+      Eval.run([
+        "improvement-replay",
+        "--runs",
+        "/absolute/runs.jsonl",
+        "--results",
+        "/absolute/results.json",
+        "--concurrency",
+        "0"
+      ])
+    end
+  end
+
   test "a shard names one slice of a count or is refused before anything runs" do
     # The matrix runs as N separate VMs, each handed `--shard I/N` by the
     # orchestrator. A malformed shard must be a usage error at the argument

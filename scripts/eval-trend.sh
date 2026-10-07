@@ -71,6 +71,8 @@ rows=$(
       printf '%s\t%s\tUNREADABLE\n' "$label" "$stamp"
       continue
     fi
+    # Inside $(...) bash drops -e: a report jq could not read through lost its
+    # row, or, sorting last, stopped the table (2026-10-04 review).
     jq -r --arg label "$label" --arg stamp "$stamp" --arg file "$file" '
       def count: (. // 0);
       if (.summary.candidate | type) != "object" then
@@ -94,7 +96,7 @@ rows=$(
              else "-" end)
           ] | @tsv
       end
-    ' "$path"
+    ' "$path" 2>/dev/null || printf '%s\t%s\tUNREADABLE\n' "$label" "$stamp"
   done
 )
 
@@ -124,7 +126,7 @@ $1 == "NOT_WORLD" {
   }
   runs++
   if ($3 == "UNREADABLE") {
-    printf "  %s  UNREADABLE — this result did not parse\n", $2
+    printf "  %s  UNREADABLE — this result could not be read as a report\n", $2
     next
   }
   regressions = $7 == "-" ? "" : sprintf("  regressions %s", $7)

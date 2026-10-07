@@ -85,8 +85,7 @@ product-e2e:
 		test/ryker/behaviors/automations_test.exs \
 		test/ryker/memories/memories_test.exs \
 		test/ryker/behaviors/behaviors_test.exs \
-		test/ryker/coop_fleet/failover_end_to_end_test.exs \
-		test/ryker/evals/world_runner_test.exs
+		test/ryker/coop_fleet/failover_end_to_end_test.exs
 
 # Runs inside the deployed ryker container against the installation's own
 # durable settings; see docs/testing.md "Live acceptance".
@@ -143,6 +142,7 @@ eval-replay:
 		test/ryker/evals/world_coverage_test.exs \
 		test/ryker/evals/world_runner_test.exs
 
+# eval-replay runs the world runner's journeys, so product-e2e leaves them out.
 customer-check: product-e2e eval-replay
 
 eval-trend:

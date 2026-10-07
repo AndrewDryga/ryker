@@ -31,12 +31,7 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
       File.mkdir_p!(Path.join(root, "test/ryker"))
       on_exit(fn -> File.rm_rf!(root) end)
 
-      File.cp!(
-        Path.join(@repository, "scripts/elixir-test.sh"),
-        Path.join(root, "scripts/elixir-test.sh")
-      )
-
-      File.chmod!(Path.join(root, "scripts/elixir-test.sh"), 0o755)
+      stage_scripts!(root)
 
       for {name, use} <- [
             a: "use ExUnit.Case, async: true",
@@ -186,12 +181,7 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
     File.mkdir_p!(Path.join(root, "bin"))
     on_exit(fn -> File.rm_rf!(root) end)
 
-    File.cp!(
-      Path.join(@repository, "scripts/elixir-test.sh"),
-      Path.join(root, "scripts/elixir-test.sh")
-    )
-
-    File.chmod!(Path.join(root, "scripts/elixir-test.sh"), 0o755)
+    stage_scripts!(root)
 
     for tool <- ["dirname", "env", "mktemp", "rm", "cat"] do
       File.ln_s!(System.find_executable(tool), Path.join(root, "bin/#{tool}"))
@@ -214,5 +204,14 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
     path = Path.join(root, path)
     File.write!(path, text)
     File.chmod!(path, 0o755)
+  end
+
+  # The script and the server selection it sources (scripts/test-database.sh).
+  defp stage_scripts!(root) do
+    for script <- ["scripts/elixir-test.sh", "scripts/test-database.sh"] do
+      File.cp!(Path.join(@repository, script), Path.join(root, script))
+    end
+
+    File.chmod!(Path.join(root, "scripts/elixir-test.sh"), 0o755)
   end
 end

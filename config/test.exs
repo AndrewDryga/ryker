@@ -11,9 +11,9 @@ repo_pool = if world_eval?, do: DBConnection.ConnectionPool, else: Ecto.Adapters
 #
 # A world-eval VM is one shard running one observation at a time and is
 # model-bound: sampled twenty times mid-matrix it had zero busy connections.
-# It gets the production pool of ten, because four shards at the suite's
-# twenty-four would hold 96 of the 100 connections the local server allows,
-# beside the 19 the production instance and its workers already hold.
+# It gets the production pool of ten: its campaign databases share
+# compose.test.yml's server (500 connections) with every test VM running
+# beside it (scripts/test-database.sh).
 repo_pool_size = if world_eval?, do: 10, else: 24
 
 config :ryker, Ryker.Repo,

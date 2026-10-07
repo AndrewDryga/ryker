@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Ryker.WorkExamples do
   line (`Ryker.WorkExamples.Export`), the file the Data retention page
   downloads.
 
-      MIX_ENV=prod mix ryker.work_examples --output work-examples.jsonl
+      mix ryker.work_examples --output work-examples.jsonl
 
   Without `--output` the lines are written to standard output.
   """

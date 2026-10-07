@@ -50,7 +50,13 @@ defmodule Ryker.Evals.WorldEvalScriptTest do
       assert shard =~ "--shard #{index}/3"
       assert shard =~ Enum.join(@world_options, " ")
       assert File.read!("#{fixture.shards}/shard-#{index}.log") =~ "shard #{index} running"
+
+      # A shard's log carries its whole report, prompts and answers included, and was
+      # written under the default umask (2026-10-04 review): it is the operator's alone.
+      assert Bitwise.band(File.stat!("#{fixture.shards}/shard-#{index}.log").mode, 0o077) == 0
     end
+
+    assert Bitwise.band(File.stat!(fixture.shards).mode, 0o077) == 0
 
     for database <- databases, command <- ["ecto.create", "ecto.migrate", "ecto.drop"] do
       assert Enum.any?(calls, &(field(&1, "db") == database and &1 =~ command)),
@@ -75,6 +81,49 @@ defmodule Ryker.Evals.WorldEvalScriptTest do
 
     assert output =~ "shard 1/3"
     assert output =~ "shard 3/3"
+  end
+
+  # 2026-10-04 review: the campaign databases went to whatever answered at 127.0.0.1:5432,
+  # on this Mac another project's server. They go on Ryker's test server, as the suite's do.
+  test "campaign databases go on Ryker's test server, not whatever answers at 5432" do
+    fixture = fixture!(shards: 2)
+    env = fixture.env ++ [{"RYKER_WORLD_EVAL_SHARDS", "2"}, {"PGHOST", nil}, {"PGPORT", nil}]
+
+    {output, status} =
+      System.cmd("bash", [@script, fixture.results | @world_options],
+        env: env,
+        stderr_to_stdout: true
+      )
+
+    if System.find_executable("docker") do
+      assert status == 0, output
+
+      {address, 0} =
+        System.cmd("docker", [
+          "compose",
+          "--project-name",
+          "ryker-kernel",
+          "--file",
+          Path.expand("../../../compose.test.yml", __DIR__),
+          "port",
+          "episode-db",
+          "5432"
+        ])
+
+      port = address |> String.trim() |> String.split(":") |> List.last()
+      calls = fixture.log |> File.read!() |> String.split("\n", trim: true)
+      database_calls = Enum.filter(calls, &(&1 =~ "ecto."))
+
+      assert database_calls != []
+
+      for call <- database_calls do
+        assert {field(call, "pghost"), field(call, "pgport")} == {"127.0.0.1", port}, call
+      end
+    else
+      # A Coop box has no Docker; with no PGHOST nothing serves the databases.
+      assert status == 1
+      assert output =~ "nothing serves"
+    end
   end
 
   test "a public URL without a port gets each shard's worker port" do
@@ -201,9 +250,9 @@ defmodule Ryker.Evals.WorldEvalScriptTest do
 
     File.write!(mix, """
     #!/bin/sh
-    printf 'world_eval=%s db=%s worker=%s url=%s :: %s\\n' \\
-      "${RYKER_WORLD_EVAL:-}" "${PGDATABASE:-}" "${RYKER_WORKER_PORT:-}" \\
-      "${RYKER_WORKER_PUBLIC_URL:-}" "$*" >> "$FAKE_MIX_LOG"
+    printf 'world_eval=%s db=%s pghost=%s pgport=%s worker=%s url=%s :: %s\\n' \\
+      "${RYKER_WORLD_EVAL:-}" "${PGDATABASE:-}" "${PGHOST:-}" "${PGPORT:-}" \\
+      "${RYKER_WORKER_PORT:-}" "${RYKER_WORKER_PUBLIC_URL:-}" "$*" >> "$FAKE_MIX_LOG"
     case "$*" in
       *"ryker.eval world-shards"*)
         i=1

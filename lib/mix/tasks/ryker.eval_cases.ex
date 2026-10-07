@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Ryker.EvalCases do
   a world scenario directory (`Ryker.Improvement.Export`), the same files the
   page downloads.
 
-      MIX_ENV=prod mix ryker.eval_cases --output DIR
+      mix ryker.eval_cases --output DIR
 
   Move the directories into `testdata/scenarios/`, fill in what each
   `PROVENANCE.md` lists, and run them with `make eval-world`.

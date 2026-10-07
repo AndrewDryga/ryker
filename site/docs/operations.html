@@ -256,7 +256,7 @@
 
     <dl>
       <div><dt>Deterministic gates</dt><dd><code>make dev-check</code> runs formatting, compiler warnings, lint, migrations, the test suite except its slow capacity tests in fresh databases, the control plane’s JavaScript tests and a shell-script linter. Nothing in it calls a model, and it gates every commit and every deploy. <code>make check</code> adds replays in an isolated database, the scripts’ self-tests and a simulated thirty days of retention; CI runs it on pull requests and every push to <code>main</code>.</dd></div>
-      <div><dt>Model evaluation</dt><dd><code>make eval-world</code> runs real model sessions against checked-in scenarios, the candidate against a baseline, three times each. It refuses to run with any policy that matches a production one.</dd></div>
+      <div><dt>Model evaluation</dt><dd><code>make eval-world</code> runs real model sessions against checked-in scenarios, the candidate against a baseline, three times each, on a dedicated evaluation worker and controller, each observation in an empty database of its own, inheriting no production settings.</dd></div>
       <div><dt>Live acceptance</dt><dd>Runs inside the deployed <code>ryker</code> container, against the installation’s own settings, and posts only to a joined channel named <code>#test</code> or ending in <code>-test</code>.</dd></div>
       <div><dt>Manual qualification</dt><dd>User-facing journeys through Chat, Slack, GitHub, webhooks, follow-ups and recovery. Each is complete only when the visible effect and the request’s timeline agree.</dd></div>
     </dl>

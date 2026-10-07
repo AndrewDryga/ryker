@@ -23,9 +23,10 @@ defmodule Ryker.Evals.KnowledgeJudge do
   The checks are structural; whether the words are right still takes a
   person reading the document.
 
-  A live run of the prompt needs a Coop session with the repository checked
-  out read-only at the case's commit. The eval Coop client does not create
-  one: every eval job has an empty workspace.
+  The knowledge prompt has no live run here: one would stage the case's
+  repository as the job's read-only checkout, as a world scenario that
+  captured a repository is staged (`Ryker.Evals.WorldSource`), and nothing
+  stages the knowledge cases.
   """
 
   alias Ryker.Crypto
