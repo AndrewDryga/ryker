@@ -8,13 +8,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   commands a placement ended before they ever left Ryker.
   """
 
-  import Ecto.Changeset
   require Logger
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Bodies, Command, CommandQuery, Placement, PlacementQuery, Protocol}
+  alias Ryker.CoopFleet.{Bodies, Command, CommandChangeset, CommandQuery}
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
-  alias Ryker.CoopFleet.Requests
+  alias Ryker.CoopFleet.{Placement, PlacementChangeset, PlacementQuery, Protocol, Requests}
   alias Ryker.Repo
   alias Ryker.StateTools.Binding
   alias Ryker.Work.{Session, SessionQuery, StateBinding, Turn, TurnQuery}
@@ -208,54 +207,20 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
           {:error, reason} -> Shared.rollback(reason)
         end
 
-        %Command{}
-        |> cast(
-          %{
-            command_version: Protocol.version(),
-            id: Ecto.UUID.generate(),
-            idempotency_key: idempotency_key,
-            kind: kind,
-            payload: payload,
-            payload_fingerprint: fingerprint,
-            placement_generation: placement.generation,
-            placement_id: placement.id,
-            session_id: placement.session_id,
-            status: :queued,
-            worker_id: placement.worker_id
-          },
-          [
-            :command_version,
-            :id,
-            :idempotency_key,
-            :kind,
-            :payload,
-            :payload_fingerprint,
-            :placement_generation,
-            :placement_id,
-            :session_id,
-            :status,
-            :worker_id
-          ]
-        )
-        |> validate_required([
-          :command_version,
-          :id,
-          :idempotency_key,
-          :kind,
-          :payload,
-          :payload_fingerprint,
-          :placement_generation,
-          :placement_id,
-          :session_id,
-          :status,
-          :worker_id
-        ])
-        |> unique_constraint(:idempotency_key)
-        |> foreign_key_constraint(:placement_id,
-          name: :coop_worker_command_placement_identity_fkey
-        )
-        |> check_constraint(:kind, name: :coop_worker_command_identity_valid)
-        |> check_constraint(:status, name: :coop_worker_command_result_valid)
+        %{
+          command_version: Protocol.version(),
+          id: Ecto.UUID.generate(),
+          idempotency_key: idempotency_key,
+          kind: kind,
+          payload: payload,
+          payload_fingerprint: fingerprint,
+          placement_generation: placement.generation,
+          placement_id: placement.id,
+          session_id: placement.session_id,
+          status: :queued,
+          worker_id: placement.worker_id
+        }
+        |> CommandChangeset.insert()
         |> Repo.insert()
         |> Shared.unwrap_write()
     end
@@ -349,14 +314,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
       })
 
     command
-    |> change(%{
-      completed_at: now,
-      error: error,
-      operation_key: command.idempotency_key,
-      result_fingerprint: fingerprint,
-      status: :failed
-    })
-    |> check_constraint(:status, name: :coop_worker_command_result_valid)
+    |> CommandChangeset.fail(now, error, fingerprint)
     |> Repo.update!()
   end
 
@@ -371,7 +329,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
         command.status == :delivered ->
           command
-          |> change(%{acknowledged_at: now, status: :acknowledged})
+          |> CommandChangeset.acknowledge(now)
           |> Repo.update!()
 
         true ->
@@ -453,8 +411,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         }
 
         command
-        |> change(attributes)
-        |> check_constraint(:status, name: :coop_worker_command_result_valid)
+        |> CommandChangeset.settle(attributes)
         |> Repo.update()
         |> Shared.unwrap_write()
     end
@@ -464,14 +421,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
   defp record_uncertain(command, result, fingerprint, now, error) do
     command
-    |> change(%{
-      completed_at: now,
-      error: error,
-      operation_key: result["operation_key"],
-      result_fingerprint: fingerprint,
-      status: :uncertain
-    })
-    |> check_constraint(:status, name: :coop_worker_command_result_valid)
+    |> CommandChangeset.uncertain(now, result["operation_key"], fingerprint, error)
     |> Repo.update()
     |> Shared.unwrap_write()
   end
@@ -549,10 +499,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
     if bytes + size <= 768 * 1_024 do
       if command.status == :queued do
-        command |> change(%{delivered_at: now, status: :delivered}) |> Repo.update!()
+        command |> CommandChangeset.deliver(now) |> Repo.update!()
       end
 
-      placement |> change(%{last_command_id: command.id}) |> Repo.update!()
+      placement |> PlacementChangeset.deliver_command(command.id) |> Repo.update!()
       {[envelope | delivered], bytes + size}
     else
       acc

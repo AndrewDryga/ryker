@@ -1,11 +1,11 @@
 defmodule Ryker.CoopFleet.Checkpoints do
   @moduledoc false
 
-  import Ecto.Changeset
   alias Ryker.CoopFleet.{Bodies, Bridge, Command, CommandQuery, ControlPlane, Placement}
   alias Ryker.CoopFleet.PlacementQuery
   alias Ryker.CoopFleet.{WorkspaceCheckpoint, WorkspaceCheckpointBundle}
-  alias Ryker.CoopFleet.{WorkspaceCheckpointTransfer, WorkspaceCheckpointTransferQuery}
+  alias Ryker.CoopFleet.{WorkspaceCheckpointTransfer, WorkspaceCheckpointTransferChangeset}
+  alias Ryker.CoopFleet.WorkspaceCheckpointTransferQuery
   alias Ryker.{Credentials, Repo, Secret}
   alias Ryker.Crypto
   alias Ryker.Work.{RepositorySource, Session, SessionQuery}
@@ -115,10 +115,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
   defp store(_, _, _, _, _), do: {:error, :checkpoint_not_available}
 
   defp persist_transfer(prepared) do
-    changeset =
-      %WorkspaceCheckpointTransfer{}
-      |> cast(prepared, Map.keys(prepared))
-      |> validate_required(Map.keys(prepared))
+    changeset = WorkspaceCheckpointTransferChangeset.insert(prepared)
 
     # The data and receipt have already been fsynced before the result was
     # acknowledged. Only metadata belongs in this short transaction.

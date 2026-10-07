@@ -17,9 +17,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   request (`Ryker.Episodes`).
   """
 
-  import Ecto.Changeset
-  alias Ryker.CoopFleet.{Certificate, CertificateQuery, Protocol, Worker, WorkerQuery}
+  alias Ryker.CoopFleet.{CertificateChangeset, CertificateQuery}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Events, Placements, Shared}
+  alias Ryker.CoopFleet.{Protocol, Worker, WorkerChangeset, WorkerQuery}
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Repo
@@ -149,19 +149,13 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     worker =
       case Shared.locked_worker(worker_id) do
         nil ->
-          %Worker{}
-          |> cast(
-            %{
-              certificate_sha256: certificate_sha256,
-              id: worker_id,
-              workspace_ref: workspace_ref,
-              state: :offline
-            },
-            [:certificate_sha256, :id, :workspace_ref, :state]
-          )
-          |> validate_required([:certificate_sha256, :id, :workspace_ref, :state])
-          |> unique_constraint(:certificate_sha256)
-          |> check_constraint(:id, name: :coop_worker_identity_valid)
+          %{
+            certificate_sha256: certificate_sha256,
+            id: worker_id,
+            workspace_ref: workspace_ref,
+            state: :offline
+          }
+          |> WorkerChangeset.insert()
           |> Repo.insert()
           |> Shared.unwrap_write()
 
@@ -193,7 +187,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
     worker =
       worker
-      |> change(%{
+      |> WorkerChangeset.heartbeat(%{
         build_version: hello["build_version"],
         capabilities: hello["capabilities"],
         capacity: hello["capacity"],
@@ -205,19 +199,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
         storage: hello["storage"],
         storage_reclaimed_bytes: reclaimed_bytes(worker, hello["storage"])
       })
-      |> validate_required([
-        :build_version,
-        :capabilities,
-        :capacity,
-        :clock_at,
-        :last_seen_at,
-        :protocol_version,
-        :sandbox_digest,
-        :state
-      ])
-      |> check_constraint(:id, name: :coop_worker_identity_valid)
-      |> check_constraint(:capacity, name: :coop_worker_documents_valid)
-      |> check_constraint(:storage, name: :coop_worker_storage_valid)
       |> Repo.update()
       |> Shared.unwrap_write()
 
@@ -314,30 +295,16 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   defp ensure_manual_certificate!(worker_id, certificate_sha256) do
     now = Repo.now!()
 
-    %Certificate{}
-    |> cast(
-      %{
-        expires_at: DateTime.add(now, 10 * 365 * 24 * 60 * 60, :second),
-        issued_by: "manual-authorization",
-        not_before: now,
-        serial_number: "manual-#{String.slice(certificate_sha256, 0, 16)}",
-        sha256: certificate_sha256,
-        source: :manual,
-        worker_id: worker_id
-      },
-      [:expires_at, :issued_by, :not_before, :serial_number, :sha256, :source, :worker_id]
-    )
-    |> validate_required([
-      :expires_at,
-      :issued_by,
-      :not_before,
-      :serial_number,
-      :sha256,
-      :source,
-      :worker_id
-    ])
-    |> foreign_key_constraint(:worker_id)
-    |> check_constraint(:sha256, name: :coop_worker_certificate_valid)
+    %{
+      expires_at: DateTime.add(now, 10 * 365 * 24 * 60 * 60, :second),
+      issued_by: "manual-authorization",
+      not_before: now,
+      serial_number: "manual-#{String.slice(certificate_sha256, 0, 16)}",
+      sha256: certificate_sha256,
+      source: :manual,
+      worker_id: worker_id
+    }
+    |> CertificateChangeset.insert()
     |> Repo.insert(on_conflict: :nothing, conflict_target: :sha256)
     |> Shared.unwrap_write()
   end

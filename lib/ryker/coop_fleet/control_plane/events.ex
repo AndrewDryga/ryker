@@ -9,11 +9,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   allows.
   """
 
-  import Ecto.Changeset
   require Logger
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Command, CommandQuery, Event, EventQuery, Placement, PlacementQuery}
+  alias Ryker.CoopFleet.{Command, CommandQuery}
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
+  alias Ryker.CoopFleet.{EventChangeset, EventQuery}
+  alias Ryker.CoopFleet.{Placement, PlacementChangeset, PlacementQuery}
   alias Ryker.Repo
   alias Ryker.Work.{Activity, Session, SessionQuery}
 
@@ -176,31 +177,15 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
 
   defp advance_event_cursor(placement, _cursor, last_sequence, session_events?) do
     placement
-    |> change(event_cursor_change(session_events?, last_sequence))
-    |> check_constraint(event_cursor_field(session_events?),
-      name: event_cursor_constraint(session_events?)
-    )
+    |> PlacementChangeset.acknowledge_events(session_events?, last_sequence)
     |> Repo.update!()
   end
-
-  defp event_cursor_constraint(true),
-    do: :coop_session_placement_session_event_cursor_valid
-
-  defp event_cursor_constraint(false), do: :coop_session_placement_identity_valid
 
   defp session_event_batch?([%{"kind" => "session_event"} | _rest]), do: true
   defp session_event_batch?(_events), do: false
 
   defp event_cursor(placement, true), do: placement.last_acked_session_event_sequence
   defp event_cursor(placement, false), do: placement.last_acked_event_sequence
-
-  defp event_cursor_change(true, sequence),
-    do: %{last_acked_session_event_sequence: sequence}
-
-  defp event_cursor_change(false, sequence), do: %{last_acked_event_sequence: sequence}
-
-  defp event_cursor_field(true), do: :last_acked_session_event_sequence
-  defp event_cursor_field(false), do: :last_acked_event_sequence
 
   defp ingest_session_events!(_placement, _events, _cursor, false), do: :ok
 
@@ -360,44 +345,17 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
 
     stored_payload = if event["kind"] == "session_event", do: %{}, else: event["payload"]
 
-    %Event{}
-    |> cast(
-      %{
-        kind: event["kind"],
-        payload: stored_payload,
-        payload_fingerprint: fingerprint,
-        placement_generation: placement.generation,
-        placement_id: placement.id,
-        sequence: event["sequence"],
-        session_id: placement.session_id,
-        worker_id: placement.worker_id
-      },
-      [
-        :kind,
-        :payload,
-        :payload_fingerprint,
-        :placement_generation,
-        :placement_id,
-        :sequence,
-        :session_id,
-        :worker_id
-      ]
-    )
-    |> validate_required([
-      :kind,
-      :payload,
-      :payload_fingerprint,
-      :placement_generation,
-      :placement_id,
-      :sequence,
-      :session_id,
-      :worker_id
-    ])
-    |> unique_constraint([:placement_id, :sequence])
-    |> foreign_key_constraint(:placement_id,
-      name: :coop_worker_event_placement_identity_fkey
-    )
-    |> check_constraint(:kind, name: :coop_worker_event_identity_valid)
+    %{
+      kind: event["kind"],
+      payload: stored_payload,
+      payload_fingerprint: fingerprint,
+      placement_generation: placement.generation,
+      placement_id: placement.id,
+      sequence: event["sequence"],
+      session_id: placement.session_id,
+      worker_id: placement.worker_id
+    }
+    |> EventChangeset.insert()
     |> Repo.insert()
     |> Shared.unwrap_write()
   end

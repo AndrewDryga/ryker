@@ -8,9 +8,8 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   decision remains the durable audit identity on exact retries.
   """
 
-  import Ecto.Changeset
   alias Ryker.CoopFleet.{CertificateQuery, EnrollmentTokenQuery, PlacementQuery, Protocol}
-  alias Ryker.CoopFleet.{Worker, WorkerQuery}
+  alias Ryker.CoopFleet.{Worker, WorkerChangeset, WorkerQuery}
   alias Ryker.Repo
 
   @type result :: %{status: :draining | :duplicate | :resumed | :revoked, worker: Worker.t()}
@@ -54,12 +53,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
 
         updated =
           worker
-          |> change(%{
-            drain_requested_at: now,
-            drain_requested_by: operator_ref,
-            state: :draining
-          })
-          |> check_constraint(:state, name: :coop_worker_identity_valid)
+          |> WorkerChangeset.drain(now, operator_ref)
           |> Repo.update()
           |> unwrap_write()
 
@@ -80,12 +74,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
       true ->
         updated =
           worker
-          |> change(%{
-            drain_requested_at: nil,
-            drain_requested_by: nil,
-            state: :offline
-          })
-          |> check_constraint(:state, name: :coop_worker_identity_valid)
+          |> WorkerChangeset.resume()
           |> Repo.update()
           |> unwrap_write()
 
@@ -118,14 +107,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
 
       updated =
         worker
-        |> change(%{
-          drain_requested_at: worker.drain_requested_at || now,
-          drain_requested_by: worker.drain_requested_by || operator_ref,
-          revoked_at: now,
-          revoked_by: operator_ref,
-          state: :revoked
-        })
-        |> check_constraint(:state, name: :coop_worker_identity_valid)
+        |> WorkerChangeset.revoke(now, operator_ref)
         |> Repo.update()
         |> unwrap_write()
 

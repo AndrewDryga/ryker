@@ -9,11 +9,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   session at all without taking a slot to find out.
   """
 
-  import Ecto.Changeset
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Bodies, CommandQuery, JobAuthority, Placement, PlacementQuery, Worker}
+  alias Ryker.CoopFleet.{Bodies, CommandQuery, JobAuthority, Placement, PlacementChangeset}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Shared}
-  alias Ryker.CoopFleet.{WorkerQuery, WorkspaceCheckpointTransferQuery}
+  alias Ryker.CoopFleet.{PlacementQuery, Worker, WorkerQuery, WorkspaceCheckpointTransferQuery}
   alias Ryker.Repo
   alias Ryker.Work.{RepositorySource, Session, SessionQuery, TurnQuery}
 
@@ -287,7 +286,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     else
       replaced =
         placement
-        |> change(%{state: :replaced})
+        |> PlacementChangeset.replace()
         |> Repo.update!()
 
       Commands.fail_undelivered_commands(replaced, now)
@@ -306,58 +305,21 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     id = Ecto.UUID.generate()
     frozen_requirements = placement_requirements(session, worker, requirements)
 
-    %Placement{inserted_at: now, updated_at: now}
-    |> cast(
-      %{
-        episode_id: session.episode_id,
-        generation: generation,
-        id: id,
-        last_acked_event_sequence: 0,
-        last_acked_session_event_sequence: 0,
-        lease_expires_at: DateTime.add(now, lease_seconds, :second),
-        lease_ref: "placement-lease:#{id}",
-        requirements: frozen_requirements,
-        requirements_fingerprint: CanonicalJSON.digest(frozen_requirements),
-        session_id: session.id,
-        state: :active,
-        worker_id: worker.id
-      },
-      [
-        :episode_id,
-        :generation,
-        :id,
-        :last_acked_event_sequence,
-        :last_acked_session_event_sequence,
-        :lease_expires_at,
-        :lease_ref,
-        :requirements,
-        :requirements_fingerprint,
-        :session_id,
-        :state,
-        :worker_id
-      ]
-    )
-    |> validate_required([
-      :generation,
-      :id,
-      :lease_expires_at,
-      :lease_ref,
-      :requirements,
-      :requirements_fingerprint,
-      :session_id,
-      :state,
-      :worker_id
-    ])
-    |> unique_constraint([:session_id, :generation])
-    |> unique_constraint(:session_id, name: :coop_session_placements_one_current)
-    |> foreign_key_constraint(:session_id,
-      name: :coop_session_placement_session_episode_fkey
-    )
-    |> foreign_key_constraint(:session_id,
-      name: :coop_session_placements_session_id_fkey
-    )
-    |> foreign_key_constraint(:worker_id)
-    |> check_constraint(:generation, name: :coop_session_placement_identity_valid)
+    %{
+      episode_id: session.episode_id,
+      generation: generation,
+      id: id,
+      last_acked_event_sequence: 0,
+      last_acked_session_event_sequence: 0,
+      lease_expires_at: DateTime.add(now, lease_seconds, :second),
+      lease_ref: "placement-lease:#{id}",
+      requirements: frozen_requirements,
+      requirements_fingerprint: CanonicalJSON.digest(frozen_requirements),
+      session_id: session.id,
+      state: :active,
+      worker_id: worker.id
+    }
+    |> PlacementChangeset.insert(now)
     |> Repo.insert()
     |> Shared.unwrap_write()
   end
@@ -452,7 +414,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     |> PlacementQuery.lock_for_update()
     |> Repo.all()
     |> Enum.each(fn placement ->
-      retired = placement |> change(%{state: :replaced}) |> Repo.update!()
+      retired = placement |> PlacementChangeset.replace() |> Repo.update!()
       Commands.fail_undelivered_commands(retired, now)
     end)
   end
@@ -474,7 +436,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     |> PlacementQuery.lock_for_update()
     |> Repo.all()
     |> Enum.each(fn placement ->
-      retired = placement |> change(%{state: :retired}) |> Repo.update!()
+      retired = placement |> PlacementChangeset.retire() |> Repo.update!()
       Commands.fail_undelivered_commands(retired, now)
     end)
   end
@@ -505,7 +467,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       |> PlacementQuery.lock_for_update()
       |> Repo.all()
       |> Enum.map(fn placement ->
-        retired = placement |> change(%{state: :replaced}) |> Repo.update!()
+        retired = placement |> PlacementChangeset.replace() |> Repo.update!()
         Commands.fail_undelivered_commands(retired, now)
       end)
       |> length()
@@ -530,17 +492,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     # for a deploy or a stalled Docker VM (2026-10-04 review). A placement
     # another worker took over is no longer active and is not renewed.
     Enum.each(placements, fn placement ->
-      attributes =
+      changeset =
         if placement_authority_current?(placement.requirements, worker),
-          do: %{lease_expires_at: expires_at},
-          else: %{state: :revoking}
+          do: PlacementChangeset.renew(placement, expires_at),
+          else: PlacementChangeset.revoke(placement)
 
-      updated =
-        placement
-        |> change(attributes)
-        |> Repo.update!()
-
-      if updated.state == :replaced, do: Commands.fail_undelivered_commands(updated, now)
+      Repo.update!(changeset)
     end)
 
     :ok

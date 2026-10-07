@@ -7,9 +7,9 @@ defmodule Ryker.CoopFleet.Enrollment do
   issued certificate. Worker private keys never cross the gateway.
   """
 
-  import Ecto.Changeset
-  alias Ryker.CoopFleet.{Certificate, CertificateAuthority, CertificateQuery}
-  alias Ryker.CoopFleet.{EnrollmentToken, EnrollmentTokenQuery, Protocol, Worker, WorkerQuery}
+  alias Ryker.CoopFleet.{CertificateAuthority, CertificateChangeset, CertificateQuery}
+  alias Ryker.CoopFleet.{EnrollmentTokenChangeset, EnrollmentTokenQuery}
+  alias Ryker.CoopFleet.{Protocol, Worker, WorkerChangeset, WorkerQuery}
   alias Ryker.Crypto
   alias Ryker.Repo
 
@@ -38,26 +38,14 @@ defmodule Ryker.CoopFleet.Enrollment do
         ensure_worker_enrollable!(worker_id)
 
         enrollment =
-          %EnrollmentToken{}
-          |> cast(
-            %{
-              expires_at: DateTime.add(now, ttl_seconds, :second),
-              operator_ref: operator_ref,
-              token_sha256: token_sha256,
-              worker_id: worker_id,
-              workspace_ref: workspace_ref
-            },
-            [:expires_at, :operator_ref, :token_sha256, :worker_id, :workspace_ref]
-          )
-          |> validate_required([
-            :expires_at,
-            :operator_ref,
-            :token_sha256,
-            :worker_id,
-            :workspace_ref
-          ])
-          |> unique_constraint(:token_sha256)
-          |> check_constraint(:worker_id, name: :coop_worker_enrollment_token_valid)
+          %{
+            expires_at: DateTime.add(now, ttl_seconds, :second),
+            operator_ref: operator_ref,
+            token_sha256: token_sha256,
+            worker_id: worker_id,
+            workspace_ref: workspace_ref
+          }
+          |> EnrollmentTokenChangeset.insert()
           |> Repo.insert()
           |> unwrap_write()
 
@@ -113,8 +101,7 @@ defmodule Ryker.CoopFleet.Enrollment do
     revoke_others!(worker.id, [issued.sha256], now, token.operator_ref)
 
     token
-    |> change(%{certificate_sha256: issued.sha256, consumed_at: now})
-    |> check_constraint(:certificate_sha256, name: :coop_worker_enrollment_token_valid)
+    |> EnrollmentTokenChangeset.consume(issued.sha256, now)
     |> Repo.update()
     |> unwrap_write()
 
@@ -149,8 +136,7 @@ defmodule Ryker.CoopFleet.Enrollment do
 
     worker =
       worker
-      |> change(%{certificate_sha256: issued.sha256})
-      |> unique_constraint(:certificate_sha256)
+      |> WorkerChangeset.bind_certificate(issued.sha256)
       |> Repo.update()
       |> unwrap_write()
 
@@ -191,26 +177,19 @@ defmodule Ryker.CoopFleet.Enrollment do
   defp upsert_enrolled_worker!(worker_id, workspace_ref, certificate_sha256) do
     case locked_worker(worker_id) do
       nil ->
-        %Worker{}
-        |> cast(
-          %{
-            certificate_sha256: certificate_sha256,
-            id: worker_id,
-            state: :offline,
-            workspace_ref: workspace_ref
-          },
-          [:certificate_sha256, :id, :state, :workspace_ref]
-        )
-        |> validate_required([:certificate_sha256, :id, :state, :workspace_ref])
-        |> unique_constraint(:certificate_sha256)
-        |> check_constraint(:id, name: :coop_worker_identity_valid)
+        %{
+          certificate_sha256: certificate_sha256,
+          id: worker_id,
+          state: :offline,
+          workspace_ref: workspace_ref
+        }
+        |> WorkerChangeset.insert()
         |> Repo.insert()
         |> unwrap_write()
 
       %Worker{workspace_ref: ^workspace_ref, state: state} = worker when state != :revoked ->
         worker
-        |> change(%{certificate_sha256: certificate_sha256})
-        |> unique_constraint(:certificate_sha256)
+        |> WorkerChangeset.bind_certificate(certificate_sha256)
         |> Repo.update()
         |> unwrap_write()
 
@@ -220,41 +199,17 @@ defmodule Ryker.CoopFleet.Enrollment do
   end
 
   defp insert_certificate!(worker_id, token_id, issued, source, issued_by) do
-    %Certificate{}
-    |> cast(
-      %{
-        enrollment_token_id: token_id,
-        expires_at: issued.expires_at,
-        issued_by: issued_by,
-        not_before: issued.not_before,
-        serial_number: issued.serial_number,
-        sha256: issued.sha256,
-        source: source,
-        worker_id: worker_id
-      },
-      [
-        :enrollment_token_id,
-        :expires_at,
-        :issued_by,
-        :not_before,
-        :serial_number,
-        :sha256,
-        :source,
-        :worker_id
-      ]
-    )
-    |> validate_required([
-      :expires_at,
-      :issued_by,
-      :not_before,
-      :serial_number,
-      :sha256,
-      :source,
-      :worker_id
-    ])
-    |> foreign_key_constraint(:worker_id)
-    |> foreign_key_constraint(:enrollment_token_id)
-    |> check_constraint(:sha256, name: :coop_worker_certificate_valid)
+    %{
+      enrollment_token_id: token_id,
+      expires_at: issued.expires_at,
+      issued_by: issued_by,
+      not_before: issued.not_before,
+      serial_number: issued.serial_number,
+      sha256: issued.sha256,
+      source: source,
+      worker_id: worker_id
+    }
+    |> CertificateChangeset.insert()
     |> Repo.insert()
     |> unwrap_write()
   end
