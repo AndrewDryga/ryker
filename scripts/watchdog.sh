@@ -45,6 +45,8 @@
 set -uo pipefail
 
 repository=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=scripts/compose-lifecycle.sh
+. "$repository/scripts/compose-lifecycle.sh"
 
 # Overridable so every alarm can be exercised against a fabricated deployment.
 # A watchdog that has never been seen to fire is indistinguishable from one
@@ -76,16 +78,6 @@ date -u '+%Y-%m-%dT%H:%M:%SZ' >"$state_dir/heartbeat"
 
 note() {
   printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" >>"$log"
-}
-
-# env_value KEY prints KEY's last assignment in compose.env, with an optional
-# `export` and surrounding quotes removed. The file is never sourced: it holds
-# the database password and every cryptographic root the deployment has.
-env_value() {
-  local value
-  value=$(sed -n "s/^[[:space:]]*\(export[[:space:]][[:space:]]*\)\{0,1\}$1=//p" "$env_file" 2>/dev/null | tail -1)
-  value=${value%\"}; value=${value#\"}; value=${value%\'}; value=${value#\'}
-  printf '%s' "$value"
 }
 
 alarm() {
@@ -162,7 +154,7 @@ containers() {
 helpers() {
   local name url
   for name in RYKER_WHISPER_URL RYKER_WHISPER_DETECT_URL RYKER_EMBEDDINGS_URL; do
-    url=$(env_value "$name")
+    url=$(compose_env_value "$name" "$env_file")
     [[ -z $url ]] && continue
     url=${url/host.docker.internal/127.0.0.1}
     /usr/bin/curl -s -o /dev/null --max-time 5 "$url/" 2>/dev/null && continue
@@ -195,13 +187,11 @@ if [[ ! -r $env_file ]]; then
   exit 1
 fi
 
-port=$(env_value RYKER_CONTROL_PORT)
+port=$(compose_env_value RYKER_CONTROL_PORT "$env_file")
 [[ $port =~ ^[0-9]+$ ]] || port=4321
-address=$(env_value RYKER_CONTROL_BIND)
 # Ryker does not start with the console published beyond loopback.
-address=${address:-127.0.0.1}
-base="http://$address:$port"
-pinned=$(env_value RYKER_VERSION)
+base=$(control_origin "$(compose_env_value RYKER_CONTROL_BIND "$env_file")" "$port")
+pinned=$(compose_env_value RYKER_VERSION "$env_file")
 
 strike_file="$state_dir/ryker.strikes"
 alerted_file="$state_dir/ryker.alerted"

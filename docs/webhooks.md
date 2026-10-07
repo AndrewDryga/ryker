@@ -110,7 +110,7 @@ Webhook secrets must contain at least 16 bytes for bearer authentication and 32 
 
 ## Universal JSON
 
-`adapter.kind: universal` accepts any JSON value, including arrays and scalars, without interpreting
+`adapter_kind: universal` accepts any JSON value, including arrays and scalars, without interpreting
 provider fields. The sender must supply a stable `x-responder-event-id` for each occurrence.
 
 ```text
@@ -126,7 +126,7 @@ platform target.
 
 ## Grafana alerts
 
-`adapter.kind: grafana` accepts Grafana alert webhook JSON without Ryker metadata headers. Each
+`adapter_kind: grafana` accepts Grafana alert webhook JSON without Ryker metadata headers. Each
 entry in `alerts` becomes one normalized input; a delivery must contain between 1 and 500 alerts.
 
 | Normalized field | Grafana source |
@@ -156,7 +156,7 @@ curl -f \
 
 ## Mapped JSON alerts
 
-`adapter.kind: mapped_json` turns one JSON object into one normalized alert using configured object
+`adapter_kind: mapped_json` turns one JSON object into one normalized alert using configured object
 paths. The payload is never copied wholesale into model context; only selected, bounded fields are
 retained.
 

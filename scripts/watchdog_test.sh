@@ -17,11 +17,13 @@ set -uo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 server_pid=""
+server6_pid=""
 cleanup() {
-  if [[ -n $server_pid ]]; then
-    kill "$server_pid" 2>/dev/null
-    wait "$server_pid" 2>/dev/null
-  fi
+  local pid
+  for pid in $server_pid $server6_pid; do
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+  done
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -59,9 +61,11 @@ refute() {
 fake="$work/fake"
 mkdir -p "$fake" "$work/bin"
 cat >"$work/server.py" <<'PY'
-import http.server, os, sys
+import http.server, os, socket, sys
 
 base = sys.argv[1]
+host = sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1"
+port_file = sys.argv[3] if len(sys.argv) > 3 else "port"
 
 def read(name, default=""):
     try:
@@ -93,15 +97,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-with open(os.path.join(base, "port"), "w") as handle:
+class Server(http.server.ThreadingHTTPServer):
+    address_family = socket.AF_INET6 if ":" in host else socket.AF_INET
+
+server = Server((host, 0), Handler)
+with open(os.path.join(base, port_file), "w") as handle:
     handle.write(str(server.server_address[1]))
 server.serve_forever()
 PY
 python3 "$work/server.py" "$fake" &
 server_pid=$!
-for _ in $(seq 1 50); do [[ -s $fake/port ]] && break; sleep 0.1; done
+# The one other address Ryker lets the console be published on is IPv6
+# loopback; a host without one skips the check that needs it.
+python3 "$work/server.py" "$fake" ::1 port6 2>/dev/null &
+server6_pid=$!
+for _ in $(seq 1 50); do [[ -s $fake/port && -s $fake/port6 ]] && break; sleep 0.1; done
 port=$(cat "$fake/port")
+port6=$(cat "$fake/port6" 2>/dev/null)
 
 ready() { printf '200' >"$fake/readyz.code"; printf 'ready\n' >"$fake/readyz.body"; }
 not_ready() { printf '503' >"$fake/readyz.code"; printf 'not ready: %s\n' "$1" >"$fake/readyz.body"; }
@@ -201,6 +213,19 @@ WATCHDOG_ENV_FILE="$install/compose.env.down" run >/dev/null
 down=$(WATCHDOG_ENV_FILE="$install/compose.env.down" run)
 check "an unreachable control plane alarms" \
   "ALERT Ryker is not working — control plane unreachable at http://127.0.0.1:$((port + 1))" "$down"
+
+# 2026-10-04 review: the watchdog wrote ::1 into a URL without its brackets, so a console
+# published on IPv6 loopback, which Ryker allows, read as unreachable every minute.
+if [[ -n $port6 ]]; then
+  reset; ready
+  sed -e 's/^RYKER_CONTROL_BIND=.*/RYKER_CONTROL_BIND=::1/' \
+    -e "s/^RYKER_CONTROL_PORT=.*/RYKER_CONTROL_PORT=$port6/" "$install/compose.env" >"$install/compose.env.ipv6"
+  ipv6=""
+  for _ in 1 2 3; do ipv6+=$(WATCHDOG_ENV_FILE="$install/compose.env.ipv6" run); done
+  refute "a console published on IPv6 loopback is watched there" "ALERT" "$ipv6"
+else
+  printf 'skip a console published on IPv6 loopback (this host has no ::1)\n'
+fi
 
 # ---------------------------------------------------------------------------
 # A container serving other code than compose.env pins is a deploy that did

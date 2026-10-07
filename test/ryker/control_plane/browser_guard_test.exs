@@ -113,6 +113,25 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
     assert Router.call(conn("/healthz", "evil.example", peer), options).status == 421
   end
 
+  # 2026-10-04 review: a console published on IPv6 loopback, which Ryker allows, answered every
+  # request "Misdirected request". Bandit keeps the brackets of `Host: [::1]:4321`, as RFC 3986
+  # writes an IPv6 host, and only the bare `::1` was a local name.
+  test "a browser at [::1] reaches the console" do
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {Router, Router.init(ControlPlaneOptions.options(self()))},
+         ip: :loopback,
+         port: 0,
+         startup_log: false}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    assert healthz(port, "[::1]:#{port}") =~ ~r/\AHTTP\/1\.1 200 /
+    assert healthz(port, "[::2]:#{port}") =~ ~r/\AHTTP\/1\.1 421 /
+  end
+
   test "every response carries the same browser boundary headers, refused or not" do
     # Until 2026-09-13 the HTTP router set cross-origin-resource-policy and the
     # live pages did not, because each path carried its own copy of the list.
@@ -162,6 +181,18 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
   end
 
   defp guard(host, peer), do: BrowserGuard.call(conn("/", host, peer), [])
+
+  # A request as a browser sends it, so Bandit itself reads the Host header.
+  defp healthz(port, host) do
+    {:ok, socket} = :gen_tcp.connect(~c"127.0.0.1", port, [:binary, active: false])
+
+    :ok =
+      :gen_tcp.send(socket, "GET /healthz HTTP/1.1\r\nhost: #{host}\r\nconnection: close\r\n\r\n")
+
+    {:ok, response} = :gen_tcp.recv(socket, 0, 5_000)
+    :gen_tcp.close(socket)
+    response
+  end
 
   defp conn(path, host, peer) do
     Plug.Test.conn(:get, path)

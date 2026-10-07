@@ -31,12 +31,9 @@ The kernel owns only:
 
 It performs no network calls and starts no model. Offline replay uses the same reducer as persistence.
 Origins are projected in the same transaction as the `input_admitted` event and are rebuilt from the
-ledger; the migration backfill derives a Slack root or reply from the retained identities (a root
-binds its own timestamp as thread) and records `conversation` for everything else rather than
-guessing native provenance. Claims are never backfilled: they exist only once a trusted source
-identity has been validated at admission. Only an identity the adapter itself resolved may be
-claimed — a GitHub item reference, or a typed publication-lifecycle run whose state the adapter also
-authenticates. A service name, alert rule, URL, or old incident id quoted inside app text is a
+ledger. Claims exist only once a trusted source identity has been validated at admission. Only an
+identity the adapter itself resolved may be claimed — a GitHub item reference, or a typed
+publication-lifecycle run whose state the adapter also authenticates. A service name, alert rule, URL, or old incident id quoted inside app text is a
 ranking clue and never an exclusive claim, because two genuine incidents can share it.
 
 The [generic ingress and admission module](elixir-ingress-admission.md) uses this kernel without

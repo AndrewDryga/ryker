@@ -44,7 +44,14 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   Whether `host` is one of the names the control plane answers to: the loopback names, and the
   host of the address it is published at, such as a tailnet name.
   """
-  def local_host?(host, published_host \\ nil),
+  def local_host?(host, published_host \\ nil)
+
+  # Bandit keeps the brackets of an IPv6 Host header (`[::1]`), as RFC 3986 writes one; a URI's
+  # host, such as the published address's, has none.
+  def local_host?("[" <> _ = host, published_host),
+    do: String.ends_with?(host, "]") and local_host?(String.slice(host, 1..-2//1), published_host)
+
+  def local_host?(host, published_host),
     do: host in @hosts or (is_binary(published_host) and host == published_host)
 
   def loopback?({127, _, _, _}), do: true

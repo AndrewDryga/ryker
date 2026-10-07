@@ -90,9 +90,9 @@ make check
 ```
 
 It adds the isolated host replay, the watchdog, deploy and live-acceptance script self-tests, the
-accelerated thirty-day retention simulation, and the evaluation-trend script's self-test. CI runs it on every
-push. Run it locally before a tagged release or when a change touches retention custody or the
-release scripts, not before every deploy.
+accelerated thirty-day retention simulation, and the evaluation-trend script's self-test. CI runs
+it on pull requests and every push to `main`. Run it locally before a tagged release or when a
+change touches retention custody or the release scripts, not before every deploy.
 
 ## Model evaluation
 
@@ -138,10 +138,11 @@ candidate and baseline matrix three times against the same deterministic worlds 
 configured aggregate, per-case, paired-regression, hard-invariant, execution, and cleanup limits.
 
 Both run through `scripts/elixir-world-eval.sh`, which splits the plan into shards that run at
-once. The full matrix is 186 observations at about 93 seconds each; one VM ran them one after
-another and took 4.8 hours. Each shard is its own `mix ryker.eval world --shard I/N` VM on
-its own campaign database and its own worker-gateway port, which also serves the turn's
-tools (the configured `RYKER_WORKER_PORT` advanced by one per shard, with the port of
+once. The full matrix runs every scenario three times in the candidate and baseline lanes, 198
+observations for the 33 scenarios of 2026-10-07, at about 93 seconds each; when it was 186, one VM
+ran them one after another and took 4.8 hours. Each shard is its own
+`mix ryker.eval world --shard I/N` VM on its own campaign database and its own worker-gateway
+port, which also serves the turn's tools (the configured `RYKER_WORKER_PORT` advanced by one per shard, with the port of
 `RYKER_WORKER_PUBLIC_URL` rewritten to match), running the slice it is dealt from the
 same ordered plan: scenario/repeat pairs go round-robin, so a candidate and its baseline always
 share a shard. `RYKER_WORLD_EVAL_SHARDS` (default 4, also a `make` variable) is the most
@@ -256,8 +257,8 @@ make release-check
 This runs the deterministic gate, then builds the immutable Elixir release archive and checks it
 structurally: the bytes match their trusted digest before anything is listed or extracted, every
 path is safe, the executable, every migration in the tree and every operator asset in
-`release-assets.txt` are present, no development dependency ships, and the migration entry point
-boots. Signing remains CI-only because keyless Sigstore uses GitHub's OIDC identity. Neither
+`release-assets.txt` are present, no development dependency ships, and the archive starts and
+loads its migration module, `Ryker.Release`. Signing remains CI-only because keyless Sigstore uses GitHub's OIDC identity. Neither
 qualifies nor deploys the running installation; `scripts/deploy.sh` does that (see the project
 instructions, "Finish by deploying").
 

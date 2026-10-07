@@ -18,14 +18,14 @@ Fresh memory qualification on `8d5d6a6` passed: an ordinary request produced no 
 messages maintained the same draft-retention topic; auth resolution and later recurrence stayed
 distinct and were correctly recalled by a fresh Work question; a source-only rebuild updated the
 same topic with a new source generation. Nine model turns completed, one native attempt each.
-Reports are under `/private/tmp/ryker-memory-qualification-final.8d5d6a6/`.
+Its reports were kept in `/private/tmp/ryker-memory-qualification-final.8d5d6a6/`, since cleared.
 
 All nine Work smoke scenarios now have passing observations: seven on `e2cadb0`, then the
 concurrent-feedback case repeated and the remaining Rivals/VA1 cases completed on `6a28038`.
 The final three-case campaign ran once: seven Work turns plus three judge turns, one native
-attempt each. Every session was discarded. Reports and public activity receipts remain under
+attempt each. Every session was discarded. Its reports and public activity receipts were kept in
 `/private/tmp/ryker-memory-qualification-final.e2cadb0/` and
-`/private/tmp/ryker-memory-qualification-final.6a28038/`.
+`/private/tmp/ryker-memory-qualification-final.6a28038/`, since cleared.
 
 Root inspected actual responses, tool results, and the generated PNG, not only judge scores.
 Important qualifications:
@@ -51,7 +51,8 @@ Final deterministic qualification passed 2,810 Elixir tests with 90.41% coverage
 release-isolation tests. The initial full gate found two test-clock assumptions. A test-only repair preserved source times/content, and
 the final full Elixir phase passed. The original failed gate remains failed evidence. The exact
 committed release also passed archive, backup/restore, restart, and readiness qualification.
-Deployment and gate receipts: `/private/tmp/ryker-activity-lock-deploy.XQ4UXU/STATUS.md`.
+Deployment and gate receipts were kept in `/private/tmp/ryker-activity-lock-deploy.XQ4UXU/STATUS.md`,
+since cleared.
 
 Older checkpoints below preserve their original failures and unrun observations; they are not
 retroactively relabelled passes. This checkpoint supersedes their pending deployment/qualification
@@ -93,6 +94,13 @@ The learning fixtures in `testdata/learning/` contain retained Tenant material:
 - `retained-output-contract-failure.json`: all exact rejected public bodies and corrections from
   an exhausted learning run, including malformed JSON. Preserve their bytes and digests apart from
   the pseudonymization below, which is the one sanctioned rewrite.
+- `retained-people-about-themselves.json`: three messages a person wrote about themselves, with
+  the live learning answer to them, for the `people` scenario below; the evaluation never replays
+  that answer to a model.
+- `recorded-private-source-citation.json`: one Work turn's exact `cite_source` arguments and the
+  reply they cite, for the source-privacy tests.
+- `worker-session-never-confirmed.json`: the run, batch, session and worker-command rows of two
+  learning runs that retried every hour because the worker made their sessions with project access.
 
 The current `action`/`anchors` learning protocol differs from older captured results. Deterministic
 host tests may explicitly project an old recorded subject into the new contract, but must label
@@ -212,7 +220,7 @@ without calling a model:
 MIX_ENV=test scripts/elixir-mix.sh ryker.eval world-pack
 ```
 
-The harvested admission fixtures already use the six routing fields. Do not manufacture schema
+The harvested admission fixtures already use the nine routing decision fields. Do not manufacture schema
 migrations inside those captured input bodies or add a permissive legacy admission parser.
 
 ## Real-model acceptance
@@ -493,19 +501,19 @@ test-only Coop process also disappeared before the host collected its terminal r
 cause is unknown. This is a failed availability observation, **not** a model-quality pass or a
 successful topic rebuild. No second model submission was made.
 
-The original failed report is retained at
-`/private/tmp/ryker-memory-rebuild.G1t34N/observation-1788898377381.json`. Separate cleanup
+The original failed report was kept at
+`/private/tmp/ryker-memory-rebuild.G1t34N/observation-1788898377381.json`, since cleared. Separate cleanup
 succeeded: the host recorded the actual failed-turn receipt, normal retention discarded the
 session, and the task-owned temporary Coop process stopped. No create, submit, or validation call
 was repeated; the frozen prompt and one-of-three start budget were preserved. To avoid waiting
 an hour, only this disposable batch's reconciliation due time was explicitly moved forward.
 That structural adjustment qualifies cleanup, not the one-hour timer or successful learning.
-The separate receipt is
-`/private/tmp/ryker-memory-rebuild.G1t34N/cleanup-recovery-1788898879194.json`; it cannot turn
+The separate receipt was
+`/private/tmp/ryker-memory-rebuild.G1t34N/cleanup-recovery-1788898879194.json`, also cleared; it cannot turn
 the failed observation into a pass. Main and replay processes and data were untouched.
 Application to the same topic/new generation is proven by deterministic host tests only until an
 available provider completes this contract. The final frozen Work smoke preflight and unrun list
-are retained under `/private/tmp/ryker-memory-final-smoke.EuTVdw/`.
+were kept in `/private/tmp/ryker-memory-final-smoke.EuTVdw/`, since cleared.
 
 Embeddings, a graph database, a model-visible omission index, automatic procedure promotion, and
 new cross-transport sharing authorization are explicitly outside this implementation spec. They
@@ -539,6 +547,15 @@ that the offline evaluator rejects the old behavior; it is never supplied to the
 This scenario has no recall probe because a successful run intentionally learns nothing.
 Fresh model qualification must also retain meaningful decisions (such as the `draft-keep`
 conversation), so fixing selectivity cannot silently become a blanket filter on requests.
+
+## What people say about themselves
+
+`mix ryker.learning_eval --scenario people` feeds three messages a person wrote about themselves
+in a test channel, one batch each: their birthday, their favourite show and how they like to be
+written to (`testdata/learning/retained-people-about-themselves.json`). Each is about its author,
+so each batch must keep a fact about that person and change no team topic, and each must keep what
+the batches before it learned. `chatter` and `one-off-request` hold the other side: a message
+about work keeps nothing about its author. Like them, `people` has no recall probe.
 
 ## Distinguish planning from operational authority in evaluations
 

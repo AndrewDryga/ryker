@@ -48,4 +48,4 @@ described work as targets; the documents below describe it as it runs.
   admission contract in [elixir-ingress-admission.md](elixir-ingress-admission.md), and its cases are
   the harvested scenarios under `testdata/scenarios/`, each with its own provenance note. The corpus
   holds no cross-channel join: the only multi-thread joins on disk are root-to-root inside one
-  channel, which is why the one cross-conversation scenario is authored and says so.
+  channel, which is why the two cross-conversation scenarios are authored and say so.

@@ -33,9 +33,9 @@ When updating an existing app, apply the new manifest. On an app created before 
 renames the app and bot from `Emisar` to `Ryker`, the slash command from `/responder` to `/ryker`
 and the message shortcut callback to `ryker_investigate_message`; upload
 `deploy/slack-app-icon.png` (the Ryker avatar) again under **Basic Information**. Cards posted
-before that release keep their old control ids: a click on one is answered with a private notice
-that the card predates the rename and is recorded in the interaction audit, never acted on. A
-shortcut invoked before the manifest is applied is acknowledged and logged as retired.
+before that release keep their old control ids, and Ryker acknowledges a click on one and does
+nothing else; a shortcut invoked under its old callback, before the manifest is applied, is
+acknowledged the same way.
 Reinstall when Slack reports that the updated manifest adds an OAuth scope. The Agent experience
 adds `assistant:write` and `im:history`, while per-user Home visibility adds `im:read` and
 `mpim:read`. Conversational channel setup uses
@@ -80,7 +80,9 @@ minutes and 8 MiB, and gets 90 seconds whichever model reads it. One past those 
 could not transcribe, reaches routing saying so in plain words, so Ryker can ask for text instead of
 ignoring it. Each transcript is kept beside its recording, so the same Slack file is never
 transcribed twice. The recording's bytes never go to Coop; its transcript does, inside the message.
-`RYKER_WHISPER_MODEL` points the transcriber at another whisper.cpp model file.
+To read voice with a larger model, point `RYKER_WHISPER_URL` at a whisper.cpp server
+("Voice messages" in [`operations.md`](operations.md)); `RYKER_WHISPER_MODEL` swaps the bundled
+model file only where Ryker runs outside Compose.
 
 When a user explicitly asks for an image or chart, the agent may create up to four PNG, JPEG, WebP,
 or GIF outputs in Coop's per-turn output directory or return typed ACP image content. Coop stores

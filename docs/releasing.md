@@ -22,8 +22,9 @@ The release identity is the semantic tag for a public release and otherwise the 
 The check builds the archive, verifies it against its trusted digest before listing or extracting
 it, requires safe paths, the executable, every migration in the tree and every operator asset in
 `release-assets.txt`, refuses development dependencies and eval-only modules (anything built from
-`evals/`), and boots the archive's migration entry point. `make release-dist` then lays the archive and its checksum manifest out under `dist/` the
-way CI publishes them. Production deployment is the Docker Compose project described in
+`evals/`), and starts the archive to load its migration module, `Ryker.Release`.
+`make release-dist` then lays the archive and its checksum manifest out under `dist/` the way
+CI publishes them. Production deployment is the Docker Compose project described in
 [`operations.md`](operations.md); durable recovery is in PostgreSQL, not in canary/promote
 metadata. CI still runs the full gate independently on a clean runner.
 
@@ -97,7 +98,8 @@ only then makes the release public.
 Verify downloaded assets before using them: put the three files in one directory and run
 `scripts/check-release.sh DIRECTORY vX.Y.Z` from this repository. It verifies the OIDC-signed
 manifest with cosign and the archive's checksum before the archive is listed, extracted, or
-executed. Attestations are not release assets; `gh attestation verify --repo AndrewDryga/ryker`
+executed. It ends by starting the archive, so it runs on Linux amd64, the one
+platform the archive is built for. Attestations are not release assets; `gh attestation verify --repo AndrewDryga/ryker`
 checks the GitHub-hosted build provenance separately.
 
 ## Failure policy

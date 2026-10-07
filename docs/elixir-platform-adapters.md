@@ -102,7 +102,9 @@ a permanent authorization failure instead of being mislabeled as throttling. A r
 throttle without usable timing waits at least 60 seconds. Error status and headers remain available
 even when an upstream proxy returns a non-JSON error body.
 
-Blocked custody is inspected and rearmed only by its opaque delivery reference:
+Blocked custody is inspected and rearmed only by its opaque delivery reference. Failures in the
+console lists it, says what stopped it and rearms it with its action (such as Post the reply
+again). From a source checkout that reaches the database (the Compose image has no Mix):
 
 ```console
 mix ryker.delivery list
@@ -274,8 +276,7 @@ The Slack tokens come from the encrypted credential store, entered under **Integ
 GitHub uses the supervised App installation-token
 provider described above; a static installation token is not a supported production configuration.
 
-Both the GitHub listener and Delivery runtime are optional and start only when configured. This work
-does not silently enable either in a running deployment.
+Both the GitHub listener and Delivery runtime are optional and start only when configured.
 
 ## Deterministic proof
 

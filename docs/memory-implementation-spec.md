@@ -495,8 +495,8 @@ managed Coop workers. No claim that a green test equals deployed behavior.
 
 Fable 5.1 (`claude-fable-5-1`) reviewed the full draft and owning Elixir code on 2026-09-08.
 Its verdict was "not implementable as written", with concrete custody/schema gaps, not approval.
-The public review is retained at
-`/private/tmp/ryker-memory-build.TJkOPg/fable-spec-initial.jsonl` (result record only).
+The public review (result record only) was kept at
+`/private/tmp/ryker-memory-build.TJkOPg/fable-spec-initial.jsonl`, since cleared.
 
 Accepted corrections:
 

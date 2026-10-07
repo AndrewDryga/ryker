@@ -1,6 +1,6 @@
 # Elixir ingress and admission
 
-This is the admission boundary of the replacement Ryker. It accepts a bounded event from a
+This is Ryker's admission boundary. It accepts a bounded event from a
 trusted adapter, stores it before reasoning, asks Coop for one generic model decision, validates that
 decision, and commits it with the episode transition in PostgreSQL.
 
@@ -49,16 +49,16 @@ The body may be any JSON value: object, array, string, number, boolean, or null.
 the exact input is durably queued; it does not claim that model work has finished. An exact retry
 returns the original receipt. Reusing the event identity with different data returns `409`.
 
-`adapter.kind: universal` uses that header contract unchanged. `adapter.kind: grafana` accepts an
+`adapter_kind: universal` uses that header contract unchanged. `adapter_kind: grafana` accepts an
 authenticated batch of 1–500 Grafana alerts and derives stable alert-cycle and occurrence identities.
-`adapter.kind: mapped_json` selects only configured bounded object paths and derives one alert. The
+`adapter_kind: mapped_json` selects only configured bounded object paths and derives one alert. The
 specialized transforms do not require Ryker metadata headers because their authenticated bodies
 own source identity; an HMAC request signs those absent header values as empty strings. A Grafana
 batch is recorded atomically. The complete configuration and mapping contract is documented in
 [`webhooks.md`](webhooks.md).
 
 Routes are explicit settings. Each source owns its own credential reference, destination and
-repository context; the payload limit and clock-skew limit are code defaults. The payload cannot
+environment, whose repositories its work uses; the payload limit and clock-skew limit are code defaults. The payload cannot
 override any of them. The listener defaults to loopback and starts only when at least one webhook
 source is enabled.
 

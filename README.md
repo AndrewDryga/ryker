@@ -119,7 +119,7 @@ Grafana route:
 ```bash
 curl -f \
   -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer example-secret' \
+  -H 'Authorization: Bearer example-secret-at-least-16-bytes' \
   --data-binary @grafana-alert.json \
   http://127.0.0.1:4320/v1/hooks/grafana
 ```
@@ -534,8 +534,8 @@ readiness and the exact version header, and only then pins the version in `.ryke
 If verification fails, it stops the unverified container and leaves the previous version pinned;
 check for database migrations before restarting the previous image.
 
-`make check` is the full gate, which CI runs on every push; run it locally before a tagged
-release. Use `make customer-check` for the Elixir product journeys and deterministic host replay.
+`make check` is the full gate, which CI runs on pull requests and every push to `main`; run it
+locally before a tagged release. Use `make customer-check` for the Elixir product journeys and deterministic host replay.
 Use `make eval-world` (with the `RYKER_EVAL_*` environment set) only when the model contract
 changes. Build and inspect the immutable Elixir release archive with:
 

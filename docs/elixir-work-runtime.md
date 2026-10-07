@@ -1,6 +1,6 @@
 # Elixir work runtime
 
-Stage 3 turns one admitted episode into durable, locally pooled model work. It is deliberately
+The Work runtime turns one admitted episode into durable, locally pooled model work. It is deliberately
 generic: no Slack provider name, alert type, repository name, or incident checklist affects this
 runtime.
 
@@ -169,9 +169,11 @@ tools own durable records. The generic Delivery module owns external message cus
   finishes first.
 - Delivery retries are bounded independently from model execution. Permanent platform errors and
   exhausted transient retries preserve the exact accepted result in operator-rearmable blocked
-  custody instead of polling a provider forever. Operators inspect or rearm that immutable intent by
-  durable reference with `mix ryker.delivery list|show|rearm`; a rearm starts a separately audited
-  retry generation with a fresh bounded attempt budget.
+  custody instead of polling a provider forever. Failures in the console lists that immutable
+  intent and says what stopped it, and its action (such as Post the reply again) rearms it by
+  durable reference; a rearm starts a separately audited retry generation with a fresh bounded
+  attempt budget. From a source checkout that reaches the database, `mix ryker.delivery
+  list|show|rearm` does the same; the Compose image has no Mix.
 
 ## Memory and background learning
 
@@ -180,7 +182,9 @@ The memory pipeline has separate read, learn, and act decisions:
 
 1. Admission returns only `action`, `episode_ref`, `messages`, `reactions`, `relation`, `reason`,
    `repository`, `repository_source` and `work_class`; `messages` are the words of a quick reply and
-   `reactions` the emoji routing adds. Its schema has no `observation` or `knowledge` output. Committing a retained input
+   `reactions` the emoji routing adds. Beside them it may say how the sender feels about Ryker's
+   last answer (`sentiment`), which is kept only as feedback on that answer and is never part of
+   the decision. Its schema has no `observation` or `knowledge` output. Committing a retained input
    records a bounded original-message excerpt and its exact source receipt, including for silence.
 2. The optional `Ryker.Learning.Runtime` coalesces decided input revisions in the same writable
    scope and execution mode. A revision belongs to one durable batch. Quiet/max-delay clocks start
@@ -570,7 +574,12 @@ without production environment, credentials, network mutation tools, or project 
 - `worker_ref`: stable identity prefix for this worker pool;
 - `concurrency`: optional slot count, from 1 through 32 (default 4);
 - `platform_tools`: optional exact names from the MCP catalog offered to the worker;
-  these names make the frozen model context truthful but confer no authority; and
+  these names make the frozen model context truthful but confer no authority;
+- `connected`: optional, whether Slack and GitHub are running, so work tells a person what is
+  actually connected rather than what is saved;
+- `state_tools_endpoint`, `state_tools_secret` and `state_tool_capabilities`: optional, where a
+  worker reaches Ryker's state tools, the secret each turn's token for them is derived from, and
+  which of them it may call (the default set when an endpoint is given); and
 - optional bounded polling and receive timeouts.
 
 The Work profile an adapter freezes at ingress comes from an **environment** and describes all of
@@ -716,8 +725,9 @@ a filtered session that has not run still shows its provisional receipt, because
 yet" is what the export exists to distinguish from a run that saw nothing.
 
 The three cards render together under one Worker evidence heading. The approved design seats
-Network access inside Work setup and the Network summary inside Work activity; those two cards are
-not built yet, so the placement is still pending while the content is not. The section reads the
+Network access inside Work setup and the Network summary inside Work activity. The timeline has a
+Work setup card for each Work run, but it does not hold Network access yet, and there is no Work
+activity card, so the placement is still pending while the content is not. The section reads the
 episode identity the page snapshot carries, so that identity is part of the snapshot rather than
 something a card resolves for itself.
 
@@ -838,10 +848,12 @@ records what is observed now and never revives the expired snapshot. Pruning run
 batches and short transactions so retention cannot monopolize a busy database. Every table has an executable retention
 class, and every age/lease comparison uses PostgreSQL time.
 
-Routing decisions copied for training (`routing_examples`) are the one deliberate exception: a
-redacted copy of the prompt, the answer and the outcome, kept under its own limit while a person
-keeps them on, and erased when a person forgets or deletes a message it quotes.
-[Training data](training-data.md) says what a copy holds, when it is taken and how to export it.
+The copies kept for training are the two deliberate exceptions: routing decisions
+(`routing_examples`), a redacted copy of the prompt, the answer and the outcome, and settled Work
+turns (`work_examples`), a redacted copy of the briefing, what the worker did and the result Ryker
+accepted. Each is kept under its own limit while a person keeps it on, and erased when a person
+forgets or deletes a message it quotes. [Training data](training-data.md) says what a copy holds,
+when it is taken and how to export it.
 
 One cleanup pass claims repeatedly under a bounded budget: at most `batch_limit` phases, at most
 `batch_seconds` of wall time, and at most one phase per session. Candidates are ordered by

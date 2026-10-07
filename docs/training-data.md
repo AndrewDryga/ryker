@@ -224,4 +224,4 @@ Where the line is:
 - **Risky actions stay behind human approval** in Emisar, whichever model asks for them.
 
 Each role goes shadow, then cascade, then primary, promoted and demoted on replay evals and live
-agreement. The plan is in `.agent/tasks/xx_backlog/2026-10-02-self-hosted-models-take-over-each-model-role-ryk`.
+agreement.

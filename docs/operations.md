@@ -164,9 +164,8 @@ docker exec ryker-database-1 sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -
   "INSERT INTO schema_migrations (version, inserted_at) VALUES (20260926100000, now())"'
 ```
 
-The Compose installation in this checkout was re-baselined this way on 2026-09-26. Its older
-rows in `schema_migrations` stay, so an earlier image started against it still finds nothing to
-run.
+A database re-baselined this way keeps its older rows in `schema_migrations`, so an earlier image
+started against it still finds nothing to run.
 
 A release refuses to start on a database that a newer release has migrated, and names the newer
 migrations. Restore the backup taken before that release, or upgrade to that release again.
@@ -313,7 +312,7 @@ agreed on, the latest disagreements, and the latest answers routing's checks ref
 as earlier work that was never offered; each opens its request. Comparisons are operational data and
 leave with their message's bodies.
 
-**Enable it on the Mac that runs Ryker.**
+**Enable it on a Mac that runs Ryker.**
 
 ```bash
 scripts/routing-model-service.sh install    # llama.cpp from Homebrew, Qwen2.5 3B Instruct (2.1 GB), one launchd service
@@ -321,8 +320,8 @@ scripts/routing-model-service.sh install    # llama.cpp from Homebrew, Qwen2.5 3
 
 Then in Settings › Models › Local routing model choose Compare in the background, set the endpoint
 to `http://host.docker.internal:8181/v1` and the model to `qwen2.5:3b`. The server holds 16k tokens
-of context; a routing prompt runs to several thousand. On this Mac it answers a routing prompt in 3
-to 6 s. Any other server that answers the OpenAI chat API with structured output works too, such as
+of context; a routing prompt runs to several thousand. On an M3 Pro it answers a routing prompt in
+3 to 6 s. Any other server that answers the OpenAI chat API with structured output works too, such as
 Ollama, vLLM or LM Studio; give it at least 16k tokens of context, or it cuts the prompt's start.
 The Compose project names the host `host.docker.internal` on Linux too. Every routing prompt, with
 the message and its conversation, goes to that endpoint, so plain http is accepted only for this
@@ -416,10 +415,13 @@ times in `Etc/UTC` only.
 
 ## Names that still say responder
 
-The product is Ryker. A few wire names remain `responder-*` because Coop workers or webhook senders
-own those contracts. They change only with the other party:
+The product is Ryker. A few names remain `responder-*`: wire names Coop workers or webhook senders
+own, which change only with the other party, and identities stored data already carries:
 
-- retained tool activity naming `responder-state`, and the immutable state-record identity `responder-state:v1` (new Coop bindings use `controller-tools`);
+- retained tool activity naming `responder-state` (new Coop bindings use `controller-tools`);
+- the state-record identity `responder-state:v1`, which Ryker still hashes into every state write's
+  operation id, so a write retried across a deploy finds the record it made instead of making two;
+- `responder_state_tools` in prompt contexts saved before the rename, which a request's page shows;
 - webhook signature and event headers beginning `x-responder-`;
 - the `responder.publication_lifecycle.v1` event type.
 

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Run the model-world evaluation as concurrent shards and merge one report.
 #
-# The full matrix is 30 scenarios × 3 repeats × 2 lanes, 180 observations at
-# about 93 seconds each. One VM ran them one after another — the Repo is a
-# singleton and the worker gateway binds one port — so the matrix took 4.8
-# hours, and nothing is allowed to take longer than 30 minutes. Each shard is
+# The full matrix is every scenario × 3 repeats × 2 lanes, at about 93 seconds
+# an observation (`mix ryker.eval world-shards` counts the current plan). One VM
+# ran 186 of them one after another — the Repo is a singleton and the worker
+# gateway binds one port — and took 4.8 hours, and nothing is allowed to take
+# longer than 30 minutes. Each shard is
 # its own `mix ryker.eval world --shard I/N` VM on its own campaign
 # database and its own listener ports; every shard deals itself the same
 # slice of the same ordered plan, writes results without a verdict, and

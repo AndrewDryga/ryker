@@ -5,8 +5,8 @@
 The product is Ryker. Before branding, UI or naming work, read `.agent/kb/rules/ryker-brand.md`
 and the repo-local sources it names. Use supplied artwork and Ryker mint, not the umbrella orange.
 The rename shipped on 2026-09-13. The few identifiers that keep the old spelling are contracts
-another party owns, listed in docs/operations.md, and `test/ryker/rename_audit_test.exs` fails on
-any other.
+another party owns or identities stored data already carries, listed in docs/operations.md, and
+`test/ryker/rename_audit_test.exs` fails on any other.
 
 ## Slack-card design and review
 
@@ -46,7 +46,8 @@ Use the narrowest validation that proves the current edit while iterating:
 3. Commit, then run `scripts/deploy.sh` (see "Finish by deploying").
 4. `make check` is the full gate: dev-check plus the deterministic host replay in an
    isolated database, the watchdog, deploy and live-acceptance script self-tests, the
-   thirty-day retention simulation, slow capacity tests, and the eval-trend self-test. CI runs it on every push to origin.
+   thirty-day retention simulation, slow capacity tests, and the eval-trend self-test. CI runs it on
+   pull requests and on every push to `main`.
    Run it locally before a tagged release or when a change touches retention custody or the
    release scripts, not before every deploy.
 5. Run live Slack, Coop, or Emisar acceptance only when the changed integration boundary
@@ -127,7 +128,8 @@ The only deployment is the Docker Compose project `ryker` in this checkout; `.ry
 holds its pins (`RYKER_VERSION`, `RYKER_IMAGE`) and its roots, and `scripts/compose.sh` is its
 lifecycle. Commit the change, then run `scripts/deploy.sh`. It refuses a dirty tree and a HEAD
 that is not `main`'s (pass `--allow-not-main` only on purpose), builds `ryker:0.1.0-g<commit>`
-from a clean git worktree of HEAD, then pauses Ryker and backs up the database and encrypted state
+(or the tag's version when HEAD carries an annotated `v` tag) from a clean git worktree of HEAD,
+then pauses Ryker and backs up the database and encrypted state
 into `.ryker/backups/pre-deploy-<time>.tar.gz`, and replaces only the `ryker` container with
 `docker compose up --detach --no-build --wait --no-deps ryker` (migrations run when the container
 boots), waits from the host's side for `/healthz`, `/readyz` and the exact `x-ryker-version`

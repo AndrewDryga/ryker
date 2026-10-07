@@ -7,9 +7,10 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
   task. Each renders only what its own section actually said, and each names its
   own absence rather than borrowing a zero from a neighbour.
 
-  They render together under one Worker evidence heading because the Work setup
-  and Work activity cards the approved design seats the first two in are not
-  built yet. The section reads the episode identity the page snapshot carries,
+  They render together under one Worker evidence heading because the approved
+  design seats the first two in Work setup and Work activity: the timeline's
+  Work setup card does not hold Network access yet, and there is no Work
+  activity card. The section reads the episode identity the page snapshot carries,
   so a page whose snapshot lost that identity shows no evidence at all -- which
   is why the page-level render is tested, not only the component.
   """

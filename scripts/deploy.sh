@@ -54,7 +54,7 @@ state_dir=${RYKER_INSTALL_STATE:-$repository/.ryker}
 env_file=$state_dir/compose.env
 # shellcheck source=scripts/compose-lifecycle.sh
 . "$repository/scripts/compose-lifecycle.sh"
-ready_timeout=${RYKER_DEPLOY_READY_TIMEOUT:-180}
+ready_timeout=${RYKER_READY_TIMEOUT:-180}
 poll_seconds=${RYKER_DEPLOY_POLL_SECONDS:-2}
 keep_images=${RYKER_KEEP_IMAGES:-2}
 keep_backups=${RYKER_KEEP_BACKUPS:-10}
@@ -89,15 +89,11 @@ done
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 (the 'docker compose' command) is required"
 [[ -r $env_file ]] || fail "Ryker is not installed here: $env_file is missing. Run ./install.sh first, or restore a backup."
 
-env_value() { sed -n "s/^$1=//p" "$env_file" | tail -n 1; }
-previous_version=$(env_value RYKER_VERSION)
-previous_image=$(env_value RYKER_IMAGE)
-control_port=$(env_value RYKER_CONTROL_PORT)
-control_port=${control_port:-4321}
-control_bind=$(env_value RYKER_CONTROL_BIND)
+previous_version=$(compose_env_value RYKER_VERSION "$env_file")
+previous_image=$(compose_env_value RYKER_IMAGE "$env_file")
+control_port=$(compose_env_value RYKER_CONTROL_PORT "$env_file")
 # Ryker does not start with the console published beyond loopback.
-control_bind=${control_bind:-127.0.0.1}
-origin="http://$control_bind:$control_port"
+origin=$(control_origin "$(compose_env_value RYKER_CONTROL_BIND "$env_file")" "${control_port:-4321}")
 
 # --- cleanup, whatever happens ---------------------------------------------
 worktree=
@@ -207,18 +203,8 @@ if ! env RYKER_VERSION="$version" RYKER_IMAGE="$image" \
 fi
 
 # --- the host's view: healthy, ready, and exactly this version --------------
-healthz_code=000
-readyz_code=000
-readyz_body=
-running_version=
 probe() {
-  healthz_code=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 \
-    "$origin/healthz" 2>/dev/null || echo 000)
-  readyz_code=$(curl --silent --dump-header "$scratch/readyz.headers" --output "$scratch/readyz.body" \
-    --write-out '%{http_code}' --max-time 3 "$origin/readyz" 2>/dev/null || echo 000)
-  readyz_body=$(head -n 1 "$scratch/readyz.body" 2>/dev/null || true)
-  running_version=$(awk 'tolower($1) == "x-ryker-version:" { sub(/\r$/, "", $2); print $2; exit }' \
-    "$scratch/readyz.headers" 2>/dev/null || true)
+  probe_console "$origin"
   [[ $healthz_code == 200 && $readyz_code == 200 && $running_version == "$version" ]]
 }
 

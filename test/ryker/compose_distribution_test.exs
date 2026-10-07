@@ -377,10 +377,19 @@ defmodule Ryker.ComposeDistributionTest do
     case "$*" in "volume inspect "*) exit 1 ;; esac
     """)
 
+    # A ready console, as the readiness probe asks it: the status on stdout and the
+    # headers in the file it names.
     fake!(bin, "curl", """
-    case "$*" in
-      *--dump-header*) printf 'HTTP/1.1 200 OK\\r\\nx-ryker-version: 0.1.0-install-test\\r\\n' ;;
-    esac
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        --dump-header)
+          printf 'HTTP/1.1 200 OK\\r\\nx-ryker-version: 0.1.0-install-test\\r\\n' >"$2"
+          shift
+          ;;
+      esac
+      shift
+    done
+    printf 200
     """)
 
     {output, status} =

@@ -22,8 +22,8 @@ defmodule Mix.Tasks.Ryker.Eval do
   only subject turns receive the scenario's controller tools. No production
   settings or operator-supplied policy digests are used.
 
-  A world matrix is 31 scenarios × 3 repeats × 2 lanes, 186 observations at
-  about 93 seconds each, so `scripts/elixir-world-eval.sh` runs it as shards:
+  A world matrix is every scenario × 3 repeats × 2 lanes, at about 93 seconds
+  an observation, so `scripts/elixir-world-eval.sh` runs it as shards:
   separate VMs, each on its own campaign database and listener ports, each
   running the slice `--shard I/N` deals it from the same ordered plan and
   writing results without a verdict. `world-shards` previews which shards a

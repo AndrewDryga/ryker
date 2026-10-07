@@ -65,41 +65,33 @@ model_login() {
     -c "$(cat "$repository/deploy/compose/coop/model-login.sh")" ryker-model-login "$1"
 }
 
-value() {
-  sed -n "s/^$1=//p" "$2" | tail -n 1
-}
-
 # A worker image named in the environment file is a supplied build, made for
 # example from a Coop checkout ahead of the Dockerfile's pin. Building the
 # worker would tag the pin's image with that name, and a newer Coop may have
 # moved the worker's state to a schema the pinned one refuses.
 supplied_worker_image() {
-  [ -n "$(value RYKER_COOP_IMAGE "$env_file")" ]
+  [ -n "$(compose_env_value RYKER_COOP_IMAGE "$env_file")" ]
 }
 
 wait_ready() {
-  control_port=$(value RYKER_CONTROL_PORT "$env_file")
-  control_port=${control_port:-4321}
-  origin="http://127.0.0.1:$control_port"
-  expected=$(value RYKER_VERSION "$env_file")
-  attempt=0
+  control_port=$(compose_env_value RYKER_CONTROL_PORT "$env_file")
+  origin=$(control_origin "$(compose_env_value RYKER_CONTROL_BIND "$env_file")" "${control_port:-4321}")
+  expected=$(compose_env_value RYKER_VERSION "$env_file")
+  # As long as a deploy waits: a release runs its migrations as it boots.
+  deadline=$(($(date +%s) + ${RYKER_READY_TIMEOUT:-180}))
 
-  while [ "$attempt" -lt 60 ]; do
-    if curl --fail --silent --output /dev/null "$origin/healthz" 2>/dev/null &&
-       curl --fail --silent --output /dev/null "$origin/readyz" 2>/dev/null &&
-       headers=$(curl --fail --silent --dump-header - --output /dev/null "$origin/readyz" 2>/dev/null); then
-      running=$(printf '%s\n' "$headers" | awk 'tolower($1) == "x-ryker-version:" {gsub("\r", "", $2); print $2; exit}')
-      if [ "$running" = "$expected" ]; then
-        echo "Ryker is ready: $origin/setup"
-        return 0
-      fi
+  while :; do
+    probe_console "$origin"
+    if [ "$healthz_code" = 200 ] && [ "$readyz_code" = 200 ] && [ "$running_version" = "$expected" ]; then
+      echo "Ryker is ready: $origin/setup"
+      return 0
     fi
-    attempt=$((attempt + 1))
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "Ryker did not become ready as version $expected at $origin (last: /healthz $healthz_code, /readyz $readyz_code${readyz_body:+ \"$readyz_body\"}, version ${running_version:-none})." >&2
+      return 1
+    fi
     sleep 1
   done
-
-  echo "Ryker did not become ready as version $expected." >&2
-  return 1
 }
 
 # The project's name is fixed in compose.yml, so an install or restore from a
@@ -117,7 +109,7 @@ refuse_foreign_installation() {
 
 same_root() {
   name=$1
-  [ "$(value "$name" "$env_file")" = "$(value "$name" "$2")" ]
+  [ "$(compose_env_value "$name" "$env_file")" = "$(compose_env_value "$name" "$2")" ]
 }
 
 random_urlsafe() {
@@ -265,8 +257,8 @@ case "$command" in
       exit 1
     fi
 
-    archive_version=$(value RYKER_VERSION "$scratch/compose.env")
-    archive_image=$(value RYKER_IMAGE "$scratch/compose.env")
+    archive_version=$(compose_env_value RYKER_VERSION "$scratch/compose.env")
+    archive_image=$(compose_env_value RYKER_IMAGE "$scratch/compose.env")
     repin=0
 
     if [ -r "$env_file" ]; then
@@ -284,9 +276,9 @@ case "$command" in
       # pinned one kept running and migrated them forward again, so a restore
       # could not roll back a deploy, or ran old code on a newer schema
       # (2026-10-04 review).
-      if [ "$archive_image" != "$(value RYKER_IMAGE "$env_file")" ]; then
+      if [ "$archive_image" != "$(compose_env_value RYKER_IMAGE "$env_file")" ]; then
         docker image inspect "$archive_image" >/dev/null 2>&1 || {
-          echo "The backup was taken on Ryker $archive_version, and its image $archive_image is not on this host; this installation pins $(value RYKER_VERSION "$env_file"). Nothing was changed." >&2
+          echo "The backup was taken on Ryker $archive_version, and its image $archive_image is not on this host; this installation pins $(compose_env_value RYKER_VERSION "$env_file"). Nothing was changed." >&2
           exit 1
         }
         repin=1

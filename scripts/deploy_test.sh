@@ -15,11 +15,13 @@ set -uo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d "${TMPDIR:-/tmp}/ryker-deploy-test.XXXXXX")
 server_pid=
+server6_pid=
 cleanup() {
-  if [[ -n $server_pid ]]; then
-    kill "$server_pid" 2>/dev/null
-    wait "$server_pid" 2>/dev/null
-  fi
+  local pid
+  for pid in $server_pid $server6_pid; do
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+  done
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -68,9 +70,11 @@ old_version="0.1.0-g$(printf 'a%.0s' $(seq 1 40))"
 fake="$work/fake"
 mkdir -p "$fake" "$work/bin"
 cat >"$work/server.py" <<'PY'
-import http.server, os, sys
+import http.server, os, socket, sys
 
 base = sys.argv[1]
+host = sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1"
+port_file = sys.argv[3] if len(sys.argv) > 3 else "port"
 
 def read(name, default=""):
     try:
@@ -102,15 +106,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-with open(os.path.join(base, "port"), "w") as handle:
+class Server(http.server.ThreadingHTTPServer):
+    address_family = socket.AF_INET6 if ":" in host else socket.AF_INET
+
+server = Server((host, 0), Handler)
+with open(os.path.join(base, port_file), "w") as handle:
     handle.write(str(server.server_address[1]))
 server.serve_forever()
 PY
 python3 "$work/server.py" "$fake" &
 server_pid=$!
-for _ in $(seq 1 50); do [[ -s $fake/port ]] && break; sleep 0.1; done
+# The one other address Ryker lets the console be published on is IPv6
+# loopback; a host without one skips the checks that need it.
+python3 "$work/server.py" "$fake" ::1 port6 2>/dev/null &
+server6_pid=$!
+for _ in $(seq 1 50); do [[ -s $fake/port && -s $fake/port6 ]] && break; sleep 0.1; done
 port=$(cat "$fake/port")
+port6=$(cat "$fake/port6" 2>/dev/null)
 
 # The fake Docker records every call and answers as the Compose project
 # would; files under $fake make it fail where a case needs it to.
@@ -173,7 +185,7 @@ export PATH="$work/bin:$PATH" DEPLOY_TEST_FAKE="$fake"
 
 state="$work/state"
 mkdir -p "$state"
-export RYKER_INSTALL_STATE="$state" RYKER_DEPLOY_READY_TIMEOUT=3 RYKER_DEPLOY_POLL_SECONDS=1
+export RYKER_INSTALL_STATE="$state" RYKER_READY_TIMEOUT=3 RYKER_DEPLOY_POLL_SECONDS=1
 
 seed() {
   # The installation as the previous deploy left it, and a fake project that
@@ -541,6 +553,56 @@ refute "start lets go of the lifecycle lock" "lifecycle.lock" "$(find "$state" -
 seed
 out=$(cd "$repo" && sh scripts/compose.sh restart 2>&1; echo "exit=$?")
 check "restart never builds" "up --detach --no-build --wait" "$(cat "$fake/calls")"
+
+# 2026-10-04 review: the readiness probes asked 127.0.0.1 whatever address the console was
+# published on, or wrote ::1 into a URL without its brackets, so a console published on IPv6
+# loopback, which Ryker allows, never passed a start, a restart or a deploy.
+if [[ -n $port6 ]]; then
+  publish_on_ipv6() {
+    sed -e 's/^RYKER_CONTROL_BIND=.*/RYKER_CONTROL_BIND=::1/' \
+      -e "s/^RYKER_CONTROL_PORT=.*/RYKER_CONTROL_PORT=$port6/" "$state/compose.env" >"$state/compose.env.new"
+    mv "$state/compose.env.new" "$state/compose.env"
+    chmod 0600 "$state/compose.env"
+  }
+  seed
+  publish_on_ipv6
+  out=$(cd "$repo" && sh scripts/compose.sh start 2>&1; echo "exit=$?")
+  check "start finds a console published on IPv6 loopback" "Ryker is ready: http://[::1]:$port6/setup" "$out"
+  check "start of a console on IPv6 loopback succeeds" "exit=0" "$out"
+  seed
+  publish_on_ipv6
+  out=$(run)
+  check "a deploy verifies a console published on IPv6 loopback" "is running at http://[::1]:$port6" "$out"
+  check "a deploy to a console on IPv6 loopback succeeds" "exit=0" "$out"
+else
+  printf 'skip a console published on IPv6 loopback (this host has no ::1)\n'
+fi
+
+# 2026-10-04 review: deploy.sh and compose.sh read compose.env's values with the quotes Compose
+# takes off, so a quoted RYKER_CONTROL_PORT made them probe a port that does not exist, and the
+# deploy stopped the release it had just started.
+quote_port() {
+  sed "s/^RYKER_CONTROL_PORT=.*/RYKER_CONTROL_PORT=\"$port\"/" "$state/compose.env" >"$state/compose.env.new"
+  mv "$state/compose.env.new" "$state/compose.env"
+  chmod 0600 "$state/compose.env"
+}
+seed
+quote_port
+out=$(cd "$repo" && sh scripts/compose.sh start 2>&1; echo "exit=$?")
+check "start reads a quoted port as Compose does" "Ryker is ready: http://127.0.0.1:$port/setup" "$out"
+seed
+quote_port
+out=$(run)
+check "a deploy reads a quoted port as Compose does" "is running at http://127.0.0.1:$port" "$out"
+
+# A console that never answered was reported as "/healthz 000000": curl prints 000 itself, and
+# the fallback added another.
+seed
+sed "s/^RYKER_CONTROL_PORT=.*/RYKER_CONTROL_PORT=$((port + 1))/" "$state/compose.env" >"$state/compose.env.new"
+mv "$state/compose.env.new" "$state/compose.env"
+out=$(run)
+check "a console that never answers fails the deploy" "exit=1" "$out"
+check "an unanswered probe reads as 000" "(last: /healthz 000, /readyz 000, version none)" "$out"
 
 seed
 touch "$repo/uncommitted-change"

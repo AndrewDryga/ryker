@@ -29,7 +29,7 @@ defmodule Ryker.RenameAuditTest do
   # nothing outside it in that file is exempt.
   @immutable_sections [
     {"docs/operations.md", "## Names that still say responder",
-     "the operator's list of pre-rename names another party owns (co:op and webhook senders)"}
+     "the operator's list of pre-rename names another party owns or stored data carries"}
   ]
 
   # Tokens allowed everywhere else. `path` narrows an entry to the files where

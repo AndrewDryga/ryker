@@ -54,7 +54,7 @@ source-code defects; the disposition is recorded in section 9.
 - [Evidence and limits](#2-evidence-and-limits)
 - [Systems worth learning from](#3-systems-worth-learning-from)
 - [Failures and things to avoid](#4-failures-and-things-to-avoid)
-- [Current Ryker baseline](#5-current-ryker-baseline)
+- [Ryker baseline on 2026-09-08](#5-ryker-baseline-on-2026-09-08)
 - [Proposed product behavior](#6-proposed-product-behavior)
 - [Storage and authorization](#7-storage-and-authorization)
 - [Evaluation and implementation order](#8-evaluation-and-implementation-order)
@@ -334,9 +334,11 @@ Likewise, a vendor benchmark win does not establish source revocation, tenant is
 duplicate-free updates, crash recovery, or safe Slack/infra behavior. None of the cited papers
 qualifies Ryker to act unattended.
 
-## 5. Current Ryker baseline
+## 5. Ryker baseline on 2026-09-08
 
-Verified in the source revision above; local links identify owners, not future APIs:
+Verified in the source revision above, so it describes that code and not today's; the
+[implementation specification](../memory-implementation-spec.md) says what was built since. Local
+links identify owners, not future APIs:
 
 | Area | What exists / what needs changing |
 |---|---|
@@ -372,11 +374,11 @@ two concrete failures:
 - **Not yet tested:** the HAProxy firing/resolution pair was retained but beyond the applied
   prefix. Its absence was not deleted raw data and was not a successful consolidation test.
 
-Private evidence: `knowledge-370-sources-ERzPNI/REVIEW.md` and `offline-checks.json` under
-`/private/tmp/ryker-adversarial-Vylg4X`. Do not publish raw customer transcripts or IDs in
-this research document. Preserve the private evidence before those temporary artifacts vanish.
-The descriptions above preserve the failure mechanisms without making the document depend on
-temporary files for its architectural conclusions.
+The private evidence (`knowledge-370-sources-ERzPNI/REVIEW.md` and `offline-checks.json` under
+`/private/tmp/ryker-adversarial-Vylg4X`) was lost when that directory was cleared. Do not
+publish raw customer transcripts or IDs in this research document. The descriptions above
+preserve the failure mechanisms without making the document depend on temporary files for its
+architectural conclusions.
 
 ### Additional code findings checked after Fable's review
 
@@ -881,7 +883,8 @@ Both reports were completed using `claude-fable-5-1`. The last amendments addres
 they were not sent through a third review, so this is not an unconditional Fable approval. Exact
 retry/error-class policy and large-root locking strategy still require an implementation-level
 decision and tests. Neither review substitutes for regressions, replay evidence, or an
-authorization/concurrency qualification. No reviewed proposal here has been implemented.
+authorization/concurrency qualification. When they were written, no reviewed proposal here had
+been implemented; the implementation specification tracks what has been since.
 
 ## 10. Source register
 
