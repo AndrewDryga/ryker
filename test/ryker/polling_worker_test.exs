@@ -342,17 +342,27 @@ defmodule Ryker.PollingWorkerTest do
     }
   end
 
+  # The pool opens its one connection in the background, and under gate load
+  # that took longer than its 10 ms queue: the holder's checkout was dropped and
+  # the test failed before the exhaustion it tests began, once in a gate run on
+  # 2026-10-07. The pool says when its connection is up, and only then is it
+  # held; only the worker meets a full pool.
   defp isolated_pool! do
+    parent = self()
+
     options = [
       name: nil,
       pool: DBConnection.ConnectionPool,
       pool_size: 1,
       timeout: 50,
       queue_target: 10,
-      queue_interval: 10
+      queue_interval: 10,
+      after_connect: fn _connection -> send(parent, :isolated_pool_connected) end
     ]
 
-    start_supervised!(Supervisor.child_spec({Repo, options}, id: :isolated_polling_pool))
+    pool = start_supervised!(Supervisor.child_spec({Repo, options}, id: :isolated_polling_pool))
+    assert_receive :isolated_pool_connected, 5_000
+    pool
   end
 
   defp hold_connection!(pool) do
