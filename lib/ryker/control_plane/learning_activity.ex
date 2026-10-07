@@ -7,13 +7,13 @@ defmodule Ryker.ControlPlane.LearningActivity do
   """
   alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, ConversationMemory, ConversationProjection}
-  alias Ryker.ControlPlane.{LearningActivityQuery, LearningRequests, PagedRelation, Paths}
+  alias Ryker.ControlPlane.{LearningActivity, LearningRequests, PagedRelation, Paths}
   alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.InspectionRedactor
-  alias Ryker.Knowledge.ConversationKnowledgeQuery
-  alias Ryker.Learning.{Batch, Batches, BatchQuery, LearningRunQuery, Runtime}
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Learning.{Batch, Batches, LearningRun, Runtime}
   alias Ryker.Repo
-  alias Ryker.Settings.{InstallationQuery, LearningQuery}
+  alias Ryker.Settings.{Installation, Learning}
   alias Ryker.Slack.Names
 
   @page_size 20
@@ -83,7 +83,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   defp state(nil, false, _worker, _refused, _applying), do: :off
 
   # Whether the newest saved settings are still being applied to the runtime.
-  defp applying?, do: Repo.exists?(InstallationQuery.applying())
+  defp applying?, do: Repo.exists?(Installation.Query.applying())
 
   # The worker gave a session of the configured policy more than an isolated
   # scratch, so learning holds every new attempt until the policy changes.
@@ -94,12 +94,12 @@ defmodule Ryker.ControlPlane.LearningActivity do
     end
   end
 
-  defp setting_enabled, do: Repo.one(LearningQuery.select_enabled())
+  defp setting_enabled, do: Repo.one(Learning.Query.select_enabled())
 
   defp batches(statuses, key, params, secrets) do
     page =
       statuses
-      |> BatchQuery.with_statuses()
+      |> Batch.Query.with_statuses()
       |> read(key, [desc: :inserted_at, desc: :id], params)
 
     context = context(page.items)
@@ -125,9 +125,9 @@ defmodule Ryker.ControlPlane.LearningActivity do
         do: MapSet.new(),
         else:
           stopped
-          |> LearningRunQuery.by_batch_ids()
-          |> LearningRunQuery.unstopped()
-          |> LearningRunQuery.select_batch_ids()
+          |> LearningRun.Query.by_batch_ids()
+          |> LearningRun.Query.unstopped()
+          |> LearningRun.Query.select_batch_ids()
           |> Repo.all()
           |> MapSet.new()
 
@@ -147,18 +147,18 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp batch_counts do
     Map.new(@states, &{&1, 0})
-    |> Map.merge(Map.new(Repo.all(BatchQuery.counts_by_status())))
+    |> Map.merge(Map.new(Repo.all(Batch.Query.counts_by_status())))
   end
 
   defp waiting_inputs do
     {pending_count, pending_at} =
-      LearningActivityQuery.unassigned_messages()
-      |> LearningActivityQuery.select_count_and_oldest()
+      LearningActivity.Query.unassigned_messages()
+      |> LearningActivity.Query.select_count_and_oldest()
       |> Repo.one()
 
     {assigned_count, assigned_at} =
-      LearningActivityQuery.assigned_messages()
-      |> LearningActivityQuery.select_count_and_oldest()
+      LearningActivity.Query.assigned_messages()
+      |> LearningActivity.Query.select_count_and_oldest()
       |> Repo.one()
 
     {pending_count + assigned_count, oldest(pending_at, assigned_at)}
@@ -166,7 +166,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp selected_batch(params, secrets) do
     with {:ok, id} <- Ecto.UUID.cast(params["batch"]),
-         %Batch{} = batch <- Repo.one(BatchQuery.by_id(id)) do
+         %Batch{} = batch <- Repo.one(Batch.Query.by_id(id)) do
       selected(batch, params, secrets)
     else
       _ -> nil
@@ -176,7 +176,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   defp handover_failures(params) do
     page =
       read(
-        LearningActivityQuery.failed_handovers(),
+        LearningActivity.Query.failed_handovers(),
         "handover_page",
         [desc: :accepted_at, desc: :id],
         params
@@ -244,12 +244,12 @@ defmodule Ryker.ControlPlane.LearningActivity do
   defp learned(row, secrets) do
     run =
       row.id
-      |> LearningRunQuery.by_batch_id()
-      |> LearningRunQuery.with_status(:applied)
-      |> LearningRunQuery.unpruned()
-      |> LearningRunQuery.newest_first()
-      |> LearningRunQuery.limit_to(1)
-      |> LearningRunQuery.select_results()
+      |> LearningRun.Query.by_batch_id()
+      |> LearningRun.Query.with_status(:applied)
+      |> LearningRun.Query.unpruned()
+      |> LearningRun.Query.newest_first()
+      |> LearningRun.Query.limit_to(1)
+      |> LearningRun.Query.select_results()
       |> Repo.one()
 
     with %{result: result} when is_binary(result) <- run,
@@ -281,7 +281,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   # The topics an attempt wrote, by key: each revision names the attempt that
   # wrote it (`learning:<attempt>:<result digest>`).
   defp topics_written(run_id),
-    do: run_id |> LearningActivityQuery.topics_written() |> Repo.all() |> Map.new()
+    do: run_id |> LearningActivity.Query.topics_written() |> Repo.all() |> Map.new()
 
   defp present_text(text) when is_binary(text) and text != "", do: text
   defp present_text(_text), do: nil
@@ -331,7 +331,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp stale_attempts(ids) do
     ids
-    |> LearningActivityQuery.latest_errors()
+    |> LearningActivity.Query.latest_errors()
     |> Repo.all()
     |> Enum.filter(fn {_id, code} -> code == "knowledge_target_unavailable" end)
     |> Map.new()
@@ -339,12 +339,12 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp stale_topics(batch) do
     topics =
-      ConversationKnowledgeQuery.all()
-      |> ConversationKnowledgeQuery.in_conversation(batch.transport, batch.conversation_ref)
-      |> ConversationKnowledgeQuery.unforgotten()
-      |> ConversationKnowledgeQuery.of_repository(batch.repository_ref)
-      |> ConversationKnowledgeQuery.recently_updated_first()
-      |> ConversationKnowledgeQuery.limit_to(20)
+      ConversationKnowledge.Query.all()
+      |> ConversationKnowledge.Query.in_conversation(batch.transport, batch.conversation_ref)
+      |> ConversationKnowledge.Query.unforgotten()
+      |> ConversationKnowledge.Query.of_repository(batch.repository_ref)
+      |> ConversationKnowledge.Query.recently_updated_first()
+      |> ConversationKnowledge.Query.limit_to(20)
       |> Repo.all()
 
     available = ConversationMemory.available_ids(topics)
@@ -358,14 +358,17 @@ defmodule Ryker.ControlPlane.LearningActivity do
   end
 
   defp outstanding_execution?(row) do
-    row.scope_key |> LearningRunQuery.in_scope() |> LearningRunQuery.unstopped() |> Repo.exists?()
+    row.scope_key
+    |> LearningRun.Query.in_scope()
+    |> LearningRun.Query.unstopped()
+    |> Repo.exists?()
   end
 
   defp scope_busy?(row) do
     row.scope_key
-    |> BatchQuery.by_scope_key()
-    |> BatchQuery.excluding_id(row.id)
-    |> BatchQuery.active()
+    |> Batch.Query.by_scope_key()
+    |> Batch.Query.excluding_id(row.id)
+    |> Batch.Query.active()
     |> Repo.exists?()
   end
 
@@ -383,8 +386,8 @@ defmodule Ryker.ControlPlane.LearningActivity do
   defp attempts(row, params) do
     page =
       row.id
-      |> LearningRunQuery.by_batch_id()
-      |> LearningRunQuery.select_attempts()
+      |> LearningRun.Query.by_batch_id()
+      |> LearningRun.Query.select_attempts()
       |> read("attempt_page", [desc: :inserted_at, desc: :id], params)
 
     offset = (page.page - 1) * @page_size

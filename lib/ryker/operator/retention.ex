@@ -10,11 +10,11 @@ defmodule Ryker.Operator.Retention do
 
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
-  alias Ryker.Operator.{Actions, RetentionAction, RetentionActionChangeset, RetentionActionQuery}
+  alias Ryker.Operator.{Actions, RetentionAction}
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Retention.Custody
-  alias Ryker.Work.{Session, SessionQuery}
+  alias Ryker.Work.Session
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
 
@@ -81,11 +81,13 @@ defmodule Ryker.Operator.Retention do
     AdvisoryLock.hold!(action_ref)
 
     locked =
-      action_ref |> RetentionActionQuery.by_action_ref() |> RetentionActionQuery.lock_for_update()
+      action_ref
+      |> RetentionAction.Query.by_action_ref()
+      |> RetentionAction.Query.lock_for_update()
 
     case Repo.one(locked) do
       %RetentionAction{request_fingerprint: ^fingerprint} = entry ->
-        session = Repo.one!(SessionQuery.by_id(entry.session_id))
+        session = Repo.one!(Session.Query.by_id(entry.session_id))
         %{action: entry, outcome: :duplicate, session: session}
 
       %RetentionAction{} ->
@@ -94,8 +96,8 @@ defmodule Ryker.Operator.Retention do
       nil ->
         session =
           session_ref
-          |> SessionQuery.by_external_ref()
-          |> SessionQuery.lock_for_update()
+          |> Session.Query.by_external_ref()
+          |> Session.Query.lock_for_update()
           |> Repo.one() || Repo.rollback(:retention_session_not_found)
 
         {outcome, previous_status, previous_plan_fingerprint, updated} =
@@ -219,7 +221,7 @@ defmodule Ryker.Operator.Retention do
       previous_plan_fingerprint: previous_plan_fingerprint,
       occurred_at: occurred_at
     }
-    |> RetentionActionChangeset.insert()
+    |> RetentionAction.Changeset.insert()
     |> Repo.insert!()
     |> tap(&Actions.broadcast_action_recorded(&1.id))
   end

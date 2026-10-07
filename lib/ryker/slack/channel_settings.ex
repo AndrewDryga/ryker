@@ -14,10 +14,10 @@ defmodule Ryker.Slack.ChannelSettings do
   alias Ryker.CanonicalJSON
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Settings.SlackQuery
-  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurationChangeset}
-  alias Ryker.Slack.{ChannelConfigurationQuery, ChannelConfigurations}
-  alias Ryker.Slack.{ChannelSettingAudit, ChannelSettingAuditQuery, ChannelSettingChangeset}
+  alias Ryker.Settings.Slack
+  alias Ryker.Slack.ChannelConfiguration
+  alias Ryker.Slack.ChannelConfigurations
+  alias Ryker.Slack.{ChannelSetting, ChannelSettingAudit}
 
   @fields [
     :actor_ref,
@@ -88,8 +88,8 @@ defmodule Ryker.Slack.ChannelSettings do
 
     audit =
       attributes.event_ref
-      |> ChannelSettingAuditQuery.by_event_ref()
-      |> ChannelSettingAuditQuery.lock_for_update()
+      |> ChannelSettingAudit.Query.by_event_ref()
+      |> ChannelSettingAudit.Query.lock_for_update()
       |> Repo.one()
 
     case audit do
@@ -135,7 +135,7 @@ defmodule Ryker.Slack.ChannelSettings do
 
     unless configuration.participation == target do
       configuration
-      |> ChannelConfigurationChangeset.configuration(%{
+      |> ChannelConfiguration.Changeset.configuration(%{
         actor_ref: attributes.actor_ref,
         participation: target,
         revision: configuration.revision + 1,
@@ -156,8 +156,8 @@ defmodule Ryker.Slack.ChannelSettings do
 
   defp locked_configuration!(attributes) do
     attributes.workspace_ref
-    |> ChannelConfigurationQuery.by_channel(channel_ref(attributes.conversation_ref))
-    |> ChannelConfigurationQuery.lock_for_update()
+    |> ChannelConfiguration.Query.by_channel(channel_ref(attributes.conversation_ref))
+    |> ChannelConfiguration.Query.lock_for_update()
     |> Repo.one()
   end
 
@@ -177,7 +177,7 @@ defmodule Ryker.Slack.ChannelSettings do
       request_fingerprint: fingerprint,
       workspace_ref: attributes.workspace_ref
     }
-    |> ChannelSettingChangeset.insert_audit()
+    |> ChannelSetting.Changeset.insert_audit()
     |> Repo.insert!()
   end
 
@@ -185,7 +185,7 @@ defmodule Ryker.Slack.ChannelSettings do
     do: effective(attributes.workspace_ref, attributes.conversation_ref, default)
 
   defp default_participation(nil, workspace_ref) do
-    case Repo.one(SlackQuery.select_default_participation()) do
+    case Repo.one(Slack.Query.select_default_participation()) do
       {^workspace_ref, default} -> {:ok, default}
       _other -> {:error, {:invalid_channel_setting, :workspace_ref}}
     end
@@ -199,7 +199,7 @@ defmodule Ryker.Slack.ChannelSettings do
   end
 
   defp configuration(workspace_ref, channel_ref) do
-    workspace_ref |> ChannelConfigurationQuery.by_channel(channel_ref) |> Repo.one()
+    workspace_ref |> ChannelConfiguration.Query.by_channel(channel_ref) |> Repo.one()
   end
 
   defp channel_ref(conversation_ref),

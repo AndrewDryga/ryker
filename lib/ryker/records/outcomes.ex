@@ -9,11 +9,11 @@ defmodule Ryker.Records.Outcomes do
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.{Episode, EpisodeQuery, EventQuery}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Records.DerivedContext
-  alias Ryker.Records.RecordQuery
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Work.{Turn, TurnQuery}
+  alias Ryker.Work.Turn
 
   @maximum_candidates 24
   @maximum_outcomes 6
@@ -39,7 +39,7 @@ defmodule Ryker.Records.Outcomes do
   def recall(_episode, _repository), do: []
 
   defp candidate_episodes(current) do
-    current |> EpisodeQuery.recent_neighbors(@maximum_candidates) |> Repo.all()
+    current |> Episode.Query.recent_neighbors(@maximum_candidates) |> Repo.all()
   end
 
   defp build_outcome(%Episode{state: :complete} = episode) do
@@ -59,10 +59,10 @@ defmodule Ryker.Records.Outcomes do
   defp build_outcome(_episode), do: []
 
   defp latest_settled_turn(episode_id),
-    do: episode_id |> TurnQuery.latest_settled_with_result() |> Repo.one()
+    do: episode_id |> Turn.Query.latest_settled_with_result() |> Repo.one()
 
   defp blocked_owner_turn(episode_id, owner_ref),
-    do: episode_id |> TurnQuery.blocked_owner(owner_ref) |> Repo.one()
+    do: episode_id |> Turn.Query.blocked_owner(owner_ref) |> Repo.one()
 
   defp document(episode, turn, state) do
     records = episode.id |> outcome_records() |> Enum.map(&record_document/1)
@@ -89,17 +89,17 @@ defmodule Ryker.Records.Outcomes do
 
   defp outcome_records(episode_id) do
     episode_id
-    |> RecordQuery.outcome_records(@maximum_records)
+    |> Record.Query.outcome_records(@maximum_records)
     |> Repo.all()
     |> Enum.reverse()
   end
 
   defp trigger_event(episode_id) do
     episode_id
-    |> EventQuery.by_episode_id()
-    |> EventQuery.of_kind(:input_admitted)
-    |> EventQuery.oldest_first()
-    |> EventQuery.limit_to(1)
+    |> Event.Query.by_episode_id()
+    |> Event.Query.of_kind(:input_admitted)
+    |> Event.Query.oldest_first()
+    |> Event.Query.limit_to(1)
     |> Repo.one()
   end
 

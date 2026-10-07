@@ -22,12 +22,12 @@ defmodule Ryker.Slack.ChannelConfigurations do
   alias Ryker.People
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Settings.{Environment, EnvironmentQuery}
-  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurationChangeset}
-  alias Ryker.Slack.{ChannelConfigurationQuery, ChannelFence, ChannelMembership}
-  alias Ryker.Slack.{ChannelMembershipEvent, ChannelMembershipEventQuery, ChannelMembershipQuery}
-  alias Ryker.Slack.{ChannelSettings, ConfigurationAction, ConfigurationActionQuery}
-  alias Ryker.Slack.{ConfigurationSession, ConfigurationSessionQuery}
+  alias Ryker.Settings.Environment
+  alias Ryker.Slack.ChannelConfiguration
+  alias Ryker.Slack.{ChannelFence, ChannelMembership}
+  alias Ryker.Slack.ChannelMembershipEvent
+  alias Ryker.Slack.{ChannelSettings, ConfigurationAction}
+  alias Ryker.Slack.ConfigurationSession
 
   @membership_fields [:actor_ref, :channel_ref, :event_ref, :kind, :occurred_at, :workspace_ref]
   @participation_change_fields [
@@ -146,16 +146,16 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp reconcile_absent_locked(workspace_ref, present_refs, snapshot_started_at) do
     query =
       workspace_ref
-      |> ChannelMembershipQuery.by_workspace()
-      |> ChannelMembershipQuery.joined()
-      |> ChannelMembershipQuery.updated_by(snapshot_started_at)
-      |> ChannelMembershipQuery.ordered_by_channel()
-      |> ChannelMembershipQuery.lock_for_update()
+      |> ChannelMembership.Query.by_workspace()
+      |> ChannelMembership.Query.joined()
+      |> ChannelMembership.Query.updated_by(snapshot_started_at)
+      |> ChannelMembership.Query.ordered_by_channel()
+      |> ChannelMembership.Query.lock_for_update()
 
     query =
       if present_refs == [],
         do: query,
-        else: ChannelMembershipQuery.excluding_channels(query, present_refs)
+        else: ChannelMembership.Query.excluding_channels(query, present_refs)
 
     memberships = Repo.all(query)
     now = Repo.now!()
@@ -210,7 +210,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   def fetch_session(session_ref) do
     case Ecto.UUID.cast(session_ref) do
       {:ok, session_ref} ->
-        case Repo.one(ConfigurationSessionQuery.by_id(session_ref)) do
+        case Repo.one(ConfigurationSession.Query.by_id(session_ref)) do
           %ConfigurationSession{} = session -> {:ok, session}
           nil -> {:error, :configuration_session_not_found}
         end
@@ -222,12 +222,12 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   @spec configuration(String.t(), String.t()) :: ChannelConfiguration.t() | nil
   def configuration(workspace_ref, channel_ref) do
-    Repo.one(ChannelConfigurationQuery.by_channel(workspace_ref, channel_ref))
+    Repo.one(ChannelConfiguration.Query.by_channel(workspace_ref, channel_ref))
   end
 
   @spec membership(String.t(), String.t()) :: ChannelMembership.t() | nil
   def membership(workspace_ref, channel_ref) do
-    Repo.one(ChannelMembershipQuery.by_channel(workspace_ref, channel_ref))
+    Repo.one(ChannelMembership.Query.by_channel(workspace_ref, channel_ref))
   end
 
   @doc """
@@ -306,7 +306,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         broadcast_channel_updated(workspace_ref, channel_ref)
 
         configuration
-        |> ChannelConfigurationChangeset.configuration(%{
+        |> ChannelConfiguration.Changeset.configuration(%{
           actor_ref: actor_ref,
           environment_ref: environment_ref,
           revision: configuration.revision + 1,
@@ -327,7 +327,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp environment_saved?(nil), do: true
 
   defp environment_saved?(ref),
-    do: Repo.exists?(EnvironmentQuery.by_ref(ref))
+    do: Repo.exists?(Environment.Query.by_ref(ref))
 
   # The environment's foreign key refuses one removed since it was checked or
   # offered; any other invalid write is a host defect and raises.
@@ -466,11 +466,11 @@ defmodule Ryker.Slack.ChannelConfigurations do
     lock_channel!(workspace_ref, channel_ref)
     broadcast_channel_updated(workspace_ref, channel_ref)
 
-    Repo.delete_all(ChannelConfigurationQuery.by_channel(workspace_ref, channel_ref))
+    Repo.delete_all(ChannelConfiguration.Query.by_channel(workspace_ref, channel_ref))
 
     workspace_ref
-    |> ConfigurationSessionQuery.in_channel(channel_ref)
-    |> ConfigurationSessionQuery.active()
+    |> ConfigurationSession.Query.in_channel(channel_ref)
+    |> ConfigurationSession.Query.active()
     |> Repo.update_all(set: [status: :cancelled, updated_at: Repo.now!()])
 
     :ok
@@ -482,11 +482,11 @@ defmodule Ryker.Slack.ChannelConfigurations do
     expire_active_sessions!(workspace_ref, channel_ref, now)
 
     workspace_ref
-    |> ConfigurationSessionQuery.in_channel(channel_ref)
-    |> ConfigurationSessionQuery.active()
-    |> ConfigurationSessionQuery.unexpired_at(now)
-    |> ConfigurationSessionQuery.newest_first()
-    |> ConfigurationSessionQuery.limit_to(1)
+    |> ConfigurationSession.Query.in_channel(channel_ref)
+    |> ConfigurationSession.Query.active()
+    |> ConfigurationSession.Query.unexpired_at(now)
+    |> ConfigurationSession.Query.newest_first()
+    |> ConfigurationSession.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -497,8 +497,8 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     started =
       attributes.event_ref
-      |> ConfigurationSessionQuery.by_start_event()
-      |> ConfigurationSessionQuery.lock_for_update()
+      |> ConfigurationSession.Query.by_start_event()
+      |> ConfigurationSession.Query.lock_for_update()
 
     case Repo.one(started) do
       %ConfigurationSession{start_fingerprint: ^fingerprint} = session ->
@@ -521,9 +521,9 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     active =
       attributes.workspace_ref
-      |> ConfigurationSessionQuery.in_channel(attributes.channel_ref)
-      |> ConfigurationSessionQuery.active()
-      |> ConfigurationSessionQuery.lock_for_update()
+      |> ConfigurationSession.Query.in_channel(attributes.channel_ref)
+      |> ConfigurationSession.Query.active()
+      |> ConfigurationSession.Query.lock_for_update()
       |> Repo.one()
 
     cond do
@@ -561,12 +561,12 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     stored =
       attributes.workspace_ref
-      |> ChannelMembershipEventQuery.by_event(attributes.event_ref)
-      |> ChannelMembershipEventQuery.lock_for_update()
+      |> ChannelMembershipEvent.Query.by_event(attributes.event_ref)
+      |> ChannelMembershipEvent.Query.lock_for_update()
 
     case Repo.one(stored) do
       %ChannelMembershipEvent{event_fingerprint: ^fingerprint} = event ->
-        membership = Repo.one!(ChannelMembershipQuery.by_id(event.membership_id))
+        membership = Repo.one!(ChannelMembership.Query.by_id(event.membership_id))
 
         %{
           configuration: configuration(membership.workspace_ref, membership.channel_ref),
@@ -622,7 +622,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         broadcast_channel_updated(membership.workspace_ref, membership.channel_ref)
 
         membership
-        |> ChannelConfigurationChangeset.membership(%{
+        |> ChannelConfiguration.Changeset.membership(%{
           external_shared: external_shared,
           private: private
         })
@@ -716,7 +716,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
       %ChannelConfiguration{} = configuration ->
         configuration
-        |> ChannelConfigurationChangeset.configuration(%{welcome_message_ref: nil})
+        |> ChannelConfiguration.Changeset.configuration(%{welcome_message_ref: nil})
         |> Repo.update!()
     end
   end
@@ -744,7 +744,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
           welcome_message_ref: nil,
           workspace_ref: membership.workspace_ref
         }
-        |> ChannelConfigurationChangeset.configuration()
+        |> ChannelConfiguration.Changeset.configuration()
         |> Repo.insert!()
         |> tap(&broadcast_channel_updated(&1.workspace_ref, &1.channel_ref))
     end
@@ -757,13 +757,13 @@ defmodule Ryker.Slack.ChannelConfigurations do
     |> Map.take([:channel_ref, :external_shared, :private, :workspace_ref])
     |> Map.merge(timestamps)
     |> Map.merge(%{generation: generation, id: Ecto.UUID.generate(), status: status})
-    |> ChannelConfigurationChangeset.membership()
+    |> ChannelConfiguration.Changeset.membership()
     |> Repo.insert!()
   end
 
   defp rejoin_membership!(membership, occurred_at, private, external_shared) do
     membership
-    |> ChannelConfigurationChangeset.membership(%{
+    |> ChannelConfiguration.Changeset.membership(%{
       deleted_at: nil,
       external_shared: external_shared,
       generation: membership.generation + 1,
@@ -777,7 +777,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp leave_membership!(membership, occurred_at) do
     membership
-    |> ChannelConfigurationChangeset.membership(%{
+    |> ChannelConfiguration.Changeset.membership(%{
       deleted_at: nil,
       joined_at: membership.joined_at || occurred_at,
       left_at: occurred_at,
@@ -788,7 +788,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp delete_membership!(membership, occurred_at) do
     membership
-    |> ChannelConfigurationChangeset.membership(%{
+    |> ChannelConfiguration.Changeset.membership(%{
       deleted_at: occurred_at,
       joined_at: membership.joined_at,
       left_at: membership.left_at,
@@ -832,7 +832,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       step: :participation,
       workspace_ref: membership.workspace_ref
     }
-    |> ChannelConfigurationChangeset.session()
+    |> ChannelConfiguration.Changeset.session()
     |> Repo.insert!()
   end
 
@@ -844,14 +844,14 @@ defmodule Ryker.Slack.ChannelConfigurations do
       id: Ecto.UUID.generate(),
       membership_id: membership.id
     })
-    |> ChannelConfigurationChangeset.membership_event()
+    |> ChannelConfiguration.Changeset.membership_event()
     |> Repo.insert!()
   end
 
   defp cancel_active_sessions!(membership, status) do
     membership.workspace_ref
-    |> ConfigurationSessionQuery.in_channel(membership.channel_ref)
-    |> ConfigurationSessionQuery.active()
+    |> ConfigurationSession.Query.in_channel(membership.channel_ref)
+    |> ConfigurationSession.Query.active()
     |> Repo.update_all(set: [status: status, updated_at: Repo.now!()])
 
     :ok
@@ -860,9 +860,9 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp expire_active_sessions!(workspace_ref, channel_ref, now) do
     {expired, _rows} =
       workspace_ref
-      |> ConfigurationSessionQuery.in_channel(channel_ref)
-      |> ConfigurationSessionQuery.active()
-      |> ConfigurationSessionQuery.expired_by(now)
+      |> ConfigurationSession.Query.in_channel(channel_ref)
+      |> ConfigurationSession.Query.active()
+      |> ConfigurationSession.Query.expired_by(now)
       |> Repo.update_all(set: [status: :expired, updated_at: now])
 
     if expired > 0, do: broadcast_channel_updated(workspace_ref, channel_ref), else: :ok
@@ -901,11 +901,11 @@ defmodule Ryker.Slack.ChannelConfigurations do
       )
 
     Repo.delete_all(
-      ChannelConfigurationQuery.by_channel(membership.workspace_ref, membership.channel_ref)
+      ChannelConfiguration.Query.by_channel(membership.workspace_ref, membership.channel_ref)
     )
 
     Repo.delete_all(
-      ConfigurationSessionQuery.in_channel(membership.workspace_ref, membership.channel_ref)
+      ConfigurationSession.Query.in_channel(membership.workspace_ref, membership.channel_ref)
     )
 
     :ok
@@ -929,7 +929,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         broadcast_channel_updated(session.workspace_ref, session.channel_ref)
 
         session
-        |> ChannelConfigurationChangeset.session(%{
+        |> ChannelConfiguration.Changeset.session(%{
           current_message_ref: message_ref,
           response_thread_ref: thread_ref,
           root_message_ref: root_message_ref
@@ -943,13 +943,13 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     stored =
       attributes.event_ref
-      |> ConfigurationActionQuery.by_event_ref()
-      |> ConfigurationActionQuery.lock_for_update()
+      |> ConfigurationAction.Query.by_event_ref()
+      |> ConfigurationAction.Query.lock_for_update()
 
     case Repo.one(stored) do
       %ConfigurationAction{event_fingerprint: ^fingerprint} = action ->
         %{
-          session: Repo.one!(ConfigurationSessionQuery.by_id(action.session_id)),
+          session: Repo.one!(ConfigurationSession.Query.by_id(action.session_id)),
           status: :duplicate
         }
 
@@ -1180,7 +1180,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     updated =
       session
-      |> ChannelConfigurationChangeset.session(changes)
+      |> ChannelConfiguration.Changeset.session(changes)
       |> Repo.update!()
 
     {:ok, updated, outcome}
@@ -1207,7 +1207,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     case existing do
       %ChannelConfiguration{} = configuration ->
         configuration
-        |> ChannelConfigurationChangeset.configuration(attributes)
+        |> ChannelConfiguration.Changeset.configuration(attributes)
         |> Repo.update()
         |> saved_configuration(:configuration_environment_not_found)
 
@@ -1219,7 +1219,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
           welcome_message_ref: nil,
           workspace_ref: session.workspace_ref
         })
-        |> ChannelConfigurationChangeset.configuration()
+        |> ChannelConfiguration.Changeset.configuration()
         |> Repo.insert()
         |> saved_configuration(:configuration_environment_not_found)
     end
@@ -1257,7 +1257,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       true ->
         saved =
           configuration
-          |> ChannelConfigurationChangeset.configuration(%{
+          |> ChannelConfiguration.Changeset.configuration(%{
             field => value,
             actor_ref: attributes.actor_ref,
             revision: configuration.revision + 1,
@@ -1281,7 +1281,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         broadcast_channel_updated(workspace_ref, channel_ref)
 
         configuration
-        |> ChannelConfigurationChangeset.configuration(%{welcome_message_ref: message_ref})
+        |> ChannelConfiguration.Changeset.configuration(%{welcome_message_ref: message_ref})
         |> Repo.update!()
 
       %ChannelConfiguration{} ->
@@ -1300,7 +1300,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       session_id: session.id,
       session_revision: session.revision
     }
-    |> ChannelConfigurationChangeset.action()
+    |> ChannelConfiguration.Changeset.action()
     |> Repo.insert!()
   end
 
@@ -1308,7 +1308,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp expire_session!(session) do
     session
-    |> ChannelConfigurationChangeset.session(%{status: :expired})
+    |> ChannelConfiguration.Changeset.session(%{status: :expired})
     |> Repo.update!()
 
     :ok
@@ -1659,22 +1659,22 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp locked_configuration(workspace_ref, channel_ref) do
     workspace_ref
-    |> ChannelConfigurationQuery.by_channel(channel_ref)
-    |> ChannelConfigurationQuery.lock_for_update()
+    |> ChannelConfiguration.Query.by_channel(channel_ref)
+    |> ChannelConfiguration.Query.lock_for_update()
     |> Repo.one()
   end
 
   defp locked_membership(workspace_ref, channel_ref) do
     workspace_ref
-    |> ChannelMembershipQuery.by_channel(channel_ref)
-    |> ChannelMembershipQuery.lock_for_update()
+    |> ChannelMembership.Query.by_channel(channel_ref)
+    |> ChannelMembership.Query.lock_for_update()
     |> Repo.one()
   end
 
   defp locked_session(id) do
     id
-    |> ConfigurationSessionQuery.by_id()
-    |> ConfigurationSessionQuery.lock_for_update()
+    |> ConfigurationSession.Query.by_id()
+    |> ConfigurationSession.Query.lock_for_update()
     |> Repo.one()
   end
 end

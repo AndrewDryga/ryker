@@ -6,9 +6,9 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   alias Ryker.GitHub.Onboarding
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.RepositoryKnowledge.{Dispatcher, Entry, Prompt, Run}
-  alias Ryker.Retention.CleanupQuery
+  alias Ryker.Retention.Cleanup
   alias Ryker.TestSupport.{FakeCoopAPI, FakeGitHubRepository}
-  alias Ryker.Work.{Session, SessionQuery}
+  alias Ryker.Work.Session
 
   @actor "control-plane:local"
   @fixtures "test/ryker/repository_knowledge/fixtures"
@@ -210,8 +210,8 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     assert Repo.exists?(
              DateTime.utc_now()
-             |> CleanupQuery.eligible()
-             |> SessionQuery.by_id(session.id)
+             |> Cleanup.Query.eligible()
+             |> Session.Query.by_id(session.id)
            )
 
     assert Repo.exists?(

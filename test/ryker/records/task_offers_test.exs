@@ -9,7 +9,7 @@ defmodule Ryker.Records.TaskOffersTest do
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Knowledge.KnowledgeSnapshot
-  alias Ryker.Publication.Changeset
+  alias Ryker.Publication.Publication
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Records.TaskOffers
@@ -1479,12 +1479,12 @@ defmodule Ryker.Records.TaskOffersTest do
       status: :review_pending,
       title: "Fix parser retries"
     }
-    |> Changeset.insert()
+    |> Publication.Changeset.insert()
     |> Repo.insert!()
   end
 
   defp update_publication!(publication, attributes) do
-    publication |> Changeset.update(attributes) |> Repo.update!()
+    publication |> Publication.Changeset.update(attributes) |> Repo.update!()
   end
 
   defp assert_task_publication(card, status, publication_status, controls) do

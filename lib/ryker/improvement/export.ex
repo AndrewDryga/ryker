@@ -37,14 +37,14 @@ defmodule Ryker.Improvement.Export do
   not replayed: a world event is a message's text.
   """
 
-  alias Ryker.Improvement.{Candidate, CandidateQuery}
+  alias Ryker.Improvement.Candidate
   alias Ryker.Repo
 
   @catalog_ref "../va1-health-review-repairs-and-finishes/tool-catalog.json"
 
   @doc "The accepted cases that can be exported, oldest decision first."
   @spec accepted() :: [Candidate.t()]
-  def accepted, do: Repo.all(CandidateQuery.exportable_cases())
+  def accepted, do: Repo.all(Candidate.Query.exportable_cases())
 
   @doc "The directory name, and the scenario id, of one case."
   @spec case_id(Candidate.t()) :: String.t()

@@ -3,7 +3,7 @@ defmodule Ryker.Slack.RuntimeTest do
   alias Ryker.Delivery.{BinaryClient, JSONClient}
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Ingress.WorkProfile
-  alias Ryker.Slack.{ActionTokens, AttachmentIngestor, ChannelConfigurationChangeset, Client}
+  alias Ryker.Slack.{ActionTokens, AttachmentIngestor, ChannelConfiguration, Client}
   alias Ryker.Slack.{FileClient, MintSocketTransport, Operators, Runtime, Supervisor}
 
   # No environment is a choice: work in the channel uses no repository and no
@@ -361,7 +361,7 @@ defmodule Ryker.Slack.RuntimeTest do
       saved_at: ~U[2026-09-25 12:00:00.000000Z],
       workspace_ref: "T123"
     }
-    |> ChannelConfigurationChangeset.configuration()
+    |> ChannelConfiguration.Changeset.configuration()
     |> Repo.insert!()
   end
 

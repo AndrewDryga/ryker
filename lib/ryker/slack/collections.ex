@@ -14,11 +14,11 @@ defmodule Ryker.Slack.Collections do
   the thread page was cut from rather than a second query with its own rules.
   """
 
-  alias Ryker.Behaviors.{Behavior, BehaviorQuery}
-  alias Ryker.Memories.{MemoryEntry, MemoryEntryQuery}
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Memories.MemoryEntry
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
-  alias Ryker.Slack.{CollectionQuery, SavedEntity}
+  alias Ryker.Slack.{Collection, SavedEntity}
 
   @page_size 5
   @kinds [:schedules, :standing_rules, :knowledge]
@@ -172,29 +172,32 @@ defmodule Ryker.Slack.Collections do
   defp count(:knowledge, workspace_ref, conversation_refs, now) do
     slack_workspace = "slack:#{workspace_ref}"
 
-    behaviors = CollectionQuery.knowledge_behaviors(slack_workspace, conversation_refs, now)
-    memories = CollectionQuery.knowledge_memories(slack_workspace, conversation_refs, now)
+    behaviors = Collection.Query.knowledge_behaviors(slack_workspace, conversation_refs, now)
+    memories = Collection.Query.knowledge_memories(slack_workspace, conversation_refs, now)
     Repo.aggregate(behaviors, :count) + Repo.aggregate(memories, :count)
   end
 
-  defp count(kind, workspace_ref, conversation_refs, now),
-    do: Repo.aggregate(CollectionQuery.items(kind, workspace_ref, conversation_refs, now), :count)
+  defp count(kind, workspace_ref, conversation_refs, now) do
+    kind
+    |> Collection.Query.items(workspace_ref, conversation_refs, now)
+    |> Repo.aggregate(:count)
+  end
 
   defp entries(:knowledge, workspace_ref, conversation_refs, now, offset, limit) do
     rows =
       "slack:#{workspace_ref}"
-      |> CollectionQuery.knowledge_page(conversation_refs, now, offset, limit)
+      |> Collection.Query.knowledge_page(conversation_refs, now, offset, limit)
       |> Repo.all()
 
-    behaviors = rows |> ids("behavior") |> BehaviorQuery.by_ids() |> Repo.all()
-    memories = rows |> ids("memory") |> MemoryEntryQuery.by_ids() |> Repo.all()
+    behaviors = rows |> ids("behavior") |> Behavior.Query.by_ids() |> Repo.all()
+    memories = rows |> ids("memory") |> MemoryEntry.Query.by_ids() |> Repo.all()
     loaded = Map.new(behaviors ++ memories, &{&1.id, &1})
     Enum.map(rows, &Map.fetch!(loaded, &1.id))
   end
 
   defp entries(kind, workspace_ref, conversation_refs, now, offset, limit) do
     kind
-    |> CollectionQuery.page(workspace_ref, conversation_refs, now, offset, limit)
+    |> Collection.Query.page(workspace_ref, conversation_refs, now, offset, limit)
     |> Repo.all()
   end
 

@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{Activity, FollowUpQuery, Search, SubscriptionPresentation}
+  alias Ryker.ControlPlane.{Activity, FollowUp, Search, SubscriptionPresentation}
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
 
@@ -24,7 +24,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   def list(params) when is_map(params) do
     query =
       (@list_limit + 1)
-      |> FollowUpQuery.follow_ups()
+      |> FollowUp.Query.follow_ups()
       |> subscription_view(Map.get(@views, params["view"]))
 
     search = Search.term(params["q"])
@@ -46,13 +46,13 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   defp subscription_rows(query, nil), do: Repo.all(query)
 
   defp subscription_rows(query, search) do
-    exact = query |> FollowUpQuery.by_ref(search) |> Repo.all()
+    exact = query |> FollowUp.Query.by_ref(search) |> Repo.all()
     if exact == [], do: Repo.all(query), else: exact
   end
 
   defp subscription_view(query, nil), do: query
 
-  defp subscription_view(query, statuses), do: FollowUpQuery.in_statuses(query, statuses)
+  defp subscription_view(query, statuses), do: FollowUp.Query.in_statuses(query, statuses)
 
   defp subscription_search(items, nil), do: items
 

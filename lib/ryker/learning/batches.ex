@@ -10,10 +10,10 @@ defmodule Ryker.Learning.Batches do
   commit (`Ryker.Learning.subscribe_learning/0`), except a lease renewal.
   """
   alias Ryker.{AdvisoryLock, CanonicalJSON}
-  alias Ryker.Ingress.Inbox.EntryQuery
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning
-  alias Ryker.Learning.{Batch, BatchQuery, InputMembership, InputMembershipQuery}
-  alias Ryker.Learning.{LearningInputQuery, LearningRunQuery, LearningSources}
+  alias Ryker.Learning.{Batch, InputMembership}
+  alias Ryker.Learning.{LearningInput, LearningRun, LearningSources}
   alias Ryker.Learning.{Observations, Rebuilds, Runtime}
   alias Ryker.Repo
   alias Ryker.UTCDateTime
@@ -61,8 +61,8 @@ defmodule Ryker.Learning.Batches do
   """
   @spec next_due_at(DateTime.t(), map()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, settings) do
-    batches = Repo.one(BatchQuery.next_due_after(since))
-    scopes = Repo.one(LearningInputQuery.next_scope_due_after(since, settings))
+    batches = Repo.one(Batch.Query.next_due_after(since))
+    scopes = Repo.one(LearningInput.Query.next_scope_due_after(since, settings))
     UTCDateTime.earliest([scopes | batches])
   end
 
@@ -83,7 +83,7 @@ defmodule Ryker.Learning.Batches do
       batch = owned!(claim)
 
       other_outstanding =
-        batch.scope_key |> outstanding_scope_query() |> LearningRunQuery.excluding_id(run_id)
+        batch.scope_key |> outstanding_scope_query() |> LearningRun.Query.excluding_id(run_id)
 
       if Repo.exists?(other_outstanding), do: Repo.rollback(:learning_remote_outstanding)
 
@@ -201,8 +201,8 @@ defmodule Ryker.Learning.Batches do
       else
         # An attempt prepared under the old policy never started; it never will.
         batch.id
-        |> LearningRunQuery.by_batch_id()
-        |> LearningRunQuery.unstarted()
+        |> LearningRun.Query.by_batch_id()
+        |> LearningRun.Query.unstarted()
         |> Repo.update_all(
           set: [status: :stale, error_code: "learning_policy_changed", updated_at: Repo.now!()]
         )
@@ -219,8 +219,8 @@ defmodule Ryker.Learning.Batches do
   """
   def policy_refused?(%{policy: policy, policy_digest: digest}) do
     policy
-    |> LearningRunQuery.by_policy(digest)
-    |> LearningRunQuery.with_error_code("learning_session_not_isolated")
+    |> LearningRun.Query.by_policy(digest)
+    |> LearningRun.Query.with_error_code("learning_session_not_isolated")
     |> Repo.exists?()
   end
 
@@ -258,11 +258,11 @@ defmodule Ryker.Learning.Batches do
       # disclosed nothing; its bytes remain immutable when its members change.
       unstarted =
         batch.id
-        |> LearningRunQuery.by_batch_id()
-        |> LearningRunQuery.unstarted()
-        |> LearningRunQuery.newest_first()
-        |> LearningRunQuery.limit_to(1)
-        |> LearningRunQuery.lock_for_update()
+        |> LearningRun.Query.by_batch_id()
+        |> LearningRun.Query.unstarted()
+        |> LearningRun.Query.newest_first()
+        |> LearningRun.Query.limit_to(1)
+        |> LearningRun.Query.lock_for_update()
         |> Repo.one()
 
       valid_ids = current_members!(batch, unfinished_members(batch.id))
@@ -298,7 +298,7 @@ defmodule Ryker.Learning.Batches do
   defp retire_too_large(largest, batch) do
     batch.id
     |> unfinished_members()
-    |> InputMembershipQuery.by_input_id(largest.id)
+    |> InputMembership.Query.by_input_id(largest.id)
     |> Repo.update_all(
       set: [terminal_reason: "learning_input_too_large", updated_at: Repo.now!()]
     )
@@ -341,7 +341,7 @@ defmodule Ryker.Learning.Batches do
     unless Repo.in_transaction?(), do: raise(ArgumentError, "operator audit transaction required")
     lock_queue!()
 
-    case Repo.one(BatchQuery.by_id(id)) do
+    case Repo.one(Batch.Query.by_id(id)) do
       %Batch{rebuild_target_id: target} = batch when not is_nil(target) ->
         target = %{
           version: batch.rebuild_target_version,
@@ -374,7 +374,7 @@ defmodule Ryker.Learning.Batches do
     # bill. Unused starts from a failed grant do not accumulate. The independent
     # version prevents stale-form ABA when this ceiling gets smaller.
     members
-    |> InputMembershipQuery.by_input_ids(valid_ids)
+    |> InputMembership.Query.by_input_ids(valid_ids)
     |> Repo.update_all(set: [terminal_reason: nil, updated_at: Repo.now!()])
 
     changed =
@@ -407,33 +407,33 @@ defmodule Ryker.Learning.Batches do
 
     other_active =
       batch.scope_key
-      |> BatchQuery.by_scope_key()
-      |> BatchQuery.excluding_id(batch.id)
-      |> BatchQuery.active()
+      |> Batch.Query.by_scope_key()
+      |> Batch.Query.excluding_id(batch.id)
+      |> Batch.Query.active()
 
     if Repo.exists?(other_active), do: Repo.rollback(:learning_scope_busy)
   end
 
   defp retry_members(id) do
     id
-    |> InputMembershipQuery.by_batch_id()
-    |> InputMembershipQuery.not_retired_for("source_unavailable")
+    |> InputMembership.Query.by_batch_id()
+    |> InputMembership.Query.not_retired_for("source_unavailable")
   end
 
   defp retire_unavailable_members!(batch, members) do
-    ids = members |> InputMembershipQuery.select_input_ids() |> Repo.all()
+    ids = members |> InputMembership.Query.select_input_ids() |> Repo.all()
 
     entries =
       ids
-      |> EntryQuery.by_ids()
-      |> EntryQuery.ordered_by_id()
-      |> EntryQuery.lock_for_share()
+      |> Entry.Query.by_ids()
+      |> Entry.Query.ordered_by_id()
+      |> Entry.Query.lock_for_share()
       |> Repo.all()
 
     valid_ids = entries |> Enum.filter(&learnable_entry?(&1, batch)) |> Enum.map(& &1.id)
 
     members
-    |> InputMembershipQuery.excluding_input_ids(valid_ids)
+    |> InputMembership.Query.excluding_input_ids(valid_ids)
     |> Repo.update_all(set: [terminal_reason: "source_unavailable", updated_at: Repo.now!()])
 
     valid_ids
@@ -521,25 +521,25 @@ defmodule Ryker.Learning.Batches do
 
   def outstanding(batch_id) do
     batch_id
-    |> LearningRunQuery.by_batch_id()
-    |> LearningRunQuery.unstopped()
-    |> LearningRunQuery.oldest_first()
-    |> LearningRunQuery.limit_to(1)
+    |> LearningRun.Query.by_batch_id()
+    |> LearningRun.Query.unstopped()
+    |> LearningRun.Query.oldest_first()
+    |> LearningRun.Query.limit_to(1)
     |> Repo.one()
   end
 
   defp outstanding_scope_query(scope_key),
-    do: scope_key |> LearningRunQuery.in_scope() |> LearningRunQuery.unstopped()
+    do: scope_key |> LearningRun.Query.in_scope() |> LearningRun.Query.unstopped()
 
-  def latest(batch_id), do: Repo.one(LearningRunQuery.latest_current(batch_id))
+  def latest(batch_id), do: Repo.one(LearningRun.Query.latest_current(batch_id))
 
   def reconciliation_failed(claim, run_id) do
     with_lease(claim, fn ->
       run =
         run_id
-        |> LearningRunQuery.by_id()
-        |> LearningRunQuery.by_batch_id(claim.batch.id)
-        |> LearningRunQuery.lock_for_update()
+        |> LearningRun.Query.by_id()
+        |> LearningRun.Query.by_batch_id(claim.batch.id)
+        |> LearningRun.Query.lock_for_update()
         |> Repo.one()
 
       if is_nil(run), do: Repo.rollback(:learning_batch_mismatch)
@@ -554,12 +554,12 @@ defmodule Ryker.Learning.Batches do
     end
   end
 
-  defp next_batch(now), do: Repo.one(BatchQuery.next_claimable(now))
+  defp next_batch(now), do: Repo.one(Batch.Query.next_claimable(now))
 
   defp create_batch(settings, now) do
-    pending = LearningInputQuery.pending()
+    pending = LearningInput.Query.pending()
     current = processable(pending, now)
-    unavailable = LearningInputQuery.unavailable(pending, current)
+    unavailable = LearningInput.Query.unavailable(pending, current)
 
     # Expired imports are acknowledged in bounded batches, but must not delay
     # learning from current messages or contaminate their input set.
@@ -567,7 +567,7 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp create_batch(settings, now, pending) do
-    case Repo.one(LearningInputQuery.next_due_scope(pending, settings, now)) do
+    case Repo.one(LearningInput.Query.next_due_scope(pending, settings, now)) do
       nil -> nil
       scope -> assign_scope(scope, pending, settings, now)
     end
@@ -576,10 +576,10 @@ defmodule Ryker.Learning.Batches do
   defp assign_scope(scope, pending, settings, now) do
     entries =
       pending
-      |> LearningInputQuery.in_scope(scope)
-      |> EntryQuery.oldest_received_first()
-      |> EntryQuery.limit_to(settings.batch_size)
-      |> EntryQuery.lock_for_update()
+      |> LearningInput.Query.in_scope(scope)
+      |> Entry.Query.oldest_received_first()
+      |> Entry.Query.limit_to(settings.batch_size)
+      |> Entry.Query.lock_for_update()
       |> Repo.all()
 
     batch =
@@ -600,9 +600,9 @@ defmodule Ryker.Learning.Batches do
 
     current =
       ids
-      |> EntryQuery.by_ids()
+      |> Entry.Query.by_ids()
       |> processable(now)
-      |> EntryQuery.select_ids()
+      |> Entry.Query.select_ids()
       |> Repo.all()
       |> MapSet.new()
 
@@ -626,22 +626,22 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp processable(query, now),
-    do: LearningInputQuery.processable(query, now, LearningSources.retention_seconds())
+    do: LearningInput.Query.processable(query, now, LearningSources.retention_seconds())
 
   defp inputs(batch_id) do
-    case Repo.one!(BatchQuery.by_id(batch_id)) do
+    case Repo.one!(Batch.Query.by_id(batch_id)) do
       %{rebuild_target_id: nil} -> assigned_inputs(batch_id)
       batch -> Rebuilds.inputs(batch)
     end
   end
 
-  defp assigned_inputs(batch_id), do: Repo.all(LearningInputQuery.held_by(batch_id))
+  defp assigned_inputs(batch_id), do: Repo.all(LearningInput.Query.held_by(batch_id))
 
   defp unfinished_members(batch_id),
-    do: batch_id |> InputMembershipQuery.by_batch_id() |> InputMembershipQuery.unfinished()
+    do: batch_id |> InputMembership.Query.by_batch_id() |> InputMembership.Query.unfinished()
 
   defp locked_batch(id),
-    do: id |> BatchQuery.by_id() |> BatchQuery.lock_for_update() |> Repo.one()
+    do: id |> Batch.Query.by_id() |> Batch.Query.lock_for_update() |> Repo.one()
 
   defp current_request?(%{rebuild_target_id: nil}, _run), do: true
 
@@ -655,8 +655,8 @@ defmodule Ryker.Learning.Batches do
       # original membership for the remaining approved budget after stop proof;
       # later arrivals must not replace those inputs or inherit that budget.
       batch.id
-      |> InputMembershipQuery.by_batch_id()
-      |> InputMembershipQuery.retired_except("source_unavailable")
+      |> InputMembership.Query.by_batch_id()
+      |> InputMembership.Query.retired_except("source_unavailable")
       |> Repo.update_all(set: [terminal_reason: nil, updated_at: now])
     end
 

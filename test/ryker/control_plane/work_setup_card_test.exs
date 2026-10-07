@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Records
   alias Ryker.Settings
-  alias Ryker.Slack.IncidentRoomChangeset
+  alias Ryker.Slack.IncidentRoom
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.{Custody, Session, Submission, Turn}
 
@@ -666,7 +666,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
       topic: "Payouts incident room",
       workspace_ref: "TSETUPENV"
     }
-    |> IncidentRoomChangeset.insert()
+    |> IncidentRoom.Changeset.insert()
     |> Repo.insert!()
   end
 

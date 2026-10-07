@@ -16,7 +16,7 @@ defmodule Ryker.Slack.TaskCards do
   alias Ryker.ErrorDetail
   alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Slack.{TaskCard, TaskCardChangeset, TaskCardQuery}
+  alias Ryker.Slack.TaskCard
   alias Ryker.Work.{DeliveryReceipt, Turn}
 
   @doc """
@@ -26,7 +26,7 @@ defmodule Ryker.Slack.TaskCards do
   """
   @spec check_soon(Ecto.UUID.t()) :: :ok
   def check_soon(episode_id) do
-    Repo.update_all(TaskCardQuery.checked_for(episode_id), set: [card_checked_at: nil])
+    Repo.update_all(TaskCard.Query.checked_for(episode_id), set: [card_checked_at: nil])
 
     :ok
   end
@@ -54,7 +54,7 @@ defmodule Ryker.Slack.TaskCards do
   def next_due_at(%DateTime{} = since, check_interval_seconds)
       when is_integer(check_interval_seconds) do
     since
-    |> TaskCardQuery.next_due_after(check_interval_seconds)
+    |> TaskCard.Query.next_due_after(check_interval_seconds)
     |> Repo.one()
   end
 
@@ -68,7 +68,7 @@ defmodule Ryker.Slack.TaskCards do
       when is_binary(episode_id) and is_binary(thread_ref) do
     case String.split(conversation, ":") do
       [workspace, channel] ->
-        Repo.one(TaskCardQuery.message_in_thread(episode_id, workspace, channel, thread_ref))
+        Repo.one(TaskCard.Query.message_in_thread(episode_id, workspace, channel, thread_ref))
 
       _other ->
         nil
@@ -123,7 +123,7 @@ defmodule Ryker.Slack.TaskCards do
   defp claim_next_locked(worker_ref, lease_seconds, check_interval_seconds) do
     now = Repo.now!()
 
-    query = TaskCardQuery.next_claimable(now, check_interval_seconds)
+    query = TaskCard.Query.next_claimable(now, check_interval_seconds)
 
     case Repo.one(query) do
       nil -> nil
@@ -223,7 +223,7 @@ defmodule Ryker.Slack.TaskCards do
   defp rearm_locked(ref) do
     now = Repo.now!()
 
-    case Repo.one(ref |> TaskCardQuery.by_ref() |> TaskCardQuery.lock_for_update()) do
+    case Repo.one(ref |> TaskCard.Query.by_ref() |> TaskCard.Query.lock_for_update()) do
       nil ->
         Repo.rollback(:task_card_not_found)
 
@@ -287,7 +287,7 @@ defmodule Ryker.Slack.TaskCards do
   defp ensure_one_locked(skip) do
     AdvisoryLock.hold!("slack-task-card-repair")
 
-    row = Repo.one(TaskCardQuery.next_uncarded_offer(skip))
+    row = Repo.one(TaskCard.Query.next_uncarded_offer(skip))
 
     case row do
       nil ->
@@ -316,7 +316,7 @@ defmodule Ryker.Slack.TaskCards do
         workspace_ref: workspace_ref
       }
 
-      changeset = TaskCardChangeset.insert(attributes)
+      changeset = TaskCard.Changeset.insert(attributes)
 
       case Repo.insert(changeset) do
         {:ok, card} ->
@@ -335,7 +335,7 @@ defmodule Ryker.Slack.TaskCards do
   defp mutate_claim(card_id, lease_ref, callback) do
     Repo.transaction(fn ->
       now = Repo.now!()
-      card = card_id |> TaskCardQuery.by_id() |> TaskCardQuery.lock_for_update() |> Repo.one()
+      card = card_id |> TaskCard.Query.by_id() |> TaskCard.Query.lock_for_update() |> Repo.one()
 
       cond do
         is_nil(card) ->
@@ -370,7 +370,7 @@ defmodule Ryker.Slack.TaskCards do
   defp check_announcement(_card, _fingerprint, _revision), do: :announce
 
   defp update!(card, attributes, now, announce \\ :announce) do
-    changeset = TaskCardChangeset.update(card, Map.put(attributes, :updated_at, now))
+    changeset = TaskCard.Changeset.update(card, Map.put(attributes, :updated_at, now))
 
     case Repo.update(changeset) do
       {:ok, card} when announce == :quiet -> card

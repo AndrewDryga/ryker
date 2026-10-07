@@ -20,14 +20,10 @@ defmodule Ryker.Slack.IncidentRooms do
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
-  alias Ryker.Records.RecordQuery
   alias Ryker.Records.TaskOffers
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurationQuery, IncidentRoom}
-  alias Ryker.Slack.{IncidentRoomChangeset, IncidentRoomLifecycleEvent}
-  alias Ryker.Slack.{IncidentRoomLifecycleEventChangeset, IncidentRoomLifecycleEventQuery}
-  alias Ryker.Slack.IncidentRoomQuery
+  alias Ryker.Slack.{ChannelConfiguration, IncidentRoom}
+  alias Ryker.Slack.IncidentRoomLifecycleEvent
   alias Ryker.Slack.MembershipTransition
   alias Ryker.UTCDateTime
   alias Ryker.Work.Custody
@@ -129,15 +125,15 @@ defmodule Ryker.Slack.IncidentRooms do
 
   @spec managed_channel?(String.t(), String.t()) :: boolean()
   def managed_channel?(workspace_ref, channel_ref) do
-    Repo.exists?(IncidentRoomQuery.by_channel(workspace_ref, channel_ref))
+    Repo.exists?(IncidentRoom.Query.by_channel(workspace_ref, channel_ref))
   end
 
   @spec channel_profile(String.t(), String.t()) :: {:ok, map()} | :not_found
   def channel_profile(workspace_ref, channel_ref) do
     profile =
       workspace_ref
-      |> IncidentRoomQuery.by_channel(channel_ref)
-      |> IncidentRoomQuery.select_profile()
+      |> IncidentRoom.Query.by_channel(channel_ref)
+      |> IncidentRoom.Query.select_profile()
 
     case Repo.one(profile) do
       nil -> :not_found
@@ -219,7 +215,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp automatic_candidates(workspace_ref, refused),
-    do: Repo.all(IncidentRoomQuery.automatic_candidates(workspace_ref, refused))
+    do: Repo.all(IncidentRoom.Query.automatic_candidates(workspace_ref, refused))
 
   @doc """
   The earliest moment after `since` at which a room has work by the clock
@@ -231,7 +227,7 @@ defmodule Ryker.Slack.IncidentRooms do
   @spec next_due_at(DateTime.t(), pos_integer(), pos_integer()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, health_check_seconds, root_card_check_seconds) do
     since
-    |> IncidentRoomQuery.next_due_after(health_check_seconds, root_card_check_seconds)
+    |> IncidentRoom.Query.next_due_after(health_check_seconds, root_card_check_seconds)
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -321,7 +317,7 @@ defmodule Ryker.Slack.IncidentRooms do
   """
   @spec check_card_soon(Ecto.UUID.t()) :: :ok
   def check_card_soon(episode_id) do
-    Repo.update_all(IncidentRoomQuery.card_checked_for(episode_id),
+    Repo.update_all(IncidentRoom.Query.card_checked_for(episode_id),
       set: [root_card_checked_at: nil]
     )
 
@@ -593,7 +589,7 @@ defmodule Ryker.Slack.IncidentRooms do
   stopped is left to its worker's answer, so a pass never repeats itself.
   """
   @spec next_orphaned_investigation() :: {IncidentRoom.t(), Episode.t()} | nil
-  def next_orphaned_investigation, do: Repo.one(IncidentRoomQuery.next_orphaned_investigation())
+  def next_orphaned_investigation, do: Repo.one(IncidentRoom.Query.next_orphaned_investigation())
 
   defp close_deleted_locked(room, now, detail) do
     with :ok <- current_lifecycle(room, :deleted) do
@@ -680,8 +676,8 @@ defmodule Ryker.Slack.IncidentRooms do
 
     room =
       transition.workspace_ref
-      |> IncidentRoomQuery.by_channel(transition.channel_ref)
-      |> IncidentRoomQuery.lock_for_update()
+      |> IncidentRoom.Query.by_channel(transition.channel_ref)
+      |> IncidentRoom.Query.lock_for_update()
       |> Repo.one()
 
     case room do
@@ -706,8 +702,8 @@ defmodule Ryker.Slack.IncidentRooms do
 
     stored =
       transition.workspace_ref
-      |> IncidentRoomLifecycleEventQuery.by_event(transition.event_ref)
-      |> IncidentRoomLifecycleEventQuery.lock_for_update()
+      |> IncidentRoomLifecycleEvent.Query.by_event(transition.event_ref)
+      |> IncidentRoomLifecycleEvent.Query.lock_for_update()
 
     case Repo.one(stored) do
       %IncidentRoomLifecycleEvent{event_fingerprint: ^fingerprint} ->
@@ -733,7 +729,7 @@ defmodule Ryker.Slack.IncidentRooms do
       room_id: room.id,
       workspace_ref: transition.workspace_ref
     }
-    |> IncidentRoomLifecycleEventChangeset.insert()
+    |> IncidentRoomLifecycleEvent.Changeset.insert()
     |> Repo.insert!()
     |> tap(fn _event -> broadcast_room_updated(room) end)
   end
@@ -913,7 +909,7 @@ defmodule Ryker.Slack.IncidentRooms do
   # turn and session are read, not locked: locking them made every write to
   # that conversation's work wait for the request (2026-10-04 review).
   defp lock_offer(record_ref) do
-    query = RecordQuery.incident_offer(record_ref)
+    query = Record.Query.incident_offer(record_ref)
 
     case Repo.one(query) do
       nil -> {:error, :incident_offer_not_found}
@@ -984,14 +980,14 @@ defmodule Ryker.Slack.IncidentRooms do
       workspace_ref: attributes.workspace_ref
     }
 
-    case Repo.insert(IncidentRoomChangeset.insert(attributes)) do
+    case Repo.insert(IncidentRoom.Changeset.insert(attributes)) do
       {:ok, room} -> tap(room, &broadcast_room_updated/1)
       {:error, changeset} -> Repo.rollback({:incident_room_persistence_failed, changeset.errors})
     end
   end
 
   defp configuration(workspace_ref, channel_ref) do
-    case Repo.one(ChannelConfigurationQuery.by_channel(workspace_ref, channel_ref)) do
+    case Repo.one(ChannelConfiguration.Query.by_channel(workspace_ref, channel_ref)) do
       %ChannelConfiguration{} = configuration -> configuration
       nil -> %ChannelConfiguration{invite_user_group_refs: [], invite_user_refs: []}
     end
@@ -1062,7 +1058,7 @@ defmodule Ryker.Slack.IncidentRooms do
   defp automatic_alert_item?(_item, _workspace_ref), do: false
 
   defp enforce_capacity!(workspace_ref, maximum) do
-    count = Repo.aggregate(IncidentRoomQuery.open_in_workspace(workspace_ref), :count)
+    count = Repo.aggregate(IncidentRoom.Query.open_in_workspace(workspace_ref), :count)
 
     if count < maximum, do: :ok, else: Repo.rollback(:incident_room_capacity)
   end
@@ -1102,13 +1098,13 @@ defmodule Ryker.Slack.IncidentRooms do
     end
   end
 
-  defp next_claimable_room(now), do: Repo.one(IncidentRoomQuery.next_claimable(now))
+  defp next_claimable_room(now), do: Repo.one(IncidentRoom.Query.next_claimable(now))
 
   defp claim_health_check_locked(worker_ref, lease_seconds, check_interval_seconds) do
     now = Repo.now!()
     due_at = DateTime.add(now, -check_interval_seconds, :second)
 
-    room = Repo.one(IncidentRoomQuery.next_health_check(due_at, now))
+    room = Repo.one(IncidentRoom.Query.next_health_check(due_at, now))
 
     case room do
       nil ->
@@ -1139,7 +1135,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp root_card_claimable_room(now, check_interval_seconds),
-    do: Repo.one(IncidentRoomQuery.next_root_card(now, check_interval_seconds))
+    do: Repo.one(IncidentRoom.Query.next_root_card(now, check_interval_seconds))
 
   defp lease_room(nil, _worker_ref, _lease_seconds, _now), do: nil
 
@@ -1220,7 +1216,7 @@ defmodule Ryker.Slack.IncidentRooms do
       room_id: room.id,
       workspace_ref: room.workspace_ref
     }
-    |> IncidentRoomLifecycleEventChangeset.insert()
+    |> IncidentRoomLifecycleEvent.Changeset.insert()
     |> Repo.insert!()
     |> tap(fn _event -> broadcast_room_updated(room) end)
   end
@@ -1246,7 +1242,7 @@ defmodule Ryker.Slack.IncidentRooms do
     now = Repo.now!()
 
     room =
-      room_id |> IncidentRoomQuery.by_id() |> IncidentRoomQuery.lock_for_update() |> Repo.one()
+      room_id |> IncidentRoom.Query.by_id() |> IncidentRoom.Query.lock_for_update() |> Repo.one()
 
     cond do
       is_nil(room) ->
@@ -1270,7 +1266,7 @@ defmodule Ryker.Slack.IncidentRooms do
     now = Repo.now!()
 
     room =
-      room_id |> IncidentRoomQuery.by_id() |> IncidentRoomQuery.lock_for_update() |> Repo.one()
+      room_id |> IncidentRoom.Query.by_id() |> IncidentRoom.Query.lock_for_update() |> Repo.one()
 
     cond do
       is_nil(room) ->
@@ -1353,7 +1349,7 @@ defmodule Ryker.Slack.IncidentRooms do
          :ok <- confirmable_record(record),
          {:ok, _record} <- confirm_record(record, transition.episode.id, room),
          changeset =
-           IncidentRoomChangeset.update(room, %{
+           IncidentRoom.Changeset.update(room, %{
              channel_checked_at: Repo.now!(),
              episode_id: transition.episode.id,
              last_error_code: nil,
@@ -1390,7 +1386,7 @@ defmodule Ryker.Slack.IncidentRooms do
 
   defp confirm_record(record, episode_id, room) do
     record
-    |> RecordChangeset.confirm(%{
+    |> Record.Changeset.confirm(%{
       confirmed_at: room.requested_at,
       confirmed_by_actor_ref: room.requested_by_actor_ref,
       confirmed_episode_id: episode_id,
@@ -1414,7 +1410,7 @@ defmodule Ryker.Slack.IncidentRooms do
   defp update!(room, attributes, now, announce) do
     attributes = Map.put(attributes, :updated_at, now)
 
-    changeset = IncidentRoomChangeset.update(room, attributes)
+    changeset = IncidentRoom.Changeset.update(room, attributes)
 
     case Repo.update(changeset) do
       {:ok, room} when announce == :quiet -> room
@@ -1525,12 +1521,12 @@ defmodule Ryker.Slack.IncidentRooms do
   defp topic(title), do: byte_slice("#{title} · incident room opened by Ryker", 250)
 
   defp locked_room(room_ref),
-    do: room_ref |> IncidentRoomQuery.by_ref() |> IncidentRoomQuery.lock_for_update()
+    do: room_ref |> IncidentRoom.Query.by_ref() |> IncidentRoom.Query.lock_for_update()
 
   defp locked_room_of(record),
-    do: record.id |> IncidentRoomQuery.by_record_id() |> IncidentRoomQuery.lock_for_update()
+    do: record.id |> IncidentRoom.Query.by_record_id() |> IncidentRoom.Query.lock_for_update()
 
-  defp locked_record(id), do: id |> RecordQuery.by_id() |> RecordQuery.lock_for_update()
+  defp locked_record(id), do: id |> Record.Query.by_id() |> Record.Query.lock_for_update()
 
   defp lock_workspace!(workspace_ref),
     do: AdvisoryLock.hold!("slack-incident-room:#{workspace_ref}")

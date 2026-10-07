@@ -1,6 +1,6 @@
 defmodule Ryker.StateTools.LookupBoundary do
   @moduledoc false
-  alias Ryker.Episodes.EventQuery
+  alias Ryker.Episodes.Event
   alias Ryker.Repo
   alias Ryker.Slack.SourceRef
   alias Ryker.StateTools.Binding
@@ -24,9 +24,9 @@ defmodule Ryker.StateTools.LookupBoundary do
 
   defp queued_sources(%{destination_transport: "slack"} = episode, sequence) do
     episode.id
-    |> EventQuery.by_episode_id()
-    |> EventQuery.admitted_since_or_queued(sequence, episode.queued_input_refs)
-    |> EventQuery.select_payloads()
+    |> Event.Query.by_episode_id()
+    |> Event.Query.admitted_since_or_queued(sequence, episode.queued_input_refs)
+    |> Event.Query.select_payloads()
     |> Repo.all()
     |> Enum.flat_map(&message_ref/1)
     |> MapSet.new()

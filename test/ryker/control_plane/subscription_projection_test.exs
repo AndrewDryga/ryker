@@ -12,7 +12,6 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
   alias Ryker.Records
   alias Ryker.Slack.Input
   alias Ryker.Waits.EventSubscription
-  alias Ryker.Waits.EventSubscriptionChangeset
   alias Ryker.Work.Custody
 
   @endpoint Endpoint
@@ -100,7 +99,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
         status: :active,
         matcher: Map.put(matcher, "private_body", "never-display-this-body")
       }
-      |> EventSubscriptionChangeset.insert()
+      |> EventSubscription.Changeset.insert()
       |> Repo.insert!()
 
     %{subscription: subscription, entry: entry, record: record, episode: transition.episode}

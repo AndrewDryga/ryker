@@ -9,7 +9,7 @@ defmodule Ryker.Artifacts do
   """
 
   import Bitwise
-  alias Ryker.Artifacts.{Artifact, ArtifactChangeset, ArtifactQuery}
+  alias Ryker.Artifacts.Artifact
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Repo
@@ -55,7 +55,7 @@ defmodule Ryker.Artifacts do
   @spec put(map()) :: {:ok, Artifact.t()} | {:error, term()}
   def put(%{} = attributes) do
     with {:ok, prepared} <- prepare(attributes) do
-      changeset = ArtifactChangeset.insert(prepared)
+      changeset = Artifact.Changeset.insert(prepared)
       options = if Repo.in_transaction?(), do: [mode: :savepoint], else: []
 
       case Repo.insert(changeset, options) do
@@ -72,7 +72,7 @@ defmodule Ryker.Artifacts do
 
   @spec fetch_source(String.t(), String.t()) :: {:ok, Artifact.t()} | {:error, term()}
   def fetch_source(source_kind, source_ref) do
-    ArtifactQuery.by_source(source_kind, source_ref)
+    Artifact.Query.by_source(source_kind, source_ref)
     |> Repo.fetch()
     |> case do
       {:ok, artifact} -> {:ok, artifact}
@@ -91,7 +91,7 @@ defmodule Ryker.Artifacts do
         if unique == [] do
           []
         else
-          Repo.all(ArtifactQuery.by_refs(unique))
+          Repo.all(Artifact.Query.by_refs(unique))
         end
 
       by_ref = Map.new(artifacts, &{&1.ref, &1})

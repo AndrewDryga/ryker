@@ -15,7 +15,7 @@ defmodule Ryker.Admission.ConversationContext do
   happened, and it never claims coverage it does not have.
   """
 
-  alias Ryker.Admission.ConversationContextQuery
+  alias Ryker.Admission.ConversationContext
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
@@ -124,7 +124,7 @@ defmodule Ryker.Admission.ConversationContext do
 
   defp retained_predecessors(entry, kind, limit) do
     entry
-    |> ConversationContextQuery.retained_predecessors(kind, limit)
+    |> ConversationContext.Query.retained_predecessors(kind, limit)
     |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(&message_document(&1, :retained))
@@ -140,9 +140,9 @@ defmodule Ryker.Admission.ConversationContext do
   # was sent as, with the request it belongs to: `previous_answer/2` reads it.
   defp ryker_messages(entry, kind, limit) do
     sent =
-      Repo.all(ConversationContextQuery.delivered_replies(entry, kind, limit)) ++
-        Repo.all(ConversationContextQuery.delivered_posts(entry, kind, limit)) ++
-        Repo.all(ConversationContextQuery.delivered_quick_replies(entry, kind, limit))
+      Repo.all(ConversationContext.Query.delivered_replies(entry, kind, limit)) ++
+        Repo.all(ConversationContext.Query.delivered_posts(entry, kind, limit)) ++
+        Repo.all(ConversationContext.Query.delivered_quick_replies(entry, kind, limit))
 
     messages = Enum.flat_map(sent, &ryker_message(&1, entry))
 
@@ -346,7 +346,7 @@ defmodule Ryker.Admission.ConversationContext do
   end
 
   defp retained_root(entry, root_ref),
-    do: Repo.one(ConversationContextQuery.retained_root(entry, root_ref))
+    do: Repo.one(ConversationContext.Query.retained_root(entry, root_ref))
 
   defp message_document(%Entry{} = entry, origin) do
     %{

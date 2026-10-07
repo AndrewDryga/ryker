@@ -7,14 +7,14 @@ defmodule Ryker.Slack.WorkRecord do
   missing impact, cause, ownership, or corrective-action facts.
   """
 
-  alias Ryker.Episodes.{Episode, EventQuery}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Episodes.Words
-  alias Ryker.Publication.{FollowupQuery, Publication, PublicationQuery}
-  alias Ryker.Records.{DerivedContext, Record, RecordQuery}
+  alias Ryker.Publication.{Followup, Publication}
+  alias Ryker.Records.{DerivedContext, Record}
   alias Ryker.Repo
-  alias Ryker.Slack.{IncidentRoomQuery, TaskCardDetails, TaskCardQuery, WorkTarget}
+  alias Ryker.Slack.{IncidentRoom, TaskCard, TaskCardDetails, WorkTarget}
   alias Ryker.Slack.Renderer.Blocks
-  alias Ryker.Work.{Recovery, SessionQuery, Turn, TurnQuery}
+  alias Ryker.Work.{Recovery, Session, Turn}
 
   @maximum_events 60
   @maximum_records 80
@@ -68,25 +68,25 @@ defmodule Ryker.Slack.WorkRecord do
 
     events =
       episode_id
-      |> EventQuery.by_episode_id()
-      |> EventQuery.newest_first()
-      |> EventQuery.limit_to(@maximum_events)
+      |> Event.Query.by_episode_id()
+      |> Event.Query.newest_first()
+      |> Event.Query.limit_to(@maximum_events)
       |> Repo.all()
       |> Enum.reverse()
 
     records =
       episode_id
-      |> RecordQuery.by_episode_id()
-      |> RecordQuery.latest_sequence_first()
-      |> RecordQuery.limit_to(@maximum_records)
+      |> Record.Query.by_episode_id()
+      |> Record.Query.latest_sequence_first()
+      |> Record.Query.limit_to(@maximum_records)
       |> Repo.all()
       |> Enum.reverse()
 
     publications =
       episode_id
-      |> PublicationQuery.by_episode_id()
-      |> PublicationQuery.newest_first()
-      |> PublicationQuery.limit_to(@maximum_publications)
+      |> Publication.Query.by_episode_id()
+      |> Publication.Query.newest_first()
+      |> Publication.Query.limit_to(@maximum_publications)
       |> Repo.all()
       |> Enum.reverse()
 
@@ -95,8 +95,8 @@ defmodule Ryker.Slack.WorkRecord do
     pull_request_states =
       publications
       |> Enum.map(& &1.id)
-      |> FollowupQuery.by_publication_ids()
-      |> FollowupQuery.select_states()
+      |> Followup.Query.by_publication_ids()
+      |> Followup.Query.select_states()
       |> Repo.all()
       |> Map.new()
 
@@ -108,7 +108,7 @@ defmodule Ryker.Slack.WorkRecord do
       pull_request_states: pull_request_states,
       records: records,
       title: work_title(resolved.work_ref),
-      turn: Repo.one(TurnQuery.current(resolved.episode)),
+      turn: Repo.one(Turn.Query.current(resolved.episode)),
       work_ref: resolved.work_ref
     }
   end
@@ -121,7 +121,7 @@ defmodule Ryker.Slack.WorkRecord do
   defp shown_in_channel(%{turn: %Turn{session_id: session_id}} = snapshot)
        when is_binary(session_id) do
     repository =
-      session_id |> SessionQuery.by_id() |> SessionQuery.select_repository_refs() |> Repo.one()
+      session_id |> Session.Query.by_id() |> Session.Query.select_repository_refs() |> Repo.one()
 
     shown =
       snapshot.records
@@ -138,13 +138,13 @@ defmodule Ryker.Slack.WorkRecord do
 
   # The task or incident by its own title; the card's reference is Ryker's (Andrew, 2026-10-01:
   # "Timeline for task-card:c00814ba-…").
-  defp work_title("task-card:" <> _rest = ref), do: Repo.one(TaskCardQuery.task_title(ref))
+  defp work_title("task-card:" <> _rest = ref), do: Repo.one(TaskCard.Query.task_title(ref))
 
   defp work_title("record:task_offer:" <> _rest = ref),
-    do: ref |> RecordQuery.by_ref() |> RecordQuery.select_titles() |> Repo.one()
+    do: ref |> Record.Query.by_ref() |> Record.Query.select_titles() |> Repo.one()
 
   defp work_title("incident-room:" <> _rest = ref),
-    do: ref |> IncidentRoomQuery.by_ref() |> IncidentRoomQuery.select_titles() |> Repo.one()
+    do: ref |> IncidentRoom.Query.by_ref() |> IncidentRoom.Query.select_titles() |> Repo.one()
 
   defp work_title(_ref), do: nil
 

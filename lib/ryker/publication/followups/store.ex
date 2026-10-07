@@ -13,8 +13,7 @@ defmodule Ryker.Publication.Followups.Store do
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Publication.Custody
-  alias Ryker.Publication.{Followup, FollowupChangeset, FollowupQuery, LifecycleEvent}
-  alias Ryker.Publication.{LifecycleEventChangeset, LifecycleEventQuery}
+  alias Ryker.Publication.{Followup, LifecycleEvent}
   alias Ryker.Repo
 
   # --- entries --------------------------------------------------------------
@@ -46,15 +45,15 @@ defmodule Ryker.Publication.Followups.Store do
   @spec lock_followup(Ecto.UUID.t()) :: Followup.t()
   def lock_followup(publication_id) do
     publication_id
-    |> FollowupQuery.by_publication_id()
-    |> FollowupQuery.lock_for_update()
+    |> Followup.Query.by_publication_id()
+    |> Followup.Query.lock_for_update()
     |> Repo.one!()
   end
 
   @spec update_followup!(Followup.t(), map(), DateTime.t()) :: Followup.t()
   def update_followup!(followup, attributes, now) do
     followup
-    |> FollowupChangeset.update(Map.put(attributes, :updated_at, now))
+    |> Followup.Changeset.update(Map.put(attributes, :updated_at, now))
     |> Repo.update!()
     |> tap(&Custody.broadcast_publication_updated(&1.publication_id))
   end
@@ -64,15 +63,15 @@ defmodule Ryker.Publication.Followups.Store do
   @spec lock_lifecycle_event(String.t()) :: LifecycleEvent.t() | nil
   def lock_lifecycle_event(event_ref) do
     event_ref
-    |> LifecycleEventQuery.by_ref()
-    |> LifecycleEventQuery.lock_for_update()
+    |> LifecycleEvent.Query.by_ref()
+    |> LifecycleEvent.Query.lock_for_update()
     |> Repo.one()
   end
 
   @spec update_event!(LifecycleEvent.t(), map(), DateTime.t()) :: LifecycleEvent.t()
   def update_event!(event, attributes, now) do
     event
-    |> LifecycleEventChangeset.update(Map.put(attributes, :updated_at, now))
+    |> LifecycleEvent.Changeset.update(Map.put(attributes, :updated_at, now))
     |> Repo.update!()
     |> tap(&Custody.broadcast_publication_updated(&1.publication_id))
   end
@@ -118,7 +117,7 @@ defmodule Ryker.Publication.Followups.Store do
   @spec insert_lifecycle_event(map()) ::
           {:ok, LifecycleEvent.t()} | {:duplicate, LifecycleEvent.t()}
   def insert_lifecycle_event(attributes) do
-    changeset = LifecycleEventChangeset.insert(attributes)
+    changeset = LifecycleEvent.Changeset.insert(attributes)
 
     if changeset.valid? do
       now = Repo.now!()
@@ -137,7 +136,7 @@ defmodule Ryker.Publication.Followups.Store do
           on_conflict: :nothing
         )
 
-      event = Repo.one!(LifecycleEventQuery.by_ref(attributes.ref))
+      event = Repo.one!(LifecycleEvent.Query.by_ref(attributes.ref))
 
       if count == 1 do
         Custody.broadcast_publication_updated(event.publication_id)

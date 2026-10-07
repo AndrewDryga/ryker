@@ -2,10 +2,10 @@ defmodule Ryker.GitHub.Engagement do
   @moduledoc "Host-owned quiet-default eligibility for authenticated GitHub inputs."
 
   alias Ryker.Behaviors
-  alias Ryker.Episodes.EpisodeQuery
+  alias Ryker.Episodes.Episode
   alias Ryker.GitHub.Binding
   alias Ryker.GitHub.Input, as: GitHubInput
-  alias Ryker.Ingress.Inbox.EntryQuery
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
   alias Ryker.Repo
 
@@ -34,14 +34,14 @@ defmodule Ryker.GitHub.Engagement do
   # episode. This is deliberately limited to the exact source item.
   defp engaged_input?(input) do
     input.source.ref
-    |> EntryQuery.engaged_github_item(input.source_item_ref)
+    |> Entry.Query.engaged_github_item(input.source_item_ref)
     |> Repo.exists?()
   end
 
   defp continuation?(input) do
     "github"
-    |> EpisodeQuery.in_thread(input.destination.conversation_ref, input.destination.thread_ref)
-    |> EpisodeQuery.in_states(@active_states)
+    |> Episode.Query.in_thread(input.destination.conversation_ref, input.destination.thread_ref)
+    |> Episode.Query.in_states(@active_states)
     |> Repo.exists?()
   end
 

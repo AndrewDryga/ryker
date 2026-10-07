@@ -22,9 +22,9 @@ defmodule Ryker.Ingress.Inbox do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Feedback.Messages, as: FeedbackMessages
-  alias Ryker.Ingress.Inbox.{Entry, EntryChangeset, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
-  alias Ryker.Ingress.{InputCustodyTransition, InputCustodyTransitionQuery}
+  alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.Ingress.Projections
   alias Ryker.Ingress.WorkProfile
   alias Ryker.InspectionRedactor
@@ -100,7 +100,7 @@ defmodule Ryker.Ingress.Inbox do
   @spec fetch(String.t()) :: {:ok, Entry.t()} | :error
   def fetch(@ref_prefix <> id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %Entry{} = entry <- Repo.one(EntryQuery.by_id(id)) do
+         %Entry{} = entry <- Repo.one(Entry.Query.by_id(id)) do
       {:ok, entry}
     else
       _other -> :error
@@ -119,7 +119,7 @@ defmodule Ryker.Ingress.Inbox do
   @doc false
   @spec queue_predecessor(Entry.t(), DateTime.t()) :: Entry.t() | nil
   def queue_predecessor(%Entry{status: :pending} = entry, %DateTime{} = now) do
-    entry |> EntryQuery.queue_predecessor(now) |> Repo.one()
+    entry |> Entry.Query.queue_predecessor(now) |> Repo.one()
   end
 
   def queue_predecessor(%Entry{}, %DateTime{}), do: nil
@@ -278,9 +278,9 @@ defmodule Ryker.Ingress.Inbox do
   """
   @spec waiting_for_transcript() :: Entry.t() | nil
   def waiting_for_transcript do
-    EntryQuery.awaiting_transcript()
-    |> EntryQuery.oldest_received_first()
-    |> EntryQuery.limit_to(1)
+    Entry.Query.awaiting_transcript()
+    |> Entry.Query.oldest_received_first()
+    |> Entry.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -344,7 +344,7 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   defp settle_transcripts!(entry, content) do
-    changeset = EntryChangeset.settle_transcripts(entry, content)
+    changeset = Entry.Changeset.settle_transcripts(entry, content)
 
     case Repo.update(changeset) do
       {:ok, settled} ->
@@ -397,7 +397,7 @@ defmodule Ryker.Ingress.Inbox do
       next_attempt_at: nil
     }
 
-    changeset = EntryChangeset.claim(entry, attributes)
+    changeset = Entry.Changeset.claim(entry, attributes)
 
     case Repo.update(changeset) do
       {:ok, claimed} ->
@@ -416,10 +416,10 @@ defmodule Ryker.Ingress.Inbox do
 
   defp claimable(now) do
     now
-    |> EntryQuery.claimable_at()
-    |> EntryQuery.oldest_received_first()
-    |> EntryQuery.limit_to(1)
-    |> EntryQuery.lock_next_free()
+    |> Entry.Query.claimable_at()
+    |> Entry.Query.oldest_received_first()
+    |> Entry.Query.limit_to(1)
+    |> Entry.Query.lock_next_free()
     |> Repo.one()
   end
 
@@ -435,12 +435,13 @@ defmodule Ryker.Ingress.Inbox do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> EntryQuery.next_due_after()
+    |> Entry.Query.next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
 
-  defp lock_entry(id), do: id |> EntryQuery.by_id() |> EntryQuery.lock_for_update() |> Repo.one()
+  defp lock_entry(id),
+    do: id |> Entry.Query.by_id() |> Entry.Query.lock_for_update() |> Repo.one()
 
   defp renew_locked(id, lease_ref, now, lease_seconds) do
     case lock_entry(id) do
@@ -451,7 +452,7 @@ defmodule Ryker.Ingress.Inbox do
         requested_expiry = DateTime.add(now, lease_seconds, :second)
         lease_expires_at = later_datetime(entry.lease_expires_at, requested_expiry)
 
-        changeset = EntryChangeset.renew(entry, lease_expires_at)
+        changeset = Entry.Changeset.renew(entry, lease_expires_at)
 
         case Repo.update(changeset) do
           {:ok, renewed} ->
@@ -498,7 +499,7 @@ defmodule Ryker.Ingress.Inbox do
           }
           |> maybe_clear_context(generation)
 
-        changeset = EntryChangeset.defer(entry, attributes)
+        changeset = Entry.Changeset.defer(entry, attributes)
 
         case Repo.update(changeset) do
           {:ok, deferred} ->
@@ -545,7 +546,7 @@ defmodule Ryker.Ingress.Inbox do
         Repo.rollback({:admission_context_failed, :input_not_found})
 
       %Entry{status: :pending, lease_ref: ^lease_ref, admission_context: nil} = entry ->
-        changeset = EntryChangeset.bind_context(entry, context, fingerprint)
+        changeset = Entry.Changeset.bind_context(entry, context, fingerprint)
 
         case Repo.update(changeset) do
           {:ok, bound} ->
@@ -603,7 +604,7 @@ defmodule Ryker.Ingress.Inbox do
           }
           |> maybe_clear_context(generation)
 
-        changeset = EntryChangeset.block(entry, attributes)
+        changeset = Entry.Changeset.block(entry, attributes)
 
         case Repo.update(changeset) do
           {:ok, blocked} ->
@@ -630,7 +631,7 @@ defmodule Ryker.Ingress.Inbox do
         Repo.rollback({:ingress_rearm_failed, :input_not_found})
 
       %Entry{status: :blocked} = entry ->
-        changeset = EntryChangeset.rearm(entry)
+        changeset = Entry.Changeset.rearm(entry)
 
         case Repo.update(changeset) do
           {:ok, rearmed} ->
@@ -731,7 +732,7 @@ defmodule Ryker.Ingress.Inbox do
   defp admit(input, entry, settings), do: reconcile_record(input, entry, settings)
 
   defp same_revision(input) do
-    input |> EntryQuery.same_revision() |> EntryQuery.lock_for_update() |> Repo.one()
+    input |> Entry.Query.same_revision() |> Entry.Query.lock_for_update() |> Repo.one()
   end
 
   defp reconcile_record(input, nil, %{revision_ties: :exact} = settings),
@@ -770,9 +771,9 @@ defmodule Ryker.Ingress.Inbox do
 
     latest =
       input
-      |> EntryQuery.revisions_of()
-      |> EntryQuery.revision_between(base, maximum)
-      |> EntryQuery.select_latest_revision()
+      |> Entry.Query.revisions_of()
+      |> Entry.Query.revision_between(base, maximum)
+      |> Entry.Query.select_latest_revision()
       |> Repo.one()
 
     cond do
@@ -784,7 +785,7 @@ defmodule Ryker.Ingress.Inbox do
 
   defp allocate_unbounded_source_revision(input) do
     latest =
-      input |> EntryQuery.revisions_of() |> EntryQuery.select_latest_revision() |> Repo.one()
+      input |> Entry.Query.revisions_of() |> Entry.Query.select_latest_revision() |> Repo.one()
 
     cond do
       is_nil(latest) -> {:ok, input}
@@ -829,7 +830,7 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   defp load(dedupe_key) do
-    dedupe_key |> EntryQuery.by_dedupe_key() |> EntryQuery.lock_for_update() |> Repo.one()
+    dedupe_key |> Entry.Query.by_dedupe_key() |> Entry.Query.lock_for_update() |> Repo.one()
   end
 
   defp reconcile(input, nil, settings) do
@@ -838,7 +839,7 @@ defmodule Ryker.Ingress.Inbox do
     now = Repo.now!()
 
     input
-    |> EntryChangeset.insert(
+    |> Entry.Changeset.insert(
       Ecto.UUID.generate(),
       settings.execution_mode,
       settings.work_profile,
@@ -905,8 +906,8 @@ defmodule Ryker.Ingress.Inbox do
   defp append_transition!(entry, kind, attributes \\ []) do
     sequence =
       entry.id
-      |> InputCustodyTransitionQuery.by_input_id()
-      |> InputCustodyTransitionQuery.select_last_sequence()
+      |> InputCustodyTransition.Query.by_input_id()
+      |> InputCustodyTransition.Query.select_last_sequence()
       |> Repo.one()
       |> Kernel.+(1)
 
@@ -1120,7 +1121,7 @@ defmodule Ryker.Ingress.Inbox do
   def broadcast_input_updated(input_id) when is_binary(input_id) do
     Repo.after_commit(fn ->
       fields =
-        input_id |> EntryQuery.by_id() |> EntryQuery.select_broadcast_fields() |> Repo.one()
+        input_id |> Entry.Query.by_id() |> Entry.Query.select_broadcast_fields() |> Repo.one()
 
       case fields do
         %Entry{} = entry -> broadcast_input_updated(entry)

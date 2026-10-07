@@ -11,7 +11,7 @@ defmodule Ryker.Observability.Reads do
   projection never mixes the VM's clock with PostgreSQL's.
   """
 
-  alias Ryker.Observability.ProjectionQuery
+  alias Ryker.Observability.Projection
   alias Ryker.Repo
 
   @type failure ::
@@ -42,7 +42,8 @@ defmodule Ryker.Observability.Reads do
   @spec counts(Ecto.Queryable.t(), atom()) ::
           {:ok, %{optional(term()) => pos_integer()}} | {:error, failure()}
   def counts(queryable, field) do
-    with {:ok, rows} <- all(ProjectionQuery.counts_by(queryable, field)), do: {:ok, Map.new(rows)}
+    with {:ok, rows} <- all(Projection.Query.counts_by(queryable, field)),
+         do: {:ok, Map.new(rows)}
   end
 
   @doc """

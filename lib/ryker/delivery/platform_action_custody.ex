@@ -18,12 +18,12 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.{PlatformAction, PlatformActionChangeset, PlatformActionQuery, Request}
-  alias Ryker.Episodes.{Episode, EpisodeQuery, Event, EventQuery}
+  alias Ryker.Delivery.{PlatformAction, Request}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{DeliveryReceipt, Turn, TurnQuery}
+  alias Ryker.Work.{DeliveryReceipt, Turn}
 
   @fields [
     :conversation_ref,
@@ -131,7 +131,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> PlatformActionQuery.next_due_after()
+    |> PlatformAction.Query.next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -174,7 +174,11 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   def delivered_reaction_added?(episode_id, conversation_ref, source_item_ref, emoji_name) do
     latest =
       episode_id
-      |> PlatformActionQuery.latest_reaction_action(conversation_ref, source_item_ref, emoji_name)
+      |> PlatformAction.Query.latest_reaction_action(
+        conversation_ref,
+        source_item_ref,
+        emoji_name
+      )
       |> Repo.one()
 
     latest == "add"
@@ -189,7 +193,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       mutate_claim(action_ref, lease_ref, fn action, now ->
         requested = DateTime.add(now, lease_seconds, :second)
         expiry = later_datetime(action.lease_expires_at, requested)
-        action |> PlatformActionChangeset.renew(expiry) |> write!(:renew)
+        action |> PlatformAction.Changeset.renew(expiry) |> write!(:renew)
       end)
     end
   end
@@ -204,7 +208,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
          :ok <- bounded(error_detail, 4_096, :error_detail) do
       mutate_claim(action_ref, lease_ref, fn action, now ->
         action
-        |> PlatformActionChangeset.defer(
+        |> PlatformAction.Changeset.defer(
           DateTime.add(now, retry_seconds, :second),
           error_code,
           error_detail
@@ -222,7 +226,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
          :ok <- bounded(error_code, 128, :error_code),
          :ok <- bounded(error_detail, 4_096, :error_detail) do
       mutate_claim(action_ref, lease_ref, fn action, _now ->
-        action |> PlatformActionChangeset.block(error_code, error_detail) |> write!(:block)
+        action |> PlatformAction.Changeset.block(error_code, error_detail) |> write!(:block)
       end)
     end
   end
@@ -237,7 +241,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp retry_locked(action_ref) do
     case lock_action(action_ref) do
       %PlatformAction{status: :blocked} = action ->
-        action |> PlatformActionChangeset.retry() |> write!(:retry)
+        action |> PlatformAction.Changeset.retry() |> write!(:retry)
 
       %PlatformAction{status: :pending} = action ->
         action
@@ -265,9 +269,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   @spec validation_records(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: map()
   def validation_records(episode_id, turn_id \\ nil) do
     query =
-      episode_id |> PlatformActionQuery.by_episode_id() |> PlatformActionQuery.oldest_first()
+      episode_id |> PlatformAction.Query.by_episode_id() |> PlatformAction.Query.oldest_first()
 
-    query = if turn_id, do: PlatformActionQuery.by_turn_id(query, turn_id), else: query
+    query = if turn_id, do: PlatformAction.Query.by_turn_id(query, turn_id), else: query
 
     actions = Repo.all(query)
     current_human_inputs = current_human_inputs(episode_id)
@@ -294,7 +298,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp platform_action_operation(%PlatformAction{}), do: nil
 
   defp current_human_inputs(episode_id) do
-    case Repo.one(EpisodeQuery.by_id(episode_id)) do
+    case Repo.one(Episode.Query.by_id(episode_id)) do
       %Episode{active_input_refs: active_input_refs} ->
         episode_id
         |> active_input_events(active_input_refs)
@@ -315,9 +319,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp active_input_events(episode_id, active_input_refs) do
     episode_id
-    |> EventQuery.by_episode_id()
-    |> EventQuery.admitted_inputs(Enum.uniq(active_input_refs))
-    |> EventQuery.oldest_first()
+    |> Event.Query.by_episode_id()
+    |> Event.Query.admitted_inputs(Enum.uniq(active_input_refs))
+    |> Event.Query.oldest_first()
     |> Repo.all()
   end
 
@@ -363,9 +367,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp next_in_turn(episode, turn, attributes) do
     earlier =
       turn.id
-      |> PlatformActionQuery.by_turn_id()
-      |> PlatformActionQuery.by_tool(attributes.tool)
-      |> PlatformActionQuery.in_slot_order()
+      |> PlatformAction.Query.by_turn_id()
+      |> PlatformAction.Query.by_tool(attributes.tool)
+      |> PlatformAction.Query.in_slot_order()
       |> Repo.all()
 
     case repeated(earlier, attributes) do
@@ -406,13 +410,13 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp lock_binding(binding) do
     episode =
-      binding.episode.id |> EpisodeQuery.by_id() |> EpisodeQuery.lock_for_update() |> Repo.one()
+      binding.episode.id |> Episode.Query.by_id() |> Episode.Query.lock_for_update() |> Repo.one()
 
     turn =
       binding.turn.id
-      |> TurnQuery.by_id()
-      |> TurnQuery.by_episode_id(binding.episode.id)
-      |> TurnQuery.lock_for_update()
+      |> Turn.Query.by_id()
+      |> Turn.Query.by_episode_id(binding.episode.id)
+      |> Turn.Query.lock_for_update()
       |> Repo.one()
 
     {episode, turn}
@@ -421,7 +425,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp enqueue_for_ids(episode_id, turn_id, attributes, request) do
     fingerprint = CanonicalJSON.digest(request)
 
-    case Repo.one(PlatformActionQuery.by_turn_slot(turn_id, attributes.host_slot)) do
+    case Repo.one(PlatformAction.Query.by_turn_slot(turn_id, attributes.host_slot)) do
       %PlatformAction{intent_fingerprint: ^fingerprint} = action ->
         %{action: action, status: :duplicate}
 
@@ -456,7 +460,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     }
 
     values
-    |> PlatformActionChangeset.insert()
+    |> PlatformAction.Changeset.insert()
     |> Repo.insert()
     |> unwrap_or_rollback(:insert)
   end
@@ -464,7 +468,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp claim_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    case Repo.one(PlatformActionQuery.next_claimable(now, @numbered_tools)) do
+    case Repo.one(PlatformAction.Query.next_claimable(now, @numbered_tools)) do
       nil ->
         nil
 
@@ -473,7 +477,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
         action =
           action
-          |> PlatformActionChangeset.claim(now, lease_seconds, worker_ref, lease_ref)
+          |> PlatformAction.Changeset.claim(now, lease_seconds, worker_ref, lease_ref)
           |> write!(:claim)
 
         %{action: action, lease_ref: lease_ref}
@@ -505,7 +509,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
         with :ok <- current_lease(action, lease_ref, now),
              :ok <- exact_receipt(action, receipt) do
           action
-          |> PlatformActionChangeset.confirm(now, receipt, fingerprint)
+          |> PlatformAction.Changeset.confirm(now, receipt, fingerprint)
           |> write!(:confirm)
         else
           {:error, reason} -> Repo.rollback(reason)
@@ -534,8 +538,8 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp lock_action(action_ref) do
     action_ref
-    |> PlatformActionQuery.by_action_ref()
-    |> PlatformActionQuery.lock_for_update()
+    |> PlatformAction.Query.by_action_ref()
+    |> PlatformAction.Query.lock_for_update()
     |> Repo.one()
   end
 

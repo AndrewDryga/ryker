@@ -12,7 +12,6 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
   import Ecto.Query
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
-  alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.Episodes
@@ -319,7 +318,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
         status: Keyword.get(options, :status, :active),
         workspace_ref: @workspace
       }
-      |> BehaviorChangeset.insert()
+      |> Behavior.Changeset.insert()
       |> Repo.insert()
 
     %Behavior{} = behavior

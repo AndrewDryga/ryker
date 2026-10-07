@@ -10,11 +10,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Bodies, CommandQuery, JobAuthority, Placement, PlacementChangeset}
+  alias Ryker.CoopFleet.{Bodies, Command, JobAuthority, Placement}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Shared}
-  alias Ryker.CoopFleet.{PlacementQuery, Worker, WorkerQuery, WorkspaceCheckpointTransferQuery}
+  alias Ryker.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Repo
-  alias Ryker.Work.{RepositorySource, Session, SessionQuery, TurnQuery}
+  alias Ryker.Work.{RepositorySource, Session, Turn}
 
   @creating_seconds 300
   @cleanup_phases [:close_pending, :plan_pending, :discard_pending]
@@ -57,7 +57,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       {:ok, prepared} ->
         now = Repo.now!()
 
-        WorkerQuery.all()
+        Worker.Query.all()
         |> Repo.all()
         |> Enum.any?(fn worker ->
           worker_current?(worker, prepared.workspace_ref, now) and
@@ -88,7 +88,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
     with %Placement{} = placement <- active_placement(session_id),
          true <- current?(placement, now),
-         %Worker{} = worker <- Repo.one(WorkerQuery.by_id(placement.worker_id)),
+         %Worker{} = worker <- Repo.one(Worker.Query.by_id(placement.worker_id)),
          true <- worker_current?(worker, placement.requirements["workspace_ref"], now),
          true <- every_slot_free?(worker),
          false <- session_being_created?(worker.id, now) do
@@ -99,7 +99,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   end
 
   defp active_placement(session_id),
-    do: session_id |> PlacementQuery.by_session_id() |> PlacementQuery.active() |> Repo.one()
+    do: session_id |> Placement.Query.by_session_id() |> Placement.Query.active() |> Repo.one()
 
   defp every_slot_free?(worker) do
     worker.capacity["state"] == "eligible" and
@@ -115,7 +115,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # stop every prepare on its worker.
   defp session_being_created?(worker_id, now) do
     since = DateTime.add(now, -@creating_seconds, :second)
-    Repo.exists?(PlacementQuery.unbound_since(worker_id, since))
+    Repo.exists?(Placement.Query.unbound_since(worker_id, since))
   end
 
   # A command waits only while the worker can still act on it: one the next poll
@@ -125,7 +125,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # again (2026-10-04 review).
   defp commands_waiting?(worker_id, now) do
     prepare_cutoff = DateTime.add(now, -Commands.prepare_redelivery_seconds(), :second)
-    Repo.exists?(CommandQuery.waiting_on(worker_id, now, prepare_cutoff))
+    Repo.exists?(Command.Query.waiting_on(worker_id, now, prepare_cutoff))
   end
 
   @doc """
@@ -154,7 +154,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   defp portable_checkpoint(%Session{} = session, root) do
     session
-    |> WorkspaceCheckpointTransferQuery.latest_portable()
+    |> WorkspaceCheckpointTransfer.Query.latest_portable()
     |> Repo.one()
     |> checkpoint_offer(session.repository_source, root)
   end
@@ -181,7 +181,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     lock_holding_workers(session_id)
 
     session =
-      session_id |> SessionQuery.by_id() |> SessionQuery.lock_for_no_key_update() |> Repo.one() ||
+      session_id |> Session.Query.by_id() |> Session.Query.lock_for_no_key_update() |> Repo.one() ||
         Shared.rollback({:coop_session_not_found, session_id})
 
     validate_job_for_placement!(session)
@@ -286,7 +286,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     else
       replaced =
         placement
-        |> PlacementChangeset.replace()
+        |> Placement.Changeset.replace()
         |> Repo.update!()
 
       Commands.fail_undelivered_commands(replaced, now)
@@ -319,14 +319,14 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       state: :active,
       worker_id: worker.id
     }
-    |> PlacementChangeset.insert(now)
+    |> Placement.Changeset.insert(now)
     |> Repo.insert()
     |> Shared.unwrap_write()
   end
 
   defp cancelling_bound_session?(%Session{id: session_id, coop_session_id: remote_id})
        when is_binary(remote_id) do
-    session_id |> TurnQuery.by_session_id() |> TurnQuery.cancelling() |> Repo.exists?()
+    session_id |> Turn.Query.by_session_id() |> Turn.Query.cancelling() |> Repo.exists?()
   end
 
   defp cancelling_bound_session?(_session), do: false
@@ -410,11 +410,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # :expired_current_placements. Retire it on the same poll that observed it.
   defp retire_expired_placements(worker, now) do
     worker.id
-    |> PlacementQuery.expired_inactive(now)
-    |> PlacementQuery.lock_for_update()
+    |> Placement.Query.expired_inactive(now)
+    |> Placement.Query.lock_for_update()
     |> Repo.all()
     |> Enum.each(fn placement ->
-      retired = placement |> PlacementChangeset.replace() |> Repo.update!()
+      retired = placement |> Placement.Changeset.replace() |> Repo.update!()
       Commands.fail_undelivered_commands(retired, now)
     end)
   end
@@ -431,12 +431,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     lock_holding_workers(session_id)
 
     session_id
-    |> PlacementQuery.by_session_id()
-    |> PlacementQuery.current()
-    |> PlacementQuery.lock_for_update()
+    |> Placement.Query.by_session_id()
+    |> Placement.Query.current()
+    |> Placement.Query.lock_for_update()
     |> Repo.all()
     |> Enum.each(fn placement ->
-      retired = placement |> PlacementChangeset.retire() |> Repo.update!()
+      retired = placement |> Placement.Changeset.retire() |> Repo.update!()
       Commands.fail_undelivered_commands(retired, now)
     end)
   end
@@ -457,17 +457,17 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   def retire_abandoned_placements(now, up_since) do
     cutoff = DateTime.add(now, -@abandoned_seconds, :second)
     judge_vanished? = DateTime.compare(up_since, cutoff) != :gt
-    query = PlacementQuery.abandoned(cutoff, judge_vanished?)
-    workers = query |> PlacementQuery.select_worker_ids() |> Repo.all()
+    query = Placement.Query.abandoned(cutoff, judge_vanished?)
+    workers = query |> Placement.Query.select_worker_ids() |> Repo.all()
 
     Repo.transaction(fn ->
       Enum.each(Enum.sort(workers), &Shared.locked_worker/1)
 
       query
-      |> PlacementQuery.lock_for_update()
+      |> Placement.Query.lock_for_update()
       |> Repo.all()
       |> Enum.map(fn placement ->
-        retired = placement |> PlacementChangeset.replace() |> Repo.update!()
+        retired = placement |> Placement.Changeset.replace() |> Repo.update!()
         Commands.fail_undelivered_commands(retired, now)
       end)
       |> length()
@@ -481,9 +481,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
     placements =
       worker.id
-      |> PlacementQuery.by_worker_id()
-      |> PlacementQuery.active()
-      |> PlacementQuery.lock_for_update()
+      |> Placement.Query.by_worker_id()
+      |> Placement.Query.active()
+      |> Placement.Query.lock_for_update()
       |> Repo.all()
 
     # A lease that ran out with nothing placed in its stead is the worker's
@@ -494,8 +494,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     Enum.each(placements, fn placement ->
       changeset =
         if placement_authority_current?(placement.requirements, worker),
-          do: PlacementChangeset.renew(placement, expires_at),
-          else: PlacementChangeset.revoke(placement)
+          do: Placement.Changeset.renew(placement, expires_at),
+          else: Placement.Changeset.revoke(placement)
 
       Repo.update!(changeset)
     end)
@@ -570,8 +570,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # while it runs, and skipping it left a task that arrived mid-poll with no
   # worker at all, stopped for a person (2026-10-04 review).
   defp worker_candidate(requirements, cutoff, excluded_ids) do
-    query = WorkerQuery.placement_candidate(requirements, cutoff, excluded_ids)
-    Repo.one(WorkerQuery.lock_next_free(query)) || Repo.one(WorkerQuery.lock_for_update(query))
+    query = Worker.Query.placement_candidate(requirements, cutoff, excluded_ids)
+    Repo.one(Worker.Query.lock_next_free(query)) || Repo.one(Worker.Query.lock_for_update(query))
   end
 
   defp worker_has_capacity?(worker, now) do
@@ -595,8 +595,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     since = DateTime.add(now, -@creating_seconds, :second)
 
     worker_id
-    |> PlacementQuery.unbound_since(since)
-    |> PlacementQuery.without_closed_session()
+    |> Placement.Query.unbound_since(since)
+    |> Placement.Query.without_closed_session()
     |> Repo.aggregate(:count)
   end
 
@@ -649,8 +649,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   defp next_placement_generation(session_id) do
     generation =
       session_id
-      |> PlacementQuery.by_session_id()
-      |> PlacementQuery.select_max_generation()
+      |> Placement.Query.by_session_id()
+      |> Placement.Query.select_max_generation()
       |> Repo.one()
 
     generation + 1
@@ -663,26 +663,26 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # placements first, in one order, as the poll does.
   defp lock_holding_workers(session_id) do
     session_id
-    |> PlacementQuery.by_session_id()
-    |> PlacementQuery.select_worker_ids()
+    |> Placement.Query.by_session_id()
+    |> Placement.Query.select_worker_ids()
     |> Repo.all()
     |> Enum.each(&Shared.locked_worker/1)
   end
 
   defp current_placement(session_id) do
     session_id
-    |> PlacementQuery.by_session_id()
-    |> PlacementQuery.current()
-    |> PlacementQuery.lock_for_update()
+    |> Placement.Query.by_session_id()
+    |> Placement.Query.current()
+    |> Placement.Query.lock_for_update()
     |> Repo.one()
   end
 
   defp latest_placement(session_id) do
     session_id
-    |> PlacementQuery.by_session_id()
-    |> PlacementQuery.latest_generation_first()
-    |> PlacementQuery.limit_to(1)
-    |> PlacementQuery.lock_for_update()
+    |> Placement.Query.by_session_id()
+    |> Placement.Query.latest_generation_first()
+    |> Placement.Query.limit_to(1)
+    |> Placement.Query.lock_for_update()
     |> Repo.one()
   end
 

@@ -11,12 +11,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
 
   require Logger
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Command, CommandQuery}
+  alias Ryker.CoopFleet.Command
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
-  alias Ryker.CoopFleet.{EventChangeset, EventQuery}
-  alias Ryker.CoopFleet.{Placement, PlacementChangeset, PlacementQuery}
+  alias Ryker.CoopFleet.Event
+  alias Ryker.CoopFleet.Placement
   alias Ryker.Repo
-  alias Ryker.Work.{Activity, Session, SessionQuery}
+  alias Ryker.Work.{Activity, Session}
 
   # Each batch in a transaction of its own, which locks the worker first, as
   # each command result does. A refused batch is left unacknowledged, so the
@@ -90,8 +90,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
 
   defp placement_for_batch(worker_id, batch) do
     worker_id
-    |> PlacementQuery.of_worker_session(batch["session_ref"], batch["placement_generation"])
-    |> PlacementQuery.lock_for_update()
+    |> Placement.Query.of_worker_session(batch["session_ref"], batch["placement_generation"])
+    |> Placement.Query.lock_for_update()
     |> Repo.one() || Shared.rollback({:coop_session_placement_not_found, batch["session_ref"]})
   end
 
@@ -177,7 +177,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
 
   defp advance_event_cursor(placement, _cursor, last_sequence, session_events?) do
     placement
-    |> PlacementChangeset.acknowledge_events(session_events?, last_sequence)
+    |> Placement.Changeset.acknowledge_events(session_events?, last_sequence)
     |> Repo.update!()
   end
 
@@ -208,7 +208,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   defp ingest_bound_session_events!(placement, remote_id, values, cursor) do
     expected_cursor = List.last(values)["sequence"]
 
-    case Repo.one(SessionQuery.by_id(placement.session_id)) do
+    case Repo.one(Session.Query.by_id(placement.session_id)) do
       %Session{coop_session_id: nil} = session ->
         if prebinding_session_events?(placement, session, values, cursor),
           do: :ok,
@@ -262,12 +262,12 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
        when is_binary(remote_id) and is_binary(offer_ref) do
     command =
       placement.session_id
-      |> CommandQuery.by_session_id()
-      |> CommandQuery.of_placement_generation(placement.generation)
-      |> CommandQuery.of_kind("ensure_workspace")
-      |> CommandQuery.succeeded_2xx()
-      |> CommandQuery.latest_completed_first()
-      |> CommandQuery.limit_to(1)
+      |> Command.Query.by_session_id()
+      |> Command.Query.of_placement_generation(placement.generation)
+      |> Command.Query.of_kind("ensure_workspace")
+      |> Command.Query.succeeded_2xx()
+      |> Command.Query.latest_completed_first()
+      |> Command.Query.limit_to(1)
       |> Repo.one()
 
     Map.get(event, "turn_id") in [nil, ""] and
@@ -302,14 +302,14 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
     Map.get(event, "turn_id") in [nil, ""] and
       match?(
         %Session{coop_session_id: ^remote_id},
-        Repo.one(SessionQuery.by_id(placement.session_id))
+        Repo.one(Session.Query.by_id(placement.session_id))
       )
   end
 
   defp terminal_workspace_discard?(_placement, _events), do: false
 
   defp bound_session_activity?(placement, [_event | _rest] = events) do
-    case Repo.one(SessionQuery.by_id(placement.session_id)) do
+    case Repo.one(Session.Query.by_id(placement.session_id)) do
       %Session{coop_session_id: remote_id} when is_binary(remote_id) ->
         Enum.all?(events, fn
           %{"kind" => "session_event", "payload" => %{"session_id" => ^remote_id}} -> true
@@ -330,7 +330,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
         _other -> nil
       end)
 
-    case Repo.one(SessionQuery.by_id(placement.session_id)) do
+    case Repo.one(Session.Query.by_id(placement.session_id)) do
       %Session{coop_session_id: nil} = session ->
         Enum.all?(values, &is_map/1) and
           prebinding_session_events?(placement, session, values, cursor)
@@ -355,7 +355,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
       session_id: placement.session_id,
       worker_id: placement.worker_id
     }
-    |> EventChangeset.insert()
+    |> Event.Changeset.insert()
     |> Repo.insert()
     |> Shared.unwrap_write()
   end
@@ -370,10 +370,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   end
 
   defp replayed_event(placement_id, %{"kind" => "session_event", "sequence" => sequence}),
-    do: Repo.one(EventQuery.stored(placement_id, sequence, true))
+    do: Repo.one(Event.Query.stored(placement_id, sequence, true))
 
   defp replayed_event(placement_id, %{"sequence" => sequence}),
-    do: Repo.one(EventQuery.stored(placement_id, sequence, false))
+    do: Repo.one(Event.Query.stored(placement_id, sequence, false))
 
   defp event_fingerprint(event) do
     CanonicalJSON.digest(%{"kind" => event["kind"], "payload" => event["payload"]})

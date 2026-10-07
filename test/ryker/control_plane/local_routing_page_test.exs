@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.LocalRoutingPageTest do
   alias Ryker.ControlPlane.{LocalRoutingPage, Pages, Projection, UsagePage, UsageProjection}
   alias Ryker.Fixtures.LocalRouting, as: Harvested
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.EntryChangeset
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.Observations
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.Comparison
@@ -376,7 +376,7 @@ defmodule Ryker.ControlPlane.LocalRoutingPageTest do
     {:ok, decision} = provider_answer |> Jason.decode!() |> Decision.parse()
 
     entry
-    |> EntryChangeset.decide(decision, "coop-admission:#{event_ref}", nil)
+    |> Entry.Changeset.decide(decision, "coop-admission:#{event_ref}", nil)
     |> Repo.update!()
   end
 

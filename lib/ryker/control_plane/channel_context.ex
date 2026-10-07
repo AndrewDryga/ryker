@@ -9,9 +9,9 @@ defmodule Ryker.ControlPlane.ChannelContext do
   """
 
   alias Ryker.Config
-  alias Ryker.ControlPlane.{BehaviorLibrary, BehaviorPage, ChannelContextQuery, ChannelScope}
-  alias Ryker.ControlPlane.{ConversationMemory, LearningActivityQuery, PagedRelation}
-  alias Ryker.Learning.BatchQuery
+  alias Ryker.ControlPlane.{BehaviorLibrary, BehaviorPage, ChannelContext, ChannelScope}
+  alias Ryker.ControlPlane.{ConversationMemory, LearningActivity, PagedRelation}
+  alias Ryker.Learning.Batch
   alias Ryker.Repo
 
   @doc """
@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
   def rules(scope, params) do
     relation =
       scope
-      |> ChannelContextQuery.rules()
+      |> ChannelContext.Query.rules()
       |> read("rule_page", [desc: :updated_at, desc: :id], params)
 
     items =
@@ -52,8 +52,8 @@ defmodule Ryker.ControlPlane.ChannelContext do
   def preferences(scope, params) do
     relation =
       :preference
-      |> ChannelContextQuery.effective_behaviors(scope)
-      |> read("preference_page", ChannelContextQuery.inherited_order(), params)
+      |> ChannelContext.Query.effective_behaviors(scope)
+      |> read("preference_page", ChannelContext.Query.inherited_order(), params)
 
     items =
       Enum.map(relation.items, fn behavior ->
@@ -82,8 +82,8 @@ defmodule Ryker.ControlPlane.ChannelContext do
   def guidance(scope, params) do
     relation =
       scope
-      |> ChannelContextQuery.recalled_guidance()
-      |> read("guidance_page", ChannelContextQuery.inherited_order(), params)
+      |> ChannelContext.Query.recalled_guidance()
+      |> read("guidance_page", ChannelContext.Query.inherited_order(), params)
 
     items =
       Enum.map(relation.items, fn behavior ->
@@ -112,8 +112,8 @@ defmodule Ryker.ControlPlane.ChannelContext do
   def memory(scope, params) do
     relation =
       scope
-      |> ChannelContextQuery.memory()
-      |> read("memory_page", ChannelContextQuery.inherited_order(), params)
+      |> ChannelContext.Query.memory()
+      |> read("memory_page", ChannelContext.Query.inherited_order(), params)
 
     items =
       Enum.map(relation.items, fn entry ->
@@ -167,7 +167,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
   def summaries(scope, params) do
     relation =
       scope
-      |> ChannelContextQuery.summaries()
+      |> ChannelContext.Query.summaries()
       |> read("summary_page", [desc: :updated_at, desc: :id], params)
 
     items =
@@ -206,8 +206,8 @@ defmodule Ryker.ControlPlane.ChannelContext do
         }
   def continuity(scope) do
     %{
-      drafts: Repo.aggregate(ChannelContextQuery.summary_drafts(scope), :count),
-      handover_failures: Repo.aggregate(ChannelContextQuery.failed_handovers(scope), :count)
+      drafts: Repo.aggregate(ChannelContext.Query.summary_drafts(scope), :count),
+      handover_failures: Repo.aggregate(ChannelContext.Query.failed_handovers(scope), :count)
     }
   end
 
@@ -216,7 +216,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
   def knowledge(scope, params) do
     relation =
       scope
-      |> ChannelContextQuery.knowledge()
+      |> ChannelContext.Query.knowledge()
       |> read("knowledge_page", [desc: :updated_at, desc: :id], params)
 
     available = ConversationMemory.available_ids(relation.items)
@@ -255,8 +255,8 @@ defmodule Ryker.ControlPlane.ChannelContext do
   def learning_status(scope) do
     needs_attention =
       "slack"
-      |> BatchQuery.in_conversation(scope.conversation_ref)
-      |> BatchQuery.with_statuses([:deferred])
+      |> Batch.Query.in_conversation(scope.conversation_ref)
+      |> Batch.Query.with_statuses([:deferred])
       |> Repo.aggregate(:count)
 
     %{
@@ -269,10 +269,10 @@ defmodule Ryker.ControlPlane.ChannelContext do
   # Retained messages from this conversation that no settled batch has learned
   # from yet: not yet grouped, or grouped into a batch still in progress.
   defp waiting_inputs(scope) do
-    [LearningActivityQuery.unassigned_messages(), LearningActivityQuery.assigned_messages()]
+    [LearningActivity.Query.unassigned_messages(), LearningActivity.Query.assigned_messages()]
     |> Enum.map(fn query ->
       query
-      |> LearningActivityQuery.sent_to("slack", scope.conversation_ref)
+      |> LearningActivity.Query.sent_to("slack", scope.conversation_ref)
       |> Repo.aggregate(:count)
     end)
     |> Enum.sum()

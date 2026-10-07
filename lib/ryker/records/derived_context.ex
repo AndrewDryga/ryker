@@ -1,13 +1,13 @@
 defmodule Ryker.Records.DerivedContext do
   @moduledoc "Source custody for model-facing episode records and historical answers."
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Episodes.{Episode, EpisodeQuery, Event, EventQuery}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Records.Outcomes
-  alias Ryker.Records.{Record, RecordQuery}
-  alias Ryker.Work.{SessionQuery, Turn, TurnQuery}
+  alias Ryker.Records.Record
+  alias Ryker.Work.{Session, Turn}
 
   @kinds ~w(episode_record episode_delivery episode_outcome)
   @stale {:error, :work_knowledge_context_stale}
@@ -115,9 +115,9 @@ defmodule Ryker.Records.DerivedContext do
       |> Enum.flat_map(fn {_, proof} -> if proof, do: proof.turn_ids, else: [] end)
       |> Enum.uniq()
 
-    owners = ids |> TurnQuery.by_ids() |> TurnQuery.select_sessions() |> Repo.all()
+    owners = ids |> Turn.Query.by_ids() |> Turn.Query.select_sessions() |> Repo.all()
     session_ids = owners |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
-    sessions = session_ids |> SessionQuery.by_ids() |> Repo.all()
+    sessions = session_ids |> Session.Query.by_ids() |> Repo.all()
 
     contexts =
       Map.new(sessions, fn session ->
@@ -160,7 +160,7 @@ defmodule Ryker.Records.DerivedContext do
   defp valid_sources?(_, _, _), do: false
 
   defp proof(%{"kind" => "episode_record", "document" => document}, destination) do
-    with %Record{} = record <- Repo.one(RecordQuery.by_ref(document["ref"])),
+    with %Record{} = record <- Repo.one(Record.Query.by_ref(document["ref"])),
          true <- record.episode_id == destination.id,
          true <- record_projection?(document, record) do
       %{turn_ids: [record.turn_id], sources: []}
@@ -171,7 +171,7 @@ defmodule Ryker.Records.DerivedContext do
 
   defp proof(%{"kind" => "episode_delivery", "document" => document}, destination) do
     with %Turn{operational_pruned_at: nil} = turn <-
-           get_uuid(&TurnQuery.by_id/1, document["source_turn_ref"]),
+           get_uuid(&Turn.Query.by_id/1, document["source_turn_ref"]),
          true <- turn.episode_id == destination.id,
          true <- not is_nil(turn.result_ref),
          true <- document == delivery_document(turn) do
@@ -182,14 +182,14 @@ defmodule Ryker.Records.DerivedContext do
   end
 
   defp proof(%{"kind" => "episode_outcome", "document" => document}, destination) do
-    with %Episode{} = episode <- get_uuid(&EpisodeQuery.by_id/1, document["episode_ref"]),
+    with %Episode{} = episode <- get_uuid(&Episode.Query.by_id/1, document["episode_ref"]),
          true <- same_conversation?(episode, destination),
          %Turn{episode_id: turn_episode_id, operational_pruned_at: nil} = turn <-
-           get_uuid(&TurnQuery.by_id/1, document["source_turn_ref"]),
+           get_uuid(&Turn.Query.by_id/1, document["source_turn_ref"]),
          true <- turn_episode_id == episode.id,
          true <- outcome_state?(turn, document["state"]),
          %Event{episode_id: episode_id, kind: :input_admitted} = event <-
-           get_uuid(&EventQuery.by_id/1, document["source_event_ref"]),
+           get_uuid(&Event.Query.by_id/1, document["source_event_ref"]),
          true <- episode_id == episode.id,
          records when is_list(records) and length(records) <= 12 <- document["records"],
          proofs <- Enum.map(records, &proof(record(&1), episode)),

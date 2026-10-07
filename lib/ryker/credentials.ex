@@ -10,7 +10,6 @@ defmodule Ryker.Credentials do
   alias Ryker.Config
   alias Ryker.Credential
   alias Ryker.Credential.Event
-  alias Ryker.CredentialQuery
   alias Ryker.Crypto
   alias Ryker.Repo
 
@@ -37,7 +36,7 @@ defmodule Ryker.Credentials do
   @spec fetch(kind(), String.t()) :: {:ok, binary()} | {:error, term()}
   def fetch(kind, name) do
     with :ok <- validate_identity(kind, name),
-         %Credential{} = credential <- Repo.one(CredentialQuery.by_identity(kind, name)),
+         %Credential{} = credential <- Repo.one(Credential.Query.by_identity(kind, name)),
          {:ok, plaintext} <- open(root_key(), credential) do
       {:ok, plaintext}
     else
@@ -53,7 +52,7 @@ defmodule Ryker.Credentials do
   def status(kind, name) do
     case validate_identity(kind, name) do
       :ok ->
-        case Repo.one(CredentialQuery.by_identity(kind, name)) do
+        case Repo.one(Credential.Query.by_identity(kind, name)) do
           nil -> %{kind: kind, name: name, status: :missing}
           %Credential{} = credential -> metadata(credential)
         end
@@ -65,8 +64,8 @@ defmodule Ryker.Credentials do
 
   @spec statuses() :: [map()]
   def statuses do
-    CredentialQuery.all()
-    |> CredentialQuery.ordered_by_identity()
+    Credential.Query.all()
+    |> Credential.Query.ordered_by_identity()
     |> Repo.all()
     |> Enum.map(&metadata/1)
   end
@@ -140,7 +139,7 @@ defmodule Ryker.Credentials do
     lock!(kind, name)
     now = Repo.now!()
 
-    case Repo.one(CredentialQuery.by_identity(kind, name)) do
+    case Repo.one(Credential.Query.by_identity(kind, name)) do
       nil ->
         credential =
           %Credential{
@@ -183,7 +182,7 @@ defmodule Ryker.Credentials do
   defp verify_locked(kind, name, verification_status, actor_ref) do
     lock!(kind, name)
 
-    case Repo.one(CredentialQuery.by_identity(kind, name)) do
+    case Repo.one(Credential.Query.by_identity(kind, name)) do
       nil ->
         Repo.rollback(:credential_missing)
 
@@ -209,7 +208,7 @@ defmodule Ryker.Credentials do
   defp delete_locked(kind, name, actor_ref) do
     lock!(kind, name)
 
-    case Repo.one(CredentialQuery.by_identity(kind, name)) do
+    case Repo.one(Credential.Query.by_identity(kind, name)) do
       nil ->
         :ok
 

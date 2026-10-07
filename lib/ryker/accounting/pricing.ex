@@ -9,9 +9,9 @@ defmodule Ryker.Accounting.Pricing do
   was recorded, so a new price never reaches back to earlier work. A model no
   saved price covers stays unpriced rather than free.
   """
-  alias Ryker.Accounting.ExecutionQuery
+  alias Ryker.Accounting.Execution
   alias Ryker.Repo
-  alias Ryker.Settings.{PricingRate, PricingRateQuery}
+  alias Ryker.Settings.PricingRate
 
   # The prices a new installation starts with; after that the saved prices
   # are the only ones any estimate reads.
@@ -47,9 +47,9 @@ defmodule Ryker.Accounting.Pricing do
   @spec used(Ecto.Queryable.t()) :: [PricingRate.t()]
   def used(ledger) do
     ledger
-    |> ExecutionQuery.priced_rate_ids()
-    |> PricingRateQuery.by_ids()
-    |> PricingRateQuery.ordered_by_target()
+    |> Execution.Query.priced_rate_ids()
+    |> PricingRate.Query.by_ids()
+    |> PricingRate.Query.ordered_by_target()
     |> Repo.all()
   end
 
@@ -59,7 +59,7 @@ defmodule Ryker.Accounting.Pricing do
   """
   @spec in_effect(String.t(), Date.t()) :: PricingRate.t() | nil
   def in_effect(target, %Date{} = day) when is_binary(target),
-    do: target |> PricingRateQuery.in_effect(day) |> Repo.one()
+    do: target |> PricingRate.Query.in_effect(day) |> Repo.one()
 
   @doc """
   What one call's tokens cost at a saved price, in US dollars, by the same

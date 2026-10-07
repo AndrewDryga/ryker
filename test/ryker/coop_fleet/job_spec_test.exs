@@ -1,7 +1,7 @@
 defmodule Ryker.CoopFleet.JobSpecTest do
   use ExUnit.Case, async: true
   alias Ryker.CoopFleet.{JobSpec, JobTemplates}
-  alias Ryker.Work.SessionChangeset
+  alias Ryker.Work.Session
 
   defp valid_job do
     %{
@@ -234,7 +234,7 @@ defmodule Ryker.CoopFleet.JobSpecTest do
     base = %{authority_digest: nil, workspace_task: nil}
 
     insert = fn options ->
-      SessionChangeset.insert(
+      Session.Changeset.insert(
         Ecto.UUID.generate(),
         Ecto.UUID.generate(),
         1,

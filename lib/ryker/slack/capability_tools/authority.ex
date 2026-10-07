@@ -8,7 +8,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   Slack's own conversation record decides whether a channel is visible.
   """
 
-  alias Ryker.Episodes.{Episode, EventQuery}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Repo
   alias Ryker.Slack.CapabilityTools.Arguments
   alias Ryker.Slack.Mentions
@@ -233,9 +233,9 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
       []
     else
       episode_id
-      |> EventQuery.by_episode_id()
-      |> EventQuery.admitted_inputs(refs)
-      |> EventQuery.newest_first()
+      |> Event.Query.by_episode_id()
+      |> Event.Query.admitted_inputs(refs)
+      |> Event.Query.newest_first()
       |> Repo.all()
     end
   end

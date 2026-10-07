@@ -17,7 +17,7 @@ defmodule Ryker.Settings.Environment do
 
   The snapshot carries its repositories as
   `%EnvironmentRepository{repository_ref, position, access}` rows, the
-  default first. A save names them as `Ryker.Settings.EnvironmentChangeset`
+  default first. A save names them as `Ryker.Settings.Environment.Changeset`
   says.
   """
   use Ecto.Schema

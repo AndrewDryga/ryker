@@ -22,7 +22,7 @@ defmodule Ryker.Work.Custody.CurrentAuthority do
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Settings.Environment
-  alias Ryker.Work.{RepositoryContext, Session, SessionChangeset}
+  alias Ryker.Work.{RepositoryContext, Session}
 
   @doc "The session as current settings would admit it, saved; else the session as it was."
   @spec refresh_locked(Session.t()) :: Session.t()
@@ -31,7 +31,7 @@ defmodule Ryker.Work.Custody.CurrentAuthority do
          {:ok, snapshot} <- Settings.fetch(),
          {:ok, current} <- current(snapshot, session),
          true <- current != saved(session),
-         {:ok, refreshed} <- Repo.update(SessionChangeset.refresh_authority(session, current)) do
+         {:ok, refreshed} <- Repo.update(Session.Changeset.refresh_authority(session, current)) do
       refreshed
     else
       _unchanged -> session

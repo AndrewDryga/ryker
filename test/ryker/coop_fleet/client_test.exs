@@ -10,7 +10,7 @@ defmodule Ryker.CoopFleet.ClientTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, SessionChangeset, SubmissionBuilder}
+  alias Ryker.Work.{Custody, Session, SubmissionBuilder}
 
   @authority_digest String.duplicate("d", 64)
   @policy "work-read-only"
@@ -604,7 +604,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     session =
       session
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()
 
     key = "ryker:work:create:#{session.id}:g1"
@@ -668,7 +668,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     source =
       session
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Ecto.Changeset.change(coop_session_id: "coop-session-source")
       |> Repo.update!()
 
@@ -721,7 +721,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     # A replacement generation carries its predecessor's exact repository source,
     # which is what makes the checkpoint's tree the right seed for it.
     replacement =
-      SessionChangeset.insert(
+      Session.Changeset.insert(
         Ecto.UUID.generate(),
         source.episode_id,
         2,
@@ -738,7 +738,7 @@ defmodule Ryker.CoopFleet.ClientTest do
         }
       )
       |> Repo.insert!()
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()
 
     key = "ryker:work:create:#{replacement.id}:g1"
@@ -806,12 +806,12 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     source =
       session
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Ecto.Changeset.change(coop_session_id: "coop-session-never-task-bound")
       |> Repo.update!()
 
     replacement =
-      SessionChangeset.insert(
+      Session.Changeset.insert(
         Ecto.UUID.generate(),
         source.episode_id,
         2,
@@ -828,7 +828,7 @@ defmodule Ryker.CoopFleet.ClientTest do
         }
       )
       |> Repo.insert!()
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()
 
     key = "ryker:work:create:#{replacement.id}:g1"
@@ -864,7 +864,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     source =
       session
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Ecto.Changeset.change(coop_session_id: "coop-session-bound-without-turn")
       |> Repo.update!()
 
@@ -888,7 +888,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     })
 
     replacement =
-      SessionChangeset.insert(
+      Session.Changeset.insert(
         Ecto.UUID.generate(),
         source.episode_id,
         2,
@@ -905,7 +905,7 @@ defmodule Ryker.CoopFleet.ClientTest do
         }
       )
       |> Repo.insert!()
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()
 
     key = "ryker:work:create:#{replacement.id}:g1"
@@ -940,7 +940,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     source =
       session
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Ecto.Changeset.change(coop_session_id: "coop-session-binding-attempted")
       |> Repo.update!()
 
@@ -965,7 +965,7 @@ defmodule Ryker.CoopFleet.ClientTest do
       )
 
     replacement =
-      SessionChangeset.insert(
+      Session.Changeset.insert(
         Ecto.UUID.generate(),
         source.episode_id,
         2,
@@ -982,7 +982,7 @@ defmodule Ryker.CoopFleet.ClientTest do
         }
       )
       |> Repo.insert!()
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()
 
     key = "ryker:work:create:#{replacement.id}:g1"
@@ -2238,7 +2238,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     session =
       session
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()
 
     key = "ryker:work:create:#{session.id}:g1"
@@ -2312,7 +2312,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     session =
       session
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()
 
     key = "ryker:work:create:#{session.id}:g1"
@@ -2421,7 +2421,7 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     session =
       session
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()
 
     key = "ryker:work:create:#{session.id}:g1"

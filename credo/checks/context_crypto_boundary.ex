@@ -32,8 +32,8 @@ defmodule Ryker.Checks.ContextCryptoBoundary do
   defp relevant?(filename) do
     not String.ends_with?(filename, "lib/ryker/crypto.ex") and
       (Regex.match?(~r{(^|/)lib/ryker/[a-z_0-9]+\.ex$}, filename) or
-         String.ends_with?(filename, "_changeset.ex") or
-         String.ends_with?(filename, "_query.ex"))
+         String.ends_with?(filename, "/changeset.ex") or
+         String.ends_with?(filename, "/query.ex"))
   end
 
   defp walk({{:., _, [:crypto, fun]}, meta, args} = ast, ctx)

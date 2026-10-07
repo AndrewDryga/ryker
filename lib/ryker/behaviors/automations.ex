@@ -9,9 +9,7 @@ defmodule Ryker.Behaviors.Automations do
 
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
-  alias Ryker.Behaviors.BehaviorChangeset
-  alias Ryker.Behaviors.BehaviorQuery
-  alias Ryker.Behaviors.StandingAssignmentRunQuery
+  alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.Episodes.Episode
   alias Ryker.Episodes.Scope
   alias Ryker.Ingress.Adapters
@@ -22,9 +20,7 @@ defmodule Ryker.Behaviors.Automations do
   alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Schedules.Schedule
-  alias Ryker.Schedules.ScheduleChangeset
-  alias Ryker.Schedules.ScheduleOccurrenceQuery
-  alias Ryker.Schedules.ScheduleQuery
+  alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.Slack.ChannelFence
   alias Ryker.UTCDateTime
@@ -42,18 +38,18 @@ defmodule Ryker.Behaviors.Automations do
     workspace = Scope.workspace_ref(episode)
 
     schedules =
-      ScheduleQuery.in_conversation(
+      Schedule.Query.in_conversation(
         episode.destination_transport,
         episode.destination_conversation_ref
       )
-      |> ScheduleQuery.not_deleted()
-      |> ScheduleQuery.soonest_first()
+      |> Schedule.Query.not_deleted()
+      |> Schedule.Query.soonest_first()
       |> Repo.all()
 
     behaviors =
       workspace
       |> conversation_assignments(episode)
-      |> BehaviorQuery.oldest_first()
+      |> Behavior.Query.oldest_first()
       |> Repo.all()
 
     Enum.map(schedules ++ behaviors, &document/1)
@@ -158,7 +154,7 @@ defmodule Ryker.Behaviors.Automations do
   def detail(%Schedule{} = schedule, limit) when is_integer(limit) and limit in 1..20 do
     runs =
       schedule.id
-      |> ScheduleOccurrenceQuery.recent_runs(limit)
+      |> ScheduleOccurrence.Query.recent_runs(limit)
       |> Repo.all()
       |> Enum.map(&sanitize_run/1)
       |> Enum.map(&run_document/1)
@@ -169,7 +165,7 @@ defmodule Ryker.Behaviors.Automations do
   def detail(%Behavior{} = behavior, limit) when is_integer(limit) and limit in 1..20 do
     runs =
       behavior.id
-      |> StandingAssignmentRunQuery.recent_for_assignment(limit)
+      |> StandingAssignmentRun.Query.recent_for_assignment(limit)
       |> Repo.all()
       |> Enum.map(&run_document/1)
 
@@ -238,7 +234,7 @@ defmodule Ryker.Behaviors.Automations do
       attributes = Map.merge(clear_schedule_lease(), attributes)
 
       schedule
-      |> ScheduleChangeset.update(Map.put(attributes, :revision, schedule.revision + 1))
+      |> Schedule.Changeset.update(Map.put(attributes, :revision, schedule.revision + 1))
       |> Repo.update()
       |> persistence_result(:automation_schedule)
     end
@@ -251,7 +247,7 @@ defmodule Ryker.Behaviors.Automations do
 
       {:ok, attributes} ->
         behavior
-        |> BehaviorChangeset.update(Map.put(attributes, :revision, behavior.revision + 1))
+        |> Behavior.Changeset.update(Map.put(attributes, :revision, behavior.revision + 1))
         |> Repo.update()
         |> persistence_result(:automation_behavior)
 
@@ -511,7 +507,7 @@ defmodule Ryker.Behaviors.Automations do
     schedule =
       episode
       |> visible_schedule_query(automation_id)
-      |> ScheduleQuery.lock_for_update()
+      |> Schedule.Query.lock_for_update()
       |> Repo.one()
 
     case schedule do
@@ -524,7 +520,7 @@ defmodule Ryker.Behaviors.Automations do
     behavior =
       episode
       |> visible_behavior_query(automation_id)
-      |> BehaviorQuery.lock_for_update()
+      |> Behavior.Query.lock_for_update()
       |> Repo.one()
 
     case behavior do
@@ -540,12 +536,12 @@ defmodule Ryker.Behaviors.Automations do
   # gone from both, so it can be neither read nor changed.
   defp visible_schedule_query(episode, automation_id) do
     automation_id
-    |> ScheduleQuery.by_ref()
-    |> ScheduleQuery.in_conversation(
+    |> Schedule.Query.by_ref()
+    |> Schedule.Query.in_conversation(
       episode.destination_transport,
       episode.destination_conversation_ref
     )
-    |> ScheduleQuery.not_deleted()
+    |> Schedule.Query.not_deleted()
   end
 
   defp visible_behavior_result(episode, automation_id) do
@@ -559,15 +555,15 @@ defmodule Ryker.Behaviors.Automations do
     episode
     |> Scope.workspace_ref()
     |> conversation_assignments(episode)
-    |> BehaviorQuery.by_ref(automation_id)
+    |> Behavior.Query.by_ref(automation_id)
   end
 
   # The standing assignments a conversation lists as its automations.
   defp conversation_assignments(workspace, episode) do
-    BehaviorQuery.of_kind(:standing_assignment)
-    |> BehaviorQuery.by_workspace(workspace)
-    |> BehaviorQuery.scoped_to(:conversation, episode.destination_conversation_ref)
-    |> BehaviorQuery.with_status([:active, :disabled])
+    Behavior.Query.of_kind(:standing_assignment)
+    |> Behavior.Query.by_workspace(workspace)
+    |> Behavior.Query.scoped_to(:conversation, episode.destination_conversation_ref)
+    |> Behavior.Query.with_status([:active, :disabled])
   end
 
   defp idle_schedule(%Schedule{lease_ref: nil}, _occurred_at), do: :ok

@@ -7,13 +7,13 @@ defmodule Ryker.ControlPlane.FailureProjection do
   """
 
   alias Ryker.Config
-  alias Ryker.ControlPlane.{Activity, FailureQuery, LearningActivity, ProductReadiness}
+  alias Ryker.ControlPlane.{Activity, Failure, LearningActivity, ProductReadiness}
   alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.CoopFleet.{JobAuthority, Worker}
   alias Ryker.Credentials
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
+  alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.Batch, as: LearningBatch
   alias Ryker.Observability
   alias Ryker.Operator.Delivery, as: DeliveryOperator
@@ -22,9 +22,9 @@ defmodule Ryker.ControlPlane.FailureProjection do
   alias Ryker.Operator.FailureDismissals
   alias Ryker.Publication.Publication
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRoomQuery, IncidentRooms}
-  alias Ryker.Slack.{InteractionAudit, InteractionAuditQuery, Names}
-  alias Ryker.Slack.{TaskCard, TaskCardQuery, ThreadStatus, ThreadStatusQuery}
+  alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRooms}
+  alias Ryker.Slack.{InteractionAudit, Names}
+  alias Ryker.Slack.{TaskCard, ThreadStatus}
   alias Ryker.Work.{Cancellation, FailureCause, Recovery, Session, Turn}
 
   # The phases Ryker is still retrying. A recorded failure there is a stuck
@@ -79,23 +79,23 @@ defmodule Ryker.ControlPlane.FailureProjection do
     deep = &(fetch + Map.get(left, &1, 0))
 
     work =
-      FailureQuery.blocked_work()
-      |> FailureQuery.limit_to(deep.("work"))
+      Failure.Query.blocked_work()
+      |> Failure.Query.limit_to(deep.("work"))
       |> Repo.all()
       |> Enum.map(&work_item/1)
 
     admission =
-      EntryQuery.blocked()
-      |> EntryQuery.recently_updated_first()
-      |> EntryQuery.limit_to(deep.("admission"))
+      Entry.Query.blocked()
+      |> Entry.Query.recently_updated_first()
+      |> Entry.Query.limit_to(deep.("admission"))
       |> Repo.all()
       |> Enum.map(&admission_item/1)
 
     # A learning session has no episode; an inner join hid every blocked
     # learning cleanup from this page and from its retry.
     retention =
-      FailureQuery.blocked_cleanups()
-      |> FailureQuery.limit_to(deep.("retention"))
+      Failure.Query.blocked_cleanups()
+      |> Failure.Query.limit_to(deep.("retention"))
       |> Repo.all()
       |> Enum.map(&retention_item/1)
 
@@ -104,22 +104,22 @@ defmodule Ryker.ControlPlane.FailureProjection do
     # read "stopping" forever and was listed nowhere.
     stopping =
       Cancellation.stalled_after_attempts()
-      |> FailureQuery.stalled_stops()
-      |> FailureQuery.limit_to(deep.("stopping"))
+      |> Failure.Query.stalled_stops()
+      |> Failure.Query.limit_to(deep.("stopping"))
       |> Repo.all()
       |> Enum.map(&stopping_item/1)
 
     interaction_feedback =
-      InteractionAuditQuery.repaint_blocked()
-      |> InteractionAuditQuery.recently_updated_first()
-      |> InteractionAuditQuery.limit_to(deep.("slack_interaction"))
+      InteractionAudit.Query.repaint_blocked()
+      |> InteractionAudit.Query.recently_updated_first()
+      |> InteractionAudit.Query.limit_to(deep.("slack_interaction"))
       |> Repo.all()
       |> Enum.map(&interaction_item/1)
 
     incident_rooms =
-      IncidentRoomQuery.blocked()
-      |> IncidentRoomQuery.recently_updated_first()
-      |> IncidentRoomQuery.limit_to(deep.("slack_incident"))
+      IncidentRoom.Query.blocked()
+      |> IncidentRoom.Query.recently_updated_first()
+      |> IncidentRoom.Query.limit_to(deep.("slack_incident"))
       |> Repo.all()
       |> Enum.map(&incident_item/1)
 
@@ -127,31 +127,31 @@ defmodule Ryker.ControlPlane.FailureProjection do
     # one Slack kept refusing was retried for as long as its task existed and
     # listed nowhere, so nobody learned the message or channel was gone.
     task_cards =
-      TaskCardQuery.blocked()
-      |> TaskCardQuery.recently_updated_first()
-      |> TaskCardQuery.limit_to(deep.("slack_task_card"))
+      TaskCard.Query.blocked()
+      |> TaskCard.Query.recently_updated_first()
+      |> TaskCard.Query.limit_to(deep.("slack_task_card"))
       |> Repo.all()
       |> Enum.map(&task_card_item/1)
 
     thread_statuses =
-      ThreadStatusQuery.blocked()
-      |> ThreadStatusQuery.recently_updated_first()
-      |> ThreadStatusQuery.limit_to(deep.("slack_thread_status"))
+      ThreadStatus.Query.blocked()
+      |> ThreadStatus.Query.recently_updated_first()
+      |> ThreadStatus.Query.limit_to(deep.("slack_thread_status"))
       |> Repo.all()
       |> Enum.map(&thread_status_item/1)
 
     publications =
       @running_publication_statuses
-      |> FailureQuery.failing_publications()
-      |> FailureQuery.limit_to(deep.("publication"))
+      |> Failure.Query.failing_publications()
+      |> Failure.Query.limit_to(deep.("publication"))
       |> Repo.all()
       |> Enum.map(&publication_item/1)
 
     # Learning that only a person can move was listed only on the Learning
     # page, so nothing here said a conversation had stopped being learned.
     learning =
-      FailureQuery.stalled_learning()
-      |> FailureQuery.limit_to(deep.("learning"))
+      Failure.Query.stalled_learning()
+      |> Failure.Query.limit_to(deep.("learning"))
       |> Repo.all()
       |> Enum.map(&learning_item/1)
 
@@ -250,20 +250,20 @@ defmodule Ryker.ControlPlane.FailureProjection do
   defp failure_exact("work", ref), do: work(ref)
 
   defp failure_exact("publication", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    found = Repo.one(FailureQuery.failing_publication(@running_publication_statuses, ref))
+    found = Repo.one(Failure.Query.failing_publication(@running_publication_statuses, ref))
     if found, do: {:ok, publication_item(found)}, else: :not_found
   end
 
   defp failure_exact("retention", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    found = Repo.one(FailureQuery.blocked_cleanup(ref))
+    found = Repo.one(Failure.Query.blocked_cleanup(ref))
     if found, do: {:ok, retention_item(found)}, else: :not_found
   end
 
   defp failure_exact("stopping", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     found =
       Cancellation.stalled_after_attempts()
-      |> FailureQuery.stalled_stops()
-      |> FailureQuery.of_request(ref)
+      |> Failure.Query.stalled_stops()
+      |> Failure.Query.of_request(ref)
       |> Repo.one()
 
     if found, do: {:ok, stopping_item(found)}, else: :not_found
@@ -271,7 +271,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   defp failure_exact("learning", ref) do
     with {:ok, id} <- Ecto.UUID.cast(ref),
-         %LearningBatch{} = batch <- Repo.one(FailureQuery.stalled_batch(id)) do
+         %LearningBatch{} = batch <- Repo.one(Failure.Query.stalled_batch(id)) do
       {:ok, learning_item(batch)}
     else
       _missing -> :not_found
@@ -327,7 +327,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def emisar(_ref), do: :not_found
 
   def slack_interaction(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(InteractionAuditQuery.by_event_ref(ref)) do
+    case Repo.one(InteractionAudit.Query.by_event_ref(ref)) do
       %InteractionAudit{repaint_status: :blocked} = audit -> {:ok, interaction_item(audit)}
       _unavailable -> :not_found
     end
@@ -336,7 +336,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def slack_interaction(_ref), do: :not_found
 
   def slack_incident(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(IncidentRoomQuery.by_ref(ref)) do
+    case Repo.one(IncidentRoom.Query.by_ref(ref)) do
       %IncidentRoom{status: :blocked} = room -> {:ok, incident_item(room)}
       _unavailable -> :not_found
     end
@@ -345,7 +345,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def slack_incident(_ref), do: :not_found
 
   def slack_task_card(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(TaskCardQuery.by_ref(ref)) do
+    case Repo.one(TaskCard.Query.by_ref(ref)) do
       %TaskCard{status: :blocked} = card -> {:ok, task_card_item(card)}
       _unavailable -> :not_found
     end
@@ -356,7 +356,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # A thread status has no reference of its own beyond its row id.
   def slack_thread_status(ref) when is_binary(ref) do
     with {:ok, id} <- Ecto.UUID.cast(ref),
-         %ThreadStatus{status: :blocked} = status <- Repo.one(ThreadStatusQuery.by_id(id)) do
+         %ThreadStatus{status: :blocked} = status <- Repo.one(ThreadStatus.Query.by_id(id)) do
       {:ok, thread_status_item(status)}
     else
       _unavailable -> :not_found
@@ -407,7 +407,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   end
 
   defp blocked_work(ref) do
-    FailureQuery.blocked_work() |> FailureQuery.of_request(ref) |> Repo.one()
+    Failure.Query.blocked_work() |> Failure.Query.of_request(ref) |> Repo.one()
   end
 
   # A row is cheap until the page is cut: its recovery brief (custody reads
@@ -460,7 +460,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # active again and the task resumes; a deleted one never can, so its task
   # closes instead, and the page must not promise otherwise.
   defp paused_room("destination_paused", %Episode{id: episode_id}),
-    do: Repo.one(FailureQuery.room_of(episode_id))
+    do: Repo.one(Failure.Query.room_of(episode_id))
 
   defp paused_room(_stop_code, _episode), do: nil
 
@@ -702,7 +702,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   end
 
   # What the batch's last attempt stopped on, so its page can say it in words.
-  defp last_attempt_error(batch_id), do: Repo.one(FailureQuery.last_attempt_error(batch_id))
+  defp last_attempt_error(batch_id), do: Repo.one(Failure.Query.last_attempt_error(batch_id))
 
   # Where to relearn the topics a batch stopped on: the topic itself when
   # there is one, the Learned list when there are several.
@@ -780,7 +780,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   defp deleted_room_replies(delivery_refs) do
     delivery_refs
-    |> FailureQuery.replies_to_deleted_rooms()
+    |> Failure.Query.replies_to_deleted_rooms()
     |> Repo.all()
     |> Enum.flat_map(fn {delivery_ref, target, room} ->
       case owed_room_reply(target, room) do
@@ -849,7 +849,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     now = Repo.now!()
 
     session_ids
-    |> FailureQuery.session_workers()
+    |> Failure.Query.session_workers()
     |> Repo.all()
     |> Map.new(fn {placement, session, worker} ->
       {placement.session_id, session_worker(placement, session, worker, now)}
@@ -907,7 +907,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    contexts = input_ids |> EntryQuery.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
+    contexts = input_ids |> Entry.Query.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
 
     Enum.map(items, fn item ->
       case Map.get(contexts, Map.get(item, :input_id)) do
@@ -930,7 +930,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    contexts = episode_ids |> EpisodeQuery.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
+    contexts = episode_ids |> Episode.Query.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
 
     Enum.map(items, fn item ->
       case Map.get(contexts, Map.get(item, :episode_id)) do

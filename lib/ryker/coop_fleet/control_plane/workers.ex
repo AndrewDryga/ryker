@@ -17,13 +17,13 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   request (`Ryker.Episodes`).
   """
 
-  alias Ryker.CoopFleet.{CertificateChangeset, CertificateQuery}
+  alias Ryker.CoopFleet.Certificate
   alias Ryker.CoopFleet.ControlPlane.{Commands, Events, Placements, Shared}
-  alias Ryker.CoopFleet.{Protocol, Worker, WorkerChangeset, WorkerQuery}
+  alias Ryker.CoopFleet.{Protocol, Worker}
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Repo
-  alias Ryker.Work.SessionQuery
+  alias Ryker.Work.Session
 
   # Registers a worker under a certificate digest the operator vouches for
   # directly, without an enrollment token. No operator surface calls this;
@@ -155,7 +155,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
             workspace_ref: workspace_ref,
             state: :offline
           }
-          |> WorkerChangeset.insert()
+          |> Worker.Changeset.insert()
           |> Repo.insert()
           |> Shared.unwrap_write()
 
@@ -187,7 +187,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
     worker =
       worker
-      |> WorkerChangeset.heartbeat(%{
+      |> Worker.Changeset.heartbeat(%{
         build_version: hello["build_version"],
         capabilities: hello["capabilities"],
         capacity: hello["capacity"],
@@ -281,14 +281,14 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     do: Crypto.sha256_hex(certificate)
 
   defp active_certificate_worker(certificate_sha256) do
-    Repo.one(CertificateQuery.active_worker_id(certificate_sha256))
+    Repo.one(Certificate.Query.active_worker_id(certificate_sha256))
   end
 
   defp active_certificate_for_worker?(certificate_sha256, worker_id) do
     certificate_sha256
-    |> CertificateQuery.by_sha256()
-    |> CertificateQuery.by_worker_id(worker_id)
-    |> CertificateQuery.in_force()
+    |> Certificate.Query.by_sha256()
+    |> Certificate.Query.by_worker_id(worker_id)
+    |> Certificate.Query.in_force()
     |> Repo.exists?()
   end
 
@@ -304,7 +304,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
       source: :manual,
       worker_id: worker_id
     }
-    |> CertificateChangeset.insert()
+    |> Certificate.Changeset.insert()
     |> Repo.insert(on_conflict: :nothing, conflict_target: :sha256)
     |> Shared.unwrap_write()
   end
@@ -340,8 +340,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
     current =
       cutoff
-      |> WorkerQuery.seen_since()
-      |> WorkerQuery.select_ids()
+      |> Worker.Query.seen_since()
+      |> Worker.Query.select_ids()
       |> Repo.all()
       |> MapSet.new()
 
@@ -381,8 +381,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
       session_ids ->
         session_ids
-        |> SessionQuery.by_ids()
-        |> SessionQuery.select_episode_ids()
+        |> Session.Query.by_ids()
+        |> Session.Query.select_episode_ids()
         |> Repo.all()
         |> Enum.each(&Episodes.broadcast_episode_updated/1)
     end

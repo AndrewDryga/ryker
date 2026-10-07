@@ -11,15 +11,14 @@ defmodule Ryker.Publication.CustodyTest do
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Observability
   alias Ryker.Operator.Publication, as: PublicationOperator
-  alias Ryker.Publication.Changeset, as: PublicationChangeset
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{Followup, Publication, Review}
   alias Ryker.Publication.Request, as: PublicationRequest
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.Renderer
-  alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session, SessionChangeset}
-  alias Ryker.Work.{Submission, Turn, TurnChangeset}
+  alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session}
+  alias Ryker.Work.{Submission, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -60,7 +59,7 @@ defmodule Ryker.Publication.CustodyTest do
     # post-lock review check. That intentional wait must not fail readiness.
     pending =
       Repo.insert!(
-        TurnChangeset.insert(
+        Turn.Changeset.insert(
           Ecto.UUID.generate(),
           claim.episode.id,
           claim.session.id,
@@ -1493,7 +1492,7 @@ defmodule Ryker.Publication.CustodyTest do
     # the commit this publication pushed.
     stale =
       published
-      |> PublicationChangeset.update(%{expected_remote_head_sha: observed})
+      |> Publication.Changeset.update(%{expected_remote_head_sha: observed})
       |> Repo.update!()
 
     Repo.update_all(
@@ -1591,7 +1590,7 @@ defmodule Ryker.Publication.CustodyTest do
 
     crossed =
       published
-      |> PublicationChangeset.update(%{repository: "other-service"})
+      |> Publication.Changeset.update(%{repository: "other-service"})
       |> Repo.update!()
 
     corrected_candidate!(first, "crossed-repository", "two")
@@ -1635,7 +1634,7 @@ defmodule Ryker.Publication.CustodyTest do
 
     session =
       Repo.get!(Session, claim.session.id)
-      |> SessionChangeset.bind_workspace_task(%{
+      |> Session.Changeset.bind_workspace_task(%{
         "offer_ref" => task.ref,
         "prompt" => "Implement #{suffix} and run the focused checks.",
         "title" => "Implement #{suffix}"

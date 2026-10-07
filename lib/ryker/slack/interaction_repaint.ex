@@ -7,14 +7,14 @@ defmodule Ryker.Slack.InteractionRepaint do
   action values are never interpreted as authority here.
   """
 
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
+  alias Ryker.Episodes.Episode
   alias Ryker.Records.DerivedContext
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelSetup, ConfigurationSession, ConfigurationSessionQuery}
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomCard, IncidentRoomQuery}
+  alias Ryker.Slack.{ChannelSetup, ConfigurationSession}
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomCard}
   alias Ryker.Slack.{InteractionAudit, Mentions, ReplyRecords}
-  alias Ryker.Slack.{TaskCard, TaskCardProjection, TaskCardQuery}
-  alias Ryker.Work.{Session, SessionQuery, Turn, TurnQuery}
+  alias Ryker.Slack.{TaskCard, TaskCardProjection}
+  alias Ryker.Work.{Session, Turn}
 
   @confirmation_kinds ~w(preference_offer guidance_offer standing_assignment_offer memory_offer schedule_offer automation_change_offer)
 
@@ -72,22 +72,22 @@ defmodule Ryker.Slack.InteractionRepaint do
 
   defp task_card(audit) do
     audit.workspace_ref
-    |> TaskCardQuery.by_message(audit.channel_ref, audit.message_ref, audit.thread_ref)
-    |> TaskCardQuery.limit_to(1)
+    |> TaskCard.Query.by_message(audit.channel_ref, audit.message_ref, audit.thread_ref)
+    |> TaskCard.Query.limit_to(1)
     |> Repo.one()
   end
 
   defp incident_room(audit) do
     audit.workspace_ref
-    |> IncidentRoomQuery.by_root_message(audit.channel_ref, audit.message_ref)
-    |> IncidentRoomQuery.limit_to(1)
+    |> IncidentRoom.Query.by_root_message(audit.channel_ref, audit.message_ref)
+    |> IncidentRoom.Query.limit_to(1)
     |> Repo.one()
   end
 
   defp configuration_session(audit) do
     audit.workspace_ref
-    |> ConfigurationSessionQuery.by_current_message(audit.channel_ref, audit.message_ref)
-    |> ConfigurationSessionQuery.limit_to(1)
+    |> ConfigurationSession.Query.by_current_message(audit.channel_ref, audit.message_ref)
+    |> ConfigurationSession.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -109,7 +109,7 @@ defmodule Ryker.Slack.InteractionRepaint do
   end
 
   defp delivered_turn(audit) do
-    TurnQuery.delivered_slack_message(
+    Turn.Query.delivered_slack_message(
       audit.workspace_ref,
       audit.channel_ref,
       audit.message_ref,
@@ -150,12 +150,12 @@ defmodule Ryker.Slack.InteractionRepaint do
   end
 
   defp public_turn_sources(turn, audit, document) do
-    with %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(turn.episode_id)),
+    with %Episode{} = episode <- Repo.one(Episode.Query.by_id(turn.episode_id)),
          true <- episode.destination_transport == "slack",
          true <-
            episode.destination_conversation_ref ==
              "slack:#{audit.workspace_ref}:#{audit.channel_ref}",
-         %Session{episode_id: owner} = session <- Repo.one(SessionQuery.by_id(turn.session_id)),
+         %Session{episode_id: owner} = session <- Repo.one(Session.Query.by_id(turn.session_id)),
          true <- owner == episode.id,
          {:ok, _} <-
            DerivedContext.resolve(

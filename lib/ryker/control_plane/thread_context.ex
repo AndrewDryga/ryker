@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.ThreadContext do
   """
 
   alias Ryker.ControlPlane.Activity
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
 
   @label "All messages in this thread"
@@ -22,7 +22,7 @@ defmodule Ryker.ControlPlane.ThreadContext do
   @spec link(Entry.t()) :: %{href: String.t(), label: String.t()} | nil
   def link(%Entry{destination_transport: "slack", destination_thread_ref: thread} = entry)
       when is_binary(thread) do
-    others? = Repo.exists?(EntryQuery.others_in_thread(entry))
+    others? = Repo.exists?(Entry.Query.others_in_thread(entry))
 
     if others?, do: thread_link("slack", entry.destination_conversation_ref, thread)
   end

@@ -12,12 +12,12 @@ defmodule Ryker.Work.Custody.Sessions do
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.Emisar.Connections, as: EmisarConnections
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
+  alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.Turns
-  alias Ryker.Work.{OperationKeys, RepositoryContext, RepositorySource, Session, SessionChangeset}
-  alias Ryker.Work.{SessionQuery, Turn, TurnChangeset, TurnQuery}
+  alias Ryker.Work.{OperationKeys, RepositoryContext, RepositorySource, Session}
+  alias Ryker.Work.Turn
 
   @doc false
   @spec pin_episode(Ecto.UUID.t(), String.t(), String.t()) ::
@@ -402,7 +402,7 @@ defmodule Ryker.Work.Custody.Sessions do
       case session.workspace_task do
         nil ->
           session
-          |> SessionChangeset.bind_workspace_task(workspace_task)
+          |> Session.Changeset.bind_workspace_task(workspace_task)
           |> Repo.update()
           |> persistence_result(:work_session_workspace_task)
 
@@ -524,7 +524,7 @@ defmodule Ryker.Work.Custody.Sessions do
   end
 
   defp pin_episode_locked(episode_id, authority) do
-    locked = episode_id |> EpisodeQuery.by_id() |> EpisodeQuery.lock_for_update()
+    locked = episode_id |> Episode.Query.by_id() |> Episode.Query.lock_for_update()
 
     case Repo.one(locked) do
       nil -> Repo.rollback(:episode_not_found)
@@ -539,7 +539,7 @@ defmodule Ryker.Work.Custody.Sessions do
         emisar = emisar_pin(authority.environment_ref)
 
         session_id
-        |> SessionChangeset.insert(
+        |> Session.Changeset.insert(
           episode.id,
           1,
           authority.policy,
@@ -614,7 +614,10 @@ defmodule Ryker.Work.Custody.Sessions do
   end
 
   defp latest_session(episode_id) do
-    episode_id |> SessionQuery.latest_of_episode() |> SessionQuery.lock_for_update() |> Repo.one()
+    episode_id
+    |> Session.Query.latest_of_episode()
+    |> Session.Query.lock_for_update()
+    |> Repo.one()
   end
 
   defp reusable_grace?(%Session{
@@ -662,7 +665,7 @@ defmodule Ryker.Work.Custody.Sessions do
 
   def ensure_session_and_turn(%Episode{owner_kind: :delivery} = episode) do
     delivery =
-      episode.id |> TurnQuery.by_episode_id() |> TurnQuery.by_delivery_ref(episode.owner_ref)
+      episode.id |> Turn.Query.by_episode_id() |> Turn.Query.by_delivery_ref(episode.owner_ref)
 
     case Repo.one(delivery) do
       nil ->
@@ -679,7 +682,7 @@ defmodule Ryker.Work.Custody.Sessions do
   @doc false
   def insert_turn(episode, session) do
     Ecto.UUID.generate()
-    |> TurnChangeset.insert(episode.id, session.id, episode.owner_ref)
+    |> Turn.Changeset.insert(episode.id, session.id, episode.owner_ref)
     |> Repo.insert()
     |> persistence_result(:work_turn)
   end
@@ -687,8 +690,8 @@ defmodule Ryker.Work.Custody.Sessions do
   defp isolate_transferred_owner(episode, session) do
     stale_turns =
       episode
-      |> TurnQuery.left_by_transfer(session.id)
-      |> TurnQuery.lock_for_update()
+      |> Turn.Query.left_by_transfer(session.id)
+      |> Turn.Query.lock_for_update()
       |> Repo.all()
 
     case stale_turns do
@@ -713,7 +716,7 @@ defmodule Ryker.Work.Custody.Sessions do
 
       %Turn{} = turn, :ok ->
         changeset =
-          TurnChangeset.block(turn, %{
+          Turn.Changeset.block(turn, %{
             last_error_code: "owner_transferred",
             last_error_detail:
               "The episode moved to another logical turn before this work settled.",
@@ -777,7 +780,7 @@ defmodule Ryker.Work.Custody.Sessions do
       job_digest = authority.worker_job_digest
 
       session_id
-      |> SessionChangeset.insert(
+      |> Session.Changeset.insert(
         episode_id,
         generation,
         authority.policy,
@@ -848,7 +851,7 @@ defmodule Ryker.Work.Custody.Sessions do
 
       session.coop_session_id == nil ->
         session
-        |> SessionChangeset.bind(coop_session_id)
+        |> Session.Changeset.bind(coop_session_id)
         |> Repo.update()
         |> unwrap_or_rollback(:work_session_binding)
 
@@ -875,7 +878,7 @@ defmodule Ryker.Work.Custody.Sessions do
           Turns.clear_remote_operation!(turn, :create_session, OperationKeys.create(session))
 
         session
-        |> SessionChangeset.advance_create(session.create_generation + 1)
+        |> Session.Changeset.advance_create(session.create_generation + 1)
         |> Repo.update()
         |> unwrap_or_rollback(:work_session_create_generation)
     end
@@ -923,10 +926,10 @@ defmodule Ryker.Work.Custody.Sessions do
                  session.generation + 1,
                  session_authority(session)
                ),
-             {:ok, turn} <- persist_update(TurnChangeset.thaw(turn), :work_submission),
+             {:ok, turn} <- persist_update(Turn.Changeset.thaw(turn), :work_submission),
              {:ok, turn} <-
                persist_update(
-                 TurnChangeset.rebind_session(turn, replacement.id),
+                 Turn.Changeset.rebind_session(turn, replacement.id),
                  :work_turn_session
                ) do
           %{session: replacement, turn: turn}

@@ -1,18 +1,18 @@
 defmodule Ryker.Delivery.ChatCard do
   @moduledoc false
 
-  alias Ryker.Behaviors.{Behavior, BehaviorQuery}
+  alias Ryker.Behaviors.Behavior
   alias Ryker.ControlPlane.Paths
   alias Ryker.Delivery.OfferWords
   alias Ryker.InspectionRedactor
-  alias Ryker.Memories.{MemoryEntry, MemoryEntryQuery}
+  alias Ryker.Memories.MemoryEntry
   alias Ryker.Publication.Card, as: PublicationCard
   alias Ryker.Publication.{Publication, Review}
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
-  alias Ryker.Records.ResponseQuery
+  alias Ryker.Records.Response
   alias Ryker.Repo
-  alias Ryker.Schedules.{Schedule, ScheduleQuery}
+  alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleCadence
   alias Ryker.Slack.TaskCardProjection
 
@@ -623,14 +623,14 @@ defmodule Ryker.Delivery.ChatCard do
   end
 
   defp confirmed_outcome(%Record{kind: "schedule_offer", id: id}) do
-    case Repo.one(ScheduleQuery.by_offer_record_id(id)) do
+    case Repo.one(Schedule.Query.by_offer_record_id(id)) do
       %Schedule{} = schedule -> schedule_outcome(schedule)
       nil -> nil
     end
   end
 
   defp confirmed_outcome(%Record{kind: "memory_offer", id: id}) do
-    case Repo.one(MemoryEntryQuery.by_offer_record_id(id)) do
+    case Repo.one(MemoryEntry.Query.by_offer_record_id(id)) do
       %MemoryEntry{} = memory -> memory_outcome(memory)
       nil -> nil
     end
@@ -638,7 +638,7 @@ defmodule Ryker.Delivery.ChatCard do
 
   defp confirmed_outcome(%Record{kind: kind, id: id})
        when kind in ~w(preference_offer guidance_offer standing_assignment_offer) do
-    case Repo.one(BehaviorQuery.by_offer_record_id(id)) do
+    case Repo.one(Behavior.Query.by_offer_record_id(id)) do
       %Behavior{} = behavior -> behavior_outcome(behavior)
       nil -> nil
     end
@@ -727,7 +727,7 @@ defmodule Ryker.Delivery.ChatCard do
   defp chosen(%Record{status: :answered, id: id}, choices)
        when is_binary(id) and is_list(choices) do
     id
-    |> ResponseQuery.latest_choice()
+    |> Response.Query.latest_choice()
     |> Repo.one()
     |> case do
       {index, _choice} when is_integer(index) -> index

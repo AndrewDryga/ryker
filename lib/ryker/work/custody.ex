@@ -22,7 +22,7 @@ defmodule Ryker.Work.Custody do
 
   alias Ryker.Episodes.Episode
   alias Ryker.Work.Custody.{Cancellation, Claims, Delivery, Sessions, Turns}
-  alias Ryker.Work.{Result, Session, Submission, Turn, TurnQuery}
+  alias Ryker.Work.{Result, Session, Submission, Turn}
 
   @type claim :: %{
           episode: Episode.t(),
@@ -703,9 +703,9 @@ defmodule Ryker.Work.Custody do
   def turn_in_progress?(episode_id, turn_ref) do
     status =
       episode_id
-      |> TurnQuery.by_episode_id()
-      |> TurnQuery.by_turn_ref(turn_ref)
-      |> TurnQuery.select_statuses()
+      |> Turn.Query.by_episode_id()
+      |> Turn.Query.by_turn_ref(turn_ref)
+      |> Turn.Query.select_statuses()
       |> Ryker.Repo.one()
 
     status in [nil, :pending]
@@ -900,8 +900,8 @@ defmodule Ryker.Work.Custody do
   def broadcast_turn_updated(turn_id) when is_binary(turn_id) do
     Ryker.Repo.after_commit(fn ->
       turn_id
-      |> TurnQuery.by_id()
-      |> TurnQuery.select_episode_ids()
+      |> Turn.Query.by_id()
+      |> Turn.Query.select_episode_ids()
       |> Ryker.Repo.one()
       |> Ryker.Episodes.broadcast_episode_updated()
     end)

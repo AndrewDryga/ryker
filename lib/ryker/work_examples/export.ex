@@ -32,7 +32,7 @@ defmodule Ryker.WorkExamples.Export do
   """
 
   alias Ryker.Repo
-  alias Ryker.WorkExamples.{Example, ExampleQuery, Feedback, FeedbackQuery}
+  alias Ryker.WorkExamples.{Example, Feedback}
 
   # A work example's briefing is about fifty times a routing prompt.
   @batch 10
@@ -47,8 +47,8 @@ defmodule Ryker.WorkExamples.Export do
   def reduce(acc, fun) when is_function(fun, 2) do
     Repo.transaction(
       fn ->
-        ExampleQuery.kept()
-        |> ExampleQuery.oldest_settled_first()
+        Example.Query.kept()
+        |> Example.Query.oldest_settled_first()
         |> Repo.stream(max_rows: @batch)
         |> Stream.chunk_every(@batch)
         |> Stream.flat_map(&Repo.preload(&1, feedback: feedback_order()))
@@ -66,7 +66,7 @@ defmodule Ryker.WorkExamples.Export do
     [Jason.encode_to_iodata!(document(example)), ?\n]
   end
 
-  defp feedback_order, do: FeedbackQuery.oldest_first(FeedbackQuery.all())
+  defp feedback_order, do: Feedback.Query.oldest_first(Feedback.Query.all())
 
   defp document(example) do
     Jason.OrderedObject.new([

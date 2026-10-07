@@ -7,13 +7,13 @@ defmodule Ryker.Operator.SlackReplay do
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.{EpisodeQuery, Event, EventQuery}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Operator.Actions
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Work.TurnQuery
+  alias Ryker.Work.Turn
 
   @event_prefix "operator-slack-replay:"
 
@@ -61,7 +61,9 @@ defmodule Ryker.Operator.SlackReplay do
   def fetch(replay_input_ref) do
     with {:ok, %Entry{execution_mode: :shadow} = entry} <- fetch_replay(replay_input_ref),
          {:ok, source_id} <- source_id(entry.event_ref) do
-      episode = if entry.episode_id, do: Repo.one(EpisodeQuery.by_id(entry.episode_id)), else: nil
+      episode =
+        if entry.episode_id, do: Repo.one(Episode.Query.by_id(entry.episode_id)), else: nil
+
       turn = latest_turn(entry.episode_id)
 
       {:ok,
@@ -149,9 +151,9 @@ defmodule Ryker.Operator.SlackReplay do
 
   defp latest_turn(episode_id) do
     episode_id
-    |> TurnQuery.by_episode_id()
-    |> TurnQuery.newest_first()
-    |> TurnQuery.limit_to(1)
+    |> Turn.Query.by_episode_id()
+    |> Turn.Query.newest_first()
+    |> Turn.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -160,10 +162,10 @@ defmodule Ryker.Operator.SlackReplay do
   defp replay_outcome(episode_id) do
     event =
       episode_id
-      |> EventQuery.by_episode_id()
-      |> EventQuery.of_kind(:result_accepted)
-      |> EventQuery.newest_first()
-      |> EventQuery.limit_to(1)
+      |> Event.Query.by_episode_id()
+      |> Event.Query.of_kind(:result_accepted)
+      |> Event.Query.newest_first()
+      |> Event.Query.limit_to(1)
       |> Repo.one()
 
     case event do

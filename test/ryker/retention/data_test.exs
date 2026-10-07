@@ -5,9 +5,8 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Admission.FleetSession
   alias Ryker.Artifacts
   alias Ryker.Behaviors
-  alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.StandingAssignmentRun
-  alias Ryker.Behaviors.StandingAssignmentRunChangeset
   alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Command, ControlPlane, Placement}
@@ -27,14 +26,11 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Operator.RetentionAction
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
   alias Ryker.Repo
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Retention.Data
   alias Ryker.Schedules.Schedule
-  alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Schedules.ScheduleOccurrence
-  alias Ryker.Schedules.ScheduleOccurrenceChangeset
   alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, ThreadStatusReceipt}
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.StateTools.{CallLog, CallRecord}
@@ -1583,7 +1579,7 @@ defmodule Ryker.Retention.DataTest do
       status: :active,
       workspace_ref: "slack:T123"
     }
-    |> BehaviorChangeset.insert()
+    |> Behavior.Changeset.insert()
     |> Repo.insert!()
 
     run_id = Ecto.UUID.generate()
@@ -1600,7 +1596,7 @@ defmodule Ryker.Retention.DataTest do
         source_event_ref: entry.event_ref,
         source_input_ref: Inbox.ref(entry)
       }
-      |> StandingAssignmentRunChangeset.insert()
+      |> StandingAssignmentRun.Changeset.insert()
       |> Repo.insert!()
 
     Repo.query!("UPDATE standing_assignment_runs SET inserted_at = $1 WHERE id = $2", [
@@ -1885,7 +1881,7 @@ defmodule Ryker.Retention.DataTest do
         status: :confirmed,
         turn_id: source.turn.id
       }
-      |> RecordChangeset.insert()
+      |> Record.Changeset.insert()
       |> Repo.insert!()
 
     schedule =
@@ -1910,7 +1906,7 @@ defmodule Ryker.Retention.DataTest do
         timezone: "Etc/UTC",
         title: "Daily health"
       }
-      |> ScheduleChangeset.insert()
+      |> Schedule.Changeset.insert()
       |> Repo.insert!()
 
     occurrence =
@@ -1923,7 +1919,7 @@ defmodule Ryker.Retention.DataTest do
         scheduled_for: @old,
         status: :dispatched
       }
-      |> ScheduleOccurrenceChangeset.insert()
+      |> ScheduleOccurrence.Changeset.insert()
       |> Repo.insert!()
 
     {1, nil} =

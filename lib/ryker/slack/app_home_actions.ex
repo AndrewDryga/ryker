@@ -10,11 +10,11 @@ defmodule Ryker.Slack.AppHomeActions do
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Operator.Retention, as: RetentionOperator
-  alias Ryker.Publication.{Publication, PublicationQuery}
+  alias Ryker.Publication.Publication
   alias Ryker.Repo
-  alias Ryker.Schedules.{Schedule, ScheduleQuery}
+  alias Ryker.Schedules.Schedule
   alias Ryker.Slack.{HomeInteraction, HomeSubmission}
-  alias Ryker.Work.{Session, SessionQuery}
+  alias Ryker.Work.Session
 
   @destination_actions [
     :delete_schedule,
@@ -71,7 +71,7 @@ defmodule Ryker.Slack.AppHomeActions do
         workspace_ref,
         action_ref
       ) do
-    with %Publication{} = publication <- Repo.one(PublicationQuery.by_ref(publication_ref)),
+    with %Publication{} = publication <- Repo.one(Publication.Query.by_ref(publication_ref)),
          true <- slack_workspace?(publication, workspace_ref) do
       PublicationOperator.recover(publication.ref, action, expected_generation,
         actor_ref: "slack:user:#{actor_ref}",
@@ -112,8 +112,8 @@ defmodule Ryker.Slack.AppHomeActions do
 
   defp retained_session(session_ref) do
     session_ref
-    |> SessionQuery.by_external_ref()
-    |> SessionQuery.select_with_episode()
+    |> Session.Query.by_external_ref()
+    |> Session.Query.select_with_episode()
     |> Repo.one()
   end
 
@@ -141,7 +141,7 @@ defmodule Ryker.Slack.AppHomeActions do
        when action in [:retry_publication, :update_publication, :discard_publication] do
     case String.split(value, ":", parts: 2) do
       [id, _generation] ->
-        case Repo.one(PublicationQuery.by_ref("publication:#{id}")) do
+        case Repo.one(Publication.Query.by_ref("publication:#{id}")) do
           %Publication{destination_conversation_ref: destination_ref} -> {:ok, destination_ref}
           nil -> {:error, :app_home_resource_not_visible}
         end
@@ -175,7 +175,7 @@ defmodule Ryker.Slack.AppHomeActions do
   defp destination_ref(_interaction), do: {:error, :app_home_resource_not_visible}
 
   defp schedule_destination("schedule:" <> _ = schedule_ref) do
-    case Repo.one(ScheduleQuery.by_ref(schedule_ref)) do
+    case Repo.one(Schedule.Query.by_ref(schedule_ref)) do
       %Schedule{destination_conversation_ref: destination_ref} -> {:ok, destination_ref}
       nil -> {:error, :app_home_resource_not_visible}
     end

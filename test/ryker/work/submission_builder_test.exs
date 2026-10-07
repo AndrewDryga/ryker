@@ -3,7 +3,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.{Artifacts, Episodes, Settings}
-  alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Behaviors.Behavior
   alias Ryker.Continuity
   alias Ryker.Episodes.Scope
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -16,9 +16,8 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   alias Ryker.Memories
   alias Ryker.Memories.Cases
   alias Ryker.Memories.MemoryEntry
-  alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Records
-  alias Ryker.Records.RecordChangeset
+  alias Ryker.Records.Record
   alias Ryker.Slack.SourceRef
   alias Ryker.StateTools.FixedTools
   alias Ryker.Work.{Contract, Custody, DeliveryReceipt, Final, Result, Submission}
@@ -1799,7 +1798,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                visibility: :global,
                workspace_ref: "installation"
              }
-             |> MemoryEntryChangeset.insert()
+             |> MemoryEntry.Changeset.insert()
              |> Repo.insert()
 
     memory
@@ -1810,7 +1809,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
     assert {:ok, _confirmed} =
              offer
-             |> RecordChangeset.confirm_resource(%{
+             |> Record.Changeset.confirm_resource(%{
                confirmed_at: confirmed_at,
                confirmed_by_actor_ref: "slack:user:U1",
                confirmation_ref: "interaction:#{identity_key}",
@@ -1842,7 +1841,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                status: :active,
                workspace_ref: EpisodeFixtures.workspace_ref()
              }
-             |> BehaviorChangeset.insert()
+             |> Behavior.Changeset.insert()
              |> Repo.insert()
   end
 
@@ -1852,7 +1851,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
     assert {:ok, _confirmed} =
              offer
-             |> RecordChangeset.confirm_resource(%{
+             |> Record.Changeset.confirm_resource(%{
                confirmed_at: confirmed_at,
                confirmed_by_actor_ref: "slack:user:U1",
                confirmation_ref: "interaction:memory",
@@ -1883,7 +1882,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                visibility: :conversation,
                workspace_ref: Scope.workspace_ref(episode)
              }
-             |> MemoryEntryChangeset.insert()
+             |> MemoryEntry.Changeset.insert()
              |> Repo.insert()
   end
 

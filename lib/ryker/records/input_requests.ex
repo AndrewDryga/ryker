@@ -11,13 +11,11 @@ defmodule Ryker.Records.InputRequests do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.{Inbox, Input}
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
-  alias Ryker.Records.ResponseChangeset
-  alias Ryker.Records.ResponseQuery
+  alias Ryker.Records.Response
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
@@ -51,7 +49,7 @@ defmodule Ryker.Records.InputRequests do
          {:ok, record, episode, turn} <- lock_request(ref),
          :ok <- current_wait?(episode, ref) do
       if typed_answer_source?(entry, episode, turn) and
-           not Repo.exists?(ResponseQuery.by_record_id(record.id)) do
+           not Repo.exists?(Response.Query.by_record_id(record.id)) do
         persist_typed_response(record, entry, turn)
       else
         :ok
@@ -114,7 +112,7 @@ defmodule Ryker.Records.InputRequests do
   defp answer_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_request(attributes.record_ref),
          :ok <- delivered_from?(episode, turn, attributes.target) do
-      case Repo.one(ResponseQuery.by_record_id(record.id)) do
+      case Repo.one(Response.Query.by_record_id(record.id)) do
         nil -> record_answer(record, episode, turn, attributes)
         response -> duplicate(response, record, attributes)
       end
@@ -136,7 +134,7 @@ defmodule Ryker.Records.InputRequests do
          {:ok, input} <- input(record, choice, attributes),
          {:ok, inbox_receipt} <- Inbox.record(input),
          {:ok, response} <- persist_response(record, inbox_receipt.entry, choice, attributes),
-         {:ok, record} <- Repo.update(RecordChangeset.answer(record)),
+         {:ok, record} <- Repo.update(Record.Changeset.answer(record)),
          :ok <-
            InteractionAudits.record_answer_in_transaction(
              inbox_receipt.entry,
@@ -164,7 +162,7 @@ defmodule Ryker.Records.InputRequests do
     if response.response_ref == attributes.response_ref and
          response.actor_ref == attributes.actor_ref and
          response.choice_index == attributes.choice_index do
-      case Repo.one(EntryQuery.by_id(response.inbox_entry_id)) do
+      case Repo.one(Entry.Query.by_id(response.inbox_entry_id)) do
         %Entry{} = entry ->
           %{
             input_ref: Inbox.ref(entry),
@@ -271,7 +269,7 @@ defmodule Ryker.Records.InputRequests do
       record_id: record.id,
       response_ref: attributes.response_ref
     }
-    |> ResponseChangeset.insert()
+    |> Response.Changeset.insert()
     |> Repo.insert()
     |> case do
       {:ok, response} -> {:ok, response}

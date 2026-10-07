@@ -23,7 +23,7 @@ defmodule Ryker.Publication.FixLoopTest do
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Slack.{Renderer, TaskCardProjection}
-  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, SessionChangeset, Submission}
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Submission}
   alias Ryker.Work.SubmissionBuilder
 
   @now ~U[2026-09-28 12:00:00.000000Z]
@@ -492,7 +492,7 @@ defmodule Ryker.Publication.FixLoopTest do
 
     session =
       Repo.get!(Session, claim.session.id)
-      |> SessionChangeset.bind_workspace_task(%{
+      |> Session.Changeset.bind_workspace_task(%{
         "offer_ref" => task.ref,
         "prompt" => "Implement #{suffix} and run the focused checks.",
         "title" => "Implement #{suffix}"

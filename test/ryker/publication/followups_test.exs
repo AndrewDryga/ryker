@@ -3,7 +3,7 @@ defmodule Ryker.Publication.FollowupsTest do
   import Ecto.Query
   alias Ryker.Continuity
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Event, EventChangeset}
+  alias Ryker.Episodes.{Command, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Ingress.{Inbox, Input}
@@ -1973,7 +1973,7 @@ defmodule Ryker.Publication.FollowupsTest do
       payload: payload,
       sequence: sequence
     }
-    |> EventChangeset.insert(episode_id)
+    |> Event.Changeset.insert(episode_id)
     |> Repo.insert!()
   end
 end

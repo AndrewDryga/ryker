@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   alias Ryker.Episodes.Reactions
   alias Ryker.Feedback
   alias Ryker.Fixtures.{Answers, SavedEntities}
-  alias Ryker.Ingress.Inbox.EntryChangeset
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
 
   # Activity's in-progress count: the number in the count that opens In progress.
@@ -1339,7 +1339,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     claimed =
       entry
-      |> EntryChangeset.claim(%{
+      |> Entry.Changeset.claim(%{
         attempt_count: entry.attempt_count + 1,
         last_error_code: nil,
         last_error_detail: nil,

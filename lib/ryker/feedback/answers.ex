@@ -11,7 +11,7 @@ defmodule Ryker.Feedback.Answers do
   message, found by the receipt its platform returned, is one Ryker sent.
   """
 
-  alias Ryker.Delivery.{PlatformActionQuery, RoutingResponseQuery}
+  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Repo
 
   @type target :: %{transport: String.t(), conversation_ref: String.t(), message_ref: String.t()}
@@ -35,22 +35,22 @@ defmodule Ryker.Feedback.Answers do
   def message_request(_target), do: :error
 
   defp quick_reply(transport, conversation, ref) do
-    RoutingResponseQuery.delivered_messages()
-    |> RoutingResponseQuery.in_conversation(transport, conversation)
-    |> RoutingResponseQuery.by_receipt_message(ref)
-    |> RoutingResponseQuery.latest_delivered_first()
-    |> RoutingResponseQuery.limit_to(1)
-    |> RoutingResponseQuery.select_input_ids()
+    RoutingResponse.Query.delivered_messages()
+    |> RoutingResponse.Query.in_conversation(transport, conversation)
+    |> RoutingResponse.Query.by_receipt_message(ref)
+    |> RoutingResponse.Query.latest_delivered_first()
+    |> RoutingResponse.Query.limit_to(1)
+    |> RoutingResponse.Query.select_input_ids()
     |> Repo.one()
   end
 
   defp post(transport, conversation, ref) do
-    PlatformActionQuery.delivered_messages()
-    |> PlatformActionQuery.in_conversation(transport, conversation)
-    |> PlatformActionQuery.by_receipt_message(ref)
-    |> PlatformActionQuery.latest_delivered_first()
-    |> PlatformActionQuery.limit_to(1)
-    |> PlatformActionQuery.select_episode_ids()
+    PlatformAction.Query.delivered_messages()
+    |> PlatformAction.Query.in_conversation(transport, conversation)
+    |> PlatformAction.Query.by_receipt_message(ref)
+    |> PlatformAction.Query.latest_delivered_first()
+    |> PlatformAction.Query.limit_to(1)
+    |> PlatformAction.Query.select_episode_ids()
     |> Repo.one()
   end
 end

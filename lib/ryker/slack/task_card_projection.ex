@@ -7,19 +7,18 @@ defmodule Ryker.Slack.TaskCardProjection do
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
-  alias Ryker.Publication.{FixLoop, Followup, FollowupQuery, LifecycleEventQuery, Publication}
-  alias Ryker.Publication.{PublicationQuery, Review}
+  alias Ryker.Episodes.Episode
+  alias Ryker.Publication.{FixLoop, Followup, LifecycleEvent, Publication}
+  alias Ryker.Publication.Review
   alias Ryker.Records
   alias Ryker.Records.DerivedContext
-  alias Ryker.Records.{Record, RecordQuery}
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Settings.RepositoryQuery
+  alias Ryker.Settings.Repository
   alias Ryker.Slack.{Permalink, TaskCard}
   alias Ryker.StateTools.TaskTools
-  alias Ryker.Work.{Custody, FailureCause, Recovery, Session, SessionQuery, TaskStages, Turn}
-  alias Ryker.Work.TurnQuery
+  alias Ryker.Work.{Custody, FailureCause, Recovery, Session, TaskStages, Turn}
 
   @ui_revision 6
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
@@ -60,7 +59,7 @@ defmodule Ryker.Slack.TaskCardProjection do
         } = record
       )
       when is_binary(episode_id) do
-    case Repo.one(EpisodeQuery.by_id(episode_id)) do
+    case Repo.one(Episode.Query.by_id(episode_id)) do
       %Episode{} = episode -> project(record, episode, record.ref, snapshot(episode))
       nil -> {:error, :task_card_source_not_found}
     end
@@ -79,7 +78,7 @@ defmodule Ryker.Slack.TaskCardProjection do
           record
       )
       when is_binary(episode_id) do
-    case Repo.one(EpisodeQuery.by_id(episode_id)) do
+    case Repo.one(Episode.Query.by_id(episode_id)) do
       %Episode{} = episode ->
         snapshot = snapshot(episode)
         {:ok, projection} = project(record, episode, record.ref, snapshot)
@@ -93,8 +92,8 @@ defmodule Ryker.Slack.TaskCardProjection do
   def page(_record), do: {:error, :invalid_task_card}
 
   defp build_public(card) do
-    with %Record{} = record <- Repo.one(RecordQuery.by_id(card.record_id)),
-         %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(card.episode_id)) do
+    with %Record{} = record <- Repo.one(Record.Query.by_id(card.record_id)),
+         %Episode{} = episode <- Repo.one(Episode.Query.by_id(card.episode_id)) do
       snapshot = snapshot(episode)
       {:ok, projection} = project(record, episode, card.ref, snapshot)
 
@@ -166,12 +165,12 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp snapshot(episode) do
     publication = latest_publication(episode.id)
-    turn = Repo.one(TurnQuery.current(episode))
+    turn = Repo.one(Turn.Query.current(episode))
 
     %{
       automatic_fix: automatic_fix(publication, episode),
       turn: turn,
-      session: Repo.one(SessionQuery.latest_of_episode(episode.id)),
+      session: Repo.one(Session.Query.latest_of_episode(episode.id)),
       publication: publication,
       followup: followup(publication),
       records: Records.retained_records(episode.id),
@@ -185,7 +184,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp followup(nil), do: nil
 
   defp followup(%Publication{id: id}),
-    do: Repo.one(FollowupQuery.by_publication_id(id))
+    do: Repo.one(Followup.Query.by_publication_id(id))
 
   # What the person asked for, as the task offer wrote it: the card showed
   # "Sources: slack-source:v1:…" once it stopped cutting the request at 600
@@ -199,8 +198,8 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp repository_name(ref) when is_binary(ref) do
     github_repository =
       ref
-      |> RepositoryQuery.by_ref()
-      |> RepositoryQuery.select_github_repositories()
+      |> Repository.Query.by_ref()
+      |> Repository.Query.select_github_repositories()
       |> Repo.one()
 
     github_repository || ref
@@ -217,21 +216,21 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp goal_records(episode_id) do
     episode_id
-    |> RecordQuery.by_episode_id()
-    |> RecordQuery.of_kinds(["goal", "goal_state"])
-    |> RecordQuery.in_use()
-    |> RecordQuery.in_sequence()
+    |> Record.Query.by_episode_id()
+    |> Record.Query.of_kinds(["goal", "goal_state"])
+    |> Record.Query.in_use()
+    |> Record.Query.in_sequence()
     |> Repo.all()
   end
 
   defp progress_records(episode_id) do
     episode_id
-    |> RecordQuery.by_episode_id()
-    |> RecordQuery.of_kind("progress")
-    |> RecordQuery.in_use()
-    |> RecordQuery.not_feedback_progress()
-    |> RecordQuery.latest_sequence_first()
-    |> RecordQuery.limit_to(4)
+    |> Record.Query.by_episode_id()
+    |> Record.Query.of_kind("progress")
+    |> Record.Query.in_use()
+    |> Record.Query.not_feedback_progress()
+    |> Record.Query.latest_sequence_first()
+    |> Record.Query.limit_to(4)
     |> Repo.all()
     |> Enum.reverse()
   end
@@ -269,10 +268,10 @@ defmodule Ryker.Slack.TaskCardProjection do
   end
 
   defp offer_owner(record) do
-    with %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(record.episode_id)),
-         %Turn{episode_id: episode_id} = turn <- Repo.one(TurnQuery.by_id(record.turn_id)),
+    with %Episode{} = episode <- Repo.one(Episode.Query.by_id(record.episode_id)),
+         %Turn{episode_id: episode_id} = turn <- Repo.one(Turn.Query.by_id(record.turn_id)),
          true <- episode_id == episode.id,
-         %Session{} = session <- Repo.one(SessionQuery.by_id(turn.session_id)) do
+         %Session{} = session <- Repo.one(Session.Query.by_id(turn.session_id)) do
       {:ok, episode, session}
     else
       _ -> {:error, :task_card_source_not_found}
@@ -427,11 +426,11 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp updated_at(episode, publication) do
     progress =
       episode.id
-      |> RecordQuery.by_episode_id()
-      |> RecordQuery.of_kinds(["progress", "goal", "goal_state"])
-      |> RecordQuery.in_use()
-      |> RecordQuery.not_feedback_progress()
-      |> RecordQuery.select_latest_insert()
+      |> Record.Query.by_episode_id()
+      |> Record.Query.of_kinds(["progress", "goal", "goal_state"])
+      |> Record.Query.in_use()
+      |> Record.Query.not_feedback_progress()
+      |> Record.Query.select_latest_insert()
       |> Repo.one()
 
     [episode.updated_at, progress, github_moved_at(publication)]
@@ -441,8 +440,8 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp github_moved_at(%Publication{id: id}) do
     id
-    |> LifecycleEventQuery.by_publication_id()
-    |> LifecycleEventQuery.select_latest_occurrence()
+    |> LifecycleEvent.Query.by_publication_id()
+    |> LifecycleEvent.Query.select_latest_occurrence()
     |> Repo.one()
   end
 
@@ -450,9 +449,9 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp latest_publication(episode_id) do
     episode_id
-    |> PublicationQuery.by_episode_id()
-    |> PublicationQuery.newest_first()
-    |> PublicationQuery.limit_to(1)
+    |> Publication.Query.by_episode_id()
+    |> Publication.Query.newest_first()
+    |> Publication.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -611,7 +610,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     with workspace_url when is_binary(workspace_url) <- Settings.slack_workspace_url(),
          %Record{turn_id: turn_id} when not is_nil(turn_id) <- open_question(episode.id),
          %Turn{external_receipt: %{"conversation_ref" => conversation, "message_ref" => message}} <-
-           Repo.one(TurnQuery.by_id(turn_id)) do
+           Repo.one(Turn.Query.by_id(turn_id)) do
       Permalink.message_url(workspace_url, conversation, message)
     else
       _unbuildable -> nil
@@ -622,11 +621,11 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp open_question(episode_id) do
     episode_id
-    |> RecordQuery.by_episode_id()
-    |> RecordQuery.of_kind("input_request")
-    |> RecordQuery.open()
-    |> RecordQuery.latest_sequence_first()
-    |> RecordQuery.limit_to(1)
+    |> Record.Query.by_episode_id()
+    |> Record.Query.of_kind("input_request")
+    |> Record.Query.open()
+    |> Record.Query.latest_sequence_first()
+    |> Record.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -792,7 +791,7 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp latest_publication_offer(episode_id) do
     episode_id
-    |> RecordQuery.delivered_publication_offers()
+    |> Record.Query.delivered_publication_offers()
     |> Repo.all()
     |> Enum.find_value(fn {record, delivery_document} ->
       record_refs = get_in(delivery_document || %{}, ["outcome", "record_refs"])

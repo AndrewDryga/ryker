@@ -4,7 +4,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Shared do
   part needs.
   """
 
-  alias Ryker.CoopFleet.{Protocol, WorkerQuery}
+  alias Ryker.CoopFleet.{Protocol, Worker}
   alias Ryker.Repo
 
   @maximum_lease_seconds 3_600
@@ -18,7 +18,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Shared do
 
   @doc false
   def locked_worker(worker_id) do
-    worker_id |> WorkerQuery.by_id() |> WorkerQuery.lock_for_update() |> Repo.one()
+    worker_id |> Worker.Query.by_id() |> Worker.Query.lock_for_update() |> Repo.one()
   end
 
   @doc false

@@ -22,7 +22,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Records
   alias Ryker.Records.Record
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomChangeset, IncidentRoomLifecycleEventChangeset}
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent}
   alias Ryker.Slack.Input
   alias Ryker.Work.Turn
 
@@ -404,7 +404,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
         status: :blocked,
         topic_prepared_at: nil
       })
-      |> IncidentRoomChangeset.insert()
+      |> IncidentRoom.Changeset.insert()
       |> Repo.insert!()
 
     stopped_at = ~U[2026-09-24 08:03:12.000000Z]
@@ -536,7 +536,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
       source
       |> room_attributes(progress)
       |> Map.merge(overrides)
-      |> IncidentRoomChangeset.insert()
+      |> IncidentRoom.Changeset.insert()
       |> Repo.insert!()
 
     Repo.update_all(from(saved in IncidentRoom, where: saved.id == ^room.id),
@@ -688,7 +688,7 @@ defmodule Ryker.ControlPlane.IncidentRoomPageTest do
       room_id: room.id,
       workspace_ref: room.workspace_ref
     }
-    |> IncidentRoomLifecycleEventChangeset.insert()
+    |> IncidentRoomLifecycleEvent.Changeset.insert()
     |> Repo.insert!()
   end
 end

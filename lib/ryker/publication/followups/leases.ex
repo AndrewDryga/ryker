@@ -10,7 +10,7 @@ defmodule Ryker.Publication.Followups.Leases do
   """
 
   alias Ryker.ErrorDetail
-  alias Ryker.Publication.{Followup, FollowupQuery, LifecycleEvent, LifecycleEventQuery}
+  alias Ryker.Publication.{Followup, LifecycleEvent}
   alias Ryker.Publication.Followups.Store
   alias Ryker.Publication.Publication
   alias Ryker.Repo
@@ -31,8 +31,8 @@ defmodule Ryker.Publication.Followups.Leases do
   end
 
   def next_due_at(%DateTime{} = since) do
-    polls = Repo.one(FollowupQuery.next_due_after(since))
-    deliveries = Repo.one(LifecycleEventQuery.next_due_after(since))
+    polls = Repo.one(Followup.Query.next_due_after(since))
+    deliveries = Repo.one(LifecycleEvent.Query.next_due_after(since))
 
     UTCDateTime.earliest(polls ++ deliveries)
   end
@@ -76,8 +76,8 @@ defmodule Ryker.Publication.Followups.Leases do
 
     query =
       publication_ref
-      |> FollowupQuery.for_publication_ref()
-      |> FollowupQuery.lock_for_update()
+      |> Followup.Query.for_publication_ref()
+      |> Followup.Query.lock_for_update()
 
     case Repo.one(query) do
       nil ->
@@ -108,12 +108,12 @@ defmodule Ryker.Publication.Followups.Leases do
     now = Repo.now!()
 
     query =
-      FollowupQuery.pollable()
-      |> FollowupQuery.due_unleased_at(now)
-      |> FollowupQuery.oldest_due_first()
-      |> FollowupQuery.limit_to(1)
-      |> FollowupQuery.select_with_publications()
-      |> FollowupQuery.lock_next_free()
+      Followup.Query.pollable()
+      |> Followup.Query.due_unleased_at(now)
+      |> Followup.Query.oldest_due_first()
+      |> Followup.Query.limit_to(1)
+      |> Followup.Query.select_with_publications()
+      |> Followup.Query.lock_next_free()
 
     case Repo.one(query) do
       nil ->
@@ -141,11 +141,11 @@ defmodule Ryker.Publication.Followups.Leases do
     now = Repo.now!()
 
     query =
-      LifecycleEventQuery.pending()
-      |> LifecycleEventQuery.due_unleased_at(now)
-      |> LifecycleEventQuery.oldest_first()
-      |> LifecycleEventQuery.limit_to(1)
-      |> LifecycleEventQuery.lock_next_free()
+      LifecycleEvent.Query.pending()
+      |> LifecycleEvent.Query.due_unleased_at(now)
+      |> LifecycleEvent.Query.oldest_first()
+      |> LifecycleEvent.Query.limit_to(1)
+      |> LifecycleEvent.Query.lock_next_free()
 
     case Repo.one(query) do
       nil ->

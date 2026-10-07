@@ -1,12 +1,12 @@
 defmodule Ryker.Learning.Rebuilds do
   @moduledoc "Explicit, source-only repair of an unavailable topic under the existing learning budget."
   alias Ryker.Continuity
-  alias Ryker.Ingress.Inbox.EntryQuery
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge
-  alias Ryker.Knowledge.{ConversationKnowledgeQuery, KnowledgeSourceQuery}
+  alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeSource}
   alias Ryker.Learning
-  alias Ryker.Learning.{Batch, Batches, BatchQuery, LearningSources, Observations}
-  alias Ryker.Learning.{RebuildSourceQuery, Runtime}
+  alias Ryker.Learning.{Batch, Batches, LearningSources, Observations}
+  alias Ryker.Learning.{RebuildSource, Runtime}
   alias Ryker.Repo
 
   @page_size 20
@@ -14,12 +14,12 @@ defmodule Ryker.Learning.Rebuilds do
 
   def preview(id, options) do
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         {:ok, topic} <- Repo.fetch(ConversationKnowledgeQuery.by_id(id)),
+         {:ok, topic} <- Repo.fetch(ConversationKnowledge.Query.by_id(id)),
          {:ok, scope} <- scope(topic) do
       query = source_query(topic)
       any_sources = Repo.exists?(query)
       search = options |> Map.get(:q, "") |> String.slice(0, 200)
-      selected = RebuildSourceQuery.mentioning(query, search)
+      selected = RebuildSource.Query.mentioning(query, search)
       total = Repo.aggregate(selected, :count)
       pages = max(1, div(total + @page_size - 1, @page_size))
       page = min(max(Map.get(options, :page, 1), 1), pages)
@@ -29,9 +29,9 @@ defmodule Ryker.Learning.Rebuilds do
 
       entries =
         selected
-        |> RebuildSourceQuery.latest_said_first()
-        |> RebuildSourceQuery.page(page, @page_size)
-        |> RebuildSourceQuery.select_observations_and_entries()
+        |> RebuildSource.Query.latest_said_first()
+        |> RebuildSource.Query.page(page, @page_size)
+        |> RebuildSource.Query.select_observations_and_entries()
         |> Repo.all()
         |> Enum.map(fn {observation, entry} -> entry_view(topic, observation, entry) end)
 
@@ -103,10 +103,10 @@ defmodule Ryker.Learning.Rebuilds do
   end
 
   defp suggested?(topic, observation),
-    do: Repo.exists?(KnowledgeSourceQuery.direct_near(topic.id, observation))
+    do: Repo.exists?(KnowledgeSource.Query.direct_near(topic.id, observation))
 
   defp source_query(topic),
-    do: RebuildSourceQuery.of_topic(topic, LearningSources.retention_seconds())
+    do: RebuildSource.Query.of_topic(topic, LearningSources.retention_seconds())
 
   def selections(value) when is_list(value) and length(value) in 1..16 do
     if Enum.all?(value, &selection?/1) and
@@ -172,7 +172,7 @@ defmodule Ryker.Learning.Rebuilds do
   @doc false
   def reselect_in_transaction(id, expected_budget_version, expected_target, selected) do
     Batches.lock_queue!()
-    batch = id |> BatchQuery.by_id() |> BatchQuery.lock_for_update() |> Repo.one()
+    batch = id |> Batch.Query.by_id() |> Batch.Query.lock_for_update() |> Repo.one()
 
     unless batch && batch.rebuild_target_id && batch.status in @terminal &&
              batch.budget_version == expected_budget_version,
@@ -214,7 +214,7 @@ defmodule Ryker.Learning.Rebuilds do
   end
 
   defp target!(id, version, generation) do
-    topic = Repo.one(ConversationKnowledgeQuery.by_id(id)) || Repo.rollback(:knowledge_not_found)
+    topic = Repo.one(ConversationKnowledge.Query.by_id(id)) || Repo.rollback(:knowledge_not_found)
     destination = destination(topic)
 
     unless Knowledge.lock_scope_in_transaction(destination, topic.repository_ref) == :ok,
@@ -222,8 +222,8 @@ defmodule Ryker.Learning.Rebuilds do
 
     topic =
       id
-      |> ConversationKnowledgeQuery.by_id()
-      |> ConversationKnowledgeQuery.lock_for_update()
+      |> ConversationKnowledge.Query.by_id()
+      |> ConversationKnowledge.Query.lock_for_update()
       |> Repo.one!()
 
     {:ok, scope} = scope(topic)
@@ -243,16 +243,16 @@ defmodule Ryker.Learning.Rebuilds do
 
     entries =
       ids
-      |> EntryQuery.by_ids()
-      |> EntryQuery.ordered_by_id()
-      |> EntryQuery.lock_for_share()
+      |> Entry.Query.by_ids()
+      |> Entry.Query.ordered_by_id()
+      |> Entry.Query.lock_for_share()
       |> Repo.all()
 
     current =
       topic
       |> source_query()
-      |> RebuildSourceQuery.by_entry_ids(ids)
-      |> RebuildSourceQuery.select_entry_ids()
+      |> RebuildSource.Query.by_entry_ids(ids)
+      |> RebuildSource.Query.select_entry_ids()
       |> Repo.all()
 
     unless Enum.sort(current) == Enum.sort(ids) and length(entries) == length(ids),
@@ -284,7 +284,7 @@ defmodule Ryker.Learning.Rebuilds do
   def inputs(%Batch{} = batch) do
     ids = Enum.map(batch.rebuild_selection, & &1["source_input_id"])
 
-    case Repo.one(ConversationKnowledgeQuery.by_id(batch.rebuild_target_id)) do
+    case Repo.one(ConversationKnowledge.Query.by_id(batch.rebuild_target_id)) do
       nil ->
         []
 
@@ -292,9 +292,9 @@ defmodule Ryker.Learning.Rebuilds do
         entries =
           topic
           |> source_query()
-          |> RebuildSourceQuery.by_entry_ids(ids)
-          |> RebuildSourceQuery.oldest_received_first()
-          |> RebuildSourceQuery.select_entries()
+          |> RebuildSource.Query.by_entry_ids(ids)
+          |> RebuildSource.Query.oldest_received_first()
+          |> RebuildSource.Query.select_entries()
           |> Repo.all()
 
         if length(entries) == length(ids) and Enum.all?(entries, &selected_revision?(&1, batch)),
@@ -347,7 +347,7 @@ defmodule Ryker.Learning.Rebuilds do
   def authorize_run(%{rebuild: nil}), do: :ok
 
   def authorize_run(run) do
-    batch = Repo.one(BatchQuery.by_id(run.batch_id))
+    batch = Repo.one(Batch.Query.by_id(run.batch_id))
 
     if batch && contract(batch) == run.rebuild && batch.budget_version == run.batch_budget_version do
       _topic =
@@ -369,22 +369,22 @@ defmodule Ryker.Learning.Rebuilds do
   end
 
   defp outstanding?(topic, mode \\ nil),
-    do: topic |> matching_batches(mode) |> BatchQuery.with_unstopped_run() |> Repo.exists?()
+    do: topic |> matching_batches(mode) |> Batch.Query.with_unstopped_run() |> Repo.exists?()
 
   defp busy?(topic, except, mode \\ nil) do
     query = matching_batches(topic, mode)
-    query = if except, do: BatchQuery.excluding_id(query, except), else: query
-    Repo.exists?(BatchQuery.active(query))
+    query = if except, do: Batch.Query.excluding_id(query, except), else: query
+    Repo.exists?(Batch.Query.active(query))
   end
 
   defp matching_batches(topic, mode) do
-    query = BatchQuery.in_conversation(topic.transport, topic.conversation_ref)
-    if mode, do: BatchQuery.with_execution_mode(query, mode), else: query
+    query = Batch.Query.in_conversation(topic.transport, topic.conversation_ref)
+    if mode, do: Batch.Query.with_execution_mode(query, mode), else: query
   end
 
   defp existing(id, generation, lock \\ nil) do
-    query = BatchQuery.rebuilding(id, generation)
-    query = if lock, do: BatchQuery.lock_for_update(query), else: query
+    query = Batch.Query.rebuilding(id, generation)
+    query = if lock, do: Batch.Query.lock_for_update(query), else: query
     Repo.one(query)
   end
 

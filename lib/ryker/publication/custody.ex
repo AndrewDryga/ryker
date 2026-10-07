@@ -11,17 +11,16 @@ defmodule Ryker.Publication.Custody do
   request's topics too.
   """
 
-  alias Ecto.Changeset
-  alias Ryker.CoopFleet.WorkspaceCheckpointTransferQuery
+  alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Delivery.Request
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
-  alias Ryker.Publication.{Card, Changeset, ConflictReceipt, FixLoop, FollowupQuery, Followups}
-  alias Ryker.Publication.{GateOutput, Publication, PublicationQuery, Receipt, Review}
+  alias Ryker.Episodes.Episode
+  alias Ryker.Publication.{Card, ConflictReceipt, FixLoop, Followup, Followups}
+  alias Ryker.Publication.{GateOutput, Publication, Receipt, Review}
   alias Ryker.Records
-  alias Ryker.Records.{CardDelivery, Record, RecordQuery}
+  alias Ryker.Records.{CardDelivery, Record}
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{DeliveryReceipt, OperationKeys, Session, SessionQuery, Turn, TurnQuery}
+  alias Ryker.Work.{DeliveryReceipt, OperationKeys, Session, Turn}
 
   @claimable [:review_pending, :review_ready, :publish_pending, :published_ready]
   @checkpointed_candidate ~w(repository_ref base_revision committed_revision candidate_tree_sha256)
@@ -87,14 +86,14 @@ defmodule Ryker.Publication.Custody do
   def ensure_task_review_in_transaction(_episode, _session, _turn), do: :ok
 
   defp confirmed_task_readiness(episode, turn, task_ref),
-    do: Repo.one(RecordQuery.task_readiness(episode.id, turn.id, task_ref))
+    do: Repo.one(Record.Query.task_readiness(episode.id, turn.id, task_ref))
 
   defp episode_publication(episode_id) do
     episode_id
-    |> PublicationQuery.by_episode_id()
-    |> PublicationQuery.newest_first()
-    |> PublicationQuery.limit_to(1)
-    |> PublicationQuery.lock_for_update()
+    |> Publication.Query.by_episode_id()
+    |> Publication.Query.newest_first()
+    |> Publication.Query.limit_to(1)
+    |> Publication.Query.lock_for_update()
     |> Repo.one()
   end
 
@@ -157,8 +156,8 @@ defmodule Ryker.Publication.Custody do
   defp ended_pull_request(%Publication{status: :published} = publication) do
     ended? =
       publication.id
-      |> FollowupQuery.by_publication_id()
-      |> FollowupQuery.ended()
+      |> Followup.Query.by_publication_id()
+      |> Followup.Query.ended()
       |> Repo.exists?()
 
     # The remote identity is whole or absent (`episode_publication_remote_identity_valid`).
@@ -186,7 +185,7 @@ defmodule Ryker.Publication.Custody do
          %Turn{} = turn
        ) do
     with {:ok, armed_id} <- Ecto.UUID.cast(armed_id),
-         %Turn{} = armed <- Repo.one(TurnQuery.by_id(armed_id)),
+         %Turn{} = armed <- Repo.one(Turn.Query.by_id(armed_id)),
          %{} = published <- checkpointed_candidate(armed) do
       published == checkpointed_candidate(turn)
     else
@@ -200,7 +199,7 @@ defmodule Ryker.Publication.Custody do
   defp checkpointed_candidate(%Turn{} = turn) do
     turn
     |> OperationKeys.checkpoint()
-    |> WorkspaceCheckpointTransferQuery.latest_descriptor()
+    |> WorkspaceCheckpointTransfer.Query.latest_descriptor()
     |> Repo.one()
     |> case do
       %{} = descriptor ->
@@ -269,7 +268,7 @@ defmodule Ryker.Publication.Custody do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> PublicationQuery.next_due_after(@claimable)
+    |> Publication.Query.next_due_after(@claimable)
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -984,7 +983,7 @@ defmodule Ryker.Publication.Custody do
     id = Ecto.UUID.generate()
 
     publication =
-      Changeset.insert(%{
+      Publication.Changeset.insert(%{
         body: record.payload["body"],
         destination_conversation_ref: episode.destination_conversation_ref,
         destination_thread_ref: attributes.target.thread_ref || attributes.target.message_ref,
@@ -1016,13 +1015,13 @@ defmodule Ryker.Publication.Custody do
 
   defp publication_for_record(record_ref) do
     record_ref
-    |> PublicationQuery.for_record_ref()
-    |> PublicationQuery.lock_for_update()
+    |> Publication.Query.for_record_ref()
+    |> Publication.Query.lock_for_update()
     |> Repo.one()
   end
 
   defp delivered_offer(record_ref) do
-    case Repo.one(RecordQuery.publication_offer(record_ref)) do
+    case Repo.one(Record.Query.publication_offer(record_ref)) do
       {%Record{} = record, %Episode{} = episode, %Turn{status: :settled} = turn,
        %Session{} = session} ->
         {:ok, record, episode, turn, session}
@@ -1077,7 +1076,7 @@ defmodule Ryker.Publication.Custody do
   defp claim_next_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    case Repo.one(PublicationQuery.next_claimable(now, @claimable, @publication_conflicts)) do
+    case Repo.one(Publication.Query.next_claimable(now, @claimable, @publication_conflicts)) do
       nil ->
         nil
 
@@ -1094,10 +1093,10 @@ defmodule Ryker.Publication.Custody do
   Every publication a worker may lease at `now`, with its session; readiness
   counts these (`Ryker.Observability.Queues`).
   """
-  def claimable(now), do: PublicationQuery.claimable_at(now, @claimable, @publication_conflicts)
+  def claimable(now), do: Publication.Query.claimable_at(now, @claimable, @publication_conflicts)
 
   defp working_on_turn?(episode_id),
-    do: episode_id |> EpisodeQuery.by_id() |> EpisodeQuery.working_on_turns() |> Repo.exists?()
+    do: episode_id |> Episode.Query.by_id() |> Episode.Query.working_on_turns() |> Repo.exists?()
 
   defp lease_publication(publication, session, worker_ref, lease_seconds, now) do
     lease_ref = "publication-lease:#{Ecto.UUID.generate()}"
@@ -1255,7 +1254,7 @@ defmodule Ryker.Publication.Custody do
   # name a different repository and there is no authority left to carry.
   defp draft_grant(%Publication{episode_id: episode_id, repository: repository})
        when is_binary(episode_id) and is_binary(repository) do
-    Repo.one(RecordQuery.task_grant(episode_id, repository))
+    Repo.one(Record.Query.task_grant(episode_id, repository))
   end
 
   defp draft_grant(_publication), do: nil
@@ -1367,8 +1366,8 @@ defmodule Ryker.Publication.Custody do
 
   defp lock_publication(publication_ref) do
     publication_ref
-    |> PublicationQuery.by_ref()
-    |> PublicationQuery.lock_for_update()
+    |> Publication.Query.by_ref()
+    |> Publication.Query.lock_for_update()
     |> Repo.one()
   end
 
@@ -1433,7 +1432,7 @@ defmodule Ryker.Publication.Custody do
     do: {:error, :publication_review_job_mismatch}
 
   defp session(session_id) do
-    case Repo.one(SessionQuery.by_id(session_id)) do
+    case Repo.one(Session.Query.by_id(session_id)) do
       %Session{coop_session_id: coop_session_id} = session when is_binary(coop_session_id) ->
         {:ok, session}
 
@@ -1449,13 +1448,13 @@ defmodule Ryker.Publication.Custody do
   defp update!(publication, %{lease_expires_at: _expiry} = attributes, now)
        when map_size(attributes) == 1 do
     publication
-    |> Changeset.update(Map.put(attributes, :updated_at, now))
+    |> Publication.Changeset.update(Map.put(attributes, :updated_at, now))
     |> Repo.update!()
   end
 
   defp update!(publication, attributes, now) do
     publication
-    |> Changeset.update(Map.put(attributes, :updated_at, now))
+    |> Publication.Changeset.update(Map.put(attributes, :updated_at, now))
     |> Repo.update!()
     |> tap(&broadcast_publication_updated/1)
   end
@@ -1582,8 +1581,8 @@ defmodule Ryker.Publication.Custody do
 
   defp episode_of_publication(publication_id) do
     publication_id
-    |> PublicationQuery.by_id()
-    |> PublicationQuery.select_episode_ids()
+    |> Publication.Query.by_id()
+    |> Publication.Query.select_episode_ids()
     |> Repo.one()
   end
 

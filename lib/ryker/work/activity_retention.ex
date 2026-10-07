@@ -1,17 +1,17 @@
 defmodule Ryker.Work.ActivityRetention do
   @moduledoc "Operational evidence expires with its owner; immutable replay identity survives."
-  alias Ryker.Ingress.Inbox.EntryQuery
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Work.{ActivityEventQuery, TurnQuery}
+  alias Ryker.Work.{ActivityEvent, Turn}
 
   def context(%{admission_input_id: id}) when is_binary(id),
     do: %{
-      all: id |> EntryQuery.by_id() |> EntryQuery.select_pruned_at() |> Repo.one(),
+      all: id |> Entry.Query.by_id() |> Entry.Query.select_pruned_at() |> Repo.one(),
       turns: %{}
     }
 
   def context(session) do
-    turns = session.id |> TurnQuery.by_session_id() |> TurnQuery.select_pruning() |> Repo.all()
+    turns = session.id |> Turn.Query.by_session_id() |> Turn.Query.select_pruning() |> Repo.all()
 
     all =
       session.cleanup_status == :discarded && turns != [] &&
@@ -28,8 +28,8 @@ defmodule Ryker.Work.ActivityRetention do
 
   def prune do
     1_000
-    |> ActivityEventQuery.prunable()
-    |> ActivityEventQuery.among()
+    |> ActivityEvent.Query.prunable()
+    |> ActivityEvent.Query.among()
     |> Repo.update_all(
       set: [payload: %{"retention" => "pruned"}, operational_pruned_at: DateTime.utc_now()]
     )

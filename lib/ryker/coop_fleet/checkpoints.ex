@@ -1,19 +1,17 @@
 defmodule Ryker.CoopFleet.Checkpoints do
   @moduledoc false
 
-  alias Ryker.CoopFleet.{Bodies, Bridge, Command, CommandQuery, ControlPlane, Placement}
-  alias Ryker.CoopFleet.PlacementQuery
+  alias Ryker.CoopFleet.{Bodies, Bridge, Command, ControlPlane, Placement}
   alias Ryker.CoopFleet.{WorkspaceCheckpoint, WorkspaceCheckpointBundle}
-  alias Ryker.CoopFleet.{WorkspaceCheckpointTransfer, WorkspaceCheckpointTransferChangeset}
-  alias Ryker.CoopFleet.WorkspaceCheckpointTransferQuery
+  alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.{Credentials, Repo, Secret}
   alias Ryker.Crypto
-  alias Ryker.Work.{RepositorySource, Session, SessionQuery}
+  alias Ryker.Work.{RepositorySource, Session}
 
   defp producer_command(key, session_id) do
     key
-    |> CommandQuery.by_idempotency_key()
-    |> CommandQuery.by_session_id(session_id)
+    |> Command.Query.by_idempotency_key()
+    |> Command.Query.by_session_id(session_id)
     |> Repo.one()
   end
 
@@ -115,7 +113,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
   defp store(_, _, _, _, _), do: {:error, :checkpoint_not_available}
 
   defp persist_transfer(prepared) do
-    changeset = WorkspaceCheckpointTransferChangeset.insert(prepared)
+    changeset = WorkspaceCheckpointTransfer.Changeset.insert(prepared)
 
     # The data and receipt have already been fsynced before the result was
     # acknowledged. Only metadata belongs in this short transaction.
@@ -127,7 +125,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
 
       saved =
         prepared.command_id
-        |> WorkspaceCheckpointTransferQuery.by_command_checkpoint(prepared.checkpoint_ref)
+        |> WorkspaceCheckpointTransfer.Query.by_command_checkpoint(prepared.checkpoint_ref)
         |> Repo.one!()
 
       if Map.take(saved, Map.keys(prepared) -- [:id]) != Map.delete(prepared, :id),
@@ -144,7 +142,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
         options
       ) do
     with %WorkspaceCheckpointTransfer{} = transfer <-
-           Repo.one(WorkspaceCheckpointTransferQuery.by_id(saved["transfer_id"])),
+           Repo.one(WorkspaceCheckpointTransfer.Query.by_id(saved["transfer_id"])),
          :ok <- restore_authority(command, transfer),
          :ok <-
            with_checkpoint(
@@ -186,10 +184,10 @@ defmodule Ryker.CoopFleet.Checkpoints do
     do: Credentials.redaction_values() |> Enum.filter(&(byte_size(&1) >= 8)) |> Secret.new()
 
   defp restore_authority(command, transfer) do
-    source_command = Repo.one(CommandQuery.by_id(transfer.command_id))
-    source = source_command && Repo.one(SessionQuery.by_id(source_command.session_id))
-    target = Repo.one(SessionQuery.by_id(command.session_id))
-    placement = Repo.one(PlacementQuery.by_id(command.placement_id))
+    source_command = Repo.one(Command.Query.by_id(transfer.command_id))
+    source = source_command && Repo.one(Session.Query.by_id(source_command.session_id))
+    target = Repo.one(Session.Query.by_id(command.session_id))
+    placement = Repo.one(Placement.Query.by_id(command.placement_id))
 
     if leased_placement?(placement, command) and same_source_sessions?(source, target) and
          command.payload["checkpoint"] == saved_checkpoint(transfer) do

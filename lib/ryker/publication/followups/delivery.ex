@@ -13,10 +13,10 @@ defmodule Ryker.Publication.Followups.Delivery do
 
   alias Ryker.Delivery.Request
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, EpisodeQuery}
+  alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Ingress.Input
   alias Ryker.Publication.Followups.{Leases, Store}
-  alias Ryker.Publication.{LifecycleEvent, Publication, PublicationQuery}
+  alias Ryker.Publication.{LifecycleEvent, Publication}
   alias Ryker.Repo
   alias Ryker.Work.{Custody, DeliveryReceipt}
 
@@ -28,7 +28,7 @@ defmodule Ryker.Publication.Followups.Delivery do
   end
 
   def delivery_request(%LifecycleEvent{delivery_state: :pending} = event) do
-    case Repo.one(PublicationQuery.by_id(event.publication_id)) do
+    case Repo.one(Publication.Query.by_id(event.publication_id)) do
       %Publication{} = publication -> publication_delivery_request(publication, event)
       nil -> {:error, :publication_not_found}
     end
@@ -63,8 +63,8 @@ defmodule Ryker.Publication.Followups.Delivery do
        do: event
 
   defp admit_wakeup_event(%LifecycleEvent{wakeup_state: :pending} = event, now) do
-    publication = Repo.one!(PublicationQuery.by_id(event.publication_id))
-    episode = Repo.one!(EpisodeQuery.by_id(event.episode_id))
+    publication = Repo.one!(Publication.Query.by_id(event.publication_id))
+    episode = Repo.one!(Episode.Query.by_id(event.episode_id))
     input = wakeup_input(publication, episode, event)
     command = admit_command(episode, input, event)
 
@@ -282,7 +282,7 @@ defmodule Ryker.Publication.Followups.Delivery do
           else: Repo.rollback(:publication_lifecycle_delivery_conflict)
 
       %LifecycleEvent{} = event ->
-        publication = Repo.one!(PublicationQuery.by_id(event.publication_id))
+        publication = Repo.one!(Publication.Query.by_id(event.publication_id))
 
         with :ok <- Leases.live_event_lease(event, lease_ref, now),
              :ok <- exact_delivery_receipt(event, publication, receipt) do

@@ -2,7 +2,7 @@ defmodule Ryker.Ingress.IndexCurrentMessageRevisionsMigrationTest do
   use Ryker.MigrationCase
   import Ecto.Query
   alias Ecto.Adapters.SQL
-  alias Ryker.ControlPlane.CurrentInputQuery
+  alias Ryker.ControlPlane.CurrentInput
   alias Ryker.Ingress.Inbox.Entry
 
   @version 20_261_006_120_000
@@ -18,7 +18,7 @@ defmodule Ryker.Ingress.IndexCurrentMessageRevisionsMigrationTest do
     current =
       from(entry in Entry,
         as: :revision,
-        inner_lateral_join: current in subquery(CurrentInputQuery.current()),
+        inner_lateral_join: current in subquery(CurrentInput.Query.current()),
         on: true,
         where: entry.id == ^Ecto.UUID.generate(),
         select: current.id

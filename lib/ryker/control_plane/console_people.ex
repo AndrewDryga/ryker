@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.ConsolePeople do
   with `local-operator` (or `control-plane:local`) in place of the person, and
   a page calls it "You", as before.
   """
-  alias Ryker.ControlPlane.{Actor, ConsolePerson, ConsolePersonQuery, PageRead}
+  alias Ryker.ControlPlane.{Actor, ConsolePerson, PageRead}
   alias Ryker.Repo
 
   @local %{name: "You", href: nil}
@@ -40,7 +40,7 @@ defmodule Ryker.ControlPlane.ConsolePeople do
       ConsolePerson,
       [%{login: login, name: name, inserted_at: now, updated_at: now}],
       conflict_target: :login,
-      on_conflict: ConsolePersonQuery.rename(name, now)
+      on_conflict: ConsolePerson.Query.rename(name, now)
     )
 
     :ok
@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.ConsolePeople do
   # are the few who sign in to the console.
   defp every_name do
     PageRead.memo({__MODULE__, :names}, fn ->
-      ConsolePersonQuery.select_names() |> Repo.all() |> Map.new()
+      ConsolePerson.Query.select_names() |> Repo.all() |> Map.new()
     end)
   end
 
@@ -95,8 +95,8 @@ defmodule Ryker.ControlPlane.ConsolePeople do
   def names(logins) do
     logins
     |> Enum.uniq()
-    |> ConsolePersonQuery.by_logins()
-    |> ConsolePersonQuery.select_names()
+    |> ConsolePerson.Query.by_logins()
+    |> ConsolePerson.Query.select_names()
     |> Repo.all()
     |> Map.new()
   end

@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Operator.FailureDismissals
   alias Ryker.Repo
-  alias Ryker.Schedules.ScheduleOccurrenceChangeset
+  alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Slack.Input
   alias Ryker.Slack.Names
   alias Ryker.Work.Custody
@@ -669,7 +669,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
       scheduled_for: DateTime.utc_now(),
       status: :dispatched
     }
-    |> ScheduleOccurrenceChangeset.insert()
+    |> ScheduleOccurrence.Changeset.insert()
     |> Repo.insert!()
 
     assert %{title: "Weekday open incident status"} =

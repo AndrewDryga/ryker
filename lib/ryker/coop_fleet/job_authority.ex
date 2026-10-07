@@ -3,12 +3,12 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Config
-  alias Ryker.CoopFleet.{CommandQuery, JobCheck, JobSpec, JobTemplates, ManagedSources}
-  alias Ryker.CoopFleet.PlacementQuery
+  alias Ryker.CoopFleet.{Command, JobCheck, JobSpec, JobTemplates, ManagedSources}
+  alias Ryker.CoopFleet.Placement
   alias Ryker.GitHub.RepositoryFiles
   alias Ryker.{Repo, Settings}
-  alias Ryker.Settings.{Environment, InstallationQuery}
-  alias Ryker.Work.{RepositoryContext, RepositorySource, Session, SessionChangeset, SessionQuery}
+  alias Ryker.Settings.{Environment, Installation}
+  alias Ryker.Work.{RepositoryContext, RepositorySource, Session}
 
   @identity ~w(id execution_kind generation create_generation external_ref policy policy_digest authority_digest repository_ref repository_context repository_source environment_ref workspace_task)a
 
@@ -161,7 +161,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   defp repin_locked(original, job, digest) do
     session =
-      original.id |> SessionQuery.by_id() |> SessionQuery.lock_for_update() |> Repo.one()
+      original.id |> Session.Query.by_id() |> Session.Query.lock_for_update() |> Repo.one()
 
     cond do
       is_nil(session) or Map.take(session, @identity) != Map.take(original, @identity) or
@@ -172,7 +172,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
         session
 
       true ->
-        session |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update!()
+        session |> Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
     end
   end
 
@@ -180,7 +180,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   # anywhere: the placements its failed creates took do not bind it. That was
   # the woken task's case, placed eight times and created none.
   defp uncreated(%Session{coop_session_id: nil, cleanup_status: :active} = session) do
-    live = Repo.exists?(CommandQuery.live_creates(session.id))
+    live = Repo.exists?(Command.Query.live_creates(session.id))
 
     if live, do: {:error, :coop_worker_job_requires_new_session}, else: :ok
   end
@@ -287,7 +287,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   """
   @spec prepared(Session.t()) :: {:ok, Session.t()} | {:error, term()}
   def prepared(%Session{id: id} = expected) when is_binary(id) do
-    case Repo.one(SessionQuery.by_id(id)) do
+    case Repo.one(Session.Query.by_id(id)) do
       %Session{} = saved ->
         cond do
           Map.take(saved, @identity) != Map.take(expected, @identity) ->
@@ -361,7 +361,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp cleanup_receipt?(_session, _remote), do: false
 
   defp stored_session(expected) do
-    case Repo.one(SessionQuery.by_id(expected.id)) do
+    case Repo.one(Session.Query.by_id(expected.id)) do
       %Session{} = saved ->
         if Map.take(saved, @identity) == Map.take(expected, @identity) and
              (is_nil(expected.worker_job_digest) or
@@ -518,10 +518,10 @@ defmodule Ryker.CoopFleet.JobAuthority do
     Repo.transaction(fn ->
       # Settings writers update this row in the same transaction as their
       # changes. A shared lock holds the checked revision through the pin.
-      installation = InstallationQuery.all() |> InstallationQuery.lock_for_share() |> Repo.one()
+      installation = Installation.Query.all() |> Installation.Query.lock_for_share() |> Repo.one()
 
       session =
-        original.id |> SessionQuery.by_id() |> SessionQuery.lock_for_update() |> Repo.one()
+        original.id |> Session.Query.by_id() |> Session.Query.lock_for_update() |> Repo.one()
 
       unless session && Map.take(session, @identity) == Map.take(original, @identity),
         do: Repo.rollback(:coop_worker_job_identity_changed)
@@ -541,7 +541,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
       do: Repo.rollback(:coop_worker_job_settings_changed)
 
     case unplaced(session) do
-      :ok -> session |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update!()
+      :ok -> session |> Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
       {:error, reason} -> Repo.rollback(reason)
     end
   end
@@ -563,7 +563,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   """
   @spec unstarted?(Session.t()) :: boolean()
   def unstarted?(%Session{coop_session_id: nil, cleanup_status: :active} = session),
-    do: not Repo.exists?(PlacementQuery.by_session_id(session.id))
+    do: not Repo.exists?(Placement.Query.by_session_id(session.id))
 
   def unstarted?(_session), do: false
 end

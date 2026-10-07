@@ -41,15 +41,15 @@ defmodule Ryker.LocalRouting do
   (`subscribe_comparisons/0`).
   """
 
-  alias Ryker.Accounting.ExecutionQuery
+  alias Ryker.Accounting.Execution
   alias Ryker.Admission
-  alias Ryker.Admission.{Attempt, AttemptQuery}
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Admission.Attempt
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.Observations
-  alias Ryker.LocalRouting.{Client, Comparison, ComparisonQuery, Verdict}
+  alias Ryker.LocalRouting.{Client, Comparison, Verdict}
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Settings.WorkQuery
+  alias Ryker.Settings.Work
   alias Ryker.UTCDateTime
 
   @topic "local_routing"
@@ -64,7 +64,7 @@ defmodule Ryker.LocalRouting do
   @doc "The saved setting; off before an installation has settings."
   @spec setting() :: setting()
   def setting do
-    Repo.one(WorkQuery.select_local_routing()) || %{mode: :off, endpoint: nil, model: nil}
+    Repo.one(Work.Query.select_local_routing()) || %{mode: :off, endpoint: nil, model: nil}
   end
 
   @doc """
@@ -113,8 +113,8 @@ defmodule Ryker.LocalRouting do
 
   defp prompted?(entry) do
     entry.id
-    |> AttemptQuery.for_generation(entry.execution_generation)
-    |> AttemptQuery.prompted()
+    |> Attempt.Query.for_generation(entry.execution_generation)
+    |> Attempt.Query.prompted()
     |> Repo.exists?()
   end
 
@@ -149,10 +149,10 @@ defmodule Ryker.LocalRouting do
     {:ok, claimed} =
       Repo.transaction(fn ->
         now
-        |> ComparisonQuery.due_at()
-        |> ComparisonQuery.oldest_first()
-        |> ComparisonQuery.limit_to(1)
-        |> ComparisonQuery.lock_next_free()
+        |> Comparison.Query.due_at()
+        |> Comparison.Query.oldest_first()
+        |> Comparison.Query.limit_to(1)
+        |> Comparison.Query.lock_next_free()
         |> Repo.one()
         |> case do
           nil ->
@@ -209,7 +209,7 @@ defmodule Ryker.LocalRouting do
         :ok = RoutingExamples.copy_lock_in_transaction()
 
         with :forgotten <- material(comparison) do
-          :ok = erase(ComparisonQuery.by_id(comparison.id))
+          :ok = erase(Comparison.Query.by_id(comparison.id))
           :forgotten
         end
       end)
@@ -223,10 +223,10 @@ defmodule Ryker.LocalRouting do
   # deleted anything it quotes.
   defp material(comparison) do
     with %Entry{status: :decided, operational_pruned_at: nil} = entry <-
-           Repo.one(EntryQuery.by_id(comparison.input_id)),
+           Repo.one(Entry.Query.by_id(comparison.input_id)),
          %{"action" => _action} = provider <- entry.decision_document,
          %Attempt{operational_pruned_at: nil, submission: %{} = submission} <-
-           Repo.one(AttemptQuery.for_generation(entry.id, comparison.generation)),
+           Repo.one(Attempt.Query.for_generation(entry.id, comparison.generation)),
          prompt when is_binary(prompt) <- submission["prompt"],
          schema when is_map(schema) <- submission["output_schema"],
          {:ok, context} <- Admission.decided_context(entry),
@@ -283,8 +283,8 @@ defmodule Ryker.LocalRouting do
     generation = Integer.to_string(comparison.generation)
 
     nil
-    |> ExecutionQuery.ledger("all")
-    |> ExecutionQuery.admission_call(comparison.input_id, generation)
+    |> Execution.Query.ledger("all")
+    |> Execution.Query.admission_call(comparison.input_id, generation)
     |> Repo.one()
     |> case do
       %{recorded: true, reported: %Decimal{} = cost} = call ->
@@ -351,7 +351,7 @@ defmodule Ryker.LocalRouting do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> ComparisonQuery.next_due_after()
+    |> Comparison.Query.next_due_after()
     |> Repo.one()
     |> List.wrap()
     |> UTCDateTime.earliest()
@@ -369,7 +369,7 @@ defmodule Ryker.LocalRouting do
   """
   @spec forget_in_transaction([String.t()], [String.t()]) :: :ok
   def forget_in_transaction(identities, keys) when is_list(identities) and is_list(keys) do
-    identities |> ComparisonQuery.from_sources_or_messages(keys) |> erase()
+    identities |> Comparison.Query.from_sources_or_messages(keys) |> erase()
   end
 
   @doc """
@@ -379,12 +379,12 @@ defmodule Ryker.LocalRouting do
   """
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
-    conversation_ref |> ComparisonQuery.quoting_conversation() |> erase()
+    conversation_ref |> Comparison.Query.quoting_conversation() |> erase()
   end
 
   # An erased comparison is gone, never asked and never counted.
   defp erase(query) do
-    {_count, input_ids} = query |> ComparisonQuery.select_input_ids() |> Repo.delete_all()
+    {_count, input_ids} = query |> Comparison.Query.select_input_ids() |> Repo.delete_all()
     input_ids |> Enum.uniq() |> Enum.each(&broadcast/1)
   end
 

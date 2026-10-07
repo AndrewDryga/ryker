@@ -13,11 +13,11 @@ defmodule Ryker.Admission.CandidateSearch do
   (test/ryker/admission/search_benchmark_test.exs) measures all of it.
   """
 
-  alias Ryker.Admission.{CandidateSearchQuery, CorrelationScope, Ranking}
-  alias Ryker.Episodes.{CorrelationClaims, Episode, EpisodeQuery, Origins, RoutingDigest}
+  alias Ryker.Admission.{CandidateSearch, CorrelationScope, Ranking}
+  alias Ryker.Episodes.{CorrelationClaims, Episode, Origins, RoutingDigest}
   alias Ryker.Episodes.RoutingDigests
   alias Ryker.Repo
-  alias Ryker.Work.SessionQuery
+  alias Ryker.Work.Session
 
   @lane_limit 50
   @pool_limit 200
@@ -139,7 +139,7 @@ defmodule Ryker.Admission.CandidateSearch do
   defp identity_lane(_request, _scope, []), do: []
 
   defp identity_lane(request, scope, anchors),
-    do: Repo.all(CandidateSearchQuery.identity_lane(request, scope, anchors, @lane_limit))
+    do: Repo.all(CandidateSearch.Query.identity_lane(request, scope, anchors, @lane_limit))
 
   defp thread_lane(%{thread_ref: nil}, _scope), do: []
 
@@ -147,13 +147,13 @@ defmodule Ryker.Admission.CandidateSearch do
   # of its inputs was posted in this thread.
   defp thread_lane(request, scope) do
     origin_ids = thread_origin_ids(request, scope)
-    Repo.all(CandidateSearchQuery.thread_lane(request, scope, origin_ids, @lane_limit))
+    Repo.all(CandidateSearch.Query.thread_lane(request, scope, origin_ids, @lane_limit))
   end
 
   defp thread_origin_ids(%{thread_ref: nil}, _scope), do: []
 
   defp thread_origin_ids(request, scope),
-    do: Repo.all(CandidateSearchQuery.thread_origin_ids(request, scope, @thread_origin_limit))
+    do: Repo.all(CandidateSearch.Query.thread_origin_ids(request, scope, @thread_origin_limit))
 
   # How much each word of the message says, by how rare it is in the work
   # that could be offered: the BM25 inverse document frequency of its
@@ -166,12 +166,12 @@ defmodule Ryker.Admission.CandidateSearch do
   defp word_weights(request, scope, words) do
     stems = stems(words)
     lexemes = stems |> Enum.flat_map(&elem(&1, 1)) |> Enum.uniq()
-    searchable = CandidateSearchQuery.searchable(request, scope)
+    searchable = CandidateSearch.Query.searchable(request, scope)
     total = Repo.aggregate(searchable, :count)
 
     counts =
       Map.new(lexemes, fn lexeme ->
-        {lexeme, Repo.aggregate(CandidateSearchQuery.with_lexeme(searchable, lexeme), :count)}
+        {lexeme, Repo.aggregate(CandidateSearch.Query.with_lexeme(searchable, lexeme), :count)}
       end)
 
     idf = Map.new(counts, fn {lexeme, count} -> {lexeme, idf(total, count)} end)
@@ -210,14 +210,20 @@ defmodule Ryker.Admission.CandidateSearch do
 
     top =
       request
-      |> CandidateSearchQuery.text_lane(scope, terms, {lexemes, idfs}, @field_weight, @lane_limit)
+      |> CandidateSearch.Query.text_lane(
+        scope,
+        terms,
+        {lexemes, idfs},
+        @field_weight,
+        @lane_limit
+      )
       |> Repo.all()
 
     episodes = episodes(Enum.map(top, &elem(&1, 0)))
     Enum.map(top, fn {id, matched} -> {Map.fetch!(episodes, id), min(matched / total, 1.0)} end)
   end
 
-  defp episodes(ids), do: ids |> EpisodeQuery.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
+  defp episodes(ids), do: ids |> Episode.Query.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
 
   defp quote_lexeme(lexeme), do: "'" <> String.replace(lexeme, "'", "''") <> "'"
 
@@ -229,7 +235,7 @@ defmodule Ryker.Admission.CandidateSearch do
        when is_list(vector) and is_binary(model) do
     top =
       request
-      |> CandidateSearchQuery.meaning_lane(scope, model, vector, @meaning_floor, @lane_limit)
+      |> CandidateSearch.Query.meaning_lane(scope, model, vector, @meaning_floor, @lane_limit)
       |> Repo.all()
 
     episodes = episodes(Enum.map(top, &elem(&1, 0)))
@@ -244,7 +250,7 @@ defmodule Ryker.Admission.CandidateSearch do
   defp similarities(%{meaning: %{vector: vector, model: model}}, ids)
        when is_list(vector) and ids != [] do
     ids
-    |> CandidateSearchQuery.similarities(model, vector)
+    |> CandidateSearch.Query.similarities(model, vector)
     |> Repo.all()
     |> Map.new()
   end
@@ -258,7 +264,7 @@ defmodule Ryker.Admission.CandidateSearch do
   defp meaning_receipt(_request), do: nil
 
   defp recent_active_lane(request, scope),
-    do: Repo.all(CandidateSearchQuery.recent_active_lane(request, scope, @lane_limit))
+    do: Repo.all(CandidateSearch.Query.recent_active_lane(request, scope, @lane_limit))
 
   defp pool(lanes, owner, request, anchor_weights, ranks) do
     anchors = Map.keys(anchor_weights)
@@ -328,7 +334,7 @@ defmodule Ryker.Admission.CandidateSearch do
   defp pinned_repositories([]), do: %{}
 
   defp pinned_repositories(episode_ids),
-    do: episode_ids |> SessionQuery.pinned_repositories() |> Repo.all() |> Map.new()
+    do: episode_ids |> Session.Query.pinned_repositories() |> Repo.all() |> Map.new()
 
   # How rare each of the message's links and identifiers is where it could belong, weighed as
   # words are: 1 for one only a single request names, falling as more do, and 0 once more than a
@@ -337,13 +343,13 @@ defmodule Ryker.Admission.CandidateSearch do
   defp anchor_weights(_request, _scope, []), do: %{}
 
   defp anchor_weights(request, scope, anchors) do
-    searchable = CandidateSearchQuery.searchable(request, scope)
+    searchable = CandidateSearch.Query.searchable(request, scope)
     total = Repo.aggregate(searchable, :count)
     common = max(@common_floor, total * @common_share)
 
     counts =
       searchable
-      |> CandidateSearchQuery.anchor_keys_sharing(anchors)
+      |> CandidateSearch.Query.anchor_keys_sharing(anchors)
       |> Repo.all()
       |> Enum.flat_map(&Enum.uniq/1)
       |> Enum.frequencies()

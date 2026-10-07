@@ -16,14 +16,14 @@ defmodule Ryker.Work.Custody.Turns do
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode, EpisodeQuery, RoutingDigests}
+  alias Ryker.Episodes.{Command, Episode, RoutingDigests}
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Repo
   alias Ryker.Waits.EventSubscriptions
-  alias Ryker.Work.{CandidateResponse, CandidateResponseQuery, FinalPreflight, Measurement}
+  alias Ryker.Work.{CandidateResponse, FinalPreflight, Measurement}
   alias Ryker.Work.Custody.{Claims, Delivery}
-  alias Ryker.Work.{OperationKeys, Result, Submission, Turn, TurnChangeset, ValidationIntent}
+  alias Ryker.Work.{OperationKeys, Result, Submission, Turn, ValidationIntent}
 
   @spec freeze_submission(Ecto.UUID.t(), String.t(), String.t(), Submission.t(), keyword()) ::
           {:ok, Turn.t()} | {:error, term()}
@@ -85,7 +85,7 @@ defmodule Ryker.Work.Custody.Turns do
         continuity_sha256 = Continuity.preflight_fingerprint_in_transaction(turn)
 
         turn
-        |> TurnChangeset.record_final_preflight(
+        |> Turn.Changeset.record_final_preflight(
           candidate_sha256,
           continuity_sha256,
           ledger_sha256,
@@ -137,7 +137,7 @@ defmodule Ryker.Work.Custody.Turns do
          artifact_refs
        ) do
     {_, turn} = leased!(episode_id, turn_ref, lease_ref)
-    episode = Repo.one!(EpisodeQuery.by_id(episode_id))
+    episode = Repo.one!(Episode.Query.by_id(episode_id))
 
     ledger_sha256 =
       FinalPreflight.ledger_sha256(
@@ -415,7 +415,7 @@ defmodule Ryker.Work.Custody.Turns do
     if completion_matches?(turn, receipt) and turn.status == :pending and
          is_nil(turn.cancellation_intent) and is_nil(turn.result_ref) do
       turn
-      |> TurnChangeset.record_completion(receipt)
+      |> Turn.Changeset.record_completion(receipt)
       |> Repo.update()
       |> unwrap_or_rollback(:work_completion_record)
     else
@@ -442,7 +442,7 @@ defmodule Ryker.Work.Custody.Turns do
     if completion_matches?(turn, receipt) and turn.status == :pending and
          is_nil(turn.cancellation_intent) and is_nil(turn.result_ref) do
       turn
-      |> TurnChangeset.block_completion(receipt, code, detail)
+      |> Turn.Changeset.block_completion(receipt, code, detail)
       |> Repo.update()
       |> unwrap_or_rollback(:work_completion_block)
     else
@@ -609,7 +609,7 @@ defmodule Ryker.Work.Custody.Turns do
 
   defp persist_remote_operation(turn, kind, operation_key, operation_revision) do
     turn
-    |> TurnChangeset.prepare_remote_operation(kind, operation_key, operation_revision)
+    |> Turn.Changeset.prepare_remote_operation(kind, operation_key, operation_revision)
     |> Repo.update()
     |> unwrap_or_rollback(:work_remote_operation)
   end
@@ -645,7 +645,7 @@ defmodule Ryker.Work.Custody.Turns do
       {:ok, _session, %Turn{submission: nil} = turn} ->
         frozen =
           turn
-          |> TurnChangeset.freeze(submission, fingerprint, evidence)
+          |> Turn.Changeset.freeze(submission, fingerprint, evidence)
           |> Repo.update()
           |> unwrap_or_rollback(:work_submission)
 
@@ -677,7 +677,7 @@ defmodule Ryker.Work.Custody.Turns do
 
       true ->
         turn
-        |> TurnChangeset.thaw()
+        |> Turn.Changeset.thaw()
         |> Repo.update()
         |> unwrap_or_rollback(:work_submission)
     end
@@ -700,7 +700,7 @@ defmodule Ryker.Work.Custody.Turns do
 
       is_nil(turn.state_tools_endpoint) and is_nil(turn.state_tools_token_sha256) ->
         turn
-        |> TurnChangeset.bind_state_tools(endpoint, token_sha256)
+        |> Turn.Changeset.bind_state_tools(endpoint, token_sha256)
         |> Repo.update()
         |> unwrap_or_rollback(:work_state_tools_binding)
 
@@ -736,7 +736,7 @@ defmodule Ryker.Work.Custody.Turns do
         turn = clear_remote_operation!(turn, :submit_turn, OperationKeys.turn(turn))
 
         turn
-        |> TurnChangeset.bind_coop_turn(coop_turn_id)
+        |> Turn.Changeset.bind_coop_turn(coop_turn_id)
         |> Repo.update()
         |> unwrap_or_rollback(:work_turn_binding)
 
@@ -768,7 +768,7 @@ defmodule Ryker.Work.Custody.Turns do
         turn = clear_remote_operation!(turn, :submit_turn, OperationKeys.turn(turn))
 
         turn
-        |> TurnChangeset.advance_submit(turn.submit_generation + 1)
+        |> Turn.Changeset.advance_submit(turn.submit_generation + 1)
         |> Repo.update()
         |> unwrap_or_rollback(:work_turn_submit_generation)
     end
@@ -816,7 +816,7 @@ defmodule Ryker.Work.Custody.Turns do
     # pruning. Record only these supplied bytes, never backfill an older cursor.
     bytes = byte_size(turn.candidate)
 
-    case Repo.one(CandidateResponseQuery.current_attempt(turn)) do
+    case Repo.one(CandidateResponse.Query.current_attempt(turn)) do
       nil ->
         Repo.insert!(%CandidateResponse{
           turn_id: turn.id,
@@ -874,7 +874,7 @@ defmodule Ryker.Work.Custody.Turns do
          attempt
        ) do
     turn
-    |> TurnChangeset.stage_candidate(body, sha, attempt)
+    |> Turn.Changeset.stage_candidate(body, sha, attempt)
     |> Repo.update()
     |> unwrap_or_rollback(:work_candidate)
   end
@@ -883,7 +883,7 @@ defmodule Ryker.Work.Custody.Turns do
        when turn.candidate_sha256 == expected_sha and turn.candidate_attempt == expected_attempt and
               attempt > expected_attempt do
     turn
-    |> TurnChangeset.replace_candidate(body, sha, attempt)
+    |> Turn.Changeset.replace_candidate(body, sha, attempt)
     |> Repo.update()
     |> unwrap_or_rollback(:work_candidate)
   end
@@ -921,7 +921,7 @@ defmodule Ryker.Work.Custody.Turns do
 
       true ->
         turn
-        |> TurnChangeset.advance_validation(turn.validation_generation + 1)
+        |> Turn.Changeset.advance_validation(turn.validation_generation + 1)
         |> Repo.update()
         |> unwrap_or_rollback(:work_validation_generation)
     end
@@ -964,7 +964,7 @@ defmodule Ryker.Work.Custody.Turns do
     case validation_intent_ready(intent) do
       :ok ->
         turn
-        |> TurnChangeset.prepare_validation(intent, fingerprint, Repo.now!())
+        |> Turn.Changeset.prepare_validation(intent, fingerprint, Repo.now!())
         |> Repo.update()
         |> unwrap_or_rollback(:work_validation_intent)
 
@@ -1007,7 +1007,7 @@ defmodule Ryker.Work.Custody.Turns do
            ),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          {:ok, turn} <-
-           persist_update(TurnChangeset.accept_result(turn, attributes), :work_result),
+           persist_update(Turn.Changeset.accept_result(turn, attributes), :work_result),
          :ok <-
            PublicationCustody.ensure_task_review_in_transaction(
              transition.episode,
@@ -1205,7 +1205,7 @@ defmodule Ryker.Work.Custody.Turns do
         key
       ) do
     turn
-    |> TurnChangeset.clear_remote_operation()
+    |> Turn.Changeset.clear_remote_operation()
     |> Repo.update()
     |> unwrap_or_rollback(:work_remote_operation)
   end

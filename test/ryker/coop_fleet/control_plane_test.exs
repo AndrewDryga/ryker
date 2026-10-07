@@ -14,8 +14,8 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.StateTools.Binding
-  alias Ryker.Work.{ActivityEvent, Custody, Session, SessionChangeset, StateBinding}
-  alias Ryker.Work.{Cancellation, TurnChangeset}
+  alias Ryker.Work.{ActivityEvent, Custody, Session, StateBinding}
+  alias Ryker.Work.{Cancellation, Turn}
 
   @authority_digest String.duplicate("d", 64)
   @policy_digest String.duplicate("b", 64)
@@ -788,7 +788,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert {:ok, intent} = Cancellation.new_block("placement lease ended")
 
     turn
-    |> TurnChangeset.prepare_cancellation(
+    |> Turn.Changeset.prepare_cancellation(
       intent,
       Cancellation.fingerprint(intent),
       nil
@@ -1818,7 +1818,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     placement.session_id
     |> then(&Repo.get!(Session, &1))
-    |> SessionChangeset.bind_workspace_task(workspace_task)
+    |> Session.Changeset.bind_workspace_task(workspace_task)
     |> Repo.update!()
 
     now = Repo.now!() |> DateTime.to_iso8601()
@@ -2229,7 +2229,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     # replacement pinned to a different source may never be seeded from it.
     moved =
       Repo.insert!(
-        SessionChangeset.insert(
+        Session.Changeset.insert(
           Ecto.UUID.generate(),
           session.episode_id,
           2,

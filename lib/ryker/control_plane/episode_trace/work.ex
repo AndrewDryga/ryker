@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   """
 
   import Ryker.ControlPlane.EpisodeTrace.Step
-  alias Ryker.CoopFleet.EventQuery, as: CoopEventQuery
+  alias Ryker.CoopFleet.Event, as: CoopEvent
   alias Ryker.Delivery.ChatCard
   alias Ryker.InspectionRedactor
   alias Ryker.Records.Record
@@ -299,10 +299,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     session_ids = Enum.map(sessions, & &1.id)
 
     session_ids
-    |> CoopEventQuery.of_sessions()
-    |> CoopEventQuery.excluding_kind("session_event")
-    |> CoopEventQuery.in_order()
-    |> CoopEventQuery.limit_to(500)
+    |> CoopEvent.Query.of_sessions()
+    |> CoopEvent.Query.excluding_kind("session_event")
+    |> CoopEvent.Query.in_order()
+    |> CoopEvent.Query.limit_to(500)
     |> Repo.all()
     |> Enum.map(fn event ->
       step(

@@ -9,7 +9,7 @@ defmodule Ryker.Episodes.Origins do
   are told apart from the retained identities alone.
   """
 
-  alias Ryker.Episodes.{Episode, Event, Origin, OriginQuery}
+  alias Ryker.Episodes.{Episode, Event, Origin}
   alias Ryker.Repo
 
   @type destination :: %{
@@ -95,7 +95,7 @@ defmodule Ryker.Episodes.Origins do
   """
   @spec for_episode(Ecto.UUID.t()) :: [Origin.t()]
   def for_episode(episode_id) do
-    episode_id |> OriginQuery.by_episode_id() |> OriginQuery.in_occurrence_order() |> Repo.all()
+    episode_id |> Origin.Query.by_episode_id() |> Origin.Query.in_occurrence_order() |> Repo.all()
   end
 
   @doc """
@@ -109,7 +109,7 @@ defmodule Ryker.Episodes.Origins do
   """
   @spec person_participated?(Ecto.UUID.t()) :: boolean()
   def person_participated?(episode_id) when is_binary(episode_id) do
-    episode_id |> OriginQuery.by_episode_id() |> OriginQuery.from_people() |> Repo.exists?()
+    episode_id |> Origin.Query.by_episode_id() |> Origin.Query.from_people() |> Repo.exists?()
   end
 
   def person_participated?(_episode_id), do: false
@@ -134,7 +134,7 @@ defmodule Ryker.Episodes.Origins do
   @spec current_owner(String.t(), String.t(), :live | :shadow) ::
           {Episode.t(), pos_integer()} | nil
   def current_owner(native_input_id, transport, execution_mode) do
-    native_input_id |> OriginQuery.current_owner(transport, execution_mode) |> Repo.one()
+    native_input_id |> Origin.Query.current_owner(transport, execution_mode) |> Repo.one()
   end
 
   defp origin_kind("slack", source_item_ref, thread_ref)

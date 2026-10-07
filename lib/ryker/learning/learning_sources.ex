@@ -2,12 +2,12 @@ defmodule Ryker.Learning.LearningSources do
   @moduledoc "Bounded, host-owned source receipts carried across derived conversation memory."
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Config
-  alias Ryker.Continuity.{ConversationRollupQuery, ConversationSummaryQuery}
-  alias Ryker.Episodes.{Event, EventQuery}
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
-  alias Ryker.Knowledge.KnowledgeRevisionQuery
-  alias Ryker.Learning.{ConversationObservationQuery, Observations, SourceDependencyQuery}
-  alias Ryker.Publication.{LifecycleEvent, LifecycleEventQuery}
+  alias Ryker.Continuity.{ConversationRollup, ConversationSummary}
+  alias Ryker.Episodes.Event
+  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Learning.{ConversationObservation, Observations, SourceDependency}
+  alias Ryker.Publication.LifecycleEvent
 
   @maximum_sources 10_000
   @maximum_bytes 8 * 1_024 * 1_024
@@ -156,17 +156,17 @@ defmodule Ryker.Learning.LearningSources do
   def sourced?(_), do: false
 
   @doc "Exclude receiptless derived prose before bounded recall and compaction selection."
-  def sourced(query), do: SourceDependencyQuery.sourced(query)
+  def sourced(query), do: SourceDependency.Query.sourced(query)
 
   @doc "Filter inherited source eligibility before recall limits; locked validation still follows."
   def eligible(query, scope),
-    do: SourceDependencyQuery.eligible(query, scope, retention_seconds(), @utc_timestamp_pattern)
+    do: SourceDependency.Query.eligible(query, scope, retention_seconds(), @utc_timestamp_pattern)
 
   defp future_inputs_absent?(roots, %{input_boundary: _} = scope) do
     roots
     |> CanonicalJSON.encode!()
-    |> SourceDependencyQuery.roots()
-    |> SourceDependencyQuery.without_future_inputs(scope)
+    |> SourceDependency.Query.roots()
+    |> SourceDependency.Query.without_future_inputs(scope)
     |> Repo.exists?()
   end
 
@@ -202,7 +202,7 @@ defmodule Ryker.Learning.LearningSources do
 
   def for_entry(entry) do
     identity = Observations.source_identity(entry)
-    source = Repo.one(ConversationObservationQuery.by_identity(identity))
+    source = Repo.one(ConversationObservation.Query.by_identity(identity))
 
     case source do
       %{source_result_ref: "source-conflict:" <> _} ->
@@ -222,7 +222,7 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   def for_source(source) do
-    existing = Repo.one(ConversationObservationQuery.by_identity(source.identity_key))
+    existing = Repo.one(ConversationObservation.Query.by_identity(source.identity_key))
 
     source = if existing, do: %{source | id: existing.id}, else: source
 
@@ -322,7 +322,7 @@ defmodule Ryker.Learning.LearningSources do
         "native_input_id" => native
       })
 
-    with %{} = source <- Repo.one(ConversationObservationQuery.by_identity(identity)),
+    with %{} = source <- Repo.one(ConversationObservation.Query.by_identity(identity)),
          true <- source.revision == revision,
          true <- source_payload_matches?(source, document, content) do
       [receipt(source)]
@@ -338,7 +338,7 @@ defmodule Ryker.Learning.LearningSources do
          document,
          _content
        ) do
-    case get_uuid(&LifecycleEventQuery.by_id/1, id) do
+    case get_uuid(&LifecycleEvent.Query.by_id/1, id) do
       %LifecycleEvent{kind: :review_feedback, observation: observation} ->
         fields = ~w(source native_input_id revision event_kind content)
         Map.take(observation, fields) == Map.take(document, fields)
@@ -355,7 +355,7 @@ defmodule Ryker.Learning.LearningSources do
     do: false
 
   defp source_payload_matches?(source, document, content) do
-    case Repo.one(EntryQuery.by_id(source.source_input_id)) do
+    case Repo.one(Entry.Query.by_id(source.source_input_id)) do
       %Entry{content: ^content, event_kind: kind} ->
         Atom.to_string(kind) == document["event_kind"]
 
@@ -476,7 +476,7 @@ defmodule Ryker.Learning.LearningSources do
   defp work_document_sources(
          %{"source_event_id" => id, "source_dependencies" => _sources} = document
        ) do
-    case get_uuid(&EventQuery.by_id/1, id) do
+    case get_uuid(&Event.Query.by_id/1, id) do
       %Event{kind: :input_admitted} = event ->
         exact_work_sources(document, event, for_work_input(event.payload["payload"]))
 
@@ -505,7 +505,7 @@ defmodule Ryker.Learning.LearningSources do
       do: nil
 
   def document_sources(%{"source_ref" => "observation:" <> id} = document) do
-    case get_uuid(&ConversationObservationQuery.by_id/1, id) do
+    case get_uuid(&ConversationObservation.Query.by_id/1, id) do
       %{note: note, source_dependencies: sources} = source when is_map(note) ->
         # Navigation is a host projection, not the original's custody receipt.
         # Keep exact content/identity checks across reader availability changes.
@@ -530,10 +530,10 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   def document_sources(%{"source_ref" => "continuity:" <> id} = document),
-    do: summary_sources(get_uuid(&ConversationSummaryQuery.by_id/1, id), document)
+    do: summary_sources(get_uuid(&ConversationSummary.Query.by_id/1, id), document)
 
   def document_sources(%{"source_ref" => "continuity-rollup:" <> _} = document) do
-    summary_sources(Repo.one(ConversationRollupQuery.by_ref(document["source_ref"])), document)
+    summary_sources(Repo.one(ConversationRollup.Query.by_ref(document["source_ref"])), document)
   end
 
   # A new source-backed document must implement custody before it can be shown.
@@ -543,8 +543,8 @@ defmodule Ryker.Learning.LearningSources do
 
   defp knowledge_revision(id, version) do
     id
-    |> KnowledgeRevisionQuery.by_knowledge_id()
-    |> KnowledgeRevisionQuery.by_version(version)
+    |> KnowledgeRevision.Query.by_knowledge_id()
+    |> KnowledgeRevision.Query.by_version(version)
   end
 
   # The row `by_id` finds for `id`, or nil when there is none or `id` is no UUID.
@@ -568,9 +568,9 @@ defmodule Ryker.Learning.LearningSources do
 
       notes =
         ids
-        |> ConversationObservationQuery.by_ids()
-        |> ConversationObservationQuery.ordered_by_id()
-        |> ConversationObservationQuery.lock_for_share()
+        |> ConversationObservation.Query.by_ids()
+        |> ConversationObservation.Query.ordered_by_id()
+        |> ConversationObservation.Query.lock_for_share()
         |> Repo.all()
 
       notes = notes |> Observations.authorized_notes(scope) |> Map.new(&{&1.id, &1})
@@ -591,7 +591,7 @@ defmodule Ryker.Learning.LearningSources do
     |> Enum.filter(&reference?/1)
     |> Enum.all?(fn reference ->
       reference["knowledge_id"]
-      |> KnowledgeRevisionQuery.current_reference(
+      |> KnowledgeRevision.Query.current_reference(
         reference["generation"],
         reference["through_version"]
       )

@@ -13,7 +13,7 @@ defmodule Ryker.Operator.Actions do
 
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
-  alias Ryker.Operator.{Action, ActionChangeset, ActionQuery}
+  alias Ryker.Operator.Action
   alias Ryker.Reference
   alias Ryker.Repo
 
@@ -52,7 +52,7 @@ defmodule Ryker.Operator.Actions do
   @spec fetch(String.t()) :: {:ok, Action.t()} | :error
   def fetch(action_ref) do
     with :ok <- Reference.check(action_ref, :action_ref, :invalid_operator_action),
-         %Action{} = action <- Repo.one(ActionQuery.by_action_ref(action_ref)) do
+         %Action{} = action <- Repo.one(Action.Query.by_action_ref(action_ref)) do
       {:ok, action}
     else
       _unavailable -> :error
@@ -63,7 +63,7 @@ defmodule Ryker.Operator.Actions do
     AdvisoryLock.hold!(attributes.action_ref)
 
     locked =
-      attributes.action_ref |> ActionQuery.by_action_ref() |> ActionQuery.lock_for_update()
+      attributes.action_ref |> Action.Query.by_action_ref() |> Action.Query.lock_for_update()
 
     case Repo.one(locked) do
       %Action{request_fingerprint: ^fingerprint} = action ->
@@ -95,7 +95,7 @@ defmodule Ryker.Operator.Actions do
           request_fingerprint: fingerprint,
           resource_ref: attributes.resource_ref
         }
-        |> ActionChangeset.insert()
+        |> Action.Changeset.insert()
         |> Repo.insert!()
 
       broadcast_action_recorded(action.id)

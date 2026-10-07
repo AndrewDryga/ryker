@@ -3,8 +3,8 @@ defmodule Ryker.ProductContractsTest do
   alias Ryker.ControlPlane.CSRF
   alias Ryker.Ingress.{Projections, WorkProfile}
   alias Ryker.Publication.{LifecycleStatus, Receipt}
-  alias Ryker.Slack.{ChannelSettingChangeset, IncidentRoomChangeset, Supervisor}
-  alias Ryker.Work.{RepositoryContext, SessionChangeset}
+  alias Ryker.Slack.{ChannelSetting, IncidentRoom, Supervisor}
+  alias Ryker.Work.{RepositoryContext, Session}
 
   @digest String.duplicate("a", 64)
   @standard_digest String.duplicate("b", 64)
@@ -318,7 +318,7 @@ defmodule Ryker.ProductContractsTest do
 
   test "persistence changesets reject malformed repository contexts" do
     session_changeset =
-      SessionChangeset.insert(
+      Session.Changeset.insert(
         Ecto.UUID.generate(),
         Ecto.UUID.generate(),
         1,
@@ -332,7 +332,7 @@ defmodule Ryker.ProductContractsTest do
     assert Keyword.has_key?(session_changeset.errors, :repository_context)
 
     room_changeset =
-      IncidentRoomChangeset.insert(%{repository_context: %{}, repository_ref: "ryker"})
+      IncidentRoom.Changeset.insert(%{repository_context: %{}, repository_ref: "ryker"})
 
     assert Keyword.has_key?(room_changeset.errors, :repository_context)
   end
@@ -423,7 +423,7 @@ defmodule Ryker.ProductContractsTest do
   end
 
   test "the channel setting audit changeset accepts the durable form" do
-    assert ChannelSettingChangeset.insert_audit(%{
+    assert ChannelSetting.Changeset.insert_audit(%{
              actor_ref: "slack:user:U123",
              conversation_ref: "slack:T123:C456",
              detail: %{"setting" => "watch_mode"},

@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.RunningSystemProjection do
   its storage report, whether tasks that change code can run here, and the
   database clock the card measures a worker's last contact against.
   """
-  alias Ryker.CoopFleet.WorkerQuery
+  alias Ryker.CoopFleet.Worker
   alias Ryker.Repo
   alias Ryker.Work.CodeEditingSetup
 
@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.RunningSystemProjection do
   def fetch do
     %{
       version: to_string(Application.spec(:ryker, :vsn) || "unknown"),
-      workers: WorkerQuery.all() |> WorkerQuery.ordered_by_id() |> Repo.all(),
+      workers: Worker.Query.all() |> Worker.Query.ordered_by_id() |> Repo.all(),
       supported: CodeEditingSetup.checkpoint_supported?(),
       now: Repo.now!()
     }

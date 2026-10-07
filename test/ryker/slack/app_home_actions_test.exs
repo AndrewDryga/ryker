@@ -7,7 +7,6 @@ defmodule Ryker.Slack.AppHomeActionsTest do
   alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
-  alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Slack.{AppHomeActions, AppHomeProjection, HomeInteraction}
   alias Ryker.Work.Custody
 
@@ -402,7 +401,7 @@ defmodule Ryker.Slack.AppHomeActionsTest do
       timezone: "Etc/UTC",
       title: "Inspect current state"
     }
-    |> ScheduleChangeset.insert()
+    |> Schedule.Changeset.insert()
     |> Repo.insert!()
   end
 end

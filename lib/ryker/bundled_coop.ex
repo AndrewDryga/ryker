@@ -7,7 +7,7 @@ defmodule Ryker.BundledCoop do
   """
 
   alias Ryker.AdvisoryLock
-  alias Ryker.CoopFleet.{Enrollment, EnrollmentTokenQuery, Worker, WorkerQuery}
+  alias Ryker.CoopFleet.{Enrollment, EnrollmentToken, Worker}
   alias Ryker.Crypto
   alias Ryker.{Repo, Settings}
 
@@ -83,7 +83,7 @@ defmodule Ryker.BundledCoop do
 
   defp revoked?, do: match?(%Worker{state: :revoked}, configured_worker())
 
-  defp configured_worker, do: Repo.one(WorkerQuery.by_id(configured_worker_id()))
+  defp configured_worker, do: Repo.one(Worker.Query.by_id(configured_worker_id()))
 
   defp retire_tokens!(path) do
     worker = configured_worker_id()
@@ -91,9 +91,9 @@ defmodule Ryker.BundledCoop do
     now = Repo.now!()
 
     worker
-    |> EnrollmentTokenQuery.for_worker(workspace)
-    |> EnrollmentTokenQuery.by_operator(@actor)
-    |> EnrollmentTokenQuery.usable_at(now)
+    |> EnrollmentToken.Query.for_worker(workspace)
+    |> EnrollmentToken.Query.by_operator(@actor)
+    |> EnrollmentToken.Query.usable_at(now)
     |> Repo.update_all(set: [expires_at: now])
 
     case File.rm(path) do
@@ -136,9 +136,9 @@ defmodule Ryker.BundledCoop do
     now = Repo.now!()
 
     digest
-    |> EnrollmentTokenQuery.by_digest()
-    |> EnrollmentTokenQuery.for_worker(worker, workspace)
-    |> EnrollmentTokenQuery.usable_at(now)
+    |> EnrollmentToken.Query.by_digest()
+    |> EnrollmentToken.Query.for_worker(worker, workspace)
+    |> EnrollmentToken.Query.usable_at(now)
     |> Repo.exists?()
   end
 

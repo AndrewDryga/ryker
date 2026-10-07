@@ -30,7 +30,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Records
   alias Ryker.Schedules.Schedule
-  alias Ryker.Slack.{ChannelConfigurationChangeset, IncidentRoomChangeset, Input}
+  alias Ryker.Slack.{ChannelConfiguration, IncidentRoom, Input}
   alias Ryker.Work.Turn
 
   @endpoint Endpoint
@@ -1546,7 +1546,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       workspace_ref: workspace
     }
     |> Map.merge(Map.new(attributes))
-    |> ChannelConfigurationChangeset.membership()
+    |> ChannelConfiguration.Changeset.membership()
     |> Repo.insert!()
   end
 
@@ -1609,7 +1609,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       workspace_ref: workspace
     }
     |> Map.merge(Map.new(attributes))
-    |> ChannelConfigurationChangeset.configuration()
+    |> ChannelConfiguration.Changeset.configuration()
     |> Repo.insert!()
   end
 
@@ -2122,7 +2122,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       topic: "Operator incident room",
       workspace_ref: workspace
     }
-    |> IncidentRoomChangeset.insert()
+    |> IncidentRoom.Changeset.insert()
     |> Repo.insert!()
   end
 

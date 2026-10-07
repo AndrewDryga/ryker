@@ -9,7 +9,7 @@ defmodule Ryker.Checks.IL02NoRepoGet do
 
       They read a table without its Query module, so whatever that module says
       about the rows (which are live, which belong together) is skipped. Build
-      the lookup in the Query module (`TurnQuery.by_id/2`) and read it with
+      the lookup in the Query module (`Turn.Query.by_id/2`) and read it with
       `Ryker.Repo.fetch/2`, which answers `{:ok, row}` or `{:error, :not_found}`.
       """
     ]

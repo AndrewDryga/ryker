@@ -35,13 +35,13 @@ defmodule Ryker.Feedback.Messages do
   """
 
   require Logger
-  alias Ryker.Delivery.RoutingResponseQuery
+  alias Ryker.Delivery.RoutingResponse
   alias Ryker.Feedback
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Work.TurnQuery
+  alias Ryker.Work.Turn
 
   @people_sources ["slack", "control_plane"]
   @reask_seconds 10 * 60
@@ -97,7 +97,7 @@ defmodule Ryker.Feedback.Messages do
   defp revision_kind(:edit), do: :message_edited
   defp revision_kind(:delete), do: :message_deleted
 
-  defp earlier_revisions(entry), do: entry |> EntryQuery.earlier_revisions_of() |> Repo.all()
+  defp earlier_revisions(entry), do: entry |> Entry.Query.earlier_revisions_of() |> Repo.all()
 
   # The request that answered the message: the latest request any of its
   # revisions joined, once one of its Work replies was delivered after the
@@ -120,22 +120,22 @@ defmodule Ryker.Feedback.Messages do
 
   defp work_reply_between?(episode_id, from, before) do
     episode_id
-    |> TurnQuery.by_episode_id()
-    |> TurnQuery.delivered()
-    |> TurnQuery.delivered_after(from)
-    |> TurnQuery.delivered_before(before)
+    |> Turn.Query.by_episode_id()
+    |> Turn.Query.delivered()
+    |> Turn.Query.delivered_after(from)
+    |> Turn.Query.delivered_before(before)
     |> Repo.exists?()
   end
 
   defp quick_replied(input_ids, from, before) do
     input_ids
-    |> RoutingResponseQuery.by_input_ids()
-    |> RoutingResponseQuery.delivered_messages()
-    |> RoutingResponseQuery.delivered_after(from)
-    |> RoutingResponseQuery.delivered_before(before)
-    |> RoutingResponseQuery.latest_delivered_first()
-    |> RoutingResponseQuery.limit_to(1)
-    |> RoutingResponseQuery.select_input_ids()
+    |> RoutingResponse.Query.by_input_ids()
+    |> RoutingResponse.Query.delivered_messages()
+    |> RoutingResponse.Query.delivered_after(from)
+    |> RoutingResponse.Query.delivered_before(before)
+    |> RoutingResponse.Query.latest_delivered_first()
+    |> RoutingResponse.Query.limit_to(1)
+    |> RoutingResponse.Query.select_input_ids()
     |> Repo.one()
   end
 
@@ -161,7 +161,7 @@ defmodule Ryker.Feedback.Messages do
     since = DateTime.add(entry.occurred_at, -@question_lookback_seconds, :second)
 
     entry
-    |> EntryQuery.earlier_questions(since, @question_limit)
+    |> Entry.Query.earlier_questions(since, @question_limit)
     |> same_place(entry)
     |> Repo.all()
   end
@@ -169,7 +169,7 @@ defmodule Ryker.Feedback.Messages do
   defp same_place(query, entry) do
     if top_level?(entry),
       do: query,
-      else: EntryQuery.in_thread(query, entry.destination_thread_ref)
+      else: Entry.Query.in_thread(query, entry.destination_thread_ref)
   end
 
   # A Slack message binds its own timestamp as its thread when it starts one;
@@ -208,22 +208,22 @@ defmodule Ryker.Feedback.Messages do
 
   defp work_replies(episode_ids, from, before) do
     episode_ids
-    |> TurnQuery.by_episode_ids()
-    |> TurnQuery.delivered()
-    |> TurnQuery.delivered_since(from)
-    |> TurnQuery.delivered_before(before)
-    |> TurnQuery.select_episode_deliveries()
+    |> Turn.Query.by_episode_ids()
+    |> Turn.Query.delivered()
+    |> Turn.Query.delivered_since(from)
+    |> Turn.Query.delivered_before(before)
+    |> Turn.Query.select_episode_deliveries()
     |> Repo.all()
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
   end
 
   defp quick_replies(input_ids, from, before) do
     input_ids
-    |> RoutingResponseQuery.by_input_ids()
-    |> RoutingResponseQuery.delivered_messages()
-    |> RoutingResponseQuery.delivered_since(from)
-    |> RoutingResponseQuery.delivered_before(before)
-    |> RoutingResponseQuery.select_input_deliveries()
+    |> RoutingResponse.Query.by_input_ids()
+    |> RoutingResponse.Query.delivered_messages()
+    |> RoutingResponse.Query.delivered_since(from)
+    |> RoutingResponse.Query.delivered_before(before)
+    |> RoutingResponse.Query.select_input_deliveries()
     |> Repo.all()
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
   end

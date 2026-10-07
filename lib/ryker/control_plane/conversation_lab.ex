@@ -33,13 +33,13 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
   alias Ryker.AdvisoryLock
   alias Ryker.Artifacts
-  alias Ryker.ControlPlane.{Actor, ConversationQuery}
+  alias Ryker.ControlPlane.{Actor, Conversation}
   alias Ryker.Episodes
   alias Ryker.Episodes.Reactions
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Settings.{Environment, EnvironmentQuery}
+  alias Ryker.Settings.Environment
   alias Ryker.Transcription
 
   @maximum_message_bytes 20_000
@@ -92,12 +92,12 @@ defmodule Ryker.ControlPlane.ConversationLab do
   def environments(conversation_ids) do
     ids = for id <- conversation_ids, {:ok, id} <- [conversation_id(id)], uniq: true, do: id
 
-    stored = ids |> ConversationQuery.environments() |> Repo.all() |> Map.new()
+    stored = ids |> Conversation.Query.environments() |> Repo.all() |> Map.new()
 
     default =
       if Enum.all?(ids, &Map.has_key?(stored, &1)),
         do: nil,
-        else: Repo.one(EnvironmentQuery.default_ref())
+        else: Repo.one(Environment.Query.default_ref())
 
     Map.new(ids, &{&1, Map.get(stored, &1, default)})
   end
@@ -305,7 +305,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
     current =
       conversation_id
       |> ref()
-      |> ConversationQuery.current_message(source_item_ref, actor)
+      |> Conversation.Query.current_message(source_item_ref, actor)
       |> Repo.one()
 
     case current do
@@ -414,7 +414,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
   defp selectable_environment(environment_ref) do
     if is_binary(environment_ref) and Regex.match?(Environment.ref_pattern(), environment_ref) and
-         Repo.exists?(EnvironmentQuery.by_ref(environment_ref)),
+         Repo.exists?(Environment.Query.by_ref(environment_ref)),
        do: :ok,
        else: {:error, {:invalid_conversation_lab, :environment_ref}}
   end

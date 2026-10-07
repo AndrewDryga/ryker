@@ -8,15 +8,14 @@ defmodule Ryker.Records.TaskOffers do
   """
 
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode, EpisodeQuery}
+  alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{Custody, RepositoryContext, RepositorySource, Session, SessionQuery}
+  alias Ryker.Work.{Custody, RepositoryContext, RepositorySource, Session}
 
   @fields [:actor_ref, :confirmation_ref, :occurred_at, :policy, :record_ref, :target]
   @policy_fields [:digest, :environment_ref, :name, :repository_context, :repository_ref]
@@ -178,7 +177,7 @@ defmodule Ryker.Records.TaskOffers do
 
   defp persist_confirmation(record, episode, attributes) do
     record
-    |> RecordChangeset.confirm(%{
+    |> Record.Changeset.confirm(%{
       confirmed_at: attributes.occurred_at,
       confirmed_by_actor_ref: attributes.actor_ref,
       confirmed_episode_id: episode.id,
@@ -196,10 +195,10 @@ defmodule Ryker.Records.TaskOffers do
     end
   end
 
-  defp latest_session(episode_id), do: Repo.one(SessionQuery.latest_of_episode(episode_id))
+  defp latest_session(episode_id), do: Repo.one(Session.Query.latest_of_episode(episode_id))
 
   defp confirmed(record, status) do
-    with %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(record.confirmed_episode_id)),
+    with %Episode{} = episode <- Repo.one(Episode.Query.by_id(record.confirmed_episode_id)),
          %Session{} = session <- latest_session(record.confirmed_episode_id) do
       %{episode: episode, record: record, session: session, status: status}
     else

@@ -5,7 +5,7 @@ defmodule Ryker.RoutingExamples do
   While a person keeps "Keep routing examples for training" on (Settings ›
   Data retention), each routing decision is copied once it has settled:
   routing committed it and nothing it started is still running. The Work it
-  started or joined has come to rest (`Ryker.Work.OwningTurnQuery.work_rest/0`,
+  started or joined has come to rest (`Ryker.Work.OwningTurn.Query.work_rest/0`,
   the rest Learning waits for), and each quick reply or reaction it chose was
   delivered or gave up. Its outcome is known then, and its bodies are still
   there: they are pruned only after that Work's sessions are discarded.
@@ -45,23 +45,23 @@ defmodule Ryker.RoutingExamples do
 
   require Logger
   alias Ryker.Accounting.Pricing
-  alias Ryker.Admission.{Attempt, AttemptQuery, Prompt}
+  alias Ryker.Admission.{Attempt, Prompt}
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.RoutingResponseQuery
-  alias Ryker.Episodes.EpisodeQuery
+  alias Ryker.Delivery.RoutingResponse
+  alias Ryker.Episodes.Episode
   alias Ryker.Improvement
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
-  alias Ryker.Knowledge.ConversationKnowledgeQuery
+  alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning
-  alias Ryker.Learning.{ConversationObservation, ConversationObservationQuery, Observations}
+  alias Ryker.Learning.{ConversationObservation, Observations}
   alias Ryker.LocalRouting
   alias Ryker.Repo
-  alias Ryker.RoutingExamples.{Example, ExampleQuery, Feedback, FeedbackQuery}
-  alias Ryker.Settings.RetentionQuery
-  alias Ryker.Slack.ChannelMembershipQuery
-  alias Ryker.Work.TurnQuery
+  alias Ryker.RoutingExamples.{Example, Feedback}
+  alias Ryker.Settings.Retention
+  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Work.Turn
   alias Ryker.WorkExamples
 
   @lock "ryker-routing-examples"
@@ -120,7 +120,7 @@ defmodule Ryker.RoutingExamples do
         :ok = lock(:shared)
 
         {count, _rows} =
-          Repo.insert_all(Feedback, FeedbackQuery.copies_of_signals(),
+          Repo.insert_all(Feedback, Feedback.Query.copies_of_signals(),
             on_conflict: :nothing,
             conflict_target: [:example_id, :signal_id]
           )
@@ -136,7 +136,7 @@ defmodule Ryker.RoutingExamples do
   # bodies are still kept, with no example yet, and with nothing it started
   # still running. Taken oldest first.
   defp settled_inputs(limit, window_seconds),
-    do: limit |> ExampleQuery.settled_decisions(window_seconds) |> Repo.all()
+    do: limit |> Example.Query.settled_decisions(window_seconds) |> Repo.all()
 
   # One decision that cannot be copied is logged and left for the next pass,
   # never allowed to stop the copy of every decision after it; only losing the
@@ -165,7 +165,7 @@ defmodule Ryker.RoutingExamples do
            %Entry{} = entry <- held_input(input_id),
            %Attempt{} = attempt <- committed_attempt(entry),
            :ok <- lock(:shared),
-           false <- Repo.exists?(ExampleQuery.by_input_id(input_id)) do
+           false <- Repo.exists?(Example.Query.by_input_id(input_id)) do
         entry |> example(attempt, secrets) |> insert!()
       else
         _nothing_to_copy -> :skipped
@@ -175,8 +175,8 @@ defmodule Ryker.RoutingExamples do
 
   defp enabled? do
     enabled =
-      RetentionQuery.select_routing_examples_enabled()
-      |> RetentionQuery.lock_for_share()
+      Retention.Query.select_routing_examples_enabled()
+      |> Retention.Query.lock_for_share()
       |> Repo.one()
 
     enabled == true
@@ -184,13 +184,13 @@ defmodule Ryker.RoutingExamples do
 
   defp held_input(input_id) do
     input_id
-    |> EntryQuery.by_id()
-    |> EntryQuery.decided_with_bodies()
-    |> EntryQuery.lock_for_share()
+    |> Entry.Query.by_id()
+    |> Entry.Query.decided_with_bodies()
+    |> Entry.Query.lock_for_share()
     |> Repo.one()
   end
 
-  defp committed_attempt(entry), do: entry |> AttemptQuery.committed_for() |> Repo.one()
+  defp committed_attempt(entry), do: entry |> Attempt.Query.committed_for() |> Repo.one()
 
   defp insert!(%{forgotten_at: nil} = example) do
     Repo.insert!(example, on_conflict: :nothing, conflict_target: [:input_id])
@@ -207,7 +207,7 @@ defmodule Ryker.RoutingExamples do
     prompt = attempt.submission["prompt"]
     document = decoded(prompt)
     quoted = quoted(entry)
-    episode = entry.episode_id && Repo.one(EpisodeQuery.by_id(entry.episode_id))
+    episode = entry.episode_id && Repo.one(Episode.Query.by_id(entry.episode_id))
 
     identity = %Example{
       id: Ecto.UUID.generate(),
@@ -375,8 +375,8 @@ defmodule Ryker.RoutingExamples do
     keys = MapSet.new(example.message_keys)
 
     example.source_identity
-    |> ConversationObservationQuery.by_identity()
-    |> ConversationObservationQuery.forgotten()
+    |> ConversationObservation.Query.by_identity()
+    |> ConversationObservation.Query.forgotten()
     |> Repo.exists?() or
       forgotten_messages(quoted.conversations) |> Enum.any?(&MapSet.member?(keys, &1)) or
       deleted_messages(quoted.conversations) |> Enum.any?(&MapSet.member?(keys, &1)) or
@@ -390,23 +390,23 @@ defmodule Ryker.RoutingExamples do
 
     ids != [] and
       ids
-      |> ConversationKnowledgeQuery.by_ids()
-      |> ConversationKnowledgeQuery.forgotten()
+      |> ConversationKnowledge.Query.by_ids()
+      |> ConversationKnowledge.Query.forgotten()
       |> Repo.exists?()
   end
 
   defp forgotten_messages(conversations) do
     conversations
-    |> ConversationObservationQuery.in_conversations()
-    |> ConversationObservationQuery.forgotten()
-    |> ConversationObservationQuery.select_messages()
+    |> ConversationObservation.Query.in_conversations()
+    |> ConversationObservation.Query.forgotten()
+    |> ConversationObservation.Query.select_messages()
     |> Repo.all()
     |> Enum.map(fn {c, m} -> message_key(c, m) end)
   end
 
   defp deleted_messages(conversations) do
     conversations
-    |> EntryQuery.deletions_in()
+    |> Entry.Query.deletions_in()
     |> Repo.all()
     |> Enum.map(fn {c, m} -> message_key(c, m) end)
   end
@@ -481,7 +481,7 @@ defmodule Ryker.RoutingExamples do
     wanted = MapSet.new(messages)
 
     conversations
-    |> EntryQuery.edit_histories(refs)
+    |> Entry.Query.edit_histories(refs)
     |> Repo.all()
     |> Enum.filter(&MapSet.member?(wanted, &1.message))
     |> Enum.group_by(& &1.message)
@@ -502,7 +502,7 @@ defmodule Ryker.RoutingExamples do
 
     channels != [] and
       workspaces
-      |> ChannelMembershipQuery.deleted_in_workspaces()
+      |> ChannelMembership.Query.deleted_in_workspaces()
       |> Repo.all()
       |> Enum.any?(&(&1 in channels))
   end
@@ -595,16 +595,16 @@ defmodule Ryker.RoutingExamples do
     turn =
       episode &&
         episode.id
-        |> TurnQuery.by_episode_id()
-        |> TurnQuery.newest_first()
-        |> TurnQuery.limit_to(1)
-        |> TurnQuery.select_statuses()
+        |> Turn.Query.by_episode_id()
+        |> Turn.Query.newest_first()
+        |> Turn.Query.limit_to(1)
+        |> Turn.Query.select_statuses()
         |> Repo.one()
 
     sent =
       entry.id
-      |> RoutingResponseQuery.by_input_id()
-      |> RoutingResponseQuery.count_by_status()
+      |> RoutingResponse.Query.by_input_id()
+      |> RoutingResponse.Query.count_by_status()
       |> Repo.all()
 
     %{
@@ -731,7 +731,7 @@ defmodule Ryker.RoutingExamples do
     :ok = LocalRouting.forget_conversation_in_transaction(conversation_ref)
     :ok = WorkExamples.forget_conversation_in_transaction(conversation_ref)
 
-    conversation_ref |> ExampleQuery.in_conversation() |> erase()
+    conversation_ref |> Example.Query.in_conversation() |> erase()
   end
 
   defp erase_in_transaction(identities, keys) do
@@ -740,16 +740,16 @@ defmodule Ryker.RoutingExamples do
     :ok = LocalRouting.forget_in_transaction(identities, keys)
     :ok = WorkExamples.forget_in_transaction(identities, keys)
 
-    identities |> ExampleQuery.from_sources_or_messages(keys) |> erase()
+    identities |> Example.Query.from_sources_or_messages(keys) |> erase()
   end
 
   defp erase(query) do
     now = Repo.now!()
 
-    query |> FeedbackQuery.for_examples() |> Repo.delete_all()
+    query |> Feedback.Query.for_examples() |> Repo.delete_all()
 
     Repo.update_all(
-      ExampleQuery.kept(query),
+      Example.Query.kept(query),
       set: [
         prompt: nil,
         output_schema: nil,

@@ -6,8 +6,8 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Ingress.WorkProfile
-  alias Ryker.Publication.{Changeset, Publication}
   alias Ryker.Publication.Custody, as: PublicationCustody
+  alias Ryker.Publication.Publication
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -39,7 +39,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     review = review_document(session, requested.publication.episode_id)
 
     requested.publication
-    |> Changeset.update(%{
+    |> Publication.Changeset.update(%{
       review_document: review,
       review_fingerprint: digest(review),
       review_expected_revision: 7,
@@ -392,7 +392,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
         status: :review_pending,
         title: older_publication_offer.payload["title"]
       }
-      |> Changeset.insert()
+      |> Publication.Changeset.insert()
       |> Repo.insert!()
 
     assert newer_publication.ref != readiness.publication.ref

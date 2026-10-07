@@ -15,10 +15,10 @@ defmodule Ryker.CoopFleet.SessionEvidences do
 
   alias Ecto.Changeset
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{SessionEvidence, SessionEvidenceChangeset, SessionEvidenceQuery}
+  alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.CoopFleet.SessionEvidenceDocument, as: Document
   alias Ryker.Repo
-  alias Ryker.Work.{Session, SessionQuery}
+  alias Ryker.Work.Session
 
   @doc """
   Records one validated export against its exact session, worker and placement.
@@ -50,7 +50,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   @doc false
   @spec for_session(Ecto.UUID.t()) :: [SessionEvidence.t()]
   def for_session(session_id) when is_binary(session_id),
-    do: Repo.all(SessionEvidenceQuery.for_session(session_id))
+    do: Repo.all(SessionEvidence.Query.for_session(session_id))
 
   def for_session(_session_id), do: []
 
@@ -63,7 +63,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   """
   @spec latest_for_episode(Ecto.UUID.t()) :: [SessionEvidence.t()]
   def latest_for_episode(episode_id) when is_binary(episode_id),
-    do: Repo.all(SessionEvidenceQuery.latest_for_episode(episode_id))
+    do: Repo.all(SessionEvidence.Query.latest_for_episode(episode_id))
 
   def latest_for_episode(_episode_id), do: []
 
@@ -75,7 +75,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   defp unwrap!({:error, reason}), do: Repo.rollback(reason)
 
   defp insert_locked(session_id, evidence, worker_id, generation) do
-    case Repo.one(SessionQuery.by_id(session_id)) do
+    case Repo.one(Session.Query.by_id(session_id)) do
       nil ->
         {:error, :work_session_not_found}
 
@@ -95,7 +95,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   end
 
   defp upsert(session_id, evidence, worker_id, generation) do
-    session = Repo.one!(SessionQuery.by_id(session_id))
+    session = Repo.one!(Session.Query.by_id(session_id))
     fingerprint = Document.content_fingerprint(evidence)
     captured_at = captured_at(evidence)
 
@@ -119,7 +119,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
     }
 
     attributes
-    |> SessionEvidenceChangeset.insert()
+    |> SessionEvidence.Changeset.insert()
     # A savepoint, because the losing side of the race has to keep its
     # transaction usable: it still has to find the row that beat it and count
     # its own observation against it.
@@ -143,7 +143,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   defp observe_again(session_id, fingerprint, captured_at) do
     {count, rows} =
       Repo.update_all(
-        SessionEvidenceQuery.observed_again(session_id, fingerprint, captured_at),
+        SessionEvidence.Query.observed_again(session_id, fingerprint, captured_at),
         []
       )
 

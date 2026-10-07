@@ -14,7 +14,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   import Ryker.Work.Custody.Locks
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
-  alias Ryker.CoopFleet.{PlacementQuery, WorkspaceCheckpointTransferQuery}
+  alias Ryker.CoopFleet.{Placement, WorkspaceCheckpointTransfer}
   alias Ryker.Defaults
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
@@ -23,7 +23,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.{CurrentAuthority, Sessions, Turns}
-  alias Ryker.Work.{OperationKeys, Session, SessionQuery, Turn, TurnChangeset, TurnQuery}
+  alias Ryker.Work.{OperationKeys, Session, Turn}
 
   @doc false
   @spec request_cancel(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
@@ -187,7 +187,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     case Map.fetch!(turn, field) do
       nil ->
         turn
-        |> TurnChangeset.freeze_cancellation_revision(phase, observed_revision)
+        |> Turn.Changeset.freeze_cancellation_revision(phase, observed_revision)
         |> Repo.update()
         |> unwrap_or_rollback(:work_cancellation_revision)
 
@@ -311,7 +311,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     with true <-
            is_nil(turn.operational_pruned_at) and
              Turns.completion_matches?(turn, turn.completion_receipt),
-         {:ok, turn} <- Repo.update(TurnChangeset.retry_completion(turn)) do
+         {:ok, turn} <- Repo.update(Turn.Changeset.retry_completion(turn)) do
       Custody.broadcast_turn_updated(turn)
       episode
     else
@@ -358,9 +358,9 @@ defmodule Ryker.Work.Custody.Cancellation do
           turn
       )
       when state in ["closed", "discarded"] do
-    session = Repo.one!(SessionQuery.by_id(turn.session_id))
+    session = Repo.one!(Session.Query.by_id(turn.session_id))
     key = OperationKeys.checkpoint(turn)
-    saved = Repo.exists?(WorkspaceCheckpointTransferQuery.saved_by(session.id, key))
+    saved = Repo.exists?(WorkspaceCheckpointTransfer.Query.saved_by(session.id, key))
 
     if is_map(session.workspace_task) and not saved,
       do: {:error, :work_completed_workspace_recovery_required},
@@ -377,7 +377,7 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   def portable_workspace(%Turn{status: :blocked, session_id: session_id}, options)
       when is_binary(session_id) do
-    with %Session{} = session <- Repo.one(SessionQuery.by_id(session_id)),
+    with %Session{} = session <- Repo.one(Session.Query.by_id(session_id)),
          workspace_ref when is_binary(workspace_ref) <- Settings.worker_workspace_ref() do
       storage_root = Keyword.get_lazy(options, :storage_root, &Ryker.Bootstrap.storage_root!/0)
 
@@ -490,7 +490,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   defp prepare_cancellation(turn, episode, intent, fingerprint) do
     turn =
       turn
-      |> TurnChangeset.prepare_cancellation(intent, fingerprint, nil)
+      |> Turn.Changeset.prepare_cancellation(intent, fingerprint, nil)
       |> Repo.update()
       |> unwrap_or_rollback(:work_cancellation_intent)
 
@@ -521,7 +521,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   end
 
   defp turn_exists?(episode_id, turn_ref) do
-    episode_id |> TurnQuery.by_episode_id() |> TurnQuery.by_turn_ref(turn_ref) |> Repo.exists?()
+    episode_id |> Turn.Query.by_episode_id() |> Turn.Query.by_turn_ref(turn_ref) |> Repo.exists?()
   end
 
   defp operator_supersedes_pending_block?(
@@ -586,7 +586,7 @@ defmodule Ryker.Work.Custody.Cancellation do
              turn
            ),
          changeset =
-           TurnChangeset.replace_cancellation_disposition(
+           Turn.Changeset.replace_cancellation_disposition(
              turn,
              intent,
              fingerprint,
@@ -641,7 +641,7 @@ defmodule Ryker.Work.Custody.Cancellation do
 
       true ->
         turn
-        |> TurnChangeset.advance_cancel(turn.cancel_generation + 1)
+        |> Turn.Changeset.advance_cancel(turn.cancel_generation + 1)
         |> Repo.update()
         |> unwrap_or_rollback(:work_cancel_generation)
     end
@@ -770,11 +770,11 @@ defmodule Ryker.Work.Custody.Cancellation do
   @spec removed_worker(Ecto.UUID.t()) :: {:ok, String.t()} | :none
   def removed_worker(session_id) do
     session_id
-    |> PlacementQuery.by_session_id()
-    |> PlacementQuery.with_worker()
-    |> PlacementQuery.latest_generation_first()
-    |> PlacementQuery.limit_to(1)
-    |> PlacementQuery.select_worker_standing()
+    |> Placement.Query.by_session_id()
+    |> Placement.Query.with_worker()
+    |> Placement.Query.latest_generation_first()
+    |> Placement.Query.limit_to(1)
+    |> Placement.Query.select_worker_standing()
     |> Repo.one()
     |> case do
       {worker_id, :revoked, _revoked_at} -> {:ok, worker_id}
@@ -845,7 +845,7 @@ defmodule Ryker.Work.Custody.Cancellation do
 
     with {:ok, settled_episode} <- settle_episode_after_cancellation(command, episode, turn),
          changeset =
-           TurnChangeset.settle_cancellation(
+           Turn.Changeset.settle_cancellation(
              turn,
              receipt,
              fingerprint,

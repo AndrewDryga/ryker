@@ -20,7 +20,7 @@ defmodule Ryker.Coop.Client do
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Evals.Job
   alias Ryker.Repo
-  alias Ryker.Work.{OperationKeys, RepositorySource, Session, SessionChangeset, ValidationIntent}
+  alias Ryker.Work.{OperationKeys, RepositorySource, Session, ValidationIntent}
 
   @fields [:finch, :receive_timeout, :socket]
   @max_output_artifact_bytes 8 * 1_024 * 1_024
@@ -427,7 +427,7 @@ defmodule Ryker.Coop.Client do
          job,
          digest
        ),
-       do: session |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update()
+       do: session |> Session.Changeset.pin_worker_job(job, digest) |> Repo.update()
 
   defp pin_job(%{worker_job_document: job, worker_job_digest: digest} = session, job, digest),
     do: {:ok, session}

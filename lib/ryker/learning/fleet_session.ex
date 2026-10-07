@@ -1,8 +1,8 @@
 defmodule Ryker.Learning.FleetSession do
   @moduledoc "A workspace-free execution session owned by one frozen learning judgment."
-  alias Ryker.Learning.{LearningRun, LearningRunQuery}
+  alias Ryker.Learning.LearningRun
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session, SessionQuery}
+  alias Ryker.Work.{Custody, Session}
 
   def external_ref(%LearningRun{id: id}), do: "ryker-learning:#{id}"
 
@@ -23,7 +23,7 @@ defmodule Ryker.Learning.FleetSession do
   def ensure(%LearningRun{} = run) do
     Repo.transaction(fn ->
       current =
-        run.id |> LearningRunQuery.by_id() |> LearningRunQuery.lock_for_share() |> Repo.one!()
+        run.id |> LearningRun.Query.by_id() |> LearningRun.Query.lock_for_share() |> Repo.one!()
 
       unless current.policy == run.policy and current.policy_digest == run.policy_digest,
         do: Repo.rollback(:learning_session_authority_conflict)
@@ -73,8 +73,8 @@ defmodule Ryker.Learning.FleetSession do
 
   defp locked(run) do
     run.id
-    |> SessionQuery.for_learning_run()
-    |> SessionQuery.lock_for_update()
+    |> Session.Query.for_learning_run()
+    |> Session.Query.lock_for_update()
     |> Repo.one!()
   end
 end

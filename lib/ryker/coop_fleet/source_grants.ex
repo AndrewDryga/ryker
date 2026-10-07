@@ -5,7 +5,7 @@ defmodule Ryker.CoopFleet.SourceGrants do
   alias Ryker.CoopFleet.{ControlPlane, JobSpec}
   alias Ryker.GitHub.InstallationTokens
   alias Ryker.{Repo, Settings}
-  alias Ryker.Work.{Session, SessionQuery}
+  alias Ryker.Work.Session
 
   @identity ~w(repository_ref github_repository github_repository_id)
 
@@ -161,6 +161,6 @@ defmodule Ryker.CoopFleet.SourceGrants do
 
     # Job references identify an execution generation, not its reusable task.
     # Refuse ambiguous authority even if two current sessions have the same ref.
-    Repo.all(SessionQuery.placed_job(job_ref, worker_id, now))
+    Repo.all(Session.Query.placed_job(job_ref, worker_id, now))
   end
 end

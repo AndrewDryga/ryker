@@ -15,7 +15,7 @@ defmodule Ryker.Admission.FleetSession do
 
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session, SessionChangeset, SessionQuery}
+  alias Ryker.Work.{Custody, Session}
 
   @spec ensure(Entry.t(), %{name: String.t(), digest: String.t()}) ::
           {:ok, Session.t()} | {:error, term()}
@@ -66,7 +66,7 @@ defmodule Ryker.Admission.FleetSession do
       policy: policy,
       policy_digest: digest
     }
-    |> SessionChangeset.insert_admission(now)
+    |> Session.Changeset.insert_admission(now)
     |> Repo.insert!(on_conflict: :nothing)
 
     entry
@@ -95,7 +95,7 @@ defmodule Ryker.Admission.FleetSession do
     case lock_session(entry) do
       %Session{execution_kind: :admission, coop_session_id: nil} = session ->
         session
-        |> SessionChangeset.bind(coop_session_id)
+        |> Session.Changeset.bind(coop_session_id)
         |> Repo.update!()
         |> tap(&Custody.broadcast_session_updated/1)
 
@@ -125,7 +125,7 @@ defmodule Ryker.Admission.FleetSession do
         now = Repo.now!()
 
         session
-        |> SessionChangeset.close(now)
+        |> Session.Changeset.close(now)
         |> Repo.update!()
         |> tap(&Custody.broadcast_session_updated/1)
 
@@ -136,8 +136,8 @@ defmodule Ryker.Admission.FleetSession do
 
   defp lock_session(entry) do
     entry.id
-    |> SessionQuery.for_admission(entry.execution_generation)
-    |> SessionQuery.lock_for_update()
+    |> Session.Query.for_admission(entry.execution_generation)
+    |> Session.Query.lock_for_update()
     |> Repo.one()
   end
 

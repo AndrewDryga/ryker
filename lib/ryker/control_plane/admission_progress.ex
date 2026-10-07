@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.AdmissionProgress do
   @moduledoc "Observed admission state for the current conversation, without model bodies or private diagnostics."
-  alias Ryker.ControlPlane.{ConversationQuery, Paths}
+  alias Ryker.ControlPlane.{Conversation, Paths}
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
@@ -23,7 +23,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
     secrets = InspectionRedactor.configured_secrets()
 
     ref
-    |> ConversationQuery.waiting_messages(20)
+    |> Conversation.Query.waiting_messages(20)
     |> Repo.all()
     |> Enum.map(fn row ->
       %{

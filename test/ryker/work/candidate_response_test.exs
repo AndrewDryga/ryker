@@ -6,7 +6,7 @@ defmodule Ryker.Work.CandidateResponseTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Retention.Data
-  alias Ryker.Work.{CandidateResponse, Custody, Result, Session, Submission, Turn, TurnChangeset}
+  alias Ryker.Work.{CandidateResponse, Custody, Result, Session, Submission, Turn}
 
   @old ~U[2020-01-01 00:00:00.000000Z]
   @fixture __DIR__ <> "/fixtures/airflow_candidate_responses.json"
@@ -38,7 +38,7 @@ defmodule Ryker.Work.CandidateResponseTest do
     # cursor. The body is a retained fixture, not the lost Airflow attempt.
     previous =
       work.turn
-      |> TurnChangeset.stage_candidate(first["body"], first["sha256"], 1)
+      |> Turn.Changeset.stage_candidate(first["body"], first["sha256"], 1)
       |> Repo.update!()
 
     assert responses(work) == []

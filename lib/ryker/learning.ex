@@ -9,19 +9,19 @@ defmodule Ryker.Learning do
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Knowledge.KnowledgeUpdate
   alias Ryker.Learning.{Batches, Rebuilds}
-  alias Ryker.Learning.{LearningRun, LearningRunQuery}
+  alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.People
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Work.SessionQuery
+  alias Ryker.Work.Session
 
   @max_inputs 16
   @max_prompt 65_536
@@ -179,10 +179,10 @@ defmodule Ryker.Learning do
 
       existing =
         key
-        |> LearningRunQuery.by_batch_key()
-        |> LearningRunQuery.latest_generation_first()
-        |> LearningRunQuery.limit_to(1)
-        |> LearningRunQuery.lock_for_update()
+        |> LearningRun.Query.by_batch_key()
+        |> LearningRun.Query.latest_generation_first()
+        |> LearningRun.Query.limit_to(1)
+        |> LearningRun.Query.lock_for_update()
         |> Repo.one()
 
       prepare_attempt(existing, entries, manifest, key, settings)
@@ -418,7 +418,7 @@ defmodule Ryker.Learning do
       when phase in [:create, :submit] do
     owned_transaction(id, claim, fn run ->
       method = if phase == :create, do: "CreateRemoteSession", else: "SubmitTurn"
-      session = Repo.one(SessionQuery.for_learning_run(id))
+      session = Repo.one(Session.Query.for_learning_run(id))
 
       unless session && is_nil(run.coop_turn_id) && valid_remote_ref?(operation_id) &&
                key == operation_key(run, phase) && operation["method"] == method &&
@@ -452,7 +452,7 @@ defmodule Ryker.Learning do
   """
   def record_uncreated_stop(id, claim) do
     owned_transaction(id, claim, fn run ->
-      session = Repo.one(SessionQuery.for_learning_run(id))
+      session = Repo.one(Session.Query.for_learning_run(id))
 
       unless run.status in [:stale, :rejected] and is_nil(run.submit_revision) and
                is_nil(run.coop_turn_id) and is_nil(session && session.coop_session_id),
@@ -484,7 +484,7 @@ defmodule Ryker.Learning do
                is_nil(run.coop_turn_id),
              do: Repo.rollback(:learning_absence_unconfirmed)
 
-      session = Repo.one(SessionQuery.for_learning_run(id))
+      session = Repo.one(Session.Query.for_learning_run(id))
 
       store_stop(run, %{
         "kind" => "never_submitted",
@@ -509,7 +509,7 @@ defmodule Ryker.Learning do
                DateTime.diff(Repo.now!(), run.started_at) >= closed_after_seconds,
              do: Repo.rollback(:learning_remote_unresolved)
 
-      session = Repo.one(SessionQuery.for_learning_run(id))
+      session = Repo.one(Session.Query.for_learning_run(id))
 
       store_stop(run, %{
         "kind" => "attempt_expired",
@@ -567,8 +567,8 @@ defmodule Ryker.Learning do
   defp owned_remote_session?(run, remote_id) do
     valid_remote_ref?(remote_id) and
       run.id
-      |> SessionQuery.for_learning_run()
-      |> SessionQuery.by_coop_session_id(remote_id)
+      |> Session.Query.for_learning_run()
+      |> Session.Query.by_coop_session_id(remote_id)
       |> Repo.exists?()
   end
 
@@ -741,11 +741,11 @@ defmodule Ryker.Learning do
     # Carry only a static error code across that boundary, never old model prose,
     # matching candidates, or source-derived topic keys.
     id
-    |> LearningRunQuery.by_batch_id()
-    |> LearningRunQuery.attempted()
-    |> LearningRunQuery.newest_first()
-    |> LearningRunQuery.limit_to(1)
-    |> LearningRunQuery.select_error_codes()
+    |> LearningRun.Query.by_batch_id()
+    |> LearningRun.Query.attempted()
+    |> LearningRun.Query.newest_first()
+    |> LearningRun.Query.limit_to(1)
+    |> LearningRun.Query.select_error_codes()
     |> Repo.one()
   end
 
@@ -765,8 +765,8 @@ defmodule Ryker.Learning do
   defp new_attempt(entries, manifest, key, generation, settings) do
     failures =
       key
-      |> LearningRunQuery.by_batch_key()
-      |> LearningRunQuery.failed_or_started()
+      |> LearningRun.Query.by_batch_key()
+      |> LearningRun.Query.failed_or_started()
       |> Repo.aggregate(:count)
 
     # The batch lock is already held. Pruning retains status/error_code, so a
@@ -962,23 +962,23 @@ defmodule Ryker.Learning do
 
       earlier =
         first
-        |> EntryQuery.earlier_in_conversation(ids, before)
-        |> EntryQuery.lock_for_share()
+        |> Entry.Query.earlier_in_conversation(ids, before)
+        |> Entry.Query.lock_for_share()
 
       # The opening message is read on its own: taking the latest messages
       # alone lost it once a thread had more than five earlier replies
       # (2026-10-04 review).
       opening =
         earlier
-        |> EntryQuery.thread_openings(threads)
+        |> Entry.Query.thread_openings(threads)
         |> Repo.all()
         |> usable_context(first)
         |> Enum.take(1)
 
       replies =
         earlier
-        |> EntryQuery.thread_replies(threads)
-        |> EntryQuery.limit_to(@thread_context * 3)
+        |> Entry.Query.thread_replies(threads)
+        |> Entry.Query.limit_to(@thread_context * 3)
         |> Repo.all()
         |> usable_context(first)
         |> Enum.take(room - length(opening))
@@ -1016,9 +1016,9 @@ defmodule Ryker.Learning do
 
     entries =
       ids
-      |> EntryQuery.by_ids()
-      |> EntryQuery.oldest_occurred_first()
-      |> EntryQuery.lock_for_share()
+      |> Entry.Query.by_ids()
+      |> Entry.Query.oldest_occurred_first()
+      |> Entry.Query.lock_for_share()
       |> Repo.all()
 
     if Enum.map(entries, &manifest/1) == manifests and
@@ -1036,9 +1036,9 @@ defmodule Ryker.Learning do
 
     entries =
       ids
-      |> EntryQuery.by_ids()
-      |> EntryQuery.oldest_received_first()
-      |> EntryQuery.lock_for_share()
+      |> Entry.Query.by_ids()
+      |> Entry.Query.oldest_received_first()
+      |> Entry.Query.lock_for_share()
       |> Repo.all()
 
     unless length(entries) == length(ids) and valid_entries?(entries),
@@ -1194,7 +1194,7 @@ defmodule Ryker.Learning do
   end
 
   defp checked_updates(run) do
-    first = Repo.one(EntryQuery.by_id(hd(run.inputs)["source_input_id"]))
+    first = Repo.one(Entry.Query.by_id(hd(run.inputs)["source_input_id"]))
     unless first && is_binary(run.result), do: Repo.rollback(:learning_source_stale)
 
     with :ok <- lock_scope(first),
@@ -1374,7 +1374,7 @@ defmodule Ryker.Learning do
 
     owned_transaction(id, claim, fn _run ->
       Repo.update_all(
-        id |> LearningRunQuery.by_id() |> LearningRunQuery.with_status(:responded),
+        id |> LearningRun.Query.by_id() |> LearningRun.Query.with_status(:responded),
         set: [
           status: status,
           error_code: code,
@@ -1412,11 +1412,11 @@ defmodule Ryker.Learning do
 
   defp fetch_run!(id) do
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         %LearningRun{} = run <- Repo.one(LearningRunQuery.by_id(id)) do
+         %LearningRun{} = run <- Repo.one(LearningRun.Query.by_id(id)) do
       # Prepare and acceptance share batch -> row lock order. Taking the row
       # first deadlocks with a concurrent retry preparing the same batch.
       lock_batch(run.batch_key)
-      id |> LearningRunQuery.by_id() |> LearningRunQuery.lock_for_update() |> Repo.one!()
+      id |> LearningRun.Query.by_id() |> LearningRun.Query.lock_for_update() |> Repo.one!()
     else
       _ -> Repo.rollback(:learning_run_not_found)
     end
@@ -1480,8 +1480,8 @@ defmodule Ryker.Learning do
 
   def forget_messages_in_transaction(messages) do
     messages
-    |> EntryQuery.by_messages()
-    |> EntryQuery.select_ids()
+    |> Entry.Query.by_messages()
+    |> Entry.Query.select_ids()
     |> Repo.all()
     |> erase_runs_reading()
   end
@@ -1490,8 +1490,8 @@ defmodule Ryker.Learning do
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
     conversation_ref
-    |> EntryQuery.in_conversation()
-    |> EntryQuery.select_ids()
+    |> Entry.Query.in_conversation()
+    |> Entry.Query.select_ids()
     |> Repo.all()
     |> erase_runs_reading()
   end

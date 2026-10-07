@@ -3,7 +3,7 @@ defmodule Ryker.Slack.WorkTarget do
 
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomQuery, TaskCard, TaskCardQuery}
+  alias Ryker.Slack.{IncidentRoom, TaskCard}
 
   @spec resolve(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def resolve("task-card:" <> _rest = work_ref, target) do
@@ -22,7 +22,7 @@ defmodule Ryker.Slack.WorkTarget do
 
   defp task(work_ref) do
     found =
-      work_ref |> TaskCardQuery.by_ref() |> TaskCardQuery.select_with_episode() |> Repo.one()
+      work_ref |> TaskCard.Query.by_ref() |> TaskCard.Query.select_with_episode() |> Repo.one()
 
     case found do
       {%TaskCard{} = card, %Episode{} = episode} ->
@@ -45,8 +45,8 @@ defmodule Ryker.Slack.WorkTarget do
   defp incident(work_ref) do
     found =
       work_ref
-      |> IncidentRoomQuery.by_ref()
-      |> IncidentRoomQuery.select_with_episode()
+      |> IncidentRoom.Query.by_ref()
+      |> IncidentRoom.Query.select_with_episode()
       |> Repo.one()
 
     case found do

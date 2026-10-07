@@ -9,10 +9,10 @@ defmodule Ryker.Emisar.ApprovalPresenter do
 
   alias Ryker.Delivery.{Adapters, Request, Retry}
   alias Ryker.Emisar.{Approval, ApprovalStatus, Review, RunState}
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
-  alias Ryker.Records.{Record, RecordQuery}
+  alias Ryker.Episodes.Episode
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Work.{DeliveryReceipt, Turn, TurnQuery}
+  alias Ryker.Work.{DeliveryReceipt, Turn}
 
   @spec publish(Approval.t(), RunState.t(), map()) :: :ok | {:error, term()}
   def publish(%Approval{} = approval, %RunState{} = state, adapters) when is_map(adapters) do
@@ -66,9 +66,9 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   end
 
   defp source(approval) do
-    record = Repo.one(RecordQuery.by_id(approval.record_id))
-    turn = record && Repo.one(TurnQuery.by_id(record.turn_id))
-    episode = Repo.one(EpisodeQuery.by_id(approval.episode_id))
+    record = Repo.one(Record.Query.by_id(approval.record_id))
+    turn = record && Repo.one(Turn.Query.by_id(record.turn_id))
+    episode = Repo.one(Episode.Query.by_id(approval.episode_id))
 
     case {record, turn, episode} do
       {%Record{episode_id: episode_id, kind: "emisar_approval"} = record,

@@ -1,7 +1,7 @@
 defmodule Ryker.Work.StateBinding do
   @moduledoc false
 
-  alias Ryker.CoopFleet.{Placement, PlacementQuery}
+  alias Ryker.CoopFleet.Placement
   alias Ryker.Crypto
   alias Ryker.{Repo, Secret}
   alias Ryker.Work.{Session, Turn}
@@ -50,9 +50,9 @@ defmodule Ryker.Work.StateBinding do
   def current_scope(%Session{id: session_id}) when is_binary(session_id) do
     placement =
       session_id
-      |> PlacementQuery.by_session_id()
-      |> PlacementQuery.current()
-      |> PlacementQuery.limit_to(1)
+      |> Placement.Query.by_session_id()
+      |> Placement.Query.current()
+      |> Placement.Query.limit_to(1)
       |> Repo.one()
 
     case placement do
@@ -65,7 +65,7 @@ defmodule Ryker.Work.StateBinding do
         {:error, {:work_state_tools_placement_not_current, session_id}}
 
       nil ->
-        if Repo.exists?(PlacementQuery.by_session_id(session_id)) do
+        if Repo.exists?(Placement.Query.by_session_id(session_id)) do
           {:error, {:work_state_tools_placement_not_current, session_id}}
         else
           {:ok, local_scope(session_id)}

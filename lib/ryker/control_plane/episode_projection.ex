@@ -7,16 +7,16 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   conversation or background learning changes (`subscriptions/1`).
   """
 
-  alias Ryker.Accounting.ExecutionQuery
-  alias Ryker.ControlPlane.{Activity, EpisodeTrace, EpisodeTraceQuery, FeedbackProjection}
+  alias Ryker.Accounting.Execution
+  alias Ryker.ControlPlane.{Activity, EpisodeTrace, FeedbackProjection}
   alias Ryker.ControlPlane.{ImprovementRequests, ModelRequests, Paths, TaskProgress}
   alias Ryker.ControlPlane.UsageProjection
   alias Ryker.Episodes
-  alias Ryker.Episodes.{EpisodeQuery, EventQuery}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.EntryQuery
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning
-  alias Ryker.Records.{Record, RecordQuery}
+  alias Ryker.Records.Record
   alias Ryker.Repo
 
   @record_limit 500
@@ -29,12 +29,12 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   @spec key(Ecto.UUID.t() | nil) :: String.t() | nil
   def key(nil), do: nil
 
-  def key(id), do: id |> EpisodeQuery.by_id() |> EpisodeQuery.select_keys() |> Repo.one()
+  def key(id), do: id |> Episode.Query.by_id() |> Episode.Query.select_keys() |> Repo.one()
 
   @doc "The id of the episode kept under `key`, or nil when there is none: `key/1` read back."
   @spec key_id(String.t() | nil) :: Ecto.UUID.t() | nil
   def key_id(key) when is_binary(key) and byte_size(key) <= 1_024,
-    do: key |> EpisodeQuery.by_key() |> EpisodeQuery.select_ids() |> Repo.one()
+    do: key |> Episode.Query.by_key() |> Episode.Query.select_ids() |> Repo.one()
 
   def key_id(_key), do: nil
 
@@ -58,7 +58,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   defp stored_request_key(id) do
     cond do
       key = key(id) -> {:ok, key}
-      Repo.exists?(EntryQuery.by_id(id)) -> {:ok, "ingress-input:" <> id}
+      Repo.exists?(Entry.Query.by_id(id)) -> {:ok, "ingress-input:" <> id}
       true -> :not_found
     end
   end
@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   defp key_subscriptions("ingress-input:" <> id), do: input_subscriptions(id)
 
   defp key_subscriptions(key) do
-    found = key |> EpisodeQuery.by_key() |> EpisodeQuery.select_id_destinations() |> Repo.one()
+    found = key |> Episode.Query.by_key() |> Episode.Query.select_id_destinations() |> Repo.one()
 
     case found do
       {id, transport, conversation_ref} ->
@@ -97,7 +97,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   end
 
   defp input_subscriptions(id) do
-    found = id |> EntryQuery.by_id() |> EntryQuery.select_episode_destinations() |> Repo.one()
+    found = id |> Entry.Query.by_id() |> Entry.Query.select_episode_destinations() |> Repo.one()
 
     case found do
       {episode_id, transport, conversation_ref} ->
@@ -121,16 +121,16 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   def fetch(ref, params) when is_binary(ref) and byte_size(ref) <= 1_024 and is_map(params) do
     ref = ModelRequests.episode_ref(ref)
 
-    case Repo.one(EpisodeQuery.by_key(ref)) do
+    case Repo.one(Episode.Query.by_key(ref)) do
       nil ->
         :not_found
 
       episode ->
         event_records =
           episode.id
-          |> EventQuery.by_episode_id()
-          |> EventQuery.newest_first()
-          |> EventQuery.limit_to(500)
+          |> Event.Query.by_episode_id()
+          |> Event.Query.newest_first()
+          |> Event.Query.limit_to(500)
           |> Repo.all()
           |> Enum.reverse()
 
@@ -145,9 +145,9 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
 
         record_records =
           episode.id
-          |> RecordQuery.by_episode_id()
-          |> RecordQuery.latest_sequence_first()
-          |> RecordQuery.limit_to(@record_limit)
+          |> Record.Query.by_episode_id()
+          |> Record.Query.latest_sequence_first()
+          |> Record.Query.limit_to(@record_limit)
           |> Repo.all()
           |> Enum.reverse()
 
@@ -168,8 +168,8 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
 
         accounting =
           nil
-          |> ExecutionQuery.ledger("all")
-          |> ExecutionQuery.of_episode(episode.id)
+          |> Execution.Query.ledger("all")
+          |> Execution.Query.of_episode(episode.id)
           |> UsageProjection.totals()
 
         {:ok,
@@ -230,7 +230,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   defp activity_pages(_params), do: 1
 
   defp related_episodes(episode) do
-    related = episode |> EpisodeTraceQuery.related(21) |> Repo.all()
+    related = episode |> EpisodeTrace.Query.related(21) |> Repo.all()
 
     titles = Activity.request_titles(Enum.map(related, & &1.key))
 

@@ -31,7 +31,7 @@ defmodule Ryker.Checks.NoPreloadInRepoOpts do
 
   defp relevant?(filename) do
     String.contains?(filename, "lib/ryker/") and
-      not String.ends_with?(filename, "_query.ex") and
+      not String.ends_with?(filename, "/query.ex") and
       not String.ends_with?(filename, "lib/ryker/repo.ex") and
       not String.contains?(filename, "lib/ryker/repo/")
   end

@@ -8,7 +8,7 @@ defmodule Ryker.Episodes.CorrelationClaims do
   claims, because two genuine incidents can share them.
   """
 
-  alias Ryker.Episodes.{CorrelationClaim, CorrelationClaimQuery}
+  alias Ryker.Episodes.CorrelationClaim
   alias Ryker.Repo
 
   @type attributes :: %{
@@ -77,16 +77,16 @@ defmodule Ryker.Episodes.CorrelationClaims do
   @spec owner(String.t(), String.t(), String.t()) :: CorrelationClaim.t() | nil
   def owner(scope_ref, namespace, occurrence_ref) do
     scope_ref
-    |> CorrelationClaimQuery.by_occurrence(namespace, occurrence_ref)
-    |> CorrelationClaimQuery.active()
+    |> CorrelationClaim.Query.by_occurrence(namespace, occurrence_ref)
+    |> CorrelationClaim.Query.active()
     |> Repo.one()
   end
 
   @spec for_episode(Ecto.UUID.t()) :: [CorrelationClaim.t()]
   def for_episode(episode_id) do
     episode_id
-    |> CorrelationClaimQuery.by_episode_id()
-    |> CorrelationClaimQuery.in_established_order()
+    |> CorrelationClaim.Query.by_episode_id()
+    |> CorrelationClaim.Query.in_established_order()
     |> Repo.all()
   end
 
@@ -96,9 +96,9 @@ defmodule Ryker.Episodes.CorrelationClaims do
 
   def active_by_episode(episode_ids) do
     episode_ids
-    |> CorrelationClaimQuery.by_episode_ids()
-    |> CorrelationClaimQuery.active()
-    |> CorrelationClaimQuery.in_established_order()
+    |> CorrelationClaim.Query.by_episode_ids()
+    |> CorrelationClaim.Query.active()
+    |> CorrelationClaim.Query.in_established_order()
     |> Repo.all()
     |> Enum.group_by(& &1.episode_id)
   end
@@ -106,9 +106,9 @@ defmodule Ryker.Episodes.CorrelationClaims do
   @spec all_terminal?(Ecto.UUID.t()) :: boolean()
   def all_terminal?(episode_id) do
     not (episode_id
-         |> CorrelationClaimQuery.by_episode_id()
-         |> CorrelationClaimQuery.active()
-         |> CorrelationClaimQuery.lifecycle_active()
+         |> CorrelationClaim.Query.by_episode_id()
+         |> CorrelationClaim.Query.active()
+         |> CorrelationClaim.Query.lifecycle_active()
          |> Repo.exists?())
   end
 
@@ -117,8 +117,8 @@ defmodule Ryker.Episodes.CorrelationClaims do
   def retire_in_transaction(episode_id) do
     {count, _} =
       episode_id
-      |> CorrelationClaimQuery.by_episode_id()
-      |> CorrelationClaimQuery.active()
+      |> CorrelationClaim.Query.by_episode_id()
+      |> CorrelationClaim.Query.active()
       |> Repo.update_all(set: [status: :retired, updated_at: DateTime.utc_now()])
 
     {:ok, count}

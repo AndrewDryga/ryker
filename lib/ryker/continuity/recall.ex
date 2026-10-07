@@ -9,17 +9,17 @@ defmodule Ryker.Continuity.Recall do
   """
 
   alias Ryker.Continuity
-  alias Ryker.Continuity.{ConversationRollup, ConversationRollupQuery}
-  alias Ryker.Continuity.{ConversationSummary, ConversationSummaryQuery}
+  alias Ryker.Continuity.ConversationRollup
+  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Continuity.{Relevance, Scope}
   alias Ryker.Episodes.Episode
   alias Ryker.Knowledge
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
-  alias Ryker.Learning.SourceDependencyQuery
+  alias Ryker.Learning.SourceDependency
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
-  alias Ryker.Memories.SearchPageQuery
+  alias Ryker.Memories.SearchPage
   alias Ryker.Repo
 
   @maximum_related 8
@@ -91,17 +91,17 @@ defmodule Ryker.Continuity.Recall do
     # count is best effort, and the visibility recheck locks the observations.
     # A search dates a summary or a rollup by the latest message it learned
     # from, not by when maintenance last rewrote it.
-    source = SourceDependencyQuery.latest_source_at()
+    source = SourceDependency.Query.latest_source_at()
 
     fields =
       if kind == :summary,
-        do: ConversationSummaryQuery.search_fields(source),
-        else: ConversationRollupQuery.search_fields(source)
+        do: ConversationSummary.Query.search_fields(source),
+        else: ConversationRollup.Query.search_fields(source)
 
     query
     |> LearningSources.sourced()
     |> LearningSources.eligible(context)
-    |> SearchPageQuery.related_sources(page)
+    |> SearchPage.Query.related_sources(page)
     |> MemorySearchPage.one(page, fields.text, fields.changed, fields.source)
     |> account_search_result(kind, context, counted?)
   end
@@ -125,7 +125,7 @@ defmodule Ryker.Continuity.Recall do
   defp recall_locked(context, request, counted?) do
     current =
       context.identity_key
-      |> ConversationSummaryQuery.by_identity_key()
+      |> ConversationSummary.Query.by_identity_key()
       |> Repo.one()
       |> learning_visible(context)
 
@@ -147,15 +147,15 @@ defmodule Ryker.Continuity.Recall do
 
   defp searchable_summaries_query(context, scope) do
     context
-    |> ConversationSummaryQuery.searchable()
-    |> ConversationSummaryQuery.within_scope(context, scope)
+    |> ConversationSummary.Query.searchable()
+    |> ConversationSummary.Query.within_scope(context, scope)
   end
 
   defp searchable_rollups_query(context, scope) do
     context
-    |> ConversationRollupQuery.for_context()
-    |> ConversationRollupQuery.visible_to(context)
-    |> ConversationRollupQuery.within_scope(context, scope)
+    |> ConversationRollup.Query.for_context()
+    |> ConversationRollup.Query.visible_to(context)
+    |> ConversationRollup.Query.within_scope(context, scope)
   end
 
   defp continuity_search_candidate_visible?({:summary, summary}, context),
@@ -176,19 +176,19 @@ defmodule Ryker.Continuity.Recall do
     query =
       context
       |> searchable_summaries_query("workspace")
-      |> ConversationSummaryQuery.excluding_identity_key(context.identity_key)
-      |> ConversationSummaryQuery.recently_updated_first()
-      |> ConversationSummaryQuery.limit_to(@maximum_candidates)
+      |> ConversationSummary.Query.excluding_identity_key(context.identity_key)
+      |> ConversationSummary.Query.recently_updated_first()
+      |> ConversationSummary.Query.limit_to(@maximum_candidates)
       |> LearningSources.sourced()
       |> LearningSources.eligible(context)
 
     # Rank small descriptors first. Loading 64 full 8 MiB dependency lists
     # makes a bounded result count a very unbounded application-memory cost.
     query
-    |> ConversationSummaryQuery.select_descriptors()
+    |> ConversationSummary.Query.select_descriptors()
     |> Repo.all()
     |> Enum.sort_by(&summary_rank(&1, context, request))
-    |> Stream.map(&Repo.one(ConversationSummaryQuery.by_id(query, &1.id)))
+    |> Stream.map(&Repo.one(ConversationSummary.Query.by_id(query, &1.id)))
     |> Stream.reject(&is_nil/1)
     |> Stream.filter(&summary_visible?(&1, context))
     |> Enum.take(@maximum_related)
@@ -197,17 +197,17 @@ defmodule Ryker.Continuity.Recall do
   defp related_rollups(context) do
     query =
       context
-      |> ConversationRollupQuery.for_context()
-      |> ConversationRollupQuery.latest_period_first()
-      |> ConversationRollupQuery.limit_to(@maximum_candidates)
-      |> ConversationRollupQuery.visible_to(context)
+      |> ConversationRollup.Query.for_context()
+      |> ConversationRollup.Query.latest_period_first()
+      |> ConversationRollup.Query.limit_to(@maximum_candidates)
+      |> ConversationRollup.Query.visible_to(context)
       |> LearningSources.sourced()
       |> LearningSources.eligible(context)
 
     query
-    |> ConversationRollupQuery.select_ids()
+    |> ConversationRollup.Query.select_ids()
     |> Repo.all()
-    |> Stream.map(&Repo.one(ConversationRollupQuery.by_id(query, &1)))
+    |> Stream.map(&Repo.one(ConversationRollup.Query.by_id(query, &1)))
     |> Stream.reject(&is_nil/1)
     |> Stream.filter(&(rollup_visible?(&1, context) and derived_sources_valid?(&1, context)))
     |> Enum.take(@maximum_rollups)
@@ -316,7 +316,7 @@ defmodule Ryker.Continuity.Recall do
   defp mark_summaries_recalled(summaries, now) do
     ids = Enum.map(summaries, & &1.id)
 
-    Repo.update_all(ConversationSummaryQuery.by_ids(ids),
+    Repo.update_all(ConversationSummary.Query.by_ids(ids),
       inc: [recall_count: 1],
       set: [last_recalled_at: now]
     )
@@ -329,7 +329,7 @@ defmodule Ryker.Continuity.Recall do
   defp mark_rollups_recalled(rollups, now) do
     ids = Enum.map(rollups, & &1.id)
 
-    Repo.update_all(ConversationRollupQuery.by_ids(ids),
+    Repo.update_all(ConversationRollup.Query.by_ids(ids),
       inc: [recall_count: 1],
       set: [last_recalled_at: now]
     )

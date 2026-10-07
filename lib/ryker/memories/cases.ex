@@ -25,13 +25,13 @@ defmodule Ryker.Memories.Cases do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.Scope, as: ContinuityScope
-  alias Ryker.Episodes.{CorrelationClaimQuery, Episode, EpisodeQuery, OriginQuery}
-  alias Ryker.Episodes.{RoutingDigest, RoutingDigestQuery, RoutingDigests}
+  alias Ryker.Episodes.{CorrelationClaim, Episode, Origin}
+  alias Ryker.Episodes.{RoutingDigest, RoutingDigests}
   alias Ryker.Episodes.Scope, as: WorkspaceScope
-  alias Ryker.Memories.{CaseRecord, CaseRecordQuery, MemorySearchPage}
-  alias Ryker.Records.RecordQuery
+  alias Ryker.Memories.{CaseRecord, MemorySearchPage}
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Work.TurnQuery
+  alias Ryker.Work.Turn
 
   @problem_bytes 4_096
   @cause_bytes 4_096
@@ -73,7 +73,7 @@ defmodule Ryker.Memories.Cases do
   @doc "Captures one finished episode; unfinished work has no case yet."
   @spec capture(Ecto.UUID.t()) :: {:ok, CaseRecord.t()} | {:error, term()}
   def capture(episode_id) do
-    case Repo.one(EpisodeQuery.by_id(episode_id)) do
+    case Repo.one(Episode.Query.by_id(episode_id)) do
       %Episode{state: state} = episode when state in @terminal_states -> persist(episode)
       %Episode{} -> {:error, :case_episode_active}
       nil -> {:error, :case_episode_not_found}
@@ -93,10 +93,10 @@ defmodule Ryker.Memories.Cases do
     with false <- terms == "",
          {:ok, scope} <- ContinuityScope.destination_context(episode, nil) do
       scope
-      |> CaseRecordQuery.recallable(episode.execution_mode)
-      |> CaseRecordQuery.excluding_episode(episode.id)
-      |> CaseRecordQuery.matching_terms(terms)
-      |> CaseRecordQuery.limit_to(limit)
+      |> CaseRecord.Query.recallable(episode.execution_mode)
+      |> CaseRecord.Query.excluding_episode(episode.id)
+      |> CaseRecord.Query.matching_terms(terms)
+      |> CaseRecord.Query.limit_to(limit)
       |> Repo.all()
       |> Enum.map(&document/1)
     else
@@ -109,11 +109,11 @@ defmodule Ryker.Memories.Cases do
   def search_page(%Episode{} = episode, repository_ref, page) do
     case ContinuityScope.destination_context(episode, repository_ref) do
       {:ok, scope} ->
-        fields = CaseRecordQuery.search_fields()
+        fields = CaseRecord.Query.search_fields()
 
         scope
-        |> CaseRecordQuery.recallable(episode.execution_mode)
-        |> CaseRecordQuery.within_scope(scope, page.scope)
+        |> CaseRecord.Query.recallable(episode.execution_mode)
+        |> CaseRecord.Query.within_scope(scope, page.scope)
         |> MemorySearchPage.one(page, fields.text, fields.changed, fields.source)
         |> case do
           {:ok, record, position} -> {:ok, document(record), position}
@@ -157,8 +157,8 @@ defmodule Ryker.Memories.Cases do
   @spec withdraw_message_in_transaction(String.t()) :: :ok
   def withdraw_message_in_transaction(native_input_id) when is_binary(native_input_id) do
     withdraw(
-      EpisodeQuery.joined_by_message(native_input_id),
-      CaseRecordQuery.citing_message(native_input_id)
+      Episode.Query.joined_by_message(native_input_id),
+      CaseRecord.Query.citing_message(native_input_id)
     )
   end
 
@@ -173,8 +173,8 @@ defmodule Ryker.Memories.Cases do
   def withdraw_conversation_in_transaction(transport, conversation_ref)
       when is_binary(transport) and is_binary(conversation_ref) do
     withdraw(
-      EpisodeQuery.touching_conversation(transport, conversation_ref),
-      CaseRecordQuery.from_conversation(transport, conversation_ref)
+      Episode.Query.touching_conversation(transport, conversation_ref),
+      CaseRecord.Query.from_conversation(transport, conversation_ref)
     )
   end
 
@@ -184,14 +184,14 @@ defmodule Ryker.Memories.Cases do
   # order capture keeps cases in, so the two never wait on each other.
   defp withdraw(work, kept) do
     work
-    |> EpisodeQuery.ordered_by_id()
+    |> Episode.Query.ordered_by_id()
     |> Repo.all()
     |> Enum.each(&withdraw_work!/1)
 
     kept
-    |> CaseRecordQuery.active()
-    |> CaseRecordQuery.ordered_by_case_ref()
-    |> CaseRecordQuery.lock_for_update()
+    |> CaseRecord.Query.active()
+    |> CaseRecord.Query.ordered_by_case_ref()
+    |> CaseRecord.Query.lock_for_update()
     |> Repo.all()
     |> Enum.each(&redact!/1)
   end
@@ -237,7 +237,7 @@ defmodule Ryker.Memories.Cases do
   end
 
   defp locked(case_ref) do
-    case_ref |> CaseRecordQuery.by_case_ref() |> CaseRecordQuery.lock_for_update() |> Repo.one()
+    case_ref |> CaseRecord.Query.by_case_ref() |> CaseRecord.Query.lock_for_update() |> Repo.one()
   end
 
   # The identity and the lifecycle stay; the text is erased.
@@ -264,7 +264,7 @@ defmodule Ryker.Memories.Cases do
     attributes = attributes(episode)
     now = Repo.now!()
 
-    case Repo.one(CaseRecordQuery.by_case_ref(attributes.case_ref)) do
+    case Repo.one(CaseRecord.Query.by_case_ref(attributes.case_ref)) do
       %CaseRecord{content_fingerprint: same} = record
       when same == :erlang.map_get(:content_fingerprint, attributes) ->
         {:ok, record}
@@ -298,7 +298,7 @@ defmodule Ryker.Memories.Cases do
   defp announce_case(_not_written), do: :ok
 
   defp attributes(%Episode{} = episode) do
-    digest = Repo.one(RoutingDigestQuery.by_episode_id(episode.id))
+    digest = Repo.one(RoutingDigest.Query.by_episode_id(episode.id))
     problem = bounded(digest_problem(digest, episode), @problem_bytes)
     checked = Enum.flat_map(records(episode.id, "evidence"), &checked/1)
 
@@ -340,7 +340,7 @@ defmodule Ryker.Memories.Cases do
   defp digest_problem(_digest, %Episode{key: key}), do: "Work #{key}"
 
   defp digest_text(%Episode{} = episode) do
-    case Repo.one(RoutingDigestQuery.by_episode_id(episode.id)) do
+    case Repo.one(RoutingDigest.Query.by_episode_id(episode.id)) do
       %RoutingDigest{} = digest -> "#{digest.objective} #{digest.latest_development}"
       nil -> ""
     end
@@ -361,18 +361,18 @@ defmodule Ryker.Memories.Cases do
     |> Enum.join("\n")
   end
 
-  defp outcome(episode_id), do: Repo.one(TurnQuery.latest_answer_message(episode_id))
+  defp outcome(episode_id), do: Repo.one(Turn.Query.latest_answer_message(episode_id))
 
   # What the work still stands by: a replaced record, and a finding a person
   # forgot or marked explained (`Ryker.Records.Findings`), are left out.
   defp records(episode_id, kind) do
     episode_id
-    |> RecordQuery.by_episode_id()
-    |> RecordQuery.of_kind(kind)
-    |> RecordQuery.in_use()
-    |> RecordQuery.oldest_first()
-    |> RecordQuery.limit_to(32)
-    |> RecordQuery.select_payloads()
+    |> Record.Query.by_episode_id()
+    |> Record.Query.of_kind(kind)
+    |> Record.Query.in_use()
+    |> Record.Query.oldest_first()
+    |> Record.Query.limit_to(32)
+    |> Record.Query.select_payloads()
     |> Repo.all()
   end
 
@@ -411,19 +411,19 @@ defmodule Ryker.Memories.Cases do
   # The newest claims, as later work recurs on them.
   defp occurrence_refs(episode_id) do
     episode_id
-    |> CorrelationClaimQuery.by_episode_id()
-    |> CorrelationClaimQuery.newest_first()
-    |> CorrelationClaimQuery.limit_to(@maximum_occurrences)
-    |> CorrelationClaimQuery.select_occurrence_refs()
+    |> CorrelationClaim.Query.by_episode_id()
+    |> CorrelationClaim.Query.newest_first()
+    |> CorrelationClaim.Query.limit_to(@maximum_occurrences)
+    |> CorrelationClaim.Query.select_occurrence_refs()
     |> Repo.all()
     |> Enum.sort()
   end
 
   defp links(episode_id) do
     episode_id
-    |> OriginQuery.by_episode_id()
-    |> OriginQuery.in_occurrence_order()
-    |> OriginQuery.select_source_item_refs()
+    |> Origin.Query.by_episode_id()
+    |> Origin.Query.in_occurrence_order()
+    |> Origin.Query.select_source_item_refs()
     |> Repo.all()
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
@@ -432,22 +432,22 @@ defmodule Ryker.Memories.Cases do
   # Every conversation the work's messages came from, so that deleting any of
   # them finds the case (`withdraw_conversation_in_transaction/2`).
   defp conversation_refs(episode_id),
-    do: episode_id |> OriginQuery.conversation_refs() |> Repo.all() |> Enum.take(64)
+    do: episode_id |> Origin.Query.conversation_refs() |> Repo.all() |> Enum.take(64)
 
   # Lineage is kept by the source identity the adapter issued, not by this
   # episode's event key, so an explicit withdrawal of that exact message can
   # still find every record derived from it after the transcript is gone.
   defp source_refs(episode_id) do
     episode_id
-    |> OriginQuery.by_episode_id()
-    |> OriginQuery.in_occurrence_order()
-    |> OriginQuery.select_native_input_ids()
+    |> Origin.Query.by_episode_id()
+    |> Origin.Query.in_occurrence_order()
+    |> Origin.Query.select_native_input_ids()
     |> Repo.all()
     |> Enum.uniq()
     |> Enum.take(64)
   end
 
-  defp repository_ref(episode_id), do: Repo.one(TurnQuery.latest_repository_ref(episode_id))
+  defp repository_ref(episode_id), do: Repo.one(Turn.Query.latest_repository_ref(episode_id))
 
   defp document(%CaseRecord{} = record) do
     %{

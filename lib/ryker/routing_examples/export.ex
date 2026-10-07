@@ -34,7 +34,7 @@ defmodule Ryker.RoutingExamples.Export do
   """
 
   alias Ryker.Repo
-  alias Ryker.RoutingExamples.{Example, ExampleQuery, Feedback, FeedbackQuery}
+  alias Ryker.RoutingExamples.{Example, Feedback}
 
   @batch 100
 
@@ -48,8 +48,8 @@ defmodule Ryker.RoutingExamples.Export do
   def reduce(acc, fun) when is_function(fun, 2) do
     Repo.transaction(
       fn ->
-        ExampleQuery.kept()
-        |> ExampleQuery.oldest_decided_first()
+        Example.Query.kept()
+        |> Example.Query.oldest_decided_first()
         |> Repo.stream(max_rows: @batch)
         |> Stream.chunk_every(@batch)
         |> Stream.flat_map(&Repo.preload(&1, feedback: feedback_order()))
@@ -67,7 +67,7 @@ defmodule Ryker.RoutingExamples.Export do
     [Jason.encode_to_iodata!(document(example)), ?\n]
   end
 
-  defp feedback_order, do: FeedbackQuery.oldest_first(FeedbackQuery.all())
+  defp feedback_order, do: Feedback.Query.oldest_first(Feedback.Query.all())
 
   defp document(example) do
     Jason.OrderedObject.new([

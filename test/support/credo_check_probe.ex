@@ -6,8 +6,10 @@ defmodule Ryker.CredoCheckProbe do
   matching is invisible to the suite until someone writes the very shape it
   exists to stop. Four of the checks ported from Emisar on 2026-10-05 never
   ran here at all: they looked for Emisar's file names (`changeset.ex`,
-  `query.ex`, `live/`) and Ryker names its files `*_changeset.ex`,
-  `*_query.ex` and `*_live.ex`. A fixture test loads the sources (`load/0`),
+  `query.ex`, `live/`) while Ryker named its files `*_changeset.ex`,
+  `*_query.ex` and `*_live.ex` (query and changeset modules moved to
+  Emisar's `<schema>/query.ex` and `<schema>/changeset.ex` on 2026-10-07).
+  A fixture test loads the sources (`load/0`),
   parses a probe at a path the check cares about, and asserts both what must
   fire and what must not.
   """

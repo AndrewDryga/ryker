@@ -9,7 +9,6 @@ defmodule Ryker.StateTools.RouterTest do
   import Plug.Conn
   import Plug.Test
   alias Ryker.Behaviors.Behavior
-  alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Scope}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -18,7 +17,6 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
-  alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Settings
   alias Ryker.Slack.ChannelMembership
   alias Ryker.StateTools.{FixedTools, Router, Tools, ToolVisibility}
@@ -984,7 +982,7 @@ defmodule Ryker.StateTools.RouterTest do
         timezone: "Etc/UTC",
         title: "Daily service health"
       }
-      |> ScheduleChangeset.insert()
+      |> Schedule.Changeset.insert()
       |> Repo.insert!()
 
     read =
@@ -1095,7 +1093,7 @@ defmodule Ryker.StateTools.RouterTest do
         timezone: "Etc/UTC",
         title: "Daily service health"
       }
-      |> ScheduleChangeset.insert()
+      |> Schedule.Changeset.insert()
       |> Repo.insert!()
 
     assert {:ok, %{"automation" => automation}} =
@@ -1706,7 +1704,7 @@ defmodule Ryker.StateTools.RouterTest do
         timezone: "Etc/UTC",
         title: "Daily service health"
       }
-      |> ScheduleChangeset.insert()
+      |> Schedule.Changeset.insert()
       |> Repo.insert!()
 
     assert {:ok, %{"proposals" => [%{"record_ref" => change_ref}]}} =
@@ -1905,7 +1903,7 @@ defmodule Ryker.StateTools.RouterTest do
         status: :active,
         workspace_ref: Scope.workspace_ref(claim.episode)
       }
-      |> BehaviorChangeset.insert()
+      |> Behavior.Changeset.insert()
       |> Repo.insert!()
 
     assert {:ok, %{"automations" => [listed], "complete" => true}} =

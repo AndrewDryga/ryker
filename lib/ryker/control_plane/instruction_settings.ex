@@ -1,10 +1,10 @@
 defmodule Ryker.ControlPlane.InstructionSettings do
   @moduledoc "Instruction controls for a console person, never a model tool."
-  alias Ryker.Episodes.EpisodeQuery
+  alias Ryker.Episodes.Episode
   alias Ryker.Instructions
-  alias Ryker.Instructions.SettingQuery
+  alias Ryker.Instructions.Setting
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelConfigurationQuery, ChannelMembershipQuery, IncidentRoomQuery}
+  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, IncidentRoom}
 
   @doc """
   The saved instructions for `scope`. The global view also carries every
@@ -26,11 +26,11 @@ defmodule Ryker.ControlPlane.InstructionSettings do
   # A cleared channel has nothing to add, so it is not listed.
   @channel_limit 500
   defp channels do
-    SettingQuery.all()
-    |> SettingQuery.for_slack_channels()
-    |> SettingQuery.with_text()
-    |> SettingQuery.ordered_by_scope()
-    |> SettingQuery.limit_to(@channel_limit)
+    Setting.Query.all()
+    |> Setting.Query.for_slack_channels()
+    |> Setting.Query.with_text()
+    |> Setting.Query.ordered_by_scope()
+    |> Setting.Query.limit_to(@channel_limit)
     |> Repo.all()
     |> Enum.flat_map(fn setting ->
       case String.split(setting.scope_ref, ":") do
@@ -64,8 +64,8 @@ defmodule Ryker.ControlPlane.InstructionSettings do
               byte_size(workspace) <= 256 and byte_size(channel) <= 256 do
     membership =
       workspace
-      |> ChannelMembershipQuery.by_channel(channel)
-      |> ChannelMembershipQuery.select_statuses()
+      |> ChannelMembership.Query.by_channel(channel)
+      |> ChannelMembership.Query.select_statuses()
       |> Repo.one()
 
     if membership || known_channel?(workspace, channel),
@@ -76,8 +76,8 @@ defmodule Ryker.ControlPlane.InstructionSettings do
   defp available(_), do: {:error, :instructions_scope_unavailable}
 
   defp known_channel?(workspace, channel) do
-    Repo.exists?(ChannelConfigurationQuery.by_channel(workspace, channel)) or
-      Repo.exists?(IncidentRoomQuery.by_channel(workspace, channel)) or
-      Repo.exists?(EpisodeQuery.in_conversation("slack", "slack:#{workspace}:#{channel}"))
+    Repo.exists?(ChannelConfiguration.Query.by_channel(workspace, channel)) or
+      Repo.exists?(IncidentRoom.Query.by_channel(workspace, channel)) or
+      Repo.exists?(Episode.Query.in_conversation("slack", "slack:#{workspace}:#{channel}"))
   end
 end

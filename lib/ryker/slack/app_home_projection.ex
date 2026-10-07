@@ -12,7 +12,7 @@ defmodule Ryker.Slack.AppHomeProjection do
   alias Ryker.Publication.{Publication, Review}
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
-  alias Ryker.Slack.{AppHomeQuery, Collections, SavedEntity}
+  alias Ryker.Slack.{AppHome, Collections, SavedEntity}
   alias Ryker.Work.Session
 
   @maximum_collection_rows 10
@@ -211,32 +211,32 @@ defmodule Ryker.Slack.AppHomeProjection do
   end
 
   defp active_behavior_count(workspace_ref, actor_ref, now),
-    do: count(AppHomeQuery.active_behaviors(workspace_ref, actor_ref, now))
+    do: count(AppHome.Query.active_behaviors(workspace_ref, actor_ref, now))
 
   defp active_commitment_count(destination_refs),
-    do: count(AppHomeQuery.active_commitments(destination_refs))
+    do: count(AppHome.Query.active_commitments(destination_refs))
 
   defp active_memory_count(workspace_ref, now),
-    do: count(AppHomeQuery.workspace_facts(workspace_ref, now))
+    do: count(AppHome.Query.workspace_facts(workspace_ref, now))
 
   defp active_schedule_count(destination_refs, now),
-    do: count(AppHomeQuery.active_schedules(destination_refs, now))
+    do: count(AppHome.Query.active_schedules(destination_refs, now))
 
   defp blocked_work_count(destination_refs),
-    do: count(AppHomeQuery.blocked_turns(destination_refs))
+    do: count(AppHome.Query.blocked_turns(destination_refs))
 
   defp incident_count(workspace_ref, channel_refs, state),
-    do: count(AppHomeQuery.incidents(workspace_ref, channel_refs, state))
+    do: count(AppHome.Query.incidents(workspace_ref, channel_refs, state))
 
   defp published_work_count(destination_refs),
-    do: count(AppHomeQuery.published_work(destination_refs))
+    do: count(AppHome.Query.published_work(destination_refs))
 
   defp retained_workspace_count(destination_refs),
-    do: count(AppHomeQuery.retained_workspaces(destination_refs))
+    do: count(AppHome.Query.retained_workspaces(destination_refs))
 
   defp operator_waits(workspace_ref, destination_refs) do
     destination_refs
-    |> AppHomeQuery.operator_waits(@maximum_attention)
+    |> AppHome.Query.operator_waits(@maximum_attention)
     |> Repo.all()
     |> with_requests()
     |> Enum.map(fn {episode, title} ->
@@ -246,7 +246,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp blocked_work(workspace_ref, destination_refs) do
     destination_refs
-    |> AppHomeQuery.listed_blocked_turns(@maximum_attention)
+    |> AppHome.Query.listed_blocked_turns(@maximum_attention)
     |> Repo.all()
     |> with_requests(&elem(&1, 0))
     |> Enum.map(fn {{episode, updated_at}, title} ->
@@ -258,7 +258,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp publication_attention(workspace_ref, destination_refs) do
     destination_refs
-    |> AppHomeQuery.publication_attention(@publication_conflicts, @maximum_attention)
+    |> AppHome.Query.publication_attention(@publication_conflicts, @maximum_attention)
     |> Repo.all()
     |> Enum.map(fn publication ->
       controls = publication_controls(publication)
@@ -283,7 +283,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp incident_attention(workspace_ref, channel_refs) do
     workspace_ref
-    |> AppHomeQuery.blocked_incidents(channel_refs, @maximum_attention)
+    |> AppHome.Query.blocked_incidents(channel_refs, @maximum_attention)
     |> Repo.all()
     |> Enum.map(fn room ->
       %{
@@ -299,7 +299,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp retained_workspace_attention(workspace_ref, destination_refs) do
     destination_refs
-    |> AppHomeQuery.unmerged_workspaces(@maximum_attention)
+    |> AppHome.Query.unmerged_workspaces(@maximum_attention)
     |> Repo.all()
     |> Enum.filter(fn {session, _episode} -> safe_unmerged_discard?(session) end)
     |> with_requests(&elem(&1, 1))
@@ -323,7 +323,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp work(workspace_ref, destination_refs) do
     destination_refs
-    |> AppHomeQuery.work(@maximum_work)
+    |> AppHome.Query.work(@maximum_work)
     |> Repo.all()
     |> with_requests(&elem(&1, 0))
     |> Enum.map(fn {{episode, turn_status, coop_turn_id}, title} ->
@@ -344,7 +344,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp incidents(workspace_ref, channel_refs) do
     workspace_ref
-    |> AppHomeQuery.listed_open_incidents(channel_refs, @maximum_incidents)
+    |> AppHome.Query.listed_open_incidents(channel_refs, @maximum_incidents)
     |> Repo.all()
     |> Enum.map(fn room ->
       %{
@@ -359,7 +359,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp behaviors(workspace_ref, actor_ref, slack_workspace_ref, shared_conversations, now) do
     workspace_ref
-    |> AppHomeQuery.listed_behaviors(actor_ref, now, @maximum_behaviors)
+    |> AppHome.Query.listed_behaviors(actor_ref, now, @maximum_behaviors)
     |> Repo.all()
     |> Enum.map(fn behavior ->
       %{
@@ -375,7 +375,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp memories(workspace_ref, slack_workspace_ref, shared_conversations, now) do
     workspace_ref
-    |> AppHomeQuery.listed_facts(now, @maximum_memories)
+    |> AppHome.Query.listed_facts(now, @maximum_memories)
     |> Repo.all()
     |> Enum.map(fn memory ->
       %{
@@ -404,7 +404,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp schedules(workspace_ref, destination_refs, now) do
     destination_refs
-    |> AppHomeQuery.listed_schedules(now, @maximum_schedules)
+    |> AppHome.Query.listed_schedules(now, @maximum_schedules)
     |> Repo.all()
     |> Enum.map(fn schedule ->
       %{
@@ -448,8 +448,8 @@ defmodule Ryker.Slack.AppHomeProjection do
   defp with_requests(rows, episode_of) do
     ids = rows |> Enum.map(&episode_of.(&1).id) |> Enum.uniq()
 
-    tasks = ids |> AppHomeQuery.latest_tasks() |> Repo.all() |> Map.new()
-    inputs = ids |> AppHomeQuery.first_inputs() |> Repo.all() |> Map.new()
+    tasks = ids |> AppHome.Query.latest_tasks() |> Repo.all() |> Map.new()
+    inputs = ids |> AppHome.Query.first_inputs() |> Repo.all() |> Map.new()
 
     Enum.map(rows, fn row ->
       episode = episode_of.(row)

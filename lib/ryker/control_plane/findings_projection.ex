@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   it or marked it explained (`Ryker.Records.Findings`).
   """
 
-  alias Ryker.ControlPlane.{FindingsQuery, PagedRelation, Paths, Search}
+  alias Ryker.ControlPlane.{Findings, PagedRelation, Paths, Search}
   alias Ryker.InspectionRedactor
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -32,7 +32,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
     text = Search.term(params["q"]) || ""
     view = if params["view"] in @views, do: params["view"]
 
-    findings = search(FindingsQuery.findings(), text)
+    findings = search(Findings.Query.findings(), text)
 
     page =
       PagedRelation.read(
@@ -70,12 +70,12 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   def fetch(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
          {%Record{kind: "finding"} = record, episode_id} <-
-           Repo.one(FindingsQuery.with_request(id)) do
+           Repo.one(Findings.Query.with_request(id)) do
       refs = Map.get(record.payload, "cause_evidence", [])
 
       evidence =
         record.episode_id
-        |> FindingsQuery.evidence(refs)
+        |> Findings.Query.evidence(refs)
         |> Repo.all()
         |> Map.new(&{{&1.episode_id, &1.ref}, &1})
 
@@ -88,11 +88,11 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   end
 
   defp in_view(query, nil), do: query
-  defp in_view(query, view), do: FindingsQuery.in_view(query, view)
+  defp in_view(query, view), do: Findings.Query.in_view(query, view)
 
   defp view_counts(query) do
     query
-    |> FindingsQuery.counts()
+    |> Findings.Query.counts()
     |> Repo.all()
     |> Enum.reduce(%{}, fn {status, classification, count}, views ->
       Map.update(views, view_of(status, classification), count, &(&1 + count))
@@ -121,11 +121,11 @@ defmodule Ryker.ControlPlane.FindingsProjection do
 
   defp search(query, ""), do: query
 
-  defp search(query, text), do: FindingsQuery.matching(query, Search.contains(text))
+  defp search(query, text), do: Findings.Query.matching(query, Search.contains(text))
 
   defp visible_episode_records(episode_ids) do
     episode_ids
-    |> FindingsQuery.shown_on_timeline(@timeline_record_limit)
+    |> Findings.Query.shown_on_timeline(@timeline_record_limit)
     |> Repo.all()
     |> MapSet.new()
   end

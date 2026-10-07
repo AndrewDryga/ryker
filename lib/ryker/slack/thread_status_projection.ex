@@ -14,7 +14,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Slack.{ThreadActivityQuery, ThreadStatuses}
+  alias Ryker.Slack.{ThreadActivity, ThreadStatuses}
 
   @recent_terminal_seconds 24 * 60 * 60
   @maximum_rows 1_000
@@ -110,13 +110,13 @@ defmodule Ryker.Slack.ThreadStatusProjection do
 
   defp recent_entries(workspace_ref, cutoff) do
     workspace_ref
-    |> ThreadActivityQuery.recent_entries(cutoff, @maximum_rows)
+    |> ThreadActivity.Query.recent_entries(cutoff, @maximum_rows)
     |> Repo.all()
   end
 
   defp recent_episodes(workspace_ref, cutoff) do
     workspace_ref
-    |> ThreadActivityQuery.recent_episodes(cutoff, @maximum_rows)
+    |> ThreadActivity.Query.recent_episodes(cutoff, @maximum_rows)
     |> Repo.all()
   end
 
@@ -140,7 +140,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
 
       turns =
         episode_ids
-        |> ThreadActivityQuery.owning_turns(turn_refs)
+        |> ThreadActivity.Query.owning_turns(turn_refs)
         |> Repo.all()
         |> Enum.filter(&MapSet.member?(owners, {&1.episode_id, &1.turn_ref}))
 
@@ -175,11 +175,11 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   end
 
   defp latest_steps(remote_turns) do
-    remote_turns |> ThreadActivityQuery.latest_steps(@narration_kinds) |> Repo.all()
+    remote_turns |> ThreadActivity.Query.latest_steps(@narration_kinds) |> Repo.all()
   end
 
   defp last_heard(remote_turns) do
-    remote_turns |> ThreadActivityQuery.last_heard(@heard_kinds) |> Repo.all() |> Map.new()
+    remote_turns |> ThreadActivity.Query.last_heard(@heard_kinds) |> Repo.all() |> Map.new()
   end
 
   defp turn_progress(%{status: :blocked}, _narration), do: :parked

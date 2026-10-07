@@ -3,7 +3,7 @@ defmodule Ryker.Accounting.PricingTest do
   # test ends, so these run apart from the asynchronous suites.
   use Ryker.DataCase, async: false
   import Ecto.Query
-  alias Ryker.Accounting.{Execution, ExecutionQuery}
+  alias Ryker.Accounting.Execution
   alias Ryker.Settings
 
   @actor "control-plane:local"
@@ -30,7 +30,7 @@ defmodule Ryker.Accounting.PricingTest do
     })
 
     row =
-      Repo.one!(from(e in ExecutionQuery.ledger(nil), select: %{estimate: e.estimated_cost_usd}))
+      Repo.one!(from(e in Execution.Query.ledger(nil), select: %{estimate: e.estimated_cost_usd}))
 
     assert Decimal.equal?(row.estimate, Decimal.new("0.0176"))
   end
@@ -61,7 +61,7 @@ defmodule Ryker.Accounting.PricingTest do
       })
     end
 
-    assert Repo.all(from(e in ExecutionQuery.ledger(nil), select: e.estimated_cost_usd)) == [
+    assert Repo.all(from(e in Execution.Query.ledger(nil), select: e.estimated_cost_usd)) == [
              nil,
              nil,
              nil
@@ -180,7 +180,7 @@ defmodule Ryker.Accounting.PricingTest do
 
   defp estimate(execution) do
     Repo.one!(
-      from(e in ExecutionQuery.ledger(nil),
+      from(e in Execution.Query.ledger(nil),
         where: e.id == ^execution.id,
         select: e.estimated_cost_usd
       )

@@ -15,12 +15,12 @@ defmodule Ryker.Episodes do
   """
 
   alias Ryker.AdvisoryLock
-  alias Ryker.Episodes.{Command, ConversationLock, CorrelationClaims, Episode, EpisodeChangeset}
-  alias Ryker.Episodes.{EpisodeQuery, Event, EventChangeset, EventQuery, Kernel, Origins}
+  alias Ryker.Episodes.{Command, ConversationLock, CorrelationClaims, Episode}
+  alias Ryker.Episodes.{Event, Kernel, Origins}
   alias Ryker.Episodes.{RoutingDigests, Transition}
   alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.TurnQuery
+  alias Ryker.Work.Turn
 
   @spec apply(Command.t()) :: {:ok, Transition.t()} | {:error, term()}
   def apply(command) do
@@ -57,7 +57,7 @@ defmodule Ryker.Episodes do
   @doc false
   @spec fetch_by_key(String.t()) :: {:ok, Episode.t()} | :error
   def fetch_by_key(key) do
-    case Repo.fetch(EpisodeQuery.by_key(key)) do
+    case Repo.fetch(Episode.Query.by_key(key)) do
       {:ok, episode} -> {:ok, episode}
       {:error, :not_found} -> :error
     end
@@ -65,7 +65,7 @@ defmodule Ryker.Episodes do
 
   @spec list_events(String.t()) :: [Event.t()]
   def list_events(key) do
-    key |> EventQuery.for_episode_key() |> Repo.all()
+    key |> Event.Query.for_episode_key() |> Repo.all()
   end
 
   @doc false
@@ -144,10 +144,10 @@ defmodule Ryker.Episodes do
               is_struct(command, Command.TransferOwner) do
     bound_turn_id =
       episode.id
-      |> TurnQuery.by_episode_id()
-      |> TurnQuery.by_turn_ref(turn_ref)
-      |> TurnQuery.unsettled()
-      |> TurnQuery.select_ids()
+      |> Turn.Query.by_episode_id()
+      |> Turn.Query.by_turn_ref(turn_ref)
+      |> Turn.Query.unsettled()
+      |> Turn.Query.select_ids()
       |> repo.one()
 
     case {bound_turn_id, Keyword.get(options, :settled_work_turn_id)} do
@@ -167,7 +167,7 @@ defmodule Ryker.Episodes do
   end
 
   defp load_episode(repo, episode_key) do
-    {:ok, episode_key |> EpisodeQuery.by_key() |> EpisodeQuery.lock_for_update() |> repo.one()}
+    {:ok, episode_key |> Episode.Query.by_key() |> Episode.Query.lock_for_update() |> repo.one()}
   end
 
   defp load_existing_event(_repo, nil, _dedupe_key), do: {:ok, nil}
@@ -175,8 +175,8 @@ defmodule Ryker.Episodes do
   defp load_existing_event(repo, %Episode{} = episode, dedupe_key) do
     {:ok,
      episode.id
-     |> EventQuery.by_episode_id()
-     |> EventQuery.by_dedupe_key(dedupe_key)
+     |> Event.Query.by_episode_id()
+     |> Event.Query.by_dedupe_key(dedupe_key)
      |> repo.one()}
   end
 
@@ -219,21 +219,21 @@ defmodule Ryker.Episodes do
 
   defp persist_episode(repo, nil, episode) do
     episode
-    |> EpisodeChangeset.insert()
+    |> Episode.Changeset.insert()
     |> repo.insert()
     |> persistence_result(:episode)
   end
 
   defp persist_episode(repo, stored, decided) do
     stored
-    |> EpisodeChangeset.advance(decided)
+    |> Episode.Changeset.advance(decided)
     |> repo.update()
     |> persistence_result(:episode)
   end
 
   defp persist_event(repo, event, episode_id) do
     event
-    |> EventChangeset.insert(episode_id)
+    |> Event.Changeset.insert(episode_id)
     |> repo.insert()
     |> persistence_result(:event)
   end
@@ -328,7 +328,7 @@ defmodule Ryker.Episodes do
   # can say it is gone; it has no conversation left to announce.
   defp broadcast_committed_episode(episode_id) do
     destination =
-      episode_id |> EpisodeQuery.by_id() |> EpisodeQuery.select_destinations() |> Repo.one()
+      episode_id |> Episode.Query.by_id() |> Episode.Query.select_destinations() |> Repo.one()
 
     Ryker.PubSub.broadcast(episode_topic(episode_id), {:episode_updated, episode_id})
     Ryker.PubSub.broadcast(episodes_topic(), {:episode_updated, episode_id})

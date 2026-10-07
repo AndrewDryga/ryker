@@ -17,19 +17,17 @@ defmodule Ryker.Records do
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Emisar.Approvals
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
+  alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Input
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.InvestigationPayload
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
   alias Ryker.Records.RecordPayload
-  alias Ryker.Records.RecordQuery
   alias Ryker.Repo
   alias Ryker.Waits.EventSubscriptions
   alias Ryker.Waits.EventWaitTiming
   alias Ryker.Waits.SourceEventMatcher
-  alias Ryker.Work.{Turn, TurnQuery}
+  alias Ryker.Work.Turn
 
   @operation_id ~r/\A[A-Za-z0-9_.:-]{1,80}\z/
   @maximum_records_per_turn 64
@@ -134,9 +132,9 @@ defmodule Ryker.Records do
   @spec validation_records(Ecto.UUID.t()) :: map()
   def validation_records(episode_id) do
     episode_id
-    |> RecordQuery.by_episode_id()
-    |> RecordQuery.in_use()
-    |> RecordQuery.in_sequence()
+    |> Record.Query.by_episode_id()
+    |> Record.Query.in_use()
+    |> Record.Query.in_sequence()
     |> Repo.all()
     |> Map.new(fn record ->
       {record.ref, validation_record(record)}
@@ -164,10 +162,10 @@ defmodule Ryker.Records do
   @spec retained_records(Ecto.UUID.t()) :: [map()]
   def retained_records(episode_id) do
     episode_id
-    |> RecordQuery.by_episode_id()
-    |> RecordQuery.in_use()
-    |> RecordQuery.latest_sequence_first()
-    |> RecordQuery.limit_to(@maximum_model_records)
+    |> Record.Query.by_episode_id()
+    |> Record.Query.in_use()
+    |> Record.Query.latest_sequence_first()
+    |> Record.Query.limit_to(@maximum_model_records)
     |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(fn record ->
@@ -202,16 +200,16 @@ defmodule Ryker.Records do
   def question_open?(episode_id, operation_id) when is_binary(episode_id) do
     query =
       episode_id
-      |> RecordQuery.by_episode_id()
-      |> RecordQuery.of_kind("input_request")
-      |> RecordQuery.open()
+      |> Record.Query.by_episode_id()
+      |> Record.Query.of_kind("input_request")
+      |> Record.Query.open()
 
     # A retry of the same call is the same question, and `Records.create`
     # already returns the record it made the first time. Only a *different*
     # operation asking again is the one that strands the turn.
     query =
       if is_binary(operation_id),
-        do: RecordQuery.excluding_operation(query, operation_id),
+        do: Record.Query.excluding_operation(query, operation_id),
         else: query
 
     Repo.exists?(query)
@@ -324,10 +322,10 @@ defmodule Ryker.Records do
 
       {_count, resolved} =
         wait_ref
-        |> RecordQuery.by_ref()
-        |> RecordQuery.of_kinds(["input_request", "event_wait"])
-        |> RecordQuery.open()
-        |> RecordQuery.transition(status)
+        |> Record.Query.by_ref()
+        |> Record.Query.of_kinds(["input_request", "event_wait"])
+        |> Record.Query.open()
+        |> Record.Query.transition(status)
         |> Repo.update_all([])
 
       Enum.each(resolved, &broadcast_record_updated/1)
@@ -351,10 +349,10 @@ defmodule Ryker.Records do
     if Repo.in_transaction?() do
       {_count, dismissed} =
         episode_id
-        |> RecordQuery.by_episode_id()
-        |> RecordQuery.of_kind("input_request")
-        |> RecordQuery.open()
-        |> RecordQuery.transition(:dismissed)
+        |> Record.Query.by_episode_id()
+        |> Record.Query.of_kind("input_request")
+        |> Record.Query.open()
+        |> Record.Query.transition(:dismissed)
         |> Repo.update_all([])
 
       Enum.each(dismissed, &broadcast_record_updated/1)
@@ -367,9 +365,9 @@ defmodule Ryker.Records do
   @spec user_resumable_wait?(String.t()) :: boolean()
   def user_resumable_wait?(wait_ref) when is_binary(wait_ref) do
     not (wait_ref
-         |> RecordQuery.by_ref()
-         |> RecordQuery.of_kind("emisar_approval")
-         |> RecordQuery.open()
+         |> Record.Query.by_ref()
+         |> Record.Query.of_kind("emisar_approval")
+         |> Record.Query.open()
          |> Repo.exists?())
   end
 
@@ -382,9 +380,9 @@ defmodule Ryker.Records do
     # native choice already marked the record answered. Only a person may consume it.
     holder =
       wait_ref
-      |> RecordQuery.by_ref()
-      |> RecordQuery.open_or_question()
-      |> RecordQuery.select_kinds_and_payloads()
+      |> Record.Query.by_ref()
+      |> Record.Query.open_or_question()
+      |> Record.Query.select_kinds_and_payloads()
       |> Repo.one()
 
     case holder do
@@ -416,8 +414,8 @@ defmodule Ryker.Records do
       if unique == [] do
         []
       else
-        query = RecordQuery.by_refs(unique)
-        query = if episode_id, do: RecordQuery.by_episode_id(query, episode_id), else: query
+        query = Record.Query.by_refs(unique)
+        query = if episode_id, do: Record.Query.by_episode_id(query, episode_id), else: query
 
         Repo.all(query)
       end
@@ -430,7 +428,7 @@ defmodule Ryker.Records do
   end
 
   defp episode_id(turn_id) do
-    episode_id = turn_id |> TurnQuery.by_id() |> TurnQuery.select_episode_ids() |> Repo.one()
+    episode_id = turn_id |> Turn.Query.by_id() |> Turn.Query.select_episode_ids() |> Repo.one()
 
     case episode_id do
       nil -> {:error, :state_record_unauthorized}
@@ -439,7 +437,7 @@ defmodule Ryker.Records do
   end
 
   defp lock_episode(episode_id) do
-    episode = episode_id |> EpisodeQuery.by_id() |> EpisodeQuery.lock_for_update() |> Repo.one()
+    episode = episode_id |> Episode.Query.by_id() |> Episode.Query.lock_for_update() |> Repo.one()
 
     case episode do
       nil -> {:error, :state_record_unauthorized}
@@ -450,9 +448,9 @@ defmodule Ryker.Records do
   defp lock_turn(turn_id, episode_id) do
     turn =
       turn_id
-      |> TurnQuery.by_id()
-      |> TurnQuery.by_episode_id(episode_id)
-      |> TurnQuery.lock_for_update()
+      |> Turn.Query.by_id()
+      |> Turn.Query.by_episode_id(episode_id)
+      |> Turn.Query.lock_for_update()
       |> Repo.one()
 
     case turn do
@@ -511,8 +509,8 @@ defmodule Ryker.Records do
 
     existing =
       turn.id
-      |> RecordQuery.by_turn_id()
-      |> RecordQuery.by_operation_id(operation_id)
+      |> Record.Query.by_turn_id()
+      |> Record.Query.by_operation_id(operation_id)
       |> Repo.one()
 
     case existing do
@@ -574,7 +572,7 @@ defmodule Ryker.Records do
         subject_ref: prepared.subject_ref,
         turn_id: turn.id
       }
-      |> RecordChangeset.insert()
+      |> Record.Changeset.insert()
       |> Repo.insert()
       |> persistence_result()
     end
@@ -590,13 +588,13 @@ defmodule Ryker.Records do
          true
        ) do
     episode_id
-    |> RecordQuery.by_episode_id()
-    |> RecordQuery.of_kind("event_wait")
-    |> RecordQuery.open()
-    |> RecordQuery.without_wait_error()
-    |> RecordQuery.with_payload(payload)
-    |> RecordQuery.in_sequence()
-    |> RecordQuery.limit_to(1)
+    |> Record.Query.by_episode_id()
+    |> Record.Query.of_kind("event_wait")
+    |> Record.Query.open()
+    |> Record.Query.without_wait_error()
+    |> Record.Query.with_payload(payload)
+    |> Record.Query.in_sequence()
+    |> Record.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -620,8 +618,8 @@ defmodule Ryker.Records do
   defp record_capacity(turn_id, _operation_id) do
     count =
       turn_id
-      |> RecordQuery.by_turn_id()
-      |> RecordQuery.excluding_operation(@publication_offer)
+      |> Record.Query.by_turn_id()
+      |> Record.Query.excluding_operation(@publication_offer)
       |> Repo.aggregate(:count)
 
     if count < @maximum_records_per_turn,
@@ -657,10 +655,10 @@ defmodule Ryker.Records do
               is_binary(repository) and byte_size(repository) > 0 do
     ids =
       episode_id
-      |> RecordQuery.by_episode_id()
-      |> RecordQuery.of_kind("task_offer")
-      |> RecordQuery.open()
-      |> RecordQuery.select_ids_and_payloads()
+      |> Record.Query.by_episode_id()
+      |> Record.Query.of_kind("task_offer")
+      |> Record.Query.open()
+      |> Record.Query.select_ids_and_payloads()
       |> Repo.all()
       |> Enum.flat_map(fn
         {id, %{"instruction_ref" => ^instruction_ref, "repository" => ^repository}} -> [id]
@@ -670,8 +668,8 @@ defmodule Ryker.Records do
     if ids != [] do
       {_count, superseded} =
         ids
-        |> RecordQuery.by_ids()
-        |> RecordQuery.transition(:superseded)
+        |> Record.Query.by_ids()
+        |> Record.Query.transition(:superseded)
         |> Repo.update_all([])
 
       Enum.each(superseded, &broadcast_record_updated/1)
@@ -781,10 +779,10 @@ defmodule Ryker.Records do
   defp evidence_records(episode_id, refs, field) do
     records =
       episode_id
-      |> RecordQuery.by_episode_id()
-      |> RecordQuery.of_kind("evidence")
-      |> RecordQuery.in_use()
-      |> RecordQuery.by_refs(refs)
+      |> Record.Query.by_episode_id()
+      |> Record.Query.of_kind("evidence")
+      |> Record.Query.in_use()
+      |> Record.Query.by_refs(refs)
       |> Repo.all()
 
     if length(records) == length(refs),
@@ -822,10 +820,10 @@ defmodule Ryker.Records do
 
   defp goal_exists?(episode_id, goal_id) do
     episode_id
-    |> RecordQuery.by_episode_id()
-    |> RecordQuery.of_kind("goal")
-    |> RecordQuery.by_subject_ref(goal_id)
-    |> RecordQuery.in_use()
+    |> Record.Query.by_episode_id()
+    |> Record.Query.of_kind("goal")
+    |> Record.Query.by_subject_ref(goal_id)
+    |> Record.Query.in_use()
     |> Repo.exists?()
   end
 
@@ -842,10 +840,10 @@ defmodule Ryker.Records do
   defp goals_exist(episode_id, goal_ids, field) do
     count =
       episode_id
-      |> RecordQuery.by_episode_id()
-      |> RecordQuery.of_kind("goal")
-      |> RecordQuery.by_subject_refs(goal_ids)
-      |> RecordQuery.in_use()
+      |> Record.Query.by_episode_id()
+      |> Record.Query.of_kind("goal")
+      |> Record.Query.by_subject_refs(goal_ids)
+      |> Record.Query.in_use()
       |> Repo.aggregate(:count)
 
     if count == length(goal_ids), do: :ok, else: {:error, {:invalid_state_record, field}}
@@ -1004,10 +1002,10 @@ defmodule Ryker.Records do
 
   defp goal_records(episode_id) do
     episode_id
-    |> RecordQuery.by_episode_id()
-    |> RecordQuery.of_kinds(["goal", "goal_state"])
-    |> RecordQuery.in_use()
-    |> RecordQuery.in_sequence()
+    |> Record.Query.by_episode_id()
+    |> Record.Query.of_kinds(["goal", "goal_state"])
+    |> Record.Query.in_use()
+    |> Record.Query.in_sequence()
     |> Repo.all()
   end
 
@@ -1080,7 +1078,7 @@ defmodule Ryker.Records do
   @spec lock_offer(String.t(), [String.t()]) ::
           {:ok, Record.t(), Episode.t(), Turn.t()} | {:error, :not_found}
   def lock_offer(ref, kinds) do
-    case Repo.fetch(RecordQuery.offer_with_origin(ref, kinds)) do
+    case Repo.fetch(Record.Query.offer_with_origin(ref, kinds)) do
       {:ok, {record, episode, turn}} -> {:ok, record, episode, turn}
       {:error, :not_found} -> {:error, :not_found}
     end
@@ -1094,7 +1092,7 @@ defmodule Ryker.Records do
   @spec confirm_offer(Record.t(), map()) :: {:ok, Record.t()} | {:error, Ecto.Changeset.t()}
   def confirm_offer(%Record{} = record, answer) do
     changeset =
-      RecordChangeset.confirm_resource(record, %{
+      Record.Changeset.confirm_resource(record, %{
         confirmed_at: answer.occurred_at,
         confirmed_by_actor_ref: answer.actor_ref,
         confirmation_ref: answer.confirmation_ref,

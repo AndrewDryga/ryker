@@ -13,7 +13,7 @@ defmodule Ryker.Continuity.Scope do
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Episodes.Scope, as: WorkspaceScope
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembershipQuery
+  alias Ryker.Slack.ChannelMembership
 
   @doc """
   The continuity scope of an episode's destination: its transport, conversation,
@@ -91,8 +91,8 @@ defmodule Ryker.Continuity.Scope do
     case slack_channel(summary) do
       {workspace_ref, channel_ref} ->
         workspace_ref
-        |> ChannelMembershipQuery.by_channel(channel_ref)
-        |> ChannelMembershipQuery.joined_public()
+        |> ChannelMembership.Query.by_channel(channel_ref)
+        |> ChannelMembership.Query.joined_public()
         |> Repo.exists?()
 
       nil ->
@@ -111,9 +111,9 @@ defmodule Ryker.Continuity.Scope do
   def slack_visibility(workspace_ref, channel_ref) do
     privacy =
       workspace_ref
-      |> ChannelMembershipQuery.by_channel(channel_ref)
-      |> ChannelMembershipQuery.joined()
-      |> ChannelMembershipQuery.select_privacy()
+      |> ChannelMembership.Query.by_channel(channel_ref)
+      |> ChannelMembership.Query.joined()
+      |> ChannelMembership.Query.select_privacy()
       |> Repo.one()
 
     case privacy do

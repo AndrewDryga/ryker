@@ -21,12 +21,12 @@ defmodule Ryker.Publication.Followups.Polls do
   so a webhook or check request that came during the wait is not lost.
   """
 
-  alias Ryker.Episodes.{Episode, EpisodeQuery, EventQuery}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.ErrorDetail
-  alias Ryker.Publication.Changeset, as: PublicationChangeset
   alias Ryker.Publication.Custody
   alias Ryker.Publication.Followups.{Leases, Store}
   alias Ryker.Publication.LifecycleStatus
+  alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.Work.Custody, as: WorkCustody
 
@@ -169,7 +169,7 @@ defmodule Ryker.Publication.Followups.Polls do
 
   defp mark_stale_publication!(publication, observed_head_sha, now) do
     publication
-    |> PublicationChangeset.update(%{
+    |> Publication.Changeset.update(%{
       expected_remote_head_sha: observed_head_sha,
       updated_at: now
     })
@@ -336,7 +336,7 @@ defmodule Ryker.Publication.Followups.Polls do
   end
 
   defp still_working?(followup, now) do
-    case Repo.one(EpisodeQuery.by_id(followup.episode_id)) do
+    case Repo.one(Episode.Query.by_id(followup.episode_id)) do
       %Episode{state: :working, owner_kind: :turn, owner_ref: owner} ->
         owner == followup.verification_turn_ref and within_wait?(followup, now) and
           WorkCustody.turn_in_progress?(followup.episode_id, owner)
@@ -350,9 +350,9 @@ defmodule Ryker.Publication.Followups.Polls do
   defp within_wait?(followup, now) do
     admitted_at =
       followup.episode_id
-      |> EventQuery.by_episode_id()
-      |> EventQuery.at_sequence(followup.verification_sequence)
-      |> EventQuery.select_inserted_at()
+      |> Event.Query.by_episode_id()
+      |> Event.Query.at_sequence(followup.verification_sequence)
+      |> Event.Query.select_inserted_at()
       |> Repo.one()
 
     is_struct(admitted_at, DateTime) and DateTime.diff(now, admitted_at) < @task_wait_seconds
@@ -360,9 +360,9 @@ defmodule Ryker.Publication.Followups.Polls do
 
   defp verification_recorded?(followup) do
     followup.episode_id
-    |> EventQuery.by_episode_id()
-    |> EventQuery.after_sequence(followup.verification_sequence)
-    |> EventQuery.accepted_for_turn(followup.verification_turn_ref)
+    |> Event.Query.by_episode_id()
+    |> Event.Query.after_sequence(followup.verification_sequence)
+    |> Event.Query.accepted_for_turn(followup.verification_turn_ref)
     |> Repo.exists?()
   end
 

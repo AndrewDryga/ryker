@@ -11,7 +11,6 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
-  alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Memories.Recall
   alias Ryker.Memories.Reviews
   alias Ryker.Records
@@ -555,7 +554,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
       }
     }
 
-    changeset = MemoryEntryChangeset.insert(attributes)
+    changeset = MemoryEntry.Changeset.insert(attributes)
     assert changeset.valid?, inspect(changeset.errors)
     assert {:ok, %MemoryEntry{} = entry} = Repo.insert(changeset)
     Repo.update_all(MemoryEntry, set: [inserted_at: now, updated_at: now])

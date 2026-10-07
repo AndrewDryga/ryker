@@ -13,18 +13,16 @@ defmodule Ryker.Emisar.Approvals do
   """
 
   alias Ryker.Crypto
-  alias Ryker.Emisar.{Approval, ApprovalChangeset, ApprovalQuery, Review, RunState}
+  alias Ryker.Emisar.{Approval, Review, RunState}
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode, EpisodeQuery}
+  alias Ryker.Episodes.{Command, Episode}
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Input
   alias Ryker.Records
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
-  alias Ryker.Records.RecordQuery
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.TurnQuery
+  alias Ryker.Work.Turn
 
   @spec ensure_registered_in_transaction(Record.t()) :: :ok | {:error, term()}
   def ensure_registered_in_transaction(%Record{kind: kind}) when kind != "emisar_approval",
@@ -59,7 +57,7 @@ defmodule Ryker.Emisar.Approvals do
   @spec next_due_at(String.t(), DateTime.t()) :: DateTime.t() | nil
   def next_due_at(connection_ref, %DateTime{} = since) when is_binary(connection_ref) do
     connection_ref
-    |> ApprovalQuery.next_due_after(since)
+    |> Approval.Query.next_due_after(since)
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -166,7 +164,7 @@ defmodule Ryker.Emisar.Approvals do
   @spec get_by_request_id(String.t(), String.t()) :: Approval.t() | nil
   def get_by_request_id(connection_ref, request_id)
       when is_binary(connection_ref) and is_binary(request_id) do
-    connection_ref |> ApprovalQuery.by_request(request_id) |> Repo.one()
+    connection_ref |> Approval.Query.by_request(request_id) |> Repo.one()
   end
 
   def get_by_request_id(_connection_ref, _request_id), do: nil
@@ -202,11 +200,11 @@ defmodule Ryker.Emisar.Approvals do
 
   defp ended_watches(connection_ref) do
     connection_ref
-    |> ApprovalQuery.watches()
-    |> ApprovalQuery.ended()
-    |> ApprovalQuery.oldest_updated_first()
-    |> ApprovalQuery.limit_to(100)
-    |> ApprovalQuery.select_ids()
+    |> Approval.Query.watches()
+    |> Approval.Query.ended()
+    |> Approval.Query.oldest_updated_first()
+    |> Approval.Query.limit_to(100)
+    |> Approval.Query.select_ids()
     |> Repo.all()
   end
 
@@ -274,34 +272,34 @@ defmodule Ryker.Emisar.Approvals do
 
   defp refused_watches(connection_ref) do
     connection_ref
-    |> ApprovalQuery.waited_for()
-    |> ApprovalQuery.refused()
-    |> ApprovalQuery.select_ids()
+    |> Approval.Query.waited_for()
+    |> Approval.Query.refused()
+    |> Approval.Query.select_ids()
     |> Repo.all()
   end
 
   defp unreadable_watches(connection_ref) do
     connection_ref
-    |> ApprovalQuery.waited_for()
-    |> ApprovalQuery.failed_with(@token_unavailable_errors)
-    |> ApprovalQuery.select_ids()
+    |> Approval.Query.waited_for()
+    |> Approval.Query.failed_with(@token_unavailable_errors)
+    |> Approval.Query.select_ids()
     |> Repo.all()
   end
 
   # The rows among `ids` still open and not being polled right now, locked.
   defp lock_unleased(ids, now) do
     ids
-    |> ApprovalQuery.by_ids()
-    |> ApprovalQuery.with_statuses([:monitoring, :blocked])
-    |> ApprovalQuery.unleased_at(now)
-    |> ApprovalQuery.oldest_updated_first()
-    |> ApprovalQuery.lock_next_free()
+    |> Approval.Query.by_ids()
+    |> Approval.Query.with_statuses([:monitoring, :blocked])
+    |> Approval.Query.unleased_at(now)
+    |> Approval.Query.oldest_updated_first()
+    |> Approval.Query.lock_next_free()
     |> Repo.all()
   end
 
   defp ensure_registered(%Record{kind: "emisar_approval"} = record) do
     with :ok <- exact_session_authority(record) do
-      case Repo.one(ApprovalQuery.by_record_id(record.id)) do
+      case Repo.one(Approval.Query.by_record_id(record.id)) do
         nil -> insert_approval(record)
         %Approval{} = approval -> exact_registration(approval, record)
       end
@@ -310,7 +308,7 @@ defmodule Ryker.Emisar.Approvals do
 
   defp exact_session_authority(record) do
     result =
-      record.turn_id |> TurnQuery.session_emisar_authority(record.episode_id) |> Repo.one()
+      record.turn_id |> Turn.Query.session_emisar_authority(record.episode_id) |> Repo.one()
 
     expected = {
       record.payload["connection_ref"],
@@ -343,7 +341,7 @@ defmodule Ryker.Emisar.Approvals do
         runner_ref: payload["runner_ref"],
         status: :monitoring
       }
-      |> ApprovalChangeset.insert()
+      |> Approval.Changeset.insert()
       |> Repo.insert()
       |> case do
         {:ok, approval} -> broadcast_approval_updated(approval)
@@ -380,7 +378,7 @@ defmodule Ryker.Emisar.Approvals do
   defp claim_locked(connection_ref, worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    approval = connection_ref |> ApprovalQuery.next_claimable(now) |> Repo.one()
+    approval = connection_ref |> Approval.Query.next_claimable(now) |> Repo.one()
 
     case approval do
       nil ->
@@ -461,10 +459,10 @@ defmodule Ryker.Emisar.Approvals do
   defp resume_terminal_locked(connection_ref, request_id, lease_ref, state) do
     now = Repo.now!()
 
-    with %Approval{} = snapshot <- Repo.one(ApprovalQuery.by_request(connection_ref, request_id)),
+    with %Approval{} = snapshot <- Repo.one(Approval.Query.by_request(connection_ref, request_id)),
          :ok <- exact_run(snapshot, state),
-         %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(snapshot.episode_id)),
-         %Record{} = record <- Repo.one(RecordQuery.by_id(snapshot.record_id)),
+         %Episode{} = episode <- Repo.one(Episode.Query.by_id(snapshot.episode_id)),
+         %Record{} = record <- Repo.one(Record.Query.by_id(snapshot.record_id)),
          {:ok, input} <- terminal_input(episode, snapshot, state, now),
          admit <- admit_command(episode, input, snapshot),
          resume <- resume_command(episode, admit, record, snapshot, now),
@@ -474,7 +472,7 @@ defmodule Ryker.Emisar.Approvals do
          {:ok, _approval} <- live_lease(locked_approval, lease_ref, now),
          :ok <- exact_run(locked_approval, state),
          :ok <- exact_wait_record(locked_record, locked_approval, record.ref),
-         {:ok, answered_record} <- Repo.update(RecordChangeset.answer(locked_record)),
+         {:ok, answered_record} <- Repo.update(Record.Changeset.answer(locked_record)),
          approval <-
            update!(locked_approval, %{
              failure_count: 0,
@@ -544,8 +542,8 @@ defmodule Ryker.Emisar.Approvals do
        when is_binary(connection_ref) and is_binary(request_id) do
     locked =
       connection_ref
-      |> ApprovalQuery.by_request(request_id)
-      |> ApprovalQuery.lock_for_update()
+      |> Approval.Query.by_request(request_id)
+      |> Approval.Query.lock_for_update()
       |> Repo.one()
 
     case locked do
@@ -661,16 +659,16 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp lock_record(id),
-    do: id |> RecordQuery.by_id() |> RecordQuery.lock_for_update() |> Repo.one()
+    do: id |> Record.Query.by_id() |> Record.Query.lock_for_update() |> Repo.one()
 
   defp lock_approval(id),
-    do: id |> ApprovalQuery.by_id() |> ApprovalQuery.lock_for_update() |> Repo.one()
+    do: id |> Approval.Query.by_id() |> Approval.Query.lock_for_update() |> Repo.one()
 
   # A look that found the run as Emisar last described it, a claim and a
   # lease extension change nothing anyone sees, and a watch is looked at
   # every few seconds for as long as its approval waits: those write quietly.
   defp update!(approval, attributes, announce \\ :announce) do
-    changeset = ApprovalChangeset.update(approval, attributes)
+    changeset = Approval.Changeset.update(approval, attributes)
 
     case Repo.update(changeset) do
       {:ok, approval} when announce == :quiet ->

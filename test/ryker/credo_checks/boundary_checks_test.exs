@@ -11,8 +11,8 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   import Ryker.CredoCheckProbe
 
   @context "lib/ryker/sprockets.ex"
-  @query "lib/ryker/sprockets/sprocket_query.ex"
-  @changeset "lib/ryker/sprockets/sprocket_changeset.ex"
+  @query "lib/ryker/sprockets/sprocket/query.ex"
+  @changeset "lib/ryker/sprockets/sprocket/changeset.ex"
   @console "lib/ryker/control_plane/sprockets_page.ex"
   @live "lib/ryker/control_plane/sprockets_live.ex"
 
@@ -38,7 +38,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
 
     test "allows the DSL in a query module and a query type in any spec" do
       query = """
-      defmodule Ryker.Sprockets.SprocketQuery do
+      defmodule Ryker.Sprockets.Sprocket.Query do
         import Ecto.Query
 
         def all, do: from(sprockets in Sprocket, as: :sprockets)
@@ -48,7 +48,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
       spec = """
       defmodule Ryker.Sprockets do
         @spec recent() :: Ecto.Query.t()
-        def recent, do: SprocketQuery.all()
+        def recent, do: Sprocket.Query.all()
       end
       """
 
@@ -65,7 +65,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
         def every, do: Repo.all(Sprocket)
         def counted, do: Sprocket |> Repo.aggregate(:count)
         def any?, do: Ryker.Repo.exists?(Sprocket)
-        def through_query, do: Repo.all(SprocketQuery.all())
+        def through_query, do: Repo.all(Sprocket.Query.all())
         def written(rows), do: Repo.insert_all(Sprocket, rows)
       end
       """
@@ -97,7 +97,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     test "allows a lookup through a query module, Repo itself, and tests" do
       context = """
       defmodule Ryker.Sprockets do
-        def one(id), do: id |> SprocketQuery.by_id() |> Repo.fetch()
+        def one(id), do: id |> Sprocket.Query.by_id() |> Repo.fetch()
       end
       """
 
@@ -116,7 +116,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   describe "Ryker.Checks.IL06QueryModulePure" do
     test "flags a Repo call inside a query module" do
       source = """
-      defmodule Ryker.Sprockets.SprocketQuery do
+      defmodule Ryker.Sprockets.Sprocket.Query do
         import Ecto.Query
 
         def load(queryable), do: Repo.all(queryable)
@@ -132,7 +132,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
 
     test "allows a grouped Ryker.Repo alias, which is not a Repo call" do
       source = """
-      defmodule Ryker.Sprockets.SprocketQuery do
+      defmodule Ryker.Sprockets.Sprocket.Query do
         import Ecto.Query
         alias Ryker.Repo.{Filter, Paginator}
 
@@ -206,7 +206,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
       """
 
       changeset = """
-      defmodule Ryker.Sprockets.SprocketChangeset do
+      defmodule Ryker.Sprockets.Sprocket.Changeset do
         import Ecto.Changeset
 
         def insert(attributes), do: %Sprocket{} |> cast(attributes, [:teeth]) |> checked()
@@ -221,13 +221,13 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   end
 
   describe "Ryker.Checks.IL08ChangesetPure" do
-    test "flags a Repo call inside a changeset module, either spelling" do
+    test "flags a Repo call inside a changeset module" do
       source = """
-      defmodule Ryker.Sprockets.SprocketChangeset do
+      defmodule Ryker.Sprockets.Sprocket.Changeset do
         import Ecto.Changeset
 
         def insert(attributes) do
-          taken = Repo.exists?(SprocketQuery.named(attributes.name))
+          taken = Repo.exists?(Sprocket.Query.named(attributes.name))
           %Sprocket{} |> cast(attributes, [:name]) |> put_change(:taken, taken)
         end
       end
@@ -237,12 +237,11 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
       assert issue.trigger == "Repo.exists?"
       assert issue.line_no == 5
       assert issue.message =~ "IL-8"
-      assert triggers(il08(), source, "lib/ryker/sprockets/changeset.ex") == ["Repo.exists?"]
     end
 
     test "allows a grouped Repo alias, and Repo calls outside changeset modules" do
       grouped = """
-      defmodule Ryker.Sprockets.SprocketChangeset do
+      defmodule Ryker.Sprockets.Sprocket.Changeset do
         alias Ryker.Repo.{Filter, Paginator}
         def insert(attributes), do: Ecto.Changeset.change(%Sprocket{}, attributes)
       end
@@ -250,7 +249,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
 
       context = """
       defmodule Ryker.Sprockets do
-        def create(attributes), do: attributes |> SprocketChangeset.insert() |> Repo.insert()
+        def create(attributes), do: attributes |> Sprocket.Changeset.insert() |> Repo.insert()
       end
       """
 
@@ -302,7 +301,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
       """
 
       changeset = """
-      defmodule Ryker.Sprockets.SprocketChangeset do
+      defmodule Ryker.Sprockets.Sprocket.Changeset do
         import Ecto.Changeset
         def insert(attributes), do: %Sprocket{} |> cast(attributes, [:name]) |> unique_constraint(:name)
       end
@@ -323,7 +322,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
         use Phoenix.Component
         alias Ryker.Repo
 
-        def fetch, do: %{sprockets: SprocketQuery.all() |> Repo.all(), now: Repo.now!()}
+        def fetch, do: %{sprockets: Sprocket.Query.all() |> Repo.all(), now: Repo.now!()}
       end
       """
 
@@ -335,7 +334,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     test "allows a projection's reads and a grouped Repo alias in a component" do
       projection = """
       defmodule Ryker.ControlPlane.SprocketsProjection do
-        def fetch, do: SprocketQuery.all() |> Repo.all()
+        def fetch, do: Sprocket.Query.all() |> Repo.all()
       end
       """
 
@@ -362,7 +361,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
         import Ecto.Changeset, only: [cast: 3]
 
         def handle_event("save", params, socket) do
-          changeset = SprocketChangeset.insert(params)
+          changeset = Sprocket.Changeset.insert(params)
           {:noreply, assign(socket, :form, Ecto.Changeset.add_error(changeset, :name, "taken"))}
         end
       end
@@ -370,7 +369,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
 
       assert triggers(web_changeset(), source, @live) == [
                "Ecto.Changeset.add_error",
-               "SprocketChangeset.insert",
+               "Sprocket.Changeset.insert",
                "import Ecto.Changeset"
              ]
     end
@@ -386,7 +385,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
       context = """
       defmodule Ryker.Sprockets do
         import Ecto.Changeset
-        def create(attributes), do: attributes |> SprocketChangeset.insert() |> Repo.insert()
+        def create(attributes), do: attributes |> Sprocket.Changeset.insert() |> Repo.insert()
       end
       """
 
@@ -483,7 +482,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   describe "Ryker.Checks.EnumOverValidateInclusion" do
     test "flags validate_inclusion over a literal list of strings" do
       source = """
-      defmodule Ryker.Sprockets.SprocketChangeset do
+      defmodule Ryker.Sprockets.Sprocket.Changeset do
         import Ecto.Changeset
 
         def insert(attributes) do
@@ -502,7 +501,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
 
     test "flags the qualified, piped and attribute spellings and names the right field" do
       source = """
-      defmodule Ryker.Sprockets.SprocketChangeset do
+      defmodule Ryker.Sprockets.Sprocket.Changeset do
         import Ecto.Changeset
 
         @tiers ~w(gold silver)
@@ -532,7 +531,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     # read as violations once the check first ran here (2026-10-06).
     test "allows a runtime value set and an Ecto.Enum narrowed to some of its atoms" do
       source = """
-      defmodule Ryker.Sprockets.SprocketChangeset do
+      defmodule Ryker.Sprockets.Sprocket.Changeset do
         import Ecto.Changeset
 
         def confirm(changeset, allowed_kinds) do
@@ -666,9 +665,9 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     test "flags Map.take/Map.drop pre-filtering the input attrs, piped or not" do
       source = """
       defmodule Ryker.Sprockets do
-        def update(sprocket, attrs), do: SprocketChangeset.update(sprocket, Map.take(attrs, [:name]))
+        def update(sprocket, attrs), do: Sprocket.Changeset.update(sprocket, Map.take(attrs, [:name]))
         def scrub(params), do: Map.drop(params, [:id])
-        def rename(sprocket, attrs), do: SprocketChangeset.update(sprocket, attrs |> Map.take([:name]))
+        def rename(sprocket, attrs), do: Sprocket.Changeset.update(sprocket, attrs |> Map.take([:name]))
       end
       """
 

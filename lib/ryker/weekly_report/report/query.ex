@@ -1,0 +1,48 @@
+defmodule Ryker.WeeklyReport.Report.Query do
+  @moduledoc "Each week's report, for every read of `weekly_reports`."
+  import Ecto.Query
+  alias Ryker.WeeklyReport.Report
+
+  def all, do: from(reports in Report, as: :weekly_reports)
+
+  def by_delivery_ref(queryable \\ all(), delivery_ref),
+    do: where(queryable, [weekly_reports: r], r.delivery_ref == ^delivery_ref)
+
+  @doc "The report of the week that starts on `week`; a preview is not it."
+  def for_week(week),
+    do: where(all(), [weekly_reports: r], r.week == ^week and not r.preview)
+
+  def with_status(queryable \\ all(), status),
+    do: where(queryable, [weekly_reports: r], r.status == ^status)
+
+  @doc "Pending, with no retry backoff or claim lease left at `now`."
+  def claimable_at(now) do
+    :pending
+    |> with_status()
+    |> where(
+      [weekly_reports: r],
+      (is_nil(r.next_attempt_at) or r.next_attempt_at <= ^now) and
+        (is_nil(r.lease_expires_at) or r.lease_expires_at <= ^now)
+    )
+  end
+
+  @doc "The next retry and the next lease expiry after `since` among pending reports."
+  def next_due_after(since) do
+    :pending
+    |> with_status()
+    |> select([weekly_reports: r], [
+      filter(min(r.next_attempt_at), r.next_attempt_at > ^since),
+      filter(min(r.lease_expires_at), r.lease_expires_at > ^since)
+    ])
+  end
+
+  def soonest_due_first(queryable),
+    do: order_by(queryable, [weekly_reports: r], asc: r.due_at, asc: r.id)
+
+  def recently_updated_first(queryable),
+    do: order_by(queryable, [weekly_reports: r], desc: r.updated_at, desc: r.id)
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
+  def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+  def lock_next_free(queryable), do: lock(queryable, "FOR UPDATE SKIP LOCKED")
+end

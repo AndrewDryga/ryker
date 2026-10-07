@@ -13,7 +13,7 @@ defmodule Ryker.Evals.LearningRunner do
   alias Ryker.Config
   alias Ryker.Crypto
   alias Ryker.Evals.{Job, LearningProbe}
-  alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -480,7 +480,7 @@ defmodule Ryker.Evals.LearningRunner do
 
         entry =
           entry
-          |> EntryChangeset.decide(decision, "learning-eval:#{entry.id}", nil)
+          |> Entry.Changeset.decide(decision, "learning-eval:#{entry.id}", nil)
           |> Repo.insert!()
 
         :ok = Observations.record_excerpt_in_transaction(entry)

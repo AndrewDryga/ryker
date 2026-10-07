@@ -12,7 +12,7 @@ defmodule Ryker.Work.CustodyTest do
   alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Work.{Cancellation, Custody, Result, Session, Submission, Turn, TurnChangeset}
+  alias Ryker.Work.{Cancellation, Custody, Result, Session, Submission, Turn}
   alias Ryker.Work.Custody.Sessions
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -503,7 +503,7 @@ defmodule Ryker.Work.CustodyTest do
 
     assert {:error, changeset} =
              Ecto.UUID.generate()
-             |> TurnChangeset.insert(
+             |> Turn.Changeset.insert(
                second.episode.id,
                first.session.id,
                "turn:cross-episode:#{Ecto.UUID.generate()}"

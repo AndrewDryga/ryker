@@ -13,7 +13,7 @@ defmodule Ryker.CoopFleet.RouterTest do
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Work.{Custody, Session, SessionChangeset, StateBinding}
+  alias Ryker.Work.{Custody, Session, StateBinding}
 
   @policy_digest String.duplicate("b", 64)
 
@@ -709,7 +709,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     |> Repo.update!()
 
     replacement =
-      SessionChangeset.insert(
+      Session.Changeset.insert(
         Ecto.UUID.generate(),
         source.episode_id,
         source.generation + 1,
@@ -732,7 +732,7 @@ defmodule Ryker.CoopFleet.RouterTest do
         replacement.external_ref
       )
 
-    replacement = replacement |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update!()
+    replacement = replacement |> Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
 
     assert {:ok, placement} =
              ControlPlane.place_session(

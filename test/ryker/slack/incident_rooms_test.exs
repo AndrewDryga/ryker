@@ -16,7 +16,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelConfigurationChangeset, ChannelConfigurations, Client, IncidentRoom}
+  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurations, Client, IncidentRoom}
   alias Ryker.Slack.{IncidentRoomCard, IncidentRoomLifecycleEvent, IncidentRooms}
   alias Ryker.Slack.{IncidentRoomWorker, MembershipTransition, Renderer, Runtime, WorkRecord}
   alias Ryker.Slack.WorkTarget
@@ -2388,7 +2388,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     }
 
     attributes
-    |> ChannelConfigurationChangeset.configuration()
+    |> ChannelConfiguration.Changeset.configuration()
     |> Repo.insert!()
   end
 

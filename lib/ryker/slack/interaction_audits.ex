@@ -18,7 +18,6 @@ defmodule Ryker.Slack.InteractionAudits do
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.{Interaction, InteractionAudit}
-  alias Ryker.Slack.{InteractionAuditChangeset, InteractionAuditQuery}
   alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
 
@@ -82,7 +81,7 @@ defmodule Ryker.Slack.InteractionAudits do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> InteractionAuditQuery.next_due_after()
+    |> InteractionAudit.Query.next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -175,8 +174,8 @@ defmodule Ryker.Slack.InteractionAudits do
   defp record_locked(attributes) do
     existing =
       attributes.event_ref
-      |> InteractionAuditQuery.by_event_ref()
-      |> InteractionAuditQuery.lock_for_update()
+      |> InteractionAudit.Query.by_event_ref()
+      |> InteractionAudit.Query.lock_for_update()
       |> Repo.one()
 
     case existing do
@@ -188,7 +187,7 @@ defmodule Ryker.Slack.InteractionAudits do
           else: Repo.rollback(:slack_interaction_event_conflict)
 
       nil ->
-        changeset = InteractionAuditChangeset.insert(attributes)
+        changeset = InteractionAudit.Changeset.insert(attributes)
 
         case Repo.insert(changeset) do
           {:ok, audit} ->
@@ -204,8 +203,8 @@ defmodule Ryker.Slack.InteractionAudits do
   defp rearm_locked(event_ref) do
     locked =
       event_ref
-      |> InteractionAuditQuery.by_event_ref()
-      |> InteractionAuditQuery.lock_for_update()
+      |> InteractionAudit.Query.by_event_ref()
+      |> InteractionAudit.Query.lock_for_update()
       |> Repo.one()
 
     case locked do
@@ -233,7 +232,7 @@ defmodule Ryker.Slack.InteractionAudits do
   defp claim_next_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    next = now |> InteractionAuditQuery.next_claimable() |> Repo.one()
+    next = now |> InteractionAudit.Query.next_claimable() |> Repo.one()
 
     case next do
       nil ->
@@ -262,7 +261,10 @@ defmodule Ryker.Slack.InteractionAudits do
     now = Repo.now!()
 
     locked =
-      id |> InteractionAuditQuery.by_id() |> InteractionAuditQuery.lock_for_update() |> Repo.one()
+      id
+      |> InteractionAudit.Query.by_id()
+      |> InteractionAudit.Query.lock_for_update()
+      |> Repo.one()
 
     case locked do
       nil ->
@@ -315,7 +317,7 @@ defmodule Ryker.Slack.InteractionAudits do
   end
 
   defp update!(audit, attributes) do
-    changeset = InteractionAuditChangeset.update(audit, attributes)
+    changeset = InteractionAudit.Changeset.update(audit, attributes)
 
     case Repo.update(changeset) do
       {:ok, updated} ->

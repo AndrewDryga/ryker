@@ -6,8 +6,8 @@ defmodule Ryker.Checks.IL06QueryModulePure do
       check: """
       Iron Law IL-6: Query modules build queryables; they never call Repo.
 
-      A `Repo.*` call inside a `*_query.ex` module couples query composition
-      to execution — the context is the layer that calls Repo, so helpers
+      A `Repo.*` call inside a Query module (`<schema>/query.ex`) couples
+      query composition to execution — the context is the layer that calls Repo, so helpers
       stay safe to chain in any order.
       """
     ]
@@ -25,7 +25,7 @@ defmodule Ryker.Checks.IL06QueryModulePure do
   end
 
   defp relevant?(filename) do
-    String.ends_with?(filename, "_query.ex") and
+    String.ends_with?(filename, "/query.ex") and
       not String.contains?(filename, "lib/ryker/repo/")
   end
 

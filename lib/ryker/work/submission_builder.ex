@@ -11,10 +11,10 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Behaviors
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
-  alias Ryker.Episodes.{CorrelationClaims, Episode, Event, EventQuery, Origins, Reactions}
+  alias Ryker.Episodes.{CorrelationClaims, Episode, Event, Origins, Reactions}
   alias Ryker.Episodes.RoutingDigests
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
-  alias Ryker.Ingress.Inbox.EntryQuery
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
   alias Ryker.Learning.LearningSources
   alias Ryker.Memories
@@ -29,7 +29,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.StateTools.Capabilities
   alias Ryker.StateTools.FixedTools
   alias Ryker.StateTools.ToolVisibility
-  alias Ryker.Work.{Contract, PlatformTools, Prompt, Session, Submission, Turn, TurnQuery}
+  alias Ryker.Work.{Contract, PlatformTools, Prompt, Session, Submission, Turn}
 
   @maximum_inputs 40
   @retained_cases 3
@@ -507,24 +507,24 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp input_snapshot(episode) do
     base =
       episode.id
-      |> EventQuery.by_episode_id()
-      |> EventQuery.of_kind(:input_admitted)
-      |> EventQuery.before_sequence(episode.next_sequence)
+      |> Event.Query.by_episode_id()
+      |> Event.Query.of_kind(:input_admitted)
+      |> Event.Query.before_sequence(episode.next_sequence)
 
     active_refs = Enum.uniq(episode.active_input_refs)
     queued_refs = Enum.uniq(episode.queued_input_refs)
     historical_slots = @maximum_inputs - length(active_refs)
 
     visible =
-      if queued_refs == [], do: base, else: EventQuery.excluding_dedupe_keys(base, queued_refs)
+      if queued_refs == [], do: base, else: Event.Query.excluding_dedupe_keys(base, queued_refs)
 
     active =
       if active_refs == [] do
         []
       else
         visible
-        |> EventQuery.by_dedupe_keys(active_refs)
-        |> EventQuery.oldest_first()
+        |> Event.Query.by_dedupe_keys(active_refs)
+        |> Event.Query.oldest_first()
         |> Repo.all()
       end
 
@@ -535,18 +535,18 @@ defmodule Ryker.Work.SubmissionBuilder do
         query =
           if active_refs == [],
             do: visible,
-            else: EventQuery.excluding_dedupe_keys(visible, active_refs)
+            else: Event.Query.excluding_dedupe_keys(visible, active_refs)
 
         query
-        |> EventQuery.newest_first()
-        |> EventQuery.limit_to(historical_slots)
+        |> Event.Query.newest_first()
+        |> Event.Query.limit_to(historical_slots)
         |> Repo.all()
         |> Enum.reverse()
       end
 
     %{
       active: active,
-      first: visible |> EventQuery.oldest_first() |> EventQuery.limit_to(1) |> Repo.one(),
+      first: visible |> Event.Query.oldest_first() |> Event.Query.limit_to(1) |> Repo.one(),
       historical: historical,
       total_count: Repo.aggregate(visible, :count)
     }
@@ -554,11 +554,11 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   defp previous_turn(episode_id, turn_id) do
     episode_id
-    |> TurnQuery.by_episode_id()
-    |> TurnQuery.excluding_ids([turn_id])
-    |> TurnQuery.with_result()
-    |> TurnQuery.newest_first()
-    |> TurnQuery.limit_to(1)
+    |> Turn.Query.by_episode_id()
+    |> Turn.Query.excluding_ids([turn_id])
+    |> Turn.Query.with_result()
+    |> Turn.Query.newest_first()
+    |> Turn.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -623,9 +623,9 @@ defmodule Ryker.Work.SubmissionBuilder do
   # An admitted input and its routing entry share the source and event ids.
   defp routing_notes(%Episode{id: episode_id}) do
     episode_id
-    |> EntryQuery.by_episode_id()
-    |> EntryQuery.with_decision_document()
-    |> EntryQuery.select_decisions()
+    |> Entry.Query.by_episode_id()
+    |> Entry.Query.with_decision_document()
+    |> Entry.Query.select_decisions()
     |> Repo.all()
     |> Enum.flat_map(fn {kind, ref, event_ref, decision} ->
       case routing_note(decision) do
@@ -709,11 +709,11 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   defp own_backdrop(episode) do
     episode.id
-    |> EntryQuery.by_episode_id()
-    |> EntryQuery.with_admission_context()
-    |> EntryQuery.oldest_occurred_first()
-    |> EntryQuery.limit_to(1)
-    |> EntryQuery.select_admission_contexts()
+    |> Entry.Query.by_episode_id()
+    |> Entry.Query.with_admission_context()
+    |> Entry.Query.oldest_occurred_first()
+    |> Entry.Query.limit_to(1)
+    |> Entry.Query.select_admission_contexts()
     |> Repo.one()
     |> backdrop()
   end
@@ -721,7 +721,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   # Routing starts an episode under the id of the message it admitted. A task starts when a
   # person confirms an offer, and nothing routed it.
   defp routed_start?(%Episode{id: id}),
-    do: Repo.exists?(EntryQuery.by_id(id))
+    do: Repo.exists?(Entry.Query.by_id(id))
 
   # A task's backdrop is the conversation it was offered in, as frozen when the latest message
   # that conversation had admitted before the task started arrived (Andrew, 2026-10-01: a task
@@ -731,10 +731,10 @@ defmodule Ryker.Work.SubmissionBuilder do
        when is_binary(linked) and not is_nil(started) do
     entry_ids =
       linked
-      |> EventQuery.by_episode_id()
-      |> EventQuery.of_kind(:input_admitted)
-      |> EventQuery.inserted_by(started)
-      |> EventQuery.select_payloads()
+      |> Event.Query.by_episode_id()
+      |> Event.Query.of_kind(:input_admitted)
+      |> Event.Query.inserted_by(started)
+      |> Event.Query.select_payloads()
       |> Repo.all()
       |> Enum.flat_map(fn payload ->
         with %{"turn_ref" => "ingress-turn:" <> id} <- payload,
@@ -746,11 +746,11 @@ defmodule Ryker.Work.SubmissionBuilder do
       end)
 
     entry_ids
-    |> EntryQuery.by_ids()
-    |> EntryQuery.with_admission_context()
-    |> EntryQuery.latest_occurred_first()
-    |> EntryQuery.limit_to(1)
-    |> EntryQuery.select_admission_contexts()
+    |> Entry.Query.by_ids()
+    |> Entry.Query.with_admission_context()
+    |> Entry.Query.latest_occurred_first()
+    |> Entry.Query.limit_to(1)
+    |> Entry.Query.select_admission_contexts()
     |> Repo.one()
     |> backdrop()
   end

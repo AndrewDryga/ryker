@@ -9,7 +9,7 @@ defmodule Ryker.Slack.SourceAudits do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Repo
-  alias Ryker.Slack.SourceAuditChangeset
+  alias Ryker.Slack.SourceAudit
 
   @fields [
     :authorized,
@@ -32,7 +32,7 @@ defmodule Ryker.Slack.SourceAudits do
   def record(attributes) do
     with {:ok, attributes} <- exact_attributes(attributes),
          :ok <- validate(attributes),
-         changeset = SourceAuditChangeset.insert(row(attributes)),
+         changeset = SourceAudit.Changeset.insert(row(attributes)),
          {:ok, _audit} <- Repo.insert(changeset) do
       # What a run read from Slack is part of its request's record.
       Ryker.Episodes.broadcast_episode_updated(attributes.episode_id)

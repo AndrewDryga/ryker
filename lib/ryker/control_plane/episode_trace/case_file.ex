@@ -6,9 +6,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   """
 
   import Ryker.ControlPlane.EpisodeTrace.Step
-  alias Ryker.ControlPlane.{ConsolePeople, EpisodeTraceQuery, Paths, ProviderMessage}
+  alias Ryker.ControlPlane.{ConsolePeople, EpisodeTrace, Paths, ProviderMessage}
   alias Ryker.ControlPlane.{SlackMarkdown, SourceText}
-  alias Ryker.Delivery.PlatformActionQuery
+  alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.RoutingDigests
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
@@ -27,20 +27,20 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       disclosed: disclosed
     ]
 
-    base = EpisodeTraceQuery.messages(episode_id)
+    base = EpisodeTrace.Query.messages(episode_id)
 
     first =
       base
-      |> EpisodeTraceQuery.first_said()
-      |> EpisodeTraceQuery.limit_to(1)
+      |> EpisodeTrace.Query.first_said()
+      |> EpisodeTrace.Query.limit_to(1)
       |> Repo.one()
 
     first = if first, do: case_message(first, options)
 
     messages =
       base
-      |> EpisodeTraceQuery.last_said()
-      |> EpisodeTraceQuery.limit_to(20)
+      |> EpisodeTrace.Query.last_said()
+      |> EpisodeTrace.Query.limit_to(20)
       |> Repo.all()
       |> Enum.reverse()
       |> Enum.map(&case_message(&1, options))
@@ -102,12 +102,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   # every update is delivered.
   defp case_updates(episode_id, options) do
     episode_id
-    |> PlatformActionQuery.by_episode_id()
-    |> PlatformActionQuery.by_tool(:post_slack_update)
-    |> PlatformActionQuery.with_status(:delivered)
-    |> PlatformActionQuery.with_delivery_time()
-    |> PlatformActionQuery.latest_delivered_first()
-    |> PlatformActionQuery.limit_to(20)
+    |> PlatformAction.Query.by_episode_id()
+    |> PlatformAction.Query.by_tool(:post_slack_update)
+    |> PlatformAction.Query.with_status(:delivered)
+    |> PlatformAction.Query.with_delivery_time()
+    |> PlatformAction.Query.latest_delivered_first()
+    |> PlatformAction.Query.limit_to(20)
     |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(fn action ->
@@ -133,7 +133,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   # current revision of its message, which may have arrived anywhere.
   defp revisions(episode_id) do
     episode_id
-    |> EpisodeTraceQuery.revisions(20)
+    |> EpisodeTrace.Query.revisions(20)
     |> Repo.all()
     |> Enum.reverse()
   end
@@ -209,7 +209,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   @doc "The proposal, approval and failed start of a task that never ran, for a collapsed page."
   def task_start(episode, turn) do
-    offer = Repo.one(EpisodeTraceQuery.task_offer(episode))
+    offer = Repo.one(EpisodeTrace.Query.task_offer(episode))
 
     %{
       confirmed: not is_nil(offer) and not is_nil(offer.confirmed_at),

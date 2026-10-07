@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.QueryWork
   alias Ryker.Schedules.Schedule
-  alias Ryker.Schedules.ScheduleOccurrenceChangeset
+  alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Work.{Session, Turn}
 
   test "current schedules put the next run first and paused ones after it, never alphabetical by status" do
@@ -69,7 +69,7 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
       scheduled_for: ~U[2026-09-24 07:00:00.000000Z],
       status: :missed
     }
-    |> ScheduleOccurrenceChangeset.insert()
+    |> ScheduleOccurrence.Changeset.insert()
     |> Repo.insert!()
 
     assert [item] = ScheduleProjection.list(%{"view" => "current"})
@@ -125,7 +125,7 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
       scheduled_for: ~U[2026-10-02 07:59:00.000000Z],
       status: :dispatched
     }
-    |> ScheduleOccurrenceChangeset.insert()
+    |> ScheduleOccurrence.Changeset.insert()
     |> Repo.insert!()
 
     {{:ok, %{occurrences: [shown]}}, statements} =

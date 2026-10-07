@@ -14,7 +14,7 @@ defmodule Ryker.GitHub.Events do
 
   alias Ecto.Changeset
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.GitHub.{Binding, Event, EventQuery}
+  alias Ryker.GitHub.{Binding, Event}
 
   @dispositions ~w(metadata routed continued duplicate failed)
   @abandoned_seconds 10 * 60
@@ -76,12 +76,12 @@ defmodule Ryker.GitHub.Events do
   def settled([]), do: MapSet.new()
 
   def settled(delivery_refs) when is_list(delivery_refs) do
-    recorded = EventQuery.by_delivery_refs(delivery_refs)
-    retryable = EventQuery.retryable(recorded, abandoned_before(Repo.now!()))
+    recorded = Event.Query.by_delivery_refs(delivery_refs)
+    retryable = Event.Query.retryable(recorded, abandoned_before(Repo.now!()))
 
     MapSet.difference(
-      MapSet.new(Repo.all(EventQuery.select_delivery_refs(recorded))),
-      MapSet.new(Repo.all(EventQuery.select_delivery_refs(retryable)))
+      MapSet.new(Repo.all(Event.Query.select_delivery_refs(recorded))),
+      MapSet.new(Repo.all(Event.Query.select_delivery_refs(retryable)))
     )
   end
 
@@ -98,7 +98,7 @@ defmodule Ryker.GitHub.Events do
           pending: non_neg_integer()
         }
   def repository_health(repository_ref) when is_binary(repository_ref),
-    do: Repo.one!(EventQuery.repository_health(repository_ref))
+    do: Repo.one!(Event.Query.repository_health(repository_ref))
 
   # Only one of two racing copies wins the update, so a retried delivery is
   # processed once. Its earlier failure is cleared; the copy is not counted as an
@@ -106,10 +106,10 @@ defmodule Ryker.GitHub.Events do
   defp retry_or_duplicate(binding_ref, delivery_ref, digest, now) do
     query =
       binding_ref
-      |> EventQuery.by_delivery(delivery_ref)
-      |> EventQuery.by_payload_digest(digest)
-      |> EventQuery.retryable(abandoned_before(now))
-      |> EventQuery.select_rows()
+      |> Event.Query.by_delivery(delivery_ref)
+      |> Event.Query.by_payload_digest(digest)
+      |> Event.Query.retryable(abandoned_before(now))
+      |> Event.Query.select_rows()
 
     case Repo.update_all(query, set: [disposition: "received", reason: nil, processed_at: nil]) do
       {1, [event]} ->
@@ -125,11 +125,11 @@ defmodule Ryker.GitHub.Events do
   defp abandoned_before(now), do: DateTime.add(now, -@abandoned_seconds, :second)
 
   defp duplicate(binding_ref, delivery_ref, digest, now) do
-    case Repo.one(EventQuery.by_delivery(binding_ref, delivery_ref)) do
+    case Repo.one(Event.Query.by_delivery(binding_ref, delivery_ref)) do
       %Event{payload_digest: ^digest} = event ->
         {_count, _rows} =
           event.id
-          |> EventQuery.by_id()
+          |> Event.Query.by_id()
           |> Repo.update_all(inc: [duplicate_count: 1], set: [last_duplicate_at: now])
 
         broadcast_delivery_updated(binding_ref)

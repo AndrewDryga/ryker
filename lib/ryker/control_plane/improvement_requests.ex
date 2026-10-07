@@ -26,13 +26,13 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       timestamp: 1
     ]
 
-  alias Ryker.Accounting.ExecutionQuery
+  alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.{BackgroundCards, CallRun, ImprovementPage, Paths}
   alias Ryker.Improvement
-  alias Ryker.Improvement.{AnalysisRun, AnalysisRunQuery, Candidate}
+  alias Ryker.Improvement.{AnalysisRun, Candidate}
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Repo
-  alias Ryker.Work.SessionQuery
+  alias Ryker.Work.Session
 
   @limit 20
 
@@ -51,14 +51,14 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
     end
   end
 
-  defp runs_for(episode_id: id) when is_binary(id), do: runs(AnalysisRunQuery.of_request(id))
-  defp runs_for(input_id: id) when is_binary(id), do: runs(AnalysisRunQuery.of_message(id))
+  defp runs_for(episode_id: id) when is_binary(id), do: runs(AnalysisRun.Query.of_request(id))
+  defp runs_for(input_id: id) when is_binary(id), do: runs(AnalysisRun.Query.of_message(id))
   defp runs_for(_owner), do: []
 
   defp runs(query) do
     query
-    |> AnalysisRunQuery.newest_first()
-    |> AnalysisRunQuery.limit_to(@limit)
+    |> AnalysisRun.Query.newest_first()
+    |> AnalysisRun.Query.limit_to(@limit)
     |> Repo.all()
     |> Enum.reverse()
   end
@@ -72,12 +72,12 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       totals: Enum.frequencies_by(runs, & &1.candidate_id),
       executions:
         "improvement"
-        |> ExecutionQuery.of_sources(ids)
+        |> Execution.Query.of_sources(ids)
         |> Repo.all()
         |> Map.new(&{&1.source_id, &1}),
       sessions:
         ids
-        |> SessionQuery.for_improvement_runs()
+        |> Session.Query.for_improvement_runs()
         |> Repo.all()
         |> Map.new(&{&1.improvement_run_id, &1})
     }

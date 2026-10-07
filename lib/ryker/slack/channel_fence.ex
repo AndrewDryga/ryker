@@ -13,7 +13,7 @@ defmodule Ryker.Slack.ChannelFence do
 
   alias Ryker.AdvisoryLock
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembershipQuery
+  alias Ryker.Slack.ChannelMembership
 
   @spec authorize_in_transaction(String.t(), String.t()) :: :ok | {:error, term()}
   def authorize_in_transaction(transport, conversation_ref) do
@@ -55,8 +55,8 @@ defmodule Ryker.Slack.ChannelFence do
   defp channel_status(workspace_ref, channel_ref) do
     status =
       workspace_ref
-      |> ChannelMembershipQuery.by_channel(channel_ref)
-      |> ChannelMembershipQuery.select_statuses()
+      |> ChannelMembership.Query.by_channel(channel_ref)
+      |> ChannelMembership.Query.select_statuses()
       |> Repo.one()
 
     case status do
@@ -68,8 +68,8 @@ defmodule Ryker.Slack.ChannelFence do
   defp public_channel_status(workspace_ref, channel_ref) do
     audience =
       workspace_ref
-      |> ChannelMembershipQuery.by_channel(channel_ref)
-      |> ChannelMembershipQuery.select_audience()
+      |> ChannelMembership.Query.by_channel(channel_ref)
+      |> ChannelMembership.Query.select_audience()
       |> Repo.one()
 
     case audience do

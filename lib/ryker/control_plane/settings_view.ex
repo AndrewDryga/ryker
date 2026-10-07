@@ -16,15 +16,15 @@ defmodule Ryker.ControlPlane.SettingsView do
   alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, PageRead}
   alias Ryker.ControlPlane.ProductReadiness
   alias Ryker.CoopFleet.ControlPlane.Workers
-  alias Ryker.CoopFleet.WorkerQuery
+  alias Ryker.CoopFleet.Worker
   alias Ryker.Credentials
   alias Ryker.Episodes
   alias Ryker.GitHub.AppJWT
-  alias Ryker.GitHub.EventQuery, as: GitHubEventQuery
+  alias Ryker.GitHub.Event, as: GitHubEvent
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.{ChannelConfigurations, Gateway, Names}
-  alias Ryker.Work.TurnQuery
+  alias Ryker.Work.Turn
 
   @type t :: %{
           snapshot: Settings.snapshot(),
@@ -178,8 +178,8 @@ defmodule Ryker.ControlPlane.SettingsView do
 
     counts =
       since
-      |> GitHubEventQuery.inserted_since()
-      |> GitHubEventQuery.count_by_disposition()
+      |> GitHubEvent.Query.inserted_since()
+      |> GitHubEvent.Query.count_by_disposition()
       |> Repo.all()
       |> Map.new()
 
@@ -212,7 +212,7 @@ defmodule Ryker.ControlPlane.SettingsView do
     end
   end
 
-  defp worker_installs, do: Repo.all(WorkerQuery.installs())
+  defp worker_installs, do: Repo.all(Worker.Query.installs())
 
   defp registered_secret_names(credentials) do
     credentials
@@ -290,7 +290,7 @@ defmodule Ryker.ControlPlane.SettingsView do
   # asked the person something waits for their answer, and the step stayed open on tenant while
   # it did (2026-10-04).
   defp successful_channel_request?(conversations) do
-    Repo.exists?(TurnQuery.delivered_in_conversations("slack", conversations))
+    Repo.exists?(Turn.Query.delivered_in_conversations("slack", conversations))
   end
 
   defp verified?(credentials, kinds) do

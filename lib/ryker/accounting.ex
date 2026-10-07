@@ -6,9 +6,9 @@ defmodule Ryker.Accounting do
   (`subscribe_usage/0`), on its request's and its conversation's topics too.
   """
   alias Ecto.Changeset
-  alias Ryker.Accounting.{Execution, ExecutionQuery}
+  alias Ryker.Accounting.Execution
   alias Ryker.Repo
-  alias Ryker.Work.{Measurement, SessionQuery, TurnQuery}
+  alias Ryker.Work.{Measurement, Session, Turn}
 
   @terminal ~w(completed failed interrupted budget_exhausted cancelled)
   @states ~w(requested queued starting running awaiting_validation completed failed interrupted budget_exhausted cancelled)
@@ -23,8 +23,8 @@ defmodule Ryker.Accounting do
   def observe_work(claim, remote_turn, remote_session \\ %{}) do
     Repo.transaction(fn ->
       current =
-        TurnQuery.by_id(claim.turn.id)
-        |> TurnQuery.lock_for_update()
+        Turn.Query.by_id(claim.turn.id)
+        |> Turn.Query.lock_for_update()
         |> Repo.one()
 
       # The lease was written with the database's clock; only that clock can
@@ -32,8 +32,8 @@ defmodule Ryker.Accounting do
       now = Repo.now!()
 
       session_generation =
-        SessionQuery.by_id(claim.session.id)
-        |> SessionQuery.select_generation()
+        Session.Query.by_id(claim.session.id)
+        |> Session.Query.select_generation()
         |> Repo.one()
 
       if is_nil(current) or current.lease_ref != claim.lease_ref or
@@ -191,8 +191,8 @@ defmodule Ryker.Accounting do
 
   def attach_admission_in_transaction(entry) do
     {_count, attached} =
-      ExecutionQuery.unattached_admission(entry.id)
-      |> ExecutionQuery.select_rows()
+      Execution.Query.unattached_admission(entry.id)
+      |> Execution.Query.select_rows()
       |> Repo.update_all(set: [episode_id: entry.episode_id])
 
     Enum.each(attached, &broadcast_usage_recorded/1)
@@ -217,8 +217,8 @@ defmodule Ryker.Accounting do
       do: raise(ArgumentError, "accounting requires an owner transaction")
 
     existing =
-      ExecutionQuery.by_execution(identity.kind, identity.source_id, identity.generation)
-      |> ExecutionQuery.lock_for_update()
+      Execution.Query.by_execution(identity.kind, identity.source_id, identity.generation)
+      |> Execution.Query.lock_for_update()
       |> Repo.one()
 
     current = existing || struct!(Execution, Map.put(identity, :recorded_at, now))

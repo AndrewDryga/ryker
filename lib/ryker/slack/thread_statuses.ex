@@ -14,7 +14,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   alias Ryker.AdvisoryLock
   alias Ryker.ErrorDetail
   alias Ryker.Repo
-  alias Ryker.Slack.{ThreadStatus, ThreadStatusChangeset, ThreadStatusQuery}
+  alias Ryker.Slack.ThreadStatus
   alias Ryker.UTCDateTime
 
   @maximum_targets 1_000
@@ -45,8 +45,8 @@ defmodule Ryker.Slack.ThreadStatuses do
 
     existing =
       workspace_ref
-      |> ThreadStatusQuery.by_workspace()
-      |> ThreadStatusQuery.lock_for_update()
+      |> ThreadStatus.Query.by_workspace()
+      |> ThreadStatus.Query.lock_for_update()
       |> Repo.all()
 
     target_map = Map.new(targets, &{{&1.channel_ref, &1.thread_ref}, &1})
@@ -114,7 +114,7 @@ defmodule Ryker.Slack.ThreadStatuses do
 
     [next_attempt, lease, delivered] =
       workspace_ref
-      |> ThreadStatusQuery.next_due_after(since, refresh_since)
+      |> ThreadStatus.Query.next_due_after(since, refresh_since)
       |> Repo.one()
 
     refresh = delivered && DateTime.add(delivered, refresh_interval_ms, :millisecond)
@@ -135,7 +135,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   defp claim_next_locked(worker_ref, workspace_ref, lease_seconds) do
     now = Repo.now!()
 
-    next = workspace_ref |> ThreadStatusQuery.next_claimable(now) |> Repo.one()
+    next = workspace_ref |> ThreadStatus.Query.next_claimable(now) |> Repo.one()
 
     case next do
       nil -> nil
@@ -235,7 +235,8 @@ defmodule Ryker.Slack.ThreadStatuses do
   end
 
   defp rearm_locked(id) do
-    locked = id |> ThreadStatusQuery.by_id() |> ThreadStatusQuery.lock_for_update() |> Repo.one()
+    locked =
+      id |> ThreadStatus.Query.by_id() |> ThreadStatus.Query.lock_for_update() |> Repo.one()
 
     case locked do
       nil ->
@@ -321,7 +322,7 @@ defmodule Ryker.Slack.ThreadStatuses do
       workspace_ref: workspace_ref
     }
 
-    changeset = ThreadStatusChangeset.insert(attributes)
+    changeset = ThreadStatus.Changeset.insert(attributes)
 
     case Repo.insert(changeset) do
       {:ok, status} ->
@@ -343,7 +344,9 @@ defmodule Ryker.Slack.ThreadStatuses do
 
   defp mutate_claim_locked(id, lease_ref, generation, callback) do
     now = Repo.now!()
-    status = id |> ThreadStatusQuery.by_id() |> ThreadStatusQuery.lock_for_update() |> Repo.one()
+
+    status =
+      id |> ThreadStatus.Query.by_id() |> ThreadStatus.Query.lock_for_update() |> Repo.one()
 
     cond do
       is_nil(status) ->
@@ -364,7 +367,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   end
 
   defp update!(status, attributes) do
-    changeset = ThreadStatusChangeset.update(status, attributes)
+    changeset = ThreadStatus.Changeset.update(status, attributes)
 
     case Repo.update(changeset) do
       {:ok, status} ->

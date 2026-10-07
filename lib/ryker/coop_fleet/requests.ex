@@ -4,7 +4,7 @@ defmodule Ryker.CoopFleet.Requests do
   # Command kinds are private Work bookkeeping. The worker receives only ordinary
   # Coop HTTP requests, so adding an API endpoint never changes its wire protocol.
   alias Ryker.{Artifacts, CanonicalJSON, Repo}
-  alias Ryker.CoopFleet.{WorkspaceCheckpointTransfer, WorkspaceCheckpointTransferQuery}
+  alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
 
   def encode(kind, payload, placement) do
     request_for(kind, payload, placement)
@@ -29,7 +29,7 @@ defmodule Ryker.CoopFleet.Requests do
 
   defp request_for("ensure_workspace", %{"checkpoint" => saved} = payload, _) do
     with %WorkspaceCheckpointTransfer{} = transfer <-
-           Repo.one(WorkspaceCheckpointTransferQuery.by_id(saved["transfer_id"])),
+           Repo.one(WorkspaceCheckpointTransfer.Query.by_id(saved["transfer_id"])),
          true <-
            transfer.bundle_sha256 == saved["sha256"] and
              transfer.bundle_byte_size == saved["byte_size"] do

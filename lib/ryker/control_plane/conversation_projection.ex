@@ -10,8 +10,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   """
 
   alias Ryker.Artifacts.OutputArtifact
-  alias Ryker.ControlPlane.{AdmissionProgress, ConversationLab, ConversationQuery}
-  alias Ryker.ControlPlane.{ConversationTranscript, PublicationPositionQuery, ShortTime}
+  alias Ryker.ControlPlane.{AdmissionProgress, Conversation, ConversationLab}
+  alias Ryker.ControlPlane.{ConversationTranscript, PublicationPosition, ShortTime}
   alias Ryker.ControlPlane.TranscriptCursor
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback
@@ -37,7 +37,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   """
   def index do
     @prefix
-    |> ConversationQuery.directory()
+    |> Conversation.Query.directory()
     |> Repo.all()
     |> Enum.flat_map(fn item ->
       case conversation_id(item.ref) do
@@ -85,7 +85,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     secrets = InspectionRedactor.configured_secrets()
 
     refs
-    |> ConversationQuery.opening_texts()
+    |> Conversation.Query.opening_texts()
     |> Repo.all()
     |> Enum.flat_map(fn {ref, text} ->
       case InspectionRedactor.artifact(text, secrets: secrets, max_bytes: 600).text do
@@ -96,7 +96,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     |> Map.new()
     # Once Ryker has named its latest work in a conversation, that name is the
     # conversation's; until then its opening message is.
-    |> Map.merge(refs |> ConversationQuery.work_titles() |> Repo.all() |> Map.new())
+    |> Map.merge(refs |> Conversation.Query.work_titles() |> Repo.all() |> Map.new())
   end
 
   # What a conversation needs from the reader, from its inputs and their work:
@@ -110,7 +110,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
     states =
       refs
-      |> ConversationQuery.needs()
+      |> Conversation.Query.needs()
       |> Repo.all()
       |> Map.new(fn {ref, needs} -> {ref, conversation_status(needs)} end)
 
@@ -175,7 +175,9 @@ defmodule Ryker.ControlPlane.ConversationProjection do
          {:ok, turn_id} <- Ecto.UUID.cast(turn_id),
          true <- Regex.match?(~r/\A[A-Za-z0-9_.:-]{1,256}\z/, artifact_ref),
          %OutputArtifact{} = artifact <-
-           Repo.one(ConversationQuery.artifact(@prefix <> conversation_id, turn_id, artifact_ref)) do
+           Repo.one(
+             Conversation.Query.artifact(@prefix <> conversation_id, turn_id, artifact_ref)
+           ) do
       {:ok,
        %{
          byte_size: artifact.byte_size,
@@ -224,8 +226,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   end
 
   defp conversation_exists?(ref) do
-    Repo.exists?(ConversationQuery.messages(ref)) or
-      Repo.exists?(ConversationQuery.episodes(ref))
+    Repo.exists?(Conversation.Query.messages(ref)) or
+      Repo.exists?(Conversation.Query.episodes(ref))
   end
 
   # The boundary a cursor names, or nil for the latest page. The identity in
@@ -294,11 +296,11 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   # that places it in the merged transcript.
   defp candidates(ref, filters, limit) do
     Enum.concat([
-      ref |> ConversationQuery.inputs(filters.input, limit) |> rows(:input),
-      ref |> ConversationQuery.replies(filters.reply, limit) |> rows(:reply),
-      ref |> ConversationQuery.actions(filters.action, limit) |> rows(:action),
-      ref |> ConversationQuery.publications(filters.publication, limit) |> rows(:publication),
-      ref |> ConversationQuery.quick_replies(filters.quick_reply, limit) |> rows(:quick_reply)
+      ref |> Conversation.Query.inputs(filters.input, limit) |> rows(:input),
+      ref |> Conversation.Query.replies(filters.reply, limit) |> rows(:reply),
+      ref |> Conversation.Query.actions(filters.action, limit) |> rows(:action),
+      ref |> Conversation.Query.publications(filters.publication, limit) |> rows(:publication),
+      ref |> Conversation.Query.quick_replies(filters.quick_reply, limit) |> rows(:quick_reply)
     ])
     |> Enum.map(fn {kind, row} -> {candidate_key(kind, row), kind, row} end)
     |> Enum.sort_by(&elem(&1, 0), :desc)
@@ -352,24 +354,24 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   defp changed_inputs(ref, revised, since, limit) do
     reacted =
-      Repo.all(ConversationQuery.routing_reacted_items(ref, since, limit)) ++
-        Repo.all(ConversationQuery.work_reacted_items(ref, since, limit))
+      Repo.all(Conversation.Query.routing_reacted_items(ref, since, limit)) ++
+        Repo.all(Conversation.Query.work_reacted_items(ref, since, limit))
 
     if revised == [] and reacted == [], do: :none, else: {:inputs, revised, reacted}
   end
 
   defp revised_input_ids(ref, since, limit),
-    do: Repo.all(ConversationQuery.revised_message_ids(ref, since, limit))
+    do: Repo.all(Conversation.Query.revised_message_ids(ref, since, limit))
 
   defp changed_replies(ref, revised, since, limit) do
     turn_ids =
-      Repo.all(ConversationQuery.updated_turn_ids(ref, since, limit)) ++
-        Repo.all(ConversationQuery.moved_record_turn_ids(ref, since, limit)) ++
+      Repo.all(Conversation.Query.updated_turn_ids(ref, since, limit)) ++
+        Repo.all(Conversation.Query.moved_record_turn_ids(ref, since, limit)) ++
         revised_answer_turn_ids(revised, limit)
 
     delivery_refs =
       ref
-      |> ConversationQuery.reacted_delivery_refs(since, limit)
+      |> Conversation.Query.reacted_delivery_refs(since, limit)
       |> Repo.all()
       |> Enum.filter(&is_binary/1)
 
@@ -383,16 +385,16 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   defp revised_answer_turn_ids([], _limit), do: []
 
   defp revised_answer_turn_ids(native_ids, limit),
-    do: Repo.all(ConversationQuery.answering_turn_ids(native_ids, limit))
+    do: Repo.all(Conversation.Query.answering_turn_ids(native_ids, limit))
 
   defp changed_actions(ref, since, limit, reacted),
-    do: ref |> ConversationQuery.changed_action_ids(since, reacted, limit) |> exact_rows()
+    do: ref |> Conversation.Query.changed_action_ids(since, reacted, limit) |> exact_rows()
 
   defp changed_publications(ref, since, limit),
-    do: ref |> ConversationQuery.changed_publication_ids(since, limit) |> exact_rows()
+    do: ref |> Conversation.Query.changed_publication_ids(since, limit) |> exact_rows()
 
   defp changed_quick_replies(ref, since, limit, reacted),
-    do: ref |> ConversationQuery.changed_quick_reply_ids(since, reacted, limit) |> exact_rows()
+    do: ref |> Conversation.Query.changed_quick_reply_ids(since, reacted, limit) |> exact_rows()
 
   defp exact_rows(query) do
     case Repo.all(query) do
@@ -415,7 +417,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
 
   defp candidate_key(:publication, {publication, _record_ref}) do
     TranscriptCursor.key(
-      PublicationPositionQuery.at(publication),
+      PublicationPosition.Query.at(publication),
       :publication,
       "publication:" <> publication.id
     )
@@ -444,11 +446,11 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   end
 
   defp input_queue(ref) do
-    entries = Repo.one(ConversationQuery.message_counts(ref))
+    entries = Repo.one(Conversation.Query.message_counts(ref))
 
     # A response waiting behind a stopped earlier one of its message is not
     # being sent: the stopped one says so, and the conversation is not live.
-    responses = Repo.one(ConversationQuery.response_counts(ref))
+    responses = Repo.one(Conversation.Query.response_counts(ref))
 
     %{
       blocked: entries.blocked,
@@ -464,17 +466,17 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     %{
       actions_blocked: action_status?(ref, :blocked),
       actions_pending: action_status?(ref, :pending),
-      publications_pending: Repo.exists?(ConversationQuery.publications_under_way(ref)),
-      replies_pending: Repo.exists?(ConversationQuery.replies_waiting(ref))
+      publications_pending: Repo.exists?(Conversation.Query.publications_under_way(ref)),
+      replies_pending: Repo.exists?(Conversation.Query.replies_waiting(ref))
     }
   end
 
   defp action_status?(ref, status),
-    do: Repo.exists?(ConversationQuery.actions_in_status(ref, status))
+    do: Repo.exists?(Conversation.Query.actions_in_status(ref, status))
 
   defp episodes(ref) do
     ref
-    |> ConversationQuery.latest_episodes(20)
+    |> Conversation.Query.latest_episodes(20)
     |> Repo.all()
     |> Enum.map(fn {episode, turn_status, coop_turn_id} ->
       %{

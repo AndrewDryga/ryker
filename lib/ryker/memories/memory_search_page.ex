@@ -1,6 +1,6 @@
 defmodule Ryker.Memories.MemorySearchPage do
   @moduledoc false
-  alias Ryker.Memories.SearchPageQuery
+  alias Ryker.Memories.SearchPage
   alias Ryker.Repo
 
   # How far ahead of the database clock a row's own stamp may be and still
@@ -32,10 +32,10 @@ defmodule Ryker.Memories.MemorySearchPage do
 
   @doc """
   The next row of `query` that `page` reaches, with the cursor after it, or
-  `:done` (`Ryker.Memories.SearchPageQuery.next/5`).
+  `:done` (`Ryker.Memories.SearchPage.Query.next/5`).
   """
   def one(query, page, text, changed, source) do
-    case Repo.one(SearchPageQuery.next(query, page, text, changed, source)) do
+    case Repo.one(SearchPage.Query.next(query, page, text, changed, source)) do
       nil -> :done
       %{item: item, time: time} -> {:ok, item, [DateTime.to_iso8601(time), item.id]}
     end

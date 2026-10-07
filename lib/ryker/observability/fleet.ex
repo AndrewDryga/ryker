@@ -10,8 +10,8 @@ defmodule Ryker.Observability.Fleet do
   """
 
   alias Ryker.Config
-  alias Ryker.CoopFleet.{CommandQuery, PlacementQuery, Worker, WorkerQuery}
-  alias Ryker.CoopFleet.WorkspaceCheckpointTransferQuery
+  alias Ryker.CoopFleet.{Command, Placement, Worker}
+  alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Defaults
   alias Ryker.Observability.Reads
 
@@ -45,22 +45,22 @@ defmodule Ryker.Observability.Fleet do
     settings = settings()
     cutoff = DateTime.add(now, -Worker.heartbeat_seconds(), :second)
 
-    current_placements = PlacementQuery.current()
-    expired_placements = PlacementQuery.lease_expired_at(current_placements, now)
-    transfers = WorkspaceCheckpointTransferQuery.all()
+    current_placements = Placement.Query.current()
+    expired_placements = Placement.Query.lease_expired_at(current_placements, now)
+    transfers = WorkspaceCheckpointTransfer.Query.all()
 
-    with {:ok, workers} <- Reads.all(WorkerQuery.all()),
+    with {:ok, workers} <- Reads.all(Worker.Query.all()),
          {:ok, oldest_queued_command} <-
-           Reads.one(CommandQuery.select_oldest_insert(CommandQuery.queued())),
+           Reads.one(Command.Query.select_oldest_insert(Command.Query.queued())),
          {:ok, latest_checkpoint} <-
-           Reads.one(WorkspaceCheckpointTransferQuery.select_latest_insert(transfers)),
+           Reads.one(WorkspaceCheckpointTransfer.Query.select_latest_insert(transfers)),
          {:ok, checkpoints} <- Reads.count(transfers),
-         {:ok, commands} <- Reads.counts(CommandQuery.all(), :status),
+         {:ok, commands} <- Reads.counts(Command.Query.all(), :status),
          {:ok, current} <- Reads.count(current_placements),
          {:ok, event_cursor_lag} <- event_cursor_lag(),
          {:ok, expired} <- Reads.count(expired_placements),
-         {:ok, placements} <- Reads.counts(PlacementQuery.all(), :state),
-         {:ok, worker_states} <- Reads.counts(WorkerQuery.all(), :state) do
+         {:ok, placements} <- Reads.counts(Placement.Query.all(), :state),
+         {:ok, worker_states} <- Reads.counts(Worker.Query.all(), :state) do
       fresh = Enum.filter(workers, &fresh?(&1, cutoff))
       eligible = Enum.filter(fresh, &eligible?(&1, settings.workspace_ref, settings.capabilities))
 

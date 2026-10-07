@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.UsageProjection do
   @moduledoc "Comparable usage breakdowns from the same deduplicated execution ledger."
-  alias Ryker.Accounting.{ExecutionQuery, Pricing}
-  alias Ryker.ControlPlane.{ActivityQuery, RepositoryNames, UsageQuery}
+  alias Ryker.Accounting.{Execution, Pricing}
+  alias Ryker.ControlPlane.{Activity, RepositoryNames, Usage}
   alias Ryker.Repo
   alias Ryker.Work.Measurement
 
@@ -39,7 +39,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
 
     window
     |> since()
-    |> ExecutionQuery.ledger(mode)
+    |> Execution.Query.ledger(mode)
     |> snapshot()
     |> Map.merge(%{mode: mode, window: window})
   end
@@ -59,15 +59,15 @@ defmodule Ryker.ControlPlane.UsageProjection do
       executions =
         window
         |> since()
-        |> ExecutionQuery.ledger(mode)
-        |> UsageQuery.dimensions()
+        |> Execution.Query.ledger(mode)
+        |> Usage.Query.dimensions()
 
       selected =
         Enum.reduce(@filters, executions, fn {key, field}, selected ->
           filter_dimension(selected, field, Map.fetch(params, key))
         end)
 
-      ActivityQuery.of_executions(query, selected)
+      Activity.Query.of_executions(query, selected)
     else
       query
     end
@@ -75,10 +75,10 @@ defmodule Ryker.ControlPlane.UsageProjection do
 
   defp filter_dimension(query, field, {:ok, value})
        when is_binary(value) and byte_size(value) <= 512,
-       do: UsageQuery.with_dimension(query, field, value)
+       do: Usage.Query.with_dimension(query, field, value)
 
   defp filter_dimension(query, _field, :error), do: query
-  defp filter_dimension(query, _field, _invalid), do: UsageQuery.none(query)
+  defp filter_dimension(query, _field, _invalid), do: Usage.Query.none(query)
 
   @doc "The start of a usage window, or nil for all time."
   @spec since(String.t()) :: DateTime.t() | nil
@@ -89,7 +89,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
 
   def snapshot(query) do
     prices = Pricing.used(query)
-    query = UsageQuery.dimensions(query)
+    query = Usage.Query.dimensions(query)
 
     targets =
       groups(query, [:execution_target])
@@ -105,16 +105,16 @@ defmodule Ryker.ControlPlane.UsageProjection do
       targets: targets,
       models: groups(query, [:provider, :model, :effort]),
       performance: groups(query, [:work_kind, :provider, :model, :effort]),
-      channels: query |> UsageQuery.in_slack() |> groups([:transport, :conversation_ref]),
+      channels: query |> Usage.Query.in_slack() |> groups([:transport, :conversation_ref]),
       repositories: query |> groups([:repository_ref]) |> named_repositories(),
       kinds: groups(query, [:work_kind]),
-      users: query |> UsageQuery.people() |> groups([:source, :workspace, :actor]),
+      users: query |> Usage.Query.people() |> groups([:source, :workspace, :actor]),
       days: days(query),
       prices: prices
     }
   end
 
-  def totals(query), do: query |> UsageQuery.aggregate() |> Repo.one!() |> finish()
+  def totals(query), do: query |> Usage.Query.aggregate() |> Repo.one!() |> finish()
 
   # A repository row reads as owner/repo; its ref stays for the filter link.
   defp named_repositories(rows) do
@@ -124,15 +124,15 @@ defmodule Ryker.ControlPlane.UsageProjection do
 
   def filter_options do
     nil
-    |> ExecutionQuery.ledger("all")
-    |> UsageQuery.dimensions()
-    |> UsageQuery.filter_options(500)
+    |> Execution.Query.ledger("all")
+    |> Usage.Query.dimensions()
+    |> Usage.Query.filter_options(500)
     |> Repo.all()
   end
 
   defp groups(query, fields) do
     query
-    |> UsageQuery.grouped(fields)
+    |> Usage.Query.grouped(fields)
     |> Repo.all()
     |> Enum.map(&finish/1)
     |> Enum.sort_by(&{-&1.tokens, -&1.attempts, inspect(Map.take(&1, fields))})
@@ -140,7 +140,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
 
   defp days(query) do
     query
-    |> UsageQuery.by_day()
+    |> Usage.Query.by_day()
     |> Repo.all()
     |> Enum.map(&finish/1)
     |> Enum.sort_by(&Date.to_gregorian_days(&1.date))

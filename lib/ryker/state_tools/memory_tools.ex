@@ -5,7 +5,7 @@ defmodule Ryker.StateTools.MemoryTools do
   alias Ryker.Memories
   alias Ryker.Memories.MemorySearch
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembershipQuery
+  alias Ryker.Slack.ChannelMembership
   alias Ryker.StateTools.RecordWriter
 
   @spec search_memory(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -146,8 +146,8 @@ defmodule Ryker.StateTools.MemoryTools do
     case String.split(conversation_ref, ":", parts: 3) do
       ["slack", workspace_ref, channel_ref] ->
         workspace_ref
-        |> ChannelMembershipQuery.by_channel(channel_ref)
-        |> ChannelMembershipQuery.joined_public()
+        |> ChannelMembership.Query.by_channel(channel_ref)
+        |> ChannelMembership.Query.joined_public()
         |> Repo.exists?()
 
       _invalid ->

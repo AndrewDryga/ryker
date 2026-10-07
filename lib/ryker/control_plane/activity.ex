@@ -1,8 +1,8 @@
 defmodule Ryker.ControlPlane.Activity do
   @moduledoc "A bounded conversation-first inbox, including work not yet admitted."
-  alias Ryker.ControlPlane.{ActivityQuery, ConversationProjection, PagedRelation, Paths}
+  alias Ryker.ControlPlane.{Activity, ConversationProjection, PagedRelation, Paths}
   alias Ryker.ControlPlane.{RepositoryNames, Search, ShortTime, SlackMarkdown, UsageProjection}
-  alias Ryker.Episodes.{EpisodeQuery, Words}
+  alias Ryker.Episodes.{Episode, Words}
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Slack.Names
@@ -26,8 +26,8 @@ defmodule Ryker.ControlPlane.Activity do
       when is_binary(transport) and is_binary(conversation_ref) do
     count =
       transport
-      |> EpisodeQuery.in_conversation(conversation_ref)
-      |> EpisodeQuery.in_mode(execution_mode)
+      |> Episode.Query.in_conversation(conversation_ref)
+      |> Episode.Query.in_mode(execution_mode)
       |> Repo.aggregate(:count)
 
     if count > 1,
@@ -55,7 +55,7 @@ defmodule Ryker.ControlPlane.Activity do
   def conversation_filter_options do
     secrets = InspectionRedactor.configured_secrets()
 
-    rows = DateTime.utc_now() |> ActivityQuery.latest_per_conversation(500) |> Repo.all()
+    rows = DateTime.utc_now() |> Activity.Query.latest_per_conversation(500) |> Repo.all()
 
     chats =
       rows
@@ -113,7 +113,7 @@ defmodule Ryker.ControlPlane.Activity do
     refs = refs |> Enum.uniq() |> Enum.take(100)
     secrets = InspectionRedactor.configured_secrets()
 
-    rows = DateTime.utc_now() |> ActivityQuery.requests(refs) |> Repo.all()
+    rows = DateTime.utc_now() |> Activity.Query.requests(refs) |> Repo.all()
 
     names = repository_names(rows)
     Map.new(rows, fn row -> {row.ref, row |> present(secrets) |> named(names)} end)
@@ -154,9 +154,9 @@ defmodule Ryker.ControlPlane.Activity do
   """
   def list(params) do
     mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
-    base_query = ActivityQuery.rows(DateTime.utc_now())
+    base_query = Activity.Query.rows(DateTime.utc_now())
     searchable = Repo.exists?(base_query)
-    query = if mode == "all", do: base_query, else: ActivityQuery.in_mode(base_query, mode)
+    query = if mode == "all", do: base_query, else: Activity.Query.in_mode(base_query, mode)
 
     query =
       query
@@ -189,7 +189,7 @@ defmodule Ryker.ControlPlane.Activity do
   end
 
   defp view_counts(query) do
-    counted = query |> ActivityQuery.bucket_counts() |> Repo.all() |> Map.new()
+    counted = query |> Activity.Query.bucket_counts() |> Repo.all() |> Map.new()
 
     Map.merge(%{"attention" => 0, "running" => 0, "done" => 0}, counted)
   end
@@ -256,7 +256,7 @@ defmodule Ryker.ControlPlane.Activity do
   defp source(_), do: "Integration"
 
   defp filter(query, value) when value in ~w(attention running done),
-    do: ActivityQuery.in_bucket(query, value)
+    do: Activity.Query.in_bucket(query, value)
 
   defp filter(query, _), do: query
 
@@ -268,7 +268,7 @@ defmodule Ryker.ControlPlane.Activity do
         {key, column}, query ->
           case params[key] do
             value when is_binary(value) and byte_size(value) in 1..512 ->
-              ActivityQuery.with_column(query, column, value)
+              Activity.Query.with_column(query, column, value)
 
             _ ->
               query
@@ -286,19 +286,19 @@ defmodule Ryker.ControlPlane.Activity do
     end)
   end
 
-  defp criteria_filter(query, "state", value), do: ActivityQuery.in_state(query, value)
+  defp criteria_filter(query, "state", value), do: Activity.Query.in_state(query, value)
 
   # The repository the row shows; the filter matched the one the work checked
   # out, though the row showed the one its message came with (2026-10-04
   # review).
   defp criteria_filter(query, "repository", value),
-    do: ActivityQuery.in_repository(query, value)
+    do: Activity.Query.in_repository(query, value)
 
   # What a row shows, as it shows it: the name Work gave the request, the
   # repository as owner/repo and the channel by its name. Refs alone missed
   # all three (2026-10-04 review).
   defp search(query, text) when is_binary(text) and byte_size(text) > 0 do
-    ActivityQuery.matching(
+    Activity.Query.matching(
       query,
       Search.contains(text),
       repositories_named(text),

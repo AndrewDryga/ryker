@@ -21,20 +21,18 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input, as: GenericInput
-  alias Ryker.Memories.MemoryEntryChangeset
-  alias Ryker.Publication.Changeset, as: PublicationChangeset
+  alias Ryker.Memories.MemoryEntry
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.Publication
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Schedules.Schedule
-  alias Ryker.Schedules.ScheduleChangeset
-  alias Ryker.Schedules.ScheduleOccurrenceChangeset
-  alias Ryker.Slack.{ChannelConfigurationChangeset, IncidentRoom, IncidentRoomChangeset}
-  alias Ryker.Slack.IncidentRoomLifecycleEventChangeset
+  alias Ryker.Schedules.ScheduleOccurrence
+  alias Ryker.Slack.{ChannelConfiguration, IncidentRoom}
+  alias Ryker.Slack.IncidentRoomLifecycleEvent
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.Waits.EventSubscriptionChangeset
+  alias Ryker.Waits.EventSubscription
   alias Ryker.Work.{ActivityEvent, Cancellation, Custody, DeliveryReceipt, Measurement, Result}
   alias Ryker.Work.{Session, SubmissionBuilder}
 
@@ -1829,7 +1827,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         saved_at: now,
         workspace_ref: "T123"
       }
-      |> ChannelConfigurationChangeset.configuration()
+      |> ChannelConfiguration.Changeset.configuration()
       |> Repo.insert!()
 
     membership =
@@ -1843,7 +1841,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         status: :joined,
         workspace_ref: "T123"
       }
-      |> ChannelConfigurationChangeset.membership()
+      |> ChannelConfiguration.Changeset.membership()
       |> Repo.insert!()
 
     schedule =
@@ -1873,7 +1871,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         timezone: "UTC",
         title: "Operator schedule"
       }
-      |> ScheduleChangeset.insert()
+      |> Schedule.Changeset.insert()
       |> Repo.insert!()
 
     occurrence =
@@ -1886,7 +1884,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         scheduled_for: now,
         status: :dispatched
       }
-      |> ScheduleOccurrenceChangeset.insert()
+      |> ScheduleOccurrence.Changeset.insert()
       |> Repo.insert!()
 
     subscription =
@@ -1903,7 +1901,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         source_kind: "github",
         status: :active
       }
-      |> EventSubscriptionChangeset.insert()
+      |> EventSubscription.Changeset.insert()
       |> Repo.insert!()
 
     room =
@@ -1938,7 +1936,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         topic: "Operator incident room",
         workspace_ref: "T123"
       }
-      |> IncidentRoomChangeset.insert()
+      |> IncidentRoom.Changeset.insert()
       |> Repo.insert!()
 
     publication =
@@ -1961,7 +1959,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         status: :review_pending,
         title: "Operator publication"
       }
-      |> PublicationChangeset.insert()
+      |> Publication.Changeset.insert()
       |> Repo.insert!()
 
     assert {:ok, followup_record} =
@@ -1991,7 +1989,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         status: :review_pending,
         title: "Newer operator publication"
       }
-      |> PublicationChangeset.insert()
+      |> Publication.Changeset.insert()
       |> Repo.insert!()
 
     _lifecycle =
@@ -2005,7 +2003,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         room_id: room.id,
         workspace_ref: "T123"
       }
-      |> IncidentRoomLifecycleEventChangeset.insert()
+      |> IncidentRoomLifecycleEvent.Changeset.insert()
       |> Repo.insert!()
 
     Repo.insert!(%Worker{
@@ -2389,7 +2387,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert {:ok, _memory} =
              Repo.insert(
-               MemoryEntryChangeset.insert(%{
+               MemoryEntry.Changeset.insert(%{
                  id: id,
                  ref: "memory:#{id}",
                  kind: :entity_relationship,

@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   alias Ryker.ControlPlane.EpisodeCausality
   alias Ryker.{InspectionRedactor, Repo}
   alias Ryker.StateTools.{CallRecord, ErrorCode}
-  alias Ryker.Work.{ActivityEvent, ActivityEventQuery, ActivityPaths}
+  alias Ryker.Work.{ActivityEvent, ActivityPaths}
 
   @state_servers ["controller-tools", "responder-state"]
   # Ryker receives a state-tool call between the worker's start and completion
@@ -533,7 +533,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
          {:ok, event_id} <- Ecto.UUID.cast(event_id),
          %ActivityEvent{episode_id: ^episode_id, kind: kind, payload: %{} = payload}
          when kind in ["tool.started", "tool.completed"] <-
-           Repo.one(ActivityEventQuery.by_id(event_id)),
+           Repo.one(ActivityEvent.Query.by_id(event_id)),
          {_label, value} when not is_nil(value) <- shown_artifact(payload, key, key),
          %{state: :retained, text: text} when is_binary(text) <-
            InspectionRedactor.artifact(value, max_bytes: 20_000, disclosed: true) do

@@ -13,7 +13,7 @@ defmodule Ryker.Admission.ConversationSummaries do
   """
 
   alias Ryker.Continuity
-  alias Ryker.Continuity.{ConversationSummary, ConversationSummaryQuery}
+  alias Ryker.Continuity.ConversationSummary
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.LearningSources
   alias Ryker.Repo
@@ -56,9 +56,9 @@ defmodule Ryker.Admission.ConversationSummaries do
 
   defp latest(identity_key) do
     identity_key
-    |> ConversationSummaryQuery.by_identity_key()
-    |> ConversationSummaryQuery.recently_updated_first()
-    |> ConversationSummaryQuery.limit_to(1)
+    |> ConversationSummary.Query.by_identity_key()
+    |> ConversationSummary.Query.recently_updated_first()
+    |> ConversationSummary.Query.limit_to(1)
     |> Repo.one()
   end
 

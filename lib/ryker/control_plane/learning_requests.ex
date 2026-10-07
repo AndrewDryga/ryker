@@ -30,14 +30,14 @@ defmodule Ryker.ControlPlane.LearningRequests do
       timestamp: 1
     ]
 
-  alias Ryker.Accounting.ExecutionQuery
+  alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.{BackgroundCards, CallRun, ConversationMemory, LearningActivity}
-  alias Ryker.ControlPlane.{LearningRequestsQuery, Paths}
+  alias Ryker.ControlPlane.{LearningRequests, Paths}
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Learning.LearningRun
   alias Ryker.Repo
   alias Ryker.Slack.Names
-  alias Ryker.Work.SessionQuery
+  alias Ryker.Work.Session
 
   @limit 50
 
@@ -75,7 +75,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
   def paths(runs) do
     ids = runs |> Enum.flat_map(&read/1) |> Enum.uniq()
 
-    keys = ids |> LearningRequestsQuery.message_requests() |> Repo.all() |> Map.new()
+    keys = ids |> LearningRequests.Query.message_requests() |> Repo.all() |> Map.new()
 
     Map.new(runs, fn run ->
       read = read(run)
@@ -111,12 +111,12 @@ defmodule Ryker.ControlPlane.LearningRequests do
     patterns = Enum.map(input_ids, &("%" <> &1 <> "%"))
 
     batch_ids =
-      Repo.all(LearningRequestsQuery.batches_holding(input_ids)) ++
-        Repo.all(LearningRequestsQuery.rebuilds_selecting(patterns))
+      Repo.all(LearningRequests.Query.batches_holding(input_ids)) ++
+        Repo.all(LearningRequests.Query.rebuilds_selecting(patterns))
 
     batch_ids
     |> Enum.uniq()
-    |> LearningRequestsQuery.runs_of(patterns, @limit)
+    |> LearningRequests.Query.runs_of(patterns, @limit)
     |> Repo.all()
     |> Enum.filter(fn run -> Enum.any?(read(run), &MapSet.member?(local, &1)) end)
     |> Enum.reverse()
@@ -135,12 +135,12 @@ defmodule Ryker.ControlPlane.LearningRequests do
       numbers: numbers(runs),
       executions:
         "learning"
-        |> ExecutionQuery.of_sources(ids)
+        |> Execution.Query.of_sources(ids)
         |> Repo.all()
         |> Map.new(&{&1.source_id, &1}),
       sessions:
         ids
-        |> SessionQuery.for_learning_runs()
+        |> Session.Query.for_learning_runs()
         |> Repo.all()
         |> Map.new(&{&1.learning_run_id, &1}),
       changes: changes(runs, secrets)
@@ -156,7 +156,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
 
     ordered =
       batch_ids
-      |> LearningRequestsQuery.attempts_in_order()
+      |> LearningRequests.Query.attempts_in_order()
       |> Repo.all()
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
 
@@ -190,7 +190,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
     else
       refs
       |> Map.keys()
-      |> LearningRequestsQuery.revisions_written()
+      |> LearningRequests.Query.revisions_written()
       |> Repo.all()
       |> Enum.group_by(&Map.fetch!(refs, &1.source_result_ref), fn revision ->
         %{

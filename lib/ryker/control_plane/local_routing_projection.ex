@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   in Elixir whenever a comparison settled (2026-10-04 review).
   """
 
-  alias Ryker.ControlPlane.LocalRoutingReportQuery
+  alias Ryker.ControlPlane.LocalRoutingReport
   alias Ryker.LocalRouting
   alias Ryker.Repo
 
@@ -47,7 +47,7 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
 
   # What a decision has Ryker do, named the way Usage names work types: a
   # reply is always a conversation, and new or continued work is an
-  # investigation, standard or deep. `LocalRoutingReportQuery.compared/1` works it
+  # investigation, standard or deep. `LocalRoutingReport.Query.compared/1` works it
   # out in SQL.
   @decision_names %{
     "start_deep" => "A deep investigation",
@@ -85,11 +85,11 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   # The period's comparisons in the page's scope, for the model saved now: a
   # model tried earlier is another model's record.
   defp comparisons(since, scope, model),
-    do: LocalRoutingReportQuery.comparisons(since, scope, model)
+    do: LocalRoutingReport.Query.comparisons(since, scope, model)
 
   defp figures(comparisons) do
     comparisons
-    |> LocalRoutingReportQuery.figures()
+    |> LocalRoutingReport.Query.figures()
     |> Repo.one()
     |> nothing_agreed()
   end
@@ -103,11 +103,11 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
 
   # The comparison that settled last, compared or given up: whether the
   # local model is answering now.
-  defp last_settled(comparisons), do: Repo.one(LocalRoutingReportQuery.last_settled(comparisons))
+  defp last_settled(comparisons), do: Repo.one(LocalRoutingReport.Query.last_settled(comparisons))
 
   # The period's compared answers, each with what the provider decided and
   # what the local model decided, as kinds.
-  defp compared(comparisons), do: LocalRoutingReportQuery.compared(comparisons)
+  defp compared(comparisons), do: LocalRoutingReport.Query.compared(comparisons)
 
   # Andrew, 2026-10-03, of the two lists this page had: "the way you built
   # those tables is piece of shit, they are useless, what i am supposed to do
@@ -121,14 +121,14 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   defp decisions(compared) do
     instead =
       compared
-      |> LocalRoutingReportQuery.instead()
+      |> LocalRoutingReport.Query.instead()
       |> Repo.all()
       |> Enum.group_by(&elem(&1, 0), &Tuple.delete_at(&1, 0))
 
     latest = latest(compared, :kind)
 
     compared
-    |> LocalRoutingReportQuery.decisions()
+    |> LocalRoutingReport.Query.decisions()
     |> Repo.all()
     |> Enum.map(fn row ->
       %{
@@ -153,12 +153,12 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   # When its answer was usable but not the provider's: what differed, and
   # how often that was the only difference.
   defp differences(compared) do
-    fields = LocalRoutingReportQuery.differing_fields(compared)
+    fields = LocalRoutingReport.Query.differing_fields(compared)
 
     latest = latest(fields, :field)
 
     fields
-    |> LocalRoutingReportQuery.field_counts()
+    |> LocalRoutingReport.Query.field_counts()
     |> Repo.all()
     |> Enum.map(fn row ->
       %{
@@ -174,11 +174,11 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   # Why routing could not use its answer, the reasons that read the same
   # counted together.
   defp refusals(compared) do
-    refused = LocalRoutingReportQuery.refused(compared)
+    refused = LocalRoutingReport.Query.refused(compared)
     latest = latest(refused, :invalid_reason)
 
     refused
-    |> LocalRoutingReportQuery.refusal_counts()
+    |> LocalRoutingReport.Query.refusal_counts()
     |> Repo.all()
     |> Enum.group_by(fn {reason, _answers} -> refusal(reason) end)
     |> Enum.map(fn {words, reasons} ->
@@ -197,7 +197,7 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   # Each group's newest row, by when it was compared: the message its table
   # row opens.
   defp latest(rows, group),
-    do: rows |> LocalRoutingReportQuery.latest(group) |> Repo.all() |> Map.new()
+    do: rows |> LocalRoutingReport.Query.latest(group) |> Repo.all() |> Map.new()
 
   defp refusal("decision:" <> _field), do: "gave a decision routing could not read"
   defp refusal(reason), do: Map.get(@refusals, reason, "gave an answer routing's checks refused")

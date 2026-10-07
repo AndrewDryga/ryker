@@ -5,9 +5,9 @@ defmodule Ryker.Fixtures.AnswerMemory do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.EntryChangeset
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records
-  alias Ryker.Records.ResponseChangeset
+  alias Ryker.Records.Response
   alias Ryker.Repo
   alias Ryker.Slack.Input
   alias Ryker.Work.Custody
@@ -85,10 +85,10 @@ defmodule Ryker.Fixtures.AnswerMemory do
         "work_class" => "standard"
       })
 
-    entry = Repo.update!(EntryChangeset.decide(entry, decision, "decision:#{id}", id))
+    entry = Repo.update!(Entry.Changeset.decide(entry, decision, "decision:#{id}", id))
 
     response =
-      ResponseChangeset.insert(%{
+      Response.Changeset.insert(%{
         actor_ref: entry.actor_ref,
         id: Ecto.UUID.generate(),
         inbox_entry_id: entry.id,

@@ -9,14 +9,14 @@ defmodule Ryker.Acceptance.Live do
   """
 
   alias Ryker.{Bootstrap, Settings}
-  alias Ryker.CoopFleet.{Placement, PlacementQuery}
+  alias Ryker.CoopFleet.Placement
   alias Ryker.Delivery.HTTPClient
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Runtime.Assembly
   alias Ryker.Slack.{Client, Gateway, Runtime}
-  alias Ryker.Work.{Turn, TurnQuery}
+  alias Ryker.Work.Turn
 
   @default_timeout_ms 10 * 60 * 1_000
   @poll_interval_ms 500
@@ -404,9 +404,9 @@ defmodule Ryker.Acceptance.Live do
   def observe(event_ref, previous_turn_ids) do
     entry =
       "slack"
-      |> EntryQuery.by_source_event(event_ref)
-      |> EntryQuery.newest_first()
-      |> EntryQuery.limit_to(1)
+      |> Entry.Query.by_source_event(event_ref)
+      |> Entry.Query.newest_first()
+      |> Entry.Query.limit_to(1)
       |> Repo.one()
 
     observe_entry(entry, previous_turn_ids)
@@ -427,10 +427,10 @@ defmodule Ryker.Acceptance.Live do
   defp observe_entry(%Entry{status: :decided, episode_id: episode_id}, previous_turn_ids) do
     turn =
       episode_id
-      |> TurnQuery.by_episode_id()
-      |> TurnQuery.excluding_ids(previous_turn_ids)
-      |> TurnQuery.newest_first()
-      |> TurnQuery.limit_to(1)
+      |> Turn.Query.by_episode_id()
+      |> Turn.Query.excluding_ids(previous_turn_ids)
+      |> Turn.Query.newest_first()
+      |> Turn.Query.limit_to(1)
       |> Repo.one()
 
     observe_turn(turn, episode_id)
@@ -512,9 +512,9 @@ defmodule Ryker.Acceptance.Live do
   defp worker_placement(session_id) do
     placement =
       session_id
-      |> PlacementQuery.by_session_id()
-      |> PlacementQuery.latest_generation_first()
-      |> PlacementQuery.limit_to(1)
+      |> Placement.Query.by_session_id()
+      |> Placement.Query.latest_generation_first()
+      |> Placement.Query.limit_to(1)
       |> Repo.one()
 
     case placement do

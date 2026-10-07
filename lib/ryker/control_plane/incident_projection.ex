@@ -7,16 +7,16 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   its investigation changes (`subscriptions/1`).
   """
 
-  alias Ryker.Accounting.ExecutionQuery
-  alias Ryker.ControlPlane.{ConsolePeople, Environments, IncidentReportQuery, PagedRelation}
+  alias Ryker.Accounting.Execution
+  alias Ryker.ControlPlane.{ConsolePeople, Environments, IncidentReport, PagedRelation}
   alias Ryker.ControlPlane.{RepositoryNames, Search, UsageProjection}
   alias Ryker.Delivery.ChatCard
   alias Ryker.{Episodes, InspectionRedactor, Settings}
-  alias Ryker.Episodes.EpisodeQuery
+  alias Ryker.Episodes.Episode
   alias Ryker.Operator.FailureDetail
-  alias Ryker.Records.{Record, RecordQuery}
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEventQuery, IncidentRoomQuery}
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent}
   alias Ryker.Slack.{IncidentRooms, Names}
 
   @detail_limit 200
@@ -31,7 +31,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   """
   def subscriptions(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     episode_id =
-      ref |> IncidentRoomQuery.by_ref() |> IncidentRoomQuery.select_episode_ids() |> Repo.one()
+      ref |> IncidentRoom.Query.by_ref() |> IncidentRoom.Query.select_episode_ids() |> Repo.one()
 
     investigation = if episode_id, do: [{Episodes, :subscribe_episode, [episode_id]}], else: []
 
@@ -49,12 +49,12 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   review).
   """
   def list(params) when is_map(params) do
-    searched = incident_search(IncidentRoomQuery.all(), Search.term(params["q"]))
+    searched = incident_search(IncidentRoom.Query.all(), Search.term(params["q"]))
     filtered = incident_status(searched, Search.one_of(params["status"], @statuses))
 
     page =
       filtered
-      |> IncidentReportQuery.directory()
+      |> IncidentReport.Query.directory()
       # Newest opened first: the page heads each day with when rooms opened.
       |> PagedRelation.read(
         [desc_nulls_last: :requested_at, desc: :updated_at, desc: :id],
@@ -72,7 +72,10 @@ defmodule Ryker.ControlPlane.IncidentProjection do
         &Map.put(&1, :repository_name, RepositoryNames.name(names, &1.repository_ref))
       )
     )
-    |> Map.put(:open, searched |> IncidentReportQuery.in_status(:ready) |> Repo.aggregate(:count))
+    |> Map.put(
+      :open,
+      searched |> IncidentReport.Query.in_status(:ready) |> Repo.aggregate(:count)
+    )
   end
 
   def list(_params), do: list(%{})
@@ -91,14 +94,14 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   Message text is redacted before it leaves here.
   """
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    found = ref |> IncidentRoomQuery.by_ref() |> IncidentRoomQuery.limit_to(1) |> Repo.one()
+    found = ref |> IncidentRoom.Query.by_ref() |> IncidentRoom.Query.limit_to(1) |> Repo.one()
 
     case found do
       nil ->
         :not_found
 
       room ->
-        episode = if room.episode_id, do: Repo.one(EpisodeQuery.by_id(room.episode_id))
+        episode = if room.episode_id, do: Repo.one(Episode.Query.by_id(room.episode_id))
         names = RepositoryNames.all()
         secrets = InspectionRedactor.configured_secrets()
         alert = alert(room, secrets)
@@ -165,9 +168,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   defp alert(room, secrets) do
     room.source_episode_id
-    |> IncidentReportQuery.messages()
-    |> IncidentReportQuery.first_said()
-    |> IncidentReportQuery.limit_to(1)
+    |> IncidentReport.Query.messages()
+    |> IncidentReport.Query.first_said()
+    |> IncidentReport.Query.limit_to(1)
     |> Repo.one()
     |> message(secrets)
   end
@@ -180,16 +183,16 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp conversation(episode_id, alert, secrets) do
     people =
       episode_id
-      |> IncidentReportQuery.messages()
-      |> IncidentReportQuery.last_said()
-      |> IncidentReportQuery.limit_to(@detail_limit)
+      |> IncidentReport.Query.messages()
+      |> IncidentReport.Query.last_said()
+      |> IncidentReport.Query.limit_to(@detail_limit)
       |> Repo.all()
       |> Enum.reject(&(alert && &1.id == alert.id))
       |> Enum.map(&message(&1, secrets))
 
     ryker =
       episode_id
-      |> IncidentReportQuery.replies(@detail_limit)
+      |> IncidentReport.Query.replies(@detail_limit)
       |> Repo.all()
       |> Enum.map(
         &%{at: &1.at, from: :ryker, id: &1.id, text: redacted(&1.text, secrets), workspace: nil}
@@ -249,17 +252,17 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   defp accounting(episode_id) do
     nil
-    |> ExecutionQuery.ledger("all")
-    |> ExecutionQuery.of_episode(episode_id)
+    |> Execution.Query.ledger("all")
+    |> Execution.Query.of_episode(episode_id)
     |> UsageProjection.totals()
   end
 
   defp lifecycle(room) do
     room.id
-    |> IncidentRoomLifecycleEventQuery.of_room()
-    |> IncidentRoomLifecycleEventQuery.in_order()
-    |> IncidentRoomLifecycleEventQuery.limit_to(@detail_limit)
-    |> IncidentRoomLifecycleEventQuery.select_timeline()
+    |> IncidentRoomLifecycleEvent.Query.of_room()
+    |> IncidentRoomLifecycleEvent.Query.in_order()
+    |> IncidentRoomLifecycleEvent.Query.limit_to(@detail_limit)
+    |> IncidentRoomLifecycleEvent.Query.select_timeline()
     |> Repo.all()
   end
 
@@ -269,9 +272,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   defp records(episode_id) do
     episode_id
-    |> RecordQuery.by_episode_id()
-    |> RecordQuery.latest_sequence_first()
-    |> RecordQuery.limit_to(@detail_limit)
+    |> Record.Query.by_episode_id()
+    |> Record.Query.latest_sequence_first()
+    |> Record.Query.limit_to(@detail_limit)
     |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(&record/1)
@@ -281,7 +284,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   defp publication(episode_id, names) do
     episode_id
-    |> IncidentReportQuery.latest_publication()
+    |> IncidentReport.Query.latest_publication()
     |> Repo.one()
     |> sanitize_publication()
     |> then(&(&1 && %{&1 | repository: RepositoryNames.name(names, &1.repository)}))
@@ -355,12 +358,12 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   defp incident_status(query, nil), do: query
 
-  defp incident_status(query, status), do: IncidentReportQuery.in_status(query, status)
+  defp incident_status(query, status), do: IncidentReport.Query.in_status(query, status)
 
   defp incident_search(query, nil), do: query
 
   defp incident_search(query, search),
-    do: IncidentReportQuery.matching(query, Search.contains(search))
+    do: IncidentReport.Query.matching(query, Search.contains(search))
 
   defp sanitize_publication(nil), do: nil
 

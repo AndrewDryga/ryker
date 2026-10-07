@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.RepositoryNames do
 
   alias Ryker.ControlPlane.PageRead
   alias Ryker.Repo
-  alias Ryker.Settings.RepositoryQuery
+  alias Ryker.Settings.Repository
 
   @doc """
   Every known name, keyed by ref; a repository still added wins over one
@@ -23,8 +23,8 @@ defmodule Ryker.ControlPlane.RepositoryNames do
   def all, do: PageRead.memo({__MODULE__, :all}, &read/0)
 
   defp read do
-    removed = Repo.all(RepositoryQuery.removed_names())
-    current = Repo.all(RepositoryQuery.named())
+    removed = Repo.all(Repository.Query.removed_names())
+    current = Repo.all(Repository.Query.named())
 
     Map.new(removed ++ current)
   end

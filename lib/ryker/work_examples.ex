@@ -5,7 +5,7 @@ defmodule Ryker.WorkExamples do
 
   While a person keeps "Keep work examples for training" on (Settings › Data
   retention), each Work turn is copied once it has settled and the Work it
-  belongs to has come to rest (`Ryker.Work.OwningTurnQuery.work_rest/0`): its
+  belongs to has come to rest (`Ryker.Work.OwningTurn.Query.work_rest/0`): its
   result was accepted and delivered, and nothing in its request is still
   running. Its outcome is known then, and its bodies are still there: they
   are pruned only after that Work's sessions are discarded.
@@ -43,16 +43,16 @@ defmodule Ryker.WorkExamples do
   require Logger
   alias Ryker.Accounting.Pricing
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.EpisodeQuery
-  alias Ryker.Ingress.Inbox.EntryQuery
+  alias Ryker.Episodes.Episode
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Learning.Observations
-  alias Ryker.Publication.PublicationQuery
+  alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Settings.RetentionQuery
-  alias Ryker.Work.{ActivityEventQuery, CandidateResponseQuery, Turn, TurnQuery}
-  alias Ryker.WorkExamples.{Example, ExampleQuery, Feedback, FeedbackQuery}
+  alias Ryker.Settings.Retention
+  alias Ryker.Work.{ActivityEvent, CandidateResponse, Turn}
+  alias Ryker.WorkExamples.{Example, Feedback}
 
   # What the worker did, as training reads it: a tool call ends in
   # tool.completed with its input and output, so its start adds nothing, and
@@ -108,7 +108,7 @@ defmodule Ryker.WorkExamples do
         :ok = RoutingExamples.copy_lock_in_transaction()
 
         {count, _rows} =
-          Repo.insert_all(Feedback, FeedbackQuery.copies_of_signals(),
+          Repo.insert_all(Feedback, Feedback.Query.copies_of_signals(),
             on_conflict: :nothing,
             conflict_target: [:example_id, :signal_id]
           )
@@ -123,7 +123,7 @@ defmodule Ryker.WorkExamples do
   # A settled turn whose bodies are still kept, with no example yet, whose
   # request has nothing still running. Taken oldest first.
   defp settled_turns(limit, window_seconds),
-    do: limit |> ExampleQuery.settled_turns(window_seconds) |> Repo.all()
+    do: limit |> Example.Query.settled_turns(window_seconds) |> Repo.all()
 
   # One turn that cannot be copied is logged and left for the next pass, never
   # allowed to stop the copy of every turn after it; only losing the database
@@ -148,7 +148,7 @@ defmodule Ryker.WorkExamples do
       with true <- enabled?(),
            %Turn{} = turn <- held_turn(turn_id),
            :ok <- RoutingExamples.copy_lock_in_transaction(),
-           false <- Repo.exists?(ExampleQuery.by_turn_id(turn_id)) do
+           false <- Repo.exists?(Example.Query.by_turn_id(turn_id)) do
         turn |> example(secrets) |> insert!()
       else
         _nothing_to_copy -> :skipped
@@ -158,8 +158,8 @@ defmodule Ryker.WorkExamples do
 
   defp enabled? do
     enabled =
-      RetentionQuery.select_work_examples_enabled()
-      |> RetentionQuery.lock_for_share()
+      Retention.Query.select_work_examples_enabled()
+      |> Retention.Query.lock_for_share()
       |> Repo.one()
 
     enabled == true
@@ -167,9 +167,9 @@ defmodule Ryker.WorkExamples do
 
   defp held_turn(turn_id) do
     turn_id
-    |> TurnQuery.by_id()
-    |> TurnQuery.settled_with_bodies()
-    |> TurnQuery.lock_for_share()
+    |> Turn.Query.by_id()
+    |> Turn.Query.settled_with_bodies()
+    |> Turn.Query.lock_for_share()
     |> Repo.one()
   end
 
@@ -185,7 +185,7 @@ defmodule Ryker.WorkExamples do
 
   defp example(turn, secrets) do
     now = Repo.now!()
-    episode = Repo.one!(EpisodeQuery.by_id(turn.episode_id))
+    episode = Repo.one!(Episode.Query.by_id(turn.episode_id))
     inputs = inputs(episode, turn)
     quoted = Enum.map(inputs, &RoutingExamples.quoted_keys/1)
     submission = turn.submission
@@ -234,7 +234,7 @@ defmodule Ryker.WorkExamples do
   # The messages the request was asked in, up to this turn: every message
   # admitted to it, the earliest first.
   defp inputs(episode, turn),
-    do: episode.id |> EntryQuery.admitted_to(turn.inserted_at) |> Repo.all()
+    do: episode.id |> Entry.Query.admitted_to(turn.inserted_at) |> Repo.all()
 
   defp sorted(values), do: values |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
 
@@ -245,7 +245,7 @@ defmodule Ryker.WorkExamples do
   defp trajectory(%Turn{coop_turn_id: coop_turn_id} = turn, secrets)
        when is_binary(coop_turn_id) do
     turn.episode_id
-    |> ActivityEventQuery.trajectory(coop_turn_id, @trajectory_kinds)
+    |> ActivityEvent.Query.trajectory(coop_turn_id, @trajectory_kinds)
     |> Repo.all()
     |> Enum.map(fn event ->
       %{
@@ -270,7 +270,7 @@ defmodule Ryker.WorkExamples do
           do: {attempt, verdict["violations"]}
 
     turn.id
-    |> CandidateResponseQuery.kept_for_turn()
+    |> CandidateResponse.Query.kept_for_turn()
     |> Repo.all()
     |> Enum.filter(&Map.has_key?(verdicts, &1.candidate_attempt))
     |> Enum.map(fn response ->
@@ -315,10 +315,10 @@ defmodule Ryker.WorkExamples do
   defp outcome(turn, episode) do
     publication =
       episode.id
-      |> PublicationQuery.by_episode_id()
-      |> PublicationQuery.newest_first()
-      |> PublicationQuery.limit_to(1)
-      |> PublicationQuery.select_statuses()
+      |> Publication.Query.by_episode_id()
+      |> Publication.Query.newest_first()
+      |> Publication.Query.limit_to(1)
+      |> Publication.Query.select_statuses()
       |> Repo.one()
 
     %{
@@ -386,7 +386,7 @@ defmodule Ryker.WorkExamples do
   # transaction that forgets them.
   @spec forget_in_transaction([String.t()], [String.t()]) :: :ok
   def forget_in_transaction(identities, keys) do
-    identities |> ExampleQuery.from_sources_or_messages(keys) |> erase()
+    identities |> Example.Query.from_sources_or_messages(keys) |> erase()
   end
 
   @doc false
@@ -394,16 +394,16 @@ defmodule Ryker.WorkExamples do
   # by `Ryker.RoutingExamples` while it holds the lock exclusively.
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
-    conversation_ref |> ExampleQuery.in_conversation() |> erase()
+    conversation_ref |> Example.Query.in_conversation() |> erase()
   end
 
   defp erase(query) do
     now = Repo.now!()
 
-    query |> FeedbackQuery.for_examples() |> Repo.delete_all()
+    query |> Feedback.Query.for_examples() |> Repo.delete_all()
 
     Repo.update_all(
-      ExampleQuery.kept(query),
+      Example.Query.kept(query),
       set: [
         briefing: nil,
         context: nil,

@@ -43,7 +43,7 @@ defmodule Ryker.WeeklyReport do
 
   alias Ryker.Config
   alias Ryker.Repo
-  alias Ryker.Settings.{Report, ReportQuery, SlackQuery}
+  alias Ryker.Settings.{Report, Slack}
   alias Ryker.WeeklyReport.{Custody, Digest, Facts, Schedule}
 
   @week_seconds 7 * 86_400
@@ -77,7 +77,7 @@ defmodule Ryker.WeeklyReport do
     now = Keyword.get_lazy(options, :now, &Repo.now!/0)
 
     zone =
-      case Repo.one(ReportQuery.select_timezone()) do
+      case Repo.one(Report.Query.select_timezone()) do
         zone when is_binary(zone) -> zone
         nil -> "Etc/UTC"
       end
@@ -158,9 +158,9 @@ defmodule Ryker.WeeklyReport do
   # to a workspace.
   defp destination do
     with %Report{channel_ref: channel} = report when is_binary(channel) <-
-           Repo.one(ReportQuery.all()),
+           Repo.one(Report.Query.all()),
          %{enabled: true, workspace_ref: workspace} when is_binary(workspace) <-
-           Repo.one(SlackQuery.select_connection()) do
+           Repo.one(Slack.Query.select_connection()) do
       {:ok,
        %{
          conversation_ref: "slack:#{workspace}:#{channel}",

@@ -4,7 +4,6 @@ defmodule Ryker.Memories.MemoriesTest do
   import Ecto.Query
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
-  alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Episodes
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -13,7 +12,6 @@ defmodule Ryker.Memories.MemoriesTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
-  alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Memories.MemoryReviewItem
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.Recall
@@ -1322,7 +1320,7 @@ defmodule Ryker.Memories.MemoriesTest do
       visibility: visibility,
       workspace_ref: "slack:T123"
     }
-    |> MemoryEntryChangeset.insert()
+    |> MemoryEntry.Changeset.insert()
     |> Repo.insert!()
   end
 
@@ -1358,7 +1356,7 @@ defmodule Ryker.Memories.MemoriesTest do
       status: :active,
       workspace_ref: "slack:T123"
     }
-    |> BehaviorChangeset.insert()
+    |> Behavior.Changeset.insert()
     |> Repo.insert!()
   end
 
@@ -1394,7 +1392,7 @@ defmodule Ryker.Memories.MemoriesTest do
       status: status,
       workspace_ref: "slack:T123"
     }
-    |> BehaviorChangeset.insert()
+    |> Behavior.Changeset.insert()
     |> Repo.insert!()
   end
 

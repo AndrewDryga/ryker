@@ -9,7 +9,7 @@ defmodule Ryker.Slack.WorkControlsTest do
   alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Slack.{TaskCardChangeset, WorkControls, WorkRecord, WorkTarget}
+  alias Ryker.Slack.{TaskCard, WorkControls, WorkRecord, WorkTarget}
   alias Ryker.TestSupport.FakeSlackAPI
   alias Ryker.Work.{Cancellation, Custody, OperationKeys, Submission}
 
@@ -563,7 +563,7 @@ defmodule Ryker.Slack.WorkControlsTest do
         thread_ref: "1787832000.000100",
         workspace_ref: "T123"
       }
-      |> TaskCardChangeset.insert()
+      |> TaskCard.Changeset.insert()
       |> Repo.insert!()
 
     claim =
@@ -683,7 +683,7 @@ defmodule Ryker.Slack.WorkControlsTest do
       thread_ref: "thread:task-card-#{suffix}",
       workspace_ref: "T123"
     }
-    |> TaskCardChangeset.insert()
+    |> TaskCard.Changeset.insert()
     |> Repo.insert!()
   end
 

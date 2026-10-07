@@ -10,9 +10,9 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   require Logger
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{ConversationQuery, SourcePage}
+  alias Ryker.ControlPlane.{Conversation, SourcePage}
   alias Ryker.Delivery.PlatformActionCustody
-  alias Ryker.Episodes.{Episode, Event, EventQuery}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
@@ -435,7 +435,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
 
     replies =
       context.conversation_ref
-      |> ConversationQuery.delivered_replies(@maximum_messages)
+      |> Conversation.Query.delivered_replies(@maximum_messages)
       |> Repo.all()
       |> Enum.flat_map(&reply_message(&1, context))
 
@@ -573,7 +573,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
 
   defp input_events(context) do
     context.conversation_ref
-    |> ConversationQuery.admitted_messages(context.episode, @maximum_messages)
+    |> Conversation.Query.admitted_messages(context.episode, @maximum_messages)
     |> Repo.all()
   end
 
@@ -714,9 +714,9 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp load_active_input(episode_id, source_ref) do
     admitted =
       episode_id
-      |> EventQuery.by_episode_id()
-      |> EventQuery.admitted_inputs([source_ref])
-      |> EventQuery.limit_to(1)
+      |> Event.Query.by_episode_id()
+      |> Event.Query.admitted_inputs([source_ref])
+      |> Event.Query.limit_to(1)
       |> Repo.one()
 
     case admitted do
@@ -771,10 +771,10 @@ defmodule Ryker.ControlPlane.CapabilityTools do
     Enum.find(context.episode.active_input_refs, fn ref ->
       payload =
         context.episode.id
-        |> EventQuery.by_episode_id()
-        |> EventQuery.by_dedupe_key(ref)
-        |> EventQuery.select_payloads()
-        |> EventQuery.limit_to(1)
+        |> Event.Query.by_episode_id()
+        |> Event.Query.by_dedupe_key(ref)
+        |> Event.Query.select_payloads()
+        |> Event.Query.limit_to(1)
         |> Repo.one()
 
       match?(%{"payload" => ^input}, payload)

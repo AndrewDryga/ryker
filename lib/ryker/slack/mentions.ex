@@ -8,7 +8,7 @@ defmodule Ryker.Slack.Mentions do
   """
 
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
-  alias Ryker.Episodes.{Episode, EpisodeQuery, Event, EventQuery}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Repo
 
   @typed_link ~r/\[([^\]\r\n]{1,120})\]\((slack-(?:user|channel|usergroup|broadcast)):([A-Za-z0-9_.:-]{1,1024})\)/u
@@ -68,8 +68,8 @@ defmodule Ryker.Slack.Mentions do
   def authority_for_delivery(delivery_ref)
       when is_binary(delivery_ref) and byte_size(delivery_ref) in 1..256 do
     answered =
-      Repo.one(EpisodeQuery.answered_by_delivery(delivery_ref)) ||
-        Repo.one(EpisodeQuery.updated_by_slack_action(delivery_ref))
+      Repo.one(Episode.Query.answered_by_delivery(delivery_ref)) ||
+        Repo.one(Episode.Query.updated_by_slack_action(delivery_ref))
 
     case answered do
       {%Episode{} = episode, input_refs} ->
@@ -333,9 +333,9 @@ defmodule Ryker.Slack.Mentions do
 
   defp active_events(episode_id, active_refs) do
     episode_id
-    |> EventQuery.by_episode_id()
-    |> EventQuery.admitted_inputs(Enum.uniq(active_refs))
-    |> EventQuery.oldest_first()
+    |> Event.Query.by_episode_id()
+    |> Event.Query.admitted_inputs(Enum.uniq(active_refs))
+    |> Event.Query.oldest_first()
     |> Repo.all()
   end
 

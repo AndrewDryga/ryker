@@ -8,7 +8,7 @@ defmodule Ryker.CredoChecks.RuntimeSafetyChecksTest do
   import Ryker.CredoCheckProbe
 
   @context "lib/ryker/sprockets.ex"
-  @changeset "lib/ryker/sprockets/sprocket_changeset.ex"
+  @changeset "lib/ryker/sprockets/sprocket/changeset.ex"
   @test_file "test/ryker/sprockets_test.exs"
 
   setup_all do
@@ -193,7 +193,7 @@ defmodule Ryker.CredoChecks.RuntimeSafetyChecksTest do
   describe "Ryker.Checks.ChangesetNoTruncate" do
     test "flags any truncate inside a changeset module" do
       source = """
-      defmodule Ryker.Sprockets.SprocketChangeset do
+      defmodule Ryker.Sprockets.Sprocket.Changeset do
         import Ecto.Changeset
 
         def delete(sprocket), do: change(sprocket, deleted_at: DateTime.truncate(stamp(), :second))

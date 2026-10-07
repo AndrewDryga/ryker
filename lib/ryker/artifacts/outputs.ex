@@ -7,7 +7,7 @@ defmodule Ryker.Artifacts.Outputs do
   can reference the artifact.
   """
 
-  alias Ryker.Artifacts.{OutputArtifact, OutputArtifactChangeset, OutputArtifactQuery}
+  alias Ryker.Artifacts.OutputArtifact
   alias Ryker.Crypto
   alias Ryker.Repo
   alias Ryker.Work.Custody
@@ -75,8 +75,8 @@ defmodule Ryker.Artifacts.Outputs do
         if refs == [] do
           []
         else
-          OutputArtifactQuery.by_turn_id(turn_id)
-          |> OutputArtifactQuery.by_refs(refs)
+          OutputArtifact.Query.by_turn_id(turn_id)
+          |> OutputArtifact.Query.by_refs(refs)
           |> Repo.all()
         end
 
@@ -158,7 +158,7 @@ defmodule Ryker.Artifacts.Outputs do
     do: {:error, {:invalid_work_output_artifacts, :bodies}}
 
   defp put_one!(attributes) do
-    changeset = OutputArtifactChangeset.insert(attributes)
+    changeset = OutputArtifact.Changeset.insert(attributes)
 
     case Repo.insert(changeset, on_conflict: :nothing) do
       {:ok, _artifact_or_ignored_conflict} ->
@@ -171,8 +171,8 @@ defmodule Ryker.Artifacts.Outputs do
 
   defp reconcile_existing!(attributes, changeset) do
     artifact =
-      OutputArtifactQuery.by_turn_id(attributes.turn_id)
-      |> OutputArtifactQuery.by_ref(attributes.ref)
+      OutputArtifact.Query.by_turn_id(attributes.turn_id)
+      |> OutputArtifact.Query.by_ref(attributes.ref)
       |> Repo.one()
 
     if artifact && identity(artifact) == identity(attributes),

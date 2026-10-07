@@ -19,7 +19,7 @@ defmodule Ryker.Records.Findings do
   """
 
   alias Ryker.Records
-  alias Ryker.Records.{Record, RecordQuery}
+  alias Ryker.Records.Record
   alias Ryker.Repo
 
   @doc "Forgets a finding Ryker still uses."
@@ -43,7 +43,7 @@ defmodule Ryker.Records.Findings do
   end
 
   defp settle_locked(id, status, allowed?) do
-    record = id |> RecordQuery.finding() |> RecordQuery.lock_for_update() |> Repo.one()
+    record = id |> Record.Query.finding() |> Record.Query.lock_for_update() |> Repo.one()
 
     with {:ok, payload} <- open_payload(record),
          :ok <- allowed?.(payload) do
@@ -60,7 +60,7 @@ defmodule Ryker.Records.Findings do
 
   defp set_status!(id, status) do
     {1, [record]} =
-      id |> RecordQuery.by_id() |> RecordQuery.transition(status) |> Repo.update_all([])
+      id |> Record.Query.by_id() |> Record.Query.transition(status) |> Repo.update_all([])
 
     Records.broadcast_record_updated(record)
     record

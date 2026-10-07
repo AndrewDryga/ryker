@@ -16,19 +16,19 @@ defmodule Ryker.Retention.Custody do
 
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
-  alias Ryker.CoopFleet.PlacementQuery
+  alias Ryker.CoopFleet.Placement
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode
   alias Ryker.Improvement.AnalysisRun
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.LearningRun
-  alias Ryker.Publication.PublicationQuery
+  alias Ryker.Publication.Publication
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.Run, as: KnowledgeRun
-  alias Ryker.Retention.{CleanupQuery, Plan}
+  alias Ryker.Retention.{Cleanup, Plan}
   alias Ryker.Work.Custody, as: WorkCustody
-  alias Ryker.Work.{Session, SessionChangeset, SessionQuery, TurnQuery}
+  alias Ryker.Work.{Session, Turn}
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
   @terminal_episode_states [:complete, :cancelled]
@@ -65,8 +65,8 @@ defmodule Ryker.Retention.Custody do
   @spec eligible_copies(DateTime.t(), pos_integer()) ::
           {[{Session.t(), DateTime.t()}], non_neg_integer()}
   def eligible_copies(%DateTime{} = now, limit) when is_integer(limit) and limit > 0 do
-    copies = CleanupQuery.working_copies(now)
-    next = copies |> CleanupQuery.oldest_due_first(limit) |> Repo.all()
+    copies = Cleanup.Query.working_copies(now)
+    next = copies |> Cleanup.Query.oldest_due_first(limit) |> Repo.all()
     {next, Repo.aggregate(copies, :count)}
   end
 
@@ -320,7 +320,7 @@ defmodule Ryker.Retention.Custody do
     with :ok <- reference(worker_ref, :worker_ref) do
       {released, nil} =
         worker_ref
-        |> CleanupQuery.leases_of()
+        |> Cleanup.Query.leases_of()
         |> Repo.update_all(
           set: [cleanup_lease_expires_at: nil, cleanup_lease_owner: nil, cleanup_lease_ref: nil]
         )
@@ -345,7 +345,7 @@ defmodule Ryker.Retention.Custody do
 
       {reconsidered, nil} =
         error_codes
-        |> CleanupQuery.deferred_for_reconnected_workers(cutoff)
+        |> Cleanup.Query.deferred_for_reconnected_workers(cutoff)
         |> Repo.update_all(set: [cleanup_next_attempt_at: nil])
 
       {:ok, reconsidered}
@@ -359,10 +359,10 @@ defmodule Ryker.Retention.Custody do
 
   @spec published?(Session.t()) :: boolean()
   def published?(%Session{} = session) do
-    publications = PublicationQuery.by_session_id(session.id)
+    publications = Publication.Query.by_session_id(session.id)
 
-    Repo.exists?(PublicationQuery.published(publications)) and
-      not Repo.exists?(PublicationQuery.unpublished(publications))
+    Repo.exists?(Publication.Query.published(publications)) and
+      not Repo.exists?(Publication.Query.unpublished(publications))
   end
 
   # A candidate whose owner another transaction holds, or that stopped being
@@ -412,18 +412,22 @@ defmodule Ryker.Retention.Custody do
     end
   end
 
-  defp candidate(now, exclude), do: Repo.one(CleanupQuery.next_candidate(now, exclude))
+  defp candidate(now, exclude), do: Repo.one(Cleanup.Query.next_candidate(now, exclude))
 
   defp lock_owner(kind, id, lock) when kind in [:work, :learning, :improvement, :knowledge],
-    do: kind |> CleanupQuery.owner(id) |> CleanupQuery.lock_owner(lock) |> Repo.one()
+    do: kind |> Cleanup.Query.owner(id) |> Cleanup.Query.lock_owner(lock) |> Repo.one()
 
   # A routing session started ahead of time has no message until one claims
   # it. Until then the pool owns it, and the session's own state says whether
   # the pool gave it up; the session row is locked right after.
   defp lock_owner(:admission, nil, _lock), do: :ready_pool
 
-  defp lock_owner(:admission, input_id, lock),
-    do: :admission |> CleanupQuery.owner(input_id) |> CleanupQuery.lock_owner(lock) |> Repo.one()
+  defp lock_owner(:admission, input_id, lock) do
+    :admission
+    |> Cleanup.Query.owner(input_id)
+    |> Cleanup.Query.lock_owner(lock)
+    |> Repo.one()
+  end
 
   defp lock_owner(_, _, _), do: nil
 
@@ -432,7 +436,7 @@ defmodule Ryker.Retention.Custody do
   defp lock_identity_owner(_identity), do: nil
 
   defp lock_session(session_id),
-    do: session_id |> SessionQuery.by_id() |> SessionQuery.lock_for_update() |> Repo.one()
+    do: session_id |> Session.Query.by_id() |> Session.Query.lock_for_update() |> Repo.one()
 
   defp claimable?(owner, session, now) do
     owner_finished?(owner, session) and
@@ -462,7 +466,7 @@ defmodule Ryker.Retention.Custody do
   defp owner_finished?(_owner, _session), do: false
 
   defp replaced_work_session?(%Session{execution_kind: :work} = session),
-    do: Repo.exists?(SessionQuery.newer_work_sessions(session))
+    do: Repo.exists?(Session.Query.newer_work_sessions(session))
 
   defp replaced_work_session?(_session), do: false
 
@@ -524,12 +528,12 @@ defmodule Ryker.Retention.Custody do
   defp prepare_phase(%Session{} = session), do: session
 
   defp unfinished_turn?(session_id),
-    do: session_id |> TurnQuery.by_session_id() |> TurnQuery.unfinished() |> Repo.exists?()
+    do: session_id |> Turn.Query.by_session_id() |> Turn.Query.unfinished() |> Repo.exists?()
 
   defp unpublished_publication?(session_id) do
     session_id
-    |> PublicationQuery.by_session_id()
-    |> PublicationQuery.unpublished()
+    |> Publication.Query.by_session_id()
+    |> Publication.Query.unpublished()
     |> Repo.exists?()
   end
 
@@ -729,11 +733,11 @@ defmodule Ryker.Retention.Custody do
   # session is never placed anywhere else.
   defp holding_worker(session_id) do
     session_id
-    |> PlacementQuery.by_session_id()
-    |> PlacementQuery.with_worker()
-    |> PlacementQuery.latest_generation_first()
-    |> PlacementQuery.limit_to(1)
-    |> PlacementQuery.select_workers()
+    |> Placement.Query.by_session_id()
+    |> Placement.Query.with_worker()
+    |> Placement.Query.latest_generation_first()
+    |> Placement.Query.limit_to(1)
+    |> Placement.Query.select_workers()
     |> Repo.one()
   end
 
@@ -764,12 +768,14 @@ defmodule Ryker.Retention.Custody do
   end
 
   defp leased!(session_id, lease_ref, statuses) do
-    identity = Repo.one(CleanupQuery.owner_identity(session_id))
+    identity = Repo.one(Cleanup.Query.owner_identity(session_id))
 
     owner = lock_identity_owner(identity)
     if is_nil(owner), do: Repo.rollback(:retention_session_not_found)
 
-    session = session_id |> SessionQuery.by_id() |> SessionQuery.lock_for_update() |> Repo.one!()
+    session =
+      session_id |> Session.Query.by_id() |> Session.Query.lock_for_update() |> Repo.one!()
+
     now = Repo.now!()
 
     if owner_finished?(owner, session) and session.cleanup_status in statuses and
@@ -792,7 +798,7 @@ defmodule Ryker.Retention.Custody do
   @spec persist(Session.t(), map()) :: Session.t()
   def persist(session, attributes) do
     session
-    |> SessionChangeset.cleanup(Map.put_new(attributes, :updated_at, Repo.now!()))
+    |> Session.Changeset.cleanup(Map.put_new(attributes, :updated_at, Repo.now!()))
     |> Repo.update()
     |> case do
       {:ok, stored} -> tap(stored, &WorkCustody.broadcast_session_updated/1)

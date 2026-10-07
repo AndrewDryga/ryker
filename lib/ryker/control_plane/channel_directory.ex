@@ -6,10 +6,10 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   channel's detail is `ChannelDetail`.
   """
 
-  alias Ryker.ControlPlane.{ChannelDirectoryQuery, ChannelsPage, PagedRelation, Search}
+  alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, PagedRelation, Search}
   alias Ryker.Repo
-  alias Ryker.Settings.{EnvironmentQuery, SlackQuery}
-  alias Ryker.Slack.{ChannelConfigurationQuery, ChannelMembershipQuery}
+  alias Ryker.Settings.{Environment, Slack}
+  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership}
   alias Ryker.Slack.Names
 
   @doc """
@@ -34,8 +34,8 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   """
   @spec rows(map()) :: [map()]
   def rows(params) when is_map(params) do
-    configurations = Repo.all(ChannelConfigurationQuery.all())
-    memberships = Repo.all(ChannelMembershipQuery.all())
+    configurations = Repo.all(ChannelConfiguration.Query.all())
+    memberships = Repo.all(ChannelMembership.Query.all())
 
     rooms = incident_rooms()
     episode_counts = slack_episode_counts()
@@ -123,7 +123,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
 
   # The newest room per channel decides whether an incident is open there.
   defp incident_rooms do
-    ChannelDirectoryQuery.latest_rooms()
+    ChannelDirectory.Query.latest_rooms()
     |> Repo.all()
     |> Map.new(fn {key, status, channel_state, channel_name} ->
       {key,
@@ -149,7 +149,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   end
 
   defp defaults do
-    environments = Repo.all(EnvironmentQuery.select_names())
+    environments = Repo.all(Environment.Query.select_names())
 
     %{
       environment:
@@ -161,14 +161,14 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
 
   # How a channel takes part unless set otherwise: the installation's choice.
   defp default_participation do
-    case Repo.one(SlackQuery.select_default_participation()) do
+    case Repo.one(Slack.Query.select_default_participation()) do
       {_workspace_ref, participation} when not is_nil(participation) -> participation
       _unset -> :mentions
     end
   end
 
   defp slack_episode_counts do
-    ChannelDirectoryQuery.episode_counts()
+    ChannelDirectory.Query.episode_counts()
     |> Repo.all()
     |> Enum.reduce(%{}, fn row, found ->
       case String.split(row.conversation_ref, ":", parts: 3) do

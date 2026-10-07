@@ -9,16 +9,13 @@ defmodule Ryker.Waits.EventWaits do
 
   alias Ryker.Crypto
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, ConversationLock, Episode, EpisodeQuery}
+  alias Ryker.Episodes.{Command, ConversationLock, Episode}
   alias Ryker.Ingress.Input
   alias Ryker.Records
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordChangeset
-  alias Ryker.Records.RecordQuery
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Waits.EventSubscription
-  alias Ryker.Waits.EventSubscriptionQuery
   alias Ryker.Waits.EventSubscriptions
 
   @spec resume_due() :: {:ok, :idle | map()} | {:error, term()}
@@ -51,15 +48,15 @@ defmodule Ryker.Waits.EventWaits do
   """
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
-    subscriptions = since |> EventSubscriptionQuery.next_due_after() |> Repo.one()
-    deadlines = since |> EpisodeQuery.next_event_deadline_after() |> Repo.one()
+    subscriptions = since |> EventSubscription.Query.next_due_after() |> Repo.one()
+    deadlines = since |> Episode.Query.next_event_deadline_after() |> Repo.one()
 
     UTCDateTime.earliest([deadlines | subscriptions])
   end
 
   defp due_wait(now) do
     now
-    |> EventSubscriptionQuery.deadline_due(EventSubscriptions.failure_retried_before(now))
+    |> EventSubscription.Query.deadline_due(EventSubscriptions.failure_retried_before(now))
     |> Repo.one()
   end
 
@@ -73,7 +70,7 @@ defmodule Ryker.Waits.EventWaits do
       # Resuming locked them the other way round, so a resume and a message in
       # the same conversation could each wait for the other (2026-10-04
       # review).
-      with %Episode{} = initial <- Repo.one(EpisodeQuery.by_id(episode_id)),
+      with %Episode{} = initial <- Repo.one(Episode.Query.by_id(episode_id)),
            :ok <- ConversationLock.lock(Repo, destination(initial)),
            {:ok, snapshot} <- Episodes.lock_current_in_transaction(initial.key),
            %Record{} = record <- lock_record(record_id),
@@ -88,7 +85,7 @@ defmodule Ryker.Waits.EventWaits do
   end
 
   defp lock_record(id),
-    do: id |> RecordQuery.by_id() |> RecordQuery.lock_for_update() |> Repo.one()
+    do: id |> Record.Query.by_id() |> Record.Query.lock_for_update() |> Repo.one()
 
   defp destination(episode),
     do: %{
@@ -99,8 +96,8 @@ defmodule Ryker.Waits.EventWaits do
   defp resolution(_episode, record, now) do
     subscription =
       record.id
-      |> EventSubscriptionQuery.by_record_id()
-      |> EventSubscriptionQuery.lock_for_update()
+      |> EventSubscription.Query.by_record_id()
+      |> EventSubscription.Query.lock_for_update()
       |> Repo.one()
 
     case subscription do
@@ -133,7 +130,7 @@ defmodule Ryker.Waits.EventWaits do
          {:ok, [_admitted, resumed]} <-
            Episodes.apply_batch_in_transaction([admit, resume]),
          %Record{status: :open} = locked_record <- lock_record(record.id),
-         {:ok, record} <- Repo.update(RecordChangeset.answer_wait(locked_record)),
+         {:ok, record} <- Repo.update(Record.Changeset.answer_wait(locked_record)),
          :ok <- EventSubscriptions.resolve_wait_in_transaction(record.ref, resolution_kind) do
       Records.broadcast_record_updated(record)
       %{episode: resumed.episode, record: record}

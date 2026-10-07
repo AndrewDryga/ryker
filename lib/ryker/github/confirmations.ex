@@ -16,7 +16,7 @@ defmodule Ryker.GitHub.Confirmations do
   alias Ryker.Ingress.Input
   alias Ryker.Memories
   alias Ryker.Options
-  alias Ryker.Records.{Record, RecordQuery}
+  alias Ryker.Records.Record
   alias Ryker.Records.TaskOffers
   alias Ryker.Repo
   alias Ryker.Schedules
@@ -120,7 +120,7 @@ defmodule Ryker.GitHub.Confirmations do
   end
 
   defp offer(record_ref) do
-    query = record_ref |> RecordQuery.by_ref() |> RecordQuery.with_origin()
+    query = record_ref |> Record.Query.by_ref() |> Record.Query.with_origin()
 
     case Repo.one(query) do
       {%Record{} = record, %Episode{} = episode, %Turn{} = turn} ->

@@ -4,7 +4,7 @@ defmodule Ryker.Ingress.InboxTest do
   alias Ryker.Artifacts
   alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Slack.SourceRef
@@ -93,7 +93,7 @@ defmodule Ryker.Ingress.InboxTest do
       }
 
       changeset =
-        EntryChangeset.insert(input, Ecto.UUID.generate(), :live, nil, %{
+        Entry.Changeset.insert(input, Ecto.UUID.generate(), :live, nil, %{
           audience: unquote(audience),
           bot_user_ref: unquote(user_ref)
         })

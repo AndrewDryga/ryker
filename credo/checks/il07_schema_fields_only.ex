@@ -8,7 +8,8 @@ defmodule Ryker.Checks.IL07SchemaFieldsOnly do
 
       A schema is a data shape. `cast` and `validate_*` pipelines and the
       `changeset`, `create`, `insert` and `update` builders live in its
-      `*_changeset.ex` module, where they can be tested alone and composed
+      Changeset module (`<schema>/changeset.ex`), where they can be tested alone
+      and composed
       into any transaction. A pure helper about one struct, such as
       `Ryker.Settings.Environment.writable_refs/1`, may stay.
       """
@@ -81,7 +82,7 @@ defmodule Ryker.Checks.IL07SchemaFieldsOnly do
       ctx,
       message:
         "IL-7: changeset logic in a schema module. Move cast/validate and the " <>
-          "changeset/insert/update builders into its *_changeset.ex module; a " <>
+          "changeset/insert/update builders into its Changeset module; a " <>
           "schema holds fields and associations.",
       trigger: trigger,
       line_no: meta[:line],

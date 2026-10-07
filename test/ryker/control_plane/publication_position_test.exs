@@ -1,8 +1,8 @@
 defmodule Ryker.ControlPlane.PublicationPositionTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
-  require Ryker.ControlPlane.PublicationPositionQuery
-  alias Ryker.ControlPlane.PublicationPositionQuery
+  require Ryker.ControlPlane.PublicationPosition.Query
+  alias Ryker.ControlPlane.PublicationPosition
 
   @inserted ~N[2026-10-01 09:00:00.000000]
   @reviewed ~N[2026-10-01 09:05:00.000000]
@@ -39,11 +39,11 @@ defmodule Ryker.ControlPlane.PublicationPositionTest do
               ^@updated,
               ^@inserted
             ),
-            select: PublicationPositionQuery.sql(p)
+            select: PublicationPosition.Query.sql(p)
           )
         )
 
-      assert sql == PublicationPositionQuery.at(row), inspect(row)
+      assert sql == PublicationPosition.Query.at(row), inspect(row)
     end
   end
 end

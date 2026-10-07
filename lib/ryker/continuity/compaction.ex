@@ -12,15 +12,14 @@ defmodule Ryker.Continuity.Compaction do
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationRollup
-  alias Ryker.Continuity.ConversationRollupQuery
-  alias Ryker.Continuity.ConversationSummaryDraftQuery
-  alias Ryker.Continuity.ConversationSummaryQuery
+  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Continuity.ConversationSummaryDraft
   alias Ryker.Continuity.ConversationSummaryState
   alias Ryker.Continuity.Scope
   alias Ryker.Knowledge
-  alias Ryker.Knowledge.ConversationKnowledgeQuery
+  alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning
-  alias Ryker.Learning.ConversationObservationQuery
+  alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Repo
 
@@ -72,7 +71,7 @@ defmodule Ryker.Continuity.Compaction do
     before = DateTime.add(Repo.now!(), -summary_age_seconds, :second)
 
     before
-    |> ConversationSummaryQuery.compactable(@maximum_compaction)
+    |> ConversationSummary.Query.compactable(@maximum_compaction)
     |> Repo.all()
     |> Enum.group_by(&rollup_identity/1)
     |> Enum.sort_by(fn {identity, _items} -> identity end)
@@ -101,17 +100,17 @@ defmodule Ryker.Continuity.Compaction do
     Continuity.broadcast_continuity_updated(conversation_ref)
 
     {_count, topics} =
-      ConversationKnowledgeQuery.all()
-      |> ConversationKnowledgeQuery.in_workspace(scoped_workspace_ref)
-      |> ConversationKnowledgeQuery.by_conversation_ref(conversation_ref)
-      |> ConversationKnowledgeQuery.select_ids()
+      ConversationKnowledge.Query.all()
+      |> ConversationKnowledge.Query.in_workspace(scoped_workspace_ref)
+      |> ConversationKnowledge.Query.by_conversation_ref(conversation_ref)
+      |> ConversationKnowledge.Query.select_ids()
       |> Repo.delete_all()
 
     {_count, notes} =
       scoped_workspace_ref
-      |> ConversationObservationQuery.in_workspace()
-      |> ConversationObservationQuery.by_conversation_ref(conversation_ref)
-      |> ConversationObservationQuery.select_ids()
+      |> ConversationObservation.Query.in_workspace()
+      |> ConversationObservation.Query.by_conversation_ref(conversation_ref)
+      |> ConversationObservation.Query.select_ids()
       |> Repo.delete_all()
 
     Enum.each(topics, &Knowledge.broadcast_knowledge_updated/1)
@@ -120,14 +119,14 @@ defmodule Ryker.Continuity.Compaction do
 
   defp delete_channel_summaries(workspace_ref, conversation_ref) do
     workspace_ref
-    |> ConversationSummaryQuery.in_conversation(conversation_ref)
+    |> ConversationSummary.Query.in_conversation(conversation_ref)
     |> Repo.delete_all()
   end
 
   defp delete_channel_drafts(conversation_ref) do
     conversation_ref
-    |> ConversationSummaryDraftQuery.for_slack_conversation()
-    |> ConversationSummaryDraftQuery.select_ids()
+    |> ConversationSummaryDraft.Query.for_slack_conversation()
+    |> ConversationSummaryDraft.Query.select_ids()
     |> Repo.all()
     |> delete_drafts()
   end
@@ -135,12 +134,12 @@ defmodule Ryker.Continuity.Compaction do
   defp delete_drafts([]), do: :ok
 
   defp delete_drafts(draft_ids),
-    do: Repo.delete_all(ConversationSummaryDraftQuery.by_ids(draft_ids))
+    do: Repo.delete_all(ConversationSummaryDraft.Query.by_ids(draft_ids))
 
   defp delete_channel_rollups(workspace_ref, conversation_ref, slack_workspace_ref, channel_ref) do
     workspace_ref
-    |> ConversationRollupQuery.in_workspace()
-    |> ConversationRollupQuery.lock_for_update()
+    |> ConversationRollup.Query.in_workspace()
+    |> ConversationRollup.Query.lock_for_update()
     |> Repo.all()
     |> Enum.filter(&rollup_uses_channel?(&1, conversation_ref, slack_workspace_ref, channel_ref))
     |> Enum.map(& &1.id)
@@ -159,7 +158,8 @@ defmodule Ryker.Continuity.Compaction do
 
   defp delete_rollups([]), do: :ok
 
-  defp delete_rollups(rollup_ids), do: Repo.delete_all(ConversationRollupQuery.by_ids(rollup_ids))
+  defp delete_rollups(rollup_ids),
+    do: Repo.delete_all(ConversationRollup.Query.by_ids(rollup_ids))
 
   defp rollup_identity(summary) do
     period_start = beginning_of_week(summary.updated_at)
@@ -208,8 +208,8 @@ defmodule Ryker.Continuity.Compaction do
 
   defp locked_rollup(workspace_ref, scope_kind, scope_ref, period_start) do
     workspace_ref
-    |> ConversationRollupQuery.by_identity(scope_kind, scope_ref, period_start)
-    |> ConversationRollupQuery.lock_for_update()
+    |> ConversationRollup.Query.by_identity(scope_kind, scope_ref, period_start)
+    |> ConversationRollup.Query.lock_for_update()
     |> Repo.one()
   end
 
@@ -308,7 +308,7 @@ defmodule Ryker.Continuity.Compaction do
     retry_at = DateTime.add(Repo.now!(), 3600, :second)
 
     ids
-    |> ConversationSummaryQuery.by_ids()
+    |> ConversationSummary.Query.by_ids()
     |> Repo.update_all(set: [compaction_error_code: reason, compaction_retry_at: retry_at])
 
     :skipped
@@ -329,7 +329,7 @@ defmodule Ryker.Continuity.Compaction do
   defp delete_compacted_summaries(sources) do
     sources
     |> Enum.map(& &1.id)
-    |> ConversationSummaryQuery.by_ids()
+    |> ConversationSummary.Query.by_ids()
     |> Repo.delete_all()
   end
 

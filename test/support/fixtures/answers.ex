@@ -18,7 +18,7 @@ defmodule Ryker.Fixtures.Answers do
   alias Ryker.GitHub.Binding
   alias Ryker.GitHub.Input, as: GitHubInput
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
@@ -387,6 +387,6 @@ defmodule Ryker.Fixtures.Answers do
                  end
              })
 
-    Repo.update!(EntryChangeset.decide(entry, decision, "decision:#{entry.id}", episode_id))
+    Repo.update!(Entry.Changeset.decide(entry, decision, "decision:#{entry.id}", episode_id))
   end
 end

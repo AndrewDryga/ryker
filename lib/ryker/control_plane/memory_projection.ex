@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
   alias Ryker.ControlPlane.{PagedRelation, RepositoryNames}
   alias Ryker.InspectionRedactor
   alias Ryker.Memories
-  alias Ryker.Memories.MemoryEntryQuery
+  alias Ryker.Memories.MemoryEntry
   alias Ryker.Repo
 
   @reviews_shown 100
@@ -47,7 +47,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
 
   @doc "One active fact as the page shows it, by reference, or nil."
   def fact(ref) when is_binary(ref) do
-    fact = fact_rows() |> MemoryEntryQuery.by_ref(ref) |> Repo.one()
+    fact = fact_rows() |> MemoryEntry.Query.by_ref(ref) |> Repo.one()
 
     if fact,
       do: fact |> redact(InspectionRedactor.configured_secrets()) |> named(names([fact], []))
@@ -91,9 +91,9 @@ defmodule Ryker.ControlPlane.MemoryProjection do
     end)
   end
 
-  defp active, do: MemoryEntryQuery.active() |> MemoryEntryQuery.unexpired_now()
+  defp active, do: MemoryEntry.Query.active() |> MemoryEntry.Query.unexpired_now()
 
-  defp fact_rows, do: MemoryEntryQuery.select_facts(active())
+  defp fact_rows, do: MemoryEntry.Query.select_facts(active())
 
   # A memory is a person's own words, confirmed as a fact; they are redacted
   # here exactly as the channel page and the behavior library redact them.
@@ -101,7 +101,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
 
   defp search(query, ""), do: query
 
-  defp search(query, text), do: MemoryEntryQuery.saying(query, text)
+  defp search(query, text), do: MemoryEntry.Query.saying(query, text)
 
   defp search_text(value) when is_binary(value), do: String.slice(String.trim(value), 0, 200)
   defp search_text(_value), do: ""

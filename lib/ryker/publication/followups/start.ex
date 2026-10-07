@@ -11,9 +11,8 @@ defmodule Ryker.Publication.Followups.Start do
   publication recorded, and never for a head other than the one it recorded.
   """
 
-  alias Ryker.Publication.{Custody, Followup, FollowupChangeset, FollowupQuery, Publication}
+  alias Ryker.Publication.{Custody, Followup, Publication}
   alias Ryker.Publication.Followups.Store
-  alias Ryker.Publication.PublicationQuery
   alias Ryker.Repo
 
   @default_deadline_seconds 30 * 24 * 60 * 60
@@ -28,7 +27,7 @@ defmodule Ryker.Publication.Followups.Start do
       publication_id: publication.id
     }
 
-    case Repo.one(FollowupQuery.by_publication_id(publication.id)) do
+    case Repo.one(Followup.Query.by_publication_id(publication.id)) do
       # Each generation publishes a new head, often to the same pull request,
       # and its checks are its own. The follow-up kept the previous head's
       # check state, so a new head failing the way the old one did woke
@@ -37,7 +36,7 @@ defmodule Ryker.Publication.Followups.Start do
         reset_followup!(followup, publication, now)
 
       nil ->
-        case Repo.insert(FollowupChangeset.insert(attributes)) do
+        case Repo.insert(Followup.Changeset.insert(attributes)) do
           {:ok, %Followup{} = followup} ->
             Custody.broadcast_publication_updated(publication)
             followup
@@ -67,8 +66,8 @@ defmodule Ryker.Publication.Followups.Start do
 
   defp locked_followup(publication) do
     publication.id
-    |> FollowupQuery.by_publication_id()
-    |> FollowupQuery.lock_for_update()
+    |> Followup.Query.by_publication_id()
+    |> Followup.Query.lock_for_update()
   end
 
   def rearm_conflict_in_transaction(%Publication{} = publication, now) do
@@ -147,15 +146,15 @@ defmodule Ryker.Publication.Followups.Start do
 
     query =
       repository
-      |> FollowupQuery.for_pull_request(number, states)
-      |> FollowupQuery.lock_for_update()
+      |> Followup.Query.for_pull_request(number, states)
+      |> Followup.Query.lock_for_update()
 
     case Repo.one(query) do
       nil ->
         :ignored
 
       followup ->
-        publication = Repo.one!(PublicationQuery.by_id(followup.publication_id))
+        publication = Repo.one!(Publication.Query.by_id(followup.publication_id))
 
         if is_nil(head_sha) or head_sha == publication.commit_sha do
           Store.update_followup!(followup, %{next_poll_at: now}, now)

@@ -4,7 +4,7 @@ defmodule Ryker.Slack.ChannelSettingsTest do
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurationChangeset, ChannelSettingAudit}
+  alias Ryker.Slack.{ChannelConfiguration, ChannelSettingAudit}
   alias Ryker.Slack.ChannelSettings
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -151,7 +151,7 @@ defmodule Ryker.Slack.ChannelSettingsTest do
       saved_at: @now,
       workspace_ref: @workspace
     }
-    |> ChannelConfigurationChangeset.configuration()
+    |> ChannelConfiguration.Changeset.configuration()
     |> Repo.insert!()
   end
 

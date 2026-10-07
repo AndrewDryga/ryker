@@ -13,14 +13,14 @@ defmodule Ryker.ControlPlane.TaskProgress do
   """
 
   alias Ryker.Episodes.Episode
-  alias Ryker.Records.{Record, RecordQuery}
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.TaskCardProjection
 
   @doc "The task a confirmed offer started as this episode, or nil for any other request."
   @spec for_episode(Episode.t()) :: map() | nil
   def for_episode(%Episode{id: id}) do
-    offer = id |> RecordQuery.task_offer_confirming() |> Repo.one()
+    offer = id |> Record.Query.task_offer_confirming() |> Repo.one()
 
     with %Record{} <- offer,
          {:ok, %{document: %{"task_card" => task}}} <- TaskCardProjection.page(offer) do

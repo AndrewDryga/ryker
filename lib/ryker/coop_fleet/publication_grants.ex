@@ -1,12 +1,11 @@
 defmodule Ryker.CoopFleet.PublicationGrants do
   @moduledoc false
 
-  alias Ryker.CoopFleet.{Command, CommandQuery, ControlPlane, JobAuthority, Placement}
-  alias Ryker.CoopFleet.PlacementQuery
+  alias Ryker.CoopFleet.{Command, ControlPlane, JobAuthority, Placement}
   alias Ryker.GitHub.InstallationTokens
-  alias Ryker.Publication.{Custody, Executor, Publication, PublicationQuery}
+  alias Ryker.Publication.{Custody, Executor, Publication}
   alias Ryker.{Repo, Settings}
-  alias Ryker.Work.{Session, SessionQuery}
+  alias Ryker.Work.Session
 
   @identity ~w(repository_ref github_repository github_repository_id)
   @request ~w(session_id review_operation_id job_ref job_digest repository command_key request)
@@ -39,12 +38,13 @@ defmodule Ryker.CoopFleet.PublicationGrants do
   def publication_grant_authority(certificate, job_ref, request) when is_map(request) do
     with true <- is_binary(request["command_key"]),
          {:ok, worker_id} <- ControlPlane.authenticate_certificate(certificate),
-         %Command{} = command <- Repo.one(CommandQuery.by_idempotency_key(request["command_key"])),
+         %Command{} = command <-
+           Repo.one(Command.Query.by_idempotency_key(request["command_key"])),
          true <- is_binary(command.placement_id),
          %Placement{worker_id: ^worker_id, state: :active} = placement <-
-           Repo.one(PlacementQuery.by_id(command.placement_id)),
+           Repo.one(Placement.Query.by_id(command.placement_id)),
          :ok <- live_placement(placement),
-         %Session{} = session <- Repo.one(SessionQuery.by_id(placement.session_id)),
+         %Session{} = session <- Repo.one(Session.Query.by_id(placement.session_id)),
          {:ok, snapshot} <- settings() do
       authorize(request, job_ref, session, placement, command, snapshot)
     else
@@ -119,7 +119,7 @@ defmodule Ryker.CoopFleet.PublicationGrants do
   end
 
   defp publications(session_id, approval_ref),
-    do: Repo.all(PublicationQuery.by_approval(session_id, approval_ref))
+    do: Repo.all(Publication.Query.by_approval(session_id, approval_ref))
 
   defp exact_review?(publication, session, request) do
     review = publication.review_document
@@ -152,7 +152,7 @@ defmodule Ryker.CoopFleet.PublicationGrants do
   # of the same session on the same worker (`Ryker.CoopFleet.Client.publish_review/6`). A review
   # from another worker, or from a placement newer than the publish, grants nothing.
   defp exact_review_command?(publication, session, placement) do
-    review = Repo.one(CommandQuery.by_idempotency_key(Executor.review_key(publication)))
+    review = Repo.one(Command.Query.by_idempotency_key(Executor.review_key(publication)))
 
     match?(%Command{kind: "run_review"}, review) and review.session_id == session.id and
       review.worker_id == placement.worker_id and

@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   /instructions, under "Saved from conversations". Both lists show Current
   (on or paused) or Past (expired, deleted or replaced) entries.
   """
-  alias Ryker.ControlPlane.{BehaviorLibraryQuery, PagedRelation, RepositoryNames, Search}
+  alias Ryker.ControlPlane.{BehaviorLibrary, PagedRelation, RepositoryNames, Search}
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
 
@@ -22,13 +22,13 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   def return_path(kind) when kind in [:preference, :guidance], do: "/instructions#saved"
 
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    item = instruction_query() |> BehaviorLibraryQuery.by_ref(ref) |> Repo.one()
+    item = instruction_query() |> BehaviorLibrary.Query.by_ref(ref) |> Repo.one()
     if item, do: {:ok, item |> sanitize() |> List.wrap() |> named() |> hd()}, else: :not_found
   end
 
   def fetch(_ref), do: :not_found
 
-  defp instruction_query, do: BehaviorLibraryQuery.entries(DateTime.utc_now())
+  defp instruction_query, do: BehaviorLibrary.Query.entries(DateTime.utc_now())
 
   @doc """
   One page of confirmed entries of `kinds` (one kind or several) for a page's
@@ -44,16 +44,16 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   def list(kinds, params) when is_list(kinds) do
     show = show(kinds, params["show"])
     shown = if show == "all", do: kinds, else: [@shown[show]]
-    base = BehaviorLibraryQuery.of_kinds(instruction_query(), shown)
-    counts = base |> BehaviorLibraryQuery.status_counts() |> Repo.all() |> Map.new()
+    base = BehaviorLibrary.Query.of_kinds(instruction_query(), shown)
+    counts = base |> BehaviorLibrary.Query.status_counts() |> Repo.all() |> Map.new()
 
     view = if params["view"] == "past", do: "past", else: "current"
     search = params |> scalar("q") |> String.trim() |> String.slice(0, 160)
 
     filtered =
       base
-      |> BehaviorLibraryQuery.listed()
-      |> BehaviorLibraryQuery.in_view(view)
+      |> BehaviorLibrary.Query.listed()
+      |> BehaviorLibrary.Query.in_view(view)
       |> filter_search(search)
 
     page = PagedRelation.read(filtered, [desc: :updated_at, desc: :id], "page", params)
@@ -77,7 +77,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   defp runs(items) do
     ids = Enum.map(items, & &1.id)
 
-    ids |> BehaviorLibraryQuery.rule_runs(25) |> Repo.all()
+    ids |> BehaviorLibrary.Query.rule_runs(25) |> Repo.all()
   end
 
   defp scalar(params, key) do
@@ -90,7 +90,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   defp filter_search(query, ""), do: query
 
   defp filter_search(query, value),
-    do: BehaviorLibraryQuery.matching(query, Search.contains(value))
+    do: BehaviorLibrary.Query.matching(query, Search.contains(value))
 
   @doc false
   # An entry for one repository names it the way GitHub does; it named the

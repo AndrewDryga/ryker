@@ -8,8 +8,8 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   decision remains the durable audit identity on exact retries.
   """
 
-  alias Ryker.CoopFleet.{CertificateQuery, EnrollmentTokenQuery, PlacementQuery, Protocol}
-  alias Ryker.CoopFleet.{Worker, WorkerChangeset, WorkerQuery}
+  alias Ryker.CoopFleet.{Certificate, EnrollmentToken, Placement, Protocol}
+  alias Ryker.CoopFleet.Worker
   alias Ryker.Repo
 
   @type result :: %{status: :draining | :duplicate | :resumed | :revoked, worker: Worker.t()}
@@ -53,7 +53,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
 
         updated =
           worker
-          |> WorkerChangeset.drain(now, operator_ref)
+          |> Worker.Changeset.drain(now, operator_ref)
           |> Repo.update()
           |> unwrap_write()
 
@@ -74,7 +74,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
       true ->
         updated =
           worker
-          |> WorkerChangeset.resume()
+          |> Worker.Changeset.resume()
           |> Repo.update()
           |> unwrap_write()
 
@@ -91,23 +91,23 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
       now = Repo.now!()
 
       worker.id
-      |> CertificateQuery.by_worker_id()
-      |> CertificateQuery.unrevoked()
+      |> Certificate.Query.by_worker_id()
+      |> Certificate.Query.unrevoked()
       |> Repo.update_all(set: [revoked_at: now, revoked_by: operator_ref])
 
       worker.id
-      |> EnrollmentTokenQuery.by_worker_id()
-      |> EnrollmentTokenQuery.unconsumed()
+      |> EnrollmentToken.Query.by_worker_id()
+      |> EnrollmentToken.Query.unconsumed()
       |> Repo.delete_all()
 
       worker.id
-      |> PlacementQuery.by_worker_id()
-      |> PlacementQuery.current()
+      |> Placement.Query.by_worker_id()
+      |> Placement.Query.current()
       |> Repo.update_all(set: [lease_expires_at: now, state: :revoking, updated_at: now])
 
       updated =
         worker
-        |> WorkerChangeset.revoke(now, operator_ref)
+        |> Worker.Changeset.revoke(now, operator_ref)
         |> Repo.update()
         |> unwrap_write()
 
@@ -116,7 +116,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   end
 
   defp locked_worker!(worker_id) do
-    worker_id |> WorkerQuery.by_id() |> WorkerQuery.lock_for_update() |> Repo.one() ||
+    worker_id |> Worker.Query.by_id() |> Worker.Query.lock_for_update() |> Repo.one() ||
       rollback(:coop_worker_not_found)
   end
 

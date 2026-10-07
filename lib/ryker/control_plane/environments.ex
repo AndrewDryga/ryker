@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.Environments do
 
   alias Ryker.ControlPlane.Integrations
   alias Ryker.Repo
-  alias Ryker.Settings.{Environment, EnvironmentQuery}
+  alias Ryker.Settings.Environment
 
   @doc """
   How many Slack channels choose each environment, by environment ref, and
@@ -26,7 +26,7 @@ defmodule Ryker.ControlPlane.Environments do
   """
   @spec channel_counts() :: %{(String.t() | nil) => non_neg_integer()}
   def channel_counts do
-    EnvironmentQuery.channel_counts() |> Repo.all() |> Map.new()
+    Environment.Query.channel_counts() |> Repo.all() |> Map.new()
   end
 
   @doc "The default first, then the rest by name, the way every list shows them."

@@ -15,12 +15,12 @@ defmodule Ryker.Work.Custody.Claims do
 
   import Ryker.Work.Custody.Locks
   require Logger
-  alias Ryker.Publication.PublicationQuery
+  alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.Sessions
-  alias Ryker.Work.{OwningTurnQuery, Turn, TurnChangeset, TurnQuery}
+  alias Ryker.Work.{OwningTurn, Turn}
 
   # How many episodes one claim tries past ones that could not be claimed.
   @claim_candidates 8
@@ -65,7 +65,7 @@ defmodule Ryker.Work.Custody.Claims do
 
     now = Repo.now!()
 
-    Repo.update_all(TurnQuery.waiting_owner(episode_id),
+    Repo.update_all(Turn.Query.waiting_owner(episode_id),
       set: [
         next_attempt_at: DateTime.add(now, @claim_failure_retry_seconds, :second),
         last_error_code: claim_failure_code(reason),
@@ -140,12 +140,13 @@ defmodule Ryker.Work.Custody.Claims do
   def next_due_at(%DateTime{} = since, phase) when phase in [:work, :delivery] do
     statuses = if phase == :work, do: [:pending, :cancel_pending], else: [:delivery_pending]
 
-    turns = Repo.one(TurnQuery.next_due_after(since, statuses))
+    turns = Repo.one(Turn.Query.next_due_after(since, statuses))
 
     UTCDateTime.earliest(turns ++ reviews_due(since, phase))
   end
 
-  defp reviews_due(since, :work), do: [Repo.one(PublicationQuery.next_review_expiry_after(since))]
+  defp reviews_due(since, :work),
+    do: [Repo.one(Publication.Query.next_review_expiry_after(since))]
 
   defp reviews_due(_since, :delivery), do: []
 
@@ -174,14 +175,16 @@ defmodule Ryker.Work.Custody.Claims do
   end
 
   defp eligible_episode(now, phase, skipped),
-    do: Repo.one(OwningTurnQuery.next_claimable_episode(now, phase, skipped))
+    do: Repo.one(OwningTurn.Query.next_claimable_episode(now, phase, skipped))
 
   defp active_publication_review?(session, %Turn{status: status})
        when status in [:pending, :cancel_pending] do
     # Both claimers lock the session. Recheck after that lock as the selection
     # query may have started before the other claimant committed its lease.
     reviewing =
-      session.id |> PublicationQuery.by_session_id() |> PublicationQuery.reviewing_at(Repo.now!())
+      session.id
+      |> Publication.Query.by_session_id()
+      |> Publication.Query.reviewing_at(Repo.now!())
 
     Repo.exists?(reviewing)
   end
@@ -202,7 +205,7 @@ defmodule Ryker.Work.Custody.Claims do
       |> Map.put(attempt_field(status), attempt_count(turn, status) + 1)
 
     turn
-    |> TurnChangeset.claim(attributes)
+    |> Turn.Changeset.claim(attributes)
     |> Repo.update()
     |> persistence_result(:work_turn_claim)
   end
@@ -227,7 +230,7 @@ defmodule Ryker.Work.Custody.Claims do
         lease_expires_at = later_datetime(turn.lease_expires_at, requested_expiry)
 
         turn
-        |> TurnChangeset.renew(lease_expires_at)
+        |> Turn.Changeset.renew(lease_expires_at)
         |> Repo.update()
         |> unwrap_or_rollback(:work_lease_renewal)
 
@@ -248,7 +251,7 @@ defmodule Ryker.Work.Custody.Claims do
     now = Repo.now!()
 
     turn
-    |> TurnChangeset.defer(%{
+    |> Turn.Changeset.defer(%{
       last_error_code: error_code,
       last_error_detail: error_detail,
       lease_expires_at: nil,
@@ -268,7 +271,7 @@ defmodule Ryker.Work.Custody.Claims do
     case progress_attempt(turn) do
       {field, count} when count > 0 ->
         turn
-        |> TurnChangeset.yield_progress(
+        |> Turn.Changeset.yield_progress(
           DateTime.add(now, retry_seconds, :second),
           field,
           count - 1

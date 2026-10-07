@@ -9,16 +9,16 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   are the channels whose environment holds it.
   """
 
-  alias Ryker.Accounting.ExecutionQuery
-  alias Ryker.ControlPlane.{CallRun, Environments, RepositoryPageQuery, Search}
+  alias Ryker.Accounting.Execution
+  alias Ryker.ControlPlane.{CallRun, Environments, RepositoryPage, Search}
   alias Ryker.GitHub.Events
   alias Ryker.InspectionRedactor, as: Redactor
-  alias Ryker.Publication.PublicationQuery
+  alias Ryker.Publication.Publication
   alias Ryker.{Repo, RepositoryKnowledge}
-  alias Ryker.RepositoryKnowledge.RunQuery
-  alias Ryker.Schedules.ScheduleQuery
+  alias Ryker.RepositoryKnowledge.Run
+  alias Ryker.Schedules.Schedule
   alias Ryker.Settings
-  alias Ryker.Work.SessionQuery
+  alias Ryker.Work.Session
 
   @list_limit 100
 
@@ -93,17 +93,17 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   defp knowledge_runs(ref, disclosed) do
     runs =
       ref
-      |> RunQuery.by_repository()
-      |> RunQuery.newest_first()
-      |> RunQuery.limit_to(@knowledge_runs)
-      |> RunQuery.select_cards()
+      |> Run.Query.by_repository()
+      |> Run.Query.newest_first()
+      |> Run.Query.limit_to(@knowledge_runs)
+      |> Run.Query.select_cards()
       |> Repo.all()
 
     ids = Enum.map(runs, fn {run, _prompt, _result} -> run.id end)
 
     executions =
       "knowledge"
-      |> ExecutionQuery.of_sources(ids)
+      |> Execution.Query.of_sources(ids)
       |> Repo.all()
       |> Map.new(&{&1.source_id, &1})
 
@@ -139,8 +139,8 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
       opened
       |> Enum.map(&elem(&1, 0))
-      |> RunQuery.by_ids()
-      |> RunQuery.select_texts()
+      |> Run.Query.by_ids()
+      |> Run.Query.select_texts()
       |> Repo.all()
       |> Enum.flat_map(fn {id, prompt, result} ->
         [{{id, "prompt"}, prompt}, {{id, "answer"}, result}]
@@ -175,11 +175,11 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     channel_counts = Environments.channel_counts()
     freshness = repository_freshness(refs)
     knowledge = RepositoryKnowledge.entries(refs)
-    publications = grouped_count(PublicationQuery.all(), :repository, refs)
-    schedules = grouped_count(ScheduleQuery.all(), :repository, refs)
+    publications = grouped_count(Publication.Query.all(), :repository, refs)
+    schedules = grouped_count(Schedule.Query.all(), :repository, refs)
     # The tasks people asked for: a session that read the repository for its
     # RYKER.md is none of them.
-    sessions = grouped_count(SessionQuery.for_work(), :repository_ref, refs)
+    sessions = grouped_count(Session.Query.for_work(), :repository_ref, refs)
 
     Enum.map(refs, fn ref ->
       environments = Environments.containing(settings, ref)
@@ -232,7 +232,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   end
 
   defp grouped_count(queryable, field, refs),
-    do: queryable |> RepositoryPageQuery.count_by(field, refs) |> Repo.all() |> Map.new()
+    do: queryable |> RepositoryPage.Query.count_by(field, refs) |> Repo.all() |> Map.new()
 
   defp settings do
     case Settings.fetch() do
@@ -276,10 +276,10 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   @primary_receipt ~s|$.context.workspace.freshness ? (@.owner == "coop" && @.status == "recorded").repositories[*] ? (@.name == "primary")|
 
   # The receipt of the code each repository's tasks last recorded
-  # (`RepositoryPageQuery.freshness/2`).
+  # (`RepositoryPage.Query.freshness/2`).
   defp repository_freshness(refs) do
     refs
-    |> RepositoryPageQuery.freshness(@primary_receipt)
+    |> RepositoryPage.Query.freshness(@primary_receipt)
     |> Repo.all()
     |> Map.new(fn {ref, recorded_at, receipt} -> {ref, receipt_view(receipt, recorded_at)} end)
   end

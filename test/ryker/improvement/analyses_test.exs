@@ -9,10 +9,10 @@ defmodule Ryker.Improvement.AnalysesTest do
   alias Ryker.Improvement
   alias Ryker.Improvement.{Analyses, AnalysisRun, Candidate, Dispatcher, Prompt}
   alias Ryker.Records.Record
-  alias Ryker.Retention.CleanupQuery
+  alias Ryker.Retention.Cleanup
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.TestSupport.FakeCoopAPI
-  alias Ryker.Work.{Custody, Session, SessionQuery, Turn}
+  alias Ryker.Work.{Custody, Session, Turn}
 
   @workspace "TIMPROVEANALYSES"
   @now ~U[2026-09-27 12:00:00.000000Z]
@@ -115,8 +115,8 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     assert Repo.exists?(
              DateTime.utc_now()
-             |> CleanupQuery.eligible()
-             |> SessionQuery.by_id(session.id)
+             |> Cleanup.Query.eligible()
+             |> Session.Query.by_id(session.id)
            )
 
     # Cleanup claims it under its run, as it claims a learning session under
@@ -546,8 +546,8 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     refute Repo.exists?(
              DateTime.utc_now()
-             |> CleanupQuery.eligible()
-             |> SessionQuery.by_id(session.id)
+             |> Cleanup.Query.eligible()
+             |> Session.Query.by_id(session.id)
            )
 
     Answers.slack_message!(

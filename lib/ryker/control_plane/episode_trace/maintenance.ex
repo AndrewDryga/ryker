@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.RepositoryNames
-  alias Ryker.CoopFleet.PlacementQuery
+  alias Ryker.CoopFleet.Placement
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Retention.Custody
@@ -66,9 +66,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     ids = Enum.map(sessions, & &1.id)
 
     ids
-    |> PlacementQuery.by_session_ids()
-    |> PlacementQuery.latest_per_session_first()
-    |> PlacementQuery.select_session_workers()
+    |> Placement.Query.by_session_ids()
+    |> Placement.Query.latest_per_session_first()
+    |> Placement.Query.select_session_workers()
     |> Repo.all()
     |> Enum.uniq_by(&elem(&1, 0))
     |> Map.new()

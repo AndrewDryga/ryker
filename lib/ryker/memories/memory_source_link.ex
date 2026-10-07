@@ -1,7 +1,7 @@
 defmodule Ryker.Memories.MemorySourceLink do
   @moduledoc false
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Episodes.EventQuery
+  alias Ryker.Episodes.Event
   alias Ryker.Slack.SourceRef
 
   # Return a usable existing reader invocation, not an invented original quote.
@@ -72,7 +72,7 @@ defmodule Ryker.Memories.MemorySourceLink do
   defp lab_anchor(conversation, message) do
     # Observation receipts name the native source item; the Lab reader names
     # the admitted event. Resolve that durable relation, never invent a locator.
-    Repo.one(EventQuery.lab_admission_key(conversation, message))
+    Repo.one(Event.Query.lab_admission_key(conversation, message))
   end
 
   def context_targets(%{"conversation_ref" => conversation} = document)

@@ -12,10 +12,9 @@ defmodule Ryker.Memories.Recall do
   alias Ryker.Episodes.Scope
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
-  alias Ryker.Memories.MemoryEntryQuery
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
-  alias Ryker.Memories.SearchPageQuery
+  alias Ryker.Memories.SearchPage
   alias Ryker.Reference
   alias Ryker.Repo
 
@@ -72,12 +71,12 @@ defmodule Ryker.Memories.Recall do
   end
 
   defp search_visible_page(context, page) do
-    fields = MemoryEntryQuery.search_fields()
+    fields = MemoryEntry.Query.search_fields()
 
     context
-    |> MemoryEntryQuery.searchable()
-    |> MemoryEntryQuery.in_search_scope(context, page.scope)
-    |> SearchPageQuery.related_originals(
+    |> MemoryEntry.Query.searchable()
+    |> MemoryEntry.Query.in_search_scope(context, page.scope)
+    |> SearchPage.Query.related_originals(
       page,
       fields.conversation,
       fields.thread,
@@ -101,12 +100,12 @@ defmodule Ryker.Memories.Recall do
   # workspace whose other conversations held a thousand newer private entries
   # pushed an older shared fact out of the window before it was ever weighed.
   defp visible_entries(context) do
-    MemoryEntryQuery.all()
-    |> MemoryEntryQuery.visible_to(context)
-    |> MemoryEntryQuery.active()
-    |> MemoryEntryQuery.unexpired_at(Repo.now!())
-    |> MemoryEntryQuery.newest_content_first()
-    |> MemoryEntryQuery.limit_to(1_000)
+    MemoryEntry.Query.all()
+    |> MemoryEntry.Query.visible_to(context)
+    |> MemoryEntry.Query.active()
+    |> MemoryEntry.Query.unexpired_at(Repo.now!())
+    |> MemoryEntry.Query.newest_content_first()
+    |> MemoryEntry.Query.limit_to(1_000)
     |> Repo.all()
   end
 
@@ -117,10 +116,10 @@ defmodule Ryker.Memories.Recall do
     # Charge and disclose only the exact still-active content we selected.
     current =
       entries
-      |> MemoryEntryQuery.unchanged()
-      |> MemoryEntryQuery.active()
-      |> MemoryEntryQuery.unexpired()
-      |> MemoryEntryQuery.select_ids()
+      |> MemoryEntry.Query.unchanged()
+      |> MemoryEntry.Query.active()
+      |> MemoryEntry.Query.unexpired()
+      |> MemoryEntry.Query.select_ids()
 
     ids = charge(current, context)
     retained = MapSet.new(ids)

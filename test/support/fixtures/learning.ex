@@ -7,7 +7,7 @@ defmodule Ryker.Fixtures.Learning do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning
   alias Ryker.Learning.FleetSession
   alias Ryker.Learning.Observations
@@ -96,7 +96,7 @@ defmodule Ryker.Fixtures.Learning do
         work_policy_digest: policy.policy_digest
       })
       |> then(&struct!(Entry, &1))
-      |> EntryChangeset.decide(decision, "learning-test:#{raw["id"]}", nil)
+      |> Entry.Changeset.decide(decision, "learning-test:#{raw["id"]}", nil)
       |> Repo.insert!()
 
     {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(entry) end)

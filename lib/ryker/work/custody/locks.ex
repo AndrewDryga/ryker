@@ -15,9 +15,9 @@ defmodule Ryker.Work.Custody.Locks do
   """
 
   alias Ryker.Crypto
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
+  alias Ryker.Episodes.Episode
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session, SessionQuery, Turn, TurnQuery}
+  alias Ryker.Work.{Custody, Session, Turn}
 
   @maximum_candidate_bytes 256 * 1_024
 
@@ -47,7 +47,7 @@ defmodule Ryker.Work.Custody.Locks do
 
   @doc false
   def lock_turn(episode_id, turn_ref) do
-    locked = episode_id |> turn(turn_ref) |> TurnQuery.lock_for_update()
+    locked = episode_id |> turn(turn_ref) |> Turn.Query.lock_for_update()
 
     case Repo.one(locked) do
       nil -> {:error, :work_turn_not_found}
@@ -62,8 +62,8 @@ defmodule Ryker.Work.Custody.Locks do
     locked =
       episode_id
       |> turn(turn_ref)
-      |> TurnQuery.lock_for_update()
-      |> TurnQuery.select_with_lease_current()
+      |> Turn.Query.lock_for_update()
+      |> Turn.Query.select_with_lease_current()
 
     case Repo.one(locked) do
       nil ->
@@ -79,7 +79,7 @@ defmodule Ryker.Work.Custody.Locks do
   end
 
   defp turn(episode_id, turn_ref),
-    do: episode_id |> TurnQuery.by_episode_id() |> TurnQuery.by_turn_ref(turn_ref)
+    do: episode_id |> Turn.Query.by_episode_id() |> Turn.Query.by_turn_ref(turn_ref)
 
   defp lock_current_episode_owner(episode_id, %Turn{status: :pending, turn_ref: owner_ref}) do
     lock_episode_owner(episode_id, :turn, owner_ref)
@@ -107,8 +107,8 @@ defmodule Ryker.Work.Custody.Locks do
   def lock_episode_owner(episode_id, owner_kind, owner_ref) do
     locked =
       episode_id
-      |> EpisodeQuery.working_for(owner_kind, owner_ref)
-      |> EpisodeQuery.lock_for_update()
+      |> Episode.Query.working_for(owner_kind, owner_ref)
+      |> Episode.Query.lock_for_update()
 
     case Repo.one(locked) do
       nil -> {:error, :work_episode_owner_lost}
@@ -118,7 +118,7 @@ defmodule Ryker.Work.Custody.Locks do
 
   @doc false
   def lock_session(episode_id, session_id) do
-    locked = episode_id |> SessionQuery.of_episode(session_id) |> SessionQuery.lock_for_update()
+    locked = episode_id |> Session.Query.of_episode(session_id) |> Session.Query.lock_for_update()
 
     case Repo.one(locked) do
       nil -> {:error, :work_session_not_found}
@@ -170,7 +170,7 @@ defmodule Ryker.Work.Custody.Locks do
 
   @doc false
   def episode_for_result!(episode_key) do
-    Repo.one!(EpisodeQuery.by_key(episode_key))
+    Repo.one!(Episode.Query.by_key(episode_key))
   end
 
   @doc false

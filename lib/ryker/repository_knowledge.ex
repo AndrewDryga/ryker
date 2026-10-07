@@ -28,7 +28,7 @@ defmodule Ryker.RepositoryKnowledge do
   """
 
   alias Ryker.Repo
-  alias Ryker.RepositoryKnowledge.{Custody, Entry, EntryQuery}
+  alias Ryker.RepositoryKnowledge.{Custody, Entry}
   alias Ryker.Settings
 
   @refresh_reason "Someone asked for it on the Repositories page."
@@ -63,15 +63,15 @@ defmodule Ryker.RepositoryKnowledge do
   @spec entries([String.t()]) :: %{String.t() => Entry.t()}
   def entries(refs) when is_list(refs) do
     refs
-    |> EntryQuery.by_repositories()
-    |> EntryQuery.select_by_ref()
+    |> Entry.Query.by_repositories()
+    |> Entry.Query.select_by_ref()
     |> Repo.all()
     |> Map.new()
   end
 
   @doc "One repository's knowledge entry, or nil before its first check."
   @spec entry(String.t()) :: Entry.t() | nil
-  def entry(ref) when is_binary(ref), do: Repo.one(EntryQuery.by_repository(ref))
+  def entry(ref) when is_binary(ref), do: Repo.one(Entry.Query.by_repository(ref))
 
   @doc """
   Why a step failed, in words a person can act on: each sentence stands on

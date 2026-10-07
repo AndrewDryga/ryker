@@ -7,7 +7,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Followup, FollowupChangeset, Followups, LifecycleEvent}
+  alias Ryker.Publication.{Followup, Followups, LifecycleEvent}
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Slack.{Renderer, TaskCardProjection}
@@ -725,7 +725,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       end)
 
     followup
-    |> FollowupChangeset.update(%{
+    |> Followup.Changeset.update(%{
       checks_failed: 0,
       checks_passed: 8,
       checks_state: :passing,
@@ -741,7 +741,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     assert checked.fingerprint != published.fingerprint
 
     followup
-    |> FollowupChangeset.update(%{
+    |> Followup.Changeset.update(%{
       checks_passed: 8,
       checks_state: :passing,
       checks_total: 8,
@@ -784,7 +784,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
           Followups.arm_published_in_transaction(publication, DateTime.utc_now())
         end)
 
-      followup |> FollowupChangeset.update(Map.put(fields, :pr_state, state)) |> Repo.update!()
+      followup |> Followup.Changeset.update(Map.put(fields, :pr_state, state)) |> Repo.update!()
 
       source = %Record{
         kind: "task_offer",
@@ -952,7 +952,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
       end)
 
     followup
-    |> FollowupChangeset.update(%{
+    |> Followup.Changeset.update(%{
       checks_failed: 0,
       checks_passed: 8,
       checks_state: :passing,

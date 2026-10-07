@@ -11,32 +11,32 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.ControlPlane.SettingsCommands
   alias Ryker.ControlPlane.WorkChanges
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode, EpisodeQuery}
+  alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Improvement
   alias Ryker.Ingress.WorkProfile
   alias Ryker.IntegrationSetup
   alias Ryker.Memories
-  alias Ryker.Memories.{Forgetting, MemoryReviewItem, MemoryReviewItemQuery}
+  alias Ryker.Memories.{Forgetting, MemoryReviewItem}
   alias Ryker.Operator.{EpisodeReviews, FailureDismissals, Failures}
   alias Ryker.Operator.Learning, as: LearningOperator
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.People
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Publication, PublicationQuery, Review}
+  alias Ryker.Publication.{Publication, Review}
   alias Ryker.Records.Findings
   alias Ryker.Records.InputRequests
-  alias Ryker.Records.{Record, RecordQuery}
+  alias Ryker.Records.Record
   alias Ryker.Records.SlackPostOffers
   alias Ryker.Records.TaskOffers
   alias Ryker.Repo
   alias Ryker.Schedules
-  alias Ryker.Schedules.{Schedule, ScheduleQuery}
+  alias Ryker.Schedules.Schedule
   alias Ryker.Slack.IncidentRooms
   alias Ryker.Slack.Runtime, as: SlackRuntime
   alias Ryker.Slack.WorkRecord
   alias Ryker.WeeklyReport
-  alias Ryker.Work.{Custody, Session, SessionQuery, Turn, TurnQuery}
+  alias Ryker.Work.{Custody, Session, Turn}
 
   @current {__MODULE__, :current}
 
@@ -139,7 +139,7 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp run_schedule(policy_resolver) when is_function(policy_resolver, 1) do
     fn schedule_ref, viewer ->
-      case Repo.one(ScheduleQuery.by_ref(schedule_ref)) do
+      case Repo.one(Schedule.Query.by_ref(schedule_ref)) do
         %{revision: revision} ->
           action_ref = "control-plane:run-schedule:#{schedule_ref}:#{revision}"
 
@@ -161,7 +161,7 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp resolve_memory_review(review_ref, action, replacement, viewer) do
-    case Repo.one(MemoryReviewItemQuery.by_ref(review_ref)) do
+    case Repo.one(MemoryReviewItem.Query.by_ref(review_ref)) do
       %MemoryReviewItem{workspace_ref: workspace_ref} ->
         Memories.resolve_review(review_ref, action, Actor.of(viewer), workspace_ref, replacement)
 
@@ -209,14 +209,14 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp resolve_episode(episode_key),
-    do: episode_key |> EpisodeQuery.by_key() |> Repo.one() |> resolve_episode_record()
+    do: episode_key |> Episode.Query.by_key() |> Repo.one() |> resolve_episode_record()
 
   defp resolve_episode_record(
          %Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode
        ) do
     episode.id
-    |> TurnQuery.by_episode_id()
-    |> TurnQuery.by_turn_ref(turn_ref)
+    |> Turn.Query.by_episode_id()
+    |> Turn.Query.by_turn_ref(turn_ref)
     |> Repo.one()
     |> resolve_blocked_episode(episode, turn_ref)
   end
@@ -316,10 +316,10 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp latest_bound_session(episode_id) do
     episode_id
-    |> SessionQuery.by_episode_id()
-    |> SessionQuery.bound()
-    |> SessionQuery.latest_generation_first()
-    |> SessionQuery.limit_to(1)
+    |> Session.Query.by_episode_id()
+    |> Session.Query.bound()
+    |> Session.Query.latest_generation_first()
+    |> Session.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -437,7 +437,7 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
-  defp fetch_lab_record(record_ref), do: Repo.one(RecordQuery.with_origin_turn(record_ref))
+  defp fetch_lab_record(record_ref), do: Repo.one(Record.Query.with_origin_turn(record_ref))
 
   defp lab_record_target(
          %Record{} = record,
@@ -809,7 +809,7 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp task_episode(%Record{} = record, target) do
-    case Repo.one(EpisodeQuery.by_id(record.confirmed_episode_id)) do
+    case Repo.one(Episode.Query.by_id(record.confirmed_episode_id)) do
       %Episode{} = episode ->
         exact =
           episode.linked_episode_id == record.episode_id and
@@ -866,7 +866,7 @@ defmodule Ryker.ControlPlane.Actions do
     do: {:error, :conversation_lab_task_control_stale}
 
   defp lab_publication(record, source_target, expected_status, receipt_kind) do
-    case Repo.one(PublicationQuery.by_record_id(record.id)) do
+    case Repo.one(Publication.Query.by_record_id(record.id)) do
       %Publication{status: ^expected_status} = publication ->
         lab_publication_target(publication, source_target, receipt_kind)
 
@@ -916,8 +916,8 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp task_publication(episode_id, publication_ref) do
     episode_id
-    |> PublicationQuery.by_episode_id()
-    |> PublicationQuery.by_ref(publication_ref)
+    |> Publication.Query.by_episode_id()
+    |> Publication.Query.by_ref(publication_ref)
     |> Repo.one()
   end
 

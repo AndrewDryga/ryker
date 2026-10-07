@@ -12,7 +12,7 @@ defmodule Ryker.Operator.FailureDismissals do
   same way then shows once more.
   """
 
-  alias Ryker.Operator.{FailureDismissal, FailureDismissalQuery}
+  alias Ryker.Operator.FailureDismissal
   alias Ryker.Repo
 
   @doc "Leaves one failure, failing as `summary` says, on `actor_ref`'s behalf."
@@ -41,7 +41,7 @@ defmodule Ryker.Operator.FailureDismissals do
   """
   @spec counts() :: %{String.t() => non_neg_integer()}
   def counts do
-    FailureDismissalQuery.count_by_kind()
+    FailureDismissal.Query.count_by_kind()
     |> Repo.all()
     |> Map.new()
   end
@@ -72,7 +72,7 @@ defmodule Ryker.Operator.FailureDismissals do
     refs = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
 
     kinds
-    |> FailureDismissalQuery.of_kinds_and_refs(refs)
+    |> FailureDismissal.Query.of_kinds_and_refs(refs)
     |> Repo.all()
     |> Map.new(&{{&1.kind, &1.ref}, &1})
   end

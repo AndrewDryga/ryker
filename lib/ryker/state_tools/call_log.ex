@@ -11,7 +11,7 @@ defmodule Ryker.StateTools.CallLog do
   """
 
   alias Ryker.Repo
-  alias Ryker.StateTools.{CallRecord, CallRecordQuery}
+  alias Ryker.StateTools.CallRecord
   alias Ryker.Work.{Activity, Custody}
 
   @maximum_listed 5_000
@@ -63,8 +63,8 @@ defmodule Ryker.StateTools.CallLog do
   def list_for_episode(episode_id, since \\ nil)
 
   def list_for_episode(episode_id, since) when is_binary(episode_id) do
-    query = CallRecordQuery.for_episode(episode_id, @maximum_listed)
-    query = if since, do: CallRecordQuery.called_since(query, since), else: query
+    query = CallRecord.Query.for_episode(episode_id, @maximum_listed)
+    query = if since, do: CallRecord.Query.called_since(query, since), else: query
     query |> Repo.all() |> Enum.reverse()
   end
 

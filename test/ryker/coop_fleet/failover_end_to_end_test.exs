@@ -10,7 +10,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, SessionChangeset}
+  alias Ryker.Work.{Custody, Session}
 
   @policy "work-read-only"
   @policy_digest String.duplicate("b", 64)
@@ -319,7 +319,7 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
 
     source =
       session
-      |> SessionChangeset.bind_workspace_task(workspace_task)
+      |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Ecto.Changeset.change(coop_session_id: "coop-session-worker-a")
       |> Repo.update!()
 

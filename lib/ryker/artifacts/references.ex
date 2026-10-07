@@ -9,7 +9,7 @@ defmodule Ryker.Artifacts.References do
   searching serialized JSON.
   """
 
-  alias Ryker.Artifacts.{ArtifactQuery, IngressReference, WorkReference}
+  alias Ryker.Artifacts.{Artifact, IngressReference, WorkReference}
   alias Ryker.Ingress.Input
   alias Ryker.Repo
 
@@ -82,9 +82,9 @@ defmodule Ryker.Artifacts.References do
   defp lock_artifacts(refs) do
     if Enum.all?(refs, &artifact_ref?/1) do
       artifacts =
-        ArtifactQuery.by_refs(refs)
-        |> ArtifactQuery.ordered_by_ref()
-        |> ArtifactQuery.lock_for_key_share()
+        Artifact.Query.by_refs(refs)
+        |> Artifact.Query.ordered_by_ref()
+        |> Artifact.Query.lock_for_key_share()
         |> Repo.all()
 
       if length(artifacts) == length(refs),

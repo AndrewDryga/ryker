@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   alias Ryker.Episodes.{Episode, Origins}
   alias Ryker.Episodes.Words
   alias Ryker.GitHub.Input, as: GitHubInput
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Slack.Names
@@ -23,18 +23,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   """
   @spec rows(Ecto.UUID.t()) :: [Entry.t()]
   def rows(episode_id) do
-    in_episode = EntryQuery.by_episode_id(episode_id)
+    in_episode = Entry.Query.by_episode_id(episode_id)
 
     first =
       in_episode
-      |> EntryQuery.oldest_occurred_first()
-      |> EntryQuery.limit_to(1)
+      |> Entry.Query.oldest_occurred_first()
+      |> Entry.Query.limit_to(1)
       |> Repo.one()
 
     newest =
       in_episode
-      |> EntryQuery.latest_occurred_first()
-      |> EntryQuery.limit_to(200)
+      |> Entry.Query.latest_occurred_first()
+      |> Entry.Query.limit_to(200)
       |> Repo.all()
       |> Enum.reverse()
 
@@ -69,8 +69,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   def first_received_at(episode) do
     received_at =
       episode.id
-      |> EntryQuery.by_episode_id()
-      |> EntryQuery.select_earliest_insert()
+      |> Entry.Query.by_episode_id()
+      |> Entry.Query.select_earliest_insert()
       |> Repo.one()
 
     case received_at do

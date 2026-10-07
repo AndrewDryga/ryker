@@ -10,16 +10,16 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   what each row shows, with the sort key and cursor that place it.
   """
 
-  alias Ryker.Artifacts.OutputArtifactQuery
-  alias Ryker.ControlPlane.{ConsolePeople, ConversationTranscriptQuery, Paths}
-  alias Ryker.ControlPlane.{PublicationPositionQuery, TranscriptCursor}
+  alias Ryker.Artifacts.OutputArtifact
+  alias Ryker.ControlPlane.{ConsolePeople, ConversationTranscript, Paths}
+  alias Ryker.ControlPlane.{PublicationPosition, TranscriptCursor}
   alias Ryker.Delivery.ChatCard
-  alias Ryker.Episodes.{EventQuery, Reactions}
+  alias Ryker.Episodes.{Event, Reactions}
   alias Ryker.Feedback
   alias Ryker.Publication.Publication
-  alias Ryker.Records.RecordQuery
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Work.TurnQuery
+  alias Ryker.Work.Turn
 
   @page_maximum 200
   @record_limit 64
@@ -152,7 +152,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp executions(episode_ids) do
     episode_ids
-    |> ConversationTranscriptQuery.executions()
+    |> ConversationTranscript.Query.executions()
     |> Repo.all()
     |> Map.new(fn row -> {row.id, Map.delete(row, :id)} end)
   end
@@ -190,9 +190,9 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp admission_events(refs_by_episode, refs) do
     refs_by_episode
     |> Map.keys()
-    |> EventQuery.by_episode_ids()
-    |> EventQuery.admitted_inputs(refs)
-    |> EventQuery.select_admissions()
+    |> Event.Query.by_episode_ids()
+    |> Event.Query.admitted_inputs(refs)
+    |> Event.Query.select_admissions()
     |> Repo.all()
   end
 
@@ -232,9 +232,9 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp earlier_answer_turns(turn_ids) do
     turns =
       turn_ids
-      |> TurnQuery.by_ids()
-      |> TurnQuery.with_selected_inputs()
-      |> TurnQuery.select_selected_inputs()
+      |> Turn.Query.by_ids()
+      |> Turn.Query.with_selected_inputs()
+      |> Turn.Query.select_selected_inputs()
       |> Repo.all()
 
     answered =
@@ -276,7 +276,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp current_revisions(native_ids) do
     native_ids
-    |> ConversationTranscriptQuery.current_revisions()
+    |> ConversationTranscript.Query.current_revisions()
     |> Repo.all()
     |> Map.new()
   end
@@ -285,7 +285,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp routing_reactions(item_refs) do
     item_refs
-    |> ConversationTranscriptQuery.routing_reactions(@page_maximum * 4)
+    |> ConversationTranscript.Query.routing_reactions(@page_maximum * 4)
     |> Repo.all()
     |> Enum.filter(&(is_binary(&1.emoji_name) and is_binary(&1.source_item_ref)))
     |> Enum.group_by(& &1.source_item_ref, &Map.delete(&1, :source_item_ref))
@@ -295,7 +295,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp input_reaction_actions(item_refs) do
     item_refs
-    |> ConversationTranscriptQuery.work_reactions(@page_maximum * 4)
+    |> ConversationTranscript.Query.work_reactions(@page_maximum * 4)
     |> Repo.all()
     |> Enum.filter(&(is_map(&1.document) and is_binary(&1.document["emoji_name"])))
     |> Enum.group_by(& &1.source_item_ref, fn action ->
@@ -335,7 +335,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp card_records([]), do: []
 
   defp card_records(refs),
-    do: refs |> RecordQuery.by_refs() |> RecordQuery.limit_to(@record_limit) |> Repo.all()
+    do: refs |> Record.Query.by_refs() |> Record.Query.limit_to(@record_limit) |> Repo.all()
 
   defp put_card(record, cards, allowed) do
     key = {record.turn_id, record.ref}
@@ -364,10 +364,10 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   # Names, types and sizes only: a file's bytes are read when someone opens it.
   defp project_output_artifacts(turn_ids, conversation_id) do
     turn_ids
-    |> OutputArtifactQuery.by_turn_ids()
-    |> OutputArtifactQuery.ordered_by_name()
-    |> OutputArtifactQuery.limit_to(@page_maximum * 5)
-    |> OutputArtifactQuery.select_listing()
+    |> OutputArtifact.Query.by_turn_ids()
+    |> OutputArtifact.Query.ordered_by_name()
+    |> OutputArtifact.Query.limit_to(@page_maximum * 5)
+    |> OutputArtifact.Query.select_listing()
     |> Repo.all()
     |> Map.new(&{{&1.turn_id, &1.ref}, output_artifact(&1, conversation_id)})
   end
@@ -677,7 +677,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp build_publication_message(publication, receipt, card, message) do
-    occurred_at = PublicationPositionQuery.at(publication)
+    occurred_at = PublicationPosition.Query.at(publication)
     identity = "publication:" <> publication.id
 
     %{

@@ -17,7 +17,7 @@ defmodule Ryker.Embeddings.Worker do
   require Logger
   alias Ryker.Embeddings
   alias Ryker.Episodes
-  alias Ryker.Episodes.{RoutingDigestQuery, RoutingDigests}
+  alias Ryker.Episodes.{RoutingDigest, RoutingDigests}
   alias Ryker.PollingWorker
   alias Ryker.Repo
 
@@ -86,9 +86,9 @@ defmodule Ryker.Embeddings.Worker do
     options = Map.new(options)
 
     digests =
-      RoutingDigestQuery.without_embedding()
-      |> RoutingDigestQuery.recently_updated_first()
-      |> RoutingDigestQuery.limit_to(@batch)
+      RoutingDigest.Query.without_embedding()
+      |> RoutingDigest.Query.recently_updated_first()
+      |> RoutingDigest.Query.limit_to(@batch)
       |> Repo.all()
 
     case digests do
@@ -131,9 +131,9 @@ defmodule Ryker.Embeddings.Worker do
   defp write(digest, vector, model, now) do
     {count, _rows} =
       digest.episode_id
-      |> RoutingDigestQuery.by_episode_id()
-      |> RoutingDigestQuery.unchanged_since(digest)
-      |> RoutingDigestQuery.without_embedding()
+      |> RoutingDigest.Query.by_episode_id()
+      |> RoutingDigest.Query.unchanged_since(digest)
+      |> RoutingDigest.Query.without_embedding()
       |> Repo.update_all(set: [embedding: vector, embedding_model: model, embedded_at: now])
 
     count

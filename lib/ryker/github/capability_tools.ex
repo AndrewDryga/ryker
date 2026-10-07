@@ -7,7 +7,7 @@ defmodule Ryker.GitHub.CapabilityTools do
   """
 
   alias Ryker.Delivery.PlatformActionCustody
-  alias Ryker.Episodes.{Episode, EventQuery}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.GitHub.SourceRef
   alias Ryker.{Options, Repo, Rescued}
 
@@ -844,9 +844,9 @@ defmodule Ryker.GitHub.CapabilityTools do
       []
     else
       episode_id
-      |> EventQuery.by_episode_id()
-      |> EventQuery.admitted_inputs(refs)
-      |> EventQuery.newest_first()
+      |> Event.Query.by_episode_id()
+      |> Event.Query.admitted_inputs(refs)
+      |> Event.Query.newest_first()
       |> Repo.all()
     end
   end

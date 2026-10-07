@@ -12,7 +12,7 @@ defmodule Ryker.Admission.CorrelationScope do
 
   alias Ryker.Ingress.Input
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembershipQuery
+  alias Ryker.Slack.ChannelMembership
 
   @maximum_conversations 500
 
@@ -80,17 +80,17 @@ defmodule Ryker.Admission.CorrelationScope do
 
   defp membership(workspace_ref, channel_ref) do
     workspace_ref
-    |> ChannelMembershipQuery.by_channel(channel_ref)
-    |> ChannelMembershipQuery.select_audience()
+    |> ChannelMembership.Query.by_channel(channel_ref)
+    |> ChannelMembership.Query.select_audience()
     |> Repo.one()
   end
 
   defp public_conversation_refs(workspace_ref) do
     refs =
       "slack:#{workspace_ref}"
-      |> ChannelMembershipQuery.public_conversation_refs()
-      |> ChannelMembershipQuery.ordered_by_channel()
-      |> ChannelMembershipQuery.limit_to(@maximum_conversations + 1)
+      |> ChannelMembership.Query.public_conversation_refs()
+      |> ChannelMembership.Query.ordered_by_channel()
+      |> ChannelMembership.Query.limit_to(@maximum_conversations + 1)
       |> Repo.all()
 
     {Enum.take(refs, @maximum_conversations), length(refs) > @maximum_conversations}

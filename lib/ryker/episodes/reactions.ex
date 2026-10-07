@@ -16,11 +16,11 @@ defmodule Ryker.Episodes.Reactions do
 
   require Logger
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, EventQuery}
+  alias Ryker.Episodes.{Command, Event}
   alias Ryker.Feedback
   alias Ryker.Feedback.Answers
   alias Ryker.Repo
-  alias Ryker.Work.TurnQuery
+  alias Ryker.Work.Turn
 
   @fields [:action, :actor_ref, :emoji_name, :event_ref, :occurred_at, :source, :target]
   @source_fields [:kind, :ref]
@@ -179,7 +179,7 @@ defmodule Ryker.Episodes.Reactions do
     do: %{"current" => [], "events" => []}
 
   defp model_event_rows(episode_id, next_sequence, limit) do
-    episode_id |> EventQuery.reactions_before(next_sequence, limit) |> Repo.all()
+    episode_id |> Event.Query.reactions_before(next_sequence, limit) |> Repo.all()
   end
 
   defp model_event_document(event) do
@@ -240,7 +240,7 @@ defmodule Ryker.Episodes.Reactions do
   defp apply_model_event(_invalid, current), do: current
 
   defp resolve_target(target) do
-    candidates = target |> TurnQuery.delivered_as() |> Repo.all()
+    candidates = target |> Turn.Query.delivered_as() |> Repo.all()
 
     case candidates do
       [] ->
@@ -255,7 +255,7 @@ defmodule Ryker.Episodes.Reactions do
 
   defp reaction_events(episode_ids) do
     episode_ids
-    |> EventQuery.recent_reactions(@maximum_projected_events)
+    |> Event.Query.recent_reactions(@maximum_projected_events)
     |> Repo.all()
   end
 

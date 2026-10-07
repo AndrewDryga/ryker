@@ -9,7 +9,6 @@ defmodule Ryker.Behaviors.BehaviorsTest do
   alias Ryker.Admission.Decision
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
-  alias Ryker.Behaviors.BehaviorChangeset
   alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{BehaviorLibrary, Projection, Router}
@@ -126,7 +125,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert response.resp_body =~ "href=\"/instructions#saved\""
 
     confirmed.behavior
-    |> BehaviorChangeset.update(%{expires_at: DateTime.add(DateTime.utc_now(), -1)})
+    |> Behavior.Changeset.update(%{expires_at: DateTime.add(DateTime.utc_now(), -1)})
     |> Repo.update!()
 
     response =
@@ -157,7 +156,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
                "record:filter"
              )
 
-    confirmed.behavior |> BehaviorChangeset.update(%{payload: payload}) |> Repo.update!()
+    confirmed.behavior |> Behavior.Changeset.update(%{payload: payload}) |> Repo.update!()
 
     assert %{items: [item]} =
              BehaviorLibrary.list(:standing_assignment, %{})
@@ -173,7 +172,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     # making operators believe the feature had been removed.
     fixture = delivered_offers!("indefinite-ui")
     {:ok, confirmed} = Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance"))
-    confirmed.behavior |> BehaviorChangeset.update(%{expires_at: nil}) |> Repo.update!()
+    confirmed.behavior |> Behavior.Changeset.update(%{expires_at: nil}) |> Repo.update!()
 
     assert %{items: items} = BehaviorLibrary.list(:guidance, %{})
     assert [%{status: "active"}] = Enum.filter(items, &(&1.ref == confirmed.behavior.ref))
@@ -240,7 +239,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     {:ok, _paused} = Behaviors.set_status(preference.behavior.ref, :disabled)
 
     guidance.behavior
-    |> BehaviorChangeset.update(%{expires_at: DateTime.add(DateTime.utc_now(), -1)})
+    |> Behavior.Changeset.update(%{expires_at: DateTime.add(DateTime.utc_now(), -1)})
     |> Repo.update!()
 
     assert {:ok, 1} =
@@ -598,7 +597,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       |> Map.put("visibility", "conversation")
 
     confirmed.behavior
-    |> BehaviorChangeset.update(%{
+    |> Behavior.Changeset.update(%{
       payload: payload,
       scope_kind: :repository,
       scope_ref: "ryker"
@@ -714,7 +713,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       |> Map.put("source_kind", "slack")
       |> Map.put("filter", %{"bot_id" => message["bot_id"], "attachments" => [run]})
 
-    confirmed.behavior |> BehaviorChangeset.update(%{payload: payload}) |> Repo.update!()
+    confirmed.behavior |> Behavior.Changeset.update(%{payload: payload}) |> Repo.update!()
 
     normalize = fn event ->
       envelope = %{

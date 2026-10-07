@@ -9,7 +9,7 @@ defmodule Ryker.Checks.EnumOverValidateInclusion do
       casts to atoms, validates inclusion on cast for free, and keeps the DB
       value as the string form.
 
-      Matched in a changeset module (`*_changeset.ex`), piped (`|> validate_inclusion(:field,
+      Matched in a changeset module (`<schema>/changeset.ex`), piped (`|> validate_inclusion(:field,
       [..])` — the spelling a changeset pipeline actually uses) and direct
       (`validate_inclusion(changeset, :field, [..])`), imported or qualified,
       with or without trailing opts. A literal list, `~w` sigil, or
@@ -24,7 +24,7 @@ defmodule Ryker.Checks.EnumOverValidateInclusion do
   @doc false
   @impl true
   def run(%SourceFile{} = source_file, params) do
-    if String.ends_with?(source_file.filename, "_changeset.ex") do
+    if String.ends_with?(source_file.filename, "/changeset.ex") do
       ctx = Context.build(source_file, params, __MODULE__)
       result = Credo.Code.prewalk(source_file, &walk/2, ctx)
       result.issues

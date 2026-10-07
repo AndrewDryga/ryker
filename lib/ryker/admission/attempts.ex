@@ -2,9 +2,9 @@ defmodule Ryker.Admission.Attempts do
   @moduledoc "Fenced request artifacts and observed milestones for each admission execution generation."
   alias Ecto.Changeset
   alias Ryker.Admission
-  alias Ryker.Admission.{Attempt, AttemptQuery}
+  alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Work.Measurement
 
@@ -141,7 +141,7 @@ defmodule Ryker.Admission.Attempts do
 
   defp locked(entry, settings, action) do
     Repo.transaction(fn ->
-      current = entry.id |> EntryQuery.by_id() |> EntryQuery.lock_for_update() |> Repo.one()
+      current = entry.id |> Entry.Query.by_id() |> Entry.Query.lock_for_update() |> Repo.one()
 
       if is_nil(current) or current.status != :pending or current.lease_ref != settings.lease_ref or
            current.execution_generation != entry.execution_generation or
@@ -165,7 +165,7 @@ defmodule Ryker.Admission.Attempts do
     end)
   end
 
-  defp query(entry), do: AttemptQuery.for_generation(entry.id, entry.execution_generation)
+  defp query(entry), do: Attempt.Query.for_generation(entry.id, entry.execution_generation)
 
   defp persist(attempt, attributes, phase, at) do
     # A reconciliation poll must not move the visible phase backwards or reset

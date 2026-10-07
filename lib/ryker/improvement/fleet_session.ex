@@ -8,7 +8,7 @@ defmodule Ryker.Improvement.FleetSession do
 
   alias Ryker.Improvement.AnalysisRun
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session, SessionQuery}
+  alias Ryker.Work.{Custody, Session}
 
   @doc "The task reference Coop knows the run's session by."
   @spec external_ref(AnalysisRun.t()) :: String.t()
@@ -84,12 +84,12 @@ defmodule Ryker.Improvement.FleetSession do
   @spec for_run(AnalysisRun.t() | Ecto.UUID.t()) :: Session.t() | nil
   def for_run(%AnalysisRun{id: id}), do: for_run(id)
 
-  def for_run(id) when is_binary(id), do: Repo.one(SessionQuery.for_improvement_run(id))
+  def for_run(id) when is_binary(id), do: Repo.one(Session.Query.for_improvement_run(id))
 
   defp locked(run) do
     run.id
-    |> SessionQuery.for_improvement_run()
-    |> SessionQuery.lock_for_update()
+    |> Session.Query.for_improvement_run()
+    |> Session.Query.lock_for_update()
     |> Repo.one!()
   end
 end

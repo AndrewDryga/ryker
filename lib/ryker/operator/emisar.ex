@@ -14,10 +14,10 @@ defmodule Ryker.Operator.Emisar do
   """
 
   alias Ryker.Credentials
-  alias Ryker.Emisar.{Approval, ApprovalChangeset, ApprovalQuery, Approvals}
-  alias Ryker.Records.RecordQuery
+  alias Ryker.Emisar.{Approval, Approvals}
+  alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Settings.EmisarConnectionQuery
+  alias Ryker.Settings.EmisarConnection
 
   # The Failures page reads as deep as the page it shows (a hundred a page).
   @maximum_list 10_001
@@ -37,23 +37,23 @@ defmodule Ryker.Operator.Emisar do
       unwatched = unwatched_accounts()
 
       blocked =
-        ApprovalQuery.all()
-        |> ApprovalQuery.with_origin()
-        |> ApprovalQuery.blocked_on_open_cards()
-        |> ApprovalQuery.recently_updated_first()
-        |> ApprovalQuery.limit_to(limit)
-        |> ApprovalQuery.select_with_origin()
+        Approval.Query.all()
+        |> Approval.Query.with_origin()
+        |> Approval.Query.blocked_on_open_cards()
+        |> Approval.Query.recently_updated_first()
+        |> Approval.Query.limit_to(limit)
+        |> Approval.Query.select_with_origin()
         |> Repo.all()
 
       stalled_refs = for {ref, stall} <- unwatched, not is_nil(stall), do: ref
 
       stalled =
-        ApprovalQuery.all()
-        |> ApprovalQuery.with_origin()
-        |> ApprovalQuery.stalled(stalled_refs, Approvals.token_unavailable_errors())
-        |> ApprovalQuery.recently_updated_first()
-        |> ApprovalQuery.limit_to(limit)
-        |> ApprovalQuery.select_with_origin()
+        Approval.Query.all()
+        |> Approval.Query.with_origin()
+        |> Approval.Query.stalled(stalled_refs, Approvals.token_unavailable_errors())
+        |> Approval.Query.recently_updated_first()
+        |> Approval.Query.limit_to(limit)
+        |> Approval.Query.select_with_origin()
         |> Repo.all()
 
       items =
@@ -81,9 +81,9 @@ defmodule Ryker.Operator.Emisar do
 
   defp watch(connection_ref, request_id) do
     connection_ref
-    |> ApprovalQuery.by_request(request_id)
-    |> ApprovalQuery.with_origin()
-    |> ApprovalQuery.select_with_origin()
+    |> Approval.Query.by_request(request_id)
+    |> Approval.Query.with_origin()
+    |> Approval.Query.select_with_origin()
     |> Repo.one()
   end
 
@@ -98,8 +98,8 @@ defmodule Ryker.Operator.Emisar do
   defp rearm_locked(connection_ref, request_id) do
     approval =
       connection_ref
-      |> ApprovalQuery.by_request(request_id)
-      |> ApprovalQuery.lock_for_update()
+      |> Approval.Query.by_request(request_id)
+      |> Approval.Query.lock_for_update()
       |> Repo.one()
 
     case approval do
@@ -109,7 +109,7 @@ defmodule Ryker.Operator.Emisar do
       %Approval{status: :blocked} = approval ->
         with :ok <- exact_open_wait(approval),
              changeset =
-               ApprovalChangeset.update(approval, %{
+               Approval.Changeset.update(approval, %{
                  failure_count: 0,
                  last_error: nil,
                  lease_expires_at: nil,
@@ -142,7 +142,7 @@ defmodule Ryker.Operator.Emisar do
   end
 
   defp exact_open_wait(approval) do
-    valid = Repo.exists?(RecordQuery.awaited_approval(approval.record_id, approval.episode_id))
+    valid = Repo.exists?(Record.Query.awaited_approval(approval.record_id, approval.episode_id))
 
     if valid, do: :ok, else: {:error, :emisar_approval_wait_stale}
   end
@@ -156,8 +156,8 @@ defmodule Ryker.Operator.Emisar do
           into: MapSet.new(),
           do: name
 
-    EmisarConnectionQuery.all()
-    |> EmisarConnectionQuery.select_monitoring()
+    EmisarConnection.Query.all()
+    |> EmisarConnection.Query.select_monitoring()
     |> Repo.all()
     |> Map.new(fn {ref, monitoring} ->
       cond do

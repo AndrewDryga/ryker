@@ -7,13 +7,14 @@ defmodule Ryker.Checks.IL01NoInlineEctoDsl do
       Iron Law IL-1: no Ecto query DSL outside Query modules.
 
       Every query starts in the Query module of the schema it reads
-      (`Ryker.Work.TurnQuery.all/0` beside `Ryker.Work.Turn`): one place says
+      (`Ryker.Work.Turn.Query.all/0` beside `Ryker.Work.Turn`): one place says
       what a table's rows mean, such as which turns are still running, and
       every caller composes it instead of writing its own version. So
       `import Ecto.Query` and a qualified `Ecto.Query.from(...)` belong only in
-      a `*_query.ex` module, and a read never starts at the schema itself:
+      a Query module (`<schema>/query.ex`), and a read never starts at the
+      schema itself:
       `Repo.all(Sprocket)` or `Sprocket |> Repo.aggregate(:count)` reads every
-      row the way no Query module says, so it reads `SprocketQuery.all()`.
+      row the way no Query module says, so it reads `Sprocket.Query.all()`.
       """
     ]
 
@@ -24,7 +25,7 @@ defmodule Ryker.Checks.IL01NoInlineEctoDsl do
   def run(%SourceFile{} = source_file, params) do
     filename = "/" <> source_file.filename
 
-    if String.contains?(filename, "/lib/") and not String.ends_with?(filename, "_query.ex") do
+    if String.contains?(filename, "/lib/") and not String.ends_with?(filename, "/query.ex") do
       ctx = Context.build(source_file, params, __MODULE__)
       result = Credo.Code.prewalk(source_file, &walk/2, ctx)
       result.issues
@@ -72,7 +73,7 @@ defmodule Ryker.Checks.IL01NoInlineEctoDsl do
       ctx,
       message:
         "IL-1: #{trigger} outside a Query module. Build the query in the " <>
-          "schema's *_query.ex module and start from its all/0.",
+          "schema's Query module (<schema>/query.ex) and start from its all/0.",
       trigger: trigger,
       line_no: meta[:line],
       column: meta[:column]

@@ -11,9 +11,8 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   """
 
   alias Ryker.Config
-  alias Ryker.ControlPlane.{Activity, PagedRelation, RepositoryNames, WorkingCopyQuery}
+  alias Ryker.ControlPlane.{Activity, PagedRelation, RepositoryNames, WorkingCopy}
   alias Ryker.CoopFleet.Worker, as: FleetWorker
-  alias Ryker.CoopFleet.WorkerQuery
   alias Ryker.Learning.Batch, as: LearningBatch
   alias Ryker.Learning.LearningRun
   alias Ryker.Repo
@@ -36,18 +35,18 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   def copies(params) do
     names = RepositoryNames.all()
 
-    copies = WorkingCopyQuery.working_copies(WorkingCopyQuery.sessions())
+    copies = WorkingCopy.Query.working_copies(WorkingCopy.Query.sessions())
 
     current =
       copies
-      |> WorkingCopyQuery.kept()
-      |> WorkingCopyQuery.recently_updated_first()
+      |> WorkingCopy.Query.kept()
+      |> WorkingCopy.Query.recently_updated_first()
       |> Repo.all()
       |> items(names)
 
     removed =
       copies
-      |> WorkingCopyQuery.removed()
+      |> WorkingCopy.Query.removed()
       |> PagedRelation.read([desc: :updated_at, desc: :id], "page", params)
 
     %{current: current, removed: %{removed | items: items(removed.items, names)}}
@@ -60,10 +59,10 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   """
   @spec learning_sessions() :: [map()]
   def learning_sessions do
-    WorkingCopyQuery.sessions()
-    |> WorkingCopyQuery.learning()
-    |> WorkingCopyQuery.kept()
-    |> WorkingCopyQuery.recently_updated_first()
+    WorkingCopy.Query.sessions()
+    |> WorkingCopy.Query.learning()
+    |> WorkingCopy.Query.kept()
+    |> WorkingCopy.Query.recently_updated_first()
     |> Repo.all()
     |> items(RepositoryNames.all())
   end
@@ -73,7 +72,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
 
   @doc "One worker session by its external reference."
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    row = WorkingCopyQuery.sessions() |> WorkingCopyQuery.listed(ref) |> Repo.one()
+    row = WorkingCopy.Query.sessions() |> WorkingCopy.Query.listed(ref) |> Repo.one()
     if row, do: {:ok, hd(items([row], RepositoryNames.all()))}, else: :not_found
   end
 
@@ -104,8 +103,8 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
       preview: Enum.map(next, &preview_item(&1, now, names)),
       preview_total: due,
       workers:
-        WorkerQuery.all()
-        |> WorkerQuery.ordered_by_id()
+        FleetWorker.Query.all()
+        |> FleetWorker.Query.ordered_by_id()
         |> Repo.all()
         |> Enum.map(&storage_item(&1, now))
     }

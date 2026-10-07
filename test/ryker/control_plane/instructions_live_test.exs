@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Instructions
-  alias Ryker.Slack.{ChannelConfigurationChangeset, ChannelMembership}
+  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership}
   alias Ryker.Slack.Names
 
   @endpoint Endpoint
@@ -422,7 +422,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     }
 
     configuration
-    |> ChannelConfigurationChangeset.configuration()
+    |> ChannelConfiguration.Changeset.configuration()
     |> Repo.insert!()
 
     id = Ecto.UUID.generate()

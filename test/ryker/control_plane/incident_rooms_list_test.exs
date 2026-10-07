@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsListTest do
   alias Ryker.ControlPlane.{IncidentProjection, Pages, Projection}
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Records
-  alias Ryker.Slack.IncidentRoomChangeset
+  alias Ryker.Slack.IncidentRoom
 
   @now ~U[2026-10-05 12:00:00.000000Z]
 
@@ -98,7 +98,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsListTest do
       workspace_ref: "T123"
     }
     |> Map.merge(fields)
-    |> IncidentRoomChangeset.insert()
+    |> IncidentRoom.Changeset.insert()
     |> Repo.insert!()
   end
 

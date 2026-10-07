@@ -8,11 +8,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.Behaviors
-  alias Ryker.ControlPlane.{Activity, EpisodeTraceQuery, Paths, RepositoryNames}
-  alias Ryker.CoopFleet.{Placement, PlacementQuery}
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
+  alias Ryker.ControlPlane.{Activity, EpisodeTrace, Paths, RepositoryNames}
+  alias Ryker.CoopFleet.Placement
+  alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Ingress.{InputCustodyTransition, InputCustodyTransitionQuery}
+  alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Work.{FailureCause, Session, Turn}
@@ -72,8 +72,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     ids = Enum.map(input_rows, & &1.id)
 
     ids
-    |> InputCustodyTransitionQuery.by_input_ids()
-    |> InputCustodyTransitionQuery.per_input_in_sequence()
+    |> InputCustodyTransition.Query.by_input_ids()
+    |> InputCustodyTransition.Query.per_input_in_sequence()
     |> Repo.all()
     |> Enum.group_by(& &1.input_id)
   end
@@ -688,8 +688,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     ids = Enum.map(sessions, & &1.id)
 
     ids
-    |> PlacementQuery.by_session_ids()
-    |> PlacementQuery.latest_per_session_first()
+    |> Placement.Query.by_session_ids()
+    |> Placement.Query.latest_per_session_first()
     |> Repo.all()
     |> Enum.uniq_by(& &1.session_id)
     |> Map.new(&{&1.session_id, &1})
@@ -913,7 +913,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp linked_request(%Episode{linked_episode_id: nil}), do: nil
 
   defp linked_request(%Episode{linked_episode_id: id}) do
-    key = id |> EpisodeQuery.by_id() |> EpisodeQuery.select_keys() |> Repo.one()
+    key = id |> Episode.Query.by_id() |> Episode.Query.select_keys() |> Repo.one()
 
     case key do
       nil -> nil
@@ -976,7 +976,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   # The room's own investigation, or a request that began in the room's channel.
   defp incident_room?(%Episode{id: id, destination_conversation_ref: ref}),
-    do: Repo.exists?(EpisodeTraceQuery.incident_rooms(id, slack_channel(ref)))
+    do: Repo.exists?(EpisodeTrace.Query.incident_rooms(id, slack_channel(ref)))
 
   defp slack_channel("slack:" <> scope) do
     case String.split(scope, ":", parts: 2) do

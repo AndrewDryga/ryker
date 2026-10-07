@@ -2,7 +2,7 @@ defmodule Ryker.Slack.ThreadStatusReceipts do
   @moduledoc "Append-only observations of actual Slack status API results, separate from desired state."
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.Slack.{ThreadStatuses, ThreadStatusReceipt, ThreadStatusReceiptQuery}
+  alias Ryker.Slack.{ThreadStatuses, ThreadStatusReceipt}
 
   def record(status, result) do
     %ThreadStatusReceipt{
@@ -27,17 +27,17 @@ defmodule Ryker.Slack.ThreadStatusReceipts do
   @doc false
   def for_thread(workspace, channel, thread) do
     workspace
-    |> ThreadStatusReceiptQuery.in_thread(channel, thread)
-    |> ThreadStatusReceiptQuery.oldest_first()
-    |> ThreadStatusReceiptQuery.limit_to(1_000)
+    |> ThreadStatusReceipt.Query.in_thread(channel, thread)
+    |> ThreadStatusReceipt.Query.oldest_first()
+    |> ThreadStatusReceipt.Query.limit_to(1_000)
     |> Repo.all()
   end
 
   def for_episode(episode_id) do
     episode_id
-    |> ThreadStatusReceiptQuery.of_episode()
-    |> ThreadStatusReceiptQuery.newest_first()
-    |> ThreadStatusReceiptQuery.limit_to(500)
+    |> ThreadStatusReceipt.Query.of_episode()
+    |> ThreadStatusReceipt.Query.newest_first()
+    |> ThreadStatusReceipt.Query.limit_to(500)
     |> Repo.all()
     |> Enum.reverse()
     |> Enum.chunk_by(&{&1.text, &1.error, &1.origin_kind, &1.origin_id})

@@ -8,12 +8,12 @@ defmodule Ryker.Slack.IncidentRoomCard do
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
+  alias Ryker.Episodes.Episode
   alias Ryker.Records
-  alias Ryker.Records.{Record, RecordQuery}
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.IncidentRoom
-  alias Ryker.Work.{FailureCause, Session, SessionQuery, Turn, TurnQuery}
+  alias Ryker.Work.{FailureCause, Session, Turn}
 
   # 3 since 2026-10-06: the card reads in words, without Ryker's ids and codes.
   @ui_revision 3
@@ -53,14 +53,14 @@ defmodule Ryker.Slack.IncidentRoomCard do
   end
 
   defp projection(%IncidentRoom{} = room) do
-    case Repo.one(EpisodeQuery.by_id(room.episode_id)) do
+    case Repo.one(Episode.Query.by_id(room.episode_id)) do
       nil ->
         {:error, :incident_room_episode_not_found}
 
       %Episode{} = episode ->
         records = latest_records(episode.id)
-        turn = Repo.one(TurnQuery.current(episode))
-        session = Repo.one(SessionQuery.latest_of_episode(episode.id))
+        turn = Repo.one(Turn.Query.current(episode))
+        session = Repo.one(Session.Query.latest_of_episode(episode.id))
 
         {:ok,
          base(room)
@@ -111,10 +111,10 @@ defmodule Ryker.Slack.IncidentRoomCard do
 
   defp latest_records(episode_id) do
     episode_id
-    |> RecordQuery.by_episode_id()
-    |> RecordQuery.of_kinds(@record_kinds)
-    |> RecordQuery.in_use()
-    |> RecordQuery.in_sequence()
+    |> Record.Query.by_episode_id()
+    |> Record.Query.of_kinds(@record_kinds)
+    |> Record.Query.in_use()
+    |> Record.Query.in_sequence()
     |> Repo.all()
     |> Enum.reduce(%{}, &Map.put(&2, &1.kind, &1))
   end

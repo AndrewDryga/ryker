@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Ingress.WorkProfile
   alias Ryker.{Memories, Records, Settings}
-  alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRoomChangeset, IncidentRooms}
+  alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRooms}
   alias Ryker.Work.Custody
 
   @endpoint Endpoint
@@ -461,7 +461,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
         topic: "Checkout errors · investigating",
         workspace_ref: "T123"
       }
-      |> IncidentRoomChangeset.insert()
+      |> IncidentRoom.Changeset.insert()
       |> Repo.insert!()
 
     Repo.get!(IncidentRoom, room.id)

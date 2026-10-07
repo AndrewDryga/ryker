@@ -11,17 +11,17 @@ defmodule Ryker.Slack.ReplyRecords do
   omitted rather than linked.
   """
 
-  alias Ryker.Behaviors.BehaviorQuery
-  alias Ryker.Delivery.{PlatformAction, PlatformActionQuery}
-  alias Ryker.Memories.{MemoryEntry, MemoryEntryQuery}
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.Delivery.PlatformAction
+  alias Ryker.Memories.MemoryEntry
   alias Ryker.Records
   alias Ryker.Records.SlackPostOffers
   alias Ryker.Repo
-  alias Ryker.Schedules.ScheduleQuery
+  alias Ryker.Schedules.Schedule
   alias Ryker.Settings
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomQuery, Permalink, SavedEntity}
+  alias Ryker.Slack.{IncidentRoom, Permalink, SavedEntity}
   alias Ryker.Waits.EventWaitTiming
-  alias Ryker.Work.ActivityEventQuery
+  alias Ryker.Work.ActivityEvent
 
   @saved_offer_kinds ~w(guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)
 
@@ -35,9 +35,9 @@ defmodule Ryker.Slack.ReplyRecords do
   def fetch(episode_id, refs) when is_binary(episode_id) and is_list(refs) do
     actions =
       episode_id
-      |> PlatformActionQuery.by_episode_id()
-      |> PlatformActionQuery.by_action_refs(Enum.filter(refs, &is_binary/1))
-      |> PlatformActionQuery.select_action_refs()
+      |> PlatformAction.Query.by_episode_id()
+      |> PlatformAction.Query.by_action_refs(Enum.filter(refs, &is_binary/1))
+      |> PlatformAction.Query.select_action_refs()
       |> Repo.all()
 
     Records.fetch_for_episode(episode_id, Enum.reject(refs, &(&1 in actions)))
@@ -86,7 +86,7 @@ defmodule Ryker.Slack.ReplyRecords do
   defp present_sent_post(document, _record), do: document
 
   defp sent_action(record) do
-    Repo.one(PlatformActionQuery.by_turn_slot(record.turn_id, SlackPostOffers.host_slot(record)))
+    Repo.one(PlatformAction.Query.by_turn_slot(record.turn_id, SlackPostOffers.host_slot(record)))
   end
 
   # A confirmed offer is shown as the entity it saved, with the entity's current
@@ -121,7 +121,7 @@ defmodule Ryker.Slack.ReplyRecords do
          document,
          %{status: :confirmed, kind: "task_offer", payload: %{"kind" => "incident"}} = record
        ) do
-    case Repo.one(IncidentRoomQuery.by_record_id(record.id)) do
+    case Repo.one(IncidentRoom.Query.by_record_id(record.id)) do
       nil -> document
       room -> Map.put(document, "presentation", %{"incident_room" => %{"url" => room_url(room)}})
     end
@@ -158,9 +158,9 @@ defmodule Ryker.Slack.ReplyRecords do
 
   defp remembered_answer(ref) do
     ref
-    |> MemoryEntryQuery.answering()
-    |> MemoryEntryQuery.active()
-    |> MemoryEntryQuery.limit_to(1)
+    |> MemoryEntry.Query.answering()
+    |> MemoryEntry.Query.active()
+    |> MemoryEntry.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -178,16 +178,16 @@ defmodule Ryker.Slack.ReplyRecords do
   defp room_url(_room), do: nil
 
   defp saved_entity("schedule_offer", record),
-    do: Repo.one(ScheduleQuery.by_offer_record_id(record.id))
+    do: Repo.one(Schedule.Query.by_offer_record_id(record.id))
 
   defp saved_entity("memory_offer", record),
-    do: Repo.one(MemoryEntryQuery.by_offer_record_id(record.id))
+    do: Repo.one(MemoryEntry.Query.by_offer_record_id(record.id))
 
   defp saved_entity(_behavior_offer, record),
-    do: Repo.one(BehaviorQuery.by_offer_record_id(record.id))
+    do: Repo.one(Behavior.Query.by_offer_record_id(record.id))
 
-  defp updated_automation("schedule:" <> _rest = ref), do: Repo.one(ScheduleQuery.by_ref(ref))
-  defp updated_automation("behavior:" <> _rest = ref), do: Repo.one(BehaviorQuery.by_ref(ref))
+  defp updated_automation("schedule:" <> _rest = ref), do: Repo.one(Schedule.Query.by_ref(ref))
+  defp updated_automation("behavior:" <> _rest = ref), do: Repo.one(Behavior.Query.by_ref(ref))
   defp updated_automation(_ref), do: nil
 
   @doc false
@@ -278,7 +278,7 @@ defmodule Ryker.Slack.ReplyRecords do
     # Select only receipt identities, not stdout. Retired or foreign-episode evidence cannot
     # reappear as a clickable source during delivery or an interaction repaint.
     episode_id
-    |> ActivityEventQuery.emisar_run_receipts(references)
+    |> ActivityEvent.Query.emisar_run_receipts(references)
     |> Repo.all()
     |> Enum.flat_map(fn runs -> if is_list(runs), do: runs, else: [] end)
   end
@@ -292,7 +292,7 @@ defmodule Ryker.Slack.ReplyRecords do
     # hands back the saved records themselves, so reading them would certify every
     # source_id the model had just written.
     episode_id
-    |> ActivityEventQuery.returned_urls(urls)
+    |> ActivityEvent.Query.returned_urls(urls)
     |> Repo.all()
     |> Enum.flat_map(fn returned ->
       if is_list(returned), do: Enum.map(returned, &%{"url" => &1}), else: []

@@ -11,7 +11,7 @@ defmodule Ryker.Admission.ReplySameWorkEquivalenceTest do
   alias Ryker.Admission.{Candidate, Context, Decision}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
-  alias Ryker.Ingress.Inbox.EntryChangeset
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
@@ -64,7 +64,7 @@ defmodule Ryker.Admission.ReplySameWorkEquivalenceTest do
 
     entry =
       current_input
-      |> EntryChangeset.insert(Ecto.UUID.generate(), :live, nil, %{
+      |> Entry.Changeset.insert(Ecto.UUID.generate(), :live, nil, %{
         audience: nil,
         bot_user_ref: nil
       })

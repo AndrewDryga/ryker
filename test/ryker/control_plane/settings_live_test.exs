@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   alias Ryker.QueryWork
   alias Ryker.Settings
   alias Ryker.Settings.{Installation, PricingRate}
-  alias Ryker.Slack.{ChannelConfigurationChangeset, ChannelConfigurations}
+  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurations}
 
   @endpoint Endpoint
   @actor "control-plane:local"
@@ -2479,7 +2479,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
       status: status,
       workspace_ref: "T0123456789"
     }
-    |> ChannelConfigurationChangeset.membership()
+    |> ChannelConfiguration.Changeset.membership()
     |> Repo.insert!()
 
     %{
@@ -2491,7 +2491,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
       saved_at: now,
       workspace_ref: "T0123456789"
     }
-    |> ChannelConfigurationChangeset.configuration()
+    |> ChannelConfiguration.Changeset.configuration()
     |> Repo.insert!()
   end
 

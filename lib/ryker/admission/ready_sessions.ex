@@ -28,9 +28,9 @@ defmodule Ryker.Admission.ReadySessions do
   """
 
   alias Ryker.CoopFleet.JobTemplates
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session, SessionChangeset, SessionQuery}
+  alias Ryker.Work.{Custody, Session}
 
   @external_ref_prefix "ryker-admission-ready:"
 
@@ -88,7 +88,7 @@ defmodule Ryker.Admission.ReadySessions do
   # The message is locked first, as cleanup locks an owner before its
   # session, so a claim never races the generation it is claiming for.
   defp claim_locked(entry, policy, digest) do
-    current = entry.id |> EntryQuery.by_id() |> EntryQuery.lock_for_update() |> Repo.one()
+    current = entry.id |> Entry.Query.by_id() |> Entry.Query.lock_for_update() |> Repo.one()
 
     if is_nil(current) or current.status != :pending or
          current.execution_generation != entry.execution_generation,
@@ -96,8 +96,8 @@ defmodule Ryker.Admission.ReadySessions do
 
     generation =
       entry.id
-      |> SessionQuery.for_admission(entry.execution_generation)
-      |> SessionQuery.lock_for_update()
+      |> Session.Query.for_admission(entry.execution_generation)
+      |> Session.Query.lock_for_update()
 
     case Repo.one(generation) do
       %Session{ready_state: :claimed, policy: ^policy, policy_digest: ^digest} = session ->
@@ -121,7 +121,7 @@ defmodule Ryker.Admission.ReadySessions do
 
       %Session{} = session ->
         session
-        |> SessionChangeset.claim_ready(entry.id, entry.execution_generation, Repo.now!())
+        |> Session.Changeset.claim_ready(entry.id, entry.execution_generation, Repo.now!())
         |> Repo.update()
         |> case do
           {:ok, claimed} ->
@@ -142,7 +142,7 @@ defmodule Ryker.Admission.ReadySessions do
     now = Repo.now!()
     cutoff = DateTime.add(now, -maximum_age_seconds(), :second)
     running_past = DateTime.add(now, @claim_margin_seconds, :second)
-    SessionQuery.next_ready(policy, digest, cutoff, running_past)
+    Session.Query.next_ready(policy, digest, cutoff, running_past)
   end
 
   @doc """
@@ -176,7 +176,7 @@ defmodule Ryker.Admission.ReadySessions do
          ready_state: :starting,
          updated_at: now
        }
-       |> SessionChangeset.reserve()
+       |> Session.Changeset.reserve()
        |> Repo.insert!()
        |> tap(&Custody.broadcast_session_updated/1)}
     end
@@ -186,9 +186,9 @@ defmodule Ryker.Admission.ReadySessions do
     cutoff = DateTime.add(Repo.now!(), -maximum_age_seconds(), :second)
 
     [:starting, :ready]
-    |> SessionQuery.with_ready_state()
-    |> SessionQuery.with_policy(policy, digest)
-    |> SessionQuery.inserted_after(cutoff)
+    |> Session.Query.with_ready_state()
+    |> Session.Query.with_policy(policy, digest)
+    |> Session.Query.inserted_after(cutoff)
     |> Repo.aggregate(:count)
   end
 
@@ -198,7 +198,7 @@ defmodule Ryker.Admission.ReadySessions do
     transition(id, fn
       %Session{ready_state: :starting, coop_session_id: bound} = session
       when bound in [nil, coop_session_id] ->
-        SessionChangeset.mark_ready(session, coop_session_id, Repo.now!())
+        Session.Changeset.mark_ready(session, coop_session_id, Repo.now!())
 
       _other ->
         Repo.rollback(:ready_routing_session_conflict)
@@ -214,11 +214,11 @@ defmodule Ryker.Admission.ReadySessions do
     cutoff = DateTime.add(Repo.now!(), -maximum_age_seconds(), :second)
 
     :ready
-    |> SessionQuery.with_ready_state()
-    |> SessionQuery.unprepared()
-    |> SessionQuery.with_policy(policy, digest)
-    |> SessionQuery.inserted_after(cutoff)
-    |> SessionQuery.oldest_first()
+    |> Session.Query.with_ready_state()
+    |> Session.Query.unprepared()
+    |> Session.Query.with_policy(policy, digest)
+    |> Session.Query.inserted_after(cutoff)
+    |> Session.Query.oldest_first()
     |> Repo.all()
   end
 
@@ -244,7 +244,7 @@ defmodule Ryker.Admission.ReadySessions do
   defp record_warm(%Session{id: id, coop_session_id: coop_session_id}, warm_until) do
     transition(id, fn
       %Session{ready_state: :ready, coop_session_id: ^coop_session_id, warm_until: nil} = session ->
-        SessionChangeset.warm(session, warm_until, Repo.now!())
+        Session.Changeset.warm(session, warm_until, Repo.now!())
 
       _other ->
         Repo.rollback(:ready_routing_session_conflict)
@@ -261,7 +261,7 @@ defmodule Ryker.Admission.ReadySessions do
       %Session{ready_state: state, coop_session_id: bound} = session
       when state in [:starting, :ready] and
              (is_nil(coop_session_id) or bound in [nil, coop_session_id]) ->
-        SessionChangeset.retire_ready(session, bound || coop_session_id, Repo.now!())
+        Session.Changeset.retire_ready(session, bound || coop_session_id, Repo.now!())
 
       %Session{ready_state: :retired} ->
         :unchanged
@@ -275,7 +275,7 @@ defmodule Ryker.Admission.ReadySessions do
   # already where the transition would leave it, which is saved as it is.
   defp transition(id, change) do
     Repo.transaction(fn ->
-      session = id |> SessionQuery.by_id() |> SessionQuery.lock_for_update() |> Repo.one()
+      session = id |> Session.Query.by_id() |> Session.Query.lock_for_update() |> Repo.one()
 
       case change.(session) do
         :unchanged -> session
@@ -306,8 +306,8 @@ defmodule Ryker.Admission.ReadySessions do
 
     {usable, unusable} =
       :ready
-      |> SessionQuery.with_ready_state()
-      |> SessionQuery.newest_first()
+      |> Session.Query.with_ready_state()
+      |> Session.Query.newest_first()
       |> Repo.all()
       |> Enum.split_with(fn session ->
         session.policy == policy and session.policy_digest == digest and
@@ -329,9 +329,9 @@ defmodule Ryker.Admission.ReadySessions do
     cutoff = DateTime.add(Repo.now!(), -seconds, :second)
 
     :starting
-    |> SessionQuery.with_ready_state()
-    |> SessionQuery.inserted_by(cutoff)
-    |> SessionQuery.oldest_first()
+    |> Session.Query.with_ready_state()
+    |> Session.Query.inserted_by(cutoff)
+    |> Session.Query.oldest_first()
     |> Repo.all()
   end
 
@@ -341,9 +341,9 @@ defmodule Ryker.Admission.ReadySessions do
   """
   @spec failed_starts() :: [Session.t()]
   def failed_starts do
-    SessionQuery.in_ready_pool()
-    |> SessionQuery.newest_first()
-    |> SessionQuery.limit_to(16)
+    Session.Query.in_ready_pool()
+    |> Session.Query.newest_first()
+    |> Session.Query.limit_to(16)
     |> Repo.all()
     |> Enum.take_while(&(&1.ready_state == :retired and is_nil(&1.coop_session_id)))
   end

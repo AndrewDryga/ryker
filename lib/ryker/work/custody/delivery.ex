@@ -12,14 +12,14 @@ defmodule Ryker.Work.Custody.Delivery do
 
   import Ryker.Work.Custody.Locks
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode, OriginQuery}
+  alias Ryker.Episodes.{Command, Episode, Origin}
   alias Ryker.Repo
   alias Ryker.Slack.Mentions
   alias Ryker.Waits.EventSubscriptions
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.{Cancellation, Sessions}
-  alias Ryker.Work.{DeliveryReceipt, Turn, TurnChangeset, TurnQuery}
+  alias Ryker.Work.{DeliveryReceipt, Turn}
 
   @doc false
   @spec confirm_delivery(
@@ -145,7 +145,7 @@ defmodule Ryker.Work.Custody.Delivery do
   defp move_reply(episode, turn, target) do
     result =
       turn
-      |> TurnChangeset.redirect_delivery(target)
+      |> Turn.Changeset.redirect_delivery(target)
       |> Repo.update()
       |> persistence_result(:work_delivery_redirect)
 
@@ -241,7 +241,7 @@ defmodule Ryker.Work.Custody.Delivery do
            ),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          changeset =
-           TurnChangeset.confirm_delivery(
+           Turn.Changeset.confirm_delivery(
              turn,
              external_receipt,
              receipt_fingerprint,
@@ -293,11 +293,11 @@ defmodule Ryker.Work.Custody.Delivery do
          {:ok, turn} <- Sessions.insert_turn(episode, session),
          {:ok, turn} <-
            persist_update(
-             TurnChangeset.prepare_cancellation(turn, intent, fingerprint, nil),
+             Turn.Changeset.prepare_cancellation(turn, intent, fingerprint, nil),
              :work_destination_pause
            ),
          blocked =
-           TurnChangeset.block(turn, %{
+           Turn.Changeset.block(turn, %{
              last_error_code: "destination_paused",
              last_error_detail: intent["reason"],
              lease_expires_at: nil,
@@ -354,7 +354,7 @@ defmodule Ryker.Work.Custody.Delivery do
   defp block_destination_delivery(episode, turn, intent) do
     result =
       turn
-      |> TurnChangeset.block(%{
+      |> Turn.Changeset.block(%{
         last_error_code: "destination_paused",
         last_error_detail: intent["reason"],
         lease_expires_at: nil,
@@ -396,7 +396,7 @@ defmodule Ryker.Work.Custody.Delivery do
          last_error_detail: ^reason,
          status: :blocked
        } = turn} ->
-        changeset = TurnChangeset.retry_delivery(turn)
+        changeset = Turn.Changeset.retry_delivery(turn)
 
         case Repo.update(changeset) do
           {:ok, turn} ->
@@ -465,7 +465,7 @@ defmodule Ryker.Work.Custody.Delivery do
              settled_work_turn_id: turn.id
            ),
          changeset =
-           TurnChangeset.replace_cancellation_disposition(
+           Turn.Changeset.replace_cancellation_disposition(
              turn,
              turn.cancellation_intent,
              turn.cancellation_intent_fingerprint,
@@ -483,9 +483,9 @@ defmodule Ryker.Work.Custody.Delivery do
   defp lock_delivery_turn(episode_id, delivery_ref) do
     locked =
       episode_id
-      |> TurnQuery.by_episode_id()
-      |> TurnQuery.by_delivery_ref(delivery_ref)
-      |> TurnQuery.lock_for_update()
+      |> Turn.Query.by_episode_id()
+      |> Turn.Query.by_delivery_ref(delivery_ref)
+      |> Turn.Query.lock_for_update()
 
     case Repo.one(locked) do
       nil -> {:error, :work_delivery_turn_not_found}
@@ -498,7 +498,7 @@ defmodule Ryker.Work.Custody.Delivery do
 
     if turn.status == :delivery_pending do
       turn
-      |> TurnChangeset.block(%{
+      |> Turn.Changeset.block(%{
         last_error_code: error_code,
         last_error_detail: error_detail,
         lease_expires_at: nil,
@@ -541,7 +541,7 @@ defmodule Ryker.Work.Custody.Delivery do
          delivery_ref
        ) do
     turn
-    |> TurnChangeset.retry_delivery()
+    |> Turn.Changeset.retry_delivery()
     |> Repo.update()
     |> unwrap_or_rollback(:work_delivery_retry)
   end
@@ -688,10 +688,10 @@ defmodule Ryker.Work.Custody.Delivery do
   # event sequence.
   defp newest_origin(%Episode{} = episode, refs) do
     episode.id
-    |> OriginQuery.by_episode_id()
-    |> OriginQuery.by_input_refs(refs)
-    |> OriginQuery.latest_first()
-    |> OriginQuery.limit_to(1)
+    |> Origin.Query.by_episode_id()
+    |> Origin.Query.by_input_refs(refs)
+    |> Origin.Query.latest_first()
+    |> Origin.Query.limit_to(1)
     |> Repo.one()
   end
 

@@ -8,8 +8,8 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   stored status: expiry and visibility are applied at read time instead.
   """
 
-  alias Ryker.Accounting.ExecutionQuery
-  alias Ryker.ControlPlane.{Activity, ChannelContext, ChannelDetailQuery, ChannelScope}
+  alias Ryker.Accounting.Execution
+  alias Ryker.ControlPlane.{Activity, ChannelContext, ChannelDetail, ChannelScope}
   alias Ryker.ControlPlane.{Environments, PagedRelation, Paths, RepositoryNames, UsageProjection}
   alias Ryker.Repo
   alias Ryker.Settings
@@ -126,8 +126,8 @@ defmodule Ryker.ControlPlane.ChannelDetail do
 
     totals =
       UsageProjection.since(window)
-      |> ExecutionQuery.ledger(mode)
-      |> ExecutionQuery.in_conversation("slack", scope.conversation_ref)
+      |> Execution.Query.ledger(mode)
+      |> Execution.Query.in_conversation("slack", scope.conversation_ref)
       |> UsageProjection.totals()
 
     %{
@@ -152,11 +152,11 @@ defmodule Ryker.ControlPlane.ChannelDetail do
     }
   end
 
-  defp configuration(scope), do: Repo.one(ChannelDetailQuery.configuration(scope))
+  defp configuration(scope), do: Repo.one(ChannelDetail.Query.configuration(scope))
 
-  defp membership(scope), do: Repo.one(ChannelDetailQuery.membership(scope))
+  defp membership(scope), do: Repo.one(ChannelDetail.Query.membership(scope))
 
-  defp incident_room(scope), do: Repo.one(ChannelDetailQuery.incident_room(scope))
+  defp incident_room(scope), do: Repo.one(ChannelDetail.Query.incident_room(scope))
 
   defp settings do
     case Ryker.Settings.fetch() do
@@ -260,7 +260,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   defp episodes(scope, params) do
     relation =
       scope
-      |> ChannelDetailQuery.episodes()
+      |> ChannelDetail.Query.episodes()
       |> read("episode_page", [desc: :updated_at, desc: :id], params)
 
     # An episode is named by what was asked, the way the Activity page names
@@ -278,7 +278,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
 
   defp schedules(scope, params) do
     scope
-    |> ChannelDetailQuery.schedules()
+    |> ChannelDetail.Query.schedules()
     |> read("schedule_page", [asc_nulls_last: :next_occurrence_at, desc: :id], params)
   end
 

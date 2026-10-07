@@ -21,7 +21,7 @@ defmodule Ryker.Checks.ChangesetNoTruncate do
   @doc false
   @impl true
   def run(%SourceFile{} = source_file, params) do
-    if String.ends_with?(source_file.filename, "_changeset.ex") do
+    if String.ends_with?(source_file.filename, "/changeset.ex") do
       ctx = Context.build(source_file, params, __MODULE__)
       result = Credo.Code.prewalk(source_file, &walk/2, ctx)
       result.issues

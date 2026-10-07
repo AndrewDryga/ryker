@@ -6,8 +6,8 @@ defmodule Ryker.Checks.IL08ValidationInChangesets do
       check: """
       Iron Law IL-8, the other half: a module that reads or writes the
       database leaves validation to a changeset module. `cast`, `validate_*`,
-      the constraint mappings and `add_error` belong in a `*_changeset.ex`
-      module, with one function per transition, where they can be tested
+      the constraint mappings and `add_error` belong in the schema's Changeset
+      module (`<schema>/changeset.ex`), with one function per transition, where they can be tested
       alone. A context may still `change` a row with values it already holds.
 
       Flagged in a module that calls `Repo` and is not a changeset module:
@@ -35,7 +35,7 @@ defmodule Ryker.Checks.IL08ValidationInChangesets do
   # Production code only: a test may build a changeset to provoke a constraint.
   defp checked?(%SourceFile{filename: filename} = source_file) do
     String.contains?("/" <> filename, "/lib/") and
-      not String.ends_with?(filename, "changeset.ex") and calls_repo?(source_file)
+      not String.ends_with?(filename, "/changeset.ex") and calls_repo?(source_file)
   end
 
   defp calls_repo?(source_file), do: Credo.Code.prewalk(source_file, &find_repo_call/2, false)
@@ -70,7 +70,7 @@ defmodule Ryker.Checks.IL08ValidationInChangesets do
       ctx,
       message:
         "IL-8: #{trigger} in a module that calls Repo. Validation and " <>
-          "constraints belong in a *_changeset.ex module.",
+          "constraints belong in the schema's Changeset module.",
       trigger: trigger,
       line_no: meta[:line],
       column: meta[:column]

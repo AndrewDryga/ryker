@@ -12,7 +12,7 @@ defmodule Ryker.Instructions do
 
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
-  alias Ryker.Instructions.{Edit, Setting, SettingQuery}
+  alias Ryker.Instructions.{Edit, Setting}
   alias Ryker.Repo
 
   @max_characters 2_000
@@ -47,9 +47,9 @@ defmodule Ryker.Instructions do
     refs = Enum.map(items, &"slack:#{&1.workspace_ref}:#{&1.channel_ref}")
 
     refs
-    |> SettingQuery.by_scope_refs()
-    |> SettingQuery.with_text()
-    |> SettingQuery.select_scope_refs()
+    |> Setting.Query.by_scope_refs()
+    |> Setting.Query.with_text()
+    |> Setting.Query.select_scope_refs()
     |> Repo.all()
     |> MapSet.new()
   end
@@ -78,7 +78,7 @@ defmodule Ryker.Instructions do
 
     settings =
       refs
-      |> SettingQuery.by_scope_refs()
+      |> Setting.Query.by_scope_refs()
       |> Repo.all()
       |> Map.new(&{&1.scope_ref, &1})
 
@@ -129,7 +129,7 @@ defmodule Ryker.Instructions do
   def normalize_text(_), do: {:error, {:invalid_instructions, :text}}
 
   defp get_ref(ref) do
-    case Repo.fetch(SettingQuery.by_scope_ref(ref)) do
+    case Repo.fetch(Setting.Query.by_scope_ref(ref)) do
       {:ok, setting} -> setting
       {:error, :not_found} -> %Setting{scope_ref: ref}
     end

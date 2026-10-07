@@ -2,9 +2,9 @@ defmodule Ryker.Slack.IndexSlackReplyLookupsMigrationTest do
   use Ryker.MigrationCase
   import Ecto.Query
   alias Ecto.Adapters.SQL
-  alias Ryker.Delivery.RoutingResponseQuery
+  alias Ryker.Delivery.RoutingResponse
   alias Ryker.TestMigrations
-  alias Ryker.Work.TurnQuery
+  alias Ryker.Work.Turn
 
   @version 20_261_006_100_000
   @receipt_index "episode_work_turns_receipt_message"
@@ -23,11 +23,11 @@ defmodule Ryker.Slack.IndexSlackReplyLookupsMigrationTest do
   # with empty tables and commits each migration, as a deployment does.
   test "a reply's repaint and a thread's continuation each read an index" do
     # The lookup `Ryker.Slack.InteractionRepaint` repaints a reply by.
-    delivered = TurnQuery.delivered_slack_message("T1", "C1", "1787832001.000200", nil)
+    delivered = Turn.Query.delivered_slack_message("T1", "C1", "1787832001.000200", nil)
 
     # The routing half of `Ryker.Slack.Engagement.continuation?/1`.
     continuation =
-      RoutingResponseQuery.messages_in_thread("slack", "slack:T1:C1", "1787832000.000100")
+      RoutingResponse.Query.messages_in_thread("slack", "slack:T1:C1", "1787832000.000100")
 
     in_scratch_schema("reply_lookups", fn repo, prefix ->
       migrate!(repo, prefix, TestMigrations.version_before(@version))

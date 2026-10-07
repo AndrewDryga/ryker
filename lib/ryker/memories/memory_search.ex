@@ -4,7 +4,7 @@ defmodule Ryker.Memories.MemorySearch do
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Continuity.Recall, as: ContinuityRecall
   alias Ryker.Crypto
-  alias Ryker.Episodes.EventQuery
+  alias Ryker.Episodes.Event
   alias Ryker.Episodes.Scope
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
@@ -341,11 +341,11 @@ defmodule Ryker.Memories.MemorySearch do
 
   defp latest_operator_ref(episode) do
     episode.id
-    |> EventQuery.by_episode_id()
-    |> EventQuery.admitted_inputs(episode.active_input_refs)
-    |> EventQuery.newest_first()
-    |> EventQuery.limit_to(1)
-    |> EventQuery.select_actor_refs()
+    |> Event.Query.by_episode_id()
+    |> Event.Query.admitted_inputs(episode.active_input_refs)
+    |> Event.Query.newest_first()
+    |> Event.Query.limit_to(1)
+    |> Event.Query.select_actor_refs()
     |> Repo.one()
   end
 

@@ -22,17 +22,17 @@ defmodule Ryker.WeeklyReport.Facts do
   private channel, a shared channel, Chat or GitHub is counted, never named.
   """
 
-  alias Ryker.Accounting.ExecutionQuery
+  alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, Paths}
-  alias Ryker.Episodes.{EpisodeQuery, RoutingDigests}
-  alias Ryker.Feedback.SignalQuery
-  alias Ryker.Ingress.Inbox.EntryQuery
+  alias Ryker.Episodes.{Episode, RoutingDigests}
+  alias Ryker.Feedback.Signal
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.InspectionRedactor
-  alias Ryker.Knowledge.ConversationKnowledgeQuery
-  alias Ryker.Memories.MemoryEntryQuery
-  alias Ryker.Publication.FollowupQuery
+  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Publication.Followup
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelMembershipQuery, Names}
+  alias Ryker.Slack.{ChannelMembership, Names}
 
   @negative [:frustrated, :asked_again, :edited]
   # A message routing left alone was not handled; a reply or a reaction
@@ -73,8 +73,8 @@ defmodule Ryker.WeeklyReport.Facts do
     case String.split(rest, ":") do
       [workspace, "C" <> _ = channel] ->
         workspace
-        |> ChannelMembershipQuery.by_channel(channel)
-        |> ChannelMembershipQuery.joined_public()
+        |> ChannelMembership.Query.by_channel(channel)
+        |> ChannelMembership.Query.joined_public()
         |> Repo.exists?()
 
       _direct_or_thread ->
@@ -91,7 +91,7 @@ defmodule Ryker.WeeklyReport.Facts do
   # is stuck while one of its turns waits on Failures.
   defp requests(from, to) do
     from
-    |> EpisodeQuery.asked_or_answered_between(to)
+    |> Episode.Query.asked_or_answered_between(to)
     |> Repo.all()
     |> Enum.map(&Map.put(&1, :standing, standing(&1)))
   end
@@ -143,7 +143,7 @@ defmodule Ryker.WeeklyReport.Facts do
   defp messages(from, to) do
     counts =
       from
-      |> EntryQuery.decision_counts_between(to, @handled)
+      |> Entry.Query.decision_counts_between(to, @handled)
       |> Repo.all()
       |> Map.new()
 
@@ -192,16 +192,16 @@ defmodule Ryker.WeeklyReport.Facts do
   end
 
   # What the week's model calls cost, as the Usage page adds it up
-  # (`Ryker.Accounting.ExecutionQuery`): what the provider reported, plus Ryker's
+  # (`Ryker.Accounting.Execution.Query`): what the provider reported, plus Ryker's
   # estimate at the saved API prices for calls it reported no price for, as
   # a ChatGPT sign-in never does. Nil when calls ran but none could be
   # priced; `estimated` when any of it is an estimate.
   defp cost(from, to) do
     row =
       from
-      |> ExecutionQuery.ledger("live")
-      |> ExecutionQuery.recorded_before(to)
-      |> ExecutionQuery.select_cost_totals()
+      |> Execution.Query.ledger("live")
+      |> Execution.Query.recorded_before(to)
+      |> Execution.Query.select_cost_totals()
       |> Repo.one!()
 
     %{
@@ -218,7 +218,7 @@ defmodule Ryker.WeeklyReport.Facts do
   # out, which is when its follow-up starts; a follow-up rearmed later keeps
   # that time.
   defp pull_requests(from, to) do
-    rows = from |> FollowupQuery.pull_requests(to) |> Repo.all()
+    rows = from |> Followup.Query.pull_requests(to) |> Repo.all()
 
     this_week = Enum.filter(rows, &within?(&1.opened_at, from, to))
 
@@ -289,8 +289,8 @@ defmodule Ryker.WeeklyReport.Facts do
   defp feedback(from, to) do
     counts =
       from
-      |> SignalQuery.occurred_between(to)
-      |> SignalQuery.count_by_category()
+      |> Signal.Query.occurred_between(to)
+      |> Signal.Query.count_by_category()
       |> Repo.all()
       |> Map.new()
 
@@ -304,11 +304,11 @@ defmodule Ryker.WeeklyReport.Facts do
   # the newest topic from a public channel, the one the report may name.
   defp learned(from, to) do
     facts =
-      MemoryEntryQuery.active()
-      |> MemoryEntryQuery.confirmed_between(from, to)
+      MemoryEntry.Query.active()
+      |> MemoryEntry.Query.confirmed_between(from, to)
       |> Repo.aggregate(:count)
 
-    topics = from |> ConversationKnowledgeQuery.learned_between(to) |> Repo.all()
+    topics = from |> ConversationKnowledge.Query.learned_between(to) |> Repo.all()
 
     %{
       count: facts + length(topics),

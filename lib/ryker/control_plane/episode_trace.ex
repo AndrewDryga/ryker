@@ -16,13 +16,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Maintenance, Outcome, Preparation}
   alias Ryker.ControlPlane.EpisodeTrace.{ToolActivity, Work}
   alias Ryker.ControlPlane.{SavedRecords, Units}
-  alias Ryker.Episodes.{Episode, Event, EventQuery}
+  alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Operator.EpisodeReviewQuery
-  alias Ryker.Records.{Record, RecordQuery}
+  alias Ryker.Operator.EpisodeReview
+  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.StateTools.CallLog
-  alias Ryker.Work.{Activity, Recovery, SessionQuery, Turn, TurnQuery}
+  alias Ryker.Work.{Activity, Recovery, Session, Turn}
 
   @chapters [
     {:input, "What came in", "The input, continuation, or trigger that opened this work."},
@@ -206,33 +206,33 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
   defp sessions(episode_id) do
     episode_id
-    |> SessionQuery.by_episode_id()
-    |> SessionQuery.newest_first()
-    |> SessionQuery.limit_to(50)
+    |> Session.Query.by_episode_id()
+    |> Session.Query.newest_first()
+    |> Session.Query.limit_to(50)
     |> Repo.all()
     |> Enum.reverse()
   end
 
   defp turns(episode_id) do
     episode_id
-    |> TurnQuery.by_episode_id()
-    |> TurnQuery.newest_first()
-    |> TurnQuery.limit_to(200)
+    |> Turn.Query.by_episode_id()
+    |> Turn.Query.newest_first()
+    |> Turn.Query.limit_to(200)
     |> Repo.all()
     |> Enum.reverse()
   end
 
   defp totals(episode_id, events, records, sessions, turns) do
     turn_totals =
-      episode_id |> TurnQuery.by_episode_id() |> TurnQuery.select_usage_totals() |> Repo.one!()
+      episode_id |> Turn.Query.by_episode_id() |> Turn.Query.select_usage_totals() |> Repo.one!()
 
     Map.merge(turn_totals, %{
       current_turn: List.last(turns),
-      events: episode_id |> EventQuery.by_episode_id() |> Repo.aggregate(:count),
+      events: episode_id |> Event.Query.by_episode_id() |> Repo.aggregate(:count),
       events_shown: length(events),
-      records: episode_id |> RecordQuery.by_episode_id() |> Repo.aggregate(:count),
+      records: episode_id |> Record.Query.by_episode_id() |> Repo.aggregate(:count),
       records_shown: length(records),
-      sessions: episode_id |> SessionQuery.by_episode_id() |> Repo.aggregate(:count),
+      sessions: episode_id |> Session.Query.by_episode_id() |> Repo.aggregate(:count),
       sessions_shown: length(sessions),
       turns_shown: length(turns)
     })
@@ -499,7 +499,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   # is rated on its own. What people said, ratings included, is the Feedback
   # chapter's to show.
   defp rating_state(%Episode{} = episode, events) do
-    rated = Repo.exists?(EpisodeReviewQuery.of_version(episode.id, episode.semantic_version))
+    rated = Repo.exists?(EpisodeReview.Query.of_version(episode.id, episode.semantic_version))
 
     back = %{"back" => Paths.request(episode.id)}
 

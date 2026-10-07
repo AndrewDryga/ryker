@@ -4,7 +4,7 @@ defmodule Ryker.Fixtures.WorkerJob do
   import Ecto.Query
   alias Ryker.CoopFleet.{JobAuthority, JobSpec}
   alias Ryker.Repo
-  alias Ryker.Work.{RepositoryContext, RepositorySource, Session, SessionChangeset}
+  alias Ryker.Work.{RepositoryContext, RepositorySource, Session}
 
   def pin!(%Session{worker_job_document: nil} = session) do
     job = build(session.external_ref, session.repository_ref)
@@ -19,7 +19,7 @@ defmodule Ryker.Fixtures.WorkerJob do
       })
 
     {:ok, digest} = JobSpec.digest(job)
-    session |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update!()
+    session |> Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
   end
 
   def pin!(%Session{} = session) do

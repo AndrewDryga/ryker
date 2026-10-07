@@ -25,17 +25,14 @@ defmodule Ryker.Memories do
   alias Ryker.Episodes.Episode
   alias Ryker.Episodes.Scope
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
-  alias Ryker.Memories.MemoryEntryChangeset
-  alias Ryker.Memories.MemoryEntryQuery
   alias Ryker.Memories.Recall
   alias Ryker.Memories.Reviews
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
-  alias Ryker.Records.RecordQuery
   alias Ryker.Records.Response
   alias Ryker.Reference
   alias Ryker.Repo
@@ -130,7 +127,7 @@ defmodule Ryker.Memories do
 
   defp answer_confirmation(binding, record_ref) do
     record_ref
-    |> RecordQuery.answered_question(binding.episode.id)
+    |> Record.Query.answered_question(binding.episode.id)
     |> Repo.one()
     |> answered()
   end
@@ -142,7 +139,7 @@ defmodule Ryker.Memories do
   # arriving as an edit kept the answer from being saved (2026-10-04 review).
   defp answer_revised?(entry) do
     entry
-    |> EntryQuery.later_revisions_of()
+    |> Entry.Query.later_revisions_of()
     |> Repo.all()
     |> Enum.any?(&RoutingExamples.takes_back_words?/1)
   end
@@ -158,12 +155,12 @@ defmodule Ryker.Memories do
       Reviews.lock_review_maintenance!()
 
       entry.destination_transport
-      |> MemoryEntryQuery.answered_before_revision(
+      |> MemoryEntry.Query.answered_before_revision(
         entry.destination_conversation_ref,
         source_ref,
         entry.revision
       )
-      |> MemoryEntryQuery.lock_for_update()
+      |> MemoryEntry.Query.lock_for_update()
       |> Repo.all()
       |> Enum.each(&redact!(&1, :deleted, "answer_revised_payload_sha256"))
 
@@ -179,7 +176,7 @@ defmodule Ryker.Memories do
   defp save_answer(record, response, entry, intent, value) do
     confirmation_ref = "answer:#{response.id}"
 
-    case Repo.one(MemoryEntryQuery.by_confirmation_ref(confirmation_ref)) do
+    case Repo.one(MemoryEntry.Query.by_confirmation_ref(confirmation_ref)) do
       nil ->
         insert_answer(record, response, entry, intent, value, confirmation_ref)
 
@@ -235,7 +232,7 @@ defmodule Ryker.Memories do
          :ok <- supersede_existing(prepared),
          changeset =
            attributes
-           |> MemoryEntryChangeset.insert()
+           |> MemoryEntry.Changeset.insert()
            |> Ecto.Changeset.change(inserted_at: now, updated_at: now),
          {:ok, memory} <- Repo.insert(changeset) do
       broadcast_memory_updated(memory.id)
@@ -248,8 +245,8 @@ defmodule Ryker.Memories do
   defp answer_not_obsolete(prepared, answered_at) do
     newer =
       prepared
-      |> MemoryEntryQuery.same_subject()
-      |> MemoryEntryQuery.changed_after(answered_at)
+      |> MemoryEntry.Query.same_subject()
+      |> MemoryEntry.Query.changed_after(answered_at)
       |> Repo.exists?()
 
     if newer, do: {:error, :answer_memory_conflict}, else: :ok
@@ -313,7 +310,7 @@ defmodule Ryker.Memories do
   end
 
   defp lock_memory(ref),
-    do: ref |> MemoryEntryQuery.by_ref() |> MemoryEntryQuery.lock_for_update() |> Repo.one()
+    do: ref |> MemoryEntry.Query.by_ref() |> MemoryEntry.Query.lock_for_update() |> Repo.one()
 
   defp forget_home_locked(ref, actor_ref, workspace_ref, conversation_ref \\ nil) do
     case lock_memory(ref) do
@@ -400,7 +397,7 @@ defmodule Ryker.Memories do
            ),
          :ok <- authorize_wide_offer(record, episode),
          :ok <- delivered_from?(episode, turn, attributes.target) do
-      case Repo.one(MemoryEntryQuery.by_offer_record_id(record.id)) do
+      case Repo.one(MemoryEntry.Query.by_offer_record_id(record.id)) do
         %MemoryEntry{} = entry ->
           %{memory: entry, status: :duplicate}
 
@@ -479,25 +476,25 @@ defmodule Ryker.Memories do
 
   defp existing_memory?(prepared) do
     prepared
-    |> MemoryEntryQuery.same_subject()
-    |> MemoryEntryQuery.active()
+    |> MemoryEntry.Query.same_subject()
+    |> MemoryEntry.Query.active()
     |> Repo.exists?()
   end
 
   defp active_memory_count(workspace_ref, now) do
     workspace_ref
-    |> MemoryEntryQuery.by_workspace()
-    |> MemoryEntryQuery.active()
-    |> MemoryEntryQuery.unexpired_at(now)
+    |> MemoryEntry.Query.by_workspace()
+    |> MemoryEntry.Query.active()
+    |> MemoryEntry.Query.unexpired_at(now)
     |> Repo.aggregate(:count)
   end
 
   defp scoped_memory_count(prepared, now) do
     prepared.workspace_ref
-    |> MemoryEntryQuery.by_workspace()
-    |> MemoryEntryQuery.scoped_to(prepared.scope_kind, prepared.scope_ref)
-    |> MemoryEntryQuery.active()
-    |> MemoryEntryQuery.unexpired_at(now)
+    |> MemoryEntry.Query.by_workspace()
+    |> MemoryEntry.Query.scoped_to(prepared.scope_kind, prepared.scope_ref)
+    |> MemoryEntry.Query.active()
+    |> MemoryEntry.Query.unexpired_at(now)
     |> Repo.aggregate(:count)
   end
 
@@ -516,12 +513,12 @@ defmodule Ryker.Memories do
   end
 
   defp list_entries(workspace_ref, status) do
-    query = MemoryEntryQuery.by_workspace(workspace_ref)
-    query = if status, do: MemoryEntryQuery.with_status(query, status), else: query
+    query = MemoryEntry.Query.by_workspace(workspace_ref)
+    query = if status, do: MemoryEntry.Query.with_status(query, status), else: query
 
     query
-    |> MemoryEntryQuery.recently_updated_first()
-    |> MemoryEntryQuery.limit_to(1_000)
+    |> MemoryEntry.Query.recently_updated_first()
+    |> MemoryEntry.Query.limit_to(1_000)
     |> Repo.all()
   end
 
@@ -532,9 +529,9 @@ defmodule Ryker.Memories do
   defp supersede_existing(prepared) do
     superseded =
       prepared
-      |> MemoryEntryQuery.same_subject()
-      |> MemoryEntryQuery.active()
-      |> MemoryEntryQuery.lock_for_update()
+      |> MemoryEntry.Query.same_subject()
+      |> MemoryEntry.Query.active()
+      |> MemoryEntry.Query.lock_for_update()
       |> Repo.all()
 
     Enum.each(superseded, &redact!(&1, :superseded, "replaced_payload_sha256"))
@@ -563,7 +560,7 @@ defmodule Ryker.Memories do
       source_transport: episode.destination_transport,
       status: :active
     })
-    |> MemoryEntryChangeset.insert()
+    |> MemoryEntry.Changeset.insert()
     |> Ecto.Changeset.change(inserted_at: now, updated_at: now)
     |> Repo.insert()
     |> case do
@@ -680,7 +677,7 @@ defmodule Ryker.Memories do
     fingerprint = CanonicalJSON.digest(payload)
 
     entry
-    |> MemoryEntryChangeset.redact(status, payload, fingerprint)
+    |> MemoryEntry.Changeset.redact(status, payload, fingerprint)
     |> Repo.update!()
     |> tap(&broadcast_memory_updated(&1.id))
   end

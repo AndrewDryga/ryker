@@ -17,12 +17,11 @@ defmodule Ryker.Episodes.RoutingDigests do
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.{Episode, EpisodeQuery, Event, EventQuery, Origins, RoutingDigest}
-  alias Ryker.Episodes.RoutingDigestQuery
+  alias Ryker.Episodes.{Episode, Event, Origins, RoutingDigest}
   alias Ryker.Ingress.RecallText
   alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Repo
-  alias Ryker.Work.{CandidateResponse, CandidateResponseQuery, Final, Turn}
+  alias Ryker.Work.{CandidateResponse, Final, Turn}
 
   @objective_bytes 1_024
   @development_bytes 1_024
@@ -133,7 +132,7 @@ defmodule Ryker.Episodes.RoutingDigests do
   """
   @spec refresh_all() :: non_neg_integer()
   def refresh_all do
-    RoutingDigestQuery.select_episode_ids()
+    RoutingDigest.Query.select_episode_ids()
     |> Repo.all()
     |> Enum.count(fn episode_id ->
       match?({:ok, :ok}, Repo.transaction(fn -> refresh(episode_id) end))
@@ -141,7 +140,7 @@ defmodule Ryker.Episodes.RoutingDigests do
   end
 
   defp refresh(episode_id) do
-    with %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(episode_id)),
+    with %Episode{} = episode <- Repo.one(Episode.Query.by_id(episode_id)),
          %Event{} = latest <- Repo.one(latest_admission(episode_id)),
          :ok <- refresh_in_transaction(episode, latest) do
       :ok
@@ -152,21 +151,21 @@ defmodule Ryker.Episodes.RoutingDigests do
 
   defp latest_admission(episode_id) do
     episode_id
-    |> EventQuery.by_episode_id()
-    |> EventQuery.of_kind(:input_admitted)
-    |> EventQuery.newest_first()
-    |> EventQuery.limit_to(1)
+    |> Event.Query.by_episode_id()
+    |> Event.Query.of_kind(:input_admitted)
+    |> Event.Query.newest_first()
+    |> Event.Query.limit_to(1)
   end
 
   @spec fetch(Ecto.UUID.t()) :: RoutingDigest.t() | nil
-  def fetch(episode_id), do: Repo.one(RoutingDigestQuery.by_episode_id(episode_id))
+  def fetch(episode_id), do: Repo.one(RoutingDigest.Query.by_episode_id(episode_id))
 
   @spec fetch_many([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => RoutingDigest.t()}
   def fetch_many([]), do: %{}
 
   def fetch_many(episode_ids) do
     episode_ids
-    |> RoutingDigestQuery.by_episode_ids()
+    |> RoutingDigest.Query.by_episode_ids()
     |> Repo.all()
     |> Map.new(&{&1.episode_id, &1})
   end
@@ -177,8 +176,8 @@ defmodule Ryker.Episodes.RoutingDigests do
 
   def titles(episode_ids) do
     episode_ids
-    |> RoutingDigestQuery.by_episode_ids()
-    |> RoutingDigestQuery.select_titles()
+    |> RoutingDigest.Query.by_episode_ids()
+    |> RoutingDigest.Query.select_titles()
     |> Repo.all()
     |> Map.new()
   end
@@ -202,8 +201,8 @@ defmodule Ryker.Episodes.RoutingDigests do
 
         Repo.update_all(
           episode_id
-          |> RoutingDigestQuery.by_episode_id()
-          |> RoutingDigestQuery.without_title(title),
+          |> RoutingDigest.Query.by_episode_id()
+          |> RoutingDigest.Query.without_title(title),
           set: [
             title: title,
             title_turn_id: turn.id,
@@ -221,7 +220,7 @@ defmodule Ryker.Episodes.RoutingDigests do
 
   defp accepted_title(%Turn{id: turn_id, candidate_attempt: attempt}) when is_integer(attempt) do
     with %CandidateResponse{body: body} when is_binary(body) <-
-           Repo.one(CandidateResponseQuery.by_attempt(turn_id, attempt)),
+           Repo.one(CandidateResponse.Query.by_attempt(turn_id, attempt)),
          {:ok, %{} = document} <- Jason.decode(body),
          {:ok, %Final{title: title}} <- Final.parse(document) do
       title
@@ -276,10 +275,10 @@ defmodule Ryker.Episodes.RoutingDigests do
   defp admitted_events(episode_id, %Event{} = event) do
     stored =
       episode_id
-      |> EventQuery.by_episode_id()
-      |> EventQuery.of_kind(:input_admitted)
-      |> EventQuery.excluding_dedupe_key(event.dedupe_key)
-      |> EventQuery.oldest_first()
+      |> Event.Query.by_episode_id()
+      |> Event.Query.of_kind(:input_admitted)
+      |> Event.Query.excluding_dedupe_key(event.dedupe_key)
+      |> Event.Query.oldest_first()
       |> Repo.all()
 
     Enum.sort_by(stored ++ [event], & &1.sequence)

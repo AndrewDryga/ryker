@@ -11,10 +11,10 @@ defmodule Ryker.Slack.WorkControls do
   alias Ryker.Episodes.Command
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Publication, PublicationQuery, Review}
+  alias Ryker.Publication.{Publication, Review}
   alias Ryker.Repo
   alias Ryker.Slack.{WorkRecord, WorkTarget}
-  alias Ryker.Work.{Custody, Turn, TurnQuery}
+  alias Ryker.Work.{Custody, Turn}
 
   @control_fields [:actor_ref, :occurred_at, :request_ref, :target, :work_ref]
   @publication_fields @control_fields ++ [:publication_ref]
@@ -201,7 +201,7 @@ defmodule Ryker.Slack.WorkControls do
   defp close_resolved(_resolved, _attributes), do: {:error, :work_control_stale}
 
   defp stoppable_turn(%{state: :working, owner_kind: :turn, owner_ref: turn_ref, id: id}) do
-    turn = id |> TurnQuery.by_episode_id() |> TurnQuery.by_turn_ref(turn_ref) |> Repo.one()
+    turn = id |> Turn.Query.by_episode_id() |> Turn.Query.by_turn_ref(turn_ref) |> Repo.one()
 
     case turn do
       %Turn{status: :pending} -> {:ok, turn_ref}
@@ -241,8 +241,8 @@ defmodule Ryker.Slack.WorkControls do
 
   defp episode_publication(episode_id, publication_ref) do
     episode_id
-    |> PublicationQuery.by_episode_id()
-    |> PublicationQuery.by_ref(publication_ref)
+    |> Publication.Query.by_episode_id()
+    |> Publication.Query.by_ref(publication_ref)
     |> Repo.one()
   end
 

@@ -2,10 +2,10 @@ defmodule Ryker.StateTools.Binding do
   @moduledoc false
 
   alias Ryker.Crypto
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
+  alias Ryker.Episodes.Episode
   alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.{Session, SessionQuery, StateBinding, Turn}
+  alias Ryker.Work.{Session, StateBinding, Turn}
 
   @spec resolve(binary()) ::
           {:ok,
@@ -19,7 +19,7 @@ defmodule Ryker.StateTools.Binding do
   def resolve(token) when is_binary(token) and byte_size(token) in 32..256 do
     token_sha256 = Crypto.sha256_hex(token)
 
-    binding = token_sha256 |> SessionQuery.state_tools_binding() |> Repo.one()
+    binding = token_sha256 |> Session.Query.state_tools_binding() |> Repo.one()
 
     case binding do
       {%Session{} = session, %Episode{} = episode, %Turn{} = turn} ->
@@ -51,9 +51,9 @@ defmodule Ryker.StateTools.Binding do
 
     session =
       binding.session.id
-      |> SessionQuery.by_id()
-      |> SessionQuery.by_episode_id(binding.episode.id)
-      |> SessionQuery.lock_for_update()
+      |> Session.Query.by_id()
+      |> Session.Query.by_episode_id(binding.episode.id)
+      |> Session.Query.lock_for_update()
       |> Repo.one()
 
     with %Session{cleanup_status: :active} <- session,
@@ -85,7 +85,7 @@ defmodule Ryker.StateTools.Binding do
   end
 
   defp working_on_turn(binding, session) do
-    EpisodeQuery.working_on_turn(
+    Episode.Query.working_on_turn(
       binding.episode.id,
       binding.turn.id,
       session.id,

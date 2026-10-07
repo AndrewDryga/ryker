@@ -11,7 +11,6 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Memories
   alias Ryker.Memories.{CaseRecord, MemoryEntry}
-  alias Ryker.Memories.MemoryEntryChangeset
   alias Ryker.Memories.MemoryReviewItem
   alias Ryker.Memories.Reviews
   alias Ryker.Records
@@ -437,7 +436,7 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
       visibility: :conversation,
       workspace_ref: fixture.workspace_ref
     }
-    |> MemoryEntryChangeset.insert()
+    |> MemoryEntry.Changeset.insert()
     |> Repo.insert!()
   end
 
@@ -539,7 +538,7 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
           visibility: :workspace,
           workspace_ref: workspace_ref
         }
-        |> MemoryEntryChangeset.insert()
+        |> MemoryEntry.Changeset.insert()
         |> Repo.insert!()
       end)
 

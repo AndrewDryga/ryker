@@ -20,13 +20,13 @@ defmodule Ryker.Improvement.Analyses do
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Improvement
-  alias Ryker.Improvement.{AnalysisRun, AnalysisRunQuery, Candidate, CandidateQuery}
+  alias Ryker.Improvement.{AnalysisRun, Candidate}
   alias Ryker.Improvement.{Evidence, FleetSession, Prompt}
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.UTCDateTime
-  alias Ryker.Work.SessionQuery
+  alias Ryker.Work.Session
 
   @contract_failures ~w(output_contract_failed invalid_improvement_result)
   # Causes another start would meet again: they end the analysis at once.
@@ -60,7 +60,7 @@ defmodule Ryker.Improvement.Analyses do
 
   defp next_candidate(now, quiet_seconds, enabled?) do
     quiet = DateTime.add(now, -quiet_seconds, :second)
-    Repo.one(CandidateQuery.next_claimable(now, quiet, enabled?))
+    Repo.one(Candidate.Query.next_claimable(now, quiet, enabled?))
   end
 
   @doc """
@@ -73,7 +73,7 @@ defmodule Ryker.Improvement.Analyses do
   @spec next_due_at(DateTime.t(), map()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, settings) do
     since
-    |> CandidateQuery.next_due_after(settings.quiet_seconds, settings.enabled)
+    |> Candidate.Query.next_due_after(settings.quiet_seconds, settings.enabled)
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -193,8 +193,8 @@ defmodule Ryker.Improvement.Analyses do
   """
   def policy_refused?(%{policy: policy, policy_digest: digest}) do
     policy
-    |> AnalysisRunQuery.by_policy(digest)
-    |> AnalysisRunQuery.with_error_code("improvement_session_not_isolated")
+    |> AnalysisRun.Query.by_policy(digest)
+    |> AnalysisRun.Query.with_error_code("improvement_session_not_isolated")
     |> Repo.exists?()
   end
 
@@ -203,15 +203,15 @@ defmodule Ryker.Improvement.Analyses do
   @doc "The run of a candidate that started and has no stop proof yet, or nil."
   def outstanding(candidate_id) do
     candidate_id
-    |> AnalysisRunQuery.by_candidate_id()
-    |> AnalysisRunQuery.unstopped()
-    |> AnalysisRunQuery.in_generation_order()
-    |> AnalysisRunQuery.limit_to(1)
+    |> AnalysisRun.Query.by_candidate_id()
+    |> AnalysisRun.Query.unstopped()
+    |> AnalysisRun.Query.in_generation_order()
+    |> AnalysisRun.Query.limit_to(1)
     |> Repo.one()
   end
 
   @doc "A run as it is stored now."
-  def current(run_id), do: Repo.one!(AnalysisRunQuery.by_id(run_id))
+  def current(run_id), do: Repo.one!(AnalysisRun.Query.by_id(run_id))
 
   @doc """
   Freezes the next attempt: the evidence read now, rendered into the exact
@@ -234,8 +234,8 @@ defmodule Ryker.Improvement.Analyses do
         do: Repo.rollback(:improvement_retry_exhausted)
 
       candidate.id
-      |> AnalysisRunQuery.by_candidate_id()
-      |> AnalysisRunQuery.unstarted()
+      |> AnalysisRun.Query.by_candidate_id()
+      |> AnalysisRun.Query.unstarted()
       |> Repo.update_all(
         set: [status: :stale, error_code: "improvement_attempt_replaced", updated_at: Repo.now!()]
       )
@@ -272,16 +272,16 @@ defmodule Ryker.Improvement.Analyses do
 
   defp retry?(candidate) do
     candidate.id
-    |> AnalysisRunQuery.by_candidate_id()
-    |> AnalysisRunQuery.with_error_codes(@contract_failures)
+    |> AnalysisRun.Query.by_candidate_id()
+    |> AnalysisRun.Query.with_error_codes(@contract_failures)
     |> Repo.exists?()
   end
 
   defp next_generation(candidate_id) do
     generation =
       candidate_id
-      |> AnalysisRunQuery.by_candidate_id()
-      |> AnalysisRunQuery.select_max_generation()
+      |> AnalysisRun.Query.by_candidate_id()
+      |> AnalysisRun.Query.select_max_generation()
       |> Repo.one()
 
     (generation || 0) + 1
@@ -768,9 +768,9 @@ defmodule Ryker.Improvement.Analyses do
   defp locked_run!(candidate, run_id) do
     run =
       run_id
-      |> AnalysisRunQuery.by_id()
-      |> AnalysisRunQuery.by_candidate_id(candidate.id)
-      |> AnalysisRunQuery.lock_for_update()
+      |> AnalysisRun.Query.by_id()
+      |> AnalysisRun.Query.by_candidate_id(candidate.id)
+      |> AnalysisRun.Query.lock_for_update()
       |> Repo.one()
 
     run || Repo.rollback(:improvement_run_mismatch)
@@ -779,16 +779,16 @@ defmodule Ryker.Improvement.Analyses do
   defp owned_session?(run, remote_id) do
     Reference.valid?(remote_id, 1_024) and
       run.id
-      |> SessionQuery.for_improvement_run()
-      |> SessionQuery.by_coop_session_id(remote_id)
+      |> Session.Query.for_improvement_run()
+      |> Session.Query.by_coop_session_id(remote_id)
       |> Repo.exists?()
   end
 
   defp owned!(claim) do
     candidate =
       claim.candidate.id
-      |> CandidateQuery.by_id()
-      |> CandidateQuery.lock_for_update()
+      |> Candidate.Query.by_id()
+      |> Candidate.Query.lock_for_update()
       |> Repo.one()
 
     unless candidate && candidate.analysis == :running && candidate.lease_ref == claim.lease_ref &&

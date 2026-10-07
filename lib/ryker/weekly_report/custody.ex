@@ -19,7 +19,7 @@ defmodule Ryker.WeeklyReport.Custody do
   alias Ryker.Delivery.Request
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.WeeklyReport.{Report, ReportChangeset, ReportQuery}
+  alias Ryker.WeeklyReport.Report
   alias Ryker.Work.DeliveryReceipt
 
   @type claim :: %{report: Report.t(), lease_ref: Ecto.UUID.t()}
@@ -51,7 +51,7 @@ defmodule Ryker.WeeklyReport.Custody do
 
     with {:ok, _request} <- request_for(values) do
       values
-      |> ReportChangeset.insert()
+      |> Report.Changeset.insert()
       |> Repo.insert()
       |> queued()
     end
@@ -76,7 +76,7 @@ defmodule Ryker.WeeklyReport.Custody do
 
   @doc "Whether the week that starts on `week` (a Monday) has its report on record; a preview is not it."
   @spec recorded?(Date.t()) :: boolean()
-  def recorded?(%Date{} = week), do: Repo.exists?(ReportQuery.for_week(week))
+  def recorded?(%Date{} = week), do: Repo.exists?(Report.Query.for_week(week))
 
   @doc """
   The earliest moment after `since` at which a pending report becomes
@@ -86,7 +86,7 @@ defmodule Ryker.WeeklyReport.Custody do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> ReportQuery.next_due_after()
+    |> Report.Query.next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -129,7 +129,7 @@ defmodule Ryker.WeeklyReport.Custody do
       mutate_claim(delivery_ref, lease_ref, fn report, now ->
         requested = DateTime.add(now, lease_seconds, :second)
         expiry = later(report.lease_expires_at, requested)
-        report |> ReportChangeset.renew(expiry) |> write!(:renew)
+        report |> Report.Changeset.renew(expiry) |> write!(:renew)
       end)
     end
   end
@@ -144,7 +144,7 @@ defmodule Ryker.WeeklyReport.Custody do
          :ok <- bounded(error_detail, 4_096, :error_detail) do
       mutate_claim(delivery_ref, lease_ref, fn report, now ->
         report
-        |> ReportChangeset.defer(
+        |> Report.Changeset.defer(
           DateTime.add(now, retry_seconds, :second),
           error_code,
           error_detail
@@ -162,7 +162,7 @@ defmodule Ryker.WeeklyReport.Custody do
          :ok <- bounded(error_code, 128, :error_code),
          :ok <- bounded(error_detail, 4_096, :error_detail) do
       mutate_claim(delivery_ref, lease_ref, fn report, _now ->
-        report |> ReportChangeset.block(error_code, error_detail) |> write!(:block)
+        report |> Report.Changeset.block(error_code, error_detail) |> write!(:block)
       end)
     end
   end
@@ -188,26 +188,26 @@ defmodule Ryker.WeeklyReport.Custody do
   @doc "Blocked reports, newest first, at most `limit`, for Failures."
   @spec blocked(pos_integer()) :: [Report.t()]
   def blocked(limit) do
-    ReportQuery.with_status(:blocked)
-    |> ReportQuery.recently_updated_first()
-    |> ReportQuery.limit_to(limit)
+    Report.Query.with_status(:blocked)
+    |> Report.Query.recently_updated_first()
+    |> Report.Query.limit_to(limit)
     |> Repo.all()
   end
 
   @doc "One report by its delivery reference, or nil."
   @spec fetch(String.t()) :: Report.t() | nil
   def fetch(delivery_ref) when is_binary(delivery_ref),
-    do: Repo.one(ReportQuery.by_delivery_ref(delivery_ref))
+    do: Repo.one(Report.Query.by_delivery_ref(delivery_ref))
 
   defp claim_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
     next =
       now
-      |> ReportQuery.claimable_at()
-      |> ReportQuery.soonest_due_first()
-      |> ReportQuery.limit_to(1)
-      |> ReportQuery.lock_next_free()
+      |> Report.Query.claimable_at()
+      |> Report.Query.soonest_due_first()
+      |> Report.Query.limit_to(1)
+      |> Report.Query.lock_next_free()
       |> Repo.one()
 
     case next do
@@ -219,7 +219,7 @@ defmodule Ryker.WeeklyReport.Custody do
 
         report =
           report
-          |> ReportChangeset.claim(now, lease_seconds, worker_ref, lease_ref)
+          |> Report.Changeset.claim(now, lease_seconds, worker_ref, lease_ref)
           |> write!(:claim)
 
         %{report: report, lease_ref: lease_ref}
@@ -229,7 +229,7 @@ defmodule Ryker.WeeklyReport.Custody do
   defp retry_locked(delivery_ref) do
     case lock(delivery_ref) do
       %Report{status: :blocked} = report ->
-        report |> ReportChangeset.retry() |> write!(:retry)
+        report |> Report.Changeset.retry() |> write!(:retry)
 
       %Report{status: :pending} = report ->
         report
@@ -256,7 +256,7 @@ defmodule Ryker.WeeklyReport.Custody do
         with :ok <- current_lease(report, lease_ref, now),
              :ok <- exact_receipt(report, receipt) do
           report
-          |> ReportChangeset.confirm(now, receipt, fingerprint)
+          |> Report.Changeset.confirm(now, receipt, fingerprint)
           |> write!(:confirm)
         else
           {:error, reason} -> Repo.rollback(reason)
@@ -295,8 +295,8 @@ defmodule Ryker.WeeklyReport.Custody do
 
   defp lock(delivery_ref) do
     delivery_ref
-    |> ReportQuery.by_delivery_ref()
-    |> ReportQuery.lock_for_update()
+    |> Report.Query.by_delivery_ref()
+    |> Report.Query.lock_for_update()
     |> Repo.one()
   end
 

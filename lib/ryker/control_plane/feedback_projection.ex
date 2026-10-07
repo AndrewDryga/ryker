@@ -16,10 +16,10 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   it and opens its Timeline.
   """
 
-  alias Ryker.ControlPlane.{Activity, ConsolePeople, FeedbackChart, FeedbackQuery}
+  alias Ryker.ControlPlane.{Activity, ConsolePeople, Feedback, FeedbackChart}
   alias Ryker.ControlPlane.{ImprovementProjection, PagedRelation, Paths, Search, SlackMarkdown}
-  alias Ryker.Episodes.EpisodeQuery
-  alias Ryker.Feedback.{Signal, SignalQuery}
+  alias Ryker.Episodes.Episode
+  alias Ryker.Feedback.Signal
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Slack.Names
@@ -57,14 +57,14 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
     category = category(params["category"])
     # One kind's page lists that kind, whichever way it went.
     tone = if category, do: nil, else: tone(params["tone"])
-    matching = SignalQuery.all() |> search(text) |> going(tone)
+    matching = Signal.Query.all() |> search(text) |> going(tone)
     counts = counts(matching)
 
     view = %{
       category: category,
       counts: counts,
       # By day is all feedback, whatever the search or Negative and Positive.
-      days: days(SignalQuery.all()),
+      days: days(Signal.Query.all()),
       q: text,
       tone: tone,
       total: counts |> Map.values() |> Enum.sum()
@@ -89,17 +89,17 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   """
   @spec for_request(Ryker.Feedback.request()) :: [map()]
   def for_request({:episode, id}) when is_binary(id),
-    do: id |> SignalQuery.by_episode_id() |> timeline_rows()
+    do: id |> Signal.Query.by_episode_id() |> timeline_rows()
 
   def for_request({:input, id}) when is_binary(id),
-    do: id |> SignalQuery.by_input_id() |> timeline_rows()
+    do: id |> Signal.Query.by_input_id() |> timeline_rows()
 
   def for_request(_request), do: []
 
   defp timeline_rows(query) do
     query
-    |> SignalQuery.newest_first()
-    |> SignalQuery.limit_to(100)
+    |> Signal.Query.newest_first()
+    |> Signal.Query.limit_to(100)
     |> Repo.all()
     |> Enum.reverse()
     |> present()
@@ -112,19 +112,19 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   # answered by itself.
   defp search(query, ""), do: query
 
-  defp search(query, text), do: FeedbackQuery.matching(query, Search.contains(text))
+  defp search(query, text), do: Feedback.Query.matching(query, Search.contains(text))
 
   defp going(query, nil), do: query
 
   defp going(query, tone),
-    do: SignalQuery.in_categories(query, Keyword.fetch!(FeedbackChart.tones(), tone))
+    do: Signal.Query.in_categories(query, Keyword.fetch!(FeedbackChart.tones(), tone))
 
-  defp counts(query), do: query |> SignalQuery.count_by_category() |> Repo.all() |> Map.new()
+  defp counts(query), do: query |> Signal.Query.count_by_category() |> Repo.all() |> Map.new()
 
   # The latest days that have any feedback, newest first, with how many of
   # each category came in on each. Days are UTC, like every time here.
   defp days(query) do
-    rows = query |> FeedbackQuery.counts_by_day() |> Repo.all()
+    rows = query |> Feedback.Query.counts_by_day() |> Repo.all()
 
     rows
     |> Enum.group_by(&elem(&1, 0), fn {_day, category, count} -> {category, count} end)
@@ -137,7 +137,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   defp groups(query, counts) do
     newest =
       query
-      |> FeedbackQuery.newest_per_category(@overview_rows)
+      |> Feedback.Query.newest_per_category(@overview_rows)
       |> Repo.all()
       |> present()
       |> Enum.group_by(& &1.category)
@@ -154,7 +154,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   defp category_page(query, category, params) do
     page =
       PagedRelation.read(
-        SignalQuery.in_categories(query, [category]),
+        Signal.Query.in_categories(query, [category]),
         [desc: :occurred_at, desc: :inserted_at, desc: :id],
         "page",
         params,
@@ -214,7 +214,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   defp episode_requests(signals) do
     ids = signals |> Enum.map(& &1.episode_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    keys = ids |> EpisodeQuery.by_ids() |> EpisodeQuery.select_key_conversations() |> Repo.all()
+    keys = ids |> Episode.Query.by_ids() |> Episode.Query.select_key_conversations() |> Repo.all()
 
     titles = keys |> Enum.map(&elem(&1, 1)) |> Activity.request_titles()
 
@@ -235,7 +235,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
     ids = signals |> Enum.map(& &1.input_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
     ids
-    |> FeedbackQuery.message_previews()
+    |> Feedback.Query.message_previews()
     |> Repo.all()
     |> Map.new(fn {id, transport, conversation, preview} ->
       {id,

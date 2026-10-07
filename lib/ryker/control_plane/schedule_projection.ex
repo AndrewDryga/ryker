@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   """
 
   alias Ryker.ControlPlane.{Activity, EpisodeProjection, RepositoryNames}
-  alias Ryker.ControlPlane.{ScheduleDirectoryQuery, Search}
+  alias Ryker.ControlPlane.{ScheduleDirectory, Search}
   alias Ryker.Operator.FailureDetail
   alias Ryker.Repo
   alias Ryker.Work.FailureCause
@@ -30,7 +30,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   def list(params) when is_map(params) do
     query =
       (@list_limit + 1)
-      |> ScheduleDirectoryQuery.directory()
+      |> ScheduleDirectory.Query.directory()
       |> schedule_view(Map.get(@views, params["view"]))
       |> schedule_status(Search.one_of(params["status"], @statuses))
       |> schedule_search(Search.term(params["q"]))
@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   @doc "One schedule with its recorded occurrences, newest first."
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    query = ScheduleDirectoryQuery.with_local_times(ref)
+    query = ScheduleDirectory.Query.with_local_times(ref)
 
     case Repo.one(query) do
       nil -> :not_found
@@ -89,7 +89,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   defp occurrences(schedule) do
     schedule
-    |> ScheduleDirectoryQuery.occurrences(@detail_limit + 1)
+    |> ScheduleDirectory.Query.occurrences(@detail_limit + 1)
     |> Repo.all()
     |> Enum.map(&sanitize_occurrence/1)
   end
@@ -106,16 +106,16 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   defp schedule_view(query, nil), do: query
 
-  defp schedule_view(query, statuses), do: ScheduleDirectoryQuery.in_statuses(query, statuses)
+  defp schedule_view(query, statuses), do: ScheduleDirectory.Query.in_statuses(query, statuses)
 
   defp schedule_status(query, nil), do: query
 
-  defp schedule_status(query, status), do: ScheduleDirectoryQuery.with_status(query, status)
+  defp schedule_status(query, status), do: ScheduleDirectory.Query.with_status(query, status)
 
   defp schedule_search(query, nil), do: query
 
   defp schedule_search(query, search),
-    do: ScheduleDirectoryQuery.matching(query, Search.contains(search))
+    do: ScheduleDirectory.Query.matching(query, Search.contains(search))
 
   # The saved error is an inspected internal term: the page gets the cause it
   # names in words, when it names one, and a digest for support otherwise.

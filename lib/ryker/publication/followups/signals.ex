@@ -15,9 +15,9 @@ defmodule Ryker.Publication.Followups.Signals do
   alias Ryker.Ingress.Input
   alias Ryker.Learning.Observations
   alias Ryker.Memories.Cases
-  alias Ryker.Publication.{DeploymentSignal, FollowupQuery, LifecycleEventQuery}
+  alias Ryker.Publication.{DeploymentSignal, Followup, LifecycleEvent}
   alias Ryker.Publication.Followups.Store
-  alias Ryker.Publication.{Publication, PublicationQuery}
+  alias Ryker.Publication.Publication
   alias Ryker.Repo
 
   def observe_input(
@@ -73,7 +73,7 @@ defmodule Ryker.Publication.Followups.Signals do
 
   defp matching_lifecycle_followups(repository, references, branch_references, now) do
     repository
-    |> FollowupQuery.merged_matching(references, branch_references, now)
+    |> Followup.Query.merged_matching(references, branch_references, now)
     |> Repo.all()
   end
 
@@ -224,8 +224,8 @@ defmodule Ryker.Publication.Followups.Signals do
   # PR #2 was filed as noise while its update was pending). Polling alone waits for the update.
   defp github_feedback_publications(repository, pull_request_number) do
     repository
-    |> PublicationQuery.with_open_pull_request(pull_request_number)
-    |> PublicationQuery.lock_for_update()
+    |> Publication.Query.with_open_pull_request(pull_request_number)
+    |> Publication.Query.lock_for_update()
     |> Repo.all()
   end
 
@@ -239,7 +239,7 @@ defmodule Ryker.Publication.Followups.Signals do
 
     existing =
       publication.id
-      |> LifecycleEventQuery.review_feedback(input.occurred_at)
+      |> LifecycleEvent.Query.review_feedback(input.occurred_at)
       |> Repo.all()
       |> Enum.find(&(not is_nil(document) and feedback_document(&1.observation) == document))
 

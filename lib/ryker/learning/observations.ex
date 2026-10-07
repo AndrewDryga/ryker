@@ -3,18 +3,18 @@ defmodule Ryker.Learning.Observations do
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Continuity
   alias Ryker.Continuity.Relevance
-  alias Ryker.Episodes.{Episode, EpisodeQuery}
-  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Episodes.Episode
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
   alias Ryker.Knowledge
   alias Ryker.Learning
-  alias Ryker.Learning.{ConversationObservation, ConversationObservationQuery}
-  alias Ryker.Learning.{LearningSources, VisibilityQuery}
+  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.{LearningSources, Visibility}
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
-  alias Ryker.Memories.SearchPageQuery
-  alias Ryker.Publication.{LifecycleEvent, LifecycleEventQuery, Publication, PublicationQuery}
-  alias Ryker.Slack.{ChannelFence, ChannelMembershipQuery}
+  alias Ryker.Memories.SearchPage
+  alias Ryker.Publication.{LifecycleEvent, Publication}
+  alias Ryker.Slack.{ChannelFence, ChannelMembership}
 
   @doc "Retain a deterministic excerpt of the original input with only that source's receipt."
   def record_excerpt_in_transaction(%Entry{status: :decided} = entry),
@@ -43,7 +43,7 @@ defmodule Ryker.Learning.Observations do
       ) do
     with true <- Repo.in_transaction?(),
          %Publication{episode_id: ^episode_id, repository: ^repository} <-
-           Repo.one(PublicationQuery.by_id(publication_id)),
+           Repo.one(Publication.Query.by_id(publication_id)),
          %LifecycleEvent{
            kind: :review_feedback,
            publication_id: ^publication_id,
@@ -55,8 +55,8 @@ defmodule Ryker.Learning.Observations do
                "revision" => revision,
                "actor" => %{"kind" => actor_kind, "ref" => actor_ref}
              } = document
-         } = event <- Repo.one(LifecycleEventQuery.by_id(id)),
-         %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(episode_id)) do
+         } = event <- Repo.one(LifecycleEvent.Query.by_id(id)),
+         %Episode{} = episode <- Repo.one(Episode.Query.by_id(episode_id)) do
       source = %{
         id: event.id,
         source_kind: "github",
@@ -145,7 +145,7 @@ defmodule Ryker.Learning.Observations do
       updates = Enum.map(fields, &{&1, Map.fetch!(record, &1)})
 
       case Repo.insert(record,
-             on_conflict: ConversationObservationQuery.monotonic_update(updates),
+             on_conflict: ConversationObservation.Query.monotonic_update(updates),
              conflict_target: [:identity_key],
              allow_stale: true
            ) do
@@ -170,8 +170,8 @@ defmodule Ryker.Learning.Observations do
     # first deliveries must not leave either text authoritative after a tie.
     current =
       identity
-      |> ConversationObservationQuery.by_identity()
-      |> ConversationObservationQuery.lock_for_update()
+      |> ConversationObservation.Query.by_identity()
+      |> ConversationObservation.Query.lock_for_update()
       |> Repo.one!()
 
     if current.revision == entry.revision and current.source_input_id != entry.id and
@@ -184,7 +184,7 @@ defmodule Ryker.Learning.Observations do
           "state" => "conflict"
         })
 
-      Repo.update_all(ConversationObservationQuery.by_id(current.id),
+      Repo.update_all(ConversationObservation.Query.by_id(current.id),
         set: [
           source_result_ref: "source-conflict:#{identity}:#{entry.revision}",
           source_fingerprint: fingerprint,
@@ -201,7 +201,7 @@ defmodule Ryker.Learning.Observations do
   defp source_conflicted?(_), do: false
 
   defp retained_content(%{source_input_id: id, source_result_ref: "publication-feedback:" <> id}) do
-    case Repo.one(LifecycleEventQuery.by_id(id)) do
+    case Repo.one(LifecycleEvent.Query.by_id(id)) do
       %LifecycleEvent{kind: :review_feedback, observation: %{"content" => content}} ->
         normalized_content(content, "github")
 
@@ -211,7 +211,7 @@ defmodule Ryker.Learning.Observations do
   end
 
   defp retained_content(source) do
-    case Repo.one(EntryQuery.by_id(source.source_input_id)) do
+    case Repo.one(Entry.Query.by_id(source.source_input_id)) do
       %Entry{content: content, source_kind: kind} -> normalized_content(content, kind)
       _ -> :missing
     end
@@ -282,11 +282,11 @@ defmodule Ryker.Learning.Observations do
          {:ok, scope} <- locked_scope(destination, repository_ref) do
       notes =
         ids
-        |> ConversationObservationQuery.by_ids()
-        |> ConversationObservationQuery.in_workspace(scope.workspace_ref)
-        |> ConversationObservationQuery.with_notes()
-        |> VisibilityQuery.visible_from(scope)
-        |> ConversationObservationQuery.lock_for_share()
+        |> ConversationObservation.Query.by_ids()
+        |> ConversationObservation.Query.in_workspace(scope.workspace_ref)
+        |> ConversationObservation.Query.with_notes()
+        |> Visibility.Query.visible_from(scope)
+        |> ConversationObservation.Query.lock_for_share()
         |> Repo.all()
 
       current =
@@ -329,15 +329,15 @@ defmodule Ryker.Learning.Observations do
 
   defp recall(scope, search, limit, search_scope) do
     scope.workspace_ref
-    |> ConversationObservationQuery.in_workspace()
-    |> ConversationObservationQuery.with_notes()
-    |> ConversationObservationQuery.not_among(Knowledge.current_source_ids_query(scope))
-    |> VisibilityQuery.visible_from(scope)
-    |> ConversationObservationQuery.recall_order(scope)
-    |> ConversationObservationQuery.limit_to(limit)
+    |> ConversationObservation.Query.in_workspace()
+    |> ConversationObservation.Query.with_notes()
+    |> ConversationObservation.Query.not_among(Knowledge.current_source_ids_query(scope))
+    |> Visibility.Query.visible_from(scope)
+    |> ConversationObservation.Query.recall_order(scope)
+    |> ConversationObservation.Query.limit_to(limit)
     |> LearningSources.eligible(scope)
-    |> ConversationObservationQuery.within_scope(scope, search_scope)
-    |> ConversationObservationQuery.matching(search)
+    |> ConversationObservation.Query.within_scope(scope, search_scope)
+    |> ConversationObservation.Query.matching(search)
     |> Repo.all()
     |> authorized_notes(scope)
     |> Enum.filter(&LearningSources.valid?(&1.source_dependencies, scope))
@@ -353,18 +353,18 @@ defmodule Ryker.Learning.Observations do
   end
 
   defp search_visible_page(scope, page) do
-    fields = ConversationObservationQuery.search_fields()
+    fields = ConversationObservation.Query.search_fields()
 
     # Explicit history search includes originals even after their topic was
     # consolidated. Otherwise an older source date becomes unreachable.
     scope.workspace_ref
-    |> ConversationObservationQuery.in_workspace()
-    |> ConversationObservationQuery.with_notes()
-    |> VisibilityQuery.visible_from(scope)
-    |> ConversationObservationQuery.lock_for_share()
+    |> ConversationObservation.Query.in_workspace()
+    |> ConversationObservation.Query.with_notes()
+    |> Visibility.Query.visible_from(scope)
+    |> ConversationObservation.Query.lock_for_share()
     |> LearningSources.eligible(scope)
-    |> ConversationObservationQuery.within_scope(scope, page.scope)
-    |> SearchPageQuery.related_sources(page)
+    |> ConversationObservation.Query.within_scope(scope, page.scope)
+    |> SearchPage.Query.related_sources(page)
     |> MemorySearchPage.one(page, fields.text, fields.changed, fields.source)
     |> authorize_search_result(scope)
   end
@@ -391,8 +391,8 @@ defmodule Ryker.Learning.Observations do
 
   defp lock_memberships(refs) do
     refs
-    |> ChannelMembershipQuery.by_conversation_refs()
-    |> ChannelMembershipQuery.lock_for_share()
+    |> ChannelMembership.Query.by_conversation_refs()
+    |> ChannelMembership.Query.lock_for_share()
     |> Repo.all()
     |> Map.new()
   end

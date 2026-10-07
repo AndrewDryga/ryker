@@ -9,7 +9,7 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session, SessionChangeset}
+  alias Ryker.Work.{Custody, Session}
 
   @policy_digest String.duplicate("b", 64)
   @sandbox_digest String.duplicate("a", 64)
@@ -522,7 +522,7 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
   defp pin_job!(session) do
     job = WorkerJob.build(session.external_ref, session.repository_ref)
     {:ok, digest} = JobSpec.digest(job)
-    session |> SessionChangeset.pin_worker_job(job, digest) |> Repo.update!()
+    session |> Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
   end
 
   defp cleanup!(sessions, worker_ids) do

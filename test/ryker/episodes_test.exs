@@ -1,7 +1,7 @@
 defmodule Ryker.EpisodesTest do
   use Ryker.DataCase, async: true
   alias Ryker.Episodes
-  alias Ryker.Episodes.{EpisodeChangeset, Event, EventChangeset, Reducer}
+  alias Ryker.Episodes.{Episode, Event, Reducer}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
 
   test "a lost response retry returns one durable event" do
@@ -189,7 +189,7 @@ defmodule Ryker.EpisodesTest do
     assert {:ok, transition} = Reducer.decide(nil, input)
     self_linked = %{transition.episode | linked_episode_id: transition.episode.id}
 
-    assert {:error, changeset} = Repo.insert(EpisodeChangeset.insert(self_linked))
+    assert {:error, changeset} = Repo.insert(Episode.Changeset.insert(self_linked))
 
     assert {:linked_episode_id, {"is invalid", _metadata}} =
              List.keyfind(changeset.errors, :linked_episode_id, 0)
@@ -228,7 +228,7 @@ defmodule Ryker.EpisodesTest do
 
     assert {:ok, _event} =
              occupied
-             |> EventChangeset.insert(admitted.episode.id)
+             |> Event.Changeset.insert(admitted.episode.id)
              |> Repo.insert()
 
     assert {:error, {:persistence_failed, :event, _errors}} =

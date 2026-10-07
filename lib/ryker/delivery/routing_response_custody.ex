@@ -16,7 +16,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.{Request, RoutingResponse, RoutingResponseChangeset, RoutingResponseQuery}
+  alias Ryker.Delivery.{Request, RoutingResponse}
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
@@ -46,7 +46,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
 
   defp insert_response(entry, {{kind, document}, position}, {:ok, inserted}) do
     entry
-    |> RoutingResponseChangeset.insert(
+    |> RoutingResponse.Changeset.insert(
       Ecto.UUID.generate(),
       position,
       kind,
@@ -89,7 +89,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> RoutingResponseQuery.next_due_after()
+    |> RoutingResponse.Query.next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -133,7 +133,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
         lease_expires_at = later_datetime(response.lease_expires_at, requested_expiry)
 
         response
-        |> RoutingResponseChangeset.renew(lease_expires_at)
+        |> RoutingResponse.Changeset.renew(lease_expires_at)
         |> Repo.update()
         |> unwrap_or_rollback(:delivery_renewal)
       end)
@@ -149,7 +149,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
          :ok <- bounded_text(error_detail, 4_096, :error_detail) do
       mutate_claim(delivery_ref, lease_ref, fn response, _now ->
         response
-        |> RoutingResponseChangeset.block(%{
+        |> RoutingResponse.Changeset.block(%{
           last_error_code: error_code,
           last_error_detail: error_detail,
           lease_expires_at: nil,
@@ -184,7 +184,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
          :ok <- bounded_text(error_detail, 4_096, :error_detail) do
       mutate_claim(delivery_ref, lease_ref, fn response, now ->
         response
-        |> RoutingResponseChangeset.defer(%{
+        |> RoutingResponse.Changeset.defer(%{
           last_error_code: error_code,
           last_error_detail: error_detail,
           lease_expires_at: nil,
@@ -216,11 +216,11 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
     now = Repo.now!()
 
     next =
-      RoutingResponseQuery.in_order()
-      |> RoutingResponseQuery.claimable_at(now)
-      |> RoutingResponseQuery.oldest_first()
-      |> RoutingResponseQuery.limit_to(1)
-      |> RoutingResponseQuery.lock_next_free()
+      RoutingResponse.Query.in_order()
+      |> RoutingResponse.Query.claimable_at(now)
+      |> RoutingResponse.Query.oldest_first()
+      |> RoutingResponse.Query.limit_to(1)
+      |> RoutingResponse.Query.lock_next_free()
       |> Repo.one()
 
     case next do
@@ -232,7 +232,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
 
         claimed =
           response
-          |> RoutingResponseChangeset.claim(%{
+          |> RoutingResponse.Changeset.claim(%{
             attempt_count: response.attempt_count + 1,
             last_error_code: nil,
             last_error_detail: nil,
@@ -265,7 +265,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
     case lock_response(delivery_ref) do
       %RoutingResponse{status: :blocked} = response ->
         response
-        |> RoutingResponseChangeset.retry()
+        |> RoutingResponse.Changeset.retry()
         |> Repo.update()
         |> unwrap_or_rollback(:delivery_retry)
 
@@ -294,7 +294,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
         with :ok <- current_lease(response, lease_ref, now),
              :ok <- exact_receipt(response, receipt) do
           response
-          |> RoutingResponseChangeset.deliver(receipt, fingerprint, now)
+          |> RoutingResponse.Changeset.deliver(receipt, fingerprint, now)
           |> Repo.update()
           |> unwrap_or_rollback(:delivery_confirmation)
         else
@@ -324,8 +324,8 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
 
   defp lock_response(delivery_ref) do
     delivery_ref
-    |> RoutingResponseQuery.by_delivery_ref()
-    |> RoutingResponseQuery.lock_for_update()
+    |> RoutingResponse.Query.by_delivery_ref()
+    |> RoutingResponse.Query.lock_for_update()
     |> Repo.one()
   end
 
