@@ -14,12 +14,14 @@ defmodule Ryker.Settings do
   alias Ryker.Accounting.Pricing
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
+  alias Ryker.Emisar.ApprovalQuery
   alias Ryker.Repo
   alias Ryker.Settings.{Edit, EmisarConnection, Environment, EnvironmentRepository, GitHub}
+  alias Ryker.Settings.{EnvironmentQuery, Work}
   alias Ryker.Settings.{GitHubBinding, Installation, Learning, PricingRate, Publication, Report}
   alias Ryker.Settings.{Repository, Retention, RetentionImpact, Slack, Validation, WebhookSource}
-  alias Ryker.Settings.Work
   alias Ryker.Slack.Operators
+  alias Ryker.Work.SessionQuery
 
   @actor "control-plane:local"
   @tailnet_actor "control-plane:tailscale:"
@@ -610,8 +612,8 @@ defmodule Ryker.Settings do
   defp delete_found(_schema, key, nil, _snapshot),
     do: Repo.rollback({:invalid_settings, [{key, :unknown}]})
 
-  defp delete_found(schema, key, item, snapshot) do
-    case schema.deletable(item, snapshot) do
+  defp delete_found(_schema, key, item, snapshot) do
+    case deletable(item, snapshot) do
       :ok -> :ok
       {:error, reason} -> Repo.rollback({:invalid_settings, reason})
     end
@@ -619,6 +621,50 @@ defmodule Ryker.Settings do
     Repo.delete!(item)
     {:changed, %{"deleted" => stringify(Map.get(item, key))}}
   end
+
+  @doc """
+  Whether `item` may be deleted from `snapshot`: `:ok`, or the error naming
+  what still uses it. A repository an environment or a GitHub binding names
+  stays; so does an environment a Slack channel or a webhook source selects,
+  and an Emisar connection an environment, a session not discarded or an
+  approval names.
+  """
+  @spec deletable(struct(), map()) :: :ok | {:error, keyword()}
+  def deletable(%Repository{ref: ref}, snapshot) do
+    referenced =
+      Enum.any?(snapshot.environments, &(ref in Environment.repository_refs(&1))) or
+        Enum.any?(snapshot.github_bindings, &(&1.repository_ref == ref))
+
+    if referenced, do: {:error, [{:ref, :referenced}]}, else: :ok
+  end
+
+  def deletable(%Environment{ref: ref}, snapshot) do
+    channels = ref |> EnvironmentQuery.selecting_channels() |> Repo.aggregate(:count)
+    webhook_sources = Enum.count(snapshot.webhook_sources, &(&1.environment_ref == ref))
+
+    if channels + webhook_sources == 0,
+      do: :ok,
+      else:
+        {:error, [ref: {:referenced, %{channels: channels, webhook_sources: webhook_sources}}]}
+  end
+
+  def deletable(%EmisarConnection{ref: ref}, snapshot) do
+    environments = Enum.count(snapshot.environments, &(&1.emisar_connection_ref == ref))
+    sessions = ref |> SessionQuery.using_emisar_connection() |> Repo.aggregate(:count)
+    approvals = ref |> ApprovalQuery.by_connection() |> Repo.aggregate(:count)
+
+    if environments + sessions + approvals == 0 do
+      :ok
+    else
+      {:error,
+       [
+         ref:
+           {:referenced, %{approvals: approvals, environments: environments, sessions: sessions}}
+       ]}
+    end
+  end
+
+  def deletable(_item, _snapshot), do: :ok
 
   # Shared write path ---------------------------------------------------------
 

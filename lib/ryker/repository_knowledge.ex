@@ -27,9 +27,8 @@ defmodule Ryker.RepositoryKnowledge do
   (`subscribe/0`).
   """
 
-  import Ecto.Query
   alias Ryker.Repo
-  alias Ryker.RepositoryKnowledge.{Custody, Entry}
+  alias Ryker.RepositoryKnowledge.{Custody, Entry, EntryQuery}
   alias Ryker.Settings
 
   @refresh_reason "Someone asked for it on the Repositories page."
@@ -63,18 +62,16 @@ defmodule Ryker.RepositoryKnowledge do
   @doc "The knowledge entries of the repositories `refs` names, by repository ref."
   @spec entries([String.t()]) :: %{String.t() => Entry.t()}
   def entries(refs) when is_list(refs) do
-    Repo.all(
-      from(entry in Entry,
-        where: entry.repository_ref in ^refs,
-        select: {entry.repository_ref, entry}
-      )
-    )
+    refs
+    |> EntryQuery.by_repositories()
+    |> EntryQuery.select_by_ref()
+    |> Repo.all()
     |> Map.new()
   end
 
   @doc "One repository's knowledge entry, or nil before its first check."
   @spec entry(String.t()) :: Entry.t() | nil
-  def entry(ref) when is_binary(ref), do: Repo.get(Entry, ref)
+  def entry(ref) when is_binary(ref), do: Repo.one(EntryQuery.by_repository(ref))
 
   @doc """
   Why a step failed, in words a person can act on: each sentence stands on

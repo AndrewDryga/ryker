@@ -24,8 +24,6 @@ defmodule Ryker.Settings.Environment do
   """
   use Ecto.Schema
   import Ecto.Changeset
-  import Ecto.Query
-  alias Ryker.Repo
   alias Ryker.Settings.{EnvironmentRepository, Validation}
 
   @primary_key {:ref, :string, autogenerate: false}
@@ -257,27 +255,4 @@ defmodule Ryker.Settings.Environment do
   end
 
   defp companion?(ref), do: ref != "primary" and Regex.match?(@companion, ref)
-
-  @doc """
-  An environment a Slack channel or a webhook source selects is refused, and
-  the refusal counts who selects it. Channels live in the Slack tables, so they
-  are counted there rather than read from the settings snapshot.
-  """
-  def deletable(environment, snapshot) do
-    channels =
-      Repo.aggregate(
-        from(configuration in "slack_channel_configurations",
-          where: configuration.environment_ref == ^environment.ref
-        ),
-        :count
-      )
-
-    webhook_sources =
-      Enum.count(snapshot.webhook_sources, &(&1.environment_ref == environment.ref))
-
-    if channels + webhook_sources == 0,
-      do: :ok,
-      else:
-        {:error, [ref: {:referenced, %{channels: channels, webhook_sources: webhook_sources}}]}
-  end
 end

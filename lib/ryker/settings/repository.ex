@@ -2,7 +2,7 @@ defmodule Ryker.Settings.Repository do
   @moduledoc "A connected repository: display metadata and the base branch supplied to Coop."
   use Ecto.Schema
   import Ecto.Changeset
-  alias Ryker.Settings.{Environment, Validation}
+  alias Ryker.Settings.Validation
 
   @primary_key {:ref, :string, autogenerate: false}
   @fields ~w(
@@ -47,18 +47,5 @@ defmodule Ryker.Settings.Repository do
     |> validate_length(:onboarding_error, max: 1_024)
     |> validate_format(:source_commit, ~r/\A[0-9a-f]{40}\z/)
     |> check_constraint(:github_access, name: :repository_github_state_valid)
-  end
-
-  def deletable(repository, snapshot) do
-    referenced = Enum.any?(references(snapshot, repository.ref))
-
-    if referenced, do: {:error, [{:ref, :referenced}]}, else: :ok
-  end
-
-  defp references(snapshot, repository_ref) do
-    [
-      Enum.any?(snapshot.environments, &(repository_ref in Environment.repository_refs(&1))),
-      Enum.any?(snapshot.github_bindings, &(&1.repository_ref == repository_ref))
-    ]
   end
 end

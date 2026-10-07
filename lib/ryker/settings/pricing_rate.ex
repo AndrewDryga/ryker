@@ -79,6 +79,4 @@ defmodule Ryker.Settings.PricingRate do
       changeset
     end
   end
-
-  def deletable(_rate, _snapshot), do: :ok
 end

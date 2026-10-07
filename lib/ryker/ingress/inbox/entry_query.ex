@@ -67,6 +67,16 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
     )
   end
 
+  @doc "Later revisions of the message `entry` revises."
+  def later_revisions_of(entry) do
+    where(
+      all(),
+      [ingress_inbox_entries: e],
+      e.source_kind == ^entry.source_kind and e.source_ref == ^entry.source_ref and
+        e.native_input_id == ^entry.native_input_id and e.revision > ^entry.revision
+    )
+  end
+
   @doc "A GitHub item Ryker already engaged with, by its repository and the item it is."
   def engaged_github_item(source_ref, source_item_ref) do
     where(
@@ -155,11 +165,20 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
 
   def select_ids(queryable), do: select(queryable, [ingress_inbox_entries: e], e.id)
 
+  def select_destinations(queryable) do
+    select(
+      queryable,
+      [ingress_inbox_entries: e],
+      struct(e, [:id, :destination_transport, :destination_conversation_ref])
+    )
+  end
+
   # Keeps the message from being deleted until the transaction ends, without
   # blocking anything that only updates it.
   def lock_for_key_share(queryable), do: lock(queryable, "FOR KEY SHARE")
 
   def lock_for_share(queryable), do: lock(queryable, "FOR SHARE")
+  def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 end

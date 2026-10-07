@@ -9,6 +9,60 @@ defmodule Ryker.Episodes.EpisodeQuery do
   def by_id(queryable \\ all(), id),
     do: where(queryable, [episode_kernel_episodes: e], e.id == ^id)
 
+  def by_ids(queryable \\ all(), ids),
+    do: where(queryable, [episode_kernel_episodes: e], e.id in ^ids)
+
+  @doc "Requests in conversation `conversation_ref` on `transport`."
+  def in_conversation(queryable \\ all(), transport, conversation_ref) do
+    where(
+      queryable,
+      [episode_kernel_episodes: e],
+      e.destination_transport == ^transport and
+        e.destination_conversation_ref == ^conversation_ref
+    )
+  end
+
+  @doc """
+  The latest `limit` other requests of `episode`'s conversation that finished
+  or are working, as outcomes recall them.
+  """
+  def recent_neighbors(episode, limit) do
+    from(e in all(),
+      where:
+        e.id != ^episode.id and e.destination_transport == ^episode.destination_transport and
+          e.destination_conversation_ref == ^episode.destination_conversation_ref and
+          e.state in [:complete, :working],
+      order_by: [desc: e.updated_at, desc: e.id],
+      limit: ^limit
+    )
+  end
+
+  def in_mode(queryable, execution_mode),
+    do: where(queryable, [episode_kernel_episodes: e], e.execution_mode == ^execution_mode)
+
+  def ordered_by_id(queryable), do: order_by(queryable, [episode_kernel_episodes: e], asc: e.id)
+
+  def by_key(queryable \\ all(), key),
+    do: where(queryable, [episode_kernel_episodes: e], e.key == ^key)
+
+  def select_request_fields(queryable) do
+    select(
+      queryable,
+      [episode_kernel_episodes: e],
+      map(e, [:key, :destination_transport, :destination_conversation_ref])
+    )
+  end
+
+  def select_destinations(queryable) do
+    select(
+      queryable,
+      [episode_kernel_episodes: e],
+      {e.destination_transport, e.destination_conversation_ref}
+    )
+  end
+
+  def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+
   def in_thread(queryable \\ all(), transport, conversation_ref, thread_ref) do
     where(
       queryable,

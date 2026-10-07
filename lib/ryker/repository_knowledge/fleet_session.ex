@@ -6,10 +6,9 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
   run has stopped (`Ryker.Retention.Custody`).
   """
 
-  import Ecto.Query
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.Run
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work.{Custody, Session, SessionQuery}
 
   @doc "The task reference Coop knows the run's session by."
   @spec external_ref(Run.t()) :: String.t()
@@ -98,14 +97,12 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
   def for_run(%Run{id: id}), do: for_run(id)
 
   def for_run(id) when is_binary(id),
-    do: Repo.get_by(Session, execution_kind: :knowledge, knowledge_run_id: id)
+    do: Repo.one(SessionQuery.for_knowledge_run(id))
 
   defp locked(run) do
-    Repo.one!(
-      from(session in Session,
-        where: session.execution_kind == :knowledge and session.knowledge_run_id == ^run.id,
-        lock: "FOR UPDATE"
-      )
-    )
+    run.id
+    |> SessionQuery.for_knowledge_run()
+    |> SessionQuery.lock_for_update()
+    |> Repo.one!()
   end
 end

@@ -8,17 +8,16 @@ defmodule Ryker.Records.InputRequests do
   envelopes stop here; the resulting inbox entry follows ordinary admission.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.{Inbox, Input}
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.RecordChangeset
-  alias Ryker.Records.Response
   alias Ryker.Records.ResponseChangeset
+  alias Ryker.Records.ResponseQuery
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
@@ -52,7 +51,7 @@ defmodule Ryker.Records.InputRequests do
          {:ok, record, episode, turn} <- lock_request(ref),
          :ok <- current_wait?(episode, ref) do
       if typed_answer_source?(entry, episode, turn) and
-           is_nil(Repo.get_by(Response, record_id: record.id)) do
+           not Repo.exists?(ResponseQuery.by_record_id(record.id)) do
         persist_typed_response(record, entry, turn)
       else
         :ok
@@ -115,7 +114,7 @@ defmodule Ryker.Records.InputRequests do
   defp answer_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_request(attributes.record_ref),
          :ok <- delivered_from?(episode, turn, attributes.target) do
-      case Repo.get_by(Response, record_id: record.id) do
+      case Repo.one(ResponseQuery.by_record_id(record.id)) do
         nil -> record_answer(record, episode, turn, attributes)
         response -> duplicate(response, record, attributes)
       end
@@ -125,20 +124,9 @@ defmodule Ryker.Records.InputRequests do
   end
 
   defp lock_request(record_ref) do
-    query =
-      from(record in Record,
-        join: episode in Episode,
-        on: episode.id == record.episode_id,
-        join: turn in Turn,
-        on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-        where: record.ref == ^record_ref and record.kind == "input_request",
-        select: {record, episode, turn},
-        lock: "FOR UPDATE"
-      )
-
-    case Repo.one(query) do
-      nil -> {:error, :input_request_not_found}
-      {record, episode, turn} -> {:ok, record, episode, turn}
+    case Records.lock_offer(record_ref, ["input_request"]) do
+      {:error, :not_found} -> {:error, :input_request_not_found}
+      found -> found
     end
   end
 
@@ -176,7 +164,7 @@ defmodule Ryker.Records.InputRequests do
     if response.response_ref == attributes.response_ref and
          response.actor_ref == attributes.actor_ref and
          response.choice_index == attributes.choice_index do
-      case Repo.get(Entry, response.inbox_entry_id) do
+      case Repo.one(EntryQuery.by_id(response.inbox_entry_id)) do
         %Entry{} = entry ->
           %{
             input_ref: Inbox.ref(entry),

@@ -5,6 +5,15 @@ defmodule Ryker.Delivery.PlatformActionQuery do
 
   def all, do: from(actions in PlatformAction, as: :platform_actions)
 
+  @doc "The action turn `turn_id` took in host slot `host_slot`."
+  def by_turn_slot(turn_id, host_slot) do
+    where(
+      all(),
+      [platform_actions: a],
+      a.turn_id == ^turn_id and a.host_slot == ^host_slot
+    )
+  end
+
   def in_conversation(queryable \\ all(), transport, conversation_ref) do
     where(
       queryable,

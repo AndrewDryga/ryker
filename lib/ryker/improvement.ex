@@ -44,12 +44,11 @@ defmodule Ryker.Improvement do
   (`forget_in_transaction/1`).
   """
 
-  import Ecto.Query
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.EpisodeQuery
   alias Ryker.Feedback.Signal
-  alias Ryker.Improvement.{AnalysisRun, Candidate, Evidence}
+  alias Ryker.Improvement.{AnalysisRunQuery, Candidate, CandidateQuery, Evidence}
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.EntryQuery
   alias Ryker.Repo
   alias Ryker.RoutingExamples
 
@@ -109,13 +108,7 @@ defmodule Ryker.Improvement do
   end
 
   defp request_row(%Signal{episode_id: id} = signal, reason) when is_binary(id) do
-    episode =
-      Repo.one!(
-        from(episode in Episode,
-          where: episode.id == ^id,
-          select: map(episode, [:key, :destination_transport, :destination_conversation_ref])
-        )
-      )
+    episode = id |> EpisodeQuery.by_id() |> EpisodeQuery.select_request_fields() |> Repo.one!()
 
     row(signal, reason, %{
       episode_id: id,
@@ -127,13 +120,7 @@ defmodule Ryker.Improvement do
   end
 
   defp request_row(%Signal{input_id: id} = signal, reason) when is_binary(id) do
-    entry =
-      Repo.one!(
-        from(entry in Entry,
-          where: entry.id == ^id,
-          select: struct(entry, [:id, :destination_transport, :destination_conversation_ref])
-        )
-      )
+    entry = id |> EntryQuery.by_id() |> EntryQuery.select_destinations() |> Repo.one!()
 
     row(signal, reason, %{
       episode_id: nil,
@@ -163,24 +150,7 @@ defmodule Ryker.Improvement do
 
     {1, [%{id: id}]} =
       Repo.insert_all(Candidate, [row],
-        on_conflict:
-          from(candidate in Candidate,
-            update: [
-              set: [
-                reasons:
-                  fragment(
-                    "ARRAY(SELECT DISTINCT reason FROM unnest(? || EXCLUDED.reasons) AS reason ORDER BY reason)",
-                    candidate.reasons
-                  ),
-                first_signal_at:
-                  fragment("LEAST(?, EXCLUDED.first_signal_at)", candidate.first_signal_at),
-                last_signal_at:
-                  fragment("GREATEST(?, EXCLUDED.last_signal_at)", candidate.last_signal_at),
-                updated_at: fragment("EXCLUDED.updated_at")
-              ],
-              inc: [signal_count: 1]
-            ]
-          ),
+        on_conflict: CandidateQuery.merge_signal(),
         conflict_target: [target],
         returning: [:id]
       )
@@ -190,8 +160,10 @@ defmodule Ryker.Improvement do
 
   @doc "The candidate about a request, or nil."
   @spec for_request(Ryker.Feedback.request()) :: Candidate.t() | nil
-  def for_request({:episode, id}) when is_binary(id), do: Repo.get_by(Candidate, episode_id: id)
-  def for_request({:input, id}) when is_binary(id), do: Repo.get_by(Candidate, input_id: id)
+  def for_request({:episode, id}) when is_binary(id),
+    do: Repo.one(CandidateQuery.by_episode_id(id))
+
+  def for_request({:input, id}) when is_binary(id), do: Repo.one(CandidateQuery.by_input_id(id))
   def for_request(_request), do: nil
 
   @doc """
@@ -203,37 +175,15 @@ defmodule Ryker.Improvement do
   """
   @spec week(DateTime.t(), DateTime.t()) :: map()
   def week(%DateTime{} = from, %DateTime{} = to) do
-    visible = from(candidate in Candidate, where: is_nil(candidate.forgotten_at))
-
-    found =
-      from(candidate in visible,
-        where: candidate.inserted_at >= ^from and candidate.inserted_at < ^to
-      )
-
-    decided =
-      from(candidate in visible,
-        where: candidate.decided_at >= ^from and candidate.decided_at < ^to
-      )
-
-    waiting =
-      from(candidate in found,
-        where: candidate.analysis in [:pending, :running] and candidate.status != :dismissed
-      )
-
-    categories =
-      from(candidate in found,
-        where: not is_nil(candidate.category),
-        group_by: candidate.category,
-        select: {candidate.category, count()}
-      )
-      |> Repo.all()
-      |> Map.new()
+    found = CandidateQuery.kept() |> CandidateQuery.created_between(from, to)
+    decided = CandidateQuery.kept() |> CandidateQuery.decided_between(from, to)
+    categories = found |> CandidateQuery.count_by_category() |> Repo.all() |> Map.new()
 
     counts = %{
       found: Repo.aggregate(found, :count),
-      waiting: Repo.aggregate(waiting, :count),
-      accepted: Repo.aggregate(from(c in decided, where: c.status == :accepted), :count),
-      dismissed: Repo.aggregate(from(c in decided, where: c.status == :dismissed), :count)
+      waiting: found |> CandidateQuery.awaiting_analysis() |> Repo.aggregate(:count),
+      accepted: decided |> CandidateQuery.with_status(:accepted) |> Repo.aggregate(:count),
+      dismissed: decided |> CandidateQuery.with_status(:dismissed) |> Repo.aggregate(:count)
     }
 
     Map.merge(counts, %{
@@ -358,7 +308,7 @@ defmodule Ryker.Improvement do
 
   defp decide_locked(id, actor_ref, status) do
     candidate =
-      Repo.one(from(candidate in Candidate, where: candidate.id == ^id, lock: "FOR UPDATE")) ||
+      id |> CandidateQuery.by_id() |> CandidateQuery.lock_for_update() |> Repo.one() ||
         Repo.rollback(:improvement_candidate_not_found)
 
     cond do
@@ -431,23 +381,13 @@ defmodule Ryker.Improvement do
   def forget_in_transaction([]), do: :ok
 
   def forget_in_transaction(keys) when is_list(keys) do
-    erase(
-      from(candidate in Candidate,
-        where: fragment("? && ?::text[]", candidate.message_keys, ^keys)
-      )
-    )
+    keys |> CandidateQuery.quoting_messages() |> erase()
   end
 
   @doc "Erases what candidates hold about a conversation that was deleted, in its transaction."
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
-    erase(
-      from(candidate in Candidate,
-        where:
-          candidate.conversation_ref == ^conversation_ref or
-            fragment("? @> ARRAY[?]::text[]", candidate.conversation_refs, ^conversation_ref)
-      )
-    )
+    conversation_ref |> CandidateQuery.in_conversation() |> erase()
   end
 
   defp erase(query) do
@@ -455,7 +395,7 @@ defmodule Ryker.Improvement do
 
     {_count, ids} =
       Repo.update_all(
-        from(candidate in query, where: is_nil(candidate.forgotten_at), select: candidate.id),
+        query |> CandidateQuery.kept() |> CandidateQuery.select_ids(),
         set: [
           forgotten_at: now,
           case_evidence: nil,
@@ -467,7 +407,7 @@ defmodule Ryker.Improvement do
 
     if ids != [] do
       Repo.update_all(
-        from(run in AnalysisRun, where: run.candidate_id in ^ids and is_nil(run.pruned_at)),
+        AnalysisRunQuery.kept_for_candidates(ids),
         set: [prompt: nil, result: nil, pruned_at: now, updated_at: now]
       )
 

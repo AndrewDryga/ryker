@@ -17,7 +17,7 @@ defmodule Ryker.IntegrationSetup do
   alias Ryker.Emisar.Approvals
   alias Ryker.GitHub.AppJWT
   alias Ryker.Settings
-  alias Ryker.Settings.{EmisarConnection, Environment}
+  alias Ryker.Settings.Environment
   alias Ryker.Slack.Names
 
   @minimum_signing_secret_bytes 32
@@ -576,7 +576,7 @@ defmodule Ryker.IntegrationSetup do
   end
 
   defp unreferenced(connection, snapshot) do
-    case EmisarConnection.deletable(connection, snapshot) do
+    case Settings.deletable(connection, snapshot) do
       :ok -> :ok
       {:error, reason} -> {:error, {:invalid_settings, reason}}
     end

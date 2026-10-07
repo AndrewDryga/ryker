@@ -2,7 +2,7 @@ defmodule Ryker.Settings.EnvironmentsTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   alias Ryker.Settings
-  alias Ryker.Settings.{Edit, EmisarConnection, Environment}
+  alias Ryker.Settings.{Edit, Environment}
 
   @actor "control-plane:local"
 
@@ -419,7 +419,7 @@ defmodule Ryker.Settings.EnvironmentsTest do
     connection = hd(saved.emisar_connections)
 
     assert {:error, [ref: {:referenced, %{environments: 1, sessions: 0, approvals: 0}}]} =
-             EmisarConnection.deletable(connection, saved)
+             Settings.deletable(connection, saved)
 
     assert {:error, {:invalid_settings, [ref: {:referenced, %{environments: 1}}]}} =
              Settings.delete_emisar_connection("production", saved.installation.revision, @actor)

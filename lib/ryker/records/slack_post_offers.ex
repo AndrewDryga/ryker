@@ -8,7 +8,7 @@ defmodule Ryker.Records.SlackPostOffers do
   idempotent outbox action.
   """
 
-  alias Ryker.Delivery.{PlatformAction, PlatformActionCustody}
+  alias Ryker.Delivery.{PlatformAction, PlatformActionCustody, PlatformActionQuery}
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
@@ -61,10 +61,7 @@ defmodule Ryker.Records.SlackPostOffers do
   end
 
   defp confirmed(record) do
-    case Repo.get_by(PlatformAction,
-           turn_id: record.turn_id,
-           host_slot: host_slot(record)
-         ) do
+    case Repo.one(PlatformActionQuery.by_turn_slot(record.turn_id, host_slot(record))) do
       %PlatformAction{} = action ->
         %{action: action, record: record, status: :duplicate}
 

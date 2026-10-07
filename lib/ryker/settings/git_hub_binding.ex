@@ -76,8 +76,6 @@ defmodule Ryker.Settings.GitHubBinding do
       else: changeset
   end
 
-  def deletable(_binding, _snapshot), do: :ok
-
   defp validate_permissions(:granted_permissions, permissions) when is_map(permissions) do
     valid =
       map_size(permissions) <= 64 and

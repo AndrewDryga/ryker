@@ -129,6 +129,4 @@ defmodule Ryker.Settings.WebhookSource do
     is_list(values) and values != [] and length(values) <= 64 and Enum.uniq(values) == values and
       Enum.all?(values, &(is_binary(&1) and byte_size(&1) in 1..256))
   end
-
-  def deletable(_source, _snapshot), do: :ok
 end

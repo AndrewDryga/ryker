@@ -3,7 +3,6 @@ defmodule Ryker.Settings.EmisarConnection do
 
   use Ecto.Schema
   import Ecto.Changeset
-  import Ecto.Query
   alias Ryker.Settings.Validation
 
   @primary_key {:ref, :string, autogenerate: false}
@@ -39,40 +38,6 @@ defmodule Ryker.Settings.EmisarConnection do
       name: :emisar_connection_endpoint_account_index,
       message: "is already connected at this endpoint"
     )
-  end
-
-  def deletable(connection, snapshot) do
-    environment_count =
-      Enum.count(snapshot.environments, &(&1.emisar_connection_ref == connection.ref))
-
-    session_count =
-      Ryker.Repo.aggregate(
-        from(s in Ryker.Work.Session,
-          where: s.emisar_connection_ref == ^connection.ref and s.cleanup_status != :discarded
-        ),
-        :count
-      )
-
-    approval_count =
-      Ryker.Repo.aggregate(
-        from(a in Ryker.Emisar.Approval, where: a.connection_ref == ^connection.ref),
-        :count
-      )
-
-    if environment_count + session_count + approval_count == 0 do
-      :ok
-    else
-      {:error,
-       [
-         ref:
-           {:referenced,
-            %{
-              approvals: approval_count,
-              environments: environment_count,
-              sessions: session_count
-            }}
-       ]}
-    end
   end
 
   @doc """

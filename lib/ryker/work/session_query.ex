@@ -7,6 +7,35 @@ defmodule Ryker.Work.SessionQuery do
 
   def all, do: from(sessions in Session, as: :episode_work_sessions)
 
+  @doc "The session of repository-knowledge run `run_id`."
+  def for_knowledge_run(queryable \\ all(), run_id) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.execution_kind == :knowledge and s.knowledge_run_id == ^run_id
+    )
+  end
+
+  @doc "Sessions not discarded that use Emisar connection `ref`."
+  def using_emisar_connection(queryable \\ all(), ref) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.emisar_connection_ref == ^ref and s.cleanup_status != :discarded
+    )
+  end
+
+  def by_coop_session_id(queryable, coop_session_id),
+    do: where(queryable, [episode_work_sessions: s], s.coop_session_id == ^coop_session_id)
+
+  def by_ids(queryable \\ all(), ids),
+    do: where(queryable, [episode_work_sessions: s], s.id in ^ids)
+
+  def latest_generation_first(queryable),
+    do: order_by(queryable, [episode_work_sessions: s], desc: s.generation)
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
+
   def by_episode_id(queryable \\ all(), episode_id),
     do: where(queryable, [episode_work_sessions: s], s.episode_id == ^episode_id)
 

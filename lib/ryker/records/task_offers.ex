@@ -7,9 +7,8 @@ defmodule Ryker.Records.TaskOffers do
   the exact message that carried the control.
   """
 
-  import Ecto.Query
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode}
+  alias Ryker.Episodes.{Command, Episode, EpisodeQuery}
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
@@ -17,7 +16,7 @@ defmodule Ryker.Records.TaskOffers do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{Custody, RepositoryContext, RepositorySource, Session}
+  alias Ryker.Work.{Custody, RepositoryContext, RepositorySource, Session, SessionQuery}
 
   @fields [:actor_ref, :confirmation_ref, :occurred_at, :policy, :record_ref, :target]
   @policy_fields [:digest, :environment_ref, :name, :repository_context, :repository_ref]
@@ -197,16 +196,17 @@ defmodule Ryker.Records.TaskOffers do
     end
   end
 
+  defp latest_session(episode_id) do
+    episode_id
+    |> SessionQuery.by_episode_id()
+    |> SessionQuery.latest_generation_first()
+    |> SessionQuery.limit_to(1)
+    |> Repo.one()
+  end
+
   defp confirmed(record, status) do
-    with %Episode{} = episode <- Repo.get(Episode, record.confirmed_episode_id),
-         %Session{} = session <-
-           Repo.one(
-             from(session in Session,
-               where: session.episode_id == ^record.confirmed_episode_id,
-               order_by: [desc: session.generation],
-               limit: 1
-             )
-           ) do
+    with %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(record.confirmed_episode_id)),
+         %Session{} = session <- latest_session(record.confirmed_episode_id) do
       %{episode: episode, record: record, session: session, status: status}
     else
       _missing -> Repo.rollback(:task_offer_confirmation_incomplete)

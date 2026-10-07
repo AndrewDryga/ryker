@@ -9,7 +9,6 @@ defmodule Ryker.Admission do
   every phase its attempt reaches, and the decision.
   """
 
-  import Ecto.Query
   require Logger
   alias Ryker.Admission.Attempts
   alias Ryker.Admission.{Candidate, CandidateSearch, Context, ConversationContext}
@@ -18,11 +17,12 @@ defmodule Ryker.Admission do
   alias Ryker.Behaviors
   alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, ConversationLock, CorrelationClaims, Episode, Event, Origins}
+  alias Ryker.Episodes.{Command, ConversationLock, CorrelationClaims, Episode, EpisodeQuery}
+  alias Ryker.Episodes.{EventQuery, Origins}
   alias Ryker.Episodes.RoutingDigests
   alias Ryker.Feedback
   alias Ryker.Ingress.{Inbox, Input, RecallText, WorkProfile}
-  alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
+  alias Ryker.Ingress.Inbox.{Entry, EntryChangeset, EntryQuery}
   alias Ryker.Knowledge
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
@@ -31,8 +31,8 @@ defmodule Ryker.Admission do
   alias Ryker.Records
   alias Ryker.Records.InputRequests
   alias Ryker.Repo
-  alias Ryker.Settings.Repository
-  alias Ryker.Work.{Custody, Turn}
+  alias Ryker.Settings.RepositoryQuery
+  alias Ryker.Work.{Custody, TurnQuery}
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
@@ -183,12 +183,10 @@ defmodule Ryker.Admission do
     with {:ok, profile} <- WorkProfile.restore(document),
          [_one, _another | _rest] = refs <- WorkProfile.repository_choices(profile) do
       described =
-        Repo.all(
-          from(repository in Repository,
-            where: repository.ref in ^refs,
-            select: {repository.ref, repository.description, repository.display_name}
-          )
-        )
+        refs
+        |> RepositoryQuery.by_refs()
+        |> RepositoryQuery.select_descriptions()
+        |> Repo.all()
         |> Map.new(fn {ref, description, display_name} -> {ref, description || display_name} end)
 
       Enum.map(refs, &described_choice(&1, described))
@@ -553,16 +551,20 @@ defmodule Ryker.Admission do
   end
 
   defp load_entry(id) do
-    case Repo.one(from(entry in Entry, where: entry.id == ^id, lock: "FOR UPDATE")) do
-      nil -> {:error, {:admission_rejected, :input_not_found}}
-      entry -> {:ok, entry}
+    entry = id |> EntryQuery.by_id() |> EntryQuery.lock_for_update() |> Repo.fetch()
+
+    case entry do
+      {:ok, entry} -> {:ok, entry}
+      {:error, :not_found} -> {:error, {:admission_rejected, :input_not_found}}
     end
   end
 
   defp episodes_by_id([]), do: %{}
 
   defp episodes_by_id(ids) do
-    Repo.all(from(episode in Episode, where: episode.id in ^ids))
+    ids
+    |> EpisodeQuery.by_ids()
+    |> Repo.all()
     |> Map.new(&{&1.id, &1})
   end
 
@@ -861,7 +863,7 @@ defmodule Ryker.Admission do
   defp refresh_selection(%{candidate: nil} = selection), do: selection
 
   defp refresh_selection(%{candidate: candidate} = selection) do
-    current = Repo.get(Episode, candidate.episode.id)
+    current = Repo.one(EpisodeQuery.by_id(candidate.episode.id))
 
     if current,
       do: %{selection | candidate: %{candidate | episode: current}},
@@ -1009,25 +1011,15 @@ defmodule Ryker.Admission do
   defp waiting?(_episode), do: false
 
   defp input_after_wait?(%Episode{} = episode, occurred_at) do
-    wait_kinds = [:input_wait_started, :event_wait_started]
-    owner_ref = episode.owner_ref
+    wait_mark =
+      episode.id
+      |> EventQuery.by_episode_id()
+      |> EventQuery.wait_marks(episode.owner_ref)
+      |> EventQuery.newest_first()
+      |> EventQuery.limit_to(1)
+      |> Repo.one()
 
-    case Repo.one(
-           from(event in Event,
-             where:
-               event.episode_id == ^episode.id and
-                 ((event.kind in ^wait_kinds and
-                     fragment("(?::jsonb)->>'wait_ref' = ?", event.payload, ^owner_ref)) or
-                    (event.kind == :delivery_confirmed and
-                       fragment(
-                         "(?::jsonb)->'next_wait'->>'ref' = ?",
-                         event.payload,
-                         ^owner_ref
-                       ))),
-             order_by: [desc: event.sequence],
-             limit: 1
-           )
-         ) do
+    case wait_mark do
       nil -> false
       event -> DateTime.compare(occurred_at, event.occurred_at) == :gt
     end
@@ -1151,7 +1143,7 @@ defmodule Ryker.Admission do
     do: Custody.resume_blocked_in_transaction(episode, input_ref)
 
   defp load_decided_episode(nil), do: nil
-  defp load_decided_episode(id), do: Repo.get(Episode, id)
+  defp load_decided_episode(id), do: Repo.one(EpisodeQuery.by_id(id))
 
   # Retrieval is bounded, indexed and explainable: five lanes fill a pool of at
   # most 200 eligible episodes, the exact source item's owner is resolved
@@ -1220,16 +1212,9 @@ defmodule Ryker.Admission do
   defp candidate_outcomes([]), do: %{}
 
   defp candidate_outcomes(episode_ids) do
-    Repo.all(
-      from(turn in Turn,
-        where: turn.episode_id in ^episode_ids,
-        where: not is_nil(turn.accepted_at) and is_nil(turn.operational_pruned_at),
-        distinct: turn.episode_id,
-        order_by: [asc: turn.episode_id, desc: turn.accepted_at, desc: turn.id],
-        select:
-          {turn.episode_id, turn.delivery_document, turn.delivered_at, turn.validation_intent}
-      )
-    )
+    episode_ids
+    |> TurnQuery.latest_accepted_outcomes()
+    |> Repo.all()
     |> Enum.flat_map(fn {episode_id, delivery, delivered_at, intent} ->
       case outcome(delivery, delivered_at, intent) do
         nil -> []
@@ -1261,29 +1246,20 @@ defmodule Ryker.Admission do
   defp conversation_episode_count(input, execution_mode) do
     destination = input.destination
 
-    Repo.aggregate(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == ^destination.transport and
-            episode.destination_conversation_ref == ^destination.conversation_ref and
-            episode.execution_mode == ^execution_mode
-      ),
-      :count
-    )
+    destination.transport
+    |> EpisodeQuery.in_conversation(destination.conversation_ref)
+    |> EpisodeQuery.in_mode(execution_mode)
+    |> Repo.aggregate(:count)
   end
 
   defp current_active_episode_ids(destination, execution_mode) do
-    Repo.all(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == ^destination.transport and
-            episode.destination_conversation_ref == ^destination.conversation_ref and
-            episode.execution_mode == ^execution_mode and
-            episode.state in ^@active_states,
-        order_by: [asc: episode.id],
-        select: episode.id
-      )
-    )
+    destination.transport
+    |> EpisodeQuery.in_conversation(destination.conversation_ref)
+    |> EpisodeQuery.in_mode(execution_mode)
+    |> EpisodeQuery.in_states(@active_states)
+    |> EpisodeQuery.ordered_by_id()
+    |> EpisodeQuery.select_ids()
+    |> Repo.all()
   end
 
   defp active_episode_fingerprint_for_destination(destination, execution_mode) do
@@ -1317,34 +1293,18 @@ defmodule Ryker.Admission do
     |> Enum.map(&{:latest, &1})
   end
 
-  defp endpoint_row(episode_id, :first) do
-    Repo.one(
-      from(event in Event,
-        where: event.episode_id == ^episode_id and event.kind == :input_admitted,
-        order_by: [asc: event.occurred_at, asc: event.sequence],
-        limit: 1,
-        select: %{
-          episode_id: event.episode_id,
-          occurred_at: event.occurred_at,
-          payload: event.payload
-        }
-      )
-    )
-  end
+  defp endpoint_row(episode_id, position) do
+    admissions = episode_id |> EventQuery.by_episode_id() |> EventQuery.of_kind(:input_admitted)
 
-  defp endpoint_row(episode_id, :latest) do
-    Repo.one(
-      from(event in Event,
-        where: event.episode_id == ^episode_id and event.kind == :input_admitted,
-        order_by: [desc: event.occurred_at, desc: event.sequence],
-        limit: 1,
-        select: %{
-          episode_id: event.episode_id,
-          occurred_at: event.occurred_at,
-          payload: event.payload
-        }
-      )
-    )
+    ordered =
+      if position == :first,
+        do: EventQuery.earliest_first(admissions),
+        else: EventQuery.latest_first(admissions)
+
+    ordered
+    |> EventQuery.limit_to(1)
+    |> EventQuery.select_endpoints()
+    |> Repo.one()
   end
 
   defp selected_candidate(_context, nil), do: {:ok, nil}

@@ -18,9 +18,8 @@ defmodule Ryker.Records.Findings do
   and one marked explained is answered, as a question a person answered is.
   """
 
-  import Ecto.Query
   alias Ryker.Records
-  alias Ryker.Records.Record
+  alias Ryker.Records.{Record, RecordQuery}
   alias Ryker.Repo
 
   @doc "Forgets a finding Ryker still uses."
@@ -44,13 +43,7 @@ defmodule Ryker.Records.Findings do
   end
 
   defp settle_locked(id, status, allowed?) do
-    record =
-      Repo.one(
-        from(record in Record,
-          where: record.id == ^id and record.kind == "finding",
-          lock: "FOR UPDATE"
-        )
-      )
+    record = id |> RecordQuery.finding() |> RecordQuery.lock_for_update() |> Repo.one()
 
     with {:ok, payload} <- open_payload(record),
          :ok <- allowed?.(payload) do
@@ -67,14 +60,7 @@ defmodule Ryker.Records.Findings do
 
   defp set_status!(id, status) do
     {1, [record]} =
-      Repo.update_all(
-        from(record in Record,
-          where: record.id == ^id,
-          update: [set: [status: ^status, updated_at: fragment("clock_timestamp()")]],
-          select: record
-        ),
-        []
-      )
+      id |> RecordQuery.by_id() |> RecordQuery.transition(status) |> Repo.update_all([])
 
     Records.broadcast_record_updated(record)
     record

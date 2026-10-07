@@ -18,16 +18,15 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   (`Ryker.RepositoryKnowledge.subscribe/0`); a lease renewal is not.
   """
 
-  import Ecto.Query
   require Logger
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge
-  alias Ryker.RepositoryKnowledge.{Entry, FleetSession, Run}
+  alias Ryker.RepositoryKnowledge.{Entry, EntryQuery, FleetSession, Run, RunQuery}
   alias Ryker.UTCDateTime
-  alias Ryker.Work.Session
+  alias Ryker.Work.SessionQuery
 
   @terminal ~w(completed failed cancelled interrupted budget_exhausted)
   @day_seconds 86_400
@@ -48,9 +47,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
   def ensure(refs) when is_list(refs) do
     known =
-      Repo.all(
-        from(entry in Entry, where: entry.repository_ref in ^refs, select: entry.repository_ref)
-      )
+      refs |> EntryQuery.by_repositories() |> EntryQuery.select_refs() |> Repo.all()
 
     case refs -- known do
       [] ->
@@ -96,56 +93,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
     end)
   end
 
-  defp next_entry(now, refs) do
-    Repo.one(
-      from(entry in Entry,
-        as: :entry,
-        where: ^claimable(now, refs),
-        order_by: [
-          asc: coalesce(entry.next_attempt_at, entry.next_check_at),
-          asc: entry.repository_ref
-        ],
-        limit: 1,
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
-    )
-  end
-
-  # A worker stopped renewing its lease; or, unleased, a write is due for a
-  # repository still set up, or has a run out at Coop; or the daily check is
-  # due for a repository still set up.
-  defp claimable(now, refs) do
-    dynamic(
-      [entry: e],
-      (not is_nil(e.lease_ref) and e.lease_expires_at <= ^now) or
-        (is_nil(e.lease_ref) and (^step_due(now, refs) or ^check_due(now, refs)))
-    )
-  end
-
-  defp step_due(now, refs) do
-    dynamic(
-      [entry: e],
-      e.phase == :write and
-        (is_nil(e.next_attempt_at) or e.next_attempt_at <= ^now) and
-        (e.repository_ref in ^refs or exists(outstanding_parent_run()))
-    )
-  end
-
-  defp check_due(now, refs) do
-    dynamic(
-      [entry: e],
-      e.phase == :idle and (is_nil(e.next_check_at) or e.next_check_at <= ^now) and
-        e.repository_ref in ^refs
-    )
-  end
-
-  defp outstanding_parent_run do
-    from(run in Run,
-      where:
-        run.repository_ref == parent_as(:entry).repository_ref and not is_nil(run.started_at) and
-          is_nil(run.remote_stopped_at)
-    )
-  end
+  defp next_entry(now, refs), do: now |> EntryQuery.next_claimable(refs) |> Repo.one()
 
   @doc """
   The earliest moment after `since` at which an entry becomes due by the
@@ -155,29 +103,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   """
   @spec next_due_at(DateTime.t(), [String.t()]) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, refs) do
-    [attempt_due, check_due, lease_due] =
-      Repo.one(
-        from(entry in Entry,
-          as: :entry,
-          select: [
-            filter(
-              min(entry.next_attempt_at),
-              is_nil(entry.lease_ref) and entry.phase == :write and
-                entry.next_attempt_at > ^since and
-                (entry.repository_ref in ^refs or exists(outstanding_parent_run()))
-            ),
-            filter(
-              min(entry.next_check_at),
-              is_nil(entry.lease_ref) and entry.phase == :idle and entry.next_check_at > ^since and
-                entry.repository_ref in ^refs
-            ),
-            filter(
-              min(entry.lease_expires_at),
-              not is_nil(entry.lease_ref) and entry.lease_expires_at > ^since
-            )
-          ]
-        )
-      )
+    [attempt_due, check_due, lease_due] = since |> EntryQuery.next_due_after(refs) |> Repo.one()
 
     UTCDateTime.earliest([attempt_due, check_due, lease_due])
   end
@@ -320,7 +246,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       :ok = ensure([ref])
 
       entry =
-        Repo.one!(from(entry in Entry, where: entry.repository_ref == ^ref, lock: "FOR UPDATE"))
+        ref |> EntryQuery.by_repository() |> EntryQuery.lock_for_update() |> Repo.one!()
 
       if entry.phase == :write do
         :already_writing
@@ -345,7 +271,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       :ok = ensure([ref])
 
       entry =
-        Repo.one!(from(entry in Entry, where: entry.repository_ref == ^ref, lock: "FOR UPDATE"))
+        ref |> EntryQuery.by_repository() |> EntryQuery.lock_for_update() |> Repo.one!()
 
       if entry.phase == :idle, do: save(entry, next_check_at: Repo.now!())
     end)
@@ -437,29 +363,24 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
   @doc "The run of a repository that started and has no stop proof yet, or nil."
   def outstanding(ref) do
-    Repo.one(
-      from(run in Run,
-        where:
-          run.repository_ref == ^ref and not is_nil(run.started_at) and
-            is_nil(run.remote_stopped_at),
-        order_by: [asc: run.generation],
-        limit: 1
-      )
-    )
+    ref
+    |> RunQuery.by_repository()
+    |> RunQuery.outstanding()
+    |> RunQuery.oldest_generation_first()
+    |> RunQuery.limit_to(1)
+    |> Repo.one()
   end
 
   @doc "A run as it is stored now."
-  def current(run_id), do: Repo.get!(Run, run_id)
+  def current(run_id), do: Repo.one!(RunQuery.by_id(run_id))
 
   @doc "A repository's latest run, or nil."
   def last_run(ref) do
-    Repo.one(
-      from(run in Run,
-        where: run.repository_ref == ^ref,
-        order_by: [desc: run.generation],
-        limit: 1
-      )
-    )
+    ref
+    |> RunQuery.by_repository()
+    |> RunQuery.newest_generation_first()
+    |> RunQuery.limit_to(1)
+    |> Repo.one()
   end
 
   @doc """
@@ -478,12 +399,10 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       # A write that starts is no longer held.
       if entry.error_code in @held_codes, do: save(entry, error_code: nil, error: nil)
 
-      Repo.update_all(
-        from(run in Run,
-          where:
-            run.repository_ref == ^entry.repository_ref and run.status == :prepared and
-              is_nil(run.started_at)
-        ),
+      entry.repository_ref
+      |> RunQuery.by_repository()
+      |> RunQuery.prepared_unstarted()
+      |> Repo.update_all(
         set: [
           status: :stale,
           error_code: "repository_knowledge_attempt_replaced",
@@ -517,19 +436,20 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   def retry?(%Entry{start_count: 0}), do: false
 
   def retry?(%Entry{repository_ref: ref}) do
-    Repo.one(
-      from(run in Run,
-        where: run.repository_ref == ^ref,
-        order_by: [desc: run.generation],
-        limit: 1,
-        select: run.error_code
-      )
-    ) in ~w(output_contract_failed invalid_repository_knowledge repository_knowledge_unusable)
+    last_error =
+      ref
+      |> RunQuery.by_repository()
+      |> RunQuery.newest_generation_first()
+      |> RunQuery.limit_to(1)
+      |> RunQuery.select_error_codes()
+      |> Repo.one()
+
+    last_error in ~w(output_contract_failed invalid_repository_knowledge repository_knowledge_unusable)
   end
 
   defp next_generation(ref) do
-    (Repo.one(from(run in Run, where: run.repository_ref == ^ref, select: max(run.generation))) ||
-       0) + 1
+    latest = ref |> RunQuery.by_repository() |> RunQuery.select_latest_generation() |> Repo.one()
+    (latest || 0) + 1
   end
 
   @doc "Spends one start on the run, once, when it first begins; retries of it do not spend again."
@@ -1004,33 +924,30 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   defp locked_run!(entry, run_id) do
-    Repo.one(
-      from(run in Run,
-        where: run.id == ^run_id and run.repository_ref == ^entry.repository_ref,
-        lock: "FOR UPDATE"
-      )
-    ) || Repo.rollback(:repository_knowledge_run_mismatch)
+    run =
+      run_id
+      |> RunQuery.by_id()
+      |> RunQuery.by_repository(entry.repository_ref)
+      |> RunQuery.lock_for_update()
+      |> Repo.one()
+
+    run || Repo.rollback(:repository_knowledge_run_mismatch)
   end
 
   defp owned_session?(run, remote_id) do
     Reference.valid?(remote_id, 1_024) and
-      Repo.exists?(
-        from(session in Session,
-          where:
-            session.execution_kind == :knowledge and session.knowledge_run_id == ^run.id and
-              session.coop_session_id == ^remote_id
-        )
-      )
+      run.id
+      |> SessionQuery.for_knowledge_run()
+      |> SessionQuery.by_coop_session_id(remote_id)
+      |> Repo.exists?()
   end
 
   defp owned!(claim) do
     entry =
-      Repo.one(
-        from(entry in Entry,
-          where: entry.repository_ref == ^claim.entry.repository_ref,
-          lock: "FOR UPDATE"
-        )
-      )
+      claim.entry.repository_ref
+      |> EntryQuery.by_repository()
+      |> EntryQuery.lock_for_update()
+      |> Repo.one()
 
     unless entry && entry.lease_ref == claim.lease_ref &&
              DateTime.compare(entry.lease_expires_at, Repo.now!()) == :gt,
