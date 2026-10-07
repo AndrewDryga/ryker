@@ -235,7 +235,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
       episode_id
       |> Event.Query.by_episode_id()
       |> Event.Query.admitted_inputs(refs)
-      |> Event.Query.newest_first()
+      |> Event.Query.ordered_by_sequence_desc()
       |> Repo.all()
     end
   end

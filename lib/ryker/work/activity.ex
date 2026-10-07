@@ -152,7 +152,7 @@ defmodule Ryker.Work.Activity do
     if function_exported?(api, :list_events, 4) do
       pending =
         Session.Query.awaiting_activity_sync()
-        |> Session.Query.least_recently_updated_first()
+        |> Session.Query.ordered_by_least_recently_updated()
         |> Session.Query.limit_to(1)
 
       case Repo.one(pending) do
@@ -188,7 +188,7 @@ defmodule Ryker.Work.Activity do
 
     events =
       query
-      |> ActivityEvent.Query.latest_first()
+      |> ActivityEvent.Query.ordered_by_occurred_at_desc()
       |> ActivityEvent.Query.limit_to(@projection_limit * min(max(pages, 1), @maximum_pages))
       |> Repo.all()
       |> Enum.reverse()

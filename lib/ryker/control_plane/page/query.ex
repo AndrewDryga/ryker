@@ -3,6 +3,6 @@ defmodule Ryker.ControlPlane.Page.Query do
   import Ecto.Query
 
   @doc "The `size` rows of `query` in `order` after the first `offset`."
-  def page(query, order, size, offset),
-    do: from(row in query, order_by: ^order, limit: ^size, offset: ^offset)
+  def page(queryable, order, size, offset),
+    do: from(row in queryable, order_by: ^order, limit: ^size, offset: ^offset)
 end

@@ -28,7 +28,7 @@ defmodule Ryker.ControlPlane.InstructionSettings do
   defp channels do
     Setting.Query.all()
     |> Setting.Query.for_slack_channels()
-    |> Setting.Query.with_text()
+    |> Setting.Query.having_text()
     |> Setting.Query.ordered_by_scope()
     |> Setting.Query.limit_to(@channel_limit)
     |> Repo.all()

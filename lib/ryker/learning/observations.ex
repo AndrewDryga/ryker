@@ -284,7 +284,7 @@ defmodule Ryker.Learning.Observations do
         ids
         |> ConversationObservation.Query.by_ids()
         |> ConversationObservation.Query.in_workspace(scope.workspace_ref)
-        |> ConversationObservation.Query.with_notes()
+        |> ConversationObservation.Query.having_note()
         |> Visibility.Query.visible_from(scope)
         |> ConversationObservation.Query.lock_for_share()
         |> Repo.all()
@@ -330,10 +330,10 @@ defmodule Ryker.Learning.Observations do
   defp recall(scope, search, limit, search_scope) do
     scope.workspace_ref
     |> ConversationObservation.Query.in_workspace()
-    |> ConversationObservation.Query.with_notes()
+    |> ConversationObservation.Query.having_note()
     |> ConversationObservation.Query.not_among(Knowledge.current_source_ids_query(scope))
     |> Visibility.Query.visible_from(scope)
-    |> ConversationObservation.Query.recall_order(scope)
+    |> ConversationObservation.Query.ordered_by_recall_precedence(scope)
     |> ConversationObservation.Query.limit_to(limit)
     |> LearningSources.eligible(scope)
     |> ConversationObservation.Query.within_scope(scope, search_scope)
@@ -359,7 +359,7 @@ defmodule Ryker.Learning.Observations do
     # consolidated. Otherwise an older source date becomes unreachable.
     scope.workspace_ref
     |> ConversationObservation.Query.in_workspace()
-    |> ConversationObservation.Query.with_notes()
+    |> ConversationObservation.Query.having_note()
     |> Visibility.Query.visible_from(scope)
     |> ConversationObservation.Query.lock_for_share()
     |> LearningSources.eligible(scope)

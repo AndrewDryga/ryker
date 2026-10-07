@@ -29,20 +29,20 @@ defmodule Ryker.ControlPlane.WorkingCopy.Query do
   end
 
   @doc "Sessions that check out a repository for Work."
-  def working_copies(query),
-    do: where(query, [session: s], s.execution_kind == :work and not is_nil(s.repository_ref))
+  def working_copies(queryable),
+    do: where(queryable, [session: s], s.execution_kind == :work and not is_nil(s.repository_ref))
 
-  def learning(query), do: where(query, [session: s], s.execution_kind == :learning)
-  def removed(query), do: where(query, [session: s], s.cleanup_status == :discarded)
-  def kept(query), do: where(query, [session: s], s.cleanup_status != :discarded)
+  def learning(queryable), do: where(queryable, [session: s], s.execution_kind == :learning)
+  def removed(queryable), do: where(queryable, [session: s], s.cleanup_status == :discarded)
+  def kept(queryable), do: where(queryable, [session: s], s.cleanup_status != :discarded)
 
-  def recently_updated_first(query),
-    do: order_by(query, [session: s], desc: s.updated_at, desc: s.id)
+  def ordered_by_recently_updated(queryable),
+    do: order_by(queryable, [session: s], desc: s.updated_at, desc: s.id)
 
   @doc "The Work or learning session `external_ref`."
-  def listed(query, external_ref) do
+  def listed(queryable, external_ref) do
     where(
-      query,
+      queryable,
       [session: s],
       s.external_ref == ^external_ref and s.execution_kind in [:work, :learning]
     )

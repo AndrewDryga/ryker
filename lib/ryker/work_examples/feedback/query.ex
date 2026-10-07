@@ -12,7 +12,7 @@ defmodule Ryker.WorkExamples.Feedback.Query do
     where(queryable, [work_example_feedback: f], f.example_id in subquery(ids))
   end
 
-  def oldest_first(queryable),
+  def ordered_by_occurred_at(queryable),
     do: order_by(queryable, [work_example_feedback: f], asc: f.occurred_at, asc: f.id)
 
   @doc "A copy of each feedback signal on a kept example's request, as rows of `work_example_feedback`."

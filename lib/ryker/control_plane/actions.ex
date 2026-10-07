@@ -318,7 +318,7 @@ defmodule Ryker.ControlPlane.Actions do
     episode_id
     |> Session.Query.by_episode_id()
     |> Session.Query.bound()
-    |> Session.Query.latest_generation_first()
+    |> Session.Query.ordered_by_generation_desc()
     |> Session.Query.limit_to(1)
     |> Repo.one()
   end
@@ -437,7 +437,8 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
-  defp fetch_lab_record(record_ref), do: Repo.one(Record.Query.with_origin_turn(record_ref))
+  defp fetch_lab_record(record_ref),
+    do: Repo.one(Record.Query.by_ref_with_origin_turn(record_ref))
 
   defp lab_record_target(
          %Record{} = record,

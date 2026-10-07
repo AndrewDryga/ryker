@@ -28,7 +28,7 @@ defmodule Ryker.Slack.ThreadStatusReceipts do
   def for_thread(workspace, channel, thread) do
     workspace
     |> ThreadStatusReceipt.Query.in_thread(channel, thread)
-    |> ThreadStatusReceipt.Query.oldest_first()
+    |> ThreadStatusReceipt.Query.ordered_by_oldest()
     |> ThreadStatusReceipt.Query.limit_to(1_000)
     |> Repo.all()
   end
@@ -36,7 +36,7 @@ defmodule Ryker.Slack.ThreadStatusReceipts do
   def for_episode(episode_id) do
     episode_id
     |> ThreadStatusReceipt.Query.of_episode()
-    |> ThreadStatusReceipt.Query.newest_first()
+    |> ThreadStatusReceipt.Query.ordered_by_recent()
     |> ThreadStatusReceipt.Query.limit_to(500)
     |> Repo.all()
     |> Enum.reverse()

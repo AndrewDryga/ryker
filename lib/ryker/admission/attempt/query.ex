@@ -21,10 +21,10 @@ defmodule Ryker.Admission.Attempt.Query do
   def by_input_ids(queryable \\ all(), input_ids),
     do: where(queryable, [admission_attempts: a], a.input_id in ^input_ids)
 
-  def newest_first(queryable),
+  def ordered_by_recent(queryable),
     do: order_by(queryable, [admission_attempts: a], desc: a.inserted_at, desc: a.id)
 
-  def latest_generation_first(queryable),
+  def ordered_by_generation_desc(queryable),
     do: order_by(queryable, [admission_attempts: a], desc: a.generation)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)

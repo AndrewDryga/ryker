@@ -207,7 +207,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   defp sessions(episode_id) do
     episode_id
     |> Session.Query.by_episode_id()
-    |> Session.Query.newest_first()
+    |> Session.Query.ordered_by_recent()
     |> Session.Query.limit_to(50)
     |> Repo.all()
     |> Enum.reverse()
@@ -216,7 +216,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   defp turns(episode_id) do
     episode_id
     |> Turn.Query.by_episode_id()
-    |> Turn.Query.newest_first()
+    |> Turn.Query.ordered_by_recent()
     |> Turn.Query.limit_to(200)
     |> Repo.all()
     |> Enum.reverse()

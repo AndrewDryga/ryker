@@ -40,7 +40,7 @@ defmodule Ryker.RepositoryKnowledge.Run.Query do
   def by_ids(queryable \\ all(), ids),
     do: where(queryable, [repository_knowledge_runs: r], r.id in ^ids)
 
-  def newest_first(queryable),
+  def ordered_by_recent(queryable),
     do: order_by(queryable, [repository_knowledge_runs: r], desc: r.inserted_at, desc: r.id)
 
   # What a run's card reads before its prompt and answer are opened: every
@@ -64,10 +64,10 @@ defmodule Ryker.RepositoryKnowledge.Run.Query do
   def select_texts(queryable),
     do: select(queryable, [repository_knowledge_runs: r], {r.id, r.prompt, r.result})
 
-  def oldest_generation_first(queryable),
+  def ordered_by_generation(queryable),
     do: order_by(queryable, [repository_knowledge_runs: r], asc: r.generation)
 
-  def newest_generation_first(queryable),
+  def ordered_by_generation_desc(queryable),
     do: order_by(queryable, [repository_knowledge_runs: r], desc: r.generation)
 
   def select_error_codes(queryable),

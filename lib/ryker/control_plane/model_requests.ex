@@ -67,7 +67,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     turn_window =
       episode.id
       |> Turn.Query.by_episode_id()
-      |> Turn.Query.newest_first()
+      |> Turn.Query.ordered_by_recent()
       |> Turn.Query.limit_to(limit + 1)
       |> Repo.all()
 
@@ -79,7 +79,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     entry_window =
       episode.id
       |> Entry.Query.by_episode_id()
-      |> Entry.Query.newest_first()
+      |> Entry.Query.ordered_by_recent()
       |> Entry.Query.limit_to(limit + 1)
       |> Repo.all()
 
@@ -89,7 +89,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     attempt_window =
       ids
       |> Attempt.Query.by_input_ids()
-      |> Attempt.Query.newest_first()
+      |> Attempt.Query.ordered_by_recent()
       |> Attempt.Query.limit_to(limit + 1)
       |> Repo.all()
 
@@ -165,7 +165,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     learning =
       episode.id
       |> Entry.Query.by_episode_id()
-      |> Entry.Query.latest_occurred_first()
+      |> Entry.Query.ordered_by_occurred_at_desc()
       |> Entry.Query.limit_to(200)
       |> Entry.Query.select_ids()
       |> Repo.all()
@@ -386,7 +386,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       input_ids
       |> InputCustodyTransition.Query.by_input_ids()
       |> InputCustodyTransition.Query.of_kinds([:retry_scheduled, :blocked])
-      |> InputCustodyTransition.Query.in_order()
+      |> InputCustodyTransition.Query.ordered_by_occurred_at_and_sequence()
       |> Repo.all()
       |> Enum.group_by(& &1.input_id)
 
@@ -551,7 +551,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       responses =
         id
         |> RoutingResponse.Query.by_input_id()
-        |> RoutingResponse.Query.in_position_order()
+        |> RoutingResponse.Query.ordered_by_position()
         |> Repo.all()
 
       {:ok,
@@ -742,7 +742,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     attempts =
       entry.id
       |> Attempt.Query.by_input_id()
-      |> Attempt.Query.latest_generation_first()
+      |> Attempt.Query.ordered_by_generation_desc()
       |> Attempt.Query.limit_to(@page_size)
       |> Repo.all()
       |> Enum.reverse()

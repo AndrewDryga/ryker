@@ -120,7 +120,7 @@ defmodule Ryker.GitHub.Confirmations do
   end
 
   defp offer(record_ref) do
-    query = record_ref |> Record.Query.by_ref() |> Record.Query.with_origin()
+    query = record_ref |> Record.Query.by_ref() |> Record.Query.with_joined_origin()
 
     case Repo.one(query) do
       {%Record{} = record, %Episode{} = episode, %Turn{} = turn} ->

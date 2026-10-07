@@ -180,7 +180,7 @@ defmodule Ryker.Learning do
       existing =
         key
         |> LearningRun.Query.by_batch_key()
-        |> LearningRun.Query.latest_generation_first()
+        |> LearningRun.Query.ordered_by_generation_desc()
         |> LearningRun.Query.limit_to(1)
         |> LearningRun.Query.lock_for_update()
         |> Repo.one()
@@ -743,7 +743,7 @@ defmodule Ryker.Learning do
     id
     |> LearningRun.Query.by_batch_id()
     |> LearningRun.Query.attempted()
-    |> LearningRun.Query.newest_first()
+    |> LearningRun.Query.ordered_by_recent()
     |> LearningRun.Query.limit_to(1)
     |> LearningRun.Query.select_error_codes()
     |> Repo.one()
@@ -1017,7 +1017,7 @@ defmodule Ryker.Learning do
     entries =
       ids
       |> Entry.Query.by_ids()
-      |> Entry.Query.oldest_occurred_first()
+      |> Entry.Query.ordered_by_occurred_at()
       |> Entry.Query.lock_for_share()
       |> Repo.all()
 
@@ -1037,7 +1037,7 @@ defmodule Ryker.Learning do
     entries =
       ids
       |> Entry.Query.by_ids()
-      |> Entry.Query.oldest_received_first()
+      |> Entry.Query.ordered_by_oldest()
       |> Entry.Query.lock_for_share()
       |> Repo.all()
 
@@ -1374,7 +1374,7 @@ defmodule Ryker.Learning do
 
     owned_transaction(id, claim, fn _run ->
       Repo.update_all(
-        id |> LearningRun.Query.by_id() |> LearningRun.Query.with_status(:responded),
+        id |> LearningRun.Query.by_id() |> LearningRun.Query.by_status(:responded),
         set: [
           status: status,
           error_code: code,

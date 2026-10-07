@@ -266,7 +266,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
       |> Command.Query.of_placement_generation(placement.generation)
       |> Command.Query.of_kind("ensure_workspace")
       |> Command.Query.succeeded_2xx()
-      |> Command.Query.latest_completed_first()
+      |> Command.Query.ordered_by_completed_at_desc()
       |> Command.Query.limit_to(1)
       |> Repo.one()
 

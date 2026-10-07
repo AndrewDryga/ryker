@@ -99,7 +99,7 @@ defmodule Ryker.Admission.CandidateSearch.Query do
   end
 
   @doc "Of `searchable`'s digests, those whose words hold `lexeme`."
-  def with_lexeme(searchable, lexeme) do
+  def by_lexeme(searchable, lexeme) do
     from(digest in searchable,
       where:
         fragment("? @@ to_tsquery('simple', quote_literal(?))", digest.search_vector, ^lexeme)

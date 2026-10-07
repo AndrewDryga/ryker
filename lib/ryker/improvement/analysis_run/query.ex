@@ -19,10 +19,10 @@ defmodule Ryker.Improvement.AnalysisRun.Query do
     )
   end
 
-  def with_error_code(queryable, error_code),
+  def by_error_code(queryable, error_code),
     do: where(queryable, [improvement_analysis_runs: r], r.error_code == ^error_code)
 
-  def with_error_codes(queryable, error_codes),
+  def by_error_codes(queryable, error_codes),
     do: where(queryable, [improvement_analysis_runs: r], r.error_code in ^error_codes)
 
   @doc "Runs started on a worker that has not confirmed their remote execution stopped."
@@ -52,7 +52,7 @@ defmodule Ryker.Improvement.AnalysisRun.Query do
     )
   end
 
-  def in_generation_order(queryable),
+  def ordered_by_generation(queryable),
     do: order_by(queryable, [improvement_analysis_runs: r], asc: r.generation)
 
   def select_max_generation(queryable),
@@ -76,7 +76,7 @@ defmodule Ryker.Improvement.AnalysisRun.Query do
     )
   end
 
-  def newest_first(queryable),
+  def ordered_by_recent(queryable),
     do: order_by(queryable, [improvement_analysis_runs: r], desc: r.inserted_at, desc: r.id)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)

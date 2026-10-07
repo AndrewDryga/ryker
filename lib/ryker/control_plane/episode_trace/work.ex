@@ -301,7 +301,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     session_ids
     |> CoopEvent.Query.of_sessions()
     |> CoopEvent.Query.excluding_kind("session_event")
-    |> CoopEvent.Query.in_order()
+    |> CoopEvent.Query.ordered_by_inserted_at_and_sequence()
     |> CoopEvent.Query.limit_to(500)
     |> Repo.all()
     |> Enum.map(fn event ->

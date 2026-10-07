@@ -131,7 +131,7 @@ defmodule Ryker.Feedback do
 
   defp newest(query, limit) do
     query
-    |> Signal.Query.newest_first()
+    |> Signal.Query.ordered_by_occurred_at_desc()
     |> Signal.Query.limit_to(limit)
     |> Repo.all()
     |> Enum.reverse()
@@ -156,7 +156,7 @@ defmodule Ryker.Feedback do
     conversation_ref
     |> Signal.Query.reactions_in()
     |> Signal.Query.on_messages(Enum.uniq(message_refs))
-    |> Signal.Query.oldest_first()
+    |> Signal.Query.ordered_by_occurred_at()
     |> Signal.Query.select_reactions()
     |> Repo.all()
     |> Enum.reduce(%{}, fn

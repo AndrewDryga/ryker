@@ -188,8 +188,8 @@ defmodule Ryker.WeeklyReport.Custody do
   @doc "Blocked reports, newest first, at most `limit`, for Failures."
   @spec blocked(pos_integer()) :: [Report.t()]
   def blocked(limit) do
-    Report.Query.with_status(:blocked)
-    |> Report.Query.recently_updated_first()
+    Report.Query.by_status(:blocked)
+    |> Report.Query.ordered_by_recently_updated()
     |> Report.Query.limit_to(limit)
     |> Repo.all()
   end
@@ -205,7 +205,7 @@ defmodule Ryker.WeeklyReport.Custody do
     next =
       now
       |> Report.Query.claimable_at()
-      |> Report.Query.soonest_due_first()
+      |> Report.Query.ordered_by_due_at()
       |> Report.Query.limit_to(1)
       |> Report.Query.lock_next_free()
       |> Repo.one()

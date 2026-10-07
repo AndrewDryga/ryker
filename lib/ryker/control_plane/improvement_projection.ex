@@ -36,13 +36,13 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
     {status, category, in_status, listed} =
       case linked(visible, params["candidate"]) do
         {id, status} ->
-          {status, nil, Candidate.Query.with_status(visible, status),
+          {status, nil, Candidate.Query.by_status(visible, status),
            Candidate.Query.by_id(visible, id)}
 
         nil ->
           status = pick(params["status"], @statuses) || :open
           category = pick(params["category"], Candidate.categories())
-          in_status = Candidate.Query.with_status(visible, status)
+          in_status = Candidate.Query.by_status(visible, status)
 
           listed =
             if category,
@@ -81,7 +81,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
 
     %{
       counts: status_counts(visible),
-      categories: category_counts(Candidate.Query.with_status(visible, :open))
+      categories: category_counts(Candidate.Query.by_status(visible, :open))
     }
   end
 

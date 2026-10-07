@@ -42,8 +42,8 @@ defmodule Ryker.Learning.RebuildSource.Query do
     )
   end
 
-  defp current_originals(query) do
-    from([conversation_observations: o, ingress_inbox_entries: e] in query,
+  defp current_originals(queryable) do
+    from([conversation_observations: o, ingress_inbox_entries: e] in queryable,
       where:
         e.status == :decided and e.event_kind != :delete and is_nil(e.operational_pruned_at) and
           not is_nil(e.content),
@@ -53,17 +53,17 @@ defmodule Ryker.Learning.RebuildSource.Query do
     )
   end
 
-  defp unexpired_originals(query, nil), do: query
+  defp unexpired_originals(queryable, nil), do: queryable
 
-  defp unexpired_originals(query, seconds) do
+  defp unexpired_originals(queryable, seconds) do
     where(
-      query,
+      queryable,
       [conversation_observations: o],
       o.updated_at > fragment("clock_timestamp() - (? * interval '1 second')", ^seconds)
     )
   end
 
-  defp undeleted_destination(query, %{transport: "slack"} = topic) do
+  defp undeleted_destination(queryable, %{transport: "slack"} = topic) do
     deleted =
       from(m in ChannelMembership,
         where:
@@ -74,10 +74,10 @@ defmodule Ryker.Learning.RebuildSource.Query do
         select: 1
       )
 
-    where(query, not exists(subquery(deleted)))
+    where(queryable, not exists(subquery(deleted)))
   end
 
-  defp undeleted_destination(query, _topic), do: query
+  defp undeleted_destination(queryable, _topic), do: queryable
 
   @doc "Sources whose message mentions `search`, ignoring case."
   def mentioning(queryable, ""), do: queryable
@@ -93,14 +93,14 @@ defmodule Ryker.Learning.RebuildSource.Query do
   def by_entry_ids(queryable, ids),
     do: where(queryable, [ingress_inbox_entries: e], e.id in ^ids)
 
-  def latest_said_first(queryable) do
+  def ordered_by_occurred_at_desc(queryable) do
     order_by(queryable, [conversation_observations: o, ingress_inbox_entries: e],
       desc: o.occurred_at,
       desc: e.id
     )
   end
 
-  def oldest_received_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], asc: e.inserted_at, asc: e.id)
 
   @doc "Page `number` of `size` rows, counting from 1."

@@ -54,13 +54,13 @@ defmodule Ryker.Slack.IncidentRoom.Query do
     )
   end
 
-  def newest_requested_first(queryable),
+  def ordered_by_requested_at_desc(queryable),
     do: order_by(queryable, [slack_incident_rooms: r], desc: r.requested_at, desc: r.id)
 
   def blocked(queryable \\ all()),
     do: where(queryable, [slack_incident_rooms: r], r.status == :blocked)
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [slack_incident_rooms: r], desc: r.updated_at, desc: r.id)
 
   @doc "Rooms of `workspace_ref` not closed yet."

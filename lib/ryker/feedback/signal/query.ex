@@ -73,7 +73,7 @@ defmodule Ryker.Feedback.Signal.Query do
 
   # Two signals the source says happened at the same moment read in the order
   # Ryker recorded them.
-  def newest_first(queryable) do
+  def ordered_by_occurred_at_desc(queryable) do
     order_by(queryable, [answer_feedback: s],
       desc: s.occurred_at,
       desc: s.inserted_at,
@@ -81,7 +81,7 @@ defmodule Ryker.Feedback.Signal.Query do
     )
   end
 
-  def oldest_first(queryable) do
+  def ordered_by_occurred_at(queryable) do
     order_by(queryable, [answer_feedback: s],
       asc: s.occurred_at,
       asc: s.inserted_at,

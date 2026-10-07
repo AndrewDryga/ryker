@@ -224,7 +224,7 @@ defmodule Ryker.Publication.Followups.Signals do
   # PR #2 was filed as noise while its update was pending). Polling alone waits for the update.
   defp github_feedback_publications(repository, pull_request_number) do
     repository
-    |> Publication.Query.with_open_pull_request(pull_request_number)
+    |> Publication.Query.by_open_pull_request(pull_request_number)
     |> Publication.Query.lock_for_update()
     |> Repo.all()
   end

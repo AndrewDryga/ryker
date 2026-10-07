@@ -116,17 +116,17 @@ defmodule Ryker.Memories.SearchPage.Query do
 
   def related_originals(queryable, _page, _conversation, _thread, _message), do: queryable
 
-  defp date_filter(query, %{after: nil, before: nil}, _date), do: query
-  defp date_filter(query, _page, nil), do: from(item in query, where: false)
+  defp date_filter(queryable, %{after: nil, before: nil}, _date), do: queryable
+  defp date_filter(queryable, _page, nil), do: from(item in queryable, where: false)
 
-  defp date_filter(query, page, date) do
-    query =
+  defp date_filter(queryable, page, date) do
+    queryable =
       if page.after,
-        do: from(item in query, where: ^dynamic([item], ^date >= ^page.after)),
-        else: query
+        do: from(item in queryable, where: ^dynamic([item], ^date >= ^page.after)),
+        else: queryable
 
     if page.before,
-      do: from(item in query, where: ^dynamic([item], ^date < ^page.before)),
-      else: query
+      do: from(item in queryable, where: ^dynamic([item], ^date < ^page.before)),
+      else: queryable
   end
 end

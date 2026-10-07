@@ -180,7 +180,7 @@ defmodule Ryker.Improvement.Evidence do
 
     episode_ids
     |> Entry.Query.by_episode_ids()
-    |> Entry.Query.latest_said_first()
+    |> Entry.Query.ordered_by_occurred_at_and_revision_desc()
     |> Entry.Query.limit_to(@message_limit)
     |> Repo.all()
     |> Enum.reverse()
@@ -363,7 +363,7 @@ defmodule Ryker.Improvement.Evidence do
     ids
     |> RoutingResponse.Query.by_input_ids()
     |> RoutingResponse.Query.delivered()
-    |> RoutingResponse.Query.in_position_order()
+    |> RoutingResponse.Query.ordered_by_position()
     |> RoutingResponse.Query.select_deliveries()
     |> Repo.all()
     |> Enum.map(fn
@@ -479,7 +479,7 @@ defmodule Ryker.Improvement.Evidence do
   defp work(nil, _secrets), do: []
 
   defp work(%Episode{id: id}, secrets) do
-    turns = id |> Turn.Query.by_episode_id() |> Turn.Query.oldest_first() |> Repo.all()
+    turns = id |> Turn.Query.by_episode_id() |> Turn.Query.ordered_by_oldest() |> Repo.all()
 
     tools = tools(id)
 

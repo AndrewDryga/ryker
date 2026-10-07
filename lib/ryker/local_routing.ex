@@ -150,7 +150,7 @@ defmodule Ryker.LocalRouting do
       Repo.transaction(fn ->
         now
         |> Comparison.Query.due_at()
-        |> Comparison.Query.oldest_first()
+        |> Comparison.Query.ordered_by_oldest()
         |> Comparison.Query.limit_to(1)
         |> Comparison.Query.lock_next_free()
         |> Repo.one()

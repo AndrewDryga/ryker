@@ -91,7 +91,7 @@ defmodule Ryker.Waits.EventSubscriptions do
   defp subscribe_locked(episode, record_id) do
     record_id
     |> Record.Query.by_id()
-    |> Record.Query.with_wait_error("schedule_failed")
+    |> Record.Query.by_wait_error("schedule_failed")
     |> Repo.update_all(set: [wait_error: nil])
 
     case ensure_locked(episode) do
@@ -209,7 +209,7 @@ defmodule Ryker.Waits.EventSubscriptions do
       |> Record.Query.by_episode_id()
       |> Record.Query.open()
       |> Record.Query.event_only_waits()
-      |> Record.Query.oldest_first()
+      |> Record.Query.ordered_by_oldest()
       |> Record.Query.lock_for_update()
       |> Repo.all()
 

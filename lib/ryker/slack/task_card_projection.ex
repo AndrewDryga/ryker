@@ -219,7 +219,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     |> Record.Query.by_episode_id()
     |> Record.Query.of_kinds(["goal", "goal_state"])
     |> Record.Query.in_use()
-    |> Record.Query.in_sequence()
+    |> Record.Query.ordered_by_sequence()
     |> Repo.all()
   end
 
@@ -229,7 +229,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     |> Record.Query.of_kind("progress")
     |> Record.Query.in_use()
     |> Record.Query.not_feedback_progress()
-    |> Record.Query.latest_sequence_first()
+    |> Record.Query.ordered_by_sequence_desc()
     |> Record.Query.limit_to(4)
     |> Repo.all()
     |> Enum.reverse()
@@ -450,7 +450,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp latest_publication(episode_id) do
     episode_id
     |> Publication.Query.by_episode_id()
-    |> Publication.Query.newest_first()
+    |> Publication.Query.ordered_by_recent()
     |> Publication.Query.limit_to(1)
     |> Repo.one()
   end
@@ -624,7 +624,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     |> Record.Query.by_episode_id()
     |> Record.Query.of_kind("input_request")
     |> Record.Query.open()
-    |> Record.Query.latest_sequence_first()
+    |> Record.Query.ordered_by_sequence_desc()
     |> Record.Query.limit_to(1)
     |> Repo.one()
   end

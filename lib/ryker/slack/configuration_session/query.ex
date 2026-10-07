@@ -37,7 +37,7 @@ defmodule Ryker.Slack.ConfigurationSession.Query do
   def unexpired_at(queryable, now),
     do: where(queryable, [slack_configuration_sessions: s], s.expires_at > ^now)
 
-  def newest_first(queryable),
+  def ordered_by_recent(queryable),
     do: order_by(queryable, [slack_configuration_sessions: s], desc: s.inserted_at)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)

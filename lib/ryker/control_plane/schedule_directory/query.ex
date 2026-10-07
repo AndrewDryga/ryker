@@ -74,13 +74,15 @@ defmodule Ryker.ControlPlane.ScheduleDirectory.Query do
     )
   end
 
-  def in_statuses(query, statuses), do: where(query, [schedule], schedule.status in ^statuses)
-  def with_status(query, status), do: where(query, [schedule], schedule.status == ^status)
+  def in_statuses(queryable, statuses),
+    do: where(queryable, [schedule], schedule.status in ^statuses)
+
+  def by_status(queryable, status), do: where(queryable, [schedule], schedule.status == ^status)
 
   @doc "The schedules whose ref, title, task, repository or conversation contains `pattern`."
-  def matching(query, pattern) do
+  def matching(queryable, pattern) do
     where(
-      query,
+      queryable,
       [schedule],
       ilike(schedule.ref, ^pattern) or ilike(schedule.title, ^pattern) or
         ilike(schedule.task, ^pattern) or ilike(schedule.repository, ^pattern) or
@@ -89,7 +91,7 @@ defmodule Ryker.ControlPlane.ScheduleDirectory.Query do
   end
 
   @doc "Schedule `ref` with its times in its own zone, as `{schedule, local_times}`."
-  def with_local_times(ref) do
+  def by_ref_with_local_times(ref) do
     from(schedule in Schedule,
       where: schedule.ref == ^ref,
       limit: 1,

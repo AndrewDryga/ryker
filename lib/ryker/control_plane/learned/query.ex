@@ -25,24 +25,25 @@ defmodule Ryker.ControlPlane.Learned.Query do
   end
 
   @doc "The one row `id` of a list."
-  def only(query, id), do: from(item in query, where: item.id == ^id)
+  def only(queryable, id), do: from(item in queryable, where: item.id == ^id)
 
   @doc """
   The rows of a `kind` list that say `text`. What a topic or a summary says
   is searched, not its field names: searching the state as JSON text matched
   every row with a field of the name searched for (2026-10-04 review).
   """
-  def matching(query, "knowledge", text),
-    do: from(item in query, where: Search.json_text_matches(item.state, ^Search.contains(text)))
+  def matching(queryable, "knowledge", text) do
+    from(item in queryable, where: Search.json_text_matches(item.state, ^Search.contains(text)))
+  end
 
-  def matching(query, "sources", text) do
-    from(source in query,
+  def matching(queryable, "sources", text) do
+    from(source in queryable,
       where: fragment("position(lower(?) in lower(?)) > 0", ^text, source.note)
     )
   end
 
-  def matching(query, "context", text) do
-    from(summary in query,
+  def matching(queryable, "context", text) do
+    from(summary in queryable,
       where: Search.json_text_matches(summary.state, ^Search.contains(text))
     )
   end

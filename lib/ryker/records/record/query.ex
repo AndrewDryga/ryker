@@ -62,7 +62,7 @@ defmodule Ryker.Records.Record.Query do
 
   def of_kind(queryable, kind), do: where(queryable, [episode_state_records: r], r.kind == ^kind)
 
-  def with_payload(queryable, payload),
+  def by_payload(queryable, payload),
     do: where(queryable, [episode_state_records: r], r.payload == ^payload)
 
   @doc "Still in use: open or confirmed."
@@ -81,9 +81,10 @@ defmodule Ryker.Records.Record.Query do
   def without_wait_error(queryable),
     do: where(queryable, [episode_state_records: r], is_nil(r.wait_error))
 
-  def in_sequence(queryable), do: order_by(queryable, [episode_state_records: r], asc: r.sequence)
+  def ordered_by_sequence(queryable),
+    do: order_by(queryable, [episode_state_records: r], asc: r.sequence)
 
-  def latest_sequence_first(queryable),
+  def ordered_by_sequence_desc(queryable),
     do: order_by(queryable, [episode_state_records: r], desc: r.sequence)
 
   @doc "The ref of the Work turn that made each record."
@@ -134,7 +135,7 @@ defmodule Ryker.Records.Record.Query do
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
   @doc "Record `ref` with the episode and the Work turn that made it, as `{record, episode, turn}`."
-  def with_origin_turn(ref) do
+  def by_ref_with_origin_turn(ref) do
     from(r in all(),
       join: e in Episode,
       on: e.id == r.episode_id,
@@ -172,7 +173,7 @@ defmodule Ryker.Records.Record.Query do
   def open(queryable \\ all()),
     do: where(queryable, [episode_state_records: r], r.status == :open)
 
-  def with_wait_error(queryable, code),
+  def by_wait_error(queryable, code),
     do: where(queryable, [episode_state_records: r], r.wait_error == ^code)
 
   @doc "An episode's open wait `wait_ref`."
@@ -198,7 +199,7 @@ defmodule Ryker.Records.Record.Query do
 
   def event_only_waits(queryable), do: where(queryable, ^event_only_wait())
 
-  def oldest_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [episode_state_records: r], asc: r.inserted_at, asc: r.id)
 
   def select_rows(queryable), do: select(queryable, [episode_state_records: r], r)
@@ -215,7 +216,7 @@ defmodule Ryker.Records.Record.Query do
     ref
     |> by_ref()
     |> of_kinds(kinds)
-    |> with_origin()
+    |> with_joined_origin()
     |> lock("FOR UPDATE")
   end
 
@@ -335,7 +336,7 @@ defmodule Ryker.Records.Record.Query do
   end
 
   @doc "Each record with the episode and the Work turn that made it."
-  def with_origin(queryable) do
+  def with_joined_origin(queryable) do
     queryable
     |> join(:inner, [episode_state_records: r], e in Episode,
       on: e.id == r.episode_id,

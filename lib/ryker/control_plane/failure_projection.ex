@@ -86,7 +86,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
     admission =
       Entry.Query.blocked()
-      |> Entry.Query.recently_updated_first()
+      |> Entry.Query.ordered_by_recently_updated()
       |> Entry.Query.limit_to(deep.("admission"))
       |> Repo.all()
       |> Enum.map(&admission_item/1)
@@ -111,14 +111,14 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
     interaction_feedback =
       InteractionAudit.Query.repaint_blocked()
-      |> InteractionAudit.Query.recently_updated_first()
+      |> InteractionAudit.Query.ordered_by_recently_updated()
       |> InteractionAudit.Query.limit_to(deep.("slack_interaction"))
       |> Repo.all()
       |> Enum.map(&interaction_item/1)
 
     incident_rooms =
       IncidentRoom.Query.blocked()
-      |> IncidentRoom.Query.recently_updated_first()
+      |> IncidentRoom.Query.ordered_by_recently_updated()
       |> IncidentRoom.Query.limit_to(deep.("slack_incident"))
       |> Repo.all()
       |> Enum.map(&incident_item/1)
@@ -128,14 +128,14 @@ defmodule Ryker.ControlPlane.FailureProjection do
     # listed nowhere, so nobody learned the message or channel was gone.
     task_cards =
       TaskCard.Query.blocked()
-      |> TaskCard.Query.recently_updated_first()
+      |> TaskCard.Query.ordered_by_recently_updated()
       |> TaskCard.Query.limit_to(deep.("slack_task_card"))
       |> Repo.all()
       |> Enum.map(&task_card_item/1)
 
     thread_statuses =
       ThreadStatus.Query.blocked()
-      |> ThreadStatus.Query.recently_updated_first()
+      |> ThreadStatus.Query.ordered_by_recently_updated()
       |> ThreadStatus.Query.limit_to(deep.("slack_thread_status"))
       |> Repo.all()
       |> Enum.map(&thread_status_item/1)

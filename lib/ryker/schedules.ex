@@ -345,7 +345,7 @@ defmodule Ryker.Schedules do
     schedule =
       now
       |> Schedule.Query.due_at()
-      |> Schedule.Query.soonest_first()
+      |> Schedule.Query.ordered_by_next_occurrence_at()
       |> Schedule.Query.limit_to(1)
       |> Schedule.Query.lock_next_free()
       |> Repo.one()

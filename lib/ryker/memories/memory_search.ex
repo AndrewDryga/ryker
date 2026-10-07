@@ -343,7 +343,7 @@ defmodule Ryker.Memories.MemorySearch do
     episode.id
     |> Event.Query.by_episode_id()
     |> Event.Query.admitted_inputs(episode.active_input_refs)
-    |> Event.Query.newest_first()
+    |> Event.Query.ordered_by_sequence_desc()
     |> Event.Query.limit_to(1)
     |> Event.Query.select_actor_refs()
     |> Repo.one()

@@ -37,7 +37,7 @@ defmodule Ryker.RoutingExamples.Example.Query do
     )
   end
 
-  def oldest_decided_first(queryable),
+  def ordered_by_decided_at(queryable),
     do: order_by(queryable, [routing_examples: x], asc: x.decided_at, asc: x.id)
 
   def select_ids(queryable), do: select(queryable, [routing_examples: x], x.id)

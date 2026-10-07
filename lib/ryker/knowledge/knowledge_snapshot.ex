@@ -322,7 +322,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp summary_knowledge_references(session_id) do
     rows =
       session_id
-      |> KnowledgeExposure.Query.with_generations()
+      |> KnowledgeExposure.Query.generations_by_session_id()
       |> KnowledgeExposure.Query.limit_to(10_001)
       |> Repo.all()
 
@@ -364,7 +364,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     query =
       session.id
       |> KnowledgeExposure.Query.by_session_id()
-      |> KnowledgeExposure.Query.in_topic_order()
+      |> KnowledgeExposure.Query.ordered_by_knowledge_and_version()
 
     empty? =
       not Repo.exists?(query) and
@@ -387,7 +387,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp source_exposures_valid?(session_id, scope) do
     session_id
     |> SourceExposure.Query.by_session_id()
-    |> SourceExposure.Query.in_observation_order()
+    |> SourceExposure.Query.ordered_by_observation()
     |> SourceExposure.Query.select_receipts()
     |> Repo.stream(max_rows: 500)
     # Even maximum-size receipts fit the 8 MiB validation budget in these batches.

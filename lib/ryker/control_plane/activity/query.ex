@@ -36,25 +36,25 @@ defmodule Ryker.ControlPlane.Activity.Query do
     from(row in subquery(latest), order_by: [desc: row.updated_at], limit: ^limit)
   end
 
-  def in_mode(query, mode), do: from(row in query, where: row.mode == ^mode)
-  def in_bucket(query, bucket), do: from(row in query, where: row.bucket == ^bucket)
-  def in_state(query, state), do: from(row in query, where: row.episode_state == ^state)
+  def in_mode(queryable, mode), do: from(row in queryable, where: row.mode == ^mode)
+  def in_bucket(queryable, bucket), do: from(row in queryable, where: row.bucket == ^bucket)
+  def in_state(queryable, state), do: from(row in queryable, where: row.episode_state == ^state)
 
   @doc "Rows showing `repository`, whichever source it came from."
-  def in_repository(query, repository),
-    do: from(row in query, where: row.repository == ^repository)
+  def in_repository(queryable, repository),
+    do: from(row in queryable, where: row.repository == ^repository)
 
   @doc "Rows whose `column` (`:conversation`, `:thread` or `:source`) is `value`."
-  def with_column(query, column, value)
+  def by_column(queryable, column, value)
       when column in [:conversation, :thread, :source],
-      do: from(row in query, where: field(row, ^column) == ^value)
+      do: from(row in queryable, where: field(row, ^column) == ^value)
 
   @doc """
   Rows whose text, title, ref, repository or conversation contains
   `pattern`, or that show one of `repositories` or `conversations`.
   """
-  def matching(query, pattern, repositories, conversations) do
-    from(row in query,
+  def matching(queryable, pattern, repositories, conversations) do
+    from(row in queryable,
       where:
         ilike(row.text, ^pattern) or ilike(row.episode_title, ^pattern) or
           ilike(row.schedule_title, ^pattern) or ilike(row.ref, ^pattern) or
@@ -75,11 +75,11 @@ defmodule Ryker.ControlPlane.Activity.Query do
   The rows of `query` whose request one of `executions`, a usage ledger
   query, served: an episode's, or a routed message's that became none.
   """
-  def of_executions(query, executions) do
+  def of_executions(queryable, executions) do
     episode_ids = from(e in executions, select: e.episode_id)
     admission_ids = from(e in executions, where: e.kind == "admission", select: e.source_id)
 
-    from(row in query,
+    from(row in queryable,
       where:
         (row.kind == "episode" and row.id in subquery(episode_ids)) or
           (row.kind == "admission" and row.id in subquery(admission_ids))
@@ -87,8 +87,8 @@ defmodule Ryker.ControlPlane.Activity.Query do
   end
 
   @doc "How many rows each bucket holds, as `{bucket, count}`."
-  def bucket_counts(query),
-    do: from(row in query, group_by: row.bucket, select: {row.bucket, count()})
+  def bucket_counts(queryable),
+    do: from(row in queryable, group_by: row.bucket, select: {row.bucket, count()})
 
   # The message that opened each request, as it reads now, read for that
   # request alone.

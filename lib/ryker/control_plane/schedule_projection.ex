@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   @doc "One schedule with its recorded occurrences, newest first."
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    query = ScheduleDirectory.Query.with_local_times(ref)
+    query = ScheduleDirectory.Query.by_ref_with_local_times(ref)
 
     case Repo.one(query) do
       nil -> :not_found
@@ -110,7 +110,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   defp schedule_status(query, nil), do: query
 
-  defp schedule_status(query, status), do: ScheduleDirectory.Query.with_status(query, status)
+  defp schedule_status(query, status), do: ScheduleDirectory.Query.by_status(query, status)
 
   defp schedule_search(query, nil), do: query
 

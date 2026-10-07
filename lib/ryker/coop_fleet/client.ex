@@ -306,7 +306,7 @@ defmodule Ryker.CoopFleet.Client do
       session_id
       |> Placement.Query.by_session_id()
       |> Placement.Query.current()
-      |> Placement.Query.with_worker()
+      |> Placement.Query.with_joined_worker()
       |> Placement.Query.select_with_workers()
       |> Placement.Query.limit_to(1)
 

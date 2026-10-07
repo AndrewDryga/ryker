@@ -405,7 +405,7 @@ defmodule Ryker.Acceptance.Live do
     entry =
       "slack"
       |> Entry.Query.by_source_event(event_ref)
-      |> Entry.Query.newest_first()
+      |> Entry.Query.ordered_by_recent()
       |> Entry.Query.limit_to(1)
       |> Repo.one()
 
@@ -429,7 +429,7 @@ defmodule Ryker.Acceptance.Live do
       episode_id
       |> Turn.Query.by_episode_id()
       |> Turn.Query.excluding_ids(previous_turn_ids)
-      |> Turn.Query.newest_first()
+      |> Turn.Query.ordered_by_recent()
       |> Turn.Query.limit_to(1)
       |> Repo.one()
 
@@ -513,7 +513,7 @@ defmodule Ryker.Acceptance.Live do
     placement =
       session_id
       |> Placement.Query.by_session_id()
-      |> Placement.Query.latest_generation_first()
+      |> Placement.Query.ordered_by_generation_desc()
       |> Placement.Query.limit_to(1)
       |> Repo.one()
 

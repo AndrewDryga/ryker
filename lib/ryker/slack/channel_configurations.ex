@@ -485,7 +485,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     |> ConfigurationSession.Query.in_channel(channel_ref)
     |> ConfigurationSession.Query.active()
     |> ConfigurationSession.Query.unexpired_at(now)
-    |> ConfigurationSession.Query.newest_first()
+    |> ConfigurationSession.Query.ordered_by_recent()
     |> ConfigurationSession.Query.limit_to(1)
     |> Repo.one()
   end

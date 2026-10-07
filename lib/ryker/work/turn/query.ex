@@ -35,7 +35,7 @@ defmodule Ryker.Work.Turn.Query do
     )
   end
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [episode_work_turns: t], desc: t.updated_at, desc: t.id)
 
   @doc "Episode `episode_id`'s owning turn while it waits, unleased, to start."
@@ -119,17 +119,17 @@ defmodule Ryker.Work.Turn.Query do
     |> in_receipt_thread(thread_ref)
   end
 
-  defp in_receipt_thread(query, nil) do
+  defp in_receipt_thread(queryable, nil) do
     where(
-      query,
+      queryable,
       [episode_work_turns: t],
       fragment("(?::jsonb)->>'thread_ref' IS NULL", t.external_receipt)
     )
   end
 
-  defp in_receipt_thread(query, thread_ref) do
+  defp in_receipt_thread(queryable, thread_ref) do
     where(
-      query,
+      queryable,
       [episode_work_turns: t],
       fragment("(?::jsonb)->>'thread_ref' = ?", t.external_receipt, ^thread_ref)
     )
@@ -147,12 +147,12 @@ defmodule Ryker.Work.Turn.Query do
     )
   end
 
-  def with_result(queryable),
+  def having_result(queryable),
     do: where(queryable, [episode_work_turns: t], not is_nil(t.result_ref))
 
   def select_ids(queryable), do: select(queryable, [episode_work_turns: t], t.id)
 
-  def with_selected_inputs(queryable),
+  def having_selected_inputs(queryable),
     do: where(queryable, [episode_work_turns: t], not is_nil(t.selected_input_refs))
 
   @doc "The inputs each turn chose to answer, as `{id, episode_id, selected_input_refs}`."
@@ -280,10 +280,10 @@ defmodule Ryker.Work.Turn.Query do
   def select_episode_deliveries(queryable),
     do: select(queryable, [episode_work_turns: t], {t.episode_id, t.delivered_at})
 
-  def newest_first(queryable),
+  def ordered_by_recent(queryable),
     do: order_by(queryable, [episode_work_turns: t], desc: t.inserted_at, desc: t.id)
 
-  def oldest_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [episode_work_turns: t], asc: t.inserted_at, asc: t.id)
 
   @doc "Each delivered answer as `{delivered_at, delivery_document}`."
@@ -302,7 +302,7 @@ defmodule Ryker.Work.Turn.Query do
   def current(%Episode{owner_kind: :delivery, owner_ref: delivery_ref, id: id}),
     do: id |> by_episode_id() |> by_delivery_ref(delivery_ref)
 
-  def current(%Episode{id: id}), do: id |> by_episode_id() |> newest_first() |> limit_to(1)
+  def current(%Episode{id: id}), do: id |> by_episode_id() |> ordered_by_recent() |> limit_to(1)
 
   @doc """
   The title each of `episode_id`'s accepted answers gave, in the order they
@@ -381,7 +381,7 @@ defmodule Ryker.Work.Turn.Query do
     )
   end
 
-  def with_status(queryable \\ all(), status),
+  def by_status(queryable \\ all(), status),
     do: where(queryable, [episode_work_turns: t], t.status == ^status)
 
   def select_statuses(queryable), do: select(queryable, [episode_work_turns: t], t.status)

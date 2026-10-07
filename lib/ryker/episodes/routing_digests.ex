@@ -153,7 +153,7 @@ defmodule Ryker.Episodes.RoutingDigests do
     episode_id
     |> Event.Query.by_episode_id()
     |> Event.Query.of_kind(:input_admitted)
-    |> Event.Query.newest_first()
+    |> Event.Query.ordered_by_sequence_desc()
     |> Event.Query.limit_to(1)
   end
 
@@ -278,7 +278,7 @@ defmodule Ryker.Episodes.RoutingDigests do
       |> Event.Query.by_episode_id()
       |> Event.Query.of_kind(:input_admitted)
       |> Event.Query.excluding_dedupe_key(event.dedupe_key)
-      |> Event.Query.oldest_first()
+      |> Event.Query.ordered_by_sequence()
       |> Repo.all()
 
     Enum.sort_by(stored ++ [event], & &1.sequence)

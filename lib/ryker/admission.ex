@@ -1015,7 +1015,7 @@ defmodule Ryker.Admission do
       episode.id
       |> Event.Query.by_episode_id()
       |> Event.Query.wait_marks(episode.owner_ref)
-      |> Event.Query.newest_first()
+      |> Event.Query.ordered_by_sequence_desc()
       |> Event.Query.limit_to(1)
       |> Repo.one()
 
@@ -1298,8 +1298,8 @@ defmodule Ryker.Admission do
 
     ordered =
       if position == :first,
-        do: Event.Query.earliest_first(admissions),
-        else: Event.Query.latest_first(admissions)
+        do: Event.Query.ordered_by_occurred_at(admissions),
+        else: Event.Query.ordered_by_occurred_at_desc(admissions)
 
     ordered
     |> Event.Query.limit_to(1)

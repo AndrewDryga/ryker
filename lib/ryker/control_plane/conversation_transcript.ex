@@ -233,7 +233,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     turns =
       turn_ids
       |> Turn.Query.by_ids()
-      |> Turn.Query.with_selected_inputs()
+      |> Turn.Query.having_selected_inputs()
       |> Turn.Query.select_selected_inputs()
       |> Repo.all()
 

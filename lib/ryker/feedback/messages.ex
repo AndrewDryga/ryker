@@ -133,7 +133,7 @@ defmodule Ryker.Feedback.Messages do
     |> RoutingResponse.Query.delivered_messages()
     |> RoutingResponse.Query.delivered_after(from)
     |> RoutingResponse.Query.delivered_before(before)
-    |> RoutingResponse.Query.latest_delivered_first()
+    |> RoutingResponse.Query.ordered_by_delivered_at_desc()
     |> RoutingResponse.Query.limit_to(1)
     |> RoutingResponse.Query.select_input_ids()
     |> Repo.one()

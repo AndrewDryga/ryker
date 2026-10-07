@@ -16,9 +16,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Query do
   def messages(episode_id),
     do: from(entry in subquery(CurrentInput.Query.for_episode(episode_id)))
 
-  def first_said(query), do: order_by(query, [entry], asc: entry.occurred_at, asc: entry.id)
-  def last_said(query), do: order_by(query, [entry], desc: entry.occurred_at, desc: entry.id)
-  def limit_to(query, count), do: limit(query, ^count)
+  def ordered_by_occurred_at(queryable),
+    do: order_by(queryable, [entry], asc: entry.occurred_at, asc: entry.id)
+
+  def ordered_by_occurred_at_desc(queryable),
+    do: order_by(queryable, [entry], desc: entry.occurred_at, desc: entry.id)
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
 
   @doc """
   The `limit` newest revisions `episode_id` admitted, each beside the current

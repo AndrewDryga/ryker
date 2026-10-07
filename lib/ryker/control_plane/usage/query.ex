@@ -14,8 +14,8 @@ defmodule Ryker.ControlPlane.Usage.Query do
   # message's id reads it through its key; two ORed conditions, one on a
   # reference built from every message, read the whole inbox for each
   # execution (2026-10-04 review).
-  def dimensions(query) do
-    from(e in query,
+  def dimensions(queryable) do
+    from(e in queryable,
       left_join: turn in Turn,
       on: e.kind == "work" and turn.id == e.source_id,
       left_join: entry in Entry,
@@ -100,13 +100,13 @@ defmodule Ryker.ControlPlane.Usage.Query do
   end
 
   @doc "The executions whose dimension `field` is `value`; an empty value means unset."
-  def with_dimension(query, field, ""), do: where(query, [e], is_nil(field(e, ^field)))
-  def with_dimension(query, field, value), do: where(query, [e], field(e, ^field) == ^value)
+  def by_dimension(queryable, field, ""), do: where(queryable, [e], is_nil(field(e, ^field)))
+  def by_dimension(queryable, field, value), do: where(queryable, [e], field(e, ^field) == ^value)
 
   @doc "No executions: a filter that names no valid value matches nothing."
-  def none(query), do: where(query, false)
+  def none(queryable), do: where(queryable, false)
 
-  def in_slack(query), do: where(query, [e], e.transport == "slack")
+  def in_slack(queryable), do: where(queryable, [e], e.transport == "slack")
 
   @doc """
   The executions a person asked for. Someone in Chat is a person once
@@ -115,9 +115,9 @@ defmodule Ryker.ControlPlane.Usage.Query do
   in particular. Apps, bots, hooks and missing senders still count toward
   every overall total.
   """
-  def people(query) do
+  def people(queryable) do
     where(
-      query,
+      queryable,
       [e],
       e.actor_kind == "user" and not is_nil(e.actor) and e.actor != "" and
         (e.source != "control_plane" or like(e.actor, "tailscale:%") or
@@ -129,8 +129,8 @@ defmodule Ryker.ControlPlane.Usage.Query do
   The executions grouped by `fields`, each group with the totals and its
   values, the most tokens first, at most 501.
   """
-  def grouped(query, fields) do
-    query
+  def grouped(queryable, fields) do
+    queryable
     |> group_by([e], ^fields)
     |> aggregate()
     |> correction_counts(fields)
@@ -148,17 +148,17 @@ defmodule Ryker.ControlPlane.Usage.Query do
     |> limit(501)
   end
 
-  defp correction_counts(query, [:work_kind, :provider, :model, :effort]) do
-    select_merge(query, [e], %{
+  defp correction_counts(queryable, [:work_kind, :provider, :model, :effort]) do
+    select_merge(queryable, [e], %{
       corrections: type(fragment("COALESCE(SUM(?), 0)::bigint", e.corrections), :integer)
     })
   end
 
-  defp correction_counts(query, _fields), do: query
+  defp correction_counts(queryable, _fields), do: queryable
 
   @doc "The executions grouped by UTC day, the latest year at most."
-  def by_day(query) do
-    query
+  def by_day(queryable) do
+    queryable
     |> group_by([e], fragment("date(?)", e.recorded_at))
     |> aggregate()
     |> select_merge([e], %{date: type(fragment("date(?)", e.recorded_at), :date)})
@@ -167,8 +167,8 @@ defmodule Ryker.ControlPlane.Usage.Query do
   end
 
   @doc "Each place and person the executions came from, for the filters, `limit` at most."
-  def filter_options(query, limit) do
-    from(e in query,
+  def filter_options(queryable, limit) do
+    from(e in queryable,
       distinct: true,
       select: map(e, [:source, :workspace, :actor, :actor_kind, :transport, :conversation_ref]),
       order_by: [e.source, e.workspace, e.actor, e.conversation_ref],
@@ -177,8 +177,8 @@ defmodule Ryker.ControlPlane.Usage.Query do
   end
 
   @doc "The totals of the executions, as one row."
-  def aggregate(query) do
-    from(e in query,
+  def aggregate(queryable) do
+    from(e in queryable,
       select: %{
         attempts: count(e.id),
         # The requests Activity lists for these executions: each episode, and

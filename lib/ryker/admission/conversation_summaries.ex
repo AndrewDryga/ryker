@@ -57,7 +57,7 @@ defmodule Ryker.Admission.ConversationSummaries do
   defp latest(identity_key) do
     identity_key
     |> ConversationSummary.Query.by_identity_key()
-    |> ConversationSummary.Query.recently_updated_first()
+    |> ConversationSummary.Query.ordered_by_recently_updated()
     |> ConversationSummary.Query.limit_to(1)
     |> Repo.one()
   end

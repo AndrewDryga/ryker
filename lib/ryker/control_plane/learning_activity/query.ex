@@ -35,9 +35,9 @@ defmodule Ryker.ControlPlane.LearningActivity.Query do
   end
 
   @doc "The messages of `query` sent to `conversation_ref` on `transport`."
-  def sent_to(query, transport, conversation_ref) do
+  def sent_to(queryable, transport, conversation_ref) do
     where(
-      query,
+      queryable,
       [input: e],
       e.destination_transport == ^transport and
         e.destination_conversation_ref == ^conversation_ref
@@ -45,8 +45,8 @@ defmodule Ryker.ControlPlane.LearningActivity.Query do
   end
 
   @doc "How many messages `query` holds and when the oldest last changed, as `{count, oldest}`."
-  def select_count_and_oldest(query),
-    do: select(query, [input: e], {count(e.id), min(e.updated_at)})
+  def select_count_and_oldest(queryable),
+    do: select(queryable, [input: e], {count(e.id), min(e.updated_at)})
 
   @doc "Accepted answers whose conversation summary could not be saved, with their request."
   def failed_handovers do

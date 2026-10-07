@@ -11,7 +11,7 @@ defmodule Ryker.Instructions.Setting.Query do
   def by_scope_refs(queryable \\ all(), scope_refs),
     do: where(queryable, [model_instruction_settings: s], s.scope_ref in ^scope_refs)
 
-  def with_text(queryable), do: where(queryable, [model_instruction_settings: s], s.text != "")
+  def having_text(queryable), do: where(queryable, [model_instruction_settings: s], s.text != "")
 
   @doc "Instructions saved for a Slack channel, by their `slack:` scope."
   def for_slack_channels(queryable),

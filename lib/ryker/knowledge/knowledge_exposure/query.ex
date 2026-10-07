@@ -8,7 +8,7 @@ defmodule Ryker.Knowledge.KnowledgeExposure.Query do
   def by_session_id(queryable \\ all(), session_id),
     do: where(queryable, [episode_work_knowledge_exposures: e], e.session_id == ^session_id)
 
-  def in_topic_order(queryable) do
+  def ordered_by_knowledge_and_version(queryable) do
     order_by(queryable, [episode_work_knowledge_exposures: e],
       asc: e.knowledge_id,
       asc: e.version
@@ -37,7 +37,7 @@ defmodule Ryker.Knowledge.KnowledgeExposure.Query do
   What session `session_id` was shown, in topic order, as `{knowledge_id,
   source_generation, version}`; the generation is nil once the revision is gone.
   """
-  def with_generations(session_id) do
+  def generations_by_session_id(session_id) do
     from(e in by_session_id(session_id),
       left_join: r in KnowledgeRevision,
       on: r.knowledge_id == e.knowledge_id and r.version == e.version,

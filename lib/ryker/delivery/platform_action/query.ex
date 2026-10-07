@@ -75,16 +75,18 @@ defmodule Ryker.Delivery.PlatformAction.Query do
     )
   end
 
-  def with_status(queryable, status),
+  def by_status(queryable, status),
     do: where(queryable, [platform_actions: a], a.status == ^status)
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [platform_actions: a], desc: a.updated_at, desc: a.id)
 
-  def oldest_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [platform_actions: a], asc: a.inserted_at, asc: a.id)
 
-  def in_slot_order(queryable), do: order_by(queryable, [platform_actions: a], asc: a.host_slot)
+  def ordered_by_host_slot(queryable),
+    do: order_by(queryable, [platform_actions: a], asc: a.host_slot)
+
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 
   @doc "The action turn `turn_id` took in host slot `host_slot`."
@@ -121,13 +123,13 @@ defmodule Ryker.Delivery.PlatformAction.Query do
     )
   end
 
-  def with_delivery_time(queryable),
+  def delivered(queryable),
     do: where(queryable, [platform_actions: a], not is_nil(a.delivered_at))
 
-  def newest_first(queryable),
+  def ordered_by_recent(queryable),
     do: order_by(queryable, [platform_actions: a], desc: a.inserted_at, desc: a.id)
 
-  def latest_delivered_first(queryable),
+  def ordered_by_delivered_at_desc(queryable),
     do: order_by(queryable, [platform_actions: a], desc: a.delivered_at, desc: a.id)
 
   def select_episode_ids(queryable), do: select(queryable, [platform_actions: a], a.episode_id)

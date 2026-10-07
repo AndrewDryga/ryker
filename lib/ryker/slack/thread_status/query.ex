@@ -54,7 +54,7 @@ defmodule Ryker.Slack.ThreadStatus.Query do
   def blocked(queryable \\ all()),
     do: where(queryable, [slack_thread_statuses: s], s.status == :blocked)
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [slack_thread_statuses: s], desc: s.updated_at, desc: s.id)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)

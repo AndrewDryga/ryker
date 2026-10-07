@@ -87,7 +87,7 @@ defmodule Ryker.Embeddings.Worker do
 
     digests =
       RoutingDigest.Query.without_embedding()
-      |> RoutingDigest.Query.recently_updated_first()
+      |> RoutingDigest.Query.ordered_by_recently_updated()
       |> RoutingDigest.Query.limit_to(@batch)
       |> Repo.all()
 

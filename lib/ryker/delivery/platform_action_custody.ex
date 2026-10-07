@@ -269,7 +269,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   @spec validation_records(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: map()
   def validation_records(episode_id, turn_id \\ nil) do
     query =
-      episode_id |> PlatformAction.Query.by_episode_id() |> PlatformAction.Query.oldest_first()
+      episode_id
+      |> PlatformAction.Query.by_episode_id()
+      |> PlatformAction.Query.ordered_by_oldest()
 
     query = if turn_id, do: PlatformAction.Query.by_turn_id(query, turn_id), else: query
 
@@ -321,7 +323,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     episode_id
     |> Event.Query.by_episode_id()
     |> Event.Query.admitted_inputs(Enum.uniq(active_input_refs))
-    |> Event.Query.oldest_first()
+    |> Event.Query.ordered_by_sequence()
     |> Repo.all()
   end
 
@@ -369,7 +371,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       turn.id
       |> PlatformAction.Query.by_turn_id()
       |> PlatformAction.Query.by_tool(attributes.tool)
-      |> PlatformAction.Query.in_slot_order()
+      |> PlatformAction.Query.ordered_by_host_slot()
       |> Repo.all()
 
     case repeated(earlier, attributes) do

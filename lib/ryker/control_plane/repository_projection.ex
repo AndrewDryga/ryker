@@ -94,7 +94,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     runs =
       ref
       |> Run.Query.by_repository()
-      |> Run.Query.newest_first()
+      |> Run.Query.ordered_by_recent()
       |> Run.Query.limit_to(@knowledge_runs)
       |> Run.Query.select_cards()
       |> Repo.all()

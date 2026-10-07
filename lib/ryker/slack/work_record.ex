@@ -69,7 +69,7 @@ defmodule Ryker.Slack.WorkRecord do
     events =
       episode_id
       |> Event.Query.by_episode_id()
-      |> Event.Query.newest_first()
+      |> Event.Query.ordered_by_sequence_desc()
       |> Event.Query.limit_to(@maximum_events)
       |> Repo.all()
       |> Enum.reverse()
@@ -77,7 +77,7 @@ defmodule Ryker.Slack.WorkRecord do
     records =
       episode_id
       |> Record.Query.by_episode_id()
-      |> Record.Query.latest_sequence_first()
+      |> Record.Query.ordered_by_sequence_desc()
       |> Record.Query.limit_to(@maximum_records)
       |> Repo.all()
       |> Enum.reverse()
@@ -85,7 +85,7 @@ defmodule Ryker.Slack.WorkRecord do
     publications =
       episode_id
       |> Publication.Query.by_episode_id()
-      |> Publication.Query.newest_first()
+      |> Publication.Query.ordered_by_recent()
       |> Publication.Query.limit_to(@maximum_publications)
       |> Repo.all()
       |> Enum.reverse()

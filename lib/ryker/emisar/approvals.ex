@@ -202,7 +202,7 @@ defmodule Ryker.Emisar.Approvals do
     connection_ref
     |> Approval.Query.watches()
     |> Approval.Query.ended()
-    |> Approval.Query.oldest_updated_first()
+    |> Approval.Query.ordered_by_least_recently_updated()
     |> Approval.Query.limit_to(100)
     |> Approval.Query.select_ids()
     |> Repo.all()
@@ -290,9 +290,9 @@ defmodule Ryker.Emisar.Approvals do
   defp lock_unleased(ids, now) do
     ids
     |> Approval.Query.by_ids()
-    |> Approval.Query.with_statuses([:monitoring, :blocked])
+    |> Approval.Query.by_statuses([:monitoring, :blocked])
     |> Approval.Query.unleased_at(now)
-    |> Approval.Query.oldest_updated_first()
+    |> Approval.Query.ordered_by_least_recently_updated()
     |> Approval.Query.lock_next_free()
     |> Repo.all()
   end

@@ -169,7 +169,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp alert(room, secrets) do
     room.source_episode_id
     |> IncidentReport.Query.messages()
-    |> IncidentReport.Query.first_said()
+    |> IncidentReport.Query.ordered_by_occurred_at()
     |> IncidentReport.Query.limit_to(1)
     |> Repo.one()
     |> message(secrets)
@@ -184,7 +184,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
     people =
       episode_id
       |> IncidentReport.Query.messages()
-      |> IncidentReport.Query.last_said()
+      |> IncidentReport.Query.ordered_by_occurred_at_desc()
       |> IncidentReport.Query.limit_to(@detail_limit)
       |> Repo.all()
       |> Enum.reject(&(alert && &1.id == alert.id))
@@ -260,7 +260,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp lifecycle(room) do
     room.id
     |> IncidentRoomLifecycleEvent.Query.of_room()
-    |> IncidentRoomLifecycleEvent.Query.in_order()
+    |> IncidentRoomLifecycleEvent.Query.ordered_by_occurred_at()
     |> IncidentRoomLifecycleEvent.Query.limit_to(@detail_limit)
     |> IncidentRoomLifecycleEvent.Query.select_timeline()
     |> Repo.all()
@@ -273,7 +273,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp records(episode_id) do
     episode_id
     |> Record.Query.by_episode_id()
-    |> Record.Query.latest_sequence_first()
+    |> Record.Query.ordered_by_sequence_desc()
     |> Record.Query.limit_to(@detail_limit)
     |> Repo.all()
     |> Enum.reverse()

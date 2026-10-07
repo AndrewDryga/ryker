@@ -104,7 +104,7 @@ defmodule Ryker.Memories.Recall do
     |> MemoryEntry.Query.visible_to(context)
     |> MemoryEntry.Query.active()
     |> MemoryEntry.Query.unexpired_at(Repo.now!())
-    |> MemoryEntry.Query.newest_content_first()
+    |> MemoryEntry.Query.ordered_by_recent_content()
     |> MemoryEntry.Query.limit_to(1_000)
     |> Repo.all()
   end

@@ -17,7 +17,7 @@ defmodule Ryker.Settings.Environment.Query do
   def select_names(queryable \\ all()),
     do: select(queryable, [environment_settings: e], {e.ref, e.display_name, e.is_default})
 
-  def with_repositories(queryable), do: preload(queryable, :repositories)
+  def with_preloaded_repositories(queryable), do: preload(queryable, :repositories)
 
   @doc "The default environments other than `ref`: the one a new default replaces."
   def other_defaults(ref),

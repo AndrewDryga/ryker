@@ -98,7 +98,7 @@ defmodule Ryker.Records.Outcomes do
     episode_id
     |> Event.Query.by_episode_id()
     |> Event.Query.of_kind(:input_admitted)
-    |> Event.Query.oldest_first()
+    |> Event.Query.ordered_by_sequence()
     |> Event.Query.limit_to(1)
     |> Repo.one()
   end

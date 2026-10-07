@@ -524,7 +524,7 @@ defmodule Ryker.Work.SubmissionBuilder do
       else
         visible
         |> Event.Query.by_dedupe_keys(active_refs)
-        |> Event.Query.oldest_first()
+        |> Event.Query.ordered_by_sequence()
         |> Repo.all()
       end
 
@@ -538,7 +538,7 @@ defmodule Ryker.Work.SubmissionBuilder do
             else: Event.Query.excluding_dedupe_keys(visible, active_refs)
 
         query
-        |> Event.Query.newest_first()
+        |> Event.Query.ordered_by_sequence_desc()
         |> Event.Query.limit_to(historical_slots)
         |> Repo.all()
         |> Enum.reverse()
@@ -546,7 +546,8 @@ defmodule Ryker.Work.SubmissionBuilder do
 
     %{
       active: active,
-      first: visible |> Event.Query.oldest_first() |> Event.Query.limit_to(1) |> Repo.one(),
+      first:
+        visible |> Event.Query.ordered_by_sequence() |> Event.Query.limit_to(1) |> Repo.one(),
       historical: historical,
       total_count: Repo.aggregate(visible, :count)
     }
@@ -556,8 +557,8 @@ defmodule Ryker.Work.SubmissionBuilder do
     episode_id
     |> Turn.Query.by_episode_id()
     |> Turn.Query.excluding_ids([turn_id])
-    |> Turn.Query.with_result()
-    |> Turn.Query.newest_first()
+    |> Turn.Query.having_result()
+    |> Turn.Query.ordered_by_recent()
     |> Turn.Query.limit_to(1)
     |> Repo.one()
   end
@@ -624,7 +625,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp routing_notes(%Episode{id: episode_id}) do
     episode_id
     |> Entry.Query.by_episode_id()
-    |> Entry.Query.with_decision_document()
+    |> Entry.Query.having_decision_document()
     |> Entry.Query.select_decisions()
     |> Repo.all()
     |> Enum.flat_map(fn {kind, ref, event_ref, decision} ->
@@ -710,8 +711,8 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp own_backdrop(episode) do
     episode.id
     |> Entry.Query.by_episode_id()
-    |> Entry.Query.with_admission_context()
-    |> Entry.Query.oldest_occurred_first()
+    |> Entry.Query.having_admission_context()
+    |> Entry.Query.ordered_by_occurred_at()
     |> Entry.Query.limit_to(1)
     |> Entry.Query.select_admission_contexts()
     |> Repo.one()
@@ -747,8 +748,8 @@ defmodule Ryker.Work.SubmissionBuilder do
 
     entry_ids
     |> Entry.Query.by_ids()
-    |> Entry.Query.with_admission_context()
-    |> Entry.Query.latest_occurred_first()
+    |> Entry.Query.having_admission_context()
+    |> Entry.Query.ordered_by_occurred_at_desc()
     |> Entry.Query.limit_to(1)
     |> Entry.Query.select_admission_contexts()
     |> Repo.one()

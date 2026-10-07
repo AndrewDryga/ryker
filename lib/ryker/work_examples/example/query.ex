@@ -31,7 +31,7 @@ defmodule Ryker.WorkExamples.Example.Query do
     )
   end
 
-  def oldest_settled_first(queryable),
+  def ordered_by_settled_at(queryable),
     do: order_by(queryable, [work_examples: x], asc: x.settled_at, asc: x.id)
 
   @doc """

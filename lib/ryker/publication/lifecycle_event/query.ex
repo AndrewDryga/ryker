@@ -56,7 +56,7 @@ defmodule Ryker.Publication.LifecycleEvent.Query do
     )
   end
 
-  def oldest_first(queryable) do
+  def ordered_by_oldest(queryable) do
     order_by(queryable, [episode_publication_lifecycle_events: e],
       asc: e.inserted_at,
       asc: e.id

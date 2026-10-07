@@ -129,7 +129,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
         event_records =
           episode.id
           |> Event.Query.by_episode_id()
-          |> Event.Query.newest_first()
+          |> Event.Query.ordered_by_sequence_desc()
           |> Event.Query.limit_to(500)
           |> Repo.all()
           |> Enum.reverse()
@@ -146,7 +146,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
         record_records =
           episode.id
           |> Record.Query.by_episode_id()
-          |> Record.Query.latest_sequence_first()
+          |> Record.Query.ordered_by_sequence_desc()
           |> Record.Query.limit_to(@record_limit)
           |> Repo.all()
           |> Enum.reverse()

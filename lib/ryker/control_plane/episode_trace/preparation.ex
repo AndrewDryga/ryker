@@ -73,7 +73,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
     ids
     |> InputCustodyTransition.Query.by_input_ids()
-    |> InputCustodyTransition.Query.per_input_in_sequence()
+    |> InputCustodyTransition.Query.ordered_by_input_and_sequence()
     |> Repo.all()
     |> Enum.group_by(& &1.input_id)
   end
@@ -689,7 +689,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
     ids
     |> Placement.Query.by_session_ids()
-    |> Placement.Query.latest_per_session_first()
+    |> Placement.Query.ordered_by_session_and_generation_desc()
     |> Repo.all()
     |> Enum.uniq_by(& &1.session_id)
     |> Map.new(&{&1.session_id, &1})

@@ -40,7 +40,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
     current =
       copies
       |> WorkingCopy.Query.kept()
-      |> WorkingCopy.Query.recently_updated_first()
+      |> WorkingCopy.Query.ordered_by_recently_updated()
       |> Repo.all()
       |> items(names)
 
@@ -62,7 +62,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
     WorkingCopy.Query.sessions()
     |> WorkingCopy.Query.learning()
     |> WorkingCopy.Query.kept()
-    |> WorkingCopy.Query.recently_updated_first()
+    |> WorkingCopy.Query.ordered_by_recently_updated()
     |> Repo.all()
     |> items(RepositoryNames.all())
   end

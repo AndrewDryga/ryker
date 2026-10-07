@@ -443,7 +443,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     commands =
       worker_id
       |> Command.Query.waiting_on(now, prepare_cutoff)
-      |> Command.Query.oldest_first()
+      |> Command.Query.ordered_by_oldest()
       |> Command.Query.limit_to(100)
       |> Command.Query.lock_next_free()
       |> Command.Query.select_with_placements()

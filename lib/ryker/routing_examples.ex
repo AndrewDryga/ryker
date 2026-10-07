@@ -596,7 +596,7 @@ defmodule Ryker.RoutingExamples do
       episode &&
         episode.id
         |> Turn.Query.by_episode_id()
-        |> Turn.Query.newest_first()
+        |> Turn.Query.ordered_by_recent()
         |> Turn.Query.limit_to(1)
         |> Turn.Query.select_statuses()
         |> Repo.one()

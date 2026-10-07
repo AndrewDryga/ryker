@@ -65,13 +65,13 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
     where(all(), ^matching)
   end
 
-  def latest_occurred_first(queryable),
+  def ordered_by_occurred_at_desc(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], desc: e.occurred_at, desc: e.id)
 
-  def with_admission_context(queryable),
+  def having_admission_context(queryable),
     do: where(queryable, [ingress_inbox_entries: e], not is_nil(e.admission_context))
 
-  def with_decision_document(queryable),
+  def having_decision_document(queryable),
     do: where(queryable, [ingress_inbox_entries: e], not is_nil(e.decision_document))
 
   def select_admission_contexts(queryable),
@@ -86,12 +86,12 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
     )
   end
 
-  def oldest_occurred_first(queryable),
+  def ordered_by_occurred_at(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], asc: e.occurred_at, asc: e.id)
 
   def ordered_by_id(queryable), do: order_by(queryable, [ingress_inbox_entries: e], asc: e.id)
 
-  def oldest_received_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], asc: e.inserted_at, asc: e.id)
 
   def by_dedupe_key(queryable \\ all(), dedupe_key),
@@ -100,7 +100,7 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
   def blocked(queryable \\ all()),
     do: where(queryable, [ingress_inbox_entries: e], e.status == :blocked)
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], desc: e.updated_at, desc: e.id)
 
   def pending(queryable \\ all()),
@@ -226,11 +226,11 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
     )
   end
 
-  def newest_first(queryable),
+  def ordered_by_recent(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], desc: e.inserted_at, desc: e.id)
 
   @doc "The latest said first: by occurrence, then revision, then arrival."
-  def latest_said_first(queryable) do
+  def ordered_by_occurred_at_and_revision_desc(queryable) do
     order_by(queryable, [ingress_inbox_entries: e],
       desc: e.occurred_at,
       desc: e.revision,

@@ -91,7 +91,7 @@ defmodule Ryker.Publication.Custody do
   defp episode_publication(episode_id) do
     episode_id
     |> Publication.Query.by_episode_id()
-    |> Publication.Query.newest_first()
+    |> Publication.Query.ordered_by_recent()
     |> Publication.Query.limit_to(1)
     |> Publication.Query.lock_for_update()
     |> Repo.one()

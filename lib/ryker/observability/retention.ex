@@ -18,7 +18,7 @@ defmodule Ryker.Observability.Retention do
     eligible = Cleanup.Query.eligible(now)
 
     with {:ok, last_reclaimed} <- Reads.one(Session.Query.select_last_discarded()),
-         {:ok, blocked} <- Reads.count(Session.Query.with_cleanup_status(:blocked)),
+         {:ok, blocked} <- Reads.count(Session.Query.by_cleanup_status(:blocked)),
          {:ok, eligible_count} <- Reads.count(eligible),
          {:ok, oldest_eligible} <- Reads.one(Cleanup.Query.select_oldest_eligible_at(eligible)),
          {:ok, retained} <- Reads.all(Session.Query.retained_by_reason()),

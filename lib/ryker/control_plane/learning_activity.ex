@@ -99,7 +99,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   defp batches(statuses, key, params, secrets) do
     page =
       statuses
-      |> Batch.Query.with_statuses()
+      |> Batch.Query.by_statuses()
       |> read(key, [desc: :inserted_at, desc: :id], params)
 
     context = context(page.items)
@@ -245,9 +245,9 @@ defmodule Ryker.ControlPlane.LearningActivity do
     run =
       row.id
       |> LearningRun.Query.by_batch_id()
-      |> LearningRun.Query.with_status(:applied)
+      |> LearningRun.Query.by_status(:applied)
       |> LearningRun.Query.unpruned()
-      |> LearningRun.Query.newest_first()
+      |> LearningRun.Query.ordered_by_recent()
       |> LearningRun.Query.limit_to(1)
       |> LearningRun.Query.select_results()
       |> Repo.one()
@@ -343,7 +343,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
       |> ConversationKnowledge.Query.in_conversation(batch.transport, batch.conversation_ref)
       |> ConversationKnowledge.Query.unforgotten()
       |> ConversationKnowledge.Query.of_repository(batch.repository_ref)
-      |> ConversationKnowledge.Query.recently_updated_first()
+      |> ConversationKnowledge.Query.ordered_by_recently_updated()
       |> ConversationKnowledge.Query.limit_to(20)
       |> Repo.all()
 

@@ -18,7 +18,7 @@ defmodule Ryker.Slack.IncidentRoomLifecycleEvent.Query do
   def of_room(queryable \\ all(), room_id),
     do: where(queryable, [slack_incident_room_lifecycle_events: e], e.room_id == ^room_id)
 
-  def in_order(queryable) do
+  def ordered_by_occurred_at(queryable) do
     order_by(queryable, [slack_incident_room_lifecycle_events: e],
       asc: e.occurred_at,
       asc: e.id

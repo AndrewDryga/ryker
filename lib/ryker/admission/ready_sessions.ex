@@ -186,8 +186,8 @@ defmodule Ryker.Admission.ReadySessions do
     cutoff = DateTime.add(Repo.now!(), -maximum_age_seconds(), :second)
 
     [:starting, :ready]
-    |> Session.Query.with_ready_state()
-    |> Session.Query.with_policy(policy, digest)
+    |> Session.Query.by_ready_state()
+    |> Session.Query.by_policy(policy, digest)
     |> Session.Query.inserted_after(cutoff)
     |> Repo.aggregate(:count)
   end
@@ -214,11 +214,11 @@ defmodule Ryker.Admission.ReadySessions do
     cutoff = DateTime.add(Repo.now!(), -maximum_age_seconds(), :second)
 
     :ready
-    |> Session.Query.with_ready_state()
+    |> Session.Query.by_ready_state()
     |> Session.Query.unprepared()
-    |> Session.Query.with_policy(policy, digest)
+    |> Session.Query.by_policy(policy, digest)
     |> Session.Query.inserted_after(cutoff)
-    |> Session.Query.oldest_first()
+    |> Session.Query.ordered_by_oldest()
     |> Repo.all()
   end
 
@@ -306,8 +306,8 @@ defmodule Ryker.Admission.ReadySessions do
 
     {usable, unusable} =
       :ready
-      |> Session.Query.with_ready_state()
-      |> Session.Query.newest_first()
+      |> Session.Query.by_ready_state()
+      |> Session.Query.ordered_by_recent()
       |> Repo.all()
       |> Enum.split_with(fn session ->
         session.policy == policy and session.policy_digest == digest and
@@ -329,9 +329,9 @@ defmodule Ryker.Admission.ReadySessions do
     cutoff = DateTime.add(Repo.now!(), -seconds, :second)
 
     :starting
-    |> Session.Query.with_ready_state()
+    |> Session.Query.by_ready_state()
     |> Session.Query.inserted_by(cutoff)
-    |> Session.Query.oldest_first()
+    |> Session.Query.ordered_by_oldest()
     |> Repo.all()
   end
 
@@ -342,7 +342,7 @@ defmodule Ryker.Admission.ReadySessions do
   @spec failed_starts() :: [Session.t()]
   def failed_starts do
     Session.Query.in_ready_pool()
-    |> Session.Query.newest_first()
+    |> Session.Query.ordered_by_recent()
     |> Session.Query.limit_to(16)
     |> Repo.all()
     |> Enum.take_while(&(&1.ready_state == :retired and is_nil(&1.coop_session_id)))

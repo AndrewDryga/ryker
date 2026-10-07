@@ -97,19 +97,19 @@ defmodule Ryker.Work.Session.Query do
   def in_ready_pool(queryable \\ all()),
     do: where(queryable, [episode_work_sessions: s], not is_nil(s.ready_state))
 
-  def with_ready_state(queryable \\ all(), states)
+  def by_ready_state(queryable \\ all(), states)
 
-  def with_ready_state(queryable, states) when is_list(states),
+  def by_ready_state(queryable, states) when is_list(states),
     do: where(queryable, [episode_work_sessions: s], s.ready_state in ^states)
 
-  def with_ready_state(queryable, state),
+  def by_ready_state(queryable, state),
     do: where(queryable, [episode_work_sessions: s], s.ready_state == ^state)
 
   @doc "Ready sessions Coop has not been asked to prepare yet."
   def unprepared(queryable),
     do: where(queryable, [episode_work_sessions: s], is_nil(s.warm_until))
 
-  def with_policy(queryable, policy, digest) do
+  def by_policy(queryable, policy, digest) do
     where(
       queryable,
       [episode_work_sessions: s],
@@ -123,10 +123,10 @@ defmodule Ryker.Work.Session.Query do
   def inserted_by(queryable, at),
     do: where(queryable, [episode_work_sessions: s], s.inserted_at <= ^at)
 
-  def oldest_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [episode_work_sessions: s], asc: s.inserted_at, asc: s.id)
 
-  def newest_first(queryable),
+  def ordered_by_recent(queryable),
     do: order_by(queryable, [episode_work_sessions: s], desc: s.inserted_at, desc: s.id)
 
   @doc """
@@ -167,7 +167,7 @@ defmodule Ryker.Work.Session.Query do
     )
   end
 
-  def least_recently_updated_first(queryable),
+  def ordered_by_least_recently_updated(queryable),
     do: order_by(queryable, [episode_work_sessions: s], asc: s.updated_at, asc: s.id)
 
   @doc "The Work sessions of `session`'s episode of a later generation: what replaced it."
@@ -180,7 +180,7 @@ defmodule Ryker.Work.Session.Query do
     )
   end
 
-  def with_cleanup_status(queryable \\ all(), status),
+  def by_cleanup_status(queryable \\ all(), status),
     do: where(queryable, [episode_work_sessions: s], s.cleanup_status == ^status)
 
   @doc "Sessions whose cleanup failed and waits to retry after `now`."
@@ -196,7 +196,7 @@ defmodule Ryker.Work.Session.Query do
   @doc "Retained sessions counted by why each is kept, as `{retained_reason, count}`."
   def retained_by_reason do
     all()
-    |> with_cleanup_status(:retained)
+    |> by_cleanup_status(:retained)
     |> group_by([episode_work_sessions: s], s.retained_reason)
     |> select([episode_work_sessions: s], {s.retained_reason, count(s.id)})
   end
@@ -296,12 +296,12 @@ defmodule Ryker.Work.Session.Query do
   def bound(queryable),
     do: where(queryable, [episode_work_sessions: s], not is_nil(s.coop_session_id))
 
-  def latest_generation_first(queryable),
+  def ordered_by_generation_desc(queryable),
     do: order_by(queryable, [episode_work_sessions: s], desc: s.generation)
 
   @doc "The latest generation of `episode_id`'s session."
   def latest_of_episode(episode_id),
-    do: episode_id |> by_episode_id() |> latest_generation_first() |> limit_to(1)
+    do: episode_id |> by_episode_id() |> ordered_by_generation_desc() |> limit_to(1)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 

@@ -12,13 +12,13 @@ defmodule Ryker.WeeklyReport.Report.Query do
   def for_week(week),
     do: where(all(), [weekly_reports: r], r.week == ^week and not r.preview)
 
-  def with_status(queryable \\ all(), status),
+  def by_status(queryable \\ all(), status),
     do: where(queryable, [weekly_reports: r], r.status == ^status)
 
   @doc "Pending, with no retry backoff or claim lease left at `now`."
   def claimable_at(now) do
     :pending
-    |> with_status()
+    |> by_status()
     |> where(
       [weekly_reports: r],
       (is_nil(r.next_attempt_at) or r.next_attempt_at <= ^now) and
@@ -29,17 +29,17 @@ defmodule Ryker.WeeklyReport.Report.Query do
   @doc "The next retry and the next lease expiry after `since` among pending reports."
   def next_due_after(since) do
     :pending
-    |> with_status()
+    |> by_status()
     |> select([weekly_reports: r], [
       filter(min(r.next_attempt_at), r.next_attempt_at > ^since),
       filter(min(r.lease_expires_at), r.lease_expires_at > ^since)
     ])
   end
 
-  def soonest_due_first(queryable),
+  def ordered_by_due_at(queryable),
     do: order_by(queryable, [weekly_reports: r], asc: r.due_at, asc: r.id)
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [weekly_reports: r], desc: r.updated_at, desc: r.id)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)

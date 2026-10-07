@@ -148,7 +148,7 @@ defmodule Ryker.Work.ActivityEvent.Query do
     })
   end
 
-  def latest_first(queryable) do
+  def ordered_by_occurred_at_desc(queryable) do
     order_by(queryable, [episode_work_activity: a],
       desc: a.occurred_at,
       desc: a.session_id,

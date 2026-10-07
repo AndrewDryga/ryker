@@ -220,7 +220,7 @@ defmodule Ryker.Learning.Batches do
   def policy_refused?(%{policy: policy, policy_digest: digest}) do
     policy
     |> LearningRun.Query.by_policy(digest)
-    |> LearningRun.Query.with_error_code("learning_session_not_isolated")
+    |> LearningRun.Query.by_error_code("learning_session_not_isolated")
     |> Repo.exists?()
   end
 
@@ -260,7 +260,7 @@ defmodule Ryker.Learning.Batches do
         batch.id
         |> LearningRun.Query.by_batch_id()
         |> LearningRun.Query.unstarted()
-        |> LearningRun.Query.newest_first()
+        |> LearningRun.Query.ordered_by_recent()
         |> LearningRun.Query.limit_to(1)
         |> LearningRun.Query.lock_for_update()
         |> Repo.one()
@@ -523,7 +523,7 @@ defmodule Ryker.Learning.Batches do
     batch_id
     |> LearningRun.Query.by_batch_id()
     |> LearningRun.Query.unstopped()
-    |> LearningRun.Query.oldest_first()
+    |> LearningRun.Query.ordered_by_oldest()
     |> LearningRun.Query.limit_to(1)
     |> Repo.one()
   end
@@ -577,7 +577,7 @@ defmodule Ryker.Learning.Batches do
     entries =
       pending
       |> LearningInput.Query.in_scope(scope)
-      |> Entry.Query.oldest_received_first()
+      |> Entry.Query.ordered_by_oldest()
       |> Entry.Query.limit_to(settings.batch_size)
       |> Entry.Query.lock_for_update()
       |> Repo.all()

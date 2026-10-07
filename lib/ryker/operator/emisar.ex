@@ -38,9 +38,9 @@ defmodule Ryker.Operator.Emisar do
 
       blocked =
         Approval.Query.all()
-        |> Approval.Query.with_origin()
+        |> Approval.Query.with_joined_origin()
         |> Approval.Query.blocked_on_open_cards()
-        |> Approval.Query.recently_updated_first()
+        |> Approval.Query.ordered_by_recently_updated()
         |> Approval.Query.limit_to(limit)
         |> Approval.Query.select_with_origin()
         |> Repo.all()
@@ -49,9 +49,9 @@ defmodule Ryker.Operator.Emisar do
 
       stalled =
         Approval.Query.all()
-        |> Approval.Query.with_origin()
+        |> Approval.Query.with_joined_origin()
         |> Approval.Query.stalled(stalled_refs, Approvals.token_unavailable_errors())
-        |> Approval.Query.recently_updated_first()
+        |> Approval.Query.ordered_by_recently_updated()
         |> Approval.Query.limit_to(limit)
         |> Approval.Query.select_with_origin()
         |> Repo.all()
@@ -82,7 +82,7 @@ defmodule Ryker.Operator.Emisar do
   defp watch(connection_ref, request_id) do
     connection_ref
     |> Approval.Query.by_request(request_id)
-    |> Approval.Query.with_origin()
+    |> Approval.Query.with_joined_origin()
     |> Approval.Query.select_with_origin()
     |> Repo.one()
   end

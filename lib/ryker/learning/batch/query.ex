@@ -11,7 +11,7 @@ defmodule Ryker.Learning.Batch.Query do
   def by_scope_key(queryable \\ all(), scope_key),
     do: where(queryable, [conversation_learning_batches: b], b.scope_key == ^scope_key)
 
-  def with_statuses(queryable \\ all(), statuses),
+  def by_statuses(queryable \\ all(), statuses),
     do: where(queryable, [conversation_learning_batches: b], b.status in ^statuses)
 
   @doc "How many batches each status holds, as `{status, count}`."
@@ -32,7 +32,7 @@ defmodule Ryker.Learning.Batch.Query do
     )
   end
 
-  def with_execution_mode(queryable, execution_mode),
+  def by_execution_mode(queryable, execution_mode),
     do: where(queryable, [conversation_learning_batches: b], b.execution_mode == ^execution_mode)
 
   @doc "The batch that rebuilds generation `generation` of topic `knowledge_id`."
@@ -45,7 +45,7 @@ defmodule Ryker.Learning.Batch.Query do
   end
 
   @doc "Batches with a started pass that has not stopped."
-  def with_unstopped_run(queryable) do
+  def with_joined_unstopped_run(queryable) do
     queryable
     |> join(:inner, [conversation_learning_batches: b], r in LearningRun,
       on: r.batch_id == b.id,

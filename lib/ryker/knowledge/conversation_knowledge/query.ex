@@ -117,7 +117,7 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   def of_repository(queryable, repository_ref),
     do: where(queryable, [conversation_knowledge: k], k.repository_ref == ^repository_ref)
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [conversation_knowledge: k], desc: k.updated_at, desc: k.id)
 
   def in_workspace(queryable, workspace_ref),
@@ -176,7 +176,7 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   def by_topic_keys(queryable, topic_keys),
     do: where(queryable, [conversation_knowledge: k], k.topic_key in ^topic_keys)
 
-  def with_anchor_keys(queryable, keys) do
+  def by_anchor_keys(queryable, keys) do
     where(
       queryable,
       [conversation_knowledge: k],
@@ -299,12 +299,12 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
     }
   end
 
-  def latest_source_first(queryable) do
+  def ordered_by_latest_source_at_desc(queryable) do
     order_by(queryable, [conversation_knowledge: k], desc: k.latest_source_at, asc: k.id)
   end
 
   @doc "This conversation's topics first, then the latest learned."
-  def conversation_first(queryable, conversation_ref) do
+  def ordered_by_conversation_and_latest_source(queryable, conversation_ref) do
     order_by(queryable, [conversation_knowledge: k],
       desc: k.conversation_ref == ^conversation_ref,
       desc: k.latest_source_at,

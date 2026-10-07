@@ -20,7 +20,7 @@ defmodule Ryker.ControlPlane.Findings.Query do
   end
 
   @doc "Record `id` with its request's id, as `{record, episode_id}`."
-  def with_request(id) do
+  def by_id_with_request(id) do
     from(record in Record,
       join: episode in Episode,
       on: episode.id == record.episode_id,
@@ -34,20 +34,20 @@ defmodule Ryker.ControlPlane.Findings.Query do
   forgot is forgotten, one they marked explained is explained; an open one is
   what Ryker classified it.
   """
-  def in_view(query, "forgotten"), do: where(query, [record], record.status == :dismissed)
+  def in_view(queryable, "forgotten"), do: where(queryable, [record], record.status == :dismissed)
 
-  def in_view(query, "explained") do
+  def in_view(queryable, "explained") do
     where(
-      query,
+      queryable,
       [record],
       record.status == :answered or
         (record.status == :open and fragment("?::jsonb->>'status' = 'explained'", record.payload))
     )
   end
 
-  def in_view(query, classification) do
+  def in_view(queryable, classification) do
     where(
-      query,
+      queryable,
       [record],
       record.status == :open and
         fragment("?::jsonb->>'status' = ?", record.payload, ^classification)
@@ -55,17 +55,17 @@ defmodule Ryker.ControlPlane.Findings.Query do
   end
 
   @doc "How many findings of `query` each status and classification holds."
-  def counts(query) do
-    from([record, _episode] in exclude(query, :select),
+  def counts(queryable) do
+    from([record, _episode] in exclude(queryable, :select),
       group_by: [record.status, fragment("?::jsonb->>'status'", record.payload)],
       select: {record.status, fragment("?::jsonb->>'status'", record.payload), count()}
     )
   end
 
   @doc "The findings of `query` whose conclusion, reason or scope contains `pattern`."
-  def matching(query, pattern) do
+  def matching(queryable, pattern) do
     where(
-      query,
+      queryable,
       [record],
       fragment("?::jsonb->>'what' ILIKE ?", record.payload, ^pattern) or
         fragment("?::jsonb->>'reason' ILIKE ?", record.payload, ^pattern) or

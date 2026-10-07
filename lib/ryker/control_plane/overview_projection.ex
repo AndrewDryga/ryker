@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.OverviewProjection do
       counts: %{
         active: @active_states |> in_states() |> count(),
         blocked: count(Overview.Query.blocked_work()),
-        delivery_pending: :delivery_pending |> Turn.Query.with_status() |> count(),
+        delivery_pending: :delivery_pending |> Turn.Query.by_status() |> count(),
         waiting: [:waiting_for_input, :waiting_for_event] |> in_states() |> count()
       },
       fleet: fleet(),

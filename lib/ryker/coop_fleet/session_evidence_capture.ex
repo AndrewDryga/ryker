@@ -63,7 +63,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
     session_id
     |> Placement.Query.by_session_id()
     |> Placement.Query.active()
-    |> Placement.Query.latest_generation_first()
+    |> Placement.Query.ordered_by_generation_desc()
     |> Placement.Query.limit_to(1)
     |> Repo.one()
     |> case do

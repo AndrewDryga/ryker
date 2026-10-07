@@ -19,7 +19,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   def platform_actions(episode_id) do
     episode_id
     |> PlatformAction.Query.by_episode_id()
-    |> PlatformAction.Query.newest_first()
+    |> PlatformAction.Query.ordered_by_recent()
     |> PlatformAction.Query.limit_to(200)
     |> Repo.all()
     |> Enum.reverse()
@@ -111,7 +111,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   def incident_steps(episode_id) do
     episode_id
     |> IncidentRoom.Query.of_episode_or_source()
-    |> IncidentRoom.Query.newest_requested_first()
+    |> IncidentRoom.Query.ordered_by_requested_at_desc()
     |> IncidentRoom.Query.limit_to(50)
     |> Repo.all()
     |> Enum.reverse()
@@ -142,7 +142,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   def publications(episode_id) do
     episode_id
     |> Publication.Query.by_episode_id()
-    |> Publication.Query.newest_first()
+    |> Publication.Query.ordered_by_recent()
     |> Publication.Query.limit_to(50)
     |> Repo.all()
     |> Enum.reverse()
@@ -236,7 +236,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   def schedule_steps(episode_id) do
     episode_id
     |> Schedule.Query.by_source_episode_id()
-    |> Schedule.Query.newest_confirmed_first()
+    |> Schedule.Query.ordered_by_confirmed_at_desc()
     |> Schedule.Query.limit_to(50)
     |> Repo.all()
     |> Enum.reverse()

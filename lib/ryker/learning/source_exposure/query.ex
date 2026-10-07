@@ -16,7 +16,7 @@ defmodule Ryker.Learning.SourceExposure.Query do
     )
   end
 
-  def in_observation_order(queryable),
+  def ordered_by_observation(queryable),
     do: order_by(queryable, [episode_work_source_exposures: e], asc: e.observation_id)
 
   def select_receipts(queryable),

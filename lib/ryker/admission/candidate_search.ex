@@ -171,7 +171,7 @@ defmodule Ryker.Admission.CandidateSearch do
 
     counts =
       Map.new(lexemes, fn lexeme ->
-        {lexeme, Repo.aggregate(CandidateSearch.Query.with_lexeme(searchable, lexeme), :count)}
+        {lexeme, Repo.aggregate(CandidateSearch.Query.by_lexeme(searchable, lexeme), :count)}
       end)
 
     idf = Map.new(counts, fn {lexeme, count} -> {lexeme, idf(total, count)} end)

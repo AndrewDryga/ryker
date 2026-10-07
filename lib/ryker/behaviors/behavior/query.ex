@@ -28,12 +28,12 @@ defmodule Ryker.Behaviors.Behavior.Query do
   def of_kind(queryable \\ all(), kind),
     do: where(queryable, [operator_behaviors: b], b.kind == ^kind)
 
-  def with_status(queryable \\ all(), status)
+  def by_status(queryable \\ all(), status)
 
-  def with_status(queryable, statuses) when is_list(statuses),
+  def by_status(queryable, statuses) when is_list(statuses),
     do: where(queryable, [operator_behaviors: b], b.status in ^statuses)
 
-  def with_status(queryable, status),
+  def by_status(queryable, status),
     do: where(queryable, [operator_behaviors: b], b.status == ^status)
 
   def without_status(queryable \\ all(), statuses),
@@ -175,13 +175,13 @@ defmodule Ryker.Behaviors.Behavior.Query do
     }
   end
 
-  def oldest_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [operator_behaviors: b], asc: b.inserted_at, asc: b.id)
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [operator_behaviors: b], desc: b.updated_at, desc: b.id)
 
-  def least_recently_updated_first(queryable),
+  def ordered_by_least_recently_updated(queryable),
     do: order_by(queryable, [operator_behaviors: b], asc: b.updated_at, asc: b.id)
 
   def ordered_by_ref(queryable), do: order_by(queryable, [operator_behaviors: b], asc: b.ref)
@@ -194,7 +194,7 @@ defmodule Ryker.Behaviors.Behavior.Query do
 
   # The narrowest scope first: a person's own, then the channel's, the
   # repository's and the workspace's.
-  def narrowest_scope_first(queryable) do
+  def ordered_by_scope_precedence(queryable) do
     order_by(queryable, [operator_behaviors: b],
       asc:
         fragment(
@@ -206,7 +206,7 @@ defmodule Ryker.Behaviors.Behavior.Query do
     )
   end
 
-  def in_id_order(queryable), do: order_by(queryable, [operator_behaviors: b], asc: b.id)
+  def ordered_by_id(queryable), do: order_by(queryable, [operator_behaviors: b], asc: b.id)
   def select_ids(queryable), do: select(queryable, [operator_behaviors: b], b.id)
   def limit_to(queryable, count), do: limit(queryable, ^count)
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")

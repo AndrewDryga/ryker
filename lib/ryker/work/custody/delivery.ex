@@ -690,7 +690,7 @@ defmodule Ryker.Work.Custody.Delivery do
     episode.id
     |> Origin.Query.by_episode_id()
     |> Origin.Query.by_input_refs(refs)
-    |> Origin.Query.latest_first()
+    |> Origin.Query.ordered_by_occurred_at_desc()
     |> Origin.Query.limit_to(1)
     |> Repo.one()
   end

@@ -218,7 +218,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
     next =
       RoutingResponse.Query.in_order()
       |> RoutingResponse.Query.claimable_at(now)
-      |> RoutingResponse.Query.oldest_first()
+      |> RoutingResponse.Query.ordered_by_oldest()
       |> RoutingResponse.Query.limit_to(1)
       |> RoutingResponse.Query.lock_next_free()
       |> Repo.one()

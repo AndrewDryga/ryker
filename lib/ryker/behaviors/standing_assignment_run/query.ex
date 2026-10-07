@@ -50,7 +50,7 @@ defmodule Ryker.Behaviors.StandingAssignmentRun.Query do
     })
   end
 
-  def oldest_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [standing_assignment_runs: r], asc: r.inserted_at)
 
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")

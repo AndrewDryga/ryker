@@ -246,9 +246,9 @@ defmodule Ryker.Behaviors do
       Behavior.Query.of_kind(:standing_assignment)
       |> Behavior.Query.by_workspace(workspace_ref)
       |> Behavior.Query.scoped_to(:conversation, conversation_ref)
-      |> Behavior.Query.with_status([:active, :disabled])
+      |> Behavior.Query.by_status([:active, :disabled])
       |> Behavior.Query.unexpired_at(now)
-      |> Behavior.Query.oldest_first()
+      |> Behavior.Query.ordered_by_oldest()
       |> Behavior.Query.limit_to(100)
       |> Repo.all()
     else
@@ -362,7 +362,7 @@ defmodule Ryker.Behaviors do
   defp account_guidance(behaviors, context) do
     current =
       Behavior.Query.unchanged(behaviors)
-      |> Behavior.Query.with_status(:active)
+      |> Behavior.Query.by_status(:active)
       |> Behavior.Query.unexpired()
       |> Behavior.Query.select_ids()
 
@@ -427,7 +427,7 @@ defmodule Ryker.Behaviors do
 
     Behavior.Query.by_workspace(context.workspace_ref)
     |> Behavior.Query.of_kind(:guidance)
-    |> Behavior.Query.with_status(:active)
+    |> Behavior.Query.by_status(:active)
     |> Behavior.Query.unexpired()
     |> Behavior.Query.in_search_scope(context, page.scope)
     |> Behavior.Query.visible_to(:guidance, context)
@@ -551,7 +551,7 @@ defmodule Ryker.Behaviors do
     Behavior.Query.of_kind(:standing_assignment)
     |> Behavior.Query.by_workspace(workspace)
     |> Behavior.Query.without_status([:deleted, :superseded])
-    |> Behavior.Query.oldest_first()
+    |> Behavior.Query.ordered_by_oldest()
     |> Repo.all()
   end
 
@@ -699,10 +699,10 @@ defmodule Ryker.Behaviors do
     if Reference.valid?(workspace_ref) and (is_nil(status) or status in @statuses) and
          is_integer(limit) and limit in 1..100 do
       query = Behavior.Query.by_workspace(workspace_ref)
-      query = if status, do: Behavior.Query.with_status(query, status), else: query
+      query = if status, do: Behavior.Query.by_status(query, status), else: query
 
       query
-      |> Behavior.Query.recently_updated_first()
+      |> Behavior.Query.ordered_by_recently_updated()
       |> Behavior.Query.limit_to(limit)
       |> Repo.all()
     else
@@ -874,13 +874,13 @@ defmodule Ryker.Behaviors do
   defp existing_behavior?(prepared) do
     prepared
     |> Behavior.Query.same_identity()
-    |> Behavior.Query.with_status(:active)
+    |> Behavior.Query.by_status(:active)
     |> Repo.exists?()
   end
 
   defp active_behavior_count(workspace_ref, now) do
     Behavior.Query.by_workspace(workspace_ref)
-    |> Behavior.Query.with_status(:active)
+    |> Behavior.Query.by_status(:active)
     |> Behavior.Query.unexpired_at(now)
     |> Repo.aggregate(:count)
   end
@@ -888,7 +888,7 @@ defmodule Ryker.Behaviors do
   defp scoped_behavior_count(prepared, now) do
     Behavior.Query.by_workspace(prepared.workspace_ref)
     |> Behavior.Query.scoped_to(prepared.scope_kind, prepared.scope_ref)
-    |> Behavior.Query.with_status(:active)
+    |> Behavior.Query.by_status(:active)
     |> Behavior.Query.unexpired_at(now)
     |> Repo.aggregate(:count)
   end
@@ -896,8 +896,8 @@ defmodule Ryker.Behaviors do
   defp supersede_existing(prepared) do
     prepared
     |> Behavior.Query.same_identity()
-    |> Behavior.Query.with_status(:active)
-    |> Behavior.Query.in_id_order()
+    |> Behavior.Query.by_status(:active)
+    |> Behavior.Query.ordered_by_id()
     |> Behavior.Query.lock_for_update()
     |> Repo.all()
     |> Enum.each(&redact!(&1, :superseded, "replaced_payload_sha256"))
@@ -997,12 +997,12 @@ defmodule Ryker.Behaviors do
     now = Repo.now!()
 
     Behavior.Query.of_kind(kind)
-    |> Behavior.Query.with_status(:active)
+    |> Behavior.Query.by_status(:active)
     |> Behavior.Query.by_workspace(context.workspace_ref)
     |> Behavior.Query.unexpired_at(now)
     |> Behavior.Query.in_any_scope(context_clauses(context))
     |> Behavior.Query.visible_to(kind, context)
-    |> Behavior.Query.narrowest_scope_first()
+    |> Behavior.Query.ordered_by_scope_precedence()
     |> Behavior.Query.limit_to(100)
     |> Repo.all()
   end
@@ -1046,11 +1046,11 @@ defmodule Ryker.Behaviors do
 
     # Every standing rule is confirmed in a conversation and scoped to it.
     Behavior.Query.of_kind(:standing_assignment)
-    |> Behavior.Query.with_status(:active)
+    |> Behavior.Query.by_status(:active)
     |> Behavior.Query.by_workspace(workspace)
     |> Behavior.Query.scoped_to(:conversation, input.destination.conversation_ref)
     |> Behavior.Query.unexpired_at(now)
-    |> Behavior.Query.oldest_first()
+    |> Behavior.Query.ordered_by_oldest()
     |> Behavior.Query.limit_to(@runtime_candidate_limit)
   end
 
@@ -1103,7 +1103,7 @@ defmodule Ryker.Behaviors do
     episode_id = if action in [:start_episode, :continue_episode, :reply], do: episode.id
 
     StandingAssignmentRun.Query.by_source_input_ref(input_ref)
-    |> StandingAssignmentRun.Query.oldest_first()
+    |> StandingAssignmentRun.Query.ordered_by_oldest()
     |> StandingAssignmentRun.Query.lock_for_update()
     |> Repo.all()
     |> Enum.each(fn run ->

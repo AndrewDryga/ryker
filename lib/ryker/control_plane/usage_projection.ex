@@ -75,7 +75,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
 
   defp filter_dimension(query, field, {:ok, value})
        when is_binary(value) and byte_size(value) <= 512,
-       do: Usage.Query.with_dimension(query, field, value)
+       do: Usage.Query.by_dimension(query, field, value)
 
   defp filter_dimension(query, _field, :error), do: query
   defp filter_dimension(query, _field, _invalid), do: Usage.Query.none(query)

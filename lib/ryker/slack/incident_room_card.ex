@@ -114,7 +114,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
     |> Record.Query.by_episode_id()
     |> Record.Query.of_kinds(@record_kinds)
     |> Record.Query.in_use()
-    |> Record.Query.in_sequence()
+    |> Record.Query.ordered_by_sequence()
     |> Repo.all()
     |> Enum.reduce(%{}, &Map.put(&2, &1.kind, &1))
   end

@@ -268,7 +268,7 @@ defmodule Ryker.ControlPlane.Activity do
         {key, column}, query ->
           case params[key] do
             value when is_binary(value) and byte_size(value) in 1..512 ->
-              Activity.Query.with_column(query, column, value)
+              Activity.Query.by_column(query, column, value)
 
             _ ->
               query

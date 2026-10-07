@@ -16,12 +16,12 @@ defmodule Ryker.Memories.MemoryReviewItem.Query do
 
   def excluding_id(queryable, id), do: where(queryable, [memory_review_items: r], r.id != ^id)
 
-  def pending(queryable \\ all()), do: with_status(queryable, :pending)
+  def pending(queryable \\ all()), do: by_status(queryable, :pending)
 
   @doc "Reviews in `status`; nil leaves every status."
-  def with_status(queryable, nil), do: queryable
+  def by_status(queryable, nil), do: queryable
 
-  def with_status(queryable, status),
+  def by_status(queryable, status),
     do: where(queryable, [memory_review_items: r], r.status == ^status)
 
   @doc """
@@ -68,7 +68,7 @@ defmodule Ryker.Memories.MemoryReviewItem.Query do
   end
 
   @doc "Reviews that name at most `count` entries."
-  def with_at_most_entries(queryable, count) do
+  def by_entry_count_at_most(queryable, count) do
     where(
       queryable,
       [memory_review_items: r],
@@ -76,7 +76,7 @@ defmodule Ryker.Memories.MemoryReviewItem.Query do
     )
   end
 
-  def oldest_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [memory_review_items: r], asc: r.inserted_at, asc: r.id)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)

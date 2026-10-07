@@ -194,7 +194,7 @@ defmodule Ryker.Improvement.Analyses do
   def policy_refused?(%{policy: policy, policy_digest: digest}) do
     policy
     |> AnalysisRun.Query.by_policy(digest)
-    |> AnalysisRun.Query.with_error_code("improvement_session_not_isolated")
+    |> AnalysisRun.Query.by_error_code("improvement_session_not_isolated")
     |> Repo.exists?()
   end
 
@@ -205,7 +205,7 @@ defmodule Ryker.Improvement.Analyses do
     candidate_id
     |> AnalysisRun.Query.by_candidate_id()
     |> AnalysisRun.Query.unstopped()
-    |> AnalysisRun.Query.in_generation_order()
+    |> AnalysisRun.Query.ordered_by_generation()
     |> AnalysisRun.Query.limit_to(1)
     |> Repo.one()
   end
@@ -273,7 +273,7 @@ defmodule Ryker.Improvement.Analyses do
   defp retry?(candidate) do
     candidate.id
     |> AnalysisRun.Query.by_candidate_id()
-    |> AnalysisRun.Query.with_error_codes(@contract_failures)
+    |> AnalysisRun.Query.by_error_codes(@contract_failures)
     |> Repo.exists?()
   end
 

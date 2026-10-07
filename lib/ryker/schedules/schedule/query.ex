@@ -72,7 +72,7 @@ defmodule Ryker.Schedules.Schedule.Query do
 
   def not_deleted(queryable), do: where(queryable, [episode_schedules: s], s.status != :deleted)
 
-  def soonest_first(queryable) do
+  def ordered_by_next_occurrence_at(queryable) do
     order_by(queryable, [episode_schedules: s],
       asc: s.next_occurrence_at,
       asc: s.inserted_at,
@@ -85,7 +85,7 @@ defmodule Ryker.Schedules.Schedule.Query do
   def by_source_episode_id(queryable \\ all(), episode_id),
     do: where(queryable, [episode_schedules: s], s.source_episode_id == ^episode_id)
 
-  def newest_confirmed_first(queryable),
+  def ordered_by_confirmed_at_desc(queryable),
     do: order_by(queryable, [episode_schedules: s], desc: s.confirmed_at, desc: s.id)
 
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")

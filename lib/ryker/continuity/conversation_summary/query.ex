@@ -149,7 +149,7 @@ defmodule Ryker.Continuity.ConversationSummary.Query do
   def within_scope(queryable, _context, "workspace"), do: queryable
   def within_scope(queryable, _context, _scope), do: where(queryable, false)
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [conversation_summaries: s], desc: s.updated_at, desc: s.id)
 
   @doc "The small fields a recall ranks summaries by, before it loads the few it keeps."

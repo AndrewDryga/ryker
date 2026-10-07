@@ -61,7 +61,7 @@ defmodule Ryker.Delivery.RoutingResponse.Query do
     ])
   end
 
-  def oldest_first(queryable) do
+  def ordered_by_oldest(queryable) do
     order_by(queryable, [delivery_routing_responses: r],
       asc: r.inserted_at,
       asc: r.position,
@@ -87,16 +87,16 @@ defmodule Ryker.Delivery.RoutingResponse.Query do
   end
 
   @doc "Messages routing sent that their platform received."
-  def with_status(queryable, status),
+  def by_status(queryable, status),
     do: where(queryable, [delivery_routing_responses: r], r.status == ^status)
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [delivery_routing_responses: r], desc: r.updated_at, desc: r.id)
 
   def delivered(queryable),
     do: where(queryable, [delivery_routing_responses: r], r.status == :delivered)
 
-  def in_position_order(queryable),
+  def ordered_by_position(queryable),
     do: order_by(queryable, [delivery_routing_responses: r], asc: r.position)
 
   @doc "Each delivered response as `{delivered_at, kind, document}`."
@@ -134,7 +134,7 @@ defmodule Ryker.Delivery.RoutingResponse.Query do
   def delivered_before(queryable, at),
     do: where(queryable, [delivery_routing_responses: r], r.delivered_at < ^at)
 
-  def latest_delivered_first(queryable),
+  def ordered_by_delivered_at_desc(queryable),
     do: order_by(queryable, [delivery_routing_responses: r], desc: r.delivered_at, desc: r.id)
 
   def select_input_ids(queryable),

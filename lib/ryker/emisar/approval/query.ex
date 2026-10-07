@@ -28,17 +28,17 @@ defmodule Ryker.Emisar.Approval.Query do
     )
   end
 
-  def with_status(queryable, status),
+  def by_status(queryable, status),
     do: where(queryable, [episode_emisar_approvals: a], a.status == ^status)
 
-  def with_statuses(queryable, statuses),
+  def by_statuses(queryable, statuses),
     do: where(queryable, [episode_emisar_approvals: a], a.status in ^statuses)
 
   @doc "An account's watches, each with the card that asked and its episode."
-  def watches(connection_ref), do: connection_ref |> by_connection() |> with_origin()
+  def watches(connection_ref), do: connection_ref |> by_connection() |> with_joined_origin()
 
   @doc "Each watch with the card that asked and its episode."
-  def with_origin(queryable) do
+  def with_joined_origin(queryable) do
     queryable
     |> join(:inner, [episode_emisar_approvals: a], r in Record,
       on: r.id == a.record_id and r.episode_id == a.episode_id,
@@ -50,7 +50,7 @@ defmodule Ryker.Emisar.Approval.Query do
     )
   end
 
-  @doc "Of watches `with_origin/1`, the blocked ones whose card is open on a request still going."
+  @doc "Of watches `with_joined_origin/1`, the blocked ones whose card is open on a request still going."
   def blocked_on_open_cards(queryable) do
     where(
       queryable,
@@ -60,7 +60,7 @@ defmodule Ryker.Emisar.Approval.Query do
   end
 
   @doc """
-  Of watches `with_origin/1`, the ones a task waits for that cannot make
+  Of watches `with_joined_origin/1`, the ones a task waits for that cannot make
   progress: monitored, their card open and its episode waiting on it, on an
   account in `stalled_refs` or failing with one of `token_errors`.
   """
@@ -77,7 +77,7 @@ defmodule Ryker.Emisar.Approval.Query do
     )
   end
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [episode_emisar_approvals: a], desc: a.updated_at, desc: a.id)
 
   def select_with_origin(queryable) do
@@ -91,7 +91,7 @@ defmodule Ryker.Emisar.Approval.Query do
   @doc "An account's watches a task is waiting for right now."
   def waited_for(connection_ref), do: connection_ref |> watches() |> awaited()
 
-  @doc "Of watches `with_origin/1`, the ones a task is waiting for right now."
+  @doc "Of watches `with_joined_origin/1`, the ones a task is waiting for right now."
   def awaited(queryable) do
     queryable
     |> where(
@@ -107,7 +107,7 @@ defmodule Ryker.Emisar.Approval.Query do
   @doc "Still watched, though its card was answered or its request cancelled."
   def ended(queryable) do
     queryable
-    |> with_statuses([:monitoring, :blocked])
+    |> by_statuses([:monitoring, :blocked])
     |> where(
       [episode_state_records: r, episode_kernel_episodes: e],
       r.status != :open or e.state == :cancelled
@@ -117,7 +117,7 @@ defmodule Ryker.Emisar.Approval.Query do
   @doc "Blocked because Emisar refused the account's token."
   def refused(queryable) do
     queryable
-    |> with_status(:blocked)
+    |> by_status(:blocked)
     |> where(
       [episode_emisar_approvals: a],
       like(a.last_error, "{:emisar_http_error, 401,%") or
@@ -128,7 +128,7 @@ defmodule Ryker.Emisar.Approval.Query do
   @doc "Watched, and last stopped by one of `errors`."
   def failed_with(queryable, errors) do
     queryable
-    |> with_status(:monitoring)
+    |> by_status(:monitoring)
     |> where([episode_emisar_approvals: a], a.last_error in ^errors)
   end
 
@@ -153,7 +153,7 @@ defmodule Ryker.Emisar.Approval.Query do
     eligible =
       connection_ref
       |> waited_for()
-      |> with_status(:monitoring)
+      |> by_status(:monitoring)
       |> due_at(now)
       |> unleased_at(now)
       |> select_ids()
@@ -173,14 +173,14 @@ defmodule Ryker.Emisar.Approval.Query do
   def next_due_after(connection_ref, since) do
     connection_ref
     |> by_connection()
-    |> with_status(:monitoring)
+    |> by_status(:monitoring)
     |> select([episode_emisar_approvals: a], [
       filter(min(a.next_attempt_at), a.next_attempt_at > ^since),
       filter(min(a.lease_expires_at), a.lease_expires_at > ^since)
     ])
   end
 
-  def oldest_updated_first(queryable),
+  def ordered_by_least_recently_updated(queryable),
     do: order_by(queryable, [episode_emisar_approvals: a], asc: a.updated_at, asc: a.id)
 
   def select_ids(queryable), do: select(queryable, [episode_emisar_approvals: a], a.id)

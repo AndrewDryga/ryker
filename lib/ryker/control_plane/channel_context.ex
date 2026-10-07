@@ -256,7 +256,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
     needs_attention =
       "slack"
       |> Batch.Query.in_conversation(scope.conversation_ref)
-      |> Batch.Query.with_statuses([:deferred])
+      |> Batch.Query.by_statuses([:deferred])
       |> Repo.aggregate(:count)
 
     %{

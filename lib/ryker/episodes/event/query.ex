@@ -33,10 +33,10 @@ defmodule Ryker.Episodes.Event.Query do
     )
   end
 
-  def earliest_first(queryable),
+  def ordered_by_occurred_at(queryable),
     do: order_by(queryable, [episode_kernel_events: e], asc: e.occurred_at, asc: e.sequence)
 
-  def latest_first(queryable),
+  def ordered_by_occurred_at_desc(queryable),
     do: order_by(queryable, [episode_kernel_events: e], desc: e.occurred_at, desc: e.sequence)
 
   def select_endpoints(queryable) do
@@ -166,7 +166,7 @@ defmodule Ryker.Episodes.Event.Query do
       |> by_episode_id()
       |> of_kind(:reaction_recorded)
       |> before_sequence(next_sequence)
-      |> newest_first()
+      |> ordered_by_sequence_desc()
       |> limit(^limit)
       |> select([episode_kernel_events: e], %{payload: e.payload, sequence: e.sequence})
 
@@ -193,9 +193,9 @@ defmodule Ryker.Episodes.Event.Query do
     from(e in subquery(latest), order_by: [asc: e.inserted_at, asc: e.id])
   end
 
-  def oldest_first(queryable),
+  def ordered_by_sequence(queryable),
     do: order_by(queryable, [episode_kernel_events: e], asc: e.sequence)
 
-  def newest_first(queryable),
+  def ordered_by_sequence_desc(queryable),
     do: order_by(queryable, [episode_kernel_events: e], desc: e.sequence)
 end

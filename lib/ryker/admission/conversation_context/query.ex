@@ -39,10 +39,10 @@ defmodule Ryker.Admission.ConversationContext.Query do
 
   # Two Slack messages can share a second. The captured item orders them, but
   # only when this source has one: a webhook occurrence has no item reference.
-  defp tie_break(query, %Entry{source_item_ref: nil}), do: query
+  defp tie_break(queryable, %Entry{source_item_ref: nil}), do: queryable
 
-  defp tie_break(query, %Entry{} = entry) do
-    from(other in query,
+  defp tie_break(queryable, %Entry{} = entry) do
+    from(other in queryable,
       or_where:
         other.destination_transport == ^entry.destination_transport and
           other.destination_conversation_ref == ^entry.destination_conversation_ref and
@@ -54,15 +54,16 @@ defmodule Ryker.Admission.ConversationContext.Query do
     )
   end
 
-  defp entry_scope(query, entry, :thread_reply),
-    do: from(other in query, where: other.destination_thread_ref == ^entry.destination_thread_ref)
+  defp entry_scope(queryable, entry, :thread_reply) do
+    from(other in queryable, where: other.destination_thread_ref == ^entry.destination_thread_ref)
+  end
 
   # A Slack root binds its own timestamp as its thread, so top-level messages
   # are exactly the entries whose captured item is their own thread.
-  defp entry_scope(query, _entry, :channel_root),
-    do: from(other in query, where: other.destination_thread_ref == other.source_item_ref)
+  defp entry_scope(queryable, _entry, :channel_root),
+    do: from(other in queryable, where: other.destination_thread_ref == other.source_item_ref)
 
-  defp entry_scope(query, _entry, :conversation), do: query
+  defp entry_scope(queryable, _entry, :conversation), do: queryable
 
   @doc "The latest kept revision of thread root `root_ref` in `entry`'s conversation."
   def retained_root(entry, root_ref) do
@@ -106,16 +107,16 @@ defmodule Ryker.Admission.ConversationContext.Query do
     })
   end
 
-  defp reply_scope(query, entry, :thread_reply) do
-    from(turn in query,
+  defp reply_scope(queryable, entry, :thread_reply) do
+    from(turn in queryable,
       where:
         fragment("(?::jsonb ->> 'thread_ref')", turn.external_receipt) ==
           ^entry.destination_thread_ref
     )
   end
 
-  defp reply_scope(query, _entry, :channel_root) do
-    from(turn in query,
+  defp reply_scope(queryable, _entry, :channel_root) do
+    from(turn in queryable,
       where:
         fragment(
           "coalesce(?::jsonb ->> 'thread_ref', ?::jsonb ->> 'message_ref') = ?::jsonb ->> 'message_ref'",
@@ -126,7 +127,7 @@ defmodule Ryker.Admission.ConversationContext.Query do
     )
   end
 
-  defp reply_scope(query, _entry, :conversation), do: query
+  defp reply_scope(queryable, _entry, :conversation), do: queryable
 
   @doc "The `limit` latest messages Work posted in `entry`'s place before it, as updates."
   def delivered_posts(entry, kind, limit) do
@@ -178,16 +179,16 @@ defmodule Ryker.Admission.ConversationContext.Query do
     })
   end
 
-  defp post_scope(query, entry, :thread_reply),
-    do: from(post in query, where: post.thread_ref == ^entry.destination_thread_ref)
+  defp post_scope(queryable, entry, :thread_reply),
+    do: from(post in queryable, where: post.thread_ref == ^entry.destination_thread_ref)
 
-  defp post_scope(query, _entry, :channel_root) do
-    from(post in query,
+  defp post_scope(queryable, _entry, :channel_root) do
+    from(post in queryable,
       where:
         is_nil(post.thread_ref) or
           post.thread_ref == fragment("(?::jsonb ->> 'message_ref')", post.external_receipt)
     )
   end
 
-  defp post_scope(query, _entry, :conversation), do: query
+  defp post_scope(queryable, _entry, :conversation), do: queryable
 end

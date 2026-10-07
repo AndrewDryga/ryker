@@ -98,7 +98,7 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
 
   defp timeline_rows(query) do
     query
-    |> Signal.Query.newest_first()
+    |> Signal.Query.ordered_by_occurred_at_desc()
     |> Signal.Query.limit_to(100)
     |> Repo.all()
     |> Enum.reverse()

@@ -28,21 +28,21 @@ defmodule Ryker.Operator.Delivery do
     if is_integer(limit) and limit > 0 and limit <= @maximum_list do
       messages =
         Turn.Query.blocked_deliveries()
-        |> Turn.Query.recently_updated_first()
+        |> Turn.Query.ordered_by_recently_updated()
         |> Turn.Query.limit_to(limit)
         |> Repo.all()
 
       responses =
         RoutingResponse.Query.all()
-        |> RoutingResponse.Query.with_status(:blocked)
-        |> RoutingResponse.Query.recently_updated_first()
+        |> RoutingResponse.Query.by_status(:blocked)
+        |> RoutingResponse.Query.ordered_by_recently_updated()
         |> RoutingResponse.Query.limit_to(limit)
         |> Repo.all()
 
       actions =
         PlatformAction.Query.all()
-        |> PlatformAction.Query.with_status(:blocked)
-        |> PlatformAction.Query.recently_updated_first()
+        |> PlatformAction.Query.by_status(:blocked)
+        |> PlatformAction.Query.ordered_by_recently_updated()
         |> PlatformAction.Query.limit_to(limit)
         |> Repo.all()
 

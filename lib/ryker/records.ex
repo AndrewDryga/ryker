@@ -134,7 +134,7 @@ defmodule Ryker.Records do
     episode_id
     |> Record.Query.by_episode_id()
     |> Record.Query.in_use()
-    |> Record.Query.in_sequence()
+    |> Record.Query.ordered_by_sequence()
     |> Repo.all()
     |> Map.new(fn record ->
       {record.ref, validation_record(record)}
@@ -164,7 +164,7 @@ defmodule Ryker.Records do
     episode_id
     |> Record.Query.by_episode_id()
     |> Record.Query.in_use()
-    |> Record.Query.latest_sequence_first()
+    |> Record.Query.ordered_by_sequence_desc()
     |> Record.Query.limit_to(@maximum_model_records)
     |> Repo.all()
     |> Enum.reverse()
@@ -592,8 +592,8 @@ defmodule Ryker.Records do
     |> Record.Query.of_kind("event_wait")
     |> Record.Query.open()
     |> Record.Query.without_wait_error()
-    |> Record.Query.with_payload(payload)
-    |> Record.Query.in_sequence()
+    |> Record.Query.by_payload(payload)
+    |> Record.Query.ordered_by_sequence()
     |> Record.Query.limit_to(1)
     |> Repo.one()
   end
@@ -1005,7 +1005,7 @@ defmodule Ryker.Records do
     |> Record.Query.by_episode_id()
     |> Record.Query.of_kinds(["goal", "goal_state"])
     |> Record.Query.in_use()
-    |> Record.Query.in_sequence()
+    |> Record.Query.ordered_by_sequence()
     |> Repo.all()
   end
 

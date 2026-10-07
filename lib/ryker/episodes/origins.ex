@@ -95,7 +95,10 @@ defmodule Ryker.Episodes.Origins do
   """
   @spec for_episode(Ecto.UUID.t()) :: [Origin.t()]
   def for_episode(episode_id) do
-    episode_id |> Origin.Query.by_episode_id() |> Origin.Query.in_occurrence_order() |> Repo.all()
+    episode_id
+    |> Origin.Query.by_episode_id()
+    |> Origin.Query.ordered_by_occurred_at()
+    |> Repo.all()
   end
 
   @doc """

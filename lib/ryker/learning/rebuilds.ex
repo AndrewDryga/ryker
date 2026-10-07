@@ -29,7 +29,7 @@ defmodule Ryker.Learning.Rebuilds do
 
       entries =
         selected
-        |> RebuildSource.Query.latest_said_first()
+        |> RebuildSource.Query.ordered_by_occurred_at_desc()
         |> RebuildSource.Query.page(page, @page_size)
         |> RebuildSource.Query.select_observations_and_entries()
         |> Repo.all()
@@ -293,7 +293,7 @@ defmodule Ryker.Learning.Rebuilds do
           topic
           |> source_query()
           |> RebuildSource.Query.by_entry_ids(ids)
-          |> RebuildSource.Query.oldest_received_first()
+          |> RebuildSource.Query.ordered_by_oldest()
           |> RebuildSource.Query.select_entries()
           |> Repo.all()
 
@@ -368,8 +368,12 @@ defmodule Ryker.Learning.Rebuilds do
     if busy?(topic, except, execution_mode), do: Repo.rollback(:learning_scope_busy)
   end
 
-  defp outstanding?(topic, mode \\ nil),
-    do: topic |> matching_batches(mode) |> Batch.Query.with_unstopped_run() |> Repo.exists?()
+  defp outstanding?(topic, mode \\ nil) do
+    topic
+    |> matching_batches(mode)
+    |> Batch.Query.with_joined_unstopped_run()
+    |> Repo.exists?()
+  end
 
   defp busy?(topic, except, mode \\ nil) do
     query = matching_batches(topic, mode)
@@ -379,7 +383,7 @@ defmodule Ryker.Learning.Rebuilds do
 
   defp matching_batches(topic, mode) do
     query = Batch.Query.in_conversation(topic.transport, topic.conversation_ref)
-    if mode, do: Batch.Query.with_execution_mode(query, mode), else: query
+    if mode, do: Batch.Query.by_execution_mode(query, mode), else: query
   end
 
   defp existing(id, generation, lock \\ nil) do

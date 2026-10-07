@@ -70,7 +70,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   def fetch(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
          {%Record{kind: "finding"} = record, episode_id} <-
-           Repo.one(Findings.Query.with_request(id)) do
+           Repo.one(Findings.Query.by_id_with_request(id)) do
       refs = Map.get(record.payload, "cause_evidence", [])
 
       evidence =

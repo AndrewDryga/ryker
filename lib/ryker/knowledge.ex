@@ -435,7 +435,7 @@ defmodule Ryker.Knowledge do
       id ->
         id
         |> KnowledgeRevision.Query.by_knowledge_id()
-        |> KnowledgeRevision.Query.in_version_order()
+        |> KnowledgeRevision.Query.ordered_by_version()
         |> Repo.all()
     end
   end
@@ -487,8 +487,8 @@ defmodule Ryker.Knowledge do
 
     query
     |> ConversationKnowledge.Query.by_scope_key(scope_key(scope))
-    |> ConversationKnowledge.Query.with_anchor_keys(keys)
-    |> ConversationKnowledge.Query.latest_source_first()
+    |> ConversationKnowledge.Query.by_anchor_keys(keys)
+    |> ConversationKnowledge.Query.ordered_by_latest_source_at_desc()
     |> ConversationKnowledge.Query.limit_to(limit)
     |> ConversationKnowledge.Query.lock_for_share()
     |> Repo.all()
@@ -539,7 +539,9 @@ defmodule Ryker.Knowledge do
 
   defp select_items(query, scope, _, limit) do
     query
-    |> ConversationKnowledge.Query.conversation_first(scope.conversation_ref)
+    |> ConversationKnowledge.Query.ordered_by_conversation_and_latest_source(
+      scope.conversation_ref
+    )
     |> ConversationKnowledge.Query.limit_to(limit)
     |> ConversationKnowledge.Query.lock_for_share()
     |> Repo.all()
@@ -555,7 +557,7 @@ defmodule Ryker.Knowledge do
       scope.conversation_ref,
       reference
     )
-    |> ConversationKnowledge.Query.latest_source_first()
+    |> ConversationKnowledge.Query.ordered_by_latest_source_at_desc()
     |> ConversationKnowledge.Query.limit_to(limit)
     |> ConversationKnowledge.Query.lock_for_share()
     |> Repo.all(prepare: :unnamed)

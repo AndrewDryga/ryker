@@ -45,12 +45,12 @@ defmodule Ryker.Episodes.Origin.Query do
   def by_input_refs(queryable, input_refs),
     do: where(queryable, [episode_input_origins: o], o.input_ref in ^input_refs)
 
-  def latest_first(queryable),
+  def ordered_by_occurred_at_desc(queryable),
     do: order_by(queryable, [episode_input_origins: o], desc: o.occurred_at, desc: o.sequence)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
-  def in_occurrence_order(queryable),
+  def ordered_by_occurred_at(queryable),
     do: order_by(queryable, [episode_input_origins: o], asc: o.occurred_at, asc: o.sequence)
 
   @doc "The request that owns source item `native_input_id`, by its highest admitted revision."

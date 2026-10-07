@@ -49,7 +49,7 @@ defmodule Ryker.RoutingExamples.Export do
     Repo.transaction(
       fn ->
         Example.Query.kept()
-        |> Example.Query.oldest_decided_first()
+        |> Example.Query.ordered_by_decided_at()
         |> Repo.stream(max_rows: @batch)
         |> Stream.chunk_every(@batch)
         |> Stream.flat_map(&Repo.preload(&1, feedback: feedback_order()))
@@ -67,7 +67,7 @@ defmodule Ryker.RoutingExamples.Export do
     [Jason.encode_to_iodata!(document(example)), ?\n]
   end
 
-  defp feedback_order, do: Feedback.Query.oldest_first(Feedback.Query.all())
+  defp feedback_order, do: Feedback.Query.ordered_by_occurred_at(Feedback.Query.all())
 
   defp document(example) do
     Jason.OrderedObject.new([

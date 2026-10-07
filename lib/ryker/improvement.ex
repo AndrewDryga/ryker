@@ -182,8 +182,8 @@ defmodule Ryker.Improvement do
     counts = %{
       found: Repo.aggregate(found, :count),
       waiting: found |> Candidate.Query.awaiting_analysis() |> Repo.aggregate(:count),
-      accepted: decided |> Candidate.Query.with_status(:accepted) |> Repo.aggregate(:count),
-      dismissed: decided |> Candidate.Query.with_status(:dismissed) |> Repo.aggregate(:count)
+      accepted: decided |> Candidate.Query.by_status(:accepted) |> Repo.aggregate(:count),
+      dismissed: decided |> Candidate.Query.by_status(:dismissed) |> Repo.aggregate(:count)
     }
 
     Map.merge(counts, %{

@@ -27,13 +27,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
     first =
       in_episode
-      |> Entry.Query.oldest_occurred_first()
+      |> Entry.Query.ordered_by_occurred_at()
       |> Entry.Query.limit_to(1)
       |> Repo.one()
 
     newest =
       in_episode
-      |> Entry.Query.latest_occurred_first()
+      |> Entry.Query.ordered_by_occurred_at_desc()
       |> Entry.Query.limit_to(200)
       |> Repo.all()
       |> Enum.reverse()

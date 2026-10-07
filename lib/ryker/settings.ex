@@ -858,7 +858,7 @@ defmodule Ryker.Settings do
       environments:
         Environment.Query.all()
         |> Environment.Query.ordered_by_ref()
-        |> Environment.Query.with_repositories()
+        |> Environment.Query.with_preloaded_repositories()
         |> Repo.all(),
       github_bindings: Repo.all(GitHubBinding.Query.ordered_by_name(GitHubBinding.Query.all())),
       webhook_sources: Repo.all(WebhookSource.Query.ordered_by_name(WebhookSource.Query.all())),

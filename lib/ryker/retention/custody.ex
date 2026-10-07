@@ -734,8 +734,8 @@ defmodule Ryker.Retention.Custody do
   defp holding_worker(session_id) do
     session_id
     |> Placement.Query.by_session_id()
-    |> Placement.Query.with_worker()
-    |> Placement.Query.latest_generation_first()
+    |> Placement.Query.with_joined_worker()
+    |> Placement.Query.ordered_by_generation_desc()
     |> Placement.Query.limit_to(1)
     |> Placement.Query.select_workers()
     |> Repo.one()

@@ -16,7 +16,7 @@ defmodule Ryker.CoopFleet.Event.Query do
   def excluding_kind(queryable, kind),
     do: where(queryable, [coop_worker_events: e], e.kind != ^kind)
 
-  def in_order(queryable),
+  def ordered_by_inserted_at_and_sequence(queryable),
     do: order_by(queryable, [coop_worker_events: e], asc: e.inserted_at, asc: e.sequence)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)

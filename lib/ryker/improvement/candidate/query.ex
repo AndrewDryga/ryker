@@ -35,7 +35,7 @@ defmodule Ryker.Improvement.Candidate.Query do
     )
   end
 
-  def with_status(queryable, status),
+  def by_status(queryable, status),
     do: where(queryable, [improvement_candidates: c], c.status == ^status)
 
   @doc """

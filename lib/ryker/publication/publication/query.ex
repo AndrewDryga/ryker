@@ -89,7 +89,7 @@ defmodule Ryker.Publication.Publication.Query do
   whatever update of it is in review: at most two, so a caller can tell one
   from several.
   """
-  def with_open_pull_request(repository, number) do
+  def by_open_pull_request(repository, number) do
     from(p in all(),
       join: f in Followup,
       on: f.publication_id == p.id and f.episode_id == p.episode_id,
@@ -140,7 +140,7 @@ defmodule Ryker.Publication.Publication.Query do
     |> select([episode_publications: p], min(p.lease_expires_at))
   end
 
-  def newest_first(queryable),
+  def ordered_by_recent(queryable),
     do: order_by(queryable, [episode_publications: p], desc: p.inserted_at, desc: p.id)
 
   def select_statuses(queryable), do: select(queryable, [episode_publications: p], p.status)

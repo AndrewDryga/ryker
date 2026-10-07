@@ -43,8 +43,8 @@ defmodule Ryker.ControlPlane.BehaviorLibrary.Query do
     )
   end
 
-  def by_ref(query, ref), do: where(query, [b], b.ref == ^ref)
-  def of_kinds(query, kinds), do: where(query, [b], b.kind in ^kinds)
+  def by_ref(queryable, ref), do: where(queryable, [b], b.ref == ^ref)
+  def of_kinds(queryable, kinds), do: where(queryable, [b], b.kind in ^kinds)
 
   @doc "How many `entries` are in each status, as `{status, count}`."
   def status_counts(entries),

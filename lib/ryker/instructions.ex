@@ -48,7 +48,7 @@ defmodule Ryker.Instructions do
 
     refs
     |> Setting.Query.by_scope_refs()
-    |> Setting.Query.with_text()
+    |> Setting.Query.having_text()
     |> Setting.Query.select_scope_refs()
     |> Repo.all()
     |> MapSet.new()

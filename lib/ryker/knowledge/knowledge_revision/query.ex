@@ -16,7 +16,7 @@ defmodule Ryker.Knowledge.KnowledgeRevision.Query do
 
   def lock_for_share(queryable), do: lock(queryable, "FOR SHARE")
 
-  def in_version_order(queryable),
+  def ordered_by_version(queryable),
     do: order_by(queryable, [conversation_knowledge_revisions: r], asc: r.version)
 
   @doc """

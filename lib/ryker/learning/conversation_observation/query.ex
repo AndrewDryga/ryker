@@ -23,7 +23,7 @@ defmodule Ryker.Learning.ConversationObservation.Query do
     do: where(queryable, [conversation_observations: o], o.workspace_ref == ^workspace_ref)
 
   @doc "Observations that still say something: a forgotten or conflicted one keeps no note."
-  def with_notes(queryable),
+  def having_note(queryable),
     do: where(queryable, [conversation_observations: o], not is_nil(o.note))
 
   @doc "Observations no topic is learned from, by `source_ids`, a query of observation ids."
@@ -31,7 +31,7 @@ defmodule Ryker.Learning.ConversationObservation.Query do
     do: where(queryable, [conversation_observations: o], o.id not in subquery(source_ids))
 
   @doc "This conversation's first, then this repository's, then the latest said."
-  def recall_order(queryable, scope) do
+  def ordered_by_recall_precedence(queryable, scope) do
     order_by(queryable, [conversation_observations: o],
       desc: o.conversation_ref == ^scope.conversation_ref,
       desc: fragment("? IS NOT DISTINCT FROM ?", o.repository_ref, ^scope.repository_ref),

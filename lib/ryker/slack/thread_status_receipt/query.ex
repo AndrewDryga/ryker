@@ -27,10 +27,10 @@ defmodule Ryker.Slack.ThreadStatusReceipt.Query do
     )
   end
 
-  def oldest_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [slack_thread_status_receipts: r], asc: r.inserted_at, asc: r.id)
 
-  def newest_first(queryable),
+  def ordered_by_recent(queryable),
     do: order_by(queryable, [slack_thread_status_receipts: r], desc: r.inserted_at, desc: r.id)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)

@@ -316,7 +316,7 @@ defmodule Ryker.WorkExamples do
     publication =
       episode.id
       |> Publication.Query.by_episode_id()
-      |> Publication.Query.newest_first()
+      |> Publication.Query.ordered_by_recent()
       |> Publication.Query.limit_to(1)
       |> Publication.Query.select_statuses()
       |> Repo.one()

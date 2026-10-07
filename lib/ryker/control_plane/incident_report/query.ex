@@ -17,9 +17,9 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
   Rooms whose ref, title, repository, workspace or either channel contains
   `pattern`.
   """
-  def matching(query, pattern) do
+  def matching(queryable, pattern) do
     where(
-      query,
+      queryable,
       [slack_incident_rooms: r],
       ilike(r.ref, ^pattern) or ilike(r.title, ^pattern) or
         ilike(r.repository_ref, ^pattern) or ilike(r.workspace_ref, ^pattern) or
@@ -27,10 +27,11 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
     )
   end
 
-  def in_status(query, status), do: where(query, [slack_incident_rooms: r], r.status == ^status)
+  def in_status(queryable, status),
+    do: where(queryable, [slack_incident_rooms: r], r.status == ^status)
 
   @doc "Each room as the directory lists it, with its latest publication."
-  def directory(query) do
+  def directory(queryable) do
     latest_publications =
       from(publication in Publication,
         distinct: publication.episode_id,
@@ -46,7 +47,7 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
         }
       )
 
-    from([slack_incident_rooms: room] in query,
+    from([slack_incident_rooms: room] in queryable,
       left_join: episode in Episode,
       on: episode.id == room.episode_id,
       left_join: publication in subquery(latest_publications),
@@ -97,9 +98,13 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
     )
   end
 
-  def first_said(query), do: order_by(query, [entry], asc: entry.occurred_at, asc: entry.id)
-  def last_said(query), do: order_by(query, [entry], desc: entry.occurred_at, desc: entry.id)
-  def limit_to(query, count), do: limit(query, ^count)
+  def ordered_by_occurred_at(queryable),
+    do: order_by(queryable, [entry], asc: entry.occurred_at, asc: entry.id)
+
+  def ordered_by_occurred_at_desc(queryable),
+    do: order_by(queryable, [entry], desc: entry.occurred_at, desc: entry.id)
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
 
   @doc "The `limit` latest replies Ryker delivered for `episode_id`, as `%{at, id, text}`."
   def replies(episode_id, limit) do

@@ -335,7 +335,7 @@ defmodule Ryker.Slack.Mentions do
     episode_id
     |> Event.Query.by_episode_id()
     |> Event.Query.admitted_inputs(Enum.uniq(active_refs))
-    |> Event.Query.oldest_first()
+    |> Event.Query.ordered_by_sequence()
     |> Repo.all()
   end
 

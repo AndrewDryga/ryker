@@ -514,10 +514,10 @@ defmodule Ryker.Memories do
 
   defp list_entries(workspace_ref, status) do
     query = MemoryEntry.Query.by_workspace(workspace_ref)
-    query = if status, do: MemoryEntry.Query.with_status(query, status), else: query
+    query = if status, do: MemoryEntry.Query.by_status(query, status), else: query
 
     query
-    |> MemoryEntry.Query.recently_updated_first()
+    |> MemoryEntry.Query.ordered_by_recently_updated()
     |> MemoryEntry.Query.limit_to(1_000)
     |> Repo.all()
   end

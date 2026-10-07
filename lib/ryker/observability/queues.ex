@@ -105,8 +105,8 @@ defmodule Ryker.Observability.Queues do
 
   defp approval(now) do
     Approval.Query.all()
-    |> Approval.Query.with_origin()
-    |> Approval.Query.with_status(:monitoring)
+    |> Approval.Query.with_joined_origin()
+    |> Approval.Query.by_status(:monitoring)
     |> Approval.Query.awaited()
     |> Approval.Query.due_at(now)
     |> leased_queue(:emisar_approval, :inserted_at, now)

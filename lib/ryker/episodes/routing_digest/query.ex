@@ -35,7 +35,7 @@ defmodule Ryker.Episodes.RoutingDigest.Query do
   def unchanged_since(queryable, digest),
     do: where(queryable, [episode_routing_digests: d], d.updated_at == ^digest.updated_at)
 
-  def recently_updated_first(queryable) do
+  def ordered_by_recently_updated(queryable) do
     order_by(queryable, [episode_routing_digests: d],
       desc: d.updated_at,
       asc: d.episode_id

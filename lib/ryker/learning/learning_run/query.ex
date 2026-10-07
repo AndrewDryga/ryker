@@ -14,13 +14,13 @@ defmodule Ryker.Learning.LearningRun.Query do
   def by_batch_id(queryable \\ all(), batch_id),
     do: where(queryable, [conversation_learning_runs: r], r.batch_id == ^batch_id)
 
-  def with_status(queryable, status),
+  def by_status(queryable, status),
     do: where(queryable, [conversation_learning_runs: r], r.status == ^status)
 
   def excluding_id(queryable, id),
     do: where(queryable, [conversation_learning_runs: r], r.id != ^id)
 
-  def with_error_code(queryable, error_code),
+  def by_error_code(queryable, error_code),
     do: where(queryable, [conversation_learning_runs: r], r.error_code == ^error_code)
 
   def by_policy(queryable \\ all(), policy, policy_digest) do
@@ -94,13 +94,13 @@ defmodule Ryker.Learning.LearningRun.Query do
     )
   end
 
-  def latest_generation_first(queryable),
+  def ordered_by_generation_desc(queryable),
     do: order_by(queryable, [conversation_learning_runs: r], desc: r.generation)
 
-  def newest_first(queryable),
+  def ordered_by_recent(queryable),
     do: order_by(queryable, [conversation_learning_runs: r], desc: r.inserted_at, desc: r.id)
 
-  def oldest_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [conversation_learning_runs: r], asc: r.inserted_at, asc: r.id)
 
   def select_error_codes(queryable),

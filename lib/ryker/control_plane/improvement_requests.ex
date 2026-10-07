@@ -57,7 +57,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
 
   defp runs(query) do
     query
-    |> AnalysisRun.Query.newest_first()
+    |> AnalysisRun.Query.ordered_by_recent()
     |> AnalysisRun.Query.limit_to(@limit)
     |> Repo.all()
     |> Enum.reverse()

@@ -177,7 +177,7 @@ defmodule Ryker.Continuity.Recall do
       context
       |> searchable_summaries_query("workspace")
       |> ConversationSummary.Query.excluding_identity_key(context.identity_key)
-      |> ConversationSummary.Query.recently_updated_first()
+      |> ConversationSummary.Query.ordered_by_recently_updated()
       |> ConversationSummary.Query.limit_to(@maximum_candidates)
       |> LearningSources.sourced()
       |> LearningSources.eligible(context)
@@ -198,7 +198,7 @@ defmodule Ryker.Continuity.Recall do
     query =
       context
       |> ConversationRollup.Query.for_context()
-      |> ConversationRollup.Query.latest_period_first()
+      |> ConversationRollup.Query.ordered_by_period_end_desc()
       |> ConversationRollup.Query.limit_to(@maximum_candidates)
       |> ConversationRollup.Query.visible_to(context)
       |> LearningSources.sourced()

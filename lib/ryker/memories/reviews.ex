@@ -55,7 +55,7 @@ defmodule Ryker.Memories.Reviews do
 
       guidance_workspaces =
         Behavior.Query.of_kind(:guidance)
-        |> Behavior.Query.with_status(:active)
+        |> Behavior.Query.by_status(:active)
         |> Behavior.Query.select_distinct_workspace_refs()
         |> Repo.all()
 
@@ -115,8 +115,8 @@ defmodule Ryker.Memories.Reviews do
 
       items =
         query
-        |> MemoryReviewItem.Query.with_at_most_entries(@maximum_home_review_entries)
-        |> MemoryReviewItem.Query.oldest_first()
+        |> MemoryReviewItem.Query.by_entry_count_at_most(@maximum_home_review_entries)
+        |> MemoryReviewItem.Query.ordered_by_oldest()
         |> MemoryReviewItem.Query.limit_to(limit)
         |> Repo.all()
         |> Enum.map(&review_document/1)
@@ -132,7 +132,7 @@ defmodule Ryker.Memories.Reviews do
 
   def pending_reviews(limit) when is_integer(limit) and limit in 1..@maximum_reviews do
     MemoryReviewItem.Query.pending()
-    |> MemoryReviewItem.Query.oldest_first()
+    |> MemoryReviewItem.Query.ordered_by_oldest()
     |> MemoryReviewItem.Query.limit_to(limit)
     |> Repo.all()
     |> Enum.map(&review_document/1)
@@ -269,7 +269,7 @@ defmodule Ryker.Memories.Reviews do
       |> MemoryEntry.Query.by_workspace()
       |> MemoryEntry.Query.active()
       |> MemoryEntry.Query.unexpired_at(now)
-      |> MemoryEntry.Query.least_recently_updated_first()
+      |> MemoryEntry.Query.ordered_by_least_recently_updated()
       |> MemoryEntry.Query.limit_to(1_000)
       |> Repo.all()
 
@@ -277,9 +277,9 @@ defmodule Ryker.Memories.Reviews do
       workspace_ref
       |> Behavior.Query.by_workspace()
       |> Behavior.Query.of_kind(:guidance)
-      |> Behavior.Query.with_status(:active)
+      |> Behavior.Query.by_status(:active)
       |> Behavior.Query.unexpired_at(now)
-      |> Behavior.Query.least_recently_updated_first()
+      |> Behavior.Query.ordered_by_least_recently_updated()
       |> Behavior.Query.limit_to(500)
       |> Repo.all()
 
@@ -364,8 +364,8 @@ defmodule Ryker.Memories.Reviews do
   defp review_query(workspace_ref, status, limit) do
     workspace_ref
     |> MemoryReviewItem.Query.by_workspace()
-    |> MemoryReviewItem.Query.with_status(status)
-    |> MemoryReviewItem.Query.oldest_first()
+    |> MemoryReviewItem.Query.by_status(status)
+    |> MemoryReviewItem.Query.ordered_by_oldest()
     |> MemoryReviewItem.Query.limit_to(limit)
   end
 
@@ -373,7 +373,7 @@ defmodule Ryker.Memories.Reviews do
     workspace_ref
     |> MemoryReviewItem.Query.by_workspace()
     |> MemoryReviewItem.Query.home_visible(workspace_ref, actor_ref)
-    |> MemoryReviewItem.Query.with_status(status)
+    |> MemoryReviewItem.Query.by_status(status)
   end
 
   defp resolve_review_locked(
@@ -447,7 +447,7 @@ defmodule Ryker.Memories.Reviews do
       |> Behavior.Query.by_refs()
       |> Behavior.Query.by_workspace(workspace_ref)
       |> Behavior.Query.of_kind(:guidance)
-      |> Behavior.Query.with_status(:active)
+      |> Behavior.Query.by_status(:active)
       |> Behavior.Query.unexpired()
       |> Behavior.Query.ordered_by_ref()
       |> Behavior.Query.lock_for_update()

@@ -370,7 +370,7 @@ defmodule Ryker.Memories.Cases do
     |> Record.Query.by_episode_id()
     |> Record.Query.of_kind(kind)
     |> Record.Query.in_use()
-    |> Record.Query.oldest_first()
+    |> Record.Query.ordered_by_oldest()
     |> Record.Query.limit_to(32)
     |> Record.Query.select_payloads()
     |> Repo.all()
@@ -412,7 +412,7 @@ defmodule Ryker.Memories.Cases do
   defp occurrence_refs(episode_id) do
     episode_id
     |> CorrelationClaim.Query.by_episode_id()
-    |> CorrelationClaim.Query.newest_first()
+    |> CorrelationClaim.Query.ordered_by_recent()
     |> CorrelationClaim.Query.limit_to(@maximum_occurrences)
     |> CorrelationClaim.Query.select_occurrence_refs()
     |> Repo.all()
@@ -422,7 +422,7 @@ defmodule Ryker.Memories.Cases do
   defp links(episode_id) do
     episode_id
     |> Origin.Query.by_episode_id()
-    |> Origin.Query.in_occurrence_order()
+    |> Origin.Query.ordered_by_occurred_at()
     |> Origin.Query.select_source_item_refs()
     |> Repo.all()
     |> Enum.reject(&is_nil/1)
@@ -440,7 +440,7 @@ defmodule Ryker.Memories.Cases do
   defp source_refs(episode_id) do
     episode_id
     |> Origin.Query.by_episode_id()
-    |> Origin.Query.in_occurrence_order()
+    |> Origin.Query.ordered_by_occurred_at()
     |> Origin.Query.select_native_input_ids()
     |> Repo.all()
     |> Enum.uniq()

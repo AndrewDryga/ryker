@@ -86,7 +86,7 @@ defmodule Ryker.Episodes.CorrelationClaims do
   def for_episode(episode_id) do
     episode_id
     |> CorrelationClaim.Query.by_episode_id()
-    |> CorrelationClaim.Query.in_established_order()
+    |> CorrelationClaim.Query.ordered_by_established_at()
     |> Repo.all()
   end
 
@@ -98,7 +98,7 @@ defmodule Ryker.Episodes.CorrelationClaims do
     episode_ids
     |> CorrelationClaim.Query.by_episode_ids()
     |> CorrelationClaim.Query.active()
-    |> CorrelationClaim.Query.in_established_order()
+    |> CorrelationClaim.Query.ordered_by_established_at()
     |> Repo.all()
     |> Enum.group_by(& &1.episode_id)
   end

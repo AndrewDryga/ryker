@@ -83,7 +83,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp topic_titles(ids, secrets) do
     ids
     |> ConversationKnowledge.Query.by_ids()
-    |> ConversationKnowledge.Query.recently_updated_first()
+    |> ConversationKnowledge.Query.ordered_by_recently_updated()
     |> Repo.all()
     |> Enum.map(&knowledge_title(&1, secrets))
   end
@@ -503,7 +503,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         else:
           ids
           |> LearningRun.Query.by_ids()
-          |> LearningRun.Query.with_status(:applied)
+          |> LearningRun.Query.by_status(:applied)
           |> LearningRun.Query.select_result_digests()
           |> Repo.all()
 

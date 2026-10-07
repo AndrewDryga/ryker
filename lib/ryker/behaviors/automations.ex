@@ -43,13 +43,13 @@ defmodule Ryker.Behaviors.Automations do
         episode.destination_conversation_ref
       )
       |> Schedule.Query.not_deleted()
-      |> Schedule.Query.soonest_first()
+      |> Schedule.Query.ordered_by_next_occurrence_at()
       |> Repo.all()
 
     behaviors =
       workspace
       |> conversation_assignments(episode)
-      |> Behavior.Query.oldest_first()
+      |> Behavior.Query.ordered_by_oldest()
       |> Repo.all()
 
     Enum.map(schedules ++ behaviors, &document/1)
@@ -563,7 +563,7 @@ defmodule Ryker.Behaviors.Automations do
     Behavior.Query.of_kind(:standing_assignment)
     |> Behavior.Query.by_workspace(workspace)
     |> Behavior.Query.scoped_to(:conversation, episode.destination_conversation_ref)
-    |> Behavior.Query.with_status([:active, :disabled])
+    |> Behavior.Query.by_status([:active, :disabled])
   end
 
   defp idle_schedule(%Schedule{lease_ref: nil}, _occurred_at), do: :ok

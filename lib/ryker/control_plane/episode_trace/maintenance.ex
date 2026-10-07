@@ -67,7 +67,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
     ids
     |> Placement.Query.by_session_ids()
-    |> Placement.Query.latest_per_session_first()
+    |> Placement.Query.ordered_by_session_and_generation_desc()
     |> Placement.Query.select_session_workers()
     |> Repo.all()
     |> Enum.uniq_by(&elem(&1, 0))

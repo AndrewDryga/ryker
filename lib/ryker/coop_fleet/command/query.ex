@@ -126,10 +126,10 @@ defmodule Ryker.CoopFleet.Command.Query do
   def of_placement_generation(queryable, generation),
     do: where(queryable, [coop_worker_commands: c], c.placement_generation == ^generation)
 
-  def latest_completed_first(queryable),
+  def ordered_by_completed_at_desc(queryable),
     do: order_by(queryable, [coop_worker_commands: c], desc: c.completed_at, desc: c.id)
 
-  def oldest_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [coop_worker_commands: c], asc: c.inserted_at, asc: c.id)
 
   @doc "Each command with its placement (`waiting_on/3`), as `{command, placement}`."

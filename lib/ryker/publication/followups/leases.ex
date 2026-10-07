@@ -110,7 +110,7 @@ defmodule Ryker.Publication.Followups.Leases do
     query =
       Followup.Query.pollable()
       |> Followup.Query.due_unleased_at(now)
-      |> Followup.Query.oldest_due_first()
+      |> Followup.Query.ordered_by_next_poll_at()
       |> Followup.Query.limit_to(1)
       |> Followup.Query.select_with_publications()
       |> Followup.Query.lock_next_free()
@@ -143,7 +143,7 @@ defmodule Ryker.Publication.Followups.Leases do
     query =
       LifecycleEvent.Query.pending()
       |> LifecycleEvent.Query.due_unleased_at(now)
-      |> LifecycleEvent.Query.oldest_first()
+      |> LifecycleEvent.Query.ordered_by_oldest()
       |> LifecycleEvent.Query.limit_to(1)
       |> LifecycleEvent.Query.lock_next_free()
 

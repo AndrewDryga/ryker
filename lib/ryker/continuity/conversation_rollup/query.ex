@@ -106,7 +106,7 @@ defmodule Ryker.Continuity.ConversationRollup.Query do
   def within_scope(queryable, _context, "workspace"), do: queryable
   def within_scope(queryable, _context, _scope), do: where(queryable, false)
 
-  def latest_period_first(queryable),
+  def ordered_by_period_end_desc(queryable),
     do: order_by(queryable, [conversation_rollups: r], desc: r.period_end, desc: r.id)
 
   @doc "The fields a memory search reads from a rollup (`Ryker.Memories.SearchPage.Query`)."

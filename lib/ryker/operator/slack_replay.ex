@@ -152,7 +152,7 @@ defmodule Ryker.Operator.SlackReplay do
   defp latest_turn(episode_id) do
     episode_id
     |> Turn.Query.by_episode_id()
-    |> Turn.Query.newest_first()
+    |> Turn.Query.ordered_by_recent()
     |> Turn.Query.limit_to(1)
     |> Repo.one()
   end
@@ -164,7 +164,7 @@ defmodule Ryker.Operator.SlackReplay do
       episode_id
       |> Event.Query.by_episode_id()
       |> Event.Query.of_kind(:result_accepted)
-      |> Event.Query.newest_first()
+      |> Event.Query.ordered_by_sequence_desc()
       |> Event.Query.limit_to(1)
       |> Repo.one()
 

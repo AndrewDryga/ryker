@@ -100,7 +100,7 @@ defmodule Ryker.Publication.Followup.Query do
     )
   end
 
-  def oldest_due_first(queryable),
+  def ordered_by_next_poll_at(queryable),
     do: order_by(queryable, [episode_publication_followups: f], asc: f.next_poll_at, asc: f.id)
 
   def select_with_publications(queryable) do

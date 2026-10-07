@@ -279,7 +279,7 @@ defmodule Ryker.Ingress.Inbox do
   @spec waiting_for_transcript() :: Entry.t() | nil
   def waiting_for_transcript do
     Entry.Query.awaiting_transcript()
-    |> Entry.Query.oldest_received_first()
+    |> Entry.Query.ordered_by_oldest()
     |> Entry.Query.limit_to(1)
     |> Repo.one()
   end
@@ -417,7 +417,7 @@ defmodule Ryker.Ingress.Inbox do
   defp claimable(now) do
     now
     |> Entry.Query.claimable_at()
-    |> Entry.Query.oldest_received_first()
+    |> Entry.Query.ordered_by_oldest()
     |> Entry.Query.limit_to(1)
     |> Entry.Query.lock_next_free()
     |> Repo.one()

@@ -46,7 +46,7 @@ defmodule Ryker.LocalRouting.Comparison.Query do
     )
   end
 
-  def oldest_first(queryable),
+  def ordered_by_oldest(queryable),
     do: order_by(queryable, [local_routing_comparisons: c], asc: c.inserted_at, asc: c.id)
 
   def select_input_ids(queryable),

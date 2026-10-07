@@ -31,7 +31,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
     first =
       base
-      |> EpisodeTrace.Query.first_said()
+      |> EpisodeTrace.Query.ordered_by_occurred_at()
       |> EpisodeTrace.Query.limit_to(1)
       |> Repo.one()
 
@@ -39,7 +39,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
     messages =
       base
-      |> EpisodeTrace.Query.last_said()
+      |> EpisodeTrace.Query.ordered_by_occurred_at_desc()
       |> EpisodeTrace.Query.limit_to(20)
       |> Repo.all()
       |> Enum.reverse()
@@ -104,9 +104,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     episode_id
     |> PlatformAction.Query.by_episode_id()
     |> PlatformAction.Query.by_tool(:post_slack_update)
-    |> PlatformAction.Query.with_status(:delivered)
-    |> PlatformAction.Query.with_delivery_time()
-    |> PlatformAction.Query.latest_delivered_first()
+    |> PlatformAction.Query.by_status(:delivered)
+    |> PlatformAction.Query.delivered()
+    |> PlatformAction.Query.ordered_by_delivered_at_desc()
     |> PlatformAction.Query.limit_to(20)
     |> Repo.all()
     |> Enum.reverse()

@@ -99,7 +99,7 @@ defmodule Ryker.CoopFleet.Placement.Query do
 
     all()
     |> current()
-    |> with_worker()
+    |> with_joined_worker()
     |> where(^abandoned)
   end
 
@@ -120,7 +120,7 @@ defmodule Ryker.CoopFleet.Placement.Query do
     do: where(queryable, [coop_session_placements: p], p.session_id in ^session_ids)
 
   @doc "Each session's placements together, its latest generation first."
-  def latest_per_session_first(queryable) do
+  def ordered_by_session_and_generation_desc(queryable) do
     order_by(queryable, [coop_session_placements: p],
       asc: p.session_id,
       desc: p.generation,
@@ -134,7 +134,7 @@ defmodule Ryker.CoopFleet.Placement.Query do
   def by_session_id(queryable \\ all(), session_id),
     do: where(queryable, [coop_session_placements: p], p.session_id == ^session_id)
 
-  def latest_generation_first(queryable) do
+  def ordered_by_generation_desc(queryable) do
     order_by(queryable, [coop_session_placements: p],
       desc: p.generation,
       desc: p.inserted_at
@@ -149,7 +149,7 @@ defmodule Ryker.CoopFleet.Placement.Query do
     do: where(queryable, [coop_session_placements: p], p.state in ^Placement.current_states())
 
   @doc "Each placement with the worker it is on, as `:coop_workers`."
-  def with_worker(queryable) do
+  def with_joined_worker(queryable) do
     join(queryable, :inner, [coop_session_placements: p], w in Worker,
       on: w.id == p.worker_id,
       as: :coop_workers

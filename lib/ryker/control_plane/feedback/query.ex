@@ -17,8 +17,8 @@ defmodule Ryker.ControlPlane.Feedback.Query do
   are about (the title Ryker gave it, or the message routing answered by
   itself), contains `pattern`.
   """
-  def matching(query, pattern) do
-    from([answer_feedback: signal] in query,
+  def matching(queryable, pattern) do
+    from([answer_feedback: signal] in queryable,
       left_join: digest in RoutingDigest,
       on: digest.episode_id == signal.episode_id,
       left_join: input in Entry,
@@ -31,9 +31,9 @@ defmodule Ryker.ControlPlane.Feedback.Query do
   end
 
   @doc "The `count` newest signals of `query` in each category, newest first."
-  def newest_per_category(query, count) do
+  def newest_per_category(queryable, count) do
     ranked =
-      from([answer_feedback: signal] in query,
+      from([answer_feedback: signal] in queryable,
         select: %{
           id: signal.id,
           rank:
@@ -53,8 +53,8 @@ defmodule Ryker.ControlPlane.Feedback.Query do
   end
 
   @doc "How many signals of `query` came in each UTC day in each category, as `{day, category, count}`."
-  def counts_by_day(query) do
-    from([answer_feedback: signal] in query,
+  def counts_by_day(queryable) do
+    from([answer_feedback: signal] in queryable,
       group_by: [fragment("date(?)", signal.occurred_at), signal.category],
       select: {fragment("date(?)", signal.occurred_at), signal.category, count()}
     )

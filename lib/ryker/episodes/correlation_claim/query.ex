@@ -27,7 +27,7 @@ defmodule Ryker.Episodes.CorrelationClaim.Query do
   def lifecycle_active(queryable),
     do: where(queryable, [episode_correlation_claims: c], c.lifecycle_state == :active)
 
-  def newest_first(queryable) do
+  def ordered_by_recent(queryable) do
     order_by(queryable, [episode_correlation_claims: c], desc: c.inserted_at, desc: c.id)
   end
 
@@ -36,7 +36,7 @@ defmodule Ryker.Episodes.CorrelationClaim.Query do
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
-  def in_established_order(queryable) do
+  def ordered_by_established_at(queryable) do
     order_by(queryable, [episode_correlation_claims: c],
       asc: c.established_at,
       asc: c.occurrence_ref

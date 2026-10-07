@@ -366,7 +366,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
     ref
     |> Run.Query.by_repository()
     |> Run.Query.outstanding()
-    |> Run.Query.oldest_generation_first()
+    |> Run.Query.ordered_by_generation()
     |> Run.Query.limit_to(1)
     |> Repo.one()
   end
@@ -378,7 +378,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   def last_run(ref) do
     ref
     |> Run.Query.by_repository()
-    |> Run.Query.newest_generation_first()
+    |> Run.Query.ordered_by_generation_desc()
     |> Run.Query.limit_to(1)
     |> Repo.one()
   end
@@ -439,7 +439,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
     last_error =
       ref
       |> Run.Query.by_repository()
-      |> Run.Query.newest_generation_first()
+      |> Run.Query.ordered_by_generation_desc()
       |> Run.Query.limit_to(1)
       |> Run.Query.select_error_codes()
       |> Repo.one()

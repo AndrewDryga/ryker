@@ -38,7 +38,7 @@ defmodule Ryker.Memories.MemoryEntry.Query do
   def by_workspace(queryable \\ all(), workspace_ref),
     do: where(queryable, [operational_memory_entries: m], m.workspace_ref == ^workspace_ref)
 
-  def with_status(queryable, status),
+  def by_status(queryable, status),
     do: where(queryable, [operational_memory_entries: m], m.status == ^status)
 
   def scoped_to(queryable, scope_kind, scope_ref) do
@@ -158,7 +158,7 @@ defmodule Ryker.Memories.MemoryEntry.Query do
   end
 
   @doc "When each fact was last said first: edited, else confirmed, else saved."
-  def newest_content_first(queryable) do
+  def ordered_by_recent_content(queryable) do
     order_by(queryable, [operational_memory_entries: m],
       desc: fragment("COALESCE(?, ?, ?)", m.edited_at, m.confirmed_at, m.inserted_at),
       desc: m.id
@@ -245,10 +245,10 @@ defmodule Ryker.Memories.MemoryEntry.Query do
     )
   end
 
-  def recently_updated_first(queryable),
+  def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [operational_memory_entries: m], desc: m.updated_at, desc: m.id)
 
-  def least_recently_updated_first(queryable),
+  def ordered_by_least_recently_updated(queryable),
     do: order_by(queryable, [operational_memory_entries: m], asc: m.updated_at, asc: m.id)
 
   def ordered_by_ref(queryable),
