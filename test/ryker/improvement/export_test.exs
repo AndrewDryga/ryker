@@ -9,6 +9,7 @@ defmodule Ryker.Improvement.ExportTest do
   alias Ryker.Improvement.{Candidate, Export}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Inspectors
   alias Ryker.RoutingExamples.Example
 
   @workspace "TIMPROVEEXPORT"
@@ -146,7 +147,7 @@ defmodule Ryker.Improvement.ExportTest do
                request: {:episode, reply.episode.id}
              })
 
-    candidate = Improvement.for_request({:episode, reply.episode.id})
+    candidate = Inspectors.improvement_candidate({:episode, reply.episode.id})
     assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
 
     root = tmp_dir!()
@@ -265,7 +266,7 @@ defmodule Ryker.Improvement.ExportTest do
       at: DateTime.add(question.occurred_at, 120, :second)
     )
 
-    candidate = Improvement.for_request({:episode, reply.episode.id})
+    candidate = Inspectors.improvement_candidate({:episode, reply.episode.id})
     assert candidate.reasons == ["edited"]
 
     assert Improvement.accept(candidate.id, "control-plane:local") ==
@@ -327,7 +328,7 @@ defmodule Ryker.Improvement.ExportTest do
                request: {:input, edit.id}
              })
 
-    candidate = Improvement.for_request({:input, edit.id})
+    candidate = Inspectors.improvement_candidate({:input, edit.id})
     assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
 
     assert {:ok, scenario} = exported!(accepted)
@@ -383,7 +384,7 @@ defmodule Ryker.Improvement.ExportTest do
                request: {:episode, reply.episode.id}
              })
 
-    candidate = Improvement.for_request({:episode, reply.episode.id})
+    candidate = Inspectors.improvement_candidate({:episode, reply.episode.id})
     assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
 
     assert {:ok, scenario} = exported!(accepted)
@@ -428,7 +429,7 @@ defmodule Ryker.Improvement.ExportTest do
 
     Answers.join!(edit, reply.episode.id)
 
-    candidate = Improvement.for_request({:episode, reply.episode.id})
+    candidate = Inspectors.improvement_candidate({:episode, reply.episode.id})
     assert candidate.reasons == ["edited"]
     assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
 
@@ -467,7 +468,7 @@ defmodule Ryker.Improvement.ExportTest do
                request: {:episode, reply.episode.id}
              })
 
-    candidate = Improvement.for_request({:episode, reply.episode.id})
+    candidate = Inspectors.improvement_candidate({:episode, reply.episode.id})
 
     assert Improvement.accept(candidate.id, "control-plane:local") ==
              {:error, :improvement_case_unsupported}
@@ -560,7 +561,7 @@ defmodule Ryker.Improvement.ExportTest do
                request: {:episode, reply.episode.id}
              })
 
-    candidate = Improvement.for_request({:episode, reply.episode.id})
+    candidate = Inspectors.improvement_candidate({:episode, reply.episode.id})
 
     Repo.update_all(from(c in Candidate, where: c.id == ^candidate.id),
       set: Keyword.merge(@diagnosis, analysis: :done, analyzed_at: DateTime.utc_now())
@@ -602,7 +603,7 @@ defmodule Ryker.Improvement.ExportTest do
                request: {:episode, reply.episode.id}
              })
 
-    candidate = Improvement.for_request({:episode, reply.episode.id})
+    candidate = Inspectors.improvement_candidate({:episode, reply.episode.id})
     assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
     accepted
   end

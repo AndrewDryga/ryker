@@ -52,7 +52,7 @@ defmodule Ryker.Schedules do
   """
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
-    since |> Schedule.Query.next_due_after() |> Repo.one()
+    since |> Schedule.Query.select_next_due_after() |> Repo.one()
   end
 
   @spec claim_due(String.t(), pos_integer()) :: {:ok, map() | nil} | {:error, term()}

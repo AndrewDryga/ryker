@@ -7,6 +7,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Inspectors
   alias Ryker.Operator.Emisar, as: EmisarOperator
   alias Ryker.Records
   alias Ryker.Records.Record
@@ -55,7 +56,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
              remote_status: "pending_approval",
              request_id: "apr-claim",
              status: :monitoring
-           } = Approvals.get_by_request_id(@connection_ref, "apr-claim")
+           } = Inspectors.emisar_approval(@connection_ref, "apr-claim")
 
     assert {:ok, %{approval: approval, lease_ref: lease_ref}} =
              Approvals.claim_next(@connection_ref, "approval-worker", 60)
@@ -235,7 +236,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
     # The monitor closes it on its next idle pass, with the reason, and keeps it.
     assert {:ok, {:closed, ["apr-closed-task"]}} = ApprovalDispatcher.run_once(dispatcher())
 
-    closed = Approvals.get_by_request_id(@connection_ref, "apr-closed-task")
+    closed = Inspectors.emisar_approval(@connection_ref, "apr-closed-task")
     assert closed.status == :closed
     assert closed.closed_reason == :wait_ended
     assert %DateTime{} = closed.closed_at
@@ -254,7 +255,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
     unstarted = registered_approval!("unstarted")
 
     assert {:ok, :idle} = ApprovalDispatcher.run_once(dispatcher("closer-unstarted"))
-    assert Approvals.get_by_request_id(@connection_ref, unstarted).status == :monitoring
+    assert Inspectors.emisar_approval(@connection_ref, unstarted).status == :monitoring
   end
 
   # Turning approval monitoring off, or losing the account's token, stopped
@@ -375,7 +376,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
              )
 
     assert failure("production/apr-refused") == nil
-    assert Approvals.get_by_request_id(@connection_ref, "apr-refused").status == :monitoring
+    assert Inspectors.emisar_approval(@connection_ref, "apr-refused").status == :monitoring
 
     assert {:ok, %{approval: %{request_id: "apr-refused"}}} =
              Approvals.claim_next(@connection_ref, "approval-worker-after-rotation", 60)

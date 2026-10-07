@@ -44,7 +44,7 @@ defmodule Ryker.Publication.Followup.Query do
   end
 
   @doc "When pollable follow-ups fall due after `since`, as `[next_poll_at, lease_expires_at]`."
-  def next_due_after(since) do
+  def select_next_due_after(since) do
     from(f in pollable(),
       select: [
         filter(min(f.next_poll_at), f.next_poll_at > ^since),

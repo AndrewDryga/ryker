@@ -27,7 +27,7 @@ defmodule Ryker.WeeklyReport.Report.Query do
   end
 
   @doc "The next retry and the next lease expiry after `since` among pending reports."
-  def next_due_after(since) do
+  def select_next_due_after(since) do
     :pending
     |> by_status()
     |> select([weekly_reports: r], [

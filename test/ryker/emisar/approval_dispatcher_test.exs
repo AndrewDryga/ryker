@@ -1,11 +1,12 @@
 defmodule Ryker.Emisar.ApprovalDispatcherTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
-  alias Ryker.Emisar.{ApprovalDispatcher, Approvals, RunState}
+  alias Ryker.Emisar.{ApprovalDispatcher, RunState}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Inspectors
   alias Ryker.Records
   alias Ryker.Settings
   alias Ryker.Work.Custody
@@ -60,7 +61,7 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     assert_receive :approval_presented
     assert {:ok, resumed} = Episodes.fetch_by_key(episode.key)
     assert resumed.state == :working
-    assert Approvals.get_by_request_id(@connection_ref, "apr-terminal").status == :resumed
+    assert Inspectors.emisar_approval(@connection_ref, "apr-terminal").status == :resumed
   end
 
   # Each pending approval was read every three seconds with no wait, and its
@@ -94,7 +95,7 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     assert {:ok, {:deferred, "apr-transient", {:transport, :offline}}} =
              ApprovalDispatcher.run_once(options({:error, {:transport, :offline}}))
 
-    deferred = Approvals.get_by_request_id(@connection_ref, "apr-transient")
+    deferred = Inspectors.emisar_approval(@connection_ref, "apr-transient")
     assert deferred.failure_count == 1
     assert deferred.status == :monitoring
     assert %DateTime{} = deferred.next_attempt_at
@@ -105,7 +106,7 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     assert {:ok, {:blocked, "apr-crossed", :emisar_approval_identity_mismatch}} =
              ApprovalDispatcher.run_once(options({:ok, wrong}, "approval-worker-crossed"))
 
-    assert Approvals.get_by_request_id(@connection_ref, "apr-crossed").status == :blocked
+    assert Inspectors.emisar_approval(@connection_ref, "apr-crossed").status == :blocked
     assert {:ok, waiting} = Episodes.fetch_by_key("approval-dispatcher:crossed")
     assert waiting.state == :waiting_for_event
   end

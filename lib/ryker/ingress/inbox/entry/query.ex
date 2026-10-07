@@ -169,7 +169,7 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
   end
 
   @doc "The next retry, lease expiry and transcript wait end after `since` among pending inputs."
-  def next_due_after(since) do
+  def select_next_due_after(since) do
     select(pending(), [ingress_inbox_entries: e], [
       filter(min(e.next_attempt_at), e.next_attempt_at > ^since),
       filter(min(e.lease_expires_at), not is_nil(e.lease_ref) and e.lease_expires_at > ^since),

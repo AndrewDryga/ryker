@@ -123,11 +123,11 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   # deletion closes one: a waiting one at once, a running one through its
   # worker's confirmed stop. The room closed already and says why.
   defp close_orphaned_investigation(options) do
-    case IncidentRooms.next_orphaned_investigation() do
-      nil ->
+    case IncidentRooms.fetch_next_orphaned_investigation() do
+      {:error, :not_found} ->
         request_automatic(options)
 
-      {room, episode} ->
+      {:ok, {room, episode}} ->
         case close_investigation(room, episode, deletion(room)) do
           {:ok, %{status: :settled}} -> {:ok, {:closed, room.ref}}
           {:ok, %{status: :pending}} -> {:ok, {:closing, room.ref}}

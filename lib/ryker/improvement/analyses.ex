@@ -73,7 +73,7 @@ defmodule Ryker.Improvement.Analyses do
   @spec next_due_at(DateTime.t(), map()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, settings) do
     since
-    |> Candidate.Query.next_due_after(settings.quiet_seconds, settings.enabled)
+    |> Candidate.Query.select_next_due_after(settings.quiet_seconds, settings.enabled)
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -200,14 +200,15 @@ defmodule Ryker.Improvement.Analyses do
 
   # -- Runs -------------------------------------------------------------------------
 
-  @doc "The run of a candidate that started and has no stop proof yet, or nil."
-  def outstanding(candidate_id) do
+  @doc "The run of a candidate that started and has no stop proof yet."
+  @spec fetch_outstanding(Ecto.UUID.t()) :: {:ok, AnalysisRun.t()} | {:error, :not_found}
+  def fetch_outstanding(candidate_id) do
     candidate_id
     |> AnalysisRun.Query.by_candidate_id()
     |> AnalysisRun.Query.unstopped()
     |> AnalysisRun.Query.ordered_by_generation()
     |> AnalysisRun.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   @doc "A run as it is stored now."
@@ -627,13 +628,13 @@ defmodule Ryker.Improvement.Analyses do
                is_nil(run.coop_turn_id),
              do: Repo.rollback(:improvement_absence_unconfirmed)
 
-      session = FleetSession.for_run(run)
+      session_id = FleetSession.coop_session_id(run)
 
       store_stop(run, %{
         "kind" => "never_submitted",
         "reason" => reason,
         "session" => "unaddressable",
-        "session_id" => session && session.coop_session_id
+        "session_id" => session_id
       })
     end)
   end
@@ -645,10 +646,10 @@ defmodule Ryker.Improvement.Analyses do
   """
   def record_uncreated_stop(claim, run_id) do
     run_transaction(claim, run_id, fn run ->
-      session = FleetSession.for_run(run)
+      session_id = FleetSession.coop_session_id(run)
 
       unless run.status in [:stale, :rejected] and is_nil(run.coop_turn_id) and
-               is_nil(session && session.coop_session_id),
+               is_nil(session_id),
              do: Repo.rollback(:improvement_absence_unconfirmed)
 
       store_stop(run, %{"kind" => "never_created"})
@@ -685,14 +686,14 @@ defmodule Ryker.Improvement.Analyses do
           run
         end
 
-      session = FleetSession.for_run(run)
+      session_id = FleetSession.coop_session_id(run)
 
       store_stop(run, %{
         "kind" => "failed_operation",
         "phase" => Atom.to_string(phase),
         "operation_id" => operation_id,
         "method" => method,
-        "session_id" => session && session.coop_session_id
+        "session_id" => session_id
       })
     end)
   end
@@ -722,12 +723,12 @@ defmodule Ryker.Improvement.Analyses do
           run
         end
 
-      session = FleetSession.for_run(run)
+      session_id = FleetSession.coop_session_id(run)
 
       store_stop(run, %{
         "kind" => "attempt_expired",
         "closed_after_seconds" => closed_after_seconds,
-        "session_id" => session && session.coop_session_id,
+        "session_id" => session_id,
         "turn_id" => run.coop_turn_id
       })
     end)

@@ -37,7 +37,7 @@ defmodule Ryker.RepositoryKnowledge.Entry.Query do
   The next retry, daily check and lease expiry after `since`: what wakes the
   lane by the clock alone.
   """
-  def next_due_after(since, refs) do
+  def select_next_due_after(since, refs) do
     select(all(), [repository_knowledge: e], [
       filter(
         min(e.next_attempt_at),

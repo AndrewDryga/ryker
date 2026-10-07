@@ -140,7 +140,7 @@ defmodule Ryker.Work.Custody.Claims do
   def next_due_at(%DateTime{} = since, phase) when phase in [:work, :delivery] do
     statuses = if phase == :work, do: [:pending, :cancel_pending], else: [:delivery_pending]
 
-    turns = Repo.one(Turn.Query.next_due_after(since, statuses))
+    turns = Repo.one(Turn.Query.select_next_due_after(since, statuses))
 
     UTCDateTime.earliest(turns ++ reviews_due(since, phase))
   end

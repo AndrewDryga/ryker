@@ -73,11 +73,11 @@ defmodule Ryker.Admission.Executor do
   # it, and while the model account was out it held every later message in the
   # conversation behind it (manual testing, 2026-09-26).
   defp deletion_decision(%Context{input: %Input{event_kind: :delete}} = context) do
-    case Admission.source_owner(context) do
-      nil ->
+    case Admission.fetch_source_owner(context) do
+      {:error, :not_found} ->
         deletion(:ignore, nil, :unrelated, nil, "The person deleted a message no work was using.")
 
-      owner ->
+      {:ok, owner} ->
         case Enum.find(context.candidates, &(&1.episode.id == owner.id)) do
           nil ->
             nil

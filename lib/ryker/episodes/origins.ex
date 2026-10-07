@@ -134,10 +134,10 @@ defmodule Ryker.Episodes.Origins do
   end
 
   @doc "The owner of one exact source item, by highest admitted revision."
-  @spec current_owner(String.t(), String.t(), :live | :shadow) ::
-          {Episode.t(), pos_integer()} | nil
-  def current_owner(native_input_id, transport, execution_mode) do
-    native_input_id |> Origin.Query.current_owner(transport, execution_mode) |> Repo.one()
+  @spec fetch_current_owner(String.t(), String.t(), :live | :shadow) ::
+          {:ok, {Episode.t(), pos_integer()}} | {:error, :not_found}
+  def fetch_current_owner(native_input_id, transport, execution_mode) do
+    native_input_id |> Origin.Query.current_owner(transport, execution_mode) |> Repo.fetch()
   end
 
   defp origin_kind("slack", source_item_ref, thread_ref)

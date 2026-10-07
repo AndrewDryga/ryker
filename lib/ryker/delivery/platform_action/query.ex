@@ -25,7 +25,7 @@ defmodule Ryker.Delivery.PlatformAction.Query do
     do: where(queryable, [platform_actions: a], a.status == :pending)
 
   @doc "The next retry and the next lease expiry after `since` among pending actions."
-  def next_due_after(since) do
+  def select_next_due_after(since) do
     select(pending(), [platform_actions: a], [
       filter(min(a.next_attempt_at), a.next_attempt_at > ^since),
       filter(min(a.lease_expires_at), a.lease_expires_at > ^since)

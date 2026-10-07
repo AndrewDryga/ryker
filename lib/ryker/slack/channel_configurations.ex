@@ -220,14 +220,20 @@ defmodule Ryker.Slack.ChannelConfigurations do
     end
   end
 
-  @spec configuration(String.t(), String.t()) :: ChannelConfiguration.t() | nil
-  def configuration(workspace_ref, channel_ref) do
-    Repo.one(ChannelConfiguration.Query.by_channel(workspace_ref, channel_ref))
+  @spec fetch_configuration(String.t(), String.t()) ::
+          {:ok, ChannelConfiguration.t()} | {:error, :not_found}
+  def fetch_configuration(workspace_ref, channel_ref) do
+    Repo.fetch(ChannelConfiguration.Query.by_channel(workspace_ref, channel_ref))
   end
 
-  @spec membership(String.t(), String.t()) :: ChannelMembership.t() | nil
-  def membership(workspace_ref, channel_ref) do
-    Repo.one(ChannelMembership.Query.by_channel(workspace_ref, channel_ref))
+  # The saved configuration, or nil for a channel on the defaults.
+  defp configuration(workspace_ref, channel_ref),
+    do: Repo.one(ChannelConfiguration.Query.by_channel(workspace_ref, channel_ref))
+
+  @spec fetch_membership(String.t(), String.t()) ::
+          {:ok, ChannelMembership.t()} | {:error, :not_found}
+  def fetch_membership(workspace_ref, channel_ref) do
+    Repo.fetch(ChannelMembership.Query.by_channel(workspace_ref, channel_ref))
   end
 
   @doc """
@@ -476,8 +482,9 @@ defmodule Ryker.Slack.ChannelConfigurations do
     :ok
   end
 
-  @spec active_session(String.t(), String.t()) :: ConfigurationSession.t() | nil
-  def active_session(workspace_ref, channel_ref) do
+  @spec fetch_active_session(String.t(), String.t()) ::
+          {:ok, ConfigurationSession.t()} | {:error, :not_found}
+  def fetch_active_session(workspace_ref, channel_ref) do
     now = Repo.now!()
     expire_active_sessions!(workspace_ref, channel_ref, now)
 
@@ -487,7 +494,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     |> ConfigurationSession.Query.unexpired_at(now)
     |> ConfigurationSession.Query.ordered_by_recent()
     |> ConfigurationSession.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp start_reconfiguration_locked(attributes, catalog) do

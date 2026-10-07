@@ -113,7 +113,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
       announce_reported_sessions(poll["event_batches"])
 
       Repo.transaction(fn ->
-        _worker = Shared.locked_worker(authenticated_worker_id)
+        _locked = Shared.lock_worker(authenticated_worker_id)
 
         commands =
           Commands.deliver_commands(
@@ -147,8 +147,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
   defp authorize_worker_locked(worker_id, workspace_ref, certificate_sha256) do
     worker =
-      case Shared.locked_worker(worker_id) do
-        nil ->
+      case Shared.lock_worker(worker_id) do
+        {:error, :not_found} ->
           %{
             certificate_sha256: certificate_sha256,
             id: worker_id,
@@ -159,13 +159,14 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
           |> Repo.insert()
           |> Shared.unwrap_write()
 
-        %Worker{workspace_ref: ^workspace_ref, certificate_sha256: ^certificate_sha256} = worker ->
+        {:ok,
+         %Worker{workspace_ref: ^workspace_ref, certificate_sha256: ^certificate_sha256} = worker} ->
           worker
 
-        %Worker{workspace_ref: ^workspace_ref, certificate_sha256: stored} ->
+        {:ok, %Worker{workspace_ref: ^workspace_ref, certificate_sha256: stored}} ->
           Shared.rollback({:coop_worker_certificate_conflict, stored, certificate_sha256})
 
-        %Worker{workspace_ref: stored} ->
+        {:ok, %Worker{workspace_ref: stored}} ->
           Shared.rollback({:coop_worker_workspace_conflict, stored, workspace_ref})
       end
 
@@ -209,23 +210,23 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   end
 
   defp authenticated_worker!(worker_id, workspace_ref, certificate_sha256) do
-    case Shared.locked_worker(worker_id) do
-      nil ->
+    case Shared.lock_worker(worker_id) do
+      {:error, :not_found} ->
         Shared.rollback({:coop_worker_not_authorized, worker_id})
 
-      %Worker{workspace_ref: stored} when stored != workspace_ref ->
+      {:ok, %Worker{workspace_ref: stored}} when stored != workspace_ref ->
         Shared.rollback({:coop_worker_workspace_mismatch, stored, workspace_ref})
 
-      %Worker{state: :revoked} ->
+      {:ok, %Worker{state: :revoked}} ->
         Shared.rollback({:coop_worker_revoked, worker_id})
 
-      %Worker{} = worker when is_binary(certificate_sha256) ->
+      {:ok, %Worker{} = worker} when is_binary(certificate_sha256) ->
         unless active_certificate_for_worker?(certificate_sha256, worker_id),
           do: Shared.rollback(:coop_worker_certificate_not_authorized)
 
         worker
 
-      %Worker{} = worker ->
+      {:ok, worker} ->
         worker
     end
   end

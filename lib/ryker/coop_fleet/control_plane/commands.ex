@@ -351,7 +351,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   defp applied_result(worker_id, result, now, body_root) do
     applied =
       Repo.transaction(fn ->
-        _worker = Shared.locked_worker(worker_id)
+        _locked = Shared.lock_worker(worker_id)
         apply_command_result(worker_id, result, now, body_root)
       end)
 

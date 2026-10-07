@@ -157,9 +157,6 @@ defmodule Ryker.Episodes.RoutingDigests do
     |> Event.Query.limit_to(1)
   end
 
-  @spec fetch(Ecto.UUID.t()) :: RoutingDigest.t() | nil
-  def fetch(episode_id), do: Repo.one(RoutingDigest.Query.by_episode_id(episode_id))
-
   @spec fetch_many([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => RoutingDigest.t()}
   def fetch_many([]), do: %{}
 

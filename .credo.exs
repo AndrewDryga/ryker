@@ -23,6 +23,7 @@
           {Ryker.Checks.EnumOverValidateInclusion, []},
           {Ryker.Checks.IL01NoInlineEctoDsl, []},
           {Ryker.Checks.IL02NoRepoGet, []},
+          {Ryker.Checks.IL05TaggedReads, []},
           {Ryker.Checks.IL06QueryModulePure, []},
           {Ryker.Checks.IL07SchemaFieldsOnly, []},
           {Ryker.Checks.IL08ChangesetPure, []},

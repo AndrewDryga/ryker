@@ -170,7 +170,7 @@ defmodule Ryker.Emisar.Approval.Query do
   end
 
   @doc "The next look and the next lease expiry after `since` of account `connection_ref`'s watches."
-  def next_due_after(connection_ref, since) do
+  def select_next_due_after(connection_ref, since) do
     connection_ref
     |> by_connection()
     |> by_status(:monitoring)

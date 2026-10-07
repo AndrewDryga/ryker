@@ -2,7 +2,7 @@ defmodule Ryker.GitHub.OnboardingTest do
   use Ryker.DataCase, async: false
   import ExUnit.CaptureLog
   alias Ryker.GitHub.{Onboarding, OnboardingWorker}
-  alias Ryker.{Repo, RepositoryKnowledge, Settings}
+  alias Ryker.{Inspectors, Repo, Settings}
 
   @actor "control-plane:local"
   @commit String.duplicate("a", 40)
@@ -166,7 +166,7 @@ defmodule Ryker.GitHub.OnboardingTest do
     assert repository.source_commit == @commit
     assert repository.onboarding_error == nil
 
-    entry = RepositoryKnowledge.entry("repo")
+    entry = Inspectors.repository_knowledge("repo")
     assert entry.phase == :idle
     assert DateTime.compare(entry.next_check_at, Repo.now!()) != :gt
   end

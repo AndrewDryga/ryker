@@ -61,7 +61,7 @@ defmodule Ryker.Learning.Batches do
   """
   @spec next_due_at(DateTime.t(), map()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, settings) do
-    batches = Repo.one(Batch.Query.next_due_after(since))
+    batches = Repo.one(Batch.Query.select_next_due_after(since))
     scopes = Repo.one(LearningInput.Query.next_scope_due_after(since, settings))
     UTCDateTime.earliest([scopes | batches])
   end
@@ -519,19 +519,23 @@ defmodule Ryker.Learning.Batches do
     end)
   end
 
-  def outstanding(batch_id) do
+  @doc "The batch's oldest run with no stop proof yet."
+  @spec fetch_outstanding(Ecto.UUID.t()) :: {:ok, LearningRun.t()} | {:error, :not_found}
+  def fetch_outstanding(batch_id) do
     batch_id
     |> LearningRun.Query.by_batch_id()
     |> LearningRun.Query.unstopped()
     |> LearningRun.Query.ordered_by_oldest()
     |> LearningRun.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp outstanding_scope_query(scope_key),
     do: scope_key |> LearningRun.Query.by_scope() |> LearningRun.Query.unstopped()
 
-  def latest(batch_id), do: Repo.one(LearningRun.Query.latest_current(batch_id))
+  @doc "The batch's latest run of its current attempt."
+  @spec fetch_latest(Ecto.UUID.t()) :: {:ok, LearningRun.t()} | {:error, :not_found}
+  def fetch_latest(batch_id), do: Repo.fetch(LearningRun.Query.latest_current(batch_id))
 
   def reconciliation_failed(claim, run_id) do
     with_lease(claim, fn ->

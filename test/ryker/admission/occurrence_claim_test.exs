@@ -8,6 +8,7 @@ defmodule Ryker.Admission.OccurrenceClaimTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, CorrelationClaims}
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Inspectors
 
   @now ~U[2026-09-11 12:00:00.000000Z]
 
@@ -21,7 +22,7 @@ defmodule Ryker.Admission.OccurrenceClaimTest do
     assert {:ok, result} = admit(first)
     assert result.status == :applied
 
-    owner = CorrelationClaims.owner("github:eval", "github:eval", "github:pull:4120")
+    owner = Inspectors.correlation_owner("github:eval", "github:eval", "github:pull:4120")
     assert owner.episode_id == result.episode.id
     assert owner.lifecycle_state == :active
 

@@ -52,7 +52,7 @@ defmodule Ryker.ControlPlane.PeopleProjection do
   @spec fetch_fact(String.t()) :: {:ok, map()} | :error
   def fetch_fact(fact_id) when is_binary(fact_id) do
     with {:ok, id} <- Ecto.UUID.cast(fact_id),
-         %{status: :kept} = fact <- People.get_fact(id) do
+         {:ok, %{status: :kept} = fact} <- People.fetch_fact(id) do
       {:ok,
        %{
          id: fact.id,

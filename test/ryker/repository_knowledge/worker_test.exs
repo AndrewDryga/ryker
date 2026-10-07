@@ -3,6 +3,7 @@ defmodule Ryker.RepositoryKnowledge.WorkerTest do
   import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
   import Ecto.Query
   alias Ryker.GitHub.Onboarding
+  alias Ryker.Inspectors
   alias Ryker.{RepositoryKnowledge, Settings}
   alias Ryker.RepositoryKnowledge.{Entry, Worker}
   alias Ryker.TestSupport.{FakeCoopAPI, FakeGitHubRepository}
@@ -91,7 +92,7 @@ defmodule Ryker.RepositoryKnowledge.WorkerTest do
       )
 
     # Its first polls checked the repository and found nothing to write.
-    assert eventually(fn -> RepositoryKnowledge.entry("emisar").checked_at != nil end)
+    assert eventually(fn -> Inspectors.repository_knowledge("emisar").checked_at != nil end)
     _state = :sys.get_state(worker)
     assert FakeCoopAPI.state(coop).create_keys == []
 

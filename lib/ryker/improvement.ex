@@ -158,14 +158,6 @@ defmodule Ryker.Improvement do
     broadcast_improvement_updated(id)
   end
 
-  @doc "The candidate about a request, or nil."
-  @spec for_request(Ryker.Feedback.request()) :: Candidate.t() | nil
-  def for_request({:episode, id}) when is_binary(id),
-    do: Repo.one(Candidate.Query.by_episode_id(id))
-
-  def for_request({:input, id}) when is_binary(id), do: Repo.one(Candidate.Query.by_input_id(id))
-  def for_request(_request), do: nil
-
   @doc """
   What `from` up to `to` brought, among the candidates nobody forgot: how many
   were `found` (created then), by what Ryker made of them (`categories`, in

@@ -168,7 +168,7 @@ defmodule Ryker.Learning.RebuildsTest do
     assert selection.outcome["start_limit"] == 2
     assert selection.outcome["budget_version"] == 1
     assert {:ok, again} = Batches.claim("rebuild-test", @settings)
-    assert Batches.latest(again.batch.id) == nil
+    assert Batches.fetch_latest(again.batch.id) == {:error, :not_found}
     assert {:ok, next} = Batches.prepare(again)
     refute next.id == first.id
     refute next.batch_key == first.batch_key
@@ -239,7 +239,7 @@ defmodule Ryker.Learning.RebuildsTest do
     assert {:ok, audit} = Actions.fetch("rebuild:new-policy")
     assert audit.previous["policy"] == @settings.policy
     assert Repo.get!(LearningRun, first.id) == previous
-    assert Batches.latest(claim.batch.id) == nil
+    assert Batches.fetch_latest(claim.batch.id) == {:error, :not_found}
     assert {:ok, again} = Batches.claim("rebuild-test", @settings)
     assert {:ok, next} = Batches.prepare(again)
     assert next.policy == configuration.policy

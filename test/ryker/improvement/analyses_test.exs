@@ -8,6 +8,7 @@ defmodule Ryker.Improvement.AnalysesTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Improvement
   alias Ryker.Improvement.{Analyses, AnalysisRun, Candidate, Dispatcher, Prompt}
+  alias Ryker.Inspectors
   alias Ryker.Records.Record
   alias Ryker.Retention.Cleanup
   alias Ryker.Retention.Custody, as: RetentionCustody
@@ -81,7 +82,7 @@ defmodule Ryker.Improvement.AnalysesTest do
     results = drain(settings(coop))
     assert {:ok, :analyzed} in results
 
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
     assert candidate.analysis == :done
     assert candidate.category == :prompt_bug
     assert candidate.step == :work
@@ -145,7 +146,7 @@ defmodule Ryker.Improvement.AnalysesTest do
   test "waits for the request's Work to rest and for a quiet time after its latest negative feedback" do
     # Answered first: the fixture's Work claims the next turn it can.
     quiet = unhappy_request!("1790100200.000100")
-    candidate = Improvement.for_request(quiet)
+    candidate = Inspectors.improvement_candidate(quiet)
 
     Repo.update_all(from(c in Candidate, where: c.id == ^candidate.id),
       set: [last_signal_at: DateTime.utc_now()]
@@ -158,7 +159,7 @@ defmodule Ryker.Improvement.AnalysesTest do
     # Quiet time over for the running one, not yet for the other.
     waiting = Map.put(settings(coop), :quiet_seconds, 300)
     assert Dispatcher.run_once(waiting) == {:ok, :idle}
-    assert Improvement.for_request(running).analysis == :pending
+    assert Inspectors.improvement_candidate(running).analysis == :pending
 
     # The worker sleeps until exactly then: a due time, as a UTC DateTime,
     # whatever shape the database's aggregate came back in.
@@ -180,7 +181,7 @@ defmodule Ryker.Improvement.AnalysesTest do
     results = drain(settings(coop))
     assert {:ok, :analyzed} in results
 
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
     assert candidate.analysis == :done
     assert candidate.start_count == 2
 
@@ -227,7 +228,7 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     drain(settings(coop))
 
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
     [first | _later] = runs(candidate)
 
     assert {first.status, first.error_code} == {:rejected, "invalid_improvement_result"},
@@ -265,7 +266,7 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     drain(settings(coop), 40)
 
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
     assert candidate.analysis == :failed
     assert candidate.error_code == "improvement_retry_exhausted"
     assert candidate.start_count == 3
@@ -275,7 +276,7 @@ defmodule Ryker.Improvement.AnalysesTest do
 
   test "a candidate dismissed before Ryker got to it costs no model call" do
     request = unhappy_request!("1790100500.000100")
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
     assert {:ok, _dismissed} = Improvement.dismiss(candidate.id, "control-plane:local")
     coop = coop!([Jason.encode!(@diagnosis)])
 
@@ -291,7 +292,7 @@ defmodule Ryker.Improvement.AnalysesTest do
     drain(settings(coop))
 
     assert Map.get(FakeCoopAPI.state(coop), :submissions, []) == []
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
     [run] = Repo.all(from(run in AnalysisRun, where: run.candidate_id == ^candidate.id))
     assert run.error_code == "improvement_session_not_isolated"
     assert run.stop_receipt["kind"] == "never_submitted"
@@ -310,7 +311,7 @@ defmodule Ryker.Improvement.AnalysesTest do
     Agent.update(coop, &put_in(&1, [:session, "state"], "closed"))
     drain(settings(coop))
 
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
     assert candidate.analysis == :done
     assert candidate.start_count == 2
 
@@ -357,7 +358,7 @@ defmodule Ryker.Improvement.AnalysesTest do
     Agent.update(coop, &Map.delete(&1, :session_answer))
     drain(settings(coop))
 
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
     assert candidate.analysis == :done
     assert candidate.start_count == 2
     assert length(FakeCoopAPI.state(coop).submissions) == 1
@@ -376,8 +377,8 @@ defmodule Ryker.Improvement.AnalysesTest do
     off = %{settings(coop) | enabled: false}
     drain(off)
 
-    assert Improvement.for_request(out).analysis == :done
-    assert Improvement.for_request(waiting).analysis == :pending
+    assert Inspectors.improvement_candidate(out).analysis == :done
+    assert Inspectors.improvement_candidate(waiting).analysis == :pending
     assert length(FakeCoopAPI.state(coop).create_keys) == 1
     assert Dispatcher.run_once(off) == {:ok, :idle}
 
@@ -394,11 +395,11 @@ defmodule Ryker.Improvement.AnalysesTest do
   test "an accepted answer's diagnosis is kept with the proof its turn stopped, or neither is" do
     request = unhappy_request!("1790100900.000100")
     coop = coop!([Jason.encode!(@diagnosis), Jason.encode!(@diagnosis)])
-    lose_lease_once_stop_proof_is_written!(Improvement.for_request(request).id)
+    lose_lease_once_stop_proof_is_written!(Inspectors.improvement_candidate(request).id)
 
     drain(settings(coop))
 
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
     assert candidate.analysis == :done
     assert candidate.what_went_wrong == @diagnosis["what_went_wrong"]
     assert candidate.start_count == 1
@@ -419,7 +420,7 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     drain(settings(coop))
 
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
     assert {candidate.analysis, candidate.error_code} == {:done, nil}
     assert candidate.reasons == ["rated"]
     assert [submission] = FakeCoopAPI.state(coop).submissions
@@ -437,12 +438,12 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     drain(settings(coop))
 
-    assert {Improvement.for_request(wordless).analysis,
-            Improvement.for_request(wordless).error_code} ==
+    assert {Inspectors.improvement_candidate(wordless).analysis,
+            Inspectors.improvement_candidate(wordless).error_code} ==
              {:failed, "improvement_evidence_wordless"}
 
-    assert {Improvement.for_request(automated).analysis,
-            Improvement.for_request(automated).error_code} ==
+    assert {Inspectors.improvement_candidate(automated).analysis,
+            Inspectors.improvement_candidate(automated).error_code} ==
              {:failed, "improvement_evidence_automated"}
 
     assert FakeCoopAPI.state(coop).create_keys == []
@@ -477,7 +478,7 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     drain(settings(coop))
 
-    candidate = Improvement.for_request(task)
+    candidate = Inspectors.improvement_candidate(task)
     assert {candidate.analysis, candidate.error_code} == {:done, nil}
     assert [submission] = FakeCoopAPI.state(coop).submissions
     assert submission["prompt"] =~ "Add a workflow smoke test section to the README"
@@ -520,10 +521,12 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     drain(settings(coop))
 
-    assert {Improvement.for_request(task).analysis, Improvement.for_request(task).error_code} ==
+    assert {Inspectors.improvement_candidate(task).analysis,
+            Inspectors.improvement_candidate(task).error_code} ==
              {:done, nil}
 
-    assert {Improvement.for_request(alert).analysis, Improvement.for_request(alert).error_code} ==
+    assert {Inspectors.improvement_candidate(alert).analysis,
+            Inspectors.improvement_candidate(alert).error_code} ==
              {:failed, "improvement_evidence_automated"}
   end
 
@@ -536,7 +539,7 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     # The first step asks Coop for the session, which is still being made.
     assert {:ok, _yielded} = Dispatcher.run_once(settings(coop))
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
 
     assert [%AnalysisRun{started_at: %DateTime{}, remote_stopped_at: nil} = run] =
              Repo.all(from(run in AnalysisRun, where: run.candidate_id == ^candidate.id))
@@ -561,7 +564,7 @@ defmodule Ryker.Improvement.AnalysesTest do
       at: DateTime.add(@now, 900, :second)
     )
 
-    assert %DateTime{} = Improvement.for_request(request).forgotten_at
+    assert %DateTime{} = Inspectors.improvement_candidate(request).forgotten_at
     drain(settings(coop))
 
     assert Map.get(FakeCoopAPI.state(coop), :submissions, []) == []
@@ -570,7 +573,7 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert stopped.stop_receipt["kind"] == "never_submitted"
     assert stopped.prompt == nil
 
-    forgotten = Improvement.for_request(request)
+    forgotten = Inspectors.improvement_candidate(request)
     assert forgotten.analysis == :failed
     assert forgotten.error_code == "improvement_forgotten"
     assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
@@ -586,7 +589,7 @@ defmodule Ryker.Improvement.AnalysesTest do
   end
 
   defp stopped_run(request) do
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
 
     Repo.one(
       from(run in AnalysisRun,

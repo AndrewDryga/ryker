@@ -18,6 +18,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Input
+  alias Ryker.Inspectors
   alias Ryker.Records.Record
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.Custody
@@ -188,7 +189,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
       "ALTER TABLE standing_rule_inventories_broken RENAME TO standing_rule_inventories"
     )
 
-    assert Behaviors.rule_inventory("ingress-input:#{entry.id}") == nil
+    assert Inspectors.rule_inventory("ingress-input:#{entry.id}") == nil
   end
 
   test "accepting an input records its inventory after custody commits" do
@@ -196,7 +197,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     _rule = rule!(offers, "fires")
 
     assert {:ok, %{entry: entry}} = Inbox.record(terraform_input(:app))
-    inventory = Behaviors.rule_inventory("ingress-input:#{entry.id}")
+    inventory = Inspectors.rule_inventory("ingress-input:#{entry.id}")
     assert %StandingRuleInventory{matched_count: 1, rule_count: 1} = inventory
 
     # Redelivery of the same input does not multiply the evidence.
@@ -209,8 +210,8 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     assert {:ok, inventory} = Behaviors.record_rule_inventory(input, "input:empty")
     assert inventory.rule_count == 0
     assert inventory.entries == []
-    assert Behaviors.rule_inventory("input:empty").rule_count == 0
-    assert Behaviors.rule_inventory("input:never-recorded") == nil
+    assert Inspectors.rule_inventory("input:empty").rule_count == 0
+    assert Inspectors.rule_inventory("input:never-recorded") == nil
   end
 
   test "malformed references are refused without touching the database" do

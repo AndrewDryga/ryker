@@ -131,7 +131,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> PlatformAction.Query.next_due_after()
+    |> PlatformAction.Query.select_next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end

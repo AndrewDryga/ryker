@@ -7,6 +7,7 @@ defmodule Ryker.Emisar.EndToEndTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
   alias Ryker.Records.Record
@@ -158,7 +159,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert status["approval_url"] =~ "/approvals/apr-e2e"
     assert delivery_ref == first.turn.delivery_ref
 
-    approval = Approvals.get_by_request_id(@connection_ref, "apr-e2e")
+    approval = Inspectors.emisar_approval(@connection_ref, "apr-e2e")
     assert :ok = ApprovalPresenter.publish(approval, terminal_run_state(), adapters)
     refute_receive {:slack_updated, _, _, _, _}
 
@@ -298,7 +299,7 @@ defmodule Ryker.Emisar.EndToEndTest do
                }
              })
 
-    approval = Approvals.get_by_request_id(@connection_ref, "apr-e2e")
+    approval = Inspectors.emisar_approval(@connection_ref, "apr-e2e")
     held = held_run_state(review(1, "pending"))
 
     # The first receipt is a change: the card gains the tally and the rationale.
@@ -306,7 +307,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert_receive {:slack_updated, _, _, %{"emisar_approval_status" => shown}, _}
     assert shown["review"]["approved_count"] == 1
 
-    approval = Approvals.get_by_request_id(@connection_ref, "apr-e2e")
+    approval = Inspectors.emisar_approval(@connection_ref, "apr-e2e")
     held = held_run_state(review(1, "pending"))
 
     # The first receipt is a change: the card gains the tally and the rationale.

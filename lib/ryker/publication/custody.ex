@@ -268,7 +268,7 @@ defmodule Ryker.Publication.Custody do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> Publication.Query.next_due_after(@claimable)
+    |> Publication.Query.select_next_due_after(@claimable)
     |> Repo.one()
     |> UTCDateTime.earliest()
   end

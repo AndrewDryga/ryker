@@ -1,6 +1,7 @@
 defmodule Ryker.Slack.ChannelSetupTest do
   use Ryker.DataCase, async: false
   alias Ryker.Fixtures.ChannelEnvironments
+  alias Ryker.Inspectors
   alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurations, ChannelSettings, ChannelSetup}
   alias Ryker.Slack.{ConfigurationSession, Input, Interaction, MembershipTransition, Operators}
   alias Ryker.Slack.Renderer
@@ -38,8 +39,10 @@ defmodule Ryker.Slack.ChannelSetupTest do
       {:ok, Process.get({__MODULE__, :session})}
     end
 
-    def configuration(_workspace_ref, _channel_ref), do: Process.get({__MODULE__, :configuration})
-    def membership(_workspace_ref, _channel_ref), do: %{generation: 1}
+    def fetch_configuration(_workspace_ref, _channel_ref),
+      do: {:ok, Process.get({__MODULE__, :configuration})}
+
+    def fetch_membership(_workspace_ref, _channel_ref), do: {:ok, %{generation: 1}}
 
     def change_participation(request) do
       send(self(), {:participation_change, request.participation, request.expected_revision})
@@ -114,14 +117,14 @@ defmodule Ryker.Slack.ChannelSetupTest do
   test "removing Ryker from a channel takes it out in Slack and records the leave at once",
        %{options: options} do
     assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
-    assert %{status: :joined} = ChannelConfigurations.membership(@workspace, "C456")
+    assert %{status: :joined} = Inspectors.channel_membership(@workspace, "C456")
 
     assert {:ok, %{status: :left}} = ChannelSetup.leave(@workspace, "C456", options)
     assert FakeSlackAPI.state(options.client).left == ["C456"]
-    assert %{status: :left} = ChannelConfigurations.membership(@workspace, "C456")
+    assert %{status: :left} = Inspectors.channel_membership(@workspace, "C456")
 
     assert %{environment_ref: "production"} =
-             ChannelConfigurations.configuration(@workspace, "C456")
+             Inspectors.channel_configuration(@workspace, "C456")
   end
 
   test "a leave Slack refuses records nothing", %{options: options} do
@@ -130,7 +133,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert ChannelSetup.leave(@workspace, "C456", %{options | api: FailingAPI}) ==
              {:error, {:slack_api_error, "cant_leave_general"}}
 
-    assert %{status: :joined} = ChannelConfigurations.membership(@workspace, "C456")
+    assert %{status: :joined} = Inspectors.channel_membership(@workspace, "C456")
   end
 
   # The Q&A's second question asked which repository to use when nobody named
@@ -139,7 +142,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
   # environment, which saves as none rather than as the default.
   test "the wizard offers environments and No environment", %{options: options} do
     assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
     assert configuration.environment_ref == "production"
 
     customize =
@@ -207,7 +210,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
                options
              )
 
-    saved = ChannelConfigurations.configuration(@workspace, "C456")
+    saved = Inspectors.channel_configuration(@workspace, "C456")
     assert saved.environment_ref == nil
     assert saved.revision == 2
 
@@ -227,7 +230,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert first.status == :joined
     assert first.prompted == :posted
 
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
     assert configuration.welcome_message_ref == "1.000001"
 
     assert [%{document: %{"channel_welcome" => welcome}, thread: nil}] = posts(options)
@@ -253,7 +256,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
   test "the welcome's own controls change participation in place and never post a second introduction",
        %{options: options} do
     assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
 
     proactive =
       welcome_interaction(
@@ -264,7 +267,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
 
     assert {:ok, %{outcome: :saved}} = ChannelSetup.handle_interaction(proactive, options)
 
-    saved = ChannelConfigurations.configuration(@workspace, "C456")
+    saved = Inspectors.channel_configuration(@workspace, "C456")
     assert saved.participation == :proactive
     assert saved.revision == 2
     assert saved.actor_ref == "U123"
@@ -284,7 +287,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert ChannelSetup.handle_interaction(stale, options) ==
              {:error, :configuration_revision_stale}
 
-    assert ChannelConfigurations.configuration(@workspace, "C456").revision == 2
+    assert Inspectors.channel_configuration(@workspace, "C456").revision == 2
     assert length(updates(options)) == 1
   end
 
@@ -292,7 +295,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     options: options
   } do
     assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
 
     customize =
       welcome_interaction(configuration, "ryker_welcome_configure", "interaction:customize")
@@ -339,7 +342,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
   test "completing the optional setup re-renders the original welcome instead of posting a second one",
        %{options: options} do
     assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
 
     customize =
       welcome_interaction(configuration, "ryker_welcome_configure", "interaction:customize")
@@ -362,7 +365,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
       assert outcome in [:advanced, :saved]
     end)
 
-    saved = ChannelConfigurations.configuration(@workspace, "C456")
+    saved = Inspectors.channel_configuration(@workspace, "C456")
     assert saved.id == configuration.id
     assert saved.revision == 2
     assert saved.participation == :proactive
@@ -391,7 +394,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
   test "a stale or replayed setup click leaves the welcome and configuration untouched",
        %{options: options} do
     assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
 
     customize =
       welcome_interaction(configuration, "ryker_welcome_configure", "interaction:customize")
@@ -416,14 +419,14 @@ defmodule Ryker.Slack.ChannelSetupTest do
              {:error, :configuration_message_mismatch}
 
     updates_before = updates(options)
-    assert ChannelConfigurations.configuration(@workspace, "C456").revision == 1
-    assert ChannelConfigurations.configuration(@workspace, "C456").participation == nil
+    assert Inspectors.channel_configuration(@workspace, "C456").revision == 1
+    assert Inspectors.channel_configuration(@workspace, "C456").participation == nil
 
     shadow = interaction(session, "ryker_setup_participation_shadow", "interaction:shadow")
     assert {:ok, %{outcome: :advanced}} = ChannelSetup.handle_interaction(shadow, options)
     assert {:ok, %{outcome: :duplicate}} = ChannelSetup.handle_interaction(shadow, options)
 
-    assert ChannelConfigurations.configuration(@workspace, "C456").revision == 1
+    assert Inspectors.channel_configuration(@workspace, "C456").revision == 1
     assert length(posts(options)) == 2
     assert length(updates(options)) == length(updates_before) + 2
   end
@@ -446,7 +449,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
              %{"ref" => "ledger", "url" => nil}
            ]
 
-    assert ChannelConfigurations.configuration(@workspace, "C456").revision == 1
+    assert Inspectors.channel_configuration(@workspace, "C456").revision == 1
 
     assert {:ok, %{outcome: :settings_shown}} = ChannelSetup.handle_message(question, options)
     assert length(posts(options)) == 2
@@ -467,7 +470,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
   test "collections asked for in conversation or from the settings view arrive as item cards in that thread",
        %{options: options} do
     assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
 
     question = normalized("U456", "<@UBOT> what schedules are active?", "88.000001", :mention)
 
@@ -506,7 +509,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
            ) ==
              :not_setup
 
-    assert ChannelConfigurations.configuration(@workspace, "C456").revision == 1
+    assert Inspectors.channel_configuration(@workspace, "C456").revision == 1
   end
 
   # Looking for an earlier copy of the welcome or a setup prompt walked the channel's whole history,
@@ -517,7 +520,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     options: options
   } do
     assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
 
     customize =
       welcome_interaction(configuration, "ryker_welcome_configure", "interaction:customize")
@@ -534,7 +537,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     options: options
   } do
     assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
 
     customize =
       welcome_interaction(configuration, "ryker_welcome_configure", "interaction:customize")
@@ -565,7 +568,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     options: options
   } do
     assert {:ok, _joined} = ChannelSetup.handle_membership(membership(), options)
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
 
     customize =
       welcome_interaction(configuration, "ryker_welcome_configure", "interaction:customize")
@@ -778,7 +781,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
                options
              )
 
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
     assert configuration.participation == :mentions
     assert configuration.environment_ref == "staging"
     assert configuration.alert_policy == :automatic
@@ -819,7 +822,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert ChannelSetup.ensure_prompt(session, %{options | api: FailingAPI}) ==
              {:error, :slack_down}
 
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
 
     assert ChannelSetup.ensure_welcome(configuration, nil, %{options | api: FailingAPI}) ==
              {:error, :slack_down}
@@ -912,7 +915,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
     assert {:ok, %{outcome: :cancelled}} =
              ChannelSetup.handle_message(normalized("U123", "cancel", nil), options)
 
-    configuration = ChannelConfigurations.configuration(@workspace, "C456")
+    configuration = Inspectors.channel_configuration(@workspace, "C456")
     assert configuration.participation == nil
     assert configuration.revision == 1
   end
@@ -957,7 +960,7 @@ defmodule Ryker.Slack.ChannelSetupTest do
       )
 
     assert ChannelSetup.handle_message(foreign_destination, options) == :not_setup
-    assert ChannelConfigurations.configuration(@workspace, "C456").revision == 1
+    assert Inspectors.channel_configuration(@workspace, "C456").revision == 1
   end
 
   # The setup card offers "Investigate here", "Offer a room", "Always open a

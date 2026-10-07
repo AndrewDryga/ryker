@@ -937,8 +937,8 @@ defmodule Ryker.Work.SubmissionBuilder do
   # knowledge the moment it is written (`Ryker.RepositoryKnowledge`); the
   # repository holds no copy, so no path in it is named.
   defp maybe_put_repository_knowledge(context, repository_ref) when is_binary(repository_ref) do
-    case RepositoryKnowledge.entry(repository_ref) do
-      %{document: content, document_sha256: sha256, document_commit: commit}
+    case RepositoryKnowledge.fetch_entry(repository_ref) do
+      {:ok, %{document: content, document_sha256: sha256, document_commit: commit}}
       when is_binary(content) ->
         Map.put(context, "repository_knowledge", %{
           "content" => CanonicalJSON.bounded(content, 48 * 1_024),

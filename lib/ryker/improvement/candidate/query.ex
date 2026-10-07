@@ -129,7 +129,7 @@ defmodule Ryker.Improvement.Candidate.Query do
   off, only for a run still out at Coop), or the lease of a worker that
   stopped renewing it runs out.
   """
-  def next_due_after(since, quiet, enabled?) do
+  def select_next_due_after(since, quiet, enabled?) do
     from(c in all(),
       where: c.analysis in [:pending, :running],
       select: [

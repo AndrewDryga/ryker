@@ -81,7 +81,7 @@ defmodule Ryker.Slack.InteractionAudits do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> InteractionAudit.Query.next_due_after()
+    |> InteractionAudit.Query.select_next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end

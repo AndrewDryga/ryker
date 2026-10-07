@@ -100,16 +100,16 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   end
 
   defp step(claim, snapshot, target, settings) do
-    case Custody.outstanding(claim.entry.repository_ref) do
-      %Run{} = run ->
+    case Custody.fetch_outstanding(claim.entry.repository_ref) do
+      {:ok, run} ->
         execute(claim, run, target, settings)
 
-      nil when is_nil(target) ->
+      {:error, :not_found} when is_nil(target) ->
         # A lease run out on a repository that is no longer set up: given
         # back, and never claimed again while it stays that way.
         Custody.yield(claim, 0)
 
-      nil ->
+      {:error, :not_found} ->
         case claim.entry.phase do
           :idle -> check(claim, target, settings)
           :write -> write(claim, snapshot, target, settings)
@@ -337,9 +337,12 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   end
 
   defp last_failure(ref) do
-    case Custody.last_run(ref) do
-      %Run{error_code: code} -> Map.get(@codes, code, :repository_knowledge_retry_exhausted)
-      nil -> :repository_knowledge_retry_exhausted
+    case Custody.fetch_last_run(ref) do
+      {:ok, %Run{error_code: code}} ->
+        Map.get(@codes, code, :repository_knowledge_retry_exhausted)
+
+      {:error, :not_found} ->
+        :repository_knowledge_retry_exhausted
     end
   end
 

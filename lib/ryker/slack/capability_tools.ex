@@ -429,7 +429,7 @@ defmodule Ryker.Slack.CapabilityTools do
       Map.get(options, :reaction_added, &PlatformActionCustody.delivered_reaction_added?/4)
 
     configuration =
-      Map.get(options, :configuration, &ChannelConfigurations.configuration/2)
+      Map.get(options, :configuration, &ChannelConfigurations.fetch_configuration/2)
 
     callbacks = %{
       audit: audit,

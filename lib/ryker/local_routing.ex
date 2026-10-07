@@ -351,7 +351,7 @@ defmodule Ryker.LocalRouting do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> Comparison.Query.next_due_after()
+    |> Comparison.Query.select_next_due_after()
     |> Repo.one()
     |> List.wrap()
     |> UTCDateTime.earliest()

@@ -21,6 +21,7 @@ defmodule Ryker.Improvement.AnalysesConcurrencyTest do
   alias Ryker.Improvement.{Analyses, AnalysisRun, Candidate}
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Inspectors
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
 
@@ -160,7 +161,7 @@ defmodule Ryker.Improvement.AnalysesConcurrencyTest do
                request: {:input, entry.id}
              })
 
-    Improvement.for_request({:input, entry.id})
+    Inspectors.improvement_candidate({:input, entry.id})
   end
 
   defp message!(message_ref), do: slack_input!(message_ref, :message, @words, 1)

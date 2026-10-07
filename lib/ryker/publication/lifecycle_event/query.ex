@@ -47,7 +47,7 @@ defmodule Ryker.Publication.LifecycleEvent.Query do
   end
 
   @doc "When pending notices fall due after `since`, as `[next_attempt_at, lease_expires_at]`."
-  def next_due_after(since) do
+  def select_next_due_after(since) do
     from(e in pending(),
       select: [
         filter(min(e.next_attempt_at), e.next_attempt_at > ^since),

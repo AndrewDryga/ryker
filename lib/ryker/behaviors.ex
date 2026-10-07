@@ -524,13 +524,6 @@ defmodule Ryker.Behaviors do
     end
   end
 
-  @doc "The recorded rule inventory for one input, or nil when none was recorded."
-  @spec rule_inventory(String.t()) :: StandingRuleInventory.t() | nil
-  def rule_inventory(input_ref) when is_binary(input_ref),
-    do: input_ref |> StandingRuleInventory.Query.by_source_input_ref() |> Repo.one()
-
-  def rule_inventory(_input_ref), do: nil
-
   @doc "Recorded inventories for many inputs in one query, keyed by input reference."
   @spec rule_inventories([String.t()]) :: %{String.t() => StandingRuleInventory.t()}
   def rule_inventories([]), do: %{}

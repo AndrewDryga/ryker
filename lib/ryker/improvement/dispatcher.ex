@@ -35,9 +35,9 @@ defmodule Ryker.Improvement.Dispatcher do
   end
 
   defp resume(claim, settings) do
-    case Analyses.outstanding(claim.candidate.id) do
-      nil -> start(claim, settings)
-      run -> execute(claim, run, settings)
+    case Analyses.fetch_outstanding(claim.candidate.id) do
+      {:ok, run} -> execute(claim, run, settings)
+      {:error, :not_found} -> start(claim, settings)
     end
   end
 

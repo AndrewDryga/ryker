@@ -4,6 +4,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.RepositoryProjection
   alias Ryker.GitHub.Onboarding
+  alias Ryker.Inspectors
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.RepositoryKnowledge.{Dispatcher, Entry, Prompt, Run}
   alias Ryker.Retention.Cleanup
@@ -184,7 +185,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     # The checked document, which pins no link, is the repository's
     # knowledge until tomorrow's check.
-    entry = RepositoryKnowledge.entry("emisar")
+    entry = Inspectors.repository_knowledge("emisar")
     document = entry.document
 
     assert {entry.phase, entry.document_by, entry.document_commit, entry.error} ==
@@ -239,7 +240,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     assert_received {:rival_claim, {:ok, :idle}}
     assert {:ok, :written} in results
-    assert RepositoryKnowledge.entry("emisar").document_by == :model
+    assert Inspectors.repository_knowledge("emisar").document_by == :model
   end
 
   # tenant's RYKER.md for tenantcorp/tenant-core retried its session 456 times on 2026-10-03,
@@ -270,7 +271,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     log =
       ExUnit.CaptureLog.capture_log(fn -> drain(settings(coop, api: NoWorkerAPI), 3) end)
 
-    entry = RepositoryKnowledge.entry("emisar")
+    entry = Inspectors.repository_knowledge("emisar")
     assert {entry.phase, entry.error_code} == {:write, "repository_knowledge_worker_unavailable"}
     assert entry.error =~ "worker"
     assert log =~ "repository knowledge for emisar waits"
@@ -284,7 +285,9 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
       end)
 
     refute again =~ "waits"
-    assert DateTime.diff(RepositoryKnowledge.entry("emisar").next_attempt_at, Repo.now!()) > first
+
+    assert DateTime.diff(Inspectors.repository_knowledge("emisar").next_attempt_at, Repo.now!()) >
+             first
   end
 
   # Andrew, 2026-09-27: "also when those are updated?" Once a day each
@@ -303,7 +306,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     assert drain(settings(coop)) == [{:ok, :step}, {:ok, :idle}]
     assert length(FakeCoopAPI.state(coop).submissions) == 1
-    assert RepositoryKnowledge.entry("emisar").phase == :idle
+    assert Inspectors.repository_knowledge("emisar").phase == :idle
 
     # A README change is worth a turn, and its document is the knowledge.
     FakeGitHubRepository.push(@head, @pushed, ["README.md", "runner/main.go"])
@@ -311,7 +314,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     drain(settings(coop))
 
     assert length(FakeCoopAPI.state(coop).submissions) == 2
-    entry = RepositoryKnowledge.entry("emisar")
+    entry = Inspectors.repository_knowledge("emisar")
     assert entry.reason == "These files changed: README.md."
     assert entry.document =~ "dual-licensed"
 
@@ -321,7 +324,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     drain(settings(coop))
 
     assert length(FakeCoopAPI.state(coop).submissions) == 3
-    entry = RepositoryKnowledge.entry("emisar")
+    entry = Inspectors.repository_knowledge("emisar")
     assert entry.document =~ "Written by Ryker from `3333333` on "
     assert entry.document =~ "MIT-licensed"
   end
@@ -344,7 +347,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     drain(settings(coop))
     assert length(FakeCoopAPI.state(coop).submissions) == 2
 
-    assert RepositoryKnowledge.entry("emisar").reason ==
+    assert Inspectors.repository_knowledge("emisar").reason ==
              "A week has passed since the last write, and code changed."
   end
 
@@ -356,7 +359,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     written!(coop)
 
     assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
-    entry = RepositoryKnowledge.entry("emisar")
+    entry = Inspectors.repository_knowledge("emisar")
     assert {entry.phase, entry.requested_by} == {:write, @actor}
     assert entry.reason == "Someone asked for it on the Repositories page."
 
@@ -369,7 +372,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     # The rewrite is the repository's knowledge as soon as it is written.
     assert applied_runs() == 2
-    assert RepositoryKnowledge.entry("emisar").phase == :idle
+    assert Inspectors.repository_knowledge("emisar").phase == :idle
 
     assert {:error, :repository_not_found} = RepositoryKnowledge.refresh("missing", @actor)
   end
@@ -392,7 +395,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert {:ok, _yielded} = Dispatcher.run_once(settings(coop, retry_delay_seconds: 60))
 
     # The refresh is kept, and the entry says why it waits.
-    entry = RepositoryKnowledge.entry("emisar")
+    entry = Inspectors.repository_knowledge("emisar")
 
     assert {entry.phase, entry.requested_by, entry.error_code} ==
              {:write, @actor, "repository_knowledge_github_unavailable"}
@@ -417,8 +420,8 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     drain(settings(coop), 60)
 
-    outline = RepositoryKnowledge.entry("emisar").document
-    assert RepositoryKnowledge.entry("emisar").document_by == :outline
+    outline = Inspectors.repository_knowledge("emisar").document
+    assert Inspectors.repository_knowledge("emisar").document_by == :outline
     assert outline =~ "The README does not say what the repository is for."
   end
 
@@ -468,11 +471,11 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     [_first_prompt, second_prompt] = Enum.map(FakeCoopAPI.state(coop).submissions, & &1["prompt"])
     assert second_prompt =~ "named nothing Ryker"
 
-    outline = RepositoryKnowledge.entry("emisar").document
-    assert RepositoryKnowledge.entry("emisar").document_by == :outline
+    outline = Inspectors.repository_knowledge("emisar").document
+    assert Inspectors.repository_knowledge("emisar").document_by == :outline
     refute outline =~ "src/"
 
-    entry = RepositoryKnowledge.entry("emisar")
+    entry = Inspectors.repository_knowledge("emisar")
     assert entry.document_by == :outline
 
     assert entry.error ==
@@ -502,7 +505,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     assert second.status == :applied
     assert length(FakeCoopAPI.state(coop).submissions) == 2
-    assert RepositoryKnowledge.entry("emisar").document_by == :model
+    assert Inspectors.repository_knowledge("emisar").document_by == :model
   end
 
   # Review of the knowledge lane, 2026-09-28: the rendered RYKER.md had no
@@ -542,7 +545,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
              {:rejected, "repository_knowledge_unusable", nil}
 
     assert second.status == :applied
-    assert RepositoryKnowledge.entry("emisar").document_by == :model
+    assert Inspectors.repository_knowledge("emisar").document_by == :model
   end
 
   test "a model's RYKER.md is kept when a rewrite names nothing real" do
@@ -554,7 +557,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
     drain(settings(coop), 60)
 
-    entry = RepositoryKnowledge.entry("emisar")
+    entry = Inspectors.repository_knowledge("emisar")
     assert {entry.phase, entry.document} == {:idle, written.document}
 
     assert entry.error ==
@@ -604,7 +607,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   defp written!(coop) do
     ready!()
     drain(settings(coop))
-    entry = RepositoryKnowledge.entry("emisar")
+    entry = Inspectors.repository_knowledge("emisar")
     assert entry.document_by == :model
     entry
   end

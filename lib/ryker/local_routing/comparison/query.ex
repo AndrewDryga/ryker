@@ -21,7 +21,7 @@ defmodule Ryker.LocalRouting.Comparison.Query do
   end
 
   @doc "The next retry after `since` among pending comparisons."
-  def next_due_after(since) do
+  def select_next_due_after(since) do
     select(
       pending(),
       [local_routing_comparisons: c],

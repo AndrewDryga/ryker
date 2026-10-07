@@ -288,6 +288,9 @@ defmodule Ryker.Work.Session.Query do
   def select_episode_ids(queryable),
     do: select(queryable, [episode_work_sessions: s], s.episode_id)
 
+  def select_coop_session_ids(queryable),
+    do: select(queryable, [episode_work_sessions: s], s.coop_session_id)
+
   @doc "Sessions Work runs tasks in."
   def for_work(queryable \\ all()),
     do: where(queryable, [episode_work_sessions: s], s.execution_kind == :work)

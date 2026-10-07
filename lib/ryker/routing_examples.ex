@@ -649,7 +649,7 @@ defmodule Ryker.RoutingExamples do
     }
 
     with true <- Enum.all?(Map.values(counts), &(is_integer(&1) or is_nil(&1))),
-         %{} = price <- Pricing.in_effect(target, DateTime.to_date(decided_at)) do
+         {:ok, price} <- Pricing.fetch_in_effect(target, DateTime.to_date(decided_at)) do
       price |> Pricing.estimate(counts) |> Decimal.normalize() |> Decimal.to_string(:normal)
     else
       _unpriced -> nil

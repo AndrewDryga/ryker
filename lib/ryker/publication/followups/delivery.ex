@@ -49,11 +49,11 @@ defmodule Ryker.Publication.Followups.Delivery do
   defp admit_wakeup_locked(event_ref, lease_ref) do
     now = Repo.now!()
 
-    with %LifecycleEvent{} = event <- Store.lock_lifecycle_event(event_ref),
+    with {:ok, event} <- Store.lock_lifecycle_event(event_ref),
          :ok <- Leases.live_event_lease(event, lease_ref, now) do
       admit_wakeup_event(event, now)
     else
-      nil -> Repo.rollback(:publication_lifecycle_event_not_found)
+      {:error, :not_found} -> Repo.rollback(:publication_lifecycle_event_not_found)
       {:error, reason} -> Repo.rollback(reason)
     end
   end
@@ -273,15 +273,15 @@ defmodule Ryker.Publication.Followups.Delivery do
     now = Repo.now!()
 
     case Store.lock_lifecycle_event(event_ref) do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:publication_lifecycle_event_not_found)
 
-      %LifecycleEvent{delivery_state: :delivered} = event ->
+      {:ok, %LifecycleEvent{delivery_state: :delivered} = event} ->
         if event.delivery_receipt_fingerprint == DeliveryReceipt.fingerprint(receipt),
           do: event,
           else: Repo.rollback(:publication_lifecycle_delivery_conflict)
 
-      %LifecycleEvent{} = event ->
+      {:ok, event} ->
         publication = Repo.one!(Publication.Query.by_id(event.publication_id))
 
         with :ok <- Leases.live_event_lease(event, lease_ref, now),

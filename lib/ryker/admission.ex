@@ -646,7 +646,7 @@ defmodule Ryker.Admission do
          work_policy
        ) do
     case source_owner do
-      {episode, latest} when latest >= context.input.revision ->
+      {:ok, {episode, latest}} when latest >= context.input.revision ->
         details = [
           native_input_id: context.input.native_input_id,
           submitted: context.input.revision,
@@ -655,7 +655,7 @@ defmodule Ryker.Admission do
 
         persist_superseded(entry, decision, decision_ref, episode, details)
 
-      {%Episode{} = owner, _earlier_revision} ->
+      {:ok, {%Episode{} = owner, _earlier_revision}} ->
         if source_owner_matches_selection?(owner, selection) do
           apply_and_persist_current(
             context,
@@ -669,7 +669,7 @@ defmodule Ryker.Admission do
           {:error, {:admission_rejected, :context_stale}}
         end
 
-      nil ->
+      {:error, :not_found} ->
         apply_and_persist_current(
           context,
           entry,
@@ -806,20 +806,17 @@ defmodule Ryker.Admission do
     )
   end
 
-  @doc "The episode whose work owns this input's source message now, if any."
-  @spec source_owner(Context.t()) :: Episode.t() | nil
-  def source_owner(%Context{} = context) do
-    case current_source_owner(context) do
-      {episode, _revision} -> episode
-      nil -> nil
-    end
+  @doc "The episode whose work owns this input's source message now."
+  @spec fetch_source_owner(Context.t()) :: {:ok, Episode.t()} | {:error, :not_found}
+  def fetch_source_owner(%Context{} = context) do
+    with {:ok, {episode, _revision}} <- fetch_current_source_owner(context), do: {:ok, episode}
   end
 
   # An edit or delete follows its source item's effective owner even when that
   # episode now lives in another conversation, so a revision can never be
   # reassigned by rank or split across two episodes.
-  defp current_source_owner(context) do
-    Origins.current_owner(
+  defp fetch_current_source_owner(context) do
+    Origins.fetch_current_owner(
       context.input.native_input_id,
       context.input.destination.transport,
       context.input_entry.execution_mode
@@ -831,8 +828,8 @@ defmodule Ryker.Admission do
          :ok <- compare_routing_generation(context, selection) do
       source_owner =
         if context.input_entry.execution_mode == :shadow,
-          do: nil,
-          else: current_source_owner(context)
+          do: {:error, :not_found},
+          else: fetch_current_source_owner(context)
 
       {:ok, refresh_selection(selection), source_owner}
     end

@@ -366,11 +366,11 @@ defmodule Ryker.WorkExamples do
       reasoning: turn.usage_reasoning_tokens
     }
 
-    case Pricing.in_effect(target, DateTime.to_date(settled_at)) do
-      %{} = price ->
+    case Pricing.fetch_in_effect(target, DateTime.to_date(settled_at)) do
+      {:ok, price} ->
         price |> Pricing.estimate(counts) |> Decimal.normalize() |> Decimal.to_string(:normal)
 
-      _unpriced ->
+      {:error, :not_found} ->
         nil
     end
   end

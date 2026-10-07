@@ -181,9 +181,9 @@ defmodule Ryker.Waits.EventSubscriptions do
   def resolve_wait_in_transaction(_wait_ref, _resolution_kind),
     do: {:error, :event_subscription_not_found}
 
-  @spec due(DateTime.t()) :: nil | map()
-  def due(%DateTime{} = now),
-    do: now |> EventSubscription.Query.due(failure_retried_before(now)) |> Repo.one()
+  @spec fetch_due(DateTime.t()) :: {:ok, map()} | {:error, :not_found}
+  def fetch_due(%DateTime{} = now),
+    do: now |> EventSubscription.Query.due(failure_retried_before(now)) |> Repo.fetch()
 
   defp ensure_locked(
          %Episode{owner_kind: :event, owner_ref: wait_ref, state: :waiting_for_event} = episode

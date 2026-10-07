@@ -86,7 +86,7 @@ defmodule Ryker.WeeklyReport.Custody do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> Report.Query.next_due_after()
+    |> Report.Query.select_next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -193,11 +193,6 @@ defmodule Ryker.WeeklyReport.Custody do
     |> Report.Query.limit_to(limit)
     |> Repo.all()
   end
-
-  @doc "One report by its delivery reference, or nil."
-  @spec fetch(String.t()) :: Report.t() | nil
-  def fetch(delivery_ref) when is_binary(delivery_ref),
-    do: Repo.one(Report.Query.by_delivery_ref(delivery_ref))
 
   defp claim_locked(worker_ref, lease_seconds) do
     now = Repo.now!()

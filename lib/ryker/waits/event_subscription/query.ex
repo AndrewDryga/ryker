@@ -150,7 +150,7 @@ defmodule Ryker.Waits.EventSubscription.Query do
   end
 
   @doc "The next poll time and the next deadline of the active subscriptions after `since`."
-  def next_due_after(since) do
+  def select_next_due_after(since) do
     from(subscription in active(),
       select: [
         filter(min(subscription.poll_after), subscription.poll_after > ^since),

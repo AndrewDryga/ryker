@@ -82,7 +82,7 @@ defmodule Ryker.Operator.Delivery do
     message = Repo.one(Turn.Query.by_delivery_ref(delivery_ref))
     response = Repo.one(RoutingResponse.Query.by_delivery_ref(delivery_ref))
     action = Repo.one(PlatformAction.Query.by_action_ref(delivery_ref))
-    report = ReportCustody.fetch(delivery_ref)
+    report = Repo.one(Report.Query.by_delivery_ref(delivery_ref))
 
     case {message, response, action, report} do
       {%Turn{} = turn, nil, nil, nil} -> {:ok, {:message, turn}}

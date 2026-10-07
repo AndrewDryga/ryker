@@ -4,7 +4,6 @@ defmodule Ryker.Retention.DataTest do
   import Ecto.Query
   alias Ryker.Admission.FleetSession
   alias Ryker.Artifacts
-  alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.Behaviors.StandingRuleInventory
@@ -16,6 +15,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Inspectors
   alias Ryker.Learning
   alias Ryker.Learning.Batches
   alias Ryker.Learning.FleetSession, as: LearningFleetSession
@@ -206,8 +206,8 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get(StandingRuleInventory, old.id) == nil
     assert Repo.get(StandingRuleInventory, fresh.id)
 
-    assert Behaviors.rule_inventory("input:old") == nil
-    assert Behaviors.rule_inventory("input:fresh").id == fresh.id
+    assert Inspectors.rule_inventory("input:old") == nil
+    assert Inspectors.rule_inventory("input:fresh").id == fresh.id
   end
 
   test "old instruction edit receipts expire without clearing the current value or its revision" do
@@ -804,7 +804,7 @@ defmodule Ryker.Retention.DataTest do
     entry = record_input_for!(work.episode.id, "standing-owner")
     insert_open_record!(work)
     run = insert_decided_standing_run!(work.episode.id, entry)
-    inventory = Behaviors.rule_inventory(Inbox.ref(entry))
+    inventory = Inspectors.rule_inventory(Inbox.ref(entry))
     Repo.query!("UPDATE standing_rule_inventories SET recorded_at = $1", [@old])
     receipt = insert_status_receipt!(work.episode.id)
 

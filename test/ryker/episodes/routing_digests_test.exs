@@ -4,6 +4,7 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, RoutingDigests}
   alias Ryker.Ingress.Input
+  alias Ryker.Inspectors
   alias Ryker.Slack.Input, as: SlackInput
 
   @now ~U[2026-09-11 08:00:00.000000Z]
@@ -41,7 +42,7 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
     admit_more!(episode, "The failing host is nomad-hst05 and the job is tolgee-postgres-metrics")
     admit_more!(episode, "Still looking into it")
 
-    digest = RoutingDigests.fetch(episode.id)
+    digest = Inspectors.routing_digest(episode.id)
 
     assert digest.objective =~ "Investigating something in production"
     assert digest.latest_development =~ "Still looking into it"
@@ -57,7 +58,7 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
         "Run https://app.terraform.io/app/SME-Tenant/tenant-infra/runs/run-TobiKjYqqj17v2YB failed"
       )
 
-    digest = RoutingDigests.fetch(episode.id)
+    digest = Inspectors.routing_digest(episode.id)
     assert digest.anchor_keys != []
 
     assert RoutingDigests.anchor_keys([
@@ -71,12 +72,12 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
 
   test "coverage advances with each admitted input and records every contributing conversation" do
     episode = admit!("digest:coverage", "Database is unavailable", channel_ref: "CDEVOPS")
-    first = RoutingDigests.fetch(episode.id)
+    first = Inspectors.routing_digest(episode.id)
     assert first.conversation_refs == ["slack:TDIGESTS:CDEVOPS"]
     assert first.covered_through_sequence == 1
 
     admit_more!(episode, "Replica recovered", channel_ref: "CALERTS")
-    second = RoutingDigests.fetch(episode.id)
+    second = Inspectors.routing_digest(episode.id)
 
     assert second.conversation_refs == ["slack:TDIGESTS:CALERTS", "slack:TDIGESTS:CDEVOPS"]
     assert second.covered_through_sequence > first.covered_through_sequence
@@ -89,7 +90,7 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
     episode = admit!("digest:facts", "Database is unavailable")
     admit_more!(episode, "Replica recovered", channel_ref: "CALERTS")
 
-    assert RoutingDigests.document(RoutingDigests.fetch(episode.id)) == %{
+    assert RoutingDigests.document(Inspectors.routing_digest(episode.id)) == %{
              "conversations" => 2,
              "message_count" => 2,
              "title" => nil
@@ -101,7 +102,7 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
   # never erases it.
   test "routing reads the episode's own title beside its source text, and new input keeps it" do
     episode = admit!("digest:title", "Something is off with checkout")
-    assert RoutingDigests.document(RoutingDigests.fetch(episode.id))["title"] == nil
+    assert RoutingDigests.document(Inspectors.routing_digest(episode.id))["title"] == nil
 
     turn_id = Ecto.UUID.generate()
 
@@ -111,7 +112,7 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
     )
 
     admit_more!(episode, "It is back to normal now")
-    digest = RoutingDigests.fetch(episode.id)
+    digest = Inspectors.routing_digest(episode.id)
 
     assert RoutingDigests.document(digest)["title"] == "Investigate checkout 502s"
     assert digest.objective =~ "Something is off with checkout"
@@ -205,7 +206,7 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
     )
 
     assert RoutingDigests.refresh_all() >= 1
-    digest = RoutingDigests.fetch(episode.id)
+    digest = Inspectors.routing_digest(episode.id)
 
     assert RoutingDigests.anchor_keys(["pgsql-prod-01"]) -- digest.anchor_keys == []
     assert RoutingDigests.anchor_keys(["run-7f2a1c"]) -- digest.anchor_keys == []
@@ -224,9 +225,9 @@ defmodule Ryker.Episodes.RoutingDigestsTest do
 
     admit_more!(episode, "Now it returns 504 instead")
 
-    assert %{embedding_model: nil, embedded_at: nil} = RoutingDigests.fetch(episode.id)
+    assert %{embedding_model: nil, embedded_at: nil} = Inspectors.routing_digest(episode.id)
 
-    assert RoutingDigests.embedding_text(RoutingDigests.fetch(episode.id)) =~
+    assert RoutingDigests.embedding_text(Inspectors.routing_digest(episode.id)) =~
              "Checkout returns 502 on the cart page"
   end
 

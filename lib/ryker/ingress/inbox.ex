@@ -117,12 +117,13 @@ defmodule Ryker.Ingress.Inbox do
   # once the input has left the queue. Recording names the predecessor in the
   # saved transition; tests call this directly to check the lane rule.
   @doc false
-  @spec queue_predecessor(Entry.t(), DateTime.t()) :: Entry.t() | nil
-  def queue_predecessor(%Entry{status: :pending} = entry, %DateTime{} = now) do
-    entry |> Entry.Query.queue_predecessor(now) |> Repo.one()
+  @spec fetch_queue_predecessor(Entry.t(), DateTime.t()) ::
+          {:ok, Entry.t()} | {:error, :not_found}
+  def fetch_queue_predecessor(%Entry{status: :pending} = entry, %DateTime{} = now) do
+    entry |> Entry.Query.queue_predecessor(now) |> Repo.fetch()
   end
 
-  def queue_predecessor(%Entry{}, %DateTime{}), do: nil
+  def fetch_queue_predecessor(%Entry{}, %DateTime{}), do: {:error, :not_found}
 
   @doc """
   Freezes one exact model-visible admission context for the current execution generation.
@@ -273,15 +274,15 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   @doc """
-  The oldest voice message still waiting for its transcript, or nil.
+  The oldest voice message still waiting for its transcript.
   `Ryker.Transcription.Worker` takes them in the order they arrived.
   """
-  @spec waiting_for_transcript() :: Entry.t() | nil
-  def waiting_for_transcript do
+  @spec fetch_waiting_for_transcript() :: {:ok, Entry.t()} | {:error, :not_found}
+  def fetch_waiting_for_transcript do
     Entry.Query.awaiting_transcript()
     |> Entry.Query.ordered_by_oldest()
     |> Entry.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   @doc """
@@ -435,7 +436,7 @@ defmodule Ryker.Ingress.Inbox do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> Entry.Query.next_due_after()
+    |> Entry.Query.select_next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -857,15 +858,15 @@ defmodule Ryker.Ingress.Inbox do
       {:ok, entry} ->
         append_transition!(entry, :saved, occurred_at: entry.inserted_at)
 
-        case queue_predecessor(entry, entry.inserted_at) do
-          %Entry{} = predecessor ->
+        case fetch_queue_predecessor(entry, entry.inserted_at) do
+          {:ok, predecessor} ->
             append_transition!(entry, :waiting_predecessor,
               occurred_at: entry.inserted_at,
               predecessor_input_id: predecessor.id,
               detail: predecessor_summary(predecessor)
             )
 
-          nil ->
+          {:error, :not_found} ->
             :ok
         end
 

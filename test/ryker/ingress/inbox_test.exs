@@ -689,18 +689,18 @@ defmodule Ryker.Ingress.InboxTest do
     {:ok, %{entry: elsewhere}} =
       Inbox.record(input!(event_ref: "Ev-pred-other", channel_ref: "C789"))
 
-    assert Inbox.queue_predecessor(second, @occurred_at).id == first.id
-    assert Inbox.queue_predecessor(first, @occurred_at) == nil
-    assert Inbox.queue_predecessor(elsewhere, @occurred_at) == nil
+    assert predecessor_id(second, @occurred_at) == first.id
+    assert predecessor_id(first, @occurred_at) == nil
+    assert predecessor_id(elsewhere, @occurred_at) == nil
 
     {:ok, %{entry: claimed, lease_ref: lease}} = Inbox.claim_next("slot:1", @occurred_at, 60)
     assert claimed.id == first.id
-    assert Inbox.queue_predecessor(second, @occurred_at).id == first.id
+    assert predecessor_id(second, @occurred_at) == first.id
 
     # Once the first input is decided it has left the queue for good.
     assert {:ok, _} = Inbox.block(Inbox.ref(first), lease, "blocked", "operator recovery")
-    assert Inbox.queue_predecessor(second, @occurred_at) == nil
-    assert Inbox.queue_predecessor(Repo.get!(Entry, first.id), @occurred_at) == nil
+    assert predecessor_id(second, @occurred_at) == nil
+    assert predecessor_id(Repo.get!(Entry, first.id), @occurred_at) == nil
 
     # A later input that holds a live lease keeps the lane busy for everyone else.
     {:ok, %{entry: third}} =
@@ -708,8 +708,8 @@ defmodule Ryker.Ingress.InboxTest do
 
     {:ok, %{entry: held}} = Inbox.claim_next("slot:2", @occurred_at, 60)
     assert held.id == second.id
-    assert Inbox.queue_predecessor(third, @occurred_at).id == second.id
-    assert Inbox.queue_predecessor(third, DateTime.add(@occurred_at, 61, :second)).id == second.id
+    assert predecessor_id(third, @occurred_at) == second.id
+    assert predecessor_id(third, DateTime.add(@occurred_at, 61, :second)) == second.id
   end
 
   # Harvested on the live install, 2026-09-27: a Slack file share nobody could
@@ -733,7 +733,7 @@ defmodule Ryker.Ingress.InboxTest do
     assert {:ok, %{entry: second, status: :recorded}} =
              Inbox.record(input!(event_ref: "Ev-empty-second", message_ref: "1787832001.000100"))
 
-    assert Inbox.queue_predecessor(second, @occurred_at).id == first.id
+    assert predecessor_id(second, @occurred_at) == first.id
 
     assert [%{kind: :saved}, %{kind: :waiting_predecessor, detail: nil}] =
              Repo.all(
@@ -1030,5 +1030,12 @@ defmodule Ryker.Ingress.InboxTest do
       },
       event_ref: event_ref
     )
+  end
+
+  defp predecessor_id(entry, now) do
+    case Inbox.fetch_queue_predecessor(entry, now) do
+      {:ok, predecessor} -> predecessor.id
+      {:error, :not_found} -> nil
+    end
   end
 end

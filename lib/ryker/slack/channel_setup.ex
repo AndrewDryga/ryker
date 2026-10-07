@@ -337,11 +337,11 @@ defmodule Ryker.Slack.ChannelSetup do
   @spec redraw_welcome(String.t(), String.t(), map()) ::
           {:ok, :posted | :updated} | {:error, term()}
   def redraw_welcome(workspace_ref, channel_ref, options) do
-    case options.configurations.configuration(workspace_ref, channel_ref) do
-      %ChannelConfiguration{} = configuration ->
+    case options.configurations.fetch_configuration(workspace_ref, channel_ref) do
+      {:ok, configuration} ->
         ensure_welcome(configuration, settings_notice(configuration), options)
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :configuration_not_found}
     end
   end
@@ -511,8 +511,11 @@ defmodule Ryker.Slack.ChannelSetup do
   # for an earlier copy starts there instead of walking the channel's whole
   # history, which gave up past 10,000 messages (2026-10-04 review).
   defp welcome_oldest(configuration, options) do
-    case options.configurations.membership(configuration.workspace_ref, configuration.channel_ref) do
-      %{joined_at: %DateTime{} = joined_at} -> Messages.oldest(joined_at)
+    case options.configurations.fetch_membership(
+           configuration.workspace_ref,
+           configuration.channel_ref
+         ) do
+      {:ok, %{joined_at: %DateTime{} = joined_at}} -> Messages.oldest(joined_at)
       _unknown -> Messages.oldest(configuration.inserted_at)
     end
   end
@@ -521,12 +524,12 @@ defmodule Ryker.Slack.ChannelSetup do
   # history scan from rebinding the previous membership's message.
   defp welcome_delivery_ref(configuration, options) do
     generation =
-      case options.configurations.membership(
+      case options.configurations.fetch_membership(
              configuration.workspace_ref,
              configuration.channel_ref
            ) do
-        %{generation: generation} -> generation
-        nil -> 0
+        {:ok, %{generation: generation}} -> generation
+        {:error, :not_found} -> 0
       end
 
     "slack-welcome:#{configuration.id}:#{generation}"
@@ -682,11 +685,14 @@ defmodule Ryker.Slack.ChannelSetup do
   end
 
   defp current_configuration(interaction, configuration_ref, revision, options) do
-    case options.configurations.configuration(interaction.workspace_ref, interaction.channel_ref) do
-      %ChannelConfiguration{id: ^configuration_ref, revision: ^revision} = configuration ->
+    case options.configurations.fetch_configuration(
+           interaction.workspace_ref,
+           interaction.channel_ref
+         ) do
+      {:ok, %ChannelConfiguration{id: ^configuration_ref, revision: ^revision} = configuration} ->
         {:ok, configuration}
 
-      %ChannelConfiguration{id: ^configuration_ref} ->
+      {:ok, %ChannelConfiguration{id: ^configuration_ref}} ->
         {:error, :configuration_revision_stale}
 
       _other ->
@@ -890,11 +896,11 @@ defmodule Ryker.Slack.ChannelSetup do
   end
 
   defp setup_session(audience, input, thread_ref, workspace_ref, channel_ref, options) do
-    case options.configurations.active_session(workspace_ref, channel_ref) do
-      %ConfigurationSession{} = session ->
+    case options.configurations.fetch_active_session(workspace_ref, channel_ref) do
+      {:ok, session} ->
         {:ok, session, false}
 
-      nil ->
+      {:error, :not_found} ->
         start_reconfiguration(
           audience,
           input,
@@ -1019,8 +1025,8 @@ defmodule Ryker.Slack.ChannelSetup do
 
   defp clarify(input, thread_ref, options) do
     with {:ok, workspace_ref, channel_ref} <- destination(input.destination.conversation_ref),
-         %ConfigurationSession{} = session <-
-           options.configurations.active_session(workspace_ref, channel_ref),
+         {:session, {:ok, session}} <-
+           {:session, options.configurations.fetch_active_session(workspace_ref, channel_ref)},
          delivery_ref <- "slack-setup-clarification:#{session.id}:#{input.event_ref}",
          :not_found <-
            options.api.find_message(
@@ -1043,7 +1049,7 @@ defmodule Ryker.Slack.ChannelSetup do
       {:ok, _message_ref} ->
         {:ok, %{outcome: :clarification, session_ref: active_session_ref(input, options)}}
 
-      nil ->
+      {:session, {:error, :not_found}} ->
         :not_setup
 
       {:error, _reason} = error ->
@@ -1074,8 +1080,8 @@ defmodule Ryker.Slack.ChannelSetup do
 
   defp active_session_ref(input, options) do
     with {:ok, workspace_ref, channel_ref} <- destination(input.destination.conversation_ref),
-         %ConfigurationSession{id: session_ref} <-
-           options.configurations.active_session(workspace_ref, channel_ref) do
+         {:ok, %ConfigurationSession{id: session_ref}} <-
+           options.configurations.fetch_active_session(workspace_ref, channel_ref) do
       session_ref
     else
       _missing -> nil

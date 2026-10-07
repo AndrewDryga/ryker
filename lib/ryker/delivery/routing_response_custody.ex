@@ -89,7 +89,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     since
-    |> RoutingResponse.Query.next_due_after()
+    |> RoutingResponse.Query.select_next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end

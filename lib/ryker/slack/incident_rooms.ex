@@ -227,7 +227,7 @@ defmodule Ryker.Slack.IncidentRooms do
   @spec next_due_at(DateTime.t(), pos_integer(), pos_integer()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, health_check_seconds, root_card_check_seconds) do
     since
-    |> IncidentRoom.Query.next_due_after(health_check_seconds, root_card_check_seconds)
+    |> IncidentRoom.Query.select_next_due_after(health_check_seconds, root_card_check_seconds)
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -588,8 +588,10 @@ defmodule Ryker.Slack.IncidentRooms do
   One still owing a reply waits for it to settle, and one already being
   stopped is left to its worker's answer, so a pass never repeats itself.
   """
-  @spec next_orphaned_investigation() :: {IncidentRoom.t(), Episode.t()} | nil
-  def next_orphaned_investigation, do: Repo.one(IncidentRoom.Query.next_orphaned_investigation())
+  @spec fetch_next_orphaned_investigation() ::
+          {:ok, {IncidentRoom.t(), Episode.t()}} | {:error, :not_found}
+  def fetch_next_orphaned_investigation,
+    do: Repo.fetch(IncidentRoom.Query.next_orphaned_investigation())
 
   defp close_deleted_locked(room, now, detail) do
     with :ok <- current_lifecycle(room, :deleted) do

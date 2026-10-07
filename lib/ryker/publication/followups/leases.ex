@@ -31,8 +31,8 @@ defmodule Ryker.Publication.Followups.Leases do
   end
 
   def next_due_at(%DateTime{} = since) do
-    polls = Repo.one(Followup.Query.next_due_after(since))
-    deliveries = Repo.one(LifecycleEvent.Query.next_due_after(since))
+    polls = Repo.one(Followup.Query.select_next_due_after(since))
+    deliveries = Repo.one(LifecycleEvent.Query.select_next_due_after(since))
 
     UTCDateTime.earliest(polls ++ deliveries)
   end
@@ -191,11 +191,8 @@ defmodule Ryker.Publication.Followups.Leases do
     now = Repo.now!()
 
     case Store.lock_lifecycle_event(event_ref) do
-      %LifecycleEvent{} = event ->
-        renew_locked_event(event, lease_ref, lease_seconds, now)
-
-      nil ->
-        Repo.rollback(:publication_lifecycle_event_not_found)
+      {:ok, event} -> renew_locked_event(event, lease_ref, lease_seconds, now)
+      {:error, :not_found} -> Repo.rollback(:publication_lifecycle_event_not_found)
     end
   end
 
@@ -219,11 +216,8 @@ defmodule Ryker.Publication.Followups.Leases do
     now = Repo.now!()
 
     case Store.lock_lifecycle_event(event_ref) do
-      %LifecycleEvent{} = event ->
-        defer_locked_event(event, lease_ref, delay_seconds, reason, now)
-
-      nil ->
-        Repo.rollback(:publication_lifecycle_event_not_found)
+      {:ok, event} -> defer_locked_event(event, lease_ref, delay_seconds, reason, now)
+      {:error, :not_found} -> Repo.rollback(:publication_lifecycle_event_not_found)
     end
   end
 

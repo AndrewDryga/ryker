@@ -31,19 +31,24 @@ defmodule Ryker.Work.Custody.Locks do
 
   @doc false
   def turn_for_lease(episode_id, turn_ref, lease_ref) do
-    with %Turn{} = identity <- turn_identity(episode_id, turn_ref),
+    with {:ok, identity} <- fetch_turn_identity(episode_id, turn_ref),
          {:ok, _episode} <- lock_current_episode_owner(episode_id, identity),
          {:ok, session} <- lock_session(episode_id, identity.session_id),
          {:ok, turn} <- leased_turn(episode_id, turn_ref, lease_ref) do
       {:ok, session, turn}
-    else
-      nil -> {:error, :work_turn_not_found}
-      {:error, _reason} = error -> error
     end
   end
 
+  # The turn as it is, before its episode and session are locked; locking it
+  # waits for them (`lock_turn/2`). Missing, it is `:work_turn_not_found`, as
+  # `lock_turn/2` says.
   @doc false
-  def turn_identity(episode_id, turn_ref), do: Repo.one(turn(episode_id, turn_ref))
+  @spec fetch_turn_identity(Ecto.UUID.t(), String.t()) ::
+          {:ok, Turn.t()} | {:error, :work_turn_not_found}
+  def fetch_turn_identity(episode_id, turn_ref) do
+    with {:error, :not_found} <- Repo.fetch(turn(episode_id, turn_ref)),
+         do: {:error, :work_turn_not_found}
+  end
 
   @doc false
   def lock_turn(episode_id, turn_ref) do
@@ -131,13 +136,10 @@ defmodule Ryker.Work.Custody.Locks do
 
   @doc false
   def lock_turn_after_episode(episode_id, turn_ref) do
-    with %Turn{} = identity <- turn_identity(episode_id, turn_ref),
+    with {:ok, identity} <- fetch_turn_identity(episode_id, turn_ref),
          {:ok, session} <- lock_session(episode_id, identity.session_id),
          {:ok, turn} <- lock_turn(episode_id, turn_ref) do
       {:ok, session, turn}
-    else
-      nil -> {:error, :work_turn_not_found}
-      {:error, _reason} = error -> error
     end
   end
 

@@ -260,17 +260,16 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # that worker under the ordinary eligibility checks; the caller decides what
   # an ineligible worker means for its session.
   defp recover_placement_on_previous_worker(session, previous, requirements, lease_seconds, now) do
-    worker = Shared.locked_worker(previous.worker_id)
-
-    eligible =
-      holder_reachable?(worker, requirements.workspace_ref, now) and
-        is_nil(worker.drain_requested_at) and worker.state in [:eligible, :busy] and
-        worker_eligible?(worker, requirements, now) and
-        placement_authority_current?(previous.requirements, worker)
-
-    if eligible,
-      do: {:ok, insert_placement_on_worker(session, worker, requirements, lease_seconds, now)},
-      else: :ineligible
+    with {:ok, worker} <- Shared.lock_worker(previous.worker_id),
+         true <-
+           holder_reachable?(worker, requirements.workspace_ref, now) and
+             is_nil(worker.drain_requested_at) and worker.state in [:eligible, :busy] and
+             worker_eligible?(worker, requirements, now) and
+             placement_authority_current?(previous.requirements, worker) do
+      {:ok, insert_placement_on_worker(session, worker, requirements, lease_seconds, now)}
+    else
+      _gone_or_ineligible -> :ineligible
+    end
   end
 
   defp recover_bound_placement(session, previous, requirements, lease_seconds, now) do
@@ -354,9 +353,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # Stop and cleanup return to the exact holder even after settings or sandbox
   # changes. They need no new runtime slot and never authorize another turn.
   defp place_on_holder(session, previous, requirements, lease_seconds, now) do
-    worker = Shared.locked_worker(previous.worker_id)
-
-    if holder_reachable?(worker, requirements.workspace_ref, now) do
+    with {:ok, worker} <- Shared.lock_worker(previous.worker_id),
+         true <- holder_reachable?(worker, requirements.workspace_ref, now) do
       holder = %{
         requirements
         | capability_names: [],
@@ -373,7 +371,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
          now
        )}
     else
-      :unreachable
+      _gone_or_unreachable -> :unreachable
     end
   end
 
@@ -387,8 +385,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       DateTime.diff(now, worker.clock_at, :second) |> abs() <=
         Shared.maximum_clock_skew_seconds()
   end
-
-  defp holder_reachable?(nil, _workspace_ref, _now), do: false
 
   defp holder_placement?(%Placement{requirements: %{"purpose" => @holder_purpose}}), do: true
   defp holder_placement?(%Placement{}), do: false
@@ -461,7 +457,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     workers = query |> Placement.Query.select_worker_ids() |> Repo.all()
 
     Repo.transaction(fn ->
-      Enum.each(Enum.sort(workers), &Shared.locked_worker/1)
+      Enum.each(Enum.sort(workers), &Shared.lock_worker/1)
 
       query
       |> Placement.Query.lock_for_update()
@@ -666,7 +662,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     |> Placement.Query.by_session_id()
     |> Placement.Query.select_worker_ids()
     |> Repo.all()
-    |> Enum.each(&Shared.locked_worker/1)
+    |> Enum.each(&Shared.lock_worker/1)
   end
 
   defp current_placement(session_id) do

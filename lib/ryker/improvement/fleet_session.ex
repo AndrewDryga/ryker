@@ -80,11 +80,18 @@ defmodule Ryker.Improvement.FleetSession do
 
   def bind(_run, _remote_id), do: {:error, :improvement_session_identity_conflict}
 
-  @doc "The run's session, or nil before `ensure/1`."
-  @spec for_run(AnalysisRun.t() | Ecto.UUID.t()) :: Session.t() | nil
-  def for_run(%AnalysisRun{id: id}), do: for_run(id)
+  @doc "The run's session, which `ensure/1` makes."
+  @spec fetch_for_run(AnalysisRun.t()) :: {:ok, Session.t()} | {:error, :not_found}
+  def fetch_for_run(%AnalysisRun{id: id}), do: Repo.fetch(Session.Query.by_improvement_run_id(id))
 
-  def for_run(id) when is_binary(id), do: Repo.one(Session.Query.by_improvement_run_id(id))
+  @doc "The Coop session the run's session is bound to, or nil before it is."
+  @spec coop_session_id(AnalysisRun.t()) :: String.t() | nil
+  def coop_session_id(%AnalysisRun{id: id}) do
+    id
+    |> Session.Query.by_improvement_run_id()
+    |> Session.Query.select_coop_session_ids()
+    |> Repo.one()
+  end
 
   defp locked(run) do
     run.id

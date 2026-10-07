@@ -245,14 +245,20 @@ defmodule Ryker.Work.Custody.Cancellation do
        ) do
     with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
          :ok <- exact_episode(episode, episode_id) do
-      request_cancellation_for_identity(
-        episode,
-        turn_identity(episode_id, turn_ref),
-        turn_ref,
-        intent,
-        fingerprint,
-        lease_ref
-      )
+      case fetch_turn_identity(episode_id, turn_ref) do
+        {:ok, identity} ->
+          request_cancellation_for_identity(
+            episode,
+            identity,
+            turn_ref,
+            intent,
+            fingerprint,
+            lease_ref
+          )
+
+        {:error, :work_turn_not_found} ->
+          settle_local_cancellation(episode, nil, intent, fingerprint)
+      end
     else
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -262,11 +268,12 @@ defmodule Ryker.Work.Custody.Cancellation do
          %Episode{state: :working, owner_kind: :turn} = episode,
          required_input_ref
        ) do
-    case turn_identity(episode.id, episode.owner_ref) do
-      %Turn{
-        status: status,
-        cancellation_intent: %{"action" => "block"}
-      } = identity
+    case fetch_turn_identity(episode.id, episode.owner_ref) do
+      {:ok,
+       %Turn{
+         status: status,
+         cancellation_intent: %{"action" => "block"}
+       } = identity}
       when status in [:cancel_pending, :blocked] ->
         resume_blocked_identity(episode, identity, required_input_ref)
 
@@ -401,16 +408,6 @@ defmodule Ryker.Work.Custody.Cancellation do
   defp resumed_episode(%{episode: episode}), do: {:ok, episode}
 
   @doc false
-  def request_cancellation_for_identity(
-        episode,
-        nil,
-        _turn_ref,
-        intent,
-        fingerprint,
-        _lease_ref
-      ),
-      do: settle_local_cancellation(episode, nil, intent, fingerprint)
-
   def request_cancellation_for_identity(
         episode,
         identity,

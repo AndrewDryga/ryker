@@ -6,6 +6,7 @@ defmodule Ryker.Improvement.CandidatesTest do
   alias Ryker.Fixtures.Answers
   alias Ryker.Improvement
   alias Ryker.Improvement.Candidate
+  alias Ryker.Inspectors
   alias Ryker.Repo
 
   @workspace "TIMPROVECANDIDATES"
@@ -20,7 +21,7 @@ defmodule Ryker.Improvement.CandidatesTest do
   test "a finding's own link opens a page that shows it, whatever its decision" do
     request = work_request!("1790002100.000100")
     record!(request, :sentiment, "frustrated", nil, "linked")
-    %Candidate{id: id} = Improvement.for_request(request)
+    %Candidate{id: id} = Inspectors.improvement_candidate(request)
 
     Repo.update_all(from(c in Candidate, where: c.id == ^id),
       set: [status: :dismissed, decided_at: @now, decided_by: "control-plane:local"]
@@ -51,7 +52,7 @@ defmodule Ryker.Improvement.CandidatesTest do
       record!(request, kind, value, note, "negative-#{index}")
 
       assert %Candidate{reasons: [^reason], signal_count: 1, status: :open, analysis: :pending} =
-               Improvement.for_request(request),
+               Inspectors.improvement_candidate(request),
              "#{kind} #{inspect(value)} should make a candidate"
     end
 
@@ -71,7 +72,7 @@ defmodule Ryker.Improvement.CandidatesTest do
       request = work_request!("1790001#{100 + index}.000100")
       record!(request, kind, value, note, "other-#{index}")
 
-      assert Improvement.for_request(request) == nil,
+      assert Inspectors.improvement_candidate(request) == nil,
              "#{kind} #{inspect(value)} should not make a candidate"
     end
   end
@@ -128,7 +129,7 @@ defmodule Ryker.Improvement.CandidatesTest do
     record!({:input, question.id}, :reaction_added, "x", nil, "quick-1")
 
     assert %Candidate{episode_id: nil, input_id: input_id, request_ref: ref, transport: "slack"} =
-             Improvement.for_request({:input, question.id})
+             Inspectors.improvement_candidate({:input, question.id})
 
     assert input_id == question.id
     assert ref == "ingress-input:" <> question.id
@@ -146,14 +147,14 @@ defmodule Ryker.Improvement.CandidatesTest do
     assert {:error, {:rolled_back, rolled_back}} =
              Repo.transaction(fn ->
                {:ok, _recorded} = Feedback.record_in_transaction(attributes(request, "rolled"))
-               Repo.rollback({:rolled_back, Improvement.for_request(request).id})
+               Repo.rollback({:rolled_back, Inspectors.improvement_candidate(request).id})
              end)
 
-    assert Improvement.for_request(request) == nil
+    assert Inspectors.improvement_candidate(request) == nil
     refute_received {:improvement_updated, ^rolled_back}
 
     assert {:ok, _recorded} = Feedback.record(attributes(request, "kept"))
-    %Candidate{id: id} = Improvement.for_request(request)
+    %Candidate{id: id} = Inspectors.improvement_candidate(request)
     assert_received {:improvement_updated, ^id}
   end
 

@@ -5,9 +5,10 @@ defmodule Ryker.StateTools.EmisarToolsTest do
   import Plug.Conn
   import Plug.Test
   alias Ryker.{Credentials, Episodes, Repo, Settings}
-  alias Ryker.Emisar.{Approval, Approvals}
+  alias Ryker.Emisar.Approval
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Inspectors
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.StateTools.Router
@@ -172,7 +173,7 @@ defmodule Ryker.StateTools.EmisarToolsTest do
              Repo.get_by!(Record, ref: record_ref)
 
     assert %Approval{status: :monitoring} =
-             approval = Approvals.get_by_request_id("production", run["approval"]["request_id"])
+             approval = Inspectors.emisar_approval("production", run["approval"]["request_id"])
 
     assert {approval.run_id, approval.operation_id, approval.runner_ref} ==
              {run["run_id"], run["operation_id"], run["runner_ref"]}

@@ -11,12 +11,13 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurations, Client, IncidentRoom}
+  alias Ryker.Slack.{ChannelConfiguration, Client, IncidentRoom}
   alias Ryker.Slack.{IncidentRoomCard, IncidentRoomLifecycleEvent, IncidentRooms}
   alias Ryker.Slack.{IncidentRoomWorker, MembershipTransition, Renderer, Runtime, WorkRecord}
   alias Ryker.Slack.WorkTarget
@@ -522,7 +523,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     agent = incident_agent!()
 
     assert fixture.session.environment_ref == "production"
-    assert ChannelConfigurations.configuration("T123", "C456").environment_ref == nil
+    assert Inspectors.channel_configuration("T123", "C456").environment_ref == nil
 
     assert {:ok, %{room: requested}} = IncidentRooms.request(request(fixture))
     assert requested.environment_ref == "production"

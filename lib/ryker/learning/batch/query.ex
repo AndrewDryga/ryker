@@ -62,7 +62,7 @@ defmodule Ryker.Learning.Batch.Query do
   The earliest retry or hold that ends after `since`, and the earliest lease
   nobody renewed that runs out after it, as `[retry_at, lease_expires_at]`.
   """
-  def next_due_after(since) do
+  def select_next_due_after(since) do
     from(b in all(),
       where: b.status in [:queued, :running, :deferred],
       select: [

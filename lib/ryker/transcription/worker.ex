@@ -21,7 +21,6 @@ defmodule Ryker.Transcription.Worker do
   require Logger
   alias Ryker.Artifacts
   alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.PollingWorker
   alias Ryker.Transcription
 
@@ -68,9 +67,9 @@ defmodule Ryker.Transcription.Worker do
           :idle | {:ok, :transcribed | :released} | {:error, term()}
   def transcribe_next(options) do
     with {:ok, settings} <- settings(options) do
-      case Inbox.waiting_for_transcript() do
-        nil -> :idle
-        %Entry{} = entry -> transcribe_entry(entry, settings)
+      case Inbox.fetch_waiting_for_transcript() do
+        {:ok, entry} -> transcribe_entry(entry, settings)
+        {:error, :not_found} -> :idle
       end
     end
   end

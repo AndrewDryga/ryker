@@ -126,7 +126,7 @@ defmodule Ryker.RepositoryKnowledge.Executor do
   # -- The session -------------------------------------------------------------------
 
   defp remote_session(claim, run, settings) do
-    local = FleetSession.for_run(run)
+    {:ok, local} = FleetSession.fetch_for_run(run)
 
     case local.coop_session_id do
       nil -> create_session(claim, run, local, settings)
@@ -602,7 +602,7 @@ defmodule Ryker.RepositoryKnowledge.Executor do
   defp observe(claim, run, session, turn) do
     Custody.with_lease(claim, fn ->
       entry = Custody.lock_owned_in_transaction!(claim)
-      local = FleetSession.for_run(run)
+      {:ok, local} = FleetSession.fetch_for_run(run)
 
       Ryker.Accounting.observe_knowledge_in_transaction(
         entry,

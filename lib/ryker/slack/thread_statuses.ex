@@ -114,7 +114,7 @@ defmodule Ryker.Slack.ThreadStatuses do
 
     [next_attempt, lease, delivered] =
       workspace_ref
-      |> ThreadStatus.Query.next_due_after(since, refresh_since)
+      |> ThreadStatus.Query.select_next_due_after(since, refresh_since)
       |> Repo.one()
 
     refresh = delivered && DateTime.add(delivered, refresh_interval_ms, :millisecond)

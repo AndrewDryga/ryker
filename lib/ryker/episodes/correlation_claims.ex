@@ -74,8 +74,7 @@ defmodule Ryker.Episodes.CorrelationClaims do
 
   defp reconcile(%CorrelationClaim{} = owner, _row), do: {:error, {:occurrence_claimed, owner}}
 
-  @spec owner(String.t(), String.t(), String.t()) :: CorrelationClaim.t() | nil
-  def owner(scope_ref, namespace, occurrence_ref) do
+  defp owner(scope_ref, namespace, occurrence_ref) do
     scope_ref
     |> CorrelationClaim.Query.by_occurrence(namespace, occurrence_ref)
     |> CorrelationClaim.Query.active()

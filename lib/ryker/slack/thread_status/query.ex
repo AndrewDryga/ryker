@@ -15,7 +15,7 @@ defmodule Ryker.Slack.ThreadStatus.Query do
   lease_expires_at, delivered_at]`: a pending write's retry or lease, and the
   oldest delivery after `refresh_since` of a status still shown.
   """
-  def next_due_after(workspace_ref, since, refresh_since) do
+  def select_next_due_after(workspace_ref, since, refresh_since) do
     from(status in by_workspace(workspace_ref),
       select: [
         filter(

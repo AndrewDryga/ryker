@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   alias Ryker.Config
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Fixtures.ChannelEnvironments
+  alias Ryker.Inspectors
   alias Ryker.Slack.{ChannelConfigurations, ChannelSettings, ChannelSetup, MembershipTransition}
   alias Ryker.Slack.{Operators, Renderer}
   alias Ryker.Slack.Runtime, as: SlackRuntime
@@ -172,7 +173,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
 
     assert has_element?(view, ".form-feedback-error", "Slack is not connected")
     assert FakeSlackAPI.state(agent).left == []
-    assert %{status: :joined} = ChannelConfigurations.membership(@workspace, "C456")
+    assert %{status: :joined} = Inspectors.channel_membership(@workspace, "C456")
   end
 
   test "an environment chosen on the channel's page redraws its welcome in Slack", %{agent: agent} do
@@ -188,7 +189,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
              FakeSlackAPI.state(agent).updates
 
     assert message_ref ==
-             ChannelConfigurations.configuration(@workspace, "C456").welcome_message_ref
+             Inspectors.channel_configuration(@workspace, "C456").welcome_message_ref
 
     {:ok, %{"text" => fallback, "blocks" => blocks}} = Renderer.render(document)
     shown = Enum.map_join(blocks, "\n", &get_in(&1, ["text", "text"]))
@@ -249,7 +250,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     # The page waited for Slack's answer before it said anything (3 seconds
     # here, and as long as Slack took in production).
     assert elapsed < 1_000, "the save waited #{elapsed} ms for Slack"
-    assert ChannelConfigurations.configuration(@workspace, "C456").environment_ref == "staging"
+    assert Inspectors.channel_configuration(@workspace, "C456").environment_ref == "staging"
 
     assert has_element?(view, "#channel-environment-saved .kit-saved-mark", "Saved")
 
@@ -281,7 +282,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
 
     view |> form("#channel-environment", environment: "staging") |> render_change()
 
-    assert ChannelConfigurations.configuration(@workspace, "C456").environment_ref == "staging"
+    assert Inspectors.channel_configuration(@workspace, "C456").environment_ref == "staging"
 
     assert has_element?(
              view,

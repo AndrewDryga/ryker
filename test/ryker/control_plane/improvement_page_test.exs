@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
   alias Ryker.Fixtures.Answers
   alias Ryker.Improvement
   alias Ryker.Improvement.Candidate
+  alias Ryker.Inspectors
 
   @workspace "TIMPROVEPAGE"
 
@@ -205,7 +206,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
                request: {:episode, reply.episode.id}
              })
 
-    github = Improvement.for_request({:episode, reply.episode.id})
+    github = Inspectors.improvement_candidate({:episode, reply.episode.id})
 
     Repo.update_all(from(c in Candidate, where: c.id == ^github.id),
       set: [
@@ -307,7 +308,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
                })
     end
 
-    candidate = Improvement.for_request(request)
+    candidate = Inspectors.improvement_candidate(request)
 
     if diagnosis do
       Repo.update_all(from(c in Candidate, where: c.id == ^candidate.id),

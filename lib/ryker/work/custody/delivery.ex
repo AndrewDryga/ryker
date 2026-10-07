@@ -261,11 +261,11 @@ defmodule Ryker.Work.Custody.Delivery do
          intent,
          fingerprint
        ) do
-    case turn_identity(episode.id, episode.owner_ref) do
-      nil ->
+    case fetch_turn_identity(episode.id, episode.owner_ref) do
+      {:error, :work_turn_not_found} ->
         block_unsubmitted_destination_turn(episode, intent, fingerprint)
 
-      %Turn{} = identity ->
+      {:ok, identity} ->
         Cancellation.request_cancellation_for_identity(
           episode,
           identity,
@@ -376,8 +376,8 @@ defmodule Ryker.Work.Custody.Delivery do
          %Episode{state: :working, owner_kind: :turn} = episode,
          reason
        ) do
-    case turn_identity(episode.id, episode.owner_ref) do
-      %Turn{cancellation_intent: %{"action" => "block", "reason" => ^reason}} = turn ->
+    case fetch_turn_identity(episode.id, episode.owner_ref) do
+      {:ok, %Turn{cancellation_intent: %{"action" => "block", "reason" => ^reason}} = turn} ->
         resume_destination_turn(episode, turn)
 
       _not_this_pause ->
@@ -515,15 +515,15 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp retry_delivery_locked(episode_id, turn_ref, delivery_ref) do
-    case turn_identity(episode_id, turn_ref) do
-      %Turn{delivery_ref: ^delivery_ref} ->
+    case fetch_turn_identity(episode_id, turn_ref) do
+      {:ok, %Turn{delivery_ref: ^delivery_ref}} ->
         retry_delivery_owner_locked(episode_id, turn_ref, delivery_ref)
 
-      %Turn{} ->
+      {:ok, %Turn{}} ->
         Repo.rollback(:work_delivery_ref_mismatch)
 
-      nil ->
-        Repo.rollback(:work_turn_not_found)
+      {:error, reason} ->
+        Repo.rollback(reason)
     end
   end
 

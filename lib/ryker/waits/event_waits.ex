@@ -22,11 +22,11 @@ defmodule Ryker.Waits.EventWaits do
   def resume_due do
     with {:ok, _reconciled} <- EventSubscriptions.reconcile(),
          {:ok, now} <- database_now() do
-      case EventSubscriptions.due(now) || due_wait(now) do
-        nil ->
+      case fetch_due(now) do
+        {:error, :not_found} ->
           {:ok, :idle}
 
-        %{episode_id: episode_id, record_id: record_id} ->
+        {:ok, %{episode_id: episode_id, record_id: record_id}} ->
           record_id |> resume_at(episode_id, now) |> passed_over(record_id)
       end
     end
@@ -48,16 +48,19 @@ defmodule Ryker.Waits.EventWaits do
   """
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
-    subscriptions = since |> EventSubscription.Query.next_due_after() |> Repo.one()
+    subscriptions = since |> EventSubscription.Query.select_next_due_after() |> Repo.one()
     deadlines = since |> Episode.Query.next_event_deadline_after() |> Repo.one()
 
     UTCDateTime.earliest([deadlines | subscriptions])
   end
 
-  defp due_wait(now) do
-    now
-    |> EventSubscription.Query.deadline_due(EventSubscriptions.failure_retried_before(now))
-    |> Repo.one()
+  # A subscription due on its own first, then a wait past its deadline.
+  defp fetch_due(now) do
+    with {:error, :not_found} <- EventSubscriptions.fetch_due(now) do
+      now
+      |> EventSubscription.Query.deadline_due(EventSubscriptions.failure_retried_before(now))
+      |> Repo.fetch()
+    end
   end
 
   @doc false

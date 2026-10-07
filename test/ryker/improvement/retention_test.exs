@@ -15,6 +15,7 @@ defmodule Ryker.Improvement.RetentionTest do
   alias Ryker.Fixtures.Answers
   alias Ryker.Improvement
   alias Ryker.Improvement.{AnalysisRun, Candidate}
+  alias Ryker.Inspectors
   alias Ryker.Retention.{Data, Policy}
   alias Ryker.Work.Session
 
@@ -197,7 +198,7 @@ defmodule Ryker.Improvement.RetentionTest do
                request: {:episode, reply.episode.id}
              })
 
-    Improvement.for_request({:episode, reply.episode.id})
+    Inspectors.improvement_candidate({:episode, reply.episode.id})
   end
 
   defp run!(candidate, at) do

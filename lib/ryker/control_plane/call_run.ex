@@ -323,9 +323,9 @@ defmodule Ryker.ControlPlane.CallRun do
          %DateTime{} = started
        )
        when is_integer(input) and is_integer(output) and is_binary(target) do
-    case Pricing.in_effect(target, DateTime.to_date(started)) do
-      nil -> nil
-      price -> Units.money(Decimal.new(Pricing.estimate(price, usage)), true)
+    case Pricing.fetch_in_effect(target, DateTime.to_date(started)) do
+      {:ok, price} -> Units.money(Decimal.new(Pricing.estimate(price, usage)), true)
+      {:error, :not_found} -> nil
     end
   end
 

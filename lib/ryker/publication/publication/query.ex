@@ -74,7 +74,7 @@ defmodule Ryker.Publication.Publication.Query do
   When publications in `statuses` fall due after `since`, as
   `[next_attempt_at, lease_expires_at]`.
   """
-  def next_due_after(since, statuses) do
+  def select_next_due_after(since, statuses) do
     from(p in all(),
       where: p.status in ^statuses,
       select: [

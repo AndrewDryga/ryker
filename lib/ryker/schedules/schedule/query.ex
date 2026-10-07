@@ -42,7 +42,7 @@ defmodule Ryker.Schedules.Schedule.Query do
   claimable by the clock alone: its next occurrence, the end of its retry's
   backoff or the end of an unrenewed lease, whichever it waits on last.
   """
-  def next_due_after(since) do
+  def select_next_due_after(since) do
     due =
       from(schedule in all(),
         where: schedule.status == :active and not is_nil(schedule.next_occurrence_at),

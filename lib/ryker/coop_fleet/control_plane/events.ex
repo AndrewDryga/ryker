@@ -28,7 +28,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   defp applied_batch(worker_id, batch, now) do
     applied =
       Repo.transaction(fn ->
-        _worker = Shared.locked_worker(worker_id)
+        _locked = Shared.lock_worker(worker_id)
         apply_event_batch(worker_id, batch, now)
       end)
 

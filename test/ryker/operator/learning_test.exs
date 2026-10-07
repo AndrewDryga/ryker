@@ -59,7 +59,7 @@ defmodule Ryker.Operator.LearningTest do
              {3, 4, 1}
 
     assert Repo.all(LearningRun) == attempts
-    assert Batches.latest(before.id) == nil
+    assert Batches.fetch_latest(before.id) == {:error, :not_found}
     assert receipt.outcome["policy"] == selected.policy
     assert receipt.outcome["policy_digest"] == selected.policy_digest
     assert {:ok, audit} = Actions.fetch("retry:current-policy")

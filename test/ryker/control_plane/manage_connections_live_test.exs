@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, RepositoryImport}
-  alias Ryker.{Credentials, IntegrationSetup, RepositoryKnowledge, Settings}
+  alias Ryker.{Credentials, Inspectors, IntegrationSetup, Settings}
 
   @endpoint Endpoint
   @actor "control-plane:local"
@@ -476,7 +476,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     # Cancel closes it and asks for nothing.
     view |> element("#{question} button", "Cancel") |> render_click()
     refute has_element?(view, question)
-    assert RepositoryKnowledge.entry("acme-api") == nil
+    assert Inspectors.repository_knowledge("acme-api") == nil
 
     view |> element(button, "Refresh knowledge") |> render_click()
     view |> element("#{question} button", "Refresh knowledge") |> render_click()
@@ -489,7 +489,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
              "Ryker is reading acme/api again to rewrite its knowledge."
            )
 
-    entry = RepositoryKnowledge.entry("acme-api")
+    entry = Inspectors.repository_knowledge("acme-api")
     assert {entry.phase, entry.requested_by} == {:write, @actor}
 
     # While it is written, the page says so and it cannot be asked again.

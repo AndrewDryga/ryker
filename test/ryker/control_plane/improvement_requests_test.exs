@@ -11,8 +11,8 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ImprovementRequests, ModelRequests}
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
-  alias Ryker.Improvement
   alias Ryker.Improvement.{AnalysisRun, Prompt}
+  alias Ryker.Inspectors
 
   @workspace "TSELFANALYSIS"
 
@@ -127,7 +127,7 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
                request: {:episode, reply.episode.id}
              })
 
-    candidate = Improvement.for_request({:episode, reply.episode.id})
+    candidate = Inspectors.improvement_candidate({:episode, reply.episode.id})
 
     prompt =
       %{

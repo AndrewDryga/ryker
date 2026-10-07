@@ -7,8 +7,9 @@ defmodule Ryker.Embeddings.WorkerTest do
   import Ecto.Query
   alias Ryker.Embeddings.Worker
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, RoutingDigest, RoutingDigests}
+  alias Ryker.Episodes.{Command, RoutingDigest}
   alias Ryker.Ingress.Input
+  alias Ryker.Inspectors
   alias Ryker.Slack.Input, as: SlackInput
 
   @now ~U[2026-09-30 08:00:00.000000Z]
@@ -110,7 +111,7 @@ defmodule Ryker.Embeddings.WorkerTest do
         turn_ref: "turn:#{id}"
       })
 
-    _digest = RoutingDigests.fetch(id)
+    _digest = Inspectors.routing_digest(id)
     transition.episode
   end
 end

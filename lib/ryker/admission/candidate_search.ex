@@ -130,9 +130,9 @@ defmodule Ryker.Admission.CandidateSearch do
          transport: transport,
          execution_mode: mode
        }) do
-    case Origins.current_owner(native_input_id, transport, mode) do
-      {%Episode{} = episode, _revision} -> episode
-      nil -> nil
+    case Origins.fetch_current_owner(native_input_id, transport, mode) do
+      {:ok, {%Episode{} = episode, _revision}} -> episode
+      {:error, :not_found} -> nil
     end
   end
 

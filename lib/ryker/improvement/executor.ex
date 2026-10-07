@@ -131,7 +131,7 @@ defmodule Ryker.Improvement.Executor do
   # -- The session -------------------------------------------------------------------
 
   defp remote_session(claim, run, settings) do
-    local = FleetSession.for_run(run)
+    {:ok, local} = FleetSession.fetch_for_run(run)
 
     case local.coop_session_id do
       nil -> create_session(claim, run, local, settings)
@@ -486,7 +486,7 @@ defmodule Ryker.Improvement.Executor do
   defp observe(claim, run, session, turn) do
     Analyses.with_lease(claim, fn ->
       candidate = Analyses.lock_owned_in_transaction!(claim)
-      local = FleetSession.for_run(run)
+      {:ok, local} = FleetSession.fetch_for_run(run)
 
       Ryker.Accounting.observe_improvement_in_transaction(
         candidate,

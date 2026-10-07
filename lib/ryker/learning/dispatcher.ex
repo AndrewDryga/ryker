@@ -15,7 +15,7 @@ defmodule Ryker.Learning.Dispatcher do
         {:ok, :idle}
 
       {:ok, %{inputs: []} = claim} ->
-        if Batches.outstanding(claim.batch.id),
+        if match?({:ok, _run}, Batches.fetch_outstanding(claim.batch.id)),
           do: resume(claim, settings),
           else: Batches.finish(claim, :superseded, "source_unavailable")
 
@@ -27,9 +27,14 @@ defmodule Ryker.Learning.Dispatcher do
     end
   end
 
+  # The run still out, or else the latest; a batch with neither starts one.
   defp resume(claim, settings) do
-    run = Batches.outstanding(claim.batch.id) || Batches.latest(claim.batch.id)
-    resume_run(claim, run, settings)
+    with {:error, :not_found} <- Batches.fetch_outstanding(claim.batch.id),
+         {:error, :not_found} <- Batches.fetch_latest(claim.batch.id) do
+      prepare(claim, settings)
+    else
+      {:ok, run} -> resume_run(claim, run, settings)
+    end
   end
 
   defp resume_run(claim, %{status: :applied, remote_stopped_at: stopped} = run, _settings)
@@ -123,27 +128,27 @@ defmodule Ryker.Learning.Dispatcher do
         finish(claim, applied)
 
       {:ok, :waiting} ->
-        wait(claim, Batches.latest(claim.batch.id), settings)
+        wait(claim, Batches.fetch_latest(claim.batch.id), settings)
 
       {:ok, :stopped} ->
-        stopped(claim, Batches.latest(claim.batch.id), settings)
+        stopped(claim, Batches.fetch_latest(claim.batch.id), settings)
 
       {:error, :learning_lease_lost} = error ->
         error
 
       {:error, reason} ->
-        failed(claim, Batches.outstanding(claim.batch.id), reason, settings)
+        failed(claim, Batches.fetch_outstanding(claim.batch.id), reason, settings)
     end
   end
 
-  defp wait(claim, %{status: status} = run, settings) when status in [:stale, :rejected],
+  defp wait(claim, {:ok, %{status: status} = run}, settings) when status in [:stale, :rejected],
     do: unresolved(claim, run, settings)
 
-  defp wait(claim, _run, settings), do: Batches.yield(claim, settings.step_delay_seconds)
+  defp wait(claim, _latest, settings), do: Batches.yield(claim, settings.step_delay_seconds)
 
-  defp stopped(claim, %{status: :applied} = run, _settings), do: finish(claim, run)
+  defp stopped(claim, {:ok, %{status: :applied} = run}, _settings), do: finish(claim, run)
 
-  defp stopped(claim, run, settings),
+  defp stopped(claim, {:ok, run}, settings),
     do: Batches.release(claim, stop_reason(run), settings.step_delay_seconds)
 
   # An attempt closed because its worker session can never be addressed sent
@@ -153,10 +158,10 @@ defmodule Ryker.Learning.Dispatcher do
 
   defp stop_reason(run), do: error_reason(run.error_code)
 
-  defp failed(claim, nil, reason, settings),
+  defp failed(claim, {:error, :not_found}, reason, settings),
     do: Batches.release(claim, error_reason(code(reason)), settings.step_delay_seconds)
 
-  defp failed(claim, outstanding, reason, settings),
+  defp failed(claim, {:ok, outstanding}, reason, settings),
     do: unresolved(claim, outstanding, settings, reason)
 
   defp unresolved(claim, run, settings, reason \\ nil) do
@@ -177,7 +182,7 @@ defmodule Ryker.Learning.Dispatcher do
       {:ok, :stopped} ->
         Batches.release(
           claim,
-          final_stop_reason(Batches.latest(claim.batch.id)),
+          final_stop_reason(Batches.fetch_latest(claim.batch.id)),
           settings.step_delay_seconds
         )
 
@@ -209,10 +214,10 @@ defmodule Ryker.Learning.Dispatcher do
     end
   end
 
-  defp final_stop_reason(%{stop_receipt: %{"session" => "unaddressable"}}),
+  defp final_stop_reason({:ok, %{stop_receipt: %{"session" => "unaddressable"}}}),
     do: :learning_session_unconfirmed
 
-  defp final_stop_reason(_run), do: :learning_execution_failed
+  defp final_stop_reason(_latest), do: :learning_execution_failed
 
   defp finish(claim, %{result: nil}),
     do: Batches.finish(claim, :applied, "learning_result_pruned")

@@ -168,7 +168,7 @@ defmodule Ryker.Slack.IncidentRoom.Query do
   its check `root_card_check_seconds` after the last, or an unrenewed lease
   running out.
   """
-  def next_due_after(since, health_check_seconds, root_card_check_seconds) do
+  def select_next_due_after(since, health_check_seconds, root_card_check_seconds) do
     phases =
       from(room in all(),
         where: room.status in [:requested, :ready],

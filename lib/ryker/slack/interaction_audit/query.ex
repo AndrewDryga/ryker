@@ -12,7 +12,7 @@ defmodule Ryker.Slack.InteractionAudit.Query do
     do: where(queryable, [slack_interaction_audit: a], a.event_ref == ^event_ref)
 
   @doc "When pending repaints fall due after `since`, as `[next_attempt_at, lease_expires_at]`."
-  def next_due_after(since) do
+  def select_next_due_after(since) do
     from(audit in all(),
       where: audit.repaint_status == :pending,
       select: [

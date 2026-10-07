@@ -4,6 +4,7 @@ defmodule Ryker.Operator.EpisodeReviewsTest do
   alias Ryker.Episodes.Command
   alias Ryker.Feedback
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Inspectors
   alias Ryker.Operator.EpisodeReviews
 
   @now ~U[2026-09-04 12:00:00.000000Z]
@@ -166,7 +167,7 @@ defmodule Ryker.Operator.EpisodeReviewsTest do
              {:reviewed, "needs_work", "It stopped before trying the retry.", :frustrated}
 
     assert %{reasons: ["rated"], signal_count: 1} =
-             Ryker.Improvement.for_request({:episode, episode_id})
+             Inspectors.improvement_candidate({:episode, episode_id})
 
     assert {signal.actor_ref, signal.source, signal.source_ref} ==
              {"control-plane:local", "control_plane", "episode-review:#{review.id}"}
@@ -217,6 +218,6 @@ defmodule Ryker.Operator.EpisodeReviewsTest do
     assert [%{kind: :reviewed, value: "good", note: nil, category: :satisfied}] =
              Feedback.for_request({:episode, episode_id})
 
-    assert Ryker.Improvement.for_request({:episode, episode_id}) == nil
+    assert Inspectors.improvement_candidate({:episode, episode_id}) == nil
   end
 end

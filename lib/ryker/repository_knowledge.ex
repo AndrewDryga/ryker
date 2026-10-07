@@ -69,9 +69,9 @@ defmodule Ryker.RepositoryKnowledge do
     |> Map.new()
   end
 
-  @doc "One repository's knowledge entry, or nil before its first check."
-  @spec entry(String.t()) :: Entry.t() | nil
-  def entry(ref) when is_binary(ref), do: Repo.one(Entry.Query.by_repository(ref))
+  @doc "One repository's knowledge entry, made by its first check."
+  @spec fetch_entry(String.t()) :: {:ok, Entry.t()} | {:error, :not_found}
+  def fetch_entry(ref) when is_binary(ref), do: Repo.fetch(Entry.Query.by_repository(ref))
 
   @doc """
   Why a step failed, in words a person can act on: each sentence stands on

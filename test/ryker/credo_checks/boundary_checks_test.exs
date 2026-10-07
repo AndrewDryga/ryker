@@ -1,12 +1,12 @@
 defmodule Ryker.CredoChecks.BoundaryChecksTest do
   # Fixture coverage for the checks that keep each layer to its job: queries
-  # only in query modules (IL-1, IL-2), pure query modules (IL-6), schemas of
-  # fields only (IL-7), pure changeset modules (IL-8), web modules that
-  # neither query nor build changesets, money never in a float (IL-12),
-  # preloads named by query helpers, an `Ecto.Enum` for a fixed set of
-  # strings, whole hashes on the console, and LiveView subscriptions only once
-  # connected (IL-18). Each gets a probe it must flag and a compliant probe it
-  # must not.
+  # only in query modules (IL-1, IL-2), a row read as `{:ok, row}` (IL-5),
+  # pure query modules (IL-6), schemas of fields only (IL-7), pure changeset
+  # modules (IL-8), web modules that neither query nor build changesets,
+  # money never in a float (IL-12), preloads named by query helpers, an
+  # `Ecto.Enum` for a fixed set of strings, whole hashes on the console, and
+  # LiveView subscriptions only once connected (IL-18). Each gets a probe it
+  # must flag and a compliant probe it must not.
   use ExUnit.Case, async: true
   import Ryker.CredoCheckProbe
 
@@ -110,6 +110,50 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
       assert issues(il02(), context, @context) == []
       assert issues(il02(), direct, "lib/ryker/repo.ex") == []
       assert issues(il02(), direct, "test/ryker/sprockets_test.exs") == []
+    end
+  end
+
+  describe "Ryker.Checks.IL05TaggedReads" do
+    test "flags a public function that answers a row or nil" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def by_id(id), do: id |> Sprocket.Query.by_id() |> Repo.one()
+
+        def named(name) when is_binary(name) do
+          query = Sprocket.Query.by_name(name)
+          Ryker.Repo.one(query)
+        end
+
+        def oldest, do: Repo.one(Sprocket.Query.ordered_by_oldest(), timeout: 5_000)
+      end
+      """
+
+      assert triggers(il05(), source, @context) == ["by_id", "named", "oldest"]
+      assert [issue | _] = issues(il05(), source, @context)
+      assert issue.check == il05()
+      assert issue.message =~ "IL-5"
+    end
+
+    test "allows a fetch, a selected value, a private read, and query modules" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def fetch(id), do: id |> Sprocket.Query.by_id() |> Repo.fetch()
+        def name(id), do: id |> Sprocket.Query.by_id() |> Sprocket.Query.select_names() |> Repo.one()
+        def next_due_at(since), do: Repo.one(Sprocket.Query.select_next_due_after(since))
+        def one!(id), do: id |> Sprocket.Query.by_id() |> Repo.one!()
+        defp quiet(id), do: id |> Sprocket.Query.by_id() |> Repo.one()
+      end
+      """
+
+      query = """
+      defmodule Ryker.Sprockets.Sprocket.Query do
+        def first(queryable), do: Repo.one(queryable)
+      end
+      """
+
+      assert issues(il05(), source, @context) == []
+      assert issues(il05(), query, @query) == []
+      assert issues(il05(), source, "test/ryker/sprockets_test.exs") == []
     end
   end
 
@@ -742,6 +786,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   defp crypto_boundary, do: check("ContextCryptoBoundary")
   defp il01, do: check("IL01NoInlineEctoDsl")
   defp il02, do: check("IL02NoRepoGet")
+  defp il05, do: check("IL05TaggedReads")
   defp il06, do: check("IL06QueryModulePure")
   defp il07, do: check("IL07SchemaFieldsOnly")
   defp il08, do: check("IL08ChangesetPure")

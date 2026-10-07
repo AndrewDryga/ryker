@@ -2291,8 +2291,8 @@ defmodule Ryker.Slack.CapabilityToolsTest do
       end,
       client: self(),
       configuration: fn
-        "T123", "C456" -> %ChannelConfiguration{environment_ref: "checkout-production"}
-        _workspace_ref, _channel_ref -> nil
+        "T123", "C456" -> {:ok, %ChannelConfiguration{environment_ref: "checkout-production"}}
+        _workspace_ref, _channel_ref -> {:error, :not_found}
       end,
       current_input: fn _binding, source ->
         {:ok,

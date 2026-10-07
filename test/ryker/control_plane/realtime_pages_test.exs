@@ -24,7 +24,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Ingress.WorkProfile
-  alias Ryker.{Memories, Records, Settings}
+  alias Ryker.{Inspectors, Memories, Records, Settings}
   alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRooms}
   alias Ryker.Work.Custody
 
@@ -289,7 +289,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
                request: {:episode, episode.id}
              })
 
-    candidate = Ryker.Improvement.for_request({:episode, episode.id})
+    candidate = Inspectors.improvement_candidate({:episode, episode.id})
     assert shows?(fn -> has_element?(page, "#improvement-#{candidate.id}", "Waiting") end)
 
     assert {:ok, _dismissed} = Ryker.Improvement.dismiss(candidate.id, @actor)

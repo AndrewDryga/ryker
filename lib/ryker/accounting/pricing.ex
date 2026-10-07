@@ -55,11 +55,11 @@ defmodule Ryker.Accounting.Pricing do
 
   @doc """
   The saved price in effect for one call to `target` on `day`, by the same
-  rule as the ledger, or nil when no saved price covers it.
+  rule as the ledger, or `{:error, :not_found}` when no saved price covers it.
   """
-  @spec in_effect(String.t(), Date.t()) :: PricingRate.t() | nil
-  def in_effect(target, %Date{} = day) when is_binary(target),
-    do: target |> PricingRate.Query.in_effect(day) |> Repo.one()
+  @spec fetch_in_effect(String.t(), Date.t()) :: {:ok, PricingRate.t()} | {:error, :not_found}
+  def fetch_in_effect(target, %Date{} = day) when is_binary(target),
+    do: target |> PricingRate.Query.in_effect(day) |> Repo.fetch()
 
   @doc """
   What one call's tokens cost at a saved price, in US dollars, by the same

@@ -52,7 +52,7 @@ defmodule Ryker.Work.Turn.Query do
   `[next_attempt_at, lease_expires_at]`: the earliest retry, and the earliest
   lease that runs out.
   """
-  def next_due_after(since, statuses) do
+  def select_next_due_after(since, statuses) do
     from(t in all(),
       where: t.status in ^statuses,
       select: [

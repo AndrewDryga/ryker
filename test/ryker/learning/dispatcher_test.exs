@@ -956,7 +956,9 @@ defmodule Ryker.Learning.DispatcherTest do
     make_due!()
     assert {:ok, %Batch{} = batch} = Dispatcher.run_once(settings)
 
-    if Batches.latest(batch.id).remote_stopped_at,
+    {:ok, latest} = Batches.fetch_latest(batch.id)
+
+    if latest.remote_stopped_at,
       do: batch,
       else: drive_to_stopped!(settings, left - 1)
   end

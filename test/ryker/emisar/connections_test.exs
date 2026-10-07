@@ -5,6 +5,7 @@ defmodule Ryker.Emisar.ConnectionsTest do
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Inspectors
   alias Ryker.Operator.Emisar, as: EmisarOperator
   alias Ryker.Records
   alias Ryker.Settings
@@ -41,10 +42,10 @@ defmodule Ryker.Emisar.ConnectionsTest do
     assert second.session.emisar_connection_ref == "staging"
     assert outside.emisar_connection_ref == nil
 
-    assert Approvals.get_by_request_id("production", "request-shared").episode_id ==
+    assert Inspectors.emisar_approval("production", "request-shared").episode_id ==
              first.episode.id
 
-    assert Approvals.get_by_request_id("staging", "request-shared").episode_id ==
+    assert Inspectors.emisar_approval("staging", "request-shared").episode_id ==
              second.episode.id
 
     assert {:ok, %{approval: production}} =

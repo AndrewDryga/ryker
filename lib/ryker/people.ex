@@ -332,9 +332,9 @@ defmodule Ryker.People do
         ]
   def people, do: Repo.all(PersonFact.Query.people())
 
-  @doc "One thing Ryker learned about someone, kept or forgotten, or nil."
-  @spec get_fact(Ecto.UUID.t()) :: PersonFact.t() | nil
-  def get_fact(id) when is_binary(id), do: Repo.one(PersonFact.Query.by_id(id))
+  @doc "One thing Ryker learned about someone, kept or forgotten."
+  @spec fetch_fact(Ecto.UUID.t()) :: {:ok, PersonFact.t()} | {:error, :not_found}
+  def fetch_fact(id) when is_binary(id), do: Repo.fetch(PersonFact.Query.by_id(id))
 
   @doc "What Ryker knows about one person, by kind."
   @spec facts(String.t()) :: [PersonFact.t()]

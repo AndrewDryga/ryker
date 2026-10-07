@@ -54,7 +54,7 @@ defmodule Ryker.Delivery.RoutingResponse.Query do
   end
 
   @doc "The next retry and the next lease expiry after `since` among pending responses."
-  def next_due_after(since) do
+  def select_next_due_after(since) do
     select(pending(), [delivery_routing_responses: r], [
       filter(min(r.next_attempt_at), r.next_attempt_at > ^since),
       filter(min(r.lease_expires_at), not is_nil(r.lease_ref) and r.lease_expires_at > ^since)

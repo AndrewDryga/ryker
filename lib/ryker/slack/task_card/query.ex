@@ -62,7 +62,7 @@ defmodule Ryker.Slack.TaskCard.Query do
   otherwise), a retry's backoff, or an unrenewed lease, whichever it waits on
   last.
   """
-  def next_due_after(since, check_interval_seconds) do
+  def select_next_due_after(since, check_interval_seconds) do
     due =
       from(card in all(),
         left_join: episode in Episode,

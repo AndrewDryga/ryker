@@ -57,7 +57,7 @@ defmodule Ryker.Emisar.Approvals do
   @spec next_due_at(String.t(), DateTime.t()) :: DateTime.t() | nil
   def next_due_at(connection_ref, %DateTime{} = since) when is_binary(connection_ref) do
     connection_ref
-    |> Approval.Query.next_due_after(since)
+    |> Approval.Query.select_next_due_after(since)
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -158,16 +158,6 @@ defmodule Ryker.Emisar.Approvals do
       |> transaction_result()
     end
   end
-
-  # Tests read an approval watch back by its Emisar identity.
-  @doc false
-  @spec get_by_request_id(String.t(), String.t()) :: Approval.t() | nil
-  def get_by_request_id(connection_ref, request_id)
-      when is_binary(connection_ref) and is_binary(request_id) do
-    connection_ref |> Approval.Query.by_request(request_id) |> Repo.one()
-  end
-
-  def get_by_request_id(_connection_ref, _request_id), do: nil
 
   # What the monitor saves when it has no usable token for the account: the
   # credential is gone, or it can no longer be decrypted. A transient failure

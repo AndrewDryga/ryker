@@ -1117,9 +1117,9 @@ defmodule Ryker.ControlPlane.FailureProjection do
     |> Enum.uniq()
     |> Map.new(fn {workspace, channel} = key ->
       {key,
-       case ChannelConfigurations.membership(workspace, channel) do
-         %{status: status} -> status
-         nil -> nil
+       case ChannelConfigurations.fetch_membership(workspace, channel) do
+         {:ok, %{status: status}} -> status
+         {:error, :not_found} -> nil
        end}
     end)
   end

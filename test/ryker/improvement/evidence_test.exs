@@ -11,6 +11,7 @@ defmodule Ryker.Improvement.EvidenceTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Inspectors
   alias Ryker.RoutingExamples
 
   @workspace "TIMPROVEEVIDENCE"
@@ -46,7 +47,7 @@ defmodule Ryker.Improvement.EvidenceTest do
       at: DateTime.add(@now, 180, :second)
     )
 
-    evidence = Evidence.gather(Improvement.for_request(Candidate.request(candidate)))
+    evidence = Evidence.gather(Inspectors.improvement_candidate(Candidate.request(candidate)))
     assert [%{"kept" => "forgotten", "prompt" => nil, "answer" => nil}] = evidence.routing
 
     assert "Routing prompts that quoted something a person forgot, edited or deleted." in evidence.omitted
@@ -75,7 +76,7 @@ defmodule Ryker.Improvement.EvidenceTest do
       at: DateTime.add(@now, 180, :second)
     )
 
-    evidence = Evidence.gather(Improvement.for_request(Candidate.request(candidate)))
+    evidence = Evidence.gather(Inspectors.improvement_candidate(Candidate.request(candidate)))
     assert [%{"kept" => "forgotten", "prompt" => nil, "answer" => nil}] = evidence.routing
     refute CanonicalJSON.encode!(Prompt.build(evidence)) =~ "old billing box"
 
@@ -106,7 +107,7 @@ defmodule Ryker.Improvement.EvidenceTest do
     # Routing joins an edit to the work that owns the message it edits.
     Answers.join!(edit, alice.episode_id)
 
-    evidence = Evidence.gather(Improvement.for_request(Candidate.request(candidate)))
+    evidence = Evidence.gather(Inspectors.improvement_candidate(Candidate.request(candidate)))
     said = for %{"from" => "person"} = message <- evidence.conversation, do: message
 
     assert [
@@ -161,7 +162,7 @@ defmodule Ryker.Improvement.EvidenceTest do
                request: {:episode, reply.episode.id}
              })
 
-    evidence = Evidence.gather(Improvement.for_request({:episode, reply.episode.id}))
+    evidence = Evidence.gather(Inspectors.improvement_candidate({:episode, reply.episode.id}))
     assert [%{"by" => "the person who asked"}] = evidence.feedback
   end
 
@@ -210,7 +211,7 @@ defmodule Ryker.Improvement.EvidenceTest do
 
     Answers.join!(deleted, alice.episode_id)
 
-    evidence = Evidence.gather(Improvement.for_request(Candidate.request(candidate)))
+    evidence = Evidence.gather(Inspectors.improvement_candidate(Candidate.request(candidate)))
     assert [sentiment] = for(%{"kind" => "sentiment"} = signal <- evidence.feedback, do: signal)
     assert sentiment["note"] == nil
     refute CanonicalJSON.encode!(Prompt.build(evidence)) =~ "wrong database again"
@@ -239,7 +240,7 @@ defmodule Ryker.Improvement.EvidenceTest do
       Answers.join!(message, alice.episode_id)
     end
 
-    evidence = Evidence.gather(Improvement.for_request(Candidate.request(candidate)))
+    evidence = Evidence.gather(Inspectors.improvement_candidate(Candidate.request(candidate)))
     said = for %{"from" => "person", "text" => text} <- evidence.conversation, do: text
 
     assert "Follow-up 65" in said
@@ -293,7 +294,7 @@ defmodule Ryker.Improvement.EvidenceTest do
     %{
       alice: Repo.get!(Entry, alice.id),
       bob: bob,
-      candidate: Improvement.for_request({:episode, reply.episode.id})
+      candidate: Inspectors.improvement_candidate({:episode, reply.episode.id})
     }
   end
 

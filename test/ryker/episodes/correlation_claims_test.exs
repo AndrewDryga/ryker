@@ -3,6 +3,7 @@ defmodule Ryker.Episodes.CorrelationClaimsTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.CorrelationClaims
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Inspectors
   alias Ryker.Repo
 
   @now ~U[2026-09-11 08:00:00.000000Z]
@@ -26,7 +27,7 @@ defmodule Ryker.Episodes.CorrelationClaimsTest do
     assert {:ok, _other_scope} = claim(alerts, "slack:T2", "slack:app:B1", "run-tUoH3vXT6cLH5kRB")
     assert {:ok, _other_app} = claim(alerts, "slack:T1", "slack:app:B2", "run-tUoH3vXT6cLH5kRB")
 
-    assert CorrelationClaims.owner("slack:T1", "slack:app:B1", "run-tUoH3vXT6cLH5kRB").id ==
+    assert Inspectors.correlation_owner("slack:T1", "slack:app:B1", "run-tUoH3vXT6cLH5kRB").id ==
              claim.id
   end
 

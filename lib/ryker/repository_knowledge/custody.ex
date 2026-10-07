@@ -103,7 +103,8 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   """
   @spec next_due_at(DateTime.t(), [String.t()]) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, refs) do
-    [attempt_due, check_due, lease_due] = since |> Entry.Query.next_due_after(refs) |> Repo.one()
+    [attempt_due, check_due, lease_due] =
+      since |> Entry.Query.select_next_due_after(refs) |> Repo.one()
 
     UTCDateTime.earliest([attempt_due, check_due, lease_due])
   end
@@ -361,26 +362,28 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
   # -- Runs -------------------------------------------------------------------------
 
-  @doc "The run of a repository that started and has no stop proof yet, or nil."
-  def outstanding(ref) do
+  @doc "The run of a repository that started and has no stop proof yet."
+  @spec fetch_outstanding(String.t()) :: {:ok, Run.t()} | {:error, :not_found}
+  def fetch_outstanding(ref) do
     ref
     |> Run.Query.by_repository()
     |> Run.Query.outstanding()
     |> Run.Query.ordered_by_generation()
     |> Run.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   @doc "A run as it is stored now."
   def current(run_id), do: Repo.one!(Run.Query.by_id(run_id))
 
-  @doc "A repository's latest run, or nil."
-  def last_run(ref) do
+  @doc "A repository's latest run."
+  @spec fetch_last_run(String.t()) :: {:ok, Run.t()} | {:error, :not_found}
+  def fetch_last_run(ref) do
     ref
     |> Run.Query.by_repository()
     |> Run.Query.ordered_by_generation_desc()
     |> Run.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   @doc """
@@ -784,13 +787,13 @@ defmodule Ryker.RepositoryKnowledge.Custody do
                is_nil(run.coop_turn_id),
              do: Repo.rollback(:repository_knowledge_absence_unconfirmed)
 
-      session = FleetSession.for_run(run)
+      session_id = FleetSession.coop_session_id(run)
 
       store_stop(run, %{
         "kind" => "never_submitted",
         "reason" => reason,
         "session" => "unaddressable",
-        "session_id" => session && session.coop_session_id
+        "session_id" => session_id
       })
     end)
   end
@@ -802,10 +805,10 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   """
   def record_uncreated_stop(claim, run_id) do
     run_transaction(claim, run_id, fn run ->
-      session = FleetSession.for_run(run)
+      session_id = FleetSession.coop_session_id(run)
 
       unless run.status in [:stale, :rejected] and is_nil(run.coop_turn_id) and
-               is_nil(session && session.coop_session_id),
+               is_nil(session_id),
              do: Repo.rollback(:repository_knowledge_absence_unconfirmed)
 
       store_stop(run, %{"kind" => "never_created"})
@@ -842,14 +845,14 @@ defmodule Ryker.RepositoryKnowledge.Custody do
           run
         end
 
-      session = FleetSession.for_run(run)
+      session_id = FleetSession.coop_session_id(run)
 
       store_stop(run, %{
         "kind" => "failed_operation",
         "phase" => Atom.to_string(phase),
         "operation_id" => operation_id,
         "method" => method,
-        "session_id" => session && session.coop_session_id
+        "session_id" => session_id
       })
     end)
   end
@@ -882,12 +885,12 @@ defmodule Ryker.RepositoryKnowledge.Custody do
           run
         end
 
-      session = FleetSession.for_run(run)
+      session_id = FleetSession.coop_session_id(run)
 
       store_stop(run, %{
         "kind" => "attempt_expired",
         "closed_after_seconds" => closed_after_seconds,
-        "session_id" => session && session.coop_session_id,
+        "session_id" => session_id,
         "turn_id" => run.coop_turn_id
       })
     end)

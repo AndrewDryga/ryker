@@ -73,7 +73,11 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
        )
        when is_boolean(archived) and is_boolean(external) and is_boolean(private) and
               is_binary(name) and is_binary(purpose) and is_binary(topic) do
-    configured = configuration.(workspace_ref, channel_ref)
+    configured =
+      case configuration.(workspace_ref, channel_ref) do
+        {:ok, saved} -> saved
+        {:error, :not_found} -> nil
+      end
 
     attributes = %{
       archived: archived,

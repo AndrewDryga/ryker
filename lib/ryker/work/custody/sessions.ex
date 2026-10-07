@@ -647,15 +647,15 @@ defmodule Ryker.Work.Custody.Sessions do
 
   @doc false
   def ensure_session_and_turn(%Episode{owner_kind: :turn} = episode) do
-    case turn_identity(episode.id, episode.owner_ref) do
-      nil ->
+    case fetch_turn_identity(episode.id, episode.owner_ref) do
+      {:error, :work_turn_not_found} ->
         with {:ok, session} <- current_session(episode),
              {:ok, session} <- isolate_transferred_owner(episode, session),
              {:ok, turn} <- insert_turn(episode, session) do
           {:ok, session, turn}
         end
 
-      %Turn{} = identity ->
+      {:ok, identity} ->
         with {:ok, session} <- lock_session(episode.id, identity.session_id),
              {:ok, turn} <- lock_turn(episode.id, episode.owner_ref) do
           {:ok, session, turn}

@@ -736,9 +736,9 @@ defmodule Ryker.Slack.Runtime do
   end
 
   defp channel_environment(workspace_ref, channel_ref, default_environment) do
-    case ChannelConfigurations.configuration(workspace_ref, channel_ref) do
-      %ChannelConfiguration{environment_ref: environment_ref} -> environment_ref
-      nil -> default_environment
+    case ChannelConfigurations.fetch_configuration(workspace_ref, channel_ref) do
+      {:ok, %ChannelConfiguration{environment_ref: environment_ref}} -> environment_ref
+      {:error, :not_found} -> default_environment
     end
   end
 

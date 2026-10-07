@@ -54,7 +54,7 @@ defmodule Ryker.Slack.TaskCards do
   def next_due_at(%DateTime{} = since, check_interval_seconds)
       when is_integer(check_interval_seconds) do
     since
-    |> TaskCard.Query.next_due_after(check_interval_seconds)
+    |> TaskCard.Query.select_next_due_after(check_interval_seconds)
     |> Repo.one()
   end
 
